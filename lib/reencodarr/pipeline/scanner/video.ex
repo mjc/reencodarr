@@ -20,8 +20,20 @@ defmodule Reencodarr.Pipeline.Scanner.Video do
   end
 
   def handle_message(_, %Message{data: file_path} = message, _) do
-    Logger.debug("Processing video file: #{file_path}")
-    message
+    # Logger.debug("Processing video file: #{file_path}")
+
+    case File.stat(file_path) do
+      {:ok, %File.Stat{size: size}} ->
+        case Reencodarr.Media.create_video(%{path: file_path, size: size}) do
+          {:ok, _video} -> message
+          {:error, changeset} ->
+            Logger.error("Failed to insert video #{file_path} into database: #{inspect(changeset.errors)}")
+            Message.update_data(message, fn _ -> {:error, changeset.errors} end)
+        end
+      {:error, reason} ->
+        Logger.error("Failed to get file size for #{file_path}: #{reason}")
+        Message.update_data(message, fn _ -> {:error, reason} end)
+    end
   end
 
   defmodule Producer do
