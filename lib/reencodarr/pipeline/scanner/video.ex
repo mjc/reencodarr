@@ -24,10 +24,10 @@ defmodule Reencodarr.Pipeline.Scanner.Video do
 
     case File.stat(file_path) do
       {:ok, %File.Stat{size: size}} ->
-        case Reencodarr.Media.create_video(%{path: file_path, size: size}) do
+        case Reencodarr.Media.upsert_video(%{path: file_path, size: size}) do
           {:ok, _video} -> message
           {:error, changeset} ->
-            Logger.error("Failed to insert video #{file_path} into database: #{inspect(changeset.errors)}")
+            Logger.error("Failed to upsert video #{file_path} into database: #{inspect(changeset.errors)}")
             Message.update_data(message, fn _ -> {:error, changeset.errors} end)
         end
       {:error, reason} ->

@@ -56,6 +56,23 @@ defmodule Reencodarr.Media do
   end
 
   @doc """
+  Upserts a video.
+
+  ## Examples
+
+      iex> upsert_video(%{field: value})
+      {:ok, %Video{}}
+
+      iex> upsert_video(%{field: bad_value})
+      {:error, %Ecto.Changeset{}}
+  """
+  def upsert_video(attrs) do
+    %Video{}
+    |> Video.changeset(attrs)
+    |> Repo.insert(on_conflict: {:replace, [:size]}, conflict_target: :path)
+  end
+
+  @doc """
   Updates a video.
 
   ## Examples
