@@ -1,4 +1,3 @@
-
 defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
   use GenStage
   alias Broadway.Message
@@ -12,12 +11,8 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
   def init(opts) do
     path = Keyword.fetch!(opts, :path)
     file_stream = get_file_stream(path)
-    {:producer, {file_stream, nil}}
-  end
-
-  def handle_demand(demand, {file_stream, nil}) when demand > 0 do
-    library_id = get_library_id(file_stream)
-    handle_demand(demand, {file_stream, library_id})
+    library_id = get_library_id(path)
+    {:producer, {file_stream, library_id}}
   end
 
   def handle_demand(demand, {file_stream, library_id}) when demand > 0 do
@@ -64,17 +59,11 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
     end
   end
 
-  defp get_library_id(file_stream) do
-    file_stream
-    |> Enum.at(0)
-    |> case do
+  defp get_library_id(file_path) do
+    libraries = Reencodarr.Media.list_libraries()
+    case Enum.find(libraries, fn library -> String.starts_with?(file_path, library.path) end) do
       nil -> {:error, :library_not_found}
-      file_path ->
-        libraries = Reencodarr.Media.list_libraries()
-        case Enum.find(libraries, fn library -> String.starts_with?(file_path, library.path) end) do
-          nil -> {:error, :library_not_found}
-          library -> library.id
-        end
+      library -> library.id
     end
   end
 
