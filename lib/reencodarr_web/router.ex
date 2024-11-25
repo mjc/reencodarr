@@ -25,6 +25,13 @@ defmodule ReencodarrWeb.Router do
 
     live "/videos/:id", VideoLive.Show, :show
     live "/videos/:id/show/edit", VideoLive.Show, :edit
+
+    live "/libraries", LibraryLive.Index, :index
+    live "/libraries/new", LibraryLive.Index, :new
+    live "/libraries/:id/edit", LibraryLive.Index, :edit
+
+    live "/libraries/:id", LibraryLive.Show, :show
+    live "/libraries/:id/show/edit", LibraryLive.Show, :edit
   end
 
   # Other scopes may use custom stacks.

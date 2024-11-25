@@ -19,4 +19,24 @@ defmodule Reencodarr.MediaFixtures do
 
     video
   end
+
+  @doc """
+  Generate a unique library path.
+  """
+  def unique_library_path, do: "some path#{System.unique_integer([:positive])}"
+
+  @doc """
+  Generate a library.
+  """
+  def library_fixture(attrs \\ %{}) do
+    {:ok, library} =
+      attrs
+      |> Enum.into(%{
+        monitor: true,
+        path: unique_library_path()
+      })
+      |> Reencodarr.Media.create_library()
+
+    library
+  end
 end
