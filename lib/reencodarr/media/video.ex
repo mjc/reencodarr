@@ -14,6 +14,6 @@ defmodule Reencodarr.Media.Video do
   def changeset(video, attrs) do
     video
     |> cast(attrs, [:path, :size, :bitrate])
-    |> validate_required([:path, :size, :bitrate])
+    |> validate_required([:path, :size])
   end
 end
