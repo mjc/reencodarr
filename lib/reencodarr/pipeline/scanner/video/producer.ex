@@ -42,19 +42,18 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
   end
 
   defp get_file_list(base_path) do
-    File.ls!(base_path)
+    base_path
+    |> File.ls!()
     |> Enum.map(&Path.join(base_path, &1))
     |> Enum.flat_map(&expand_path/1)
     |> Enum.filter(&video_file?/1)
   end
 
   defp expand_path(path) do
-    case File.dir?(path) do
-      true ->
-        get_file_list(path)
-
-      false ->
-        [path]
+    if File.dir?(path) do
+      get_file_list(path)
+    else
+      [path]
     end
   end
 
@@ -66,12 +65,10 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
   end
 
   defp get_library_id(file_path) do
-    libraries = Reencodarr.Media.list_libraries()
-
-    case Enum.find(libraries, fn library -> String.starts_with?(file_path, library.path) end) do
-      nil -> {:error, :library_not_found}
-      library -> library.id
-    end
+    Reencodarr.Media.list_libraries()
+    |> Enum.find_value({:error, :library_not_found}, fn library ->
+      String.starts_with?(file_path, library.path) && library.id
+    end)
   end
 
   defp video_file?(file_path) do
