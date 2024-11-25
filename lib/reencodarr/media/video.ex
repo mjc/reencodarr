@@ -15,5 +15,6 @@ defmodule Reencodarr.Media.Video do
     video
     |> cast(attrs, [:path, :size, :bitrate])
     |> validate_required([:path, :size])
+    |> unique_constraint(:path)
   end
 end
