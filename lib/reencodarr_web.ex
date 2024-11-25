@@ -43,7 +43,7 @@ defmodule ReencodarrWeb do
         layouts: [html: ReencodarrWeb.Layouts]
 
       import Plug.Conn
-      import ReencodarrWeb.Gettext
+      use Gettext, backend: ReencodarrWeb.Gettext
 
       unquote(verified_routes())
     end
@@ -85,7 +85,7 @@ defmodule ReencodarrWeb do
       import Phoenix.HTML
       # Core UI components and translation
       import ReencodarrWeb.CoreComponents
-      import ReencodarrWeb.Gettext
+      use Gettext, backend: ReencodarrWeb.Gettext
 
       # Shortcut for generating JS commands
       alias Phoenix.LiveView.JS

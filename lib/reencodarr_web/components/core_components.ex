@@ -17,7 +17,7 @@ defmodule ReencodarrWeb.CoreComponents do
   use Phoenix.Component
 
   alias Phoenix.LiveView.JS
-  import ReencodarrWeb.Gettext
+  use Gettext, backend: ReencodarrWeb.Gettext
 
   @doc """
   Renders a modal.
