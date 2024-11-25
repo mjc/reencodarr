@@ -30,7 +30,12 @@
   </:action>
 </.table>
 
-<.modal :if={@live_action in [:new, :edit]} id="library-modal" show on_cancel={JS.patch(~p"/libraries")}>
+<.modal
+  :if={@live_action in [:new, :edit]}
+  id="library-modal"
+  show
+  on_cancel={JS.patch(~p"/libraries")}
+>
   <.live_component
     module={ReencodarrWeb.LibraryLive.FormComponent}
     id={@library.id || :new}

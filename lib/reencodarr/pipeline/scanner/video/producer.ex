@@ -17,14 +17,21 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
 
   def handle_demand(demand, {file_list, library_id}) when demand > 0 do
     {events, remaining_files} = Enum.split(file_list, demand)
-    messages = Enum.map(events, fn file_path ->
-      case get_size(file_path) do
-        {:ok, size} ->
-          %Message{data: %{path: file_path, size: size, library_id: library_id}, acknowledger: {__MODULE__, :ack_id, nil}}
-        {:error, reason} ->
-          %Message{data: %{error: reason}, acknowledger: {__MODULE__, :ack_id, nil}}
-      end
-    end)
+
+    messages =
+      Enum.map(events, fn file_path ->
+        case get_size(file_path) do
+          {:ok, size} ->
+            %Message{
+              data: %{path: file_path, size: size, library_id: library_id},
+              acknowledger: {__MODULE__, :ack_id, nil}
+            }
+
+          {:error, reason} ->
+            %Message{data: %{error: reason}, acknowledger: {__MODULE__, :ack_id, nil}}
+        end
+      end)
+
     {:noreply, messages, {remaining_files, library_id}}
   end
 
@@ -35,18 +42,19 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
   end
 
   defp get_file_list(base_path) do
-    base_path
-    |> File.ls!()
+    File.ls!(base_path)
     |> Enum.map(&Path.join(base_path, &1))
     |> Enum.flat_map(&expand_path/1)
     |> Enum.filter(&video_file?/1)
   end
 
   defp expand_path(path) do
-    if File.dir?(path) do
-      get_file_list(path)
-    else
-      [path]
+    case File.dir?(path) do
+      true ->
+        get_file_list(path)
+
+      false ->
+        [path]
     end
   end
 
@@ -59,6 +67,7 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
 
   defp get_library_id(file_path) do
     libraries = Reencodarr.Media.list_libraries()
+
     case Enum.find(libraries, fn library -> String.starts_with?(file_path, library.path) end) do
       nil -> {:error, :library_not_found}
       library -> library.id

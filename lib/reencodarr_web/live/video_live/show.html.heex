@@ -16,7 +16,12 @@
 
 <.back navigate={~p"/videos"}>Back to videos</.back>
 
-<.modal :if={@live_action == :edit} id="video-modal" show on_cancel={JS.patch(~p"/videos/#{@video}")}>
+<.modal
+  :if={@live_action == :edit}
+  id="video-modal"
+  show
+  on_cancel={JS.patch(~p"/videos/#{@video}")}
+>
   <.live_component
     module={ReencodarrWeb.VideoLive.FormComponent}
     id={@video.id}

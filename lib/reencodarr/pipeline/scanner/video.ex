@@ -7,6 +7,7 @@ defmodule Reencodarr.Pipeline.Scanner.Video do
 
   def start_link(opts) do
     path = Keyword.get(opts, :path, "/default/path")
+
     Broadway.start_link(__MODULE__,
       name: __MODULE__,
       producer: [
@@ -23,7 +24,9 @@ defmodule Reencodarr.Pipeline.Scanner.Video do
     # Logger.debug("Processing video file: #{file_path}")
 
     case Reencodarr.Media.upsert_video(data) do
-      {:ok, _video} -> message
+      {:ok, _video} ->
+        message
+
       {:error, reason} ->
         Logger.error("Failed to process video #{data.path}: #{inspect(reason)}")
         Message.update_data(message, fn _ -> {:error, reason} end)

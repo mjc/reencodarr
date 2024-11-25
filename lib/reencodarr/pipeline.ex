@@ -6,5 +6,4 @@ defmodule Reencodarr.Pipeline do
   def start_video_scanner(path) do
     Reencodarr.Pipeline.Scanner.Video.start_link(path: path)
   end
-
 end
