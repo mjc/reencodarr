@@ -10,13 +10,13 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
 
   def init(opts) do
     path = Keyword.fetch!(opts, :path)
-    file_stream = get_file_stream(path)
+    file_list = get_file_list(path)
     library_id = get_library_id(path)
-    {:producer, {file_stream, library_id}}
+    {:producer, {file_list, library_id}}
   end
 
-  def handle_demand(demand, {file_stream, library_id}) when demand > 0 do
-    events = Enum.take(file_stream, demand)
+  def handle_demand(demand, {file_list, library_id}) when demand > 0 do
+    {events, remaining_files} = Enum.split(file_list, demand)
     messages = Enum.map(events, fn file_path ->
       case get_size(file_path) do
         {:ok, size} ->
@@ -25,7 +25,7 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
           %Message{data: %{error: reason}, acknowledger: {__MODULE__, :ack_id, nil}}
       end
     end)
-    {:noreply, messages, {file_stream, library_id}}
+    {:noreply, messages, {remaining_files, library_id}}
   end
 
   def ack(:ack_id, _successful, _failed) do
@@ -34,22 +34,20 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
     :ok
   end
 
-  defp get_file_stream(base_path) do
-    Stream.resource(
-      fn -> [base_path] end,
-      fn
-        [] -> {:halt, []}
-        [path | rest] ->
-          case File.ls(path) do
-            {:ok, files} ->
-              files = Enum.map(files, &Path.join(path, &1))
-              video_files = Enum.filter(files, &video_file?/1)
-              {video_files, rest ++ files}
-            {:error, _} -> {[], rest}
-          end
-      end,
-      fn _ -> :ok end
-    )
+  defp get_file_list(base_path) do
+    base_path
+    |> File.ls!()
+    |> Enum.map(&Path.join(base_path, &1))
+    |> Enum.flat_map(&expand_path/1)
+    |> Enum.filter(&video_file?/1)
+  end
+
+  defp expand_path(path) do
+    if File.dir?(path) do
+      get_file_list(path)
+    else
+      [path]
+    end
   end
 
   defp get_size(file_path) do
