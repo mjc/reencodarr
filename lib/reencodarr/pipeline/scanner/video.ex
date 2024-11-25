@@ -19,20 +19,30 @@ defmodule Reencodarr.Pipeline.Scanner.Video do
     )
   end
 
-  def handle_message(_, %Message{data: file_path} = message, _) do
+  def handle_message(_, %Message{data: {file_path, size}} = message, _) do
     # Logger.debug("Processing video file: #{file_path}")
 
-    case File.stat(file_path) do
-      {:ok, %File.Stat{size: size}} ->
-        case Reencodarr.Media.upsert_video(%{path: file_path, size: size}) do
-          {:ok, _video} -> message
-          {:error, changeset} ->
-            Logger.error("Failed to upsert video #{file_path} into database: #{inspect(changeset.errors)}")
-            Message.update_data(message, fn _ -> {:error, changeset.errors} end)
-        end
+    case process_video(file_path, size) do
+      {:ok, _video} -> message
       {:error, reason} ->
-        Logger.error("Failed to get file size for #{file_path}: #{reason}")
+        Logger.error("Failed to process video #{file_path}: #{inspect(reason)}")
         Message.update_data(message, fn _ -> {:error, reason} end)
+    end
+  end
+
+  defp process_video(file_path, size) do
+    case get_library_id(file_path) do
+      {:ok, library_id} -> Reencodarr.Media.upsert_video(%{path: file_path, size: size, library_id: library_id})
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp get_library_id(file_path) do
+    libraries = Reencodarr.Media.list_libraries()
+
+    case Enum.find(libraries, fn library -> String.starts_with?(file_path, library.path) end) do
+      nil -> {:error, :library_not_found}
+      library -> {:ok, library.id}
     end
   end
 
@@ -54,7 +64,12 @@ defmodule Reencodarr.Pipeline.Scanner.Video do
 
     def handle_demand(demand, file_stream) when demand > 0 do
       events = Enum.take(file_stream, demand)
-      messages = Enum.map(events, &%Message{data: &1, acknowledger: {__MODULE__, :ack_id, nil}})
+      messages = Enum.map(events, fn file_path ->
+        case get_size(file_path) do
+          {:ok, size} -> %Message{data: {file_path, size}, acknowledger: {__MODULE__, :ack_id, nil}}
+          {:error, reason} -> %Message{data: {:error, reason}, acknowledger: {__MODULE__, :ack_id, nil}}
+        end
+      end)
       {:noreply, messages, file_stream}
     end
 
@@ -80,6 +95,13 @@ defmodule Reencodarr.Pipeline.Scanner.Video do
         end,
         fn _ -> :ok end
       )
+    end
+
+    defp get_size(file_path) do
+      case File.stat(file_path) do
+        {:ok, %File.Stat{size: size}} -> {:ok, size}
+        {:error, reason} -> {:error, reason}
+      end
     end
 
     defp video_file?(file_path) do
