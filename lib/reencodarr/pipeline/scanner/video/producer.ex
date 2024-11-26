@@ -16,10 +16,11 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
   end
 
   def handle_demand(demand, {file_stream, library_id}) when demand > 0 do
-    {events, remaining_stream} = Enum.split(file_stream, demand)
+    events = Stream.take(file_stream, demand)
+    remaining_stream = Stream.drop(file_stream, demand)
 
     messages =
-      Enum.map(events, fn file_path ->
+      Stream.map(events, fn file_path ->
         case get_size(file_path) do
           {:ok, size} ->
             %Message{
@@ -31,6 +32,7 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
             %Message{data: %{error: reason}, acknowledger: {__MODULE__, :ack_id, nil}}
         end
       end)
+      |> Enum.to_list()
 
     {:noreply, messages, {remaining_stream, library_id}}
   end
