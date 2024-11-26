@@ -5,8 +5,7 @@ defmodule Reencodarr.Media do
 
   import Ecto.Query, warn: false
   alias Reencodarr.Repo
-
-  alias Reencodarr.Media.Video
+  alias Reencodarr.Media.{Video, Library}
 
   @doc """
   Returns the list of videos.
@@ -67,10 +66,22 @@ defmodule Reencodarr.Media do
       {:error, %Ecto.Changeset{}}
   """
   def upsert_video(attrs) do
-    %Video{}
-    |> Video.changeset(attrs)
+    attrs
+    |> ensure_library_id()
+    |> Video.changeset()
     |> Repo.insert(on_conflict: {:replace, [:size]}, conflict_target: :path)
     |> broadcast_change()
+  end
+
+  defp ensure_library_id(%{library_id: nil} = attrs) do
+    %{attrs | library_id: find_library_id(attrs[:path])}
+  end
+
+  defp ensure_library_id(attrs), do: attrs
+
+  defp find_library_id(path) do
+    from(l in Library, where: like(^path, fragment("concat(?, '%')", l.path)), select: l.id)
+    |> Repo.one()
   end
 
   defp broadcast_change({:ok, video}) do
@@ -129,8 +140,6 @@ defmodule Reencodarr.Media do
   def change_video(%Video{} = video, attrs \\ %{}) do
     Video.changeset(video, attrs)
   end
-
-  alias Reencodarr.Media.Library
 
   @doc """
   Returns the list of libraries.

@@ -11,11 +11,10 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
   def init(opts) do
     path = Keyword.fetch!(opts, :path)
     file_stream = get_file_stream(path)
-    library_id = get_library_id(path)
-    {:producer, {file_stream, library_id}}
+    {:producer, file_stream}
   end
 
-  def handle_demand(demand, {file_stream, library_id}) when demand > 0 do
+  def handle_demand(demand, file_stream) when demand > 0 do
     events = Stream.take(file_stream, demand)
     remaining_stream = Stream.drop(file_stream, demand)
 
@@ -24,7 +23,7 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
         case get_size(file_path) do
           {:ok, size} ->
             %Message{
-              data: %{path: file_path, size: size, library_id: library_id},
+              data: %{path: file_path, size: size},
               acknowledger: {__MODULE__, :ack_id, nil}
             }
 
@@ -34,12 +33,10 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
       end)
       |> Enum.to_list()
 
-    {:noreply, messages, {remaining_stream, library_id}}
+    {:noreply, messages, remaining_stream}
   end
 
   def ack(:ack_id, _successful, _failed) do
-    # Logger.debug("Acknowledged successful messages: #{length(successful)}")
-    # Logger.debug("Acknowledged failed messages: #{length(failed)}")
     :ok
   end
 
@@ -79,13 +76,6 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
       {:ok, %File.Stat{size: size}} -> {:ok, size}
       {:error, reason} -> {:error, reason}
     end
-  end
-
-  defp get_library_id(file_path) do
-    Reencodarr.Media.list_libraries()
-    |> Enum.find_value({:error, :library_not_found}, fn library ->
-      String.starts_with?(file_path, library.path) && library.id
-    end)
   end
 
   defp video_file?(file_path) do

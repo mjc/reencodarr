@@ -26,7 +26,7 @@ defmodule Reencodarr.Media.Video do
   end
 
   @doc false
-  def changeset(video, attrs) do
+  def changeset(video \\ %__MODULE__{}, attrs) do
     video
     |> cast(attrs, [:path, :size, :bitrate, :library_id, :mediainfo])
     |> validate_required([:path, :size])
