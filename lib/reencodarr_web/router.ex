@@ -51,7 +51,12 @@ defmodule ReencodarrWeb.Router do
     scope "/dev" do
       pipe_through :browser
 
-      live_dashboard "/dashboard", metrics: ReencodarrWeb.Telemetry
+      live_dashboard "/dashboard",
+        metrics: ReencodarrWeb.Telemetry,
+        additional_pages: [
+          broadway: BroadwayDashboard
+        ]
+
       forward "/mailbox", Plug.Swoosh.MailboxPreview
     end
   end

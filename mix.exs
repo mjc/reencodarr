@@ -19,7 +19,7 @@ defmodule Reencodarr.MixProject do
   def application do
     [
       mod: {Reencodarr.Application, []},
-      extra_applications: [:logger, :runtime_tools]
+      extra_applications: [:logger, :runtime_tools, :os_mon]
     ]
   end
 
@@ -59,7 +59,8 @@ defmodule Reencodarr.MixProject do
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.1.1"},
       {:bandit, "~> 1.5"},
-      {:broadway, "~> 1.1"}
+      {:broadway, "~> 1.1"},
+      {:broadway_dashboard, "~> 0.4.0"}
     ]
   end
 
