@@ -21,18 +21,17 @@ defmodule Reencodarr.Pipeline.Scanner.Video do
     )
   end
 
-  def handle_message(_, %Message{data: data} = message, _) do
-    # Logger.debug("Processing video file: #{file_path}")
-
-    {mediainfo, _status} = System.cmd("mediainfo", ["--Output=JSON", data.path])
+  @impl true
+  def handle_message(_, %Message{data: %{path: path} = data} = message, _) do
+    {mediainfo, _status} = System.cmd("mediainfo", ["--Output=JSON", path])
 
     case Reencodarr.Media.upsert_video(Map.merge(data, %{mediainfo: Jason.decode!(mediainfo)})) do
       {:ok, _video} ->
         message
 
       {:error, reason} ->
-        Logger.error("Failed to process video #{data.path}: #{inspect(reason)}")
-        Message.update_data(message, fn _ -> {:error, reason} end)
+        Logger.error("Failed to process video #{path}: #{inspect(reason)}")
+        Message.update_data(message, fn _ -> %{error: reason} end)
     end
   end
 end

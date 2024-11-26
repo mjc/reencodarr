@@ -35,56 +35,47 @@ defmodule Reencodarr.Media.Video do
   end
 
   defp validate_media_info(changeset) do
-    case get_change(changeset, :mediainfo, :no_mediainfo) do
-      :no_mediainfo ->
-        changeset
-
-      mediainfo ->
-        general =
-          Enum.find(get_in(mediainfo, ["media", "track"]), fn x -> x["@type"] == "General" end)
-
-        first_video =
-          Enum.find(get_in(mediainfo, ["media", "track"]), fn x -> x["@type"] == "Video" end)
-
-        # first_audio = Enum.find(get_in(mediainfo, ["media", "track"]), fn x -> x["@type"] == "Audio" end)
-
-        {video_codecs, audio_codecs} =
-          Enum.reduce(get_in(mediainfo, ["media", "track"]), {[], []}, fn x,
-                                                                          {video_codecs,
-                                                                           audio_codecs} ->
-            case x["@type"] do
-              "Video" -> {[x["CodecID"] | video_codecs], audio_codecs}
-              "Audio" -> {video_codecs, [x["CodecID"] | audio_codecs]}
-              _ -> {video_codecs, audio_codecs}
-            end
-          end)
-
-        params = %{
-          duration: get_in(general, ["Duration"]),
-          bitrate: get_in(general, ["OverallBitRate"]),
-          video_count: get_in(general, ["VideoCount"]),
-          audio_count: get_in(general, ["AudioCount"]),
-          text_count: get_in(general, ["TextCount"]),
-          width: get_in(first_video, ["Width"]),
-          height: get_in(first_video, ["Height"]),
-          frame_rate: get_in(first_video, ["FrameRate"]),
-          video_codecs: video_codecs,
-          audio_codecs: audio_codecs
-        }
-
-        changeset
-        |> cast(params, [
-          :duration,
-          :bitrate,
-          :width,
-          :height,
-          :frame_rate,
-          :video_count,
-          :audio_count,
-          :text_count,
-          :video_codecs,
-          :audio_codecs
-        ])
+    case get_change(changeset, :mediainfo) do
+      nil -> changeset
+      mediainfo -> apply_media_info(changeset, mediainfo)
     end
+  end
+
+  defp apply_media_info(changeset, mediainfo) do
+    general = Enum.find(mediainfo["media"]["track"], &(&1["@type"] == "General"))
+    first_video = Enum.find(mediainfo["media"]["track"], &(&1["@type"] == "Video"))
+
+    {video_codecs, audio_codecs} =
+      Enum.reduce(mediainfo["media"]["track"], {[], []}, fn
+        %{"@type" => "Video", "CodecID" => codec}, {vc, ac} -> {[codec | vc], ac}
+        %{"@type" => "Audio", "CodecID" => codec}, {vc, ac} -> {vc, [codec | ac]}
+        _, acc -> acc
+      end)
+
+    params = %{
+      duration: general["Duration"],
+      bitrate: general["OverallBitRate"],
+      video_count: general["VideoCount"],
+      audio_count: general["AudioCount"],
+      text_count: general["TextCount"],
+      width: first_video["Width"],
+      height: first_video["Height"],
+      frame_rate: first_video["FrameRate"],
+      video_codecs: video_codecs,
+      audio_codecs: audio_codecs
+    }
+
+    cast(changeset, params, [
+      :duration,
+      :bitrate,
+      :width,
+      :height,
+      :frame_rate,
+      :video_count,
+      :audio_count,
+      :text_count,
+      :video_codecs,
+      :audio_codecs
+    ])
   end
 end

@@ -4,8 +4,8 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
 
   require Logger
 
-  def start_link(_opts) do
-    GenStage.start_link(__MODULE__, :ok, name: __MODULE__)
+  def start_link(opts) do
+    GenStage.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
   def init(opts) do
@@ -15,52 +15,37 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
   end
 
   def handle_demand(demand, file_stream) when demand > 0 do
-    events = Stream.take(file_stream, demand)
+    events = Enum.take(file_stream, demand)
     remaining_stream = Stream.drop(file_stream, demand)
 
-    messages =
-      Stream.map(events, fn file_path ->
-        case get_size(file_path) do
-          {:ok, size} ->
-            %Message{
-              data: %{path: file_path, size: size},
-              acknowledger: {__MODULE__, :ack_id, nil}
-            }
+    messages = Stream.map(events, &create_message/1)
 
-          {:error, reason} ->
-            %Message{data: %{error: reason}, acknowledger: {__MODULE__, :ack_id, nil}}
-        end
-      end)
-      |> Enum.to_list()
-
-    {:noreply, messages, remaining_stream}
+    {:noreply, Enum.to_list(messages), remaining_stream}
   end
 
-  def ack(:ack_id, _successful, _failed) do
-    :ok
-  end
+  def ack(:ack_id, _successful, _failed), do: :ok
 
   defp get_file_stream(base_path) do
     Stream.resource(
       fn -> [base_path] end,
-      fn
-        [] ->
-          {:halt, []}
-
-        [path | rest] ->
-          case File.ls(path) do
-            {:ok, files} ->
-              expanded_paths = Enum.map(files, &Path.join(path, &1))
-              {expanded_paths, rest ++ expanded_paths}
-
-            {:error, _} ->
-              {[], rest}
-          end
-      end,
+      &next_file/1,
       fn _ -> :ok end
     )
     |> Stream.flat_map(&expand_path/1)
     |> Stream.filter(&video_file?/1)
+  end
+
+  defp next_file([]), do: {:halt, []}
+
+  defp next_file([path | rest]) do
+    case File.ls(path) do
+      {:ok, files} ->
+        expanded_paths = Enum.map(files, &Path.join(path, &1))
+        {expanded_paths, rest ++ expanded_paths}
+
+      {:error, _} ->
+        {[], rest}
+    end
   end
 
   defp expand_path(path) do
@@ -68,6 +53,19 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
       get_file_stream(path)
     else
       [path]
+    end
+  end
+
+  defp create_message(file_path) do
+    case get_size(file_path) do
+      {:ok, size} ->
+        %Message{
+          data: %{path: file_path, size: size},
+          acknowledger: {__MODULE__, :ack_id, nil}
+        }
+
+      {:error, reason} ->
+        %Message{data: %{error: reason}, acknowledger: {__MODULE__, :ack_id, nil}}
     end
   end
 
@@ -80,6 +78,6 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
 
   defp video_file?(file_path) do
     ext = Path.extname(file_path) |> String.downcase()
-    Enum.member?([".mp4", ".mkv", ".avi", ".mov"], ext)
+    ext in [".mp4", ".mkv", ".avi", ".mov"]
   end
 end
