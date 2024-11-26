@@ -19,3 +19,6 @@ config :logger, level: :info
 
 # Runtime production configuration, including reading
 # of environment variables, is done on config/runtime.exs.
+
+# TODO: hack, disable origin check for now
+config :reencodarr, ReencodarrWeb.Endpoint, check_origin: false

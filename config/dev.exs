@@ -2,9 +2,9 @@ import Config
 
 # Configure your database
 config :reencodarr, Reencodarr.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
+  # username: "postgres",
+  # password: "postgres",
+  # hostname: "localhost",
   database: "reencodarr_dev",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
