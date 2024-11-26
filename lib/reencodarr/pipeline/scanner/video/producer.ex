@@ -47,13 +47,17 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
     Stream.resource(
       fn -> [base_path] end,
       fn
-        [] -> {:halt, []}
+        [] ->
+          {:halt, []}
+
         [path | rest] ->
           case File.ls(path) do
             {:ok, files} ->
               expanded_paths = Enum.map(files, &Path.join(path, &1))
               {expanded_paths, rest ++ expanded_paths}
-            {:error, _} -> {[], rest}
+
+            {:error, _} ->
+              {[], rest}
           end
       end,
       fn _ -> :ok end

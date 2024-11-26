@@ -33,7 +33,10 @@ defmodule ReencodarrWeb.VideoLive.Index do
     |> assign(:video, nil)
   end
 
-  def handle_info(%Phoenix.Socket.Broadcast{event: "videos", payload: %{action: "upsert", video: video}}, socket) do
+  def handle_info(
+        %Phoenix.Socket.Broadcast{event: "videos", payload: %{action: "upsert", video: video}},
+        socket
+      ) do
     {:noreply, stream_insert(socket, :videos, video, at: 0)}
   end
 

@@ -8,6 +8,5 @@ defmodule Reencodarr.Repo.Migrations.MakePathLonger do
   end
 
   def down do
-
   end
 end

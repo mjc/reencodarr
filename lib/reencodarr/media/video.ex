@@ -20,7 +20,6 @@ defmodule Reencodarr.Media.Video do
 
     field :mediainfo, :map
 
-
     belongs_to :library, Reencodarr.Media.Library
 
     timestamps(type: :utc_datetime)
@@ -37,19 +36,28 @@ defmodule Reencodarr.Media.Video do
 
   defp validate_media_info(changeset) do
     case get_change(changeset, :mediainfo, :no_mediainfo) do
-      :no_mediainfo -> changeset
+      :no_mediainfo ->
+        changeset
+
       mediainfo ->
-        general = Enum.find(get_in(mediainfo, ["media", "track"]), fn x -> x["@type"] == "General" end)
-        first_video = Enum.find(get_in(mediainfo, ["media", "track"]), fn x -> x["@type"] == "Video" end)
+        general =
+          Enum.find(get_in(mediainfo, ["media", "track"]), fn x -> x["@type"] == "General" end)
+
+        first_video =
+          Enum.find(get_in(mediainfo, ["media", "track"]), fn x -> x["@type"] == "Video" end)
+
         # first_audio = Enum.find(get_in(mediainfo, ["media", "track"]), fn x -> x["@type"] == "Audio" end)
 
-        {video_codecs, audio_codecs} = Enum.reduce(get_in(mediainfo, ["media", "track"]), {[], []}, fn x, {video_codecs, audio_codecs} ->
-          case x["@type"] do
-            "Video" -> {[x["CodecID"] | video_codecs], audio_codecs}
-            "Audio" -> {video_codecs, [x["CodecID"] | audio_codecs]}
-            _ -> {video_codecs, audio_codecs}
-          end
-        end)
+        {video_codecs, audio_codecs} =
+          Enum.reduce(get_in(mediainfo, ["media", "track"]), {[], []}, fn x,
+                                                                          {video_codecs,
+                                                                           audio_codecs} ->
+            case x["@type"] do
+              "Video" -> {[x["CodecID"] | video_codecs], audio_codecs}
+              "Audio" -> {video_codecs, [x["CodecID"] | audio_codecs]}
+              _ -> {video_codecs, audio_codecs}
+            end
+          end)
 
         params = %{
           duration: get_in(general, ["Duration"]),
@@ -61,11 +69,22 @@ defmodule Reencodarr.Media.Video do
           height: get_in(first_video, ["Height"]),
           frame_rate: get_in(first_video, ["FrameRate"]),
           video_codecs: video_codecs,
-          audio_codecs: audio_codecs,
+          audio_codecs: audio_codecs
         }
 
         changeset
-        |> cast(params, [:duration, :bitrate, :width, :height, :frame_rate, :video_count, :audio_count, :text_count, :video_codecs, :audio_codecs])
+        |> cast(params, [
+          :duration,
+          :bitrate,
+          :width,
+          :height,
+          :frame_rate,
+          :video_count,
+          :audio_count,
+          :text_count,
+          :video_codecs,
+          :audio_codecs
+        ])
     end
   end
 end
