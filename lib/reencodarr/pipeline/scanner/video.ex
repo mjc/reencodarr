@@ -6,10 +6,11 @@ defmodule Reencodarr.Pipeline.Scanner.Video do
   require Logger
 
   def start_link(opts) do
-    path = Keyword.get(opts, :path, "/default/path")
+    path = Keyword.fetch!(opts, :path)
+    name = String.to_atom("Reencodarr.Pipeline.Scanner.Video.#{path}")
 
     Broadway.start_link(__MODULE__,
-      name: __MODULE__,
+      name: name,
       producer: [
         module: {Reencodarr.Pipeline.Scanner.Video.Producer, [path: path]},
         concurrency: 1
