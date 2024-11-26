@@ -14,6 +14,8 @@
   <:item title="Bitrate"><%= @video.bitrate %></:item>
   <:item title="Duration"><%= @video.duration %></:item>
   <:item title="Resolution"><%= @video.width %>x<%= @video.height %></:item>
+  <:item title="Video Codecs"><%= @video.video_codecs |> Enum.join(",") %></:item>
+  <:item title="Audio Codecs"><%= @video.audio_codecs |> Enum.join(",") %></:item>
   <:item title="MediaInfo">
     <pre><%= inspect(@video.mediainfo, pretty: true) %></pre>
   </:item>

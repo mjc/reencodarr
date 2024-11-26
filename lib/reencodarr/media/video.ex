@@ -14,9 +14,9 @@ defmodule Reencodarr.Media.Video do
     field :audio_count, :integer
     field :text_count, :integer
     field :hdr, :string
-    field :video_codecs, {:array, :string}
-    field :audio_codecs, {:array, :string}
-    field :text_codecs, {:array, :string}
+    field :video_codecs, {:array, :string}, default: []
+    field :audio_codecs, {:array, :string}, default: []
+    field :text_codecs, {:array, :string}, default: []
 
     field :mediainfo, :map
 
@@ -39,11 +39,17 @@ defmodule Reencodarr.Media.Video do
     case get_change(changeset, :mediainfo, :no_mediainfo) do
       :no_mediainfo -> changeset
       mediainfo ->
-
         general = Enum.find(get_in(mediainfo, ["media", "track"]), fn x -> x["@type"] == "General" end)
-
         first_video = Enum.find(get_in(mediainfo, ["media", "track"]), fn x -> x["@type"] == "Video" end)
-        dbg(first_video)
+        # first_audio = Enum.find(get_in(mediainfo, ["media", "track"]), fn x -> x["@type"] == "Audio" end)
+
+        {video_codecs, audio_codecs} = Enum.reduce(get_in(mediainfo, ["media", "track"]), {[], []}, fn x, {video_codecs, audio_codecs} ->
+          case x["@type"] do
+            "Video" -> {[x["CodecID"] | video_codecs], audio_codecs}
+            "Audio" -> {video_codecs, [x["CodecID"] | audio_codecs]}
+            _ -> {video_codecs, audio_codecs}
+          end
+        end)
 
         params = %{
           duration: get_in(general, ["Duration"]),
@@ -54,10 +60,12 @@ defmodule Reencodarr.Media.Video do
           width: get_in(first_video, ["Width"]),
           height: get_in(first_video, ["Height"]),
           frame_rate: get_in(first_video, ["FrameRate"]),
+          video_codecs: video_codecs,
+          audio_codecs: audio_codecs,
         }
 
         changeset
-        |> cast(params, [:duration, :bitrate, :width, :height, :frame_rate, :video_count, :audio_count, :text_count])
+        |> cast(params, [:duration, :bitrate, :width, :height, :frame_rate, :video_count, :audio_count, :text_count, :video_codecs, :audio_codecs])
     end
   end
 end
