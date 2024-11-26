@@ -11,16 +11,20 @@ defmodule Reencodarr.Pipeline.Scanner.Video.Producer do
   def init(opts) do
     path = Keyword.fetch!(opts, :path)
     file_stream = get_file_stream(path)
-    {:producer, file_stream}
+    {:producer, {file_stream, MapSet.new()}}
   end
 
-  def handle_demand(demand, file_stream) when demand > 0 do
-    events = Enum.take(file_stream, demand)
-    remaining_stream = Stream.drop(file_stream, demand)
+  def handle_demand(demand, {file_stream, processed_files}) when demand > 0 do
+    {events, remaining_stream} = Enum.split(file_stream, demand)
 
-    messages = Stream.map(events, &create_message/1)
+    {new_messages, new_processed_files} =
+      events
+      |> Enum.reject(&MapSet.member?(processed_files, &1))
+      |> Enum.map_reduce(processed_files, fn file, acc ->
+        {create_message(file), MapSet.put(acc, file)}
+      end)
 
-    {:noreply, Enum.to_list(messages), remaining_stream}
+    {:noreply, new_messages, {remaining_stream, new_processed_files}}
   end
 
   def ack(:ack_id, _successful, _failed), do: :ok
