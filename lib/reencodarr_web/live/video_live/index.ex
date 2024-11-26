@@ -6,6 +6,7 @@ defmodule ReencodarrWeb.VideoLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "videos")
     {:ok, stream(socket, :videos, Media.list_videos())}
   end
 
@@ -30,6 +31,10 @@ defmodule ReencodarrWeb.VideoLive.Index do
     socket
     |> assign(:page_title, "Listing Videos")
     |> assign(:video, nil)
+  end
+
+  def handle_info(%Phoenix.Socket.Broadcast{event: "videos", payload: %{action: "upsert", video: video}}, socket) do
+    {:noreply, stream_insert(socket, :videos, video, at: 0)}
   end
 
   @impl true

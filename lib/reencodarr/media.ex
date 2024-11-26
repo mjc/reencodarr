@@ -70,6 +70,17 @@ defmodule Reencodarr.Media do
     %Video{}
     |> Video.changeset(attrs)
     |> Repo.insert(on_conflict: {:replace, [:size]}, conflict_target: :path)
+    |> broadcast_change()
+  end
+
+  defp broadcast_change({:ok, video}) do
+    # Broadcast the change to the live view
+    ReencodarrWeb.Endpoint.broadcast("videos", "videos", %{action: "upsert", video: video})
+    {:ok, video}
+  end
+
+  defp broadcast_change({:error, changeset}) do
+    {:error, changeset}
   end
 
   @doc """
