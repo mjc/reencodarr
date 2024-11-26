@@ -13,8 +13,11 @@ pkgs.mkShell {
     # nix lang
     alejandra # nixos formatter
     nil # nix language server
+
+    inotify-tools
   ];
   shellHook = ''
     gh auth switch --user mjc
+    export ERL_AFLAGS="-kernel shell_history enabled"
   '';
 }
