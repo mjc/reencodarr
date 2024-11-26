@@ -18,7 +18,7 @@ defmodule Reencodarr.Media do
 
   """
   def list_videos do
-    Repo.all(Video)
+    Repo.all(from v in Video, order_by: [desc: v.updated_at])
   end
 
   @doc """
