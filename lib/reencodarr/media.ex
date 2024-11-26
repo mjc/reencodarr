@@ -85,14 +85,11 @@ defmodule Reencodarr.Media do
   end
 
   defp broadcast_change({:ok, video}) do
-    # Broadcast the change to the live view
     ReencodarrWeb.Endpoint.broadcast("videos", "videos", %{action: "upsert", video: video})
     {:ok, video}
   end
 
-  defp broadcast_change({:error, changeset}) do
-    {:error, changeset}
-  end
+  defp broadcast_change({:error, changeset}), do: {:error, changeset}
 
   @doc """
   Updates a video.
@@ -124,9 +121,7 @@ defmodule Reencodarr.Media do
       {:error, %Ecto.Changeset{}}
 
   """
-  def delete_video(%Video{} = video) do
-    Repo.delete(video)
-  end
+  def delete_video(%Video{} = video), do: Repo.delete(video)
 
   @doc """
   Returns an `%Ecto.Changeset{}` for tracking video changes.
@@ -218,9 +213,7 @@ defmodule Reencodarr.Media do
       {:error, %Ecto.Changeset{}}
 
   """
-  def delete_library(%Library{} = library) do
-    Repo.delete(library)
-  end
+  def delete_library(%Library{} = library), do: Repo.delete(library)
 
   @doc """
   Returns an `%Ecto.Changeset{}` for tracking library changes.
