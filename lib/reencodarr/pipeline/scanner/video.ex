@@ -23,7 +23,7 @@ defmodule Reencodarr.Pipeline.Scanner.Video do
   def handle_message(_, %Message{data: data} = message, _) do
     # Logger.debug("Processing video file: #{file_path}")
 
-    {mediainfo, status} = System.cmd("mediainfo", ["--Output=JSON", data.path])
+    {mediainfo, _status} = System.cmd("mediainfo", ["--Output=JSON", data.path])
 
     case Reencodarr.Media.upsert_video(Map.merge(data, %{mediainfo: Jason.decode!(mediainfo)})) do
       {:ok, _video} ->
