@@ -7,10 +7,9 @@ defmodule Reencodarr.Pipeline.Scanner.Video do
 
   def start_link(opts) do
     path = Keyword.fetch!(opts, :path)
-    name = String.to_atom("Reencodarr.Pipeline.Scanner.Video.#{path}")
 
     Broadway.start_link(__MODULE__,
-      name: name,
+      name: __MODULE__,
       producer: [
         module: {Reencodarr.Pipeline.Scanner.Video.Producer, [path: path]},
         concurrency: 1
