@@ -12,6 +12,9 @@
   <:item title="Path"><%= @video.path %></:item>
   <:item title="Size"><%= @video.size %></:item>
   <:item title="Bitrate"><%= @video.bitrate %></:item>
+  <:item title="MediaInfo">
+    <pre><%= inspect(@video.mediainfo, pretty: true) %></pre>
+  </:item>
 </.list>
 
 <.back navigate={~p"/videos"}>Back to videos</.back>
