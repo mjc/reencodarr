@@ -22,10 +22,9 @@ defmodule Reencodarr.Scanner do
   end
 
   def handle_info({_port, {:data, data}}, state) do
-    data
-    |> String.split("\n", trim: true)
-    |> Enum.map(&publish_video_file/1)
-    |> tap(&Logger.info("Found #{Enum.count(&1)} video files"))
+    String.split(data, "\n", trim: true)
+    |> Enum.each(&publish_video_file/1)
+    Logger.info("Found #{Enum.count(data)} video files")
     {:noreply, state}
   end
 
