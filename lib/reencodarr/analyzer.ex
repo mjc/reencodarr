@@ -18,20 +18,20 @@ defmodule Reencodarr.Analyzer do
     {:noreply, state}
   end
 
-  def handle_info(%{path: path, size: size, updated_at: updated_at}, state) when length(state) < @concurrent_files do
-    Logger.debug("Video file found: #{path}, size: #{size}, updated_at: #{updated_at}")
+  def handle_info(%{path: path}, state) when length(state) < @concurrent_files do
+    Logger.debug("Video file found: #{path}")
     {:noreply, state ++ [path]}
   end
 
-  def handle_info(%{path: path, size: size, updated_at: updated_at}, state) do
-    Logger.debug("Video file found: #{path}, size: #{size}, updated_at: #{updated_at}")
-    process_paths(state ++ [path], size)
+  def handle_info(%{path: path}, state) do
+    Logger.debug("Video file found: #{path}")
+    process_paths(state ++ [path])
   end
 
-  defp process_paths(state, size) do
+  defp process_paths(state) do
     paths = Enum.take(state, 5)
     case fetch_mediainfo(paths) do
-      {:ok, mediainfo_map} -> upsert_videos(paths, size, mediainfo_map)
+      {:ok, mediainfo_map} -> upsert_videos(paths, mediainfo_map)
       {:error, reason} ->
         Enum.each(paths, fn path ->
           Logger.error("Failed to fetch mediainfo for #{path}: #{reason}")
@@ -40,10 +40,10 @@ defmodule Reencodarr.Analyzer do
     {:noreply, Enum.drop(state, 5)}
   end
 
-  defp upsert_videos(paths, size, mediainfo_map) do
+  defp upsert_videos(paths, mediainfo_map) do
     Enum.each(paths, fn path ->
       mediainfo = Map.get(mediainfo_map, path)
-      case Media.upsert_video(%{path: path, size: size, mediainfo: mediainfo}) do
+      case Media.upsert_video(%{path: path, mediainfo: mediainfo}) do
         {:ok, _video} -> :ok
         {:error, reason} -> Logger.error("Failed to upsert video for #{path}: #{inspect(reason)}")
       end

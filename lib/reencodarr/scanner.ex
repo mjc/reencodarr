@@ -44,13 +44,7 @@ defmodule Reencodarr.Scanner do
   end
 
   defp publish_video_file(file_path) do
-    case File.stat(file_path) do
-      {:ok, file_info} ->
-        {:ok, naive_datetime} = NaiveDateTime.from_erl(file_info.mtime)
-        message = %{path: file_path, size: file_info.size, updated_at: naive_datetime}
-        :ok = Phoenix.PubSub.broadcast(Reencodarr.PubSub, "video:found", message)
-      {:error, _reason} ->
-        Logger.error("Failed to stat file: #{file_path}")
-    end
+    message = %{path: file_path}
+    :ok = Phoenix.PubSub.broadcast(Reencodarr.PubSub, "video:found", message)
   end
 end

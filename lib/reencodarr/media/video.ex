@@ -29,8 +29,8 @@ defmodule Reencodarr.Media.Video do
   def changeset(video \\ %__MODULE__{}, attrs) do
     video
     |> cast(attrs, [:path, :size, :bitrate, :library_id, :mediainfo])
-    |> validate_required([:path, :size])
     |> validate_media_info()
+    |> validate_required([:path, :size])
     |> unique_constraint(:path)
   end
 
@@ -62,7 +62,8 @@ defmodule Reencodarr.Media.Video do
       height: first_video["Height"],
       frame_rate: first_video["FrameRate"],
       video_codecs: video_codecs,
-      audio_codecs: audio_codecs
+      audio_codecs: audio_codecs,
+      size: general["FileSize"]
     }
 
     cast(changeset, params, [
@@ -75,7 +76,8 @@ defmodule Reencodarr.Media.Video do
       :audio_count,
       :text_count,
       :video_codecs,
-      :audio_codecs
+      :audio_codecs,
+      :size
     ])
   end
 end
