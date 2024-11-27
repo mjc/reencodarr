@@ -27,10 +27,10 @@ defmodule Reencodarr.Scanner do
 
   @spec handle_info({port(), {:data, String.t()}}, any()) :: {:noreply, any()}
   def handle_info({_port, {:data, data}}, state) do
-    String.split(data, "\n", trim: true)
-    |> Enum.each(&publish_video_file/1)
+    files = String.split(data, "\n", trim: true)
+    Enum.each(files, &publish_video_file/1)
 
-    Logger.info("Found #{Enum.count(data)} video files")
+    Logger.info("Found #{Enum.count(files)} video files")
     {:noreply, state}
   end
 
