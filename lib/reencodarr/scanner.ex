@@ -2,6 +2,9 @@ defmodule Reencodarr.Scanner do
   use GenServer
   require Logger
 
+  @work_interval 100
+  @file_extensions ["mp4", "mkv", "avi"]
+
   def start_link(path) do
     GenServer.start_link(__MODULE__, path, name: __MODULE__)
   end
@@ -20,7 +23,7 @@ defmodule Reencodarr.Scanner do
   def handle_info({_port, {:data, data}}, path) do
     data
     |> String.split("\n", trim: true)
-    |> Enum.each(&publish_video_file(&1))
+    |> Enum.each(&publish_video_file/1)
     {:noreply, path}
   end
 
@@ -29,17 +32,17 @@ defmodule Reencodarr.Scanner do
   end
 
   defp schedule_work() do
-    Process.send_after(self(), :work, 100)  # 100ms interval
+    Process.send_after(self(), :work, @work_interval)
   end
 
   defp find_video_files(path) do
     fd_path = find_fd_path()
-    Port.open({:spawn_executable, fd_path}, [:binary, :exit_status, args: ["-e", "mp4", "-e", "mkv", "-e", "avi", ".", path]])
+    args = Enum.flat_map(@file_extensions, &["-e", &1]) ++ [".", path]
+    Port.open({:spawn_executable, fd_path}, [:binary, :exit_status, args: args])
   end
 
   defp find_fd_path() do
-    {fd_path, 0} = System.cmd("which", ["fd"])
-    String.trim(fd_path)
+    System.find_executable("fd") || System.find_executable("fd-find") || raise "fd or fd-find executable not found"
   end
 
   defp publish_video_file(file_path) do
