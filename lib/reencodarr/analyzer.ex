@@ -55,12 +55,13 @@ defmodule Reencodarr.Analyzer do
     end)
   end
 
+  @spec fetch_mediainfo(any()) :: {:error, any()} | {:ok, any()}
   def fetch_mediainfo(paths) do
     paths = List.wrap(paths)
 
     with {json, 0} <- System.cmd("mediainfo", ["--Output=JSON" | paths]),
-         {:ok, mediainfo_map} <- decode_and_parse_json(json) do
-      {:ok, mediainfo_map}
+         {:ok, mediainfo} <- decode_and_parse_json(json) do
+      {:ok, mediainfo}
     else
       {:error, reason} -> {:error, reason}
       {error, _} -> {:error, error}
