@@ -3,6 +3,8 @@ defmodule Reencodarr.Analyzer do
   require Logger
   alias Reencodarr.Media
 
+  @concurrent_files 5
+
   def start_link(_) do
     GenServer.start_link(__MODULE__, nil, name: __MODULE__)
   end
@@ -16,51 +18,73 @@ defmodule Reencodarr.Analyzer do
     {:noreply, state}
   end
 
+  def handle_info(%{path: path, size: size, updated_at: updated_at}, state) when length(state) < @concurrent_files do
+    Logger.debug("Video file found: #{path}, size: #{size}, updated_at: #{updated_at}")
+    {:noreply, state ++ [path]}
+  end
+
   def handle_info(%{path: path, size: size, updated_at: updated_at}, state) do
     Logger.debug("Video file found: #{path}, size: #{size}, updated_at: #{updated_at}")
+    process_paths(state ++ [path], size)
+  end
 
-    new_state = update_state_with_path(state, path)
+  defp process_paths(state, size) do
+    paths = Enum.take(state, 5)
+    case fetch_mediainfo(paths) do
+      {:ok, mediainfo_map} -> upsert_videos(paths, size, mediainfo_map)
+      {:error, reason} ->
+        Enum.each(paths, fn path ->
+          Logger.error("Failed to fetch mediainfo for #{path}: #{reason}")
+        end)
+    end
+    {:noreply, Enum.drop(state, 5)}
+  end
 
-    if length(new_state) >= 5 do
-      paths = Enum.take(new_state, 5)
-      case fetch_mediainfo(paths) do
-        {:ok, mediainfo_map} ->
-          Enum.each(paths, fn path ->
-            mediainfo = Map.get(mediainfo_map, path)
-            Media.upsert_video(%{path: path, size: size, mediainfo: mediainfo})
-          end)
-        {:error, reason} ->
-          Enum.each(paths, fn path ->
-            Logger.error("Failed to fetch mediainfo for #{path}: #{reason}")
-          end)
+  defp upsert_videos(paths, size, mediainfo_map) do
+    Enum.each(paths, fn path ->
+      mediainfo = Map.get(mediainfo_map, path)
+      case Media.upsert_video(%{path: path, size: size, mediainfo: mediainfo}) do
+        {:ok, _video} -> :ok
+        {:error, reason} -> Logger.error("Failed to upsert video for #{path}: #{inspect(reason)}")
       end
-      {:noreply, Enum.drop(new_state, 5)}
+    end)
+  end
+
+  def fetch_mediainfo(paths) do
+    paths = List.wrap(paths)
+    with {json, 0} <- System.cmd("mediainfo", ["--Output=JSON" | paths]),
+         {:ok, mediainfo_map} <- decode_and_parse_json(json) do
+      {:ok, mediainfo_map}
     else
-      {:noreply, new_state}
-    end
-  end
-
-  defp update_state_with_path(state, path) do
-    state ++ [path]
-  end
-
-  def fetch_mediainfo(paths) when is_list(paths) do
-    System.cmd("mediainfo", ["--Output=JSON" | paths])
-    |> case do
-      {json, 0} ->
-        json = Jason.decode!(json)
-        json = Enum.map(json, fn mediainfo -> {mediainfo["media"]["@ref"], mediainfo} end) |> Enum.into(%{})
-        {:ok, json}
+      {:error, reason} -> {:error, reason}
       {error, _} -> {:error, error}
     end
   end
 
-  def fetch_mediainfo(path) do
-    System.cmd("mediainfo", ["--Output=JSON", path])
-    |> case do
-      {json, 0} -> {:ok, Jason.decode!(json)}
-      {error, _} -> {:error, error}
+  defp decode_and_parse_json(json) do
+    case Jason.decode(json) do
+      {:ok, decoded_json} -> {:ok, parse_mediainfo(decoded_json)}
+      error ->
+        Logger.error("Failed to decode JSON: #{inspect(error)}")
+        {:error, :invalid_json}
     end
+  end
+
+  defp parse_mediainfo(json) when is_list(json) do
+    Enum.map(json, fn
+      %{"media" => %{"@ref" => ref}} = mediainfo -> {ref, mediainfo}
+      _ -> nil
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.into(%{})
+  end
+
+  defp parse_mediainfo(%{"media" => %{"@ref" => ref}} = json) do
+    %{ref => json}
+  end
+
+  defp parse_mediainfo(_json) do
+    %{}
   end
 
 end
