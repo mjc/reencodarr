@@ -14,10 +14,6 @@ defmodule Reencodarr.Application do
       {Phoenix.PubSub, name: Reencodarr.PubSub},
       # Start the Finch HTTP client for sending emails
       {Finch, name: Reencodarr.Finch},
-      # Add Reencodarr.Pipeline to the supervision tree
-      Reencodarr.Pipeline,
-      # Start a worker by calling: Reencodarr.Worker.start_link(arg)
-      # {Reencodarr.Worker, arg},
       # Start to serve requests, typically the last entry
       ReencodarrWeb.Endpoint
     ]
