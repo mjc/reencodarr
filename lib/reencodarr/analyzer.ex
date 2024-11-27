@@ -30,19 +30,24 @@ defmodule Reencodarr.Analyzer do
 
   defp process_paths(state) do
     paths = Enum.take(state, 5)
+
     case fetch_mediainfo(paths) do
-      {:ok, mediainfo_map} -> upsert_videos(paths, mediainfo_map)
+      {:ok, mediainfo_map} ->
+        upsert_videos(paths, mediainfo_map)
+
       {:error, reason} ->
         Enum.each(paths, fn path ->
           Logger.error("Failed to fetch mediainfo for #{path}: #{reason}")
         end)
     end
+
     {:noreply, Enum.drop(state, 5)}
   end
 
   defp upsert_videos(paths, mediainfo_map) do
     Enum.each(paths, fn path ->
       mediainfo = Map.get(mediainfo_map, path)
+
       case Media.upsert_video(%{path: path, mediainfo: mediainfo}) do
         {:ok, _video} -> :ok
         {:error, reason} -> Logger.error("Failed to upsert video for #{path}: #{inspect(reason)}")
@@ -52,6 +57,7 @@ defmodule Reencodarr.Analyzer do
 
   def fetch_mediainfo(paths) do
     paths = List.wrap(paths)
+
     with {json, 0} <- System.cmd("mediainfo", ["--Output=JSON" | paths]),
          {:ok, mediainfo_map} <- decode_and_parse_json(json) do
       {:ok, mediainfo_map}
@@ -63,7 +69,9 @@ defmodule Reencodarr.Analyzer do
 
   defp decode_and_parse_json(json) do
     case Jason.decode(json) do
-      {:ok, decoded_json} -> {:ok, parse_mediainfo(decoded_json)}
+      {:ok, decoded_json} ->
+        {:ok, parse_mediainfo(decoded_json)}
+
       error ->
         Logger.error("Failed to decode JSON: #{inspect(error)}")
         {:error, :invalid_json}
@@ -79,12 +87,7 @@ defmodule Reencodarr.Analyzer do
     |> Enum.into(%{})
   end
 
-  defp parse_mediainfo(%{"media" => %{"@ref" => ref}} = json) do
-    %{ref => json}
-  end
+  defp parse_mediainfo(%{"media" => %{"@ref" => ref}} = json), do: %{ref => json}
 
-  defp parse_mediainfo(_json) do
-    %{}
-  end
-
+  defp parse_mediainfo(_json), do: %{}
 end

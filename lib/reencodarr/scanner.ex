@@ -24,6 +24,7 @@ defmodule Reencodarr.Scanner do
   def handle_info({_port, {:data, data}}, state) do
     String.split(data, "\n", trim: true)
     |> Enum.each(&publish_video_file/1)
+
     Logger.info("Found #{Enum.count(data)} video files")
     {:noreply, state}
   end
@@ -39,7 +40,8 @@ defmodule Reencodarr.Scanner do
   end
 
   defp find_fd_path() do
-    System.find_executable("fd") || System.find_executable("fd-find") || raise "fd or fd-find executable not found"
+    System.find_executable("fd") || System.find_executable("fd-find") ||
+      raise "fd or fd-find executable not found"
   end
 
   defp publish_video_file(file_path) do
