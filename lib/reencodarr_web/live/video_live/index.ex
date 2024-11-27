@@ -45,16 +45,26 @@ defmodule ReencodarrWeb.VideoLive.Index do
         %Phoenix.Socket.Broadcast{event: "videos", payload: %{action: "upsert", video: video}},
         socket
       ) do
+    videos = Media.list_videos()
+    video_count = length(videos)
+
     {:noreply,
       socket
       |> stream_insert(:videos, video, at: 0)
-      |> update(:video_count, &(&1 + 1))
+      |> assign(:video_count, video_count)
     }
   end
 
   @impl true
   def handle_info({ReencodarrWeb.VideoLive.FormComponent, {:saved, video}}, socket) do
-    {:noreply, stream_insert(socket, :videos, video)}
+    videos = Media.list_videos()
+    video_count = length(videos)
+
+    {:noreply,
+      socket
+      |> stream_insert(:videos, video, at: 0)
+      |> assign(:video_count, video_count)
+    }
   end
 
   # Handle delete events
@@ -63,6 +73,13 @@ defmodule ReencodarrWeb.VideoLive.Index do
     video = Media.get_video!(id)
     {:ok, _} = Media.delete_video(video)
 
-    {:noreply, stream_delete(socket, :videos, video)}
+    videos = Media.list_videos()
+    video_count = length(videos)
+
+    {:noreply,
+      socket
+      |> stream_delete(:videos, video)
+      |> assign(:video_count, video_count)
+    }
   end
 end
