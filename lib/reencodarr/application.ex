@@ -16,7 +16,8 @@ defmodule Reencodarr.Application do
       {Finch, name: Reencodarr.Finch},
       # Start to serve requests, typically the last entry
       ReencodarrWeb.Endpoint,
-      Reencodarr.Scanner
+      Reencodarr.Scanner,
+      Reencodarr.Analyzer
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
