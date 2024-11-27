@@ -60,7 +60,8 @@ defmodule Reencodarr.MixProject do
       {:dns_cluster, "~> 0.1.1"},
       {:bandit, "~> 1.5"},
       {:broadway, "~> 1.1"},
-      {:broadway_dashboard, "~> 0.4.0"}
+      {:broadway_dashboard, "~> 0.4.0"},
+      {:dialyxir, "~> 1.1", only: [:dev], runtime: false}
     ]
   end
 
