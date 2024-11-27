@@ -2,37 +2,35 @@ defmodule Reencodarr.Scanner do
   use GenServer
   require Logger
 
-  @work_interval 100
   @file_extensions ["mp4", "mkv", "avi"]
 
-  def start_link(path) do
-    GenServer.start_link(__MODULE__, path, name: __MODULE__)
+  def start_link(_) do
+    GenServer.start_link(__MODULE__, nil, name: __MODULE__)
   end
 
-  def init(path) do
-    schedule_work()
-    {:ok, path}
+  def init(_) do
+    {:ok, nil}
   end
 
-  def handle_info(:work, path) do
+  def scan(path) do
+    GenServer.cast(__MODULE__, {:scan, path})
+  end
+
+  def handle_cast({:scan, path}, state) do
     find_video_files(path)
-    schedule_work()
-    {:noreply, path}
+    {:noreply, state}
   end
 
-  def handle_info({_port, {:data, data}}, path) do
+  def handle_info({_port, {:data, data}}, state) do
     data
     |> String.split("\n", trim: true)
-    |> Enum.each(&publish_video_file/1)
-    {:noreply, path}
+    |> Enum.map(&publish_video_file/1)
+    |> tap(&Logger.info("Found #{Enum.count(&1)} video files"))
+    {:noreply, state}
   end
 
-  def handle_info({_port, {:exit_status, _status}}, path) do
-    {:stop, :normal, path}
-  end
-
-  defp schedule_work() do
-    Process.send_after(self(), :work, @work_interval)
+  def handle_info({_port, {:exit_status, _status}}, state) do
+    {:noreply, state}
   end
 
   defp find_video_files(path) do
