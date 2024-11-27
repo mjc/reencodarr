@@ -16,6 +16,7 @@ defmodule Reencodarr.Media do
       [%Video{}, ...]
 
   """
+  @spec list_videos() :: [Video.t()]
   def list_videos do
     Repo.all(from v in Video, order_by: [desc: v.updated_at])
   end
@@ -34,6 +35,7 @@ defmodule Reencodarr.Media do
       ** (Ecto.NoResultsError)
 
   """
+  @spec get_video!(integer()) :: Video.t()
   def get_video!(id), do: Repo.get!(Video, id)
 
   @doc """
@@ -48,6 +50,7 @@ defmodule Reencodarr.Media do
       {:error, %Ecto.Changeset{}}
 
   """
+  @spec create_video(map()) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
   def create_video(attrs \\ %{}) do
     %Video{}
     |> Video.changeset(attrs)
@@ -65,6 +68,7 @@ defmodule Reencodarr.Media do
       iex> upsert_video(%{field: bad_value})
       {:error, %Ecto.Changeset{}}
   """
+  @spec upsert_video(map()) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
   def upsert_video(attrs) do
     attrs
     |> ensure_library_id()
@@ -73,17 +77,21 @@ defmodule Reencodarr.Media do
     |> broadcast_change()
   end
 
+  @spec ensure_library_id(map()) :: map()
   defp ensure_library_id(%{library_id: nil} = attrs) do
     %{attrs | library_id: find_library_id(attrs[:path])}
   end
 
   defp ensure_library_id(attrs), do: attrs
 
+  @spec find_library_id(String.t()) :: integer()
   defp find_library_id(path) do
     from(l in Library, where: like(^path, fragment("concat(?, '%')", l.path)), select: l.id)
     |> Repo.one()
   end
 
+  @spec broadcast_change({:ok, Video.t()} | {:error, Ecto.Changeset.t()}) ::
+          {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
   defp broadcast_change({:ok, video}) do
     ReencodarrWeb.Endpoint.broadcast("videos", "videos", %{action: "upsert", video: video})
     {:ok, video}
@@ -103,6 +111,7 @@ defmodule Reencodarr.Media do
       {:error, %Ecto.Changeset{}}
 
   """
+  @spec update_video(Video.t(), map()) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
   def update_video(%Video{} = video, attrs) do
     video
     |> Video.changeset(attrs)
@@ -121,6 +130,7 @@ defmodule Reencodarr.Media do
       {:error, %Ecto.Changeset{}}
 
   """
+  @spec delete_video(Video.t()) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
   def delete_video(%Video{} = video), do: Repo.delete(video)
 
   @doc """
@@ -132,6 +142,7 @@ defmodule Reencodarr.Media do
       %Ecto.Changeset{data: %Video{}}
 
   """
+  @spec change_video(Video.t(), map()) :: Ecto.Changeset.t()
   def change_video(%Video{} = video, attrs \\ %{}) do
     Video.changeset(video, attrs)
   end
@@ -145,6 +156,7 @@ defmodule Reencodarr.Media do
       [%Library{}, ...]
 
   """
+  @spec list_libraries() :: [Library.t()]
   def list_libraries do
     Repo.all(Library)
   end
@@ -163,6 +175,7 @@ defmodule Reencodarr.Media do
       ** (Ecto.NoResultsError)
 
   """
+  @spec get_library!(integer()) :: Library.t()
   def get_library!(id), do: Repo.get!(Library, id)
 
   @doc """
@@ -177,6 +190,7 @@ defmodule Reencodarr.Media do
       {:error, %Ecto.Changeset{}}
 
   """
+  @spec create_library(map()) :: {:ok, Library.t()} | {:error, Ecto.Changeset.t()}
   def create_library(attrs \\ %{}) do
     %Library{}
     |> Library.changeset(attrs)
@@ -195,6 +209,7 @@ defmodule Reencodarr.Media do
       {:error, %Ecto.Changeset{}}
 
   """
+  @spec update_library(Library.t(), map()) :: {:ok, Library.t()} | {:error, Ecto.Changeset.t()}
   def update_library(%Library{} = library, attrs) do
     library
     |> Library.changeset(attrs)
@@ -213,6 +228,7 @@ defmodule Reencodarr.Media do
       {:error, %Ecto.Changeset{}}
 
   """
+  @spec delete_library(Library.t()) :: {:ok, Library.t()} | {:error, Ecto.Changeset.t()}
   def delete_library(%Library{} = library), do: Repo.delete(library)
 
   @doc """
@@ -224,6 +240,7 @@ defmodule Reencodarr.Media do
       %Ecto.Changeset{data: %Library{}}
 
   """
+  @spec change_library(Library.t(), map()) :: Ecto.Changeset.t()
   def change_library(%Library{} = library, attrs \\ %{}) do
     Library.changeset(library, attrs)
   end

@@ -2,6 +2,8 @@ defmodule Reencodarr.Media.Video do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t() :: %__MODULE__{}
+
   schema "videos" do
     field :size, :integer
     field :path, :string
@@ -26,6 +28,7 @@ defmodule Reencodarr.Media.Video do
   end
 
   @doc false
+  @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(video \\ %__MODULE__{}, attrs) do
     video
     |> cast(attrs, [:path, :size, :bitrate, :library_id, :mediainfo])
@@ -34,6 +37,7 @@ defmodule Reencodarr.Media.Video do
     |> unique_constraint(:path)
   end
 
+  @spec validate_media_info(Ecto.Changeset.t()) :: Ecto.Changeset.t()
   defp validate_media_info(changeset) do
     case get_change(changeset, :mediainfo) do
       nil -> changeset
@@ -41,6 +45,7 @@ defmodule Reencodarr.Media.Video do
     end
   end
 
+  @spec apply_media_info(Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   defp apply_media_info(changeset, mediainfo) do
     general = Enum.find(mediainfo["media"]["track"], &(&1["@type"] == "General"))
     first_video = Enum.find(mediainfo["media"]["track"], &(&1["@type"] == "Video"))

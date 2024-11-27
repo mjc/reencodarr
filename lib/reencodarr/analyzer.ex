@@ -5,19 +5,23 @@ defmodule Reencodarr.Analyzer do
 
   @concurrent_files 5
 
+  @spec start_link(any()) :: GenServer.on_start()
   def start_link(_) do
     GenServer.start_link(__MODULE__, nil, name: __MODULE__)
   end
 
+  @spec init(any()) :: {:ok, [], {:continue, :subscribe}}
   def init(_) do
     {:ok, [], {:continue, :subscribe}}
   end
 
+  @spec handle_continue(:subscribe, any()) :: {:noreply, any()}
   def handle_continue(:subscribe, state) do
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video:found")
     {:noreply, state}
   end
 
+  @spec handle_info(map(), list(String.t())) :: {:noreply, list(String.t())}
   def handle_info(%{path: path}, state) when length(state) < @concurrent_files do
     Logger.debug("Video file found: #{path}")
     {:noreply, state ++ [path]}
@@ -28,6 +32,7 @@ defmodule Reencodarr.Analyzer do
     process_paths(state ++ [path])
   end
 
+  @spec process_paths(list(String.t())) :: {:noreply, list(String.t())}
   defp process_paths(state) do
     paths = Enum.take(state, 5)
 
@@ -44,6 +49,7 @@ defmodule Reencodarr.Analyzer do
     {:noreply, Enum.drop(state, 5)}
   end
 
+  @spec upsert_videos(list(String.t()), map()) :: :ok
   defp upsert_videos(paths, mediainfo_map) do
     Enum.each(paths, fn path ->
       mediainfo = Map.get(mediainfo_map, path)
@@ -55,7 +61,7 @@ defmodule Reencodarr.Analyzer do
     end)
   end
 
-  @spec fetch_mediainfo(any()) :: {:error, any()} | {:ok, any()}
+  @spec fetch_mediainfo(list(String.t())) :: {:ok, map()} | {:error, any()}
   def fetch_mediainfo(paths) do
     paths = List.wrap(paths)
 
@@ -68,6 +74,7 @@ defmodule Reencodarr.Analyzer do
     end
   end
 
+  @spec decode_and_parse_json(String.t()) :: {:ok, map()} | {:error, :invalid_json}
   defp decode_and_parse_json(json) do
     case Jason.decode(json) do
       {:ok, decoded_json} ->
@@ -79,6 +86,7 @@ defmodule Reencodarr.Analyzer do
     end
   end
 
+  @spec parse_mediainfo(map()) :: map()
   defp parse_mediainfo(json) when is_list(json) do
     Enum.map(json, fn
       %{"media" => %{"@ref" => ref}} = mediainfo -> {ref, mediainfo}
