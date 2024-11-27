@@ -15,7 +15,8 @@ defmodule Reencodarr.Application do
       # Start the Finch HTTP client for sending emails
       {Finch, name: Reencodarr.Finch},
       # Start to serve requests, typically the last entry
-      ReencodarrWeb.Endpoint
+      ReencodarrWeb.Endpoint,
+      Reencodarr.Scanner
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
