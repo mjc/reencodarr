@@ -18,7 +18,7 @@ defmodule Reencodarr.AbAv1 do
 
     args = ["crf-search"] ++ build_args(video.path, vmaf_percent, rules)
     {output, exit_code} = run_ab_av1(args)
-    {parse_output(output), exit_code}
+    {parse_crf_search(output), exit_code}
   end
 
   def auto_encode(video, vmaf_percent \\ 95) do
@@ -45,16 +45,19 @@ defmodule Reencodarr.AbAv1 do
 
   def run_ab_av1(args) do
     {output, exit_code} = System.cmd(ab_av1_path(), args, stderr_to_stdout: true)
+    if exit_code != 0 do
+      raise "ab-av1 command failed with exit code #{exit_code}: #{output}"
+    end
     {output, exit_code}
   end
 
-  defp parse_output(output) do
+  defp parse_crf_search(output) do
     output
     |> String.split("\n")
-    |> Enum.flat_map(&parse_line/1)
+    |> Enum.flat_map(&parse_crf_search_line/1)
   end
 
-  defp parse_line(line) do
+  defp parse_crf_search_line(line) do
     case Regex.named_captures(@crf_search_results, line) do
       %{"crf" => crf, "vmaf" => vmaf, "percent" => percent} = captures ->
         [
