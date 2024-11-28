@@ -1,0 +1,42 @@
+<.header>
+  Listing Vmafs
+  <:actions>
+    <.link patch={~p"/vmafs/new"}>
+      <.button>New Vmaf</.button>
+    </.link>
+  </:actions>
+</.header>
+
+<.table
+  id="vmafs"
+  rows={@streams.vmafs}
+  row_click={fn {_id, vmaf} -> JS.navigate(~p"/vmafs/#{vmaf}") end}
+>
+  <:col :let={{_id, vmaf}} label="Score"><%= vmaf.score %></:col>
+  <:col :let={{_id, vmaf}} label="Crf"><%= vmaf.crf %></:col>
+  <:action :let={{_id, vmaf}}>
+    <div class="sr-only">
+      <.link navigate={~p"/vmafs/#{vmaf}"}>Show</.link>
+    </div>
+    <.link patch={~p"/vmafs/#{vmaf}/edit"}>Edit</.link>
+  </:action>
+  <:action :let={{id, vmaf}}>
+    <.link
+      phx-click={JS.push("delete", value: %{id: vmaf.id}) |> hide("##{id}")}
+      data-confirm="Are you sure?"
+    >
+      Delete
+    </.link>
+  </:action>
+</.table>
+
+<.modal :if={@live_action in [:new, :edit]} id="vmaf-modal" show on_cancel={JS.patch(~p"/vmafs")}>
+  <.live_component
+    module={ReencodarrWeb.VmafLive.FormComponent}
+    id={@vmaf.id || :new}
+    title={@page_title}
+    action={@live_action}
+    vmaf={@vmaf}
+    patch={~p"/vmafs"}
+  />
+</.modal>

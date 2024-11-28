@@ -244,4 +244,100 @@ defmodule Reencodarr.Media do
   def change_library(%Library{} = library, attrs \\ %{}) do
     Library.changeset(library, attrs)
   end
+
+  alias Reencodarr.Media.Vmaf
+
+  @doc """
+  Returns the list of vmafs.
+
+  ## Examples
+
+      iex> list_vmafs()
+      [%Vmaf{}, ...]
+
+  """
+  def list_vmafs do
+    Repo.all(Vmaf)
+  end
+
+  @doc """
+  Gets a single vmaf.
+
+  Raises `Ecto.NoResultsError` if the Vmaf does not exist.
+
+  ## Examples
+
+      iex> get_vmaf!(123)
+      %Vmaf{}
+
+      iex> get_vmaf!(456)
+      ** (Ecto.NoResultsError)
+
+  """
+  def get_vmaf!(id), do: Repo.get!(Vmaf, id)
+
+  @doc """
+  Creates a vmaf.
+
+  ## Examples
+
+      iex> create_vmaf(%{field: value})
+      {:ok, %Vmaf{}}
+
+      iex> create_vmaf(%{field: bad_value})
+      {:error, %Ecto.Changeset{}}
+
+  """
+  def create_vmaf(attrs \\ %{}) do
+    %Vmaf{}
+    |> Vmaf.changeset(attrs)
+    |> Repo.insert()
+  end
+
+  @doc """
+  Updates a vmaf.
+
+  ## Examples
+
+      iex> update_vmaf(vmaf, %{field: new_value})
+      {:ok, %Vmaf{}}
+
+      iex> update_vmaf(vmaf, %{field: bad_value})
+      {:error, %Ecto.Changeset{}}
+
+  """
+  def update_vmaf(%Vmaf{} = vmaf, attrs) do
+    vmaf
+    |> Vmaf.changeset(attrs)
+    |> Repo.update()
+  end
+
+  @doc """
+  Deletes a vmaf.
+
+  ## Examples
+
+      iex> delete_vmaf(vmaf)
+      {:ok, %Vmaf{}}
+
+      iex> delete_vmaf(vmaf)
+      {:error, %Ecto.Changeset{}}
+
+  """
+  def delete_vmaf(%Vmaf{} = vmaf) do
+    Repo.delete(vmaf)
+  end
+
+  @doc """
+  Returns an `%Ecto.Changeset{}` for tracking vmaf changes.
+
+  ## Examples
+
+      iex> change_vmaf(vmaf)
+      %Ecto.Changeset{data: %Vmaf{}}
+
+  """
+  def change_vmaf(%Vmaf{} = vmaf, attrs \\ %{}) do
+    Vmaf.changeset(vmaf, attrs)
+  end
 end

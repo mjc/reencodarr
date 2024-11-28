@@ -3,6 +3,8 @@
         "mediainfo",
         "monocart",
         "phoenixframework",
-        "Reencodarr"
+        "Reencodarr",
+        "Vmaf",
+        "vmafs"
     ]
 }

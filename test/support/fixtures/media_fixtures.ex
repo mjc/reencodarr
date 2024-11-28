@@ -39,4 +39,19 @@ defmodule Reencodarr.MediaFixtures do
 
     library
   end
+
+  @doc """
+  Generate a vmaf.
+  """
+  def vmaf_fixture(attrs \\ %{}) do
+    {:ok, vmaf} =
+      attrs
+      |> Enum.into(%{
+        crf: 120.5,
+        score: 120.5
+      })
+      |> Reencodarr.Media.create_vmaf()
+
+    vmaf
+  end
 end

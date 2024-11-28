@@ -116,4 +116,60 @@ defmodule Reencodarr.MediaTest do
       assert %Ecto.Changeset{} = Media.change_library(library)
     end
   end
+
+  describe "vmafs" do
+    alias Reencodarr.Media.Vmaf
+
+    import Reencodarr.MediaFixtures
+
+    @invalid_attrs %{crf: nil, score: nil}
+
+    test "list_vmafs/0 returns all vmafs" do
+      vmaf = vmaf_fixture()
+      assert Media.list_vmafs() == [vmaf]
+    end
+
+    test "get_vmaf!/1 returns the vmaf with given id" do
+      vmaf = vmaf_fixture()
+      assert Media.get_vmaf!(vmaf.id) == vmaf
+    end
+
+    test "create_vmaf/1 with valid data creates a vmaf" do
+      valid_attrs = %{crf: 120.5, score: 120.5}
+
+      assert {:ok, %Vmaf{} = vmaf} = Media.create_vmaf(valid_attrs)
+      assert vmaf.crf == 120.5
+      assert vmaf.score == 120.5
+    end
+
+    test "create_vmaf/1 with invalid data returns error changeset" do
+      assert {:error, %Ecto.Changeset{}} = Media.create_vmaf(@invalid_attrs)
+    end
+
+    test "update_vmaf/2 with valid data updates the vmaf" do
+      vmaf = vmaf_fixture()
+      update_attrs = %{crf: 456.7, score: 456.7}
+
+      assert {:ok, %Vmaf{} = vmaf} = Media.update_vmaf(vmaf, update_attrs)
+      assert vmaf.crf == 456.7
+      assert vmaf.score == 456.7
+    end
+
+    test "update_vmaf/2 with invalid data returns error changeset" do
+      vmaf = vmaf_fixture()
+      assert {:error, %Ecto.Changeset{}} = Media.update_vmaf(vmaf, @invalid_attrs)
+      assert vmaf == Media.get_vmaf!(vmaf.id)
+    end
+
+    test "delete_vmaf/1 deletes the vmaf" do
+      vmaf = vmaf_fixture()
+      assert {:ok, %Vmaf{}} = Media.delete_vmaf(vmaf)
+      assert_raise Ecto.NoResultsError, fn -> Media.get_vmaf!(vmaf.id) end
+    end
+
+    test "change_vmaf/1 returns a vmaf changeset" do
+      vmaf = vmaf_fixture()
+      assert %Ecto.Changeset{} = Media.change_vmaf(vmaf)
+    end
+  end
 end
