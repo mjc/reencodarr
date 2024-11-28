@@ -15,6 +15,7 @@ defmodule Reencodarr.Media.Video do
     :text_count,
     :video_codecs,
     :audio_codecs,
+    :max_audio_channels,
     :size,
     :hdr,
     :atmos
@@ -29,21 +30,22 @@ defmodule Reencodarr.Media.Video do
   @required [:path, :size]
 
   schema "videos" do
-    field :size, :integer
-    field :path, :string
+    field :atmos, :boolean
+    field :audio_codecs, {:array, :string}, default: []
+    field :audio_count, :integer
     field :bitrate, :integer
     field :duration, :float
-    field :width, :integer
-    field :height, :integer
     field :frame_rate, :float
-    field :video_count, :integer
-    field :audio_count, :integer
-    field :text_count, :integer
     field :hdr, :string
-    field :atmos, :boolean
-    field :video_codecs, {:array, :string}, default: []
-    field :audio_codecs, {:array, :string}, default: []
+    field :height, :integer
+    field :max_audio_channels, :integer
+    field :path, :string
+    field :size, :integer
     field :text_codecs, {:array, :string}, default: []
+    field :text_count, :integer
+    field :video_codecs, {:array, :string}, default: []
+    field :video_count, :integer
+    field :width, :integer
 
     field :mediainfo, :map
 
@@ -77,21 +79,23 @@ defmodule Reencodarr.Media.Video do
 
     {video_codecs, audio_codecs} = extract_codecs(mediainfo)
     atmos = has_atmos_audio?(mediainfo)
+    max_audio_channels = get_max_audio_channels(mediainfo)
 
     params = %{
-      duration: general["Duration"],
-      bitrate: general["OverallBitRate"],
-      video_count: general["VideoCount"],
-      audio_count: general["AudioCount"],
-      text_count: general["TextCount"],
-      width: first_video["Width"],
-      height: first_video["Height"],
-      frame_rate: first_video["FrameRate"],
-      video_codecs: video_codecs,
       audio_codecs: audio_codecs,
-      size: general["FileSize"],
+      audio_count: general["AudioCount"],
+      atmos: atmos,
+      bitrate: general["OverallBitRate"],
+      duration: general["Duration"],
+      frame_rate: first_video["FrameRate"],
       hdr: get_hdr_format(first_video),
-      atmos: atmos
+      height: first_video["Height"],
+      max_audio_channels: max_audio_channels,
+      size: general["FileSize"],
+      text_count: general["TextCount"],
+      video_codecs: video_codecs,
+      video_count: general["VideoCount"],
+      width: first_video["Width"]
     }
 
     cast(changeset, params, @mediainfo_params)
@@ -136,4 +140,12 @@ defmodule Reencodarr.Media.Video do
   end
 
   defp audio_track_has_atmos?(_), do: false
+
+  @spec get_max_audio_channels(map()) :: integer()
+  defp get_max_audio_channels(mediainfo) do
+    mediainfo["media"]["track"]
+    |> Enum.filter(&(&1["@type"] == "Audio"))
+    |> Enum.map(&String.to_integer(&1["Channels"] || "0"))
+    |> Enum.max()
+  end
 end
