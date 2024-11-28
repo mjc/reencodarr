@@ -7,14 +7,12 @@ defmodule Reencodarr.AbAv1 do
 
   alias Reencodarr.{Rules, Media.Video}
 
-  @spec crf_search(Video.t(), integer) :: {any(), non_neg_integer()}
   def crf_search(video, vmaf_percent \\ 95) do
     rules = generate_rules(video) |> Enum.filter(fn {"--acodec", _} -> false; _ -> true end)
     args = ["crf-search"] ++ build_args(video.path, vmaf_percent, rules)
     run_ab_av1(args)
   end
 
-  @spec auto_encode(Video.t(), integer) :: {binary(), non_neg_integer()}
   def auto_encode(video, vmaf_percent \\ 95) do
     rules = generate_rules(video)
     args = ["auto-encode"] ++ build_args(video.path, vmaf_percent, rules)
@@ -35,10 +33,34 @@ defmodule Reencodarr.AbAv1 do
     ] ++ rules
   end
 
-  @spec run_ab_av1([binary()]) :: {String.t(), non_neg_integer()}
   def run_ab_av1(args) do
     {output, exit_code} = System.cmd(ab_av1_path(), args, stderr_to_stdout: true)
-    {output, exit_code}
+    {parse_output(output), exit_code}
+  end
+
+  defp parse_output(output) do
+    intermediate_format = Regex.scan(~r/crf (\d+) VMAF (\d+\.\d+) \((\d+)%\)/, output)
+    final_format = Regex.scan(~r/crf (\d+) VMAF (\d+\.\d+) predicted video stream size ([\d\.]+ \w+) \((\d+)%\) taking (\d+) minutes/, output)
+
+    intermediate_format_results = Enum.map(intermediate_format, fn [_, crf, vmaf, percent] ->
+      %{
+        crf: String.to_integer(crf),
+        vmaf: String.to_float(vmaf),
+        percent: String.to_integer(percent)
+      }
+    end)
+
+    final_format_results = Enum.map(final_format, fn [_, crf, vmaf, size, percent, time] ->
+      %{
+        crf: String.to_integer(crf),
+        vmaf: String.to_float(vmaf),
+        size: size,
+        percent: String.to_integer(percent),
+        time: String.to_integer(time)
+      }
+    end)
+
+    intermediate_format_results ++ final_format_results
   end
 
   defp ab_av1_path do
