@@ -10,10 +10,23 @@ defmodule Reencodarr.Rules do
     8 => 256
   }
 
-  @spec audio(Reencodarr.Media.Video.t()) :: keyword(String.t())
-  def audio(%Media.Video{atmos: false, max_audio_channels: channels, audio_codecs: audio_codecs}) do
+  # I kind of hate this but it's less gross looking than my other ideas.
+  @spec apply(Reencodarr.Media.Video.t()) :: keyword(String.t())
+  def apply(%Media.Video{} = video) do
+    {[], video}
+    |> audio()
+    |> cuda()
+    # |> grain(5)
+    |> hdr()
+    |> resolution()
+    |> video()
+    |> elem(0)
+  end
+
+  @spec audio({keyword(String.t()), Reencodarr.Media.Video.t()}) :: {keyword(String.t()), Reencodarr.Media.Video.t()}
+  def audio({opts, %Media.Video{atmos: false, max_audio_channels: channels, audio_codecs: audio_codecs} = video}) do
     maybe_opus = get_opus_codec_options(audio_codecs, channels)
-    Keyword.new(maybe_opus)
+    {opts ++ Keyword.new(maybe_opus), video}
   end
 
   defp get_opus_codec_options(audio_codecs, channels) do
@@ -40,43 +53,43 @@ defmodule Reencodarr.Rules do
   end
 
   # TODO: detect CUDA capabilities
-  @spec cuda(Media.Video.t()) :: keyword(String.t())
-  def cuda(_) do
-    Keyword.new([{:"--enc-input", "hwaccel=cuda"}])
+  @spec cuda({keyword(String.t()), Media.Video.t()}) :: {keyword(String.t()), Media.Video.t()}
+  def cuda({opts, video}) do
+    {opts ++ Keyword.new([{:"--enc-input", "hwaccel=cuda"}]), video}
   end
 
   # TODO: figure out how to detect grain or ask for that to be added to ab-av1
-  @spec grain(Reencodarr.Media.Video.t(), integer) :: keyword(String.t())
-  def grain(%Media.Video{hdr: hdr}, strength) when is_nil(hdr) do
-    Keyword.new({:"--svt", "film-grain=#{strength}:film-grain-denoise=0"})
+  @spec grain({keyword(String.t()), Reencodarr.Media.Video.t()}, integer) :: {keyword(String.t()), Reencodarr.Media.Video.t()}
+  def grain({opts, %Media.Video{hdr: hdr} = video}, strength) when is_nil(hdr) do
+    {opts ++ Keyword.new({:"--svt", "film-grain=#{strength}:film-grain-denoise=0"}), video}
   end
 
-  def grain(_), do: Keyword.new()
+  def grain({opts, video}, _), do: {opts, video}
 
   @doc """
     My devices don't support av1 and get re-encoded by plex.
     So for now I am using x265 for HDR and av1 for everything else.
   """
-  @spec hdr(Media.Video.t()) :: keyword(String.t())
-  def hdr(%Media.Video{hdr: hdr}) when is_nil(hdr) do
-    Keyword.new([{:"--svt", "tune=0"}])
+  @spec hdr({keyword(String.t()), Media.Video.t()}) :: {keyword(String.t()), Media.Video.t()}
+  def hdr({opts, %Media.Video{hdr: hdr} = video}) when is_nil(hdr) do
+    {opts ++ Keyword.new([{:"--svt", "tune=0"}]), video}
   end
 
-  def hdr(_) do
-    Keyword.new([{:"--encoder", "libx265"}, {:"--preset", "medium"}])
+  def hdr({opts, video}) do
+    {opts ++ Keyword.new([{:"--encoder", "libx265"}, {:"--preset", "medium"}]), video}
   end
 
-  @spec resolution(Reencodarr.Media.Video.t()) :: keyword(String.t())
-  def resolution(%Media.Video{width: width}) when width > 1080 do
-    Keyword.new([{:"--vfilter", "scale=1920:-2"}])
+  @spec resolution({keyword(String.t()), Reencodarr.Media.Video.t()}) :: {keyword(String.t()), Reencodarr.Media.Video.t()}
+  def resolution({opts, %Media.Video{width: width} = video}) when width > 1080 do
+    {opts ++ Keyword.new([{:"--vfilter", "scale=1920:-2"}]), video}
   end
 
-  def resolution(%Media.Video{width: width}) when width <= 1080 do
-    Keyword.new()
+  def resolution({opts, %Media.Video{width: width} = video}) when width <= 1080 do
+    {opts, video}
   end
 
-  @spec video(Reencodarr.Media.Video.t()) :: keyword(String.t())
-  def video(%Media.Video{}) do
-    Keyword.new([{:"--pix-format", "yuv420p10le"}])
+  @spec video({keyword(String.t()), Reencodarr.Media.Video.t()}) :: {keyword(String.t()), Reencodarr.Media.Video.t()}
+  def video({opts, %Media.Video{} = video}) do
+    {opts ++ Keyword.new([{:"--pix-format", "yuv420p10le"}]), video}
   end
 end
