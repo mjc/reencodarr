@@ -1,19 +1,19 @@
 defmodule Reencodarr.Rules do
   alias Reencodarr.Media
 
-  @spec resolution(Reencodarr.Media.Video.t()) :: keyword(String.t())
-  def resolution(%Media.Video{width: width}) when width > 1080 do
-    Keyword.new({"--vfilter", "scale=1920:-2"})
+  # TODO: detect CUDA capabilities
+  @spec cuda(Media.Video.t()) :: keyword(String.t())
+  def cuda(_) do
+    Keyword.new({"--enc-input", "hwaccel=cuda"})
   end
 
-  def resolution(%Media.Video{width: width}) when width <= 1080 do
-    Keyword.new()
+  # TODO: figure out how to detect grain or ask for that to be added to ab-av1
+  @spec grain(Reencodarr.Media.Video.t(), integer) :: keyword(String.t())
+  def grain(%Media.Video{hdr: hdr}, strength) when is_nil(hdr) do
+    Keyword.new({"--svt", "film-grain=#{strength}:film-grain-denoise=0"})
   end
 
-  @spec video(Reencodarr.Media.Video.t()) :: keyword(String.t())
-  def video(%Media.Video{}) do
-    Keyword.new({"--pix-format", "yuv420p10le"})
-  end
+  def grain(_), do: Keyword.new()
 
   @doc """
     My devices don't support av1 and get re-encoded by plex.
@@ -28,17 +28,17 @@ defmodule Reencodarr.Rules do
     Keyword.new([{"--encoder", "libx265"}, {"--preset", "medium"}])
   end
 
-  # TODO: detect CUDA capabilities
-  @spec cuda(Media.Video.t()) :: keyword(String.t())
-  def cuda(_) do
-    Keyword.new({"--enc-input", "hwaccel=cuda"})
+  @spec resolution(Reencodarr.Media.Video.t()) :: keyword(String.t())
+  def resolution(%Media.Video{width: width}) when width > 1080 do
+    Keyword.new({"--vfilter", "scale=1920:-2"})
   end
 
-  # TODO: figure out how to detect grain or ask for that to be added to ab-av1
-  @spec grain(Reencodarr.Media.Video.t(), integer) :: keyword(String.t())
-  def grain(%Media.Video{hdr: hdr}, strength) when is_nil(hdr) do
-    Keyword.new({"--svt", "film-grain=#{strength}:film-grain-denoise=0"})
+  def resolution(%Media.Video{width: width}) when width <= 1080 do
+    Keyword.new()
   end
 
-  def grain(_), do: Keyword.new()
+  @spec video(Reencodarr.Media.Video.t()) :: keyword(String.t())
+  def video(%Media.Video{}) do
+    Keyword.new({"--pix-format", "yuv420p10le"})
+  end
 end
