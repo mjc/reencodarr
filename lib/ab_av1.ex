@@ -44,17 +44,15 @@ defmodule Reencodarr.AbAv1 do
   end
 
   def run_ab_av1(args) do
-    {output, exit_code} = System.cmd(ab_av1_path(), args, stderr_to_stdout: true)
+    {output, exit_code} = System.cmd(ab_av1_path(), args, into: [], stderr_to_stdout: true)
     if exit_code != 0 do
       raise "ab-av1 command failed with exit code #{exit_code}: #{output}"
     end
-    {output, exit_code}
+    {output |> Enum.flat_map(&String.split(&1, "\n")) |> Enum.filter(fn x -> x |> String.trim() |> String.length() > 0 end), exit_code}
   end
 
   defp parse_crf_search(output) do
-    output
-    |> String.split("\n")
-    |> Enum.flat_map(&parse_crf_search_line/1)
+    Enum.flat_map(output, &parse_crf_search_line/1)
   end
 
   defp parse_crf_search_line(line) do
