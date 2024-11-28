@@ -1,6 +1,44 @@
 defmodule Reencodarr.Rules do
   alias Reencodarr.Media
 
+  @opus_codec_tag "A_OPUS"
+
+  @recommended_opus_bitrates %{
+    1 => 48,
+    2 => 96,
+    6 => 128,
+    8 => 256
+  }
+
+  @spec audio(Reencodarr.Media.Video.t()) :: keyword(String.t())
+  def audio(%Media.Video{atmos: false, max_audio_channels: channels, audio_codecs: audio_codecs}) do
+    maybe_opus = get_opus_codec_options(audio_codecs, channels)
+    Keyword.new(maybe_opus)
+  end
+
+  defp get_opus_codec_options(audio_codecs, channels) do
+    if @opus_codec_tag in audio_codecs do
+      []
+    else
+      opus_arguments(channels)
+    end
+  end
+
+  defp opus_arguments(channels) do
+    [
+      {"--acodec", "libopus"},
+      {"--enc", "b:a=#{opus_bitrate(channels)}k"},
+      {"--enc", "ac=#{channels}"}
+    ]
+  end
+
+  defp opus_bitrate(channels) do
+    case @recommended_opus_bitrates[channels] do
+      bitrate when is_integer(bitrate) -> bitrate
+      _ -> 512
+    end
+  end
+
   # TODO: detect CUDA capabilities
   @spec cuda(Media.Video.t()) :: keyword(String.t())
   def cuda(_) do

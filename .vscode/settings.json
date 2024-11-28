@@ -1,8 +1,11 @@
 {
     "cSpell.words": [
+        "acodec",
+        "bitrates",
         "CUDA",
         "film-grain-denoise",
         "hwaccel",
+        "libopus",
         "libx265",
         "mediainfo",
         "monocart",
