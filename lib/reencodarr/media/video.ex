@@ -4,6 +4,28 @@ defmodule Reencodarr.Media.Video do
 
   @type t() :: %__MODULE__{}
 
+  @mediainfo_params [
+    :duration,
+    :bitrate,
+    :width,
+    :height,
+    :frame_rate,
+    :video_count,
+    :audio_count,
+    :text_count,
+    :video_codecs,
+    :audio_codecs,
+    :size,
+    :hdr,
+    :atmos
+  ]
+
+  @optional [
+    :bitrate, :library_id, :mediainfo
+  ]
+
+  @required [:path, :size]
+
   schema "videos" do
     field :size, :integer
     field :path, :string
@@ -16,6 +38,7 @@ defmodule Reencodarr.Media.Video do
     field :audio_count, :integer
     field :text_count, :integer
     field :hdr, :string
+    field :atmos, :boolean
     field :video_codecs, {:array, :string}, default: []
     field :audio_codecs, {:array, :string}, default: []
     field :text_codecs, {:array, :string}, default: []
@@ -31,9 +54,9 @@ defmodule Reencodarr.Media.Video do
   @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(video \\ %__MODULE__{}, attrs) do
     video
-    |> cast(attrs, [:path, :size, :bitrate, :library_id, :mediainfo])
+    |> cast(attrs, @required ++ @optional)
     |> validate_media_info()
-    |> validate_required([:path, :size])
+    |> validate_required(@required)
     |> unique_constraint(:path)
   end
 
@@ -51,6 +74,7 @@ defmodule Reencodarr.Media.Video do
     first_video = get_track(mediainfo, "Video")
 
     {video_codecs, audio_codecs} = extract_codecs(mediainfo)
+    atmos = has_atmos_audio?(mediainfo)
 
     params = %{
       duration: general["Duration"],
@@ -64,23 +88,11 @@ defmodule Reencodarr.Media.Video do
       video_codecs: video_codecs,
       audio_codecs: audio_codecs,
       size: general["FileSize"],
-      hdr: get_hdr_format(first_video)
+      hdr: get_hdr_format(first_video),
+      atmos: atmos
     }
 
-    cast(changeset, params, [
-      :duration,
-      :bitrate,
-      :width,
-      :height,
-      :frame_rate,
-      :video_count,
-      :audio_count,
-      :text_count,
-      :video_codecs,
-      :audio_codecs,
-      :size,
-      :hdr
-    ])
+    cast(changeset, params, @mediainfo_params)
   end
 
   defp get_track(mediainfo, type) do
@@ -103,4 +115,18 @@ defmodule Reencodarr.Media.Video do
     |> Enum.uniq()
     |> Enum.join(", ")
   end
+
+  defp has_atmos_audio?(mediainfo) do
+    mediainfo["media"]["track"]
+    |> Enum.any?(&audio_track_has_atmos?/1)
+  end
+
+  defp audio_track_has_atmos?(%{"@type" => "Audio"} = track) do
+    additional_features = Map.get(track, "Format_AdditionalFeatures", "")
+    commercial_format = Map.get(track, "Format_Commercial_IfAny", "")
+
+    String.contains?(additional_features, "JOC") or String.contains?(commercial_format, "Atmos")
+  end
+
+  defp audio_track_has_atmos?(_), do: false
 end
