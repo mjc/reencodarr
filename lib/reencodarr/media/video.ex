@@ -146,6 +146,9 @@ defmodule Reencodarr.Media.Video do
     mediainfo["media"]["track"]
     |> Enum.filter(&(&1["@type"] == "Audio"))
     |> Enum.map(&String.to_integer(&1["Channels"] || "0"))
-    |> Enum.max()
+    |> case do
+      [] -> 0
+      channels -> Enum.max(channels)
+    end
   end
 end
