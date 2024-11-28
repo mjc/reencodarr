@@ -21,7 +21,9 @@ defmodule Reencodarr.Media.Video do
   ]
 
   @optional [
-    :bitrate, :library_id, :mediainfo
+    :bitrate,
+    :library_id,
+    :mediainfo
   ]
 
   @required [:path, :size]
