@@ -97,10 +97,12 @@ defmodule Reencodarr.Media.Video do
     cast(changeset, params, @mediainfo_params)
   end
 
+  @spec get_track(map(), String.t()) :: map() | nil
   defp get_track(mediainfo, type) do
     Enum.find(mediainfo["media"]["track"], &(&1["@type"] == type))
   end
 
+  @spec extract_codecs(map()) :: {list(String.t()), list(String.t())}
   defp extract_codecs(mediainfo) do
     Enum.reduce(mediainfo["media"]["track"], {[], []}, fn
       %{"@type" => "Video", "CodecID" => codec}, {vc, ac} -> {[codec | vc], ac}
@@ -109,6 +111,7 @@ defmodule Reencodarr.Media.Video do
     end)
   end
 
+  @spec get_hdr_format(map()) :: String.t()
   defp get_hdr_format(video_track) do
     formats = [video_track["HDR_Format"], video_track["HDR_Format_Compatibility"]]
 
@@ -118,11 +121,13 @@ defmodule Reencodarr.Media.Video do
     |> Enum.join(", ")
   end
 
+  @spec has_atmos_audio?(map()) :: boolean()
   defp has_atmos_audio?(mediainfo) do
     mediainfo["media"]["track"]
     |> Enum.any?(&audio_track_has_atmos?/1)
   end
 
+  @spec audio_track_has_atmos?(map()) :: boolean()
   defp audio_track_has_atmos?(%{"@type" => "Audio"} = track) do
     additional_features = Map.get(track, "Format_AdditionalFeatures", "")
     commercial_format = Map.get(track, "Format_Commercial_IfAny", "")
