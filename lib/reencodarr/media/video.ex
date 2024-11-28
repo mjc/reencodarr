@@ -47,15 +47,10 @@ defmodule Reencodarr.Media.Video do
 
   @spec apply_media_info(Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   defp apply_media_info(changeset, mediainfo) do
-    general = Enum.find(mediainfo["media"]["track"], &(&1["@type"] == "General"))
-    first_video = Enum.find(mediainfo["media"]["track"], &(&1["@type"] == "Video"))
+    general = get_track(mediainfo, "General")
+    first_video = get_track(mediainfo, "Video")
 
-    {video_codecs, audio_codecs} =
-      Enum.reduce(mediainfo["media"]["track"], {[], []}, fn
-        %{"@type" => "Video", "CodecID" => codec}, {vc, ac} -> {[codec | vc], ac}
-        %{"@type" => "Audio", "CodecID" => codec}, {vc, ac} -> {vc, [codec | ac]}
-        _, acc -> acc
-      end)
+    {video_codecs, audio_codecs} = extract_codecs(mediainfo)
 
     params = %{
       duration: general["Duration"],
@@ -68,7 +63,8 @@ defmodule Reencodarr.Media.Video do
       frame_rate: first_video["FrameRate"],
       video_codecs: video_codecs,
       audio_codecs: audio_codecs,
-      size: general["FileSize"]
+      size: general["FileSize"],
+      hdr: get_hdr_format(first_video)
     }
 
     cast(changeset, params, [
@@ -82,7 +78,29 @@ defmodule Reencodarr.Media.Video do
       :text_count,
       :video_codecs,
       :audio_codecs,
-      :size
+      :size,
+      :hdr
     ])
+  end
+
+  defp get_track(mediainfo, type) do
+    Enum.find(mediainfo["media"]["track"], &(&1["@type"] == type))
+  end
+
+  defp extract_codecs(mediainfo) do
+    Enum.reduce(mediainfo["media"]["track"], {[], []}, fn
+      %{"@type" => "Video", "CodecID" => codec}, {vc, ac} -> {[codec | vc], ac}
+      %{"@type" => "Audio", "CodecID" => codec}, {vc, ac} -> {vc, [codec | ac]}
+      _, acc -> acc
+    end)
+  end
+
+  defp get_hdr_format(video_track) do
+    formats = [video_track["HDR_Format"], video_track["HDR_Format_Compatibility"]]
+
+    formats
+    |> Enum.filter(&String.contains?(&1 || "", ["Dolby Vision", "HDR"]))
+    |> Enum.uniq()
+    |> Enum.join(", ")
   end
 end

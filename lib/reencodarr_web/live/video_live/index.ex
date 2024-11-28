@@ -8,11 +8,11 @@ defmodule ReencodarrWeb.VideoLive.Index do
   def mount(_params, _session, socket) do
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "videos")
     videos = Media.list_videos()
+
     {:ok,
-      socket
-      |> assign(:video_count, length(videos))
-      |> stream(:videos, videos)
-    }
+     socket
+     |> assign(:video_count, length(videos))
+     |> stream(:videos, videos)}
   end
 
   @impl true
@@ -49,10 +49,9 @@ defmodule ReencodarrWeb.VideoLive.Index do
     video_count = length(videos)
 
     {:noreply,
-      socket
-      |> stream_insert(:videos, video, at: 0)
-      |> assign(:video_count, video_count)
-    }
+     socket
+     |> stream_insert(:videos, video, at: 0)
+     |> assign(:video_count, video_count)}
   end
 
   @impl true
@@ -61,10 +60,9 @@ defmodule ReencodarrWeb.VideoLive.Index do
     video_count = length(videos)
 
     {:noreply,
-      socket
-      |> stream_insert(:videos, video, at: 0)
-      |> assign(:video_count, video_count)
-    }
+     socket
+     |> stream_insert(:videos, video, at: 0)
+     |> assign(:video_count, video_count)}
   end
 
   # Handle delete events
@@ -77,9 +75,8 @@ defmodule ReencodarrWeb.VideoLive.Index do
     video_count = length(videos)
 
     {:noreply,
-      socket
-      |> stream_delete(:videos, video)
-      |> assign(:video_count, video_count)
-    }
+     socket
+     |> stream_delete(:videos, video)
+     |> assign(:video_count, video_count)}
   end
 end

@@ -30,7 +30,7 @@ defmodule Reencodarr.Scanner do
     files = String.split(data, "\n", trim: true)
     Enum.each(files, &publish_video_file/1)
 
-    Logger.info("Found #{Enum.count(files)} video files")
+    Logger.debug("Found #{Enum.count(files)} video files")
     {:noreply, state}
   end
 
