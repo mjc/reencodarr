@@ -5,7 +5,7 @@ defmodule Reencodarr.Media do
 
   import Ecto.Query, warn: false
   alias Reencodarr.Repo
-  alias Reencodarr.Media.{Video, Library}
+  alias Reencodarr.Media.{Video, Library, Vmaf}
 
   @doc """
   Returns the list of videos.
@@ -339,5 +339,10 @@ defmodule Reencodarr.Media do
   """
   def change_vmaf(%Vmaf{} = vmaf, attrs \\ %{}) do
     Vmaf.changeset(vmaf, attrs)
+  end
+
+  @spec chosen_vmaf_exists?(integer()) :: boolean()
+  def chosen_vmaf_exists?(%{id: video_id}) do
+    Repo.exists?(from v in Vmaf, where: v.video_id == ^video_id and v.chosen == true)
   end
 end
