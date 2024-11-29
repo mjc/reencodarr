@@ -26,13 +26,14 @@ defmodule Reencodarr.CrfSearcher do
   def run(video) do
     Logger.info("Running crf search for video #{video.path}")
     vmafs = AbAv1.crf_search(video)
+    dbg(vmafs)
     Logger.info("Found #{length(vmafs)} vmafs for video #{video.id}")
     {count, nil} = Repo.delete_all(Media.Vmaf, where: [video_id: video.id])
     Logger.info("Deleted #{count} vmafs for video #{video.id}")
     Enum.map(vmafs, &Media.create_vmaf/1)
     |> Enum.find(fn
       {:ok, %{chosen: true} = vmaf} ->
-        Logger.info("Chosen crf: #{vmaf.crf}, chosen score: #{vmaf.score}")
+        Logger.info("Chosen crf: #{vmaf.crf}, chosen score: #{vmaf.score}, chosen size: #{vmaf.size}, chosen time: #{vmaf.time}")
         true
       _ -> false
     end)

@@ -8,6 +8,8 @@ defmodule Reencodarr.Media.Vmaf do
     field :crf, :float
     field :score, :float
     field :chosen, :boolean, default: false
+    field :size, :string
+    field :time, :string
     field :params, {:array, :string}
 
     field :video_id, :id
@@ -19,7 +21,7 @@ defmodule Reencodarr.Media.Vmaf do
   @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(vmaf \\ %__MODULE__{}, attrs) do
     vmaf
-    |> cast(attrs, [:score, :crf, :chosen, :params])
+    |> cast(attrs, [:score, :crf, :chosen, :size, :time, :params])
     |> validate_required([:score, :crf, :params])
   end
 end
