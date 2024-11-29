@@ -64,27 +64,19 @@ defmodule Reencodarr.AbAv1 do
   end
 
   defp attach_params(vmafs, video, args) do
-    filtered_args = Enum.filter(args, fn arg -> arg != "crf-search" end)
+    filtered_args = remove_args(args, ["crf-search", "--min-vmaf", "--temp-dir"])
+    Enum.map(vmafs, &Map.put(&1, "video_id", video.id) |> Map.put("params", filtered_args))
+  end
 
-    # Find and remove --min-vmaf and the item after it
-    filtered_args =
-      case Enum.find_index(filtered_args, &(&1 == "--min-vmaf")) do
-        nil -> filtered_args
-        index -> List.delete_at(List.delete_at(filtered_args, index), index)
+  defp remove_args(args, keys) do
+    Enum.reduce(args, {[], false}, fn arg, {acc, skip} ->
+      cond do
+        skip -> {acc, false}
+        Enum.member?(keys, arg) -> {acc, true}
+        true -> {acc ++ [arg], false}
       end
-
-    # Find and remove --temp-dir and the item after it
-    filtered_args =
-      case Enum.find_index(filtered_args, &(&1 == "--temp-dir")) do
-        nil -> filtered_args
-        index -> List.delete_at(List.delete_at(filtered_args, index), index)
-      end
-
-    Enum.map(vmafs, fn vmaf ->
-      vmaf
-      |> Map.put("video_id", video.id)
-      |> Map.put("params", filtered_args)
     end)
+    |> elem(0)
   end
 
   defp build_rules(video) do
