@@ -24,5 +24,6 @@ defmodule Reencodarr.Media.Vmaf do
     vmaf
     |> cast(attrs, [:score, :crf, :percent, :chosen, :size, :time, :params, :video_id])
     |> validate_required([:score, :crf, :params])
+    |> foreign_key_constraint(:video_id, name: "vmafs_video_id_fkey")
   end
 end
