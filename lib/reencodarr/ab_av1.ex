@@ -8,7 +8,7 @@ defmodule Reencodarr.AbAv1 do
 
   @crf_search_results ~r/
     crf \s (?<crf>\d+) \s
-    VMAF \s (?<vmaf>\d+\.\d+)
+    VMAF \s (?<score>\d+\.\d+)
     (?: \s predicted \s video \s stream \s size \s (?<size>[\d\.]+ \s \w+))?
     \s \((?<percent>\d+)%\)
     (?: \s taking \s (?<time>\d+ \s (?:minutes|seconds|hours)))?
@@ -27,6 +27,17 @@ defmodule Reencodarr.AbAv1 do
 
     run_ab_av1(args)
     |> parse_crf_search()
+    |> attach_params(args)
+  end
+
+  defp attach_params(vmafs, args) do
+    Enum.map(vmafs, fn vmaf ->
+      Map.merge(vmaf, %{
+        "params" => Enum.filter(args, fn
+          "crf-search" -> false
+          _ -> true
+        end)})
+    end)
   end
 
   @spec auto_encode(Reencodarr.Media.Video.t()) :: list(String.t())
@@ -65,6 +76,14 @@ defmodule Reencodarr.AbAv1 do
   defp parse_crf_search(output) do
     output
     |> Enum.flat_map(&parse_crf_search_line/1)
+    |> mark_last_as_chosen()
+  end
+
+  defp mark_last_as_chosen(vmafs) do
+    case Enum.split(vmafs, -1) do
+      {init, [last]} -> init ++ [Map.put(last, "chosen", true)]
+      _ -> vmafs
+    end
   end
 
   defp parse_crf_search_line(line) do
