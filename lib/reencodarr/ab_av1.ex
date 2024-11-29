@@ -16,7 +16,7 @@ defmodule Reencodarr.AbAv1 do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   @impl true
-  def init(:ok), do: {:ok, %{args: [], port: :none, video: :none}, {:continue, :resolve_ab_av1_path}}
+  def init(:ok), do: {:ok, %{args: [], port: :none, video: :none, queue: :queue.new()}, {:continue, :resolve_ab_av1_path}}
 
   @impl true
   def handle_continue(:resolve_ab_av1_path, state) do
@@ -29,6 +29,16 @@ defmodule Reencodarr.AbAv1 do
     GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
   end
 
+  @spec queue_length() :: integer
+  def queue_length do
+    GenServer.call(__MODULE__, :queue_length)
+  end
+
+  @impl true
+  def handle_call(:queue_length, _from, %{queue: queue} = state) do
+    {:reply, :queue.len(queue), state}
+  end
+
   @impl true
   def handle_cast({:crf_search, _video, _vmaf_percent}, %{ab_av1_path: :error} = state) do
     Logger.error("ab-av1 executable not found")
@@ -36,17 +46,19 @@ defmodule Reencodarr.AbAv1 do
   end
 
   @impl true
-  def handle_cast({:crf_search, video, vmaf_percent}, %{ab_av1_path: path, port: :none} = state) do
+  def handle_cast({:crf_search, video, vmaf_percent}, %{ab_av1_path: path, port: :none, queue: queue} = state) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "searching", video: video})
     args = ["crf-search"] ++ build_args(video.path, vmaf_percent, build_rules(video))
 
     port = Port.open({:spawn_executable, path}, [:binary, :exit_status, :line, :use_stdio, :stderr_to_stdout, args: args])
-    {:noreply, %{state | port: port, video: video, args: args}}
+    {:noreply, %{state | port: port, video: video, args: args, queue: queue}}
   end
 
-  def handle_cast({:crf_search, _video, _vmaf_percent}, %{port: _port} = state) do
-    Logger.warning("ab-av1 is already running")
-    {:noreply, state}
+  @impl true
+  def handle_cast({:crf_search, video, vmaf_percent}, %{port: port, queue: queue} = state) when port != :none do
+    Logger.info("Queueing crf search for video #{video.id}")
+    new_queue = :queue.in({video, vmaf_percent}, queue)
+    {:noreply, %{state | queue: new_queue}}
   end
 
   @impl true
@@ -63,8 +75,8 @@ defmodule Reencodarr.AbAv1 do
     {:noreply, state}
   end
 
-
-  def handle_info({port, {:exit_status, exit_code}}, %{port: port} = state) do
+  @impl true
+  def handle_info({port, {:exit_status, exit_code}}, %{port: port, queue: queue} = state) do
     result =
       if exit_code in [0, 1],
         do: {:ok, []},
@@ -73,7 +85,13 @@ defmodule Reencodarr.AbAv1 do
     Logger.info("Exit status: #{inspect(result)}")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "crf_search_result", result: result})
 
-    {:noreply, %{state | port: :none}}
+    case :queue.out(queue) do
+      {{:value, {video, vmaf_percent}}, new_queue} ->
+        GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
+        {:noreply, %{state | port: :none, queue: new_queue}}
+      {:empty, _} ->
+        {:noreply, %{state | port: :none}}
+    end
   end
 
   defp attach_params(vmafs, video, args) do
