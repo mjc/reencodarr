@@ -399,4 +399,50 @@ defmodule Reencodarr.Media do
   def get_chosen_vmaf_for_video(%Video{id: video_id}) do
     Repo.one(from v in Vmaf, where: v.video_id == ^video_id and v.chosen == true)
   end
+
+  @doc """
+  Finds the next not-reencoded video by chosen VMAF.
+
+  ## Examples
+
+      iex> find_next_video()
+      %Video{}
+
+      iex> find_next_video()
+      nil
+
+  """
+  @spec find_next_video() :: Video.t() | nil
+  def find_next_video do
+    import Ecto.Query, warn: false
+    alias Reencodarr.Media.{Video, Vmaf}
+
+    query = from v in Video,
+            join: m in Vmaf, on: m.video_id == v.id,
+            where: v.reencoded == false and m.chosen == true,
+            order_by: [asc: m.percent, asc: m.time],
+            limit: 1,
+            select: v
+
+    Repo.one(query)
+  end
+
+  @doc """
+  Marks a video as re-encoded.
+
+  ## Examples
+
+      iex> mark_as_reencoded(video)
+      {:ok, %Video{}}
+
+      iex> mark_as_reencoded(video)
+      {:error, %Ecto.Changeset{}}
+
+  """
+  @spec mark_as_reencoded(Video.t()) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
+  def mark_as_reencoded(%Video{} = video) do
+    video
+    |> Video.changeset(%{reencoded: true})
+    |> Repo.update()
+  end
 end

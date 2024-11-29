@@ -18,7 +18,8 @@ defmodule Reencodarr.Application do
       ReencodarrWeb.Endpoint,
       Reencodarr.Scanner,
       Reencodarr.Analyzer,
-      Reencodarr.CrfSearcher
+      Reencodarr.CrfSearcher,
+      Reencodarr.Encoder
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
