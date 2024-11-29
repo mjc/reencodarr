@@ -27,12 +27,13 @@ defmodule Reencodarr.AbAv1 do
 
     run_ab_av1(args)
     |> parse_crf_search()
-    |> attach_params(args)
+    |> attach_params(video, args)
   end
 
-  defp attach_params(vmafs, args) do
+  defp attach_params(vmafs, video, args) do
     Enum.map(vmafs, fn vmaf ->
       Map.merge(vmaf, %{
+        "video_id" => video.id,
         "params" => Enum.filter(args, fn
           "crf-search" -> false
           _ -> true
