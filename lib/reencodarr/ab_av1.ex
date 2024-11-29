@@ -34,6 +34,20 @@ defmodule Reencodarr.AbAv1 do
   defp attach_params(vmafs, video, args) do
     filtered_args = Enum.filter(args, fn arg -> arg != "crf-search" end)
 
+    # Find and remove --min-vmaf and the item after it
+    filtered_args =
+      case Enum.find_index(filtered_args, &(&1 == "--min-vmaf")) do
+        nil -> filtered_args
+        index -> List.delete_at(List.delete_at(filtered_args, index), index)
+      end
+
+    # Find and remove --temp-dir and the item after it
+    filtered_args =
+      case Enum.find_index(filtered_args, &(&1 == "--temp-dir")) do
+        nil -> filtered_args
+        index -> List.delete_at(List.delete_at(filtered_args, index), index)
+      end
+
     Enum.map(vmafs, fn vmaf ->
       vmaf
       |> Map.put("video_id", video.id)
@@ -48,6 +62,15 @@ defmodule Reencodarr.AbAv1 do
       |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
 
     args = ["auto-encode"] ++ build_args(video.path, vmaf_percent, rules)
+    run_ab_av1(args)
+  end
+
+  def encode(%Media.Vmaf{crf: crf, params: params, video: video}) do
+    filename = video.path |> Path.split() |> List.last
+    output = Path.join([temp_dir(), filename])
+    args = ["encode", "--crf", to_string(crf),  "-o", output] ++ params
+
+
     run_ab_av1(args)
   end
 

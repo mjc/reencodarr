@@ -345,4 +345,41 @@ defmodule Reencodarr.Media do
   def chosen_vmaf_exists?(%{id: video_id}) do
     Repo.exists?(from v in Vmaf, where: v.video_id == ^video_id and v.chosen == true)
   end
+
+  @doc """
+  Returns the list of chosen vmafs sorted by smallest percent and time.
+
+  ## Examples
+
+      iex> list_chosen_vmafs()
+      [%Vmaf{}, ...]
+
+  """
+  @spec list_chosen_vmafs() :: [Vmaf.t()]
+  def list_chosen_vmafs do
+    Repo.all(
+      from v in Vmaf,
+      where: v.chosen == true,
+      order_by: [asc: v.percent, asc: v.inserted_at],
+      preload: [:video]
+    )
+  end
+
+  @doc """
+  Gets the chosen Vmaf for a given video.
+
+  ## Examples
+
+      iex> get_chosen_vmaf_for_video(video)
+      %Vmaf{}
+
+      iex> get_chosen_vmaf_for_video(video)
+      nil
+
+  """
+  @spec get_chosen_vmaf_for_video(Video.t()) :: Vmaf.t() | nil
+  def get_chosen_vmaf_for_video(%Video{id: video_id}) do
+    Repo.one(from v in Vmaf, where: v.video_id == ^video_id and v.chosen == true)
+  end
+
 end

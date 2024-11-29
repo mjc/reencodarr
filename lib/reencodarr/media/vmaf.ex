@@ -13,7 +13,7 @@ defmodule Reencodarr.Media.Vmaf do
     field :time, :string
     field :params, {:array, :string}
 
-    field :video_id, :id
+    belongs_to :video, Reencodarr.Media.Video
 
     timestamps(type: :utc_datetime)
   end
@@ -22,7 +22,7 @@ defmodule Reencodarr.Media.Vmaf do
   @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(vmaf \\ %__MODULE__{}, attrs) do
     vmaf
-    |> cast(attrs, [:score, :crf, :percent, :chosen, :size, :time, :params])
+    |> cast(attrs, [:score, :crf, :percent, :chosen, :size, :time, :params, :video_id])
     |> validate_required([:score, :crf, :params])
   end
 end
