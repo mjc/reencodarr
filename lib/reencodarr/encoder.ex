@@ -5,7 +5,8 @@ defmodule Reencodarr.Encoder do
   alias Reencodarr.Media
   alias Reencodarr.AbAv1
 
-  @check_interval 5000  # 5 seconds
+  # 5 seconds
+  @check_interval 5000
 
   # Client API
 
@@ -48,15 +49,18 @@ defmodule Reencodarr.Encoder do
   def handle_info(:check_next_video, state) do
     if state.encoding do
       next_video = Media.find_next_video()
+
       if next_video do
         Logger.debug("Next video to re-encode: #{next_video.path}")
         chosen_vmaf = Media.get_chosen_vmaf_for_video(next_video)
+
         case AbAv1.encode(chosen_vmaf) do
           {:ok, output_path} ->
             destination_path = next_video.path <> ".reencoded"
             File.rename!(output_path, destination_path)
             Media.mark_as_reencoded(next_video)
             Logger.debug("Marked #{next_video.path} as re-encoded. Output path: #{output_path}")
+
           {:error, reason} ->
             Logger.error("Failed to encode #{next_video.path}: #{reason}")
             raise "Encoding failed"
@@ -64,8 +68,10 @@ defmodule Reencodarr.Encoder do
       else
         Logger.debug("No videos to re-encode")
       end
+
       schedule_check()
     end
+
     {:noreply, state}
   end
 

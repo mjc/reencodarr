@@ -15,7 +15,14 @@ defmodule Reencodarr.CrfSearcher do
   end
 
   @impl true
-  def handle_info(%Phoenix.Socket.Broadcast{topic: "videos", event: "videos", payload: %{action: "upsert", video: video}}, state) do
+  def handle_info(
+        %Phoenix.Socket.Broadcast{
+          topic: "videos",
+          event: "videos",
+          payload: %{action: "upsert", video: video}
+        },
+        state
+      ) do
     run(video)
     {:noreply, state}
   end
@@ -40,6 +47,7 @@ defmodule Reencodarr.CrfSearcher do
       {true, _} ->
         Logger.debug("Skipping crf search for video #{path} as it already has AV1 codec")
     end
+
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "scan_complete", video: video})
   end
 

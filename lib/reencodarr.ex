@@ -21,6 +21,7 @@ defmodule Reencodarr do
     |> cast(attrs, [:crf, :video_id])
     |> validate_required([:crf, :video_id])
     |> unique_constraint([:crf, :video_id])
+
     # ...existing code...
   end
 end

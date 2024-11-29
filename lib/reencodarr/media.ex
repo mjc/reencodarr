@@ -310,7 +310,10 @@ defmodule Reencodarr.Media do
   def upsert_vmaf(attrs) do
     %Vmaf{}
     |> Vmaf.changeset(attrs)
-    |> Repo.insert(on_conflict: {:replace_all_except, [:id, :video_id]}, conflict_target: [:crf, :video_id])
+    |> Repo.insert(
+      on_conflict: {:replace_all_except, [:id, :video_id]},
+      conflict_target: [:crf, :video_id]
+    )
   end
 
   @doc """
@@ -398,7 +401,9 @@ defmodule Reencodarr.Media do
   """
   @spec get_chosen_vmaf_for_video(Video.t()) :: Vmaf.t() | nil
   def get_chosen_vmaf_for_video(%Video{id: video_id}) do
-    Repo.one(from v in Vmaf, where: v.video_id == ^video_id and v.chosen == true, preload: [:video])
+    Repo.one(
+      from v in Vmaf, where: v.video_id == ^video_id and v.chosen == true, preload: [:video]
+    )
   end
 
   @doc """
@@ -418,12 +423,14 @@ defmodule Reencodarr.Media do
     import Ecto.Query, warn: false
     alias Reencodarr.Media.{Video, Vmaf}
 
-    query = from v in Video,
-            join: m in Vmaf, on: m.video_id == v.id,
-            where: v.reencoded == false and m.chosen == true,
-            order_by: [asc: m.percent, asc: m.time],
-            limit: 1,
-            select: v
+    query =
+      from v in Video,
+        join: m in Vmaf,
+        on: m.video_id == v.id,
+        where: v.reencoded == false and m.chosen == true,
+        order_by: [asc: m.percent, asc: m.time],
+        limit: 1,
+        select: v
 
     Repo.one(query)
   end
@@ -455,8 +462,11 @@ defmodule Reencodarr.Media do
           Logger.info(
             "Chosen crf: #{vmaf.crf}, chosen score: #{vmaf.score}, chosen percent: #{vmaf.percent}, chosen size: #{vmaf.size}, chosen time: #{vmaf.time}"
           )
+
           {:halt, :ok}
-        _ -> {:cont, acc}
+
+        _ ->
+          {:cont, acc}
       end
     end)
   end

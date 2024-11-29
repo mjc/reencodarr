@@ -12,10 +12,8 @@ defmodule Reencodarr.Repo.Migrations.ConvertTimeToSeconds do
       remove :time
     end
 
-    rename  table(:vmafs), :duration, to: :time
-
+    rename table(:vmafs), :duration, to: :time
   end
-
 
   defp convert_time_to_duration do
     execute """

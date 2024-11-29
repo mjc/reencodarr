@@ -72,7 +72,7 @@ defmodule Reencodarr.Rules do
   end
 
   def resolution(_) do
-    Keyword.new
+    Keyword.new()
   end
 
   @spec video(Media.Video.t()) :: keyword()
