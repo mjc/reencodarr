@@ -52,9 +52,11 @@ defmodule Reencodarr.Encoder do
         Logger.debug("Next video to re-encode: #{next_video.path}")
         chosen_vmaf = Media.get_chosen_vmaf_for_video(next_video)
         case AbAv1.encode(chosen_vmaf) do
-          {:ok, _result} ->
+          {:ok, output_path} ->
+            destination_path = next_video.path <> ".reencoded"
+            File.rename!(output_path, destination_path)
             Media.mark_as_reencoded(next_video)
-            Logger.debug("Marked #{next_video.path} as re-encoded")
+            Logger.debug("Marked #{next_video.path} as re-encoded. Output path: #{output_path}")
           {:error, reason} ->
             Logger.error("Failed to encode #{next_video.path}: #{reason}")
             raise "Encoding failed"

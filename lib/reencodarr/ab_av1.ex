@@ -16,7 +16,7 @@ defmodule Reencodarr.AbAv1 do
   /x
 
 
-  @spec crf_search(Media.Video.t()) :: list()
+  @spec crf_search(Media.Video.t(), integer) :: [any()]
   def crf_search(video, vmaf_percent \\ 95) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "searching", video: video})
 
@@ -70,10 +70,15 @@ defmodule Reencodarr.AbAv1 do
     run_ab_av1(args)
   end
 
-  @spec encode(Reencodarr.Media.Vmaf.t()) :: {:ok, list()} | {:error, String.t()}
+  @spec encode(Reencodarr.Media.Vmaf.t()) :: {:ok, String.t()} | {:error, String.t()}
   def encode(%Media.Vmaf{crf: crf, params: params, video: video}) do
-    args = ["encode", "--crf", to_string(crf), "-o", Path.join([temp_dir(), Path.basename(video.path)])] ++ params
-    run_ab_av1(args)
+    output_path = Path.join([temp_dir(), Path.basename(video.path)])
+    args = ["encode", "--crf", to_string(crf), "-o", output_path] ++ params
+
+    case run_ab_av1(args) do
+      {:ok, _output} -> {:ok, output_path}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp build_args(video_path, vmaf_percent, rules) do
