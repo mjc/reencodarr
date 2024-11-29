@@ -5,6 +5,7 @@ defmodule Reencodarr.AbAv1 do
   ab-av1 is an ffmpeg wrapper that simplifies the use of vmaf.
   """
   alias Reencodarr.Rules
+  alias Reencodarr.Media
 
   @crf_search_results ~r/
     crf \s (?<crf>\d+) \s
@@ -14,7 +15,7 @@ defmodule Reencodarr.AbAv1 do
     (?: \s taking \s (?<time>\d+ \s (?:minutes|seconds|hours)))?
   /x
 
-  @spec crf_search(Reencodarr.Media.Video.t()) :: list(map)
+  @spec crf_search(Media.Video.t()) :: list(map)
   def crf_search(video, vmaf_percent \\ 95) do
     rules =
       generate_rules(video)
@@ -31,17 +32,15 @@ defmodule Reencodarr.AbAv1 do
   end
 
   defp attach_params(vmafs, video, args) do
+    filtered_args = Enum.filter(args, fn arg -> arg != "crf-search" end)
     Enum.map(vmafs, fn vmaf ->
-      Map.merge(vmaf, %{
-        "video_id" => video.id,
-        "params" => Enum.filter(args, fn
-          "crf-search" -> false
-          _ -> true
-        end)})
+      vmaf
+      |> Map.put("video_id", video.id)
+      |> Map.put("params", filtered_args)
     end)
   end
 
-  @spec auto_encode(Reencodarr.Media.Video.t()) :: list(String.t())
+  @spec auto_encode(Media.Video.t(), integer) :: list(String.t())
   def auto_encode(video, vmaf_percent \\ 95) do
     rules = generate_rules(video)
     args = ["auto-encode"] ++ build_args(video.path, vmaf_percent, rules)
