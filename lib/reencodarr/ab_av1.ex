@@ -117,9 +117,18 @@ defmodule Reencodarr.AbAv1 do
   end
 
   defp remove_args(args, keys) do
-    Enum.reduce(args, [], fn arg, acc ->
-      if Enum.member?(keys, arg), do: acc, else: acc ++ [arg]
+    Enum.reduce(args, {[], false}, fn
+      "crf-search", {acc, _} -> {acc, false}
+      _arg, {acc, true} -> {acc, false}
+      arg, {acc, false} ->
+        if Enum.member?(keys, arg) do
+          {acc, true}
+        else
+          {[arg | acc], false}
+        end
     end)
+    |> elem(0)
+    |> Enum.reverse()
   end
 
   defp build_rules(video) do
