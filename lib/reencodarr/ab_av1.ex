@@ -9,47 +9,107 @@ defmodule Reencodarr.AbAv1 do
     (?: \s predicted \s video \s stream \s size \s (?<size>[\d\.]+ \s \w+))?
     \s \((?<percent>\d+)%\)
     (?: \s taking \s (?<time>\d+ \s (?<unit>minutes|seconds|hours)))?
+    (?: \s predicted)?
   /x
 
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   @impl true
-  def init(:ok), do: {:ok, %{}}
+  def init(:ok), do: {:ok, %{args: [], port: :none, video: :none, queue: :queue.new()}, {:continue, :resolve_ab_av1_path}}
 
-  @spec crf_search(Media.Video.t(), integer) :: [any()]
-  def crf_search(video, vmaf_percent \\ 95),
-    do: GenServer.call(__MODULE__, {:crf_search, video, vmaf_percent}, :infinity)
+  @impl true
+  def handle_continue(:resolve_ab_av1_path, state) do
+    ab_av1_path = System.find_executable("ab-av1") || :error
+    {:noreply, Map.put(state, :ab_av1_path, ab_av1_path)}
+  end
+
+  @spec crf_search(Media.Video.t(), integer) :: :ok
+  def crf_search(video, vmaf_percent \\ 95) do
+    GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
+  end
 
   @spec encode(Reencodarr.Media.Vmaf.t()) :: {:ok, String.t()} | {:error, String.t()}
   def encode(vmaf), do: GenServer.call(__MODULE__, {:encode, vmaf}, :infinity)
 
   @impl true
-  def handle_call({:crf_search, video, vmaf_percent}, _from, state) do
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "searching", video: video})
-    args = ["crf-search"] ++ build_args(video.path, vmaf_percent, build_rules(video))
-
-    result =
-      case run_ab_av1(args) do
-        {:ok, output} -> {:ok, parse_crf_search(output) |> attach_params(video, args)}
-        {:error, reason} -> {:error, "CRF search failed: #{reason}"}
-      end
-
-    {:reply, result, state}
+  def handle_cast({:crf_search, _video, _vmaf_percent}, %{ab_av1_path: :error} = state) do
+    Logger.error("ab-av1 executable not found")
+    {:noreply, state}
   end
 
   @impl true
-  def handle_call({:encode, %Media.Vmaf{crf: crf, params: params, video: video}}, _from, state) do
+  def handle_cast({:crf_search, video, vmaf_percent}, %{ab_av1_path: path, port: :none, queue: queue} = state) do
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "searching", video: video})
+    args = ["crf-search"] ++ build_args(video.path, vmaf_percent, build_rules(video))
+
+    port = Port.open({:spawn_executable, path}, [:binary, :exit_status, :line, :use_stdio, :stderr_to_stdout, args: args])
+    {:noreply, %{state | port: port, video: video, args: args}}
+  end
+
+  @impl true
+  def handle_cast({:crf_search, video, vmaf_percent}, %{queue: queue} = state) do
+    new_queue = :queue.in({video, vmaf_percent}, queue)
+    {:noreply, %{state | queue: new_queue}}
+  end
+
+  @impl true
+  def handle_call({:encode, %Media.Vmaf{}}, _from, %{ab_av1_path: :error} = state) do
+    {:reply, {:error, "ab-av1 executable not found"}, state}
+  end
+
+  @impl true
+  def handle_call({:encode, %Media.Vmaf{crf: crf, params: params, video: video}}, _from, %{ab_av1_path: path, port: :none} = state) do
     output_path = Path.join([temp_dir(), Path.basename(video.path)])
     args = ["encode", "--crf", to_string(crf), "-o", output_path] ++ params
 
-    result =
-      case run_ab_av1(args) do
-        {:ok, _output} -> {:ok, output_path}
-        {:error, reason} -> {:error, reason}
-      end
+    port = Port.open({:spawn_executable, path}, [:binary, :exit_status, :line, :use_stdio, :stderr_to_stdout, args: args])
+    result = receive do
+      {^port, {:data, data}} -> {:ok, String.split(data, "\n", trim: true)}
+      {^port, {:exit_status, exit_code}} when exit_code in [0, 1] -> {:ok, output_path}
+      {^port, {:exit_status, exit_code}} -> {:error, "ab-av1 command failed with exit code #{exit_code}"}
+    end
 
-    {:reply, result, state}
+    {:reply, result, %{state | port: :none}}
+  end
+
+  @impl true
+  def handle_call({:encode, _vmaf}, _from, state) do
+    {:reply, {:error, "A port is already open. Only one port can be opened at a time."}, state}
+  end
+
+  @impl true
+  def handle_info({port, {:data, {:eol, data}}}, %{port: port} = state) do
+    dbg(data)
+    output =
+      case data do
+        binary when is_binary(binary) -> String.split(binary, "\n", trim: true)
+        _ -> []
+      end
+    parsed_output = parse_crf_search(output)
+    result = attach_params(parsed_output, state.video, state.args)
+    Logger.info("Parsed output: #{inspect(result)}")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "crf_search_result", result: {:ok, result}})
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({port, {:exit_status, exit_code}}, %{port: port, queue: queue} = state) do
+    result =
+      if exit_code in [0, 1],
+        do: {:ok, []},
+        else: {:error, "ab-av1 command failed with exit code #{exit_code}"}
+
+    Logger.info("Exit status: #{inspect(result)}")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "crf_search_result", result: result})
+
+    case :queue.out(queue) do
+      {{:value, {video, vmaf_percent}}, new_queue} ->
+        self() |> GenServer.cast({:crf_search, video, vmaf_percent})
+        {:noreply, %{state | port: :none, queue: new_queue}}
+      {:empty, _} ->
+        {:noreply, %{state | port: :none}}
+    end
   end
 
   defp attach_params(vmafs, video, args) do
@@ -74,33 +134,9 @@ defmodule Reencodarr.AbAv1 do
       rules
   end
 
-  @spec run_ab_av1([binary()]) :: {:ok, list()} | {:error, String.t()}
-  defp run_ab_av1(args) do
-    case ab_av1_path() do
-      :error ->
-        {:error, "ab-av1 executable not found"}
-
-      path ->
-        {output, exit_code} =
-          System.cmd(path, args, into: [], stderr_to_stdout: true, lines: 1024)
-
-        if exit_code in [0, 1],
-          do: {:ok, output},
-          else: {:error, "ab-av1 command failed with exit code #{exit_code}: #{output}"}
-    end
-  end
-
   defp parse_crf_search(output) do
     output
     |> Enum.flat_map(&parse_crf_search_line/1)
-    |> mark_last_as_chosen()
-  end
-
-  defp mark_last_as_chosen(vmafs) do
-    case Enum.split(vmafs, -1) do
-      {init, [last]} -> init ++ [Map.put(last, "chosen", true)]
-      _ -> vmafs
-    end
   end
 
   defp parse_crf_search_line(line) do
@@ -109,11 +145,17 @@ defmodule Reencodarr.AbAv1 do
         []
 
       captures ->
-        [
-          convert_time_to_duration(captures)
+        map =
+          captures
+          |> convert_time_to_duration()
           |> Enum.filter(fn {_, v} -> v not in [nil, ""] end)
           |> Enum.into(%{})
-        ]
+
+        if String.contains?(line, "predicted") do
+          [Map.put(map, "chosen", true)]
+        else
+          [map]
+        end
     end
   end
 
@@ -131,8 +173,6 @@ defmodule Reencodarr.AbAv1 do
   defp convert_to_seconds(time, "minutes"), do: time * 60
   defp convert_to_seconds(time, "hours"), do: time * 3600
   defp convert_to_seconds(time, _), do: time
-
-  defp ab_av1_path, do: System.find_executable("ab-av1") || :error
 
   defp temp_dir do
     if function_exported?(Mix, :env, 0) and Mix.env() == :dev do

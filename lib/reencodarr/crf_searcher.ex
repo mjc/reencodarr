@@ -28,6 +28,19 @@ defmodule Reencodarr.CrfSearcher do
   end
 
   @impl true
+  def handle_info(%{action: "crf_search_result", result: {:ok, vmafs}}, state) do
+    Logger.info("Received CRF search results")
+    Media.process_vmafs(vmafs)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(%{action: "crf_search_result", result: {:error, reason}}, state) do
+    Logger.error("CRF search failed: #{reason}")
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(%{action: "searching", video: _video}, state), do: {:noreply, state}
   @impl true
   def handle_info(%{action: "scan_complete", video: _video}, state), do: {:noreply, state}
@@ -37,9 +50,8 @@ defmodule Reencodarr.CrfSearcher do
     case {codec_present?(codecs), Media.chosen_vmaf_exists?(video)} do
       {false, false} ->
         Logger.info("Running crf search for video #{path}")
-        vmafs = AbAv1.crf_search(video)
-        Logger.info("Found #{length(vmafs)} vmafs for video #{video_id}")
-        Media.process_vmafs(vmafs)
+        AbAv1.crf_search(video)
+        Logger.info("CRF search initiated for video #{video_id}")
 
       {false, true} ->
         Logger.info("Skipping crf search for video #{path} as a chosen VMAF already exists")
