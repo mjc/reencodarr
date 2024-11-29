@@ -20,9 +20,14 @@ defmodule Reencodarr.AbAv1 do
     {:noreply, Map.put(state, :ab_av1_path, ab_av1_path)}
   end
 
-  @spec crf_search(Reencodarr.Media.Video.t()) :: :ok
+  @spec crf_search(Media.Video.t()) :: :ok
   def crf_search(video, vmaf_percent \\ 95) do
     GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
+  end
+
+  @spec encode(Media.Vmaf.t()) :: :ok
+  def encode(vmaf) do
+    GenServer.cast(__MODULE__, {:encode, vmaf})
   end
 
   @spec queue_length() :: integer
@@ -36,7 +41,7 @@ defmodule Reencodarr.AbAv1 do
   end
 
   @impl true
-  def handle_cast({:crf_search, _video, _vmaf_percent}, %{ab_av1_path: :error} = state) do
+  def handle_cast(_, %{ab_av1_path: :error} = state) do
     Logger.error("ab-av1 executable not found")
     {:noreply, state}
   end
@@ -67,6 +72,31 @@ defmodule Reencodarr.AbAv1 do
   end
 
   @impl true
+  def handle_cast({:encode, vmaf}, %{ab_av1_path: path, port: :none} = state) do
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "encoding", video: vmaf.video})
+    args = ["encode"] ++ Helper.build_args(vmaf.video.path, vmaf.crf, vmaf.video)
+
+    port =
+      Port.open({:spawn_executable, path}, [
+        :binary,
+        :exit_status,
+        :line,
+        :use_stdio,
+        :stderr_to_stdout,
+        args: args
+      ])
+
+    {:noreply, %{state | port: port, video: vmaf.video, args: args, mode: :encode}}
+  end
+
+  @impl true
+  def handle_cast({:encode, vmaf}, %{port: port} = state) when port != :none do
+    Logger.info("Queueing encode for video #{vmaf.video.id}")
+    new_queue = :queue.in({:encode, vmaf}, state.queue)
+    {:noreply, %{state | queue: new_queue}}
+  end
+
+  @impl true
   def handle_info({port, {:data, {:eol, data}}}, %{port: port, mode: :crf_search} = state) do
     result =
       data
@@ -82,6 +112,12 @@ defmodule Reencodarr.AbAv1 do
     })
 
     {:noreply, %{state | last_vmaf: List.last(result)}}
+  end
+
+  @impl true
+  def handle_info({port, {:data, {:eol, data}}}, %{port: port, mode: :encode} = state) do
+    Logger.info("Encoding output: #{data}")
+    {:noreply, state}
   end
 
   @impl true
@@ -110,6 +146,35 @@ defmodule Reencodarr.AbAv1 do
 
       {:empty, _} ->
         {:noreply, %{state | port: :none, last_vmaf: :none, mode: :none}}
+    end
+  end
+
+  @impl true
+  def handle_info(
+        {port, {:exit_status, exit_code}},
+        %{port: port, queue: queue, mode: :encode} = state
+      ) do
+    result =
+      if exit_code == 0 do
+        {:ok, "Encoding completed successfully"}
+      else
+        {:error, "ab-av1 command failed with exit code #{exit_code}"}
+      end
+
+    Logger.info("Exit status: #{inspect(result)}")
+
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{
+      action: "encode_result",
+      result: result
+    })
+
+    case :queue.out(queue) do
+      {{:value, {:encode, vmaf}}, new_queue} ->
+        GenServer.cast(__MODULE__, {:encode, vmaf})
+        {:noreply, %{state | port: :none, queue: new_queue, mode: :none}}
+
+      {:empty, _} ->
+        {:noreply, %{state | port: :none, mode: :none}}
     end
   end
 end
