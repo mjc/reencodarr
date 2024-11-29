@@ -61,7 +61,9 @@ defmodule Reencodarr.AbAv1 do
 
   defp parse_crf_search_line(line) do
     case Regex.named_captures(@crf_search_results, line) do
-      nil -> []
+      nil ->
+        []
+
       captures ->
         [
           captures
