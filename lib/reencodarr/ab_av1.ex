@@ -80,7 +80,6 @@ defmodule Reencodarr.AbAv1 do
 
   @impl true
   def handle_info({port, {:data, {:eol, data}}}, %{port: port} = state) do
-    dbg(data)
     output =
       case data do
         binary when is_binary(binary) -> String.split(binary, "\n", trim: true)
@@ -88,7 +87,7 @@ defmodule Reencodarr.AbAv1 do
       end
     parsed_output = parse_crf_search(output)
     result = attach_params(parsed_output, state.video, state.args)
-    Logger.info("Parsed output: #{inspect(result)}")
+    if length(result) > 1, do: Logger.info("Parsed output: #{inspect(result)}")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "crf_search_result", result: {:ok, result}})
     {:noreply, state}
   end
