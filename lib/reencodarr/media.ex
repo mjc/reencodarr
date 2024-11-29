@@ -378,7 +378,7 @@ defmodule Reencodarr.Media do
     Repo.all(
       from v in Vmaf,
         where: v.chosen == true,
-        order_by: [asc: v.percent, asc: v.inserted_at],
+        order_by: [asc: v.percent, asc: v.time],
         preload: [:video]
     )
   end

@@ -24,7 +24,8 @@ defmodule Reencodarr.Media.Video do
   @optional [
     :bitrate,
     :library_id,
-    :mediainfo
+    :mediainfo,
+    :reencoded
   ]
 
   @required [:path, :size]
@@ -46,6 +47,7 @@ defmodule Reencodarr.Media.Video do
     field :video_codecs, {:array, :string}, default: []
     field :video_count, :integer
     field :width, :integer
+    field :reencoded, :boolean, default: false
 
     field :mediainfo, :map
 
