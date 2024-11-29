@@ -12,7 +12,7 @@ defmodule Reencodarr.AbAv1 do
     VMAF \s (?<score>\d+\.\d+)
     (?: \s predicted \s video \s stream \s size \s (?<size>[\d\.]+ \s \w+))?
     \s \((?<percent>\d+)%\)
-    (?: \s taking \s (?<time>\d+ \s (?:minutes|seconds|hours)))?
+    (?: \s taking \s (?<time>\d+ \s (?<unit>minutes|seconds|hours)))?
   /x
 
   @spec crf_search(Media.Video.t()) :: list(map)
@@ -113,6 +113,7 @@ defmodule Reencodarr.AbAv1 do
         []
 
       captures ->
+        captures = convert_time_to_duration(captures)
         [
           captures
           |> Enum.filter(fn {_, v} -> v not in [nil, ""] end)
@@ -120,6 +121,22 @@ defmodule Reencodarr.AbAv1 do
         ]
     end
   end
+
+  defp convert_time_to_duration(captures) do
+    with time when not is_nil(time) <- Map.get(captures, "time"),
+         unit when not is_nil(unit) <- Map.get(captures, "unit"),
+         duration <- convert_to_seconds(time, unit) do
+      captures
+      |> Map.put("time", duration)
+      |> Map.delete("unit")
+    else
+      _ -> captures
+    end
+  end
+
+  defp convert_to_seconds(time, "minutes"), do: String.to_integer(time) * 60
+  defp convert_to_seconds(time, "hours"), do: String.to_integer(time) * 3600
+  defp convert_to_seconds(time, _), do: String.to_integer(time)
 
   defp ab_av1_path do
     System.find_executable("ab-av1") || raise "ab-av1 not found"
