@@ -57,7 +57,7 @@ defmodule Reencodarr.AbAv1 do
   @spec run_ab_av1([binary()]) :: list()
   def run_ab_av1(args) do
     case System.cmd(ab_av1_path(), args, into: [], stderr_to_stdout: true) do
-      {output, 0} ->
+      {output, exit_code} when exit_code in [0, 1] ->
         output
         |> Enum.flat_map(&String.split(&1, "\n"))
         |> Enum.filter(&(&1 |> String.trim() |> String.length() > 0))
