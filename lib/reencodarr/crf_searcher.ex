@@ -16,9 +16,17 @@ defmodule Reencodarr.CrfSearcher do
   end
 
   @impl true
-  def handle_info(%Phoenix.Socket.Broadcast{
-    topic: "videos", event: "videos", payload: %{
-      action: "upsert", video: video}}, state) do
+  def handle_info(
+        %Phoenix.Socket.Broadcast{
+          topic: "videos",
+          event: "videos",
+          payload: %{
+            action: "upsert",
+            video: video
+          }
+        },
+        state
+      ) do
     run(video)
     {:noreply, state}
   end
@@ -30,32 +38,46 @@ defmodule Reencodarr.CrfSearcher do
 
   @spec run(Reencodarr.Media.Video.t()) :: :ok
   def run(%Media.Video{id: video_id, path: path, video_codecs: codecs} = video) do
-    cond do
-      Media.chosen_vmaf_exists?(video) ->
+    with {:codec, false} <- {:codec, "V_AV1" in codecs},
+         {:chosen, false} <- {:chosen, Media.chosen_vmaf_exists?(video)} do
+      Logger.info("Running crf search for video #{path}")
+      vmafs = AbAv1.crf_search(video)
+      Logger.info("Found #{length(vmafs)} vmafs for video #{video_id}")
+      delete_existing_vmafs(video_id)
+      process_vmafs(vmafs)
+      :ok
+    else
+      {:chosen, true} ->
         Logger.info("Skipping crf search for video #{path} as a chosen VMAF already exists")
         :ok
 
-      "V_AV1" in codecs ->
+      {:codec, true} ->
         Logger.info("Skipping crf search for video #{path} as it already has AV1 codec")
-        :ok
-
-      true ->
-        Logger.info("Running crf search for video #{path}")
-        vmafs = AbAv1.crf_search(video)
-        Logger.info("Found #{length(vmafs)} vmafs for video #{video_id}")
-        {count, _} = Repo.delete_all(from v in Media.Vmaf, where: v.video_id == ^video_id)
-        Logger.info("Deleted #{count} vmafs for video #{video_id}")
-
-        vmafs
-        |> Enum.map(&Media.create_vmaf/1)
-        |> Enum.find(fn
-          {:ok, %{chosen: true} = vmaf} ->
-            Logger.info("Chosen crf: #{vmaf.crf}, chosen score: #{vmaf.score}, chosen size: #{vmaf.size}, chosen time: #{vmaf.time}")
-            true
-          _ -> false
-        end)
-
         :ok
     end
   end
+
+  defp delete_existing_vmafs(video_id) do
+    {count, _} = Repo.delete_all(from v in Media.Vmaf, where: v.video_id == ^video_id)
+    Logger.info("Deleted #{count} vmafs for video #{video_id}")
+  end
+
+  defp process_vmafs(vmafs) do
+    vmafs
+    |> Enum.map(&Media.create_vmaf/1)
+    |> tap(fn x -> Enum.each(x, &log_vmaf/1) end)
+    |> Enum.any?(&chosen_vmaf?/1)
+    vmafs  # Ensure the function returns the original list
+  end
+
+  defp log_vmaf({:ok, %{chosen: true} = vmaf}) do
+    Logger.info(
+      "Chosen crf: #{vmaf.crf}, chosen score: #{vmaf.score}, chosen percent: #{vmaf.percent}, chosen size: #{vmaf.size}, chosen time: #{vmaf.time}"
+    )
+  end
+
+  defp log_vmaf(_), do: :ok
+
+  defp chosen_vmaf?({:ok, %{chosen: true}}), do: true
+  defp chosen_vmaf?(_), do: false
 end

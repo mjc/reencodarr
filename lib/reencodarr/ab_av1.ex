@@ -19,9 +19,10 @@ defmodule Reencodarr.AbAv1 do
   def crf_search(video, vmaf_percent \\ 95) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "searching", video: video})
 
-    rules = Rules.apply(video)
-            |> Enum.reject(fn {k, _v} -> k == :"--acodec" end)
-            |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
+    rules =
+      Rules.apply(video)
+      |> Enum.reject(fn {k, _v} -> k == :"--acodec" end)
+      |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
 
     args = ["crf-search"] ++ build_args(video.path, vmaf_percent, rules)
 
@@ -32,6 +33,7 @@ defmodule Reencodarr.AbAv1 do
 
   defp attach_params(vmafs, video, args) do
     filtered_args = Enum.filter(args, fn arg -> arg != "crf-search" end)
+
     Enum.map(vmafs, fn vmaf ->
       vmaf
       |> Map.put("video_id", video.id)
@@ -41,12 +43,13 @@ defmodule Reencodarr.AbAv1 do
 
   @spec auto_encode(Media.Video.t(), integer) :: list(String.t())
   def auto_encode(video, vmaf_percent \\ 95) do
-    rules = Rules.apply(video)
-            |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
+    rules =
+      Rules.apply(video)
+      |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
+
     args = ["auto-encode"] ++ build_args(video.path, vmaf_percent, rules)
     run_ab_av1(args)
   end
-
 
   defp build_args(video_path, vmaf_percent, rules) do
     input_arg = ["-i", video_path]
