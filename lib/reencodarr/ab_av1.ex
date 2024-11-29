@@ -95,13 +95,11 @@ defmodule Reencodarr.AbAv1 do
 
   @spec run_ab_av1([binary()]) :: {:ok, list()} | {:error, String.t()}
   defp run_ab_av1(args) do
-    case System.cmd(ab_av1_path(), args, into: [], stderr_to_stdout: true) do
-      {output, exit_code} when exit_code in [0, 1] ->
-        {:ok, output
-        |> Enum.flat_map(&String.split(&1, "\n"))
-        |> Enum.filter(&(&1 |> String.trim() |> String.length() > 0))}
-      {output, exit_code} ->
-        {:error, "ab-av1 command failed with exit code #{exit_code}: #{output}"}
+    case ab_av1_path() do
+      :error -> {:error, "ab-av1 executable not found"}
+      path ->
+        {output, exit_code} = System.cmd(path, args, into: [], stderr_to_stdout: true, lines: 1024)
+        if exit_code in [0, 1], do: {:ok, output}, else: {:error, "ab-av1 command failed with exit code #{exit_code}: #{output}"}
     end
   end
 
@@ -150,8 +148,9 @@ defmodule Reencodarr.AbAv1 do
   defp convert_to_seconds(time, "hours"), do: time * 3600
   defp convert_to_seconds(time, _), do: time
 
+
   defp ab_av1_path do
-    System.find_executable("ab-av1") || raise "ab-av1 not found"
+    System.find_executable("ab-av1") || :error
   end
 
   defp temp_dir do
