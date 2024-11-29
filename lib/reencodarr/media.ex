@@ -295,6 +295,24 @@ defmodule Reencodarr.Media do
   end
 
   @doc """
+  Upserts a vmaf.
+
+  ## Examples
+
+      iex> upsert_vmaf(%{field: value})
+      {:ok, %Vmaf{}}
+
+      iex> upsert_vmaf(%{field: bad_value})
+      {:error, %Ecto.Changeset{}}
+  """
+  @spec upsert_vmaf(map()) :: {:ok, Vmaf.t()} | {:error, Ecto.Changeset.t()}
+  def upsert_vmaf(attrs) do
+    %Vmaf{}
+    |> Vmaf.changeset(attrs)
+    |> Repo.insert(on_conflict: {:replace_all_except, [:id, :video_id]}, conflict_target: [:crf, :video_id])
+  end
+
+  @doc """
   Updates a vmaf.
 
   ## Examples

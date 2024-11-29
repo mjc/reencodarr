@@ -1,8 +1,7 @@
 defmodule Reencodarr.CrfSearcher do
   use GenServer
-  alias Reencodarr.{AbAv1, Media, Repo}
+  alias Reencodarr.{AbAv1, Media}
   require Logger
-  import Ecto.Query
 
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_opts) do
@@ -48,7 +47,6 @@ defmodule Reencodarr.CrfSearcher do
       Logger.info("Running crf search for video #{path}")
       vmafs = AbAv1.crf_search(video)
       Logger.info("Found #{length(vmafs)} vmafs for video #{video_id}")
-      delete_existing_vmafs(video_id)
       process_vmafs(vmafs)
       :ok
     else
@@ -66,14 +64,10 @@ defmodule Reencodarr.CrfSearcher do
     :ok
   end
 
-  defp delete_existing_vmafs(video_id) do
-    {count, _} = Repo.delete_all(from v in Media.Vmaf, where: v.video_id == ^video_id)
-    Logger.info("Deleted #{count} vmafs for video #{video_id}")
-  end
 
   defp process_vmafs(vmafs) do
     vmafs
-    |> Enum.map(&Media.create_vmaf/1)
+    |> Enum.map(&Media.upsert_vmaf/1)
     |> tap(fn x -> Enum.each(x, &log_vmaf/1) end)
     |> Enum.any?(&chosen_vmaf?/1)
 
