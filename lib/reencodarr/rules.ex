@@ -10,7 +10,7 @@ defmodule Reencodarr.Rules do
     8 => 256
   }
 
-  @spec apply(Reencodarr.Media.Video.t()) :: keyword(String.t())
+  @spec apply(Media.Video.t()) :: keyword()
   def apply(video) do
     rules_to_apply = [
       &audio/1,
@@ -20,13 +20,13 @@ defmodule Reencodarr.Rules do
       &video/1
     ]
 
-    Enum.flat_map(rules_to_apply, & &1.(video))
+    Keyword.new(Enum.flat_map(rules_to_apply, & &1.(video)))
   end
 
-  @spec audio(Reencodarr.Media.Video.t()) :: keyword(String.t())
+  @spec audio(Media.Video.t()) :: keyword()
   def audio(%Media.Video{atmos: false, max_audio_channels: channels, audio_codecs: audio_codecs}) do
     if @opus_codec_tag in audio_codecs do
-      []
+      Keyword.new()
     else
       [
         {:"--acodec", "libopus"},
@@ -42,41 +42,41 @@ defmodule Reencodarr.Rules do
     Map.get(@recommended_opus_bitrates, channels, 512)
   end
 
-  @spec cuda(Media.Video.t()) :: keyword(String.t())
+  @spec cuda(any()) :: keyword()
   def cuda(_) do
-    [{:"--enc-input", "hwaccel=cuda"}]
+    Keyword.new([{:"--enc-input", "hwaccel=cuda"}])
   end
 
-  @spec grain(Reencodarr.Media.Video.t(), integer) :: keyword(String.t())
+  @spec grain(Media.Video.t(), integer()) :: keyword()
   def grain(%Media.Video{hdr: nil}, strength) do
-    [{:"--svt", "film-grain=#{strength}:film-grain-denoise=0"}]
+    Keyword.new([{:"--svt", "film-grain=#{strength}:film-grain-denoise=0"}])
   end
 
   def grain(_, _), do: []
 
-  @spec hdr(Media.Video.t()) :: keyword(String.t())
+  @spec hdr(Media.Video.t()) :: keyword()
   def hdr(%Media.Video{hdr: nil}) do
-    [{:"--svt", "tune=0"}]
+    Keyword.new([{:"--svt", "tune=0"}])
   end
 
   def hdr(_) do
-    [
+    Keyword.new([
       {:"--encoder", "libx265"},
       {:"--preset", "medium"}
-    ]
+    ])
   end
 
-  @spec resolution(Media.Video.t()) :: keyword(String.t())
+  @spec resolution(Media.Video.t()) :: keyword()
   def resolution(%Media.Video{width: width}) when width > 1080 do
-    [{:"--vfilter", "scale=1920:-2"}]
+    Keyword.new([{:"--vfilter", "scale=1920:-2"}])
   end
 
   def resolution(_) do
-    []
+    Keyword.new
   end
 
-  @spec video(Media.Video.t()) :: keyword(String.t())
+  @spec video(Media.Video.t()) :: keyword()
   def video(_) do
-    [{:"--pix-format", "yuv420p10le"}]
+    Keyword.new([{:"--pix-format", "yuv420p10le"}])
   end
 end
