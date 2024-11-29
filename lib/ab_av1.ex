@@ -43,19 +43,17 @@ defmodule Reencodarr.AbAv1 do
     ] ++ rules
   end
 
+  @spec run_ab_av1([binary()]) :: list()
   def run_ab_av1(args) do
-    {output, exit_code} = System.cmd(ab_av1_path(), args, into: [], stderr_to_stdout: true)
-    process_command_output(output, exit_code)
-  end
+    case System.cmd(ab_av1_path(), args, into: [], stderr_to_stdout: true) do
+      {output, 0} ->
+        output
+        |> Enum.flat_map(&String.split(&1, "\n"))
+        |> Enum.filter(&(&1 |> String.trim() |> String.length() > 0))
 
-  defp process_command_output(output, 0) do
-    output
-    |> Enum.flat_map(&String.split(&1, "\n"))
-    |> Enum.filter(&(&1 |> String.trim() |> String.length() > 0))
-  end
-
-  defp process_command_output(output, exit_code) do
-    raise "ab-av1 command failed with exit code #{exit_code}: #{output}"
+      {output, exit_code} ->
+        raise "ab-av1 command failed with exit code #{exit_code}: #{output}"
+    end
   end
 
   defp parse_crf_search(output) do
