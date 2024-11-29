@@ -62,6 +62,7 @@ defmodule Reencodarr.CrfSearcher do
     end
 
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "scan_complete", video: video})
+
     :ok
   end
 
@@ -75,7 +76,9 @@ defmodule Reencodarr.CrfSearcher do
     |> Enum.map(&Media.create_vmaf/1)
     |> tap(fn x -> Enum.each(x, &log_vmaf/1) end)
     |> Enum.any?(&chosen_vmaf?/1)
-    vmafs  # Ensure the function returns the original list
+
+    # Ensure the function returns the original list
+    vmafs
   end
 
   defp log_vmaf({:ok, %{chosen: true} = vmaf}) do

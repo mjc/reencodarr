@@ -359,9 +359,9 @@ defmodule Reencodarr.Media do
   def list_chosen_vmafs do
     Repo.all(
       from v in Vmaf,
-      where: v.chosen == true,
-      order_by: [asc: v.percent, asc: v.inserted_at],
-      preload: [:video]
+        where: v.chosen == true,
+        order_by: [asc: v.percent, asc: v.inserted_at],
+        preload: [:video]
     )
   end
 
@@ -381,5 +381,4 @@ defmodule Reencodarr.Media do
   def get_chosen_vmaf_for_video(%Video{id: video_id}) do
     Repo.one(from v in Vmaf, where: v.video_id == ^video_id and v.chosen == true)
   end
-
 end

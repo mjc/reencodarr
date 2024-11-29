@@ -66,10 +66,9 @@ defmodule Reencodarr.AbAv1 do
   end
 
   def encode(%Media.Vmaf{crf: crf, params: params, video: video}) do
-    filename = video.path |> Path.split() |> List.last
+    filename = video.path |> Path.split() |> List.last()
     output = Path.join([temp_dir(), filename])
-    args = ["encode", "--crf", to_string(crf),  "-o", output] ++ params
-
+    args = ["encode", "--crf", to_string(crf), "-o", output] ++ params
 
     run_ab_av1(args)
   end
