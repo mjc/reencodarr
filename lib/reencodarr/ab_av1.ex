@@ -1,11 +1,7 @@
 defmodule Reencodarr.AbAv1 do
-  @moduledoc """
-  This module is the frontend for interacting with ab-av1.
-
-  ab-av1 is an ffmpeg wrapper that simplifies the use of vmaf.
-  """
-  alias Reencodarr.Rules
-  alias Reencodarr.Media
+  use GenServer
+  alias Reencodarr.{Rules, Media}
+  require Logger
 
   @crf_search_results ~r/
     crf \s (?<crf>\d+) \s
@@ -15,22 +11,56 @@ defmodule Reencodarr.AbAv1 do
     (?: \s taking \s (?<time>\d+ \s (?<unit>minutes|seconds|hours)))?
   /x
 
+  @spec start_link(any()) :: GenServer.on_start()
+  def start_link(_opts) do
+    GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
+  end
+
+  @impl true
+  def init(:ok), do: {:ok, %{}}
 
   @spec crf_search(Media.Video.t(), integer) :: [any()]
   def crf_search(video, vmaf_percent \\ 95) do
+    GenServer.call(__MODULE__, {:crf_search, video, vmaf_percent}, :infinity)
+  end
+
+  @spec encode(Reencodarr.Media.Vmaf.t()) :: {:ok, String.t()} | {:error, String.t()}
+  def encode(vmaf) do
+    GenServer.call(__MODULE__, {:encode, vmaf}, :infinity)
+  end
+
+  @impl true
+  def handle_call({:crf_search, video, vmaf_percent}, _from, state) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "searching", video: video})
 
     rules = build_rules(video)
     args = ["crf-search"] ++ build_args(video.path, vmaf_percent, rules)
 
-    case run_ab_av1(args) do
-      {:ok, output} ->
-        output
-        |> parse_crf_search()
-        |> attach_params(video, args)
-      {:error, reason} ->
-        raise "CRF search failed: #{reason}"
-    end
+    result =
+      case run_ab_av1(args) do
+        {:ok, output} ->
+          output
+          |> parse_crf_search()
+          |> attach_params(video, args)
+        {:error, reason} ->
+          raise "CRF search failed: #{reason}"
+      end
+
+    {:reply, result, state}
+  end
+
+  @impl true
+  def handle_call({:encode, %Media.Vmaf{crf: crf, params: params, video: video}}, _from, state) do
+    output_path = Path.join([temp_dir(), Path.basename(video.path)])
+    args = ["encode", "--crf", to_string(crf), "-o", output_path] ++ params
+
+    result =
+      case run_ab_av1(args) do
+        {:ok, _output} -> {:ok, output_path}
+        {:error, reason} -> {:error, reason}
+      end
+
+    {:reply, result, state}
   end
 
   defp attach_params(vmafs, video, args) do
@@ -57,17 +87,6 @@ defmodule Reencodarr.AbAv1 do
     end)
   end
 
-  @spec encode(Reencodarr.Media.Vmaf.t()) :: {:ok, String.t()} | {:error, String.t()}
-  def encode(%Media.Vmaf{crf: crf, params: params, video: video}) do
-    output_path = Path.join([temp_dir(), Path.basename(video.path)])
-    args = ["encode", "--crf", to_string(crf), "-o", output_path] ++ params
-
-    case run_ab_av1(args) do
-      {:ok, _output} -> {:ok, output_path}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   defp build_rules(video) do
     Rules.apply(video)
     |> Enum.reject(fn {k, _v} -> k == :"--acodec" end)
@@ -83,7 +102,7 @@ defmodule Reencodarr.AbAv1 do
   end
 
   @spec run_ab_av1([binary()]) :: {:ok, list()} | {:error, String.t()}
-  def run_ab_av1(args) do
+  defp run_ab_av1(args) do
     case System.cmd(ab_av1_path(), args, into: [], stderr_to_stdout: true) do
       {output, exit_code} when exit_code in [0, 1] ->
         {:ok, output

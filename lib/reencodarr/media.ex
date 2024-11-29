@@ -6,6 +6,7 @@ defmodule Reencodarr.Media do
   import Ecto.Query, warn: false
   alias Reencodarr.Repo
   alias Reencodarr.Media.{Video, Library, Vmaf}
+  require Logger
 
   @doc """
   Returns the list of videos.

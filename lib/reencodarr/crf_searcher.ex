@@ -27,7 +27,7 @@ defmodule Reencodarr.CrfSearcher do
 
   @spec run(Reencodarr.Media.Video.t()) :: :ok
   def run(%Media.Video{id: video_id, path: path, video_codecs: codecs} = video) do
-    case {already_av1?(codecs), Media.chosen_vmaf_exists?(video)} do
+    case {codec_present?(codecs), Media.chosen_vmaf_exists?(video)} do
       {false, false} ->
         Logger.info("Running crf search for video #{path}")
         vmafs = AbAv1.crf_search(video)
@@ -43,5 +43,5 @@ defmodule Reencodarr.CrfSearcher do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "scan_complete", video: video})
   end
 
-  defp already_av1?(codecs), do: "V_AV1" in codecs
+  defp codec_present?(codecs), do: "V_AV1" in codecs
 end
