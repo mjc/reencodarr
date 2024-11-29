@@ -25,12 +25,7 @@ defmodule Reencodarr.Media.Vmaf do
   def changeset(vmaf \\ %__MODULE__{}, attrs) do
     vmaf
     |> cast(attrs, [:score, :crf, :percent, :chosen, :size, :time, :params, :video_id])
-    |> maybe_mark_chosen()
     |> validate_required([:score, :crf, :params])
     |> foreign_key_constraint(:video_id, name: "vmafs_video_id_fkey")
-  end
-
-  defp maybe_mark_chosen(params) do
-    dbg(params)
   end
 end
