@@ -445,4 +445,18 @@ defmodule Reencodarr.Media do
     |> Video.changeset(%{reencoded: true})
     |> Repo.update()
   end
+
+  @spec process_vmafs([Vmaf.t()]) :: :ok | :error
+  def process_vmafs(vmafs) do
+    Enum.reduce_while(vmafs, :error, fn vmaf, acc ->
+      case upsert_vmaf(vmaf) do
+        {:ok, %{chosen: true} = vmaf} ->
+          Logger.info(
+            "Chosen crf: #{vmaf.crf}, chosen score: #{vmaf.score}, chosen percent: #{vmaf.percent}, chosen size: #{vmaf.size}, chosen time: #{vmaf.time}"
+          )
+          {:halt, :ok}
+        _ -> {:cont, acc}
+      end
+    end)
+  end
 end

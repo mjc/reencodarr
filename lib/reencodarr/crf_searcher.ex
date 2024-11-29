@@ -15,74 +15,33 @@ defmodule Reencodarr.CrfSearcher do
   end
 
   @impl true
-  def handle_info(
-        %Phoenix.Socket.Broadcast{
-          topic: "videos",
-          event: "videos",
-          payload: %{
-            action: "upsert",
-            video: video
-          }
-        },
-        state
-      ) do
+  def handle_info(%Phoenix.Socket.Broadcast{topic: "videos", event: "videos", payload: %{action: "upsert", video: video}}, state) do
     run(video)
     {:noreply, state}
   end
 
   @impl true
-  def handle_info(%{action: "searching", video: _video}, state) do
-    {:noreply, state}
-  end
-
+  def handle_info(%{action: "searching", video: _video}, state), do: {:noreply, state}
   @impl true
-  def handle_info(%{action: "scan_complete", video: _video}, state) do
-    {:noreply, state}
-  end
+  def handle_info(%{action: "scan_complete", video: _video}, state), do: {:noreply, state}
 
   @spec run(Reencodarr.Media.Video.t()) :: :ok
   def run(%Media.Video{id: video_id, path: path, video_codecs: codecs} = video) do
-    with {:codec, false} <- {:codec, "V_AV1" in codecs},
-         {:chosen, false} <- {:chosen, Media.chosen_vmaf_exists?(video)} do
-      Logger.info("Running crf search for video #{path}")
-      vmafs = AbAv1.crf_search(video)
-      Logger.info("Found #{length(vmafs)} vmafs for video #{video_id}")
-      process_vmafs(vmafs)
-      :ok
-    else
-      {:chosen, true} ->
+    case {already_av1?(codecs), Media.chosen_vmaf_exists?(video)} do
+      {false, false} ->
+        Logger.info("Running crf search for video #{path}")
+        vmafs = AbAv1.crf_search(video)
+        Logger.info("Found #{length(vmafs)} vmafs for video #{video_id}")
+        Media.process_vmafs(vmafs)
+
+      {false, true} ->
         Logger.info("Skipping crf search for video #{path} as a chosen VMAF already exists")
-        :ok
 
-      {:codec, true} ->
+      {true, _} ->
         Logger.debug("Skipping crf search for video #{path} as it already has AV1 codec")
-        :ok
     end
-
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "scan_complete", video: video})
-
-    :ok
   end
 
-
-  defp process_vmafs(vmafs) do
-    vmafs
-    |> Enum.map(&Media.upsert_vmaf/1)
-    |> tap(fn x -> Enum.each(x, &log_vmaf/1) end)
-    |> Enum.any?(&chosen_vmaf?/1)
-
-    # Ensure the function returns the original list
-    vmafs
-  end
-
-  defp log_vmaf({:ok, %{chosen: true} = vmaf}) do
-    Logger.info(
-      "Chosen crf: #{vmaf.crf}, chosen score: #{vmaf.score}, chosen percent: #{vmaf.percent}, chosen size: #{vmaf.size}, chosen time: #{vmaf.time}"
-    )
-  end
-
-  defp log_vmaf(_), do: :ok
-
-  defp chosen_vmaf?({:ok, %{chosen: true}}), do: true
-  defp chosen_vmaf?(_), do: false
+  defp already_av1?(codecs), do: "V_AV1" in codecs
 end
