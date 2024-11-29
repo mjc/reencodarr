@@ -34,14 +34,11 @@ defmodule Reencodarr.AbAv1 do
   end
 
   defp build_args(video_path, vmaf_percent, rules) do
-    [
-      "-i",
-      video_path,
-      "--min-vmaf",
-      Integer.to_string(vmaf_percent),
-      "--temp-dir",
-      temp_dir()
-    ] ++ rules
+    input_arg = ["-i", video_path]
+    vmaf_arg = ["--min-vmaf", Integer.to_string(vmaf_percent)]
+    temp_dir_arg = ["--temp-dir", temp_dir()]
+
+    input_arg ++ vmaf_arg ++ temp_dir_arg ++ rules
   end
 
   @spec run_ab_av1([binary()]) :: list()
@@ -64,17 +61,11 @@ defmodule Reencodarr.AbAv1 do
 
   defp parse_crf_search_line(line) do
     case Regex.named_captures(@crf_search_results, line) do
-      nil ->
-        []
-
+      nil -> []
       captures ->
         [
           captures
-          |> Enum.reject(fn
-            {_, nil} -> true
-            {_, ""} -> true
-            _ -> false
-          end)
+          |> Enum.filter(fn {_, v} -> v not in [nil, ""] end)
           |> Enum.into(%{})
         ]
     end
