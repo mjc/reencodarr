@@ -16,7 +16,7 @@ defmodule Reencodarr.AbAv1 do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   @impl true
-  def init(:ok), do: {:ok, %{args: [], port: :none, video: :none, queue: :queue.new()}, {:continue, :resolve_ab_av1_path}}
+  def init(:ok), do: {:ok, %{args: [], port: :none, video: :none, queue: :queue.new(), last_vmaf: nil}, {:continue, :resolve_ab_av1_path}}
 
   @impl true
   def handle_continue(:resolve_ab_av1_path, state) do
@@ -62,7 +62,7 @@ defmodule Reencodarr.AbAv1 do
   end
 
   @impl true
-  def handle_info({port, {:data, {:eol, data}}}, %{port: port} = state) do
+  def handle_info({port, {:data, {:eol, data}}}, %{port: port, last_vmaf: _last_vmaf} = state) do
     output =
       case data do
         binary when is_binary(binary) -> String.split(binary, "\n", trim: true)
@@ -71,15 +71,16 @@ defmodule Reencodarr.AbAv1 do
     parsed_output = parse_crf_search(output)
     result = attach_params(parsed_output, state.video, state.args)
     if length(result) > 1, do: Logger.info("Parsed output: #{inspect(result)}")
+    last_vmaf = List.last(result)
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "crf_search_result", result: {:ok, result}})
-    {:noreply, state}
+    {:noreply, %{state | last_vmaf: last_vmaf}}
   end
 
   @impl true
-  def handle_info({port, {:exit_status, exit_code}}, %{port: port, queue: queue} = state) do
+  def handle_info({port, {:exit_status, exit_code}}, %{port: port, queue: queue, last_vmaf: last_vmaf} = state) do
     result =
       if exit_code in [0, 1],
-        do: {:ok, []},
+        do: {:ok, [Map.put(last_vmaf, "chosen", true)]},
         else: {:error, "ab-av1 command failed with exit code #{exit_code}"}
 
     Logger.info("Exit status: #{inspect(result)}")
@@ -88,15 +89,19 @@ defmodule Reencodarr.AbAv1 do
     case :queue.out(queue) do
       {{:value, {:crf_search, video, vmaf_percent}}, new_queue} ->
         GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
-        {:noreply, %{state | port: :none, queue: new_queue}}
+        {:noreply, %{state | port: :none, queue: new_queue, last_vmaf: nil}}
       {:empty, _} ->
-        {:noreply, %{state | port: :none}}
+        {:noreply, %{state | port: :none, last_vmaf: nil}}
     end
   end
 
   defp attach_params(vmafs, video, args) do
     filtered_args = remove_args(args, ["crf-search", "--min-vmaf", "--temp-dir"])
-    Enum.map(vmafs, &(Map.put(&1, "video_id", video.id) |> Map.put("params", filtered_args)))
+    Enum.map(vmafs, fn vmaf ->
+      vmaf
+      |> Map.put("video_id", video.id)
+      |> Map.put("params", filtered_args)
+    end)
   end
 
   defp remove_args(args, keys) do
@@ -135,9 +140,13 @@ defmodule Reencodarr.AbAv1 do
   end
 
   defp convert_time_to_duration(%{"time" => time, "unit" => unit} = captures) do
-    {time_value, _} = Integer.parse(time)
-    duration = convert_to_seconds(time_value, unit)
-    captures |> Map.put("time", duration) |> Map.delete("unit")
+    case Integer.parse(time) do
+      {time_value, _} ->
+        duration = convert_to_seconds(time_value, unit)
+        captures |> Map.put("time", duration) |> Map.delete("unit")
+      :error ->
+        captures
+    end
   end
 
   defp convert_time_to_duration(captures), do: captures
