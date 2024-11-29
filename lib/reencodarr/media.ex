@@ -341,7 +341,7 @@ defmodule Reencodarr.Media do
     Vmaf.changeset(vmaf, attrs)
   end
 
-  @spec chosen_vmaf_exists?(integer()) :: boolean()
+  @spec chosen_vmaf_exists?(Video.t()) :: boolean()
   def chosen_vmaf_exists?(%{id: video_id}) do
     Repo.exists?(from v in Vmaf, where: v.video_id == ^video_id and v.chosen == true)
   end
