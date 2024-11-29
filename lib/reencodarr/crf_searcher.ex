@@ -57,7 +57,7 @@ defmodule Reencodarr.CrfSearcher do
         :ok
 
       {:codec, true} ->
-        Logger.info("Skipping crf search for video #{path} as it already has AV1 codec")
+        Logger.debug("Skipping crf search for video #{path} as it already has AV1 codec")
         :ok
     end
 
