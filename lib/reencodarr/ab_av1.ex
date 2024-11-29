@@ -151,6 +151,10 @@ defmodule Reencodarr.AbAv1 do
   end
 
   defp temp_dir do
+    if function_exported?(Mix, :env, 0) and Mix.env() == :dev do
+      Path.join([File.cwd!(), "tmp", "ab-av1"])
+    else
     Path.join(System.tmp_dir!(), "ab-av1")
+    end
   end
 end
