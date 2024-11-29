@@ -15,7 +15,7 @@ defmodule Reencodarr.AbAv1 do
     (?: \s taking \s (?<time>\d+ \s (?<unit>minutes|seconds|hours)))?
   /x
 
-  @spec crf_search(Media.Video.t()) :: list(map)
+
   def crf_search(video, vmaf_percent \\ 95) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "searching", video: video})
 
@@ -55,7 +55,6 @@ defmodule Reencodarr.AbAv1 do
     end)
   end
 
-  @spec auto_encode(Media.Video.t(), integer) :: list(String.t())
   def auto_encode(video, vmaf_percent \\ 95) do
     rules =
       Rules.apply(video)
@@ -123,9 +122,10 @@ defmodule Reencodarr.AbAv1 do
   end
 
   defp convert_time_to_duration(captures) do
-    with time when not is_nil(time) <- Map.get(captures, "time"),
-         unit when not is_nil(unit) <- Map.get(captures, "unit"),
-         duration <- convert_to_seconds(time, unit) do
+    with time when not is_nil(time) and time != "" <- Map.get(captures, "time"),
+         unit when not is_nil(unit) and unit != "" <- Map.get(captures, "unit"),
+         {time_value, _} <- Integer.parse(time),
+         duration <- convert_to_seconds(time_value, unit) do
       captures
       |> Map.put("time", duration)
       |> Map.delete("unit")
@@ -134,9 +134,9 @@ defmodule Reencodarr.AbAv1 do
     end
   end
 
-  defp convert_to_seconds(time, "minutes"), do: String.to_integer(time) * 60
-  defp convert_to_seconds(time, "hours"), do: String.to_integer(time) * 3600
-  defp convert_to_seconds(time, _), do: String.to_integer(time)
+  defp convert_to_seconds(time, "minutes"), do: time * 60
+  defp convert_to_seconds(time, "hours"), do: time * 3600
+  defp convert_to_seconds(time, _), do: time
 
   defp ab_av1_path do
     System.find_executable("ab-av1") || raise "ab-av1 not found"
