@@ -17,6 +17,7 @@ defmodule Reencodarr.AbAv1 do
       end)
 
     args = ["crf-search"] ++ build_args(video.path, vmaf_percent, rules)
+
     run_ab_av1(args)
     |> parse_crf_search()
   end
@@ -63,32 +64,20 @@ defmodule Reencodarr.AbAv1 do
 
   defp parse_crf_search_line(line) do
     case Regex.named_captures(@crf_search_results, line) do
-      %{"crf" => crf, "vmaf" => vmaf, "percent" => percent} = captures ->
-        [
-          %{
-            crf: String.to_integer(crf),
-            vmaf: String.to_float(vmaf),
-            percent: String.to_integer(percent)
-          }
-          |> Map.merge(optional_fields(captures))
-        ]
-
-      _ ->
+      nil ->
         []
+
+      captures ->
+        [
+          captures
+          |> Enum.reject(fn
+            {_, nil} -> true
+            {_, ""} -> true
+            _ -> false
+          end)
+          |> Enum.into(%{})
+        ]
     end
-  end
-
-  defp optional_fields(captures) do
-    Enum.reduce(captures, %{}, fn
-      {"size", size}, acc when size != nil and size != "" ->
-        Map.put(acc, :size, size)
-
-      {"time", time}, acc when time != nil and time != "" ->
-        Map.put(acc, :time, String.to_integer(time))
-
-      _, acc ->
-        acc
-    end)
   end
 
   defp ab_av1_path do
