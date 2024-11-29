@@ -16,6 +16,7 @@ defmodule Reencodarr.AbAv1 do
   /x
 
 
+  @spec crf_search(Media.Video.t()) :: list()
   def crf_search(video, vmaf_percent \\ 95) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "searching", video: video})
 
