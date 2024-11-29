@@ -62,18 +62,12 @@ defmodule Reencodarr.AbAv1 do
   end
 
   @impl true
-  def handle_info({port, {:data, {:eol, data}}}, %{port: port, last_vmaf: _last_vmaf} = state) do
-    output =
-      case data do
-        binary when is_binary(binary) -> String.split(binary, "\n", trim: true)
-        _ -> []
-      end
-    parsed_output = parse_crf_search(output)
-    result = attach_params(parsed_output, state.video, state.args)
-    if length(result) > 1, do: Logger.info("Parsed output: #{inspect(result)}")
-    last_vmaf = List.last(result)
+  def handle_info({port, {:data, {:eol, data}}}, %{port: port} = state) do
+    output = String.split(data, "\n", trim: true)
+    result = attach_params(parse_crf_search(output), state.video, state.args)
+    Logger.info("Parsed output: #{inspect(result)}")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "crf_search_result", result: {:ok, result}})
-    {:noreply, %{state | last_vmaf: last_vmaf}}
+    {:noreply, %{state | last_vmaf: List.last(result)}}
   end
 
   @impl true
@@ -97,16 +91,11 @@ defmodule Reencodarr.AbAv1 do
 
   defp attach_params(vmafs, video, args) do
     filtered_args = remove_args(args, ["crf-search", "--min-vmaf", "--temp-dir"])
-    Enum.map(vmafs, fn vmaf ->
-      vmaf
-      |> Map.put("video_id", video.id)
-      |> Map.put("params", filtered_args)
-    end)
+    Enum.map(vmafs, &Map.put(&1, "video_id", video.id) |> Map.put("params", filtered_args))
   end
 
   defp remove_args(args, keys) do
     Enum.reduce(args, {[], false}, fn
-      "crf-search", {acc, _} -> {acc, false}
       _arg, {acc, true} -> {acc, false}
       arg, {acc, false} ->
         if Enum.member?(keys, arg) do
@@ -126,8 +115,7 @@ defmodule Reencodarr.AbAv1 do
   end
 
   defp build_args(video_path, vmaf_percent, rules) do
-    ["-i", video_path, "--min-vmaf", Integer.to_string(vmaf_percent), "--temp-dir", temp_dir()] ++
-      rules
+    ["-i", video_path, "--min-vmaf", Integer.to_string(vmaf_percent), "--temp-dir", temp_dir()] ++ rules
   end
 
   defp parse_crf_search(output) do
@@ -141,11 +129,8 @@ defmodule Reencodarr.AbAv1 do
 
   defp convert_time_to_duration(%{"time" => time, "unit" => unit} = captures) do
     case Integer.parse(time) do
-      {time_value, _} ->
-        duration = convert_to_seconds(time_value, unit)
-        captures |> Map.put("time", duration) |> Map.delete("unit")
-      :error ->
-        captures
+      {time_value, _} -> Map.put(captures, "time", convert_to_seconds(time_value, unit)) |> Map.delete("unit")
+      :error -> captures
     end
   end
 
