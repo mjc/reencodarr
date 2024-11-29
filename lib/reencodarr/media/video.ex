@@ -18,7 +18,8 @@ defmodule Reencodarr.Media.Video do
     :max_audio_channels,
     :size,
     :hdr,
-    :atmos
+    :atmos,
+    :reencoded
   ]
 
   @optional [
@@ -83,6 +84,8 @@ defmodule Reencodarr.Media.Video do
     atmos = has_atmos_audio?(mediainfo)
     max_audio_channels = get_max_audio_channels(mediainfo)
 
+    reencoded = Enum.any?(video_codecs, &(&1 == "V_AV1"))
+
     params = %{
       audio_codecs: audio_codecs,
       audio_count: general["AudioCount"],
@@ -97,7 +100,8 @@ defmodule Reencodarr.Media.Video do
       text_count: general["TextCount"],
       video_codecs: video_codecs,
       video_count: general["VideoCount"],
-      width: first_video["Width"]
+      width: first_video["Width"],
+      reencoded: reencoded
     }
 
     cast(changeset, params, @mediainfo_params)
