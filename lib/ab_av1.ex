@@ -17,8 +17,8 @@ defmodule Reencodarr.AbAv1 do
       end)
 
     args = ["crf-search"] ++ build_args(video.path, vmaf_percent, rules)
-    {output, exit_code} = run_ab_av1(args)
-    {parse_crf_search(output), exit_code}
+    run_ab_av1(args)
+    |> parse_crf_search()
   end
 
   def auto_encode(video, vmaf_percent \\ 95) do
@@ -45,14 +45,22 @@ defmodule Reencodarr.AbAv1 do
 
   def run_ab_av1(args) do
     {output, exit_code} = System.cmd(ab_av1_path(), args, into: [], stderr_to_stdout: true)
-    if exit_code != 0 do
-      raise "ab-av1 command failed with exit code #{exit_code}: #{output}"
-    end
-    {output |> Enum.flat_map(&String.split(&1, "\n")) |> Enum.filter(fn x -> x |> String.trim() |> String.length() > 0 end), exit_code}
+    process_command_output(output, exit_code)
+  end
+
+  defp process_command_output(output, 0) do
+    output
+    |> Enum.flat_map(&String.split(&1, "\n"))
+    |> Enum.filter(&(&1 |> String.trim() |> String.length() > 0))
+  end
+
+  defp process_command_output(output, exit_code) do
+    raise "ab-av1 command failed with exit code #{exit_code}: #{output}"
   end
 
   defp parse_crf_search(output) do
-    Enum.flat_map(output, &parse_crf_search_line/1)
+    output
+    |> Enum.flat_map(&parse_crf_search_line/1)
   end
 
   defp parse_crf_search_line(line) do
