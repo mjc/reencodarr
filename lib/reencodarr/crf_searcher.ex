@@ -55,6 +55,9 @@ defmodule Reencodarr.CrfSearcher do
         Logger.info("Skipping crf search for video #{path} as it already has AV1 codec")
         :ok
     end
+
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "scan_complete", video: video})
+    :ok
   end
 
   defp delete_existing_vmafs(video_id) do

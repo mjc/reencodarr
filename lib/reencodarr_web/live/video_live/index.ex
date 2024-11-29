@@ -64,6 +64,14 @@ defmodule ReencodarrWeb.VideoLive.Index do
   end
 
   @impl true
+  def handle_info(
+        %{action: "scan_complete", video: _video},
+        socket
+      ) do
+    {:noreply, assign(socket, :searching_video, nil)}
+  end
+
+  @impl true
   def handle_info({ReencodarrWeb.VideoLive.FormComponent, {:saved, video}}, socket) do
     videos = Media.list_videos()
     video_count = length(videos)
