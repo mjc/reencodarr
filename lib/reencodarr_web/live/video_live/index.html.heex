@@ -7,6 +7,10 @@
   </:actions>
 </.header>
 
+<%= if @searching_video do %>
+  <div>Currently searching CRF for: <%= @searching_video %></div>
+<% end %>
+
 <.table
   id="videos"
   rows={@streams.videos}

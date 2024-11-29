@@ -22,11 +22,15 @@ defmodule Reencodarr.CrfSearcher do
     {:noreply, state}
   end
 
+  @impl true
+  def handle_info(%{action: "searching", video: _video}, state) do
+    {:noreply, state}
+  end
+
   @spec run(Reencodarr.Media.Video.t()) :: :ok
   def run(video) do
     Logger.info("Running crf search for video #{video.path}")
     vmafs = AbAv1.crf_search(video)
-    dbg(vmafs)
     Logger.info("Found #{length(vmafs)} vmafs for video #{video.id}")
     {count, nil} = Repo.delete_all(Media.Vmaf, where: [video_id: video.id])
     Logger.info("Deleted #{count} vmafs for video #{video.id}")

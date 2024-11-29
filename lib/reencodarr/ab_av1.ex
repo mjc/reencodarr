@@ -17,6 +17,8 @@ defmodule Reencodarr.AbAv1 do
 
   @spec crf_search(Media.Video.t()) :: list(map)
   def crf_search(video, vmaf_percent \\ 95) do
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "searching", video: video})
+
     rules = Rules.apply(video)
             |> Enum.reject(fn {k, _v} -> k == :"--acodec" end)
             |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)

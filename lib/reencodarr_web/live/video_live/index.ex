@@ -12,6 +12,7 @@ defmodule ReencodarrWeb.VideoLive.Index do
     {:ok,
      socket
      |> assign(:video_count, length(videos))
+     |> assign(:searching_video, nil)
      |> stream(:videos, videos)}
   end
 
@@ -52,6 +53,14 @@ defmodule ReencodarrWeb.VideoLive.Index do
      socket
      |> stream_insert(:videos, video, at: 0)
      |> assign(:video_count, video_count)}
+  end
+
+  @impl true
+  def handle_info(
+        %{action: "searching", video: video},
+        socket
+      ) do
+    {:noreply, assign(socket, :searching_video, video.path)}
   end
 
   @impl true
