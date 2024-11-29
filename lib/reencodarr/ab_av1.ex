@@ -27,9 +27,14 @@ defmodule Reencodarr.AbAv1 do
 
     args = ["crf-search"] ++ build_args(video.path, vmaf_percent, rules)
 
-    run_ab_av1(args)
-    |> parse_crf_search()
-    |> attach_params(video, args)
+    case run_ab_av1(args) do
+      {:ok, output} ->
+        output
+        |> parse_crf_search()
+        |> attach_params(video, args)
+      {:error, reason} ->
+        raise "CRF search failed: #{reason}"
+    end
   end
 
   defp attach_params(vmafs, video, args) do
@@ -65,11 +70,9 @@ defmodule Reencodarr.AbAv1 do
     run_ab_av1(args)
   end
 
+  @spec encode(Reencodarr.Media.Vmaf.t()) :: {:ok, list()} | {:error, String.t()}
   def encode(%Media.Vmaf{crf: crf, params: params, video: video}) do
-    filename = video.path |> Path.split() |> List.last()
-    output = Path.join([temp_dir(), filename])
-    args = ["encode", "--crf", to_string(crf), "-o", output] ++ params
-
+    args = ["encode", "--crf", to_string(crf), "-o", Path.join([temp_dir(), Path.basename(video.path)])] ++ params
     run_ab_av1(args)
   end
 
@@ -81,16 +84,15 @@ defmodule Reencodarr.AbAv1 do
     input_arg ++ vmaf_arg ++ temp_dir_arg ++ rules
   end
 
-  @spec run_ab_av1([binary()]) :: list()
+  @spec run_ab_av1([binary()]) :: {:ok, list()} | {:error, String.t()}
   def run_ab_av1(args) do
     case System.cmd(ab_av1_path(), args, into: [], stderr_to_stdout: true) do
       {output, exit_code} when exit_code in [0, 1] ->
-        output
+        {:ok, output
         |> Enum.flat_map(&String.split(&1, "\n"))
-        |> Enum.filter(&(&1 |> String.trim() |> String.length() > 0))
-
+        |> Enum.filter(&(&1 |> String.trim() |> String.length() > 0))}
       {output, exit_code} ->
-        raise "ab-av1 command failed with exit code #{exit_code}: #{output}"
+        {:error, "ab-av1 command failed with exit code #{exit_code}: #{output}"}
     end
   end
 

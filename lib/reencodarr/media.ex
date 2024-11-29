@@ -397,7 +397,7 @@ defmodule Reencodarr.Media do
   """
   @spec get_chosen_vmaf_for_video(Video.t()) :: Vmaf.t() | nil
   def get_chosen_vmaf_for_video(%Video{id: video_id}) do
-    Repo.one(from v in Vmaf, where: v.video_id == ^video_id and v.chosen == true)
+    Repo.one(from v in Vmaf, where: v.video_id == ^video_id and v.chosen == true, preload: [:video])
   end
 
   @doc """
