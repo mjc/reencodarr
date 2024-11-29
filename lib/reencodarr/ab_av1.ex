@@ -57,7 +57,7 @@ defmodule Reencodarr.AbAv1 do
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: port, queue: queue} = state) when port != :none do
     Logger.info("Queueing crf search for video #{video.id}")
-    new_queue = :queue.in({video, vmaf_percent}, queue)
+    new_queue = :queue.in({:crf_search, video, vmaf_percent}, queue)
     {:noreply, %{state | queue: new_queue}}
   end
 
@@ -86,7 +86,7 @@ defmodule Reencodarr.AbAv1 do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "crf_search_result", result: result})
 
     case :queue.out(queue) do
-      {{:value, {video, vmaf_percent}}, new_queue} ->
+      {{:value, {:crf_search, video, vmaf_percent}}, new_queue} ->
         GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
         {:noreply, %{state | port: :none, queue: new_queue}}
       {:empty, _} ->
@@ -126,40 +126,21 @@ defmodule Reencodarr.AbAv1 do
   end
 
   defp parse_crf_search(output) do
-    output
-    |> Enum.flat_map(&parse_crf_search_line/1)
-  end
-
-  defp parse_crf_search_line(line) do
-    case Regex.named_captures(@crf_search_results, line) do
-      nil ->
-        []
-
-      captures ->
-        map =
-          captures
-          |> convert_time_to_duration()
-          |> Enum.filter(fn {_, v} -> v not in [nil, ""] end)
-          |> Enum.into(%{})
-
-        if String.contains?(line, "predicted") do
-          [Map.put(map, "chosen", true)]
-        else
-          [map]
-        end
+    for line <- output, captures = Regex.named_captures(@crf_search_results, line), captures != nil do
+      captures
+      |> convert_time_to_duration()
+      |> Enum.reject(fn {_, v} -> v in [nil, ""] end)
+      |> Enum.into(%{})
     end
   end
 
-  defp convert_time_to_duration(captures) do
-    with time when not is_nil(time) and time != "" <- Map.get(captures, "time"),
-         unit when not is_nil(unit) and unit != "" <- Map.get(captures, "unit"),
-         {time_value, _} <- Integer.parse(time),
-         duration <- convert_to_seconds(time_value, unit) do
-      captures |> Map.put("time", duration) |> Map.delete("unit")
-    else
-      _ -> captures
-    end
+  defp convert_time_to_duration(%{"time" => time, "unit" => unit} = captures) do
+    {time_value, _} = Integer.parse(time)
+    duration = convert_to_seconds(time_value, unit)
+    captures |> Map.put("time", duration) |> Map.delete("unit")
   end
+
+  defp convert_time_to_duration(captures), do: captures
 
   defp convert_to_seconds(time, "minutes"), do: time * 60
   defp convert_to_seconds(time, "hours"), do: time * 3600
