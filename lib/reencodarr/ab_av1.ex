@@ -17,12 +17,9 @@ defmodule Reencodarr.AbAv1 do
 
   @spec crf_search(Media.Video.t()) :: list(map)
   def crf_search(video, vmaf_percent \\ 95) do
-    rules =
-      generate_rules(video)
-      |> Enum.filter(fn
-        {"--acodec", _} -> false
-        _ -> true
-      end)
+    rules = Rules.apply(video)
+            |> Enum.reject(fn {k, _v} -> k == :"--acodec" end)
+            |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
 
     args = ["crf-search"] ++ build_args(video.path, vmaf_percent, rules)
 
@@ -42,15 +39,12 @@ defmodule Reencodarr.AbAv1 do
 
   @spec auto_encode(Media.Video.t(), integer) :: list(String.t())
   def auto_encode(video, vmaf_percent \\ 95) do
-    rules = generate_rules(video)
+    rules = Rules.apply(video)
+            |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
     args = ["auto-encode"] ++ build_args(video.path, vmaf_percent, rules)
     run_ab_av1(args)
   end
 
-  defp generate_rules(video) do
-    Rules.apply(video)
-    |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
-  end
 
   defp build_args(video_path, vmaf_percent, rules) do
     input_arg = ["-i", video_path]

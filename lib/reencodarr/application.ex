@@ -17,7 +17,8 @@ defmodule Reencodarr.Application do
       # Start to serve requests, typically the last entry
       ReencodarrWeb.Endpoint,
       Reencodarr.Scanner,
-      Reencodarr.Analyzer
+      Reencodarr.Analyzer,
+      Reencodarr.CrfSearcher
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
