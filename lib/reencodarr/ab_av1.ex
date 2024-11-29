@@ -12,38 +12,27 @@ defmodule Reencodarr.AbAv1 do
   /x
 
   @spec start_link(any()) :: GenServer.on_start()
-  def start_link(_opts) do
-    GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
-  end
+  def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   @impl true
   def init(:ok), do: {:ok, %{}}
 
   @spec crf_search(Media.Video.t(), integer) :: [any()]
-  def crf_search(video, vmaf_percent \\ 95) do
-    GenServer.call(__MODULE__, {:crf_search, video, vmaf_percent}, :infinity)
-  end
+  def crf_search(video, vmaf_percent \\ 95),
+    do: GenServer.call(__MODULE__, {:crf_search, video, vmaf_percent}, :infinity)
 
   @spec encode(Reencodarr.Media.Vmaf.t()) :: {:ok, String.t()} | {:error, String.t()}
-  def encode(vmaf) do
-    GenServer.call(__MODULE__, {:encode, vmaf}, :infinity)
-  end
+  def encode(vmaf), do: GenServer.call(__MODULE__, {:encode, vmaf}, :infinity)
 
   @impl true
   def handle_call({:crf_search, video, vmaf_percent}, _from, state) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "searching", video: video})
-
-    rules = build_rules(video)
-    args = ["crf-search"] ++ build_args(video.path, vmaf_percent, rules)
+    args = ["crf-search"] ++ build_args(video.path, vmaf_percent, build_rules(video))
 
     result =
       case run_ab_av1(args) do
-        {:ok, output} ->
-          output
-          |> parse_crf_search()
-          |> attach_params(video, args)
-        {:error, reason} ->
-          raise "CRF search failed: #{reason}"
+        {:ok, output} -> {:ok, parse_crf_search(output) |> attach_params(video, args)}
+        {:error, reason} -> {:error, "CRF search failed: #{reason}"}
       end
 
     {:reply, result, state}
@@ -65,18 +54,13 @@ defmodule Reencodarr.AbAv1 do
 
   defp attach_params(vmafs, video, args) do
     filtered_args = remove_args(args, ["crf-search", "--min-vmaf", "--temp-dir"])
-    Enum.map(vmafs, &Map.put(&1, "video_id", video.id) |> Map.put("params", filtered_args))
+    Enum.map(vmafs, &(Map.put(&1, "video_id", video.id) |> Map.put("params", filtered_args)))
   end
 
   defp remove_args(args, keys) do
-    Enum.reduce(args, {[], false}, fn arg, {acc, skip} ->
-      cond do
-        skip -> {acc, false}
-        Enum.member?(keys, arg) -> {acc, true}
-        true -> {acc ++ [arg], false}
-      end
+    Enum.reduce(args, [], fn arg, acc ->
+      if Enum.member?(keys, arg), do: acc, else: acc ++ [arg]
     end)
-    |> elem(0)
   end
 
   defp build_rules(video) do
@@ -86,20 +70,23 @@ defmodule Reencodarr.AbAv1 do
   end
 
   defp build_args(video_path, vmaf_percent, rules) do
-    input_arg = ["-i", video_path]
-    vmaf_arg = ["--min-vmaf", Integer.to_string(vmaf_percent)]
-    temp_dir_arg = ["--temp-dir", temp_dir()]
-
-    input_arg ++ vmaf_arg ++ temp_dir_arg ++ rules
+    ["-i", video_path, "--min-vmaf", Integer.to_string(vmaf_percent), "--temp-dir", temp_dir()] ++
+      rules
   end
 
   @spec run_ab_av1([binary()]) :: {:ok, list()} | {:error, String.t()}
   defp run_ab_av1(args) do
     case ab_av1_path() do
-      :error -> {:error, "ab-av1 executable not found"}
+      :error ->
+        {:error, "ab-av1 executable not found"}
+
       path ->
-        {output, exit_code} = System.cmd(path, args, into: [], stderr_to_stdout: true, lines: 1024)
-        if exit_code in [0, 1], do: {:ok, output}, else: {:error, "ab-av1 command failed with exit code #{exit_code}: #{output}"}
+        {output, exit_code} =
+          System.cmd(path, args, into: [], stderr_to_stdout: true, lines: 1024)
+
+        if exit_code in [0, 1],
+          do: {:ok, output},
+          else: {:error, "ab-av1 command failed with exit code #{exit_code}: #{output}"}
     end
   end
 
@@ -122,9 +109,8 @@ defmodule Reencodarr.AbAv1 do
         []
 
       captures ->
-        captures = convert_time_to_duration(captures)
         [
-          captures
+          convert_time_to_duration(captures)
           |> Enum.filter(fn {_, v} -> v not in [nil, ""] end)
           |> Enum.into(%{})
         ]
@@ -136,9 +122,7 @@ defmodule Reencodarr.AbAv1 do
          unit when not is_nil(unit) and unit != "" <- Map.get(captures, "unit"),
          {time_value, _} <- Integer.parse(time),
          duration <- convert_to_seconds(time_value, unit) do
-      captures
-      |> Map.put("time", duration)
-      |> Map.delete("unit")
+      captures |> Map.put("time", duration) |> Map.delete("unit")
     else
       _ -> captures
     end
@@ -148,10 +132,7 @@ defmodule Reencodarr.AbAv1 do
   defp convert_to_seconds(time, "hours"), do: time * 3600
   defp convert_to_seconds(time, _), do: time
 
-
-  defp ab_av1_path do
-    System.find_executable("ab-av1") || :error
-  end
+  defp ab_av1_path, do: System.find_executable("ab-av1") || :error
 
   defp temp_dir do
     if function_exported?(Mix, :env, 0) and Mix.env() == :dev do
