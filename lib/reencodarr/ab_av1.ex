@@ -6,8 +6,15 @@ defmodule Reencodarr.AbAv1 do
   """
   alias Reencodarr.Rules
 
-  @crf_search_results ~r/crf (?<crf>\d+) VMAF (?<vmaf>\d+\.\d+)(?: predicted video stream size (?<size>[\d\.]+ \w+))? \((?<percent>\d+)%\)(?: taking (?<time>\d+) minutes)?/
+  @crf_search_results ~r/
+    crf \s (?<crf>\d+) \s
+    VMAF \s (?<vmaf>\d+\.\d+)
+    (?: \s predicted \s video \s stream \s size \s (?<size>[\d\.]+ \s \w+))?
+    \s \((?<percent>\d+)%\)
+    (?: \s taking \s (?<time>\d+ \s (?:minutes|seconds|hours)))?
+  /x
 
+  @spec crf_search(Reencodarr.Media.Video.t()) :: list(map)
   def crf_search(video, vmaf_percent \\ 95) do
     rules =
       generate_rules(video)
@@ -22,6 +29,7 @@ defmodule Reencodarr.AbAv1 do
     |> parse_crf_search()
   end
 
+  @spec auto_encode(Reencodarr.Media.Video.t()) :: list(String.t())
   def auto_encode(video, vmaf_percent \\ 95) do
     rules = generate_rules(video)
     args = ["auto-encode"] ++ build_args(video.path, vmaf_percent, rules)
