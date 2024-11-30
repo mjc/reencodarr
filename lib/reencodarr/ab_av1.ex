@@ -241,7 +241,7 @@ defmodule Reencodarr.AbAv1.Helper do
   @spec build_rules(Media.Video.t()) :: list(String.t())
   def build_rules(video) do
     Rules.apply(video)
-    |> Enum.reject(fn {k, _v} -> k == :"--acodec" end)
+    |> Enum.reject(fn {k, _v} -> k == "--acodec" end)
     |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
   end
 
