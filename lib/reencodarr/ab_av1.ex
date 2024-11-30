@@ -58,7 +58,7 @@ defmodule Reencodarr.AbAv1 do
 
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: port} = state) when port != :none do
-    Logger.info("Queueing crf search for video #{video.id}")
+    Logger.debug("Queueing crf search for video #{video.id}")
     new_queue = :queue.in({:crf_search, video, vmaf_percent}, state.queue)
     new_state = %{state | queue: new_queue, crf_searches: state.crf_searches + 1}
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{action: "queue:update", crf_searches: new_state.crf_searches, encodes: new_state.encodes})
