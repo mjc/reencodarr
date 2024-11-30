@@ -3,8 +3,8 @@ defmodule ReencodarrWeb.QueueComponent do
 
   def render(assigns) do
     ~H"""
-    <div class="w-3/4">
-      <table class="min-w-full bg-white rounded-lg shadow-lg">
+    <div class="w-full bg-white rounded-lg shadow-lg p-4">
+      <table class="min-w-full">
         <thead>
           <tr>
             <th class="px-6 py-3 border-b-2 border-gray-300 text-left leading-4 text-gray-600 tracking-wider">Queue Type</th>

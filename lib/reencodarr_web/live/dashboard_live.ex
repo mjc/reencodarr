@@ -55,15 +55,17 @@ defmodule ReencodarrWeb.DashboardLive do
   def render(assigns) do
     ~H"""
     <div class="min-h-screen bg-gray-100 flex flex-col items-center justify-center space-y-8">
-      <div class="w-3/4 flex justify-between items-center mb-4">
+      <div class="w-full flex justify-between items-center mb-4 px-4">
         <button phx-click="start_encode" phx-value-vmaf_id={@lowest_vmaf.id} class="bg-blue-500 text-white px-4 py-2 rounded shadow">
           Queue Encode Manually
         </button>
       </div>
 
-      <.live_component module={ReencodarrWeb.QueueComponent} id="queue-component" queue_length={@queue_length} />
-      <.live_component module={ReencodarrWeb.ProgressComponent} id="progress-component" progress={@progress} crf_progress={@crf_progress} />
-      <.live_component module={ReencodarrWeb.StatsComponent} id="stats-component" stats={@stats} lowest_vmaf={@lowest_vmaf} />
+      <div class="w-full grid grid-cols-1 md:grid-cols-2 gap-4 px-4">
+        <.live_component module={ReencodarrWeb.QueueComponent} id="queue-component" queue_length={@queue_length} />
+        <.live_component module={ReencodarrWeb.ProgressComponent} id="progress-component" progress={@progress} crf_progress={@crf_progress} />
+        <.live_component module={ReencodarrWeb.StatsComponent} id="stats-component" stats={@stats} lowest_vmaf={@lowest_vmaf} />
+      </div>
     </div>
     """
   end
