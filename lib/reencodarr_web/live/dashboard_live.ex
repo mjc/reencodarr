@@ -7,7 +7,8 @@ defmodule ReencodarrWeb.DashboardLive do
     if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("scanning")
     stats = Media.fetch_stats()
     queue_length = AbAv1.queue_length()
-    {:ok, assign(socket, :stats, stats) |> assign(:queue_length, queue_length)}
+    lowest_vmaf_percentage = Media.lowest_chosen_vmaf_percentage()
+    {:ok, assign(socket, :stats, stats) |> assign(:queue_length, queue_length) |> assign(:lowest_vmaf_percentage, lowest_vmaf_percentage)}
   end
 
   def handle_info(%{action: action} = msg, socket) do
@@ -22,7 +23,8 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp update_stats(socket) do
     stats = Media.fetch_stats()
-    {:noreply, assign(socket, :stats, stats)}
+    lowest_vmaf_percentage = Media.lowest_chosen_vmaf_percentage()
+    {:noreply, assign(socket, :stats, stats) |> assign(:lowest_vmaf_percentage, lowest_vmaf_percentage)}
   end
 
   defp update_queue_length(socket, crf_searches, encodes) do
@@ -51,6 +53,10 @@ defmodule ReencodarrWeb.DashboardLive do
             <div class="flex justify-between items-center">
               <span class="text-lg font-medium text-gray-700">Average VMAF Percentage:</span>
               <span class="text-lg font-semibold text-gray-900"><%= @stats.avg_vmaf_percentage %></span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-lg font-medium text-gray-700">Lowest Chosen VMAF Percentage:</span>
+              <span class="text-lg font-semibold text-gray-900"><%= @lowest_vmaf_percentage %></span>
             </div>
             <div class="flex justify-between items-center">
               <span class="text-lg font-medium text-gray-700">Total VMAFs:</span>

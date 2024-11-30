@@ -508,4 +508,19 @@ defmodule Reencodarr.Media do
     total_vmafs = Repo.aggregate(Vmaf, :count, :id)
     Map.merge(counts, %{total_videos: total_videos, avg_vmaf_percentage: avg_vmaf_percentage, total_vmafs: total_vmafs})
   end
+
+  @doc """
+  Returns the lowest chosen VMAF percentage.
+
+  ## Examples
+
+      iex> lowest_chosen_vmaf_percentage()
+      75.5
+
+  """
+  @spec lowest_chosen_vmaf_percentage() :: float() | nil
+  def lowest_chosen_vmaf_percentage do
+    from(v in Vmaf, where: v.chosen == true, select: fragment("MIN(?)", v.percent))
+    |> Repo.one()
+  end
 end
