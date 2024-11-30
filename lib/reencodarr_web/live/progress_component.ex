@@ -21,7 +21,10 @@ defmodule ReencodarrWeb.ProgressComponent do
                 <div class="text-sm leading-5 text-gray-900">Starting <%= @progress.video.title %></div>
               <% else %>
                 <%= if Map.has_key?(@progress, :percent) do %>
-                  <div class="text-sm leading-5 text-gray-900"><%= @progress.percent %> % @ <%= @progress.fps %> fps, ETA: <%= @progress.human_readable_eta %></div>
+                  <div class="text-sm leading-5 text-gray-900"><%= Integer.parse(to_string(@progress.percent)) |> elem(0) %> % @ <%= @progress.fps %> fps, ETA: <%= @progress.human_readable_eta %></div>
+                  <div class="w-full bg-gray-200 rounded-full h-2.5 mt-2">
+                    <div class="bg-blue-600 h-2.5 rounded-full" style={"width: #{Integer.parse(to_string(@progress.percent)) |> elem(0)}%"}></div>
+                  </div>
                 <% else %>
                   <div class="text-sm leading-5 text-gray-900">No encoding in progress</div>
                 <% end %>
@@ -34,7 +37,7 @@ defmodule ReencodarrWeb.ProgressComponent do
             </td>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
               <%= if Map.has_key?(@crf_progress, :percent) do %>
-                <div class="text-sm leading-5 text-gray-900">CRF: <%= @crf_progress.crf %>, Percent: <%= @crf_progress.percent %> % (of original size), VMAF Score: <%= @crf_progress.score %> (Target: <%= @crf_progress.target_vmaf %>)</div>
+                <div class="text-sm leading-5 text-gray-900">CRF: <%= @crf_progress.crf %>, Percent: <%= Integer.parse(to_string(@crf_progress.percent)) |> elem(0) %> % (of original size), VMAF Score: <%= @crf_progress.score %> (Target: <%= @crf_progress.target_vmaf %>)</div>
               <% else %>
                 <div class="text-sm leading-5 text-gray-900">No CRF search in progress</div>
               <% end %>
@@ -44,5 +47,11 @@ defmodule ReencodarrWeb.ProgressComponent do
       </table>
     </div>
     """
+  end
+
+  def get_lowest_chosen_vmaf_by_time(videos) do
+    videos
+    |> Enum.filter(fn video -> !video.reencoded end)
+    |> Enum.min_by(& &1.chosen_vmaf, fn -> nil end)
   end
 end

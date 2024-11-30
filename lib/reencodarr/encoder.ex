@@ -117,10 +117,11 @@ defmodule Reencodarr.Encoder do
   end
 
   @impl true
-  def handle_info(msg, state) do
-    Logger.warning("Unhandled message: #{inspect(msg)}")
+
+  def handle_info(%{action: "encoding", video: video} = _msg, state) do
     {:noreply, state}
   end
+
 
   @impl true
   def terminate(_reason, _state) do
