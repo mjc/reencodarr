@@ -19,7 +19,8 @@ defmodule Reencodarr.Media.Video do
     :size,
     :hdr,
     :atmos,
-    :reencoded
+    :reencoded,
+    :title
   ]
 
   @optional [
@@ -49,6 +50,7 @@ defmodule Reencodarr.Media.Video do
     field :video_count, :integer
     field :width, :integer
     field :reencoded, :boolean, default: false
+    field :title, :string
 
     field :mediainfo, :map
 
@@ -86,6 +88,8 @@ defmodule Reencodarr.Media.Video do
 
     reencoded = Enum.any?(video_codecs, &(&1 == "V_AV1"))
 
+    title = general["Title"] || Path.basename(get_field(changeset, :path))
+
     params = %{
       audio_codecs: audio_codecs,
       audio_count: general["AudioCount"],
@@ -101,10 +105,12 @@ defmodule Reencodarr.Media.Video do
       video_codecs: video_codecs,
       video_count: general["VideoCount"],
       width: first_video["Width"],
-      reencoded: reencoded
+      reencoded: reencoded,
+      title: title
     }
 
-    cast(changeset, params, @mediainfo_params)
+    changeset
+    |> cast(params, @mediainfo_params)
   end
 
   @spec get_track(map(), String.t()) :: map() | nil

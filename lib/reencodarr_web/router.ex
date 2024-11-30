@@ -17,7 +17,7 @@ defmodule ReencodarrWeb.Router do
   scope "/", ReencodarrWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    live "/", DashboardLive, :index
 
     live "/videos", VideoLive.Index, :index
     live "/videos/new", VideoLive.Index, :new

@@ -61,7 +61,8 @@ defmodule Reencodarr.MixProject do
       {:bandit, "~> 1.5"},
       {:broadway, "~> 1.1"},
       {:broadway_dashboard, "~> 0.4.0"},
-      {:dialyxir, "~> 1.1", only: [:dev], runtime: false}
+      {:dialyxir, "~> 1.1", only: [:dev], runtime: false},
+      {:contex, "~> 0.5.0"}
     ]
   end
 
