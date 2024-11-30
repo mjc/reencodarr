@@ -63,8 +63,14 @@ defmodule Reencodarr.Encoder do
   end
 
   @impl true
-  def handle_info(%{action: "encoding_progress", video: video, percent: percent, fps: fps, eta: eta}, state) do
-    Logger.info("Encoding progress for video #{video.id}: #{percent}% at #{fps} fps, ETA: #{eta} seconds")
+  def handle_info(
+        %{action: "encoding_progress", video: video, percent: percent, fps: fps, eta: eta},
+        state
+      ) do
+    Logger.info(
+      "Encoding progress for video #{video.id}: #{percent}% at #{fps} fps, ETA: #{eta} seconds"
+    )
+
     {:noreply, state}
   end
 

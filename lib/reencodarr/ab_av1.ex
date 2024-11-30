@@ -52,7 +52,7 @@ defmodule Reencodarr.AbAv1 do
     args = ["crf-search"] ++ Helper.build_args(video.path, vmaf_percent, video)
 
     {:noreply,
-     %{state | port: Helper.open_port(path, args), video: video, args: args, mode: :crf_search}}
+     %{state | port: Helper.open_port(args), video: video, args: args, mode: :crf_search}}
   end
 
   @impl true
@@ -83,7 +83,7 @@ defmodule Reencodarr.AbAv1 do
       ] ++ params
 
     {:noreply,
-     %{state | port: Helper.open_port(path, args), video: vmaf.video, args: args, mode: :encode}}
+     %{state | port: Helper.open_port(args), video: vmaf.video, args: args, mode: :encode}}
   end
 
   @impl true
@@ -122,12 +122,7 @@ defmodule Reencodarr.AbAv1 do
         {port, {:exit_status, exit_code}},
         %{port: port, queue: queue, last_vmaf: last_vmaf, mode: :crf_search} = state
       ) do
-    result =
-      if exit_code in [0, 1] do
-        {:ok, [Map.put(last_vmaf, "chosen", true)]}
-      else
-        {:error, "ab-av1 command failed with exit code #{exit_code}"}
-      end
+    result = Helper.handle_exit_status(exit_code, last_vmaf)
 
     Logger.info("Exit status: #{inspect(result)}")
 
@@ -151,12 +146,7 @@ defmodule Reencodarr.AbAv1 do
         {port, {:exit_status, exit_code}},
         %{port: port, queue: queue, mode: :encode} = state
       ) do
-    result =
-      if exit_code == 0 do
-        {:ok, "Encoding completed successfully"}
-      else
-        {:error, "ab-av1 command failed with exit code #{exit_code}"}
-      end
+    result = Helper.handle_exit_status(exit_code)
 
     Logger.info("Exit status: #{inspect(result)}")
 
@@ -200,11 +190,7 @@ defmodule Reencodarr.AbAv1.Helper do
         {acc, false}
 
       arg, {acc, false} ->
-        if Enum.member?(keys, arg) do
-          {acc, true}
-        else
-          {[arg | acc], false}
-        end
+        if Enum.member?(keys, arg), do: {acc, true}, else: {[arg | acc], false}
     end)
     |> elem(0)
     |> Enum.reverse()
@@ -217,8 +203,6 @@ defmodule Reencodarr.AbAv1.Helper do
   end
 
   def build_args(video_path, vmaf_percent, video) do
-    rules = build_rules(video)
-
     base_args = [
       "-i",
       video_path,
@@ -228,7 +212,7 @@ defmodule Reencodarr.AbAv1.Helper do
       temp_dir()
     ]
 
-    Enum.concat(base_args, rules)
+    Enum.concat(base_args, build_rules(video))
   end
 
   def parse_crf_search(output) do
@@ -260,12 +244,7 @@ defmodule Reencodarr.AbAv1.Helper do
 
   def temp_dir do
     cwd_temp_dir = Path.join([File.cwd!(), "tmp", "ab-av1"])
-
-    if File.exists?(cwd_temp_dir) do
-      cwd_temp_dir
-    else
-      Path.join(System.tmp_dir!(), "ab-av1")
-    end
+    if File.exists?(cwd_temp_dir), do: cwd_temp_dir, else: Path.join(System.tmp_dir!(), "ab-av1")
   end
 
   def update_encoding_progress(data, state) do
@@ -273,15 +252,14 @@ defmodule Reencodarr.AbAv1.Helper do
            ~r/\[.*\] encoding (?<filename>\d+\.mkv)|(?<percent>\d+)%\s*,\s*(?<fps>\d+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours)/,
            data
          ) do
-      %{"filename" => filename} when not is_nil(filename) ->
+      %{"filename" => filename} ->
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
           action: "encode:start",
           video: state.video,
           filename: filename
         })
 
-      %{"percent" => percent, "fps" => fps, "eta" => eta, "unit" => unit}
-      when not is_nil(percent) ->
+      %{"percent" => percent, "fps" => fps, "eta" => eta, "unit" => unit} ->
         eta_seconds = convert_to_seconds(String.to_integer(eta), unit)
 
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
@@ -297,14 +275,31 @@ defmodule Reencodarr.AbAv1.Helper do
     end
   end
 
-  def open_port(path, args) do
-    Port.open({:spawn_executable, path}, [
-      :binary,
-      :exit_status,
-      :line,
-      :use_stdio,
-      :stderr_to_stdout,
-      {:args, args}
-    ])
+  @spec open_port([binary()]) :: port() | :error
+  def open_port(args) do
+    case System.find_executable("ab-av1") do
+      nil ->
+        Logger.error("ab-av1 executable not found")
+        :error
+
+      path ->
+        Port.open({:spawn_executable, path}, [
+          :binary,
+          :exit_status,
+          :line,
+          :use_stdio,
+          :stderr_to_stdout,
+          args: args
+        ])
+    end
+  end
+
+  def handle_exit_status(exit_code, last_vmaf \\ :encoding) do
+    case {exit_code, last_vmaf} do
+      {0, :encoding} -> {:ok, "Encoding completed successfully"}
+      {0, last_vmaf} -> {:ok, [Map.put(last_vmaf, "chosen", true)]}
+      {1, last_vmaf} -> {:ok, [Map.put(last_vmaf, "chosen", true)]}
+      {_, _} -> {:error, "ab-av1 command failed with exit code #{exit_code}"}
+    end
   end
 end
