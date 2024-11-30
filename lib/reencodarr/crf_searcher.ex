@@ -42,15 +42,11 @@ defmodule Reencodarr.CrfSearcher do
   end
 
   @impl true
-  def handle_info(%{action: "scanning:progress", result: {:error, reason}}, state) do
-    Logger.error("CRF search failed: #{reason}")
+  def handle_info(%{action: "scanning:finished", vmaf: vmaf}, state) do
+    Media.upsert_vmaf(vmaf)
     {:noreply, state}
   end
 
-  @impl true
-  def handle_info(%{action: "scanning:finished"}, state) do
-    {:noreply, state}
-  end
 
   @impl true
   def handle_info(%{action: "queue:update"}, state) do
@@ -70,8 +66,6 @@ defmodule Reencodarr.CrfSearcher do
       {true, _} ->
         Logger.debug("Skipping crf search for video #{path} as it already has AV1 codec")
     end
-
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{action: "scanning:finished", video: video})
   end
 
   defp codec_present?(codecs), do: "V_AV1" in codecs

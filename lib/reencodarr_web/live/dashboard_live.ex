@@ -18,13 +18,14 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, stream(socket, :vmafs, fetch_vmafs()) |> assign(:stats, stats)}
   end
 
-  def handle_info(%{action: "scanning:progress", vmaf: _vmaf}, socket) do
-    {:noreply, socket}
-  end
-
   def handle_info(%{action: "queue:update"}, socket) do
     stats = Media.fetch_stats()
     {:noreply, stream(socket, :vmafs, fetch_vmafs()) |> assign(:stats, stats)}
+  end
+
+  def handle_info(%{action: "scanning:progress", vmaf: vmaf}, socket) do
+    # Handle the scanning progress update
+    {:noreply, assign(socket, :scanning_progress, vmaf)}
   end
 
   def render(assigns) do
