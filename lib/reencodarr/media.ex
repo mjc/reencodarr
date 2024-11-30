@@ -523,4 +523,24 @@ defmodule Reencodarr.Media do
     from(v in Vmaf, where: v.chosen == true, select: fragment("MIN(?)", v.percent))
     |> Repo.one()
   end
+
+  @doc """
+  Returns the lowest chosen VMAF excluding reencoded videos.
+
+  ## Examples
+
+      iex> get_lowest_chosen_vmaf()
+      %Vmaf{}
+
+  """
+  @spec get_lowest_chosen_vmaf() :: Vmaf.t() | nil
+  def get_lowest_chosen_vmaf do
+    Repo.one(
+      from v in Vmaf,
+        join: vid in assoc(v, :video),
+        where: v.chosen == true and vid.reencoded == false,
+        order_by: [asc: v.percent],
+        limit: 1
+    )
+  end
 end
