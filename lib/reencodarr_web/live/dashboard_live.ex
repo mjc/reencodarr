@@ -55,81 +55,137 @@ defmodule ReencodarrWeb.DashboardLive do
   def render(assigns) do
     ~H"""
     <div class="min-h-screen bg-gray-100 flex flex-col items-center justify-center space-y-8">
-      <div class="bg-white p-8 rounded-lg shadow-lg w-3/4">
-        <h2 class="text-2xl font-semibold text-gray-800 mb-4">Statistics</h2>
-        <div class="bg-gray-200 p-6 rounded-lg shadow-md space-y-4">
-          <div class="flex justify-between items-center">
-            <span class="text-lg font-medium text-gray-700">Not Reencoded:</span>
-            <span class="text-lg font-semibold text-gray-900"><%= @stats[false] || 0 %></span>
-          </div>
-          <div class="flex justify-between items-center">
-            <span class="text-lg font-medium text-gray-700">Reencoded:</span>
-            <span class="text-lg font-semibold text-gray-900"><%= @stats[true] || 0 %></span>
-          </div>
-          <div class="flex justify-between items-center">
-            <span class="text-lg font-medium text-gray-700">Total Videos:</span>
-            <span class="text-lg font-semibold text-gray-900"><%= @stats.total_videos %></span>
-          </div>
-          <div class="flex justify-between items-center">
-            <span class="text-lg font-medium text-gray-700">Average VMAF Percentage:</span>
-            <span class="text-lg font-semibold text-gray-900"><%= @stats.avg_vmaf_percentage %></span>
-          </div>
-          <div class="flex justify-between items-center">
-            <span class="text-lg font-medium text-gray-700">Lowest Chosen VMAF Percentage:</span>
-            <span class="text-lg font-semibold text-gray-900"><%= @lowest_vmaf.percent %></span>
-          </div>
-          <div class="flex justify-between items-center">
-            <span class="text-lg font-medium text-gray-700">Total VMAFs:</span>
-            <span class="text-lg font-semibold text-gray-900"><%= @stats.total_vmafs %></span>
-          </div>
-        </div>
+      <div class="w-3/4 flex justify-between items-center mb-4">
+        <button phx-click="start_encode" phx-value-vmaf_id={@lowest_vmaf.id} class="bg-blue-500 text-white px-4 py-2 rounded shadow">
+          Start Encode for Lowest Chosen VMAF
+        </button>
       </div>
 
-      <div class="bg-white p-8 rounded-lg shadow-lg w-3/4">
-        <h2 class="text-2xl font-semibold text-gray-800 mb-4">Queue</h2>
-        <div class="bg-gray-200 p-6 rounded-lg shadow-md space-y-4">
-          <div class="flex justify-between items-center">
-            <span class="text-lg font-medium text-gray-700">CRF Searches in Queue:</span>
-            <span class="text-lg font-semibold text-gray-900"><%= @queue_length.crf_searches %></span>
-          </div>
-          <div class="flex justify-between items-center">
-            <span class="text-lg font-medium text-gray-700">Encodes in Queue:</span>
-            <span class="text-lg font-semibold text-gray-900"><%= @queue_length.encodes %></span>
-          </div>
-          <div class="flex justify-between items-center">
-            <button phx-click="start_encode" phx-value-vmaf_id={@lowest_vmaf.id} class="bg-blue-500 text-white px-4 py-2 rounded">
-              Start Encode for Lowest Chosen VMAF
-            </button>
-          </div>
-        </div>
+      <div class="w-3/4">
+        <table class="min-w-full bg-white rounded-lg shadow-lg">
+          <thead>
+            <tr>
+              <th class="px-6 py-3 border-b-2 border-gray-300 text-left leading-4 text-gray-600 tracking-wider">Queue Type</th>
+              <th class="px-6 py-3 border-b-2 border-gray-300 text-left leading-4 text-gray-600 tracking-wider">Count</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-800">CRF Searches in Queue</div>
+              </td>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-900"><%= @queue_length.crf_searches %></div>
+              </td>
+            </tr>
+            <tr>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-800">Encodes in Queue</div>
+              </td>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-900"><%= @queue_length.encodes %></div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
-      <div class="bg-white p-8 rounded-lg shadow-lg w-3/4">
-        <h2 class="text-2xl font-semibold text-gray-800 mb-4">Encoding Progress</h2>
-        <div class="bg-gray-200 p-6 rounded-lg shadow-md space-y-4">
-          <div class="flex justify-between items-center">
-            <span class="text-lg font-medium text-gray-700">Encoding Progress:</span>
-            <%= if Map.has_key?(@progress, :percent) do %>
-              <span class="text-lg font-semibold text-gray-900"><%= @progress.percent %> % @ <%= @progress.fps %> fps, ETA: <%= @progress.eta %> seconds</span>
-            <% else %>
-              <span class="text-lg font-semibold text-gray-900">No encoding in progress</span>
-            <% end %>
-          </div>
-        </div>
+      <div class="w-3/4">
+        <table class="min-w-full bg-white rounded-lg shadow-lg">
+          <thead>
+            <tr>
+              <th class="px-6 py-3 border-b-2 border-gray-300 text-left leading-4 text-gray-600 tracking-wider">Progress Type</th>
+              <th class="px-6 py-3 border-b-2 border-gray-300 text-left leading-4 text-gray-600 tracking-wider">Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-800">Encoding Progress</div>
+              </td>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <%= if Map.has_key?(@progress, :percent) do %>
+                  <div class="text-sm leading-5 text-gray-900"><%= @progress.percent %> % @ <%= @progress.fps %> fps, ETA: <%= @progress.eta %> seconds</div>
+                <% else %>
+                  <div class="text-sm leading-5 text-gray-900">No encoding in progress</div>
+                <% end %>
+              </td>
+            </tr>
+            <tr>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-800">CRF Search Progress</div>
+              </td>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <%= if Map.has_key?(@crf_progress, :percent) do %>
+                  <div class="text-sm leading-5 text-gray-900">CRF: <%= @crf_progress.crf %>, Percent: <%= @crf_progress.percent %> % (of original size), VMAF Score: <%= @crf_progress.score %> (Target: <%= @crf_progress.target_vmaf %>)</div>
+                <% else %>
+                  <div class="text-sm leading-5 text-gray-900">No CRF search in progress</div>
+                <% end %>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
 
-      <div class="bg-white p-8 rounded-lg shadow-lg w-3/4">
-        <h2 class="text-2xl font-semibold text-gray-800 mb-4">CRF Search Progress</h2>
-        <div class="bg-gray-200 p-6 rounded-lg shadow-md space-y-4">
-          <div class="flex justify-between items-center">
-            <span class="text-lg font-medium text-gray-700">CRF Search Progress:</span>
-            <%= if Map.has_key?(@crf_progress, :percent) do %>
-              <span class="text-lg font-semibold text-gray-900">CRF: <%= @crf_progress.crf %>, Percent: <%= @crf_progress.percent %> % (of original size), VMAF Score: <%= @crf_progress.score %> (Target: <%= @crf_progress.target_vmaf %>)</span>
-            <% else %>
-              <span class="text-lg font-semibold text-gray-900">No CRF search in progress</span>
-            <% end %>
-          </div>
-        </div>
+      <div class="w-3/4">
+        <table class="min-w-full bg-white rounded-lg shadow-lg">
+          <thead>
+            <tr>
+              <th class="px-6 py-3 border-b-2 border-gray-300 text-left leading-4 text-gray-600 tracking-wider">Statistic</th>
+              <th class="px-6 py-3 border-b-2 border-gray-300 text-left leading-4 text-gray-600 tracking-wider">Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-800">Not Reencoded</div>
+              </td>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-900"><%= @stats[false] || 0 %></div>
+              </td>
+            </tr>
+            <tr>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-800">Reencoded</div>
+              </td>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-900"><%= @stats[true] || 0 %></div>
+              </td>
+            </tr>
+            <tr>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-800">Total Videos</div>
+              </td>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-900"><%= @stats.total_videos %></div>
+              </td>
+            </tr>
+            <tr>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-800">Average VMAF Percentage</div>
+              </td>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-900"><%= @stats.avg_vmaf_percentage %></div>
+              </td>
+            </tr>
+            <tr>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-800">Lowest Chosen VMAF Percentage</div>
+              </td>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-900"><%= @lowest_vmaf.percent %></div>
+              </td>
+            </tr>
+            <tr>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-800">Total VMAFs</div>
+              </td>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
+                <div class="text-sm leading-5 text-gray-900"><%= @stats.total_vmafs %></div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
     """
