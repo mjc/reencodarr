@@ -67,7 +67,7 @@ defmodule Reencodarr.Rules do
   end
 
   @spec resolution(Media.Video.t()) :: keyword()
-  def resolution(%Media.Video{width: width}) when width > 1080 do
+  def resolution(%Media.Video{height: height}) when height > 1080 do
     Keyword.new([{:"--vfilter", "scale=1920:-2"}])
   end
 
