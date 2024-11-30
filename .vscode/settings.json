@@ -3,6 +3,7 @@
         "acodec",
         "bitrates",
         "CUDA",
+        "exdev",
         "film-grain-denoise",
         "fkey",
         "hwaccel",

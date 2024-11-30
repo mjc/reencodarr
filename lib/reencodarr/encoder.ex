@@ -99,7 +99,17 @@ defmodule Reencodarr.Encoder do
     new_output_file = Path.join(Path.dirname(video.path), Path.basename(video.path, Path.extname(video.path)) <> ".reencoded" <> Path.extname(video.path))
 
     case File.rename(output_file, new_output_file) do
-      :ok -> Logger.info("Moved output file to #{new_output_file}")
+      :ok ->
+        Logger.info("Moved output file #{output_file} to #{new_output_file}")
+        Media.mark_as_reencoded(video)
+      {:error, :exdev} ->
+        case File.cp(output_file, new_output_file) do
+          :ok ->
+            File.rm(output_file)
+            Logger.info("Copied output file #{output_file} to #{new_output_file}")
+            Media.mark_as_reencoded(video)
+          {:error, reason} -> Logger.error("Failed to copy output file: #{reason}")
+        end
       {:error, reason} -> Logger.error("Failed to move output file: #{reason}")
     end
 
