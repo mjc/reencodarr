@@ -48,20 +48,11 @@ defmodule Reencodarr.AbAv1 do
 
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{ab_av1_path: path, port: :none} = state) do
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "searching", video: video})
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "crf_search", video: video})
     args = ["crf-search"] ++ Helper.build_args(video.path, vmaf_percent, video)
 
-    port =
-      Port.open({:spawn_executable, path}, [
-        :binary,
-        :exit_status,
-        :line,
-        :use_stdio,
-        :stderr_to_stdout,
-        args: args
-      ])
-
-    {:noreply, %{state | port: port, video: video, args: args, mode: :crf_search}}
+    {:noreply,
+     %{state | port: Helper.open_port(path, args), video: video, args: args, mode: :crf_search}}
   end
 
   @impl true
@@ -72,21 +63,27 @@ defmodule Reencodarr.AbAv1 do
   end
 
   @impl true
-  def handle_cast({:encode, vmaf}, %{ab_av1_path: path, port: :none} = state) do
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "encoding", video: vmaf.video})
-    args = ["encode"] ++ Helper.build_args(vmaf.video.path, vmaf.crf, vmaf.video)
+  def handle_cast(
+        {:encode, %Media.Vmaf{params: params} = vmaf},
+        %{ab_av1_path: path, port: :none} = state
+      ) do
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
+      action: "encoding",
+      video: vmaf.video
+    })
 
-    port =
-      Port.open({:spawn_executable, path}, [
-        :binary,
-        :exit_status,
-        :line,
-        :use_stdio,
-        :stderr_to_stdout,
-        args: args
-      ])
+    args =
+      [
+        "encode",
+        "--crf",
+        to_string(vmaf.crf),
+        "-o",
+        Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv"),
+        "-i"
+      ] ++ params
 
-    {:noreply, %{state | port: port, video: vmaf.video, args: args, mode: :encode}}
+    {:noreply,
+     %{state | port: Helper.open_port(path, args), video: vmaf.video, args: args, mode: :encode}}
   end
 
   @impl true
@@ -116,7 +113,7 @@ defmodule Reencodarr.AbAv1 do
 
   @impl true
   def handle_info({port, {:data, {:eol, data}}}, %{port: port, mode: :encode} = state) do
-    Logger.info("Encoding output: #{data}")
+    Helper.update_encoding_progress(data, state)
     {:noreply, state}
   end
 
@@ -181,6 +178,7 @@ end
 
 defmodule Reencodarr.AbAv1.Helper do
   alias Reencodarr.Rules
+  require Logger
 
   @crf_search_results ~r/
     crf \s (?<crf>\d+) \s
@@ -268,5 +266,45 @@ defmodule Reencodarr.AbAv1.Helper do
     else
       Path.join(System.tmp_dir!(), "ab-av1")
     end
+  end
+
+  def update_encoding_progress(data, state) do
+    case Regex.named_captures(
+           ~r/\[.*\] encoding (?<filename>\d+\.mkv)|(?<percent>\d+)%\s*,\s*(?<fps>\d+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours)/,
+           data
+         ) do
+      %{"filename" => filename} when not is_nil(filename) ->
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
+          action: "encode:start",
+          video: state.video,
+          filename: filename
+        })
+
+      %{"percent" => percent, "fps" => fps, "eta" => eta, "unit" => unit}
+      when not is_nil(percent) ->
+        eta_seconds = convert_to_seconds(String.to_integer(eta), unit)
+
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
+          action: "encoding_progress",
+          video: state.video,
+          percent: String.to_integer(percent),
+          fps: String.to_integer(fps),
+          eta: eta_seconds
+        })
+
+      _ ->
+        Logger.info("Encoding output: #{data}")
+    end
+  end
+
+  def open_port(path, args) do
+    Port.open({:spawn_executable, path}, [
+      :binary,
+      :exit_status,
+      :line,
+      :use_stdio,
+      :stderr_to_stdout,
+      {:args, args}
+    ])
   end
 end

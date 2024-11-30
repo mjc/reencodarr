@@ -30,6 +30,7 @@ defmodule Reencodarr.Encoder do
 
   @impl true
   def init(state) do
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoding")
     {:ok, Map.put(state, :encoding, false)}
   end
 
@@ -48,34 +49,49 @@ defmodule Reencodarr.Encoder do
   @impl true
   def handle_info(:check_next_video, state) do
     if state.encoding do
-      next_video = Media.find_next_video()
-
-      if next_video do
-        Logger.debug("Next video to re-encode: #{next_video.path}")
-        chosen_vmaf = Media.get_chosen_vmaf_for_video(next_video)
-
-        case AbAv1.encode(chosen_vmaf) do
-          {:ok, output_path} ->
-            destination_path = next_video.path <> ".reencoded"
-            File.rename!(output_path, destination_path)
-            Media.mark_as_reencoded(next_video)
-            Logger.debug("Marked #{next_video.path} as re-encoded. Output path: #{output_path}")
-
-          {:error, reason} ->
-            Logger.error("Failed to encode #{next_video.path}: #{reason}")
-            raise "Encoding failed"
-        end
-      else
-        Logger.debug("No videos to re-encode")
-      end
-
+      check_next_video()
       schedule_check()
     end
 
     {:noreply, state}
   end
 
+  @impl true
+  def handle_info(%{action: "encode:start", video: video, filename: filename}, state) do
+    Logger.info("Started encoding #{filename} for video #{video.id}")
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(%{action: "encoding_progress", video: video, percent: percent, fps: fps, eta: eta}, state) do
+    Logger.info("Encoding progress for video #{video.id}: #{percent}% at #{fps} fps, ETA: #{eta} seconds")
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(%{action: "encode_result", result: {:ok, message}}, state) do
+    Logger.info("Encoding completed successfully: #{message}")
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(%{action: "encode_result", result: {:error, reason}}, state) do
+    Logger.error("Encoding failed: #{reason}")
+    {:noreply, state}
+  end
+
   # Helper functions
+
+  defp check_next_video do
+    with next_video when not is_nil(next_video) <- Media.find_next_video(),
+         chosen_vmaf when not is_nil(chosen_vmaf) <- Media.get_chosen_vmaf_for_video(next_video) do
+      Logger.debug("Next video to re-encode: #{next_video.path}")
+      AbAv1.encode(chosen_vmaf)
+    else
+      nil -> Logger.debug("No videos to re-encode")
+      _ -> Logger.error("No chosen VMAF found for video")
+    end
+  end
 
   defp schedule_check do
     Process.send_after(self(), :check_next_video, @check_interval)

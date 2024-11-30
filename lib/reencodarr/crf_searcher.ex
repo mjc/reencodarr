@@ -41,7 +41,19 @@ defmodule Reencodarr.CrfSearcher do
   end
 
   @impl true
-  def handle_info(%{action: "searching", video: _video}, state), do: {:noreply, state}
+  def handle_info(%{action: action}, state) when action in ["encoding", "encode_result"] do
+    Logger.debug("CrfSearcher ignoring encoding messages.")
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(%{action: "encode_result", result: {:error, reason}}, state) do
+    Logger.error("Encoding failed: #{reason}")
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(%{action: "crf_search", video: _video}, state), do: {:noreply, state}
   @impl true
   def handle_info(%{action: "scan_complete", video: _video}, state), do: {:noreply, state}
 
