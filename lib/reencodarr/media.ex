@@ -546,4 +546,24 @@ defmodule Reencodarr.Media do
         limit: 1
     )
   end
+
+  @doc """
+  Returns the lowest chosen VMAF by time.
+
+  ## Examples
+
+      iex> get_lowest_chosen_vmaf_by_time()
+      %Vmaf{}
+
+  """
+  @spec get_lowest_chosen_vmaf_by_time() :: Vmaf.t() | nil
+  def get_lowest_chosen_vmaf_by_time do
+    Repo.one(
+      from v in Vmaf,
+        where: v.chosen == true,
+        order_by: [asc: v.time],
+        limit: 1,
+        preload: [:video]
+    )
+  end
 end

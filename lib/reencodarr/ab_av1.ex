@@ -181,7 +181,7 @@ defmodule Reencodarr.AbAv1 do
   @impl true
   def handle_info(
         {port, {:exit_status, exit_code}},
-        %{port: port, queue: queue, mode: :encode} = state
+        %{port: port, queue: queue, mode: :encode, video: video, args: args} = state
       ) do
     result =
       case exit_code do
@@ -192,19 +192,17 @@ defmodule Reencodarr.AbAv1 do
 
     Logger.debug("Exit status: #{inspect(result)}")
 
+    output_file = Enum.at(args, Enum.find_index(args, &(&1 == "-o")) + 1)
+
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
       action: "encoding:complete",
-      result: result
+      result: result,
+      video: video,
+      output_file: output_file
     })
 
     new_state = Helper.dequeue(queue, state)
     {:noreply, new_state}
-  end
-
-  @impl true
-  def terminate(_reason, _state) do
-    System.cmd("pkill", ["-f", "ab-av1"])
-    :ok
   end
 end
 

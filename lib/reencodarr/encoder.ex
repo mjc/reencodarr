@@ -57,14 +57,14 @@ defmodule Reencodarr.Encoder do
   end
 
   @impl true
-  def handle_info(%{action: "encoding:start", video: video, filename: filename}, state) do
+  def handle_info(%{action: "encoding:start", video: %Media.Video{} = video, filename: filename}, state) do
     Logger.info("Started encoding #{filename} for video #{video.id}")
     {:noreply, state}
   end
 
   @impl true
   def handle_info(
-        %{action: "encoding:progress", video: video, percent: percent, fps: fps, eta: eta},
+        %{action: "encoding:progress", video: %Media.Video{} = video, percent: percent, fps: fps, eta: eta},
         state
       ) do
     Logger.info(
@@ -75,44 +75,40 @@ defmodule Reencodarr.Encoder do
   end
 
   @impl true
-  def handle_info(%{action: "encode:start", video: video, filename: filename}, state) do
-    Logger.info("Started encoding #{filename} for video #{video.id}")
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(
-        %{action: "encoding:progress", video: video, percent: percent, fps: fps, eta: eta},
-        state
-      ) do
-    Logger.info(
-      "Encoding progress for video #{video.id}: #{percent}% at #{fps} fps, ETA: #{eta} seconds"
-    )
-
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(%{action: "encoding:start", video: video}, state) do
+  def handle_info(%{action: "encoding:start", video: %Media.Video{} = video}, state) do
     Logger.info("Encoding started for video #{video.id}")
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(%{action: "encode_result", result: {:ok, message}}, state) do
-    Logger.info("Encoding completed successfully: #{message}")
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(%{action: "encode_result", result: {:error, reason}}, state) do
-    Logger.error("Encoding failed: #{reason}")
     {:noreply, state}
   end
 
   @impl true
   def handle_info(%{action: "queue:update", crf_searches: crf_searches, encodes: encodes}, state) do
     Logger.info("Queue updated: #{crf_searches} CRF searches, #{encodes} encodes")
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(%{action: "encoding:complete", result: {:error, 143}, video: video, output_file: _output_file}, state) do
+    Logger.error("Encoding failed with error code 143 for video #{video.id}")
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(%{action: "encoding:complete", result: result, video: video, output_file: output_file}, state) do
+    Logger.info("Encoding completed with result: #{inspect(result)}")
+
+    new_output_file = Path.join(Path.dirname(video.path), Path.basename(video.path, Path.extname(video.path)) <> ".reencoded" <> Path.extname(video.path))
+
+    case File.rename(output_file, new_output_file) do
+      :ok -> Logger.info("Moved output file to #{new_output_file}")
+      {:error, reason} -> Logger.error("Failed to move output file: #{reason}")
+    end
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(msg, state) do
+    Logger.warning("Unhandled message: #{inspect(msg)}")
     {:noreply, state}
   end
 

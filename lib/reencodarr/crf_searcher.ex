@@ -47,6 +47,11 @@ defmodule Reencodarr.CrfSearcher do
     {:noreply, state}
   end
 
+  @impl true
+  def handle_info(%{action: "scanning:failed", reason: reason}, state) do
+    Logger.error("Scanning failed: #{reason}")
+    {:noreply, state}
+  end
 
   @impl true
   def handle_info(%{action: "queue:update"}, state) do
