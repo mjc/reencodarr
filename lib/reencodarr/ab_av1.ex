@@ -102,7 +102,7 @@ defmodule Reencodarr.AbAv1 do
       |> Helper.attach_params(state.video, state.args)
 
     Enum.each(vmafs, fn vmaf ->
-      Logger.info("Parsed output: #{inspect(vmaf)}")
+      Logger.debug("Parsed output: #{inspect(vmaf)}")
 
       Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
         action: "scanning:progress",
@@ -126,7 +126,7 @@ defmodule Reencodarr.AbAv1 do
       ) do
     result = Helper.handle_exit_status(exit_code, last_vmaf)
 
-    Logger.info("Exit status: #{inspect(result)}")
+    Logger.debug("Exit status: #{inspect(result)}")
 
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
       action: "scanning:progress",
@@ -150,7 +150,7 @@ defmodule Reencodarr.AbAv1 do
       ) do
     result = Helper.handle_exit_status(exit_code)
 
-    Logger.info("Exit status: #{inspect(result)}")
+    Logger.debug("Exit status: #{inspect(result)}")
 
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{
       action: "encode_result",
@@ -288,7 +288,7 @@ defmodule Reencodarr.AbAv1.Helper do
         })
 
       _ ->
-        Logger.info("Encoding output: #{data}")
+        Logger.debug("Encoding output: #{data}")
     end
   end
 
