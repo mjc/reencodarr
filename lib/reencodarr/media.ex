@@ -489,24 +489,22 @@ defmodule Reencodarr.Media do
   end
 
   @doc """
-  Returns the count of videos grouped by reencoded status.
+  Returns the count of videos grouped by reencoded status and additional stats.
 
   ## Examples
 
-      iex> count_videos_by_reencoded()
-      %{true => 10, false => 5}
+      iex> fetch_stats()
+      %{true => 10, false => 5, total_videos: 15, avg_vmaf_percentage: 85.5}
 
   """
-  @spec count_videos_by_reencoded() :: %{boolean() => integer()}
-  def count_videos_by_reencoded do
-    from(v in Video, group_by: v.reencoded, select: {v.reencoded, count(v.id)})
-    |> Repo.all()
-    |> Enum.into(%{})
-  end
-
-  def fetch_additional_stats do
+  @spec fetch_stats() :: %{boolean() => integer(), total_videos: integer(), avg_vmaf_percentage: float()}
+  def fetch_stats do
+    counts = from(v in Video, group_by: v.reencoded, select: {v.reencoded, count(v.id)})
+             |> Repo.all()
+             |> Enum.into(%{})
     total_videos = Repo.aggregate(Video, :count, :id)
-    avg_vmaf_percentage = Repo.aggregate(Vmaf, :avg, :percent) |> Float.round(2)
-    %{total_videos: total_videos, avg_vmaf_percentage: avg_vmaf_percentage}
+    avg_vmaf_percentage = from(v in Vmaf, select: fragment("ROUND(CAST(AVG(?) AS numeric), 2)", v.percent))
+                          |> Repo.one()
+    Map.merge(counts, %{total_videos: total_videos, avg_vmaf_percentage: avg_vmaf_percentage})
   end
 end

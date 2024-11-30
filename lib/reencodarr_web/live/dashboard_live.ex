@@ -5,15 +5,21 @@ defmodule ReencodarrWeb.DashboardLive do
 
   def mount(_params, _session, socket) do
     if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("scanning")
-    counts = Media.count_videos_by_reencoded()
-    stats = Media.fetch_additional_stats()
-    {:ok, stream(socket, :vmafs, fetch_vmafs()) |> assign(:counts, counts) |> assign(:stats, stats)}
+    stats = Media.fetch_stats()
+    {:ok, stream(socket, :vmafs, fetch_vmafs()) |> assign(:stats, stats)}
   end
 
-  def handle_info(%{event: "scanning:finished"}, socket) do
-    counts = Media.count_videos_by_reencoded()
-    stats = Media.fetch_additional_stats()
-    {:noreply, stream(socket, :vmafs, fetch_vmafs()) |> assign(:counts, counts) |> assign(:stats, stats)}
+  def handle_info(%{action: "scanning:start"}, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_info(%{action: "scanning:finished"}, socket) do
+    stats = Media.fetch_stats()
+    {:noreply, stream(socket, :vmafs, fetch_vmafs()) |> assign(:stats, stats)}
+  end
+
+  def handle_info(%{action: "scanning:progress", vmaf: _vmaf}, socket) do
+    {:noreply, socket}
   end
 
   def render(assigns) do
@@ -25,11 +31,11 @@ defmodule ReencodarrWeb.DashboardLive do
           <div class="bg-gray-200 p-6 rounded-lg shadow-md space-y-4">
             <div class="flex justify-between items-center">
               <span class="text-lg font-medium text-gray-700">Not Reencoded:</span>
-              <span class="text-lg font-semibold text-gray-900"><%= @counts[false] || 0 %></span>
+              <span class="text-lg font-semibold text-gray-900"><%= @stats[false] || 0 %></span>
             </div>
             <div class="flex justify-between items-center">
               <span class="text-lg font-medium text-gray-700">Reencoded:</span>
-              <span class="text-lg font-semibold text-gray-900"><%= @counts[true] || 0 %></span>
+              <span class="text-lg font-semibold text-gray-900"><%= @stats[true] || 0 %></span>
             </div>
             <div class="flex justify-between items-center">
               <span class="text-lg font-medium text-gray-700">Total Videos:</span>
