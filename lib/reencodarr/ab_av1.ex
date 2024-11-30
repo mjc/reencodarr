@@ -303,26 +303,27 @@ defmodule Reencodarr.AbAv1.Helper do
            ~r/\[.*\] encoding (?<filename>\d+\.mkv)|(?<percent>\d+)%\s*,\s*(?<fps>\d+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours)/,
            data
          ) do
-      %{"filename" => filename} ->
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
-          action: "encoding:start",
-          video: state.video,
-          filename: filename
-        })
 
-      %{"percent" => percent, "fps" => fps, "eta" => eta, "unit" => unit} ->
+      %{"percent" => percent, "fps" => fps, "eta" => eta, "unit" => unit} when eta != "" ->
+        Logger.info("Encoding progress: #{percent}%, #{fps} fps, ETA: #{eta} #{unit}")
         eta_seconds = convert_to_seconds(String.to_integer(eta), unit)
+        human_readable_eta = "#{eta} #{unit}"
 
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
           action: "encoding:progress",
           video: state.video,
           percent: String.to_integer(percent),
           fps: String.to_integer(fps),
-          eta: eta_seconds
+          eta: eta_seconds,
+          human_readable_eta: human_readable_eta
         })
 
       _ ->
-        Logger.info("Encoding output: #{data}")
+        Logger.info("Encoding started for #{data}")
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
+          action: "encoding:start",
+          video: state.video,
+        })
     end
   end
 

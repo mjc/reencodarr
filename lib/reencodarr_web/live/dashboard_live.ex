@@ -5,7 +5,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   def mount(_params, _session, socket) do
     if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("scanning")
-  if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("queue")
+    if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("queue")
     if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("encoding")
     stats = Media.fetch_stats()
     queue_length = AbAv1.queue_length()
@@ -41,8 +41,8 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, assign(socket, :progress, progress)}
   end
 
-  def handle_info(%{action: "encoding:progress", video: video, percent: percent, fps: fps, eta: eta} = _msg, socket) do
-    progress = %{video_id: video.id, percent: percent, fps: fps, eta: eta}
+  def handle_info(%{action: "encoding:progress", video: video, percent: percent, fps: fps, eta: eta, human_readable_eta: human_readable_eta} = _msg, socket) do
+    progress = %{video_id: video.id, percent: percent, fps: fps, eta: eta, human_readable_eta: human_readable_eta}
     {:noreply, assign(socket, :progress, progress)}
   end
 

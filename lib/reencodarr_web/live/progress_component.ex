@@ -17,11 +17,11 @@ defmodule ReencodarrWeb.ProgressComponent do
               <div class="text-sm leading-5 text-gray-800">Encoding Progress</div>
             </td>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
-              <%= if Map.has_key?(@progress, :filename) do %>
-                <div class="text-sm leading-5 text-gray-900">Starting <%= @progress.filename %></div>
+              <%= if Map.has_key?(@progress, :video) do %>
+                <div class="text-sm leading-5 text-gray-900">Starting <%= @progress.video.title %></div>
               <% else %>
                 <%= if Map.has_key?(@progress, :percent) do %>
-                  <div class="text-sm leading-5 text-gray-900"><%= @progress.percent %> % @ <%= @progress.fps %> fps, ETA: <%= @progress.eta %> seconds</div>
+                  <div class="text-sm leading-5 text-gray-900"><%= @progress.percent %> % @ <%= @progress.fps %> fps, ETA: <%= @progress.human_readable_eta %></div>
                 <% else %>
                   <div class="text-sm leading-5 text-gray-900">No encoding in progress</div>
                 <% end %>

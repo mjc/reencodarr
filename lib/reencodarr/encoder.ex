@@ -93,6 +93,12 @@ defmodule Reencodarr.Encoder do
   end
 
   @impl true
+  def handle_info(%{action: "encoding:start", video: video}, state) do
+    Logger.info("Encoding started for video #{video.id}")
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(%{action: "encode_result", result: {:ok, message}}, state) do
     Logger.info("Encoding completed successfully: #{message}")
     {:noreply, state}
