@@ -45,7 +45,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp update_crf_progress(socket, %{vmaf: vmaf}) do
     if Map.has_key?(vmaf, "video_id") do
-      crf_progress = %{video_id: vmaf["video_id"], percent: vmaf["percent"], crf: vmaf["crf"], score: vmaf["score"]}
+      crf_progress = %{video_id: vmaf["video_id"], percent: vmaf["percent"], crf: vmaf["crf"], score: vmaf["score"], target_vmaf: vmaf["target_vmaf"]}
       {:noreply, assign(socket, :crf_progress, crf_progress)}
     else
       {:noreply, socket}
@@ -124,7 +124,7 @@ defmodule ReencodarrWeb.DashboardLive do
           <div class="flex justify-between items-center">
             <span class="text-lg font-medium text-gray-700">CRF Search Progress:</span>
             <%= if Map.has_key?(@crf_progress, :percent) do %>
-              <span class="text-lg font-semibold text-gray-900">CRF: <%= @crf_progress.crf %>, Percent: <%= @crf_progress.percent %> %, VMAF Score: <%= @crf_progress.score %></span>
+              <span class="text-lg font-semibold text-gray-900">CRF: <%= @crf_progress.crf %>, Percent: <%= @crf_progress.percent %> % (of original size), VMAF Score: <%= @crf_progress.score %> (Target: <%= @crf_progress.target_vmaf %>)</span>
             <% else %>
               <span class="text-lg font-semibold text-gray-900">No CRF search in progress</span>
             <% end %>

@@ -114,7 +114,7 @@ defmodule Reencodarr.AbAv1 do
 
       Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
         action: "scanning:progress",
-        vmaf: vmaf
+        vmaf: Map.put(vmaf, "target_vmaf", state.args |> Enum.at(4))
       })
     end)
 
@@ -136,7 +136,7 @@ defmodule Reencodarr.AbAv1 do
       {0, last_vmaf} ->
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
           action: "scanning:finished",
-          vmaf: Map.put(last_vmaf, "chosen", true)
+          vmaf: Map.put(last_vmaf, "chosen", true) |> Map.put("target_vmaf", state.args |> Enum.at(3))
         })
 
       {_, _} ->
