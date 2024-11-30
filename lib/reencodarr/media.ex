@@ -560,7 +560,8 @@ defmodule Reencodarr.Media do
   def get_lowest_chosen_vmaf_by_time do
     Repo.one(
       from v in Vmaf,
-        where: v.chosen == true,
+        join: vid in assoc(v, :video),
+        where: v.chosen == true and vid.reencoded == false,
         order_by: [asc: v.time],
         limit: 1,
         preload: [:video]
