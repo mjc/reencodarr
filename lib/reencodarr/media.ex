@@ -40,6 +40,23 @@ defmodule Reencodarr.Media do
   def get_video!(id), do: Repo.get!(Video, id)
 
   @doc """
+  Gets a video by its path.
+
+  ## Examples
+
+      iex> get_video_by_path("/path/to/video.mp4")
+      %Video{}
+
+      iex> get_video_by_path("/path/to/nonexistent.mp4")
+      nil
+
+  """
+  @spec get_video_by_path(String.t()) :: Video.t() | nil
+  def get_video_by_path(path) do
+    Repo.one(from v in Video, where: v.path == ^path)
+  end
+
+  @doc """
   Creates a video.
 
   ## Examples

@@ -10,32 +10,33 @@ defmodule Reencodarr.CrfSearcher do
 
   @impl true
   def init(:ok) do
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "videos")
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "scanning")
     {:ok, %{}}
   end
 
   @impl true
   def handle_info(
         %Phoenix.Socket.Broadcast{
-          topic: "videos",
-          event: "videos",
-          payload: %{action: "upsert", video: video}
+          topic: "scanning",
+          event: "scanning:start",
+          payload: %{path: path}
         },
         state
       ) do
+    video = Media.get_video_by_path(path)
     run(video)
     {:noreply, state}
   end
 
   @impl true
-  def handle_info(%{action: "crf_search_result", result: {:ok, vmafs}}, state) do
+  def handle_info(%{action: "scanning:finished", result: {:ok, vmafs}}, state) do
     Logger.debug("Received #{Enum.count(vmafs)} CRF search results")
-    Media.process_vmafs(vmafs)
+    Enum.each(vmafs, &Media.upsert_vmaf/1)
     {:noreply, state}
   end
 
   @impl true
-  def handle_info(%{action: "crf_search_result", result: {:error, reason}}, state) do
+  def handle_info(%{action: "scanning:finished", result: {:error, reason}}, state) do
     Logger.error("CRF search failed: #{reason}")
     {:noreply, state}
   end
@@ -71,7 +72,7 @@ defmodule Reencodarr.CrfSearcher do
         Logger.debug("Skipping crf search for video #{path} as it already has AV1 codec")
     end
 
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "scan_complete", video: video})
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{action: "scanning:finished", video: video})
   end
 
   defp codec_present?(codecs), do: "V_AV1" in codecs

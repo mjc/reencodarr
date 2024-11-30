@@ -2,7 +2,6 @@ defmodule ReencodarrWeb.DashboardLive do
   use ReencodarrWeb, :live_view
   alias Reencodarr.Media
   import Phoenix.LiveComponent
-  alias ReencodarrWeb.VmafTableComponent
 
   def mount(_params, _session, socket) do
     if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("crf_search_result")

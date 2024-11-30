@@ -48,7 +48,7 @@ defmodule Reencodarr.AbAv1 do
 
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "crf_search", video: video})
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{action: "scanning:start", video: video})
     args = ["crf-search"] ++ Helper.build_args(video.path, vmaf_percent, video)
 
     {:noreply,
@@ -104,8 +104,8 @@ defmodule Reencodarr.AbAv1 do
     if length(result) > 0 do
       Logger.info("Parsed output: #{inspect(result)}")
 
-      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{
-        action: "crf_search_result",
+      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
+        action: "scanning:finished",
         result: {:ok, result}
       })
     end
@@ -128,8 +128,8 @@ defmodule Reencodarr.AbAv1 do
 
     Logger.info("Exit status: #{inspect(result)}")
 
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{
-      action: "crf_search_result",
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
+      action: "scanning:finished",
       result: result
     })
 
