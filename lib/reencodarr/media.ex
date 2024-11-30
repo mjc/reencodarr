@@ -111,7 +111,7 @@ defmodule Reencodarr.Media do
   @spec broadcast_change({:ok, Video.t()} | {:error, Ecto.Changeset.t()}) ::
           {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
   defp broadcast_change({:ok, video}) do
-    ReencodarrWeb.Endpoint.broadcast("videos", "videos", %{action: "upsert", video: video})
+    ReencodarrWeb.Endpoint.broadcast("videos", "video:upsert", %{video: video})
     {:ok, video}
   end
 

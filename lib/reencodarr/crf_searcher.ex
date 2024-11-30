@@ -10,6 +10,7 @@ defmodule Reencodarr.CrfSearcher do
 
   @impl true
   def init(:ok) do
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "videos")
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "scanning")
     {:ok, %{}}
   end
@@ -17,46 +18,39 @@ defmodule Reencodarr.CrfSearcher do
   @impl true
   def handle_info(
         %Phoenix.Socket.Broadcast{
-          topic: "scanning",
-          event: "scanning:start",
-          payload: %{path: path}
+          topic: "videos",
+          event: "video:upsert",
+          payload: %{video: video}
         },
         state
       ) do
-    video = Media.get_video_by_path(path)
     run(video)
     {:noreply, state}
   end
 
   @impl true
-  def handle_info(%{action: "scanning:finished", result: {:ok, vmafs}}, state) do
-    Logger.debug("Received #{Enum.count(vmafs)} CRF search results")
-    Enum.each(vmafs, &Media.upsert_vmaf/1)
+  def handle_info(%{action: "scanning:start", video: video}, state) do
+    run(video)
     {:noreply, state}
   end
 
   @impl true
-  def handle_info(%{action: "scanning:finished", result: {:error, reason}}, state) do
+  def handle_info(%{action: "scanning:progress", vmaf: vmaf}, state) do
+    Logger.debug("Received vmaf search progress")
+    Media.upsert_vmaf(vmaf)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(%{action: "scanning:progress", result: {:error, reason}}, state) do
     Logger.error("CRF search failed: #{reason}")
     {:noreply, state}
   end
 
-  @impl true
-  def handle_info(%{action: action}, state) when action in ["encoding", "encode_result"] do
-    Logger.debug("CrfSearcher ignoring encoding messages.")
+  def handle_info(%{action: "scanning:finished"}, state) do
     {:noreply, state}
   end
 
-  @impl true
-  def handle_info(%{action: "encode_result", result: {:error, reason}}, state) do
-    Logger.error("Encoding failed: #{reason}")
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(%{action: "crf_search", video: _video}, state), do: {:noreply, state}
-  @impl true
-  def handle_info(%{action: "scan_complete", video: _video}, state), do: {:noreply, state}
 
   @spec run(Reencodarr.Media.Video.t()) :: :ok
   def run(%Media.Video{id: video_id, path: path, video_codecs: codecs} = video) do

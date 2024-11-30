@@ -95,22 +95,22 @@ defmodule Reencodarr.AbAv1 do
 
   @impl true
   def handle_info({port, {:data, {:eol, data}}}, %{port: port, mode: :crf_search} = state) do
-    result =
+    vmafs =
       data
       |> String.split("\n", trim: true)
       |> Helper.parse_crf_search()
       |> Helper.attach_params(state.video, state.args)
 
-    if length(result) > 0 do
-      Logger.info("Parsed output: #{inspect(result)}")
+    Enum.each(vmafs, fn vmaf ->
+      Logger.info("Parsed output: #{inspect(vmaf)}")
 
       Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
-        action: "scanning:finished",
-        result: {:ok, result}
+        action: "scanning:progress",
+        vmaf: vmaf
       })
-    end
+    end)
 
-    {:noreply, %{state | last_vmaf: List.last(result)}}
+    {:noreply, %{state | last_vmaf: List.last(vmafs)}}
   end
 
   @impl true
@@ -129,8 +129,8 @@ defmodule Reencodarr.AbAv1 do
     Logger.info("Exit status: #{inspect(result)}")
 
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
-      action: "scanning:finished",
-      result: result
+      action: "scanning:progress",
+      vmaf: last_vmaf
     })
 
     case :queue.out(queue) do

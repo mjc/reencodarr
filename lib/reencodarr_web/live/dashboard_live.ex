@@ -4,13 +4,13 @@ defmodule ReencodarrWeb.DashboardLive do
   import Phoenix.LiveComponent
 
   def mount(_params, _session, socket) do
-    if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("crf_search_result")
+    if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("scanning")
     counts = Media.count_videos_by_reencoded()
     stats = Media.fetch_additional_stats()
     {:ok, stream(socket, :vmafs, fetch_vmafs()) |> assign(:counts, counts) |> assign(:stats, stats)}
   end
 
-  def handle_info(%{event: "crf_search_result"}, socket) do
+  def handle_info(%{event: "scanning:finished"}, socket) do
     counts = Media.count_videos_by_reencoded()
     stats = Media.fetch_additional_stats()
     {:noreply, stream(socket, :vmafs, fetch_vmafs()) |> assign(:counts, counts) |> assign(:stats, stats)}
