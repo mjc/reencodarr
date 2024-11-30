@@ -92,6 +92,12 @@ defmodule Reencodarr.Encoder do
     {:noreply, state}
   end
 
+  @impl true
+  def terminate(_reason, _state) do
+    System.cmd("pkill", ["-f", "ab-av1"])
+    :ok
+  end
+
   # Helper functions
 
   defp check_next_video do
