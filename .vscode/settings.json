@@ -4,6 +4,7 @@
         "bitrates",
         "CUDA",
         "film-grain-denoise",
+        "fkey",
         "hwaccel",
         "libopus",
         "libx265",

@@ -2,44 +2,42 @@ defmodule ReencodarrWeb.DashboardLive do
   use ReencodarrWeb, :live_view
   alias Reencodarr.Media
   import Phoenix.LiveComponent
+  alias ReencodarrWeb.VmafTableComponent
 
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, :vmaf_data, fetch_vmaf_data())}
+    if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("crf_search_result")
+    counts = Media.count_videos_by_reencoded()
+    {:ok, stream(socket, :vmafs, fetch_vmafs()) |> assign(:counts, counts)}
+  end
+
+  def handle_info(%{event: "crf_search_result"}, socket) do
+    counts = Media.count_videos_by_reencoded()
+    {:noreply, stream(socket, :vmafs, fetch_vmafs()) |> assign(:counts, counts)}
   end
 
   def render(assigns) do
     ~H"""
     <div class="min-h-screen bg-gray-100 flex items-center justify-center">
-      <div class="bg-white p-8 rounded-lg shadow-lg">
-        <h1 class="text-2xl font-bold text-gray-900 mb-4">Welcome to the Dashboard</h1>
-        <div id="vmaf-data" class="w-full max-w-4xl">
-          <table class="min-w-full bg-white">
-            <thead>
-              <tr>
-                <th class="py-2">Title</th>
-                <th class="py-2">Percent</th>
-                <th class="py-2">Size</th>
-                <th class="py-2">Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              <%= for vmaf <- Enum.take(@vmaf_data, 10) do %>
-                <tr>
-                  <td class="border px-4 py-2"><%= vmaf.video.title %></td>
-                  <td class="border px-4 py-2"><%= vmaf.percent %></td>
-                  <td class="border px-4 py-2"><%= vmaf.size %></td>
-                  <td class="border px-4 py-2"><%= vmaf.time %></td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
+      <div class="bg-white p-8 rounded-lg shadow-lg flex">
+        <div class="w-3/4">
+          <h1 class="text-2xl font-bold text-gray-900 mb-4">Welcome to the Dashboard</h1>
+          <div id="vmaf-data" class="w-full max-w-4xl">
+            <.live_component module={VmafTableComponent} id="vmaf-table" vmafs={@streams.vmafs} />
+          </div>
+        </div>
+        <div class="w-1/4 ml-8">
+          <h2 class="text-xl font-semibold text-gray-800 mb-2">Statistics</h2>
+          <div class="bg-gray-200 p-4 rounded-lg shadow-md">
+            <p class="text-lg">Not Reencoded: <%= @counts[false] || 0 %></p>
+            <p class="text-lg">Reencoded: <%= @counts[true] || 0 %></p>
+          </div>
         </div>
       </div>
     </div>
     """
   end
 
-  defp fetch_vmaf_data do
+  defp fetch_vmafs do
     Media.list_chosen_vmafs()
   end
 end

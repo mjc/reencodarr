@@ -470,4 +470,20 @@ defmodule Reencodarr.Media do
       end
     end)
   end
+
+  @doc """
+  Returns the count of videos grouped by reencoded status.
+
+  ## Examples
+
+      iex> count_videos_by_reencoded()
+      %{true => 10, false => 5}
+
+  """
+  @spec count_videos_by_reencoded() :: %{boolean() => integer()}
+  def count_videos_by_reencoded do
+    from(v in Video, group_by: v.reencoded, select: {v.reencoded, count(v.id)})
+    |> Repo.all()
+    |> Enum.into(%{})
+  end
 end
