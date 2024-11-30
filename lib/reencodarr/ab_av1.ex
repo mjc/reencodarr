@@ -20,7 +20,7 @@ defmodule Reencodarr.AbAv1 do
     {:noreply, Map.put(state, :ab_av1_path, ab_av1_path)}
   end
 
-  @spec crf_search(Media.Video.t()) :: :ok
+  @spec crf_search(Media.Video.t(), integer()) :: :ok
   def crf_search(video, vmaf_percent \\ 95) do
     GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
   end
@@ -47,7 +47,7 @@ defmodule Reencodarr.AbAv1 do
   end
 
   @impl true
-  def handle_cast({:crf_search, video, vmaf_percent}, %{ab_av1_path: path, port: :none} = state) do
+  def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{action: "crf_search", video: video})
     args = ["crf-search"] ++ Helper.build_args(video.path, vmaf_percent, video)
 
@@ -65,7 +65,7 @@ defmodule Reencodarr.AbAv1 do
   @impl true
   def handle_cast(
         {:encode, %Media.Vmaf{params: params} = vmaf},
-        %{ab_av1_path: path, port: :none} = state
+        %{port: :none} = state
       ) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
       action: "encoding",
@@ -101,12 +101,14 @@ defmodule Reencodarr.AbAv1 do
       |> Helper.parse_crf_search()
       |> Helper.attach_params(state.video, state.args)
 
-    Logger.info("Parsed output: #{inspect(result)}")
+    if length(result) > 0 do
+      Logger.info("Parsed output: #{inspect(result)}")
 
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{
-      action: "crf_search_result",
-      result: {:ok, result}
-    })
+      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "videos", %{
+        action: "crf_search_result",
+        result: {:ok, result}
+      })
+    end
 
     {:noreply, %{state | last_vmaf: List.last(result)}}
   end
@@ -164,6 +166,12 @@ defmodule Reencodarr.AbAv1 do
         {:noreply, %{state | port: :none, mode: :none}}
     end
   end
+
+  @impl true
+  def terminate(_reason, _state) do
+    System.cmd("pkill", ["-f", "ab-av1"])
+    :ok
+  end
 end
 
 defmodule Reencodarr.AbAv1.Helper do
@@ -179,11 +187,13 @@ defmodule Reencodarr.AbAv1.Helper do
     (?: \s predicted)?
   /x
 
+  @spec attach_params(list(map()), Media.Video.t(), list(String.t())) :: list(map())
   def attach_params(vmafs, video, args) do
     filtered_args = remove_args(args, ["crf-search", "--min-vmaf", "--temp-dir"])
     Enum.map(vmafs, &(Map.put(&1, "video_id", video.id) |> Map.put("params", filtered_args)))
   end
 
+  @spec remove_args(list(String.t()), list(String.t())) :: list(String.t())
   def remove_args(args, keys) do
     Enum.reduce(args, {[], false}, fn
       _arg, {acc, true} ->
@@ -196,12 +206,14 @@ defmodule Reencodarr.AbAv1.Helper do
     |> Enum.reverse()
   end
 
+  @spec build_rules(Media.Video.t()) :: list(String.t())
   def build_rules(video) do
     Rules.apply(video)
     |> Enum.reject(fn {k, _v} -> k == :"--acodec" end)
     |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
   end
 
+  @spec build_args(String.t(), integer(), Media.Video.t()) :: list(String.t())
   def build_args(video_path, vmaf_percent, video) do
     base_args = [
       "-i",
@@ -215,6 +227,7 @@ defmodule Reencodarr.AbAv1.Helper do
     Enum.concat(base_args, build_rules(video))
   end
 
+  @spec parse_crf_search(list(String.t())) :: list(map())
   def parse_crf_search(output) do
     for line <- output,
         captures = Regex.named_captures(@crf_search_results, line),
@@ -226,6 +239,7 @@ defmodule Reencodarr.AbAv1.Helper do
     end
   end
 
+  @spec convert_time_to_duration(map()) :: map()
   def convert_time_to_duration(%{"time" => time, "unit" => unit} = captures) do
     case Integer.parse(time) do
       {time_value, _} ->
@@ -238,15 +252,18 @@ defmodule Reencodarr.AbAv1.Helper do
 
   def convert_time_to_duration(captures), do: captures
 
+  @spec convert_to_seconds(integer(), String.t()) :: integer()
   def convert_to_seconds(time, "minutes"), do: time * 60
   def convert_to_seconds(time, "hours"), do: time * 3600
   def convert_to_seconds(time, _), do: time
 
+  @spec temp_dir() :: String.t()
   def temp_dir do
     cwd_temp_dir = Path.join([File.cwd!(), "tmp", "ab-av1"])
     if File.exists?(cwd_temp_dir), do: cwd_temp_dir, else: Path.join(System.tmp_dir!(), "ab-av1")
   end
 
+  @spec update_encoding_progress(String.t(), map()) :: :ok
   def update_encoding_progress(data, state) do
     case Regex.named_captures(
            ~r/\[.*\] encoding (?<filename>\d+\.mkv)|(?<percent>\d+)%\s*,\s*(?<fps>\d+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours)/,
@@ -294,12 +311,14 @@ defmodule Reencodarr.AbAv1.Helper do
     end
   end
 
-  def handle_exit_status(exit_code, last_vmaf \\ :encoding) do
+  @spec handle_exit_status(integer(), map() | nil) ::
+          {:ok, :success | [map()]} | {:error, integer()}
+  def handle_exit_status(exit_code, last_vmaf \\ nil) do
     case {exit_code, last_vmaf} do
-      {0, :encoding} -> {:ok, "Encoding completed successfully"}
+      {0, nil} -> {:ok, :success}
       {0, last_vmaf} -> {:ok, [Map.put(last_vmaf, "chosen", true)]}
       {1, last_vmaf} -> {:ok, [Map.put(last_vmaf, "chosen", true)]}
-      {_, _} -> {:error, "ab-av1 command failed with exit code #{exit_code}"}
+      {_, _} -> {:error, exit_code}
     end
   end
 end

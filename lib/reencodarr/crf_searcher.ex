@@ -29,7 +29,7 @@ defmodule Reencodarr.CrfSearcher do
 
   @impl true
   def handle_info(%{action: "crf_search_result", result: {:ok, vmafs}}, state) do
-    Logger.debug("Received CRF search results")
+    Logger.debug("Received #{Enum.count(vmafs)} CRF search results")
     Media.process_vmafs(vmafs)
     {:noreply, state}
   end
