@@ -3,3 +3,26 @@
 @import "tailwindcss/utilities";
 
 /* This file is for your main application CSS */
+
+.fancy-list {
+  list-style-type: none;
+  padding: 0;
+}
+
+.fancy-list li {
+  position: relative;
+  padding-left: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.fancy-list li::before {
+  content: "•";
+  position: absolute;
+  left: 0;
+  color: #1c64f2; /* Customize the color as needed */
+  font-size: 1.2em; /* Customize the size as needed */
+}
+
+.dark .fancy-list li::before {
+  color: #3b82f6; /* Customize the color for dark mode as needed */
+}

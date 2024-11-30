@@ -3,61 +3,61 @@ defmodule ReencodarrWeb.StatsComponent do
 
   def render(assigns) do
     ~H"""
-    <div class="w-full bg-white rounded-lg shadow-lg p-4">
+    <div class="w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4">
       <table class="min-w-full">
         <thead>
           <tr>
-            <th class="px-6 py-3 border-b-2 border-gray-300 text-left leading-4 text-gray-600 tracking-wider">Statistic</th>
-            <th class="px-6 py-3 border-b-2 border-gray-300 text-left leading-4 text-gray-600 tracking-wider">Value</th>
+            <th class="px-6 py-3 border-b-2 border-gray-300 dark:border-gray-700 text-left leading-4 text-gray-600 dark:text-gray-300 tracking-wider">Statistic</th>
+            <th class="px-6 py-3 border-b-2 border-gray-300 dark:border-gray-700 text-left leading-4 text-gray-600 dark:text-gray-300 tracking-wider">Value</th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
-              <div class="text-sm leading-5 text-gray-800">Not Reencoded</div>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Not Reencoded</div>
             </td>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
-              <div class="text-sm leading-5 text-gray-900"><%= @stats[false] || 0 %></div>
-            </td>
-          </tr>
-          <tr>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
-              <div class="text-sm leading-5 text-gray-800">Reencoded</div>
-            </td>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
-              <div class="text-sm leading-5 text-gray-900"><%= @stats[true] || 0 %></div>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100"><%= @stats[false] || 0 %></div>
             </td>
           </tr>
           <tr>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
-              <div class="text-sm leading-5 text-gray-800">Total Videos</div>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Reencoded</div>
             </td>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
-              <div class="text-sm leading-5 text-gray-900"><%= @stats.total_videos %></div>
-            </td>
-          </tr>
-          <tr>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
-              <div class="text-sm leading-5 text-gray-800">Average VMAF Percentage</div>
-            </td>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
-              <div class="text-sm leading-5 text-gray-900"><%= @stats.avg_vmaf_percentage %></div>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100"><%= @stats[true] || 0 %></div>
             </td>
           </tr>
           <tr>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
-              <div class="text-sm leading-5 text-gray-800">Lowest Chosen VMAF Percentage</div>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Total Videos</div>
             </td>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
-              <div class="text-sm leading-5 text-gray-900"><%= @lowest_vmaf.percent %></div>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100"><%= @stats.total_videos %></div>
             </td>
           </tr>
           <tr>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
-              <div class="text-sm leading-5 text-gray-800">Total VMAFs</div>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Average VMAF Percentage</div>
             </td>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300">
-              <div class="text-sm leading-5 text-gray-900"><%= @stats.total_vmafs %></div>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100"><%= @stats.avg_vmaf_percentage %></div>
+            </td>
+          </tr>
+          <tr>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Lowest Chosen VMAF Percentage</div>
+            </td>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100"><%= @lowest_vmaf.percent %></div>
+            </td>
+          </tr>
+          <tr>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Total VMAFs</div>
+            </td>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100"><%= @stats.total_vmafs %></div>
             </td>
           </tr>
         </tbody>
