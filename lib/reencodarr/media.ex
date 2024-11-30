@@ -486,4 +486,10 @@ defmodule Reencodarr.Media do
     |> Repo.all()
     |> Enum.into(%{})
   end
+
+  def fetch_additional_stats do
+    total_videos = Repo.aggregate(Video, :count, :id)
+    avg_vmaf_percentage = Repo.aggregate(Vmaf, :avg, :percent) |> Float.round(2)
+    %{total_videos: total_videos, avg_vmaf_percentage: avg_vmaf_percentage}
+  end
 end
