@@ -57,6 +57,24 @@ defmodule Reencodarr.Encoder do
   end
 
   @impl true
+  def handle_info(%{action: "encoding:start", video: video, filename: filename}, state) do
+    Logger.info("Started encoding #{filename} for video #{video.id}")
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(
+        %{action: "encoding:progress", video: video, percent: percent, fps: fps, eta: eta},
+        state
+      ) do
+    Logger.info(
+      "Encoding progress for video #{video.id}: #{percent}% at #{fps} fps, ETA: #{eta} seconds"
+    )
+
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(%{action: "encode:start", video: video, filename: filename}, state) do
     Logger.info("Started encoding #{filename} for video #{video.id}")
     {:noreply, state}

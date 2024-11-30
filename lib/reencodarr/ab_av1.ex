@@ -305,7 +305,7 @@ defmodule Reencodarr.AbAv1.Helper do
          ) do
       %{"filename" => filename} ->
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
-          action: "encode:start",
+          action: "encoding:start",
           video: state.video,
           filename: filename
         })
@@ -322,7 +322,7 @@ defmodule Reencodarr.AbAv1.Helper do
         })
 
       _ ->
-        Logger.debug("Encoding output: #{data}")
+        Logger.info("Encoding output: #{data}")
     end
   end
 

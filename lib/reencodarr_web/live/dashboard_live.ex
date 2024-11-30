@@ -5,51 +5,55 @@ defmodule ReencodarrWeb.DashboardLive do
 
   def mount(_params, _session, socket) do
     if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("scanning")
+  if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("queue")
+    if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("encoding")
     stats = Media.fetch_stats()
     queue_length = AbAv1.queue_length()
     lowest_vmaf = Media.get_lowest_chosen_vmaf()
     {:ok, assign(socket, :stats, stats) |> assign(:queue_length, queue_length) |> assign(:lowest_vmaf, lowest_vmaf) |> assign(:progress, %{}) |> assign(:crf_progress, %{})}
   end
 
-  def handle_info(%{action: action} = msg, socket) do
-    case action do
-      "scanning:start" -> {:noreply, socket}
-      "scanning:finished" -> update_stats(socket)
-      "scanning:progress" -> update_crf_progress(socket, msg)
-      "queue:update" -> update_queue_length(socket, msg.crf_searches, msg.encodes)
-      "encoding:progress" -> update_progress(socket, msg)
-      _ -> {:noreply, socket}
-    end
-  end
-
-  def handle_event("start_encode", %{"vmaf_id" => vmaf_id}, socket) do
-    vmaf = Media.get_vmaf!(vmaf_id)
-    AbAv1.encode(vmaf, :insert_at_top)
+  def handle_info(%{action: "scanning:start"} = _msg, socket) do
     {:noreply, socket}
   end
 
-  defp update_stats(socket) do
+  def handle_info(%{action: "scanning:finished"} = _msg, socket) do
     stats = Media.fetch_stats()
     lowest_vmaf = Media.get_lowest_chosen_vmaf()
     {:noreply, assign(socket, :stats, stats) |> assign(:lowest_vmaf, lowest_vmaf)}
   end
 
-  defp update_queue_length(socket, crf_searches, encodes) do
-    {:noreply, assign(socket, :queue_length, %{crf_searches: crf_searches, encodes: encodes})}
-  end
-
-  defp update_progress(socket, %{video: video, percent: percent, fps: fps, eta: eta}) do
-    progress = %{video_id: video.id, percent: percent, fps: fps, eta: eta}
-    {:noreply, assign(socket, :progress, progress)}
-  end
-
-  defp update_crf_progress(socket, %{vmaf: vmaf}) do
+  def handle_info(%{action: "scanning:progress", vmaf: vmaf} = _msg, socket) do
     if Map.has_key?(vmaf, "video_id") do
       crf_progress = %{video_id: vmaf["video_id"], percent: vmaf["percent"], crf: vmaf["crf"], score: vmaf["score"], target_vmaf: vmaf["target_vmaf"]}
       {:noreply, assign(socket, :crf_progress, crf_progress)}
     else
       {:noreply, socket}
     end
+  end
+
+  def handle_info(%{action: "queue:update", crf_searches: crf_searches, encodes: encodes} = _msg, socket) do
+    {:noreply, assign(socket, :queue_length, %{crf_searches: crf_searches, encodes: encodes})}
+  end
+
+  def handle_info(%{action: "encoding:start", video: video, filename: filename} = _msg, socket) do
+    progress = %{video_id: video.id, filename: filename}
+    {:noreply, assign(socket, :progress, progress)}
+  end
+
+  def handle_info(%{action: "encoding:progress", video: video, percent: percent, fps: fps, eta: eta} = _msg, socket) do
+    progress = %{video_id: video.id, percent: percent, fps: fps, eta: eta}
+    {:noreply, assign(socket, :progress, progress)}
+  end
+
+  def handle_info(_msg, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("start_encode", %{"vmaf_id" => vmaf_id}, socket) do
+    vmaf = Media.get_vmaf!(vmaf_id)
+    AbAv1.encode(vmaf, :insert_at_top)
+    {:noreply, socket}
   end
 
   def render(assigns) do
