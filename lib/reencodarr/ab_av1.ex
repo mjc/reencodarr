@@ -25,9 +25,9 @@ defmodule Reencodarr.AbAv1 do
     GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
   end
 
-  @spec encode(Media.Vmaf.t()) :: :ok
-  def encode(vmaf) do
-    GenServer.cast(__MODULE__, {:encode, vmaf})
+  @spec encode(Media.Vmaf.t(), atom()) :: :ok
+  def encode(vmaf, position \\ :end) do
+    GenServer.cast(__MODULE__, {:encode, vmaf, position})
   end
 
   @spec queue_length() :: %{crf_searches: integer(), encodes: integer()}
@@ -96,6 +96,15 @@ defmodule Reencodarr.AbAv1 do
   def handle_cast({:encode, vmaf}, %{port: port} = state) when port != :none do
     Logger.info("Queueing encode for video #{vmaf.video.id}")
     new_queue = :queue.in({:encode, vmaf}, state.queue)
+    new_state = %{state | queue: new_queue, encodes: state.encodes + 1}
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "queue", %{action: "queue:update", crf_searches: new_state.crf_searches, encodes: new_state.encodes})
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_cast({:encode, vmaf, :insert_at_top}, %{port: port} = state) when port != :none do
+    Logger.info("Inserting encode at top of queue for video #{vmaf.video.id}")
+    new_queue = :queue.in_r({:encode, vmaf}, state.queue)
     new_state = %{state | queue: new_queue, encodes: state.encodes + 1}
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "queue", %{action: "queue:update", crf_searches: new_state.crf_searches, encodes: new_state.encodes})
     {:noreply, new_state}
@@ -287,7 +296,7 @@ defmodule Reencodarr.AbAv1.Helper do
         eta_seconds = convert_to_seconds(String.to_integer(eta), unit)
 
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
-          action: "encoding_progress",
+          action: "encoding:progress",
           video: state.video,
           percent: String.to_integer(percent),
           fps: String.to_integer(fps),

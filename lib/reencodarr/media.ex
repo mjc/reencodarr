@@ -292,7 +292,10 @@ defmodule Reencodarr.Media do
       ** (Ecto.NoResultsError)
 
   """
-  def get_vmaf!(id), do: Repo.get!(Vmaf, id)
+  def get_vmaf!(id) do
+    Repo.get!(Vmaf, id)
+    |> Repo.preload(:video)
+  end
 
   @doc """
   Creates a vmaf.

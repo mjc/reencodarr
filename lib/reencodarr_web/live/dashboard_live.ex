@@ -17,14 +17,14 @@ defmodule ReencodarrWeb.DashboardLive do
       "scanning:finished" -> update_stats(socket)
       "scanning:progress" -> update_crf_progress(socket, msg)
       "queue:update" -> update_queue_length(socket, msg.crf_searches, msg.encodes)
-      "encoding_progress" -> update_progress(socket, msg)
+      "encoding:progress" -> update_progress(socket, msg)
       _ -> {:noreply, socket}
     end
   end
 
   def handle_event("start_encode", %{"vmaf_id" => vmaf_id}, socket) do
     vmaf = Media.get_vmaf!(vmaf_id)
-    AbAv1.encode(vmaf)
+    AbAv1.encode(vmaf, :insert_at_top)
     {:noreply, socket}
   end
 

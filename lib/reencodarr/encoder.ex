@@ -64,7 +64,7 @@ defmodule Reencodarr.Encoder do
 
   @impl true
   def handle_info(
-        %{action: "encoding_progress", video: video, percent: percent, fps: fps, eta: eta},
+        %{action: "encoding:progress", video: video, percent: percent, fps: fps, eta: eta},
         state
       ) do
     Logger.info(
@@ -83,6 +83,12 @@ defmodule Reencodarr.Encoder do
   @impl true
   def handle_info(%{action: "encode_result", result: {:error, reason}}, state) do
     Logger.error("Encoding failed: #{reason}")
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(%{action: "queue:update", crf_searches: crf_searches, encodes: encodes}, state) do
+    Logger.info("Queue updated: #{crf_searches} CRF searches, #{encodes} encodes")
     {:noreply, state}
   end
 
