@@ -102,6 +102,24 @@ defmodule Reencodarr.AbAv1 do
   end
 
   @impl true
+  def handle_cast({:encode, vmaf, :insert_at_top}, %{port: :none} = state) do
+    Logger.info("Inserting encode at top of queue for video #{vmaf.video.id}")
+    args = [
+      "encode",
+      "--crf",
+      to_string(vmaf.crf),
+      "-o",
+      Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv"),
+      "-i"
+    ] ++ vmaf.params
+
+    new_encodes = max(state.encodes - 1, 0)
+    new_state = %{state | port: Helper.open_port(args), video: vmaf.video, args: args, mode: :encode, encodes: new_encodes}
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "queue", %{action: "queue:update", crf_searches: new_state.crf_searches, encodes: new_state.encodes})
+    {:noreply, new_state}
+  end
+
+  @impl true
   def handle_cast({:encode, vmaf, :insert_at_top}, %{port: port} = state) when port != :none do
     Logger.info("Inserting encode at top of queue for video #{vmaf.video.id}")
     new_queue = :queue.in_r({:encode, vmaf}, state.queue)
