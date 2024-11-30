@@ -494,10 +494,10 @@ defmodule Reencodarr.Media do
   ## Examples
 
       iex> fetch_stats()
-      %{true => 10, false => 5, total_videos: 15, avg_vmaf_percentage: 85.5}
+      %{true => 10, false => 5, total_videos: 15, avg_vmaf_percentage: 85.5, queue_length: %{crf_searches: 3, encodes: 2}}
 
   """
-  @spec fetch_stats() :: %{boolean() => integer(), total_videos: integer(), avg_vmaf_percentage: float()}
+  @spec fetch_stats() :: %{boolean() => integer(), total_videos: integer(), avg_vmaf_percentage: float(), queue_length: %{crf_searches: integer(), encodes: integer()}}
   def fetch_stats do
     counts = from(v in Video, group_by: v.reencoded, select: {v.reencoded, count(v.id)})
              |> Repo.all()
@@ -505,6 +505,7 @@ defmodule Reencodarr.Media do
     total_videos = Repo.aggregate(Video, :count, :id)
     avg_vmaf_percentage = from(v in Vmaf, select: fragment("ROUND(CAST(AVG(?) AS numeric), 2)", v.percent))
                           |> Repo.one()
-    Map.merge(counts, %{total_videos: total_videos, avg_vmaf_percentage: avg_vmaf_percentage})
+    queue_length = Reencodarr.AbAv1.queue_length()
+    Map.merge(counts, %{total_videos: total_videos, avg_vmaf_percentage: avg_vmaf_percentage, queue_length: queue_length})
   end
 end

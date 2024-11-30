@@ -22,6 +22,11 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, socket}
   end
 
+  def handle_info(%{action: "queue:update"}, socket) do
+    stats = Media.fetch_stats()
+    {:noreply, stream(socket, :vmafs, fetch_vmafs()) |> assign(:stats, stats)}
+  end
+
   def render(assigns) do
     ~H"""
     <div class="min-h-screen bg-gray-100 flex items-center justify-center">
@@ -44,6 +49,14 @@ defmodule ReencodarrWeb.DashboardLive do
             <div class="flex justify-between items-center">
               <span class="text-lg font-medium text-gray-700">Average VMAF Percentage:</span>
               <span class="text-lg font-semibold text-gray-900"><%= @stats.avg_vmaf_percentage %></span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-lg font-medium text-gray-700">CRF Searches in Queue:</span>
+              <span class="text-lg font-semibold text-gray-900"><%= @stats.queue_length.crf_searches %></span>
+            </div>
+            <div class="flex justify-between items-center">
+              <span class="text-lg font-medium text-gray-700">Encodes in Queue:</span>
+              <span class="text-lg font-semibold text-gray-900"><%= @stats.queue_length.encodes %></span>
             </div>
           </div>
         </div>

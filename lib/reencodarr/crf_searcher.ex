@@ -47,10 +47,15 @@ defmodule Reencodarr.CrfSearcher do
     {:noreply, state}
   end
 
+  @impl true
   def handle_info(%{action: "scanning:finished"}, state) do
     {:noreply, state}
   end
 
+  @impl true
+  def handle_info(%{action: "queue:update"}, state) do
+    {:noreply, state}
+  end
 
   @spec run(Reencodarr.Media.Video.t()) :: :ok
   def run(%Media.Video{id: video_id, path: path, video_codecs: codecs} = video) do

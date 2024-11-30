@@ -11,7 +11,7 @@ defmodule Reencodarr.AbAv1 do
   def init(:ok),
     do:
       {:ok,
-       %{args: [], last_vmaf: :none, mode: :none, port: :none, queue: :queue.new(), video: :none},
+       %{args: [], last_vmaf: :none, mode: :none, port: :none, queue: :queue.new(), video: :none, crf_searches: 0, encodes: 0},
        {:continue, :resolve_ab_av1_path}}
 
   @impl true
@@ -30,14 +30,14 @@ defmodule Reencodarr.AbAv1 do
     GenServer.cast(__MODULE__, {:encode, vmaf})
   end
 
-  @spec queue_length() :: integer
+  @spec queue_length() :: %{crf_searches: integer(), encodes: integer()}
   def queue_length do
     GenServer.call(__MODULE__, :queue_length)
   end
 
   @impl true
-  def handle_call(:queue_length, _from, %{queue: queue} = state) do
-    {:reply, :queue.len(queue), state}
+  def handle_call(:queue_length, _from, %{crf_searches: crf_searches, encodes: encodes} = state) do
+    {:reply, %{crf_searches: crf_searches, encodes: encodes}, state}
   end
 
   @impl true
@@ -51,15 +51,18 @@ defmodule Reencodarr.AbAv1 do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{action: "scanning:start", video: video})
     args = ["crf-search"] ++ Helper.build_args(video.path, vmaf_percent, video)
 
-    {:noreply,
-     %{state | port: Helper.open_port(args), video: video, args: args, mode: :crf_search}}
+    new_state = %{state | port: Helper.open_port(args), video: video, args: args, mode: :crf_search, crf_searches: state.crf_searches - 1}
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{action: "queue:update", crf_searches: new_state.crf_searches, encodes: new_state.encodes})
+    {:noreply, new_state}
   end
 
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: port} = state) when port != :none do
     Logger.info("Queueing crf search for video #{video.id}")
     new_queue = :queue.in({:crf_search, video, vmaf_percent}, state.queue)
-    {:noreply, %{state | queue: new_queue}}
+    new_state = %{state | queue: new_queue, crf_searches: state.crf_searches + 1}
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{action: "queue:update", crf_searches: new_state.crf_searches, encodes: new_state.encodes})
+    {:noreply, new_state}
   end
 
   @impl true
@@ -82,15 +85,18 @@ defmodule Reencodarr.AbAv1 do
         "-i"
       ] ++ params
 
-    {:noreply,
-     %{state | port: Helper.open_port(args), video: vmaf.video, args: args, mode: :encode}}
+    new_state = %{state | port: Helper.open_port(args), video: vmaf.video, args: args, mode: :encode, encodes: state.encodes - 1}
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "queue", %{action: "queue:update", crf_searches: new_state.crf_searches, encodes: new_state.encodes})
+    {:noreply, new_state}
   end
 
   @impl true
   def handle_cast({:encode, vmaf}, %{port: port} = state) when port != :none do
     Logger.info("Queueing encode for video #{vmaf.video.id}")
     new_queue = :queue.in({:encode, vmaf}, state.queue)
-    {:noreply, %{state | queue: new_queue}}
+    new_state = %{state | queue: new_queue, encodes: state.encodes + 1}
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "queue", %{action: "queue:update", crf_searches: new_state.crf_searches, encodes: new_state.encodes})
+    {:noreply, new_state}
   end
 
   @impl true
@@ -136,7 +142,15 @@ defmodule Reencodarr.AbAv1 do
     case :queue.out(queue) do
       {{:value, {:crf_search, video, vmaf_percent}}, new_queue} ->
         GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
-        {:noreply, %{state | port: :none, queue: new_queue, last_vmaf: :none, mode: :none}}
+        new_state = %{state | port: :none, queue: new_queue, last_vmaf: :none, mode: :none, crf_searches: state.crf_searches - 1}
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{action: "queue:update", crf_searches: new_state.crf_searches, encodes: new_state.encodes})
+        {:noreply, new_state}
+
+      {{:value, {:encode, vmaf}}, new_queue} ->
+          GenServer.cast(__MODULE__, {:encode, vmaf})
+          new_state = %{state | port: :none, queue: new_queue, last_vmaf: :none, mode: :none, crf_searches: state.crf_searches - 1}
+          Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{action: "queue:update", crf_searches: new_state.crf_searches, encodes: new_state.encodes})
+          {:noreply, new_state}
 
       {:empty, _} ->
         {:noreply, %{state | port: :none, last_vmaf: :none, mode: :none}}
@@ -160,7 +174,9 @@ defmodule Reencodarr.AbAv1 do
     case :queue.out(queue) do
       {{:value, {:encode, vmaf}}, new_queue} ->
         GenServer.cast(__MODULE__, {:encode, vmaf})
-        {:noreply, %{state | port: :none, queue: new_queue, mode: :none}}
+        new_state = %{state | port: :none, queue: new_queue, mode: :none, encodes: state.encodes - 1}
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "queue", %{action: "queue:update", crf_searches: new_state.crf_searches, encodes: new_state.encodes})
+        {:noreply, new_state}
 
       {:empty, _} ->
         {:noreply, %{state | port: :none, mode: :none}}
