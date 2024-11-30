@@ -57,7 +57,7 @@ defmodule ReencodarrWeb.DashboardLive do
     <div class="min-h-screen bg-gray-100 flex flex-col items-center justify-center space-y-8">
       <div class="w-3/4 flex justify-between items-center mb-4">
         <button phx-click="start_encode" phx-value-vmaf_id={@lowest_vmaf.id} class="bg-blue-500 text-white px-4 py-2 rounded shadow">
-          Start Encode for Lowest Chosen VMAF
+          Queue Encode Manually
         </button>
       </div>
 
