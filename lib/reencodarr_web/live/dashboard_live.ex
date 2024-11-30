@@ -53,6 +53,10 @@ defmodule ReencodarrWeb.DashboardLive do
               <span class="text-lg font-semibold text-gray-900"><%= @stats.avg_vmaf_percentage %></span>
             </div>
             <div class="flex justify-between items-center">
+              <span class="text-lg font-medium text-gray-700">Total VMAFs:</span>
+              <span class="text-lg font-semibold text-gray-900"><%= @stats.total_vmafs %></span>
+            </div>
+            <div class="flex justify-between items-center">
               <span class="text-lg font-medium text-gray-700">CRF Searches in Queue:</span>
               <span class="text-lg font-semibold text-gray-900"><%= @queue_length.crf_searches %></span>
             </div>
