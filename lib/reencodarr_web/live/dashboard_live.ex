@@ -6,7 +6,7 @@ defmodule ReencodarrWeb.DashboardLive do
   def mount(_params, _session, socket) do
     if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("scanning")
     stats = Media.fetch_stats()
-    {:ok, stream(socket, :vmafs, fetch_vmafs()) |> assign(:stats, stats)}
+    {:ok, assign(socket, :stats, stats)}
   end
 
   def handle_info(%{action: "scanning:start"}, socket) do
@@ -15,17 +15,17 @@ defmodule ReencodarrWeb.DashboardLive do
 
   def handle_info(%{action: "scanning:finished"}, socket) do
     stats = Media.fetch_stats()
-    {:noreply, stream(socket, :vmafs, fetch_vmafs()) |> assign(:stats, stats)}
+    {:noreply, assign(socket, :stats, stats)}
   end
 
   def handle_info(%{action: "queue:update"}, socket) do
     stats = Media.fetch_stats()
-    {:noreply, stream(socket, :vmafs, fetch_vmafs()) |> assign(:stats, stats)}
+    {:noreply, assign(socket, :stats, stats)}
   end
 
   def handle_info(%{action: "scanning:progress", vmaf: vmaf}, socket) do
-    # Handle the scanning progress update
-    {:noreply, assign(socket, :scanning_progress, vmaf)}
+    stats = Media.fetch_stats()
+    {:noreply, assign(socket, :stats, stats)}
   end
 
   def render(assigns) do
@@ -64,9 +64,5 @@ defmodule ReencodarrWeb.DashboardLive do
       </div>
     </div>
     """
-  end
-
-  defp fetch_vmafs do
-    Media.list_chosen_vmafs()
   end
 end
