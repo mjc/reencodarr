@@ -1,31 +1,32 @@
 defmodule ReencodarrWeb.DashboardLive do
   use ReencodarrWeb, :live_view
-  alias Reencodarr.Media
+  alias Reencodarr.{Media, AbAv1}
   import Phoenix.LiveComponent
 
   def mount(_params, _session, socket) do
     if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("scanning")
     stats = Media.fetch_stats()
-    {:ok, assign(socket, :stats, stats)}
+    queue_length = AbAv1.queue_length()
+    {:ok, assign(socket, :stats, stats) |> assign(:queue_length, queue_length)}
   end
 
-  def handle_info(%{action: "scanning:start"}, socket) do
-    {:noreply, socket}
+  def handle_info(%{action: action} = msg, socket) do
+    case action do
+      "scanning:start" -> {:noreply, socket}
+      "scanning:finished" -> update_stats(socket)
+      "scanning:progress" -> update_stats(socket)
+      "queue:update" -> update_queue_length(socket, msg.crf_searches, msg.encodes)
+      _ -> {:noreply, socket}
+    end
   end
 
-  def handle_info(%{action: "scanning:finished"}, socket) do
+  defp update_stats(socket) do
     stats = Media.fetch_stats()
     {:noreply, assign(socket, :stats, stats)}
   end
 
-  def handle_info(%{action: "queue:update"}, socket) do
-    stats = Media.fetch_stats()
-    {:noreply, assign(socket, :stats, stats)}
-  end
-
-  def handle_info(%{action: "scanning:progress", vmaf: vmaf}, socket) do
-    stats = Media.fetch_stats()
-    {:noreply, assign(socket, :stats, stats)}
+  defp update_queue_length(socket, crf_searches, encodes) do
+    {:noreply, assign(socket, :queue_length, %{crf_searches: crf_searches, encodes: encodes})}
   end
 
   def render(assigns) do
@@ -53,11 +54,11 @@ defmodule ReencodarrWeb.DashboardLive do
             </div>
             <div class="flex justify-between items-center">
               <span class="text-lg font-medium text-gray-700">CRF Searches in Queue:</span>
-              <span class="text-lg font-semibold text-gray-900"><%= @stats.queue_length.crf_searches %></span>
+              <span class="text-lg font-semibold text-gray-900"><%= @queue_length.crf_searches %></span>
             </div>
             <div class="flex justify-between items-center">
               <span class="text-lg font-medium text-gray-700">Encodes in Queue:</span>
-              <span class="text-lg font-semibold text-gray-900"><%= @stats.queue_length.encodes %></span>
+              <span class="text-lg font-semibold text-gray-900"><%= @queue_length.encodes %></span>
             </div>
           </div>
         </div>

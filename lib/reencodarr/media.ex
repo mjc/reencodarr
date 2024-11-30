@@ -505,7 +505,6 @@ defmodule Reencodarr.Media do
     total_videos = Repo.aggregate(Video, :count, :id)
     avg_vmaf_percentage = from(v in Vmaf, select: fragment("ROUND(CAST(AVG(?) AS numeric), 2)", v.percent))
                           |> Repo.one()
-    queue_length = Reencodarr.AbAv1.queue_length()
-    Map.merge(counts, %{total_videos: total_videos, avg_vmaf_percentage: avg_vmaf_percentage, queue_length: queue_length})
+    Map.merge(counts, %{total_videos: total_videos, avg_vmaf_percentage: avg_vmaf_percentage})
   end
 end
