@@ -401,7 +401,8 @@ defmodule Reencodarr.Media do
   def list_chosen_vmafs do
     Repo.all(
       from v in Vmaf,
-        where: v.chosen == true,
+        join: vid in assoc(v, :video),
+        where: v.chosen == true and vid.reencoded == false,
         order_by: [asc: v.percent, asc: v.time],
         preload: [:video]
     )

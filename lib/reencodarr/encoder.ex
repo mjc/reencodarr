@@ -118,7 +118,7 @@ defmodule Reencodarr.Encoder do
 
   @impl true
 
-  def handle_info(%{action: "encoding", video: video} = _msg, state) do
+  def handle_info(%{action: "encoding", video: _video} = _msg, state) do
     {:noreply, state}
   end
 

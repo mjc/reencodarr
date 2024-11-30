@@ -71,6 +71,12 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, socket}
   end
 
+  def handle_event("queue_next_5_lowest_vmafs", _params, socket) do
+    vmafs = Media.list_chosen_vmafs() |> Enum.take(5)
+    Enum.each(vmafs, fn vmaf -> AbAv1.encode(vmaf, :insert_at_top) end)
+    {:noreply, socket}
+  end
+
   def render(assigns) do
     ~H"""
     <div class="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col items-center justify-center space-y-8">
@@ -80,6 +86,9 @@ defmodule ReencodarrWeb.DashboardLive do
         </button>
         <button phx-click="start_encode_by_time" phx-value-vmaf_id={@lowest_vmaf_by_time.id} class="bg-green-500 text-white px-4 py-2 rounded shadow">
           Queue Encode by Time
+        </button>
+        <button phx-click="queue_next_5_lowest_vmafs" class="bg-red-500 text-white px-4 py-2 rounded shadow">
+          Queue Next 5 Lowest VMAFs
         </button>
       </div>
 
