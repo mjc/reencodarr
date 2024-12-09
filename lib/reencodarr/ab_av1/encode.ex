@@ -29,16 +29,7 @@ defmodule Reencodarr.AbAv1.Encode do
     {:reply, :queue.len(queue), state}
   end
 
-  @impl true
-  def handle_cast(
-        {:encode, %Media.Vmaf{params: params} = vmaf},
-        %{port: :none} = state
-      ) do
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
-      action: "encoding",
-      video: vmaf.video
-    })
-
+  defp prepare_encode_state(vmaf, state) do
     args =
       [
         "encode",
@@ -47,15 +38,28 @@ defmodule Reencodarr.AbAv1.Encode do
         "-o",
         Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv"),
         "-i"
-      ] ++ params
+      ] ++ vmaf.params
 
-    new_state = %{
+    %{
       state
       | port: Helper.open_port(args),
         video: vmaf.video,
         args: args,
         mode: :encode
     }
+  end
+
+  @impl true
+  def handle_cast(
+        {:encode, %Media.Vmaf{params: _params} = vmaf},
+        %{port: :none} = state
+      ) do
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
+      action: "encoding",
+      video: vmaf.video
+    })
+
+    new_state = prepare_encode_state(vmaf, state)
 
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "queue", %{
       action: "queue:update",
@@ -90,23 +94,7 @@ defmodule Reencodarr.AbAv1.Encode do
   def handle_cast({:encode, vmaf, :insert_at_top}, %{port: :none} = state) do
     Logger.info("Inserting encode at top of queue for video #{vmaf.video.id}")
 
-    args =
-      [
-        "encode",
-        "--crf",
-        to_string(vmaf.crf),
-        "-o",
-        Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv"),
-        "-i"
-      ] ++ vmaf.params
-
-    new_state = %{
-      state
-      | port: Helper.open_port(args),
-        video: vmaf.video,
-        args: args,
-        mode: :encode
-    }
+    new_state = prepare_encode_state(vmaf, state)
 
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "queue", %{
       action: "queue:update",

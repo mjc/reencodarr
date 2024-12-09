@@ -31,37 +31,33 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
-  def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
-      action: "scanning:start",
-      video: video
-    })
+  def handle_cast({:crf_search, video, vmaf_percent}, state) do
+    new_state =
+      case state.port do
+        :none ->
+          Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
+            action: "scanning:start",
+            video: video
+          })
 
-    args = ["crf-search"] ++ Helper.build_args(video.path, vmaf_percent, video)
+          args = ["crf-search"] ++ Helper.build_args(video.path, vmaf_percent, video)
 
-    new_state = %{
-      state
-      | port: Helper.open_port(args),
-        video: video,
-        args: args,
-        mode: :crf_search,
-        last_vmaf: :none
-    }
+          %{
+            state
+            | port: Helper.open_port(args),
+              video: video,
+              args: args,
+              mode: :crf_search,
+              last_vmaf: :none
+          }
 
-    broadcast_queue_update(state.queue)
+        _ ->
+          Logger.debug("Queueing crf search for video #{video.id}")
+          new_queue = :queue.in({:crf_search, video, vmaf_percent}, state.queue)
+          %{state | queue: new_queue}
+      end
 
-    {:noreply, new_state}
-  end
-
-  @impl true
-  def handle_cast({:crf_search, video, vmaf_percent}, %{port: port} = state) when port != :none do
-    Logger.debug("Queueing crf search for video #{video.id}")
-    new_queue = :queue.in({:crf_search, video, vmaf_percent}, state.queue)
-
-    new_state = %{state | queue: new_queue}
-
-    broadcast_queue_update(new_queue)
-
+    broadcast_queue_update(new_state.queue)
     {:noreply, new_state}
   end
 
