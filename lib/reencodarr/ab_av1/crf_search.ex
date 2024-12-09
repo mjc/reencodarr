@@ -89,25 +89,30 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_info(
-        {port, {:exit_status, exit_code}},
+        {port, {:exit_status, 0}},
         %{port: port, queue: queue, last_vmaf: last_vmaf} = state
+      ) when not is_nil(last_vmaf) do
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
+      action: "scanning:finished",
+      vmaf:
+        Map.put(last_vmaf, "chosen", true) |> Map.put("target_vmaf", Enum.at(state.args, 3))
+    })
+
+    new_queue = Helper.dequeue_and_broadcast(queue, __MODULE__, :crf_search)
+    new_state = %{state | port: :none, queue: new_queue, last_vmaf: :none}
+    {:noreply, new_state}
+  end
+
+  def handle_info(
+        {port, {:exit_status, exit_code}},
+        %{port: port, queue: queue} = state
       ) do
-    case {exit_code, last_vmaf} do
-      {0, last_vmaf} when not is_nil(last_vmaf) ->
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
-          action: "scanning:finished",
-          vmaf:
-            Map.put(last_vmaf, "chosen", true) |> Map.put("target_vmaf", Enum.at(state.args, 3))
-        })
+    Logger.error("CRF search failed with exit code #{exit_code}")
 
-      {_, _} ->
-        Logger.error("CRF search failed with exit code #{exit_code}")
-
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
-          action: "scanning:failed",
-          reason: "No suitable CRF found"
-        })
-    end
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
+      action: "scanning:failed",
+      reason: "No suitable CRF found"
+    })
 
     new_queue = Helper.dequeue_and_broadcast(queue, __MODULE__, :crf_search)
     new_state = %{state | port: :none, queue: new_queue, last_vmaf: :none}
