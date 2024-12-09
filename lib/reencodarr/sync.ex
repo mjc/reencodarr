@@ -3,7 +3,6 @@ defmodule Reencodarr.Sync do
   This module is responsible for syncing data between services and Reencodarr.
   """
   alias Reencodarr.{Media, Services}
-  alias Ecto.Multi
   alias Reencodarr.Repo
   require Logger
 
@@ -23,28 +22,9 @@ defmodule Reencodarr.Sync do
   defp fetch_and_upsert_episode_files(series_id) do
     case Services.Sonarr.get_episode_files(series_id) do
       {:ok, %Req.Response{body: files}} ->
-        multi =
-          Enum.reduce(files, Multi.new(), fn file, multi ->
-            attrs = %{
-              path: file["path"],
-              size: file["size"],
-              service_id: to_string(file["id"]),
-              service_type: "sonarr"
-            }
-
-            Multi.run(multi, "upsert_video_#{file["id"]}", fn _repo, _changes ->
-              Media.upsert_video(attrs)
-            end)
-          end)
-
-        case Repo.transaction(multi) do
-          {:ok, results} ->
-            Enum.map(results, fn {_, video} -> video end)
-
-          {:error, _failed_operation, failed_value, _changes} ->
-            Logger.error("Failed to upsert video: #{inspect(failed_value)}")
-            []
-        end
+        Repo.transaction(fn ->
+          Enum.map(files, &upsert_video_from_episode_file/1)
+        end)
 
       {:error, _} ->
         []
