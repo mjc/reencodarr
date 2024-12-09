@@ -35,6 +35,42 @@ defmodule Reencodarr.Services do
   def get_config!(id), do: Repo.get!(Config, id)
 
   @doc """
+  Gets the Sonarr config.
+
+  Raises `Ecto.NoResultsError` if the Sonarr config does not exist.
+
+  ## Examples
+
+      iex> get_sonarr_config!()
+      %Config{}
+
+      iex> get_sonarr_config!()
+      ** (Ecto.NoResultsError)
+
+  """
+  def get_sonarr_config! do
+    Repo.get_by!(Config, service_type: :sonarr)
+  end
+
+  @doc """
+  Gets the Radarr config.
+
+  Raises `Ecto.NoResultsError` if the Radarr config does not exist.
+
+  ## Examples
+
+      iex> get_radarr_config!()
+      %Config{}
+
+      iex> get_radarr_config!()
+      ** (Ecto.NoResultsError)
+
+  """
+  def get_radarr_config! do
+    Repo.get_by!(Config, service_type: :radarr)
+  end
+
+  @doc """
   Creates a config.
 
   ## Examples
