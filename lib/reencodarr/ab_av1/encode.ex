@@ -14,7 +14,8 @@ defmodule Reencodarr.AbAv1.Encode do
        %{
          port: :none,
          queue: :queue.new(),
-         encodes: 0
+         encodes: 0,
+         args: []
        }}
 
   @spec encode(Media.Vmaf.t(), atom()) :: :ok
