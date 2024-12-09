@@ -1,17 +1,18 @@
 defmodule Reencodarr.Services do
   @moduledoc """
-    This module is responsible for communicating with external services.
+  This module is responsible for communicating with external services.
   """
+  require Logger
 
   def test_sonarr_authorization(api_key, base_url) do
     url = "#{base_url}/api/v3/system/status"
     headers = [{"X-Api-Key", api_key}]
 
-    case Req.get(url, headers: headers) do
-      {:ok, %Req.Response{status: 200} = req} ->
-        dbg(req)
-        {:ok, "Authorization successful"}
-
+    with {:ok, %Req.Response{status: 200, body: %{"version" => version}}} <-
+           Req.get(url, headers: headers) do
+      Logger.info("Sonarr version: #{version}")
+      {:ok, "Authorization successful"}
+    else
       {:ok, %Req.Response{status: status_code}} ->
         {:error, "Authorization failed with status code #{status_code}"}
 
