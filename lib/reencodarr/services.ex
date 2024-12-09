@@ -134,4 +134,11 @@ defmodule Reencodarr.Services do
   def change_config(%Config{} = config, attrs \\ %{}) do
     Config.changeset(config, attrs)
   end
+
+  def get_sonarr_status do
+    case Reencodarr.Services.Sonarr.system_status() do
+      {:ok, status} -> {:ok, status}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 end
