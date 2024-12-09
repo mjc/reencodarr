@@ -101,6 +101,7 @@ defmodule Reencodarr.Sync do
   defp map_codec_id("VP9"), do: "V_VP9"
   defp map_codec_id("VP8"), do: "V_VP8"
   defp map_codec_id("AV1"), do: "V_AV1"
+  defp map_codec_id("XviD"), do: "V_XVID"
   defp map_codec_id("EAC3"), do: "A_EAC3"
   defp map_codec_id("AC3"), do: "A_AC3"
   defp map_codec_id("AAC"), do: "A_AAC"
