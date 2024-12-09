@@ -27,7 +27,9 @@ defmodule Reencodarr.Media.Video do
     :bitrate,
     :library_id,
     :mediainfo,
-    :reencoded
+    :reencoded,
+    :service_id,
+    :service_type
   ]
 
   @required [:path, :size]
@@ -51,6 +53,8 @@ defmodule Reencodarr.Media.Video do
     field :width, :integer
     field :reencoded, :boolean, default: false
     field :title, :string
+    field :service_id, :string
+    field :service_type, :string
 
     field :mediainfo, :map
 
