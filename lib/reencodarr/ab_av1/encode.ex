@@ -8,16 +8,15 @@ defmodule Reencodarr.AbAv1.Encode do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   @impl true
-  def init(:ok),
-    do:
-      {:ok,
-       %{
-         port: :none,
-         queue: :queue.new(),
-         args: [],
-         mode: :none,
-         video: :none
-       }}
+  def init(:ok) do
+    {:ok,
+     %{
+       port: :none,
+       queue: :queue.new(),
+       args: [],
+       video: :none
+     }}
+  end
 
   @spec encode(Media.Vmaf.t(), atom()) :: :ok
   def encode(vmaf, position \\ :end) do
@@ -44,8 +43,7 @@ defmodule Reencodarr.AbAv1.Encode do
       state
       | port: Helper.open_port(args),
         video: vmaf.video,
-        args: args,
-        mode: :encode
+        args: args
     }
   end
 
@@ -78,7 +76,6 @@ defmodule Reencodarr.AbAv1.Encode do
       state
       | queue: new_queue,
         args: state.args,
-        mode: state.mode,
         video: state.video
     }
 
@@ -113,7 +110,6 @@ defmodule Reencodarr.AbAv1.Encode do
       state
       | queue: new_queue,
         args: state.args,
-        mode: state.mode,
         video: state.video
     }
 
@@ -126,7 +122,7 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   @impl true
-  def handle_info({port, {:data, {:eol, data}}}, %{port: port, mode: :encode} = state) do
+  def handle_info({port, {:data, {:eol, data}}}, %{port: port} = state) do
     Helper.update_encoding_progress(data, state)
     {:noreply, state}
   end
@@ -134,7 +130,7 @@ defmodule Reencodarr.AbAv1.Encode do
   @impl true
   def handle_info(
         {port, {:exit_status, exit_code}},
-        %{port: port, queue: queue, mode: :encode, video: video, args: args} = state
+        %{port: port, queue: queue, video: video, args: args} = state
       ) do
     result =
       case exit_code do
@@ -155,7 +151,7 @@ defmodule Reencodarr.AbAv1.Encode do
     })
 
     new_queue = Helper.dequeue_and_broadcast(queue, __MODULE__, :encode)
-    new_state = %{state | port: :none, queue: new_queue, video: :none, mode: :none}
+    new_state = %{state | port: :none, queue: new_queue, video: :none}
     {:noreply, new_state}
   end
 end
