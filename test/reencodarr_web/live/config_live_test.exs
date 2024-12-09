@@ -5,7 +5,12 @@ defmodule ReencodarrWeb.ConfigLiveTest do
   import Reencodarr.ServicesFixtures
 
   @create_attrs %{api_key: "some api_key", enabled: true, service_type: :sonarr, url: "some url"}
-  @update_attrs %{api_key: "some updated api_key", enabled: false, service_type: :radarr, url: "some updated url"}
+  @update_attrs %{
+    api_key: "some updated api_key",
+    enabled: false,
+    service_type: :radarr,
+    url: "some updated url"
+  }
   @invalid_attrs %{api_key: nil, enabled: false, service_type: nil, url: nil}
 
   defp create_config(_) do

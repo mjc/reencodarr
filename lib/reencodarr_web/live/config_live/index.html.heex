@@ -12,10 +12,10 @@
   rows={@streams.configs}
   row_click={fn {_id, config} -> JS.navigate(~p"/configs/#{config}") end}
 >
-  <:col :let={{_id, config}} label="Url"><%= config.url %></:col>
-  <:col :let={{_id, config}} label="Api key"><%= config.api_key %></:col>
-  <:col :let={{_id, config}} label="Enabled"><%= config.enabled %></:col>
-  <:col :let={{_id, config}} label="Service type"><%= config.service_type %></:col>
+  <:col :let={{_id, config}} label="Url">{config.url}</:col>
+  <:col :let={{_id, config}} label="Api key">{config.api_key}</:col>
+  <:col :let={{_id, config}} label="Enabled">{config.enabled}</:col>
+  <:col :let={{_id, config}} label="Service type">{config.service_type}</:col>
   <:action :let={{_id, config}}>
     <div class="sr-only">
       <.link navigate={~p"/configs/#{config}"}>Show</.link>
@@ -32,7 +32,12 @@
   </:action>
 </.table>
 
-<.modal :if={@live_action in [:new, :edit]} id="config-modal" show on_cancel={JS.patch(~p"/configs")}>
+<.modal
+  :if={@live_action in [:new, :edit]}
+  id="config-modal"
+  show
+  on_cancel={JS.patch(~p"/configs")}
+>
   <.live_component
     module={ReencodarrWeb.ConfigLive.FormComponent}
     id={@config.id || :new}

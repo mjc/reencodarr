@@ -21,7 +21,12 @@ defmodule Reencodarr.ServicesTest do
     end
 
     test "create_config/1 with valid data creates a config" do
-      valid_attrs = %{api_key: "some api_key", enabled: true, service_type: :sonarr, url: "some url"}
+      valid_attrs = %{
+        api_key: "some api_key",
+        enabled: true,
+        service_type: :sonarr,
+        url: "some url"
+      }
 
       assert {:ok, %Config{} = config} = Services.create_config(valid_attrs)
       assert config.api_key == "some api_key"
@@ -36,7 +41,13 @@ defmodule Reencodarr.ServicesTest do
 
     test "update_config/2 with valid data updates the config" do
       config = config_fixture()
-      update_attrs = %{api_key: "some updated api_key", enabled: false, service_type: :radarr, url: "some updated url"}
+
+      update_attrs = %{
+        api_key: "some updated api_key",
+        enabled: false,
+        service_type: :radarr,
+        url: "some updated url"
+      }
 
       assert {:ok, %Config{} = config} = Services.update_config(config, update_attrs)
       assert config.api_key == "some updated api_key"

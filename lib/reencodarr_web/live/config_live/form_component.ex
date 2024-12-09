@@ -8,7 +8,7 @@ defmodule ReencodarrWeb.ConfigLive.FormComponent do
     ~H"""
     <div>
       <.header>
-        <%= @title %>
+        {@title}
         <:subtitle>Use this form to manage config records in your database.</:subtitle>
       </.header>
 
