@@ -39,4 +39,24 @@ defmodule Reencodarr.Services.Sonarr do
   def get_episode_files(series_id) do
     request(url: "/api/v3/episodefile?seriesId=#{series_id}", method: :get)
   end
+
+  def get_episode_file(episode_file_id) do
+    request(url: "/api/v3/episodefile/#{episode_file_id}", method: :get)
+  end
+
+  def refresh_series(series_id) do
+    request(
+      url: "/api/v3/command",
+      method: :post,
+      json: %{name: "RefreshSeries", seriesId: series_id}
+    )
+  end
+
+  def rename_files(series_id) do
+    request(
+      url: "/api/v3/command",
+      method: :post,
+      json: %{name: "RenameFiles", seriesId: series_id}
+    )
+  end
 end

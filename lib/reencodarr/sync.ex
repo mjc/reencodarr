@@ -22,7 +22,9 @@ defmodule Reencodarr.Sync do
     case Services.Sonarr.get_episode_files(series_id) do
       {:ok, %Req.Response{body: files}} ->
         Enum.map(files, &upsert_video_from_episode_file/1)
-      {:error, _} -> []
+
+      {:error, _} ->
+        []
     end
   end
 
@@ -35,9 +37,25 @@ defmodule Reencodarr.Sync do
     }
 
     case Media.upsert_video(attrs) do
-      {:ok, video} -> video
-      {:error, changeset} -> Logger.error("Failed to upsert video: #{inspect(changeset)}")
-      changeset
+      {:ok, video} ->
+        video
+
+      {:error, changeset} ->
+        Logger.error("Failed to upsert video: #{inspect(changeset)}")
+        changeset
+    end
+  end
+
+  def refresh_and_rename_from_video(%{service_type: :sonarr} = video) do
+    episode_file_id = video.service_id
+
+    with {:ok, %Req.Response{body: episode_file}} <-
+           Services.Sonarr.get_episode_file(episode_file_id),
+         {:ok, _refresh_series} <- Services.Sonarr.refresh_series(episode_file["seriesId"]),
+         {:ok, _rename_files} <- Services.Sonarr.rename_files(episode_file["seriesId"]) do
+      {:ok, "Refresh and rename triggered successfully"}
+    else
+      {:error, reason} -> {:error, reason}
     end
   end
 end

@@ -5,5 +5,6 @@ alias Reencodarr.Repo
 alias Reencodarr.Rules
 alias Reencodarr.{Analyzer, Scanner}
 alias Reencodarr.Services
+alias Reencodarr.Sync
 
 import Ecto.Query

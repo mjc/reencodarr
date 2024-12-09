@@ -34,6 +34,8 @@ defmodule Reencodarr.Media.Video do
 
   @required [:path, :size]
 
+  @service_types [:sonarr, :radarr]
+
   schema "videos" do
     field :atmos, :boolean
     field :audio_codecs, {:array, :string}, default: []
@@ -54,7 +56,7 @@ defmodule Reencodarr.Media.Video do
     field :reencoded, :boolean, default: false
     field :title, :string
     field :service_id, :string
-    field :service_type, :string
+    field :service_type, Ecto.Enum, values: @service_types
 
     field :mediainfo, :map
 
@@ -71,6 +73,7 @@ defmodule Reencodarr.Media.Video do
     |> validate_media_info()
     |> validate_required(@required)
     |> unique_constraint(:path)
+    |> validate_inclusion(:service_type, @service_types)
   end
 
   @spec validate_media_info(Ecto.Changeset.t()) :: Ecto.Changeset.t()
