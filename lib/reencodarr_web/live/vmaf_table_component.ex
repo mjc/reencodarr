@@ -16,11 +16,11 @@ defmodule ReencodarrWeb.VmafTableComponent do
       <tbody id="vmaf-rows">
         <%= for {id, vmaf} <- @vmafs do %>
           <tr id={"vmaf-#{id}"}>
-            <td class="border px-4 py-2"><%= vmaf.video.title %></td>
-            <td class="border px-4 py-2"><%= vmaf.percent %></td>
-            <td class="border px-4 py-2"><%= vmaf.size %></td>
-            <td class="border px-4 py-2"><%= vmaf.time %></td>
-            <td class="border px-4 py-2"><%= format_duration(vmaf.time) %></td>
+            <td class="border px-4 py-2">{vmaf.video.title}</td>
+            <td class="border px-4 py-2">{vmaf.percent}</td>
+            <td class="border px-4 py-2">{vmaf.size}</td>
+            <td class="border px-4 py-2">{vmaf.time}</td>
+            <td class="border px-4 py-2">{format_duration(vmaf.time)}</td>
           </tr>
         <% end %>
       </tbody>

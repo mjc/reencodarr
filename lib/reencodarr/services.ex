@@ -11,8 +11,10 @@ defmodule Reencodarr.Services do
       {:ok, %Req.Response{status: 200} = req} ->
         dbg(req)
         {:ok, "Authorization successful"}
+
       {:ok, %Req.Response{status: status_code}} ->
         {:error, "Authorization failed with status code #{status_code}"}
+
       {:error, %Req.HTTPError{reason: reason}} ->
         {:error, "Authorization failed with reason #{reason}"}
     end

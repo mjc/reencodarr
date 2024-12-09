@@ -8,7 +8,7 @@ defmodule ReencodarrWeb.LibraryLive.FormComponent do
     ~H"""
     <div>
       <.header>
-        <%= @title %>
+        {@title}
         <:subtitle>Use this form to manage library records in your database.</:subtitle>
       </.header>
 

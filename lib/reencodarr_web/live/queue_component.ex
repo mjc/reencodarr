@@ -24,7 +24,7 @@ defmodule ReencodarrWeb.QueueComponent do
             </td>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
               <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
-                <%= @queue_length.crf_searches %>
+                {@queue_length.crf_searches}
               </div>
             </td>
           </tr>
@@ -34,7 +34,7 @@ defmodule ReencodarrWeb.QueueComponent do
             </td>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
               <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
-                <%= @queue_length.encodes %>
+                {@queue_length.encodes}
               </div>
             </td>
           </tr>

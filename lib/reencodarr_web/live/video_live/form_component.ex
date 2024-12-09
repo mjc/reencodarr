@@ -8,7 +8,7 @@ defmodule ReencodarrWeb.VideoLive.FormComponent do
     ~H"""
     <div>
       <.header>
-        <%= @title %>
+        {@title}
         <:subtitle>Use this form to manage video records in your database.</:subtitle>
       </.header>
 

@@ -1,5 +1,5 @@
 <.header>
-  Listing <%= @video_count %> Videos
+  Listing {@video_count} Videos
   <:actions>
     <.link patch={~p"/videos/new"}>
       <.button>New Video</.button>
@@ -8,7 +8,7 @@
 </.header>
 
 <%= if @searching_video do %>
-  <div>Currently searching CRF for: <%= @searching_video %></div>
+  <div>Currently searching CRF for: {@searching_video}</div>
 <% end %>
 
 <.table
@@ -16,9 +16,9 @@
   rows={@streams.videos}
   row_click={fn {_id, video} -> JS.navigate(~p"/videos/#{video}") end}
 >
-  <:col :let={{_id, video}} label="Path"><%= video.path %></:col>
-  <:col :let={{_id, video}} label="Size"><%= video.size %></:col>
-  <:col :let={{_id, video}} label="Bitrate"><%= video.bitrate %></:col>
+  <:col :let={{_id, video}} label="Path">{video.path}</:col>
+  <:col :let={{_id, video}} label="Size">{video.size}</:col>
+  <:col :let={{_id, video}} label="Bitrate">{video.bitrate}</:col>
   <:action :let={{_id, video}}>
     <div class="sr-only">
       <.link navigate={~p"/videos/#{video}"}>Show</.link>

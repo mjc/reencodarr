@@ -12,8 +12,8 @@
   rows={@streams.vmafs}
   row_click={fn {_id, vmaf} -> JS.navigate(~p"/vmafs/#{vmaf}") end}
 >
-  <:col :let={{_id, vmaf}} label="Score"><%= vmaf.score %></:col>
-  <:col :let={{_id, vmaf}} label="Crf"><%= vmaf.crf %></:col>
+  <:col :let={{_id, vmaf}} label="Score">{vmaf.score}</:col>
+  <:col :let={{_id, vmaf}} label="Crf">{vmaf.crf}</:col>
   <:action :let={{_id, vmaf}}>
     <div class="sr-only">
       <.link navigate={~p"/vmafs/#{vmaf}"}>Show</.link>

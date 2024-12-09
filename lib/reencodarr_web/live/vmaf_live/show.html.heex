@@ -1,5 +1,5 @@
 <.header>
-  Vmaf <%= @vmaf.id %>
+  Vmaf {@vmaf.id}
   <:subtitle>This is a vmaf record from your database.</:subtitle>
   <:actions>
     <.link patch={~p"/vmafs/#{@vmaf}/show/edit"} phx-click={JS.push_focus()}>
@@ -9,8 +9,8 @@
 </.header>
 
 <.list>
-  <:item title="Score"><%= @vmaf.score %></:item>
-  <:item title="Crf"><%= @vmaf.crf %></:item>
+  <:item title="Score">{@vmaf.score}</:item>
+  <:item title="Crf">{@vmaf.crf}</:item>
 </.list>
 
 <.back navigate={~p"/vmafs"}>Back to vmafs</.back>
