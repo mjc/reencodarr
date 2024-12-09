@@ -57,6 +57,20 @@ defmodule Reencodarr.Media do
   end
 
   @doc """
+  Finds videos by their path using wildcards.
+
+  ## Examples
+
+      iex> find_videos_by_path_wildcard("/path/to/%")
+      [%Video{}, ...]
+
+  """
+  @spec find_videos_by_path_wildcard(String.t()) :: [Video.t()]
+  def find_videos_by_path_wildcard(path_pattern) do
+    Repo.all(from v in Video, where: like(v.path, ^path_pattern))
+  end
+
+  @doc """
   Creates a video.
 
   ## Examples
