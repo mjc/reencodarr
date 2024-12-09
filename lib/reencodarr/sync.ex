@@ -32,11 +32,16 @@ defmodule Reencodarr.Sync do
   end
 
   def upsert_video_from_episode_file(episode_file) do
+    {:ok, all_mediainfo} = Reencodarr.Analyzer.fetch_mediainfo(episode_file["path"])
+
+    mediainfo = Map.get(all_mediainfo, episode_file["path"])
+
     attrs = %{
-      path: episode_file["path"],
-      size: episode_file["size"],
-      service_id: to_string(episode_file["id"]),
-      service_type: :sonarr
+      "path" => episode_file["path"],
+      "size" => episode_file["size"],
+      "service_id" => to_string(episode_file["id"]),
+      "service_type" => :sonarr,
+      "mediainfo" => mediainfo
     }
 
     case Media.upsert_video(attrs) do
@@ -49,7 +54,7 @@ defmodule Reencodarr.Sync do
     end
   end
 
-  def refresh_and_rename_from_video(%{service_type: :sonarr, service_id: episode_file_id} = video) do
+  def refresh_and_rename_from_video(%{service_type: :sonarr, service_id: episode_file_id}) do
     with {:ok, %Req.Response{body: episode_file}} <-
            Services.Sonarr.get_episode_file(episode_file_id),
          {:ok, _refresh_series} <- Services.Sonarr.refresh_series(episode_file["seriesId"]),
