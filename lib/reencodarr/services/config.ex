@@ -16,5 +16,6 @@ defmodule Reencodarr.Services.Config do
     config
     |> cast(attrs, [:url, :api_key, :enabled, :service_type])
     |> validate_required([:url, :api_key, :enabled, :service_type])
+    |> unique_constraint(:service_type)
   end
 end

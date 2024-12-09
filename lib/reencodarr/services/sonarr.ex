@@ -4,20 +4,15 @@ defmodule Reencodarr.Services.Sonarr do
   """
   require Logger
 
-  def test_authorization(api_key, base_url) do
-    url = "#{base_url}/api/v3/system/status"
-    headers = [{"X-Api-Key", api_key}]
+  use CarReq,
+    pool_timeout: 100,
+    receive_timeout: 999,
+    retry: :safe_transient,
+    max_retries: 3,
+    fuse_opts: {{:standard, 5, 10_000}, {:reset, 30_000}}
 
-    with {:ok, %Req.Response{status: 200, body: %{"version" => version}}} <-
-           Req.get(url, headers: headers) do
-      Logger.info("Sonarr version: #{version}")
-      {:ok, "Authorization successful"}
-    else
-      {:ok, %Req.Response{status: status_code}} ->
-        {:error, "Authorization failed with status code #{status_code}"}
-
-      {:error, %Req.HTTPError{reason: reason}} ->
-        {:error, "Authorization failed with reason #{reason}"}
+    def client_options do
+      []
     end
-  end
+
 end
