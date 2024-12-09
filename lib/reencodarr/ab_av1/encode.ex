@@ -14,8 +14,9 @@ defmodule Reencodarr.AbAv1.Encode do
        %{
          port: :none,
          queue: :queue.new(),
-         encodes: 0,
-         args: []
+         args: [],
+         mode: :none,
+         video: :none
        }}
 
   @spec encode(Media.Vmaf.t(), atom()) :: :ok
@@ -24,8 +25,8 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   @impl true
-  def handle_call(:queue_length, _from, %{encodes: encodes} = state) do
-    {:reply, encodes, state}
+  def handle_call(:queue_length, _from, %{queue: queue} = state) do
+    {:reply, :queue.len(queue), state}
   end
 
   @impl true
@@ -48,20 +49,17 @@ defmodule Reencodarr.AbAv1.Encode do
         "-i"
       ] ++ params
 
-    new_encodes = max(state.encodes - 1, 0)
-
     new_state = %{
       state
       | port: Helper.open_port(args),
         video: vmaf.video,
         args: args,
-        mode: :encode,
-        encodes: new_encodes
+        mode: :encode
     }
 
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "queue", %{
       action: "queue:update",
-      encodes: new_state.encodes
+      encodes: :queue.len(state.queue)
     })
 
     {:noreply, new_state}
@@ -71,11 +69,18 @@ defmodule Reencodarr.AbAv1.Encode do
   def handle_cast({:encode, vmaf}, %{port: port} = state) when port != :none do
     Logger.info("Queueing encode for video #{vmaf.video.id}")
     new_queue = :queue.in({:encode, vmaf}, state.queue)
-    new_state = %{state | queue: new_queue, encodes: state.encodes + 1}
+
+    new_state = %{
+      state
+      | queue: new_queue,
+        args: state.args,
+        mode: state.mode,
+        video: state.video
+    }
 
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "queue", %{
       action: "queue:update",
-      encodes: new_state.encodes
+      encodes: :queue.len(new_queue)
     })
 
     {:noreply, new_state}
@@ -95,20 +100,17 @@ defmodule Reencodarr.AbAv1.Encode do
         "-i"
       ] ++ vmaf.params
 
-    new_encodes = max(state.encodes - 1, 0)
-
     new_state = %{
       state
       | port: Helper.open_port(args),
         video: vmaf.video,
         args: args,
-        mode: :encode,
-        encodes: new_encodes
+        mode: :encode
     }
 
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "queue", %{
       action: "queue:update",
-      encodes: new_state.encodes
+      encodes: :queue.len(state.queue)
     })
 
     {:noreply, new_state}
@@ -118,11 +120,18 @@ defmodule Reencodarr.AbAv1.Encode do
   def handle_cast({:encode, vmaf, :insert_at_top}, %{port: port} = state) when port != :none do
     Logger.info("Inserting encode at top of queue for video #{vmaf.video.id}")
     new_queue = :queue.in_r({:encode, vmaf}, state.queue)
-    new_state = %{state | queue: new_queue, encodes: state.encodes + 1}
+
+    new_state = %{
+      state
+      | queue: new_queue,
+        args: state.args,
+        mode: state.mode,
+        video: state.video
+    }
 
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "queue", %{
       action: "queue:update",
-      encodes: new_state.encodes
+      encodes: :queue.len(new_queue)
     })
 
     {:noreply, new_state}
@@ -157,7 +166,8 @@ defmodule Reencodarr.AbAv1.Encode do
       output_file: output_file
     })
 
-    new_state = Helper.dequeue(queue, state)
+    new_queue = Helper.dequeue_and_broadcast(queue, __MODULE__, :encode)
+    new_state = %{state | port: :none, queue: new_queue, video: :none, mode: :none}
     {:noreply, new_state}
   end
 end

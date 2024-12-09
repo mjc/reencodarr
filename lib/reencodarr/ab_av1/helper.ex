@@ -136,51 +136,29 @@ defmodule Reencodarr.AbAv1.Helper do
     end
   end
 
-  @spec dequeue(:queue.queue(), map()) :: map()
-  def dequeue(queue, state) do
+  @spec dequeue_and_broadcast(:queue.queue(), atom(), atom()) :: :queue.queue() | :empty
+  def dequeue_and_broadcast(queue, module, _action) do
     case :queue.out(queue) do
-      {{:value, {:crf_search, video, vmaf_percent}}, new_queue} ->
-        GenServer.cast(Reencodarr.AbAv1.CrfSearch, {:crf_search, video, vmaf_percent})
-        new_crf_searches = max(state.crf_searches - 1, 0)
-
-        new_state = %{
-          state
-          | port: :none,
-            queue: new_queue,
-            last_vmaf: :none,
-            mode: :none,
-            crf_searches: new_crf_searches
-        }
-
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
-          action: "queue:update",
-          crf_searches: new_state.crf_searches
-        })
-
-        new_state
-
-      {{:value, {:encode, vmaf}}, new_queue} ->
-        GenServer.cast(Reencodarr.AbAv1.Encode, {:encode, vmaf})
-        new_encodes = max(state.encodes - 1, 0)
-
-        new_state = %{
-          state
-          | port: :none,
-            queue: new_queue,
-            last_vmaf: :none,
-            mode: :none,
-            encodes: new_encodes
-        }
-
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
-          action: "queue:update",
-          encodes: new_state.encodes
-        })
-
-        new_state
+      {{:value, {action, video, vmaf_percent}}, new_queue} ->
+        GenServer.cast(module, {action, video, vmaf_percent})
+        broadcast_queue_update(new_queue, action)
+        new_queue
 
       {:empty, _} ->
-        %{state | port: :none, last_vmaf: :none, mode: :none}
+        :empty
     end
+  end
+
+  defp broadcast_queue_update(queue, action) do
+    topic =
+      case action do
+        :crf_search -> "scanning"
+        :encode -> "queue"
+      end
+
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, topic, %{
+      action: "queue:update",
+      crf_searches: :queue.len(queue)
+    })
   end
 end
