@@ -8,7 +8,8 @@ defmodule ReencodarrWeb.DashboardLive do
     if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("queue")
     if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("encoding")
     if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("videos")
-    :timer.send_interval(60_000, self(), :update_stats) # Update stats every 60 seconds
+    # Update stats every 60 seconds
+    :timer.send_interval(60_000, self(), :update_stats)
     stats = Media.fetch_stats()
     queue_length = AbAv1.queue_length()
     lowest_vmaf = Media.get_lowest_chosen_vmaf() || %Media.Vmaf{}
