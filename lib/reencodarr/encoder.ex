@@ -47,6 +47,12 @@ defmodule Reencodarr.Encoder do
   end
 
   @impl true
+  def handle_cast(:empty, state) do
+    Logger.error("Queue is empty")
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(:check_next_video, state) do
     if state.encoding do
       check_next_video()
