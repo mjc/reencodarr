@@ -1,0 +1,29 @@
+<.header>
+  Config <%= @config.id %>
+  <:subtitle>This is a config record from your database.</:subtitle>
+  <:actions>
+    <.link patch={~p"/configs/#{@config}/show/edit"} phx-click={JS.push_focus()}>
+      <.button>Edit config</.button>
+    </.link>
+  </:actions>
+</.header>
+
+<.list>
+  <:item title="Url"><%= @config.url %></:item>
+  <:item title="Api key"><%= @config.api_key %></:item>
+  <:item title="Enabled"><%= @config.enabled %></:item>
+  <:item title="Service type"><%= @config.service_type %></:item>
+</.list>
+
+<.back navigate={~p"/configs"}>Back to configs</.back>
+
+<.modal :if={@live_action == :edit} id="config-modal" show on_cancel={JS.patch(~p"/configs/#{@config}")}>
+  <.live_component
+    module={ReencodarrWeb.ConfigLive.FormComponent}
+    id={@config.id}
+    title={@page_title}
+    action={@live_action}
+    config={@config}
+    patch={~p"/configs/#{@config}"}
+  />
+</.modal>
