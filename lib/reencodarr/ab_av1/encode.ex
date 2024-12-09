@@ -24,6 +24,10 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   @impl true
+  def handle_call(:queue_length, _from, %{queue: :empty} = state) do
+    {:reply, 0, state}
+  end
+
   def handle_call(:queue_length, _from, %{queue: queue} = state) do
     {:reply, :queue.len(queue), state}
   end
