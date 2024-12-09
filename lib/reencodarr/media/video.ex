@@ -113,6 +113,37 @@ defmodule Reencodarr.Media.Video do
     |> cast(params, @mediainfo_params)
   end
 
+  @spec reencoded?(list(String.t()), map()) :: boolean()
+  defp reencoded?(video_codecs, mediainfo) do
+    has_av1_codec?(video_codecs) or
+      has_opus_audio?(mediainfo) or
+      is_low_bitrate_1080p?(video_codecs, mediainfo)
+  end
+
+  @spec has_av1_codec?(list(String.t())) :: boolean()
+  defp has_av1_codec?(video_codecs) do
+    Enum.any?(video_codecs, &(&1 == "V_AV1"))
+  end
+
+  @spec has_opus_audio?(map()) :: boolean()
+  defp has_opus_audio?(mediainfo) do
+    Enum.any?(mediainfo["media"]["track"], &audio_track_is_opus?/1)
+  end
+
+  @spec is_low_bitrate_1080p?(list(String.t()), map()) :: boolean()
+  defp is_low_bitrate_1080p?(video_codecs, mediainfo) do
+    "V_MPEGH/ISO/HEVC" in video_codecs and
+      get_track(mediainfo, "Video")["Width"] == "1920" and
+      String.to_integer(get_track(mediainfo, "General")["OverallBitRate"] || "0") < 5_000_000
+  end
+
+  @spec audio_track_is_opus?(map()) :: boolean()
+  defp audio_track_is_opus?(%{"@type" => "Audio", "CodecID" => codec}) do
+    codec == "A_OPUS"
+  end
+
+  defp audio_track_is_opus?(_), do: false
+
   @spec get_track(map(), String.t()) :: map() | nil
   defp get_track(mediainfo, type) do
     Enum.find(mediainfo["media"]["track"], &(&1["@type"] == type))
