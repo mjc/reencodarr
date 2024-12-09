@@ -4,5 +4,6 @@ alias Reencodarr.Media.{Video, Library, Vmaf}
 alias Reencodarr.Repo
 alias Reencodarr.Rules
 alias Reencodarr.{Analyzer, Scanner}
+alias Reencodarr.Services
 
 import Ecto.Query
