@@ -22,7 +22,7 @@ defmodule ReencodarrWeb.StatsComponent do
             </td>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
               <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
-                <%= @stats[false] || 0 %>
+                <%= @stats.not_reencoded %>
               </div>
             </td>
           </tr>
@@ -32,7 +32,7 @@ defmodule ReencodarrWeb.StatsComponent do
             </td>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
               <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
-                <%= @stats[true] || 0 %>
+                <%= @stats.reencoded %>
               </div>
             </td>
           </tr>
