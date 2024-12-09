@@ -7,10 +7,10 @@ defmodule Reencodarr.Services.Sonarr do
 
   use CarReq,
     pool_timeout: 100,
-    receive_timeout: 999,
+    receive_timeout: 9_000,
     retry: :safe_transient,
     max_retries: 3,
-    fuse_opts: {{:standard, 5, 10_000}, {:reset, 30_000}}
+    fuse_opts: {{:standard, 5, 30_000}, {:reset, 60_000}}
 
   def client_options do
     try do
