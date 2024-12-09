@@ -93,7 +93,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         %{port: port, queue: queue, last_vmaf: last_vmaf} = state
       ) do
     case {exit_code, last_vmaf} do
-      {0, last_vmaf} ->
+      {0, last_vmaf} when not is_nil(last_vmaf) ->
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
           action: "scanning:finished",
           vmaf:

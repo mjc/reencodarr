@@ -3,7 +3,6 @@ defmodule Reencodarr.Sync do
   This module is responsible for syncing data between services and Reencodarr.
   """
   alias Reencodarr.{Media, Services}
-  alias Reencodarr.Repo
   require Logger
 
   def sync_episode_files do
@@ -22,10 +21,7 @@ defmodule Reencodarr.Sync do
   defp fetch_and_upsert_episode_files(series_id) do
     case Services.Sonarr.get_episode_files(series_id) do
       {:ok, %Req.Response{body: files}} ->
-        # Repo.transaction(fn ->
         Enum.map(files, &upsert_video_from_episode_file/1)
-
-      # end)
 
       {:error, _} ->
         []
