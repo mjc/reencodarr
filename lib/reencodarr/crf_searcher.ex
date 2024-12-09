@@ -59,24 +59,18 @@ defmodule Reencodarr.CrfSearcher do
   end
 
   @spec run(Reencodarr.Media.Video.t()) :: :ok
-  def run(
-        %Media.Video{id: video_id, path: path, video_codecs: codecs, reencoded: reencoded} = video
-      ) do
-    case {codec_present?(codecs), Media.chosen_vmaf_exists?(video), reencoded} do
-      {false, false, false} ->
-        Logger.debug("Initiating crf search for video #{video_id}")
-        AbAv1.crf_search(video)
-
-      {false, true, false} ->
-        Logger.info("Skipping crf search for video #{path} as a chosen VMAF already exists")
-
-      {true, _, _} ->
-        Logger.debug("Skipping crf search for video #{path} as it already has AV1 codec")
-
-      {_, _, true} ->
-        Logger.info("Skipping crf search for video #{path} as it is already reencoded")
-    end
+  def run(%Media.Video{reencoded: true, path: path}) do
+    Logger.info("Skipping crf search for video #{path} as it is already reencoded")
+    :ok
   end
 
-  defp codec_present?(codecs), do: "V_AV1" in codecs
+  def run(%Media.Video{} = video) do
+    if Media.chosen_vmaf_exists?(video) do
+      Logger.info("Skipping crf search for video #{video.path} as a chosen VMAF already exists")
+      :ok
+    else
+      Logger.debug("Initiating crf search for video #{video.id}")
+      AbAv1.crf_search(video)
+    end
+  end
 end

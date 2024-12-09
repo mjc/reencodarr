@@ -94,8 +94,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       ) when not is_nil(last_vmaf) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
       action: "scanning:finished",
-      vmaf:
-        Map.put(last_vmaf, "chosen", true) |> Map.put("target_vmaf", Enum.at(state.args, 3))
+      vmaf: Map.put(last_vmaf, "chosen", true) |> Map.put("target_vmaf", Enum.at(state.args, 3))
     })
 
     new_queue = Helper.dequeue_and_broadcast(queue, __MODULE__, :crf_search)
