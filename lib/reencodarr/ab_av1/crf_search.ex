@@ -46,7 +46,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         last_vmaf: :none
     }
 
-    broadcast_queue_update(new_state.queue)
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
+      action: "queue:update",
+      crf_searches: :queue.len(new_state.queue)
+    })
+
     {:noreply, new_state}
   end
 
@@ -55,7 +59,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     new_queue = :queue.in({:crf_search, video, vmaf_percent}, state.queue)
     new_state = %{state | queue: new_queue}
 
-    broadcast_queue_update(new_state.queue)
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
+      action: "queue:update",
+      crf_searches: :queue.len(new_state.queue)
+    })
+
     {:noreply, new_state}
   end
 
@@ -104,12 +112,5 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     new_queue = Helper.dequeue_and_broadcast(queue, __MODULE__, :crf_search)
     new_state = %{state | port: :none, queue: new_queue, last_vmaf: :none}
     {:noreply, new_state}
-  end
-
-  defp broadcast_queue_update(queue) do
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
-      action: "queue:update",
-      crf_searches: :queue.len(queue)
-    })
   end
 end

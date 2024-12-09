@@ -20,11 +20,8 @@ defmodule Reencodarr.AbAv1.Helper do
   @spec remove_args(list(String.t()), list(String.t())) :: list(String.t())
   def remove_args(args, keys) do
     Enum.reduce(args, {[], false}, fn
-      _arg, {acc, true} ->
-        {acc, false}
-
-      arg, {acc, false} ->
-        if Enum.member?(keys, arg), do: {acc, true}, else: {[arg | acc], false}
+      _arg, {acc, true} -> {acc, false}
+      arg, {acc, false} -> if Enum.member?(keys, arg), do: {acc, true}, else: {[arg | acc], false}
     end)
     |> elem(0)
     |> Enum.reverse()
