@@ -7,6 +7,7 @@ defmodule ReencodarrWeb.DashboardLive do
     if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("scanning")
     if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("queue")
     if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("encoding")
+    if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("videos")
     stats = Media.fetch_stats()
     queue_length = AbAv1.queue_length()
     lowest_vmaf = Media.get_lowest_chosen_vmaf() || %Media.Vmaf{}
@@ -84,6 +85,17 @@ defmodule ReencodarrWeb.DashboardLive do
     }
 
     {:noreply, assign(socket, :progress, progress)}
+  end
+
+  def handle_info(%{action: "video:upsert"} = _msg, socket) do
+    stats = Media.fetch_stats()
+    lowest_vmaf = Media.get_lowest_chosen_vmaf() || %Media.Vmaf{}
+    lowest_vmaf_by_time = Media.get_lowest_chosen_vmaf_by_time() || %Media.Vmaf{}
+
+    {:noreply,
+     assign(socket, :stats, stats)
+     |> assign(:lowest_vmaf, lowest_vmaf)
+     |> assign(:lowest_vmaf_by_time, lowest_vmaf_by_time)}
   end
 
   def handle_info(_msg, socket) do
