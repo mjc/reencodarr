@@ -35,4 +35,43 @@ defmodule Reencodarr.Services.Sonarr do
         {:error, reason}
     end
   end
+
+  def get_shows do
+    case request(url: "/api/v3/series", method: :get) do
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        {:ok, body}
+
+      {:ok, %Req.Response{status: status}} ->
+        {:error, "Unexpected status code: #{status}"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def get_episodes(series_id) do
+    case request(url: "/api/v3/episode?seriesId=#{series_id}", method: :get) do
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        {:ok, body}
+
+      {:ok, %Req.Response{status: status}} ->
+        {:error, "Unexpected status code: #{status}"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def get_episode_files(series_id) do
+    case request(url: "/api/v3/episodefile?seriesId=#{series_id}", method: :get) do
+      {:ok, %Req.Response{status: 200, body: body}} ->
+        {:ok, body}
+
+      {:ok, %Req.Response{status: status}} ->
+        {:error, "Unexpected status code: #{status}"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 end
