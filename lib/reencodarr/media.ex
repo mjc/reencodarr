@@ -512,14 +512,15 @@ defmodule Reencodarr.Media do
   ## Examples
 
       iex> fetch_stats()
-      %{true => 10, false => 5, total_videos: 15, avg_vmaf_percentage: 85.5, total_vmafs: 20}
+      %{true => 10, false => 5, total_videos: 15, avg_vmaf_percentage: 85.5, total_vmafs: 20, chosen_vmafs_count: 10}
 
   """
   @spec fetch_stats() :: %{
           boolean() => integer(),
           total_videos: integer(),
           avg_vmaf_percentage: float(),
-          total_vmafs: integer()
+          total_vmafs: integer(),
+          chosen_vmafs_count: integer()
         }
   def fetch_stats do
     counts =
@@ -538,10 +539,15 @@ defmodule Reencodarr.Media do
 
     total_vmafs = Repo.aggregate(Vmaf, :count, :id)
 
+    chosen_vmafs_count =
+      from(v in Vmaf, where: v.chosen == true, select: count(v.id))
+      |> Repo.one()
+
     Map.merge(counts, %{
       total_videos: total_videos,
       avg_vmaf_percentage: avg_vmaf_percentage,
-      total_vmafs: total_vmafs
+      total_vmafs: total_vmafs,
+      chosen_vmafs_count: chosen_vmafs_count
     })
   end
 

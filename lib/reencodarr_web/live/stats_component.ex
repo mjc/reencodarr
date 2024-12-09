@@ -80,6 +80,18 @@ defmodule ReencodarrWeb.StatsComponent do
               </div>
             </td>
           </tr>
+          <tr>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">
+                Chosen VMAFs Count
+              </div>
+            </td>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                <%= @stats.chosen_vmafs_count %>
+              </div>
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>
