@@ -2,9 +2,10 @@ defmodule Reencodarr.Sync do
   @moduledoc """
   This module is responsible for syncing data between services and Reencodarr.
   """
-  alias Reencodarr.Services
+  alias Reencodarr.{Media, Services}
+  require Logger
 
-  def get_all_episode_files do
+  def sync_episode_files do
     case Services.Sonarr.get_shows() do
       {:ok, %Req.Response{body: shows}} ->
         shows
@@ -19,8 +20,24 @@ defmodule Reencodarr.Sync do
 
   defp fetch_episode_files(series_id) do
     case Services.Sonarr.get_episode_files(series_id) do
-      {:ok, %Req.Response{body: files}} -> files |> dbg
+      {:ok, %Req.Response{body: files}} ->
+        Enum.map(files, &upsert_video_from_episode_file/1)
       {:error, _} -> []
+    end
+  end
+
+  def upsert_video_from_episode_file(episode_file) do
+    attrs = %{
+      path: episode_file["path"],
+      size: episode_file["size"],
+      service_id: to_string(episode_file["id"]),
+      service_type: "sonarr"
+    }
+
+    case Media.upsert_video(attrs) do
+      {:ok, video} -> video
+      {:error, changeset} -> Logger.error("Failed to upsert video: #{inspect(changeset)}")
+      changeset
     end
   end
 end
