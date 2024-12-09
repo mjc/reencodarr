@@ -86,7 +86,7 @@ defmodule Reencodarr.Media.Video do
     atmos = has_atmos_audio?(mediainfo)
     max_audio_channels = get_max_audio_channels(mediainfo)
 
-    reencoded = Enum.any?(video_codecs, &(&1 == "V_AV1"))
+    reencoded = reencoded?(video_codecs, mediainfo)
 
     title = general["Title"] || Path.basename(get_field(changeset, :path))
 

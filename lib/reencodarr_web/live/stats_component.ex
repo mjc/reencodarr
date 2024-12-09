@@ -7,8 +7,12 @@ defmodule ReencodarrWeb.StatsComponent do
       <table class="min-w-full">
         <thead>
           <tr>
-            <th class="px-6 py-3 border-b-2 border-gray-300 dark:border-gray-700 text-left leading-4 text-gray-600 dark:text-gray-300 tracking-wider">Statistic</th>
-            <th class="px-6 py-3 border-b-2 border-gray-300 dark:border-gray-700 text-left leading-4 text-gray-600 dark:text-gray-300 tracking-wider">Value</th>
+            <th class="px-6 py-3 border-b-2 border-gray-300 dark:border-gray-700 text-left leading-4 text-gray-600 dark:text-gray-300 tracking-wider">
+              Statistic
+            </th>
+            <th class="px-6 py-3 border-b-2 border-gray-300 dark:border-gray-700 text-left leading-4 text-gray-600 dark:text-gray-300 tracking-wider">
+              Value
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -17,7 +21,9 @@ defmodule ReencodarrWeb.StatsComponent do
               <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Not Reencoded</div>
             </td>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100"><%= @stats[false] || 0 %></div>
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                <%= @stats[false] || 0 %>
+              </div>
             </td>
           </tr>
           <tr>
@@ -25,7 +31,9 @@ defmodule ReencodarrWeb.StatsComponent do
               <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Reencoded</div>
             </td>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100"><%= @stats[true] || 0 %></div>
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                <%= @stats[true] || 0 %>
+              </div>
             </td>
           </tr>
           <tr>
@@ -33,23 +41,33 @@ defmodule ReencodarrWeb.StatsComponent do
               <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Total Videos</div>
             </td>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100"><%= @stats.total_videos %></div>
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                <%= @stats.total_videos %>
+              </div>
             </td>
           </tr>
           <tr>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Average VMAF Percentage</div>
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">
+                Average VMAF Percentage
+              </div>
             </td>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100"><%= @stats.avg_vmaf_percentage %></div>
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                <%= @stats.avg_vmaf_percentage %>
+              </div>
             </td>
           </tr>
           <tr>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Lowest Chosen VMAF Percentage</div>
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">
+                Lowest Chosen VMAF Percentage
+              </div>
             </td>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100"><%= @lowest_vmaf.percent %></div>
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                <%= @lowest_vmaf.percent %>
+              </div>
             </td>
           </tr>
           <tr>
@@ -57,7 +75,9 @@ defmodule ReencodarrWeb.StatsComponent do
               <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Total VMAFs</div>
             </td>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100"><%= @stats.total_vmafs %></div>
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                <%= @stats.total_vmafs %>
+              </div>
             </td>
           </tr>
         </tbody>
