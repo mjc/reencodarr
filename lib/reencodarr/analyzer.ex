@@ -26,32 +26,32 @@ defmodule Reencodarr.Analyzer do
     process_paths(state ++ [path])
   end
 
-  @spec process_path(String.t()) :: :ok
-  def process_path(path) do
-    GenServer.cast(__MODULE__, {:process_path, path})
+  @spec process_path(map()) :: :ok
+  def process_path(video_info) do
+    GenServer.cast(__MODULE__, {:process_path, video_info})
   end
 
-  @spec handle_cast({:process_path, String.t()}, list(String.t())) :: {:noreply, list(String.t())}
-  def handle_cast({:process_path, path}, state) when length(state) < @concurrent_files do
-    Logger.debug("Video file found: #{path}")
-    {:noreply, state ++ [path]}
+  @spec handle_cast({:process_path, map()}, list(map())) :: {:noreply, list(map())}
+  def handle_cast({:process_path, video_info}, state) when length(state) < @concurrent_files do
+    Logger.debug("Video file found: #{video_info.path}")
+    {:noreply, state ++ [video_info]}
   end
 
-  def handle_cast({:process_path, path}, state) do
-    Logger.debug("Video file found: #{path}")
-    process_paths(state ++ [path])
+  def handle_cast({:process_path, video_info}, state) do
+    Logger.debug("Video file found: #{video_info.path}")
+    process_paths(state ++ [video_info])
   end
 
-  @spec process_paths(list(String.t())) :: {:noreply, list(String.t())}
+  @spec process_paths(list(map())) :: {:noreply, list(map())}
   defp process_paths(state) do
     paths = Enum.take(state, 5)
 
-    case fetch_mediainfo(paths) do
+    case fetch_mediainfo(Enum.map(paths, & &1.path)) do
       {:ok, mediainfo_map} ->
         upsert_videos(paths, mediainfo_map)
 
       {:error, reason} ->
-        Enum.each(paths, fn path ->
+        Enum.each(paths, fn %{path: path} ->
           Logger.error("Failed to fetch mediainfo for #{path}: #{reason}")
         end)
     end
@@ -59,12 +59,12 @@ defmodule Reencodarr.Analyzer do
     {:noreply, Enum.drop(state, @concurrent_files)}
   end
 
-  @spec upsert_videos(list(String.t()), map()) :: :ok
+  @spec upsert_videos(list(map()), map()) :: :ok
   defp upsert_videos(paths, mediainfo_map) do
-    Enum.each(paths, fn path ->
+    Enum.each(paths, fn %{path: path, service_id: service_id, service_type: service_type} ->
       mediainfo = Map.get(mediainfo_map, path)
 
-      case Media.upsert_video(%{path: path, mediainfo: mediainfo}) do
+      case Media.upsert_video(%{path: path, mediainfo: mediainfo, service_id: service_id, service_type: service_type}) do
         {:ok, _video} -> :ok
         {:error, reason} -> Logger.error("Failed to upsert video for #{path}: #{inspect(reason)}")
       end

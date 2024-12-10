@@ -77,16 +77,9 @@ defmodule Reencodarr.Sync do
     }
 
     if audio_codec in ["TrueHD", "EAC3"] do
-      Reencodarr.Analyzer.process_path(episode_file["path"])
-    end
-
-    case Media.upsert_video(attrs) do
-      {:ok, video} ->
-        video
-
-      {:error, changeset} ->
-        Logger.error("Failed to upsert video: #{inspect(changeset)}")
-        changeset
+      Reencodarr.Analyzer.process_path(%{path: episode_file["path"], service_id: to_string(episode_file["id"]), service_type: :sonarr})
+    else
+      Media.upsert_video(attrs)
     end
   end
 
