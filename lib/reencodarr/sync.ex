@@ -21,7 +21,7 @@ defmodule Reencodarr.Sync do
   defp fetch_and_upsert_episode_files(series_id) do
     case Services.Sonarr.get_episode_files(series_id) do
       {:ok, %Req.Response{body: files}} ->
-        Enum.map(files, &upsert_video_from_episode_file/1)
+        Enum.each(files, &upsert_video_from_episode_file/1)
 
       {:error, _} ->
         []
@@ -85,6 +85,7 @@ defmodule Reencodarr.Sync do
     else
       Media.upsert_video(attrs)
     end
+    :ok
   end
 
   defp map_codec_id("AV1"), do: "V_AV1"

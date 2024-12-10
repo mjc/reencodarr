@@ -110,7 +110,7 @@ defmodule Reencodarr.Media do
     attrs
     |> ensure_library_id()
     |> Video.changeset()
-    |> Repo.insert(on_conflict: {:replace_all_except, [:id, :reencoded]}, conflict_target: :path)
+    |> Repo.insert(on_conflict: {:replace_all_except, [:id, :reencoded, :inserted_at]}, conflict_target: :path)
   end
 
   @spec ensure_library_id(map()) :: map()
@@ -340,7 +340,7 @@ defmodule Reencodarr.Media do
     %Vmaf{}
     |> Vmaf.changeset(attrs)
     |> Repo.insert(
-      on_conflict: {:replace_all_except, [:id, :video_id]},
+      on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
       conflict_target: [:crf, :video_id]
     )
   end
@@ -499,7 +499,8 @@ defmodule Reencodarr.Media do
         chosen_vmafs_count: 10,
         lowest_vmaf: %Vmaf{},
         lowest_vmaf_by_time: %Vmaf{},
-        most_recent_video_update: ~N[2023-10-05 14:30:00]
+        most_recent_video_update: ~N[2023-10-05 14:30:00],
+        most_recent_inserted_video: ~N[2023-10-05 14:30:00]
       }
 
   """
@@ -512,7 +513,8 @@ defmodule Reencodarr.Media do
           chosen_vmafs_count: integer(),
           lowest_vmaf: Vmaf.t(),
           lowest_vmaf_by_time: Vmaf.t(),
-          most_recent_video_update: NaiveDateTime.t() | nil
+          most_recent_video_update: NaiveDateTime.t() | nil,
+          most_recent_inserted_video: NaiveDateTime.t() | nil
         }
   def fetch_stats do
     counts_query =
@@ -551,6 +553,7 @@ defmodule Reencodarr.Media do
     lowest_vmaf = get_lowest_chosen_vmaf() || %Vmaf{}
     lowest_vmaf_by_time = get_lowest_chosen_vmaf_by_time() || %Vmaf{}
     most_recent_video_update = most_recent_video_update()
+    most_recent_inserted_video = get_most_recent_inserted_at()
 
     %{
       avg_vmaf_percentage: avg_vmaf_percentage,
@@ -561,7 +564,8 @@ defmodule Reencodarr.Media do
       reencoded: Map.get(counts, true, 0),
       total_videos: total_videos,
       total_vmafs: total_vmafs,
-      most_recent_video_update: most_recent_video_update
+      most_recent_video_update: most_recent_video_update,
+      most_recent_inserted_video: most_recent_inserted_video
     }
   end
 
@@ -660,6 +664,21 @@ defmodule Reencodarr.Media do
   @spec most_recent_video_update() :: NaiveDateTime.t() | nil
   def most_recent_video_update do
     from(v in Video, select: max(v.updated_at))
+    |> Repo.one()
+  end
+
+  @doc """
+  Returns the most recent inserted_at timestamp for videos.
+
+  ## Examples
+
+      iex> get_most_recent_inserted_at()
+      ~N[2023-10-05 14:30:00]
+
+  """
+  @spec get_most_recent_inserted_at() :: NaiveDateTime.t() | nil
+  def get_most_recent_inserted_at do
+    from(v in Video, select: max(v.inserted_at))
     |> Repo.one()
   end
 end

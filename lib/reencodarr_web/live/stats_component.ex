@@ -35,6 +35,7 @@ defmodule ReencodarrWeb.StatsComponent do
   defp stats_data(stats, timezone) do
     [
       {"Most Recent Video Update", format_datetime(stats.most_recent_video_update, timezone)},
+      {"Most Recent Inserted Video", format_datetime(stats.most_recent_inserted_video, timezone)},
       {"Not Reencoded", stats.not_reencoded},
       {"Reencoded", stats.reencoded},
       {"Total Videos", stats.total_videos},
