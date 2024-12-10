@@ -86,7 +86,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
-  def handle_info({port, {:data, {:noeol, data}}}, %{port: port, video: video} = state) do
+  def handle_info({port, {:data, {:noeol, data}}}, %{port: port, current_task: %{video: video}} = state) do
     Logger.error("Received partial data: for video: #{video.id}, #{data}")
     {:noreply, state}
   end
