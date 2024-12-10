@@ -124,7 +124,14 @@ defmodule Reencodarr.Media.Video do
   defp reencoded?(video_codecs, mediainfo) do
     has_av1_codec?(video_codecs) or
       has_opus_audio?(mediainfo) or
-      is_low_bitrate_1080p?(video_codecs, mediainfo)
+      is_low_bitrate_1080p?(video_codecs, mediainfo) or
+      is_low_resolution_hevc?(video_codecs, mediainfo)
+  end
+
+  @spec is_low_resolution_hevc?(list(String.t()), map()) :: boolean()
+  defp is_low_resolution_hevc?(video_codecs, mediainfo) do
+    "V_MPEGH/ISO/HEVC" in video_codecs or "V_MPEGH/ISO/HEVC" in video_codecs and
+      String.to_integer(get_track(mediainfo, "Video")["Height"] || "0") < 720
   end
 
   @spec has_av1_codec?(list(String.t())) :: boolean()
