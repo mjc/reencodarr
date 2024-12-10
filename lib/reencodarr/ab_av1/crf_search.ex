@@ -88,6 +88,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
+  def handle_info({port, {:data, {:noeol, data}}}, %{port: port} = state) do
+    Logger.error("Received partial data: #{data}")
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(
         {port, {:exit_status, 0}},
         %{port: port, queue: queue, last_vmaf: last_vmaf} = state
