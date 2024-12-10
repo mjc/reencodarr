@@ -96,6 +96,7 @@ defmodule Reencodarr.AbAv1.Helper do
         human_readable_eta = "#{eta} #{unit}"
 
         Logger.info("Encoding progress: #{percent}%, #{fps} fps, ETA: #{human_readable_eta}")
+
       _ ->
         Logger.info("Encoding should start for #{data}")
     end

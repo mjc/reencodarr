@@ -56,7 +56,6 @@ defmodule Reencodarr.AbAv1.Encode do
         {:encode, %Media.Vmaf{params: _params} = vmaf},
         %{port: :none} = state
       ) do
-
     new_state = prepare_encode_state(vmaf, state)
 
     {:noreply, new_state}

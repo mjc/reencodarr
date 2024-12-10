@@ -32,7 +32,11 @@ defmodule Reencodarr.ManualScanner do
     files = String.split(data, "\n", trim: true)
 
     Logger.debug("Found #{Enum.count(files)} video files")
-    Enum.each(files, fn file -> Analyzer.process_path(%{path: file, service_id: nil, service_type: nil}) end)
+
+    Enum.each(files, fn file ->
+      Analyzer.process_path(%{path: file, service_id: nil, service_type: nil})
+    end)
+
     {:noreply, state}
   end
 

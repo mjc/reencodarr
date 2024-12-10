@@ -16,15 +16,17 @@ defmodule Reencodarr.AbAv1 do
 
   @spec queue_length() :: %{crf_searches: integer(), encodes: integer()}
   def queue_length do
-    crf_searches = case GenServer.whereis(Reencodarr.AbAv1.CrfSearch) do
-      nil -> 0
-      pid -> Process.info(pid, :message_queue_len) |> elem(1)
-    end
+    crf_searches =
+      case GenServer.whereis(Reencodarr.AbAv1.CrfSearch) do
+        nil -> 0
+        pid -> Process.info(pid, :message_queue_len) |> elem(1)
+      end
 
-    encodes = case GenServer.whereis(Reencodarr.AbAv1.Encode) do
-      nil -> 0
-      pid -> Process.info(pid, :message_queue_len) |> elem(1)
-    end
+    encodes =
+      case GenServer.whereis(Reencodarr.AbAv1.Encode) do
+        nil -> 0
+        pid -> Process.info(pid, :message_queue_len) |> elem(1)
+      end
 
     %{crf_searches: crf_searches, encodes: encodes}
   end

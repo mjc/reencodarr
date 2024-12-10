@@ -64,7 +64,12 @@ defmodule Reencodarr.Analyzer do
     Enum.each(paths, fn %{path: path, service_id: service_id, service_type: service_type} ->
       mediainfo = Map.get(mediainfo_map, path)
 
-      case Media.upsert_video(%{path: path, mediainfo: mediainfo, service_id: service_id, service_type: service_type}) do
+      case Media.upsert_video(%{
+             path: path,
+             mediainfo: mediainfo,
+             service_id: service_id,
+             service_type: service_type
+           }) do
         {:ok, _video} -> :ok
         {:error, reason} -> Logger.error("Failed to upsert video for #{path}: #{inspect(reason)}")
       end

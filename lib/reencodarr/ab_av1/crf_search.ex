@@ -25,13 +25,21 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       Logger.info("Initiating crf search for video #{video.id}")
       GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
     end
+
     :ok
   end
 
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
     args = ["crf-search"] ++ Helper.build_args(video.path, vmaf_percent, video)
-    new_state = %{state | port: Helper.open_port(args), current_task: %{video: video}, last_vmaf: :none}
+
+    new_state = %{
+      state
+      | port: Helper.open_port(args),
+        current_task: %{video: video},
+        last_vmaf: :none
+    }
+
     {:noreply, new_state}
   end
 
@@ -41,12 +49,18 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
-  def handle_info({port, {:data, {:eol, data}}}, %{port: port, current_task: %{video: video}} = state) do
+  def handle_info(
+        {port, {:data, {:eol, data}}},
+        %{port: port, current_task: %{video: video}} = state
+      ) do
     process_data(data, video, state)
   end
 
   @impl true
-  def handle_info({port, {:data, {:noeol, data}}}, %{port: port, current_task: %{video: video}} = state) do
+  def handle_info(
+        {port, {:data, {:noeol, data}}},
+        %{port: port, current_task: %{video: video}} = state
+      ) do
     Logger.error("Received partial data: for video: #{video.id}, #{data}")
     {:noreply, state}
   end
@@ -59,6 +73,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     else
       Logger.error("CRF search failed with exit code #{exit_code}")
     end
+
     {:noreply, %{state | last_vmaf: :none, port: :none, current_task: :none}}
   end
 

@@ -77,7 +77,11 @@ defmodule Reencodarr.Sync do
     }
 
     if audio_codec in ["TrueHD", "EAC3"] do
-      Reencodarr.Analyzer.process_path(%{path: episode_file["path"], service_id: to_string(episode_file["id"]), service_type: :sonarr})
+      Reencodarr.Analyzer.process_path(%{
+        path: episode_file["path"],
+        service_id: to_string(episode_file["id"]),
+        service_type: :sonarr
+      })
     else
       Media.upsert_video(attrs)
     end
