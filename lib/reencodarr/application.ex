@@ -16,7 +16,7 @@ defmodule Reencodarr.Application do
       {Finch, name: Reencodarr.Finch},
       # Start to serve requests, typically the last entry
       ReencodarrWeb.Endpoint,
-      Reencodarr.Scanner,
+      Reencodarr.ManualScanner,
       Reencodarr.Analyzer,
       Reencodarr.Encoder,
       Reencodarr.AbAv1

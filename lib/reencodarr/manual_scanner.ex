@@ -1,4 +1,4 @@
-defmodule Reencodarr.Scanner do
+defmodule Reencodarr.ManualScanner do
   use GenServer
   require Logger
 
