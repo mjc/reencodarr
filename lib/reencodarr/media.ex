@@ -56,6 +56,11 @@ defmodule Reencodarr.Media do
     Repo.one(from v in Video, where: v.path == ^path)
   end
 
+  @spec video_exists?(String.t()) :: boolean()
+  def video_exists?(path) do
+    Repo.exists?(from v in Video, where: v.path == ^path)
+  end
+
   @doc """
   Finds videos by their path using wildcards.
 

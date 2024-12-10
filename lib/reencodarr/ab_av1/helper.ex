@@ -1,6 +1,7 @@
 defmodule Reencodarr.AbAv1.Helper do
-  alias Reencodarr.Rules
   require Logger
+
+  alias Reencodarr.{Media, Rules}
 
   @crf_search_results ~r/
     crf \s (?<crf>\d+) \s
@@ -26,14 +27,14 @@ defmodule Reencodarr.AbAv1.Helper do
     |> Enum.reverse()
   end
 
-  @spec build_rules(Media.Video.t()) :: list(String.t())
+  @spec build_rules(Media.Video.t()) :: list()
   def build_rules(video) do
     Rules.apply(video)
     |> Enum.reject(fn {k, _v} -> k == "--acodec" end)
     |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
   end
 
-  @spec build_args(String.t(), integer(), Media.Video.t()) :: list(String.t())
+  @spec build_args(String.t(), integer, Media.Video.t()) :: list
   def build_args(video_path, vmaf_percent, video) do
     base_args = [
       "-i",

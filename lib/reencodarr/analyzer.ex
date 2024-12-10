@@ -46,12 +46,18 @@ defmodule Reencodarr.Analyzer do
   defp process_paths(state) do
     paths = Enum.take(state, 5)
 
-    case fetch_mediainfo(Enum.map(paths, & &1.path)) do
+    paths_to_process =
+      Enum.reject(paths, fn %{path: path} ->
+        Media.video_exists?(path) &&
+          Logger.debug("Video already exists for path: #{path}, skipping.")
+      end)
+
+    case fetch_mediainfo(Enum.map(paths_to_process, & &1.path)) do
       {:ok, mediainfo_map} ->
-        upsert_videos(paths, mediainfo_map)
+        upsert_videos(paths_to_process, mediainfo_map)
 
       {:error, reason} ->
-        Enum.each(paths, fn %{path: path} ->
+        Enum.each(paths_to_process, fn %{path: path} ->
           Logger.error("Failed to fetch mediainfo for #{path}: #{reason}")
         end)
     end

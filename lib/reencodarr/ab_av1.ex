@@ -1,6 +1,8 @@
 defmodule Reencodarr.AbAv1 do
   use Supervisor
 
+  alias Reencodarr.Media
+
   @spec start_link(any()) :: Supervisor.on_start()
   def start_link(_opts), do: Supervisor.start_link(__MODULE__, :ok, name: __MODULE__)
 
