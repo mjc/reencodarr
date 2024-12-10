@@ -10,6 +10,7 @@ defmodule Reencodarr.Encoder do
 
   # Client API
 
+  @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
   def start_link(_) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end

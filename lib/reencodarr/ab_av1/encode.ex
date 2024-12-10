@@ -13,7 +13,6 @@ defmodule Reencodarr.AbAv1.Encode do
      %{
        port: :none,
        queue: :queue.new(),
-       args: [],
        video: :none
      }}
   end
@@ -46,8 +45,7 @@ defmodule Reencodarr.AbAv1.Encode do
     %{
       state
       | port: Helper.open_port(args),
-        video: vmaf.video,
-        args: args
+        video: vmaf.video
     }
   end
 
@@ -79,7 +77,6 @@ defmodule Reencodarr.AbAv1.Encode do
     new_state = %{
       state
       | queue: new_queue,
-        args: state.args,
         video: state.video
     }
 
@@ -113,7 +110,6 @@ defmodule Reencodarr.AbAv1.Encode do
     new_state = %{
       state
       | queue: new_queue,
-        args: state.args,
         video: state.video
     }
 
@@ -134,7 +130,7 @@ defmodule Reencodarr.AbAv1.Encode do
   @impl true
   def handle_info(
         {port, {:exit_status, exit_code}},
-        %{port: port, queue: queue, video: video, args: args} = state
+        %{port: port, queue: queue, video: video} = state
       ) do
     result =
       case exit_code do
@@ -144,6 +140,16 @@ defmodule Reencodarr.AbAv1.Encode do
       end
 
     Logger.debug("Exit status: #{inspect(result)}")
+
+    args =
+      [
+        "encode",
+        "--crf",
+        to_string(video.crf),
+        "-o",
+        Path.join(Helper.temp_dir(), "#{video.id}.mkv"),
+        "-i"
+      ] ++ video.params
 
     output_file = Enum.at(args, Enum.find_index(args, &(&1 == "-o")) + 1)
 
