@@ -2,6 +2,8 @@ defmodule Reencodarr.ManualScanner do
   use GenServer
   require Logger
 
+  alias Reencodarr.Analyzer
+
   @file_extensions ["mp4", "mkv", "avi"]
 
   @spec start_link(any()) :: GenServer.on_start()
@@ -30,6 +32,7 @@ defmodule Reencodarr.ManualScanner do
     files = String.split(data, "\n", trim: true)
 
     Logger.debug("Found #{Enum.count(files)} video files")
+    Enum.each(files, &Analyzer.process_path/1)
     {:noreply, state}
   end
 

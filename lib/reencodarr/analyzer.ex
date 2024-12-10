@@ -22,7 +22,7 @@ defmodule Reencodarr.Analyzer do
   end
 
   def handle_info(%{path: path}, state) do
-    Logger.debug("Video file found: #{path}")
+    Logger.debug("Enough videos found, processing #{Enum.count(state) + 1} videos")
     process_paths(state ++ [path])
   end
 
