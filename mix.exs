@@ -64,7 +64,8 @@ defmodule Reencodarr.MixProject do
       {:dialyxir, "~> 1.1", only: [:dev], runtime: false},
       {:contex, "~> 0.5.0"},
       {:req, "~> 0.5"},
-      {:car_req, tag: "0.3.1", github: "carsdotcom/car_req"}
+      {:car_req, tag: "0.3.1", github: "carsdotcom/car_req"},
+      {:timex, "~> 3.7"}
     ]
   end
 

@@ -498,7 +498,8 @@ defmodule Reencodarr.Media do
         total_vmafs: 20,
         chosen_vmafs_count: 10,
         lowest_vmaf: %Vmaf{},
-        lowest_vmaf_by_time: %Vmaf{}
+        lowest_vmaf_by_time: %Vmaf{},
+        most_recent_video_update: ~N[2023-10-05 14:30:00]
       }
 
   """
@@ -510,7 +511,8 @@ defmodule Reencodarr.Media do
           total_vmafs: integer(),
           chosen_vmafs_count: integer(),
           lowest_vmaf: Vmaf.t(),
-          lowest_vmaf_by_time: Vmaf.t()
+          lowest_vmaf_by_time: Vmaf.t(),
+          most_recent_video_update: NaiveDateTime.t() | nil
         }
   def fetch_stats do
     counts_query =
@@ -548,6 +550,7 @@ defmodule Reencodarr.Media do
     chosen_vmafs_count = Repo.one(chosen_vmafs_count_query)
     lowest_vmaf = get_lowest_chosen_vmaf() || %Vmaf{}
     lowest_vmaf_by_time = get_lowest_chosen_vmaf_by_time() || %Vmaf{}
+    most_recent_video_update = most_recent_video_update()
 
     %{
       avg_vmaf_percentage: avg_vmaf_percentage,
@@ -557,7 +560,8 @@ defmodule Reencodarr.Media do
       not_reencoded: Map.get(counts, false, 0),
       reencoded: Map.get(counts, true, 0),
       total_videos: total_videos,
-      total_vmafs: total_vmafs
+      total_vmafs: total_vmafs,
+      most_recent_video_update: most_recent_video_update
     }
   end
 
@@ -642,5 +646,20 @@ defmodule Reencodarr.Media do
     vmaf
     |> Vmaf.changeset(Map.put(params, "chosen", true))
     |> Repo.update()
+  end
+
+  @doc """
+  Returns the most recent updated_at timestamp for videos.
+
+  ## Examples
+
+      iex> most_recent_video_update()
+      ~N[2023-10-05 14:30:00]
+
+  """
+  @spec most_recent_video_update() :: NaiveDateTime.t() | nil
+  def most_recent_video_update do
+    from(v in Video, select: max(v.updated_at))
+    |> Repo.one()
   end
 end

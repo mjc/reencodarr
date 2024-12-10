@@ -1,5 +1,6 @@
 defmodule ReencodarrWeb.StatsComponent do
   use ReencodarrWeb, :live_component
+  import Timex
 
   def render(assigns) do
     ~H"""
@@ -16,6 +17,23 @@ defmodule ReencodarrWeb.StatsComponent do
           </tr>
         </thead>
         <tbody>
+          <tr>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Most Recent Video Update</div>
+            </td>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                <%= if @stats.most_recent_video_update do %>
+                  <%= @stats.most_recent_video_update
+                      |> Timex.to_datetime("Etc/UTC")
+                      |> Timex.Timezone.convert(@timezone)
+                      |> Timex.format!("{ISO:Extended}") %>
+                <% else %>
+                  N/A
+                <% end %>
+              </div>
+            </td>
+          </tr>
           <tr>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
               <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Not Reencoded</div>

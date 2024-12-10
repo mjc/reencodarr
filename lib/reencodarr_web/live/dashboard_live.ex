@@ -3,24 +3,27 @@ defmodule ReencodarrWeb.DashboardLive do
   alias Reencodarr.{Media, AbAv1}
   import Phoenix.LiveComponent
 
+  require Logger
+
   @update_interval 1_000
 
   def mount(_params, _session, socket) do
+    if connected?(socket), do: send(self(), :get_timezone)
     :timer.send_interval(@update_interval, self(), :update_stats)
-    {:ok, assign(socket, update_stats())}
+    {:ok, assign(socket, update_stats() |> Map.put(:timezone, "UTC"))}
+  end
+
+  def handle_info(:get_timezone, socket) do
+    {:noreply, socket}
   end
 
   def handle_info(:update_stats, socket) do
     {:noreply, assign(socket, update_stats())}
   end
 
-  defp update_stats do
-    %{
-      crf_progress: %{},
-      progress: %{},
-      queue_length: AbAv1.queue_length(),
-      stats: Media.fetch_stats()
-    }
+  def handle_event("set_timezone", %{"timezone" => timezone}, socket) do
+    Logger.info("Setting timezone to #{timezone}")
+    {:noreply, assign(socket, :timezone, timezone)}
   end
 
   def handle_event("start_encode", %{"vmaf_id" => vmaf_id}, socket) do
@@ -41,6 +44,15 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, socket}
   end
 
+  defp update_stats do
+    %{
+      crf_progress: %{},
+      progress: %{},
+      queue_length: AbAv1.queue_length(),
+      stats: Media.fetch_stats()
+    }
+  end
+
   defp start_encode(vmaf_id) do
     vmaf = Media.get_vmaf!(vmaf_id)
     AbAv1.encode(vmaf, :insert_at_top)
@@ -48,7 +60,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   def render(assigns) do
     ~H"""
-    <div class="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col items-center justify-center space-y-8">
+    <div id="dashboard-live" class="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col items-center justify-center space-y-8" phx-hook="TimezoneHook">
       <div class="w-full flex justify-between items-center mb-4 px-4">
         <button
           phx-click="start_encode"
@@ -84,7 +96,7 @@ defmodule ReencodarrWeb.DashboardLive do
           progress={@progress}
           crf_progress={@crf_progress}
         />
-        <.live_component module={ReencodarrWeb.StatsComponent} id="stats-component" stats={@stats} />
+        <.live_component module={ReencodarrWeb.StatsComponent} id="stats-component" stats={@stats} timezone={@timezone} />
       </div>
     </div>
     """
