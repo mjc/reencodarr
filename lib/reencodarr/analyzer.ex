@@ -32,6 +32,22 @@ defmodule Reencodarr.Analyzer do
     process_paths(state ++ [path])
   end
 
+  @spec process_path(String.t()) :: :ok
+  def process_path(path) do
+    GenServer.cast(__MODULE__, {:process_path, path})
+  end
+
+  @spec handle_cast({:process_path, String.t()}, list(String.t())) :: {:noreply, list(String.t())}
+  def handle_cast({:process_path, path}, state) when length(state) < @concurrent_files do
+    Logger.debug("Video file found: #{path}")
+    {:noreply, state ++ [path]}
+  end
+
+  def handle_cast({:process_path, path}, state) do
+    Logger.debug("Video file found: #{path}")
+    process_paths(state ++ [path])
+  end
+
   @spec process_paths(list(String.t())) :: {:noreply, list(String.t())}
   defp process_paths(state) do
     paths = Enum.take(state, 5)
@@ -46,7 +62,7 @@ defmodule Reencodarr.Analyzer do
         end)
     end
 
-    {:noreply, Enum.drop(state, 5)}
+    {:noreply, Enum.drop(state, @concurrent_files)}
   end
 
   @spec upsert_videos(list(String.t()), map()) :: :ok
@@ -62,7 +78,7 @@ defmodule Reencodarr.Analyzer do
   end
 
   @spec fetch_mediainfo(list(String.t())) :: {:ok, map()} | {:error, any()}
-  def fetch_mediainfo(paths) do
+  defp fetch_mediainfo(paths) do
     paths = List.wrap(paths)
 
     with {json, 0} <- System.cmd("mediainfo", ["--Output=JSON" | paths]),

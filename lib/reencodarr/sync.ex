@@ -31,48 +31,42 @@ defmodule Reencodarr.Sync do
   def upsert_video_from_episode_file(episode_file) do
     audio_codec = episode_file["mediaInfo"]["audioCodec"]
 
-    mediainfo =
-      if audio_codec in ["TrueHD", "EAC3"] do
-        {:ok, all_mediainfo} = Reencodarr.Analyzer.fetch_mediainfo(episode_file["path"])
-        Map.get(all_mediainfo, episode_file["path"])
-      else
-        %{
-          "media" => %{
-            "track" => [
-              %{
-                "@type" => "General",
-                "AudioCount" => episode_file["mediaInfo"]["audioStreamCount"],
-                "OverallBitRate" => episode_file["mediaInfo"]["videoBitrate"],
-                "Duration" => parse_duration(episode_file["mediaInfo"]["runTime"]),
-                "FileSize" => episode_file["size"],
-                "TextCount" => length(String.split(episode_file["mediaInfo"]["subtitles"], "/")),
-                "VideoCount" => 1,
-                "Title" => episode_file["title"]
-              },
-              %{
-                "@type" => "Video",
-                "FrameRate" => episode_file["mediaInfo"]["videoFps"],
-                "Height" =>
-                  String.split(episode_file["mediaInfo"]["resolution"], "x")
-                  |> List.last()
-                  |> String.to_integer(),
-                "Width" =>
-                  String.split(episode_file["mediaInfo"]["resolution"], "x")
-                  |> List.first()
-                  |> String.to_integer(),
-                "HDR_Format" => episode_file["mediaInfo"]["videoDynamicRange"],
-                "HDR_Format_Compatibility" => episode_file["mediaInfo"]["videoDynamicRangeType"],
-                "CodecID" => map_codec_id(episode_file["mediaInfo"]["videoCodec"])
-              },
-              %{
-                "@type" => "Audio",
-                "CodecID" => map_codec_id(audio_codec),
-                "Channels" => to_string(map_channels(episode_file["mediaInfo"]["audioChannels"]))
-              }
-            ]
+    mediainfo = %{
+      "media" => %{
+        "track" => [
+          %{
+            "@type" => "General",
+            "AudioCount" => episode_file["mediaInfo"]["audioStreamCount"],
+            "OverallBitRate" => episode_file["mediaInfo"]["videoBitrate"],
+            "Duration" => parse_duration(episode_file["mediaInfo"]["runTime"]),
+            "FileSize" => episode_file["size"],
+            "TextCount" => length(String.split(episode_file["mediaInfo"]["subtitles"], "/")),
+            "VideoCount" => 1,
+            "Title" => episode_file["title"]
+          },
+          %{
+            "@type" => "Video",
+            "FrameRate" => episode_file["mediaInfo"]["videoFps"],
+            "Height" =>
+              String.split(episode_file["mediaInfo"]["resolution"], "x")
+              |> List.last()
+              |> String.to_integer(),
+            "Width" =>
+              String.split(episode_file["mediaInfo"]["resolution"], "x")
+              |> List.first()
+              |> String.to_integer(),
+            "HDR_Format" => episode_file["mediaInfo"]["videoDynamicRange"],
+            "HDR_Format_Compatibility" => episode_file["mediaInfo"]["videoDynamicRangeType"],
+            "CodecID" => map_codec_id(episode_file["mediaInfo"]["videoCodec"])
+          },
+          %{
+            "@type" => "Audio",
+            "CodecID" => map_codec_id(audio_codec),
+            "Channels" => to_string(map_channels(episode_file["mediaInfo"]["audioChannels"]))
           }
-        }
-      end
+        ]
+      }
+    }
 
     attrs = %{
       "path" => episode_file["path"],
@@ -81,6 +75,10 @@ defmodule Reencodarr.Sync do
       "service_type" => :sonarr,
       "mediainfo" => mediainfo
     }
+
+    if audio_codec in ["TrueHD", "EAC3"] do
+      Reencodarr.Analyzer.process_path(episode_file["path"])
+    end
 
     case Media.upsert_video(attrs) do
       {:ok, video} ->
