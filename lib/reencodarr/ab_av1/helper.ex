@@ -92,7 +92,7 @@ defmodule Reencodarr.AbAv1.Helper do
            data
          ) do
       %{"percent" => percent, "fps" => fps, "eta" => eta, "unit" => unit} when eta != "" ->
-        eta_seconds = convert_to_seconds(String.to_integer(eta), unit)
+        _eta_seconds = convert_to_seconds(String.to_integer(eta), unit)
         human_readable_eta = "#{eta} #{unit}"
 
         Logger.info("Encoding progress: #{percent}%, #{fps} fps, ETA: #{human_readable_eta}")
