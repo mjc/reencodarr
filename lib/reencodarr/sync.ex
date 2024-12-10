@@ -91,15 +91,19 @@ defmodule Reencodarr.Sync do
   defp map_codec_id("x265"), do: "V_MPEGH/ISO/HEVC"
   defp map_codec_id("h265"), do: "V_MPEGH/ISO/HEVC"
   defp map_codec_id("HEVC"), do: "V_MPEGH/ISO/HEVC"
+  defp map_codec_id("VP9"), do: "V_VP9"
+  defp map_codec_id("VP8"), do: "V_VP8"
   defp map_codec_id("x264"), do: "V_MPEG4/ISO/AVC"
   defp map_codec_id("h264"), do: "V_MPEG4/ISO/AVC"
   defp map_codec_id("AVC"), do: "V_MPEG4/ISO/AVC"
-  defp map_codec_id("VC1"), do: "V_VC1"
   defp map_codec_id("XviD"), do: "V_XVID"
+  defp map_codec_id("VC1"), do: "V_VC1"
+  defp map_codec_id("DivX"), do: "V_DIVX"
   defp map_codec_id("MPEG2"), do: "V_MPEG2"
 
+  defp map_codec_id("EAC3 Atmos"), do: :eac3_atmos
+  defp map_codec_id("TrueHD Atmos"), do: :truehd_atmos
   defp map_codec_id("Opus"), do: "A_OPUS"
-  defp map_codec_id("EAC3 Atmos"), do: :atmos
   defp map_codec_id("EAC3"), do: "A_EAC3"
   defp map_codec_id("TrueHD"), do: "A_TRUEHD"
   defp map_codec_id("DTS-HD MA"), do: "A_DTS/MA"
