@@ -1,6 +1,5 @@
 defmodule ReencodarrWeb.StatsComponent do
   use ReencodarrWeb, :live_component
-  import Timex
 
   def render(assigns) do
     ~H"""
@@ -17,102 +16,40 @@ defmodule ReencodarrWeb.StatsComponent do
           </tr>
         </thead>
         <tbody>
-          <tr>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Most Recent Video Update</div>
-            </td>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
-                <%= if @stats.most_recent_video_update do %>
-                  <%= @stats.most_recent_video_update
-                      |> Timex.to_datetime("Etc/UTC")
-                      |> Timex.Timezone.convert(@timezone)
-                      |> Timex.format!("{ISO:Extended}") %>
-                <% else %>
-                  N/A
-                <% end %>
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Not Reencoded</div>
-            </td>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
-                {@stats.not_reencoded}
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Reencoded</div>
-            </td>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
-                {@stats.reencoded}
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Total Videos</div>
-            </td>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
-                {@stats.total_videos}
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">
-                Average VMAF Percentage
-              </div>
-            </td>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
-                {@stats.avg_vmaf_percentage}
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">
-                Lowest Chosen VMAF Percentage
-              </div>
-            </td>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
-                {@stats.lowest_vmaf.percent}
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Total VMAFs</div>
-            </td>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
-                {@stats.total_vmafs}
-              </div>
-            </td>
-          </tr>
-          <tr>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">
-                Chosen VMAFs Count
-              </div>
-            </td>
-            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
-                {@stats.chosen_vmafs_count}
-              </div>
-            </td>
-          </tr>
+          <%= for {label, value} <- stats_data(@stats, @timezone) do %>
+            <tr>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+                <div class="text-sm leading-5 text-gray-800 dark:text-gray-200"><%= label %></div>
+              </td>
+              <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+                <div class="text-sm leading-5 text-gray-900 dark:text-gray-100"><%= value %></div>
+              </td>
+            </tr>
+          <% end %>
         </tbody>
       </table>
     </div>
     """
+  end
+
+  defp stats_data(stats, timezone) do
+    [
+      {"Most Recent Video Update", format_datetime(stats.most_recent_video_update, timezone)},
+      {"Not Reencoded", stats.not_reencoded},
+      {"Reencoded", stats.reencoded},
+      {"Total Videos", stats.total_videos},
+      {"Average VMAF Percentage", stats.avg_vmaf_percentage},
+      {"Lowest Chosen VMAF Percentage", stats.lowest_vmaf.percent},
+      {"Total VMAFs", stats.total_vmafs},
+      {"Chosen VMAFs Count", stats.chosen_vmafs_count}
+    ]
+  end
+
+  defp format_datetime(nil, _timezone), do: "N/A"
+  defp format_datetime(datetime, timezone) do
+    datetime
+    |> Timex.to_datetime("Etc/UTC")
+    |> Timex.Timezone.convert(timezone)
+    |> Timex.format!("{Mshort} {D}, {YYYY} {h12}:{m}:{s} {AM}")
   end
 end

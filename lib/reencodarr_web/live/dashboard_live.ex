@@ -22,7 +22,7 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   def handle_event("set_timezone", %{"timezone" => timezone}, socket) do
-    Logger.info("Setting timezone to #{timezone}")
+    Logger.debug("Setting timezone to #{timezone}")
     {:noreply, assign(socket, :timezone, timezone)}
   end
 
