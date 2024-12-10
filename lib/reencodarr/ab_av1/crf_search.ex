@@ -13,8 +13,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
      %{
        port: :none,
        queue: :queue.new(),
-       args: [],
-       video: :none,
+       current_task: :none,
        last_vmaf: :none
      }}
   end
@@ -41,8 +40,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     new_state = %{
       state
       | port: Helper.open_port(args),
-        video: video,
-        args: args,
+        current_task: %{video: video},
         last_vmaf: :none
     }
 
@@ -68,19 +66,19 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
-  def handle_info({port, {:data, {:eol, data}}}, %{port: port} = state) do
+  def handle_info({port, {:data, {:eol, data}}}, %{port: port, current_task: %{video: video}} = state) do
     vmafs =
       data
       |> String.split("\n", trim: true)
       |> Helper.parse_crf_search()
-      |> Helper.attach_params(state.video, state.args)
+      |> Helper.attach_params(video)
 
     Enum.each(vmafs, fn vmaf ->
       Logger.debug("Parsed output: #{inspect(vmaf)}")
 
       Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
         action: "scanning:progress",
-        vmaf: Map.put(vmaf, "target_vmaf", Enum.at(state.args, 4))
+        vmaf: Map.put(vmaf, "target_vmaf", vmaf["target_vmaf"])
       })
     end)
 
@@ -88,8 +86,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
-  def handle_info({port, {:data, {:noeol, data}}}, %{port: port} = state) do
-    Logger.error("Received partial data: #{data}")
+  def handle_info({port, {:data, {:noeol, data}}}, %{port: port, video: video} = state) do
+    Logger.error("Received partial data: for video: #{video.id}, #{data}")
     {:noreply, state}
   end
 
@@ -100,11 +98,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       ) when not is_nil(last_vmaf) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
       action: "scanning:finished",
-      vmaf: Map.put(last_vmaf, "chosen", true) |> Map.put("target_vmaf", Enum.at(state.args, 3))
+      vmaf: Map.put(last_vmaf, "chosen", true) |> Map.put("target_vmaf", last_vmaf["target_vmaf"])
     })
 
     new_queue = Helper.dequeue_and_broadcast(queue, __MODULE__, :crf_search)
-    new_state = %{state | port: :none, queue: new_queue, last_vmaf: :none}
+    new_state = %{state | queue: new_queue, last_vmaf: :none, port: :none, current_task: :none}
     {:noreply, new_state}
   end
 
@@ -120,7 +118,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     })
 
     new_queue = Helper.dequeue_and_broadcast(queue, __MODULE__, :crf_search)
-    new_state = %{state | port: :none, queue: new_queue, last_vmaf: :none}
+    new_state = %{state | queue: new_queue, last_vmaf: :none, port: :none, current_task: :none}
     {:noreply, new_state}
   end
 end

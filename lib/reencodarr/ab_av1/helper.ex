@@ -11,10 +11,9 @@ defmodule Reencodarr.AbAv1.Helper do
     (?: \s predicted)?
   /x
 
-  @spec attach_params(list(map()), Media.Video.t(), list(String.t())) :: list(map())
-  def attach_params(vmafs, video, args) do
-    filtered_args = remove_args(args, ["crf-search", "--min-vmaf", "--temp-dir"])
-    Enum.map(vmafs, &(Map.put(&1, "video_id", video.id) |> Map.put("params", filtered_args)))
+  @spec attach_params(list(map()), Media.Video.t()) :: list(map())
+  def attach_params(vmafs, video) do
+    Enum.map(vmafs, &(Map.put(&1, "video_id", video.id)))
   end
 
   @spec remove_args(list(String.t()), list(String.t())) :: list(String.t())
