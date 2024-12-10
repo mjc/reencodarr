@@ -1,5 +1,6 @@
 {
     "cSpell.words": [
+        "A_VORBIS",
         "acodec",
         "bitrates",
         "CUDA",
@@ -26,6 +27,7 @@
         "V_XVID",
         "vfilter",
         "Vmaf",
-        "vmafs"
+        "vmafs",
+        "Vorbis"
     ]
 }

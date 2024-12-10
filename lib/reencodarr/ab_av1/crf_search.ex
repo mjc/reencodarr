@@ -66,7 +66,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
-  def handle_info({port, {:data, {:eol, data}}}, %{port: port, current_task: %{video: video}} = state) do
+  def handle_info(
+        {port, {:data, {:eol, data}}},
+        %{port: port, current_task: %{video: video}} = state
+      ) do
     vmafs =
       data
       |> String.split("\n", trim: true)
@@ -86,7 +89,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
-  def handle_info({port, {:data, {:noeol, data}}}, %{port: port, current_task: %{video: video}} = state) do
+  def handle_info(
+        {port, {:data, {:noeol, data}}},
+        %{port: port, current_task: %{video: video}} = state
+      ) do
     Logger.error("Received partial data: for video: #{video.id}, #{data}")
     {:noreply, state}
   end
@@ -95,7 +101,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def handle_info(
         {port, {:exit_status, 0}},
         %{port: port, queue: queue, last_vmaf: last_vmaf} = state
-      ) when not is_nil(last_vmaf) do
+      )
+      when not is_nil(last_vmaf) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
       action: "scanning:finished",
       vmaf: Map.put(last_vmaf, "chosen", true) |> Map.put("target_vmaf", last_vmaf["target_vmaf"])

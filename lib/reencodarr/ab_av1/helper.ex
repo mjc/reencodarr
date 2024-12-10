@@ -13,7 +13,7 @@ defmodule Reencodarr.AbAv1.Helper do
 
   @spec attach_params(list(map()), Media.Video.t()) :: list(map())
   def attach_params(vmafs, video) do
-    Enum.map(vmafs, &(Map.put(&1, "video_id", video.id)))
+    Enum.map(vmafs, &Map.put(&1, "video_id", video.id))
   end
 
   @spec remove_args(list(String.t()), list(String.t())) :: list(String.t())
