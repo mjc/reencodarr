@@ -106,7 +106,6 @@ defmodule Reencodarr.Media do
     |> ensure_library_id()
     |> Video.changeset()
     |> Repo.insert(on_conflict: {:replace_all_except, [:id, :reencoded]}, conflict_target: :path)
-    |> broadcast_change()
   end
 
   @spec ensure_library_id(map()) :: map()
@@ -121,17 +120,6 @@ defmodule Reencodarr.Media do
     from(l in Library, where: like(^path, fragment("concat(?, '%')", l.path)), select: l.id)
     |> Repo.one()
   end
-
-  @spec broadcast_change({:ok, Video.t()} | {:error, Ecto.Changeset.t()}) ::
-          {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
-  defp broadcast_change({:ok, %{reencoded: false} = video}) do
-    ReencodarrWeb.Endpoint.broadcast("videos", "video:upsert", %{video: video})
-    {:ok, video}
-  end
-
-  defp broadcast_change({:ok, video}), do: {:ok, video}
-
-  defp broadcast_change({:error, changeset}), do: {:error, changeset}
 
   @doc """
   Updates a video.

@@ -19,8 +19,19 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @spec crf_search(Media.Video.t(), integer()) :: :ok
-  def crf_search(video, vmaf_percent \\ 95) do
-    GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
+  def crf_search(%Media.Video{reencoded: true, path: path}, _vmaf_percent) do
+    Logger.info("Skipping crf search for video #{path} as it is already reencoded")
+    :ok
+  end
+
+  def crf_search(%Media.Video{} = video, vmaf_percent \\ 95) do
+    if Media.chosen_vmaf_exists?(video) do
+      Logger.info("Skipping crf search for video #{video.path} as a chosen VMAF already exists")
+      :ok
+    else
+      Logger.debug("Initiating crf search for video #{video.id}")
+      GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
+    end
   end
 
   @impl true
@@ -30,11 +41,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
-      action: "scanning:start",
-      video: video
-    })
-
     args = ["crf-search"] ++ Helper.build_args(video.path, vmaf_percent, video)
 
     new_state = %{
@@ -44,11 +50,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         last_vmaf: :none
     }
 
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
-      action: "queue:update",
-      crf_searches: :queue.len(new_state.queue)
-    })
-
     {:noreply, new_state}
   end
 
@@ -56,11 +57,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     Logger.debug("Queueing crf search for video #{video.id}")
     new_queue = :queue.in({:crf_search, video, vmaf_percent}, state.queue)
     new_state = %{state | queue: new_queue}
-
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
-      action: "queue:update",
-      crf_searches: :queue.len(new_state.queue)
-    })
 
     {:noreply, new_state}
   end
@@ -70,22 +66,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         {port, {:data, {:eol, data}}},
         %{port: port, current_task: %{video: video}} = state
       ) do
-    vmafs =
-      data
-      |> String.split("\n", trim: true)
-      |> Helper.parse_crf_search()
-      |> Helper.attach_params(video)
-
-    Enum.each(vmafs, fn vmaf ->
-      Logger.debug("Parsed output: #{inspect(vmaf)}")
-
-      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
-        action: "scanning:progress",
-        vmaf: Map.put(vmaf, "target_vmaf", vmaf["target_vmaf"])
-      })
-    end)
-
-    {:noreply, %{state | last_vmaf: List.last(vmafs)}}
+    process_data(data, video, state)
   end
 
   @impl true
@@ -99,33 +80,52 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_info(
-        {port, {:exit_status, 0}},
+        {port, {:exit_status, exit_code}},
         %{port: port, queue: queue, last_vmaf: last_vmaf} = state
-      )
-      when not is_nil(last_vmaf) do
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
-      action: "scanning:finished",
-      vmaf: Map.put(last_vmaf, "chosen", true) |> Map.put("target_vmaf", last_vmaf["target_vmaf"])
-    })
-
-    new_queue = Helper.dequeue_and_broadcast(queue, __MODULE__, :crf_search)
-    new_state = %{state | queue: new_queue, last_vmaf: :none, port: :none, current_task: :none}
-    {:noreply, new_state}
+      ) do
+    if exit_code == 0 and not is_nil(last_vmaf) do
+      new_queue = Helper.dequeue(queue, __MODULE__)
+      new_state = %{state | queue: new_queue, last_vmaf: :none, port: :none, current_task: :none}
+      {:noreply, new_state}
+    else
+      Logger.error("CRF search failed with exit code #{exit_code}")
+      new_queue = Helper.dequeue(queue, __MODULE__)
+      new_state = %{state | queue: new_queue, last_vmaf: :none, port: :none, current_task: :none}
+      {:noreply, new_state}
+    end
   end
 
-  def handle_info(
-        {port, {:exit_status, exit_code}},
-        %{port: port, queue: queue} = state
-      ) do
-    Logger.error("CRF search failed with exit code #{exit_code}")
+  @impl true
+  def handle_info({:scanning_update, :progress, vmaf}, state) do
+    Logger.debug("Received vmaf search progress")
+    Media.upsert_vmaf(vmaf)
+    {:noreply, state}
+  end
 
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "scanning", %{
-      action: "scanning:failed",
-      reason: "No suitable CRF found"
-    })
+  @impl true
+  def handle_info({:scanning_update, :finished, vmaf}, state) do
+    Media.upsert_vmaf(vmaf)
+    {:noreply, state}
+  end
 
-    new_queue = Helper.dequeue_and_broadcast(queue, __MODULE__, :crf_search)
-    new_state = %{state | queue: new_queue, last_vmaf: :none, port: :none, current_task: :none}
-    {:noreply, new_state}
+  @impl true
+  def handle_info({:scanning_update, :failed, reason}, state) do
+    Logger.error("Scanning failed: #{reason}")
+    {:noreply, state}
+  end
+
+  defp process_data(data, video, state) do
+    vmafs =
+      data
+      |> String.split("\n", trim: true)
+      |> Helper.parse_crf_search()
+      |> Helper.attach_params(video)
+
+    Enum.each(vmafs, fn vmaf ->
+      Logger.debug("Parsed output: #{inspect(vmaf)}")
+      Media.upsert_vmaf(vmaf)
+    end)
+
+    {:noreply, %{state | last_vmaf: List.last(vmafs)}}
   end
 end

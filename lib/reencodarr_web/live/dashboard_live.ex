@@ -4,10 +4,6 @@ defmodule ReencodarrWeb.DashboardLive do
   import Phoenix.LiveComponent
 
   def mount(_params, _session, socket) do
-    if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("scanning")
-    if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("queue")
-    if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("encoding")
-    if connected?(socket), do: ReencodarrWeb.Endpoint.subscribe("videos")
     # Update stats every 60 seconds
     :timer.send_interval(60_000, self(), :update_stats)
     stats = Media.fetch_stats()

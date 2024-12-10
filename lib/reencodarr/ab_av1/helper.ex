@@ -80,36 +80,24 @@ defmodule Reencodarr.AbAv1.Helper do
   @spec temp_dir() :: String.t()
   def temp_dir do
     cwd_temp_dir = Path.join([File.cwd!(), "tmp", "ab-av1"])
+    File.mkdir_p(cwd_temp_dir)
     if File.exists?(cwd_temp_dir), do: cwd_temp_dir, else: Path.join(System.tmp_dir!(), "ab-av1")
+    "/home/mjc/.ab-av1"
   end
 
   @spec update_encoding_progress(String.t(), map()) :: :ok
-  def update_encoding_progress(data, state) do
+  def update_encoding_progress(data, _state) do
     case Regex.named_captures(
            ~r/\[.*\] encoding (?<filename>\d+\.mkv)|(?<percent>\d+)%\s*,\s*(?<fps>\d+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours)/,
            data
          ) do
       %{"percent" => percent, "fps" => fps, "eta" => eta, "unit" => unit} when eta != "" ->
-        Logger.info("Encoding progress: #{percent}%, #{fps} fps, ETA: #{eta} #{unit}")
         eta_seconds = convert_to_seconds(String.to_integer(eta), unit)
         human_readable_eta = "#{eta} #{unit}"
 
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
-          action: "encoding:progress",
-          video: state.video,
-          percent: String.to_integer(percent),
-          fps: String.to_integer(fps),
-          eta: eta_seconds,
-          human_readable_eta: human_readable_eta
-        })
-
+        Logger.info("Encoding progress: #{percent}%, #{fps} fps, ETA: #{human_readable_eta}")
       _ ->
-        Logger.info("Encoding started for #{data}")
-
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoding", %{
-          action: "encoding:start",
-          video: state.video
-        })
+        Logger.info("Encoding should start for #{data}")
     end
   end
 
@@ -132,29 +120,15 @@ defmodule Reencodarr.AbAv1.Helper do
     end
   end
 
-  @spec dequeue_and_broadcast(:queue.queue(), atom(), atom()) :: :queue.queue() | :empty
-  def dequeue_and_broadcast(queue, module, _action) do
+  @spec dequeue(:queue.queue(), atom()) :: :queue.queue() | :empty
+  def dequeue(queue, module) do
     case :queue.out(queue) do
       {{:value, {action, video, vmaf_percent}}, new_queue} ->
         GenServer.cast(module, {action, video, vmaf_percent})
-        broadcast_queue_update(new_queue, action)
         new_queue
 
       {:empty, _} ->
         :empty
     end
-  end
-
-  defp broadcast_queue_update(queue, action) do
-    topic =
-      case action do
-        :crf_search -> "scanning"
-        :encode -> "queue"
-      end
-
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, topic, %{
-      action: "queue:update",
-      crf_searches: :queue.len(queue)
-    })
   end
 end

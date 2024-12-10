@@ -10,15 +10,9 @@ defmodule Reencodarr.Analyzer do
     GenServer.start_link(__MODULE__, nil, name: __MODULE__)
   end
 
-  @spec init(any()) :: {:ok, [], {:continue, :subscribe}}
+  @spec init(any()) :: {:ok, []}
   def init(_) do
-    {:ok, [], {:continue, :subscribe}}
-  end
-
-  @spec handle_continue(:subscribe, any()) :: {:noreply, any()}
-  def handle_continue(:subscribe, state) do
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video:found")
-    {:noreply, state}
+    {:ok, []}
   end
 
   @spec handle_info(map(), list(String.t())) :: {:noreply, list(String.t())}

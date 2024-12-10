@@ -6,7 +6,6 @@ defmodule ReencodarrWeb.VideoLive.Index do
 
   @impl true
   def mount(_params, _session, socket) do
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "videos")
     videos = Media.list_videos()
 
     {:ok,

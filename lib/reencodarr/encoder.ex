@@ -31,7 +31,6 @@ defmodule Reencodarr.Encoder do
 
   @impl true
   def init(state) do
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoding")
     {:ok, Map.put(state, :encoding, false)}
   end
 

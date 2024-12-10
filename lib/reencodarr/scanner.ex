@@ -28,7 +28,6 @@ defmodule Reencodarr.Scanner do
   @spec handle_info({port(), {:data, String.t()}}, any()) :: {:noreply, any()}
   def handle_info({_port, {:data, data}}, state) do
     files = String.split(data, "\n", trim: true)
-    Enum.each(files, &publish_video_file/1)
 
     Logger.debug("Found #{Enum.count(files)} video files")
     {:noreply, state}
@@ -50,11 +49,5 @@ defmodule Reencodarr.Scanner do
   defp find_fd_path() do
     System.find_executable("fd") || System.find_executable("fd-find") ||
       raise "fd or fd-find executable not found"
-  end
-
-  @spec publish_video_file(String.t()) :: :ok
-  defp publish_video_file(file_path) do
-    message = %{path: file_path}
-    :ok = Phoenix.PubSub.broadcast(Reencodarr.PubSub, "video:found", message)
   end
 end
