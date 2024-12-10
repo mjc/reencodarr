@@ -16,12 +16,10 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp update_stats do
     %{
-      stats: Media.fetch_stats(),
-      queue_length: AbAv1.queue_length(),
-      lowest_vmaf: Media.get_lowest_chosen_vmaf() || %Media.Vmaf{},
-      lowest_vmaf_by_time: Media.get_lowest_chosen_vmaf_by_time() || %Media.Vmaf{},
+      crf_progress: %{},
       progress: %{},
-      crf_progress: %{}
+      queue_length: AbAv1.queue_length(),
+      stats: Media.fetch_stats()
     }
   end
 
@@ -39,6 +37,7 @@ defmodule ReencodarrWeb.DashboardLive do
     Media.list_chosen_vmafs()
     |> Enum.take(5)
     |> Enum.each(&AbAv1.encode(&1, :insert_at_top))
+
     {:noreply, socket}
   end
 
@@ -53,14 +52,14 @@ defmodule ReencodarrWeb.DashboardLive do
       <div class="w-full flex justify-between items-center mb-4 px-4">
         <button
           phx-click="start_encode"
-          phx-value-vmaf_id={@lowest_vmaf.id}
+          phx-value-vmaf_id={@stats.lowest_vmaf.id}
           class="bg-blue-500 text-white px-4 py-2 rounded shadow"
         >
           Queue Encode Manually
         </button>
         <button
           phx-click="start_encode_by_time"
-          phx-value-vmaf_id={@lowest_vmaf_by_time.id}
+          phx-value-vmaf_id={@stats.lowest_vmaf_by_time.id}
           class="bg-green-500 text-white px-4 py-2 rounded shadow"
         >
           Queue Encode by Time
@@ -85,12 +84,7 @@ defmodule ReencodarrWeb.DashboardLive do
           progress={@progress}
           crf_progress={@crf_progress}
         />
-        <.live_component
-          module={ReencodarrWeb.StatsComponent}
-          id="stats-component"
-          stats={@stats}
-          lowest_vmaf={@lowest_vmaf}
-        />
+        <.live_component module={ReencodarrWeb.StatsComponent} id="stats-component" stats={@stats} />
       </div>
     </div>
     """

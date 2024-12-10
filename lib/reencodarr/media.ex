@@ -485,7 +485,16 @@ defmodule Reencodarr.Media do
   ## Examples
 
       iex> fetch_stats()
-      %{not_reencoded: 5, reencoded: 10, total_videos: 15, avg_vmaf_percentage: 85.5, total_vmafs: 20, chosen_vmafs_count: 10}
+      %{
+        not_reencoded: 5,
+        reencoded: 10,
+        total_videos: 15,
+        avg_vmaf_percentage: 85.5,
+        total_vmafs: 20,
+        chosen_vmafs_count: 10,
+        lowest_vmaf: %Vmaf{},
+        lowest_vmaf_by_time: %Vmaf{}
+      }
 
   """
   @spec fetch_stats() :: %{
@@ -494,7 +503,9 @@ defmodule Reencodarr.Media do
           total_videos: integer(),
           avg_vmaf_percentage: float(),
           total_vmafs: integer(),
-          chosen_vmafs_count: integer()
+          chosen_vmafs_count: integer(),
+          lowest_vmaf: Vmaf.t(),
+          lowest_vmaf_by_time: Vmaf.t()
         }
   def fetch_stats do
     counts_query =
@@ -530,14 +541,18 @@ defmodule Reencodarr.Media do
     avg_vmaf_percentage = Repo.one(avg_vmaf_percentage_query)
     total_vmafs = Repo.one(total_vmafs_query)
     chosen_vmafs_count = Repo.one(chosen_vmafs_count_query)
+    lowest_vmaf = get_lowest_chosen_vmaf() || %Vmaf{}
+    lowest_vmaf_by_time = get_lowest_chosen_vmaf_by_time() || %Vmaf{}
 
     %{
+      avg_vmaf_percentage: avg_vmaf_percentage,
+      chosen_vmafs_count: chosen_vmafs_count,
+      lowest_vmaf_by_time: lowest_vmaf_by_time,
+      lowest_vmaf: lowest_vmaf,
       not_reencoded: Map.get(counts, false, 0),
       reencoded: Map.get(counts, true, 0),
       total_videos: total_videos,
-      avg_vmaf_percentage: avg_vmaf_percentage,
-      total_vmafs: total_vmafs,
-      chosen_vmafs_count: chosen_vmafs_count
+      total_vmafs: total_vmafs
     }
   end
 
