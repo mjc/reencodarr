@@ -357,8 +357,8 @@ defmodule Reencodarr.Media do
   end
 
   defp broadcast_progress_event(vmaf) do
-    Logger.error("Broadcasting progress event for VMAF: #{inspect(vmaf)}")
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress:#{vmaf.video_id}", {:progress, vmaf})
+    Logger.debug("Broadcasting progress event for VMAF: #{inspect(vmaf)}")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:progress, vmaf})
   end
 
   @doc """

@@ -21,7 +21,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   def handle_info({:progress, vmaf}, socket) do
     Logger.debug("Received progress event for VMAF: #{inspect(vmaf)}")
-    {:noreply, assign(socket, :progress, Map.put(socket.assigns.progress, vmaf.video_id, vmaf))}
+    {:noreply, assign(socket, :crf_progress, vmaf)}
   end
 
   def handle_event("set_timezone", %{"timezone" => timezone}, socket) do
