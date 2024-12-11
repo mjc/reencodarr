@@ -21,7 +21,12 @@ defmodule Reencodarr.Sync do
   defp fetch_and_upsert_episode_files(series_id) do
     case Services.Sonarr.get_episode_files(series_id) do
       {:ok, %Req.Response{body: files}} ->
-        Enum.each(files, &upsert_video_from_episode_file/1)
+        files
+        |> Enum.map(&upsert_video_from_episode_file/1)
+        |> Enum.each(fn
+          :ok -> :ok
+          error -> Logger.error("Failed to upsert video: #{inspect(error)}")
+        end)
 
       {:error, _} ->
         []
