@@ -1,9 +1,13 @@
-{pkgs ? import <nixpkgs> {}}:
+{
+  pkgs ? import <nixpkgs> {},
+  erlangVersion ? "27.1.3",
+  elixirVersion ? "1.17.3",
+}:
 pkgs.mkShell {
   # nativeBuildInputs is usually what you want -- tools you need to run
   nativeBuildInputs = with pkgs.buildPackages; [
-    erlang
-    elixir
+    (pkgs.erlang.override {version = erlangVersion;})
+    (pkgs.elixir.override {version = elixirVersion;})
     elixir_ls
 
     git
