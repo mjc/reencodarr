@@ -37,3 +37,5 @@ npm-debug.log
 
 .elixir_ls
 .direnv
+flake-inputs
+flake-profile*
