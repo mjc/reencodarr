@@ -44,7 +44,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   def handle_cast({:crf_search, video, _vmaf_percent}, state) do
-    Logger.debug("CRF search already in progress for video #{video.id}")
+    Logger.error("CRF search already in progress for video #{video.id}")
     {:noreply, state}
   end
 
@@ -70,6 +70,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     if exit_code == 0 and not is_nil(last_vmaf) do
       Logger.debug("CRF search finished successfully with last vmaf: #{inspect(last_vmaf)}")
       Media.mark_vmaf_as_chosen(last_vmaf)
+      notify_crf_searcher()
     else
       Logger.error("CRF search failed with exit code #{exit_code}")
     end
@@ -94,6 +95,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def handle_info({:scanning_update, :failed, reason}, state) do
     Logger.error("Scanning failed: #{reason}")
     {:noreply, state}
+  end
+
+  defp notify_crf_searcher do
+    GenServer.cast(Reencodarr.CrfSearcher, :crf_search_finished)
   end
 
   defp process_data(data, video, state) do

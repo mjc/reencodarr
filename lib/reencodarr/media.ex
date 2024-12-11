@@ -346,6 +346,19 @@ defmodule Reencodarr.Media do
       on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
       conflict_target: [:crf, :video_id]
     )
+    |> case do
+      {:ok, vmaf} ->
+        broadcast_progress_event(vmaf)
+        {:ok, vmaf}
+
+      error ->
+        error
+    end
+  end
+
+  defp broadcast_progress_event(vmaf) do
+    Logger.error("Broadcasting progress event for VMAF: #{inspect(vmaf)}")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress:#{vmaf.video_id}", {:progress, vmaf})
   end
 
   @doc """

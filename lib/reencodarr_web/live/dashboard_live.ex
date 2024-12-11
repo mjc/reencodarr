@@ -8,17 +8,20 @@ defmodule ReencodarrWeb.DashboardLive do
   @update_interval 1_000
 
   def mount(_params, _session, socket) do
-    if connected?(socket), do: send(self(), :get_timezone)
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "progress")
+    end
     :timer.send_interval(@update_interval, self(), :update_stats)
     {:ok, assign(socket, update_stats() |> Map.put(:timezone, "UTC"))}
   end
 
-  def handle_info(:get_timezone, socket) do
-    {:noreply, socket}
-  end
-
   def handle_info(:update_stats, socket) do
     {:noreply, assign(socket, update_stats())}
+  end
+
+  def handle_info({:progress, vmaf}, socket) do
+    Logger.debug("Received progress event for VMAF: #{inspect(vmaf)}")
+    {:noreply, assign(socket, :progress, Map.put(socket.assigns.progress, vmaf.video_id, vmaf))}
   end
 
   def handle_event("set_timezone", %{"timezone" => timezone}, socket) do
