@@ -90,6 +90,7 @@ defmodule Reencodarr.Sync do
     else
       Media.upsert_video(attrs)
     end
+
     :ok
   end
 

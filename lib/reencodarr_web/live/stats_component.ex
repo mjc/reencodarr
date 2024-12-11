@@ -19,10 +19,10 @@ defmodule ReencodarrWeb.StatsComponent do
           <%= for {label, value} <- stats_data(@stats, @timezone) do %>
             <tr>
               <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-                <div class="text-sm leading-5 text-gray-800 dark:text-gray-200"><%= label %></div>
+                <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">{label}</div>
               </td>
               <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-                <div class="text-sm leading-5 text-gray-900 dark:text-gray-100"><%= value %></div>
+                <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">{value}</div>
               </td>
             </tr>
           <% end %>
@@ -47,6 +47,7 @@ defmodule ReencodarrWeb.StatsComponent do
   end
 
   defp format_datetime(nil, _timezone), do: "N/A"
+
   defp format_datetime(datetime, timezone) do
     datetime
     |> Timex.to_datetime("Etc/UTC")

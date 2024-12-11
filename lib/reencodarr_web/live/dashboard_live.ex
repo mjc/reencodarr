@@ -60,7 +60,11 @@ defmodule ReencodarrWeb.DashboardLive do
 
   def render(assigns) do
     ~H"""
-    <div id="dashboard-live" class="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col items-center justify-center space-y-8" phx-hook="TimezoneHook">
+    <div
+      id="dashboard-live"
+      class="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col items-center justify-center space-y-8"
+      phx-hook="TimezoneHook"
+    >
       <div class="w-full flex justify-between items-center mb-4 px-4">
         <button
           phx-click="start_encode"
@@ -96,7 +100,12 @@ defmodule ReencodarrWeb.DashboardLive do
           progress={@progress}
           crf_progress={@crf_progress}
         />
-        <.live_component module={ReencodarrWeb.StatsComponent} id="stats-component" stats={@stats} timezone={@timezone} />
+        <.live_component
+          module={ReencodarrWeb.StatsComponent}
+          id="stats-component"
+          stats={@stats}
+          timezone={@timezone}
+        />
       </div>
     </div>
     """

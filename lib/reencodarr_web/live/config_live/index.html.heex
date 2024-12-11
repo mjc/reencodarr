@@ -21,7 +21,9 @@
       <div class="sr-only">
         <.link navigate={~p"/configs/#{config}"}>Show</.link>
       </div>
-      <.link patch={~p"/configs/#{config}/edit"} class="text-indigo-600 hover:text-indigo-900">Edit</.link>
+      <.link patch={~p"/configs/#{config}/edit"} class="text-indigo-600 hover:text-indigo-900">
+        Edit
+      </.link>
     </:action>
     <:action :let={{id, config}}>
       <.link
