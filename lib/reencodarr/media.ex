@@ -684,4 +684,9 @@ defmodule Reencodarr.Media do
     from(v in Video, select: max(v.inserted_at))
     |> Repo.one()
   end
+
+  @spec video_has_vmafs?(Video.t()) :: boolean()
+  def video_has_vmafs?(%Video{id: video_id}) do
+    Repo.exists?(from v in Vmaf, where: v.video_id == ^video_id)
+  end
 end

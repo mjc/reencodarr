@@ -18,6 +18,7 @@ defmodule Reencodarr.Application do
       ReencodarrWeb.Endpoint,
       Reencodarr.ManualScanner,
       Reencodarr.Analyzer,
+      Reencodarr.CrfSearcher,
       Reencodarr.Encoder,
       Reencodarr.AbAv1
     ]
