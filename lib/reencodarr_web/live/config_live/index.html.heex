@@ -1,42 +1,47 @@
-<.header>
+<.header class="bg-white shadow p-4 mb-4">
   Listing Configs
   <:actions>
     <.link patch={~p"/configs/new"}>
-      <.button>New Config</.button>
+      <.button class="bg-blue-500 text-white px-4 py-2 rounded shadow">New Config</.button>
     </.link>
   </:actions>
 </.header>
 
-<.table
-  id="configs"
-  rows={@streams.configs}
-  row_click={fn {_id, config} -> JS.navigate(~p"/configs/#{config}") end}
->
-  <:col :let={{_id, config}} label="Url">{config.url}</:col>
-  <:col :let={{_id, config}} label="Api key">{config.api_key}</:col>
-  <:col :let={{_id, config}} label="Enabled">{config.enabled}</:col>
-  <:col :let={{_id, config}} label="Service type">{config.service_type}</:col>
-  <:action :let={{_id, config}}>
-    <div class="sr-only">
-      <.link navigate={~p"/configs/#{config}"}>Show</.link>
-    </div>
-    <.link patch={~p"/configs/#{config}/edit"}>Edit</.link>
-  </:action>
-  <:action :let={{id, config}}>
-    <.link
-      phx-click={JS.push("delete", value: %{id: config.id}) |> hide("##{id}")}
-      data-confirm="Are you sure?"
-    >
-      Delete
-    </.link>
-  </:action>
-</.table>
+<div class="card bg-white shadow p-4 rounded-lg">
+  <.table
+    id="configs"
+    rows={@streams.configs}
+    row_click={fn {_id, config} -> JS.navigate(~p"/configs/#{config}") end}
+    class="min-w-full divide-y divide-gray-200"
+  >
+    <:col :let={{_id, config}} label="Url" class="px-6 py-4 whitespace-nowrap">{config.url}</:col>
+    <:col :let={{_id, config}} label="Api key" class="px-6 py-4 whitespace-nowrap">{config.api_key}</:col>
+    <:col :let={{_id, config}} label="Enabled" class="px-6 py-4 whitespace-nowrap">{config.enabled}</:col>
+    <:col :let={{_id, config}} label="Service type" class="px-6 py-4 whitespace-nowrap">{config.service_type}</:col>
+    <:action :let={{_id, config}} class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+      <div class="sr-only">
+        <.link navigate={~p"/configs/#{config}"}>Show</.link>
+      </div>
+      <.link patch={~p"/configs/#{config}/edit"} class="text-indigo-600 hover:text-indigo-900">Edit</.link>
+    </:action>
+    <:action :let={{id, config}} class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+      <.link
+        phx-click={JS.push("delete", value: %{id: config.id}) |> hide("##{id}")}
+        data-confirm="Are you sure?"
+        class="text-red-600 hover:text-red-900"
+      >
+        Delete
+      </.link>
+    </:action>
+  </.table>
+</div>
 
 <.modal
   :if={@live_action in [:new, :edit]}
   id="config-modal"
   show
   on_cancel={JS.patch(~p"/configs")}
+  class="modal-lg bg-white shadow-lg rounded-lg p-6"
 >
   <.live_component
     module={ReencodarrWeb.ConfigLive.FormComponent}
