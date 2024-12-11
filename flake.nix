@@ -32,20 +32,26 @@
         };
       in {
         devShell = pkgs.mkShell {
-          nativeBuildInputs = [
-            erlang
-            elixir
-            beamPackages.elixir
+          nativeBuildInputs =
+            [
+              erlang
+              elixir
+              beamPackages.elixir
 
-            pkgs.git
-            pkgs.gh
-            pkgs.nodePackages.cspell
+              pkgs.git
+              pkgs.gh
+              pkgs.nodePackages.cspell
 
-            pkgs.alejandra
-            pkgs.nil
-
-            pkgs.inotify-tools
-          ];
+              pkgs.alejandra
+              pkgs.nil
+            ]
+            ++ pkgs.lib.optional pkgs.stdenv.isLinux pkgs.libnotify # For ExUnit Notifier on Linux.
+            ++ pkgs.lib.optional pkgs.stdenv.isLinux pkgs.inotify-tools # For file_system on Linux.
+            ++ pkgs.lib.optional pkgs.stdenv.isDarwin pkgs.terminal-notifier # For ExUnit Notifier on macOS.
+            ++ pkgs.lib.optionals pkgs.stdenv.isDarwin (with pkgs.darwin.apple_sdk.frameworks; [
+              CoreFoundation
+              CoreServices
+            ]);
 
           shellHook = ''
             gh auth switch --user mjc
