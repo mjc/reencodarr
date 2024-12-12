@@ -669,6 +669,30 @@ defmodule Reencodarr.Media do
   end
 
   @doc """
+Marks a VMAF as chosen.
+
+## Examples
+
+    iex> mark_vmaf_as_chosen(123, "32")
+    {:ok, %Vmaf{}}
+
+    iex> mark_vmaf_as_chosen(999, "32")
+    {:error, %Ecto.Changeset{}}
+
+"""
+@spec mark_vmaf_as_chosen(integer(), String.t()) :: {:ok, Vmaf.t()} | {:error, Ecto.Changeset.t()}
+def mark_vmaf_as_chosen(video_id, crf) do
+
+  Repo.transaction(fn ->
+    from(v in Vmaf, where: v.video_id == ^video_id)
+    |> Repo.update_all(set: [chosen: false])
+
+    from(v in Vmaf, where: v.video_id == ^video_id and v.crf == ^crf)
+    |> Repo.update_all(set: [chosen: true])
+  end)
+end
+
+  @doc """
   Returns the most recent updated_at timestamp for videos.
 
   ## Examples
