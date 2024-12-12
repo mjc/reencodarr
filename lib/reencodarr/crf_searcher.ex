@@ -24,18 +24,19 @@ defmodule Reencodarr.CrfSearcher do
     Process.send_after(self(), :search_videos, 60_000) # Schedule every 60 seconds
   end
 
+
+  @impl true
+  def handle_cast(:crf_search_finished, state) do
+    Logger.info("Received notification that CRF search finished.")
+    find_videos_without_vmafs()
+    {:noreply, state}
+  end
+
   @impl true
   def handle_info(:search_videos, state) do
     Logger.info("Searching for videos without VMAFs...")
     find_videos_without_vmafs()
     schedule_search()
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(:crf_search_finished, state) do
-    Logger.info("Received notification that CRF search finished.")
-    find_videos_without_vmafs()
     {:noreply, state}
   end
 
