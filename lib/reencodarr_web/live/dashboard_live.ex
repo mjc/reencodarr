@@ -124,11 +124,17 @@ defmodule ReencodarrWeb.DashboardLive do
       phx-hook="TimezoneHook"
     >
       <div class="w-full flex justify-between items-center mb-4 px-4">
-        <button phx-click="toggle_encoder" class="bg-blue-500 text-white px-4 py-2 rounded shadow">
-          Toggle Encoder
+        <button
+          phx-click="toggle_encoder"
+          class={"text-white px-4 py-2 rounded shadow " <> if @encoding, do: "bg-red-500", else: "bg-blue-500"}
+        >
+          {@encoding && "Pause Encoder" || "Start Encoder"}
         </button>
-        <button phx-click="toggle_crf_search" class="bg-green-500 text-white px-4 py-2 rounded shadow">
-          Toggle CRF Search
+        <button
+          phx-click="toggle_crf_search"
+          class={"text-white px-4 py-2 rounded shadow " <> if @crf_searching, do: "bg-red-500", else: "bg-green-500"}
+        >
+          {@crf_searching && "Pause CRF Search" || "Start CRF Search"}
         </button>
       </div>
 
