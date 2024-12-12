@@ -21,9 +21,9 @@ defmodule Reencodarr.CrfSearcher do
 
   defp schedule_search do
     Logger.debug("Scheduling next check in 60 seconds...")
-    Process.send_after(self(), :search_videos, 60_000) # Schedule every 60 seconds
+    # Schedule every 60 seconds
+    Process.send_after(self(), :search_videos, 60_000)
   end
-
 
   @impl true
   def handle_cast(:crf_search_finished, state) do
@@ -43,7 +43,8 @@ defmodule Reencodarr.CrfSearcher do
   @impl true
   def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
     Logger.warning("AbAv1.CrfSearch process crashed or is not yet started.")
-    Process.send_after(self(), :monitor_crf_search, 10_000) # Retry monitoring after 10 seconds
+    # Retry monitoring after 10 seconds
+    Process.send_after(self(), :monitor_crf_search, 10_000)
     {:noreply, state}
   end
 
@@ -52,10 +53,13 @@ defmodule Reencodarr.CrfSearcher do
     case GenServer.whereis(Reencodarr.AbAv1.CrfSearch) do
       nil ->
         Logger.error("CrfSearch process is not running.")
-        Process.send_after(self(), :monitor_crf_search, 10_000) # Retry monitoring after 10 seconds
+        # Retry monitoring after 10 seconds
+        Process.send_after(self(), :monitor_crf_search, 10_000)
+
       _pid ->
         Process.monitor(GenServer.whereis(Reencodarr.AbAv1.CrfSearch))
     end
+
     {:noreply, state}
   end
 
@@ -63,6 +67,7 @@ defmodule Reencodarr.CrfSearcher do
     case GenServer.whereis(Reencodarr.AbAv1.CrfSearch) do
       nil ->
         Logger.error("CrfSearch process is not running.")
+
       _pid ->
         if GenServer.call(Reencodarr.AbAv1.CrfSearch, :port_status) == :not_running do
           Media.find_videos_without_vmafs(1)

@@ -8,6 +8,7 @@ defmodule Reencodarr.Media do
   alias Reencodarr.Media.{Video, Library, Vmaf}
   require Logger
 
+  # Video-related functions
   @doc """
   Returns the list of videos.
 
@@ -124,7 +125,7 @@ defmodule Reencodarr.Media do
       {:ok, %Video{}}
 
       iex> upsert_video(%{field: bad_value})
-      {:error, %Ecto.Changeset{}}
+      {:error, %Ecto.Changeset.t()}
   """
   @spec upsert_video(map()) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
   def upsert_video(attrs) do
@@ -198,6 +199,61 @@ defmodule Reencodarr.Media do
     Video.changeset(video, attrs)
   end
 
+  @doc """
+  Marks a video as re-encoded.
+
+  ## Examples
+
+      iex> mark_as_reencoded(video)
+      {:ok, %Video{}}
+
+      iex> mark_as_reencoded(video)
+      {:error, %Ecto.Changeset{}}
+
+  """
+  @spec mark_as_reencoded(Video.t()) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
+  def mark_as_reencoded(%Video{} = video) do
+    video
+    |> Video.changeset(%{reencoded: true})
+    |> Repo.update()
+  end
+
+  @doc """
+  Returns the most recent updated_at timestamp for videos.
+
+  ## Examples
+
+      iex> most_recent_video_update()
+      ~N[2023-10-05 14:30:00]
+
+  """
+  @spec most_recent_video_update() :: NaiveDateTime.t() | nil
+  def most_recent_video_update do
+    from(v in Video, select: max(v.updated_at))
+    |> Repo.one()
+  end
+
+  @doc """
+  Returns the most recent inserted_at timestamp for videos.
+
+  ## Examples
+
+      iex> get_most_recent_inserted_at()
+      ~N[2023-10-05 14:30:00]
+
+  """
+  @spec get_most_recent_inserted_at() :: NaiveDateTime.t() | nil
+  def get_most_recent_inserted_at do
+    from(v in Video, select: max(v.inserted_at))
+    |> Repo.one()
+  end
+
+  @spec video_has_vmafs?(Video.t()) :: boolean()
+  def video_has_vmafs?(%Video{id: video_id}) do
+    Repo.exists?(from v in Vmaf, where: v.video_id == ^video_id)
+  end
+
+  # Library-related functions
   @doc """
   Returns the list of libraries.
 
@@ -296,8 +352,7 @@ defmodule Reencodarr.Media do
     Library.changeset(library, attrs)
   end
 
-  alias Reencodarr.Media.Vmaf
-
+  # Vmaf-related functions
   @doc """
   Returns the list of vmafs.
 
@@ -357,7 +412,7 @@ defmodule Reencodarr.Media do
       {:ok, %Vmaf{}}
 
       iex> upsert_vmaf(%{field: bad_value})
-      {:error, %Ecto.Changeset{}}
+      {:error, %Ecto.Changeset.t()}
   """
   @spec upsert_vmaf(map()) :: {:ok, Vmaf.t()} | {:error, Ecto.Changeset.t()}
   def upsert_vmaf(attrs) do
@@ -500,25 +555,6 @@ defmodule Reencodarr.Media do
         select: v
 
     Repo.one(query)
-  end
-
-  @doc """
-  Marks a video as re-encoded.
-
-  ## Examples
-
-      iex> mark_as_reencoded(video)
-      {:ok, %Video{}}
-
-      iex> mark_as_reencoded(video)
-      {:error, %Ecto.Changeset{}}
-
-  """
-  @spec mark_as_reencoded(Video.t()) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
-  def mark_as_reencoded(%Video{} = video) do
-    video
-    |> Video.changeset(%{reencoded: true})
-    |> Repo.update()
   end
 
   @doc """
@@ -690,61 +726,26 @@ defmodule Reencodarr.Media do
   end
 
   @doc """
-Marks a VMAF as chosen.
-
-## Examples
-
-    iex> mark_vmaf_as_chosen(123, "32")
-    {:ok, %Vmaf{}}
-
-    iex> mark_vmaf_as_chosen(999, "32")
-    {:error, %Ecto.Changeset{}}
-
-"""
-@spec mark_vmaf_as_chosen(integer(), String.t()) :: {:ok, Vmaf.t()} | {:error, Ecto.Changeset.t()}
-def mark_vmaf_as_chosen(video_id, crf) do
-
-  Repo.transaction(fn ->
-    from(v in Vmaf, where: v.video_id == ^video_id)
-    |> Repo.update_all(set: [chosen: false])
-
-    from(v in Vmaf, where: v.video_id == ^video_id and v.crf == ^crf)
-    |> Repo.update_all(set: [chosen: true])
-  end)
-end
-
-  @doc """
-  Returns the most recent updated_at timestamp for videos.
+  Marks a VMAF as chosen.
 
   ## Examples
 
-      iex> most_recent_video_update()
-      ~N[2023-10-05 14:30:00]
+      iex> mark_vmaf_as_chosen(123, "32")
+      {:ok, %Vmaf{}}
+
+      iex> mark_vmaf_as_chosen(999, "32")
+      {:error, %Ecto.Changeset{}}
 
   """
-  @spec most_recent_video_update() :: NaiveDateTime.t() | nil
-  def most_recent_video_update do
-    from(v in Video, select: max(v.updated_at))
-    |> Repo.one()
-  end
+  @spec mark_vmaf_as_chosen(integer(), String.t()) ::
+          {:ok, Vmaf.t()} | {:error, Ecto.Changeset.t()}
+  def mark_vmaf_as_chosen(video_id, crf) do
+    Repo.transaction(fn ->
+      from(v in Vmaf, where: v.video_id == ^video_id)
+      |> Repo.update_all(set: [chosen: false])
 
-  @doc """
-  Returns the most recent inserted_at timestamp for videos.
-
-  ## Examples
-
-      iex> get_most_recent_inserted_at()
-      ~N[2023-10-05 14:30:00]
-
-  """
-  @spec get_most_recent_inserted_at() :: NaiveDateTime.t() | nil
-  def get_most_recent_inserted_at do
-    from(v in Video, select: max(v.inserted_at))
-    |> Repo.one()
-  end
-
-  @spec video_has_vmafs?(Video.t()) :: boolean()
-  def video_has_vmafs?(%Video{id: video_id}) do
-    Repo.exists?(from v in Vmaf, where: v.video_id == ^video_id)
+      from(v in Vmaf, where: v.video_id == ^video_id and v.crf == ^crf)
+      |> Repo.update_all(set: [chosen: true])
+    end)
   end
 end

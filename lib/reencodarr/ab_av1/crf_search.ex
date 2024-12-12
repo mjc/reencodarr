@@ -109,8 +109,13 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def process_line(line, video) do
     sample_regex =
       ~r/sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\)/
-    encoding_sample_regex = ~r/encoding sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?)/
-    eta_vmaf_regex = ~r/crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) predicted video stream size (?<size>\d+\.\d+) (?<unit>\w+) \(\d+%\) taking (?<time>\d+) (?<time_unit>seconds|minutes|hours)/
+
+    encoding_sample_regex =
+      ~r/encoding sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?)/
+
+    eta_vmaf_regex =
+      ~r/crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) predicted video stream size (?<size>\d+\.\d+) (?<unit>\w+) \(\d+%\) taking (?<time>\d+) (?<time_unit>seconds|minutes|hours)/
+
     simple_vmaf_regex = ~r/^- crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\)/
     vmaf_regex = ~r/vmaf (?<file1>.+?) vs reference (?<file2>.+)/
     progress_regex = ~r/\[.*\] (?<progress>\d+%)?, (?<fps>\d+ fps)?, eta (?<eta>\d+ seconds)/
@@ -118,21 +123,31 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     cond do
       captures = Regex.named_captures(encoding_sample_regex, line) ->
-        Logger.info("Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}")
+        Logger.info(
+          "Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
+        )
+
         :none
 
       captures = Regex.named_captures(simple_vmaf_regex, line) ->
-        Logger.info("Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, eta: #{captures["time"]} #{captures["time_unit"]}")
+        Logger.info(
+          "Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, eta: #{captures["time"]} #{captures["time_unit"]}"
+        )
+
         upsert_vmaf(Map.put(captures, "chosen", false), video)
 
       captures = Regex.named_captures(sample_regex, line) ->
         Logger.info(
           "Sample #{captures["sample_num"]}/#{captures["total_samples"]} - CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}"
         )
+
         upsert_vmaf(Map.put(captures, "chosen", false), video)
 
       captures = Regex.named_captures(eta_vmaf_regex, line) ->
-        Logger.info("Chosen VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, time: #{captures["time"]} #{captures["time_unit"]}")
+        Logger.info(
+          "Chosen VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, time: #{captures["time"]} #{captures["time_unit"]}"
+        )
+
         upsert_vmaf(Map.put(captures, "chosen", true), video)
 
       captures = Regex.named_captures(vmaf_regex, line) ->
@@ -143,6 +158,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         Logger.info(
           "Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
         )
+
         :none
 
       captures = Regex.named_captures(success_line_regex, line) ->
@@ -158,6 +174,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp upsert_vmaf(%{"crf" => crf, "vmaf" => vmaf, "chosen" => chosen} = params, video) do
     time = parse_time(params["time"], params["time_unit"])
+
     vmaf_data = %{
       video_id: video.id,
       crf: crf,
@@ -185,6 +202,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp parse_time(nil, _), do: nil
   defp parse_time(_, nil), do: nil
+
   defp parse_time(time, time_unit) do
     case Integer.parse(time) do
       {time_value, _} ->
@@ -199,7 +217,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp convert_to_seconds(time, "hours"), do: time * 3600
   defp convert_to_seconds(time, "seconds"), do: time
   defp convert_to_seconds(time, "days"), do: time * 86400
-  defp convert_to_seconds(time, "weeks"), do: time * 604800
-  defp convert_to_seconds(time, "months"), do: time * 2628000
-  defp convert_to_seconds(time, "years"), do: time * 31536000
+  defp convert_to_seconds(time, "weeks"), do: time * 604_800
+  defp convert_to_seconds(time, "months"), do: time * 2_628_000
+  defp convert_to_seconds(time, "years"), do: time * 31_536_000
 end
