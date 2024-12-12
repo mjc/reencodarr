@@ -41,8 +41,9 @@ defmodule Reencodarr.AbAv1.Encode do
         "-o",
         Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv"),
         "-i"
-      ] ++ vmaf.params
+      ] ++ Helper.remove_args(vmaf.params, ["--min-vmaf", "--temp-dir", "crf-search"])
 
+    Logger.info("Starting encode with args: #{inspect(args)}")
     %{
       state
       | port: Helper.open_port(args),
@@ -53,7 +54,7 @@ defmodule Reencodarr.AbAv1.Encode do
 
   @impl true
   def handle_cast(
-        {:encode, %Media.Vmaf{params: _params} = vmaf},
+        {:encode, %Media.Vmaf{params: _params} = vmaf, _position},
         %{port: :none} = state
       ) do
     new_state = prepare_encode_state(vmaf, state)
@@ -62,7 +63,7 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   @impl true
-  def handle_cast({:encode, vmaf}, %{port: port} = state) when port != :none do
+  def handle_cast({:encode, vmaf, :end}, %{port: port} = state) when port != :none do
     Logger.info("Queueing encode for video #{vmaf.video.id}")
     new_queue = :queue.in({:encode, vmaf}, state.queue)
 
@@ -123,7 +124,16 @@ defmodule Reencodarr.AbAv1.Encode do
 
     Logger.debug("Exit status: #{inspect(result)}")
 
-    new_queue = Helper.dequeue(queue, __MODULE__)
+    new_queue =
+      case :queue.out(queue) do
+        {{:value, {action, video, vmaf_percent}}, new_queue} ->
+          GenServer.cast(__MODULE__, {action, video, vmaf_percent})
+          new_queue
+
+        {:empty, _} ->
+          :empty
+      end
+
     new_state = %{state | port: :none, queue: new_queue, video: :none, vmaf: :none}
     {:noreply, new_state}
   end

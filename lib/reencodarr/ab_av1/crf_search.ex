@@ -234,7 +234,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     vmaf_data = Map.merge(params, %{
       "video_id" => video.id,
-      "params" => args,
+      "params" => Helper.remove_args(args, ["--min-vmaf", "crf-search"]),
       "time" => time,
       "size" => "#{params["size"]} #{params["unit"]}",
       "target" => 95

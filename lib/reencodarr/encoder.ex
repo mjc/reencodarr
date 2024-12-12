@@ -31,6 +31,8 @@ defmodule Reencodarr.Encoder do
 
   @impl true
   def init(state) do
+    Logger.info("Initializing Encoder...")
+    Process.monitor(GenServer.whereis(Reencodarr.AbAv1.Encode))
     {:ok, Map.put(state, :encoding, false)}
   end
 
@@ -153,8 +155,30 @@ defmodule Reencodarr.Encoder do
   end
 
   @impl true
-
   def handle_info(%{action: "encoding", video: _video} = _msg, state) do
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
+    Logger.warning("AbAv1.Encode process crashed or is not yet started.")
+    # Retry monitoring after 10 seconds
+    Process.send_after(self(), :monitor_encode, 10_000)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:monitor_encode, state) do
+    case GenServer.whereis(Reencodarr.AbAv1.Encode) do
+      nil ->
+        Logger.error("Encode process is not running.")
+        # Retry monitoring after 10 seconds
+        Process.send_after(self(), :monitor_encode, 10_000)
+
+      _pid ->
+        Process.monitor(GenServer.whereis(Reencodarr.AbAv1.Encode))
+    end
+
     {:noreply, state}
   end
 
