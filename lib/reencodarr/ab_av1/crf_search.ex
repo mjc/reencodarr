@@ -219,7 +219,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         :none
 
       line == "Error: Failed to find a suitable crf" ->
-        Logger.error("Failed to find a suitable CRF")
+        Logger.error("Failed to find a suitable CRF, marking as reencoded for now. (I need to add a failed state)")
         Media.mark_as_reencoded(video)
         :none
 
