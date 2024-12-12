@@ -80,6 +80,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       notify_crf_searcher()
     else
       Logger.error("CRF search failed with exit code #{exit_code}")
+      Media.mark_as_reencoded(state.current_task.video)
     end
 
     {:noreply, %{state | port: :none, current_task: :none}}
@@ -188,6 +189,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     case Media.upsert_vmaf(vmaf_data) do
       {:ok, created_vmaf} ->
         Logger.debug("Upserted VMAF: #{inspect(created_vmaf)}")
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:progress, created_vmaf})
         created_vmaf
 
       {:error, changeset} ->
