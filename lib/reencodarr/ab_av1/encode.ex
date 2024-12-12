@@ -67,7 +67,7 @@ defmodule Reencodarr.AbAv1.Encode do
 
   @impl true
   def handle_info({port, {:data, {:eol, data}}}, %{port: port} = state) do
-    Helper.update_encoding_progress(data, state)
+    process_line(data, state)
     {:noreply, state}
   end
 
@@ -93,5 +93,21 @@ defmodule Reencodarr.AbAv1.Encode do
 
     new_state = %{state | port: :none, video: :none, vmaf: :none}
     {:noreply, new_state}
+  end
+
+  def process_line(data, _state) do
+    cond do
+      captures = Regex.named_captures(~r/\[.*\] encoding (?<filename>\d+\.mkv)/, data) ->
+        Logger.info("Encoding should start for #{captures["filename"]}")
+
+      captures = Regex.named_captures(~r/(?<percent>\d+)%\s*,\s*(?<fps>\d+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours)/, data) ->
+        _eta_seconds = Helper.convert_to_seconds(String.to_integer(captures["eta"]), captures["unit"])
+        human_readable_eta = "#{captures["eta"]} #{captures["unit"]}"
+
+        Logger.info("Encoding progress: #{captures["percent"]}%, #{captures["fps"]} fps, ETA: #{human_readable_eta}")
+
+      true ->
+        Logger.error("No match for data: #{data}")
+    end
   end
 end

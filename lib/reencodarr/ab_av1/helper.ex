@@ -62,24 +62,6 @@ defmodule Reencodarr.AbAv1.Helper do
     cwd_temp_dir = Path.join([File.cwd!(), "tmp", "ab-av1"])
     File.mkdir_p(cwd_temp_dir)
     if File.exists?(cwd_temp_dir), do: cwd_temp_dir, else: Path.join(System.tmp_dir!(), "ab-av1")
-    "/home/mjc/.ab-av1"
-  end
-
-  @spec update_encoding_progress(String.t(), map()) :: :ok
-  def update_encoding_progress(data, _state) do
-    case Regex.named_captures(
-           ~r/\[.*\] encoding (?<filename>\d+\.mkv)|(?<percent>\d+)%\s*,\s*(?<fps>\d+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours)/,
-           data
-         ) do
-      %{"percent" => percent, "fps" => fps, "eta" => eta, "unit" => unit} when eta != "" ->
-        _eta_seconds = convert_to_seconds(String.to_integer(eta), unit)
-        human_readable_eta = "#{eta} #{unit}"
-
-        Logger.info("Encoding progress: #{percent}%, #{fps} fps, ETA: #{human_readable_eta}")
-
-      _ ->
-        Logger.info("Encoding should start for #{data}")
-    end
   end
 
   @spec open_port([binary()]) :: port() | :error
