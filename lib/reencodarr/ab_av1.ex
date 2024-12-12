@@ -1,6 +1,8 @@
 defmodule Reencodarr.AbAv1 do
   use Supervisor
 
+  require Logger
+
   alias Reencodarr.Media
 
   @spec start_link(any()) :: Supervisor.on_start()
@@ -38,8 +40,9 @@ defmodule Reencodarr.AbAv1 do
     GenServer.cast(Reencodarr.AbAv1.CrfSearch, {:crf_search, video, vmaf_percent})
   end
 
-  @spec encode(Media.Vmaf.t(), atom()) :: :ok
-  def encode(vmaf, position \\ :end) do
-    GenServer.cast(Reencodarr.AbAv1.Encode, {:encode, vmaf, position})
+  @spec encode(Media.Vmaf.t()) :: :ok
+  def encode(vmaf) do
+    Logger.info("Starting encode for VMAF: #{inspect(vmaf)}")
+    GenServer.cast(Reencodarr.AbAv1.Encode, {:encode, vmaf})
   end
 end

@@ -12,24 +12,21 @@ defmodule Reencodarr.AbAv1.Encode do
     {:ok,
      %{
        port: :none,
-       queue: :queue.new(),
        video: :none,
        vmaf: :none
      }}
   end
 
-  @spec encode(Media.Vmaf.t(), atom()) :: :ok
-  def encode(vmaf, position \\ :end) do
-    GenServer.cast(__MODULE__, {:encode, vmaf, position})
+  @spec encode(Media.Vmaf.t()) :: :ok
+  def encode(vmaf) do
+    Logger.info("Starting encode for VMAF: #{inspect(vmaf)}")
+    GenServer.cast(__MODULE__, {:encode, vmaf})
   end
 
   @impl true
-  def handle_call(:queue_length, _from, %{queue: :empty} = state) do
-    {:reply, 0, state}
-  end
-
-  def handle_call(:queue_length, _from, %{queue: queue} = state) do
-    {:reply, :queue.len(queue), state}
+  def handle_call(:port_status, _from, %{port: port} = state) do
+    status = if port == :none, do: :not_running, else: :running
+    {:reply, status, state}
   end
 
   defp prepare_encode_state(vmaf, state) do
@@ -55,48 +52,17 @@ defmodule Reencodarr.AbAv1.Encode do
 
   @impl true
   def handle_cast(
-        {:encode, %Media.Vmaf{params: _params} = vmaf, _position},
+        {:encode, %Media.Vmaf{params: _params} = vmaf},
         %{port: :none} = state
       ) do
     new_state = prepare_encode_state(vmaf, state)
-
     {:noreply, new_state}
   end
 
   @impl true
-  def handle_cast({:encode, vmaf, :end}, %{port: port} = state) when port != :none do
-    Logger.info("Queueing encode for video #{vmaf.video.id}")
-    new_queue = :queue.in({:encode, vmaf}, state.queue)
-
-    new_state = %{
-      state
-      | queue: new_queue,
-        video: state.video
-    }
-
-    {:noreply, new_state}
-  end
-
-  @impl true
-  def handle_cast({:encode, vmaf, :insert_at_top}, %{port: :none} = state) do
-    Logger.info("Inserting encode at top of queue for video #{vmaf.video.id}")
-    new_state = prepare_encode_state(vmaf, state)
-
-    {:noreply, new_state}
-  end
-
-  @impl true
-  def handle_cast({:encode, vmaf, :insert_at_top}, %{port: port} = state) when port != :none do
-    Logger.info("Inserting encode at top of queue for video #{vmaf.video.id}")
-    new_queue = :queue.in_r({:encode, vmaf}, state.queue)
-
-    new_state = %{
-      state
-      | queue: new_queue,
-        video: state.video
-    }
-
-    {:noreply, new_state}
+  def handle_cast({:encode, %Media.Vmaf{} = _vmaf}, %{port: port} = state) when port != :none do
+    Logger.info("Encoding is already in progress, skipping new encode request.")
+    {:noreply, state}
   end
 
   @impl true
@@ -114,7 +80,7 @@ defmodule Reencodarr.AbAv1.Encode do
   @impl true
   def handle_info(
         {port, {:exit_status, exit_code}},
-        %{port: port, queue: queue, vmaf: _vmaf} = state
+        %{port: port, vmaf: _vmaf} = state
       ) do
     result =
       case exit_code do
@@ -125,17 +91,7 @@ defmodule Reencodarr.AbAv1.Encode do
 
     Logger.debug("Exit status: #{inspect(result)}")
 
-    new_queue =
-      case :queue.out(queue) do
-        {{:value, {action, video, vmaf_percent}}, new_queue} ->
-          GenServer.cast(__MODULE__, {action, video, vmaf_percent})
-          new_queue
-
-        {:empty, _} ->
-          :empty
-      end
-
-    new_state = %{state | port: :none, queue: new_queue, video: :none, vmaf: :none}
+    new_state = %{state | port: :none, video: :none, vmaf: :none}
     {:noreply, new_state}
   end
 end

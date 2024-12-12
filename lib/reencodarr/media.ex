@@ -674,7 +674,8 @@ defmodule Reencodarr.Media do
         join: vid in assoc(v, :video),
         where: v.chosen == true and vid.reencoded == false,
         order_by: [asc: v.percent],
-        limit: 1
+        limit: 1,
+        preload: [:video]
     )
   end
 
