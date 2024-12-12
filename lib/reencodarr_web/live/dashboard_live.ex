@@ -11,6 +11,7 @@ defmodule ReencodarrWeb.DashboardLive do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, "progress")
     end
+
     :timer.send_interval(@update_interval, self(), :update_stats)
     {:ok, assign(socket, update_stats() |> Map.put(:timezone, "UTC"))}
   end

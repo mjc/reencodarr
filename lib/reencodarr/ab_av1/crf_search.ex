@@ -9,7 +9,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def init(:ok) do
-    {:ok, %{port: :none, current_task: :none, last_vmaf: :none}}
+    {:ok, %{port: :none, current_task: :none}}
   end
 
   @spec crf_search(Media.Video.t(), integer()) :: :ok
@@ -36,8 +36,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     new_state = %{
       state
       | port: Helper.open_port(args),
-        current_task: %{video: video},
-        last_vmaf: :none
+        current_task: %{video: video}
     }
 
     {:noreply, new_state}
@@ -50,10 +49,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_info(
-        {port, {:data, {:eol, data}}},
+        {port, {:data, {:eol, line}}},
         %{port: port, current_task: %{video: video}} = state
       ) do
-    process_data(data, video, state)
+    process_line(line, video)
+    {:noreply, state}
   end
 
   @impl true
@@ -66,16 +66,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
-  def handle_info({port, {:exit_status, exit_code}}, %{port: port, last_vmaf: last_vmaf} = state) do
-    if exit_code == 0 and not is_nil(last_vmaf) do
-      Logger.debug("CRF search finished successfully with last vmaf: #{inspect(last_vmaf)}")
-      Media.mark_vmaf_as_chosen(last_vmaf)
+  def handle_info({port, {:exit_status, exit_code}}, %{port: port} = state) do
+    if exit_code == 0 do
+      Logger.debug("CRF search finished successfully")
       notify_crf_searcher()
     else
       Logger.error("CRF search failed with exit code #{exit_code}")
     end
 
-    {:noreply, %{state | last_vmaf: :none, port: :none, current_task: :none}}
+    {:noreply, %{state | port: :none, current_task: :none}}
   end
 
   @impl true
@@ -101,14 +100,73 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     GenServer.cast(Reencodarr.CrfSearcher, :crf_search_finished)
   end
 
-  defp process_data(data, video, state) do
-    vmafs =
-      data
-      |> String.split("\n", trim: true)
-      |> Helper.parse_crf_search()
-      |> Helper.attach_params(video)
+  def process_line(line, video) do
+    sample_regex =
+      ~r/sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\)/
 
-    Enum.each(vmafs, &Media.upsert_vmaf/1)
-    {:noreply, %{state | last_vmaf: List.last(vmafs)}}
+    chosen_vmaf_regex = ~r/- crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\) \(cache\)/
+    simple_chosen_vmaf_regex = ~r/- crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\)/
+    vmaf_regex = ~r/vmaf (?<file1>.+?) vs reference (?<file2>.+)/
+
+    cond do
+      captures =
+          Regex.named_captures(
+            ~r/encoding sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?)/,
+            line
+          ) ->
+        Logger.info(
+          "Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
+        )
+
+        :none
+
+      captures = Regex.named_captures(simple_chosen_vmaf_regex, line) ->
+        Logger.info("Chosen VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}")
+        upsert_vmaf(Map.put(captures, "chosen", false), video)
+
+      captures = Regex.named_captures(sample_regex, line) ->
+        Logger.info(
+          "Sample #{captures["sample_num"]}/#{captures["total_samples"]} - CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}"
+        )
+
+        upsert_vmaf(Map.put(captures, "chosen", false), video)
+
+      captures = Regex.named_captures(chosen_vmaf_regex, line) ->
+        Logger.info("Chosen VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}")
+        upsert_vmaf(Map.put(captures, "chosen", true), video)
+
+      captures = Regex.named_captures(vmaf_regex, line) ->
+        Logger.info("VMAF comparison: #{captures["file1"]} vs #{captures["file2"]}")
+        :none
+
+      true ->
+        Logger.error("No match for line: #{line}")
+        :none
+    end
+  end
+
+  defp upsert_vmaf(%{"crf" => crf, "vmaf" => vmaf, "chosen" => chosen}, video) do
+    vmaf_data = %{
+      video_id: video.id,
+      crf: crf,
+      vmaf: vmaf,
+      chosen: chosen,
+      # Assuming score is the same as vmaf for this example
+      score: vmaf,
+      # Assuming percent is 95 for this example
+      percent: 95,
+      # Assuming params is an array of strings
+      params: ["example_param=example_value"]
+    }
+
+    case Media.upsert_vmaf(vmaf_data) do
+      {:ok, created_vmaf} ->
+        Logger.info("Upserted VMAF: #{inspect(created_vmaf)}")
+        created_vmaf
+
+      {:error, changeset} ->
+        Logger.error("Failed to upsert VMAF: #{inspect(changeset)}")
+        :none
+    end
   end
 end
