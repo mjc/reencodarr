@@ -16,13 +16,33 @@ defmodule Reencodarr.CrfSearcher do
     Logger.info("Initializing CrfSearcher...")
     Process.monitor(GenServer.whereis(Reencodarr.AbAv1.CrfSearch))
     schedule_search()
-    {:ok, %{}}
+    {:ok, %{searching: true}}
+  end
+
+  def start_searching do
+    GenServer.cast(__MODULE__, :start_searching)
+  end
+
+  def pause_searching do
+    GenServer.cast(__MODULE__, :pause_searching)
   end
 
   defp schedule_search do
     Logger.debug("Scheduling next check in 60 seconds...")
     # Schedule every 60 seconds
     Process.send_after(self(), :search_videos, 60_000)
+  end
+
+  @impl true
+  def handle_cast(:start_searching, state) do
+    Logger.debug("CRF searching started")
+    {:noreply, Map.put(state, :searching, true)}
+  end
+
+  @impl true
+  def handle_cast(:pause_searching, state) do
+    Logger.debug("CRF searching paused")
+    {:noreply, Map.put(state, :searching, false)}
   end
 
   @impl true
@@ -33,9 +53,14 @@ defmodule Reencodarr.CrfSearcher do
   end
 
   @impl true
-  def handle_info(:search_videos, state) do
+  def handle_info(:search_videos, %{searching: true} = state) do
     Logger.info("Searching for videos without VMAFs...")
     find_videos_without_vmafs()
+    schedule_search()
+    {:noreply, state}
+  end
+
+  def handle_info(:search_videos, state) do
     schedule_search()
     {:noreply, state}
   end
