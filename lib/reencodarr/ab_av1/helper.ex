@@ -3,15 +3,6 @@ defmodule Reencodarr.AbAv1.Helper do
 
   alias Reencodarr.{Media, Rules}
 
-  @crf_search_results ~r/
-    crf \s (?<crf>\d+) \s
-    VMAF \s (?<score>\d+\.\d+)
-    (?: \s predicted \s video \s stream \s size \s (?<size>[\d\.]+ \s \w+))?
-    \s \((?<percent>\d+)%\)
-    (?: \s taking \s (?<time>\d+ \s (?<unit>minutes|seconds|hours)))?
-    (?: \s predicted)?
-  /x
-
   @spec attach_params(list(map()), Media.Video.t()) :: list(map())
   def attach_params(vmafs, video) do
     Enum.map(vmafs, &Map.put(&1, "video_id", video.id))
@@ -46,18 +37,6 @@ defmodule Reencodarr.AbAv1.Helper do
     ]
 
     Enum.concat(base_args, build_rules(video))
-  end
-
-  @spec parse_crf_search(list(String.t())) :: list(map())
-  def parse_crf_search(output) do
-    for line <- output,
-        captures = Regex.named_captures(@crf_search_results, line),
-        captures != nil do
-      captures
-      |> convert_time_to_duration()
-      |> Enum.reject(fn {_, v} -> v in [nil, ""] end)
-      |> Enum.into(%{})
-    end
   end
 
   @spec convert_time_to_duration(map()) :: map()
@@ -119,18 +98,6 @@ defmodule Reencodarr.AbAv1.Helper do
           :stderr_to_stdout,
           args: args
         ])
-    end
-  end
-
-  @spec dequeue(:queue.queue(), atom()) :: :queue.queue() | :empty
-  def dequeue(queue, module) do
-    case :queue.out(queue) do
-      {{:value, {action, video, vmaf_percent}}, new_queue} ->
-        GenServer.cast(module, {action, video, vmaf_percent})
-        new_queue
-
-      {:empty, _} ->
-        :empty
     end
   end
 end
