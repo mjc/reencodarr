@@ -176,10 +176,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     vmaf_data = %{
       video_id: video.id,
       crf: crf,
-      vmaf: vmaf,
+      vmaf: 95,
       chosen: chosen,
       score: vmaf,
-      percent: 95,
+      percent: vmaf,
       params: ["example_param=example_value"],
       time: time
     }
