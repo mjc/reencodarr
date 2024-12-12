@@ -62,7 +62,7 @@ defmodule ReencodarrWeb.ProgressComponent do
                     Percent: {@vmaf.percent}% (of original size)
                   </li>
                   <li>
-                    VMAF Score: {@vmaf.score} (Target: {@vmaf.percent})
+                    VMAF Score: {@vmaf.score} (Target: 95)
                   </li>
                 </ul>
               <% else %>
