@@ -19,12 +19,16 @@ defmodule Reencodarr.CrfSearcher do
     {:ok, %{searching: true}}
   end
 
-  def start_searching do
+  def start do
     GenServer.cast(__MODULE__, :start_searching)
   end
 
-  def pause_searching do
+  def pause do
     GenServer.cast(__MODULE__, :pause_searching)
+  end
+
+  def toggle_searching do
+    GenServer.call(__MODULE__, :toggle_searching)
   end
 
   defp schedule_search do
@@ -36,12 +40,14 @@ defmodule Reencodarr.CrfSearcher do
   @impl true
   def handle_cast(:start_searching, state) do
     Logger.debug("CRF searching started")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :started})
     {:noreply, Map.put(state, :searching, true)}
   end
 
   @impl true
   def handle_cast(:pause_searching, state) do
     Logger.debug("CRF searching paused")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :paused})
     {:noreply, Map.put(state, :searching, false)}
   end
 
@@ -50,6 +56,18 @@ defmodule Reencodarr.CrfSearcher do
     Logger.info("Received notification that CRF search finished.")
     find_videos_without_vmafs()
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_call(:toggle_searching, _from, %{searching: true} = state) do
+    Logger.debug("CRF searching paused")
+    {:reply, :paused, Map.put(state, :searching, false)}
+  end
+
+  @impl true
+  def handle_call(:toggle_searching, _from, %{searching: false} = state) do
+    Logger.debug("CRF searching started")
+    {:reply, :started, Map.put(state, :searching, true)}
   end
 
   @impl true

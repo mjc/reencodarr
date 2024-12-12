@@ -184,7 +184,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         :none
 
       captures = Regex.named_captures(@simple_vmaf_regex, line) ->
-        Logger.info("Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%")
+        Logger.info(
+          "Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
+        )
 
         upsert_vmaf(Map.put(captures, "chosen", false), video, args)
 
@@ -219,7 +221,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         :none
 
       line == "Error: Failed to find a suitable crf" ->
-        Logger.error("Failed to find a suitable CRF, marking as reencoded for now. (I need to add a failed state)")
+        Logger.error(
+          "Failed to find a suitable CRF, marking as reencoded for now. (I need to add a failed state)"
+        )
+
         Media.mark_as_reencoded(video)
         :none
 
@@ -232,13 +237,14 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp upsert_vmaf(params, video, args) do
     time = parse_time(params["time"], params["time_unit"])
 
-    vmaf_data = Map.merge(params, %{
-      "video_id" => video.id,
-      "params" => Helper.remove_args(args, ["--min-vmaf", "crf-search"]),
-      "time" => time,
-      "size" => "#{params["size"]} #{params["unit"]}",
-      "target" => 95
-    })
+    vmaf_data =
+      Map.merge(params, %{
+        "video_id" => video.id,
+        "params" => Helper.remove_args(args, ["--min-vmaf", "crf-search"]),
+        "time" => time,
+        "size" => "#{params["size"]} #{params["unit"]}",
+        "target" => 95
+      })
 
     case Media.upsert_vmaf(vmaf_data) do
       {:ok, created_vmaf} ->

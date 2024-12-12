@@ -10,6 +10,8 @@ defmodule ReencodarrWeb.DashboardLive do
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, "progress")
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
     end
 
     :timer.send_interval(@update_interval, self(), :update_stats)
@@ -17,7 +19,9 @@ defmodule ReencodarrWeb.DashboardLive do
     {:ok,
      socket
      |> assign(update_stats())
-     |> assign(%{timezone: "UTC", vmaf: %Media.Vmaf{}, progress: %{}})}
+     |> assign(%{timezone: "UTC", vmaf: %Media.Vmaf{}, progress: %{}})
+     |> assign(:encoding, false)
+     |> assign(:crf_searching, false)}
   end
 
   def handle_info(:update_stats, socket) do
@@ -27,6 +31,26 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_info({:progress, vmaf}, socket) do
     Logger.debug("Received progress event for VMAF: #{inspect(vmaf)}")
     {:noreply, assign(socket, :vmaf, vmaf)}
+  end
+
+  def handle_info({:encoder, :started}, socket) do
+    Logger.info("Encoder started")
+    {:noreply, assign(socket, :encoding, true)}
+  end
+
+  def handle_info({:encoder, :paused}, socket) do
+    Logger.info("Encoder paused")
+    {:noreply, assign(socket, :encoding, false)}
+  end
+
+  def handle_info({:crf_searcher, :started}, socket) do
+    Logger.info("CRF search started")
+    {:noreply, assign(socket, :crf_searching, true)}
+  end
+
+  def handle_info({:crf_searcher, :paused}, socket) do
+    Logger.info("CRF search paused")
+    {:noreply, assign(socket, :crf_searching, false)}
   end
 
   def handle_event("set_timezone", %{"timezone" => timezone}, socket) do
@@ -52,6 +76,34 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, socket}
   end
 
+  def handle_event("toggle_encoder", _params, socket) do
+    case socket.assigns[:encoding] do
+      true ->
+        Reencodarr.Encoder.pause()
+        Logger.info("Encoder paused")
+        {:noreply, assign(socket, :encoding, false)}
+
+      false ->
+        Reencodarr.Encoder.start()
+        Logger.info("Encoder started")
+        {:noreply, assign(socket, :encoding, true)}
+    end
+  end
+
+  def handle_event("toggle_crf_search", _params, socket) do
+    case socket.assigns[:crf_searching] do
+      true ->
+        Reencodarr.CrfSearcher.pause()
+        Logger.info("CRF search paused")
+        {:noreply, assign(socket, :crf_searching, false)}
+
+      false ->
+        Reencodarr.CrfSearcher.start()
+        Logger.info("CRF search started")
+        {:noreply, assign(socket, :crf_searching, true)}
+    end
+  end
+
   defp update_stats do
     %{
       queue_length: AbAv1.queue_length(),
@@ -72,25 +124,11 @@ defmodule ReencodarrWeb.DashboardLive do
       phx-hook="TimezoneHook"
     >
       <div class="w-full flex justify-between items-center mb-4 px-4">
-        <button
-          phx-click="start_encode"
-          phx-value-vmaf_id={@stats.lowest_vmaf.id}
-          class="bg-blue-500 text-white px-4 py-2 rounded shadow"
-        >
-          Queue Encode Manually
+        <button phx-click="toggle_encoder" class="bg-blue-500 text-white px-4 py-2 rounded shadow">
+          Toggle Encoder
         </button>
-        <button
-          phx-click="start_encode_by_time"
-          phx-value-vmaf_id={@stats.lowest_vmaf_by_time.id}
-          class="bg-green-500 text-white px-4 py-2 rounded shadow"
-        >
-          Queue Encode by Time
-        </button>
-        <button
-          phx-click="queue_next_5_lowest_vmafs"
-          class="bg-red-500 text-white px-4 py-2 rounded shadow"
-        >
-          Queue Next 5 Lowest VMAFs
+        <button phx-click="toggle_crf_search" class="bg-green-500 text-white px-4 py-2 rounded shadow">
+          Toggle CRF Search
         </button>
       </div>
 

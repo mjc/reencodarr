@@ -44,6 +44,7 @@ defmodule Reencodarr.AbAv1.Encode do
       ] ++ Helper.remove_args(vmaf.params, ["--min-vmaf", "--temp-dir", "crf-search"])
 
     Logger.info("Starting encode with args: #{inspect(args)}")
+
     %{
       state
       | port: Helper.open_port(args),

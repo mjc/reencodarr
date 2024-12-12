@@ -19,11 +19,11 @@ defmodule Reencodarr.Encoder do
     GenServer.call(__MODULE__, :get_next_video)
   end
 
-  def start_encoding do
+  def start do
     GenServer.cast(__MODULE__, :start_encoding)
   end
 
-  def pause_encoding do
+  def pause do
     GenServer.cast(__MODULE__, :pause_encoding)
   end
 
@@ -39,12 +39,15 @@ defmodule Reencodarr.Encoder do
   @impl true
   def handle_cast(:start_encoding, state) do
     Logger.debug("Encoding started")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :started})
     schedule_check()
     {:noreply, Map.put(state, :encoding, true)}
   end
 
+  @impl true
   def handle_cast(:pause_encoding, state) do
     Logger.debug("Encoding paused")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :paused})
     {:noreply, Map.put(state, :encoding, false)}
   end
 
