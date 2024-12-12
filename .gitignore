@@ -39,3 +39,4 @@ npm-debug.log
 .direnv
 flake-inputs
 flake-profile*
+config/dev.overrides.exs

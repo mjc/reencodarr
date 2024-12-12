@@ -11,6 +11,8 @@ config :reencodarr,
   ecto_repos: [Reencodarr.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+config :reencodarr, :temp_dir, Path.join(System.tmp_dir!(), "ab-av1")
+
 # Configures the endpoint
 config :reencodarr, ReencodarrWeb.Endpoint,
   url: [host: "localhost"],

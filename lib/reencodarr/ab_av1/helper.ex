@@ -25,7 +25,6 @@ defmodule Reencodarr.AbAv1.Helper do
     |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
   end
 
-
   @spec convert_time_to_duration(map()) :: map()
   def convert_time_to_duration(%{"time" => time, "unit" => unit} = captures) do
     case Integer.parse(time) do
@@ -46,9 +45,8 @@ defmodule Reencodarr.AbAv1.Helper do
 
   @spec temp_dir() :: String.t()
   def temp_dir do
-    cwd_temp_dir = Path.join([File.cwd!(), "tmp", "ab-av1"])
-    File.mkdir_p(cwd_temp_dir)
-    if File.exists?(cwd_temp_dir), do: cwd_temp_dir, else: Path.join(System.tmp_dir!(), "ab-av1")
+    temp_dir = Application.get_env(:reencodarr, :temp_dir)
+    if File.exists?(temp_dir), do: temp_dir, else: File.mkdir_p(temp_dir)
   end
 
   @spec open_port([binary()]) :: port() | :error
