@@ -125,9 +125,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         :none
 
       captures = Regex.named_captures(@simple_vmaf_regex, line) ->
-        Logger.info(
-          "Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}"
-        )
+        Logger.info("Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}")
 
         upsert_vmaf(Map.put(captures, "chosen", false), video)
 

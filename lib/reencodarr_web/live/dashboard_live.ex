@@ -13,7 +13,11 @@ defmodule ReencodarrWeb.DashboardLive do
     end
 
     :timer.send_interval(@update_interval, self(), :update_stats)
-    {:ok, assign(socket, update_stats() |> Map.put(:timezone, "UTC"))}
+
+    {:ok,
+     socket
+     |> assign(update_stats())
+     |> assign(%{timezone: "UTC", vmaf: %Media.Vmaf{}, progress: %{}})}
   end
 
   def handle_info(:update_stats, socket) do
@@ -22,7 +26,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   def handle_info({:progress, vmaf}, socket) do
     Logger.debug("Received progress event for VMAF: #{inspect(vmaf)}")
-    {:noreply, assign(socket, :crf_progress, vmaf)}
+    {:noreply, assign(socket, :vmaf, vmaf)}
   end
 
   def handle_event("set_timezone", %{"timezone" => timezone}, socket) do
@@ -50,8 +54,6 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp update_stats do
     %{
-      crf_progress: %{},
-      progress: %{},
       queue_length: AbAv1.queue_length(),
       stats: Media.fetch_stats()
     }
@@ -102,7 +104,7 @@ defmodule ReencodarrWeb.DashboardLive do
           module={ReencodarrWeb.ProgressComponent}
           id="progress-component"
           progress={@progress}
-          crf_progress={@crf_progress}
+          vmaf={@vmaf}
         />
         <.live_component
           module={ReencodarrWeb.StatsComponent}

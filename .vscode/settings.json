@@ -7,6 +7,7 @@
         "ecto",
         "episodefile",
         "ERL_AFLAGS",
+        "esbuild",
         "exdev",
         "extname",
         "film-grain-denoise",

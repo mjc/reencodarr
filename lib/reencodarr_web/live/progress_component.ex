@@ -55,14 +55,14 @@ defmodule ReencodarrWeb.ProgressComponent do
               </div>
             </td>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <%= if Map.has_key?(@crf_progress, :percent) do %>
+              <%= if @vmaf.percent do %>
                 <ul class="list-disc pl-5 text-sm leading-5 text-gray-900 dark:text-gray-100 fancy-list">
-                  <li>CRF: {@crf_progress.crf}</li>
+                  <li>CRF: {@vmaf.crf}</li>
                   <li>
-                    Percent: {Integer.parse(to_string(@crf_progress.percent)) |> elem(0)} % (of original size)
+                    Percent: {@vmaf.percent}% (of original size)
                   </li>
                   <li>
-                    VMAF Score: {@crf_progress.score} (Target: {@crf_progress.percent})
+                    VMAF Score: {@vmaf.score} (Target: {@vmaf.percent})
                   </li>
                 </ul>
               <% else %>
