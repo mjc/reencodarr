@@ -4,13 +4,72 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.AbAv1.Helper
   require Logger
 
-  @encoding_sample_regex ~r/encoding sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?)/
-  @simple_vmaf_regex ~r/^- crf (?<crf>\d+(\.\d+)?) VMAF (?<score>\d+\.\d+) \((?<percent>\d+)%\)/
-  @sample_regex ~r/sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?) VMAF (?<score>\d+\.\d+) \((?<percent>\d+)%\)/
-  @eta_vmaf_regex ~r/crf (?<crf>\d+(\.\d+)?) VMAF (?<score>\d+\.\d+) predicted video stream size (?<size>\d+\.\d+) (?<unit>\w+) \((?<percent>\d+)%\) taking (?<time>\d+) (?<time_unit>seconds|minutes|hours)/
-  @vmaf_regex ~r/vmaf (?<file1>.+?) vs reference (?<file2>.+)/
-  @progress_regex ~r/\[.*\] (?<progress>\d+%)?, (?<fps>\d+ fps)?, eta (?<eta>\d+ seconds)/
-  @success_line_regex ~r/\[.*\] crf (?<crf>\d+(\.\d+)?) successful/
+  @encoding_sample_regex ~r/
+    # I plan on making a chart for these. input file would be helpful, as well as target vmaf.
+    encoding\ssample\s
+    (?<sample_num>\d+)\/             # Capture sample number
+    (?<total_samples>\d+)\s          # Capture total samples
+    crf\s
+    (?<crf>\d+(\.\d+)?)              # Capture CRF value
+  /x
+
+  @simple_vmaf_regex ~r/
+    ^-\scrf\s
+    (?<crf>\d+(\.\d+)?)\s            # Capture CRF value
+    VMAF\s
+    (?<score>\d+\.\d+)\s             # Capture VMAF score
+    \((?<percent>\d+)%\)             # Capture percentage
+  /x
+
+  @sample_regex ~r/
+    sample\s
+    (?<sample_num>\d+)\/             # Capture sample number
+    (?<total_samples>\d+)\s          # Capture total samples
+    crf\s
+    (?<crf>\d+(\.\d+)?)\s            # Capture CRF value
+    VMAF\s
+    (?<score>\d+\.\d+)\s             # Capture VMAF score
+    \((?<percent>\d+)%\)             # Capture percentage
+  /x
+
+  @eta_vmaf_regex ~r/
+    # It would be helpful to have the input path here
+    crf\s
+    (?<crf>\d+(\.\d+)?)\s            # Capture CRF value
+    VMAF\s
+    (?<score>\d+\.\d+)\s             # Capture VMAF score
+    predicted\svideo\sstream\ssize\s
+    (?<size>\d+\.\d+)\s              # Capture size
+    (?<unit>\w+)\s                   # Capture unit
+    \((?<percent>\d+)%\)\s           # Capture percentage
+    taking\s
+    (?<time>\d+)\s                   # Capture time
+    (?<time_unit>seconds|minutes|hours) # Capture time unit
+  /x
+
+  @vmaf_regex ~r/
+    # currently I parse a bunch of stuff out of the filenames here.
+    vmaf\s
+    (?<file1>.+?)\s                  # Capture first file name
+    vs\sreference\s
+    (?<file2>.+)                     # Capture second file name
+  /x
+
+  @progress_regex ~r/
+    \[.*\]\s
+    (?<progress>\d+%)?,\s            # Currently I dont display this but I will.
+    (?<fps>\d+\sfps)?,\s             # Currently I dont display this but I will.
+    eta\s
+    (?<eta>\d+\sseconds)             # Knowing ETA more often would be helpful even if its less accurate
+  /x
+
+  @success_line_regex ~r/
+    # It would be helpful to have the path, target vmaf, percentage, vmaf score, time taken, and path in here.
+    \[.*\]\s
+    crf\s
+    (?<crf>\d+(\.\d+)?)\s            # Capture CRF value from this one to know which CRF was selected.
+    successful
+  /x
 
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
