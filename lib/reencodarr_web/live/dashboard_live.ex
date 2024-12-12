@@ -1,6 +1,6 @@
 defmodule ReencodarrWeb.DashboardLive do
   use ReencodarrWeb, :live_view
-  alias Reencodarr.{Media, AbAv1}
+  alias Reencodarr.{Media, AbAv1, Encoder, CrfSearcher}
   import Phoenix.LiveComponent
 
   require Logger
@@ -14,17 +14,18 @@ defmodule ReencodarrWeb.DashboardLive do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
     end
 
-    encoder_running = Reencodarr.Encoder.running?()
-    crf_searcher_running = Reencodarr.CrfSearcher.running?()
-
     :timer.send_interval(@update_interval, self(), :update_stats)
 
-    {:ok,
-     socket
-     |> assign(update_stats())
-     |> assign(%{timezone: "UTC", vmaf: %Media.Vmaf{}, progress: %{}})
-     |> assign(:encoding, encoder_running)
-     |> assign(:crf_searching, crf_searcher_running)}
+    socket =
+      socket
+      |> assign(update_stats())
+      |> assign(:timezone, "UTC")
+      |> assign(:vmaf, %Media.Vmaf{})
+      |> assign(:progress, %{})
+      |> assign(:encoding, Encoder.running?())
+      |> assign(:crf_searching, CrfSearcher.running?())
+
+    {:ok, socket}
   end
 
   def handle_info(:update_stats, socket) do
@@ -37,22 +38,22 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   def handle_info({:encoder, :started}, socket) do
-    Logger.info("Encoder started")
+    Logger.debug("Encoder started")
     {:noreply, assign(socket, :encoding, true)}
   end
 
   def handle_info({:encoder, :paused}, socket) do
-    Logger.info("Encoder paused")
+    Logger.debug("Encoder paused")
     {:noreply, assign(socket, :encoding, false)}
   end
 
   def handle_info({:crf_searcher, :started}, socket) do
-    Logger.info("CRF search started")
+    Logger.debug("CRF search started")
     {:noreply, assign(socket, :crf_searching, true)}
   end
 
   def handle_info({:crf_searcher, :paused}, socket) do
-    Logger.info("CRF search paused")
+    Logger.debug("CRF search paused")
     {:noreply, assign(socket, :crf_searching, false)}
   end
 
@@ -61,49 +62,27 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, assign(socket, :timezone, timezone)}
   end
 
-  def handle_event("start_encode", %{"vmaf_id" => vmaf_id}, socket) do
-    start_encode(vmaf_id)
-    {:noreply, socket}
-  end
-
-  def handle_event("start_encode_by_time", %{"vmaf_id" => vmaf_id}, socket) do
-    start_encode(vmaf_id)
-    {:noreply, socket}
-  end
-
-  def handle_event("queue_next_5_lowest_vmafs", _params, socket) do
-    Media.list_chosen_vmafs()
-    |> Enum.take(5)
-    |> Enum.each(&AbAv1.encode(&1, :insert_at_top))
-
-    {:noreply, socket}
-  end
-
   def handle_event("toggle_encoder", _params, socket) do
-    case socket.assigns[:encoding] do
-      true ->
-        Reencodarr.Encoder.pause()
-        Logger.info("Encoder paused")
-        {:noreply, assign(socket, :encoding, false)}
-
-      false ->
-        Reencodarr.Encoder.start()
-        Logger.info("Encoder started")
-        {:noreply, assign(socket, :encoding, true)}
+    if socket.assigns.encoding do
+      Encoder.pause()
+      Logger.info("Encoder paused")
+      {:noreply, assign(socket, :encoding, false)}
+    else
+      Encoder.start()
+      Logger.info("Encoder started")
+      {:noreply, assign(socket, :encoding, true)}
     end
   end
 
   def handle_event("toggle_crf_search", _params, socket) do
-    case socket.assigns[:crf_searching] do
-      true ->
-        Reencodarr.CrfSearcher.pause()
-        Logger.info("CRF search paused")
-        {:noreply, assign(socket, :crf_searching, false)}
-
-      false ->
-        Reencodarr.CrfSearcher.start()
-        Logger.info("CRF search started")
-        {:noreply, assign(socket, :crf_searching, true)}
+    if socket.assigns.crf_searching do
+      CrfSearcher.pause()
+      Logger.info("CRF search paused")
+      {:noreply, assign(socket, :crf_searching, false)}
+    else
+      CrfSearcher.start()
+      Logger.info("CRF search started")
+      {:noreply, assign(socket, :crf_searching, true)}
     end
   end
 
@@ -114,11 +93,6 @@ defmodule ReencodarrWeb.DashboardLive do
     }
   end
 
-  defp start_encode(vmaf_id) do
-    vmaf = Media.get_vmaf!(vmaf_id)
-    AbAv1.encode(vmaf, :insert_at_top)
-  end
-
   def render(assigns) do
     ~H"""
     <div
@@ -127,18 +101,26 @@ defmodule ReencodarrWeb.DashboardLive do
       phx-hook="TimezoneHook"
     >
       <div class="w-full flex justify-between items-center mb-4 px-4">
-        <button
-          phx-click="toggle_encoder"
-          class={"text-white px-4 py-2 rounded shadow " <> if @encoding, do: "bg-red-500", else: "bg-blue-500"}
-        >
-          {@encoding && "Pause Encoder" || "Start Encoder"}
-        </button>
-        <button
-          phx-click="toggle_crf_search"
-          class={"text-white px-4 py-2 rounded shadow " <> if @crf_searching, do: "bg-red-500", else: "bg-green-500"}
-        >
-          {@crf_searching && "Pause CRF Search" || "Start CRF Search"}
-        </button>
+        <.live_component
+          module={ReencodarrWeb.ToggleComponent}
+          id="toggle-encoder"
+          toggle_event="toggle_encoder"
+          active={@encoding}
+          active_text="Pause Encoder"
+          inactive_text="Start Encoder"
+          active_class="bg-red-500"
+          inactive_class="bg-blue-500"
+        />
+        <.live_component
+          module={ReencodarrWeb.ToggleComponent}
+          id="toggle-crf-search"
+          toggle_event="toggle_crf_search"
+          active={@crf_searching}
+          active_text="Pause CRF Search"
+          inactive_text="Start CRF Search"
+          active_class="bg-red-500"
+          inactive_class="bg-green-500"
+        />
       </div>
 
       <div class="w-full grid grid-cols-1 md:grid-cols-2 gap-4 px-4">
