@@ -106,6 +106,9 @@ defmodule Reencodarr.AbAv1.Encode do
 
         Logger.info("Encoding progress: #{captures["percent"]}%, #{captures["fps"]} fps, ETA: #{human_readable_eta}")
 
+      captures = Regex.named_captures(~r/Encoded\s(?<size>[\d\.]+\s\w+)\s\((?<percent>\d+)%\)/, data) ->
+        Logger.info("Encoded #{captures["size"]} (#{captures["percent"]}%)")
+
       true ->
         Logger.error("No match for data: #{data}")
     end
