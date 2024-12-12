@@ -96,6 +96,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     {:noreply, state}
   end
 
+  @impl true
+  def handle_call(:port_status, _from, %{port: port} = state) do
+    status = if port == :none, do: :not_running, else: :running
+    {:reply, status, state}
+  end
+
   defp notify_crf_searcher do
     GenServer.cast(Reencodarr.CrfSearcher, :crf_search_finished)
   end
