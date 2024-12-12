@@ -4,6 +4,14 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.AbAv1.Helper
   require Logger
 
+  @encoding_sample_regex ~r/encoding sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?)/
+  @simple_vmaf_regex ~r/^- crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\)/
+  @sample_regex ~r/sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\)/
+  @eta_vmaf_regex ~r/crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) predicted video stream size (?<size>\d+\.\d+) (?<unit>\w+) \(\d+%\) taking (?<time>\d+) (?<time_unit>seconds|minutes|hours)/
+  @vmaf_regex ~r/vmaf (?<file1>.+?) vs reference (?<file2>.+)/
+  @progress_regex ~r/\[.*\] (?<progress>\d+%)?, (?<fps>\d+ fps)?, eta (?<eta>\d+ seconds)/
+  @success_line_regex ~r/\[.*\] crf (?<crf>\d+(\.\d+)?) successful/
+
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
@@ -107,61 +115,47 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   def process_line(line, video) do
-    sample_regex =
-      ~r/sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\)/
-
-    encoding_sample_regex =
-      ~r/encoding sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?)/
-
-    eta_vmaf_regex =
-      ~r/crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) predicted video stream size (?<size>\d+\.\d+) (?<unit>\w+) \(\d+%\) taking (?<time>\d+) (?<time_unit>seconds|minutes|hours)/
-
-    simple_vmaf_regex = ~r/^- crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\)/
-    vmaf_regex = ~r/vmaf (?<file1>.+?) vs reference (?<file2>.+)/
-    progress_regex = ~r/\[.*\] (?<progress>\d+%)?, (?<fps>\d+ fps)?, eta (?<eta>\d+ seconds)/
-    success_line_regex = ~r/\[.*\] crf (?<crf>\d+(\.\d+)?) successful/
-
     cond do
-      captures = Regex.named_captures(encoding_sample_regex, line) ->
+      captures = Regex.named_captures(@encoding_sample_regex, line) ->
         Logger.info(
           "Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
         )
 
         :none
 
-      captures = Regex.named_captures(simple_vmaf_regex, line) ->
+      captures = Regex.named_captures(@simple_vmaf_regex, line) ->
         Logger.info(
           "Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}"
         )
 
         upsert_vmaf(Map.put(captures, "chosen", false), video)
 
-      captures = Regex.named_captures(sample_regex, line) ->
+      captures = Regex.named_captures(@sample_regex, line) ->
         Logger.info(
           "Sample #{captures["sample_num"]}/#{captures["total_samples"]} - CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}"
         )
 
         upsert_vmaf(Map.put(captures, "chosen", false), video)
 
-      captures = Regex.named_captures(eta_vmaf_regex, line) ->
+      captures = Regex.named_captures(@eta_vmaf_regex, line) ->
         Logger.info(
           "Chosen VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, time: #{captures["time"]} #{captures["time_unit"]}"
         )
 
         upsert_vmaf(Map.put(captures, "chosen", true), video)
 
-      captures = Regex.named_captures(vmaf_regex, line) ->
+      captures = Regex.named_captures(@vmaf_regex, line) ->
         Logger.info("VMAF comparison: #{captures["file1"]} vs #{captures["file2"]}")
         :none
 
-      captures = Regex.named_captures(progress_regex, line) ->
+      captures = Regex.named_captures(@progress_regex, line) ->
         Logger.info(
           "Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
         )
 
         :none
 
-      captures = Regex.named_captures(success_line_regex, line) ->
+      captures = Regex.named_captures(@success_line_regex, line) ->
         Logger.info("CRF search successful for CRF: #{captures["crf"]}")
         Media.mark_vmaf_as_chosen(video.id, captures["crf"])
         :none
@@ -183,11 +177,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       crf: crf,
       vmaf: vmaf,
       chosen: chosen,
-      # Assuming score is the same as vmaf for this example
       score: vmaf,
-      # Assuming percent is 95 for this example
       percent: 95,
-      # Assuming params is an array of strings
       params: ["example_param=example_value"],
       time: time
     }
