@@ -92,6 +92,7 @@ defmodule Reencodarr.Media do
         left_join: m in Vmaf,
         on: m.video_id == v.id,
         where: is_nil(m.id) and v.reencoded == false,
+        order_by: [desc: v.size, asc: v.updated_at],
         limit: ^limit,
         select: v
     )
@@ -713,10 +714,25 @@ defmodule Reencodarr.Media do
   @spec mark_vmaf_as_chosen(integer(), String.t()) ::
           {:ok, Vmaf.t()} | {:error, Ecto.Changeset.t()}
   def mark_vmaf_as_chosen(video_id, crf) do
+    crf_float =
+      if String.contains?(crf, ".") do
+        String.to_float(crf)
+      else
+        String.to_float(crf <> ".0")
+      end
+
     Repo.transaction(fn ->
+      # Unset previously chosen VMAFs
       from(v in Vmaf,
         where: v.video_id == ^video_id,
-        update: [set: [chosen: fragment("CASE WHEN crf = ? THEN true ELSE false END", ^crf)]]
+        update: [set: [chosen: false]]
+      )
+      |> Repo.update_all([])
+
+      # Set the chosen VMAF
+      from(v in Vmaf,
+        where: v.video_id == ^video_id and v.crf == ^crf_float,
+        update: [set: [chosen: true]]
       )
       |> Repo.update_all([])
     end)
