@@ -131,7 +131,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
       captures = Regex.named_captures(simple_vmaf_regex, line) ->
         Logger.info(
-          "Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, eta: #{captures["time"]} #{captures["time_unit"]}"
+          "Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}"
         )
 
         upsert_vmaf(Map.put(captures, "chosen", false), video)
@@ -166,6 +166,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         Media.mark_vmaf_as_chosen(video.id, captures["crf"])
         :none
 
+      line == "Error: Failed to find a suitable crf" ->
+        Logger.error("Failed to find a suitable CRF")
+        :none
       true ->
         Logger.error("No match for line: #{line}")
         :none
