@@ -15,10 +15,10 @@
       system: let
         pkgs = import nixpkgs {inherit system;};
         erlang = pkgs.erlang.override (old: {
-          version = "27.1.3";
+          version = "27.2";
           src = pkgs.fetchurl {
-            url = "https://github.com/erlang/otp/releases/download/OTP-27.1.3/otp_src_27.1.3.tar.gz";
-            sha256 = "sha256-Gx6x7ZGWJcrtPdVulxgpVmE7PWUFVrobiy1sm8DFHCg=";
+            url = "https://github.com/erlang/otp/releases/download/OTP-27.2/otp_src_27.2.tar.gz";
+            sha256 = "sha256-tmwsxPoshyEbZo5EhtTz5bG2cFaYhz6j5tmFCAGsmS0=";
           };
         });
         beamPackages = pkgs.beam.packagesWith erlang;
@@ -36,7 +36,12 @@
             [
               erlang
               elixir
-              beamPackages.elixir
+
+              beamPackages.ex_doc
+              beamPackages.hex
+              beamPackages.rebar
+              beamPackages.rebar3
+              beamPackages.rebar3-nix
 
               pkgs.git
               pkgs.gh
