@@ -38,7 +38,7 @@ defmodule Reencodarr.AbAv1.Encode do
         "-o",
         Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv"),
         "-i"
-      ] ++ Helper.remove_args(vmaf.params, ["--min-vmaf", "--temp-dir", "crf-search"])
+      ] ++ Helper.build_rules(vmaf.video)
 
     Logger.info("Starting encode with args: #{inspect(args)}")
 
