@@ -177,6 +177,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       "video_id" => video.id,
       "params" => ["example_param=example_value"],
       "time" => time,
+      "size" => "#{params["size"]} #{params["unit"]}",
       "target" => 95
     })
 
