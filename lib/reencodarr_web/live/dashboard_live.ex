@@ -14,14 +14,17 @@ defmodule ReencodarrWeb.DashboardLive do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
     end
 
+    encoder_running = Reencodarr.Encoder.running?()
+    crf_searcher_running = Reencodarr.CrfSearcher.running?()
+
     :timer.send_interval(@update_interval, self(), :update_stats)
 
     {:ok,
      socket
      |> assign(update_stats())
      |> assign(%{timezone: "UTC", vmaf: %Media.Vmaf{}, progress: %{}})
-     |> assign(:encoding, false)
-     |> assign(:crf_searching, false)}
+     |> assign(:encoding, encoder_running)
+     |> assign(:crf_searching, crf_searcher_running)}
   end
 
   def handle_info(:update_stats, socket) do
