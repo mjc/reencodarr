@@ -205,13 +205,18 @@ defmodule Reencodarr.Encoder do
   defp check_next_video do
     with pid when not is_nil(pid) <- GenServer.whereis(Reencodarr.AbAv1.Encode),
          :not_running <- GenServer.call(pid, :port_status),
-         chosen_vmaf when not is_nil(chosen_vmaf) <- Media.get_lowest_chosen_vmaf do
+         chosen_vmaf when not is_nil(chosen_vmaf) <- Media.get_lowest_chosen_vmaf() do
       Logger.debug("Next video to re-encode: #{chosen_vmaf.video.path}")
       AbAv1.encode(chosen_vmaf)
     else
-      nil -> Logger.error("Encode process is not running.")
-      :running -> Logger.info("Encoding is already in progress, skipping check for next video.")
-      other -> Logger.error("No chosen VMAF found for video or some other error: #{inspect(other)}")
+      nil ->
+        Logger.error("Encode process is not running.")
+
+      :running ->
+        Logger.info("Encoding is already in progress, skipping check for next video.")
+
+      other ->
+        Logger.error("No chosen VMAF found for video or some other error: #{inspect(other)}")
     end
   end
 

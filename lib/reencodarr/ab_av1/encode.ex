@@ -108,13 +108,22 @@ defmodule Reencodarr.AbAv1.Encode do
       captures = Regex.named_captures(~r/\[.*\] encoding (?<filename>\d+\.mkv)/, data) ->
         Logger.info("Encoding should start for #{captures["filename"]}")
 
-      captures = Regex.named_captures(~r/(?<percent>\d+)%\s*,\s*(?<fps>\d+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours)/, data) ->
-        _eta_seconds = Helper.convert_to_seconds(String.to_integer(captures["eta"]), captures["unit"])
+      captures =
+          Regex.named_captures(
+            ~r/(?<percent>\d+)%\s*,\s*(?<fps>\d+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours)/,
+            data
+          ) ->
+        _eta_seconds =
+          Helper.convert_to_seconds(String.to_integer(captures["eta"]), captures["unit"])
+
         human_readable_eta = "#{captures["eta"]} #{captures["unit"]}"
 
-        Logger.info("Encoding progress: #{captures["percent"]}%, #{captures["fps"]} fps, ETA: #{human_readable_eta}")
+        Logger.info(
+          "Encoding progress: #{captures["percent"]}%, #{captures["fps"]} fps, ETA: #{human_readable_eta}"
+        )
 
-      captures = Regex.named_captures(~r/Encoded\s(?<size>[\d\.]+\s\w+)\s\((?<percent>\d+)%\)/, data) ->
+      captures =
+          Regex.named_captures(~r/Encoded\s(?<size>[\d\.]+\s\w+)\s\((?<percent>\d+)%\)/, data) ->
         Logger.info("Encoded #{captures["size"]} (#{captures["percent"]}%)")
 
       true ->

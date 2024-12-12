@@ -1,4 +1,3 @@
-
 defmodule ReencodarrWeb.ToggleComponent do
   use ReencodarrWeb, :live_component
 

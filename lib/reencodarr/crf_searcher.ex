@@ -124,9 +124,14 @@ defmodule Reencodarr.CrfSearcher do
         AbAv1.crf_search(video)
       end)
     else
-      nil -> Logger.error("CrfSearch process is not running.")
-      :running -> Logger.info("CRF search is already in progress, skipping search for new videos.")
-      _ -> Logger.error("No videos found without VMAFs")
+      nil ->
+        Logger.error("CrfSearch process is not running.")
+
+      :running ->
+        Logger.info("CRF search is already in progress, skipping search for new videos.")
+
+      _ ->
+        Logger.error("No videos found without VMAFs")
     end
   end
 end
