@@ -62,7 +62,7 @@ defmodule ReencodarrWeb.ProgressComponent do
                     Percent: {Integer.parse(to_string(@crf_progress.percent)) |> elem(0)} % (of original size)
                   </li>
                   <li>
-                    VMAF Score: {@crf_progress.score} (Target: {@crf_progress.target_vmaf})
+                    VMAF Score: {@crf_progress.score} (Target: {@crf_progress.percent})
                   </li>
                 </ul>
               <% else %>
