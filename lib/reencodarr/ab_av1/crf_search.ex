@@ -110,10 +110,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     sample_regex =
       ~r/sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\)/
     encoding_sample = ~r/encoding sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?)/
-    chosen_vmaf_regex = ~r/- crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\) \(cache\)/
+    chosen_vmaf_regex = ~r/crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) predicted video stream size (?<size>\d+\.\d+) (?<unit>\w+) \(\d+%\) taking \d+ minutes/
     simple_chosen_vmaf_regex = ~r/- crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\)/
     vmaf_regex = ~r/vmaf (?<file1>.+?) vs reference (?<file2>.+)/
-    predicted_size_regex = ~r/\[.*\] crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) predicted video stream size (?<size>\d+\.\d+) (?<unit>\w+) \(\d+%\) taking \d+ minutes/
     progress_regex = ~r/\[.*\] (?<progress>\d+%)?, (?<fps>\d+ fps)?, eta (?<eta>\d+ seconds)/
 
     cond do
@@ -138,12 +137,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
       captures = Regex.named_captures(vmaf_regex, line) ->
         Logger.info("VMAF comparison: #{captures["file1"]} vs #{captures["file2"]}")
-        :none
-
-      captures = Regex.named_captures(predicted_size_regex, line) ->
-        Logger.info(
-          "Predicted video stream size: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, Size: #{captures["size"]} #{captures["unit"]}"
-        )
         :none
 
       captures = Regex.named_captures(progress_regex, line) ->
