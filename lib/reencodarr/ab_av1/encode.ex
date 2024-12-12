@@ -1,6 +1,6 @@
 defmodule Reencodarr.AbAv1.Encode do
   use GenServer
-  alias Reencodarr.{Media}
+  alias Reencodarr.{Media, Helper, Rules}
   alias Reencodarr.AbAv1.Helper
   require Logger
 
@@ -30,15 +30,7 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   defp prepare_encode_state(vmaf, state) do
-    args =
-      [
-        "encode",
-        "--crf",
-        to_string(vmaf.crf),
-        "-o",
-        Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv"),
-        "-i"
-      ] ++ Helper.build_rules(vmaf.video)
+    args = build_encode_args(vmaf)
 
     Logger.info("Starting encode with args: #{inspect(args)}")
 
@@ -48,6 +40,22 @@ defmodule Reencodarr.AbAv1.Encode do
         video: vmaf.video,
         vmaf: vmaf
     }
+  end
+
+  defp build_encode_args(vmaf) do
+    ([
+       "encode",
+       "--crf",
+       to_string(vmaf.crf),
+       "-o",
+       Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv"),
+       "-i",
+       vmaf.video.path
+     ] ++ Rules.apply(vmaf.video))
+    |> Enum.flat_map(fn
+      {k, v} -> [to_string(k), to_string(v)]
+      x -> [to_string(x)]
+    end)
   end
 
   @impl true
