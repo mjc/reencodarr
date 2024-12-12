@@ -116,20 +116,17 @@ defmodule Reencodarr.CrfSearcher do
   end
 
   defp find_videos_without_vmafs do
-    case GenServer.whereis(Reencodarr.AbAv1.CrfSearch) do
-      nil ->
-        Logger.error("CrfSearch process is not running.")
-
-      _pid ->
-        if GenServer.call(Reencodarr.AbAv1.CrfSearch, :port_status) == :not_running do
-          Media.find_videos_without_vmafs(1)
-          |> Enum.each(fn video ->
-            Logger.info("Calling AbAv1.crf_search for video: #{video.id}")
-            AbAv1.crf_search(video)
-          end)
-        else
-          Logger.info("CRF search is already in progress, skipping search for new videos.")
-        end
+    with pid when not is_nil(pid) <- GenServer.whereis(Reencodarr.AbAv1.CrfSearch),
+         :not_running <- GenServer.call(pid, :port_status),
+         videos when not is_nil(videos) <- Media.find_videos_without_vmafs(1) do
+      Enum.each(videos, fn video ->
+        Logger.info("Calling AbAv1.crf_search for video: #{video.id}")
+        AbAv1.crf_search(video)
+      end)
+    else
+      nil -> Logger.error("CrfSearch process is not running.")
+      :running -> Logger.info("CRF search is already in progress, skipping search for new videos.")
+      _ -> Logger.error("No videos found without VMAFs")
     end
   end
 end
