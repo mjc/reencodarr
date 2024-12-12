@@ -5,9 +5,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   require Logger
 
   @encoding_sample_regex ~r/encoding sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?)/
-  @simple_vmaf_regex ~r/^- crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\)/
-  @sample_regex ~r/sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\)/
-  @eta_vmaf_regex ~r/crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) predicted video stream size (?<size>\d+\.\d+) (?<unit>\w+) \(\d+%\) taking (?<time>\d+) (?<time_unit>seconds|minutes|hours)/
+  @simple_vmaf_regex ~r/^- crf (?<crf>\d+(\.\d+)?) VMAF (?<score>\d+\.\d+) \((?<percent>\d+)%\)/
+  @sample_regex ~r/sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?) VMAF (?<score>\d+\.\d+) \((?<percent>\d+)%\)/
+  @eta_vmaf_regex ~r/crf (?<crf>\d+(\.\d+)?) VMAF (?<score>\d+\.\d+) predicted video stream size (?<size>\d+\.\d+) (?<unit>\w+) \((?<percent>\d+)%\) taking (?<time>\d+) (?<time_unit>seconds|minutes|hours)/
   @vmaf_regex ~r/vmaf (?<file1>.+?) vs reference (?<file2>.+)/
   @progress_regex ~r/\[.*\] (?<progress>\d+%)?, (?<fps>\d+ fps)?, eta (?<eta>\d+ seconds)/
   @success_line_regex ~r/\[.*\] crf (?<crf>\d+(\.\d+)?) successful/
@@ -125,20 +125,20 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         :none
 
       captures = Regex.named_captures(@simple_vmaf_regex, line) ->
-        Logger.info("Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}")
+        Logger.info("Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%")
 
         upsert_vmaf(Map.put(captures, "chosen", false), video)
 
       captures = Regex.named_captures(@sample_regex, line) ->
         Logger.info(
-          "Sample #{captures["sample_num"]}/#{captures["total_samples"]} - CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}"
+          "Sample #{captures["sample_num"]}/#{captures["total_samples"]} - CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
         )
 
         upsert_vmaf(Map.put(captures, "chosen", false), video)
 
       captures = Regex.named_captures(@eta_vmaf_regex, line) ->
         Logger.info(
-          "VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, time: #{captures["time"]} #{captures["time_unit"]}"
+          "VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}"
         )
 
         upsert_vmaf(Map.put(captures, "chosen", true), video)
@@ -170,19 +170,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  defp upsert_vmaf(%{"crf" => crf, "vmaf" => vmaf, "chosen" => chosen} = params, video) do
+  defp upsert_vmaf(params, video) do
     time = parse_time(params["time"], params["time_unit"])
 
-    vmaf_data = %{
-      video_id: video.id,
-      crf: crf,
-      vmaf: 95,
-      chosen: chosen,
-      score: vmaf,
-      percent: vmaf,
-      params: ["example_param=example_value"],
-      time: time
-    }
+    vmaf_data = Map.merge(params,%{
+      "video_id" => video.id,
+      "params" => ["example_param=example_value"],
+      "time" => time,
+      "target" => 95
+    })
 
     case Media.upsert_vmaf(vmaf_data) do
       {:ok, created_vmaf} ->
