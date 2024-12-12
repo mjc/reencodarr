@@ -62,6 +62,40 @@ defmodule Reencodarr.Encoder do
   end
 
   @impl true
+  def handle_cast({:encoding_complete, video, output_file}, state) do
+    Logger.info("Encoding completed for video #{video.id}")
+
+    new_output_file =
+      Path.join(
+        Path.dirname(video.path),
+        Path.basename(video.path, Path.extname(video.path)) <>
+          ".reencoded" <> Path.extname(video.path)
+      )
+
+    case File.rename(output_file, new_output_file) do
+      :ok ->
+        Logger.info("Moved output file #{output_file} to #{new_output_file}")
+        Media.mark_as_reencoded(video)
+
+      {:error, :exdev} ->
+        case File.cp(output_file, new_output_file) do
+          :ok ->
+            File.rm(output_file)
+            Logger.info("Copied output file #{output_file} to #{new_output_file}")
+            Media.mark_as_reencoded(video)
+
+          {:error, reason} ->
+            Logger.error("Failed to copy output file: #{reason}")
+        end
+
+      {:error, reason} ->
+        Logger.error("Failed to move output file: #{reason}")
+    end
+
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(:check_next_video, state) do
     if state.encoding do
       check_next_video()
