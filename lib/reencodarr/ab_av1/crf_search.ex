@@ -162,7 +162,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
       line == "Error: Failed to find a suitable crf" ->
         Logger.error("Failed to find a suitable CRF")
+        Media.mark_as_reencoded(video)
         :none
+
       true ->
         Logger.error("No match for line: #{line}")
         :none
