@@ -104,6 +104,12 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   @impl true
+  def handle_info({port, {:data, {:noeol, message}}}, %{port: port} = state) do
+    Logger.error("Received partial message: #{message}")
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(
         {port, {:exit_status, exit_code}},
         %{port: port, queue: queue, vmaf: _vmaf} = state
