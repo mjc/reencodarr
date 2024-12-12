@@ -43,19 +43,24 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   defp build_encode_args(vmaf) do
-    ([
-       "encode",
-       "--crf",
-       to_string(vmaf.crf),
-       "-o",
-       Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv"),
-       "-i",
-       vmaf.video.path
-     ] ++ Rules.apply(vmaf.video))
-    |> Enum.flat_map(fn
-      {k, v} -> [to_string(k), to_string(v)]
-      x -> [to_string(x)]
-    end)
+    base_args = [
+      "encode",
+      "--crf",
+      to_string(vmaf.crf),
+      "-o",
+      Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv"),
+      "-i",
+      vmaf.video.path
+    ]
+
+    rule_args =
+      vmaf.video
+      |> Rules.apply()
+      |> Enum.flat_map(fn
+        {k, v} -> [to_string(k), to_string(v)]
+      end)
+
+    base_args ++ rule_args
   end
 
   @impl true

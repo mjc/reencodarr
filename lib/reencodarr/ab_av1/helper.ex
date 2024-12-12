@@ -25,19 +25,6 @@ defmodule Reencodarr.AbAv1.Helper do
     |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
   end
 
-  @spec build_args(String.t(), integer, Media.Video.t()) :: list
-  def build_args(video_path, vmaf_percent, video) do
-    base_args = [
-      "-i",
-      video_path,
-      "--min-vmaf",
-      Integer.to_string(vmaf_percent),
-      "--temp-dir",
-      temp_dir()
-    ]
-
-    Enum.concat(base_args, build_rules(video))
-  end
 
   @spec convert_time_to_duration(map()) :: map()
   def convert_time_to_duration(%{"time" => time, "unit" => unit} = captures) do

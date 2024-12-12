@@ -98,7 +98,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
-    args = ["crf-search"] ++ Helper.build_args(video.path, vmaf_percent, video)
+    args = build_crf_search_args(video, vmaf_percent)
 
     new_state = %{
       state
@@ -232,6 +232,27 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         Logger.error("No match for line: #{line}")
         :none
     end
+  end
+
+  @spec build_crf_search_args(Reencodarr.Media.Video.t(), integer()) :: [...]
+  def build_crf_search_args(video, vmaf_percent) do
+    base_args = [
+      "crf-search",
+      "-i",
+      video.path,
+      "--min-vmaf",
+      Integer.to_string(vmaf_percent),
+      "--temp-dir",
+      Helper.temp_dir()
+    ]
+
+    rule_args =
+      video
+      |> Reencodarr.Rules.apply()
+      |> Enum.reject(fn {k, _v} -> k == "--acodec" end)
+      |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
+
+    base_args ++ rule_args
   end
 
   defp upsert_vmaf(params, video, args) do
