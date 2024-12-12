@@ -1,0 +1,447 @@
+[2024-12-12T00:13:08Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 28
+[2024-12-12T00:13:08Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 28 VMAF 91.33 (4%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 28
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 28 VMAF 89.07 (2%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 28
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 28 VMAF 91.72 (3%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 28
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 28 VMAF 88.88 (1%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 28
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 28 VMAF 91.62 (3%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] crf 28 VMAF 90.52 predicted video stream size 253.42 MiB (3%) taking 30 minutes (cache)
+- crf 28 VMAF 90.52 (3%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 17.2
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 17.2 VMAF 98.63 (15%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 17.2
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 17.2 VMAF 96.87 (5%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 17.2
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 17.2 VMAF 98.87 (10%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 17.2
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 17.2 VMAF 95.36 (3%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 17.2
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 17.2 VMAF 98.70 (9%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] crf 17.2 VMAF 97.68 predicted video stream size 879.22 MiB (9%) taking 40 minutes (cache)
+- crf 17.2 VMAF 97.68 (9%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 21.2
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 21.2 VMAF 97.05 (9%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 21.2
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 21.2 VMAF 95.05 (3%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 21.2
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 21.2 VMAF 97.71 (6%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 21.2
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 21.2 VMAF 93.87 (2%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 21.2
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 21.2 VMAF 97.47 (5%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] crf 21.2 VMAF 96.23 predicted video stream size 546.41 MiB (6%) taking 39 minutes (cache)
+- crf 21.2 VMAF 96.23 (6%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 22.7
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 22.7 VMAF 96.22 (7%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 22.7
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 22.7 VMAF 94.10 (3%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 22.7
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 22.7 VMAF 96.95 (6%) (cache)
+[2024-12-12T00:13:09Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 22.7
+[2024-12-12T00:13:10Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 22.7 VMAF 93.10 (2%) (cache)
+[2024-12-12T00:13:10Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 22.7
+[2024-12-12T00:13:10Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 22.7 VMAF 96.68 (5%) (cache)
+[2024-12-12T00:13:10Z INFO  ab_av1::command::sample_encode] crf 22.7 VMAF 95.41 predicted video stream size 461.25 MiB (5%) taking 33 minutes (cache)
+- crf 22.7 VMAF 95.41 (5%) (cache)
+[2024-12-12T00:13:10Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 23.1
+[2024-12-12T00:13:10Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 23.1 VMAF 95.94 (7%) (cache)
+[2024-12-12T00:13:10Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 23.1
+[2024-12-12T00:13:10Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 23.1 VMAF 93.81 (3%) (cache)
+[2024-12-12T00:13:10Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 23.1
+[2024-12-12T00:13:10Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 23.1 VMAF 96.68 (5%) (cache)
+[2024-12-12T00:13:10Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 23.1
+[2024-12-12T00:13:10Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 23.1 VMAF 92.84 (1%) (cache)
+[2024-12-12T00:13:10Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 23.1
+[2024-12-12T00:13:10Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 23.1 VMAF 96.43 (4%) (cache)
+[2024-12-12T00:13:10Z INFO  ab_av1::command::sample_encode] crf 23.1 VMAF 95.14 predicted video stream size 439.91 MiB (4%) taking 31 minutes (cache)
+[2024-12-12T00:13:10Z INFO  ab_av1::command::crf_search] crf 23.1 successful
+crf 23.1 VMAF 95.14 predicted video stream size 439.91 MiB (4%) taking 31 minutes
+[2024-12-12T00:13:10Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 28
+[2024-12-12T00:13:18Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample490+480f.x265.crf28.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample490+480f.mkv
+[2024-12-12T00:13:25Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 28 VMAF 89.34 (1%)
+[2024-12-12T00:13:25Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 28
+[2024-12-12T00:13:34Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1001+480f.x265.crf28.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1001+480f.mkv
+[2024-12-12T00:13:40Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 28 VMAF 87.59 (2%)
+[2024-12-12T00:13:40Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 28
+[2024-12-12T00:13:48Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1512+480f.x265.crf28.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1512+480f.mkv
+[2024-12-12T00:13:55Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 28 VMAF 90.59 (1%)
+[2024-12-12T00:13:55Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 28
+[2024-12-12T00:14:04Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2023+480f.x265.crf28.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2023+480f.mkv
+[2024-12-12T00:14:10Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 28 VMAF 86.34 (5%)
+[2024-12-12T00:14:11Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 28
+[2024-12-12T00:14:20Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2533+480f.x265.crf28.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2533+480f.mkv
+[2024-12-12T00:14:26Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 28 VMAF 86.69 (2%)
+[2024-12-12T00:14:26Z INFO  ab_av1::command::sample_encode] crf 28 VMAF 88.11 predicted video stream size 194.34 MiB (2%) taking 22 minutes
+- crf 28 VMAF 88.11 (2%)
+[2024-12-12T00:14:26Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 17.2
+[2024-12-12T00:14:35Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample490+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample490+480f.mkv
+[2024-12-12T00:14:42Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 17.2 VMAF 96.04 (4%)
+[2024-12-12T00:14:42Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 17.2
+[2024-12-12T00:14:54Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1001+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1001+480f.mkv
+[2024-12-12T00:15:01Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 17.2 VMAF 97.64 (7%)
+[2024-12-12T00:15:01Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 17.2
+[2024-12-12T00:15:10Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1512+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1512+480f.mkv
+[2024-12-12T00:15:17Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 17.2 VMAF 96.43 (3%)
+[2024-12-12T00:15:17Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 17.2
+[2024-12-12T00:15:30Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2023+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2023+480f.mkv
+[2024-12-12T00:15:37Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 17.2 VMAF 96.99 (18%)
+[2024-12-12T00:15:37Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 17.2
+[2024-12-12T00:15:49Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2533+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2533+480f.mkv
+[2024-12-12T00:15:56Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 17.2 VMAF 96.33 (9%)
+[2024-12-12T00:15:56Z INFO  ab_av1::command::sample_encode] crf 17.2 VMAF 96.69 predicted video stream size 692.70 MiB (8%) taking 28 minutes
+- crf 17.2 VMAF 96.69 (8%)
+[2024-12-12T00:15:56Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 19.300001
+[2024-12-12T00:16:05Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample490+480f.x265.crf19_3.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample490+480f.mkv
+[2024-12-12T00:16:12Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 19.300001 VMAF 95.33 (3%)
+[2024-12-12T00:16:12Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 19.300001
+[2024-12-12T00:16:23Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1001+480f.x265.crf19_3.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1001+480f.mkv
+[2024-12-12T00:16:30Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 19.300001 VMAF 96.65 (5%)
+[2024-12-12T00:16:30Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 19.300001
+[2024-12-12T00:16:39Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1512+480f.x265.crf19_3.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1512+480f.mkv
+[2024-12-12T00:16:45Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 19.300001 VMAF 95.84 (3%)
+[2024-12-12T00:16:45Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 19.300001
+[2024-12-12T00:16:58Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2023+480f.x265.crf19_3.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2023+480f.mkv
+[2024-12-12T00:17:05Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 19.300001 VMAF 95.86 (14%)
+[2024-12-12T00:17:05Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 19.300001
+[2024-12-12T00:17:16Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2533+480f.x265.crf19_3.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2533+480f.mkv
+[2024-12-12T00:17:23Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 19.300001 VMAF 95.29 (7%)
+[2024-12-12T00:17:23Z INFO  ab_av1::command::sample_encode] crf 19.300001 VMAF 95.79 predicted video stream size 537.81 MiB (6%) taking 27 minutes
+- crf 19.3 VMAF 95.79 (6%)
+[2024-12-12T00:17:23Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 20.2
+[2024-12-12T00:17:31Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample490+480f.x265.crf20_2.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample490+480f.mkv
+[2024-12-12T00:17:38Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 20.2 VMAF 94.97 (3%)
+[2024-12-12T00:17:38Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 20.2
+[2024-12-12T00:17:49Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1001+480f.x265.crf20_2.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1001+480f.mkv
+[2024-12-12T00:17:56Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 20.2 VMAF 96.09 (5%)
+[2024-12-12T00:17:56Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 20.2
+[2024-12-12T00:18:06Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1512+480f.x265.crf20_2.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1512+480f.mkv
+[2024-12-12T00:18:13Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 20.2 VMAF 95.52 (2%)
+[2024-12-12T00:18:13Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 20.2
+[2024-12-12T00:18:27Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2023+480f.x265.crf20_2.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2023+480f.mkv
+[2024-12-12T00:18:33Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 20.2 VMAF 95.28 (13%)
+[2024-12-12T00:18:33Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 20.2
+[2024-12-12T00:18:47Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2533+480f.x265.crf20_2.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2533+480f.mkv
+[2024-12-12T00:18:54Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 20.2 VMAF 94.73 (6%)
+[2024-12-12T00:18:54Z INFO  ab_av1::command::sample_encode] crf 20.2 VMAF 95.32 predicted video stream size 483.63 MiB (5%) taking 28 minutes
+- crf 20.2 VMAF 95.32 (5%)
+[2024-12-12T00:18:54Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 20.5
+[2024-12-12T00:19:05Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample490+480f.x265.crf20_5.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample490+480f.mkv
+[2024-12-12T00:19:12Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 20.5 VMAF 94.87 (3%)
+[2024-12-12T00:19:12Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 20.5
+[2024-12-12T00:19:25Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1001+480f.x265.crf20_5.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1001+480f.mkv
+[2024-12-12T00:19:32Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 20.5 VMAF 95.92 (4%)
+[2024-12-12T00:19:32Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 20.5
+[2024-12-12T00:19:40Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1512+480f.x265.crf20_5.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1512+480f.mkv
+[2024-12-12T00:19:46Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 20.5 VMAF 95.41 (2%)
+[2024-12-12T00:19:47Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 20.5
+[2024-12-12T00:19:59Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2023+480f.x265.crf20_5.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2023+480f.mkv
+[2024-12-12T00:20:05Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 20.5 VMAF 95.08 (12%)
+[2024-12-12T00:20:05Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 20.5
+[2024-12-12T00:20:16Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2533+480f.x265.crf20_5.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2533+480f.mkv
+[2024-12-12T00:20:22Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 20.5 VMAF 94.58 (6%)
+[2024-12-12T00:20:23Z INFO  ab_av1::command::sample_encode] crf 20.5 VMAF 95.17 predicted video stream size 467.23 MiB (5%) taking 26 minutes
+- crf 20.5 VMAF 95.17 (5%)
+[2024-12-12T00:20:23Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 20.7
+[2024-12-12T00:20:31Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample490+480f.x265.crf20_7.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample490+480f.mkv
+[2024-12-12T00:20:38Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 20.7 VMAF 94.80 (3%)
+[2024-12-12T00:20:38Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 20.7
+[2024-12-12T00:20:49Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1001+480f.x265.crf20_7.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1001+480f.mkv
+[2024-12-12T00:20:55Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 20.7 VMAF 95.77 (4%)
+[2024-12-12T00:20:55Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 20.7
+[2024-12-12T00:21:04Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1512+480f.x265.crf20_7.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample1512+480f.mkv
+[2024-12-12T00:21:10Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 20.7 VMAF 95.33 (2%)
+[2024-12-12T00:21:10Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 20.7
+[2024-12-12T00:21:23Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2023+480f.x265.crf20_7.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2023+480f.mkv
+[2024-12-12T00:21:30Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 20.7 VMAF 94.94 (12%)
+[2024-12-12T00:21:30Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 20.7
+[2024-12-12T00:21:41Z INFO  ab_av1::vmaf] vmaf Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2533+480f.x265.crf20_7.medium.mkv vs reference Swagger - S01E06 - All on the Line WEBDL-2160p HDR10 h265 EAC3 5.1.sample2533+480f.mkv
+[2024-12-12T00:21:47Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 20.7 VMAF 94.45 (6%)
+[2024-12-12T00:21:47Z INFO  ab_av1::command::sample_encode] crf 20.7 VMAF 95.06 predicted video stream size 457.47 MiB (5%) taking 26 minutes
+[2024-12-12T00:21:47Z INFO  ab_av1::command::crf_search] crf 20.7 successful
+crf 20.7 VMAF 95.06 predicted video stream size 457.47 MiB (5%) taking 26 minutes
+[2024-12-12T00:21:48Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 28
+[2024-12-12T00:21:56Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample515+480f.x265.crf28.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample515+480f.mkv
+[2024-12-12T00:22:02Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 28 VMAF 89.07 (2%)
+[2024-12-12T00:22:02Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 28
+[2024-12-12T00:22:11Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1051+480f.x265.crf28.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1051+480f.mkv
+[2024-12-12T00:22:18Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 28 VMAF 89.77 (1%)
+[2024-12-12T00:22:18Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 28
+[2024-12-12T00:22:28Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1587+480f.x265.crf28.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1587+480f.mkv
+[2024-12-12T00:22:34Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 28 VMAF 90.16 (3%)
+[2024-12-12T00:22:34Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 28
+[2024-12-12T00:22:41Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2122+480f.x265.crf28.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2122+480f.mkv
+[2024-12-12T00:22:48Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 28 VMAF 88.33 (1%)
+[2024-12-12T00:22:48Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 28
+[2024-12-12T00:22:59Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2658+480f.x265.crf28.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2658+480f.mkv
+[2024-12-12T00:23:06Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 28 VMAF 94.24 (3%)
+[2024-12-12T00:23:06Z INFO  ab_av1::command::sample_encode] crf 28 VMAF 90.31 predicted video stream size 184.15 MiB (2%) taking 24 minutes
+- crf 28 VMAF 90.31 (2%)
+[2024-12-12T00:23:06Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 17.2
+[2024-12-12T00:23:15Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample515+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample515+480f.mkv
+[2024-12-12T00:23:22Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 17.2 VMAF 96.27 (6%)
+[2024-12-12T00:23:22Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 17.2
+[2024-12-12T00:23:34Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1051+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1051+480f.mkv
+[2024-12-12T00:23:41Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 17.2 VMAF 97.33 (5%)
+[2024-12-12T00:23:41Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 17.2
+[2024-12-12T00:23:53Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1587+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1587+480f.mkv
+[2024-12-12T00:23:59Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 17.2 VMAF 98.19 (10%)
+[2024-12-12T00:23:59Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 17.2
+[2024-12-12T00:24:08Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2122+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2122+480f.mkv
+[2024-12-12T00:24:14Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 17.2 VMAF 95.05 (4%)
+[2024-12-12T00:24:14Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 17.2
+[2024-12-12T00:24:29Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2658+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2658+480f.mkv
+[2024-12-12T00:24:36Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 17.2 VMAF 99.34 (8%)
+[2024-12-12T00:24:36Z INFO  ab_av1::command::sample_encode] crf 17.2 VMAF 97.23 predicted video stream size 616.85 MiB (7%) taking 30 minutes
+- crf 17.2 VMAF 97.23 (7%)
+[2024-12-12T00:24:36Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 20.7
+[2024-12-12T00:24:45Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample515+480f.x265.crf20_7.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample515+480f.mkv
+[2024-12-12T00:24:52Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 20.7 VMAF 94.87 (4%)
+[2024-12-12T00:24:52Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 20.7
+[2024-12-12T00:25:03Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1051+480f.x265.crf20_7.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1051+480f.mkv
+[2024-12-12T00:25:10Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 20.7 VMAF 95.85 (3%)
+[2024-12-12T00:25:10Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 20.7
+[2024-12-12T00:25:22Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1587+480f.x265.crf20_7.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1587+480f.mkv
+[2024-12-12T00:25:28Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 20.7 VMAF 96.76 (6%)
+[2024-12-12T00:25:28Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 20.7
+[2024-12-12T00:25:36Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2122+480f.x265.crf20_7.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2122+480f.mkv
+[2024-12-12T00:25:42Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 20.7 VMAF 93.74 (3%)
+[2024-12-12T00:25:42Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 20.7
+[2024-12-12T00:25:56Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2658+480f.x265.crf20_7.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2658+480f.mkv
+[2024-12-12T00:26:03Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 20.7 VMAF 98.78 (6%)
+[2024-12-12T00:26:03Z INFO  ab_av1::command::sample_encode] crf 20.7 VMAF 96.00 predicted video stream size 412.81 MiB (5%) taking 28 minutes
+- crf 20.7 VMAF 96.00 (5%)
+[2024-12-12T00:26:03Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 22
+[2024-12-12T00:26:11Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample515+480f.x265.crf22.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample515+480f.mkv
+[2024-12-12T00:26:18Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 22 VMAF 94.18 (3%)
+[2024-12-12T00:26:18Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 22
+[2024-12-12T00:26:28Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1051+480f.x265.crf22.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1051+480f.mkv
+[2024-12-12T00:26:35Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 22 VMAF 95.10 (3%)
+[2024-12-12T00:26:35Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 22
+[2024-12-12T00:26:46Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1587+480f.x265.crf22.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1587+480f.mkv
+[2024-12-12T00:26:52Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 22 VMAF 95.99 (6%)
+[2024-12-12T00:26:52Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 22
+[2024-12-12T00:27:00Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2122+480f.x265.crf22.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2122+480f.mkv
+[2024-12-12T00:27:06Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 22 VMAF 93.06 (2%)
+[2024-12-12T00:27:06Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 22
+[2024-12-12T00:27:21Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2658+480f.x265.crf22.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2658+480f.mkv
+[2024-12-12T00:27:28Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 22 VMAF 98.43 (5%)
+[2024-12-12T00:27:28Z INFO  ab_av1::command::sample_encode] crf 22 VMAF 95.35 predicted video stream size 356.12 MiB (4%) taking 27 minutes
+- crf 22 VMAF 95.35 (4%)
+[2024-12-12T00:27:28Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 22.4
+[2024-12-12T00:27:37Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample515+480f.x265.crf22_4.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample515+480f.mkv
+[2024-12-12T00:27:43Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 22.4 VMAF 93.95 (3%)
+[2024-12-12T00:27:43Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 22.4
+[2024-12-12T00:27:54Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1051+480f.x265.crf22_4.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1051+480f.mkv
+[2024-12-12T00:28:01Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 22.4 VMAF 94.85 (3%)
+[2024-12-12T00:28:01Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 22.4
+[2024-12-12T00:28:12Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1587+480f.x265.crf22_4.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample1587+480f.mkv
+[2024-12-12T00:28:18Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 22.4 VMAF 95.72 (5%)
+[2024-12-12T00:28:18Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 22.4
+[2024-12-12T00:28:26Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2122+480f.x265.crf22_4.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2122+480f.mkv
+[2024-12-12T00:28:33Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 22.4 VMAF 92.82 (2%)
+[2024-12-12T00:28:33Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 22.4
+[2024-12-12T00:28:47Z INFO  ab_av1::vmaf] vmaf Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2658+480f.x265.crf22_4.medium.mkv vs reference Swagger - S01E02 - Haterade WEBDL-2160p HDR10 h265 EAC3 5.1.sample2658+480f.mkv
+[2024-12-12T00:28:53Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 22.4 VMAF 98.30 (5%)
+[2024-12-12T00:28:54Z INFO  ab_av1::command::sample_encode] crf 22.4 VMAF 95.13 predicted video stream size 340.45 MiB (4%) taking 27 minutes
+[2024-12-12T00:28:54Z INFO  ab_av1::command::crf_search] crf 22.4 successful
+crf 22.4 VMAF 95.13 predicted video stream size 340.45 MiB (4%) taking 27 minutes
+[2024-12-12T00:28:54Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 28
+[2024-12-12T00:29:04Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample487+480f.x265.crf28.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample487+480f.mkv
+[2024-12-12T00:29:11Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 28 VMAF 89.35 (2%)
+[2024-12-12T00:29:11Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 28
+[2024-12-12T00:29:19Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample995+480f.x265.crf28.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample995+480f.mkv
+[2024-12-12T00:29:27Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 28 VMAF 88.14 (2%)
+[2024-12-12T00:29:27Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 28
+[2024-12-12T00:29:35Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample1503+480f.x265.crf28.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample1503+480f.mkv
+[2024-12-12T00:29:42Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 28 VMAF 89.43 (1%)
+[2024-12-12T00:29:42Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 28
+[2024-12-12T00:29:50Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2011+480f.x265.crf28.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2011+480f.mkv
+[2024-12-12T00:29:57Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 28 VMAF 89.36 (1%)
+[2024-12-12T00:29:57Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 28
+[2024-12-12T00:30:07Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2518+480f.x265.crf28.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2518+480f.mkv
+[2024-12-12T00:30:13Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 28 VMAF 90.52 (3%)
+[2024-12-12T00:30:13Z INFO  ab_av1::command::sample_encode] crf 28 VMAF 89.36 predicted video stream size 153.71 MiB (2%) taking 22 minutes
+- crf 28 VMAF 89.36 (2%)
+[2024-12-12T00:30:13Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 17.2
+[2024-12-12T00:30:25Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample487+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample487+480f.mkv
+[2024-12-12T00:30:32Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 17.2 VMAF 97.60 (8%)
+[2024-12-12T00:30:32Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 17.2
+[2024-12-12T00:30:41Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample995+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample995+480f.mkv
+[2024-12-12T00:30:48Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 17.2 VMAF 95.93 (9%)
+[2024-12-12T00:30:48Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 17.2
+[2024-12-12T00:30:57Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample1503+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample1503+480f.mkv
+[2024-12-12T00:31:04Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 17.2 VMAF 96.03 (4%)
+[2024-12-12T00:31:04Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 17.2
+[2024-12-12T00:31:14Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2011+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2011+480f.mkv
+[2024-12-12T00:31:20Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 17.2 VMAF 96.27 (3%)
+[2024-12-12T00:31:20Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 17.2
+[2024-12-12T00:31:33Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2518+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2518+480f.mkv
+[2024-12-12T00:31:40Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 17.2 VMAF 97.98 (9%)
+[2024-12-12T00:31:40Z INFO  ab_av1::command::sample_encode] crf 17.2 VMAF 96.76 predicted video stream size 530.68 MiB (7%) taking 26 minutes
+- crf 17.2 VMAF 96.76 (7%)
+[2024-12-12T00:31:40Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 19.800001
+[2024-12-12T00:31:50Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample487+480f.x265.crf19_8.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample487+480f.mkv
+[2024-12-12T00:31:57Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 19.800001 VMAF 96.61 (6%)
+[2024-12-12T00:31:57Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 19.800001
+[2024-12-12T00:32:06Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample995+480f.x265.crf19_8.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample995+480f.mkv
+[2024-12-12T00:32:13Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 19.800001 VMAF 94.84 (6%)
+[2024-12-12T00:32:13Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 19.800001
+[2024-12-12T00:32:22Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample1503+480f.x265.crf19_8.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample1503+480f.mkv
+[2024-12-12T00:32:28Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 19.800001 VMAF 95.16 (3%)
+[2024-12-12T00:32:28Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 19.800001
+[2024-12-12T00:32:38Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2011+480f.x265.crf19_8.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2011+480f.mkv
+[2024-12-12T00:32:44Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 19.800001 VMAF 95.34 (2%)
+[2024-12-12T00:32:44Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 19.800001
+[2024-12-12T00:32:56Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2518+480f.x265.crf19_8.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2518+480f.mkv
+[2024-12-12T00:33:03Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 19.800001 VMAF 97.14 (6%)
+[2024-12-12T00:33:03Z INFO  ab_av1::command::sample_encode] crf 19.800001 VMAF 95.82 predicted video stream size 389.13 MiB (5%) taking 25 minutes
+- crf 19.8 VMAF 95.82 (5%)
+[2024-12-12T00:33:03Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 20.800001
+[2024-12-12T00:33:13Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample487+480f.x265.crf20_8.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample487+480f.mkv
+[2024-12-12T00:33:20Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 20.800001 VMAF 96.09 (5%)
+[2024-12-12T00:33:20Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 20.800001
+[2024-12-12T00:33:29Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample995+480f.x265.crf20_8.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample995+480f.mkv
+[2024-12-12T00:33:36Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 20.800001 VMAF 94.35 (6%)
+[2024-12-12T00:33:36Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 20.800001
+[2024-12-12T00:33:45Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample1503+480f.x265.crf20_8.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample1503+480f.mkv
+[2024-12-12T00:33:51Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 20.800001 VMAF 94.72 (3%)
+[2024-12-12T00:33:51Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 20.800001
+[2024-12-12T00:34:00Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2011+480f.x265.crf20_8.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2011+480f.mkv
+[2024-12-12T00:34:07Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 20.800001 VMAF 94.88 (2%)
+[2024-12-12T00:34:07Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 20.800001
+[2024-12-12T00:34:18Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2518+480f.x265.crf20_8.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2518+480f.mkv
+[2024-12-12T00:34:25Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 20.800001 VMAF 96.70 (6%)
+[2024-12-12T00:34:25Z INFO  ab_av1::command::sample_encode] crf 20.800001 VMAF 95.35 predicted video stream size 346.04 MiB (4%) taking 24 minutes
+- crf 20.8 VMAF 95.35 (4%)
+[2024-12-12T00:34:25Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 21.2
+[2024-12-12T00:34:36Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample487+480f.x265.crf21_2.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample487+480f.mkv
+[2024-12-12T00:34:43Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 21.2 VMAF 95.86 (5%)
+[2024-12-12T00:34:43Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 21.2
+[2024-12-12T00:34:52Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample995+480f.x265.crf21_2.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample995+480f.mkv
+[2024-12-12T00:34:58Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 21.2 VMAF 94.11 (5%)
+[2024-12-12T00:34:58Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 21.2
+[2024-12-12T00:35:07Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample1503+480f.x265.crf21_2.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample1503+480f.mkv
+[2024-12-12T00:35:14Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 21.2 VMAF 94.55 (3%)
+[2024-12-12T00:35:14Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 21.2
+[2024-12-12T00:35:23Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2011+480f.x265.crf21_2.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2011+480f.mkv
+[2024-12-12T00:35:29Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 21.2 VMAF 94.65 (2%)
+[2024-12-12T00:35:29Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 21.2
+[2024-12-12T00:35:41Z INFO  ab_av1::vmaf] vmaf Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2518+480f.x265.crf21_2.medium.mkv vs reference Swagger - S01E08 - Still I Rise WEBDL-2160p HDR10 h265 EAC3 5.1.sample2518+480f.mkv
+[2024-12-12T00:35:48Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 21.2 VMAF 96.48 (5%)
+[2024-12-12T00:35:48Z INFO  ab_av1::command::sample_encode] crf 21.2 VMAF 95.13 predicted video stream size 328.20 MiB (4%) taking 24 minutes
+[2024-12-12T00:35:48Z INFO  ab_av1::command::crf_search] crf 21.2 successful
+crf 21.2 VMAF 95.13 predicted video stream size 328.20 MiB (4%) taking 24 minutes
+[2024-12-12T00:35:48Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 28
+[2024-12-12T00:35:58Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample577+480f.x265.crf28.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample577+480f.mkv
+[2024-12-12T00:36:05Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 28 VMAF 89.68 (2%)
+[2024-12-12T00:36:05Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 28
+[2024-12-12T00:36:12Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1175+480f.x265.crf28.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1175+480f.mkv
+[2024-12-12T00:36:19Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 28 VMAF 88.78 (1%)
+[2024-12-12T00:36:19Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 28
+[2024-12-12T00:36:29Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1773+480f.x265.crf28.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1773+480f.mkv
+[2024-12-12T00:36:36Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 28 VMAF 89.39 (2%)
+[2024-12-12T00:36:36Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 28
+[2024-12-12T00:36:44Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2371+480f.x265.crf28.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2371+480f.mkv
+[2024-12-12T00:36:51Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 28 VMAF 87.64 (2%)
+[2024-12-12T00:36:51Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 28
+[2024-12-12T00:37:00Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2969+480f.x265.crf28.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2969+480f.mkv
+[2024-12-12T00:37:07Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 28 VMAF 88.41 (2%)
+[2024-12-12T00:37:07Z INFO  ab_av1::command::sample_encode] crf 28 VMAF 88.78 predicted video stream size 181.82 MiB (2%) taking 27 minutes
+- crf 28 VMAF 88.78 (2%)
+[2024-12-12T00:37:07Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 17.2
+[2024-12-12T00:37:19Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample577+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample577+480f.mkv
+[2024-12-12T00:37:25Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 17.2 VMAF 97.77 (8%)
+[2024-12-12T00:37:25Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 17.2
+[2024-12-12T00:37:34Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1175+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1175+480f.mkv
+[2024-12-12T00:37:41Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 17.2 VMAF 95.60 (5%)
+[2024-12-12T00:37:41Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 17.2
+[2024-12-12T00:37:54Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1773+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1773+480f.mkv
+[2024-12-12T00:38:00Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 17.2 VMAF 96.98 (6%)
+[2024-12-12T00:38:01Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 17.2
+[2024-12-12T00:38:11Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2371+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2371+480f.mkv
+[2024-12-12T00:38:17Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 17.2 VMAF 95.71 (6%)
+[2024-12-12T00:38:17Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 17.2
+[2024-12-12T00:38:29Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2969+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2969+480f.mkv
+[2024-12-12T00:38:35Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 17.2 VMAF 96.47 (7%)
+[2024-12-12T00:38:35Z INFO  ab_av1::command::sample_encode] crf 17.2 VMAF 96.51 predicted video stream size 687.63 MiB (7%) taking 33 minutes
+- crf 17.2 VMAF 96.51 (7%)
+[2024-12-12T00:38:35Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 19.300001
+[2024-12-12T00:38:46Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample577+480f.x265.crf19_3.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample577+480f.mkv
+[2024-12-12T00:38:53Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 19.300001 VMAF 96.93 (6%)
+[2024-12-12T00:38:53Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 19.300001
+[2024-12-12T00:39:01Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1175+480f.x265.crf19_3.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1175+480f.mkv
+[2024-12-12T00:39:08Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 19.300001 VMAF 94.85 (4%)
+[2024-12-12T00:39:08Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 19.300001
+[2024-12-12T00:39:20Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1773+480f.x265.crf19_3.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1773+480f.mkv
+[2024-12-12T00:39:26Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 19.300001 VMAF 96.22 (5%)
+[2024-12-12T00:39:26Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 19.300001
+[2024-12-12T00:39:35Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2371+480f.x265.crf19_3.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2371+480f.mkv
+[2024-12-12T00:39:42Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 19.300001 VMAF 94.81 (5%)
+[2024-12-12T00:39:42Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 19.300001
+[2024-12-12T00:39:53Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2969+480f.x265.crf19_3.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2969+480f.mkv
+[2024-12-12T00:39:59Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 19.300001 VMAF 95.61 (5%)
+[2024-12-12T00:39:59Z INFO  ab_av1::command::sample_encode] crf 19.300001 VMAF 95.68 predicted video stream size 516.79 MiB (5%) taking 30 minutes
+- crf 19.3 VMAF 95.68 (5%)
+[2024-12-12T00:39:59Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 20.2
+[2024-12-12T00:40:10Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample577+480f.x265.crf20_2.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample577+480f.mkv
+[2024-12-12T00:40:17Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 20.2 VMAF 96.49 (6%)
+[2024-12-12T00:40:17Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 20.2
+[2024-12-12T00:40:25Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1175+480f.x265.crf20_2.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1175+480f.mkv
+[2024-12-12T00:40:31Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 20.2 VMAF 94.46 (3%)
+[2024-12-12T00:40:31Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 20.2
+[2024-12-12T00:40:43Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1773+480f.x265.crf20_2.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1773+480f.mkv
+[2024-12-12T00:40:50Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 20.2 VMAF 95.84 (4%)
+[2024-12-12T00:40:50Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 20.2
+[2024-12-12T00:40:59Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2371+480f.x265.crf20_2.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2371+480f.mkv
+[2024-12-12T00:41:05Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 20.2 VMAF 94.37 (4%)
+[2024-12-12T00:41:05Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 20.2
+[2024-12-12T00:41:16Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2969+480f.x265.crf20_2.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2969+480f.mkv
+[2024-12-12T00:41:23Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 20.2 VMAF 95.19 (5%)
+[2024-12-12T00:41:23Z INFO  ab_av1::command::sample_encode] crf 20.2 VMAF 95.27 predicted video stream size 461.10 MiB (4%) taking 30 minutes
+- crf 20.2 VMAF 95.27 (4%)
+[2024-12-12T00:41:23Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 20.5
+[2024-12-12T00:41:34Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample577+480f.x265.crf20_5.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample577+480f.mkv
+[2024-12-12T00:41:40Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 20.5 VMAF 96.36 (6%)
+[2024-12-12T00:41:40Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 20.5
+[2024-12-12T00:41:49Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1175+480f.x265.crf20_5.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1175+480f.mkv
+[2024-12-12T00:41:55Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 20.5 VMAF 94.38 (3%)
+[2024-12-12T00:41:55Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 20.5
+[2024-12-12T00:42:07Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1773+480f.x265.crf20_5.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample1773+480f.mkv
+[2024-12-12T00:42:14Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 20.5 VMAF 95.69 (4%)
+[2024-12-12T00:42:14Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 20.5
+[2024-12-12T00:42:23Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2371+480f.x265.crf20_5.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2371+480f.mkv
+[2024-12-12T00:42:29Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 20.5 VMAF 94.22 (4%)
+[2024-12-12T00:42:29Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 20.5
+[2024-12-12T00:42:39Z INFO  ab_av1::vmaf] vmaf Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2969+480f.x265.crf20_5.medium.mkv vs reference Swagger - S01E01 - NBA WEBDL-2160p DV x265 EAC3 5.1.sample2969+480f.mkv
+[2024-12-12T00:42:46Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 20.5 VMAF 95.01 (4%)
+[2024-12-12T00:42:46Z INFO  ab_av1::command::sample_encode] crf 20.5 VMAF 95.13 predicted video stream size 444.48 MiB (4%) taking 30 minutes
+[2024-12-12T00:42:46Z INFO  ab_av1::command::crf_search] crf 20.5 successful
+crf 20.5 VMAF 95.13 predicted video stream size 444.48 MiB (4%) taking 30 minutes
+[2024-12-12T00:42:47Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 28
+[2024-12-12T00:42:56Z INFO  ab_av1::vmaf] vmaf Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample548+480f.x265.crf28.medium.mkv vs reference Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample548+480f.mkv
+[2024-12-12T00:43:02Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 28 VMAF 91.92 (2%)
+[2024-12-12T00:43:02Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 28
+[2024-12-12T00:43:11Z INFO  ab_av1::vmaf] vmaf Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample1116+480f.x265.crf28.medium.mkv vs reference Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample1116+480f.mkv
+[2024-12-12T00:43:17Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 28 VMAF 91.00 (1%)
+[2024-12-12T00:43:17Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 28
+[2024-12-12T00:43:29Z INFO  ab_av1::vmaf] vmaf Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample1684+480f.x265.crf28.medium.mkv vs reference Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample1684+480f.mkv
+[2024-12-12T00:43:36Z INFO  ab_av1::command::sample_encode] sample 3/5 crf 28 VMAF 93.94 (4%)
+[2024-12-12T00:43:36Z INFO  ab_av1::command::sample_encode] encoding sample 4/5 crf 28
+[2024-12-12T00:43:44Z INFO  ab_av1::vmaf] vmaf Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample2252+480f.x265.crf28.medium.mkv vs reference Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample2252+480f.mkv
+[2024-12-12T00:43:50Z INFO  ab_av1::command::sample_encode] sample 4/5 crf 28 VMAF 91.33 (1%)
+[2024-12-12T00:43:50Z INFO  ab_av1::command::sample_encode] encoding sample 5/5 crf 28
+[2024-12-12T00:43:59Z INFO  ab_av1::vmaf] vmaf Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample2820+480f.x265.crf28.medium.mkv vs reference Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample2820+480f.mkv
+[2024-12-12T00:44:05Z INFO  ab_av1::command::sample_encode] sample 5/5 crf 28 VMAF 89.41 (2%)
+[2024-12-12T00:44:05Z INFO  ab_av1::command::sample_encode] crf 28 VMAF 91.52 predicted video stream size 219.91 MiB (2%) taking 25 minutes
+- crf 28 VMAF 91.52 (2%)
+[2024-12-12T00:44:05Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 17.2
+[2024-12-12T00:44:16Z INFO  ab_av1::vmaf] vmaf Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample548+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample548+480f.mkv
+[2024-12-12T00:44:22Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 17.2 VMAF 98.30 (5%)
+[2024-12-12T00:44:22Z INFO  ab_av1::command::sample_encode] encoding sample 2/5 crf 17.2
+[2024-12-12T00:44:32Z INFO  ab_av1::vmaf] vmaf Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample1116+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample1116+480f.mkv
+[2024-12-12T00:44:39Z INFO  ab_av1::command::sample_encode] sample 2/5 crf 17.2 VMAF 97.79 (5%)
+[2024-12-12T00:44:39Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 17.2
+[2024-12-12T00:44:55Z INFO  ab_av1::vmaf] vmaf Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample1684+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample1684+480f.mkv
