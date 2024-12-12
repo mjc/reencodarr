@@ -76,6 +76,27 @@ defmodule Reencodarr.Media do
   end
 
   @doc """
+  Finds videos without VMAFs.
+
+  ## Examples
+
+      iex> find_videos_without_vmafs(5)
+      [%Video{}, ...]
+
+  """
+  @spec find_videos_without_vmafs(integer()) :: [Video.t()]
+  def find_videos_without_vmafs(limit \\ 10) do
+    Repo.all(
+      from v in Video,
+        left_join: m in Vmaf,
+        on: m.video_id == v.id,
+        where: is_nil(m.id) and v.reencoded == false,
+        limit: ^limit,
+        select: v
+    )
+  end
+
+  @doc """
   Creates a video.
 
   ## Examples
