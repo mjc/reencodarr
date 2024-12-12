@@ -125,11 +125,36 @@ defmodule Reencodarr.Encoder do
   end
 
   @impl true
-  def handle_info(
-        %{action: "encoding:complete", result: result, video: video, output_file: output_file},
-        state
-      ) do
-    Logger.info("Encoding completed with result: #{inspect(result)}")
+  def handle_info(%{action: "encoding", video: _video} = _msg, state) do
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
+    Logger.warning("AbAv1.Encode process crashed or is not yet started.")
+    # Retry monitoring after 10 seconds
+    Process.send_after(self(), :monitor_encode, 10_000)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:monitor_encode, state) do
+    case GenServer.whereis(Reencodarr.AbAv1.Encode) do
+      nil ->
+        Logger.error("Encode process is not running.")
+        # Retry monitoring after 10 seconds
+        Process.send_after(self(), :monitor_encode, 10_000)
+
+      _pid ->
+        Process.monitor(GenServer.whereis(Reencodarr.AbAv1.Encode))
+    end
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:encoding_complete, video, output_file}, state) do
+    Logger.info("Encoding completed for video #{video.id}")
 
     new_output_file =
       Path.join(
@@ -162,34 +187,6 @@ defmodule Reencodarr.Encoder do
   end
 
   @impl true
-  def handle_info(%{action: "encoding", video: _video} = _msg, state) do
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
-    Logger.warning("AbAv1.Encode process crashed or is not yet started.")
-    # Retry monitoring after 10 seconds
-    Process.send_after(self(), :monitor_encode, 10_000)
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(:monitor_encode, state) do
-    case GenServer.whereis(Reencodarr.AbAv1.Encode) do
-      nil ->
-        Logger.error("Encode process is not running.")
-        # Retry monitoring after 10 seconds
-        Process.send_after(self(), :monitor_encode, 10_000)
-
-      _pid ->
-        Process.monitor(GenServer.whereis(Reencodarr.AbAv1.Encode))
-    end
-
-    {:noreply, state}
-  end
-
-  @impl true
   def handle_call(:running?, _from, state) do
     {:reply, state.encoding, state}
   end
@@ -213,7 +210,7 @@ defmodule Reencodarr.Encoder do
         Logger.error("Encode process is not running.")
 
       :running ->
-        Logger.info("Encoding is already in progress, skipping check for next video.")
+        Logger.debug("Encoding is already in progress, skipping check for next video.")
 
       other ->
         Logger.error("No chosen VMAF found for video or some other error: #{inspect(other)}")

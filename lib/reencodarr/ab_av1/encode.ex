@@ -13,7 +13,8 @@ defmodule Reencodarr.AbAv1.Encode do
      %{
        port: :none,
        video: :none,
-       vmaf: :none
+       vmaf: :none,
+       output_file: nil
      }}
   end
 
@@ -31,6 +32,7 @@ defmodule Reencodarr.AbAv1.Encode do
 
   defp prepare_encode_state(vmaf, state) do
     args = build_encode_args(vmaf)
+    output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
 
     Logger.info("Starting encode with args: #{inspect(args)}")
 
@@ -38,7 +40,8 @@ defmodule Reencodarr.AbAv1.Encode do
       state
       | port: Helper.open_port(args),
         video: vmaf.video,
-        vmaf: vmaf
+        vmaf: vmaf,
+        output_file: output_file
     }
   end
 
@@ -93,7 +96,7 @@ defmodule Reencodarr.AbAv1.Encode do
   @impl true
   def handle_info(
         {port, {:exit_status, exit_code}},
-        %{port: port, vmaf: _vmaf} = state
+        %{port: port, vmaf: vmaf, output_file: output_file} = state
       ) do
     result =
       case exit_code do
@@ -104,8 +107,16 @@ defmodule Reencodarr.AbAv1.Encode do
 
     Logger.debug("Exit status: #{inspect(result)}")
 
-    new_state = %{state | port: :none, video: :none, vmaf: :none}
+    if result == {:ok, :success} do
+      notify_encoder(vmaf.video, output_file)
+    end
+
+    new_state = %{state | port: :none, video: :none, vmaf: :none, output_file: nil}
     {:noreply, new_state}
+  end
+
+  defp notify_encoder(video, output_file) do
+    GenServer.cast(Reencodarr.Encoder, {:encoding_complete, video, output_file})
   end
 
   def process_line(data, _state) do
