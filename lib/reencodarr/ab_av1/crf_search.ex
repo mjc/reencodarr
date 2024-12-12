@@ -139,7 +139,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
       captures = Regex.named_captures(@eta_vmaf_regex, line) ->
         Logger.info(
-          "Chosen VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, time: #{captures["time"]} #{captures["time_unit"]}"
+          "VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, time: #{captures["time"]} #{captures["time_unit"]}"
         )
 
         upsert_vmaf(Map.put(captures, "chosen", true), video)
