@@ -703,33 +703,6 @@ defmodule Reencodarr.Media do
 
   ## Examples
 
-      iex> mark_vmaf_as_chosen(%{"video_id" => 301905, "crf" => "32"})
-      {:ok, %Vmaf{}}
-
-      iex> mark_vmaf_as_chosen(%{"video_id" => 999, "crf" => "32"})
-      {:error, %Ecto.Changeset{}}
-
-  """
-  @spec mark_vmaf_as_chosen(map) :: {:ok, Vmaf.t()} | {:error, Ecto.Changeset.t()}
-  def mark_vmaf_as_chosen(%{"video_id" => video_id, "crf" => crf} = params) do
-    vmaf =
-      Repo.one!(
-        from v in Vmaf,
-          where: v.video_id == ^video_id and v.crf == ^crf,
-          order_by: [desc: v.inserted_at],
-          limit: 1
-      )
-
-    vmaf
-    |> Vmaf.changeset(Map.put(params, "chosen", true))
-    |> Repo.update()
-  end
-
-  @doc """
-  Marks a VMAF as chosen.
-
-  ## Examples
-
       iex> mark_vmaf_as_chosen(123, "32")
       {:ok, %Vmaf{}}
 
@@ -741,11 +714,11 @@ defmodule Reencodarr.Media do
           {:ok, Vmaf.t()} | {:error, Ecto.Changeset.t()}
   def mark_vmaf_as_chosen(video_id, crf) do
     Repo.transaction(fn ->
-      from(v in Vmaf, where: v.video_id == ^video_id)
-      |> Repo.update_all(set: [chosen: false])
-
-      from(v in Vmaf, where: v.video_id == ^video_id and v.crf == ^crf)
-      |> Repo.update_all(set: [chosen: true])
+      from(v in Vmaf,
+        where: v.video_id == ^video_id,
+        update: [set: [chosen: fragment("CASE WHEN crf = ? THEN true ELSE false END", ^crf)]]
+      )
+      |> Repo.update_all([])
     end)
   end
 end
