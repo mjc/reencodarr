@@ -134,8 +134,14 @@ defmodule Reencodarr.AbAv1.Encode do
 
         human_readable_eta = "#{captures["eta"]} #{captures["unit"]}"
 
-        Logger.info(
+        Logger.debug(
           "Encoding progress: #{captures["percent"]}%, #{captures["fps"]} fps, ETA: #{human_readable_eta}"
+        )
+
+        Phoenix.PubSub.broadcast(
+          Reencodarr.PubSub,
+          "progress",
+          {:encoding, %{percent: captures["percent"], eta: human_readable_eta, fps: captures["fps"]}}
         )
 
       captures =

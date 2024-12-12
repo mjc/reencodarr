@@ -31,7 +31,7 @@ defmodule ReencodarrWeb.ProgressComponent do
                     <li>
                       {Integer.parse(to_string(@progress.percent)) |> elem(0)} % @ {@progress.fps} fps
                     </li>
-                    <li>ETA: {@progress.human_readable_eta}</li>
+                    <li>ETA: {@progress.eta}</li>
                   </ul>
                   <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mt-2">
                     <div

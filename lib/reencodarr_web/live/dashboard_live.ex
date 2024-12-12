@@ -47,6 +47,11 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, assign(socket, :encoding, false)}
   end
 
+  def handle_info({:encoding, %{percent: percent, eta: eta, fps: fps}}, socket) do
+    Logger.debug("Encoding progress: #{percent}% ETA: #{eta} FPS: #{fps}")
+    {:noreply, assign(socket, :progress, %{percent: percent, eta: eta, fps: fps})}
+  end
+
   def handle_info({:crf_searcher, :started}, socket) do
     Logger.debug("CRF search started")
     {:noreply, assign(socket, :crf_searching, true)}
