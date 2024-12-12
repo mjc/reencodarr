@@ -156,7 +156,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  defp upsert_vmaf(%{"crf" => crf, "vmaf" => vmaf, "chosen" => chosen}, video) do
+  defp upsert_vmaf(%{"crf" => crf, "vmaf" => vmaf, "chosen" => chosen} = params, video) do
+    time = parse_time(params["time"], params["time_unit"])
     vmaf_data = %{
       video_id: video.id,
       crf: crf,
@@ -168,7 +169,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       percent: 95,
       # Assuming params is an array of strings
       params: ["example_param=example_value"],
-      time: nil
+      time: time
     }
 
     case Media.upsert_vmaf(vmaf_data) do
@@ -181,4 +182,24 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         :none
     end
   end
+
+  defp parse_time(nil, _), do: nil
+  defp parse_time(_, nil), do: nil
+  defp parse_time(time, time_unit) do
+    case Integer.parse(time) do
+      {time_value, _} ->
+        convert_to_seconds(time_value, time_unit)
+
+      :error ->
+        nil
+    end
+  end
+
+  defp convert_to_seconds(time, "minutes"), do: time * 60
+  defp convert_to_seconds(time, "hours"), do: time * 3600
+  defp convert_to_seconds(time, "seconds"), do: time
+  defp convert_to_seconds(time, "days"), do: time * 86400
+  defp convert_to_seconds(time, "weeks"), do: time * 604800
+  defp convert_to_seconds(time, "months"), do: time * 2628000
+  defp convert_to_seconds(time, "years"), do: time * 31536000
 end
