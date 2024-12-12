@@ -103,21 +103,16 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def process_line(line, video) do
     sample_regex =
       ~r/sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\)/
-
+    encoding_sample = ~r/encoding sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?)/
     chosen_vmaf_regex = ~r/- crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\) \(cache\)/
     simple_chosen_vmaf_regex = ~r/- crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) \(\d+%\)/
     vmaf_regex = ~r/vmaf (?<file1>.+?) vs reference (?<file2>.+)/
+    predicted_size_regex = ~r/\[.*\] crf (?<crf>\d+(\.\d+)?) VMAF (?<vmaf>\d+\.\d+) predicted video stream size (?<size>\d+\.\d+) (?<unit>\w+) \(\d+%\) taking \d+ minutes/
+    progress_regex = ~r/\[.*\] (?<progress>\d+%)?, (?<fps>\d+ fps)?, eta (?<eta>\d+ seconds)/
 
     cond do
-      captures =
-          Regex.named_captures(
-            ~r/encoding sample (?<sample_num>\d+)\/(?<total_samples>\d+) crf (?<crf>\d+(\.\d+)?)/,
-            line
-          ) ->
-        Logger.info(
-          "Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
-        )
-
+      captures = Regex.named_captures(encoding_sample, line) ->
+        Logger.info("Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}")
         :none
 
       captures = Regex.named_captures(simple_chosen_vmaf_regex, line) ->
@@ -137,6 +132,18 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
       captures = Regex.named_captures(vmaf_regex, line) ->
         Logger.info("VMAF comparison: #{captures["file1"]} vs #{captures["file2"]}")
+        :none
+
+      captures = Regex.named_captures(predicted_size_regex, line) ->
+        Logger.info(
+          "Predicted video stream size: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, Size: #{captures["size"]} #{captures["unit"]}"
+        )
+        :none
+
+      captures = Regex.named_captures(progress_regex, line) ->
+        Logger.info(
+          "Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
+        )
         :none
 
       true ->
@@ -161,7 +168,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     case Media.upsert_vmaf(vmaf_data) do
       {:ok, created_vmaf} ->
-        Logger.info("Upserted VMAF: #{inspect(created_vmaf)}")
+        Logger.debug("Upserted VMAF: #{inspect(created_vmaf)}")
         created_vmaf
 
       {:error, changeset} ->
