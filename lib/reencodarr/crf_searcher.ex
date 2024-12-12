@@ -16,7 +16,7 @@ defmodule Reencodarr.CrfSearcher do
     Logger.info("Initializing CrfSearcher...")
     Process.monitor(GenServer.whereis(Reencodarr.AbAv1.CrfSearch))
     schedule_search()
-    {:ok, %{searching: true}}
+    {:ok, %{searching: false}}
   end
 
   def start do
