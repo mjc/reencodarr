@@ -73,6 +73,10 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, assign(socket, :syncing, true) |> assign(:sync_progress, progress)}
   end
 
+  def handle_info({:stats, %Media.Stats{} = new_stats}, socket) do
+    {:noreply, assign(socket, :queue_length, new_stats.queue_length) |> assign(:stats, new_stats)}
+  end
+
   def handle_event("set_timezone", %{"timezone" => timezone}, socket) do
     Logger.debug("Setting timezone to #{timezone}")
     {:noreply, assign(socket, :timezone, timezone)}

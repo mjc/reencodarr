@@ -8,6 +8,21 @@ defmodule Reencodarr.Media do
   alias Reencodarr.Media.{Video, Library, Vmaf}
   require Logger
 
+  defmodule Stats do
+    defstruct [
+      :not_reencoded,
+      :reencoded,
+      :total_videos,
+      :avg_vmaf_percentage,
+      :total_vmafs,
+      :chosen_vmafs_count,
+      :lowest_vmaf,
+      :lowest_vmaf_by_time,
+      :most_recent_video_update,
+      :most_recent_inserted_video
+    ]
+  end
+
   # Video-related functions
   @doc """
   Returns the list of videos.
@@ -564,7 +579,7 @@ defmodule Reencodarr.Media do
   ## Examples
 
       iex> fetch_stats()
-      %{
+      %Media.Stats{
         not_reencoded: 5,
         reencoded: 10,
         total_videos: 15,
@@ -578,18 +593,7 @@ defmodule Reencodarr.Media do
       }
 
   """
-  @spec fetch_stats() :: %{
-          not_reencoded: integer(),
-          reencoded: integer(),
-          total_videos: integer(),
-          avg_vmaf_percentage: float(),
-          total_vmafs: integer(),
-          chosen_vmafs_count: integer(),
-          lowest_vmaf: Vmaf.t(),
-          lowest_vmaf_by_time: Vmaf.t(),
-          most_recent_video_update: NaiveDateTime.t() | nil,
-          most_recent_inserted_video: NaiveDateTime.t() | nil
-        }
+  @spec fetch_stats() :: %Stats{}
   def fetch_stats do
     counts_query =
       from(v in Video,
@@ -629,7 +633,7 @@ defmodule Reencodarr.Media do
     most_recent_video_update = most_recent_video_update()
     most_recent_inserted_video = get_most_recent_inserted_at()
 
-    %{
+    %Stats{
       avg_vmaf_percentage: avg_vmaf_percentage,
       chosen_vmafs_count: chosen_vmafs_count,
       lowest_vmaf_by_time: lowest_vmaf_by_time,
