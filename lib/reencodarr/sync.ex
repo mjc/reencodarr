@@ -38,7 +38,7 @@ defmodule Reencodarr.Sync do
         Logger.error("Failed to sync episode files: #{inspect(reason)}")
     end
 
-    send(self(), :sync_complete)
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", :sync_complete)
     {:noreply, state}
   end
 

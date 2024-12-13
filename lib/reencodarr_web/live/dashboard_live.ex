@@ -66,11 +66,11 @@ defmodule ReencodarrWeb.DashboardLive do
 
   def handle_info(:sync_complete, socket) do
     Logger.info("Sonarr sync complete")
-    {:noreply, assign(socket, :syncing, false) |> assign(:sync_progress, 100)}
+    {:noreply, assign(socket, :syncing, false) |> assign(:sync_progress, 0)}
   end
 
   def handle_info({:sync_progress, progress}, socket) do
-    {:noreply, assign(socket, :sync_progress, progress)}
+    {:noreply, assign(socket, :syncing, true) |> assign(:sync_progress, progress)}
   end
 
   def handle_event("set_timezone", %{"timezone" => timezone}, socket) do
