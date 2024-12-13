@@ -1,7 +1,6 @@
 defmodule Reencodarr.AbAv1.CrfSearch do
   use GenServer
-  alias Reencodarr.{Media}
-  alias Reencodarr.AbAv1.Helper
+  alias Reencodarr.{Media, AbAv1.Helper}
   require Logger
 
   @encoding_sample_regex ~r/
@@ -71,13 +70,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     successful
   /x
 
+  # Public API
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
-
-  @impl true
-  def init(:ok) do
-    {:ok, %{port: :none, current_task: :none}}
-  end
 
   @spec crf_search(Media.Video.t(), integer()) :: :ok
   def crf_search(%Media.Video{reencoded: true, path: path}, _vmaf_percent) do
@@ -96,16 +91,20 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     :ok
   end
 
+  def running? do
+    GenServer.call(__MODULE__, :running?) == :running
+  end
+
+  # GenServer callbacks
+  @impl true
+  def init(:ok) do
+    {:ok, %{port: :none, current_task: :none}}
+  end
+
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
     args = build_crf_search_args(video, vmaf_percent)
-
-    new_state = %{
-      state
-      | port: Helper.open_port(args),
-        current_task: %{video: video, args: args}
-    }
-
+    new_state = %{state | port: Helper.open_port(args), current_task: %{video: video, args: args}}
     {:noreply, new_state}
   end
 
@@ -115,19 +114,13 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
-  def handle_info(
-        {port, {:data, {:eol, line}}},
-        %{port: port, current_task: %{video: video, args: args}} = state
-      ) do
+  def handle_info({port, {:data, {:eol, line}}}, %{port: port, current_task: %{video: video, args: args}} = state) do
     process_line(line, video, args)
     {:noreply, state}
   end
 
   @impl true
-  def handle_info(
-        {port, {:data, {:noeol, data}}},
-        %{port: port, current_task: %{video: video}} = state
-      ) do
+  def handle_info({port, {:data, {:noeol, data}}}, %{port: port, current_task: %{video: video}} = state) do
     Logger.error("Received partial data: for video: #{video.id}, #{data}")
     {:noreply, state}
   end
@@ -170,87 +163,53 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     {:reply, status, state}
   end
 
-  def running? do
-    case GenServer.call(__MODULE__, :running?) do
-      :running -> true
-      :not_running -> false
-    end
-  end
-
+  # Private helper functions
   defp notify_crf_searcher do
     GenServer.cast(Reencodarr.CrfSearcher, :crf_search_finished)
   end
 
-  def process_line(line, video, args) do
+  defp process_line(line, video, args) do
     cond do
       captures = Regex.named_captures(@encoding_sample_regex, line) ->
-        Logger.info(
-          "Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
-        )
-
-        :none
+        Logger.info("Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}")
 
       captures = Regex.named_captures(@simple_vmaf_regex, line) ->
-        Logger.info(
-          "Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
-        )
-
+        Logger.info("Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%")
         upsert_vmaf(Map.put(captures, "chosen", false), video, args)
 
       captures = Regex.named_captures(@sample_regex, line) ->
-        Logger.info(
-          "Sample #{captures["sample_num"]}/#{captures["total_samples"]} - CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
-        )
-
+        Logger.info("Sample #{captures["sample_num"]}/#{captures["total_samples"]} - CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%")
         upsert_vmaf(Map.put(captures, "chosen", false), video, args)
 
       captures = Regex.named_captures(@eta_vmaf_regex, line) ->
-        Logger.info(
-          "VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}"
-        )
-
+        Logger.info("VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}")
         upsert_vmaf(Map.put(captures, "chosen", true), video, args)
 
       captures = Regex.named_captures(@vmaf_regex, line) ->
         Logger.info("VMAF comparison: #{captures["file1"]} vs #{captures["file2"]}")
-        :none
 
       captures = Regex.named_captures(@progress_regex, line) ->
-        Logger.info(
-          "Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
-        )
-
-        :none
+        Logger.info("Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}")
 
       captures = Regex.named_captures(@success_line_regex, line) ->
         Logger.info("CRF search successful for CRF: #{captures["crf"]}")
         Media.mark_vmaf_as_chosen(video.id, captures["crf"])
-        :none
 
       line == "Error: Failed to find a suitable crf" ->
-        Logger.error(
-          "Failed to find a suitable CRF, marking as reencoded for now. (I need to add a failed state)"
-        )
-
+        Logger.error("Failed to find a suitable CRF, marking as reencoded for now. (I need to add a failed state)")
         Media.mark_as_reencoded(video)
-        :none
 
       true ->
         Logger.error("No match for line: #{line}")
-        :none
     end
   end
 
-  @spec build_crf_search_args(Reencodarr.Media.Video.t(), integer()) :: [...]
-  def build_crf_search_args(video, vmaf_percent) do
+  defp build_crf_search_args(video, vmaf_percent) do
     base_args = [
       "crf-search",
-      "-i",
-      video.path,
-      "--min-vmaf",
-      Integer.to_string(vmaf_percent),
-      "--temp-dir",
-      Helper.temp_dir()
+      "-i", video.path,
+      "--min-vmaf", Integer.to_string(vmaf_percent),
+      "--temp-dir", Helper.temp_dir()
     ]
 
     rule_args =
@@ -282,20 +241,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
       {:error, changeset} ->
         Logger.error("Failed to upsert VMAF: #{inspect(changeset)}")
-        :none
     end
   end
 
   defp parse_time(nil, _), do: nil
   defp parse_time(_, nil), do: nil
-
   defp parse_time(time, time_unit) do
     case Integer.parse(time) do
-      {time_value, _} ->
-        convert_to_seconds(time_value, time_unit)
-
-      :error ->
-        nil
+      {time_value, _} -> convert_to_seconds(time_value, time_unit)
+      :error -> nil
     end
   end
 

@@ -4,19 +4,9 @@ defmodule Reencodarr.AbAv1.Encode do
   alias Reencodarr.AbAv1.Helper
   require Logger
 
+  # Public API
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
-
-  @impl true
-  def init(:ok) do
-    {:ok,
-     %{
-       port: :none,
-       video: :none,
-       vmaf: :none,
-       output_file: nil
-     }}
-  end
 
   @spec encode(Media.Vmaf.t()) :: :ok
   def encode(vmaf) do
@@ -31,46 +21,22 @@ defmodule Reencodarr.AbAv1.Encode do
     end
   end
 
+  # GenServer Callbacks
+  @impl true
+  def init(:ok) do
+    {:ok,
+     %{
+       port: :none,
+       video: :none,
+       vmaf: :none,
+       output_file: :none
+     }}
+  end
+
   @impl true
   def handle_call(:running?, _from, %{port: port} = state) do
     status = if port == :none, do: :not_running, else: :running
     {:reply, status, state}
-  end
-
-  defp prepare_encode_state(vmaf, state) do
-    args = build_encode_args(vmaf)
-    output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
-
-    Logger.info("Starting encode with args: #{inspect(args)}")
-
-    %{
-      state
-      | port: Helper.open_port(args),
-        video: vmaf.video,
-        vmaf: vmaf,
-        output_file: output_file
-    }
-  end
-
-  defp build_encode_args(vmaf) do
-    base_args = [
-      "encode",
-      "--crf",
-      to_string(vmaf.crf),
-      "-o",
-      Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv"),
-      "-i",
-      vmaf.video.path
-    ]
-
-    rule_args =
-      vmaf.video
-      |> Rules.apply()
-      |> Enum.flat_map(fn
-        {k, v} -> [to_string(k), to_string(v)]
-      end)
-
-    base_args ++ rule_args
   end
 
   @impl true
@@ -122,6 +88,43 @@ defmodule Reencodarr.AbAv1.Encode do
     {:noreply, new_state}
   end
 
+  # Private Helper Functions
+  defp prepare_encode_state(vmaf, state) do
+    args = build_encode_args(vmaf)
+    output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
+
+    Logger.info("Starting encode with args: #{inspect(args)}")
+
+    %{
+      state
+      | port: Helper.open_port(args),
+        video: vmaf.video,
+        vmaf: vmaf,
+        output_file: output_file
+    }
+  end
+
+  defp build_encode_args(vmaf) do
+    base_args = [
+      "encode",
+      "--crf",
+      to_string(vmaf.crf),
+      "-o",
+      Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv"),
+      "-i",
+      vmaf.video.path
+    ]
+
+    rule_args =
+      vmaf.video
+      |> Rules.apply()
+      |> Enum.flat_map(fn
+        {k, v} -> [to_string(k), to_string(v)]
+      end)
+
+    base_args ++ rule_args
+  end
+
   defp notify_encoder(video, output_file) do
     GenServer.cast(Reencodarr.Encoder, {:encoding_complete, video, output_file})
   end
@@ -148,7 +151,8 @@ defmodule Reencodarr.AbAv1.Encode do
         Phoenix.PubSub.broadcast(
           Reencodarr.PubSub,
           "progress",
-          {:encoding, %{percent: captures["percent"], eta: human_readable_eta, fps: captures["fps"]}}
+          {:encoding,
+           %{percent: captures["percent"], eta: human_readable_eta, fps: captures["fps"]}}
         )
 
       captures =
