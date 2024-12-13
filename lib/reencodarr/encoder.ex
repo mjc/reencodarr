@@ -27,8 +27,8 @@ defmodule Reencodarr.Encoder do
     GenServer.cast(__MODULE__, :pause_encoding)
   end
 
-  def running? do
-    GenServer.call(__MODULE__, :running?)
+  def scanning? do
+    GenServer.call(__MODULE__, :scanning?)
   end
 
   # Server Callbacks
@@ -177,7 +177,7 @@ defmodule Reencodarr.Encoder do
   end
 
   @impl true
-  def handle_call(:running?, _from, state) do
+  def handle_call(:scanning?, _from, state) do
     {:reply, state.encoding, state}
   end
 

@@ -31,8 +31,8 @@ defmodule Reencodarr.CrfSearcher do
     GenServer.call(__MODULE__, :toggle_searching)
   end
 
-  def running? do
-    GenServer.call(__MODULE__, :running?)
+  def scanning? do
+    GenServer.call(__MODULE__, :scanning?)
   end
 
   defp schedule_search do
@@ -75,7 +75,7 @@ defmodule Reencodarr.CrfSearcher do
   end
 
   @impl true
-  def handle_call(:running?, _from, state) do
+  def handle_call(:scanning?, _from, state) do
     {:reply, state.searching, state}
   end
 

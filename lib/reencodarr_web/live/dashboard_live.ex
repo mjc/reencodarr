@@ -22,8 +22,8 @@ defmodule ReencodarrWeb.DashboardLive do
       |> assign(:timezone, "UTC")
       |> assign(:vmaf, %Media.Vmaf{})
       |> assign(:progress, %{})
-      |> assign(:encoding, Encoder.running?())
-      |> assign(:crf_searching, CrfSearcher.running?())
+      |> assign(:encoding, Encoder.scanning?())
+      |> assign(:crf_searching, CrfSearcher.scanning?())
 
     {:ok, socket}
   end
