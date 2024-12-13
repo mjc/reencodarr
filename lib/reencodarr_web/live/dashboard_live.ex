@@ -5,20 +5,19 @@ defmodule ReencodarrWeb.DashboardLive do
 
   require Logger
 
-  @update_interval 1_000
-
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, "progress")
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
     end
 
-    :timer.send_interval(@update_interval, self(), :update_stats)
+    # TODO: less sucky way to get initial stats
+    initial_stats = Reencodarr.Statistics.get_stats() |> Map.get(:media_stats)
 
     socket =
       socket
-      |> assign(update_stats())
       |> assign(:timezone, "UTC")
       |> assign(:vmaf, %Media.Vmaf{})
       |> assign(:progress, %{})
@@ -26,6 +25,7 @@ defmodule ReencodarrWeb.DashboardLive do
       |> assign(:crf_searching, CrfSearcher.scanning?())
       |> assign(:syncing, false)
       |> assign(:sync_progress, 0)
+      |> assign(:stats, initial_stats)
 
     {:ok, socket}
   end
@@ -74,7 +74,7 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   def handle_info({:stats, %Media.Stats{} = new_stats}, socket) do
-    {:noreply, assign(socket, :queue_length, new_stats.queue_length) |> assign(:stats, new_stats)}
+    {:noreply, assign(socket, :stats, new_stats)}
   end
 
   def handle_event("set_timezone", %{"timezone" => timezone}, socket) do
@@ -177,7 +177,7 @@ defmodule ReencodarrWeb.DashboardLive do
         <.live_component
           module={ReencodarrWeb.QueueComponent}
           id="queue-component"
-          queue_length={@queue_length}
+          queue_length={@stats.queue_length}
         />
         <.live_component
           module={ReencodarrWeb.ProgressComponent}

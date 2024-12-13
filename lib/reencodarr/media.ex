@@ -6,6 +6,7 @@ defmodule Reencodarr.Media do
   import Ecto.Query, warn: false
   alias Reencodarr.Repo
   alias Reencodarr.Media.{Video, Library, Vmaf}
+  alias Reencodarr.{AbAv1} # Ensure AbAv1 is properly aliased
   require Logger
 
   defmodule Stats do
@@ -19,7 +20,8 @@ defmodule Reencodarr.Media do
       :lowest_vmaf,
       :lowest_vmaf_by_time,
       :most_recent_video_update,
-      :most_recent_inserted_video
+      :most_recent_inserted_video,
+      :queue_length
     ]
   end
 
@@ -589,7 +591,8 @@ defmodule Reencodarr.Media do
         lowest_vmaf: %Vmaf{},
         lowest_vmaf_by_time: %Vmaf{},
         most_recent_video_update: ~N[2023-10-05 14:30:00],
-        most_recent_inserted_video: ~N[2023-10-05 14:30:00]
+        most_recent_inserted_video: ~N[2023-10-05 14:30:00],
+        queue_length: 5
       }
 
   """
@@ -632,6 +635,7 @@ defmodule Reencodarr.Media do
     lowest_vmaf_by_time = get_lowest_chosen_vmaf_by_time() || %Vmaf{}
     most_recent_video_update = most_recent_video_update()
     most_recent_inserted_video = get_most_recent_inserted_at()
+    queue_length = AbAv1.queue_length() # Replace AbAv1 with Encoder if necessary
 
     %Stats{
       avg_vmaf_percentage: avg_vmaf_percentage,
@@ -643,7 +647,8 @@ defmodule Reencodarr.Media do
       total_videos: total_videos,
       total_vmafs: total_vmafs,
       most_recent_video_update: most_recent_video_update,
-      most_recent_inserted_video: most_recent_inserted_video
+      most_recent_inserted_video: most_recent_inserted_video,
+      queue_length: queue_length
     }
   end
 
