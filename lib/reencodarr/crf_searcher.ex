@@ -87,6 +87,7 @@ defmodule Reencodarr.CrfSearcher do
       nil ->
         Logger.error("CrfSearch process is not running.")
         Process.send_after(self(), :monitor_crf_search, 10_000)
+
       pid ->
         Process.monitor(pid)
     end

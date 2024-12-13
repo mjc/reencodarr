@@ -129,9 +129,14 @@ defmodule Reencodarr.Encoder do
       Logger.debug("Next video to re-encode: #{chosen_vmaf.video.path}")
       AbAv1.encode(chosen_vmaf)
     else
-      nil -> Logger.error("Encode process is not running.")
-      true -> Logger.debug("Encoding is already in progress, skipping check for next video.")
-      other -> Logger.error("No chosen VMAF found for video or some other error: #{inspect(other)}")
+      nil ->
+        Logger.error("Encode process is not running.")
+
+      true ->
+        Logger.debug("Encoding is already in progress, skipping check for next video.")
+
+      other ->
+        Logger.error("No chosen VMAF found for video or some other error: #{inspect(other)}")
     end
   end
 
@@ -144,6 +149,7 @@ defmodule Reencodarr.Encoder do
       nil ->
         Logger.error("Encode process is not running.")
         Process.send_after(self(), :monitor_encode, 10_000)
+
       pid ->
         Process.monitor(pid)
     end

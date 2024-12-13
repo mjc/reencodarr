@@ -25,6 +25,7 @@ defmodule Reencodarr.Sync do
     case Services.Sonarr.get_shows() do
       {:ok, %Req.Response{body: shows}} ->
         total_shows = length(shows)
+
         shows
         |> Enum.with_index()
         |> Enum.each(fn {show, index} ->

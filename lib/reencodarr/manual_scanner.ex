@@ -38,6 +38,7 @@ defmodule Reencodarr.ManualScanner do
       Logger.debug("Processing file: #{file}")
       Analyzer.process_path(%{path: file, service_id: nil, service_type: nil})
     end)
+
     {:noreply, state}
   end
 

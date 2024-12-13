@@ -158,8 +158,11 @@ defmodule ReencodarrWeb.DashboardLive do
         />
         <div>
           <form phx-submit="manual_scan">
-            <input type="text" name="path" placeholder="Enter path to scan" class="input"/>
-            <button type="submit" class="text-white font-bold py-2 px-4 rounded bg-blue-500 hover:bg-blue-700">
+            <input type="text" name="path" placeholder="Enter path to scan" class="input" />
+            <button
+              type="submit"
+              class="text-white font-bold py-2 px-4 rounded bg-blue-500 hover:bg-blue-700"
+            >
               Start Manual Scan
             </button>
           </form>
