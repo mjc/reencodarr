@@ -1,6 +1,6 @@
 defmodule ReencodarrWeb.DashboardLive do
   use ReencodarrWeb, :live_view
-  alias Reencodarr.{Media, AbAv1, Encoder, CrfSearcher, Sync}
+  alias Reencodarr.{Media, AbAv1, Encoder, CrfSearcher, Sync, ManualScanner}
   import Phoenix.LiveComponent
 
   require Logger
@@ -109,6 +109,12 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, socket}
   end
 
+  def handle_event("manual_scan", %{"path" => path}, socket) do
+    Logger.info("Starting manual scan for path: #{path}")
+    ManualScanner.scan(path)
+    {:noreply, socket}
+  end
+
   defp update_stats do
     %{
       queue_length: AbAv1.queue_length(),
@@ -150,6 +156,14 @@ defmodule ReencodarrWeb.DashboardLive do
           active_class="bg-red-500"
           inactive_class="bg-green-500"
         />
+        <div>
+          <form phx-submit="manual_scan">
+            <input type="text" name="path" placeholder="Enter path to scan" class="input"/>
+            <button type="submit" class="text-white font-bold py-2 px-4 rounded bg-blue-500 hover:bg-blue-700">
+              Start Manual Scan
+            </button>
+          </form>
+        </div>
       </div>
 
       <div class="w-full grid grid-cols-1 md:grid-cols-2 gap-4 px-4">

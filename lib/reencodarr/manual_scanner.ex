@@ -18,11 +18,13 @@ defmodule Reencodarr.ManualScanner do
 
   @spec scan(String.t()) :: :ok
   def scan(path) do
+    Logger.info("Received scan request for path: #{path}")
     GenServer.cast(__MODULE__, {:scan, path})
   end
 
   @spec handle_cast({:scan, String.t()}, any()) :: {:noreply, any()}
   def handle_cast({:scan, path}, state) do
+    Logger.info("Starting scan for path: #{path}")
     find_video_files(path)
     {:noreply, state}
   end
@@ -30,25 +32,27 @@ defmodule Reencodarr.ManualScanner do
   @spec handle_info({port(), {:data, String.t()}}, any()) :: {:noreply, any()}
   def handle_info({_port, {:data, data}}, state) do
     files = String.split(data, "\n", trim: true)
-
     Logger.debug("Found #{Enum.count(files)} video files")
 
     Enum.each(files, fn file ->
+      Logger.debug("Processing file: #{file}")
       Analyzer.process_path(%{path: file, service_id: nil, service_type: nil})
     end)
-
     {:noreply, state}
   end
 
   @spec handle_info({port(), {:exit_status, integer()}}, any()) :: {:noreply, any()}
-  def handle_info({_port, {:exit_status, _status}}, state) do
+  def handle_info({_port, {:exit_status, status}}, state) do
+    Logger.info("Scan process exited with status: #{status}")
     {:noreply, state}
   end
 
   @spec find_video_files(String.t()) :: port()
   defp find_video_files(path) do
     fd_path = find_fd_path()
+    Logger.info("Using fd executable at: #{fd_path}")
     args = Enum.flat_map(@file_extensions, &["-e", &1]) ++ [".", path]
+    Logger.debug("Running fd with arguments: #{inspect(args)}")
     Port.open({:spawn_executable, fd_path}, [:binary, :exit_status, args: args])
   end
 

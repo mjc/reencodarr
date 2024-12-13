@@ -105,7 +105,7 @@ defmodule Reencodarr.Sync do
       "mediainfo" => mediainfo
     }
 
-    if audio_codec in ["TrueHD", "EAC3", "EAC3 Atmos", "TrueHD Atmos"] do
+    if audio_codec in ["TrueHD", "EAC3", "EAC3 Atmos", "TrueHD Atmos", "DTS-X"] do
       Reencodarr.Analyzer.process_path(%{
         path: episode_file["path"],
         service_id: to_string(episode_file["id"]),
@@ -137,6 +137,7 @@ defmodule Reencodarr.Sync do
   defp map_codec_id("Opus"), do: "A_OPUS"
   defp map_codec_id("EAC3"), do: "A_EAC3"
   defp map_codec_id("TrueHD"), do: "A_TRUEHD"
+  defp map_codec_id("DTS-X"), do: "A_DTS/X"
   defp map_codec_id("DTS-HD MA"), do: "A_DTS/MA"
   defp map_codec_id("DTS"), do: "A_DTS"
   defp map_codec_id("FLAC"), do: "A_FLAC"
