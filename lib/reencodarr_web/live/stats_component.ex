@@ -50,7 +50,8 @@ defmodule ReencodarrWeb.StatsComponent do
 
   defp format_datetime(datetime, timezone) do
     datetime
-    |> DateTime.from_naive!(timezone)
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.shift_zone!(timezone)
     |> Calendar.strftime("%b %d, %Y %I:%M:%S %p")
   end
 end
