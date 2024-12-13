@@ -13,19 +13,18 @@ defmodule ReencodarrWeb.DashboardLive do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
     end
 
-    # TODO: less sucky way to get initial stats
-    initial_stats = Reencodarr.Statistics.get_stats() |> Map.get(:media_stats)
+    initial_stats = Reencodarr.Statistics.get_stats()
 
     socket =
       socket
       |> assign(:timezone, "UTC")
-      |> assign(:vmaf, %Media.Vmaf{})
       |> assign(:progress, %{})
-      |> assign(:encoding, Encoder.scanning?())
-      |> assign(:crf_searching, CrfSearcher.scanning?())
-      |> assign(:syncing, false)
-      |> assign(:sync_progress, 0)
-      |> assign(:stats, initial_stats)
+      |> assign(:encoding, initial_stats.encoding)
+      |> assign(:crf_searching, initial_stats.crf_searching)
+      |> assign(:syncing, initial_stats.syncing)
+      |> assign(:sync_progress, initial_stats.sync_progress)
+      |> assign(:stats, initial_stats.stats)
+      |> assign(:crf_search_progress, initial_stats.crf_search_progress)
 
     {:ok, socket}
   end
@@ -36,7 +35,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   def handle_info({:progress, vmaf}, socket) do
     Logger.debug("Received progress event for VMAF: #{inspect(vmaf)}")
-    {:noreply, assign(socket, :vmaf, vmaf)}
+    {:noreply, assign(socket, :crf_search_progress, vmaf)}
   end
 
   def handle_info({:encoder, :started}, socket) do
@@ -73,8 +72,17 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, assign(socket, :syncing, true) |> assign(:sync_progress, progress)}
   end
 
-  def handle_info({:stats, %Media.Stats{} = new_stats}, socket) do
-    {:noreply, assign(socket, :stats, new_stats)}
+  def handle_info({:stats, new_stats}, socket) do
+    socket =
+      socket
+      |> assign(:encoding, new_stats.encoding)
+      |> assign(:crf_searching, new_stats.crf_searching)
+      |> assign(:syncing, new_stats.syncing)
+      |> assign(:sync_progress, new_stats.sync_progress)
+      |> assign(:stats, new_stats.stats)
+      |> assign(:crf_search_progress, new_stats.crf_search_progress)
+
+    {:noreply, socket}
   end
 
   def handle_event("set_timezone", %{"timezone" => timezone}, socket) do
@@ -183,7 +191,7 @@ defmodule ReencodarrWeb.DashboardLive do
           module={ReencodarrWeb.ProgressComponent}
           id="progress-component"
           progress={@progress}
-          vmaf={@vmaf}
+          vmaf={@crf_search_progress}
           sync_progress={@sync_progress}
         />
         <.live_component
