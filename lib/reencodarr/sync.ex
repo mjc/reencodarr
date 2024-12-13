@@ -1,21 +1,45 @@
 defmodule Reencodarr.Sync do
+  use GenServer
+
   @moduledoc """
   This module is responsible for syncing data between services and Reencodarr.
   """
   alias Reencodarr.{Media, Services}
   require Logger
 
+  # Client API
+  def start_link(_) do
+    GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
+  end
+
   def sync_episode_files do
+    GenServer.cast(__MODULE__, :sync_episode_files)
+  end
+
+  # Server Callbacks
+  def init(state) do
+    {:ok, state}
+  end
+
+  def handle_cast(:sync_episode_files, state) do
     case Services.Sonarr.get_shows() do
       {:ok, %Req.Response{body: shows}} ->
+        total_shows = length(shows)
         shows
-        |> Enum.map(& &1["id"])
-        |> Enum.map(&fetch_and_upsert_episode_files/1)
-        |> List.flatten()
+        |> Enum.with_index()
+        |> Enum.each(fn {show, index} ->
+          fetch_and_upsert_episode_files(show["id"])
+          progress = div((index + 1) * 100, total_shows)
+          Logger.debug("Sync progress: #{progress}%")
+          Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync_progress, progress})
+        end)
 
       {:error, reason} ->
-        {:error, reason}
+        Logger.error("Failed to sync episode files: #{inspect(reason)}")
     end
+
+    send(self(), :sync_complete)
+    {:noreply, state}
   end
 
   defp fetch_and_upsert_episode_files(series_id) do

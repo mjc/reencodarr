@@ -1,6 +1,6 @@
 defmodule ReencodarrWeb.DashboardLive do
   use ReencodarrWeb, :live_view
-  alias Reencodarr.{Media, AbAv1, Encoder, CrfSearcher}
+  alias Reencodarr.{Media, AbAv1, Encoder, CrfSearcher, Sync}
   import Phoenix.LiveComponent
 
   require Logger
@@ -24,6 +24,8 @@ defmodule ReencodarrWeb.DashboardLive do
       |> assign(:progress, %{})
       |> assign(:encoding, Encoder.scanning?())
       |> assign(:crf_searching, CrfSearcher.scanning?())
+      |> assign(:syncing, false)
+      |> assign(:sync_progress, 0)
 
     {:ok, socket}
   end
@@ -62,6 +64,15 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, assign(socket, :crf_searching, false)}
   end
 
+  def handle_info(:sync_complete, socket) do
+    Logger.info("Sonarr sync complete")
+    {:noreply, assign(socket, :syncing, false) |> assign(:sync_progress, 100)}
+  end
+
+  def handle_info({:sync_progress, progress}, socket) do
+    {:noreply, assign(socket, :sync_progress, progress)}
+  end
+
   def handle_event("set_timezone", %{"timezone" => timezone}, socket) do
     Logger.debug("Setting timezone to #{timezone}")
     {:noreply, assign(socket, :timezone, timezone)}
@@ -91,6 +102,13 @@ defmodule ReencodarrWeb.DashboardLive do
     end
   end
 
+  def handle_event("sync_sonarr", _params, socket) do
+    Logger.info("Syncing with Sonarr (slow)")
+    socket = assign(socket, :syncing, true) |> assign(:sync_progress, 0)
+    Sync.sync_episode_files()
+    {:noreply, socket}
+  end
+
   defp update_stats do
     %{
       queue_length: AbAv1.queue_length(),
@@ -116,6 +134,12 @@ defmodule ReencodarrWeb.DashboardLive do
           active_class="bg-red-500"
           inactive_class="bg-blue-500"
         />
+        <button
+          phx-click="sync_sonarr"
+          class={"text-white font-bold py-2 px-4 rounded " <> if @syncing, do: "bg-gray-500", else: "bg-yellow-500 hover:bg-yellow-700"}
+        >
+          Sync Sonarr (slow)
+        </button>
         <.live_component
           module={ReencodarrWeb.ToggleComponent}
           id="toggle-crf-search"
@@ -139,6 +163,7 @@ defmodule ReencodarrWeb.DashboardLive do
           id="progress-component"
           progress={@progress}
           vmaf={@vmaf}
+          sync_progress={@sync_progress}
         />
         <.live_component
           module={ReencodarrWeb.StatsComponent}

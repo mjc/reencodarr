@@ -20,7 +20,8 @@ defmodule Reencodarr.Application do
       Reencodarr.Analyzer,
       Reencodarr.CrfSearcher,
       Reencodarr.Encoder,
-      Reencodarr.AbAv1
+      Reencodarr.AbAv1,
+      Reencodarr.Sync
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

@@ -19,7 +19,8 @@ Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
   - [ ] Clustering
   - [ ] Remove PostgreSQL dependency
   - [ ] Flexible format selection rules (including toggling different kinds of hwaccel. cuda decoding is always on currently)
-  - [ ] Automatic syncing (you have to start it via the iex console for now)
+  - [ ] Automatic syncing
+  - [x] Syncing button for Sonarr
   - [ ] Setup wizard
   - [ ] Radarr integration
   - [ ] Manual syncing

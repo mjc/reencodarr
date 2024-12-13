@@ -72,6 +72,23 @@ defmodule ReencodarrWeb.ProgressComponent do
               <% end %>
             </td>
           </tr>
+          <tr>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">
+                Sonarr Sync Progress
+              </div>
+            </td>
+            <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
+              <div class="flex items-center">
+                <div class="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+                  <div class="bg-blue-600 h-2.5 rounded-full" style={"width: #{if @sync_progress > 0, do: @sync_progress, else: 0}%"}></div>
+                </div>
+                <div class="ml-2 text-sm leading-5 text-gray-900 dark:text-gray-100">
+                  {@sync_progress}%
+                </div>
+              </div>
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>
