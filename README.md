@@ -25,6 +25,7 @@ Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
   - [ ] Radarr integration
   - [x] Manual syncing and scanning
   - [ ] Authentication. Don't run this thing on the public internet. You've been warned.
+  - [ ] a UI for comparing results
 
 ## Learn more
 
