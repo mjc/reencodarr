@@ -22,7 +22,7 @@ defmodule Reencodarr.Encoder do
   def init(state) do
     Logger.info("Initializing Encoder...")
     monitor_encode()
-    {:ok, %{state | encoding: false}}
+    {:ok, Map.put(state, :encoding, false)}
   end
 
   @impl true
