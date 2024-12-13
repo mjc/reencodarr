@@ -107,45 +107,6 @@ defmodule Reencodarr.Encoder do
 
   @impl true
   def handle_info(
-        %{action: "encoding:start", video: %Media.Video{} = video, filename: filename},
-        state
-      ) do
-    Logger.info("Started encoding #{filename} for video #{video.id}")
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(
-        %{
-          action: "encoding:progress",
-          video: %Media.Video{} = video,
-          percent: percent,
-          fps: fps,
-          eta: eta
-        },
-        state
-      ) do
-    Logger.info(
-      "Encoding progress for video #{video.id}: #{percent}% at #{fps} fps, ETA: #{eta} seconds"
-    )
-
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(%{action: "encoding:start", video: %Media.Video{} = video}, state) do
-    Logger.info("Encoding started for video #{video.id}")
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(%{action: "queue:update", crf_searches: crf_searches, encodes: encodes}, state) do
-    Logger.info("Queue updated: #{crf_searches} CRF searches, #{encodes} encodes")
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(
         %{
           action: "encoding:complete",
           result: {:error, 143},
@@ -155,11 +116,6 @@ defmodule Reencodarr.Encoder do
         state
       ) do
     Logger.error("Encoding failed with error code 143 for video #{video.id}")
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(%{action: "encoding", video: _video} = _msg, state) do
     {:noreply, state}
   end
 
