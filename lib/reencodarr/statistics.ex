@@ -10,6 +10,7 @@ defmodule Reencodarr.Statistics do
 
   def init(:ok) do
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "progress")
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
 
     initial_state = %{
       stats: Media.fetch_stats(),
@@ -17,7 +18,8 @@ defmodule Reencodarr.Statistics do
       crf_searching: CrfSearcher.scanning?(),
       syncing: false,
       sync_progress: 0,
-      crf_search_progress: %Media.Vmaf{}
+      crf_search_progress: %Media.Vmaf{},
+      encoding_progress: %{}
     }
 
     schedule_update()
@@ -33,6 +35,24 @@ defmodule Reencodarr.Statistics do
 
   def handle_info({:progress, vmaf}, state) do
     new_state = Map.put(state, :crf_search_progress, vmaf)
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
+    {:noreply, new_state}
+  end
+
+  def handle_info({:encoding, %{percent: percent, eta: eta, fps: fps}}, state) do
+    new_state = Map.put(state, :encoding_progress, %{percent: percent, eta: eta, fps: fps})
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
+    {:noreply, new_state}
+  end
+
+  def handle_info({:encoder, :started}, state) do
+    new_state = Map.put(state, :encoding, true)
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
+    {:noreply, new_state}
+  end
+
+  def handle_info({:encoder, :paused}, state) do
+    new_state = Map.put(state, :encoding, false)
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
     {:noreply, new_state}
   end
