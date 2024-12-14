@@ -69,10 +69,12 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   def handle_info({:sync_progress, progress}, socket) do
+    Logger.debug("Sync progress: #{inspect(progress)}")
     {:noreply, assign(socket, :syncing, true) |> assign(:sync_progress, progress)}
   end
 
   def handle_info({:stats, new_stats}, socket) do
+    Logger.debug("Received new stats: #{inspect(new_stats)}")
     socket =
       socket
       |> assign(:encoding, new_stats.encoding)
