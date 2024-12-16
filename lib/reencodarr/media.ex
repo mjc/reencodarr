@@ -598,54 +598,13 @@ defmodule Reencodarr.Media do
   """
   @spec fetch_stats() :: %Stats{}
   def fetch_stats do
-    counts_query =
-      from(v in Video,
-        group_by: v.reencoded,
-        select: {v.reencoded, count(v.id)}
-      )
-
-    total_videos_query =
-      from(v in Video,
-        select: count(v.id)
-      )
-
-    avg_vmaf_percentage_query =
-      from(v in Vmaf,
-        where: v.chosen == true,
-        select: fragment("ROUND(CAST(AVG(?) AS numeric), 2)", v.percent)
-      )
-
-    total_vmafs_query =
-      from(v in Vmaf,
-        select: count(v.id)
-      )
-
-    chosen_vmafs_count_query =
-      from(v in Vmaf,
-        where: v.chosen == true,
-        select: count(v.id)
-      )
-
-    encodes_count_query =
-      from v in Video,
-        join: m in Vmaf,
-        on: m.video_id == v.id,
-        where: v.reencoded == false and m.chosen == true,
-        select: count(v.id)
-
-    queued_crf_searches_count_query =
-      from v in Video,
-        left_join: vmafs in assoc(v, :vmafs),
-        where: is_nil(vmafs.id) and not v.reencoded,
-        select: count(v.id)
-
-    counts = Repo.all(counts_query) |> Enum.into(%{})
-    total_videos = Repo.one(total_videos_query)
-    avg_vmaf_percentage = Repo.one(avg_vmaf_percentage_query)
-    total_vmafs = Repo.one(total_vmafs_query)
-    chosen_vmafs_count = Repo.one(chosen_vmafs_count_query)
-    encodes_count = Repo.one(encodes_count_query)
-    queued_crf_searches_count = Repo.one(queued_crf_searches_count_query)
+    counts = Repo.all(counts_query()) |> Enum.into(%{})
+    total_videos = Repo.one(total_videos_query())
+    avg_vmaf_percentage = Repo.one(avg_vmaf_percentage_query())
+    total_vmafs = Repo.one(total_vmafs_query())
+    chosen_vmafs_count = Repo.one(chosen_vmafs_count_query())
+    encodes_count = Repo.one(encodes_count_query())
+    queued_crf_searches_count = Repo.one(queued_crf_searches_count_query())
     lowest_vmaf = get_lowest_chosen_vmaf() || %Vmaf{}
     lowest_vmaf_by_time = get_lowest_chosen_vmaf_by_time() || %Vmaf{}
     most_recent_video_update = most_recent_video_update()
@@ -664,6 +623,54 @@ defmodule Reencodarr.Media do
       most_recent_inserted_video: most_recent_inserted_video,
       queue_length: %{encodes: encodes_count, crf_searches: queued_crf_searches_count}
     }
+  end
+
+  defp counts_query do
+    from(v in Video,
+      group_by: v.reencoded,
+      select: {v.reencoded, count(v.id)}
+    )
+  end
+
+  defp total_videos_query do
+    from(v in Video,
+      select: count(v.id)
+    )
+  end
+
+  defp avg_vmaf_percentage_query do
+    from(v in Vmaf,
+      where: v.chosen == true,
+      select: fragment("ROUND(CAST(AVG(?) AS numeric), 2)", v.percent)
+    )
+  end
+
+  defp total_vmafs_query do
+    from(v in Vmaf,
+      select: count(v.id)
+    )
+  end
+
+  defp chosen_vmafs_count_query do
+    from(v in Vmaf,
+      where: v.chosen == true,
+      select: count(v.id)
+    )
+  end
+
+  defp encodes_count_query do
+    from v in Video,
+      join: m in Vmaf,
+      on: m.video_id == v.id,
+      where: v.reencoded == false and m.chosen == true,
+      select: count(v.id)
+  end
+
+  defp queued_crf_searches_count_query do
+    from v in Video,
+      left_join: vmafs in assoc(v, :vmafs),
+      where: is_nil(vmafs.id) and not v.reencoded,
+      select: count(v.id)
   end
 
   @doc """
