@@ -21,7 +21,8 @@ defmodule Reencodarr.Media do
       :lowest_vmaf_by_time,
       :most_recent_video_update,
       :most_recent_inserted_video,
-      :queue_length
+      :queue_length,
+      :encode_queue_length
     ]
   end
 
@@ -592,7 +593,7 @@ defmodule Reencodarr.Media do
         lowest_vmaf_by_time: %Vmaf{},
         most_recent_video_update: ~N[2023-10-05 14:30:00],
         most_recent_inserted_video: ~N[2023-10-05 14:30:00],
-        queue_length: 5
+        queue_length: %{encodes: 3, crf_searches: 5}
       }
 
   """
@@ -626,11 +627,19 @@ defmodule Reencodarr.Media do
         select: count(v.id)
       )
 
+    encodes_count_query =
+      from v in Video,
+        join: m in Vmaf,
+        on: m.video_id == v.id,
+        where: v.reencoded == false and m.chosen == true,
+        select: count(v.id)
+
     counts = Repo.all(counts_query) |> Enum.into(%{})
     total_videos = Repo.one(total_videos_query)
     avg_vmaf_percentage = Repo.one(avg_vmaf_percentage_query)
     total_vmafs = Repo.one(total_vmafs_query)
     chosen_vmafs_count = Repo.one(chosen_vmafs_count_query)
+    encodes_count = Repo.one(encodes_count_query)
     lowest_vmaf = get_lowest_chosen_vmaf() || %Vmaf{}
     lowest_vmaf_by_time = get_lowest_chosen_vmaf_by_time() || %Vmaf{}
     most_recent_video_update = most_recent_video_update()
@@ -648,7 +657,7 @@ defmodule Reencodarr.Media do
       total_vmafs: total_vmafs,
       most_recent_video_update: most_recent_video_update,
       most_recent_inserted_video: most_recent_inserted_video,
-      queue_length: queue_length
+      queue_length: %{encodes: encodes_count, crf_searches: queue_length.crf_searches}
     }
   end
 
