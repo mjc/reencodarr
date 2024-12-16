@@ -1,10 +1,11 @@
 defmodule ReencodarrWeb.DashboardLive do
   use ReencodarrWeb, :live_view
-  alias Reencodarr.{Media, AbAv1, Encoder, CrfSearcher, Sync, ManualScanner}
+  alias Reencodarr.{Encoder, CrfSearcher, Statistics, Sync, ManualScanner}
   import Phoenix.LiveComponent
 
   require Logger
 
+  @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, "progress")
@@ -13,7 +14,7 @@ defmodule ReencodarrWeb.DashboardLive do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
     end
 
-    initial_stats = Reencodarr.Statistics.get_stats()
+    initial_stats = Statistics.get_stats()
 
     socket =
       socket
@@ -29,50 +30,61 @@ defmodule ReencodarrWeb.DashboardLive do
     {:ok, socket}
   end
 
+  @impl true
   def handle_info(:update_stats, socket) do
-    {:noreply, assign(socket, update_stats())}
+    new_stats = Statistics.get_stats()
+    {:noreply, assign(socket, new_stats)}
   end
 
+  @impl true
   def handle_info({:progress, vmaf}, socket) do
     Logger.debug("Received progress event for VMAF: #{inspect(vmaf)}")
     {:noreply, assign(socket, :crf_search_progress, vmaf)}
   end
 
+  @impl true
   def handle_info({:encoder, :started}, socket) do
     Logger.debug("Encoder started")
     {:noreply, assign(socket, :encoding, true)}
   end
 
+  @impl true
   def handle_info({:encoder, :paused}, socket) do
     Logger.debug("Encoder paused")
     {:noreply, assign(socket, :encoding, false)}
   end
 
+  @impl true
   def handle_info({:encoding, %{percent: percent, eta: eta, fps: fps}}, socket) do
     Logger.debug("Encoding progress: #{percent}% ETA: #{eta} FPS: #{fps}")
     {:noreply, assign(socket, :progress, %{percent: percent, eta: eta, fps: fps})}
   end
 
+  @impl true
   def handle_info({:crf_searcher, :started}, socket) do
     Logger.debug("CRF search started")
     {:noreply, assign(socket, :crf_searching, true)}
   end
 
+  @impl true
   def handle_info({:crf_searcher, :paused}, socket) do
     Logger.debug("CRF search paused")
     {:noreply, assign(socket, :crf_searching, false)}
   end
 
+  @impl true
   def handle_info(:sync_complete, socket) do
     Logger.info("Sync complete")
     {:noreply, assign(socket, :syncing, false) |> assign(:sync_progress, 0)}
   end
 
+  @impl true
   def handle_info({:sync_progress, progress}, socket) do
     Logger.debug("Sync progress: #{inspect(progress)}")
     {:noreply, assign(socket, :syncing, true) |> assign(:sync_progress, progress)}
   end
 
+  @impl true
   def handle_info({:stats, new_stats}, socket) do
     Logger.debug("Received new stats: #{inspect(new_stats)}")
 
@@ -88,11 +100,13 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, socket}
   end
 
+  @impl true
   def handle_event("set_timezone", %{"timezone" => timezone}, socket) do
     Logger.debug("Setting timezone to #{timezone}")
     {:noreply, assign(socket, :timezone, timezone)}
   end
 
+  @impl true
   def handle_event("toggle_encoder", _params, socket) do
     if socket.assigns.encoding do
       Encoder.pause()
@@ -105,6 +119,7 @@ defmodule ReencodarrWeb.DashboardLive do
     end
   end
 
+  @impl true
   def handle_event("toggle_crf_search", _params, socket) do
     if socket.assigns.crf_searching do
       CrfSearcher.pause()
@@ -117,6 +132,7 @@ defmodule ReencodarrWeb.DashboardLive do
     end
   end
 
+  @impl true
   def handle_event("sync_sonarr", _params, socket) do
     Logger.info("Syncing with Sonarr (slow)")
     socket = assign(socket, :syncing, true) |> assign(:sync_progress, 0)
@@ -124,6 +140,7 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, socket}
   end
 
+  @impl true
   def handle_event("sync_radarr", _params, socket) do
     Logger.info("Syncing with Radarr (slow)")
     socket = assign(socket, :syncing, true) |> assign(:sync_progress, 0)
@@ -131,19 +148,14 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, socket}
   end
 
+  @impl true
   def handle_event("manual_scan", %{"path" => path}, socket) do
     Logger.info("Starting manual scan for path: #{path}")
     ManualScanner.scan(path)
     {:noreply, socket}
   end
 
-  defp update_stats do
-    %{
-      queue_length: AbAv1.queue_length(),
-      stats: Media.fetch_stats()
-    }
-  end
-
+  @impl true
   def render(assigns) do
     ~H"""
     <div

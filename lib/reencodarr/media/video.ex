@@ -132,7 +132,9 @@ defmodule Reencodarr.Media.Video do
   @spec is_low_resolution_hevc?(list(String.t()), map()) :: boolean()
   defp is_low_resolution_hevc?(video_codecs, mediainfo) do
     Enum.member?(video_codecs, "V_MPEGH/ISO/HEVC") and
-      String.to_integer(get_track(mediainfo, "Video")["Height"] || "0") < 720
+      get_track(mediainfo, "Video")["Height"]
+      |> to_string()
+      |> String.to_integer() < 720
   end
 
   @spec has_av1_codec?(list(String.t())) :: boolean()
