@@ -26,6 +26,12 @@ let Hooks = {}
 
 Hooks.TimezoneHook = {
   mounted() {
+    this.setTimezone();
+  },
+  reconnected() {
+    this.setTimezone();
+  },
+  setTimezone() {
     let timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
     this.pushEvent("set_timezone", { timezone: timezone });
   }
