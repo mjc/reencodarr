@@ -61,6 +61,7 @@ defmodule Reencodarr.Media.Video do
     field :mediainfo, :map
 
     belongs_to :library, Reencodarr.Media.Library
+    has_many :vmafs, Reencodarr.Media.Vmaf
 
     timestamps(type: :utc_datetime)
   end

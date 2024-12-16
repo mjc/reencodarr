@@ -6,7 +6,6 @@ defmodule Reencodarr.Media do
   import Ecto.Query, warn: false
   alias Reencodarr.Repo
   alias Reencodarr.Media.{Video, Library, Vmaf}
-  alias Reencodarr.AbAv1
   require Logger
 
   defmodule Stats do
@@ -634,17 +633,23 @@ defmodule Reencodarr.Media do
         where: v.reencoded == false and m.chosen == true,
         select: count(v.id)
 
+    queued_crf_searches_count_query =
+      from v in Video,
+        left_join: vmafs in assoc(v, :vmafs),
+        where: is_nil(vmafs.id) and not v.reencoded,
+        select: count(v.id)
+
     counts = Repo.all(counts_query) |> Enum.into(%{})
     total_videos = Repo.one(total_videos_query)
     avg_vmaf_percentage = Repo.one(avg_vmaf_percentage_query)
     total_vmafs = Repo.one(total_vmafs_query)
     chosen_vmafs_count = Repo.one(chosen_vmafs_count_query)
     encodes_count = Repo.one(encodes_count_query)
+    queued_crf_searches_count = Repo.one(queued_crf_searches_count_query)
     lowest_vmaf = get_lowest_chosen_vmaf() || %Vmaf{}
     lowest_vmaf_by_time = get_lowest_chosen_vmaf_by_time() || %Vmaf{}
     most_recent_video_update = most_recent_video_update()
     most_recent_inserted_video = get_most_recent_inserted_at()
-    queue_length = AbAv1.queue_length()
 
     %Stats{
       avg_vmaf_percentage: avg_vmaf_percentage,
@@ -657,7 +662,7 @@ defmodule Reencodarr.Media do
       total_vmafs: total_vmafs,
       most_recent_video_update: most_recent_video_update,
       most_recent_inserted_video: most_recent_inserted_video,
-      queue_length: %{encodes: encodes_count, crf_searches: queue_length.crf_searches}
+      queue_length: %{encodes: encodes_count, crf_searches: queued_crf_searches_count}
     }
   end
 
@@ -755,5 +760,12 @@ defmodule Reencodarr.Media do
       )
       |> Repo.update_all([])
     end)
+  end
+
+  def queued_crf_searches_query do
+    from v in Video,
+      left_join: vmafs in assoc(v, :vmafs),
+      where: is_nil(vmafs.id) and not v.reencoded,
+      select: v
   end
 end
