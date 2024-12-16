@@ -75,6 +75,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   def handle_info({:stats, new_stats}, socket) do
     Logger.debug("Received new stats: #{inspect(new_stats)}")
+
     socket =
       socket
       |> assign(:encoding, new_stats.encoding)

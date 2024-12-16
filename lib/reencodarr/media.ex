@@ -6,7 +6,7 @@ defmodule Reencodarr.Media do
   import Ecto.Query, warn: false
   alias Reencodarr.Repo
   alias Reencodarr.Media.{Video, Library, Vmaf}
-  alias Reencodarr.{AbAv1} # Ensure AbAv1 is properly aliased
+  alias Reencodarr.AbAv1
   require Logger
 
   defmodule Stats do
@@ -644,7 +644,7 @@ defmodule Reencodarr.Media do
     lowest_vmaf_by_time = get_lowest_chosen_vmaf_by_time() || %Vmaf{}
     most_recent_video_update = most_recent_video_update()
     most_recent_inserted_video = get_most_recent_inserted_at()
-    queue_length = AbAv1.queue_length() # Replace AbAv1 with Encoder if necessary
+    queue_length = AbAv1.queue_length()
 
     %Stats{
       avg_vmaf_percentage: avg_vmaf_percentage,

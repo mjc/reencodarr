@@ -193,4 +193,16 @@ defmodule Reencodarr.Sync do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  # rescan the whole series and rename all files for that series. use carefully
+  def rescan_and_rename_series(episode_file_id) do
+    with {:ok, %Req.Response{body: episode_file}} <-
+           Services.Sonarr.get_episode_file(episode_file_id),
+         {:ok, _refresh_series} <- Services.Sonarr.refresh_series(episode_file["seriesId"]),
+         {:ok, _rename_files} <- Services.Sonarr.rename_files(episode_file["seriesId"]) do
+      {:ok, "Rescan and rename triggered successfully"}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
 end
