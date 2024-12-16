@@ -57,7 +57,6 @@ defmodule Reencodarr.Media.Video do
     field :title, :string
     field :service_id, :string
     field :service_type, Ecto.Enum, values: @service_types
-
     field :mediainfo, :map
 
     belongs_to :library, Reencodarr.Media.Library
@@ -77,6 +76,7 @@ defmodule Reencodarr.Media.Video do
     |> validate_inclusion(:service_type, @service_types)
   end
 
+  # Validate media info and apply changes
   @spec validate_media_info(Ecto.Changeset.t()) :: Ecto.Changeset.t()
   defp validate_media_info(changeset) do
     case get_change(changeset, :mediainfo) do
@@ -93,9 +93,7 @@ defmodule Reencodarr.Media.Video do
     {video_codecs, audio_codecs} = extract_codecs(mediainfo)
     atmos = has_atmos_audio?(mediainfo)
     max_audio_channels = get_max_audio_channels(mediainfo)
-
     reencoded = reencoded?(video_codecs, mediainfo)
-
     title = general["Title"] || Path.basename(get_field(changeset, :path))
 
     params = %{
@@ -121,6 +119,7 @@ defmodule Reencodarr.Media.Video do
     |> cast(params, @mediainfo_params)
   end
 
+  # Determine if the video has been reencoded
   @spec reencoded?(list(String.t()), map()) :: boolean()
   defp reencoded?(video_codecs, mediainfo) do
     has_av1_codec?(video_codecs) or
@@ -129,16 +128,16 @@ defmodule Reencodarr.Media.Video do
       is_low_resolution_hevc?(video_codecs, mediainfo)
   end
 
+  # Check for specific codec and resolution conditions
   @spec is_low_resolution_hevc?(list(String.t()), map()) :: boolean()
   defp is_low_resolution_hevc?(video_codecs, mediainfo) do
-    "V_MPEGH/ISO/HEVC" in video_codecs or
-      ("V_MPEGH/ISO/HEVC" in video_codecs and
-         String.to_integer(get_track(mediainfo, "Video")["Height"] || "0") < 720)
+    Enum.member?(video_codecs, "V_MPEGH/ISO/HEVC") and
+      String.to_integer(get_track(mediainfo, "Video")["Height"] || "0") < 720
   end
 
   @spec has_av1_codec?(list(String.t())) :: boolean()
   defp has_av1_codec?(video_codecs) do
-    Enum.any?(video_codecs, &(&1 == "V_AV1"))
+    Enum.member?(video_codecs, "V_AV1")
   end
 
   @spec has_opus_audio?(map()) :: boolean()
@@ -148,23 +147,23 @@ defmodule Reencodarr.Media.Video do
 
   @spec is_low_bitrate_1080p?(list(String.t()), map()) :: boolean()
   defp is_low_bitrate_1080p?(video_codecs, mediainfo) do
-    "V_MPEGH/ISO/HEVC" in video_codecs and
+    Enum.member?(video_codecs, "V_MPEGH/ISO/HEVC") and
       get_track(mediainfo, "Video")["Width"] == "1920" and
       String.to_integer(get_track(mediainfo, "General")["OverallBitRate"] || "0") < 5_000_000
   end
 
+  # Check if audio track is Opus
   @spec audio_track_is_opus?(map()) :: boolean()
-  defp audio_track_is_opus?(%{"@type" => "Audio", "CodecID" => codec}) do
-    codec == "A_OPUS"
-  end
-
+  defp audio_track_is_opus?(%{"@type" => "Audio", "CodecID" => "A_OPUS"}), do: true
   defp audio_track_is_opus?(_), do: false
 
+  # Extract specific track information from mediainfo
   @spec get_track(map(), String.t()) :: map() | nil
   defp get_track(mediainfo, type) do
     Enum.find(mediainfo["media"]["track"], &(&1["@type"] == type))
   end
 
+  # Extract video and audio codecs from mediainfo
   @spec extract_codecs(map()) :: {list(String.t()), list(String.t())}
   defp extract_codecs(mediainfo) do
     Enum.reduce(mediainfo["media"]["track"], {[], []}, fn
@@ -174,20 +173,19 @@ defmodule Reencodarr.Media.Video do
     end)
   end
 
+  # Get HDR format from video track
   @spec get_hdr_format(map()) :: String.t()
   defp get_hdr_format(video_track) do
-    formats = [video_track["HDR_Format"], video_track["HDR_Format_Compatibility"]]
-
-    formats
+    [video_track["HDR_Format"], video_track["HDR_Format_Compatibility"]]
     |> Enum.filter(&String.contains?(&1 || "", ["Dolby Vision", "HDR"]))
     |> Enum.uniq()
     |> Enum.join(", ")
   end
 
+  # Check if any audio track has Atmos
   @spec has_atmos_audio?(map()) :: boolean()
   defp has_atmos_audio?(mediainfo) do
-    mediainfo["media"]["track"]
-    |> Enum.any?(&audio_track_has_atmos?/1)
+    Enum.any?(mediainfo["media"]["track"], &audio_track_has_atmos?/1)
   end
 
   @spec audio_track_has_atmos?(map()) :: boolean()
@@ -200,14 +198,12 @@ defmodule Reencodarr.Media.Video do
 
   defp audio_track_has_atmos?(_), do: false
 
+  # Get the maximum number of audio channels from mediainfo
   @spec get_max_audio_channels(map()) :: integer()
   defp get_max_audio_channels(mediainfo) do
     mediainfo["media"]["track"]
     |> Enum.filter(&(&1["@type"] == "Audio"))
     |> Enum.map(&String.to_integer(&1["Channels"] || "0"))
-    |> case do
-      [] -> 0
-      channels -> Enum.max(channels)
-    end
+    |> Enum.max(fn -> 0 end)
   end
 end
