@@ -16,6 +16,10 @@ defmodule Reencodarr.Sync do
     GenServer.cast(__MODULE__, :sync_episode_files)
   end
 
+  def sync_movie_files do
+    GenServer.cast(__MODULE__, :sync_movie_files)
+  end
+
   # Server Callbacks
   def init(state) do
     {:ok, state}
@@ -43,11 +47,48 @@ defmodule Reencodarr.Sync do
     {:noreply, state}
   end
 
+  def handle_cast(:sync_movie_files, state) do
+    case Services.Radarr.get_movies() do
+      {:ok, %Req.Response{body: movies}} ->
+        total_movies = length(movies)
+
+        movies
+        |> Enum.with_index()
+        |> Enum.each(fn {movie, index} ->
+          fetch_and_upsert_movie_files(movie["id"])
+          progress = div((index + 1) * 100, total_movies)
+          Logger.debug("Sync progress: #{progress}%")
+          Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync_progress, progress})
+        end)
+
+      {:error, reason} ->
+        Logger.error("Failed to sync movie files: #{inspect(reason)}")
+    end
+
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", :sync_complete)
+    {:noreply, state}
+  end
+
   defp fetch_and_upsert_episode_files(series_id) do
     case Services.Sonarr.get_episode_files(series_id) do
       {:ok, %Req.Response{body: files}} ->
         files
         |> Enum.map(&upsert_video_from_episode_file/1)
+        |> Enum.each(fn
+          :ok -> :ok
+          error -> Logger.error("Failed to upsert video: #{inspect(error)}")
+        end)
+
+      {:error, _} ->
+        []
+    end
+  end
+
+  defp fetch_and_upsert_movie_files(movie_id) do
+    case Services.Radarr.get_movie_files(movie_id) do
+      {:ok, %Req.Response{body: files}} ->
+        files
+        |> Enum.map(&upsert_video_from_movie_file/1)
         |> Enum.each(fn
           :ok -> :ok
           error -> Logger.error("Failed to upsert video: #{inspect(error)}")
@@ -119,6 +160,68 @@ defmodule Reencodarr.Sync do
     :ok
   end
 
+  def upsert_video_from_movie_file(movie_file) do
+    # Similar to upsert_video_from_episode_file but adapted for movie_file
+    audio_codec = movie_file["mediaInfo"]["audioCodec"]
+
+    mediainfo = %{
+      "media" => %{
+        "track" => [
+          %{
+            "@type" => "General",
+            "AudioCount" => movie_file["mediaInfo"]["audioStreamCount"],
+            "OverallBitRate" => movie_file["mediaInfo"]["videoBitrate"],
+            "Duration" => parse_duration(movie_file["mediaInfo"]["runTime"]),
+            "FileSize" => movie_file["size"],
+            "TextCount" => length(String.split(movie_file["mediaInfo"]["subtitles"], "/")),
+            "VideoCount" => 1,
+            "Title" => movie_file["title"]
+          },
+          %{
+            "@type" => "Video",
+            "FrameRate" => movie_file["mediaInfo"]["videoFps"],
+            "Height" =>
+              String.split(movie_file["mediaInfo"]["resolution"], "x")
+              |> List.last()
+              |> String.to_integer(),
+            "Width" =>
+              String.split(movie_file["mediaInfo"]["resolution"], "x")
+              |> List.first()
+              |> String.to_integer(),
+            "HDR_Format" => movie_file["mediaInfo"]["videoDynamicRange"],
+            "HDR_Format_Compatibility" => movie_file["mediaInfo"]["videoDynamicRangeType"],
+            "CodecID" => map_codec_id(movie_file["mediaInfo"]["videoCodec"])
+          },
+          %{
+            "@type" => "Audio",
+            "CodecID" => map_codec_id(audio_codec),
+            "Channels" => to_string(map_channels(movie_file["mediaInfo"]["audioChannels"]))
+          }
+        ]
+      }
+    }
+
+    attrs = %{
+      "path" => movie_file["path"],
+      "size" => movie_file["size"],
+      "service_id" => to_string(movie_file["id"]),
+      "service_type" => :radarr,
+      "mediainfo" => mediainfo
+    }
+
+    if audio_codec in ["TrueHD", "EAC3", "EAC3 Atmos", "TrueHD Atmos", "DTS-X"] do
+      Reencodarr.Analyzer.process_path(%{
+        path: movie_file["path"],
+        service_id: to_string(movie_file["id"]),
+        service_type: :radarr
+      })
+    else
+      Media.upsert_video(attrs)
+    end
+
+    :ok
+  end
+
   defp map_codec_id("AV1"), do: "V_AV1"
   defp map_codec_id("x265"), do: "V_MPEGH/ISO/HEVC"
   defp map_codec_id("h265"), do: "V_MPEGH/ISO/HEVC"
@@ -141,6 +244,7 @@ defmodule Reencodarr.Sync do
   defp map_codec_id("DTS-X"), do: "A_DTS/X"
   defp map_codec_id("DTS-HD MA"), do: "A_DTS/MA"
   defp map_codec_id("DTS"), do: "A_DTS"
+  defp map_codec_id("DTS-ES"), do: "A_DTS/ES"
   defp map_codec_id("FLAC"), do: "A_FLAC"
   defp map_codec_id("Vorbis"), do: "A_VORBIS"
   defp map_codec_id("AAC"), do: "A_AAC"

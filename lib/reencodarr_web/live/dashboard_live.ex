@@ -64,7 +64,7 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   def handle_info(:sync_complete, socket) do
-    Logger.info("Sonarr sync complete")
+    Logger.info("Sync complete")
     {:noreply, assign(socket, :syncing, false) |> assign(:sync_progress, 0)}
   end
 
@@ -124,6 +124,13 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, socket}
   end
 
+  def handle_event("sync_radarr", _params, socket) do
+    Logger.info("Syncing with Radarr (slow)")
+    socket = assign(socket, :syncing, true) |> assign(:sync_progress, 0)
+    Sync.sync_movie_files()
+    {:noreply, socket}
+  end
+
   def handle_event("manual_scan", %{"path" => path}, socket) do
     Logger.info("Starting manual scan for path: #{path}")
     ManualScanner.scan(path)
@@ -160,6 +167,12 @@ defmodule ReencodarrWeb.DashboardLive do
           class={"text-white font-bold py-2 px-4 rounded " <> if @syncing, do: "bg-gray-500", else: "bg-yellow-500 hover:bg-yellow-700"}
         >
           Sync Sonarr (slow)
+        </button>
+        <button
+          phx-click="sync_radarr"
+          class={"text-white font-bold py-2 px-4 rounded " <> if @syncing, do: "bg-gray-500", else: "bg-green-500 hover:bg-green-700"}
+        >
+          Sync Radarr (slow)
         </button>
         <.live_component
           module={ReencodarrWeb.ToggleComponent}
