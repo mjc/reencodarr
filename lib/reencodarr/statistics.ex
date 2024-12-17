@@ -87,6 +87,22 @@ defmodule Reencodarr.Statistics do
     {:noreply, new_state}
   end
 
+  @impl true
+  def handle_info({:crf_searcher, :started}, state) do
+    new_state = %{state | crf_searching: true}
+    Logger.debug("CRF searcher started")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_info({:crf_searcher, :paused}, state) do
+    new_state = %{state | crf_searching: false}
+    Logger.debug("CRF searcher paused")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
+    {:noreply, new_state}
+  end
+
   defp schedule_update do
     Process.send_after(self(), :update_stats, @update_interval)
   end
