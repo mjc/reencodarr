@@ -16,7 +16,8 @@ defmodule ReencodarrWeb.DashboardLive do
     socket =
       socket
       |> assign(:timezone, "UTC")
-      |> assign(:progress, %{})
+      # Assign encoding_progress
+      |> assign(:progress, initial_stats.encoding_progress)
       |> assign(:encoding, initial_stats.encoding)
       |> assign(:crf_searching, initial_stats.crf_searching)
       |> assign(:syncing, initial_stats.syncing)
@@ -89,6 +90,17 @@ defmodule ReencodarrWeb.DashboardLive do
       |> assign(:crf_search_progress, new_stats.crf_search_progress)
 
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:encoding, progress}, socket) do
+    Logger.info("Received encoding progress: #{inspect(progress)}")
+
+    if progress != :none do
+      {:noreply, assign(socket, :progress, progress)}
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true

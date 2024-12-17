@@ -72,6 +72,13 @@ defmodule Reencodarr.Statistics do
   end
 
   @impl true
+  def handle_info({:encoder, :none}, state) do
+    new_state = %{state | encoding_progress: :none}
+    Logger.debug("No encoding progress to update")
+    {:noreply, new_state}
+  end
+
+  @impl true
   def handle_info({:sync_progress, progress}, state) do
     new_state = %{state | sync_progress: progress}
     Logger.debug("Sync progress: #{inspect(progress)}")
@@ -120,7 +127,10 @@ defmodule Reencodarr.Statistics do
     new_stats = %{
       stats: Media.fetch_stats(),
       encoding: Encoder.scanning?(),
-      crf_searching: CrfSearcher.scanning?()
+      crf_searching: CrfSearcher.scanning?(),
+      # Ensure encoding_progress is included
+      encoding_progress: state.encoding_progress,
+      crf_search_progress: state.crf_search_progress
     }
 
     Map.merge(state, new_stats)
