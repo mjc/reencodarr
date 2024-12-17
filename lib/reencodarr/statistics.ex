@@ -14,6 +14,7 @@ defmodule Reencodarr.Statistics do
   def init(:ok) do
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "progress")
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
 
     initial_state = %{
       stats: Media.fetch_stats(),
@@ -49,7 +50,7 @@ defmodule Reencodarr.Statistics do
   @impl true
   def handle_info({:encoding, %{percent: percent, eta: eta, fps: fps}}, state) do
     new_state = %{state | encoding_progress: %{percent: percent, eta: eta, fps: fps}}
-    Logger.debug("Encoding progress: #{inspect(new_state)}")
+    Logger.info("Encoding progress: #{inspect(new_state)}")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
     {:noreply, new_state}
   end

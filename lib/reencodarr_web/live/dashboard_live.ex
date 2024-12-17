@@ -8,9 +8,6 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket) do
-      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "progress")
-      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
-      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
     end
 
@@ -52,12 +49,6 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_info({:encoder, :paused}, socket) do
     Logger.debug("Encoder paused")
     {:noreply, assign(socket, :encoding, false)}
-  end
-
-  @impl true
-  def handle_info({:encoding, %{percent: percent, eta: eta, fps: fps}}, socket) do
-    Logger.debug("Encoding progress: #{percent}% ETA: #{eta} FPS: #{fps}")
-    {:noreply, assign(socket, :progress, %{percent: percent, eta: eta, fps: fps})}
   end
 
   @impl true
