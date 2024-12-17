@@ -271,6 +271,37 @@ defmodule Reencodarr.Media do
     Repo.exists?(from v in Vmaf, where: v.video_id == ^video_id)
   end
 
+  @doc """
+  Deletes all videos where the path does not exist and their associated VMAFs.
+
+  ## Examples
+
+      iex> delete_videos_with_nonexistent_paths()
+      {:ok, count}
+
+  """
+  @spec delete_videos_with_nonexistent_paths() :: {:ok, integer()} | {:error, term()}
+  def delete_videos_with_nonexistent_paths do
+    non_existent_videos =
+      Repo.all(from v in Video, select: %{id: v.id, path: v.path})
+      |> Enum.map(fn video ->
+        Task.async(fn -> {video.id, File.exists?(video.path)} end)
+      end)
+      |> Enum.map(&Task.await/1)
+      |> Enum.filter(fn {_id, exists} -> not exists end)
+      |> Enum.map(&elem(&1, 0))
+
+    Repo.transaction(fn ->
+      # Delete associated VMAFs
+      from(v in Vmaf, where: v.video_id in ^non_existent_videos)
+      |> Repo.delete_all()
+
+      # Delete videos
+      from(v in Video, where: v.id in ^non_existent_videos)
+      |> Repo.delete_all()
+    end)
+  end
+
   # Library-related functions
   @doc """
   Returns the list of libraries.
