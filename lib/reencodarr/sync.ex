@@ -133,7 +133,8 @@ defmodule Reencodarr.Sync do
           %{
             "@type" => "Audio",
             "CodecID" => map_codec_id(audio_codec),
-            "Channels" => to_string(map_channels(episode_file["mediaInfo"]["audioChannels"]))
+            "Channels" => to_string(map_channels(episode_file["mediaInfo"]["audioChannels"])),
+            "Format_Commercial_IfAny" => format_commercial_if_any(audio_codec)
           }
         ]
       }
@@ -151,7 +152,7 @@ defmodule Reencodarr.Sync do
       Logger.warning("File size is missing for episode file: #{inspect(episode_file)}")
     end
 
-    if audio_codec in ["TrueHD", "EAC3", "EAC3 Atmos", "TrueHD Atmos", "DTS-X"] do
+    if audio_codec in ["TrueHD", "EAC3"] do
       Reencodarr.Analyzer.process_path(%{
         path: episode_file["path"],
         service_id: to_string(episode_file["id"]),
@@ -165,7 +166,6 @@ defmodule Reencodarr.Sync do
   end
 
   def upsert_video_from_movie_file(movie_file) do
-    # Similar to upsert_video_from_episode_file but adapted for movie_file
     audio_codec = movie_file["mediaInfo"]["audioCodec"]
 
     mediainfo = %{
@@ -199,7 +199,8 @@ defmodule Reencodarr.Sync do
           %{
             "@type" => "Audio",
             "CodecID" => map_codec_id(audio_codec),
-            "Channels" => to_string(map_channels(movie_file["mediaInfo"]["audioChannels"]))
+            "Channels" => to_string(map_channels(movie_file["mediaInfo"]["audioChannels"])),
+            "Format_Commercial_IfAny" => format_commercial_if_any(audio_codec)
           }
         ]
       }
@@ -217,7 +218,7 @@ defmodule Reencodarr.Sync do
       Logger.warning("File size is missing for movie file: #{inspect(movie_file)}")
     end
 
-    if audio_codec in ["TrueHD", "EAC3", "EAC3 Atmos", "TrueHD Atmos", "DTS-X"] do
+    if audio_codec in ["TrueHD", "EAC3"] do
       Reencodarr.Analyzer.process_path(%{
         path: movie_file["path"],
         service_id: to_string(movie_file["id"]),
@@ -228,6 +229,10 @@ defmodule Reencodarr.Sync do
     end
 
     :ok
+  end
+
+  defp format_commercial_if_any(audio_codec) do
+    if audio_codec in ["TrueHD Atmos", "EAC3 Atmos", "DTS-X"], do: "Atmos", else: nil
   end
 
   defp map_codec_id("AV1"), do: "V_AV1"
