@@ -237,6 +237,25 @@ defmodule Reencodarr.Media do
   end
 
   @doc """
+  Marks a video as failed.
+
+  ## Examples
+
+      iex> mark_as_failed(video)
+      {:ok, %Video{}}
+
+      iex> mark_as_failed(video)
+      {:error, %Ecto.Changeset{}}
+
+  """
+  @spec mark_as_failed(Video.t()) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
+  def mark_as_failed(%Video{} = video) do
+    video
+    |> Video.changeset(%{failed: true})
+    |> Repo.update()
+  end
+
+  @doc """
   Returns the most recent updated_at timestamp for videos.
 
   ## Examples
