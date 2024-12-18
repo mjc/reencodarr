@@ -151,7 +151,7 @@ defmodule Reencodarr.Media do
     |> ensure_library_id()
     |> Video.changeset()
     |> Repo.insert(
-      on_conflict: {:replace_all_except, [:id, :reencoded, :inserted_at]},
+      on_conflict: {:replace_all_except, [:id, :inserted_at]},
       conflict_target: :path
     )
   end
