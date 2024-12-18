@@ -142,7 +142,7 @@ defmodule Reencodarr.AbAv1.Encode do
 
       captures =
           Regex.named_captures(
-            ~r/(?<percent>\d+)%\s*,\s*(?<fps>\d+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours)/,
+            ~r/(?<percent>\d+)%\s*,\s*(?<fps>\d+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
             data
           ) ->
         _eta_seconds =

@@ -43,7 +43,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     \((?<percent>\d+)%\)\s           # Capture percentage
     taking\s
     (?<time>\d+)\s                   # Capture time
-    (?<time_unit>seconds|minutes|hours) # Capture time unit
+    (?<time_unit>seconds|minutes|hours|days|weeks|months|years) # Capture time unit
   /x
 
   @vmaf_regex ~r/
@@ -274,16 +274,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp parse_time(time, time_unit) do
     case Integer.parse(time) do
-      {time_value, _} -> convert_to_seconds(time_value, time_unit)
+      {time_value, _} -> Helper.convert_to_seconds(time_value, time_unit)
       :error -> nil
     end
   end
-
-  defp convert_to_seconds(time, "minutes"), do: time * 60
-  defp convert_to_seconds(time, "hours"), do: time * 3600
-  defp convert_to_seconds(time, "seconds"), do: time
-  defp convert_to_seconds(time, "days"), do: time * 86400
-  defp convert_to_seconds(time, "weeks"), do: time * 604_800
-  defp convert_to_seconds(time, "months"), do: time * 2_628_000
-  defp convert_to_seconds(time, "years"), do: time * 31_536_000
 end

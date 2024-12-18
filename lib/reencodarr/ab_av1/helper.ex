@@ -41,6 +41,10 @@ defmodule Reencodarr.AbAv1.Helper do
   @spec convert_to_seconds(integer(), String.t()) :: integer()
   def convert_to_seconds(time, "minutes"), do: time * 60
   def convert_to_seconds(time, "hours"), do: time * 3600
+  def convert_to_seconds(time, "days"), do: time * 86400
+  def convert_to_seconds(time, "weeks"), do: time * 604_800
+  def convert_to_seconds(time, "months"), do: time * 2_628_000
+  def convert_to_seconds(time, "years"), do: time * 31_536_000
   def convert_to_seconds(time, _), do: time
 
   @spec temp_dir() :: String.t()
