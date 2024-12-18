@@ -67,19 +67,28 @@ defmodule Reencodarr.Analyzer do
 
   @spec upsert_videos(list(map()), map()) :: :ok
   defp upsert_videos(paths, mediainfo_map) do
-    Enum.each(paths, fn %{path: path, service_id: service_id, service_type: service_type} ->
-      mediainfo = Map.get(mediainfo_map, path)
+    Enum.each(paths, &upsert_video(&1, mediainfo_map))
+  end
 
-      case Media.upsert_video(%{
-             path: path,
-             mediainfo: mediainfo,
-             service_id: service_id,
-             service_type: service_type
-           }) do
-        {:ok, _video} -> :ok
-        {:error, reason} -> Logger.error("Failed to upsert video for #{path}: #{inspect(reason)}")
-      end
-    end)
+  defp upsert_video(%{path: path, service_id: service_id, service_type: service_type}, mediainfo_map) do
+    mediainfo = Map.get(mediainfo_map, path)
+    file_size = get_in(mediainfo, ["media", "track", Access.at(0), "FileSize"])
+
+    with size when size not in [nil, ""] <- file_size,
+         {:ok, _video} <- Media.upsert_video(%{
+           path: path,
+           mediainfo: mediainfo,
+           service_id: service_id,
+           service_type: service_type,
+           size: file_size
+         }) do
+      Logger.debug("Upserted analyzed video for #{path}")
+      :ok
+    else
+      nil -> Logger.error("Mediainfo size is empty for #{path}, skipping upsert.")
+      "" -> Logger.error("Mediainfo size is empty for #{path}, skipping upsert.")
+      {:error, reason} -> Logger.error("Failed to upsert video for #{path}: #{inspect(reason)}")
+    end
   end
 
   @spec fetch_mediainfo(list(String.t())) :: {:ok, map()} | {:error, any()}

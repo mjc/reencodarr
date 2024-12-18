@@ -147,6 +147,10 @@ defmodule Reencodarr.Sync do
       "mediainfo" => mediainfo
     }
 
+    if is_nil(episode_file["size"]) do
+      Logger.warning("File size is missing for episode file: #{inspect(episode_file)}")
+    end
+
     if audio_codec in ["TrueHD", "EAC3", "EAC3 Atmos", "TrueHD Atmos", "DTS-X"] do
       Reencodarr.Analyzer.process_path(%{
         path: episode_file["path"],
@@ -208,6 +212,10 @@ defmodule Reencodarr.Sync do
       "service_type" => :radarr,
       "mediainfo" => mediainfo
     }
+
+    if is_nil(movie_file["size"]) do
+      Logger.warning("File size is missing for movie file: #{inspect(movie_file)}")
+    end
 
     if audio_codec in ["TrueHD", "EAC3", "EAC3 Atmos", "TrueHD Atmos", "DTS-X"] do
       Reencodarr.Analyzer.process_path(%{
