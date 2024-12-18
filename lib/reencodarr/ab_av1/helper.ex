@@ -39,13 +39,20 @@ defmodule Reencodarr.AbAv1.Helper do
   def convert_time_to_duration(captures), do: captures
 
   @spec convert_to_seconds(integer(), String.t()) :: integer()
-  def convert_to_seconds(time, "minutes"), do: time * 60
-  def convert_to_seconds(time, "hours"), do: time * 3600
-  def convert_to_seconds(time, "days"), do: time * 86400
-  def convert_to_seconds(time, "weeks"), do: time * 604_800
-  def convert_to_seconds(time, "months"), do: time * 2_628_000
-  def convert_to_seconds(time, "years"), do: time * 31_536_000
-  def convert_to_seconds(time, _), do: time
+  def convert_to_seconds(time, unit) do
+    unit
+    |> String.trim_trailing("s")
+    |> unit_to_multiplier()
+    |> Kernel.*(time)
+  end
+
+  defp unit_to_multiplier("minute"), do: 60
+  defp unit_to_multiplier("hour"), do: 3600
+  defp unit_to_multiplier("day"), do: 86400
+  defp unit_to_multiplier("week"), do: 604_800
+  defp unit_to_multiplier("month"), do: 2_628_000
+  defp unit_to_multiplier("year"), do: 31_536_000
+  defp unit_to_multiplier(_), do: 1
 
   @spec temp_dir() :: String.t()
   def temp_dir do
