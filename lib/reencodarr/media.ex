@@ -108,7 +108,7 @@ defmodule Reencodarr.Media do
       from v in Video,
         left_join: m in Vmaf,
         on: m.video_id == v.id,
-        where: is_nil(m.id) and v.reencoded == false,
+        where: is_nil(m.id) and v.reencoded == false and v.failed == false,
         order_by: [desc: v.size, asc: v.updated_at],
         limit: ^limit,
         select: v
@@ -232,7 +232,7 @@ defmodule Reencodarr.Media do
   @spec mark_as_reencoded(Video.t()) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
   def mark_as_reencoded(%Video{} = video) do
     video
-    |> Video.changeset(%{reencoded: true})
+    |> Video.changeset(%{reencoded: true, failed: false})
     |> Repo.update()
   end
 
@@ -552,7 +552,7 @@ defmodule Reencodarr.Media do
     Repo.all(
       from v in Vmaf,
         join: vid in assoc(v, :video),
-        where: v.chosen == true and vid.reencoded == false,
+        where: v.chosen == true and vid.reencoded == false and vid.failed == false,
         order_by: [asc: v.percent, asc: v.time],
         preload: [:video]
     )
@@ -598,7 +598,7 @@ defmodule Reencodarr.Media do
       from v in Video,
         join: m in Vmaf,
         on: m.video_id == v.id,
-        where: v.reencoded == false and m.chosen == true,
+        where: v.reencoded == false and v.failed == false and m.chosen == true,
         order_by: [asc: m.percent, asc: m.time],
         limit: 1,
         select: v
@@ -658,6 +658,7 @@ defmodule Reencodarr.Media do
 
   defp counts_query do
     from(v in Video,
+      where: v.failed == false,
       group_by: v.reencoded,
       select: {v.reencoded, count(v.id)}
     )
@@ -665,26 +666,31 @@ defmodule Reencodarr.Media do
 
   defp total_videos_query do
     from(v in Video,
+      where: v.failed == false,
       select: count(v.id)
     )
   end
 
   defp avg_vmaf_percentage_query do
     from(v in Vmaf,
-      where: v.chosen == true,
+      join: vid in assoc(v, :video),
+      where: v.chosen == true and vid.failed == false,
       select: fragment("ROUND(CAST(AVG(?) AS numeric), 2)", v.percent)
     )
   end
 
   defp total_vmafs_query do
     from(v in Vmaf,
+      join: vid in assoc(v, :video),
+      where: vid.failed == false,
       select: count(v.id)
     )
   end
 
   defp chosen_vmafs_count_query do
     from(v in Vmaf,
-      where: v.chosen == true,
+      join: vid in assoc(v, :video),
+      where: v.chosen == true and vid.failed == false,
       select: count(v.id)
     )
   end
@@ -693,30 +699,15 @@ defmodule Reencodarr.Media do
     from v in Video,
       join: m in Vmaf,
       on: m.video_id == v.id,
-      where: v.reencoded == false and m.chosen == true,
+      where: v.reencoded == false and v.failed == false and m.chosen == true,
       select: count(v.id)
   end
 
   defp queued_crf_searches_count_query do
     from v in Video,
       left_join: vmafs in assoc(v, :vmafs),
-      where: is_nil(vmafs.id) and not v.reencoded,
+      where: is_nil(vmafs.id) and not v.reencoded and v.failed == false,
       select: count(v.id)
-  end
-
-  @doc """
-  Returns the lowest chosen VMAF percentage.
-
-  ## Examples
-
-      iex> lowest_chosen_vmaf_percentage()
-      75.5
-
-  """
-  @spec lowest_chosen_vmaf_percentage() :: float() | nil
-  def lowest_chosen_vmaf_percentage do
-    from(v in Vmaf, where: v.chosen == true, select: fragment("MIN(?)", v.percent))
-    |> Repo.one()
   end
 
   @doc """
@@ -733,7 +724,7 @@ defmodule Reencodarr.Media do
     Repo.one(
       from v in Vmaf,
         join: vid in assoc(v, :video),
-        where: v.chosen == true and vid.reencoded == false,
+        where: v.chosen == true and vid.reencoded == false and vid.failed == false,
         order_by: [asc: v.percent],
         limit: 1,
         preload: [:video]
@@ -754,7 +745,7 @@ defmodule Reencodarr.Media do
     Repo.one(
       from v in Vmaf,
         join: vid in assoc(v, :video),
-        where: v.chosen == true and vid.reencoded == false,
+        where: v.chosen == true and vid.reencoded == false and vid.failed == false,
         order_by: [asc: v.time],
         limit: 1,
         preload: [:video]
@@ -803,7 +794,7 @@ defmodule Reencodarr.Media do
   def queued_crf_searches_query do
     from v in Video,
       left_join: vmafs in assoc(v, :vmafs),
-      where: is_nil(vmafs.id) and not v.reencoded,
+      where: is_nil(vmafs.id) and not v.reencoded and v.failed == false,
       select: v
   end
 end

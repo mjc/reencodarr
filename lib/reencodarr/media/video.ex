@@ -20,7 +20,8 @@ defmodule Reencodarr.Media.Video do
     :hdr,
     :atmos,
     :reencoded,
-    :title
+    :title,
+    :failed
   ]
 
   @optional [
@@ -29,7 +30,8 @@ defmodule Reencodarr.Media.Video do
     :mediainfo,
     :reencoded,
     :service_id,
-    :service_type
+    :service_type,
+    :failed
   ]
 
   @required [:path, :size]
@@ -58,6 +60,7 @@ defmodule Reencodarr.Media.Video do
     field :service_id, :string
     field :service_type, Ecto.Enum, values: @service_types
     field :mediainfo, :map
+    field :failed, :boolean, default: false
 
     belongs_to :library, Reencodarr.Media.Library
     has_many :vmafs, Reencodarr.Media.Vmaf
