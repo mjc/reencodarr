@@ -7,25 +7,12 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket) do
-      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
-    end
+    if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
 
-    initial_stats = Statistics.get_stats()
-
-    socket =
-      socket
-      |> assign(:timezone, "UTC")
-      # Assign encoding_progress
-      |> assign(:progress, initial_stats.encoding_progress)
-      |> assign(:encoding, initial_stats.encoding)
-      |> assign(:crf_searching, initial_stats.crf_searching)
-      |> assign(:syncing, initial_stats.syncing)
-      |> assign(:sync_progress, initial_stats.sync_progress)
-      |> assign(:stats, initial_stats.stats)
-      |> assign(:crf_search_progress, initial_stats.crf_search_progress)
-
-    {:ok, socket}
+    {:ok,
+     socket
+     |> assign(Statistics.get_stats())
+     |> assign(:timezone, "UTC")}
   end
 
   @impl true
@@ -100,8 +87,12 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def handle_info({:encoding, progress}, socket) do
     Logger.debug("Received encoding progress: #{inspect(progress)}")
-    Logger.info("Encoding progress: #{progress.percent}% ETA: #{progress.eta} FPS: #{progress.fps}")
-    {:noreply, assign(socket, :progress, progress)}
+
+    Logger.info(
+      "Encoding progress: #{progress.percent}% ETA: #{progress.eta} FPS: #{progress.fps}"
+    )
+
+    {:noreply, assign(socket, :encoding_progress, progress)}
   end
 
   @impl true
@@ -222,7 +213,7 @@ defmodule ReencodarrWeb.DashboardLive do
         <.live_component
           module={ReencodarrWeb.ProgressComponent}
           id="progress-component"
-          progress={@progress}
+          progress={@encoding_progress}
           vmaf={@crf_search_progress}
           sync_progress={@sync_progress}
         />
