@@ -81,6 +81,13 @@ defmodule Reencodarr.Encoder do
   end
 
   @impl true
+  def handle_cast({:encoding_failed, video, exit_code}, state) do
+    Logger.error("Encoding failed for video #{video.id} with exit code #{exit_code}")
+    Media.mark_as_failed(video)
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info(:check_next_video, %{encoding: true} = state) do
     check_next_video()
     schedule_check()

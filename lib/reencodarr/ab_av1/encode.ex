@@ -81,7 +81,9 @@ defmodule Reencodarr.AbAv1.Encode do
     Logger.debug("Exit status: #{inspect(result)}")
 
     if result == {:ok, :success} do
-      notify_encoder(vmaf.video, output_file)
+      notify_encoder_success(vmaf.video, output_file)
+    else
+      notify_encoder_failure(vmaf.video, exit_code)
     end
 
     new_state = %{state | port: :none, video: :none, vmaf: :none, output_file: nil}
@@ -125,8 +127,12 @@ defmodule Reencodarr.AbAv1.Encode do
     base_args ++ rule_args
   end
 
-  defp notify_encoder(video, output_file) do
+  defp notify_encoder_success(video, output_file) do
     GenServer.cast(Reencodarr.Encoder, {:encoding_complete, video, output_file})
+  end
+
+  defp notify_encoder_failure(video, exit_code) do
+    GenServer.cast(Reencodarr.Encoder, {:encoding_failed, video, exit_code})
   end
 
   def process_line(data, _state) do
