@@ -10,7 +10,7 @@ defmodule Reencodarr.AbAv1.Encode do
 
   @spec encode(Media.Vmaf.t()) :: :ok
   def encode(vmaf) do
-    Logger.info("Starting encode for VMAF: #{inspect(vmaf)}")
+    Logger.info("Starting encode for VMAF: #{vmaf.id}")
     GenServer.cast(__MODULE__, {:encode, vmaf})
   end
 

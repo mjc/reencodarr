@@ -93,14 +93,15 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_info({:encoding, progress}, socket) do
-    Logger.info("Received encoding progress: #{inspect(progress)}")
+  def handle_info({:encoding, :none}, socket) do
+    {:noreply, socket}
+  end
 
-    if progress != :none do
-      {:noreply, assign(socket, :progress, progress)}
-    else
-      {:noreply, socket}
-    end
+  @impl true
+  def handle_info({:encoding, progress}, socket) do
+    Logger.debug("Received encoding progress: #{inspect(progress)}")
+    Logger.info("Encoding progress: #{progress.percent}% ETA: #{progress.eta} FPS: #{progress.fps}")
+    {:noreply, assign(socket, :progress, progress)}
   end
 
   @impl true

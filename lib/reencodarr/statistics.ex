@@ -50,7 +50,7 @@ defmodule Reencodarr.Statistics do
   @impl true
   def handle_info({:encoding, %{percent: percent, eta: eta, fps: fps}}, state) do
     new_state = %{state | encoding_progress: %{percent: percent, eta: eta, fps: fps}}
-    Logger.info("Encoding progress: #{inspect(new_state)}")
+    Logger.info("Encoding progress: #{percent}% ETA: #{eta} FPS: #{fps}")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
     {:noreply, new_state}
   end
