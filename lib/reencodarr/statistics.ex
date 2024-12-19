@@ -75,6 +75,7 @@ defmodule Reencodarr.Statistics do
   def handle_info({:encoder, :none}, state) do
     new_state = %{state | encoding_progress: :none}
     Logger.debug("No encoding progress to update")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
     {:noreply, new_state}
   end
 
