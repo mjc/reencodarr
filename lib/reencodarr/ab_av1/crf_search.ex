@@ -55,11 +55,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   /x
 
   @progress_regex ~r/
-    \[.*\]\s
-    (?<progress>\d+%)?,\s            # Currently I dont display this but I will.
-    (?<fps>\d+\sfps)?,\s             # Currently I dont display this but I will.
+    \[
+    (?<timestamp>[^\]]+)
+    \]\s
+    (?<level>[A-Z]+)\s
+    (?<module>[^\s]+)::(?<function>[^\s]+)\]\s
+    (?<progress>\d+%)?,\s
+    (?<fps>\d+(\.\d+)?\sfps)?,\s
     eta\s
-    (?<eta>\d+\sseconds)             # Knowing ETA more often would be helpful even if its less accurate
+    (?<eta>\d+\s(?:second|seconds|minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years))
   /x
 
   @success_line_regex ~r/
