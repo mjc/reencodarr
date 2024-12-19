@@ -71,10 +71,12 @@ defmodule Reencodarr.Encoder do
 
           {:error, reason} ->
             Logger.error("Failed to copy output file: #{reason}")
+            Media.mark_as_failed(video)
         end
 
       {:error, reason} ->
         Logger.error("Failed to move output file: #{reason}")
+        Media.mark_as_failed(video)
     end
 
     {:noreply, state}
@@ -101,6 +103,13 @@ defmodule Reencodarr.Encoder do
   @impl true
   def handle_info(%{action: "encoding:complete", result: {:error, 143}, video: video}, state) do
     Logger.error("Encoding failed with error code 143 for video #{video.id}")
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(%{action: "encoding:complete", result: {:error, exit_code}, video: video}, state) when exit_code != 0 do
+    Logger.error("Encoding failed with error code #{exit_code} for video #{video.id}")
+    Media.mark_as_failed(video)
     {:noreply, state}
   end
 
