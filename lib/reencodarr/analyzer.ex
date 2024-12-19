@@ -46,11 +46,11 @@ defmodule Reencodarr.Analyzer do
   defp process_paths(state) do
     paths = Enum.take(state, 5)
 
-    # paths =
-    #   Enum.reject(paths, fn %{path: path} ->
-    #     Media.video_exists?(path) &&
-    #       Logger.debug("Video already exists for path: #{path}, skipping.")
-    #   end)
+    paths =
+      Enum.reject(paths, fn %{path: path} ->
+        Media.video_exists?(path) &&
+          Logger.debug("Video already exists for path: #{path}, skipping.")
+      end)
 
     case fetch_mediainfo(Enum.map(paths, & &1.path)) do
       {:ok, mediainfo_map} ->

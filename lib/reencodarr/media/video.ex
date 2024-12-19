@@ -198,7 +198,7 @@ defmodule Reencodarr.Media.Video do
     additional_features = Map.get(track, "Format_AdditionalFeatures", "")
     commercial_format = Map.get(track, "Format_Commercial_IfAny", "")
 
-    String.contains?(additional_features, "JOC") or String.contains?(commercial_format, "Atmos")
+    String.contains?(additional_features || "", "JOC") or String.contains?(commercial_format || "", "Atmos")
   end
 
   defp audio_track_has_atmos?(_), do: false

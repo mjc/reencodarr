@@ -231,8 +231,9 @@ defmodule Reencodarr.Sync do
     :ok
   end
 
+  defp format_commercial_if_any(nil), do: ""
   defp format_commercial_if_any(audio_codec) do
-    if audio_codec in ["TrueHD Atmos", "EAC3 Atmos", "DTS-X"], do: "Atmos", else: nil
+    if audio_codec in ["TrueHD Atmos", "EAC3 Atmos", "DTS-X"], do: "Atmos", else: ""
   end
 
   defp map_codec_id("AV1"), do: "V_AV1"
