@@ -43,7 +43,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     \((?<percent>\d+)%\)\s           # Capture percentage
     taking\s
     (?<time>\d+)\s                   # Capture time
-    (?<time_unit>seconds|minutes|hours|days|weeks|months|years) # Capture time unit
+    (?<time_unit>second|minute|hour|day|week|month|year)s? # Capture time unit with optional plural
   /x
 
   @vmaf_regex ~r/
@@ -60,10 +60,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     \]\s
     (?<level>[A-Z]+)\s
     (?<module>[^\s]+)::(?<function>[^\s]+)\]\s
-    (?<progress>\d+%)?,\s
+    (?<progress>\d+(\.\d+)%)?,\s
     (?<fps>\d+(\.\d+)?\sfps)?,\s
     eta\s
-    (?<eta>\d+\s(?:second|seconds|minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years))
+    (?<eta>\d+\s(?:second|minute|hour|day|week|month|year)s?) # Capture time unit with optional plural
   /x
 
   @success_line_regex ~r/
@@ -226,7 +226,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         Media.mark_as_reencoded(video)
 
       true ->
-        Logger.error("No match for line: #{line}")
+        Logger.error("CrfSearch: No match for line: #{line}")
     end
   end
 
