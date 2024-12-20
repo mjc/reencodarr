@@ -184,26 +184,27 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         Logger.info(
           "CrfSearch: Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
         )
+        broadcast_crf_search_progress(video.path, %CrfSearchProgress{
+          filename: video.path,
+          crf: captures["crf"]
+        })
 
       captures = Regex.named_captures(@simple_vmaf_regex, line) ->
         Logger.info(
           "CrfSearch: Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
         )
-
         upsert_vmaf(Map.put(captures, "chosen", false), video, args)
 
       captures = Regex.named_captures(@sample_regex, line) ->
         Logger.info(
           "CrfSearch: Sample #{captures["sample_num"]}/#{captures["total_samples"]} - CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
         )
-
         upsert_vmaf(Map.put(captures, "chosen", false), video, args)
 
       captures = Regex.named_captures(@eta_vmaf_regex, line) ->
         Logger.info(
           "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}"
         )
-
         upsert_vmaf(Map.put(captures, "chosen", true), video, args)
 
       captures = Regex.named_captures(@vmaf_regex, line) ->
@@ -213,6 +214,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         Logger.info(
           "CrfSearch Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
         )
+        broadcast_crf_search_progress(video.path, %CrfSearchProgress{
+          filename: video.path,
+          percent: String.to_float(captures["progress"]),
+          eta: captures["eta"],
+          fps: String.to_float(captures["fps"])
+        })
 
       captures = Regex.named_captures(@success_line_regex, line) ->
         Logger.info("CrfSearch successful for CRF: #{captures["crf"]}")
@@ -220,7 +227,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
       line == "Error: Failed to find a suitable crf" ->
         Logger.error("Failed to find a suitable CRF.")
-
         Media.mark_as_failed(video)
 
       true ->
@@ -263,18 +269,22 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     case Media.upsert_vmaf(vmaf_data) do
       {:ok, created_vmaf} ->
         Logger.debug("Upserted VMAF: #{inspect(created_vmaf)}")
-        filename = Path.basename(video.path)
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_search_progress", %CrfSearchProgress{
-          filename: filename,
-          percent: created_vmaf.percent,
-          crf: created_vmaf.crf,
-          score: created_vmaf.score
-        })
+        broadcast_crf_search_progress(video.path, created_vmaf)
         created_vmaf
 
       {:error, changeset} ->
         Logger.error("Failed to upsert VMAF: #{inspect(changeset)}")
     end
+  end
+
+  defp broadcast_crf_search_progress(video_path, vmaf) do
+    filename = Path.basename(video_path)
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:crf_search_progress, %CrfSearchProgress{
+      filename: filename,
+      percent: vmaf.percent,
+      crf: vmaf.crf,
+      score: vmaf.score
+    }})
   end
 
   defp parse_time(nil, _), do: nil
