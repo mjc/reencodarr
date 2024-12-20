@@ -151,13 +151,6 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, socket}
   end
 
-  defp format_duration(time) do
-    # Assuming `time` is in seconds
-    minutes = div(time, 60)
-    seconds = rem(time, 60)
-    "#{minutes}m #{seconds}s"
-  end
-
   defp stats_data(stats, timezone) do
     [
       {"Most Recent Video Update", human_readable_time(stats.most_recent_video_update, timezone)},
