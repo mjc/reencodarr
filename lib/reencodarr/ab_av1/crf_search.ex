@@ -182,26 +182,26 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     cond do
       captures = Regex.named_captures(@encoding_sample_regex, line) ->
         Logger.info(
-          "Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
+          "CrfSearch: Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
         )
 
       captures = Regex.named_captures(@simple_vmaf_regex, line) ->
         Logger.info(
-          "Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
+          "CrfSearch: Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
         )
 
         upsert_vmaf(Map.put(captures, "chosen", false), video, args)
 
       captures = Regex.named_captures(@sample_regex, line) ->
         Logger.info(
-          "Sample #{captures["sample_num"]}/#{captures["total_samples"]} - CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
+          "CrfSearch: Sample #{captures["sample_num"]}/#{captures["total_samples"]} - CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
         )
 
         upsert_vmaf(Map.put(captures, "chosen", false), video, args)
 
       captures = Regex.named_captures(@eta_vmaf_regex, line) ->
         Logger.info(
-          "VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}"
+          "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}"
         )
 
         upsert_vmaf(Map.put(captures, "chosen", true), video, args)
@@ -211,11 +211,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
       captures = Regex.named_captures(@progress_regex, line) ->
         Logger.info(
-          "Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
+          "CrfSearch Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
         )
 
       captures = Regex.named_captures(@success_line_regex, line) ->
-        Logger.info("CRF search successful for CRF: #{captures["crf"]}")
+        Logger.info("CrfSearch successful for CRF: #{captures["crf"]}")
         Media.mark_vmaf_as_chosen(video.id, captures["crf"])
 
       line == "Error: Failed to find a suitable crf" ->
