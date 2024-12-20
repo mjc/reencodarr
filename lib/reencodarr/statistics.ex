@@ -49,7 +49,8 @@ defmodule Reencodarr.Statistics do
 
   @impl true
   def handle_info({:crf_search_progress, vmaf}, state) do
-    new_state = %{state | crf_search_progress: vmaf}
+    new_crf_search_progress = update_crf_search_progress(state.crf_search_progress, vmaf)
+    new_state = %{state | crf_search_progress: new_crf_search_progress}
     Logger.debug("Received progress: #{inspect(vmaf)}")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
     {:noreply, new_state}
@@ -159,4 +160,18 @@ defmodule Reencodarr.Statistics do
 
     Map.merge(state, new_stats)
   end
+
+  defp update_crf_search_progress(current, incoming) do
+    %CrfSearchProgress{
+      filename: update_field(current.filename, incoming.filename, :none),
+      percent: update_field(current.percent, incoming.percent, 0),
+      eta: update_field(current.eta, incoming.eta, 0),
+      fps: update_field(current.fps, incoming.fps, 0),
+      crf: update_field(current.crf, incoming.crf, 0),
+      score: update_field(current.score, incoming.score, 0)
+    }
+  end
+
+  defp update_field(_current, incoming, default) when incoming != default, do: incoming
+  defp update_field(current, _incoming, _default), do: current
 end
