@@ -4,6 +4,10 @@ defmodule Reencodarr.Statistics do
 
   require Logger
 
+  defmodule Encoding do
+    defstruct filename: :none, percent: 0, eta: 0, fps: 0
+  end
+
   @update_interval 5_000
 
   def start_link(_) do
@@ -23,7 +27,7 @@ defmodule Reencodarr.Statistics do
       syncing: false,
       sync_progress: 0,
       crf_search_progress: %Media.Vmaf{},
-      encoding_progress: %{filename: :none, percent: 0, eta: 0, fps: 0}
+      encoding_progress: %Encoding{}
     }
 
     schedule_update()
@@ -51,7 +55,12 @@ defmodule Reencodarr.Statistics do
   def handle_info({:encoding, %{percent: percent, eta: eta, fps: fps}}, state) do
     new_state = %{
       state
-      | encoding_progress: Map.merge(state.encoding_progress, %{percent: percent, eta: eta, fps: fps})
+      | encoding_progress: %Encoding{
+          state.encoding_progress
+          | percent: percent,
+            eta: eta,
+            fps: fps
+        }
     }
     Logger.info("Encoding progress: #{percent}% ETA: #{eta} FPS: #{fps}")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
@@ -63,7 +72,7 @@ defmodule Reencodarr.Statistics do
     new_state = %{
       state
       | encoding: true,
-        encoding_progress: Map.put(state.encoding_progress, :filename, filename)
+        encoding_progress: %Encoding{state.encoding_progress | filename: filename}
     }
     Logger.debug("Encoder started for file: #{filename}")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
@@ -82,7 +91,7 @@ defmodule Reencodarr.Statistics do
   def handle_info({:encoder, :none}, state) do
     new_state = %{
       state
-      | encoding_progress: Map.put(state.encoding_progress, :filename, :none)
+      | encoding_progress: %Encoding{state.encoding_progress | filename: :none}
     }
     Logger.debug("No encoding progress to update")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
