@@ -22,12 +22,6 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_info({:progress, vmaf}, socket) do
-    Logger.debug("Received progress event for VMAF: #{inspect(vmaf)}")
-    {:noreply, assign(socket, :crf_search_progress, vmaf)}
-  end
-
-  @impl true
   def handle_info({:encoder, :started}, socket) do
     Logger.debug("Encoder started")
     {:noreply, assign(socket, :encoding, true)}

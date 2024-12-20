@@ -263,7 +263,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     case Media.upsert_vmaf(vmaf_data) do
       {:ok, created_vmaf} ->
         Logger.debug("Upserted VMAF: #{inspect(created_vmaf)}")
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:progress, created_vmaf})
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:crf_search_progress, created_vmaf})
         created_vmaf
 
       {:error, changeset} ->

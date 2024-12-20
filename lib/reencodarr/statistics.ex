@@ -23,7 +23,7 @@ defmodule Reencodarr.Statistics do
       syncing: false,
       sync_progress: 0,
       crf_search_progress: %Media.Vmaf{},
-      encoding_progress: %{}
+      encoding_progress: %{filename: :none, percent: 0, eta: 0, fps: 0}
     }
 
     schedule_update()
@@ -40,7 +40,7 @@ defmodule Reencodarr.Statistics do
   end
 
   @impl true
-  def handle_info({:progress, vmaf}, state) do
+  def handle_info({:crf_search_progress, vmaf}, state) do
     new_state = %{state | crf_search_progress: vmaf}
     Logger.debug("Received progress: #{inspect(vmaf)}")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
