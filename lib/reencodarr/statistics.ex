@@ -4,8 +4,12 @@ defmodule Reencodarr.Statistics do
 
   require Logger
 
-  defmodule Encoding do
+  defmodule EncodingProgress do
     defstruct filename: :none, percent: 0, eta: 0, fps: 0
+  end
+
+  defmodule CrfSearchProgress do
+    defstruct filename: :none, percent: 0, eta: 0, fps: 0, crf: 0, score: 0
   end
 
   @update_interval 5_000
@@ -26,8 +30,8 @@ defmodule Reencodarr.Statistics do
       crf_searching: CrfSearcher.scanning?(),
       syncing: false,
       sync_progress: 0,
-      crf_search_progress: %Media.Vmaf{},
-      encoding_progress: %Encoding{}
+      crf_search_progress: %CrfSearchProgress{},
+      encoding_progress: %EncodingProgress{}
     }
 
     schedule_update()
@@ -55,7 +59,7 @@ defmodule Reencodarr.Statistics do
   def handle_info({:encoding, %{percent: percent, eta: eta, fps: fps}}, state) do
     new_state = %{
       state
-      | encoding_progress: %Encoding{
+      | encoding_progress: %EncodingProgress{
           state.encoding_progress
           | percent: percent,
             eta: eta,
@@ -72,7 +76,7 @@ defmodule Reencodarr.Statistics do
     new_state = %{
       state
       | encoding: true,
-        encoding_progress: %Encoding{state.encoding_progress | filename: filename}
+        encoding_progress: %EncodingProgress{state.encoding_progress | filename: filename}
     }
     Logger.debug("Encoder started for file: #{filename}")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
@@ -91,7 +95,7 @@ defmodule Reencodarr.Statistics do
   def handle_info({:encoder, :none}, state) do
     new_state = %{
       state
-      | encoding_progress: %Encoding{state.encoding_progress | filename: :none}
+      | encoding_progress: %EncodingProgress{state.encoding_progress | filename: :none}
     }
     Logger.debug("No encoding progress to update")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
