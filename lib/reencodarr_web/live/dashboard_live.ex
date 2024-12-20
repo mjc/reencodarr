@@ -151,79 +151,205 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, socket}
   end
 
+  defp format_duration(time) do
+    # Assuming `time` is in seconds
+    minutes = div(time, 60)
+    seconds = rem(time, 60)
+    "#{minutes}m #{seconds}s"
+  end
+
+  defp stats_data(stats, timezone) do
+    [
+      {"Most Recent Video Update", human_readable_time(stats.most_recent_video_update, timezone)},
+      {"Most Recent Inserted Video", human_readable_time(stats.most_recent_inserted_video, timezone)},
+      {"Not Reencoded", stats.not_reencoded},
+      {"Reencoded", stats.reencoded},
+      {"Total Videos", stats.total_videos},
+      {"Average VMAF Percentage", stats.avg_vmaf_percentage},
+      {"Lowest Chosen VMAF Percentage", stats.lowest_vmaf.percent},
+      {"Total VMAFs", stats.total_vmafs},
+      {"Chosen VMAFs Count", stats.chosen_vmafs_count}
+    ]
+  end
+
+  defp human_readable_time(nil, _timezone), do: "N/A"
+
+  defp human_readable_time(datetime, timezone) do
+    datetime
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.shift_zone!(timezone)
+    |> relative_time()
+  end
+
+  defp relative_time(datetime) do
+    now = DateTime.utc_now()
+    diff = DateTime.diff(now, datetime, :second)
+
+    cond do
+      diff < 60 ->
+        "#{diff} second(s) ago"
+
+      diff < 3600 ->
+        minutes = div(diff, 60)
+        "#{minutes} minute(s) ago"
+
+      diff < 86400 ->
+        hours = div(diff, 3600)
+        "#{hours} hour(s) ago"
+
+      true ->
+        days = div(diff, 86400)
+        "#{days} day(s) ago"
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
     <div
       id="dashboard-live"
-      class="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col items-center justify-center space-y-8"
+      class="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col items-center justify-center space-y-8 p-6"
       phx-hook="TimezoneHook"
     >
-      <div class="w-full flex justify-between items-center mb-4 px-4">
-        <.live_component
-          module={ReencodarrWeb.ToggleComponent}
-          id="toggle-encoder"
-          toggle_event="toggle_encoder"
-          active={@encoding}
-          active_text="Pause Encoder"
-          inactive_text="Start Encoder"
-          active_class="bg-red-500"
-          inactive_class="bg-blue-500"
-        />
-        <button
-          phx-click="sync_sonarr"
-          class={"text-white font-bold py-2 px-4 rounded " <> if @syncing, do: "bg-gray-500", else: "bg-yellow-500 hover:bg-yellow-700"}
-        >
-          Sync Sonarr (slow)
-        </button>
-        <button
-          phx-click="sync_radarr"
-          class={"text-white font-bold py-2 px-4 rounded " <> if @syncing, do: "bg-gray-500", else: "bg-green-500 hover:bg-green-700"}
-        >
-          Sync Radarr (slow)
-        </button>
-        <.live_component
-          module={ReencodarrWeb.ToggleComponent}
-          id="toggle-crf-search"
-          toggle_event="toggle_crf_search"
-          active={@crf_searching}
-          active_text="Pause CRF Search"
-          inactive_text="Start CRF Search"
-          active_class="bg-red-500"
-          inactive_class="bg-green-500"
-        />
-        <div>
-          <form phx-submit="manual_scan">
-            <input type="text" name="path" placeholder="Enter path to scan" class="input" />
-            <button
-              type="submit"
-              class="text-white font-bold py-2 px-4 rounded bg-blue-500 hover:bg-blue-700"
-            >
-              Start Manual Scan
-            </button>
-          </form>
+      <div class="w-full flex flex-wrap justify-between items-center mb-6 space-y-4 md:space-y-0">
+        <div class="flex flex-wrap space-x-4">
+          <button
+            phx-click="toggle_encoder"
+            class={"text-white px-4 py-2 rounded shadow " <> if @encoding, do: "bg-red-500", else: "bg-blue-500"}
+          >
+            {(@encoding && "Pause Encoder") || "Start Encoder"}
+          </button>
+          <button
+            phx-click="toggle_crf_search"
+            class={"text-white px-4 py-2 rounded shadow " <> if @crf_searching, do: "bg-red-500", else: "bg-green-500"}
+          >
+            {(@crf_searching && "Pause CRF Search") || "Start CRF Search"}
+          </button>
+        </div>
+        <div class="flex flex-wrap space-x-4">
+          <button
+            phx-click="sync_sonarr"
+            class={"text-white font-bold py-2 px-4 rounded shadow " <> if @syncing, do: "bg-gray-500", else: "bg-yellow-500 hover:bg-yellow-700"}
+          >
+            Sync Sonarr (slow)
+          </button>
+          <button
+            phx-click="sync_radarr"
+            class={"text-white font-bold py-2 px-4 rounded shadow " <> if @syncing, do: "bg-gray-500", else: "bg-green-500 hover:bg-green-700"}
+          >
+            Sync Radarr (slow)
+          </button>
         </div>
       </div>
 
-      <div class="w-full grid grid-cols-1 md:grid-cols-2 gap-4 px-4">
-        <.live_component
-          module={ReencodarrWeb.QueueComponent}
-          id="queue-component"
-          queue_length={@stats.queue_length}
-        />
-        <.live_component
-          module={ReencodarrWeb.ProgressComponent}
-          id="progress-component"
-          progress={@encoding_progress}
-          vmaf={@crf_search_progress}
-          sync_progress={@sync_progress}
-        />
-        <.live_component
-          module={ReencodarrWeb.StatsComponent}
-          id="stats-component"
-          stats={@stats}
-          timezone={@timezone}
-        />
+      <div class="w-full flex justify-center mb-6">
+        <form phx-submit="manual_scan" class="flex items-center space-x-2">
+          <input type="text" name="path" placeholder="Enter path to scan" class="input px-4 py-2 rounded shadow" />
+          <button
+            type="submit"
+            class="text-white font-bold py-2 px-4 rounded shadow bg-blue-500 hover:bg-blue-700"
+          >
+            Start Manual Scan
+          </button>
+        </form>
+      </div>
+
+      <div class="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <!-- Queue Information -->
+        <div class="w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4">
+          <h2 class="text-lg font-bold mb-4 text-gray-800 dark:text-gray-200">Queue Information</h2>
+          <div class="flex flex-col space-y-4">
+            <div class="flex items-center justify-between">
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">CRF Searches in Queue</div>
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">{@stats.queue_length.crf_searches}</div>
+            </div>
+            <div class="flex items-center justify-between">
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Encodes in Queue</div>
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">{@stats.queue_length.encodes}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Progress Information -->
+        <div class="w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4">
+          <h2 class="text-lg font-bold mb-4 text-gray-800 dark:text-gray-200">Progress Information</h2>
+          <div class="flex flex-col space-y-4">
+            <div>
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Encoding Progress</div>
+              <%= if @encoding_progress.filename != :none do %>
+                <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                  Encoding: <strong>{@encoding_progress.filename}</strong>
+                </div>
+                <div class="flex items-center space-x-2">
+                  <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                    <strong>{Integer.parse(to_string(@encoding_progress.percent)) |> elem(0)}%</strong>
+                  </div>
+                </div>
+                <div class="text-sm leading-5 text-gray-900 dark:text-gray-100 mt-2">
+                  <ul class="list-disc pl-5 fancy-list">
+                    <li>FPS: <strong>{@encoding_progress.fps}</strong></li>
+                    <li>ETA: <strong>{@encoding_progress.eta}</strong></li>
+                  </ul>
+                </div>
+                <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                  <div
+                    class="bg-blue-600 h-2.5 rounded-full"
+                    style={"width: #{Integer.parse(to_string(@encoding_progress.percent)) |> elem(0)}%"}
+                  >
+                  </div>
+                </div>
+              <% else %>
+                <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                  No encoding in progress
+                </div>
+              <% end %>
+            </div>
+            <div>
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">CRF Search Progress</div>
+              <%= if @crf_search_progress.percent do %>
+                <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                  <ul class="list-disc pl-5 fancy-list">
+                    <li>CRF: <strong>{@crf_search_progress.crf}</strong></li>
+                    <li>Percent: <strong>{@crf_search_progress.percent}%</strong> (of original size)</li>
+                    <li>VMAF Score: <strong>{@crf_search_progress.score}</strong> (Target: 95)</li>
+                  </ul>
+                </div>
+              <% else %>
+                <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                  No CRF search in progress
+                </div>
+              <% end %>
+            </div>
+            <div>
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Sync Progress</div>
+              <div class="flex items-center space-x-2">
+                <div class="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+                  <div
+                    class="bg-blue-600 h-2.5 rounded-full"
+                    style={"width: #{if @sync_progress > 0, do: @sync_progress, else: 0}%"}
+                  >
+                  </div>
+                </div>
+                <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                  <strong>{@sync_progress}%</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Statistics -->
+        <div class="w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4">
+          <h2 class="text-lg font-bold mb-4 text-gray-800 dark:text-gray-200">Statistics</h2>
+          <div class="flex flex-col space-y-4">
+            <%= for {label, value} <- stats_data(@stats, @timezone) do %>
+              <div class="flex items-center justify-between">
+                <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">{label}</div>
+                <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">{value}</div>
+              </div>
+            <% end %>
+          </div>
+        </div>
       </div>
     </div>
     """
