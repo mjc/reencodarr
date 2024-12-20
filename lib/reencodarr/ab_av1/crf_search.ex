@@ -1,6 +1,6 @@
 defmodule Reencodarr.AbAv1.CrfSearch do
   use GenServer
-  alias Reencodarr.{Media, AbAv1.Helper}
+  alias Reencodarr.{Media, AbAv1.Helper, Statistics.CrfSearchProgress}
   require Logger
 
   @encoding_sample_regex ~r/
@@ -263,7 +263,13 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     case Media.upsert_vmaf(vmaf_data) do
       {:ok, created_vmaf} ->
         Logger.debug("Upserted VMAF: #{inspect(created_vmaf)}")
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:crf_search_progress, created_vmaf})
+        filename = Path.basename(video.path)
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_search_progress", %CrfSearchProgress{
+          filename: filename,
+          percent: created_vmaf.percent,
+          crf: created_vmaf.crf,
+          score: created_vmaf.score
+        })
         created_vmaf
 
       {:error, changeset} ->
