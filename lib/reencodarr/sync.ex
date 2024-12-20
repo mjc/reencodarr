@@ -271,14 +271,42 @@ defmodule Reencodarr.Sync do
   defp map_codec_id(nil), do: ""
   defp map_codec_id(codec), do: raise("Unknown codec: #{inspect(codec)}")
 
-  defp map_channels(channels) when is_binary(channels) do
-    channels
-    |> String.split(".")
-    |> Enum.map(&String.to_integer/1)
-    |> Enum.sum()
-  end
+  defp map_channels("9.2"), do: 11
+  defp map_channels("9.1"), do: 10
+  defp map_channels("8.1"), do: 9
+  defp map_channels("8"), do: 8
+  defp map_channels("8.2"), do: 10
+  defp map_channels("7.2"), do: 9
+  defp map_channels("7.1"), do: 8
+  defp map_channels("6.1"), do: 7
+  defp map_channels("6"), do: 6
+  defp map_channels("5.1"), do: 6
+  defp map_channels("5"), do: 5
+  defp map_channels("4.1"), do: 5
+  defp map_channels("4"), do: 4
+  defp map_channels("3.1"), do: 4
+  defp map_channels("3"), do: 3
+  defp map_channels("2.1"), do: 3
+  defp map_channels("2"), do: 2
+  defp map_channels("1"), do: 1
 
-  defp map_channels(channels) when is_number(channels), do: round(channels)
+  defp map_channels(9.2), do: 11
+  defp map_channels(9.1), do: 10
+  defp map_channels(8.2), do: 10
+  defp map_channels(8.1), do: 9
+  defp map_channels(7.2), do: 9
+  defp map_channels(7.1), do: 8
+  defp map_channels(6.1), do: 7
+  defp map_channels(6), do: 6
+  defp map_channels(5.1), do: 6
+  defp map_channels(5), do: 5
+  defp map_channels(4.1), do: 5
+  defp map_channels(4), do: 4
+  defp map_channels(3.1), do: 4
+  defp map_channels(3), do: 3
+  defp map_channels(2.1), do: 3
+  defp map_channels(2), do: 2
+  defp map_channels(1), do: 1
   defp map_channels(_), do: 0
 
   defp parse_duration(duration) when is_binary(duration) do

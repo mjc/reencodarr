@@ -54,6 +54,7 @@ defmodule Reencodarr.Analyzer do
 
     case fetch_mediainfo(Enum.map(paths, & &1.path)) do
       {:ok, mediainfo_map} ->
+        Logger.info("Fetched mediainfo for #{length(paths)} videos")
         upsert_videos(paths, mediainfo_map)
 
       {:error, reason} ->
