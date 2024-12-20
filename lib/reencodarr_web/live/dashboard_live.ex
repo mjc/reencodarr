@@ -8,6 +8,7 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
+    if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "progress")
 
     {:ok,
      socket
