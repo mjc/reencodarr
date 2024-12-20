@@ -148,14 +148,23 @@ defmodule ReencodarrWeb.DashboardLive do
   defp stats_data(stats, timezone) do
     [
       {"Most Recent Video Update", human_readable_time(stats.most_recent_video_update, timezone)},
+      # The most recent time a video was updated in the system.
       {"Most Recent Inserted Video", human_readable_time(stats.most_recent_inserted_video, timezone)},
+      # The most recent time a new video was added to the system.
       {"Not Reencoded", stats.not_reencoded},
+      # The number of videos that have not been reencoded.
       {"Reencoded", stats.reencoded},
+      # The number of videos that have been reencoded.
       {"Total Videos", stats.total_videos},
+      # The total number of videos in the system.
       {"Average VMAF Percentage", stats.avg_vmaf_percentage},
+      # The average Video Multimethod Assessment Fusion (VMAF) score percentage across all videos.
       {"Lowest Chosen VMAF Percentage", stats.lowest_vmaf.percent},
+      # The lowest VMAF score percentage chosen for reencoding.
       {"Total VMAFs", stats.total_vmafs},
+      # The total number of VMAF scores calculated.
       {"Chosen VMAFs Count", stats.chosen_vmafs_count}
+      # The number of VMAF scores that were chosen for reencoding.
     ]
   end
 
@@ -198,37 +207,6 @@ defmodule ReencodarrWeb.DashboardLive do
       class="min-h-screen bg-gray-100 dark:bg-gray-900 flex flex-col items-center justify-center space-y-8 p-6"
       phx-hook="TimezoneHook"
     >
-      <div class="w-full flex flex-wrap justify-between items-center mb-6 space-y-4 md:space-y-0">
-        <div class="flex flex-wrap space-x-4">
-          <button
-            phx-click="toggle_encoder"
-            class={"text-white px-4 py-2 rounded shadow " <> if @encoding, do: "bg-red-500", else: "bg-blue-500"}
-          >
-            {(@encoding && "Pause Encoder") || "Start Encoder"}
-          </button>
-          <button
-            phx-click="toggle_crf_search"
-            class={"text-white px-4 py-2 rounded shadow " <> if @crf_searching, do: "bg-red-500", else: "bg-green-500"}
-          >
-            {(@crf_searching && "Pause CRF Search") || "Start CRF Search"}
-          </button>
-        </div>
-        <div class="flex flex-wrap space-x-4">
-          <button
-            phx-click="sync_sonarr"
-            class={"text-white font-bold py-2 px-4 rounded shadow " <> if @syncing, do: "bg-gray-500", else: "bg-yellow-500 hover:bg-yellow-700"}
-          >
-            Sync Sonarr (slow)
-          </button>
-          <button
-            phx-click="sync_radarr"
-            class={"text-white font-bold py-2 px-4 rounded shadow " <> if @syncing, do: "bg-gray-500", else: "bg-green-500 hover:bg-green-700"}
-          >
-            Sync Radarr (slow)
-          </button>
-        </div>
-      </div>
-
       <div class="w-full flex justify-center mb-6">
         <form phx-submit="manual_scan" class="flex items-center space-x-2">
           <input type="text" name="path" placeholder="Enter path to scan" class="input px-4 py-2 rounded shadow" />
@@ -339,6 +317,37 @@ defmodule ReencodarrWeb.DashboardLive do
               </div>
             <% end %>
           </div>
+        </div>
+      </div>
+
+      <div class="w-full flex flex-wrap justify-between items-center mt-6 space-y-4 md:space-y-0">
+        <div class="flex flex-wrap space-x-4">
+          <button
+            phx-click="toggle_encoder"
+            class={"text-white px-4 py-2 rounded shadow " <> if @encoding, do: "bg-red-500", else: "bg-blue-500"}
+          >
+            {(@encoding && "Pause Encoder") || "Start Encoder"}
+          </button>
+          <button
+            phx-click="toggle_crf_search"
+            class={"text-white px-4 py-2 rounded shadow " <> if @crf_searching, do: "bg-red-500", else: "bg-green-500"}
+          >
+            {(@crf_searching && "Pause CRF Search") || "Start CRF Search"}
+          </button>
+        </div>
+        <div class="flex flex-wrap space-x-4">
+          <button
+            phx-click="sync_sonarr"
+            class={"text-white font-bold py-2 px-4 rounded shadow " <> if @syncing, do: "bg-gray-500", else: "bg-yellow-500 hover:bg-yellow-700"}
+          >
+            Sync Sonarr (slow)
+          </button>
+          <button
+            phx-click="sync_radarr"
+            class={"text-white font-bold py-2 px-4 rounded shadow " <> if @syncing, do: "bg-gray-500", else: "bg-green-500 hover:bg-green-700"}
+          >
+            Sync Radarr (slow)
+          </button>
         </div>
       </div>
     </div>
