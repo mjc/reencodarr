@@ -154,7 +154,7 @@ defmodule Reencodarr.Media.Video do
   defp is_low_bitrate_1080p?(video_codecs, mediainfo) do
     Enum.member?(video_codecs, "V_MPEGH/ISO/HEVC") and
       get_track(mediainfo, "Video")["Width"] == "1920" and
-      String.to_integer(get_track(mediainfo, "General")["OverallBitRate"] || "0") < 10_000_000
+      String.to_integer(get_track(mediainfo, "General")["OverallBitRate"] || "0") < 20_000_000
   end
 
   # Check if audio track is Opus
