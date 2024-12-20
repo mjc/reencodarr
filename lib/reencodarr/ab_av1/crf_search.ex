@@ -219,11 +219,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         Media.mark_vmaf_as_chosen(video.id, captures["crf"])
 
       line == "Error: Failed to find a suitable crf" ->
-        Logger.error(
-          "Failed to find a suitable CRF, marking as reencoded for now. (I need to add a failed state)"
-        )
+        Logger.error("Failed to find a suitable CRF.")
 
-        Media.mark_as_reencoded(video)
+        Media.mark_as_failed(video)
 
       true ->
         Logger.error("CrfSearch: No match for line: #{line}")
