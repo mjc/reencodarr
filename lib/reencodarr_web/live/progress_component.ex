@@ -21,30 +21,33 @@ defmodule ReencodarrWeb.ProgressComponent do
               <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Encoding Progress</div>
             </td>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <%= if Map.has_key?(@progress, :video) do %>
+              <%= if @progress.filename != :none do %>
                 <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
-                  Starting {@progress.video.title}
+                  Encoding: <strong>{@progress.filename}</strong>
                 </div>
-              <% else %>
-                <%= if Map.has_key?(@progress, :percent) do %>
-                  <ul class="list-disc pl-5 text-sm leading-5 text-gray-900 dark:text-gray-100 fancy-list">
-                    <li>
-                      {Integer.parse(to_string(@progress.percent)) |> elem(0)} % @ {@progress.fps} fps
-                    </li>
-                    <li>ETA: {@progress.eta}</li>
+                <div class="flex items-center space-x-2">
+
+                  <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                    <strong>{Integer.parse(to_string(@progress.percent)) |> elem(0)}%</strong>
+                  </div>
+                </div>
+                <div class="text-sm leading-5 text-gray-900 dark:text-gray-100 mt-2">
+                  <ul class="list-disc pl-5 fancy-list">
+                    <li>FPS: <strong>{@progress.fps}</strong></li>
+                    <li>ETA: <strong>{@progress.eta}</strong></li>
                   </ul>
-                  <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mt-2">
+                </div>
+                <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
                     <div
                       class="bg-blue-600 h-2.5 rounded-full"
                       style={"width: #{Integer.parse(to_string(@progress.percent)) |> elem(0)}%"}
                     >
                     </div>
                   </div>
-                <% else %>
-                  <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
-                    No encoding in progress
-                  </div>
-                <% end %>
+              <% else %>
+                <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                  No encoding in progress
+                </div>
               <% end %>
             </td>
           </tr>
@@ -56,15 +59,13 @@ defmodule ReencodarrWeb.ProgressComponent do
             </td>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
               <%= if @vmaf.percent do %>
-                <ul class="list-disc pl-5 text-sm leading-5 text-gray-900 dark:text-gray-100 fancy-list">
-                  <li>CRF: {@vmaf.crf}</li>
-                  <li>
-                    Percent: {@vmaf.percent}% (of original size)
-                  </li>
-                  <li>
-                    VMAF Score: {@vmaf.score} (Target: 95)
-                  </li>
-                </ul>
+                <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                  <ul class="list-disc pl-5 fancy-list">
+                    <li>CRF: <strong>{@vmaf.crf}</strong></li>
+                    <li>Percent: <strong>{@vmaf.percent}%</strong> (of original size)</li>
+                    <li>VMAF Score: <strong>{@vmaf.score}</strong> (Target: 95)</li>
+                  </ul>
+                </div>
               <% else %>
                 <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
                   No CRF search in progress
@@ -79,7 +80,7 @@ defmodule ReencodarrWeb.ProgressComponent do
               </div>
             </td>
             <td class="px-6 py-4 whitespace-no-wrap border-b border-gray-300 dark:border-gray-700">
-              <div class="flex items-center">
+              <div class="flex items-center space-x-2">
                 <div class="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
                   <div
                     class="bg-blue-600 h-2.5 rounded-full"
@@ -87,8 +88,8 @@ defmodule ReencodarrWeb.ProgressComponent do
                   >
                   </div>
                 </div>
-                <div class="ml-2 text-sm leading-5 text-gray-900 dark:text-gray-100">
-                  {@sync_progress}%
+                <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                  <strong>{@sync_progress}%</strong>
                 </div>
               </div>
             </td>

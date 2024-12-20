@@ -207,7 +207,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         upsert_vmaf(Map.put(captures, "chosen", true), video, args)
 
       captures = Regex.named_captures(@vmaf_regex, line) ->
-        Logger.info("VMAF comparison: #{captures["file1"]} vs #{captures["file2"]}")
+        Logger.debug("VMAF comparison: #{captures["file1"]} vs #{captures["file2"]}")
 
       captures = Regex.named_captures(@progress_regex, line) ->
         Logger.info(

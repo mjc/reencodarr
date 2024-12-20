@@ -8,7 +8,6 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
-    if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "progress")
 
     {:ok,
      socket
@@ -76,6 +75,7 @@ defmodule ReencodarrWeb.DashboardLive do
       |> assign(:sync_progress, new_stats.sync_progress)
       |> assign(:stats, new_stats.stats)
       |> assign(:crf_search_progress, new_stats.crf_search_progress)
+      |> assign(:encoding_progress, new_stats.encoding_progress)
 
     {:noreply, socket}
   end

@@ -140,6 +140,14 @@ defmodule Reencodarr.AbAv1.Encode do
       captures = Regex.named_captures(~r/\[.*\] encoding (?<filename>\d+\.mkv)/, data) ->
         Logger.info("Encoding should start for #{captures["filename"]}")
 
+        file = captures["filename"]
+        extname = Path.extname(file)
+        id = String.to_integer(Path.basename(file, extname))
+
+        video = Media.get_video!(id)
+        filename = video.path |> Path.basename()
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :started, filename})
+
       captures =
           Regex.named_captures(
             ~r/(?<percent>\d+)%\s*,\s*(?<fps>\d+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
