@@ -142,7 +142,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       notify_crf_searcher()
     else
       Logger.error("CRF search failed with exit code #{exit_code}")
-      Media.mark_as_reencoded(state.current_task.video)
+      Media.mark_as_failed(state.current_task.video)
     end
 
     {:noreply, %{state | port: :none, current_task: :none}}

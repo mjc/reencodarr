@@ -28,6 +28,7 @@ defmodule Reencodarr.CrfSearcher do
   def handle_cast(:start_searching, state) do
     Logger.debug("CRF searching started")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :started})
+    schedule_search()
     {:noreply, %{state | searching: true}}
   end
 
@@ -58,8 +59,8 @@ defmodule Reencodarr.CrfSearcher do
     {:noreply, state}
   end
 
-  def handle_info(:search_videos, state) do
-    schedule_search()
+  def handle_info(:search_videos, %{searching: false} = state) do
+    Logger.info("CRF search is paused, not scheduling new searches.")
     {:noreply, state}
   end
 
