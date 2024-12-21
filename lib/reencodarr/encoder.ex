@@ -107,7 +107,11 @@ defmodule Reencodarr.Encoder do
   end
 
   @impl true
-  def handle_info(%{action: "encoding:complete", result: {:error, exit_code}, video: video}, state) when exit_code != 0 do
+  def handle_info(
+        %{action: "encoding:complete", result: {:error, exit_code}, video: video},
+        state
+      )
+      when exit_code != 0 do
     Logger.error("Encoding failed with error code #{exit_code} for video #{video.id}")
     Media.mark_as_failed(video)
     {:noreply, state}

@@ -67,6 +67,7 @@ defmodule Reencodarr.Statistics do
             fps: fps
         }
     }
+
     Logger.info("Encoding progress: #{percent}% ETA: #{eta} FPS: #{fps}")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
     {:noreply, new_state}
@@ -79,6 +80,7 @@ defmodule Reencodarr.Statistics do
       | encoding: true,
         encoding_progress: %EncodingProgress{state.encoding_progress | filename: filename}
     }
+
     Logger.debug("Encoder started for file: #{filename}")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
     {:noreply, new_state}
@@ -98,6 +100,7 @@ defmodule Reencodarr.Statistics do
       state
       | encoding_progress: %EncodingProgress{state.encoding_progress | filename: :none}
     }
+
     Logger.debug("No encoding progress to update")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
     {:noreply, new_state}

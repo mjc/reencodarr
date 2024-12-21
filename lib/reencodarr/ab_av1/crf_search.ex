@@ -184,6 +184,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         Logger.info(
           "CrfSearch: Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
         )
+
         broadcast_crf_search_progress(video.path, %CrfSearchProgress{
           filename: video.path,
           crf: captures["crf"]
@@ -193,18 +194,21 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         Logger.info(
           "CrfSearch: Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
         )
+
         upsert_vmaf(Map.put(captures, "chosen", false), video, args)
 
       captures = Regex.named_captures(@sample_regex, line) ->
         Logger.info(
           "CrfSearch: Sample #{captures["sample_num"]}/#{captures["total_samples"]} - CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
         )
+
         upsert_vmaf(Map.put(captures, "chosen", false), video, args)
 
       captures = Regex.named_captures(@eta_vmaf_regex, line) ->
         Logger.info(
           "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}"
         )
+
         upsert_vmaf(Map.put(captures, "chosen", true), video, args)
 
       captures = Regex.named_captures(@vmaf_regex, line) ->
@@ -214,6 +218,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         Logger.info(
           "CrfSearch Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
         )
+
         broadcast_crf_search_progress(video.path, %CrfSearchProgress{
           filename: video.path,
           percent: String.to_float(captures["progress"]),
@@ -279,12 +284,18 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp broadcast_crf_search_progress(video_path, vmaf) do
     filename = Path.basename(video_path)
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:crf_search_progress, %CrfSearchProgress{
-      filename: filename,
-      percent: vmaf.percent,
-      crf: vmaf.crf,
-      score: vmaf.score
-    }})
+
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "progress",
+      {:crf_search_progress,
+       %CrfSearchProgress{
+         filename: filename,
+         percent: vmaf.percent,
+         crf: vmaf.crf,
+         score: vmaf.score
+       }}
+    )
   end
 
   defp parse_time(nil, _), do: nil

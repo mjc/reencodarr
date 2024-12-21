@@ -149,7 +149,8 @@ defmodule ReencodarrWeb.DashboardLive do
     [
       {"Most Recent Video Update", human_readable_time(stats.most_recent_video_update, timezone)},
       # The most recent time a video was updated in the system.
-      {"Most Recent Inserted Video", human_readable_time(stats.most_recent_inserted_video, timezone)},
+      {"Most Recent Inserted Video",
+       human_readable_time(stats.most_recent_inserted_video, timezone)},
       # The most recent time a new video was added to the system.
       {"Not Reencoded", stats.not_reencoded},
       # The number of videos that have not been reencoded.
@@ -209,7 +210,12 @@ defmodule ReencodarrWeb.DashboardLive do
     >
       <div class="w-full flex justify-center mb-6">
         <form phx-submit="manual_scan" class="flex items-center space-x-2">
-          <input type="text" name="path" placeholder="Enter path to scan" class="input px-4 py-2 rounded shadow" />
+          <input
+            type="text"
+            name="path"
+            placeholder="Enter path to scan"
+            class="input px-4 py-2 rounded shadow"
+          />
           <button
             type="submit"
             class="text-white font-bold py-2 px-4 rounded shadow bg-blue-500 hover:bg-blue-700"
@@ -225,19 +231,27 @@ defmodule ReencodarrWeb.DashboardLive do
           <h2 class="text-lg font-bold mb-4 text-gray-800 dark:text-gray-200">Queue Information</h2>
           <div class="flex flex-col space-y-4">
             <div class="flex items-center justify-between">
-              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">CRF Searches in Queue</div>
-              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">{@stats.queue_length.crf_searches}</div>
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">
+                CRF Searches in Queue
+              </div>
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                {@stats.queue_length.crf_searches}
+              </div>
             </div>
             <div class="flex items-center justify-between">
               <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Encodes in Queue</div>
-              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">{@stats.queue_length.encodes}</div>
+              <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
+                {@stats.queue_length.encodes}
+              </div>
             </div>
           </div>
         </div>
-
-        <!-- Progress Information -->
+        
+    <!-- Progress Information -->
         <div class="w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4">
-          <h2 class="text-lg font-bold mb-4 text-gray-800 dark:text-gray-200">Progress Information</h2>
+          <h2 class="text-lg font-bold mb-4 text-gray-800 dark:text-gray-200">
+            Progress Information
+          </h2>
           <div class="flex flex-col space-y-4">
             <div>
               <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">Encoding Progress</div>
@@ -247,7 +261,9 @@ defmodule ReencodarrWeb.DashboardLive do
                 </div>
                 <div class="flex items-center space-x-2">
                   <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
-                    <strong>{Integer.parse(to_string(@encoding_progress.percent)) |> elem(0)}%</strong>
+                    <strong>
+                      {Integer.parse(to_string(@encoding_progress.percent)) |> elem(0)}%
+                    </strong>
                   </div>
                 </div>
                 <div class="text-sm leading-5 text-gray-900 dark:text-gray-100 mt-2">
@@ -270,7 +286,9 @@ defmodule ReencodarrWeb.DashboardLive do
               <% end %>
             </div>
             <div>
-              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">CRF Search Progress</div>
+              <div class="text-sm leading-5 text-gray-800 dark:text-gray-200">
+                CRF Search Progress
+              </div>
               <%= if @crf_search_progress.filename != :none do %>
                 <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
                   CRF Search: <strong>{@crf_search_progress.filename}</strong>
@@ -278,7 +296,9 @@ defmodule ReencodarrWeb.DashboardLive do
                 <div class="text-sm leading-5 text-gray-900 dark:text-gray-100">
                   <ul class="list-disc pl-5 fancy-list">
                     <li>CRF: <strong>{@crf_search_progress.crf}</strong></li>
-                    <li>Percent: <strong>{@crf_search_progress.percent}%</strong> (of original size)</li>
+                    <li>
+                      Percent: <strong>{@crf_search_progress.percent}%</strong> (of original size)
+                    </li>
                     <li>VMAF Score: <strong>{@crf_search_progress.score}</strong> (Target: 95)</li>
                   </ul>
                 </div>
@@ -305,8 +325,8 @@ defmodule ReencodarrWeb.DashboardLive do
             </div>
           </div>
         </div>
-
-        <!-- Statistics -->
+        
+    <!-- Statistics -->
         <div class="w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4">
           <h2 class="text-lg font-bold mb-4 text-gray-800 dark:text-gray-200">Statistics</h2>
           <div class="flex flex-col space-y-4">
