@@ -108,7 +108,7 @@ defmodule Reencodarr.Sync do
           %{
             "@type" => "General",
             "AudioCount" => episode_file["mediaInfo"]["audioStreamCount"],
-            "OverallBitRate" => episode_file["mediaInfo"]["videoBitrate"],
+            "OverallBitRate" => episode_file["mediaInfo"]["overallBitrate"] || episode_file["mediaInfo"]["videoBitrate"],
             "Duration" => parse_duration(episode_file["mediaInfo"]["runTime"]),
             "FileSize" => episode_file["size"],
             "TextCount" => length(String.split(episode_file["mediaInfo"]["subtitles"], "/")),
@@ -174,7 +174,7 @@ defmodule Reencodarr.Sync do
           %{
             "@type" => "General",
             "AudioCount" => movie_file["mediaInfo"]["audioStreamCount"],
-            "OverallBitRate" => movie_file["mediaInfo"]["videoBitrate"],
+            "OverallBitRate" => movie_file["mediaInfo"]["overallBitrate"] || movie_file["mediaInfo"]["videoBitrate"],
             "Duration" => parse_duration(movie_file["mediaInfo"]["runTime"]),
             "FileSize" => movie_file["size"],
             "TextCount" => length(String.split(movie_file["mediaInfo"]["subtitles"], "/")),
