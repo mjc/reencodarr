@@ -5,36 +5,74 @@ defmodule Reencodarr.Analyzer do
 
   @concurrent_files 5
   @process_interval :timer.seconds(10)
+  @adjustment_interval :timer.minutes(1)
+  @min_concurrency 1
+  @max_concurrency 1000
+
+  @kp 0.1  # Proportional gain
+  @ki 0.01 # Integral gain
+  @kd 0.05 # Derivative gain
 
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_) do
     GenServer.start_link(__MODULE__, nil, name: __MODULE__)
   end
 
-  @spec init(any()) :: {:ok, []}
+  @spec init(any()) :: {:ok, %{
+    queue: list(map()),
+    concurrency: integer,
+    processed_timestamps: list(pos_integer),
+    last_adjustment: pos_integer,
+    pid_integral: float,
+    previous_error: float,
+    max_throughput: non_neg_integer
+  }}
   def init(_) do
     schedule_process()
-    {:ok, []}
+    schedule_adjustment()
+    {:ok, %{
+      queue: [],
+      concurrency: @concurrent_files,
+      processed_timestamps: [],
+      last_adjustment: :os.system_time(:second),
+      pid_integral: 0.0,
+      previous_error: 0.0,
+      max_throughput: 0
+    }}
   end
 
-  @spec handle_info(:process_queue, list(String.t())) :: {:noreply, list(String.t())}
+  @spec handle_info(:process_queue, map()) :: {:noreply, map()}
   def handle_info(:process_queue, state) do
-    if length(state) > 0 do
-      Logger.debug("Processing queue with #{length(state)} videos.")
-      process_paths(state)
+    if length(state.queue) > 0 do
+      Logger.debug("Processing queue with #{length(state.queue)} videos.")
+      {:noreply, new_state} = process_paths(state) # Capture the updated state
+      schedule_process()
+      {:noreply, new_state} # Return the updated state
+    else
+      schedule_process()
+      {:noreply, state}
     end
-    schedule_process()
-    {:noreply, state}
   end
 
-  @spec handle_info(map(), list(String.t())) :: {:noreply, list(String.t())}
+  @spec handle_info(:adjust_concurrency, map()) :: {:noreply, map()}
+  def handle_info(:adjust_concurrency, state) do
+    new_state = adjust_concurrency(state)
+    schedule_adjustment()
+    {:noreply, new_state}
+  end
+
+  @spec handle_info(map(), map()) :: {:noreply, map()}
   def handle_info(%{path: path}, state) do
-    Logger.debug("Video file found: #{path}. Queue size: #{length(state) + 1}")
-    {:noreply, state ++ [path]}
+    Logger.debug("Video file found: #{path}. Queue size: #{length(state.queue) + 1}")
+    {:noreply, %{state | queue: state.queue ++ [path]}}
   end
 
   defp schedule_process do
     Process.send_after(self(), :process_queue, @process_interval)
+  end
+
+  defp schedule_adjustment do
+    Process.send_after(self(), :adjust_concurrency, @adjustment_interval)
   end
 
   @spec process_path(map()) :: :ok
@@ -42,36 +80,33 @@ defmodule Reencodarr.Analyzer do
     GenServer.cast(__MODULE__, {:process_path, video_info})
   end
 
-  @spec handle_cast({:process_path, map()}, list(map())) :: {:noreply, list(map())}
+  @spec handle_cast({:process_path, map()}, map()) :: {:noreply, map()}
   def handle_cast({:process_path, video_info}, state) do
-    Logger.debug("Video file found: #{video_info.path}. Queue size: #{length(state) + 1}")
-    {:noreply, state ++ [video_info]}
+    Logger.debug("Video file found: #{video_info.path}. Queue size: #{length(state.queue) + 1}")
+    {:noreply, %{state | queue: state.queue ++ [video_info]}}
   end
 
-  @spec process_paths(list(map())) :: {:noreply, list(map())}
-  defp process_paths(state) do
-    paths = Enum.take(state, @concurrent_files)
+  @spec process_paths(map()) :: {:noreply, map()}
+  defp process_paths(%{queue: queue, concurrency: concurrency} = state) do
+    paths = Enum.take(queue, concurrency)
 
-    # paths =
-    #   Enum.reject(paths, fn %{path: path} ->
-    #     Media.video_exists?(path) &&
-    #       Logger.debug("Video already exists for path: #{path}, skipping.")
-    #   end)
+    new_state =
+      case fetch_mediainfo(Enum.map(paths, & &1.path)) do
+        {:ok, mediainfo_map} ->
+          Logger.info("Fetched mediainfo for #{length(paths)} videos. Queue size: #{length(queue)}")
+          upsert_videos(paths, mediainfo_map)
+          update_throughput_timestamps(state, length(paths))
 
-    case fetch_mediainfo(Enum.map(paths, & &1.path)) do
-      {:ok, mediainfo_map} ->
-        Logger.info("Fetched mediainfo for #{length(paths)} videos. Queue size: #{length(state)}")
-        upsert_videos(paths, mediainfo_map)
+        {:error, reason} ->
+          Enum.each(paths, fn %{path: path} ->
+            Logger.error(
+              "Failed to fetch mediainfo for #{path}: #{reason}. Queue size: #{length(queue)}"
+            )
+          end)
+          state
+      end
 
-      {:error, reason} ->
-        Enum.each(paths, fn %{path: path} ->
-          Logger.error(
-            "Failed to fetch mediainfo for #{path}: #{reason}. Queue size: #{length(state)}"
-          )
-        end)
-    end
-
-    {:noreply, Enum.drop(state, @concurrent_files)}
+    {:noreply, %{new_state | queue: Enum.drop(queue, concurrency)}}
   end
 
   @spec upsert_videos(list(map()), map()) :: :ok
@@ -154,4 +189,46 @@ defmodule Reencodarr.Analyzer do
   defp parse_mediainfo(%{"media" => %{"@ref" => ref}} = json), do: %{ref => json}
 
   defp parse_mediainfo(_json), do: %{}
+
+  defp update_throughput_timestamps(state, processed_count) do
+    now = :os.system_time(:second)
+    updated_ts = Enum.concat(List.duplicate(now, processed_count), state.processed_timestamps)
+                  |> Enum.filter(&(&1 >= now - 60)) # Changed back from 3600 to 60 seconds
+    new_throughput = length(updated_ts)
+    new_max = max(state.max_throughput, new_throughput)
+    %{state | processed_timestamps: updated_ts, max_throughput: new_max}
+  end
+
+  defp adjust_concurrency(state) do
+    now = :os.system_time(:second)
+    throughput = length(state.processed_timestamps)
+    error = (state.max_throughput + 1) - throughput
+
+    # Update integral
+    pid_integral = state.pid_integral + error
+
+    # Calculate derivative
+    derivative = error - state.previous_error
+
+    # Compute PID output
+    pid_output = @kp * error + @ki * pid_integral + @kd * derivative
+
+    # Determine concurrency adjustment
+    concurrency_change = round(pid_output)
+
+    # Calculate new concurrency ensuring it stays within bounds
+    new_concurrency =
+      state.concurrency + concurrency_change
+      |> max(@min_concurrency)
+      |> min(@max_concurrency)
+
+    Logger.info("Adjusting concurrency to #{new_concurrency} based on throughput of #{throughput} files/min (PID output: #{pid_output}, max_throughput: #{state.max_throughput})")
+
+    %{state |
+      concurrency: new_concurrency,
+      pid_integral: pid_integral,
+      previous_error: error,
+      last_adjustment: now
+    }
+  end
 end
