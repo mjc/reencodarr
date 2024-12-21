@@ -74,10 +74,28 @@ defmodule Reencodarr.Media.Video do
     video
     |> cast(attrs, @required ++ @optional)
     |> validate_media_info()
+    |> maybe_remove_size_zero()
+    |> maybe_remove_bitrate_zero()
     |> validate_required(@required)
     |> unique_constraint(:path)
     |> validate_inclusion(:service_type, @service_types)
     |> validate_number(:bitrate, greater_than_or_equal_to: 1)
+  end
+
+  defp maybe_remove_size_zero(changeset) do
+    if get_change(changeset, :size) == 0 do
+      delete_change(changeset, :size)
+    else
+      changeset
+    end
+  end
+
+  defp maybe_remove_bitrate_zero(changeset) do
+    if get_change(changeset, :bitrate) == 0 do
+      delete_change(changeset, :bitrate)
+    else
+      changeset
+    end
   end
 
   # Validate media info and apply changes
