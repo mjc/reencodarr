@@ -17,12 +17,12 @@ defmodule Reencodarr.Analyzer do
 
   @spec handle_info(map(), list(String.t())) :: {:noreply, list(String.t())}
   def handle_info(%{path: path}, state) when length(state) < @concurrent_files do
-    Logger.debug("Video file found: #{path}")
+    Logger.debug("Video file found: #{path}. Queue size: #{length(state) + 1}")
     {:noreply, state ++ [path]}
   end
 
   def handle_info(%{path: path}, state) do
-    Logger.debug("Enough videos found, processing #{Enum.count(state) + 1} videos")
+    Logger.debug("Enough videos found, processing #{Enum.count(state) + 1} videos. Queue size: #{length(state) + 1}")
     process_paths(state ++ [path])
   end
 
@@ -33,12 +33,12 @@ defmodule Reencodarr.Analyzer do
 
   @spec handle_cast({:process_path, map()}, list(map())) :: {:noreply, list(map())}
   def handle_cast({:process_path, video_info}, state) when length(state) < @concurrent_files do
-    Logger.debug("Video file found: #{video_info.path}")
+    Logger.debug("Video file found: #{video_info.path}. Queue size: #{length(state) + 1}")
     {:noreply, state ++ [video_info]}
   end
 
   def handle_cast({:process_path, video_info}, state) do
-    Logger.debug("Video file found: #{video_info.path}")
+    Logger.debug("Video file found: #{video_info.path}. Queue size: #{length(state) + 1}")
     process_paths(state ++ [video_info])
   end
 
@@ -46,20 +46,20 @@ defmodule Reencodarr.Analyzer do
   defp process_paths(state) do
     paths = Enum.take(state, 5)
 
-    paths =
-      Enum.reject(paths, fn %{path: path} ->
-        Media.video_exists?(path) &&
-          Logger.debug("Video already exists for path: #{path}, skipping.")
-      end)
+    # paths =
+    #   Enum.reject(paths, fn %{path: path} ->
+    #     Media.video_exists?(path) &&
+    #       Logger.debug("Video already exists for path: #{path}, skipping.")
+    #   end)
 
     case fetch_mediainfo(Enum.map(paths, & &1.path)) do
       {:ok, mediainfo_map} ->
-        Logger.info("Fetched mediainfo for #{length(paths)} videos")
+        Logger.info("Fetched mediainfo for #{length(paths)} videos. Queue size: #{length(state)}")
         upsert_videos(paths, mediainfo_map)
 
       {:error, reason} ->
         Enum.each(paths, fn %{path: path} ->
-          Logger.error("Failed to fetch mediainfo for #{path}: #{reason}")
+          Logger.error("Failed to fetch mediainfo for #{path}: #{reason}. Queue size: #{length(state)}")
         end)
     end
 
@@ -68,12 +68,13 @@ defmodule Reencodarr.Analyzer do
 
   @spec upsert_videos(list(map()), map()) :: :ok
   defp upsert_videos(paths, mediainfo_map) do
-    Enum.each(paths, &upsert_video(&1, mediainfo_map))
+    Enum.each(paths, &upsert_video(&1, mediainfo_map, length(paths)))
   end
 
   defp upsert_video(
          %{path: path, service_id: service_id, service_type: service_type},
-         mediainfo_map
+         mediainfo_map,
+         queue_length
        ) do
     mediainfo = Map.get(mediainfo_map, path)
     file_size = get_in(mediainfo, ["media", "track", Access.at(0), "FileSize"])
@@ -87,12 +88,12 @@ defmodule Reencodarr.Analyzer do
              service_type: service_type,
              size: file_size
            }) do
-      Logger.debug("Upserted analyzed video for #{path}")
+      Logger.debug("Upserted analyzed video for #{path}. Queue size: #{queue_length}")
       :ok
     else
-      nil -> Logger.error("Mediainfo size is empty for #{path}, skipping upsert.")
-      "" -> Logger.error("Mediainfo size is empty for #{path}, skipping upsert.")
-      {:error, reason} -> Logger.error("Failed to upsert video for #{path}: #{inspect(reason)}")
+      nil -> Logger.error("Mediainfo size is empty for #{path}, skipping upsert. Queue size: #{queue_length}")
+      "" -> Logger.error("Mediainfo size is empty for #{path}, skipping upsert. Queue size: #{queue_length}")
+      {:error, reason} -> Logger.error("Failed to upsert video for #{path}: #{inspect(reason)}. Queue size: #{queue_length}")
     end
   end
 
