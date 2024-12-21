@@ -28,7 +28,6 @@ defmodule Reencodarr.Encoder do
   @impl true
   def handle_cast(:start_encoding, state) do
     Logger.debug("Encoding started")
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :started})
     schedule_check()
     {:noreply, %{state | encoding: true}}
   end
