@@ -2,7 +2,7 @@ defmodule Reencodarr.Media.Video do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Reencodarr.Media.{CodecMapper, CodecHelper}
+  alias Reencodarr.Media.CodecMapper
 
   @type t() :: %__MODULE__{}
 

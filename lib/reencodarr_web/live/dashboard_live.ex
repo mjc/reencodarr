@@ -181,173 +181,228 @@ defmodule ReencodarrWeb.DashboardLive do
       class="min-h-screen bg-gray-900 dark:bg-gray-800 flex flex-col items-center justify-center space-y-8 p-6"
       phx-hook="TimezoneHook"
     >
-      <div class="w-full flex justify-center mb-6">
-        <form phx-submit="manual_scan" class="flex items-center space-x-2">
-          <input
-            type="text"
-            name="path"
-            placeholder="Enter path to scan"
-            class="input px-4 py-2 rounded shadow border border-gray-600 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-          <button
-            type="submit"
-            class="text-white font-bold py-2 px-4 rounded shadow bg-indigo-500 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            Start Manual Scan
-          </button>
-        </form>
-      </div>
-
+      <.render_manual_scan_form />
       <div class="w-full grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <!-- Queue Information -->
-        <div class="w-full bg-gray-800 dark:bg-gray-700 rounded-lg shadow-lg p-4">
-          <h2 class="text-lg font-bold mb-4 text-gray-200 dark:text-gray-300">Queue Information</h2>
-          <div class="flex flex-col space-y-4">
-            <div class="flex items-center justify-between">
-              <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">
-                CRF Searches in Queue
-              </div>
-              <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
-                {@stats.queue_length.crf_searches}
-              </div>
-            </div>
-            <div class="flex items-center justify-between">
-              <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">Encodes in Queue</div>
-              <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
-                {@stats.queue_length.encodes}
-              </div>
-            </div>
-          </div>
-        </div>
-        
-    <!-- Progress Information -->
-        <div class="w-full bg-gray-800 dark:bg-gray-700 rounded-lg shadow-lg p-4">
-          <h2 class="text-lg font-bold mb-4 text-gray-200 dark:text-gray-300">
-            Progress Information
-          </h2>
-          <div class="flex flex-col space-y-4">
-            <div>
-              <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">Encoding Progress</div>
-              <%= if @encoding_progress.filename != :none do %>
-                <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
-                  Encoding: <strong>{@encoding_progress.filename}</strong>
-                </div>
-                <div class="flex items-center space-x-2">
-                  <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
-                    <strong>
-                      {Integer.parse(to_string(@encoding_progress.percent)) |> elem(0)}%
-                    </strong>
-                  </div>
-                </div>
-                <div class="text-sm leading-5 text-gray-100 dark:text-gray-200 mt-2">
-                  <ul class="list-disc pl-5 fancy-list">
-                    <li>FPS: <strong>{@encoding_progress.fps}</strong></li>
-                    <li>ETA: <strong>{@encoding_progress.eta}</strong></li>
-                  </ul>
-                </div>
-                <div class="w-full bg-gray-600 dark:bg-gray-500 rounded-full h-2.5">
-                  <div
-                    class="bg-indigo-600 h-2.5 rounded-full"
-                    style={"width: #{Integer.parse(to_string(@encoding_progress.percent)) |> elem(0)}%"}
-                  >
-                  </div>
-                </div>
-              <% else %>
-                <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
-                  No encoding in progress
-                </div>
-              <% end %>
-            </div>
-            <div>
-              <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">
-                CRF Search Progress
-              </div>
-              <%= if @crf_search_progress.filename != :none do %>
-                <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
-                  CRF Search: <strong>{@crf_search_progress.filename}</strong>
-                </div>
-                <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
-                  <ul class="list-disc pl-5 fancy-list">
-                    <li>CRF: <strong>{@crf_search_progress.crf}</strong></li>
-                    <li>
-                      Percent: <strong>{@crf_search_progress.percent}%</strong> (of original size)
-                    </li>
-                    <li>VMAF Score: <strong>{@crf_search_progress.score}</strong> (Target: 95)</li>
-                  </ul>
-                </div>
-              <% else %>
-                <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
-                  No CRF search in progress
-                </div>
-              <% end %>
-            </div>
-            <div>
-              <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">Sync Progress</div>
-              <div class="flex items-center space-x-2">
-                <div class="w-full bg-gray-600 rounded-full h-2.5 dark:bg-gray-500">
-                  <div
-                    class="bg-indigo-600 h-2.5 rounded-full"
-                    style={"width: #{if @sync_progress > 0, do: @sync_progress, else: 0}%"}
-                  >
-                  </div>
-                </div>
-                <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
-                  <strong>{@sync_progress}%</strong>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        
-    <!-- Statistics -->
-        <div class="w-full bg-gray-800 dark:bg-gray-700 rounded-lg shadow-lg p-4">
-          <h2 class="text-lg font-bold mb-4 text-gray-200 dark:text-gray-300">Statistics</h2>
-          <div class="flex flex-col space-y-4">
-            <%= for {label, value} <- stats_data(@stats, @timezone) do %>
-              <div class="flex items-center justify-between">
-                <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">{label}</div>
-                <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">{value}</div>
-              </div>
-            <% end %>
-          </div>
-        </div>
+        <.render_queue_information stats={@stats} />
+        <.render_progress_information
+          sync_progress={@sync_progress}
+          encoding_progress={@encoding_progress}
+          crf_search_progress={@crf_search_progress}
+        />
+        <.render_statistics stats={@stats} timezone={@timezone} />
       </div>
+      <.render_control_buttons {assigns} />
+    </div>
+    """
+  end
 
-      <div class="w-full flex flex-wrap justify-between items-center mt-6 space-y-4 md:space-y-0">
-        <div class="flex flex-wrap space-x-4">
-          <button
-            phx-click="toggle"
-            phx-value-target="encoder"
-            class={"text-white px-4 py-2 rounded shadow focus:outline-none focus:ring-2 " <> if @encoding, do: "bg-red-500 focus:ring-red-500", else: "bg-indigo-500 focus:ring-indigo-500"}
-          >
-            {(@encoding && "Pause Encoder") || "Start Encoder"}
-          </button>
-          <button
-            phx-click="toggle"
-            phx-value-target="crf_search"
-            class={"text-white px-4 py-2 rounded shadow focus:outline-none focus:ring-2 " <> if @crf_searching, do: "bg-red-500 focus:ring-red-500", else: "bg-green-500 focus:ring-green-500"}
-          >
-            {(@crf_searching && "Pause CRF Search") || "Start CRF Search"}
-          </button>
+  defp render_manual_scan_form(assigns) do
+    ~H"""
+    <div class="w-full flex justify-center mb-6">
+      <form phx-submit="manual_scan" class="flex items-center space-x-2">
+        <input
+          type="text"
+          name="path"
+          placeholder="Enter path to scan"
+          class="input px-4 py-2 rounded shadow border border-gray-600 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        />
+        <button
+          type="submit"
+          class="text-white font-bold py-2 px-4 rounded shadow bg-indigo-500 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+        >
+          Start Manual Scan
+        </button>
+      </form>
+    </div>
+    """
+  end
+
+  defp render_queue_information(assigns) do
+    ~H"""
+    <div class="w-full bg-gray-800 dark:bg-gray-700 rounded-lg shadow-lg p-4">
+      <h2 class="text-lg font-bold mb-4 text-gray-200 dark:text-gray-300">Queue Information</h2>
+      <div class="flex flex-col space-y-4">
+        <.render_queue_info stats={@stats} />
+      </div>
+    </div>
+    """
+  end
+
+  defp render_progress_information(assigns) do
+    ~H"""
+    <div class="w-full bg-gray-800 dark:bg-gray-700 rounded-lg shadow-lg p-4">
+      <h2 class="text-lg font-bold mb-4 text-gray-200 dark:text-gray-300">
+        Progress Information
+      </h2>
+      <div class="flex flex-col space-y-4">
+        <.render_encoding_progress encoding_progress={@encoding_progress} />
+        <.render_crf_search_progress crf_search_progress={@crf_search_progress} />
+        <.render_sync_progress sync_progress={@sync_progress} />
+      </div>
+    </div>
+    """
+  end
+
+  defp render_statistics(assigns) do
+    ~H"""
+    <div class="w-full bg-gray-800 dark:bg-gray-700 rounded-lg shadow-lg p-4">
+      <h2 class="text-lg font-bold mb-4 text-gray-200 dark:text-gray-300">Statistics</h2>
+      <div class="flex flex-col space-y-4">
+        <%= for {label, value} <- stats_data(@stats, @timezone) do %>
+          <div class="flex items-center justify-between">
+            <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">{label}</div>
+            <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">{value}</div>
+          </div>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  defp render_control_buttons(assigns) do
+    ~H"""
+    <div class="w-full flex flex-wrap justify-between items-center mt-6 space-y-4 md:space-y-0">
+      <div class="flex flex-wrap space-x-4">
+        <button
+          phx-click="toggle"
+          phx-value-target="encoder"
+          class={"text-white px-4 py-2 rounded shadow focus:outline-none focus:ring-2 " <> if @encoding, do: "bg-red-500 focus:ring-red-500", else: "bg-indigo-500 focus:ring-indigo-500"}
+        >
+          {(@encoding && "Pause Encoder") || "Start Encoder"}
+        </button>
+        <button
+          phx-click="toggle"
+          phx-value-target="crf_search"
+          class={"text-white px-4 py-2 rounded shadow focus:outline-none focus:ring-2 " <> if @crf_searching, do: "bg-red-500 focus:ring-red-500", else: "bg-green-500 focus:ring-green-500"}
+        >
+          {(@crf_searching && "Pause CRF Search") || "Start CRF Search"}
+        </button>
+      </div>
+      <div class="flex flex-wrap space-x-4">
+        <button
+          phx-click="sync"
+          phx-value-target="sonarr"
+          class={"text-white font-bold py-2 px-4 rounded shadow focus:outline-none focus:ring-2 " <> if @syncing, do: "bg-gray-500 focus:ring-gray-500", else: "bg-yellow-500 hover:bg-yellow-700 focus:ring-yellow-500"}
+        >
+          Sync Sonarr (slow)
+        </button>
+        <button
+          phx-click="sync"
+          phx-value-target="radarr"
+          class={"text-white font-bold py-2 px-4 rounded shadow focus:outline-none focus:ring-2 " <> if @syncing, do: "bg-gray-500 focus:ring-gray-500", else: "bg-green-500 hover:bg-green-700 focus:ring-green-500"}
+        >
+          Sync Radarr (slow)
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  defp render_queue_info(assigns) do
+    ~H"""
+    <div class="flex items-center justify-between">
+      <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">
+        CRF Searches in Queue
+      </div>
+      <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
+        {@stats.queue_length.crf_searches}
+      </div>
+    </div>
+    <div class="flex items-center justify-between">
+      <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">Encodes in Queue</div>
+      <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
+        {@stats.queue_length.encodes}
+      </div>
+    </div>
+    """
+  end
+
+  defp render_encoding_progress(assigns) do
+    ~H"""
+    <div>
+      <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">Encoding Progress</div>
+      <%= if @encoding_progress.filename != :none do %>
+        <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
+          Encoding: <strong>{@encoding_progress.filename}</strong>
         </div>
-        <div class="flex flex-wrap space-x-4">
-          <button
-            phx-click="sync"
-            phx-value-target="sonarr"
-            class={"text-white font-bold py-2 px-4 rounded shadow focus:outline-none focus:ring-2 " <> if @syncing, do: "bg-gray-500 focus:ring-gray-500", else: "bg-yellow-500 hover:bg-yellow-700 focus:ring-yellow-500"}
+        <div class="flex items-center space-x-2">
+          <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
+            <strong>
+              {parse_integer(@encoding_progress.percent)}%
+            </strong>
+          </div>
+        </div>
+        <div class="text-sm leading-5 text-gray-100 dark:text-gray-200 mt-2">
+          <ul class="list-disc pl-5 fancy-list">
+            <li>FPS: <strong>{@encoding_progress.fps}</strong></li>
+            <li>ETA: <strong>{@encoding_progress.eta}</strong></li>
+          </ul>
+        </div>
+        <div class="w-full bg-gray-600 dark:bg-gray-500 rounded-full h-2.5">
+          <div
+            class="bg-indigo-600 h-2.5 rounded-full"
+            style={"width: #{parse_integer(@encoding_progress.percent)}%"}
           >
-            Sync Sonarr (slow)
-          </button>
-          <button
-            phx-click="sync"
-            phx-value-target="radarr"
-            class={"text-white font-bold py-2 px-4 rounded shadow focus:outline-none focus:ring-2 " <> if @syncing, do: "bg-gray-500 focus:ring-gray-500", else: "bg-green-500 hover:bg-green-700 focus:ring-green-500"}
+          </div>
+        </div>
+      <% else %>
+        <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
+          No encoding in progress
+        </div>
+      <% end %>
+    </div>
+    """
+  end
+
+  defp render_crf_search_progress(assigns) do
+    ~H"""
+    <div>
+      <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">
+        CRF Search Progress
+      </div>
+      <%= if @crf_search_progress.filename != :none do %>
+        <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
+          CRF Search: <strong>{@crf_search_progress.filename}</strong>
+        </div>
+        <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
+          <ul class="list-disc pl-5 fancy-list">
+            <li>CRF: <strong>{@crf_search_progress.crf}</strong></li>
+            <li>
+              Percent: <strong>{@crf_search_progress.percent}%</strong> (of original size)
+            </li>
+            <li>VMAF Score: <strong>{@crf_search_progress.score}</strong> (Target: 95)</li>
+          </ul>
+        </div>
+      <% else %>
+        <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
+          No CRF search in progress
+        </div>
+      <% end %>
+    </div>
+    """
+  end
+
+  defp render_sync_progress(assigns) do
+    ~H"""
+    <div>
+      <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">Sync Progress</div>
+      <div class="flex items-center space-x-2">
+        <div class="w-full bg-gray-600 rounded-full h-2.5 dark:bg-gray-500">
+          <div
+            class="bg-indigo-600 h-2.5 rounded-full"
+            style={"width: #{if @sync_progress > 0, do: @sync_progress, else: 0}%"}
           >
-            Sync Radarr (slow)
-          </button>
+          </div>
+        </div>
+        <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
+          <strong>{@sync_progress}%</strong>
         </div>
       </div>
     </div>
     """
+  end
+
+  defp parse_integer(value) do
+    Integer.parse(to_string(value)) |> elem(0)
   end
 end
