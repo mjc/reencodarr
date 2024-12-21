@@ -109,7 +109,12 @@ defmodule Reencodarr.Media do
         left_join: m in Vmaf,
         on: m.video_id == v.id,
         where: is_nil(m.id) and v.reencoded == false and v.failed == false,
-        order_by: [desc: v.size, asc: v.updated_at],
+        order_by: [
+          desc: fragment("CASE WHEN 'V_MPEG4/ISO/AVC' = ANY(?) THEN 1 ELSE 0 END", v.video_codecs),
+          desc: v.bitrate,
+          desc: v.size,
+          asc: v.updated_at
+        ],
         limit: ^limit,
         select: v
     )
@@ -605,7 +610,11 @@ defmodule Reencodarr.Media do
         join: m in Vmaf,
         on: m.video_id == v.id,
         where: v.reencoded == false and v.failed == false and m.chosen == true,
-        order_by: [asc: m.percent, asc: m.time],
+        order_by: [
+          desc: fragment("CASE WHEN 'V_MPEG4/ISO/AVC' = ANY(?) THEN 1 ELSE 0 END", v.video_codecs),
+          asc: m.time,
+          asc: m.percent
+        ],
         limit: 1,
         select: v
 

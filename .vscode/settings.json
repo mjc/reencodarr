@@ -10,6 +10,7 @@
         "esbuild",
         "exdev",
         "extname",
+        "filesize",
         "film-grain-denoise",
         "fkey",
         "FLAC",
