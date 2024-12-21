@@ -144,10 +144,12 @@ defmodule Reencodarr.Media.Video do
   # Determine if the video has been reencoded
   @spec reencoded?(list(String.t()), map()) :: boolean()
   defp reencoded?(video_codecs, mediainfo) do
-    has_av1_codec?(video_codecs) or
-      has_opus_audio?(mediainfo) or
-      is_low_bitrate_1080p?(video_codecs, mediainfo) or
+    Enum.any?([
+      has_av1_codec?(video_codecs),
+      has_opus_audio?(mediainfo),
+      is_low_bitrate_1080p?(video_codecs, mediainfo),
       is_low_resolution_hevc?(video_codecs, mediainfo)
+    ])
   end
 
   # Check for specific codec and resolution conditions
@@ -173,7 +175,15 @@ defmodule Reencodarr.Media.Video do
   defp is_low_bitrate_1080p?(video_codecs, mediainfo) do
     Enum.member?(video_codecs, "V_MPEGH/ISO/HEVC") and
       get_track(mediainfo, "Video")["Width"] == "1920" and
-      String.to_integer(get_track(mediainfo, "General")["OverallBitRate"] || "0") < 20_000_000
+      get_int(mediainfo, "General", "OverallBitRate") < 20_000_000
+  end
+
+  defp get_int(mediainfo, track_type, key) do
+    mediainfo
+    |> get_track(track_type)
+    |> Map.get(key, "0")
+    |> to_string()
+    |> String.to_integer()
   end
 
   # Check if audio track is Opus
