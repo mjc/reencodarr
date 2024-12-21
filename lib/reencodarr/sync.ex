@@ -140,19 +140,23 @@ defmodule Reencodarr.Sync do
       }
     }
 
+    bitrate = episode_file["mediaInfo"]["overallBitrate"] || episode_file["mediaInfo"]["videoBitrate"]
+
+
     attrs = %{
       "path" => episode_file["path"],
       "size" => episode_file["size"],
       "service_id" => to_string(episode_file["id"]),
       "service_type" => :sonarr,
-      "mediainfo" => mediainfo
+      "mediainfo" => mediainfo,
+      "bitrate" => bitrate
     }
 
     if is_nil(episode_file["size"]) do
       Logger.warning("File size is missing for episode file: #{inspect(episode_file)}")
     end
 
-    if audio_codec in ["TrueHD", "EAC3"] do
+    if audio_codec in ["TrueHD", "EAC3"] or bitrate == 0 do
       Reencodarr.Analyzer.process_path(%{
         path: episode_file["path"],
         service_id: to_string(episode_file["id"]),
@@ -206,19 +210,26 @@ defmodule Reencodarr.Sync do
       }
     }
 
+    bitrate = movie_file["mediaInfo"]["overallBitrate"] || movie_file["mediaInfo"]["videoBitrate"]
+
     attrs = %{
       "path" => movie_file["path"],
       "size" => movie_file["size"],
       "service_id" => to_string(movie_file["id"]),
       "service_type" => :radarr,
-      "mediainfo" => mediainfo
+      "mediainfo" => mediainfo,
+      "bitrate" => bitrate
     }
 
     if is_nil(movie_file["size"]) do
       Logger.warning("File size is missing for movie file: #{inspect(movie_file)}")
     end
 
-    if audio_codec in ["TrueHD", "EAC3"] do
+    if bitrate != 0 do
+      Logger.info("Found a nonzero bitrate: #{inspect(movie_file)}")
+    end
+
+    if audio_codec in ["TrueHD", "EAC3"] or bitrate == 0 do
       Reencodarr.Analyzer.process_path(%{
         path: movie_file["path"],
         service_id: to_string(movie_file["id"]),
