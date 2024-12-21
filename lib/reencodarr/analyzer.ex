@@ -22,7 +22,10 @@ defmodule Reencodarr.Analyzer do
   end
 
   def handle_info(%{path: path}, state) do
-    Logger.debug("Enough videos found, processing #{Enum.count(state) + 1} videos. Queue size: #{length(state) + 1}")
+    Logger.debug(
+      "Enough videos found, processing #{Enum.count(state) + 1} videos. Queue size: #{length(state) + 1}"
+    )
+
     process_paths(state ++ [path])
   end
 
@@ -59,7 +62,9 @@ defmodule Reencodarr.Analyzer do
 
       {:error, reason} ->
         Enum.each(paths, fn %{path: path} ->
-          Logger.error("Failed to fetch mediainfo for #{path}: #{reason}. Queue size: #{length(state)}")
+          Logger.error(
+            "Failed to fetch mediainfo for #{path}: #{reason}. Queue size: #{length(state)}"
+          )
         end)
     end
 
@@ -91,9 +96,20 @@ defmodule Reencodarr.Analyzer do
       Logger.debug("Upserted analyzed video for #{path}. Queue size: #{queue_length}")
       :ok
     else
-      nil -> Logger.error("Mediainfo size is empty for #{path}, skipping upsert. Queue size: #{queue_length}")
-      "" -> Logger.error("Mediainfo size is empty for #{path}, skipping upsert. Queue size: #{queue_length}")
-      {:error, reason} -> Logger.error("Failed to upsert video for #{path}: #{inspect(reason)}. Queue size: #{queue_length}")
+      nil ->
+        Logger.error(
+          "Mediainfo size is empty for #{path}, skipping upsert. Queue size: #{queue_length}"
+        )
+
+      "" ->
+        Logger.error(
+          "Mediainfo size is empty for #{path}, skipping upsert. Queue size: #{queue_length}"
+        )
+
+      {:error, reason} ->
+        Logger.error(
+          "Failed to upsert video for #{path}: #{inspect(reason)}. Queue size: #{queue_length}"
+        )
     end
   end
 

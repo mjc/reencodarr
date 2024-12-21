@@ -188,11 +188,13 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           crf: captures["crf"]
         })
 
-      captures = Regex.named_captures(@simple_vmaf_regex, line) ||
-                 Regex.named_captures(@sample_regex, line) ->
+      captures =
+          Regex.named_captures(@simple_vmaf_regex, line) ||
+            Regex.named_captures(@sample_regex, line) ->
         Logger.info(
           "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
         )
+
         upsert_vmaf(Map.put(captures, "chosen", false), video, args)
 
       captures = Regex.named_captures(@eta_vmaf_regex, line) ->

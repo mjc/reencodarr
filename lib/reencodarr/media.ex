@@ -110,7 +110,8 @@ defmodule Reencodarr.Media do
         on: m.video_id == v.id,
         where: is_nil(m.id) and v.reencoded == false and v.failed == false,
         order_by: [
-          desc: fragment("CASE WHEN 'V_MPEG4/ISO/AVC' = ANY(?) THEN 1 ELSE 0 END", v.video_codecs),
+          desc:
+            fragment("CASE WHEN 'V_MPEG4/ISO/AVC' = ANY(?) THEN 1 ELSE 0 END", v.video_codecs),
           desc: v.bitrate,
           desc: v.size,
           asc: v.updated_at
@@ -611,7 +612,8 @@ defmodule Reencodarr.Media do
         on: m.video_id == v.id,
         where: v.reencoded == false and v.failed == false and m.chosen == true,
         order_by: [
-          desc: fragment("CASE WHEN 'V_MPEG4/ISO/AVC' = ANY(?) THEN 1 ELSE 0 END", v.video_codecs),
+          desc:
+            fragment("CASE WHEN 'V_MPEG4/ISO/AVC' = ANY(?) THEN 1 ELSE 0 END", v.video_codecs),
           asc: m.time,
           asc: m.percent
         ],

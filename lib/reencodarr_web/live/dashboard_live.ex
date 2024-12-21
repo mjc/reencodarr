@@ -219,8 +219,8 @@ defmodule ReencodarrWeb.DashboardLive do
             </div>
           </div>
         </div>
-
-        <!-- Progress Information -->
+        
+    <!-- Progress Information -->
         <div class="w-full bg-gray-800 dark:bg-gray-700 rounded-lg shadow-lg p-4">
           <h2 class="text-lg font-bold mb-4 text-gray-200 dark:text-gray-300">
             Progress Information
@@ -298,8 +298,8 @@ defmodule ReencodarrWeb.DashboardLive do
             </div>
           </div>
         </div>
-
-        <!-- Statistics -->
+        
+    <!-- Statistics -->
         <div class="w-full bg-gray-800 dark:bg-gray-700 rounded-lg shadow-lg p-4">
           <h2 class="text-lg font-bold mb-4 text-gray-200 dark:text-gray-300">Statistics</h2>
           <div class="flex flex-col space-y-4">
