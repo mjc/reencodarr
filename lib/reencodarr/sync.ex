@@ -126,7 +126,7 @@ defmodule Reencodarr.Sync do
           },
           %{
             "@type" => "Audio",
-            "CodecID" => CodecMapper.map_codec_id(audio_codec),
+            "CodecID" => audio_codec,
             "Channels" => to_string(CodecMapper.map_channels(file["mediaInfo"]["audioChannels"])),
             "Format_Commercial_IfAny" => CodecMapper.format_commercial_if_any(audio_codec)
           }
