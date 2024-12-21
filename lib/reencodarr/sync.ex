@@ -25,117 +25,109 @@ defmodule Reencodarr.Sync do
     {:ok, state}
   end
 
-  def handle_cast(:sync_episode_files, state) do
-    case Services.Sonarr.get_shows() do
-      {:ok, %Req.Response{body: shows}} ->
-        total_shows = length(shows)
+  def handle_cast(:sync_episode_files, state),
+    do:
+      handle_generic_sync(state, &Services.Sonarr.get_shows/0, &fetch_and_upsert_episode_files/1)
 
-        shows
+  def handle_cast(:sync_movie_files, state),
+    do: handle_generic_sync(state, &Services.Radarr.get_movies/0, &fetch_and_upsert_movie_files/1)
+
+  defp handle_generic_sync(state, get_items_fun, fetch_upsert_fun) do
+    case get_items_fun.() do
+      {:ok, %Req.Response{body: items}} ->
+        total_items = length(items)
+
+        items
         |> Enum.with_index()
-        |> Enum.each(fn {show, index} ->
-          fetch_and_upsert_episode_files(show["id"])
-          progress = div((index + 1) * 100, total_shows)
+        |> Enum.each(fn {item, index} ->
+          fetch_upsert_fun.(item["id"])
+          progress = div((index + 1) * 100, total_items)
           Logger.debug("Sync progress: #{progress}%")
           Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync_progress, progress})
         end)
 
       {:error, reason} ->
-        Logger.error("Failed to sync episode files: #{inspect(reason)}")
+        Logger.error("Sync error: #{inspect(reason)}")
     end
 
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", :sync_complete)
     {:noreply, state}
   end
 
-  def handle_cast(:sync_movie_files, state) do
-    case Services.Radarr.get_movies() do
-      {:ok, %Req.Response{body: movies}} ->
-        total_movies = length(movies)
+  defp fetch_and_upsert_episode_files(series_id),
+    do:
+      fetch_and_upsert_files(
+        &Services.Sonarr.get_episode_files/1,
+        &upsert_video_from_episode_file/1,
+        series_id
+      )
 
-        movies
-        |> Enum.with_index()
-        |> Enum.each(fn {movie, index} ->
-          fetch_and_upsert_movie_files(movie["id"])
-          progress = div((index + 1) * 100, total_movies)
-          Logger.debug("Sync progress: #{progress}%")
-          Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync_progress, progress})
+  defp fetch_and_upsert_movie_files(movie_id),
+    do:
+      fetch_and_upsert_files(
+        &Services.Radarr.get_movie_files/1,
+        &upsert_video_from_movie_file/1,
+        movie_id
+      )
+
+  defp fetch_and_upsert_files(get_files_fun, upsert_fun, id) do
+    case get_files_fun.(id) do
+      {:ok, %Req.Response{body: files}} ->
+        files
+        |> Enum.map(upsert_fun)
+        |> Enum.each(fn
+          :ok -> :ok
+          error -> Logger.error("Failed to upsert video: #{inspect(error)}")
         end)
 
       {:error, reason} ->
-        Logger.error("Failed to sync movie files: #{inspect(reason)}")
-    end
-
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", :sync_complete)
-    {:noreply, state}
-  end
-
-  defp fetch_and_upsert_episode_files(series_id) do
-    case Services.Sonarr.get_episode_files(series_id) do
-      {:ok, %Req.Response{body: files}} ->
-        files
-        |> Enum.map(&upsert_video_from_episode_file/1)
-        |> Enum.each(fn
-          :ok -> :ok
-          error -> Logger.error("Failed to upsert video: #{inspect(error)}")
-        end)
-
-      {:error, _} ->
-        []
+        Logger.error("Fetch files error: #{inspect(reason)}")
     end
   end
 
-  defp fetch_and_upsert_movie_files(movie_id) do
-    case Services.Radarr.get_movie_files(movie_id) do
-      {:ok, %Req.Response{body: files}} ->
-        files
-        |> Enum.map(&upsert_video_from_movie_file/1)
-        |> Enum.each(fn
-          :ok -> :ok
-          error -> Logger.error("Failed to upsert video: #{inspect(error)}")
-        end)
+  defp upsert_video_from_episode_file(file),
+    do: upsert_video_from_file(file, :sonarr)
 
-      {:error, _} ->
-        []
-    end
-  end
+  defp upsert_video_from_movie_file(file),
+    do: upsert_video_from_file(file, :radarr)
 
-  def upsert_video_from_episode_file(episode_file) do
-    audio_codec = episode_file["mediaInfo"]["audioCodec"]
+  defp upsert_video_from_file(file, service_type) do
+    audio_codec = file["mediaInfo"]["audioCodec"]
 
     mediainfo = %{
       "media" => %{
         "track" => [
           %{
             "@type" => "General",
-            "AudioCount" => episode_file["mediaInfo"]["audioStreamCount"],
+            "AudioCount" => file["mediaInfo"]["audioStreamCount"],
             "OverallBitRate" =>
-              episode_file["mediaInfo"]["overallBitrate"] ||
-                episode_file["mediaInfo"]["videoBitrate"],
-            "Duration" => parse_duration(episode_file["mediaInfo"]["runTime"]),
-            "FileSize" => episode_file["size"],
-            "TextCount" => length(String.split(episode_file["mediaInfo"]["subtitles"], "/")),
+              file["mediaInfo"]["overallBitrate"] ||
+                file["mediaInfo"]["videoBitrate"],
+            "Duration" => parse_duration(file["mediaInfo"]["runTime"]),
+            "FileSize" => file["size"],
+            "TextCount" => length(String.split(file["mediaInfo"]["subtitles"], "/")),
             "VideoCount" => 1,
-            "Title" => episode_file["title"]
+            "Title" => file["title"]
           },
           %{
             "@type" => "Video",
-            "FrameRate" => episode_file["mediaInfo"]["videoFps"],
+            "FrameRate" => file["mediaInfo"]["videoFps"],
             "Height" =>
-              String.split(episode_file["mediaInfo"]["resolution"], "x")
+              String.split(file["mediaInfo"]["resolution"], "x")
               |> List.last()
               |> String.to_integer(),
             "Width" =>
-              String.split(episode_file["mediaInfo"]["resolution"], "x")
+              String.split(file["mediaInfo"]["resolution"], "x")
               |> List.first()
               |> String.to_integer(),
-            "HDR_Format" => episode_file["mediaInfo"]["videoDynamicRange"],
-            "HDR_Format_Compatibility" => episode_file["mediaInfo"]["videoDynamicRangeType"],
-            "CodecID" => map_codec_id(episode_file["mediaInfo"]["videoCodec"])
+            "HDR_Format" => file["mediaInfo"]["videoDynamicRange"],
+            "HDR_Format_Compatibility" => file["mediaInfo"]["videoDynamicRangeType"],
+            "CodecID" => map_codec_id(file["mediaInfo"]["videoCodec"])
           },
           %{
             "@type" => "Audio",
             "CodecID" => map_codec_id(audio_codec),
-            "Channels" => to_string(map_channels(episode_file["mediaInfo"]["audioChannels"])),
+            "Channels" => to_string(map_channels(file["mediaInfo"]["audioChannels"])),
             "Format_Commercial_IfAny" => format_commercial_if_any(audio_codec)
           }
         ]
@@ -143,26 +135,26 @@ defmodule Reencodarr.Sync do
     }
 
     bitrate =
-      episode_file["mediaInfo"]["overallBitrate"] || episode_file["mediaInfo"]["videoBitrate"]
+      file["mediaInfo"]["overallBitrate"] || file["mediaInfo"]["videoBitrate"]
 
     attrs = %{
-      "path" => episode_file["path"],
-      "size" => episode_file["size"],
-      "service_id" => to_string(episode_file["id"]),
-      "service_type" => :sonarr,
+      "path" => file["path"],
+      "size" => file["size"],
+      "service_id" => to_string(file["id"]),
+      "service_type" => service_type,
       "mediainfo" => mediainfo,
       "bitrate" => bitrate
     }
 
-    if is_nil(episode_file["size"]) do
-      Logger.warning("File size is missing for episode file: #{inspect(episode_file)}")
+    if is_nil(file["size"]) do
+      Logger.warning("File size is missing for file: #{inspect(file)}")
     end
 
     if audio_codec in ["TrueHD", "EAC3"] or bitrate == 0 do
       Reencodarr.Analyzer.process_path(%{
-        path: episode_file["path"],
-        service_id: to_string(episode_file["id"]),
-        service_type: :sonarr
+        path: file["path"],
+        service_id: to_string(file["id"]),
+        service_type: service_type
       })
     else
       Media.upsert_video(attrs)
@@ -171,79 +163,22 @@ defmodule Reencodarr.Sync do
     :ok
   end
 
-  def upsert_video_from_movie_file(movie_file) do
-    audio_codec = movie_file["mediaInfo"]["audioCodec"]
-
-    mediainfo = %{
-      "media" => %{
-        "track" => [
-          %{
-            "@type" => "General",
-            "AudioCount" => movie_file["mediaInfo"]["audioStreamCount"],
-            "OverallBitRate" =>
-              movie_file["mediaInfo"]["overallBitrate"] || movie_file["mediaInfo"]["videoBitrate"],
-            "Duration" => parse_duration(movie_file["mediaInfo"]["runTime"]),
-            "FileSize" => movie_file["size"],
-            "TextCount" => length(String.split(movie_file["mediaInfo"]["subtitles"], "/")),
-            "VideoCount" => 1,
-            "Title" => movie_file["title"]
-          },
-          %{
-            "@type" => "Video",
-            "FrameRate" => movie_file["mediaInfo"]["videoFps"],
-            "Height" =>
-              String.split(movie_file["mediaInfo"]["resolution"], "x")
-              |> List.last()
-              |> String.to_integer(),
-            "Width" =>
-              String.split(movie_file["mediaInfo"]["resolution"], "x")
-              |> List.first()
-              |> String.to_integer(),
-            "HDR_Format" => movie_file["mediaInfo"]["videoDynamicRange"],
-            "HDR_Format_Compatibility" => movie_file["mediaInfo"]["videoDynamicRangeType"],
-            "CodecID" => map_codec_id(movie_file["mediaInfo"]["videoCodec"])
-          },
-          %{
-            "@type" => "Audio",
-            "CodecID" => map_codec_id(audio_codec),
-            "Channels" => to_string(map_channels(movie_file["mediaInfo"]["audioChannels"])),
-            "Format_Commercial_IfAny" => format_commercial_if_any(audio_codec)
-          }
-        ]
-      }
-    }
-
-    bitrate = movie_file["mediaInfo"]["overallBitrate"] || movie_file["mediaInfo"]["videoBitrate"]
-
-    attrs = %{
-      "path" => movie_file["path"],
-      "size" => movie_file["size"],
-      "service_id" => to_string(movie_file["id"]),
-      "service_type" => :radarr,
-      "mediainfo" => mediainfo,
-      "bitrate" => bitrate
-    }
-
-    if is_nil(movie_file["size"]) do
-      Logger.warning("File size is missing for movie file: #{inspect(movie_file)}")
-    end
-
-    if bitrate != 0 do
-      Logger.info("Found a nonzero bitrate: #{inspect(movie_file)}")
-    end
-
-    if audio_codec in ["TrueHD", "EAC3"] or bitrate == 0 do
-      Reencodarr.Analyzer.process_path(%{
-        path: movie_file["path"],
-        service_id: to_string(movie_file["id"]),
-        service_type: :radarr
-      })
+  def refresh_operations(file_id, :sonarr) do
+    with {:ok, %Req.Response{body: episode_file}} <- Services.Sonarr.get_episode_file(file_id),
+         {:ok, _refresh_series} <- Services.Sonarr.refresh_series(episode_file["seriesId"]),
+         {:ok, _rename_files} <- Services.Sonarr.rename_files(episode_file["seriesId"]) do
+      {:ok, "Refresh and rename triggered successfully"}
     else
-      Media.upsert_video(attrs)
+      {:error, reason} -> {:error, reason}
     end
-
-    :ok
   end
+
+  def refresh_and_rename_from_video(%{service_type: :sonarr, service_id: id}),
+    do: refresh_operations(id, :sonarr)
+
+  # rescan the whole series and rename all files for that series. use carefully
+  def rescan_and_rename_series(episode_file_id),
+    do: refresh_operations(episode_file_id, :sonarr)
 
   defp format_commercial_if_any(nil), do: ""
 
@@ -343,27 +278,4 @@ defmodule Reencodarr.Sync do
 
   defp parse_duration(duration) when is_number(duration), do: duration
   defp parse_duration(_), do: 0
-
-  def refresh_and_rename_from_video(%{service_type: :sonarr, service_id: episode_file_id}) do
-    with {:ok, %Req.Response{body: episode_file}} <-
-           Services.Sonarr.get_episode_file(episode_file_id),
-         {:ok, _refresh_series} <- Services.Sonarr.refresh_series(episode_file["seriesId"]),
-         {:ok, _rename_files} <- Services.Sonarr.rename_files(episode_file["seriesId"]) do
-      {:ok, "Refresh and rename triggered successfully"}
-    else
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  # rescan the whole series and rename all files for that series. use carefully
-  def rescan_and_rename_series(episode_file_id) do
-    with {:ok, %Req.Response{body: episode_file}} <-
-           Services.Sonarr.get_episode_file(episode_file_id),
-         {:ok, _refresh_series} <- Services.Sonarr.refresh_series(episode_file["seriesId"]),
-         {:ok, _rename_files} <- Services.Sonarr.rename_files(episode_file["seriesId"]) do
-      {:ok, "Rescan and rename triggered successfully"}
-    else
-      {:error, reason} -> {:error, reason}
-    end
-  end
 end
