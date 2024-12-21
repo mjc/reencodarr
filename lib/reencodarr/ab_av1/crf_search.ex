@@ -149,21 +149,19 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
-  def handle_info({:scanning_update, :progress, vmaf}, state) do
-    Logger.debug("Received vmaf search progress")
-    Media.upsert_vmaf(vmaf)
-    {:noreply, state}
-  end
+  def handle_info({:scanning_update, status, data}, state) do
+    case status do
+      :progress ->
+        Logger.debug("Received vmaf search progress")
+        Media.upsert_vmaf(data)
 
-  @impl true
-  def handle_info({:scanning_update, :finished, vmaf}, state) do
-    Media.upsert_vmaf(vmaf)
-    {:noreply, state}
-  end
+      :finished ->
+        Media.upsert_vmaf(data)
 
-  @impl true
-  def handle_info({:scanning_update, :failed, reason}, state) do
-    Logger.error("Scanning failed: #{reason}")
+      :failed ->
+        Logger.error("Scanning failed: #{data}")
+    end
+
     {:noreply, state}
   end
 
@@ -190,18 +188,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           crf: captures["crf"]
         })
 
-      captures = Regex.named_captures(@simple_vmaf_regex, line) ->
+      captures = Regex.named_captures(@simple_vmaf_regex, line) ||
+                 Regex.named_captures(@sample_regex, line) ->
         Logger.info(
-          "CrfSearch: Simple VMAF: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
+          "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
         )
-
-        upsert_vmaf(Map.put(captures, "chosen", false), video, args)
-
-      captures = Regex.named_captures(@sample_regex, line) ->
-        Logger.info(
-          "CrfSearch: Sample #{captures["sample_num"]}/#{captures["total_samples"]} - CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
-        )
-
         upsert_vmaf(Map.put(captures, "chosen", false), video, args)
 
       captures = Regex.named_captures(@eta_vmaf_regex, line) ->
