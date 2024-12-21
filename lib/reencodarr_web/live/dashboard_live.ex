@@ -22,27 +22,15 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_info({:encoder, :started}, socket) do
-    Logger.debug("Encoder started")
-    {:noreply, assign(socket, :encoding, true)}
+  def handle_info({:encoder, status}, socket) when status in [:started, :paused] do
+    Logger.debug("Encoder #{status}")
+    {:noreply, assign(socket, :encoding, status == :started)}
   end
 
   @impl true
-  def handle_info({:encoder, :paused}, socket) do
-    Logger.debug("Encoder paused")
-    {:noreply, assign(socket, :encoding, false)}
-  end
-
-  @impl true
-  def handle_info({:crf_searcher, :started}, socket) do
-    Logger.debug("CRF search started")
-    {:noreply, assign(socket, :crf_searching, true)}
-  end
-
-  @impl true
-  def handle_info({:crf_searcher, :paused}, socket) do
-    Logger.debug("CRF search paused")
-    {:noreply, assign(socket, :crf_searching, false)}
+  def handle_info({:crf_searcher, status}, socket) when status in [:started, :paused] do
+    Logger.debug("CRF search #{status}")
+    {:noreply, assign(socket, :crf_searching, status == :started)}
   end
 
   @impl true
@@ -97,44 +85,29 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_event("toggle_encoder", _params, socket) do
-    if socket.assigns.encoding do
-      Encoder.pause()
-      Logger.info("Encoder paused")
-      {:noreply, assign(socket, :encoding, false)}
-    else
-      Encoder.start()
-      Logger.info("Encoder started")
-      {:noreply, assign(socket, :encoding, true)}
-    end
+  def handle_event("toggle", %{"target" => target}, socket) do
+    {app, state_key} =
+      case target do
+        "encoder" -> {Encoder, :encoding}
+        "crf_search" -> {CrfSearcher, :crf_searching}
+      end
+
+    new_state = not socket.assigns[state_key]
+    Logger.info("#{target} #{if new_state, do: "started", else: "paused"}")
+    if new_state, do: app.start(), else: app.pause()
+    {:noreply, assign(socket, state_key, new_state)}
   end
 
   @impl true
-  def handle_event("toggle_crf_search", _params, socket) do
-    if socket.assigns.crf_searching do
-      CrfSearcher.pause()
-      Logger.info("CRF search paused")
-      {:noreply, assign(socket, :crf_searching, false)}
-    else
-      CrfSearcher.start()
-      Logger.info("CRF search started")
-      {:noreply, assign(socket, :crf_searching, true)}
-    end
-  end
-
-  @impl true
-  def handle_event("sync_sonarr", _params, socket) do
-    Logger.info("Syncing with Sonarr (slow)")
+  def handle_event("sync", %{"target" => target}, socket) do
+    Logger.info("Syncing with #{target} (slow)")
     socket = assign(socket, :syncing, true) |> assign(:sync_progress, 0)
-    Sync.sync_episode_files()
-    {:noreply, socket}
-  end
 
-  @impl true
-  def handle_event("sync_radarr", _params, socket) do
-    Logger.info("Syncing with Radarr (slow)")
-    socket = assign(socket, :syncing, true) |> assign(:sync_progress, 0)
-    Sync.sync_movie_files()
+    case target do
+      "sonarr" -> Sync.sync_episode_files()
+      "radarr" -> Sync.sync_movie_files()
+    end
+
     {:noreply, socket}
   end
 
@@ -343,13 +316,15 @@ defmodule ReencodarrWeb.DashboardLive do
       <div class="w-full flex flex-wrap justify-between items-center mt-6 space-y-4 md:space-y-0">
         <div class="flex flex-wrap space-x-4">
           <button
-            phx-click="toggle_encoder"
+            phx-click="toggle"
+            phx-value-target="encoder"
             class={"text-white px-4 py-2 rounded shadow focus:outline-none focus:ring-2 " <> if @encoding, do: "bg-red-500 focus:ring-red-500", else: "bg-indigo-500 focus:ring-indigo-500"}
           >
             {(@encoding && "Pause Encoder") || "Start Encoder"}
           </button>
           <button
-            phx-click="toggle_crf_search"
+            phx-click="toggle"
+            phx-value-target="crf_search"
             class={"text-white px-4 py-2 rounded shadow focus:outline-none focus:ring-2 " <> if @crf_searching, do: "bg-red-500 focus:ring-red-500", else: "bg-green-500 focus:ring-green-500"}
           >
             {(@crf_searching && "Pause CRF Search") || "Start CRF Search"}
@@ -357,13 +332,15 @@ defmodule ReencodarrWeb.DashboardLive do
         </div>
         <div class="flex flex-wrap space-x-4">
           <button
-            phx-click="sync_sonarr"
+            phx-click="sync"
+            phx-value-target="sonarr"
             class={"text-white font-bold py-2 px-4 rounded shadow focus:outline-none focus:ring-2 " <> if @syncing, do: "bg-gray-500 focus:ring-gray-500", else: "bg-yellow-500 hover:bg-yellow-700 focus:ring-yellow-500"}
           >
             Sync Sonarr (slow)
           </button>
           <button
-            phx-click="sync_radarr"
+            phx-click="sync"
+            phx-value-target="radarr"
             class={"text-white font-bold py-2 px-4 rounded shadow focus:outline-none focus:ring-2 " <> if @syncing, do: "bg-gray-500 focus:ring-gray-500", else: "bg-green-500 hover:bg-green-700 focus:ring-green-500"}
           >
             Sync Radarr (slow)
