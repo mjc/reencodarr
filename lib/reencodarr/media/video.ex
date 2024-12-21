@@ -2,6 +2,8 @@ defmodule Reencodarr.Media.Video do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Reencodarr.Media.{CodecMapper, CodecHelper}
+
   @type t() :: %__MODULE__{}
 
   @mediainfo_params [
@@ -145,51 +147,16 @@ defmodule Reencodarr.Media.Video do
   @spec reencoded?(list(String.t()), map()) :: boolean()
   defp reencoded?(video_codecs, mediainfo) do
     Enum.any?([
-      has_av1_codec?(video_codecs),
-      has_opus_audio?(mediainfo),
-      is_low_bitrate_1080p?(video_codecs, mediainfo),
-      is_low_resolution_hevc?(video_codecs, mediainfo)
+      CodecMapper.has_av1_codec?(video_codecs),
+      CodecMapper.has_opus_audio?(mediainfo),
+      bitrate_and_resolution_low?(video_codecs, mediainfo),
+      CodecMapper.has_low_resolution_hevc?(video_codecs, mediainfo)
     ])
   end
 
-  # Check for specific codec and resolution conditions
-  @spec is_low_resolution_hevc?(list(String.t()), map()) :: boolean()
-  defp is_low_resolution_hevc?(video_codecs, mediainfo) do
-    Enum.member?(video_codecs, "V_MPEGH/ISO/HEVC") and
-      get_track(mediainfo, "Video")["Height"]
-      |> to_string()
-      |> String.to_integer() < 720
+  defp bitrate_and_resolution_low?(video_codecs, mediainfo) do
+    CodecMapper.low_bitrate_1080p?(video_codecs, mediainfo)
   end
-
-  @spec has_av1_codec?(list(String.t())) :: boolean()
-  defp has_av1_codec?(video_codecs) do
-    Enum.member?(video_codecs, "V_AV1")
-  end
-
-  @spec has_opus_audio?(map()) :: boolean()
-  defp has_opus_audio?(mediainfo) do
-    Enum.any?(mediainfo["media"]["track"], &audio_track_is_opus?/1)
-  end
-
-  @spec is_low_bitrate_1080p?(list(String.t()), map()) :: boolean()
-  defp is_low_bitrate_1080p?(video_codecs, mediainfo) do
-    Enum.member?(video_codecs, "V_MPEGH/ISO/HEVC") and
-      get_track(mediainfo, "Video")["Width"] == "1920" and
-      get_int(mediainfo, "General", "OverallBitRate") < 20_000_000
-  end
-
-  defp get_int(mediainfo, track_type, key) do
-    mediainfo
-    |> get_track(track_type)
-    |> Map.get(key, "0")
-    |> to_string()
-    |> String.to_integer()
-  end
-
-  # Check if audio track is Opus
-  @spec audio_track_is_opus?(map()) :: boolean()
-  defp audio_track_is_opus?(%{"@type" => "Audio", "CodecID" => "A_OPUS"}), do: true
-  defp audio_track_is_opus?(_), do: false
 
   # Extract specific track information from mediainfo
   @spec get_track(map(), String.t()) :: map() | nil
