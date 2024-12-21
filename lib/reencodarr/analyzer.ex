@@ -4,6 +4,7 @@ defmodule Reencodarr.Analyzer do
   alias Reencodarr.Media
 
   @concurrent_files 5
+  @process_interval :timer.seconds(10)
 
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_) do
@@ -12,21 +13,28 @@ defmodule Reencodarr.Analyzer do
 
   @spec init(any()) :: {:ok, []}
   def init(_) do
+    schedule_process()
     {:ok, []}
   end
 
+  @spec handle_info(:process_queue, list(String.t())) :: {:noreply, list(String.t())}
+  def handle_info(:process_queue, state) do
+    if length(state) > 0 do
+      Logger.debug("Processing queue with #{length(state)} videos.")
+      process_paths(state)
+    end
+    schedule_process()
+    {:noreply, state}
+  end
+
   @spec handle_info(map(), list(String.t())) :: {:noreply, list(String.t())}
-  def handle_info(%{path: path}, state) when length(state) < @concurrent_files do
+  def handle_info(%{path: path}, state) do
     Logger.debug("Video file found: #{path}. Queue size: #{length(state) + 1}")
     {:noreply, state ++ [path]}
   end
 
-  def handle_info(%{path: path}, state) do
-    Logger.debug(
-      "Enough videos found, processing #{Enum.count(state) + 1} videos. Queue size: #{length(state) + 1}"
-    )
-
-    process_paths(state ++ [path])
+  defp schedule_process do
+    Process.send_after(self(), :process_queue, @process_interval)
   end
 
   @spec process_path(map()) :: :ok
@@ -35,19 +43,14 @@ defmodule Reencodarr.Analyzer do
   end
 
   @spec handle_cast({:process_path, map()}, list(map())) :: {:noreply, list(map())}
-  def handle_cast({:process_path, video_info}, state) when length(state) < @concurrent_files do
+  def handle_cast({:process_path, video_info}, state) do
     Logger.debug("Video file found: #{video_info.path}. Queue size: #{length(state) + 1}")
     {:noreply, state ++ [video_info]}
   end
 
-  def handle_cast({:process_path, video_info}, state) do
-    Logger.debug("Video file found: #{video_info.path}. Queue size: #{length(state) + 1}")
-    process_paths(state ++ [video_info])
-  end
-
   @spec process_paths(list(map())) :: {:noreply, list(map())}
   defp process_paths(state) do
-    paths = Enum.take(state, 5)
+    paths = Enum.take(state, @concurrent_files)
 
     # paths =
     #   Enum.reject(paths, fn %{path: path} ->
