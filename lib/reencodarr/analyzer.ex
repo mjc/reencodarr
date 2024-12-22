@@ -265,10 +265,12 @@ defmodule Reencodarr.Analyzer do
       |> max(@min_concurrency)
       |> min(@max_concurrency)
 
-    Logger.info("""
-    Adjusting concurrency to #{new_concurrency} based on throughput of #{throughput} files/min \
-    (PID output: #{pid_output}, max_throughput: #{mt})
-    """)
+    if new_concurrency != state.concurrency do
+      Logger.info("""
+      Adjusting concurrency to #{new_concurrency} based on throughput of #{throughput} files/min \
+      (PID output: #{pid_output}, max_throughput: #{mt})
+      """)
+    end
 
     %{
       state
