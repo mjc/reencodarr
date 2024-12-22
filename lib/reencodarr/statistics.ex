@@ -48,6 +48,13 @@ defmodule Reencodarr.Statistics do
   end
 
   @impl true
+  def handle_info({:crf_search_progress, %{filename: :none}}, state) do
+    new_state = %{state | crf_search_progress: %CrfSearchProgress{}}
+    Logger.debug("CRF search progress reset")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
+    {:noreply, new_state}
+  end
+
   def handle_info({:crf_search_progress, vmaf}, state) do
     new_crf_search_progress = update_crf_search_progress(state.crf_search_progress, vmaf)
     new_state = %{state | crf_search_progress: new_crf_search_progress}
