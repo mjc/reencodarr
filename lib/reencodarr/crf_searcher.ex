@@ -20,7 +20,6 @@ defmodule Reencodarr.CrfSearcher do
   def init(:ok) do
     Logger.info("Initializing CrfSearcher...")
     monitor_crf_search()
-    schedule_search()
     {:ok, %{searching: false}}
   end
 
@@ -28,7 +27,7 @@ defmodule Reencodarr.CrfSearcher do
   def handle_cast(:start_searching, state) do
     Logger.debug("CRF searching started")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :started})
-    schedule_search()
+    find_videos_without_vmafs()
     {:noreply, %{state | searching: true}}
   end
 
@@ -58,19 +57,6 @@ defmodule Reencodarr.CrfSearcher do
   end
 
   @impl true
-  def handle_info(:search_videos, %{searching: true} = state) do
-    Logger.info("Searching for videos without VMAFs...")
-    find_videos_without_vmafs()
-    schedule_search()
-    {:noreply, state}
-  end
-
-  def handle_info(:search_videos, %{searching: false} = state) do
-    Logger.info("CRF search is paused, not scheduling new searches.")
-    {:noreply, state}
-  end
-
-  @impl true
   def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
     Logger.warning("AbAv1.CrfSearch process crashed or is not yet started.")
     Process.send_after(self(), :monitor_crf_search, 10_000)
@@ -84,11 +70,6 @@ defmodule Reencodarr.CrfSearcher do
   end
 
   # Private Helper Functions
-  defp schedule_search do
-    Logger.debug("Scheduling next check in 60 seconds...")
-    Process.send_after(self(), :search_videos, 60_000)
-  end
-
   defp monitor_crf_search do
     case GenServer.whereis(Reencodarr.AbAv1.CrfSearch) do
       nil ->
