@@ -70,8 +70,15 @@ defmodule Reencodarr.Analyzer do
 
   @spec handle_info(map(), map()) :: {:noreply, map()}
   def handle_info(%{path: path}, state) do
-    Logger.debug("Video file found: #{path}. Queue size: #{length(state.queue) + 1}")
-    {:noreply, %{state | queue: state.queue ++ [path]}}
+    video = Media.get_video_by_path(path)
+
+    if video == nil or video.bitrate == 0 do
+      Logger.debug("Adding new video to queue: #{path}. Queue size: #{length(state.queue) + 1}")
+      {:noreply, %{state | queue: state.queue ++ [path]}}
+    else
+      Logger.debug("Video already exists with non-zero bitrate, skipping: #{path}. Queue size: #{length(state.queue)}")
+      {:noreply, state}
+    end
   end
 
   defp schedule_process do
@@ -89,13 +96,22 @@ defmodule Reencodarr.Analyzer do
 
   @spec handle_cast({:process_path, map()}, map()) :: {:noreply, map()}
   def handle_cast({:process_path, video_info}, state) do
-    Logger.debug("Video file found: #{video_info.path}. Queue size: #{length(state.queue) + 1}")
-    {:noreply, %{state | queue: state.queue ++ [video_info]}}
+    video = Media.get_video_by_path(video_info.path)
+
+    if video == nil or video.bitrate == 0 do
+      Logger.debug("Adding new video to queue: #{video_info.path}. Queue size: #{length(state.queue) + 1}")
+      {:noreply, %{state | queue: state.queue ++ [video_info]}}
+    else
+      Logger.debug("Video already exists with non-zero bitrate, skipping: #{video_info.path}. Queue size: #{length(state.queue)}")
+      {:noreply, state}
+    end
   end
 
   @spec process_paths(map()) :: {:noreply, map()}
   defp process_paths(%{queue: queue, concurrency: concurrency} = state) do
     {paths, remaining} = Enum.split(queue, concurrency)
+
+
 
     new_state =
       case fetch_mediainfo(Enum.map(paths, & &1.path)) do
