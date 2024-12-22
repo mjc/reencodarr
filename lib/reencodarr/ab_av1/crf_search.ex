@@ -179,7 +179,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp process_line(line, video, args) do
     cond do
       captures = Regex.named_captures(@encoding_sample_regex, line) ->
-        Logger.info(
+        Logger.debug(
           "CrfSearch: Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
         )
 
@@ -191,14 +191,14 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       captures =
           Regex.named_captures(@simple_vmaf_regex, line) ||
             Regex.named_captures(@sample_regex, line) ->
-        Logger.info(
+        Logger.debug(
           "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
         )
 
         upsert_vmaf(Map.put(captures, "chosen", false), video, args)
 
       captures = Regex.named_captures(@eta_vmaf_regex, line) ->
-        Logger.info(
+        Logger.debug(
           "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}"
         )
 
