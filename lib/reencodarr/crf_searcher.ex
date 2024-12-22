@@ -40,9 +40,15 @@ defmodule Reencodarr.CrfSearcher do
   end
 
   @impl true
-  def handle_cast(:crf_search_finished, state) do
+  def handle_cast(:crf_search_finished, %{searching: true} = state) do
     Logger.info("Received notification that CRF search finished.")
     find_videos_without_vmafs()
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast(:crf_search_finished, %{searching: false} = state) do
+    Logger.info("CRF search is paused, not searching next items.")
     {:noreply, state}
   end
 
