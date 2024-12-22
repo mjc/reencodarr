@@ -362,7 +362,7 @@ defmodule ReencodarrWeb.DashboardLive do
       </div>
       <%= if @crf_search_progress.filename != :none do %>
         <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
-         <strong>{@crf_search_progress.filename}</strong>
+          <strong>{@crf_search_progress.filename}</strong>
         </div>
         <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
           <ul class="list-disc pl-5 fancy-list">

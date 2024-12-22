@@ -144,6 +144,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       Media.mark_as_failed(state.current_task.video)
     end
 
+    GenServer.cast(Reencodarr.CrfSearcher, :crf_search_finished)
+
     Phoenix.PubSub.broadcast(
       Reencodarr.PubSub,
       "progress",
