@@ -26,6 +26,7 @@ defmodule Reencodarr.CrfSearcher do
   @impl true
   def handle_cast(:start_searching, state) do
     Logger.debug("CRF searching started")
+    monitor_crf_search()
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :started})
     find_videos_without_vmafs()
     {:noreply, %{state | searching: true}}

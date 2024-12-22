@@ -42,7 +42,8 @@
         "vfilter",
         "Vmaf",
         "vmafs",
-        "Vorbis"
+        "Vorbis",
+        "whereis"
     ],
     "cSpell.ignoreWords": [
         "Mshort",
