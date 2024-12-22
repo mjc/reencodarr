@@ -9,36 +9,43 @@ defmodule Reencodarr.Analyzer do
   @min_concurrency 1
   @max_concurrency 1000
 
-  @kp 0.1  # Proportional gain
-  @ki 0.01 # Integral gain
-  @kd 0.05 # Derivative gain
+  # Proportional gain
+  @kp 0.1
+  # Integral gain
+  @ki 0.01
+  # Derivative gain
+  @kd 0.05
 
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_) do
     GenServer.start_link(__MODULE__, nil, name: __MODULE__)
   end
 
-  @spec init(any()) :: {:ok, %{
-    queue: list(map()),
-    concurrency: integer,
-    processed_timestamps: list(pos_integer),
-    last_adjustment: pos_integer,
-    pid_integral: float,
-    previous_error: float,
-    max_throughput: non_neg_integer
-  }}
+  @spec init(any()) ::
+          {:ok,
+           %{
+             queue: list(map()),
+             concurrency: integer,
+             processed_timestamps: list(pos_integer),
+             last_adjustment: pos_integer,
+             pid_integral: float,
+             previous_error: float,
+             max_throughput: non_neg_integer
+           }}
   def init(_) do
     schedule_process()
     schedule_adjustment()
-    {:ok, %{
-      queue: [],
-      concurrency: @concurrent_files,
-      processed_timestamps: [],
-      last_adjustment: :os.system_time(:second),
-      pid_integral: 0.0,
-      previous_error: 0.0,
-      max_throughput: 0
-    }}
+
+    {:ok,
+     %{
+       queue: [],
+       concurrency: @concurrent_files,
+       processed_timestamps: [],
+       last_adjustment: :os.system_time(:second),
+       pid_integral: 0.0,
+       previous_error: 0.0,
+       max_throughput: 0
+     }}
   end
 
   # Use pattern matching to separate empty vs. non-empty queue
@@ -93,7 +100,10 @@ defmodule Reencodarr.Analyzer do
     new_state =
       case fetch_mediainfo(Enum.map(paths, & &1.path)) do
         {:ok, mediainfo_map} ->
-          Logger.info("Fetched mediainfo for #{length(paths)} videos. Queue size: #{length(queue)}")
+          Logger.info(
+            "Fetched mediainfo for #{length(paths)} videos. Queue size: #{length(queue)}"
+          )
+
           upsert_videos(paths, mediainfo_map)
           update_throughput_timestamps(state, length(paths))
 
@@ -107,7 +117,9 @@ defmodule Reencodarr.Analyzer do
 
   defp log_fetch_error(paths, reason, queue) do
     Enum.each(paths, fn %{path: path} ->
-      Logger.error("Failed to fetch mediainfo for #{path}: #{reason}. Queue size: #{length(queue)}")
+      Logger.error(
+        "Failed to fetch mediainfo for #{path}: #{reason}. Queue size: #{length(queue)}"
+      )
     end)
   end
 
@@ -162,6 +174,7 @@ defmodule Reencodarr.Analyzer do
   end
 
   defp run_mediainfo_cmd([]), do: {:ok, %{}}
+
   defp run_mediainfo_cmd(paths) do
     case System.cmd("mediainfo", ["--Output=JSON" | paths]) do
       {json, 0} -> {:ok, json}
@@ -169,7 +182,8 @@ defmodule Reencodarr.Analyzer do
     end
   end
 
-  @spec decode_and_parse_json({:ok, String.t()} | {:error, any()}) :: {:ok, map()} | {:error, any()}
+  @spec decode_and_parse_json({:ok, String.t()} | {:error, any()}) ::
+          {:ok, map()} | {:error, any()}
   defp decode_and_parse_json({:ok, json}) do
     with {:ok, decoded} <- Jason.decode(json) do
       {:ok, parse_mediainfo(decoded)}
@@ -208,7 +222,7 @@ defmodule Reencodarr.Analyzer do
 
   defp adjust_concurrency(%{processed_timestamps: timestamps, max_throughput: mt} = state) do
     throughput = length(timestamps)
-    error = (mt + 1) - throughput
+    error = mt + 1 - throughput
 
     pid_integral = state.pid_integral + error
     derivative = error - state.previous_error
@@ -217,7 +231,7 @@ defmodule Reencodarr.Analyzer do
     concurrency_change = round(pid_output)
 
     new_concurrency =
-      state.concurrency + concurrency_change
+      (state.concurrency + concurrency_change)
       |> max(@min_concurrency)
       |> min(@max_concurrency)
 
@@ -226,11 +240,12 @@ defmodule Reencodarr.Analyzer do
     (PID output: #{pid_output}, max_throughput: #{mt})
     """)
 
-    %{state |
-      concurrency: new_concurrency,
-      pid_integral: pid_integral,
-      previous_error: error,
-      last_adjustment: :os.system_time(:second)
+    %{
+      state
+      | concurrency: new_concurrency,
+        pid_integral: pid_integral,
+        previous_error: error,
+        last_adjustment: :os.system_time(:second)
     }
   end
 end

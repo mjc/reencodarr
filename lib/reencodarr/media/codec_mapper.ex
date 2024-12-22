@@ -92,7 +92,8 @@ defmodule Reencodarr.Media.CodecMapper do
   end
 
   @spec format_commercial_if_any(String.t() | any) :: String.t()
-  def format_commercial_if_any(atmos) when atmos in ["TrueHD Atmos", "EAC3 Atmos", "DTS-X"], do: "Atmos"
-  def format_commercial_if_any(_), do: ""
+  def format_commercial_if_any(atmos) when atmos in ["TrueHD Atmos", "EAC3 Atmos", "DTS-X"],
+    do: "Atmos"
 
+  def format_commercial_if_any(_), do: ""
 end
