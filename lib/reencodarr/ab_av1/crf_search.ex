@@ -139,11 +139,21 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def handle_info({port, {:exit_status, exit_code}}, %{port: port} = state) do
     if exit_code == 0 do
       Logger.debug("CRF search finished successfully")
-      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:crf_search_progress, %CrfSearchProgress{filename: :none}})
+
+      Phoenix.PubSub.broadcast(
+        Reencodarr.PubSub,
+        "progress",
+        {:crf_search_progress, %CrfSearchProgress{filename: :none}}
+      )
     else
       Logger.error("CRF search failed with exit code #{exit_code}")
       Media.mark_as_failed(state.current_task.video)
-      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:crf_search_progress, %CrfSearchProgress{filename: :none}})
+
+      Phoenix.PubSub.broadcast(
+        Reencodarr.PubSub,
+        "progress",
+        {:crf_search_progress, %CrfSearchProgress{filename: :none}}
+      )
     end
 
     {:noreply, %{state | port: :none, current_task: :none}}

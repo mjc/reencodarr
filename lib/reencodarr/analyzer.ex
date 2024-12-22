@@ -76,7 +76,10 @@ defmodule Reencodarr.Analyzer do
       Logger.debug("Adding new video to queue: #{path}. Queue size: #{length(state.queue) + 1}")
       {:noreply, %{state | queue: state.queue ++ [path]}}
     else
-      Logger.debug("Video already exists with non-zero bitrate, skipping: #{path}. Queue size: #{length(state.queue)}")
+      Logger.debug(
+        "Video already exists with non-zero bitrate, skipping: #{path}. Queue size: #{length(state.queue)}"
+      )
+
       {:noreply, state}
     end
   end
@@ -99,10 +102,16 @@ defmodule Reencodarr.Analyzer do
     video = Media.get_video_by_path(video_info.path)
 
     if video == nil or video.bitrate == 0 do
-      Logger.debug("Adding new video to queue: #{video_info.path}. Queue size: #{length(state.queue) + 1}")
+      Logger.debug(
+        "Adding new video to queue: #{video_info.path}. Queue size: #{length(state.queue) + 1}"
+      )
+
       {:noreply, %{state | queue: state.queue ++ [video_info]}}
     else
-      Logger.debug("Video already exists with non-zero bitrate, skipping: #{video_info.path}. Queue size: #{length(state.queue)}")
+      Logger.debug(
+        "Video already exists with non-zero bitrate, skipping: #{video_info.path}. Queue size: #{length(state.queue)}"
+      )
+
       {:noreply, state}
     end
   end
@@ -110,8 +119,6 @@ defmodule Reencodarr.Analyzer do
   @spec process_paths(map()) :: {:noreply, map()}
   defp process_paths(%{queue: queue, concurrency: concurrency} = state) do
     {paths, remaining} = Enum.split(queue, concurrency)
-
-
 
     new_state =
       case fetch_mediainfo(Enum.map(paths, & &1.path)) do
@@ -244,7 +251,7 @@ defmodule Reencodarr.Analyzer do
       if throughput >= mt + 1 do
         0
       else
-        (mt + 1) - throughput
+        mt + 1 - throughput
       end
 
     pid_integral = state.pid_integral + error
