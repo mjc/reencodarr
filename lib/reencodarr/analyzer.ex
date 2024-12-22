@@ -7,7 +7,7 @@ defmodule Reencodarr.Analyzer do
   @process_interval :timer.seconds(10)
   @adjustment_interval :timer.minutes(1)
   @min_concurrency 1
-  @max_concurrency 1000
+  @max_concurrency 100
 
   # Proportional gain
   @kp 0.1
@@ -222,7 +222,14 @@ defmodule Reencodarr.Analyzer do
 
   defp adjust_concurrency(%{processed_timestamps: timestamps, max_throughput: mt} = state) do
     throughput = length(timestamps)
-    error = mt + 1 - throughput
+
+    # Prevent error from going negative (which might continually raise concurrency)
+    error =
+      if throughput >= mt + 1 do
+        0
+      else
+        (mt + 1) - throughput
+      end
 
     pid_integral = state.pid_integral + error
     derivative = error - state.previous_error
