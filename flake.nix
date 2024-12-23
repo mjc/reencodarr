@@ -24,10 +24,10 @@
         beamPackages = pkgs.beam.packagesWith erlang;
         elixir = beamPackages.elixir.override {
           erlang = erlang;
-          version = "1.18.0-rc.0";
+          version = "1.18.0";
           src = pkgs.fetchurl {
-            url = "https://github.com/elixir-lang/elixir/archive/v1.18.0-rc.0.tar.gz";
-            sha256 = "sha256-6/RKNDF+2axaDsVLRuO+QfXaryLauTNquHOTgZpHZYQ=";
+            url = "https://github.com/elixir-lang/elixir/archive/v1.18.0.tar.gz";
+            sha256 = "sha256-8pEErloOp4eGtfuW3ODFaduR31vR00crNl3C6hTqeE8=";
           };
         };
       in {
