@@ -78,6 +78,8 @@ defmodule Reencodarr.Encoder do
         Media.mark_as_failed(video)
     end
 
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :none})
+
     {:noreply, state}
   end
 
