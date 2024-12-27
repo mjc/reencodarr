@@ -7,7 +7,12 @@ defmodule Reencodarr.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [
+    opts = [strategy: :one_for_one, name: Reencodarr.Supervisor]
+    Supervisor.start_link(children(), opts)
+  end
+
+  defp children do
+    [
       ReencodarrWeb.Telemetry,
       Reencodarr.Repo,
       {DNSCluster, query: Application.get_env(:reencodarr, :dns_cluster_query) || :ignore},
@@ -16,19 +21,20 @@ defmodule Reencodarr.Application do
       {Finch, name: Reencodarr.Finch},
       # Start to serve requests, typically the last entry
       ReencodarrWeb.Endpoint,
+      Reencodarr.Statistics,
+      {Supervisor, strategy: :one_for_one, children: worker_children()}
+    ]
+  end
+
+  defp worker_children do
+    [
       Reencodarr.ManualScanner,
       Reencodarr.Analyzer,
       Reencodarr.CrfSearcher,
       Reencodarr.Encoder,
       Reencodarr.AbAv1,
-      Reencodarr.Sync,
-      Reencodarr.Statistics
+      Reencodarr.Sync
     ]
-
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
-    opts = [strategy: :one_for_one, name: Reencodarr.Supervisor]
-    Supervisor.start_link(children, opts)
   end
 
   # Tell Phoenix to update the endpoint configuration

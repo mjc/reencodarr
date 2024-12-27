@@ -118,30 +118,6 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, socket}
   end
 
-  defp stats_data(stats, timezone) do
-    [
-      {"Most Recent Video Update", human_readable_time(stats.most_recent_video_update, timezone)},
-      # The most recent time a video was updated in the system.
-      {"Most Recent Inserted Video",
-       human_readable_time(stats.most_recent_inserted_video, timezone)},
-      # The most recent time a new video was added to the system.
-      {"Not Reencoded", stats.not_reencoded},
-      # The number of videos that have not been reencoded.
-      {"Reencoded", stats.reencoded},
-      # The number of videos that have been reencoded.
-      {"Total Videos", stats.total_videos},
-      # The total number of videos in the system.
-      {"Average VMAF Percentage", stats.avg_vmaf_percentage},
-      # The average Video Multimethod Assessment Fusion (VMAF) score percentage across all videos.
-      {"Lowest Chosen VMAF Percentage", stats.lowest_vmaf.percent},
-      # The lowest VMAF score percentage chosen for reencoding.
-      {"Total VMAFs", stats.total_vmafs},
-      # The total number of VMAF scores calculated.
-      {"Chosen VMAFs Count", stats.chosen_vmafs_count}
-      # The number of VMAF scores that were chosen for reencoding.
-    ]
-  end
-
   defp human_readable_time(nil, _timezone), do: "N/A"
 
   defp human_readable_time(datetime, timezone) do
@@ -248,12 +224,63 @@ defmodule ReencodarrWeb.DashboardLive do
     <div class="w-full bg-gray-800 dark:bg-gray-700 rounded-lg shadow-lg p-4">
       <h2 class="text-lg font-bold mb-4 text-gray-200 dark:text-gray-300">Statistics</h2>
       <div class="flex flex-col space-y-4">
-        <%= for {label, value} <- stats_data(@stats, @timezone) do %>
-          <div class="flex items-center justify-between">
-            <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">{label}</div>
-            <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">{value}</div>
+        <div class="flex items-center justify-between">
+          <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">
+            Most Recent Video Update
           </div>
-        <% end %>
+          <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
+            {human_readable_time(@stats.most_recent_video_update, @timezone)}
+          </div>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">
+            Most Recent Inserted Video
+          </div>
+          <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
+            {human_readable_time(@stats.most_recent_inserted_video, @timezone)}
+          </div>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">Not Reencoded</div>
+          <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">{@stats.not_reencoded}</div>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">Reencoded</div>
+          <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">{@stats.reencoded}</div>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">Total Videos</div>
+          <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">{@stats.total_videos}</div>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">
+            Average VMAF Percentage
+          </div>
+          <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
+            {@stats.avg_vmaf_percentage}
+          </div>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">
+            Lowest Chosen VMAF Percentage
+          </div>
+          <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
+            {@stats.lowest_vmaf.percent}
+          </div>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">Total VMAFs</div>
+          <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
+            {@stats.total_vmafs}
+          </div>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="text-sm leading-5 text-gray-200 dark:text-gray-300">Chosen VMAFs Count</div>
+          <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
+            {@stats.chosen_vmafs_count}
+          </div>
+        </div>
+        <!-- ...repeat for other stats as needed... -->
       </div>
     </div>
     """
