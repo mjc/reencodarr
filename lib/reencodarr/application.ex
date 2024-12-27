@@ -21,8 +21,11 @@ defmodule Reencodarr.Application do
       {Finch, name: Reencodarr.Finch},
       # Start to serve requests, typically the last entry
       ReencodarrWeb.Endpoint,
-      Reencodarr.Statistics,
-      {Supervisor, strategy: :one_for_one, children: worker_children()}
+      %{
+        id: :worker_supervisor,
+        start: {Supervisor, :start_link, [worker_children(), [strategy: :one_for_one]]}
+      },
+      Reencodarr.Statistics
     ]
   end
 
