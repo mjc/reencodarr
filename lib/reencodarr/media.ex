@@ -600,107 +600,43 @@ defmodule Reencodarr.Media do
   end
 
   @doc """
-  Returns the count of videos grouped by reencoded status and additional stats.
-
-  ## Examples
-
-      iex> fetch_stats()
-      %Media.Stats{
-        not_reencoded: 5,
-        reencoded: 10,
-        total_videos: 15,
-        avg_vmaf_percentage: 85.5,
-        total_vmafs: 20,
-        chosen_vmafs_count: 10,
-        lowest_vmaf: %Vmaf{},
-        lowest_vmaf_by_time: %Vmaf{},
-        most_recent_video_update: ~N[2023-10-05 14:30:00],
-        most_recent_inserted_video: ~N[2023-10-05 14:30:00],
-        queue_length: %{encodes: 3, crf_searches: 5}
-      }
-
+  Returns aggregated statistics for media.
   """
   @spec fetch_stats() :: %Stats{}
   def fetch_stats do
-    counts = Repo.all(counts_query()) |> Enum.into(%{})
-    total_videos = Repo.one(total_videos_query())
-    avg_vmaf_percentage = Repo.one(avg_vmaf_percentage_query())
-    total_vmafs = Repo.one(total_vmafs_query())
-    chosen_vmafs_count = Repo.one(chosen_vmafs_count_query())
-    encodes_count = Repo.one(encodes_count_query())
-    queued_crf_searches_count = Repo.one(queued_crf_searches_count_query())
-    lowest_vmaf = get_lowest_chosen_vmaf() || %Vmaf{}
-    lowest_vmaf_by_time = get_lowest_chosen_vmaf_by_time() || %Vmaf{}
-    most_recent_video_update = most_recent_video_update()
-    most_recent_inserted_video = get_most_recent_inserted_at()
+    stats = Repo.one(aggregated_stats_query())
 
     %Stats{
-      avg_vmaf_percentage: avg_vmaf_percentage,
-      chosen_vmafs_count: chosen_vmafs_count,
-      lowest_vmaf_by_time: lowest_vmaf_by_time,
-      lowest_vmaf: lowest_vmaf,
-      not_reencoded: Map.get(counts, false, 0),
-      reencoded: Map.get(counts, true, 0),
-      total_videos: total_videos,
-      total_vmafs: total_vmafs,
-      most_recent_video_update: most_recent_video_update,
-      most_recent_inserted_video: most_recent_inserted_video,
-      queue_length: %{encodes: encodes_count, crf_searches: queued_crf_searches_count}
+      avg_vmaf_percentage: stats.avg_vmaf_percentage,
+      chosen_vmafs_count: stats.chosen_vmafs_count,
+      lowest_vmaf_by_time: get_lowest_chosen_vmaf_by_time() || %Vmaf{},
+      lowest_vmaf: get_lowest_chosen_vmaf() || %Vmaf{},
+      not_reencoded: stats.not_reencoded,
+      reencoded: stats.reencoded,
+      total_videos: stats.total_videos,
+      total_vmafs: stats.total_vmafs,
+      most_recent_video_update: stats.most_recent_video_update,
+      most_recent_inserted_video: stats.most_recent_inserted_video,
+      queue_length: %{encodes: stats.encodes_count, crf_searches: stats.queued_crf_searches_count}
     }
   end
 
-  defp counts_query do
-    from(v in Video,
-      where: v.failed == false,
-      group_by: v.reencoded,
-      select: {v.reencoded, count(v.id)}
-    )
-  end
-
-  defp total_videos_query do
-    from(v in Video,
-      where: v.failed == false,
-      select: count(v.id)
-    )
-  end
-
-  defp avg_vmaf_percentage_query do
-    from(v in Vmaf,
-      join: vid in assoc(v, :video),
-      where: v.chosen == true and vid.failed == false,
-      select: fragment("ROUND(CAST(AVG(?) AS numeric), 2)", v.percent)
-    )
-  end
-
-  defp total_vmafs_query do
-    from(v in Vmaf,
-      join: vid in assoc(v, :video),
-      where: vid.failed == false,
-      select: count(v.id)
-    )
-  end
-
-  defp chosen_vmafs_count_query do
-    from(v in Vmaf,
-      join: vid in assoc(v, :video),
-      where: v.chosen == true and vid.failed == false,
-      select: count(v.id)
-    )
-  end
-
-  defp encodes_count_query do
+  defp aggregated_stats_query do
     from v in Video,
-      join: m in Vmaf,
-      on: m.video_id == v.id,
-      where: v.reencoded == false and v.failed == false and m.chosen == true,
-      select: count(v.id)
-  end
-
-  defp queued_crf_searches_count_query do
-    from v in Video,
-      left_join: vmafs in assoc(v, :vmafs),
-      where: is_nil(vmafs.id) and not v.reencoded and v.failed == false,
-      select: count(v.id)
+      where: v.failed == false,
+      left_join: m_all in Vmaf, on: m_all.video_id == v.id,
+      select: %{
+        not_reencoded: fragment("COUNT(*) FILTER (WHERE ? = false)", v.reencoded),
+        reencoded: fragment("COUNT(*) FILTER (WHERE ? = true)", v.reencoded),
+        total_videos: count(v.id),
+        avg_vmaf_percentage: fragment("ROUND(AVG(?)::numeric, 2)", m_all.percent),
+        total_vmafs: count(m_all.id),
+        chosen_vmafs_count: fragment("COUNT(*) FILTER (WHERE ? = true)", m_all.chosen),
+        encodes_count: fragment("COUNT(*) FILTER (WHERE ? = false AND ? = true)", v.reencoded, m_all.chosen),
+        queued_crf_searches_count: fragment("COUNT(*) FILTER (WHERE ? IS NULL AND ? = false AND ? = false)", m_all.id, v.reencoded, v.failed),
+        most_recent_video_update: max(v.updated_at),
+        most_recent_inserted_video: max(v.inserted_at)
+      }
   end
 
   @doc """
