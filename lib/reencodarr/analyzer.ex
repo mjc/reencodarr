@@ -61,6 +61,11 @@ defmodule Reencodarr.Analyzer do
     {:noreply, new_state}
   end
 
+  def handle_info(:adjust_concurrency, %{queue: []} = state) do
+    schedule_adjustment()
+    {:noreply, state}
+  end
+
   @spec handle_info(:adjust_concurrency, map()) :: {:noreply, map()}
   def handle_info(:adjust_concurrency, state) do
     new_state = adjust_concurrency(state)

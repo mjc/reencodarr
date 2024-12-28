@@ -100,7 +100,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def handle_event("sync", %{"target" => target}, socket) do
-    Logger.info("Syncing with #{target} (slow)")
+    Logger.info("Syncing with #{target}")
     socket = assign(socket, :syncing, true) |> assign(:sync_progress, 0)
 
     case target do
