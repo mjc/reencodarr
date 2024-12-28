@@ -222,41 +222,23 @@ defmodule Reencodarr.Media do
   end
 
   @doc """
-  Marks a video as re-encoded.
-
-  ## Examples
-
-      iex> mark_as_reencoded(video)
-      {:ok, %Video{}}
-
-      iex> mark_as_reencoded(video)
-      {:error, %Ecto.Changeset{}}
-
+  Updates the status fields for a video.
   """
-  @spec mark_as_reencoded(Video.t()) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
-  def mark_as_reencoded(%Video{} = video) do
+  @spec update_video_status(Video.t(), map()) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
+  def update_video_status(%Video{} = video, attrs) do
     video
-    |> Video.changeset(%{reencoded: true, failed: false})
+    |> Video.changeset(attrs)
     |> Repo.update()
   end
 
-  @doc """
-  Marks a video as failed.
+  @doc false
+  def mark_as_reencoded(%Video{} = video) do
+    update_video_status(video, %{reencoded: true, failed: false})
+  end
 
-  ## Examples
-
-      iex> mark_as_failed(video)
-      {:ok, %Video{}}
-
-      iex> mark_as_failed(video)
-      {:error, %Ecto.Changeset{}}
-
-  """
-  @spec mark_as_failed(Video.t()) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
+  @doc false
   def mark_as_failed(%Video{} = video) do
-    video
-    |> Video.changeset(%{failed: true})
-    |> Repo.update()
+    update_video_status(video, %{failed: true})
   end
 
   @doc """
@@ -306,12 +288,10 @@ defmodule Reencodarr.Media do
   @spec delete_videos_with_nonexistent_paths() :: {:ok, integer()} | {:error, term()}
   def delete_videos_with_nonexistent_paths do
     non_existent_videos =
-      Repo.all(from v in Video, select: %{id: v.id, path: v.path})
-      |> Enum.map(fn video ->
-        Task.async(fn -> {video.id, File.exists?(video.path)} end)
-      end)
-      |> Enum.map(&Task.await/1)
-      |> Enum.filter(fn {_id, exists} -> not exists end)
+      Video
+      |> Repo.all(select: [:id, :path])
+      |> Task.async_stream(fn %{id: id, path: path} -> {id, File.exists?(path)} end)
+      |> Enum.reject(fn {_id, exists} -> exists end)
       |> Enum.map(&elem(&1, 0))
 
     Repo.transaction(fn ->
