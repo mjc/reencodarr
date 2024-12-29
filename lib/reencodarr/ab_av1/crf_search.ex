@@ -18,6 +18,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     VMAF\s
     (?<score>\d+\.\d+)\s             # Capture VMAF score
     \((?<percent>\d+)%\)             # Capture percentage
+    (?:\s\(.*\))?
   /x
 
   @sample_regex ~r/
@@ -29,6 +30,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     VMAF\s
     (?<score>\d+\.\d+)\s             # Capture VMAF score
     \((?<percent>\d+)%\)             # Capture percentage
+    (?:\s\(.*\))?
   /x
 
   @eta_vmaf_regex ~r/
@@ -44,6 +46,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     taking\s
     (?<time>\d+)\s                   # Capture time
     (?<time_unit>second|minute|hour|day|week|month|year)s? # Capture time unit with optional plural
+    (?:\s\(.*\))?
   /x
 
   @vmaf_regex ~r/
