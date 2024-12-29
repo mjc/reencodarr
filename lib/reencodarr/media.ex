@@ -151,13 +151,22 @@ defmodule Reencodarr.Media do
   """
   @spec upsert_video(map()) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
   def upsert_video(attrs) do
-    attrs
-    |> ensure_library_id()
-    |> Video.changeset()
-    |> Repo.insert(
-      on_conflict: {:replace_all_except, [:id, :inserted_at]},
-      conflict_target: :path
-    )
+    result =
+      attrs
+      |> ensure_library_id()
+      |> Video.changeset()
+      |> Repo.insert(
+        on_conflict: {:replace_all_except, [:id, :inserted_at]},
+        conflict_target: :path
+      )
+
+    case result do
+      {:ok, video} ->
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "media_events", {:video_upserted, video})
+      _ -> :ok
+    end
+
+    result
   end
 
   @spec ensure_library_id(map()) :: map()
@@ -468,14 +477,27 @@ defmodule Reencodarr.Media do
   """
   @spec upsert_vmaf(map()) :: {:ok, Vmaf.t()} | {:error, Ecto.Changeset.t()}
   def upsert_vmaf(attrs) do
-    %Vmaf{}
-    |> Vmaf.changeset(attrs)
-    |> Repo.insert(
-      on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
-      conflict_target: [:crf, :video_id]
-    )
+    result =
+      %Vmaf{}
+      |> Vmaf.changeset(attrs)
+      |> Repo.insert(
+        on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
+        conflict_target: [:crf, :video_id]
+      )
+
+    case result do
+      {:ok, vmaf} ->
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "media_events", {:vmaf_upserted, vmaf})
+      _ -> :ok
+    end
+
+    result
   end
 
+  @spec update_vmaf(Reencodarr.Media.Vmaf.t(), %{
+          optional(:__struct__) => none(),
+          optional(atom() | binary()) => any()
+        }) :: any()
   @doc """
   Updates a vmaf.
 

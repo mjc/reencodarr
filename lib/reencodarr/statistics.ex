@@ -23,6 +23,7 @@ defmodule Reencodarr.Statistics do
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "progress")
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "media_events") # Subscribe to media_events instead of stats
 
     initial_state = %{
       stats: Media.fetch_stats(),
@@ -141,6 +142,23 @@ defmodule Reencodarr.Statistics do
   def handle_info({:crf_searcher, :paused}, state) do
     new_state = %{state | crf_searching: false}
     Logger.debug("CRF searcher paused")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_info({:video_upserted, _video}, state) do
+    new_stats = Media.fetch_stats()
+    Logger.debug("Video upserted. Updating stats.")
+    new_state = %{state | stats: new_stats}
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
+    {:noreply, new_state}
+  end
+
+  def handle_info({:vmaf_upserted, _vmaf}, state) do
+    new_stats = Media.fetch_stats()
+    Logger.debug("VMAF upserted. Updating stats.")
+    new_state = %{state | stats: new_stats}
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
     {:noreply, new_state}
   end
