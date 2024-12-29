@@ -11,9 +11,10 @@ defmodule Reencodarr.ManualScanner do
     GenServer.start_link(__MODULE__, nil, name: __MODULE__)
   end
 
-  @spec init(any()) :: {:ok, nil}
+  @spec init(any()) :: {:ok, %{fd_path: String.t()}}
   def init(_) do
-    {:ok, nil}
+    fd_path = find_fd_path()
+    {:ok, %{fd_path: fd_path}}
   end
 
   @spec scan(String.t()) :: :ok
@@ -22,10 +23,10 @@ defmodule Reencodarr.ManualScanner do
     GenServer.cast(__MODULE__, {:scan, path})
   end
 
-  @spec handle_cast({:scan, String.t()}, any()) :: {:noreply, any()}
+  @spec handle_cast({:scan, String.t()}, %{fd_path: String.t()}) :: {:noreply, %{fd_path: String.t()}}
   def handle_cast({:scan, path}, state) do
     Logger.info("Starting scan for path: #{path}")
-    find_video_files(path)
+    find_video_files(path, state.fd_path)
     {:noreply, state}
   end
 
@@ -48,9 +49,8 @@ defmodule Reencodarr.ManualScanner do
     {:noreply, state}
   end
 
-  @spec find_video_files(String.t()) :: port()
-  defp find_video_files(path) do
-    fd_path = find_fd_path()
+  @spec find_video_files(String.t(), String.t()) :: port()
+  defp find_video_files(path, fd_path) do
     Logger.info("Using fd executable at: #{fd_path}")
     args = Enum.flat_map(@file_extensions, &["-e", &1]) ++ [".", path]
     Logger.debug("Running fd with arguments: #{inspect(args)}")
