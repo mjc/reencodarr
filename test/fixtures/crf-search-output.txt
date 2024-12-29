@@ -446,3 +446,4 @@ crf 20.5 VMAF 95.13 predicted video stream size 444.48 MiB (4%) taking 30 minute
 [2024-12-12T00:44:39Z INFO  ab_av1::command::sample_encode] encoding sample 3/5 crf 17.2
 [2024-12-12T00:44:55Z INFO  ab_av1::vmaf] vmaf Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample1684+480f.x265.crf17_2.medium.mkv vs reference Swagger - S01E07 - #RADICALS WEBDL-2160p HDR10 h265 EAC3 5.1.sample1684+480f.mkv
 [2024-12-29T18:04:55Z INFO  ab_av1::command::sample_encode] 48%, 14 fps, eta 18 seconds
+[2024-12-29T19:42:57Z INFO  ab_av1::command::sample_encode] 97%, 29 fps, eta 1 second
