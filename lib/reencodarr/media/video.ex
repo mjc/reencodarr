@@ -112,11 +112,12 @@ defmodule Reencodarr.Media.Video do
   @spec apply_media_info(Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   defp apply_media_info(changeset, mediainfo) do
     general = get_track(mediainfo, "General")
-    first_video = get_track(mediainfo, "Video")
 
-    {video_codecs, audio_codecs} = extract_codecs(mediainfo)
-    atmos = has_atmos_audio?(mediainfo)
-    max_audio_channels = get_max_audio_channels(mediainfo)
+    {video_codecs, audio_codecs, atmos, max_audio_channels, frame_rate, height, width, hdr} =
+      Enum.reduce(mediainfo["media"]["track"], {[], [], false, 0, 0.0, 0, 0, ""}, fn track, acc ->
+        process_track(track, acc)
+      end)
+
     reencoded = reencoded?(video_codecs, mediainfo)
     title = general["Title"] || Path.basename(get_field(changeset, :path))
 
@@ -126,22 +127,78 @@ defmodule Reencodarr.Media.Video do
       atmos: atmos,
       bitrate: general["OverallBitRate"],
       duration: general["Duration"],
-      frame_rate: first_video["FrameRate"],
-      hdr: get_hdr_format(first_video),
-      height: first_video["Height"],
+      frame_rate: frame_rate,
+      hdr: hdr,
+      height: height,
       max_audio_channels: max_audio_channels,
       size: general["FileSize"],
       text_count: general["TextCount"],
       video_codecs: video_codecs,
       video_count: general["VideoCount"],
-      width: first_video["Width"],
+      width: width,
       reencoded: reencoded,
       title: title
     }
 
     changeset
     |> cast(params, @mediainfo_params)
+    |> maybe_remove_size_zero()
+    |> maybe_remove_bitrate_zero()
   end
+
+  defp process_track(%{"@type" => "Video"} = track, {video_codecs, audio_codecs, atmos, max_audio_channels, _frame_rate, _height, _width, _hdr}) do
+    {frame_rate_str, height_str, width_str, hdr_formats} = {
+      track["FrameRate"] || "0.0",
+      track["Height"] || "0",
+      track["Width"] || "0",
+      [track["HDR_Format"], track["HDR_Format_Compatibility"]]
+    }
+
+    updated_frame_rate = String.to_float(frame_rate_str)
+    updated_height = String.to_integer(height_str)
+    updated_width = String.to_integer(width_str)
+
+    updated_hdr =
+      hdr_formats
+      |> Enum.reduce([], fn format, acc ->
+        if format && (format =~ "Dolby Vision" || format =~ "HDR"), do: [format | acc], else: acc
+      end)
+      |> Enum.uniq()
+      |> Enum.join(", ")
+
+    {
+      [track["CodecID"] | video_codecs],
+      audio_codecs,
+      atmos,
+      max_audio_channels,
+      updated_frame_rate,
+      updated_height,
+      updated_width,
+      updated_hdr
+    }
+  end
+
+  defp process_track(%{"@type" => "Audio"} = track, {video_codecs, audio_codecs, atmos, max_audio_channels, frame_rate, height, width, hdr}) do
+    additional_features = Map.get(track, "Format_AdditionalFeatures", "")
+    commercial_format = Map.get(track, "Format_Commercial_IfAny", "")
+
+    atmos_present = String.contains?(additional_features, "JOC") || String.contains?(commercial_format, "Atmos")
+
+    channels = String.to_integer(Map.get(track, "Channels", "0"))
+
+    {
+      video_codecs,
+      [Map.get(track, "CodecID") | audio_codecs],
+      atmos or atmos_present,
+      max(max_audio_channels, channels),
+      frame_rate,
+      height,
+      width,
+      hdr
+    }
+  end
+
+  defp process_track(_track, acc), do: acc
 
   # Determine if the video has been reencoded
   @spec reencoded?(list(String.t()), map()) :: boolean()
@@ -162,50 +219,5 @@ defmodule Reencodarr.Media.Video do
   @spec get_track(map(), String.t()) :: map() | nil
   defp get_track(mediainfo, type) do
     Enum.find(mediainfo["media"]["track"], &(&1["@type"] == type))
-  end
-
-  # Extract video and audio codecs from mediainfo
-  @spec extract_codecs(map()) :: {list(String.t()), list(String.t())}
-  defp extract_codecs(mediainfo) do
-    Enum.reduce(mediainfo["media"]["track"], {[], []}, fn
-      %{"@type" => "Video", "CodecID" => codec}, {vc, ac} -> {[codec | vc], ac}
-      %{"@type" => "Audio", "CodecID" => codec}, {vc, ac} -> {vc, [codec | ac]}
-      _, acc -> acc
-    end)
-  end
-
-  # Get HDR format from video track
-  @spec get_hdr_format(map()) :: String.t()
-  defp get_hdr_format(video_track) do
-    [video_track["HDR_Format"], video_track["HDR_Format_Compatibility"]]
-    |> Enum.filter(&String.contains?(&1 || "", ["Dolby Vision", "HDR"]))
-    |> Enum.uniq()
-    |> Enum.join(", ")
-  end
-
-  # Check if any audio track has Atmos
-  @spec has_atmos_audio?(map()) :: boolean()
-  defp has_atmos_audio?(mediainfo) do
-    Enum.any?(mediainfo["media"]["track"], &audio_track_has_atmos?/1)
-  end
-
-  @spec audio_track_has_atmos?(map()) :: boolean()
-  defp audio_track_has_atmos?(%{"@type" => "Audio"} = track) do
-    additional_features = Map.get(track, "Format_AdditionalFeatures", "")
-    commercial_format = Map.get(track, "Format_Commercial_IfAny", "")
-
-    String.contains?(additional_features || "", "JOC") or
-      String.contains?(commercial_format || "", "Atmos")
-  end
-
-  defp audio_track_has_atmos?(_), do: false
-
-  # Get the maximum number of audio channels from mediainfo
-  @spec get_max_audio_channels(map()) :: integer()
-  defp get_max_audio_channels(mediainfo) do
-    mediainfo["media"]["track"]
-    |> Enum.filter(&(&1["@type"] == "Audio"))
-    |> Enum.map(&String.to_integer(&1["Channels"] || "0"))
-    |> Enum.max(fn -> 0 end)
   end
 end
