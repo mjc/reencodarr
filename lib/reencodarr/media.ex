@@ -296,20 +296,21 @@ defmodule Reencodarr.Media do
   """
   @spec delete_videos_with_nonexistent_paths() :: {:ok, integer()} | {:error, term()}
   def delete_videos_with_nonexistent_paths do
-    non_existent_videos =
-      Video
-      |> Repo.all(select: [:id, :path])
-      |> Task.async_stream(fn %{id: id, path: path} -> {id, File.exists?(path)} end)
-      |> Enum.reject(fn {_id, exists} -> exists end)
-      |> Enum.map(&elem(&1, 0))
+    video_ids =
+      from(v in Video, select: %{id: v.id, path: v.path})
+      |> Repo.all()
+      |> Task.async_stream(fn %{id: id, path: path} ->
+        if File.exists?(path), do: nil, else: id
+      end)
+      |> Enum.reject(&is_nil/1)
 
     Repo.transaction(fn ->
       # Delete associated VMAFs
-      from(v in Vmaf, where: v.video_id in ^non_existent_videos)
+      from(v in Vmaf, where: v.video_id in ^video_ids)
       |> Repo.delete_all()
 
       # Delete videos
-      from(v in Video, where: v.id in ^non_existent_videos)
+      from(v in Video, where: v.id in ^video_ids)
       |> Repo.delete_all()
     end)
   end
@@ -718,12 +719,7 @@ defmodule Reencodarr.Media do
   @spec mark_vmaf_as_chosen(integer(), String.t()) ::
           {:ok, Vmaf.t()} | {:error, Ecto.Changeset.t()}
   def mark_vmaf_as_chosen(video_id, crf) do
-    crf_float =
-      if String.contains?(crf, ".") do
-        String.to_float(crf)
-      else
-        String.to_float(crf <> ".0")
-      end
+    crf_float = parse_crf(crf)
 
     Repo.transaction(fn ->
       # Unset previously chosen VMAFs
@@ -740,6 +736,13 @@ defmodule Reencodarr.Media do
       )
       |> Repo.update_all([])
     end)
+  end
+
+  defp parse_crf(crf) do
+    case Float.parse(crf) do
+      {value, _} -> value
+      :error -> raise ArgumentError, "Invalid CRF value: #{crf}"
+    end
   end
 
   def queued_crf_searches_query do

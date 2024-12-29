@@ -41,7 +41,10 @@ defmodule Reencodarr.Statistics do
 
   @impl true
   def handle_info(:update_stats, state) do
-    new_stats = fetch_all_stats(state)
+    new_stats =
+      state
+      |> fetch_all_stats()
+
     Logger.debug("Updating stats: #{inspect(new_stats)}")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_stats})
     schedule_update()
@@ -181,7 +184,6 @@ defmodule Reencodarr.Statistics do
       stats: Media.fetch_stats(),
       encoding: Encoder.scanning?(),
       crf_searching: CrfSearcher.scanning?(),
-      # Ensure encoding_progress is included
       encoding_progress: state.encoding_progress,
       crf_search_progress: state.crf_search_progress
     }
