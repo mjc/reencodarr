@@ -39,12 +39,13 @@ defmodule Reencodarr.Sync do
 
         items
         |> Enum.with_index()
-        |> Enum.each(fn {item, index} ->
+        |> Task.async_stream(fn {item, index} ->
           fetch_upsert_fun.(item["id"])
           progress = div((index + 1) * 100, total_items)
           Logger.debug("Sync progress: #{progress}%")
           Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync_progress, progress})
-        end)
+        end, max_concurrency: System.schedulers_online())
+        |> Stream.run()
 
       {:error, reason} ->
         Logger.error("Sync error: #{inspect(reason)}")
