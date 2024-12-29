@@ -154,9 +154,26 @@ defmodule Reencodarr.Media.Video do
       [track["HDR_Format"], track["HDR_Format_Compatibility"]]
     }
 
-    updated_frame_rate = String.to_float(frame_rate_str)
-    updated_height = String.to_integer(height_str)
-    updated_width = String.to_integer(width_str)
+    updated_frame_rate =
+      if is_binary(frame_rate_str) do
+        String.to_float(frame_rate_str)
+      else
+        frame_rate_str
+      end
+
+    updated_height =
+      if is_binary(height_str) do
+        String.to_integer(height_str)
+      else
+        height_str
+      end
+
+    updated_width =
+      if is_binary(width_str) do
+        String.to_integer(width_str)
+      else
+        width_str
+      end
 
     updated_hdr =
       hdr_formats
