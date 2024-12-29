@@ -147,66 +147,33 @@ defmodule Reencodarr.Media.Video do
   end
 
   defp process_track(%{"@type" => "Video"} = track, {video_codecs, audio_codecs, atmos, max_audio_channels, _frame_rate, _height, _width, _hdr}) do
-    {frame_rate_str, height_str, width_str, hdr_formats} = {
-      track["FrameRate"] || "0.0",
-      track["Height"] || "0",
-      track["Width"] || "0",
-      [track["HDR_Format"], track["HDR_Format_Compatibility"]]
-    }
-
-    updated_frame_rate =
-      if is_binary(frame_rate_str) do
-        String.to_float(frame_rate_str)
-      else
-        frame_rate_str
-      end
-
-    updated_height =
-      if is_binary(height_str) do
-        String.to_integer(height_str)
-      else
-        height_str
-      end
-
-    updated_width =
-      if is_binary(width_str) do
-        String.to_integer(width_str)
-      else
-        width_str
-      end
-
-    updated_hdr =
-      hdr_formats
-      |> Enum.reduce([], fn format, acc ->
-        if format && (format =~ "Dolby Vision" || format =~ "HDR"), do: [format | acc], else: acc
-      end)
-      |> Enum.uniq()
-      |> Enum.join(", ")
+    frame_rate = parse_float(track["FrameRate"], 0.0)
+    height = parse_integer(track["Height"], 0)
+    width = parse_integer(track["Width"], 0)
+    hdr = parse_hdr([track["HDR_Format"], track["HDR_Format_Compatibility"]])
 
     {
       [track["CodecID"] | video_codecs],
       audio_codecs,
       atmos,
-      max_audio_channels,
-      updated_frame_rate,
-      updated_height,
-      updated_width,
-      updated_hdr
+      max(max_audio_channels, height), # Adjust as needed
+      frame_rate,
+      height,
+      width,
+      hdr
     }
   end
 
   defp process_track(%{"@type" => "Audio"} = track, {video_codecs, audio_codecs, atmos, max_audio_channels, frame_rate, height, width, hdr}) do
-    additional_features = Map.get(track, "Format_AdditionalFeatures", "")
-    commercial_format = Map.get(track, "Format_Commercial_IfAny", "")
+    atmos_present = String.contains?(Map.get(track, "Format_AdditionalFeatures", ""), "JOC") ||
+                     String.contains?(Map.get(track, "Format_Commercial_IfAny", ""), "Atmos")
 
-    atmos_present = String.contains?(additional_features, "JOC") || String.contains?(commercial_format, "Atmos")
-
-    channels = String.to_integer(Map.get(track, "Channels", "0"))
+    channels = parse_integer(Map.get(track, "Channels", "0"), 0)
 
     {
       video_codecs,
       [Map.get(track, "CodecID") | audio_codecs],
-      atmos or atmos_present,
+      atmos || atmos_present,
       max(max_audio_channels, channels),
       frame_rate,
       height,
@@ -236,5 +203,36 @@ defmodule Reencodarr.Media.Video do
   @spec get_track(map(), String.t()) :: map() | nil
   defp get_track(mediainfo, type) do
     Enum.find(mediainfo["media"]["track"], &(&1["@type"] == type))
+  end
+
+  defp parse_float(value, default) when is_binary(value) do
+    case Float.parse(value) do
+      {parsed, _} -> parsed
+      :error -> default
+    end
+  end
+
+  defp parse_float(value, _default), do: value
+
+  defp parse_integer(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, _} -> parsed
+      :error -> default
+    end
+  end
+
+  defp parse_integer(value, _default), do: value
+
+  defp parse_hdr(formats) do
+    formats
+    |> Enum.reduce([], fn format, acc ->
+      if format && (String.contains?(format, "Dolby Vision") || String.contains?(format, "HDR")) do
+        [format | acc]
+      else
+        acc
+      end
+    end)
+    |> Enum.uniq()
+    |> Enum.join(", ")
   end
 end
