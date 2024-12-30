@@ -52,15 +52,34 @@ defmodule Reencodarr.Sync do
   defp do_sync(state, get_items_fun, get_files_fun, service_type) do
     case get_items_fun.() do
       {:ok, %Req.Response{body: items}} when is_list(items) ->
-        total_items = length(items)
+        items_count = length(items)
 
         items
-        |> Enum.with_index()
-        |> Enum.each(fn {item, index} ->
-          fetch_and_upsert_files(item["id"], get_files_fun, service_type)
-          progress = div((index + 1) * 100, total_items)
-          Logger.debug("Sync progress: #{progress}%")
-          Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync_progress, progress})
+        |> Task.async_stream(
+          fn item ->
+            fetch_and_upsert_files(item["id"], get_files_fun, service_type)
+          end,
+          max_concurrency: 5,
+          on_timeout: :kill_task
+        )
+        |> Stream.with_index()
+        |> Enum.each(fn {task_result, index} ->
+          case task_result do
+            {:ok, :ok} ->
+              progress = div((index + 1) * 100, items_count)
+              Logger.debug("Sync progress: #{progress}%")
+              Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync_progress, progress})
+
+            {:ok, other} ->
+              # Handle any other success value if needed
+              Logger.error("Unexpected success value: #{inspect(other)}")
+
+            {:error, reason} ->
+              Logger.error("Error in concurrent sync: #{inspect(reason)}")
+
+            {:exit, reason} ->
+              Logger.error("Task exited with reason: #{inspect(reason)}")
+          end
         end)
 
       {:ok, _other} ->
