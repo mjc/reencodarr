@@ -56,16 +56,12 @@ defmodule Reencodarr.Sync do
 
         items
         |> Enum.with_index()
-        |> Task.async_stream(
-          fn {item, index} ->
-            fetch_and_upsert_files(item["id"], get_files_fun, service_type)
-            progress = div((index + 1) * 100, total_items)
-            Logger.debug("Sync progress: #{progress}%")
-            Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync_progress, progress})
-          end,
-          max_concurrency: System.schedulers_online()
-        )
-        |> Stream.run()
+        |> Enum.each(fn {item, index} ->
+          fetch_and_upsert_files(item["id"], get_files_fun, service_type)
+          progress = div((index + 1) * 100, total_items)
+          Logger.debug("Sync progress: #{progress}%")
+          Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync_progress, progress})
+        end)
 
       {:ok, _other} ->
         Logger.error("Unexpected format for fetched items")
