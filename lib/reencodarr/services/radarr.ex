@@ -23,15 +23,12 @@ defmodule Reencodarr.Services.Radarr do
     end
   end
 
-  def system_status do
-    request(url: "/api/v3/system/status", method: :get)
-  end
-
-  @spec get_movies() :: {:ok, any()} | {:error, any()}
+  @spec get_movies() :: {:ok, Req.Response.t()} | {:error, any()}
   def get_movies do
     request(url: "/api/v3/movie", method: :get)
   end
 
+  @spec get_movie_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
   def get_movie_files(movie_id) do
     request(url: "/api/v3/moviefile?movieId=#{movie_id}", method: :get)
   end

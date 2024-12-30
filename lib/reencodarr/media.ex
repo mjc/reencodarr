@@ -163,7 +163,9 @@ defmodule Reencodarr.Media do
     case result do
       {:ok, video} ->
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "media_events", {:video_upserted, video})
-      _ -> :ok
+
+      _ ->
+        :ok
     end
 
     result
@@ -489,7 +491,9 @@ defmodule Reencodarr.Media do
     case result do
       {:ok, vmaf} ->
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "media_events", {:vmaf_upserted, vmaf})
-      _ -> :ok
+
+      _ ->
+        :ok
     end
 
     result
@@ -647,7 +651,8 @@ defmodule Reencodarr.Media do
   defp aggregated_stats_query do
     from v in Video,
       where: v.failed == false,
-      left_join: m_all in Vmaf, on: m_all.video_id == v.id,
+      left_join: m_all in Vmaf,
+      on: m_all.video_id == v.id,
       select: %{
         not_reencoded: fragment("COUNT(*) FILTER (WHERE ? = false)", v.reencoded),
         reencoded: fragment("COUNT(*) FILTER (WHERE ? = true)", v.reencoded),
@@ -655,8 +660,15 @@ defmodule Reencodarr.Media do
         avg_vmaf_percentage: fragment("ROUND(AVG(?)::numeric, 2)", m_all.percent),
         total_vmafs: count(m_all.id),
         chosen_vmafs_count: fragment("COUNT(*) FILTER (WHERE ? = true)", m_all.chosen),
-        encodes_count: fragment("COUNT(*) FILTER (WHERE ? = false AND ? = true)", v.reencoded, m_all.chosen),
-        queued_crf_searches_count: fragment("COUNT(*) FILTER (WHERE ? IS NULL AND ? = false AND ? = false)", m_all.id, v.reencoded, v.failed),
+        encodes_count:
+          fragment("COUNT(*) FILTER (WHERE ? = false AND ? = true)", v.reencoded, m_all.chosen),
+        queued_crf_searches_count:
+          fragment(
+            "COUNT(*) FILTER (WHERE ? IS NULL AND ? = false AND ? = false)",
+            m_all.id,
+            v.reencoded,
+            v.failed
+          ),
         most_recent_video_update: max(v.updated_at),
         most_recent_inserted_video: max(v.inserted_at)
       }

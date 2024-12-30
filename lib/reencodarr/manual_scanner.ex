@@ -23,7 +23,8 @@ defmodule Reencodarr.ManualScanner do
     GenServer.cast(__MODULE__, {:scan, path})
   end
 
-  @spec handle_cast({:scan, String.t()}, %{fd_path: String.t()}) :: {:noreply, %{fd_path: String.t()}}
+  @spec handle_cast({:scan, String.t()}, %{fd_path: String.t()}) ::
+          {:noreply, %{fd_path: String.t()}}
   def handle_cast({:scan, path}, state) do
     Logger.info("Starting scan for path: #{path}")
     find_video_files(path, state.fd_path)

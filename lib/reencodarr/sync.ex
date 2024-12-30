@@ -1,30 +1,34 @@
 defmodule Reencodarr.Sync do
-  use GenServer
-
   @moduledoc """
   This module is responsible for syncing data between services and Reencodarr.
   """
-  alias Reencodarr.{Media, Services, Media.CodecMapper, Media.CodecHelper}
+  use GenServer
   require Logger
+  alias Reencodarr.{Media, Services, Media.CodecMapper, Media.CodecHelper}
 
-  # Client API
+  @spec start_link(any()) :: GenServer.on_start()
   def start_link(_) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 
+  @spec sync_episode_files :: :ok
   def sync_episode_files do
     GenServer.cast(__MODULE__, :sync_episode_files)
   end
 
+  @spec sync_movie_files :: :ok
   def sync_movie_files do
     GenServer.cast(__MODULE__, :sync_movie_files)
   end
 
   # Server Callbacks
+  @impl true
   def init(state) do
     {:ok, state}
   end
 
+  @impl true
+  @spec handle_cast(:sync_episode_files | :sync_movie_files, map()) :: {:noreply, map()}
   def handle_cast(action, state) when action in [:sync_episode_files, :sync_movie_files] do
     {get_items_fun, get_files_fun, service_type} =
       case action do
@@ -38,6 +42,13 @@ defmodule Reencodarr.Sync do
     do_sync(state, get_items_fun, get_files_fun, service_type)
   end
 
+  @spec do_sync(
+          map(),
+          (-> {:ok, any()} | {:error, any()}),
+          (any() -> {:ok, any()} | {:error, any()}),
+          atom()
+        ) ::
+          {:noreply, map()}
   defp do_sync(state, get_items_fun, get_files_fun, service_type) do
     case get_items_fun.() do
       {:ok, %Req.Response{body: items}} when is_list(items) ->
@@ -45,12 +56,15 @@ defmodule Reencodarr.Sync do
 
         items
         |> Enum.with_index()
-        |> Task.async_stream(fn {item, index} ->
-          fetch_and_upsert_files(item["id"], get_files_fun, service_type)
-          progress = div((index + 1) * 100, total_items)
-          Logger.debug("Sync progress: #{progress}%")
-          Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync_progress, progress})
-        end, max_concurrency: System.schedulers_online())
+        |> Task.async_stream(
+          fn {item, index} ->
+            fetch_and_upsert_files(item["id"], get_files_fun, service_type)
+            progress = div((index + 1) * 100, total_items)
+            Logger.debug("Sync progress: #{progress}%")
+            Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync_progress, progress})
+          end,
+          max_concurrency: System.schedulers_online()
+        )
         |> Stream.run()
 
       {:ok, _other} ->
@@ -64,6 +78,7 @@ defmodule Reencodarr.Sync do
     {:noreply, state}
   end
 
+  @spec fetch_and_upsert_files(any(), (any() -> {:ok, any()} | {:error, any()}), atom()) :: :ok
   defp fetch_and_upsert_files(id, get_files_fun, service_type) do
     case get_files_fun.(id) do
       {:ok, %Req.Response{body: files}} when is_list(files) ->
@@ -75,8 +90,11 @@ defmodule Reencodarr.Sync do
       {:error, reason} ->
         Logger.error("Fetch files error: #{inspect(reason)}")
     end
+
+    :ok
   end
 
+  @spec upsert_video_from_file(map(), atom()) :: :ok
   defp upsert_video_from_file(file, service_type) do
     audio_codec = CodecMapper.map_codec_id(file["mediaInfo"]["audioCodec"])
 

@@ -146,7 +146,11 @@ defmodule Reencodarr.Media.Video do
     |> maybe_remove_bitrate_zero()
   end
 
-  defp process_track(%{"@type" => "Video"} = track, {video_codecs, audio_codecs, atmos, max_audio_channels, _frame_rate, _height, _width, _hdr}) do
+  defp process_track(
+         %{"@type" => "Video"} = track,
+         {video_codecs, audio_codecs, atmos, max_audio_channels, _frame_rate, _height, _width,
+          _hdr}
+       ) do
     frame_rate = parse_float(track["FrameRate"], 0.0)
     height = parse_integer(track["Height"], 0)
     width = parse_integer(track["Width"], 0)
@@ -156,7 +160,8 @@ defmodule Reencodarr.Media.Video do
       [track["CodecID"] | video_codecs],
       audio_codecs,
       atmos,
-      max(max_audio_channels, height), # Adjust as needed
+      # Adjust as needed
+      max(max_audio_channels, height),
       frame_rate,
       height,
       width,
@@ -164,9 +169,13 @@ defmodule Reencodarr.Media.Video do
     }
   end
 
-  defp process_track(%{"@type" => "Audio"} = track, {video_codecs, audio_codecs, atmos, max_audio_channels, frame_rate, height, width, hdr}) do
-    atmos_present = String.contains?(Map.get(track, "Format_AdditionalFeatures", ""), "JOC") ||
-                     String.contains?(Map.get(track, "Format_Commercial_IfAny", ""), "Atmos")
+  defp process_track(
+         %{"@type" => "Audio"} = track,
+         {video_codecs, audio_codecs, atmos, max_audio_channels, frame_rate, height, width, hdr}
+       ) do
+    atmos_present =
+      String.contains?(Map.get(track, "Format_AdditionalFeatures", ""), "JOC") ||
+        String.contains?(Map.get(track, "Format_Commercial_IfAny", ""), "Atmos")
 
     channels = parse_integer(Map.get(track, "Channels", "0"), 0)
 

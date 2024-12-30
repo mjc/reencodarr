@@ -135,6 +135,7 @@ defmodule Reencodarr.Services do
     Config.changeset(config, attrs)
   end
 
+  @spec get_sonarr_status() :: {:ok, any()} | {:error, any()}
   def get_sonarr_status do
     case Reencodarr.Services.Sonarr.system_status() do
       {:ok, status} -> {:ok, status}

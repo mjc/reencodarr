@@ -27,20 +27,22 @@ defmodule Reencodarr.Services.Sonarr do
     request(url: "/api/v3/system/status", method: :get)
   end
 
-  @spec get_shows() :: {:ok, any()} | {:error, any()}
+  @spec get_shows() :: {:ok, Req.Response.t()} | {:error, any()}
   def get_shows do
     request(url: "/api/v3/series?includeSeasonImages=false", method: :get)
   end
 
+  @spec get_episode_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
   def get_episode_files(series_id) do
     request(url: "/api/v3/episodefile?seriesId=#{series_id}", method: :get)
   end
 
-  @spec get_episode_file(integer()) :: {:ok, any()} | {:error, any()}
+  @spec get_episode_file(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
   def get_episode_file(episode_file_id) do
     request(url: "/api/v3/episodefile/#{episode_file_id}", method: :get)
   end
 
+  @spec refresh_series(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
   def refresh_series(series_id) do
     request(
       url: "/api/v3/command",
@@ -49,6 +51,7 @@ defmodule Reencodarr.Services.Sonarr do
     )
   end
 
+  @spec rename_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
   def rename_files(series_id) do
     request(
       url: "/api/v3/command",
