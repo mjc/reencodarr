@@ -104,8 +104,8 @@ defmodule ReencodarrWeb.DashboardLive do
     socket = assign(socket, :syncing, true) |> assign(:sync_progress, 0)
 
     case target do
-      "sonarr" -> Sync.sync_episode_files()
-      "radarr" -> Sync.sync_movie_files()
+      "sonarr" -> Sync.sync_episodes()
+      "radarr" -> Sync.sync_movies()
     end
 
     {:noreply, socket}

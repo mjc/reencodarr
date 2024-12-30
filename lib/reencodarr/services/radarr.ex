@@ -25,7 +25,7 @@ defmodule Reencodarr.Services.Radarr do
 
   @spec get_movies() :: {:ok, Req.Response.t()} | {:error, any()}
   def get_movies do
-    request(url: "/api/v3/movie", method: :get)
+    request(url: "/api/v3/movie?includeImages=false", method: :get)
   end
 
   @spec get_movie_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}

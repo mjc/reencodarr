@@ -4,6 +4,7 @@ defmodule Reencodarr.Services do
   """
   alias Reencodarr.Repo
   alias Reencodarr.Services.Config
+  alias Reencodarr.Services.{Sonarr, Radarr}
 
   @doc """
   Returns the list of configs.
@@ -141,5 +142,21 @@ defmodule Reencodarr.Services do
       {:ok, status} -> {:ok, status}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  def get_shows do
+    Sonarr.get_shows()
+  end
+
+  def get_episode_files(show_id) do
+    Sonarr.get_episode_files(show_id)
+  end
+
+  def get_movies do
+    Radarr.get_movies()
+  end
+
+  def get_movie_files(movie_id) do
+    Radarr.get_movie_files(movie_id)
   end
 end

@@ -11,14 +11,14 @@ defmodule Reencodarr.Sync do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 
-  @spec sync_episode_files :: :ok
-  def sync_episode_files do
-    GenServer.cast(__MODULE__, :sync_episode_files)
+  @spec sync_episodes :: :ok
+  def sync_episodes do
+    GenServer.cast(__MODULE__, :sync_episodes)
   end
 
-  @spec sync_movie_files :: :ok
-  def sync_movie_files do
-    GenServer.cast(__MODULE__, :sync_movie_files)
+  @spec sync_movies :: :ok
+  def sync_movies do
+    GenServer.cast(__MODULE__, :sync_movies)
   end
 
   # Server Callbacks
@@ -28,15 +28,15 @@ defmodule Reencodarr.Sync do
   end
 
   @impl true
-  @spec handle_cast(:sync_episode_files | :sync_movie_files, map()) :: {:noreply, map()}
-  def handle_cast(action, state) when action in [:sync_episode_files, :sync_movie_files] do
+  @spec handle_cast(:sync_episodes | :sync_movies, map()) :: {:noreply, map()}
+  def handle_cast(action, state) when action in [:sync_episodes, :sync_movies] do
     {get_items_fun, get_files_fun, service_type} =
       case action do
-        :sync_episode_files ->
-          {&Services.Sonarr.get_shows/0, &Services.Sonarr.get_episode_files/1, :sonarr}
+        :sync_episodes ->
+          {&Services.get_shows/0, &Services.get_episode_files/1, :sonarr}
 
-        :sync_movie_files ->
-          {&Services.Radarr.get_movies/0, &Services.Radarr.get_movie_files/1, :radarr}
+        :sync_movies ->
+          {&Services.get_movies/0, &Services.get_movie_files/1, :radarr}
       end
 
     do_sync(state, get_items_fun, get_files_fun, service_type)
