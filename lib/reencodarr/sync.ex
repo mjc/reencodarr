@@ -60,7 +60,8 @@ defmodule Reencodarr.Sync do
             fetch_and_upsert_files(item["id"], get_files_fun, service_type)
           end,
           max_concurrency: 5,
-          on_timeout: :kill_task
+          on_timeout: :kill_task,
+          timeout: 60_000  # Increased timeout to 60 seconds
         )
         |> Stream.with_index()
         |> Enum.each(fn {task_result, index} ->
@@ -79,6 +80,9 @@ defmodule Reencodarr.Sync do
 
             {:exit, reason} ->
               Logger.error("Task exited with reason: #{inspect(reason)}")
+
+            _ ->
+              Logger.error("Unknown task result: #{inspect(task_result)}")
           end
         end)
 
