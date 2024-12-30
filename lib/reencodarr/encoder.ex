@@ -87,6 +87,7 @@ defmodule Reencodarr.Encoder do
   def handle_cast({:encoding_failed, video, exit_code}, state) do
     Logger.error("Encoding failed for video #{video.id} with exit code #{exit_code}")
     Media.mark_as_failed(video)
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :none})
     {:noreply, state}
   end
 
