@@ -595,38 +595,6 @@ defmodule Reencodarr.Media do
   end
 
   @doc """
-  Finds the next not-reencoded video by chosen VMAF.
-
-  ## Examples
-
-      iex> find_next_video()
-      %Video{}
-
-      iex> find_next_video()
-      nil
-
-  """
-  @spec find_next_video() :: Video.t() | nil
-  def find_next_video do
-    import Ecto.Query, warn: false
-    alias Reencodarr.Media.{Video, Vmaf}
-
-    query =
-      from v in Video,
-        join: m in Vmaf,
-        on: m.video_id == v.id,
-        where: v.reencoded == false and v.failed == false and m.chosen == true,
-        order_by: [
-          asc: m.time,
-          asc: m.percent
-        ],
-        limit: 1,
-        select: v
-
-    Repo.one(query)
-  end
-
-  @doc """
   Returns aggregated statistics for media.
   """
   @spec fetch_stats() :: %Stats{}
