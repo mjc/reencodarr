@@ -604,8 +604,8 @@ defmodule Reencodarr.Media do
     %Stats{
       avg_vmaf_percentage: stats.avg_vmaf_percentage,
       chosen_vmafs_count: stats.chosen_vmafs_count,
-      lowest_vmaf_by_time: get_lowest_chosen_vmaf_by_time() || %Vmaf{},
-      lowest_vmaf: get_lowest_chosen_vmaf() || %Vmaf{},
+      lowest_vmaf_by_time: get_next_video_by_time() || %Vmaf{},
+      lowest_vmaf: get_next_video() || %Vmaf{},
       not_reencoded: stats.not_reencoded,
       reencoded: stats.reencoded,
       total_videos: stats.total_videos,
@@ -647,12 +647,12 @@ defmodule Reencodarr.Media do
 
   ## Examples
 
-      iex> get_lowest_chosen_vmaf()
+      iex> get_next_video()
       %Vmaf{}
 
   """
-  @spec get_lowest_chosen_vmaf() :: Vmaf.t() | nil
-  def get_lowest_chosen_vmaf do
+  @spec get_next_video() :: Vmaf.t() | nil
+  def get_next_video do
     Repo.one(
       from v in Vmaf,
         join: vid in assoc(v, :video),
@@ -668,12 +668,12 @@ defmodule Reencodarr.Media do
 
   ## Examples
 
-      iex> get_lowest_chosen_vmaf_by_time()
+      iex> get_next_video_by_time()
       %Vmaf{}
 
   """
-  @spec get_lowest_chosen_vmaf_by_time() :: Vmaf.t() | nil
-  def get_lowest_chosen_vmaf_by_time do
+  @spec get_next_video_by_time() :: Vmaf.t() | nil
+  def get_next_video_by_time do
     Repo.one(
       from v in Vmaf,
         join: vid in assoc(v, :video),
