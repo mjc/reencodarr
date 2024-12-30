@@ -25,27 +25,36 @@ defmodule Reencodarr.Sync do
     {:ok, state}
   end
 
-  def handle_cast(:sync_episode_files, state),
-    do:
-      handle_generic_sync(state, &Services.Sonarr.get_shows/0, &fetch_and_upsert_episode_files/1)
+  def handle_cast(action, state) when action in [:sync_episode_files, :sync_movie_files] do
+    {get_items_fun, get_files_fun, service_type} =
+      case action do
+        :sync_episode_files ->
+          {&Services.Sonarr.get_shows/0, &Services.Sonarr.get_episode_files/1, :sonarr}
 
-  def handle_cast(:sync_movie_files, state),
-    do: handle_generic_sync(state, &Services.Radarr.get_movies/0, &fetch_and_upsert_movie_files/1)
+        :sync_movie_files ->
+          {&Services.Radarr.get_movies/0, &Services.Radarr.get_movie_files/1, :radarr}
+      end
 
-  defp handle_generic_sync(state, get_items_fun, fetch_upsert_fun) do
+    do_sync(state, get_items_fun, get_files_fun, service_type)
+  end
+
+  defp do_sync(state, get_items_fun, get_files_fun, service_type) do
     case get_items_fun.() do
-      {:ok, %Req.Response{body: items}} ->
+      {:ok, %Req.Response{body: items}} when is_list(items) ->
         total_items = length(items)
 
         items
         |> Enum.with_index()
         |> Task.async_stream(fn {item, index} ->
-          fetch_upsert_fun.(item["id"])
+          fetch_and_upsert_files(item["id"], get_files_fun, service_type)
           progress = div((index + 1) * 100, total_items)
           Logger.debug("Sync progress: #{progress}%")
           Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync_progress, progress})
         end, max_concurrency: System.schedulers_online())
         |> Stream.run()
+
+      {:ok, _other} ->
+        Logger.error("Unexpected format for fetched items")
 
       {:error, reason} ->
         Logger.error("Sync error: #{inspect(reason)}")
@@ -55,42 +64,18 @@ defmodule Reencodarr.Sync do
     {:noreply, state}
   end
 
-  defp fetch_and_upsert_episode_files(series_id),
-    do:
-      fetch_and_upsert_files(
-        &Services.Sonarr.get_episode_files/1,
-        &upsert_video_from_episode_file/1,
-        series_id
-      )
-
-  defp fetch_and_upsert_movie_files(movie_id),
-    do:
-      fetch_and_upsert_files(
-        &Services.Radarr.get_movie_files/1,
-        &upsert_video_from_movie_file/1,
-        movie_id
-      )
-
-  defp fetch_and_upsert_files(get_files_fun, upsert_fun, id) do
+  defp fetch_and_upsert_files(id, get_files_fun, service_type) do
     case get_files_fun.(id) do
-      {:ok, %Req.Response{body: files}} ->
-        files
-        |> Enum.map(upsert_fun)
-        |> Enum.each(fn
-          :ok -> :ok
-          error -> Logger.error("Failed to upsert video: #{inspect(error)}")
-        end)
+      {:ok, %Req.Response{body: files}} when is_list(files) ->
+        Enum.each(files, &upsert_video_from_file(&1, service_type))
+
+      {:ok, _other} ->
+        Logger.error("Unexpected format for fetched files")
 
       {:error, reason} ->
         Logger.error("Fetch files error: #{inspect(reason)}")
     end
   end
-
-  defp upsert_video_from_episode_file(file),
-    do: upsert_video_from_file(file, :sonarr)
-
-  defp upsert_video_from_movie_file(file),
-    do: upsert_video_from_file(file, :radarr)
 
   defp upsert_video_from_file(file, service_type) do
     audio_codec = CodecMapper.map_codec_id(file["mediaInfo"]["audioCodec"])

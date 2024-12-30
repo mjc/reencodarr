@@ -27,19 +27,16 @@ defmodule Reencodarr.Services.Sonarr do
     request(url: "/api/v3/system/status", method: :get)
   end
 
-  @spec get_shows() :: {:error, any()} | {:ok, any()}
+  @spec get_shows() :: {:ok, any()} | {:error, any()}
   def get_shows do
     request(url: "/api/v3/series?includeSeasonImages=false", method: :get)
-  end
-
-  def get_episodes(series_id) do
-    request(url: "/api/v3/episode?seriesId=#{series_id}", method: :get)
   end
 
   def get_episode_files(series_id) do
     request(url: "/api/v3/episodefile?seriesId=#{series_id}", method: :get)
   end
 
+  @spec get_episode_file(integer()) :: {:ok, any()} | {:error, any()}
   def get_episode_file(episode_file_id) do
     request(url: "/api/v3/episodefile/#{episode_file_id}", method: :get)
   end
