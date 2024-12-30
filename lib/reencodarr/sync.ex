@@ -39,7 +39,11 @@ defmodule Reencodarr.Sync do
           {&Services.get_movies/0, &Services.get_movie_files/1, :radarr}
       end
 
-    do_sync(state, get_items_fun, get_files_fun, service_type)
+    Task.start(fn ->
+      do_sync(state, get_items_fun, get_files_fun, service_type)
+    end)
+
+    {:noreply, state}
   end
 
   @spec do_sync(
