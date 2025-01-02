@@ -161,7 +161,7 @@ defmodule Reencodarr.Media.Video do
       audio_codecs,
       atmos,
       # Adjust as needed
-      max(max_audio_channels, height),
+      max_audio_channels,
       frame_rate,
       height,
       width,
