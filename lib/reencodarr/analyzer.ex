@@ -74,12 +74,12 @@ defmodule Reencodarr.Analyzer do
   end
 
   @spec handle_info(map(), map()) :: {:noreply, map()}
-  def handle_info(%{path: path}, state) do
+  def handle_info(%{path: path, force_reanalyze: force_reanalyze} = msg, state) do
     video = Media.get_video_by_path(path)
 
-    if video == nil or video.bitrate == 0 do
+    if video == nil or video.bitrate == 0 or force_reanalyze do
       Logger.debug("Adding new video to queue: #{path}. Queue size: #{length(state.queue) + 1}")
-      {:noreply, %{state | queue: state.queue ++ [path]}}
+      {:noreply, %{state | queue: state.queue ++ [msg]}}
     else
       Logger.debug(
         "Video already exists with non-zero bitrate, skipping: #{path}. Queue size: #{length(state.queue)}"
@@ -106,7 +106,7 @@ defmodule Reencodarr.Analyzer do
   def handle_cast({:process_path, video_info}, state) do
     video = Media.get_video_by_path(video_info.path)
 
-    if video == nil or video.bitrate == 0 do
+    if video == nil or video.bitrate == 0 or Map.get(video_info, :force_reanalyze, false) do
       Logger.debug(
         "Adding new video to queue: #{video_info.path}. Queue size: #{length(state.queue) + 1}"
       )
@@ -284,5 +284,11 @@ defmodule Reencodarr.Analyzer do
         previous_error: error,
         last_adjustment: :os.system_time(:second)
     }
+  end
+
+  def reanalyze_video(video_id) do
+    %{path: path, service_id: service_id, service_type: service_type} = Media.get_video!(video_id)
+
+    process_path(%{path: path, service_id: service_id, service_type: service_type, force_reanalyze: true})
   end
 end
