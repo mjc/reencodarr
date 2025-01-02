@@ -61,12 +61,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     \[
     (?<timestamp>[^\]]+)
     \]\s
-    (?<level>[A-Z]+)\s
-    (?<module>[^\s]+)::(?<function>[^\s]+)\]\s
+    .*?
     (?<progress>\d+(\.\d+)%)?,\s
     (?<fps>\d+(\.\d+)?\sfps)?,\s
     eta\s
-    (?<eta>\d+\s(?:second|minute|hour|day|week|month|year)s?) # Capture time unit with optional plural
+    (?<eta>\d+\s(?:second|minute|hour|day|week|month|year)s?)
   /x
 
   @success_line_regex ~r/
