@@ -218,7 +218,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         )
 
         progress_str = captures["progress"]
-        progress_str = if String.contains?(progress_str, "."), do: progress_str, else: progress_str <> ".0"
+
+        progress_str =
+          if String.contains?(progress_str, "."), do: progress_str, else: progress_str <> ".0"
 
         broadcast_crf_search_progress(video.path, %CrfSearchProgress{
           filename: video.path,

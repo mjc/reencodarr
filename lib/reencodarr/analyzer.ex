@@ -135,7 +135,11 @@ defmodule Reencodarr.Analyzer do
         {:ok, mediainfo_map} ->
           if duration > 60 do
             partial_count = round(length(paths) * 60 / duration)
-            Logger.warning("Mediainfo fetch took more than a minute, throughput calculated as #{partial_count}")
+
+            Logger.warning(
+              "Mediainfo fetch took more than a minute, throughput calculated as #{partial_count}"
+            )
+
             upsert_videos(paths, mediainfo_map)
             update_throughput_timestamps(state, partial_count)
           else
@@ -297,6 +301,11 @@ defmodule Reencodarr.Analyzer do
   def reanalyze_video(video_id) do
     %{path: path, service_id: service_id, service_type: service_type} = Media.get_video!(video_id)
 
-    process_path(%{path: path, service_id: service_id, service_type: service_type, force_reanalyze: true})
+    process_path(%{
+      path: path,
+      service_id: service_id,
+      service_type: service_type,
+      force_reanalyze: true
+    })
   end
 end

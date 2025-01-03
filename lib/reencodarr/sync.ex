@@ -65,7 +65,8 @@ defmodule Reencodarr.Sync do
           end,
           max_concurrency: 5,
           on_timeout: :kill_task,
-          timeout: 60_000  # Increased timeout to 60 seconds
+          # Increased timeout to 60 seconds
+          timeout: 60_000
         )
         |> Stream.with_index()
         |> Enum.each(fn {task_result, index} ->

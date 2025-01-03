@@ -154,7 +154,13 @@ defmodule Reencodarr.Media.Video do
     frame_rate = parse_float(track["FrameRate"], 0.0)
     height = parse_integer(track["Height"], 0)
     width = parse_integer(track["Width"], 0)
-    hdr = parse_hdr([track["HDR_Format"], track["HDR_Format_Compatibility"], track["transfer_characteristics"]])
+
+    hdr =
+      parse_hdr([
+        track["HDR_Format"],
+        track["HDR_Format_Compatibility"],
+        track["transfer_characteristics"]
+      ])
 
     {
       [track["CodecID"] | video_codecs],
@@ -235,7 +241,9 @@ defmodule Reencodarr.Media.Video do
   defp parse_hdr(formats) do
     formats
     |> Enum.reduce([], fn format, acc ->
-      if format && (String.contains?(format, "Dolby Vision") || String.contains?(format, "HDR") || String.contains?(format, "PQ") || String.contains?(format, "SMPTE")) do
+      if format &&
+           (String.contains?(format, "Dolby Vision") || String.contains?(format, "HDR") ||
+              String.contains?(format, "PQ") || String.contains?(format, "SMPTE")) do
         [format | acc]
       else
         acc
