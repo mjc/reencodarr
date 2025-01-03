@@ -98,12 +98,12 @@ defmodule Reencodarr.Media do
 
   ## Examples
 
-      iex> find_videos_without_vmafs(5)
+      iex> get_next_crf_search(5)
       [%Video{}, ...]
 
   """
-  @spec find_videos_without_vmafs(integer()) :: [Video.t()]
-  def find_videos_without_vmafs(limit \\ 10) do
+  @spec get_next_crf_search(integer()) :: [Video.t()]
+  def get_next_crf_search(limit \\ 10) do
     Repo.all(
       from v in Video,
         left_join: m in Vmaf,
@@ -604,8 +604,8 @@ defmodule Reencodarr.Media do
     %Stats{
       avg_vmaf_percentage: stats.avg_vmaf_percentage,
       chosen_vmafs_count: stats.chosen_vmafs_count,
-      lowest_vmaf_by_time: get_next_video_by_time() || %Vmaf{},
-      lowest_vmaf: get_next_video() || %Vmaf{},
+      lowest_vmaf_by_time: get_next_for_encoding_by_time() || %Vmaf{},
+      lowest_vmaf: get_next_for_encoding() || %Vmaf{},
       not_reencoded: stats.not_reencoded,
       reencoded: stats.reencoded,
       total_videos: stats.total_videos,
@@ -647,12 +647,12 @@ defmodule Reencodarr.Media do
 
   ## Examples
 
-      iex> get_next_video()
+      iex> get_next_for_encoding()
       %Vmaf{}
 
   """
-  @spec get_next_video() :: Vmaf.t() | nil
-  def get_next_video do
+  @spec get_next_for_encoding() :: Vmaf.t() | nil
+  def get_next_for_encoding do
     Repo.one(
       from v in Vmaf,
         join: vid in assoc(v, :video),
@@ -668,12 +668,12 @@ defmodule Reencodarr.Media do
 
   ## Examples
 
-      iex> get_next_video_by_time()
+      iex> get_next_for_encoding_by_time()
       %Vmaf{}
 
   """
-  @spec get_next_video_by_time() :: Vmaf.t() | nil
-  def get_next_video_by_time do
+  @spec get_next_for_encoding_by_time() :: Vmaf.t() | nil
+  def get_next_for_encoding_by_time do
     Repo.one(
       from v in Vmaf,
         join: vid in assoc(v, :video),

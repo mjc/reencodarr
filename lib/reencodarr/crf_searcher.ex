@@ -28,7 +28,7 @@ defmodule Reencodarr.CrfSearcher do
     Logger.debug("CRF searching started")
     monitor_crf_search()
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :started})
-    find_videos_without_vmafs()
+    get_next_crf_search()
     {:noreply, %{state | searching: true}}
   end
 
@@ -42,7 +42,7 @@ defmodule Reencodarr.CrfSearcher do
   @impl true
   def handle_cast(:crf_search_finished, %{searching: true} = state) do
     Logger.info("Received notification that CRF search finished.")
-    find_videos_without_vmafs()
+    get_next_crf_search()
     {:noreply, state}
   end
 
@@ -82,10 +82,10 @@ defmodule Reencodarr.CrfSearcher do
     end
   end
 
-  defp find_videos_without_vmafs do
+  defp get_next_crf_search do
     with pid when not is_nil(pid) <- GenServer.whereis(Reencodarr.AbAv1.CrfSearch),
          false <- AbAv1.CrfSearch.running?(),
-         videos when not is_nil(videos) <- Media.find_videos_without_vmafs(1) do
+         videos when not is_nil(videos) <- Media.get_next_crf_search(1) do
       Enum.each(videos, fn video ->
         Logger.info("Calling AbAv1.crf_search for video: #{video.id}")
         AbAv1.crf_search(video)

@@ -12,7 +12,7 @@ defmodule Reencodarr.Encoder do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 
-  def get_next_video, do: GenServer.call(__MODULE__, :get_next_video)
+  def get_next_for_encoding, do: GenServer.call(__MODULE__, :get_next_for_encoding)
   def start, do: GenServer.cast(__MODULE__, :start_encoding)
   def pause, do: GenServer.cast(__MODULE__, :pause_encoding)
   def scanning?, do: GenServer.call(__MODULE__, :scanning?)
@@ -147,7 +147,7 @@ defmodule Reencodarr.Encoder do
   defp check_next_video do
     with pid when not is_nil(pid) <- GenServer.whereis(Reencodarr.AbAv1.Encode),
          false <- AbAv1.Encode.running?(),
-         chosen_vmaf when not is_nil(chosen_vmaf) <- Media.get_next_video() do
+         chosen_vmaf when not is_nil(chosen_vmaf) <- Media.get_next_for_encoding() do
       Logger.debug("Next video to re-encode: #{chosen_vmaf.video.path}")
       AbAv1.encode(chosen_vmaf)
     else
