@@ -62,7 +62,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     (?<timestamp>[^\]]+)
     \]\s
     .*?
-    (?<progress>\d+(\.\d+)%)?,\s
+    (?<progress>\d+(\.\d+)?)%,\s
     (?<fps>\d+(\.\d+)?\sfps)?,\s
     eta\s
     (?<eta>\d+\s(?:second|minute|hour|day|week|month|year)s?)
@@ -217,9 +217,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           "CrfSearch Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
         )
 
+        progress_str = captures["progress"]
+        progress_str = if String.contains?(progress_str, "."), do: progress_str, else: progress_str <> ".0"
+
         broadcast_crf_search_progress(video.path, %CrfSearchProgress{
           filename: video.path,
-          percent: String.to_float(captures["progress"]),
+          percent: String.to_float(progress_str),
           eta: captures["eta"],
           fps: String.to_float(captures["fps"])
         })
