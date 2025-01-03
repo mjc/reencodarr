@@ -125,15 +125,23 @@ defmodule Reencodarr.Analyzer do
   defp process_paths(%{queue: queue, concurrency: concurrency} = state) do
     {paths, remaining} = Enum.split(queue, concurrency)
 
-    new_state =
-      case fetch_mediainfo(Enum.map(paths, & &1.path)) do
-        {:ok, mediainfo_map} ->
-          Logger.info(
-            "Fetched mediainfo for #{length(paths)} videos. Queue size: #{length(queue)}"
-          )
+    start_time = :os.system_time(:second)
+    res = fetch_mediainfo(Enum.map(paths, & &1.path))
+    end_time = :os.system_time(:second)
+    duration = end_time - start_time
 
-          upsert_videos(paths, mediainfo_map)
-          update_throughput_timestamps(state, length(paths))
+    new_state =
+      case res do
+        {:ok, mediainfo_map} ->
+          if duration > 60 do
+            partial_count = round(length(paths) * 60 / duration)
+            Logger.warning("Mediainfo fetch took more than a minute, throughput calculated as #{partial_count}")
+            upsert_videos(paths, mediainfo_map)
+            update_throughput_timestamps(state, partial_count)
+          else
+            upsert_videos(paths, mediainfo_map)
+            update_throughput_timestamps(state, length(paths))
+          end
 
         {:error, reason} ->
           log_fetch_error(paths, reason, queue)
