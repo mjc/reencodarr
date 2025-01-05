@@ -63,7 +63,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     \]\s
     .*?
     (?<progress>\d+(\.\d+)?)%,\s
-    (?<fps>\d+(\.\d+)?\sfps)?,\s
+    (?<fps>\d+(\.\d+)?)\sfps?,\s     # Updated to exclude "fps" from the capture group
     eta\s
     (?<eta>\d+\s(?:second|minute|hour|day|week|month|year)s?)
   /x
