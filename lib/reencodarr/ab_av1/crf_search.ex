@@ -218,7 +218,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         Logger.debug("VMAF comparison: #{captures["file1"]} vs #{captures["file2"]}")
 
       captures = Regex.named_captures(@progress_regex, line) ->
-        Logger.info(
+        Logger.debug(
           "CrfSearch Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
         )
 
