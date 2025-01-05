@@ -42,13 +42,18 @@ defmodule Reencodarr.Statistics do
 
   @impl true
   def handle_info(:update_stats, state) do
-    new_stats =
-      state
-      |> fetch_all_stats()
+    Task.start(fn ->
+      new_stats = fetch_all_stats(state)
+      send(self(), {:new_stats, new_stats})
+    end)
 
+    schedule_update()
+    {:noreply, state}
+  end
+
+  def handle_info({:new_stats, new_stats}, state) do
     Logger.debug("Updating stats: #{inspect(new_stats)}")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_stats})
-    schedule_update()
     {:noreply, new_stats}
   end
 
