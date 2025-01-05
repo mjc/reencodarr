@@ -181,6 +181,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   # Private helper functions
+  defp append_decimal_before_float(str) do
+    str = if String.contains?(str, "."), do: str, else: str <> ".0"
+    String.to_float(str)
+  end
+
   defp process_line(line, video, args) do
     cond do
       captures = Regex.named_captures(@encoding_sample_regex, line) ->
@@ -217,16 +222,14 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           "CrfSearch Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
         )
 
-        progress_str = captures["progress"]
-
-        progress_str =
-          if String.contains?(progress_str, "."), do: progress_str, else: progress_str <> ".0"
+        percent = append_decimal_before_float(captures["progress"])
+        fps = append_decimal_before_float(captures["fps"])
 
         broadcast_crf_search_progress(video.path, %CrfSearchProgress{
           filename: video.path,
-          percent: String.to_float(progress_str),
+          percent: percent,
           eta: captures["eta"],
-          fps: String.to_float(captures["fps"])
+          fps: fps
         })
 
       captures = Regex.named_captures(@success_line_regex, line) ->

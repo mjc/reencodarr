@@ -51,7 +51,7 @@ defmodule Reencodarr.Statistics do
     {:noreply, state}
   end
 
-  def handle_info({:new_stats, new_stats}, state) do
+  def handle_info({:new_stats, new_stats}, _state) do
     Logger.debug("Updating stats: #{inspect(new_stats)}")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_stats})
     {:noreply, new_stats}
