@@ -137,11 +137,10 @@ defmodule Reencodarr.Analyzer do
             partial_count = round(length(paths) * 60 / duration)
 
             Logger.warning(
-              "Mediainfo fetch took more than a minute, throughput calculated as #{partial_count}"
+              "Mediainfo fetch took more than a minute, adjusting concurrency to #{partial_count}"
             )
+            %{state | concurrency: partial_count}
 
-            upsert_videos(paths, mediainfo_map)
-            update_throughput_timestamps(state, partial_count)
           else
             upsert_videos(paths, mediainfo_map)
             update_throughput_timestamps(state, length(paths))
