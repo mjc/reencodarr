@@ -9,10 +9,37 @@ defmodule ReencodarrWeb.DashboardLive do
   def mount(_params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
 
-    {:ok,
-     socket
-     |> assign(Statistics.get_stats())
-     |> assign(:timezone, "UTC")}
+    # Request initial stats and handle the response in handle_info
+    Statistics.get_stats()
+
+    {:ok, assign_initial_state(socket)}
+  end
+
+  defp assign_initial_state(socket) do
+    socket
+    |> assign(:timezone, "UTC")
+    |> assign(:stats, %{
+      queue_length: %{
+        crf_searches: 0,
+        encodes: 0
+      },
+      not_reencoded: 0,
+      reencoded: 0,
+      total_videos: 0,
+      avg_vmaf_percentage: 0.0,
+      total_vmafs: 0,
+      chosen_vmafs_count: 0,
+      lowest_vmaf: %{percent: 0.0},
+      lowest_vmaf_by_time: %{},
+      most_recent_video_update: nil,
+      most_recent_inserted_video: nil
+    })
+    |> assign(:encoding, false)
+    |> assign(:crf_searching, false)
+    |> assign(:syncing, false)
+    |> assign(:sync_progress, 0)
+    |> assign(:crf_search_progress, %Reencodarr.Statistics.CrfSearchProgress{})
+    |> assign(:encoding_progress, %Reencodarr.Statistics.EncodingProgress{})
   end
 
   @impl true

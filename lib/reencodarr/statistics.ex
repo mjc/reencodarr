@@ -182,12 +182,13 @@ defmodule Reencodarr.Statistics do
   end
 
   def get_stats do
-    GenServer.call(__MODULE__, :get_stats)
+    GenServer.cast(__MODULE__, {:get_stats, self()})
   end
 
   @impl true
-  def handle_call(:get_stats, _from, state) do
-    {:reply, state, state}
+  def handle_cast({:get_stats, caller}, state) do
+    send(caller, {:stats, state})
+    {:noreply, state}
   end
 
   defp fetch_all_stats(state) do
