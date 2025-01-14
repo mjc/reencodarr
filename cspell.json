@@ -3,7 +3,15 @@
     "ignorePaths": [],
     "dictionaryDefinitions": [],
     "dictionaries": [],
-    "words": [],
+    "words": [
+        "fetchurl",
+        "libnotify",
+        "nixpkgs",
+        "numtide",
+        "pkgs",
+        "rebar",
+        "stdenv"
+    ],
     "ignoreWords": [],
     "import": []
 }
