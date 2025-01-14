@@ -15,17 +15,15 @@ defmodule Reencodarr.Application do
     [
       ReencodarrWeb.Telemetry,
       Reencodarr.Repo,
-      {DNSCluster, query: Application.get_env(:reencodarr, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Reencodarr.PubSub},
-      # Start the Finch HTTP client for sending emails
       {Finch, name: Reencodarr.Finch},
-      # Start to serve requests, typically the last entry
       ReencodarrWeb.Endpoint,
       %{
         id: :worker_supervisor,
         start: {Supervisor, :start_link, [worker_children(), [strategy: :one_for_one]]}
       },
-      Reencodarr.Statistics
+      Reencodarr.Statistics,
+      {Cluster.Supervisor, [Application.fetch_env!(:libcluster, :topologies), [name: Reencodarr.ClusterSupervisor]]}
     ]
   end
 

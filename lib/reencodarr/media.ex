@@ -304,7 +304,10 @@ defmodule Reencodarr.Media do
       |> Task.async_stream(fn %{id: id, path: path} ->
         if File.exists?(path), do: nil, else: id
       end)
-      |> Enum.reject(fn {:ok, nil} -> true; _ -> false end)
+      |> Enum.reject(fn
+        {:ok, nil} -> true
+        _ -> false
+      end)
       |> Enum.map(fn {:ok, id} -> id end)
 
     Repo.transaction(fn ->
