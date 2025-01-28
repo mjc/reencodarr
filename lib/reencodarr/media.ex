@@ -301,11 +301,9 @@ defmodule Reencodarr.Media do
     video_ids =
       from(v in Video, select: %{id: v.id, path: v.path})
       |> Repo.all()
-      |> Task.async_stream(fn %{id: id, path: path} ->
-        if File.exists?(path), do: nil, else: id
-      end)
-      |> Enum.reject(fn {:ok, nil} -> true; _ -> false end)
-      |> Enum.map(fn {:ok, id} -> id end)
+      |> Task.async_stream(fn %{id: id, path: path} -> if !File.exists?(path), do: id end)
+      |> Enum.reject(fn {:ok, val} -> is_nil(val) end)
+      |> Enum.map(fn {:ok, val} -> val end)
 
     Repo.transaction(fn ->
       # Delete associated VMAFs
