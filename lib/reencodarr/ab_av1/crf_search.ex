@@ -259,7 +259,22 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     rule_args =
       video
       |> Reencodarr.Rules.apply()
-      |> Enum.reject(fn {k, _v} -> k == "--acodec" end)
+      |> Enum.reject(fn
+        # {"--enc-input", "hwaccel=cuda"} ->
+        #   true
+
+        {"--acodec", _v} ->
+          true
+
+        {"--enc", <<"b:a=", _::binary>>} ->
+          true
+
+        {"--enc", <<"ac=", _::binary>>} ->
+          true
+
+        {_k, _v} ->
+          false
+      end)
       |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
 
     base_args ++ rule_args

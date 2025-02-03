@@ -112,11 +112,40 @@ defmodule Reencodarr.Media.Video do
   @spec apply_media_info(Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   defp apply_media_info(changeset, mediainfo) do
     general = get_track(mediainfo, "General")
+    tracks = mediainfo["media"]["track"] || []
 
-    {video_codecs, audio_codecs, atmos, max_audio_channels, frame_rate, height, width, hdr} =
-      Enum.reduce(mediainfo["media"]["track"], {[], [], false, 0, 0.0, 0, 0, ""}, fn track, acc ->
-        process_track(track, acc)
-      end)
+    video_tracks = Enum.filter(tracks, &(&1["@type"] == "Video"))
+    audio_tracks = Enum.filter(tracks, &(&1["@type"] == "Audio"))
+
+    video_codecs = for track <- video_tracks, do: track["CodecID"]
+    last_video = List.last(video_tracks)
+
+    {frame_rate, height, width, hdr} =
+      if last_video do
+        {
+          parse_float(last_video["FrameRate"], 0.0),
+          parse_integer(last_video["Height"], 0),
+          parse_integer(last_video["Width"], 0),
+          parse_hdr([
+            last_video["HDR_Format"],
+            last_video["HDR_Format_Compatibility"],
+            last_video["transfer_characteristics"]
+          ])
+        }
+      else
+        {0.0, 0, 0, ""}
+      end
+
+    audio_codecs = for track <- audio_tracks, do: Map.get(track, "CodecID")
+    atmos = Enum.any?(audio_tracks, fn t ->
+      String.contains?(Map.get(t, "Format_AdditionalFeatures", ""), "JOC") or
+        String.contains?(Map.get(t, "Format_Commercial_IfAny", ""), "Atmos")
+    end)
+
+    max_audio_channels =
+      audio_tracks
+      |> Enum.map(&parse_integer(Map.get(&1, "Channels", "0"), 0))
+      |> Enum.max(fn -> 0 end)
 
     reencoded = reencoded?(video_codecs, mediainfo)
     title = general["Title"] || Path.basename(get_field(changeset, :path))
@@ -145,59 +174,6 @@ defmodule Reencodarr.Media.Video do
     |> maybe_remove_size_zero()
     |> maybe_remove_bitrate_zero()
   end
-
-  defp process_track(
-         %{"@type" => "Video"} = track,
-         {video_codecs, audio_codecs, atmos, max_audio_channels, _frame_rate, _height, _width,
-          _hdr}
-       ) do
-    frame_rate = parse_float(track["FrameRate"], 0.0)
-    height = parse_integer(track["Height"], 0)
-    width = parse_integer(track["Width"], 0)
-
-    hdr =
-      parse_hdr([
-        track["HDR_Format"],
-        track["HDR_Format_Compatibility"],
-        track["transfer_characteristics"]
-      ])
-
-    {
-      [track["CodecID"] | video_codecs],
-      audio_codecs,
-      atmos,
-      # Adjust as needed
-      max_audio_channels,
-      frame_rate,
-      height,
-      width,
-      hdr
-    }
-  end
-
-  defp process_track(
-         %{"@type" => "Audio"} = track,
-         {video_codecs, audio_codecs, atmos, max_audio_channels, frame_rate, height, width, hdr}
-       ) do
-    atmos_present =
-      String.contains?(Map.get(track, "Format_AdditionalFeatures", ""), "JOC") ||
-        String.contains?(Map.get(track, "Format_Commercial_IfAny", ""), "Atmos")
-
-    channels = parse_integer(Map.get(track, "Channels", "0"), 0)
-
-    {
-      video_codecs,
-      [Map.get(track, "CodecID") | audio_codecs],
-      atmos || atmos_present,
-      max(max_audio_channels, channels),
-      frame_rate,
-      height,
-      width,
-      hdr
-    }
-  end
-
-  defp process_track(_track, acc), do: acc
 
   # Determine if the video has been reencoded
   @spec reencoded?(list(String.t()), map()) :: boolean()

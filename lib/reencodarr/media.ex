@@ -110,6 +110,7 @@ defmodule Reencodarr.Media do
         on: m.video_id == v.id,
         where: is_nil(m.id) and v.reencoded == false and v.failed == false,
         order_by: [
+
           desc: v.size,
           desc: v.bitrate,
           asc: v.updated_at
