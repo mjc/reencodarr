@@ -302,7 +302,7 @@ defmodule Reencodarr.Media do
     video_ids =
       from(v in Video, select: %{id: v.id, path: v.path})
       |> Repo.all()
-      |> Task.async_stream(fn %{id: id, path: path} -> if !File.exists?(path), do: id end)
+      |> Task.async_stream(fn %{id: id, path: path} -> if !File.exists?(path), do: id end, ordered: false, timeout: 10_000)
       |> Enum.reject(fn {:ok, val} -> is_nil(val) end)
       |> Enum.map(fn {:ok, val} -> val end)
 
