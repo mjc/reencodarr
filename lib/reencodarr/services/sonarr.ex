@@ -59,4 +59,20 @@ defmodule Reencodarr.Services.Sonarr do
       json: %{name: "RenameFiles", seriesId: series_id}
     )
   end
+
+  def refresh_and_rename_all_series() do
+    get_shows()
+    |> case do
+      {:ok, %Req.Response{body: shows}} ->
+        shows
+        |> Enum.map(& &1["id"])
+        |> Task.async_stream(fn id ->
+          refresh_series(id)
+          rename_files(id)
+        end, max_concurrency: 1)
+        |> Stream.run()
+      {:error, err} ->
+        Logger.error("Failed to get shows: #{inspect(err)}")
+    end
+  end
 end

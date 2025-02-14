@@ -46,6 +46,14 @@ defmodule Reencodarr.Sync do
     {:noreply, state}
   end
 
+  def handle_cast(:refresh_and_rename_series, state) do
+    Task.start(fn ->
+      Services.Sonarr.refresh_and_rename_all_series()
+    end)
+
+    {:noreply, state}
+  end
+
   @spec do_sync(
           map(),
           (-> {:ok, any()} | {:error, any()}),
