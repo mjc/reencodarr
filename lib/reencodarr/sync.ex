@@ -130,6 +130,9 @@ defmodule Reencodarr.Sync do
   defp upsert_video_from_file(file, service_type) do
     audio_codec = CodecMapper.map_codec_id(file["mediaInfo"]["audioCodec"])
 
+    resolution = file["mediaInfo"]["resolution"] || "0x0"
+    [width, height] = String.split(resolution, "x") |> Enum.map(&String.to_integer/1)
+
     mediainfo = %{
       "media" => %{
         "track" => [
@@ -141,21 +144,15 @@ defmodule Reencodarr.Sync do
                 file["mediaInfo"]["videoBitrate"],
             "Duration" => CodecHelper.parse_duration(file["mediaInfo"]["runTime"]),
             "FileSize" => file["size"],
-            "TextCount" => length(String.split(file["mediaInfo"]["subtitles"], "/")),
+            "TextCount" => length(String.split(file["mediaInfo"]["subtitles"] || "", "/")),
             "VideoCount" => 1,
             "Title" => file["title"]
           },
           %{
             "@type" => "Video",
             "FrameRate" => file["mediaInfo"]["videoFps"],
-            "Height" =>
-              String.split(file["mediaInfo"]["resolution"], "x")
-              |> List.last()
-              |> String.to_integer(),
-            "Width" =>
-              String.split(file["mediaInfo"]["resolution"], "x")
-              |> List.first()
-              |> String.to_integer(),
+            "Height" => height,
+            "Width" => width,
             "HDR_Format" => file["mediaInfo"]["videoDynamicRange"],
             "HDR_Format_Compatibility" => file["mediaInfo"]["videoDynamicRangeType"],
             "CodecID" => CodecMapper.map_codec_id(file["mediaInfo"]["videoCodec"])
