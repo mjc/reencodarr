@@ -15,19 +15,19 @@
         pkgs = import nixpkgs {inherit system;};
         lib = pkgs.lib;
         erlang = pkgs.erlang.override {
-          version = "27.2";
+          version = "27.3";
           src = pkgs.fetchurl {
-            url = "https://github.com/erlang/otp/releases/download/OTP-27.2/otp_src_27.2.tar.gz";
-            sha256 = "sha256-tmwsxPoshyEbZo5EhtTz5bG2cFaYhz6j5tmFCAGsmS0=";
+            url = "https://github.com/erlang/otp/releases/download/OTP-${erlang.version}/otp_src_${erlang.version}.tar.gz";
+            sha256 = "sha256-7+dhJpOPI3wNOg4uh1PFy4IyNdTVNwiDO7wJaNdsObg=";
           };
         };
         beamPackages = pkgs.beam.packagesWith erlang;
         elixir = beamPackages.elixir.override {
           erlang = erlang;
-          version = "1.18.2";
+          version = "1.18.3";
           src = pkgs.fetchurl {
             url = "https://github.com/elixir-lang/elixir/archive/refs/tags/v${elixir.version}.tar.gz";
-            sha256 = "sha256-78jQZgtW3T8MdTZyWpX02La+nxHKl3nYJK15N3dT6RY=";
+            sha256 = "sha256-+NQ3YxEFjdmnjtNl+h35/Rsi0kaMWH4/D0+zICg6Htc=";
           };
         };
       in {
