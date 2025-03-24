@@ -38,7 +38,7 @@ defmodule Reencodarr.MixProject do
       {:car_req, tag: "0.3.1", github: "carsdotcom/car_req"},
       {:contex, "~> 0.5.0"},
       {:dialyxir, "~> 1.1", only: [:dev], runtime: false},
-      {:dns_cluster, "~> 0.1.1"},
+      {:dns_cluster, "~> 0.2.0"},
       {:ecto_sql, "~> 3.10"},
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
       {:finch, "~> 0.13"},
