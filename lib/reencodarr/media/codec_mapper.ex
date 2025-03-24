@@ -20,6 +20,7 @@ defmodule Reencodarr.Media.CodecMapper do
     "TrueHD" => "A_TRUEHD",
     "DTS-X" => "A_DTS/X",
     "DTS-HD MA" => "A_DTS/MA",
+    "DTS-HD HRA" => "A_DTS",
     "DTS" => "A_DTS",
     "DTS-ES" => "A_DTS/ES",
     "FLAC" => "A_FLAC",
