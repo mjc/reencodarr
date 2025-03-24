@@ -5,6 +5,7 @@ defmodule Reencodarr.Repo.Migrations.AlterVmafsSizeType do
     alter table(:vmafs) do
       modify :size, :text
     end
+
     alter table(:videos) do
       modify :path, :text
     end
@@ -14,6 +15,7 @@ defmodule Reencodarr.Repo.Migrations.AlterVmafsSizeType do
     alter table(:vmafs) do
       modify :size, :string
     end
+
     alter table(:videos) do
       modify :path, :string
     end

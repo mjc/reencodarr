@@ -137,10 +137,12 @@ defmodule Reencodarr.Media.Video do
       end
 
     audio_codecs = for track <- audio_tracks, do: Map.get(track, "CodecID")
-    atmos = Enum.any?(audio_tracks, fn t ->
-      String.contains?(Map.get(t, "Format_AdditionalFeatures", ""), "JOC") or
-        String.contains?(Map.get(t, "Format_Commercial_IfAny", ""), "Atmos")
-    end)
+
+    atmos =
+      Enum.any?(audio_tracks, fn t ->
+        String.contains?(Map.get(t, "Format_AdditionalFeatures", ""), "JOC") or
+          String.contains?(Map.get(t, "Format_Commercial_IfAny", ""), "Atmos")
+      end)
 
     max_audio_channels =
       audio_tracks
