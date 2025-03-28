@@ -13,12 +13,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   /x
 
   @simple_vmaf_regex ~r/
-    ^-\scrf\s
+    \[
+    (?<timestamp>[^\]]+)
+    \]\s
+    .*?
+    crf\s
     (?<crf>\d+(\.\d+)?)\s            # Capture CRF value
     VMAF\s
     (?<score>\d+\.\d+)\s             # Capture VMAF score
     \((?<percent>\d+)%\)             # Capture percentage
-    (?:\s\(.*\))?
   /x
 
   @sample_regex ~r/
