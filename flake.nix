@@ -15,10 +15,10 @@
         pkgs = import nixpkgs {inherit system;};
         lib = pkgs.lib;
         erlang = pkgs.erlang.override {
-          version = "27.3.1";
+          version = "27.3.2";
           src = pkgs.fetchurl {
             url = "https://github.com/erlang/otp/releases/download/OTP-${erlang.version}/otp_src_${erlang.version}.tar.gz";
-            sha256 = "sha256-bTDwrGmlZa3xMX9bpsjVPpyRY63sSuXLpJWE5Z+iDag=";
+            sha256 = "sha256-eZegkA0UnIKuPQ9SPX36lgrDzVis8LFYUZwQjrXGVmE=";
           };
         };
         beamPackages = pkgs.beam.packagesWith erlang;
