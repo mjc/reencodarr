@@ -48,7 +48,8 @@ defmodule Reencodarr.MediaFixtures do
       attrs
       |> Enum.into(%{
         crf: 120.5,
-        score: 120.5
+        score: 120.5,
+        params: [] # Changed to an empty list for array of strings
       })
       |> Reencodarr.Media.create_vmaf()
 
