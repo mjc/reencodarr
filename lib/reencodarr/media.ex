@@ -110,7 +110,6 @@ defmodule Reencodarr.Media do
         on: m.video_id == v.id,
         where: is_nil(m.id) and v.reencoded == false and v.failed == false,
         order_by: [
-
           desc: v.size,
           desc: v.bitrate,
           asc: v.updated_at
@@ -125,12 +124,14 @@ defmodule Reencodarr.Media do
       from v in Video,
         left_join: m in Vmaf,
         on: m.video_id == v.id,
-        where: m.chosen == true and is_nil(m.percent) == false and v.reencoded == false and v.failed == false,
+        where:
+          m.chosen == true and is_nil(m.percent) == false and v.reencoded == false and
+            v.failed == false,
         order_by: [asc: m.percent],
         limit: ^limit,
         select: [v.path, m.percent]
     )
-    |> Enum.map(fn [k, v] -> {String.split(k, "/") |> List.last, v} end)
+    |> Enum.map(fn [k, v] -> {String.split(k, "/") |> List.last(), v} end)
   end
 
   @doc """

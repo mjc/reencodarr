@@ -1,8 +1,8 @@
-@moduledoc """
-Supervisor for AV1 CRF search and encode workers.
-Provides functions to queue CRF searches and encodes, and to check queue lengths.
-"""
 defmodule Reencodarr.AbAv1 do
+  @moduledoc """
+  Supervisor for AV1 CRF search and encode workers.
+  Provides functions to queue CRF searches and encodes, and to check queue lengths.
+  """
   use Supervisor
 
   require Logger
@@ -30,8 +30,10 @@ defmodule Reencodarr.AbAv1 do
   """
   @spec queue_length() :: %{crf_searches: non_neg_integer(), encodes: non_neg_integer()}
   def queue_length do
-    %{crf_searches: queue_len(Reencodarr.AbAv1.CrfSearch),
-      encodes: queue_len(Reencodarr.AbAv1.Encode)}
+    %{
+      crf_searches: queue_len(Reencodarr.AbAv1.CrfSearch),
+      encodes: queue_len(Reencodarr.AbAv1.Encode)
+    }
   end
 
   defp queue_len(server) do
