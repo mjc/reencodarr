@@ -43,6 +43,7 @@ defmodule Reencodarr.MixProject do
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
       {:finch, "~> 0.13"},
       {:floki, ">= 0.30.0", only: :test},
+      {:meck, "~> 1.0", only: :test},
       {:gettext, "~> 0.20"},
       {:heroicons,
        github: "tailwindlabs/heroicons",

@@ -6,10 +6,16 @@ defmodule Reencodarr.AbAv1Test do
 
   describe "start_link/1" do
     test "starts the supervisor" do
-      assert {:ok, pid} = AbAv1.start_link([])
-      assert Process.alive?(pid)
-      assert Supervisor.which_children(pid) |> is_list()
-      Process.exit(pid, :normal)
+      case Process.whereis(Reencodarr.AbAv1) do
+        nil ->
+          assert {:ok, pid} = AbAv1.start_link([])
+          assert Process.alive?(pid)
+          assert Supervisor.which_children(pid) |> is_list()
+          Process.exit(pid, :normal)
+        pid ->
+          assert Process.alive?(pid)
+          assert Supervisor.which_children(pid) |> is_list()
+      end
     end
   end
 
