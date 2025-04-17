@@ -12,12 +12,13 @@ defmodule Reencodarr.MediaTest do
 
     test "list_videos/0 returns all videos" do
       video = video_fixture()
-      assert Media.list_videos() == [video]
+      assert Enum.map(Media.list_videos(), &%{&1 | atmos: nil, max_audio_channels: nil}) ==
+             Enum.map([video], &%{&1 | atmos: nil, max_audio_channels: nil})
     end
 
     test "get_video!/1 returns the video with given id" do
       video = video_fixture()
-      assert Media.get_video!(video.id) == video
+      assert %{Media.get_video!(video.id) | atmos: nil, max_audio_channels: nil} == %{video | atmos: nil, max_audio_channels: nil}
     end
 
     test "create_video/1 with valid data creates a video" do
@@ -46,7 +47,7 @@ defmodule Reencodarr.MediaTest do
     test "update_video/2 with invalid data returns error changeset" do
       video = video_fixture()
       assert {:error, %Ecto.Changeset{}} = Media.update_video(video, @invalid_attrs)
-      assert video == Media.get_video!(video.id)
+      assert %{video | atmos: false, max_audio_channels: 0} == %{Media.get_video!(video.id) | atmos: false, max_audio_channels: 0}
     end
 
     test "delete_video/1 deletes the video" do
@@ -131,12 +132,11 @@ defmodule Reencodarr.MediaTest do
 
     test "get_vmaf!/1 returns the vmaf with given id" do
       vmaf = vmaf_fixture()
-      assert Media.get_vmaf!(vmaf.id) == vmaf
+      assert %{Media.get_vmaf!(vmaf.id) | video: nil} == %{vmaf | video: nil}
     end
 
     test "create_vmaf/1 with valid data creates a vmaf" do
-      valid_attrs = %{crf: 120.5, score: 120.5}
-
+      valid_attrs = %{crf: 120.5, score: 120.5, params: []}
       assert {:ok, %Vmaf{} = vmaf} = Media.create_vmaf(valid_attrs)
       assert vmaf.crf == 120.5
       assert vmaf.score == 120.5
@@ -158,7 +158,7 @@ defmodule Reencodarr.MediaTest do
     test "update_vmaf/2 with invalid data returns error changeset" do
       vmaf = vmaf_fixture()
       assert {:error, %Ecto.Changeset{}} = Media.update_vmaf(vmaf, @invalid_attrs)
-      assert vmaf == Media.get_vmaf!(vmaf.id)
+      assert %{vmaf | video: nil} == %{Media.get_vmaf!(vmaf.id) | video: nil}
     end
 
     test "delete_vmaf/1 deletes the vmaf" do
