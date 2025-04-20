@@ -99,7 +99,7 @@ defmodule Reencodarr.CrfSearcher do
 
       _pid ->
         if AbAv1.CrfSearch.running?() do
-          Logger.info("CRF search is already in progress, skipping search for new videos.")
+          Logger.debug("CRF search is already in progress, skipping search for new videos.")
         else
           videos = Media.get_next_crf_search(1)
           case videos do

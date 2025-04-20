@@ -160,8 +160,15 @@ defmodule Reencodarr.Statistics do
 
   @impl true
   def handle_info(:broadcast_stats, state) do
-    # Broadcast full stats every interval
-    stats = get_stats()
+    # Instead of calling get_stats/0 (which does GenServer.call), use the state directly
+    stats = %{
+      encoding: state.encoding,
+      crf_searching: state.crf_searching,
+      syncing: state.syncing,
+      sync_progress: state.sync_progress,
+      crf_search_progress: state.crf_search_progress,
+      encoding_progress: state.encoding_progress
+    }
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, stats})
     {:noreply, state}
   end
