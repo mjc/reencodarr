@@ -23,11 +23,10 @@ defmodule Reencodarr.Statistics do
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "progress")
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
-    # Subscribe to media_events instead of stats
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "media_events")
 
+    # Only keep real-time progress in state, not full stats
     initial_state = %{
-      stats: Media.fetch_stats(),
       encoding: Encoder.scanning?(),
       crf_searching: CrfSearcher.scanning?(),
       syncing: false,
@@ -36,27 +35,10 @@ defmodule Reencodarr.Statistics do
       encoding_progress: %EncodingProgress{}
     }
 
-    schedule_update()
     {:ok, initial_state}
   end
 
-  @impl true
-  def handle_info(:update_stats, state) do
-    Task.start(fn ->
-      new_stats = fetch_all_stats(state)
-      send(self(), {:new_stats, new_stats})
-    end)
-
-    schedule_update()
-    {:noreply, state}
-  end
-
-  def handle_info({:new_stats, new_stats}, _state) do
-    Logger.debug("Updating stats: #{inspect(new_stats)}")
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_stats})
-    {:noreply, new_stats}
-  end
-
+  # Keep only real-time progress updates in state and broadcast as before
   @impl true
   def handle_info({:crf_search_progress, %{filename: :none}}, state) do
     new_state = %{state | crf_search_progress: %CrfSearchProgress{}}
@@ -162,44 +144,49 @@ defmodule Reencodarr.Statistics do
 
   @impl true
   def handle_info({:video_upserted, _video}, state) do
-    new_stats = Media.fetch_stats()
-    Logger.debug("Video upserted. Updating stats.")
-    new_state = %{state | stats: new_stats}
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
-    {:noreply, new_state}
+    Logger.debug("Video upserted.")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, state})
+    {:noreply, state}
   end
 
   def handle_info({:vmaf_upserted, _vmaf}, state) do
-    new_stats = Media.fetch_stats()
-    Logger.debug("VMAF upserted. Updating stats.")
-    new_state = %{state | stats: new_stats}
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, new_state})
-    {:noreply, new_state}
-  end
-
-  defp schedule_update do
-    Process.send_after(self(), :update_stats, @update_interval)
+    Logger.debug("VMAF upserted.")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, state})
+    {:noreply, state}
   end
 
   def get_stats do
-    GenServer.call(__MODULE__, :get_stats)
-  end
-
-  @impl true
-  def handle_call(:get_stats, _from, state) do
-    {:reply, state, state}
-  end
-
-  defp fetch_all_stats(state) do
-    new_stats = %{
+    %{
       stats: Media.fetch_stats(),
       encoding: Encoder.scanning?(),
       crf_searching: CrfSearcher.scanning?(),
-      encoding_progress: state.encoding_progress,
-      crf_search_progress: state.crf_search_progress
+      encoding_progress: get_encoding_progress(),
+      crf_search_progress: get_crf_search_progress(),
+      syncing: get_syncing(),
+      sync_progress: get_sync_progress()
     }
+  end
 
-    Map.merge(state, new_stats)
+  # Helper functions to get current progress from GenServer state
+  defp get_encoding_progress do
+    GenServer.call(__MODULE__, {:get_progress, :encoding_progress})
+  end
+
+  defp get_crf_search_progress do
+    GenServer.call(__MODULE__, {:get_progress, :crf_search_progress})
+  end
+
+  defp get_syncing do
+    GenServer.call(__MODULE__, {:get_progress, :syncing})
+  end
+
+  defp get_sync_progress do
+    GenServer.call(__MODULE__, {:get_progress, :sync_progress})
+  end
+
+  @impl true
+  def handle_call({:get_progress, key}, _from, state) do
+    {:reply, Map.get(state, key), state}
   end
 
   @spec update_progress(struct(), struct()) :: struct()

@@ -9,16 +9,13 @@ defmodule ReencodarrWeb.DashboardLive do
   def mount(_params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
 
+    # Always fetch fresh stats
+    stats = Statistics.get_stats()
+
     {:ok,
      socket
-     |> assign(Statistics.get_stats())
+     |> assign(stats)
      |> assign(:timezone, "UTC")}
-  end
-
-  @impl true
-  def handle_info(:update_stats, socket) do
-    new_stats = Statistics.get_stats()
-    {:noreply, assign(socket, new_stats)}
   end
 
   @impl true
@@ -45,6 +42,7 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, assign(socket, :syncing, true) |> assign(:sync_progress, progress)}
   end
 
+  # Only update progress/real-time fields on PubSub events, not full stats
   @impl true
   def handle_info({:stats, new_stats}, socket) do
     Logger.debug("Received new stats: #{inspect(new_stats)}")
@@ -55,7 +53,6 @@ defmodule ReencodarrWeb.DashboardLive do
       |> assign(:crf_searching, new_stats.crf_searching)
       |> assign(:syncing, new_stats.syncing)
       |> assign(:sync_progress, new_stats.sync_progress)
-      |> assign(:stats, new_stats.stats)
       |> assign(:crf_search_progress, new_stats.crf_search_progress)
       |> assign(:encoding_progress, new_stats.encoding_progress)
 
