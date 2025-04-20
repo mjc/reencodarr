@@ -12,13 +12,19 @@ defmodule Reencodarr.MediaTest do
 
     test "list_videos/0 returns all videos" do
       video = video_fixture()
+
       assert Enum.map(Media.list_videos(), &%{&1 | atmos: nil, max_audio_channels: nil}) ==
-             Enum.map([video], &%{&1 | atmos: nil, max_audio_channels: nil})
+               Enum.map([video], &%{&1 | atmos: nil, max_audio_channels: nil})
     end
 
     test "get_video!/1 returns the video with given id" do
       video = video_fixture()
-      assert %{Media.get_video!(video.id) | atmos: nil, max_audio_channels: nil} == %{video | atmos: nil, max_audio_channels: nil}
+
+      assert %{Media.get_video!(video.id) | atmos: nil, max_audio_channels: nil} == %{
+               video
+               | atmos: nil,
+                 max_audio_channels: nil
+             }
     end
 
     test "create_video/1 with valid data creates a video" do
@@ -47,7 +53,12 @@ defmodule Reencodarr.MediaTest do
     test "update_video/2 with invalid data returns error changeset" do
       video = video_fixture()
       assert {:error, %Ecto.Changeset{}} = Media.update_video(video, @invalid_attrs)
-      assert %{video | atmos: false, max_audio_channels: 0} == %{Media.get_video!(video.id) | atmos: false, max_audio_channels: 0}
+
+      assert %{video | atmos: false, max_audio_channels: 0} == %{
+               Media.get_video!(video.id)
+               | atmos: false,
+                 max_audio_channels: 0
+             }
     end
 
     test "delete_video/1 deletes the video" do

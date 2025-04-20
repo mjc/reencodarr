@@ -12,6 +12,7 @@ defmodule Reencodarr.AbAv1Test do
           assert Process.alive?(pid)
           assert Supervisor.which_children(pid) |> is_list()
           Process.exit(pid, :normal)
+
         pid ->
           assert Process.alive?(pid)
           assert Supervisor.which_children(pid) |> is_list()
