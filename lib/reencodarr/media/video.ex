@@ -111,46 +111,33 @@ defmodule Reencodarr.Media.Video do
 
   @spec apply_media_info(Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   defp apply_media_info(changeset, mediainfo) do
-    general = get_track(mediainfo, "General")
     tracks = mediainfo["media"]["track"] || []
-
+    general = Enum.find(tracks, &(&1["@type"] == "General")) || %{}
     video_tracks = Enum.filter(tracks, &(&1["@type"] == "Video"))
     audio_tracks = Enum.filter(tracks, &(&1["@type"] == "Audio"))
 
-    video_codecs = for track <- video_tracks, do: track["CodecID"]
     last_video = List.last(video_tracks)
+    video_codecs = Enum.map(video_tracks, & &1["CodecID"])
+    audio_codecs = Enum.map(audio_tracks, &Map.get(&1, "CodecID"))
 
-    {frame_rate, height, width, hdr} =
-      if last_video do
-        {
-          parse_float(last_video["FrameRate"], 0.0),
-          parse_integer(last_video["Height"], 0),
-          parse_integer(last_video["Width"], 0),
-          parse_hdr([
-            last_video["HDR_Format"],
-            last_video["HDR_Format_Compatibility"],
-            last_video["transfer_characteristics"]
-          ])
-        }
-      else
-        {0.0, 0, 0, ""}
-      end
+    frame_rate = parse_float(last_video && last_video["FrameRate"], 0.0)
+    height = parse_integer(last_video && last_video["Height"], 0)
+    width = parse_integer(last_video && last_video["Width"], 0)
+    hdr = parse_hdr([
+      last_video && last_video["HDR_Format"],
+      last_video && last_video["HDR_Format_Compatibility"],
+      last_video && last_video["transfer_characteristics"]
+    ])
 
-    audio_codecs = for track <- audio_tracks, do: Map.get(track, "CodecID")
-
-    atmos =
-      Enum.any?(audio_tracks, fn t ->
-        String.contains?(Map.get(t, "Format_AdditionalFeatures", ""), "JOC") or
-          String.contains?(Map.get(t, "Format_Commercial_IfAny", ""), "Atmos")
-      end)
+    atmos = Enum.any?(audio_tracks, fn t ->
+      String.contains?(Map.get(t, "Format_AdditionalFeatures", ""), "JOC") or
+      String.contains?(Map.get(t, "Format_Commercial_IfAny", ""), "Atmos")
+    end)
 
     max_audio_channels =
       audio_tracks
       |> Enum.map(&parse_integer(Map.get(&1, "Channels", "0"), 0))
       |> Enum.max(fn -> 0 end)
-
-    reencoded = reencoded?(video_codecs, mediainfo)
-    title = general["Title"] || Path.basename(get_field(changeset, :path))
 
     params = %{
       audio_codecs: audio_codecs,
@@ -167,8 +154,8 @@ defmodule Reencodarr.Media.Video do
       video_codecs: video_codecs,
       video_count: general["VideoCount"],
       width: width,
-      reencoded: reencoded,
-      title: title
+      reencoded: reencoded?(video_codecs, mediainfo),
+      title: general["Title"] || Path.basename(get_field(changeset, :path))
     }
 
     changeset
