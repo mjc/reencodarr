@@ -49,22 +49,26 @@ defmodule Reencodarr.Media.CodecHelper do
 
   def parse_int(val, default \\ 0)
   def parse_int(val, _default) when is_integer(val), do: val
+
   def parse_int(val, default) when is_binary(val) do
     case Integer.parse(val) do
       {i, _} -> i
       :error -> default
     end
   end
+
   def parse_int(_, default), do: default
 
   def parse_float(val, default \\ 0.0)
   def parse_float(val, _default) when is_float(val), do: val
+
   def parse_float(val, default) when is_binary(val) do
     case Float.parse(val) do
       {f, _} -> f
       :error -> default
     end
   end
+
   def parse_float(_, default), do: default
 
   def parse_resolution(res) do

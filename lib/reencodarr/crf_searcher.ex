@@ -93,7 +93,8 @@ defmodule Reencodarr.CrfSearcher do
   end
 
   defp get_next_crf_search do
-    with {:started, pid} when not is_nil(pid) <- {:started, GenServer.whereis(Reencodarr.AbAv1.CrfSearch)},
+    with {:started, pid} when not is_nil(pid) <-
+           {:started, GenServer.whereis(Reencodarr.AbAv1.CrfSearch)},
          {:running, false} <- {:running, AbAv1.CrfSearch.running?()},
          [video | _] <- Media.get_next_crf_search(1) do
       Logger.info("Calling AbAv1.crf_search for video: #{video.id}")
@@ -101,10 +102,12 @@ defmodule Reencodarr.CrfSearcher do
     else
       {:started, nil} ->
         Logger.warning("CrfSearch process is not started.")
+
       {:running, true} ->
         Logger.debug("CRF search is already in progress, skipping search for new videos.")
+
       [] ->
-        Logger.info("No videos found without VMAFs")
+        Logger.debug("No videos found without VMAFs")
     end
   end
 end

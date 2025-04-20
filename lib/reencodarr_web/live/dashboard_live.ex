@@ -65,9 +65,15 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def handle_info({:encoding, progress}, socket) do
     Logger.debug("Received encoding progress: #{inspect(progress)}")
-    Logger.info("Encoding progress: #{progress.percent}% ETA: #{progress.eta} FPS: #{progress.fps}")
+
+    Logger.info(
+      "Encoding progress: #{progress.percent}% ETA: #{progress.eta} FPS: #{progress.fps}"
+    )
+
     {:noreply, assign(socket, :encoding_progress, progress)}
   end
+
+  # --- Handle Events ---
 
   @impl true
   def handle_event("set_timezone", %{"timezone" => tz}, socket) do
@@ -83,13 +89,6 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def handle_event("toggle", %{"target" => "crf_search"}, socket) do
     toggle_app(CrfSearcher, :crf_searching, socket)
-  end
-
-  defp toggle_app(app, state_key, socket) do
-    new_state = not socket.assigns[state_key]
-    Logger.info("#{state_key} #{if new_state, do: "started", else: "paused"}")
-    if new_state, do: app.start(), else: app.pause()
-    {:noreply, assign(socket, state_key, new_state)}
   end
 
   @impl true
@@ -113,6 +112,13 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, socket}
   end
 
+  defp toggle_app(app, state_key, socket) do
+    new_state = not socket.assigns[state_key]
+    Logger.info("#{state_key} #{if new_state, do: "started", else: "paused"}")
+    if new_state, do: app.start(), else: app.pause()
+    {:noreply, assign(socket, state_key, new_state)}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -123,8 +129,12 @@ defmodule ReencodarrWeb.DashboardLive do
     >
       <header class="w-full max-w-6xl flex flex-col md:flex-row items-center justify-between mb-8">
         <div>
-          <h1 class="text-3xl font-extrabold text-indigo-400 tracking-tight drop-shadow-lg">Reencodarr Dashboard</h1>
-          <p class="text-gray-300 mt-2 text-sm">Monitor and control your encoding pipeline in real time.</p>
+          <h1 class="text-3xl font-extrabold text-indigo-400 tracking-tight drop-shadow-lg">
+            Reencodarr Dashboard
+          </h1>
+          <p class="text-gray-300 mt-2 text-sm">
+            Monitor and control your encoding pipeline in real time.
+          </p>
         </div>
         <div class="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-6 mt-4 md:mt-0">
           <div class="flex flex-wrap gap-2">
@@ -148,7 +158,8 @@ defmodule ReencodarrWeb.DashboardLive do
       </div>
 
       <footer class="w-full max-w-6xl mt-12 text-center text-xs text-gray-500 border-t border-gray-700 pt-4">
-        Reencodarr &copy; 2024 &mdash; <a href="https://github.com/mjc/reencodarr" class="underline hover:text-indigo-400">GitHub</a>
+        Reencodarr &copy; 2024 &mdash;
+        <a href="https://github.com/mjc/reencodarr" class="underline hover:text-indigo-400">GitHub</a>
       </footer>
     </div>
     """
@@ -157,6 +168,7 @@ defmodule ReencodarrWeb.DashboardLive do
   # --- Private Helpers ---
 
   defp human_readable_time(nil, _timezone), do: "N/A"
+
   defp human_readable_time(datetime, timezone) do
     tz =
       cond do
@@ -192,28 +204,63 @@ defmodule ReencodarrWeb.DashboardLive do
     ~H"""
     <div class="w-full max-w-6xl grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
       <div class="bg-indigo-700/80 rounded-lg shadow flex items-center p-4 space-x-4">
-        <svg class="w-8 h-8 text-indigo-200" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 17v-2a4 4 0 1 1 8 0v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+        <svg
+          class="w-8 h-8 text-indigo-200"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="M9 17v-2a4 4 0 1 1 8 0v2"></path>
+          <circle cx="12" cy="7" r="4"></circle>
+        </svg>
         <div>
           <div class="text-lg font-bold text-white">{assigns.stats.total_videos}</div>
           <div class="text-xs text-indigo-100">Total Videos</div>
         </div>
       </div>
       <div class="bg-green-700/80 rounded-lg shadow flex items-center p-4 space-x-4">
-        <svg class="w-8 h-8 text-green-200" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"></path></svg>
+        <svg
+          class="w-8 h-8 text-green-200"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="M5 13l4 4L19 7"></path>
+        </svg>
         <div>
           <div class="text-lg font-bold text-white">{assigns.stats.reencoded}</div>
           <div class="text-xs text-green-100">Reencoded</div>
         </div>
       </div>
       <div class="bg-yellow-700/80 rounded-lg shadow flex items-center p-4 space-x-4">
-        <svg class="w-8 h-8 text-yellow-200" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4l3 3"></path></svg>
+        <svg
+          class="w-8 h-8 text-yellow-200"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <circle cx="12" cy="12" r="10"></circle>
+          <path d="M12 8v4l3 3"></path>
+        </svg>
         <div>
           <div class="text-lg font-bold text-white">{assigns.stats.not_reencoded}</div>
           <div class="text-xs text-yellow-100">Not Reencoded</div>
         </div>
       </div>
       <div class="bg-blue-700/80 rounded-lg shadow flex items-center p-4 space-x-4">
-        <svg class="w-8 h-8 text-blue-200" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="5" rx="2"></rect><path d="M2 10h20"></path></svg>
+        <svg
+          class="w-8 h-8 text-blue-200"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <rect width="20" height="14" x="2" y="5" rx="2"></rect>
+          <path d="M2 10h20"></path>
+        </svg>
         <div>
           <div class="text-lg font-bold text-white">{assigns.stats.queue_length.encodes}</div>
           <div class="text-xs text-blue-100">Encodes in Queue</div>
@@ -248,7 +295,16 @@ defmodule ReencodarrWeb.DashboardLive do
     ~H"""
     <div class="w-full bg-gray-800/90 rounded-xl shadow-lg p-6 border border-gray-700">
       <h2 class="text-lg font-bold mb-4 text-indigo-300 flex items-center space-x-2">
-        <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="5" rx="2"></rect><path d="M2 10h20"></path></svg>
+        <svg
+          class="w-5 h-5 text-indigo-400"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <rect width="20" height="14" x="2" y="5" rx="2"></rect>
+          <path d="M2 10h20"></path>
+        </svg>
         <span>Queue Information</span>
       </h2>
       <div class="flex flex-col space-y-4">
@@ -262,7 +318,16 @@ defmodule ReencodarrWeb.DashboardLive do
     ~H"""
     <div class="w-full bg-gray-800/90 rounded-xl shadow-lg p-6 border border-gray-700">
       <h2 class="text-lg font-bold mb-4 text-green-300 flex items-center space-x-2">
-        <svg class="w-5 h-5 text-green-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 12h18"></path><path d="M12 3v18"></path></svg>
+        <svg
+          class="w-5 h-5 text-green-400"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <path d="M3 12h18"></path>
+          <path d="M12 3v18"></path>
+        </svg>
         <span>Progress Information</span>
       </h2>
       <div class="flex flex-col space-y-4">
@@ -278,14 +343,27 @@ defmodule ReencodarrWeb.DashboardLive do
     ~H"""
     <div class="w-full bg-gray-800/90 rounded-xl shadow-lg p-6 border border-gray-700">
       <h2 class="text-lg font-bold mb-4 text-pink-300 flex items-center space-x-2">
-        <svg class="w-5 h-5 text-pink-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle></svg>
+        <svg
+          class="w-5 h-5 text-pink-400"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          viewBox="0 0 24 24"
+        >
+          <circle cx="12" cy="12" r="10"></circle>
+        </svg>
         <span>Statistics</span>
       </h2>
       <div class="flex flex-col space-y-4">
         <div class="flex items-center justify-between group">
           <div class="text-sm leading-5 text-gray-200 dark:text-gray-300 flex items-center space-x-1">
             <span>Most Recent Video Update</span>
-            <span class="ml-1 text-xs text-gray-400 group-hover:underline cursor-help" title="Last time any video was updated in the database.">?</span>
+            <span
+              class="ml-1 text-xs text-gray-400 group-hover:underline cursor-help"
+              title="Last time any video was updated in the database."
+            >
+              ?
+            </span>
           </div>
           <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
             {human_readable_time(@stats.most_recent_video_update, @timezone)}
@@ -294,7 +372,12 @@ defmodule ReencodarrWeb.DashboardLive do
         <div class="flex items-center justify-between group">
           <div class="text-sm leading-5 text-gray-200 dark:text-gray-300 flex items-center space-x-1">
             <span>Most Recent Inserted Video</span>
-            <span class="ml-1 text-xs text-gray-400 group-hover:underline cursor-help" title="Last time a new video was added.">?</span>
+            <span
+              class="ml-1 text-xs text-gray-400 group-hover:underline cursor-help"
+              title="Last time a new video was added."
+            >
+              ?
+            </span>
           </div>
           <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
             {human_readable_time(@stats.most_recent_inserted_video, @timezone)}
@@ -315,7 +398,12 @@ defmodule ReencodarrWeb.DashboardLive do
         <div class="flex items-center justify-between group">
           <div class="text-sm leading-5 text-gray-200 dark:text-gray-300 flex items-center space-x-1">
             <span>Lowest Chosen VMAF %</span>
-            <span class="ml-1 text-xs text-gray-400 group-hover:underline cursor-help" title="Lowest VMAF percentage chosen for any video.">?</span>
+            <span
+              class="ml-1 text-xs text-gray-400 group-hover:underline cursor-help"
+              title="Lowest VMAF percentage chosen for any video."
+            >
+              ?
+            </span>
           </div>
           <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
             {@stats.lowest_vmaf.percent}
@@ -338,10 +426,10 @@ defmodule ReencodarrWeb.DashboardLive do
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <%= if @encoding do %>
-            <rect x="6" y="4" width="4" height="16" rx="1"/>
-            <rect x="14" y="4" width="4" height="16" rx="1"/>
+            <rect x="6" y="4" width="4" height="16" rx="1" />
+            <rect x="14" y="4" width="4" height="16" rx="1" />
           <% else %>
-            <polygon points="5,3 19,12 5,21 5,3"/>
+            <polygon points="5,3 19,12 5,21 5,3" />
           <% end %>
         </svg>
         <span>{(@encoding && "Pause Encoder") || "Start Encoder"}</span>
@@ -355,10 +443,10 @@ defmodule ReencodarrWeb.DashboardLive do
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
           <%= if @crf_searching do %>
-            <rect x="6" y="4" width="4" height="16" rx="1"/>
-            <rect x="14" y="4" width="4" height="16" rx="1"/>
+            <rect x="6" y="4" width="4" height="16" rx="1" />
+            <rect x="14" y="4" width="4" height="16" rx="1" />
           <% else %>
-            <polygon points="5,3 19,12 5,21 5,3"/>
+            <polygon points="5,3 19,12 5,21 5,3" />
           <% end %>
         </svg>
         <span>{(@crf_searching && "Pause CRF Search") || "Start CRF Search"}</span>
@@ -372,7 +460,7 @@ defmodule ReencodarrWeb.DashboardLive do
         title="Sync Sonarr"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M4 4v5h.582M20 20v-5h-.581M5 9A7 7 0 0 1 19 15M19 15V9M5 9v6"/>
+          <path d="M4 4v5h.582M20 20v-5h-.581M5 9A7 7 0 0 1 19 15M19 15V9M5 9v6" />
         </svg>
         <span>Sync Sonarr</span>
       </button>
@@ -385,7 +473,7 @@ defmodule ReencodarrWeb.DashboardLive do
         title="Sync Radarr"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path d="M4 4v5h.582M20 20v-5h-.581M5 9A7 7 0 0 1 19 15M19 15V9M5 9v6"/>
+          <path d="M4 4v5h.582M20 20v-5h-.581M5 9A7 7 0 0 1 19 15M19 15V9M5 9v6" />
         </svg>
         <span>Sync Radarr</span>
       </button>
@@ -422,7 +510,8 @@ defmodule ReencodarrWeb.DashboardLive do
       <div class="text-sm leading-5 text-gray-200 dark:text-gray-300 mb-1">Encoding Progress</div>
       <%= if @encoding_progress.filename != :none do %>
         <div class="text-sm leading-5 text-gray-100 dark:text-gray-200 mb-1">
-          <span class="font-semibold">Encoding:</span> <span class="font-mono">{@encoding_progress.filename}</span>
+          <span class="font-semibold">Encoding:</span>
+          <span class="font-mono">{@encoding_progress.filename}</span>
         </div>
         <div class="flex items-center space-x-2 mb-1">
           <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">

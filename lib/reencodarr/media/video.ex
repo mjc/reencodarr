@@ -123,16 +123,19 @@ defmodule Reencodarr.Media.Video do
     frame_rate = CodecHelper.parse_float(last_video && last_video["FrameRate"], 0.0)
     height = CodecHelper.parse_int(last_video && last_video["Height"], 0)
     width = CodecHelper.parse_int(last_video && last_video["Width"], 0)
-    hdr = CodecHelper.parse_hdr([
-      last_video && last_video["HDR_Format"],
-      last_video && last_video["HDR_Format_Compatibility"],
-      last_video && last_video["transfer_characteristics"]
-    ])
 
-    atmos = Enum.any?(audio_tracks, fn t ->
-      String.contains?(Map.get(t, "Format_AdditionalFeatures", ""), "JOC") or
-      String.contains?(Map.get(t, "Format_Commercial_IfAny", ""), "Atmos")
-    end)
+    hdr =
+      CodecHelper.parse_hdr([
+        last_video && last_video["HDR_Format"],
+        last_video && last_video["HDR_Format_Compatibility"],
+        last_video && last_video["transfer_characteristics"]
+      ])
+
+    atmos =
+      Enum.any?(audio_tracks, fn t ->
+        String.contains?(Map.get(t, "Format_AdditionalFeatures", ""), "JOC") or
+          String.contains?(Map.get(t, "Format_Commercial_IfAny", ""), "Atmos")
+      end)
 
     max_audio_channels =
       audio_tracks

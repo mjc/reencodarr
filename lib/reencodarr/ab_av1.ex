@@ -62,8 +62,6 @@ defmodule Reencodarr.AbAv1 do
 
   ## Supervisor Callbacks
 
-  @behaviour Supervisor
-
   @doc false
   def init(:ok) do
     children = [
@@ -85,7 +83,8 @@ defmodule Reencodarr.AbAv1 do
           _ -> 0
         end
 
-      _ -> 0
+      _ ->
+        0
     end
   end
 end

@@ -6,9 +6,17 @@ defmodule Reencodarr.Media do
 
   defmodule Stats do
     defstruct [
-      :not_reencoded, :reencoded, :total_videos, :avg_vmaf_percentage,
-      :total_vmafs, :chosen_vmafs_count, :lowest_vmaf, :lowest_vmaf_by_time,
-      :most_recent_video_update, :most_recent_inserted_video, :queue_length,
+      :not_reencoded,
+      :reencoded,
+      :total_videos,
+      :avg_vmaf_percentage,
+      :total_vmafs,
+      :chosen_vmafs_count,
+      :lowest_vmaf,
+      :lowest_vmaf_by_time,
+      :most_recent_video_update,
+      :most_recent_inserted_video,
+      :queue_length,
       :encode_queue_length
     ]
   end
@@ -19,12 +27,15 @@ defmodule Reencodarr.Media do
   def get_video!(id), do: Repo.get!(Video, id)
   def get_video_by_path(path), do: Repo.one(from v in Video, where: v.path == ^path)
   def video_exists?(path), do: Repo.exists?(from v in Video, where: v.path == ^path)
-  def find_videos_by_path_wildcard(pattern), do: Repo.all(from v in Video, where: like(v.path, ^pattern))
+
+  def find_videos_by_path_wildcard(pattern),
+    do: Repo.all(from v in Video, where: like(v.path, ^pattern))
 
   def get_next_crf_search(limit \\ 10) do
     Repo.all(
       from v in Video,
-        left_join: m in Vmaf, on: m.video_id == v.id,
+        left_join: m in Vmaf,
+        on: m.video_id == v.id,
         where: is_nil(m.id) and v.reencoded == false and v.failed == false,
         order_by: [desc: v.size, desc: v.bitrate, asc: v.updated_at],
         limit: ^limit,
@@ -35,9 +46,14 @@ defmodule Reencodarr.Media do
   def list_videos_by_estimated_percent(limit \\ 10) do
     Repo.all(
       from v in Video,
-        left_join: m in Vmaf, on: m.video_id == v.id,
-        where: m.chosen == true and not is_nil(m.percent) and v.reencoded == false and v.failed == false,
-        order_by: [asc: m.percent], limit: ^limit, select: [v.path, m.percent]
+        left_join: m in Vmaf,
+        on: m.video_id == v.id,
+        where:
+          m.chosen == true and not is_nil(m.percent) and v.reencoded == false and
+            v.failed == false,
+        order_by: [asc: m.percent],
+        limit: ^limit,
+        select: [v.path, m.percent]
     )
     |> Enum.map(fn [k, v] -> {List.last(String.split(k, "/")), v} end)
   end
@@ -53,14 +69,21 @@ defmodule Reencodarr.Media do
         on_conflict: {:replace_all_except, [:id, :inserted_at]},
         conflict_target: :path
       )
+
     case result do
-      {:ok, video} -> Phoenix.PubSub.broadcast(Reencodarr.PubSub, "media_events", {:video_upserted, video})
-      _ -> :ok
+      {:ok, video} ->
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "media_events", {:video_upserted, video})
+
+      _ ->
+        :ok
     end
+
     result
   end
 
-  defp ensure_library_id(%{library_id: nil} = attrs), do: %{attrs | library_id: find_library_id(attrs[:path])}
+  defp ensure_library_id(%{library_id: nil} = attrs),
+    do: %{attrs | library_id: find_library_id(attrs[:path])}
+
   defp ensure_library_id(attrs), do: attrs
 
   defp find_library_id(path) do
@@ -71,8 +94,13 @@ defmodule Reencodarr.Media do
   def update_video(%Video{} = video, attrs), do: video |> Video.changeset(attrs) |> Repo.update()
   def delete_video(%Video{} = video), do: Repo.delete(video)
   def change_video(%Video{} = video, attrs \\ %{}), do: Video.changeset(video, attrs)
-  def update_video_status(%Video{} = video, attrs), do: video |> Video.changeset(attrs) |> Repo.update()
-  def mark_as_reencoded(%Video{} = video), do: update_video_status(video, %{reencoded: true, failed: false})
+
+  def update_video_status(%Video{} = video, attrs),
+    do: video |> Video.changeset(attrs) |> Repo.update()
+
+  def mark_as_reencoded(%Video{} = video),
+    do: update_video_status(video, %{reencoded: true, failed: false})
+
   def mark_as_failed(%Video{} = video), do: update_video_status(video, %{failed: true})
 
   def most_recent_video_update, do: Repo.one(from v in Video, select: max(v.updated_at))
@@ -115,17 +143,24 @@ defmodule Reencodarr.Media do
         on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
         conflict_target: [:crf, :video_id]
       )
+
     case result do
-      {:ok, vmaf} -> Phoenix.PubSub.broadcast(Reencodarr.PubSub, "media_events", {:vmaf_upserted, vmaf})
-      _ -> :ok
+      {:ok, vmaf} ->
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "media_events", {:vmaf_upserted, vmaf})
+
+      _ ->
+        :ok
     end
+
     result
   end
 
   def update_vmaf(%Vmaf{} = vmaf, attrs), do: vmaf |> Vmaf.changeset(attrs) |> Repo.update()
   def delete_vmaf(%Vmaf{} = vmaf), do: Repo.delete(vmaf)
   def change_vmaf(%Vmaf{} = vmaf, attrs \\ %{}), do: Vmaf.changeset(vmaf, attrs)
-  def chosen_vmaf_exists?(%{id: id}), do: Repo.exists?(from v in Vmaf, where: v.video_id == ^id and v.chosen == true)
+
+  def chosen_vmaf_exists?(%{id: id}),
+    do: Repo.exists?(from v in Vmaf, where: v.video_id == ^id and v.chosen == true)
 
   def list_chosen_vmafs do
     Repo.all(
@@ -145,6 +180,7 @@ defmodule Reencodarr.Media do
 
   def fetch_stats do
     stats = Repo.one(aggregated_stats_query())
+
     %Stats{
       avg_vmaf_percentage: stats.avg_vmaf_percentage,
       chosen_vmafs_count: stats.chosen_vmafs_count,
@@ -163,7 +199,8 @@ defmodule Reencodarr.Media do
   defp aggregated_stats_query do
     from v in Video,
       where: v.failed == false,
-      left_join: m_all in Vmaf, on: m_all.video_id == v.id,
+      left_join: m_all in Vmaf,
+      on: m_all.video_id == v.id,
       select: %{
         not_reencoded: fragment("COUNT(*) FILTER (WHERE ? = false)", v.reencoded),
         reencoded: fragment("COUNT(*) FILTER (WHERE ? = true)", v.reencoded),
@@ -171,8 +208,15 @@ defmodule Reencodarr.Media do
         avg_vmaf_percentage: fragment("ROUND(AVG(?)::numeric, 2)", m_all.percent),
         total_vmafs: count(m_all.id),
         chosen_vmafs_count: fragment("COUNT(*) FILTER (WHERE ? = true)", m_all.chosen),
-        encodes_count: fragment("COUNT(*) FILTER (WHERE ? = false AND ? = true)", v.reencoded, m_all.chosen),
-        queued_crf_searches_count: fragment("COUNT(*) FILTER (WHERE ? IS NULL AND ? = false AND ? = false)", m_all.id, v.reencoded, v.failed),
+        encodes_count:
+          fragment("COUNT(*) FILTER (WHERE ? = false AND ? = true)", v.reencoded, m_all.chosen),
+        queued_crf_searches_count:
+          fragment(
+            "COUNT(*) FILTER (WHERE ? IS NULL AND ? = false AND ? = false)",
+            m_all.id,
+            v.reencoded,
+            v.failed
+          ),
         most_recent_video_update: max(v.updated_at),
         most_recent_inserted_video: max(v.inserted_at)
       }
@@ -183,7 +227,9 @@ defmodule Reencodarr.Media do
       from v in Vmaf,
         join: vid in assoc(v, :video),
         where: v.chosen == true and vid.reencoded == false and vid.failed == false,
-        order_by: [asc: v.percent, asc: v.time], limit: 1, preload: [:video]
+        order_by: [asc: v.percent, asc: v.time],
+        limit: 1,
+        preload: [:video]
     )
   end
 
@@ -192,15 +238,24 @@ defmodule Reencodarr.Media do
       from v in Vmaf,
         join: vid in assoc(v, :video),
         where: v.chosen == true and vid.reencoded == false and vid.failed == false,
-        order_by: [asc: v.time], limit: 1, preload: [:video]
+        order_by: [asc: v.time],
+        limit: 1,
+        preload: [:video]
     )
   end
 
   def mark_vmaf_as_chosen(video_id, crf) do
     crf_float = parse_crf(crf)
+
     Repo.transaction(fn ->
-      from(v in Vmaf, where: v.video_id == ^video_id, update: [set: [chosen: false]]) |> Repo.update_all([])
-      from(v in Vmaf, where: v.video_id == ^video_id and v.crf == ^crf_float, update: [set: [chosen: true]]) |> Repo.update_all([])
+      from(v in Vmaf, where: v.video_id == ^video_id, update: [set: [chosen: false]])
+      |> Repo.update_all([])
+
+      from(v in Vmaf,
+        where: v.video_id == ^video_id and v.crf == ^crf_float,
+        update: [set: [chosen: true]]
+      )
+      |> Repo.update_all([])
     end)
   end
 
