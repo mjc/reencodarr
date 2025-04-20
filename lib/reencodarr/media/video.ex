@@ -2,7 +2,7 @@ defmodule Reencodarr.Media.Video do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Reencodarr.Media.CodecMapper
+  alias Reencodarr.Media.{CodecMapper, CodecHelper}
 
   @type t() :: %__MODULE__{}
 
@@ -112,7 +112,7 @@ defmodule Reencodarr.Media.Video do
   @spec apply_media_info(Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
   defp apply_media_info(changeset, mediainfo) do
     tracks = mediainfo["media"]["track"] || []
-    general = Enum.find(tracks, &(&1["@type"] == "General")) || %{}
+    general = CodecHelper.get_track(mediainfo, "General") || %{}
     video_tracks = Enum.filter(tracks, &(&1["@type"] == "Video"))
     audio_tracks = Enum.filter(tracks, &(&1["@type"] == "Audio"))
 
@@ -120,10 +120,10 @@ defmodule Reencodarr.Media.Video do
     video_codecs = Enum.map(video_tracks, & &1["CodecID"])
     audio_codecs = Enum.map(audio_tracks, &Map.get(&1, "CodecID"))
 
-    frame_rate = parse_float(last_video && last_video["FrameRate"], 0.0)
-    height = parse_integer(last_video && last_video["Height"], 0)
-    width = parse_integer(last_video && last_video["Width"], 0)
-    hdr = parse_hdr([
+    frame_rate = CodecHelper.parse_float(last_video && last_video["FrameRate"], 0.0)
+    height = CodecHelper.parse_int(last_video && last_video["Height"], 0)
+    width = CodecHelper.parse_int(last_video && last_video["Width"], 0)
+    hdr = CodecHelper.parse_hdr([
       last_video && last_video["HDR_Format"],
       last_video && last_video["HDR_Format_Compatibility"],
       last_video && last_video["transfer_characteristics"]
@@ -136,7 +136,7 @@ defmodule Reencodarr.Media.Video do
 
     max_audio_channels =
       audio_tracks
-      |> Enum.map(&parse_integer(Map.get(&1, "Channels", "0"), 0))
+      |> Enum.map(&CodecHelper.parse_int(Map.get(&1, "Channels", "0"), 0))
       |> Enum.max(fn -> 0 end)
 
     params = %{
@@ -177,44 +177,5 @@ defmodule Reencodarr.Media.Video do
 
   defp bitrate_and_resolution_low?(video_codecs, mediainfo) do
     CodecMapper.low_bitrate_1080p?(video_codecs, mediainfo)
-  end
-
-  # Extract specific track information from mediainfo
-  @spec get_track(map(), String.t()) :: map() | nil
-  defp get_track(mediainfo, type) do
-    Enum.find(mediainfo["media"]["track"], &(&1["@type"] == type))
-  end
-
-  defp parse_float(value, default) when is_binary(value) do
-    case Float.parse(value) do
-      {parsed, _} -> parsed
-      :error -> default
-    end
-  end
-
-  defp parse_float(value, _default), do: value
-
-  defp parse_integer(value, default) when is_binary(value) do
-    case Integer.parse(value) do
-      {parsed, _} -> parsed
-      :error -> default
-    end
-  end
-
-  defp parse_integer(value, _default), do: value
-
-  defp parse_hdr(formats) do
-    formats
-    |> Enum.reduce([], fn format, acc ->
-      if format &&
-           (String.contains?(format, "Dolby Vision") || String.contains?(format, "HDR") ||
-              String.contains?(format, "PQ") || String.contains?(format, "SMPTE")) do
-        [format | acc]
-      else
-        acc
-      end
-    end)
-    |> Enum.uniq()
-    |> Enum.join(", ")
   end
 end

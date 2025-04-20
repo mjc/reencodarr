@@ -1,4 +1,4 @@
-defmodule VideoFileInfo do
+defmodule Reencodarr.Media.VideoFileInfo do
   defstruct [
     :path,
     :size,
@@ -114,13 +114,9 @@ defmodule Reencodarr.Sync do
 
   defp build_video_file_info(file, service_type) do
     media = file["mediaInfo"] || %{}
-    {width, height} =
-      (media["resolution"] || "0x0")
-      |> String.split("x")
-      |> Enum.map(&String.to_integer/1)
-      |> List.to_tuple()
+    {width, height} = CodecHelper.parse_resolution(media["resolution"])
 
-    %VideoFileInfo{
+    %Reencodarr.Media.VideoFileInfo{
       path: file["path"],
       size: file["size"],
       service_id: to_string(file["id"]),
