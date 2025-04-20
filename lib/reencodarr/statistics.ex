@@ -12,6 +12,8 @@ defmodule Reencodarr.Statistics do
     defstruct filename: :none, percent: 0, eta: 0, fps: 0, crf: 0, score: 0
   end
 
+  @broadcast_interval 5_000
+
   def start_link(_) do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
   end
@@ -32,6 +34,9 @@ defmodule Reencodarr.Statistics do
       crf_search_progress: %CrfSearchProgress{},
       encoding_progress: %EncodingProgress{}
     }
+
+    # Start periodic timer
+    :timer.send_interval(@broadcast_interval, :broadcast_stats)
 
     {:ok, initial_state}
   end
@@ -150,6 +155,14 @@ defmodule Reencodarr.Statistics do
   def handle_info({:vmaf_upserted, _vmaf}, state) do
     Logger.debug("VMAF upserted.")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, state})
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:broadcast_stats, state) do
+    # Broadcast full stats every interval
+    stats = get_stats()
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, stats})
     {:noreply, state}
   end
 
