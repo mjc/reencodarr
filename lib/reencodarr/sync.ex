@@ -56,7 +56,7 @@ defmodule Reencodarr.Sync do
         items
         |> Task.async_stream(
           &fetch_and_upsert_files(&1["id"], get_files, service_type),
-          max_concurrency: 5,
+          max_concurrency: 10,
           timeout: 60_000,
           on_timeout: :kill_task
         )
