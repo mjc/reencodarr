@@ -4,6 +4,8 @@ defmodule Reencodarr.CrfSearcher do
   alias Reencodarr.{Media, AbAv1}
   require Logger
 
+  @check_interval 5000
+
   # Public API
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_opts) do
@@ -26,9 +28,8 @@ defmodule Reencodarr.CrfSearcher do
   @impl true
   def handle_cast(:start_searching, state) do
     Logger.debug("CRF searching started")
-    monitor_crf_search()
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :started})
-    get_next_crf_search()
+    schedule_check()
     {:noreply, %{state | searching: true}}
   end
 
@@ -40,21 +41,26 @@ defmodule Reencodarr.CrfSearcher do
   end
 
   @impl true
-  def handle_cast(:crf_search_finished, %{searching: true} = state) do
+  def handle_cast(:crf_search_finished, state) do
     Logger.info("Received notification that CRF search finished.")
-    get_next_crf_search()
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_cast(:crf_search_finished, %{searching: false} = state) do
-    Logger.info("CRF search is paused, not searching next items.")
+    # No immediate get_next_crf_search; periodic check will handle it
     {:noreply, state}
   end
 
   @impl true
   def handle_call(:scanning?, _from, %{searching: searching} = state) do
     {:reply, searching, state}
+  end
+
+  @impl true
+  def handle_info(:check_next_crf_search, %{searching: true} = state) do
+    get_next_crf_search()
+    schedule_check()
+    {:noreply, state}
+  end
+
+  def handle_info(:check_next_crf_search, state) do
+    {:noreply, state}
   end
 
   @impl true
@@ -82,18 +88,28 @@ defmodule Reencodarr.CrfSearcher do
     end
   end
 
+  defp schedule_check do
+    Process.send_after(self(), :check_next_crf_search, @check_interval)
+  end
+
   defp get_next_crf_search do
-    with pid when not is_nil(pid) <- GenServer.whereis(Reencodarr.AbAv1.CrfSearch),
-         false <- AbAv1.CrfSearch.running?(),
-         videos when not is_nil(videos) <- Media.get_next_crf_search(1) do
-      Enum.each(videos, fn video ->
-        Logger.info("Calling AbAv1.crf_search for video: #{video.id}")
-        AbAv1.crf_search(video)
-      end)
-    else
-      nil -> Logger.error("CrfSearch process is not running.")
-      true -> Logger.info("CRF search is already in progress, skipping search for new videos.")
-      _ -> Logger.error("No videos found without VMAFs")
+    case GenServer.whereis(Reencodarr.AbAv1.CrfSearch) do
+      nil ->
+        Logger.error("CrfSearch process is not running.")
+
+      _pid ->
+        if AbAv1.CrfSearch.running?() do
+          Logger.info("CRF search is already in progress, skipping search for new videos.")
+        else
+          videos = Media.get_next_crf_search(1)
+          case videos do
+            [video | _] ->
+              Logger.info("Calling AbAv1.crf_search for video: #{video.id}")
+              AbAv1.crf_search(video)
+            [] ->
+              Logger.info("No videos found without VMAFs")
+          end
+        end
     end
   end
 end
