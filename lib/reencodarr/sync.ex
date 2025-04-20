@@ -1,3 +1,25 @@
+defmodule VideoFileInfo do
+  defstruct [
+    :path,
+    :size,
+    :service_id,
+    :service_type,
+    :audio_codec,
+    :bitrate,
+    :audio_channels,
+    :video_codec,
+    :resolution,
+    :video_fps,
+    :video_dynamic_range,
+    :video_dynamic_range_type,
+    :audio_stream_count,
+    :overall_bitrate,
+    :run_time,
+    :subtitles,
+    :title
+  ]
+end
+
 defmodule Reencodarr.Sync do
   use GenServer
   require Logger
@@ -66,67 +88,93 @@ defmodule Reencodarr.Sync do
   end
 
   defp upsert_video_from_file(file, service_type) do
-    audio_codec = CodecMapper.map_codec_id(file["mediaInfo"]["audioCodec"])
-    resolution = file["mediaInfo"]["resolution"] || "0x0"
-    [width, height] = String.split(resolution, "x") |> Enum.map(&String.to_integer/1)
+    info = build_video_file_info(file, service_type)
 
-    mediainfo = %{
+    if is_nil(info.size), do: Logger.warning("File size is missing: #{inspect(file)}")
+
+    if info.audio_codec in ["TrueHD", "EAC3"] or info.bitrate == 0 do
+      Reencodarr.Analyzer.process_path(%{
+        path: info.path,
+        service_id: info.service_id,
+        service_type: info.service_type
+      })
+    else
+      Media.upsert_video(%{
+        "path" => info.path,
+        "size" => info.size,
+        "service_id" => info.service_id,
+        "service_type" => info.service_type,
+        "mediainfo" => build_mediainfo_from_info(info),
+        "bitrate" => info.bitrate
+      })
+    end
+
+    :ok
+  end
+
+  defp build_video_file_info(file, service_type) do
+    media = file["mediaInfo"] || %{}
+    {width, height} =
+      (media["resolution"] || "0x0")
+      |> String.split("x")
+      |> Enum.map(&String.to_integer/1)
+      |> List.to_tuple()
+
+    %VideoFileInfo{
+      path: file["path"],
+      size: file["size"],
+      service_id: to_string(file["id"]),
+      service_type: service_type,
+      audio_codec: CodecMapper.map_codec_id(media["audioCodec"]),
+      video_codec: CodecMapper.map_codec_id(media["videoCodec"]),
+      bitrate: media["overallBitrate"] || media["videoBitrate"],
+      audio_channels: CodecMapper.map_channels(media["audioChannels"]),
+      resolution: {width, height},
+      video_fps: media["videoFps"],
+      video_dynamic_range: media["videoDynamicRange"],
+      video_dynamic_range_type: media["videoDynamicRangeType"],
+      audio_stream_count: media["audioStreamCount"],
+      overall_bitrate: media["overallBitrate"],
+      run_time: media["runTime"],
+      subtitles: media["subtitles"],
+      title: file["title"]
+    }
+  end
+
+  defp build_mediainfo_from_info(info) do
+    {width, height} = info.resolution
+
+    %{
       "media" => %{
         "track" => [
           %{
             "@type" => "General",
-            "AudioCount" => file["mediaInfo"]["audioStreamCount"],
-            "OverallBitRate" =>
-              file["mediaInfo"]["overallBitrate"] || file["mediaInfo"]["videoBitrate"],
-            "Duration" => CodecHelper.parse_duration(file["mediaInfo"]["runTime"]),
-            "FileSize" => file["size"],
-            "TextCount" => length(String.split(file["mediaInfo"]["subtitles"] || "", "/")),
+            "AudioCount" => info.audio_stream_count,
+            "OverallBitRate" => info.overall_bitrate || info.bitrate,
+            "Duration" => CodecHelper.parse_duration(info.run_time),
+            "FileSize" => info.size,
+            "TextCount" => length(String.split(info.subtitles || "", "/")),
             "VideoCount" => 1,
-            "Title" => file["title"]
+            "Title" => info.title
           },
           %{
             "@type" => "Video",
-            "FrameRate" => file["mediaInfo"]["videoFps"],
+            "FrameRate" => info.video_fps,
             "Height" => height,
             "Width" => width,
-            "HDR_Format" => file["mediaInfo"]["videoDynamicRange"],
-            "HDR_Format_Compatibility" => file["mediaInfo"]["videoDynamicRangeType"],
-            "CodecID" => CodecMapper.map_codec_id(file["mediaInfo"]["videoCodec"])
+            "HDR_Format" => info.video_dynamic_range,
+            "HDR_Format_Compatibility" => info.video_dynamic_range_type,
+            "CodecID" => info.video_codec
           },
           %{
             "@type" => "Audio",
-            "CodecID" => audio_codec,
-            "Channels" => to_string(CodecMapper.map_channels(file["mediaInfo"]["audioChannels"])),
-            "Format_Commercial_IfAny" => CodecMapper.format_commercial_if_any(audio_codec)
+            "CodecID" => info.audio_codec,
+            "Channels" => to_string(info.audio_channels),
+            "Format_Commercial_IfAny" => CodecMapper.format_commercial_if_any(info.audio_codec)
           }
         ]
       }
     }
-
-    bitrate = file["mediaInfo"]["overallBitrate"] || file["mediaInfo"]["videoBitrate"]
-
-    attrs = %{
-      "path" => file["path"],
-      "size" => file["size"],
-      "service_id" => to_string(file["id"]),
-      "service_type" => service_type,
-      "mediainfo" => mediainfo,
-      "bitrate" => bitrate
-    }
-
-    if is_nil(file["size"]), do: Logger.warning("File size is missing: #{inspect(file)}")
-
-    if audio_codec in ["TrueHD", "EAC3"] or bitrate == 0 do
-      Reencodarr.Analyzer.process_path(%{
-        path: file["path"],
-        service_id: to_string(file["id"]),
-        service_type: service_type
-      })
-    else
-      Media.upsert_video(attrs)
-    end
-
-    :ok
   end
 
   def refresh_operations(file_id, :sonarr) do
