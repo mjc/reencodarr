@@ -1,21 +1,24 @@
 defmodule ReencodarrWeb.DashboardLive do
+  @moduledoc """
+  LiveView dashboard for monitoring and controlling the encoding pipeline.
+  """
+
   use ReencodarrWeb, :live_view
   alias Reencodarr.{Encoder, CrfSearcher, Statistics, Sync, ManualScanner}
-  import Phoenix.LiveComponent
-
   require Logger
+
+  # --- LiveView Callbacks ---
 
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
 
-    # Always fetch fresh stats
     stats = Statistics.get_stats()
 
     {:ok,
      socket
      |> assign(stats)
-     |> assign(:timezone, "UTC")}
+     |> assign_new(:timezone, fn -> "UTC" end)}
   end
 
   @impl true
@@ -33,79 +36,74 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def handle_info(:sync_complete, socket) do
     Logger.info("Sync complete")
-    {:noreply, assign(socket, :syncing, false) |> assign(:sync_progress, 0)}
+    {:noreply, assign(socket, syncing: false, sync_progress: 0)}
   end
 
   @impl true
   def handle_info({:sync_progress, progress}, socket) do
     Logger.debug("Sync progress: #{inspect(progress)}")
-    {:noreply, assign(socket, :syncing, true) |> assign(:sync_progress, progress)}
+    {:noreply, assign(socket, syncing: true, sync_progress: progress)}
   end
 
-  # Only update progress/real-time fields on PubSub events, not full stats
   @impl true
   def handle_info({:stats, new_stats}, socket) do
     Logger.debug("Received new stats: #{inspect(new_stats)}")
 
-    socket =
-      socket
-      |> assign(:encoding, new_stats.encoding)
-      |> assign(:crf_searching, new_stats.crf_searching)
-      |> assign(:syncing, new_stats.syncing)
-      |> assign(:sync_progress, new_stats.sync_progress)
-      |> assign(:crf_search_progress, new_stats.crf_search_progress)
-      |> assign(:encoding_progress, new_stats.encoding_progress)
-
-    {:noreply, socket}
+    {:noreply,
+     socket
+     |> assign(:encoding, new_stats.encoding)
+     |> assign(:crf_searching, new_stats.crf_searching)
+     |> assign(:syncing, new_stats.syncing)
+     |> assign(:sync_progress, new_stats.sync_progress)
+     |> assign(:crf_search_progress, new_stats.crf_search_progress)
+     |> assign(:encoding_progress, new_stats.encoding_progress)}
   end
 
   @impl true
-  def handle_info({:encoding, :none}, socket) do
-    {:noreply, socket}
-  end
+  def handle_info({:encoding, :none}, socket), do: {:noreply, socket}
 
   @impl true
   def handle_info({:encoding, progress}, socket) do
     Logger.debug("Received encoding progress: #{inspect(progress)}")
-
-    Logger.info(
-      "Encoding progress: #{progress.percent}% ETA: #{progress.eta} FPS: #{progress.fps}"
-    )
-
+    Logger.info("Encoding progress: #{progress.percent}% ETA: #{progress.eta} FPS: #{progress.fps}")
     {:noreply, assign(socket, :encoding_progress, progress)}
   end
 
   @impl true
-  def handle_event("set_timezone", %{"timezone" => timezone}, socket) do
-    Logger.debug("Setting timezone to #{timezone}")
-    {:noreply, assign(socket, :timezone, timezone)}
+  def handle_event("set_timezone", %{"timezone" => tz}, socket) do
+    Logger.debug("Setting timezone to #{tz}")
+    {:noreply, assign(socket, :timezone, tz)}
   end
 
   @impl true
-  def handle_event("toggle", %{"target" => target}, socket) do
-    {app, state_key} =
-      case target do
-        "encoder" -> {Encoder, :encoding}
-        "crf_search" -> {CrfSearcher, :crf_searching}
-      end
+  def handle_event("toggle", %{"target" => "encoder"}, socket) do
+    toggle_app(Encoder, :encoding, socket)
+  end
 
+  @impl true
+  def handle_event("toggle", %{"target" => "crf_search"}, socket) do
+    toggle_app(CrfSearcher, :crf_searching, socket)
+  end
+
+  defp toggle_app(app, state_key, socket) do
     new_state = not socket.assigns[state_key]
-    Logger.info("#{target} #{if new_state, do: "started", else: "paused"}")
+    Logger.info("#{state_key} #{if new_state, do: "started", else: "paused"}")
     if new_state, do: app.start(), else: app.pause()
     {:noreply, assign(socket, state_key, new_state)}
   end
 
   @impl true
-  def handle_event("sync", %{"target" => target}, socket) do
-    Logger.info("Syncing with #{target}")
-    socket = assign(socket, :syncing, true) |> assign(:sync_progress, 0)
+  def handle_event("sync", %{"target" => "sonarr"}, socket) do
+    Logger.info("Syncing with sonarr")
+    Sync.sync_episodes()
+    {:noreply, assign(socket, syncing: true, sync_progress: 0)}
+  end
 
-    case target do
-      "sonarr" -> Sync.sync_episodes()
-      "radarr" -> Sync.sync_movies()
-    end
-
-    {:noreply, socket}
+  @impl true
+  def handle_event("sync", %{"target" => "radarr"}, socket) do
+    Logger.info("Syncing with radarr")
+    Sync.sync_movies()
+    {:noreply, assign(socket, syncing: true, sync_progress: 0)}
   end
 
   @impl true
@@ -113,37 +111,6 @@ defmodule ReencodarrWeb.DashboardLive do
     Logger.info("Starting manual scan for path: #{path}")
     ManualScanner.scan(path)
     {:noreply, socket}
-  end
-
-  defp human_readable_time(nil, _timezone), do: "N/A"
-
-  defp human_readable_time(datetime, timezone) do
-    datetime
-    |> DateTime.from_naive!("Etc/UTC")
-    |> DateTime.shift_zone!(timezone)
-    |> relative_time()
-  end
-
-  defp relative_time(datetime) do
-    now = DateTime.utc_now()
-    diff = DateTime.diff(now, datetime, :second)
-
-    cond do
-      diff < 60 ->
-        "#{diff} second(s) ago"
-
-      diff < 3600 ->
-        minutes = div(diff, 60)
-        "#{minutes} minute(s) ago"
-
-      diff < 86400 ->
-        hours = div(diff, 3600)
-        "#{hours} hour(s) ago"
-
-      true ->
-        days = div(diff, 86400)
-        "#{days} day(s) ago"
-    end
   end
 
   @impl true
@@ -162,20 +129,6 @@ defmodule ReencodarrWeb.DashboardLive do
         <div class="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-6 mt-4 md:mt-0">
           <div class="flex flex-wrap gap-2">
             <.render_control_buttons {assigns} />
-          </div>
-          <div class="flex items-center space-x-2">
-            <span class="text-xs text-gray-400">Timezone:</span>
-            <select
-              name="timezone"
-              phx-change="set_timezone"
-              class="bg-gray-800 text-gray-100 border border-gray-700 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="UTC" selected={@timezone == "UTC"}>UTC</option>
-              <option value="America/New_York" selected={@timezone == "America/New_York"}>New York</option>
-              <option value="Europe/London" selected={@timezone == "Europe/London"}>London</option>
-              <option value="Asia/Tokyo" selected={@timezone == "Asia/Tokyo"}>Tokyo</option>
-              <!-- Add more as needed -->
-            </select>
           </div>
         </div>
       </header>
@@ -200,6 +153,40 @@ defmodule ReencodarrWeb.DashboardLive do
     </div>
     """
   end
+
+  # --- Private Helpers ---
+
+  defp human_readable_time(nil, _timezone), do: "N/A"
+  defp human_readable_time(datetime, timezone) do
+    tz =
+      cond do
+        is_binary(timezone) and timezone != "" -> timezone
+        true -> "UTC"
+      end
+
+    datetime
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.shift_zone!(tz)
+    |> relative_time()
+  end
+
+  defp relative_time(datetime) do
+    now = DateTime.utc_now()
+    diff = DateTime.diff(now, datetime, :second)
+
+    cond do
+      diff < 60 -> "#{diff} second(s) ago"
+      diff < 3600 -> "#{div(diff, 60)} minute(s) ago"
+      diff < 86400 -> "#{div(diff, 3600)} hour(s) ago"
+      true -> "#{div(diff, 86400)} day(s) ago"
+    end
+  end
+
+  defp parse_integer(value) do
+    Integer.parse(to_string(value)) |> elem(0)
+  end
+
+  # --- Render Helpers ---
 
   defp render_summary_row(assigns) do
     ~H"""
@@ -512,9 +499,5 @@ defmodule ReencodarrWeb.DashboardLive do
       </div>
     </div>
     """
-  end
-
-  defp parse_integer(value) do
-    Integer.parse(to_string(value)) |> elem(0)
   end
 end

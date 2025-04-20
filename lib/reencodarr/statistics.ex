@@ -12,8 +12,6 @@ defmodule Reencodarr.Statistics do
     defstruct filename: :none, percent: 0, eta: 0, fps: 0, crf: 0, score: 0
   end
 
-  @update_interval 5_000
-
   def start_link(_) do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
   end
