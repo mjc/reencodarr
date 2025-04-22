@@ -108,35 +108,15 @@ defmodule Reencodarr.Media do
   def video_has_vmafs?(%Video{id: id}), do: Repo.exists?(from v in Vmaf, where: v.video_id == ^id)
 
   def delete_videos_with_nonexistent_paths do
-    # Find videos with nonexistent paths
-    video_ids_nonexistent =
+    video_ids =
       from(v in Video, select: %{id: v.id, path: v.path})
       |> Repo.all()
       |> Enum.filter(fn %{path: path} -> !File.exists?(path) end)
       |> Enum.map(& &1.id)
 
-    # Find duplicate paths, keep only the most recently inserted video for each path
-    duplicate_ids =
-      from(v in Video,
-        select: {v.path, v.id, v.inserted_at}
-      )
-      |> Repo.all()
-      |> Enum.group_by(fn {path, _, _} -> path end)
-      |> Enum.flat_map(fn
-        {_path, [_single]} -> []
-        {_path, videos} ->
-          # Sort by inserted_at desc, keep the first (most recent), delete the rest
-          videos
-          |> Enum.sort_by(fn {_, _, inserted_at} -> inserted_at end, :desc)
-          |> Enum.drop(1)
-          |> Enum.map(fn {_, id, _} -> id end)
-      end)
-
-    ids_to_delete = video_ids_nonexistent ++ duplicate_ids
-
     Repo.transaction(fn ->
-      from(v in Vmaf, where: v.video_id in ^ids_to_delete) |> Repo.delete_all()
-      from(v in Video, where: v.id in ^ids_to_delete) |> Repo.delete_all()
+      from(v in Vmaf, where: v.video_id in ^video_ids) |> Repo.delete_all()
+      from(v in Video, where: v.id in ^video_ids) |> Repo.delete_all()
     end)
   end
 
