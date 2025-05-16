@@ -107,6 +107,14 @@ defmodule Reencodarr.Media do
   def get_most_recent_inserted_at, do: Repo.one(from v in Video, select: max(v.inserted_at))
   def video_has_vmafs?(%Video{id: id}), do: Repo.exists?(from v in Vmaf, where: v.video_id == ^id)
 
+  def delete_videos_with_path(path) do
+    video_ids = from(v in Video, where: ilike(v.path, ^path), select: v.id) |> Repo.all()
+    Repo.transaction(fn ->
+      from(v in Vmaf, where: v.video_id in ^video_ids) |> Repo.delete_all()
+      from(v in Video, where: v.id in ^video_ids) |> Repo.delete_all()
+    end)
+  end
+
   def delete_videos_with_nonexistent_paths do
     video_ids =
       from(v in Video, select: %{id: v.id, path: v.path})
