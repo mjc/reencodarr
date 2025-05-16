@@ -44,57 +44,56 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def handle_info(:load_stats, socket) do
     stats = Statistics.get_stats()
-    {:noreply, assign(socket, :stats_state, stats)}
+    {:noreply, assign(socket, :state, stats)}
   end
 
   @impl true
   def handle_info({:encoder, status}, socket) when status in [:started, :paused] do
     Logger.debug("Encoder #{status}")
-    # Update stats_state instead of old :encoding assign
-    stats_state = Map.put(socket.assigns.stats_state, :encoding, status == :started)
-    {:noreply, assign(socket, :stats_state, stats_state)}
+    # Update state instead of old :encoding assign
+    state = Map.put(socket.assigns.state, :encoding, status == :started)
+    {:noreply, assign(socket, :state, state)}
   end
 
   @impl true
   def handle_info({:crf_searcher, status}, socket) when status in [:started, :paused] do
     Logger.debug("CRF search #{status}")
-    stats_state = Map.put(socket.assigns.stats_state, :crf_searching, status == :started)
-    {:noreply, assign(socket, :stats_state, stats_state)}
+    state = Map.put(socket.assigns.state, :crf_searching, status == :started)
+    {:noreply, assign(socket, :state, state)}
   end
 
   @impl true
   def handle_info(:sync_complete, socket) do
     Logger.info("Sync complete")
-    stats_state = socket.assigns.stats_state
-    stats_state = stats_state |> Map.put(:syncing, false) |> Map.put(:sync_progress, 0)
-    {:noreply, assign(socket, :stats_state, stats_state)}
+    state = socket.assigns.state |> Map.put(:syncing, false) |> Map.put(:sync_progress, 0)
+    {:noreply, assign(socket, :state, state)}
   end
 
   @impl true
   def handle_info({:sync_progress, progress}, socket) do
     Logger.debug("Sync progress: #{inspect(progress)}")
-    stats_state = socket.assigns.stats_state
-    stats_state = stats_state |> Map.put(:syncing, true) |> Map.put(:sync_progress, progress)
-    {:noreply, assign(socket, :stats_state, stats_state)}
+    state = socket.assigns.state
+    state = state |> Map.put(:syncing, true) |> Map.put(:sync_progress, progress)
+    {:noreply, assign(socket, :state, state)}
   end
 
   @impl true
   def handle_info({:stats, new_stats}, socket) do
     Logger.debug("Received new stats: #{inspect(new_stats)}")
-    {:noreply, assign(socket, :stats_state, new_stats)}
+    {:noreply, assign(socket, :state, new_stats)}
   end
 
   @impl true
   def handle_info({:encoding, :none}, socket) do
     # Clear encoding progress when encoding completes
-    stats_state =
+    state =
       Map.put(
-        socket.assigns.stats_state,
+        socket.assigns.state,
         :encoding_progress,
         %Reencodarr.Statistics.EncodingProgress{filename: :none, percent: 0, eta: 0, fps: 0}
       )
 
-    {:noreply, assign(socket, :stats_state, stats_state)}
+    {:noreply, assign(socket, :state, state)}
   end
 
   @impl true
@@ -105,28 +104,28 @@ defmodule ReencodarrWeb.DashboardLive do
       "Encoding progress: #{progress.percent}% ETA: #{progress.eta} FPS: #{progress.fps}"
     )
 
-    stats_state = Map.put(socket.assigns.stats_state, :encoding_progress, progress)
-    {:noreply, assign(socket, :stats_state, stats_state)}
+    state = Map.put(socket.assigns.state, :encoding_progress, progress)
+    {:noreply, assign(socket, :state, state)}
   end
 
   @impl true
   def handle_info({:crf_search, :none}, socket) do
     # Clear CRF search progress when CRF search completes
-    stats_state =
+    state =
       Map.put(
-        socket.assigns.stats_state,
+        socket.assigns.state,
         :crf_search_progress,
         %Reencodarr.Statistics.CrfSearchProgress{}
       )
 
-    {:noreply, assign(socket, :stats_state, stats_state)}
+    {:noreply, assign(socket, :state, state)}
   end
 
   @impl true
   def handle_info({:crf_search, progress}, socket) do
     Logger.debug("Received CRF search progress: #{inspect(progress)}")
-    stats_state = Map.put(socket.assigns.stats_state, :crf_search_progress, progress)
-    {:noreply, assign(socket, :stats_state, stats_state)}
+    state = Map.put(socket.assigns.state, :crf_search_progress, progress)
+    {:noreply, assign(socket, :state, state)}
   end
 
   # --- Handle Events ---
@@ -151,16 +150,16 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_event("sync", %{"target" => "sonarr"}, socket) do
     Logger.info("Syncing with sonarr")
     Sync.sync_episodes()
-    stats_state = socket.assigns.stats_state |> Map.put(:syncing, true) |> Map.put(:sync_progress, 0)
-    {:noreply, assign(socket, :stats_state, stats_state)}
+    state = socket.assigns.state |> Map.put(:syncing, true) |> Map.put(:sync_progress, 0)
+    {:noreply, assign(socket, :state, state)}
   end
 
   @impl true
   def handle_event("sync", %{"target" => "radarr"}, socket) do
     Logger.info("Syncing with radarr")
     Sync.sync_movies()
-    stats_state = socket.assigns.stats_state |> Map.put(:syncing, true) |> Map.put(:sync_progress, 0)
-    {:noreply, assign(socket, :stats_state, stats_state)}
+    state = socket.assigns.state |> Map.put(:syncing, true) |> Map.put(:sync_progress, 0)
+    {:noreply, assign(socket, :state, state)}
   end
 
   @impl true
@@ -170,26 +169,17 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, socket}
   end
 
-  defp toggle_app(app, :crf_searching, socket) do
-    Logger.info("Toggling CRF search")
-    new_state = not socket.assigns.stats_state.crf_searching
-    case new_state do
-      true -> app.start()
-      false -> app.pause()
-    end
-    stats_state = Map.put(socket.assigns.stats_state, :crf_searching, new_state)
-    {:noreply, assign(socket, :stats_state, stats_state)}
-  end
+  defp toggle_app(app, type, socket) do
+    Logger.info("Toggling #{type}")
+    new_state = not Map.get(socket.assigns.state, type)
 
-  defp toggle_app(app, :encoding, socket) do
-    Logger.info("Toggling encoding")
-    new_state = not socket.assigns.stats_state.encoding
     case new_state do
       true -> app.start()
       false -> app.pause()
     end
-    stats_state = Map.put(socket.assigns.stats_state, :encoding, new_state)
-    {:noreply, assign(socket, :stats_state, stats_state)}
+
+    state = Map.put(socket.assigns.state, type, new_state)
+    {:noreply, assign(socket, :state, state)}
   end
 
   @impl true
@@ -212,26 +202,26 @@ defmodule ReencodarrWeb.DashboardLive do
         <div class="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-6 mt-4 md:mt-0">
           <div class="flex flex-wrap gap-2">
             <.render_control_buttons
-              encoding={@stats_state.encoding}
-              crf_searching={@stats_state.crf_searching}
-              syncing={@stats_state.syncing}
+              encoding={@state.encoding}
+              crf_searching={@state.crf_searching}
+              syncing={@state.syncing}
             />
           </div>
         </div>
       </header>
 
-      <.render_summary_row stats={@stats_state.stats} />
+      <.render_summary_row stats={@state.stats} />
 
       <.render_manual_scan_form />
 
       <div class="w-full max-w-6xl grid grid-cols-1 md:grid-cols-3 gap-8">
-        <.render_queue_information stats={@stats_state.stats} />
+        <.render_queue_information stats={@state.stats} />
         <.render_progress_information
-          sync_progress={@stats_state.sync_progress}
-          encoding_progress={@stats_state.encoding_progress}
-          crf_search_progress={@stats_state.crf_search_progress}
+          sync_progress={@state.sync_progress}
+          encoding_progress={@state.encoding_progress}
+          crf_search_progress={@state.crf_search_progress}
         />
-        <.render_statistics stats={@stats_state.stats} timezone={@timezone} />
+        <.render_statistics stats={@state.stats} timezone={@timezone} />
       </div>
 
       <footer class="w-full max-w-6xl mt-12 text-center text-xs text-gray-500 border-t border-gray-700 pt-4">
@@ -242,12 +232,11 @@ defmodule ReencodarrWeb.DashboardLive do
     """
   end
 
-
   # --- Assign Helpers ---
 
   defp assign_defaults(socket) do
     socket
-    |> assign(:stats_state, %{
+    |> assign(:state, %{
       stats: @default_stats,
       encoding: false,
       crf_searching: false,

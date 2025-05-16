@@ -403,6 +403,7 @@ defmodule ReencodarrWeb.DashboardComponents do
   end
 
   defp human_readable_time(nil, _timezone), do: "N/A"
+
   defp human_readable_time(datetime, timezone) do
     tz =
       cond do
