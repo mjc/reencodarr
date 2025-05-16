@@ -34,6 +34,18 @@ defmodule Reencodarr.Statistics do
     ]
   end
 
+  defmodule State do
+    defstruct [
+      :stats,
+      :encoding,
+      :crf_searching,
+      :encoding_progress,
+      :crf_search_progress,
+      :syncing,
+      :sync_progress
+    ]
+  end
+
   # --- Public API ---
 
   def start_link(_), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
@@ -48,12 +60,11 @@ defmodule Reencodarr.Statistics do
   def init(:ok) do
     subscribe_to_topics()
 
-    stats = Media.fetch_stats()
-
-    state = %{
-      stats: stats,
-      encoding: Encoder.scanning?(),
-      crf_searching: CrfSearcher.scanning?(),
+    # Use safe defaults; fetch risky data in handle_continue
+    state = %State{
+      stats: %Stats{},
+      encoding: false,
+      crf_searching: false,
       syncing: false,
       sync_progress: 0,
       crf_search_progress: %CrfSearchProgress{},
@@ -61,7 +72,22 @@ defmodule Reencodarr.Statistics do
     }
 
     :timer.send_interval(@broadcast_interval, :broadcast_stats)
-    {:ok, state}
+    {:ok, state, {:continue, :fetch_stats}}
+  end
+
+  @impl true
+  def handle_continue(:fetch_stats, state) do
+    stats = Media.fetch_stats()
+    encoding = Encoder.scanning?()
+    crf_searching = CrfSearcher.scanning?()
+
+    new_state = %State{
+      state |
+      stats: stats,
+      encoding: encoding,
+      crf_searching: crf_searching
+    }
+    {:noreply, new_state}
   end
 
   @impl true
@@ -147,16 +173,7 @@ defmodule Reencodarr.Statistics do
 
   @impl true
   def handle_call(:get_stats, _from, state) do
-    {:reply,
-     %{
-       stats: state.stats,
-       encoding: state.encoding,
-       crf_searching: state.crf_searching,
-       encoding_progress: state.encoding_progress,
-       crf_search_progress: state.crf_search_progress,
-       syncing: state.syncing,
-       sync_progress: state.sync_progress
-     }, state}
+    {:reply, state, state}
   end
 
   @impl true
