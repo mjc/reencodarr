@@ -1,15 +1,12 @@
 defmodule ReencodarrWeb.DashboardLive do
-  @moduledoc """
-  LiveView dashboard for monitoring and controlling the encoding pipeline.
-  """
-
   use ReencodarrWeb, :live_view
-  alias Reencodarr.{Encoder, CrfSearcher, Statistics, Sync, ManualScanner}
-  require Logger
 
   import ReencodarrWeb.DashboardComponents
 
-  # --- Default Assigns ---
+  alias Reencodarr.{Encoder, CrfSearcher, Statistics, Sync}
+
+  require Logger
+
   @default_stats %{
     total_videos: 0,
     reencoded: 0,
@@ -21,10 +18,9 @@ defmodule ReencodarrWeb.DashboardLive do
     chosen_vmafs_count: 0,
     lowest_vmaf: %{percent: 0}
   }
+
   @default_encoding_progress %{filename: :none, percent: 0, fps: 0, eta: ""}
   @default_crf_search_progress %{filename: :none, crf: nil, percent: 0, score: nil}
-
-  # --- LiveView Callbacks ---
 
   @impl true
   def mount(_params, _session, socket) do
@@ -32,7 +28,17 @@ defmodule ReencodarrWeb.DashboardLive do
 
     socket =
       socket
-      |> assign_defaults()
+      |> assign_new(:state, fn ->
+        %Statistics.State{
+          stats: @default_stats,
+          encoding: false,
+          crf_searching: false,
+          syncing: false,
+          sync_progress: 0,
+          crf_search_progress: @default_crf_search_progress,
+          encoding_progress: @default_encoding_progress
+        }
+      end)
       |> assign_new(:timezone, fn -> "UTC" end)
 
     # Fetch stats asynchronously
@@ -50,30 +56,37 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def handle_info({:encoder, status}, socket) when status in [:started, :paused] do
     Logger.debug("Encoder #{status}")
+
     # Update state instead of old :encoding assign
     state = Map.put(socket.assigns.state, :encoding, status == :started)
+
     {:noreply, assign(socket, :state, state)}
   end
 
   @impl true
   def handle_info({:crf_searcher, status}, socket) when status in [:started, :paused] do
     Logger.debug("CRF search #{status}")
+
     state = Map.put(socket.assigns.state, :crf_searching, status == :started)
+
     {:noreply, assign(socket, :state, state)}
   end
 
   @impl true
   def handle_info(:sync_complete, socket) do
     Logger.info("Sync complete")
+
     state = socket.assigns.state |> Map.put(:syncing, false) |> Map.put(:sync_progress, 0)
+
     {:noreply, assign(socket, :state, state)}
   end
 
   @impl true
   def handle_info({:sync_progress, progress}, socket) do
     Logger.debug("Sync progress: #{inspect(progress)}")
-    state = socket.assigns.state
-    state = state |> Map.put(:syncing, true) |> Map.put(:sync_progress, progress)
+
+    state = socket.assigns.state |> Map.put(:syncing, true) |> Map.put(:sync_progress, progress)
+
     {:noreply, assign(socket, :state, state)}
   end
 
@@ -105,6 +118,7 @@ defmodule ReencodarrWeb.DashboardLive do
     )
 
     state = Map.put(socket.assigns.state, :encoding_progress, progress)
+
     {:noreply, assign(socket, :state, state)}
   end
 
@@ -124,11 +138,11 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def handle_info({:crf_search, progress}, socket) do
     Logger.debug("Received CRF search progress: #{inspect(progress)}")
+
     state = Map.put(socket.assigns.state, :crf_search_progress, progress)
+
     {:noreply, assign(socket, :state, state)}
   end
-
-  # --- Handle Events ---
 
   @impl true
   def handle_event("set_timezone", %{"timezone" => tz}, socket) do
@@ -137,20 +151,18 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_event("toggle", %{"target" => "encoder"}, socket) do
-    toggle_app(Encoder, :encoding, socket)
-  end
+  def handle_event("toggle", %{"target" => "encoder"}, socket), do: toggle_app(Encoder, :encoding, socket)
 
   @impl true
-  def handle_event("toggle", %{"target" => "crf_search"}, socket) do
-    toggle_app(CrfSearcher, :crf_searching, socket)
-  end
+  def handle_event("toggle", %{"target" => "crf_search"}, socket), do: toggle_app(CrfSearcher, :crf_searching, socket)
 
   @impl true
   def handle_event("sync", %{"target" => "sonarr"}, socket) do
     Logger.info("Syncing with sonarr")
     Sync.sync_episodes()
+
     state = socket.assigns.state |> Map.put(:syncing, true) |> Map.put(:sync_progress, 0)
+
     {:noreply, assign(socket, :state, state)}
   end
 
@@ -158,28 +170,26 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_event("sync", %{"target" => "radarr"}, socket) do
     Logger.info("Syncing with radarr")
     Sync.sync_movies()
+
     state = socket.assigns.state |> Map.put(:syncing, true) |> Map.put(:sync_progress, 0)
+
     {:noreply, assign(socket, :state, state)}
   end
 
   @impl true
   def handle_event("manual_scan", %{"path" => path}, socket) do
     Logger.info("Starting manual scan for path: #{path}")
-    ManualScanner.scan(path)
+    Reencodarr.ManualScanner.scan(path)
     {:noreply, socket}
   end
 
-  defp toggle_app(app, type, socket) do
+  defp toggle_app(app, type, %{assigns: %{state: state}} = socket) do
     Logger.info("Toggling #{type}")
-    new_state = not Map.get(socket.assigns.state, type)
+    new_state = not Map.get(state, type)
 
-    case new_state do
-      true -> app.start()
-      false -> app.pause()
-    end
+    if new_state, do: app.start(), else: app.pause()
 
-    state = Map.put(socket.assigns.state, type, new_state)
-    {:noreply, assign(socket, :state, state)}
+    {:noreply, assign(socket, :state, Map.put(state, type, new_state))}
   end
 
   @impl true
@@ -199,6 +209,7 @@ defmodule ReencodarrWeb.DashboardLive do
             Monitor and control your encoding pipeline in real time.
           </p>
         </div>
+
         <div class="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-6 mt-4 md:mt-0">
           <div class="flex flex-wrap gap-2">
             <.render_control_buttons
@@ -230,21 +241,5 @@ defmodule ReencodarrWeb.DashboardLive do
       </footer>
     </div>
     """
-  end
-
-  # --- Assign Helpers ---
-
-  defp assign_defaults(socket) do
-    socket
-    |> assign(:state, %{
-      stats: @default_stats,
-      encoding: false,
-      crf_searching: false,
-      syncing: false,
-      sync_progress: 0,
-      crf_search_progress: @default_crf_search_progress,
-      encoding_progress: @default_encoding_progress
-    })
-    |> assign(:timezone, "UTC")
   end
 end
