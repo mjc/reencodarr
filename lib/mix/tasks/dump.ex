@@ -25,44 +25,51 @@ defmodule Mix.Tasks.Dump do
       |> Enum.filter(&({:__schema__, 1} in &1.__info__(:functions)))
 
     # dump each schema to a csv file with header
-    Task.async_stream(schemas, fn schema ->
-      fields = schema.__schema__(:fields)
-      file_name = "#{Atom.to_string(schema)}.csv"
+    Task.async_stream(
+      schemas,
+      fn schema ->
+        fields = schema.__schema__(:fields)
+        file_name = "#{Atom.to_string(schema)}.csv"
 
-      File.open(file_name, [:write, :utf8], fn file ->
-        IO.write(file, Enum.join(fields, ",") <> "\n")
+        File.open(file_name, [:write, :utf8], fn file ->
+          IO.write(file, Enum.join(fields, ",") <> "\n")
 
-        Repo.transaction(fn ->
-          Repo.stream(schema)
-          |> Enum.each(fn record ->
-            values = Enum.map(fields, fn field ->
-              value = Map.get(record, field)
-              value =
-                cond do
-                  is_binary(value) -> value
-                  is_nil(value) -> ""
-                  is_map(value) or is_list(value) ->
-                    json = Jason.encode!(value)
-                    if String.length(json) > 10_000 do
-                      String.slice(json, 0, 10_000) <> "...(truncated)"
+          Repo.transaction(
+            fn ->
+              Repo.stream(schema, timeout: :infinity)
+              |> Enum.each(fn record ->
+                values =
+                  Enum.map(fields, fn field ->
+                    value = Map.get(record, field)
+
+                    value =
+                      cond do
+                        is_binary(value) -> value
+                        is_nil(value) -> ""
+                        is_map(value) or is_list(value) -> Jason.encode!(value)
+                        true -> inspect(value)
+                      end
+
+                    # CSV escaping: wrap in double quotes if contains comma, quote, or newline
+                    if String.contains?(value, [",", "\"", "\n"]) do
+                      "\"" <> String.replace(value, "\"", "\"\"") <> "\""
                     else
-                      json
+                      value
                     end
-                  true -> inspect(value)
-                end
-              # CSV escaping: wrap in double quotes if contains comma, quote, or newline
-              if String.contains?(value, [",", "\"", "\n"]) do
-                "\"" <> String.replace(value, "\"", "\"\"") <> "\""
-              else
-                value
-              end
-            end)
-            IO.write(file, Enum.join(values, ",") <> "\n")
-          end)
-        end)
-      end)
+                  end)
 
-      IO.puts("Dumped #{Atom.to_string(schema)} to #{file_name}")
-    end, max_concurrency: System.schedulers_online())
+                IO.write(file, Enum.join(values, ",") <> "\n")
+              end)
+            end,
+            timeout: :infinity
+          )
+        end)
+
+        IO.puts("Dumped #{Atom.to_string(schema)} to #{file_name}")
+      end,
+      max_concurrency: System.schedulers_online(),
+      timeout: :infinity
+    )
+    |> Stream.run()
   end
 end
