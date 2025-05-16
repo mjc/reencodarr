@@ -42,7 +42,7 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def handle_info(:load_stats, socket) do
     stats = Statistics.get_stats()
-    {:noreply, assign_stats(socket, stats)}
+    {:noreply, assign(socket, :stats_state, stats)}
   end
 
   @impl true
@@ -149,14 +149,16 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_event("sync", %{"target" => "sonarr"}, socket) do
     Logger.info("Syncing with sonarr")
     Sync.sync_episodes()
-    {:noreply, assign(socket, syncing: true, sync_progress: 0)}
+    stats_state = socket.assigns.stats_state |> Map.put(:syncing, true) |> Map.put(:sync_progress, 0)
+    {:noreply, assign(socket, :stats_state, stats_state)}
   end
 
   @impl true
   def handle_event("sync", %{"target" => "radarr"}, socket) do
     Logger.info("Syncing with radarr")
     Sync.sync_movies()
-    {:noreply, assign(socket, syncing: true, sync_progress: 0)}
+    stats_state = socket.assigns.stats_state |> Map.put(:syncing, true) |> Map.put(:sync_progress, 0)
+    {:noreply, assign(socket, :stats_state, stats_state)}
   end
 
   @impl true
@@ -169,34 +171,23 @@ defmodule ReencodarrWeb.DashboardLive do
   defp toggle_app(app, :crf_searching, socket) do
     Logger.info("Toggling CRF search")
     new_state = not socket.assigns.stats_state.crf_searching
-
     case new_state do
       true -> app.start()
       false -> app.pause()
     end
-
-    {:noreply, assign(socket, crf_searching: new_state)}
+    stats_state = Map.put(socket.assigns.stats_state, :crf_searching, new_state)
+    {:noreply, assign(socket, :stats_state, stats_state)}
   end
 
   defp toggle_app(app, :encoding, socket) do
     Logger.info("Toggling encoding")
     new_state = not socket.assigns.stats_state.encoding
-
     case new_state do
       true -> app.start()
       false -> app.pause()
     end
-
-    {:noreply, assign(socket, encoding: new_state)}
-  end
-
-  defp toggle_app(app, state_key, socket) do
-    dbg(state_key)
-    dbg(socket.assigns)
-    new_state = not socket.assigns[state_key]
-    Logger.info("#{state_key} #{if new_state, do: "started", else: "paused"}")
-    if new_state, do: app.start(), else: app.pause()
-    {:noreply, assign(socket, state_key, new_state)}
+    stats_state = Map.put(socket.assigns.stats_state, :encoding, new_state)
+    {:noreply, assign(socket, :stats_state, stats_state)}
   end
 
   @impl true
@@ -296,10 +287,6 @@ defmodule ReencodarrWeb.DashboardLive do
       encoding_progress: @default_encoding_progress
     })
     |> assign(:timezone, "UTC")
-  end
-
-  defp assign_stats(socket, stats) do
-    assign(socket, :stats_state, stats)
   end
 
   # --- Render Helpers ---
