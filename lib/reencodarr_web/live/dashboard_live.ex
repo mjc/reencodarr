@@ -7,35 +7,30 @@ defmodule ReencodarrWeb.DashboardLive do
   alias Reencodarr.{Encoder, CrfSearcher, Statistics, Sync, ManualScanner}
   require Logger
 
+  # --- Default Assigns ---
+  @default_stats %{
+    total_videos: 0,
+    reencoded: 0,
+    not_reencoded: 0,
+    queue_length: %{encodes: 0, crf_searches: 0},
+    most_recent_video_update: nil,
+    most_recent_inserted_video: nil,
+    total_vmafs: 0,
+    chosen_vmafs_count: 0,
+    lowest_vmaf: %{percent: 0}
+  }
+  @default_encoding_progress %{filename: :none, percent: 0, fps: 0, eta: ""}
+  @default_crf_search_progress %{filename: :none, crf: nil, percent: 0, score: nil}
+
   # --- LiveView Callbacks ---
 
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
 
-    # Assign default/empty stats immediately
-    default_stats = %{
-      total_videos: 0,
-      reencoded: 0,
-      not_reencoded: 0,
-      queue_length: %{encodes: 0, crf_searches: 0},
-      most_recent_video_update: nil,
-      most_recent_inserted_video: nil,
-      total_vmafs: 0,
-      chosen_vmafs_count: 0,
-      lowest_vmaf: %{percent: 0}
-    }
-    default_encoding_progress = %{filename: :none, percent: 0, fps: 0, eta: ""}
-    default_crf_search_progress = %{filename: :none, crf: nil, percent: 0, score: nil}
     socket =
       socket
-      |> assign(:stats, default_stats)
-      |> assign(:encoding, false)
-      |> assign(:crf_searching, false)
-      |> assign(:syncing, false)
-      |> assign(:sync_progress, 0)
-      |> assign(:crf_search_progress, default_crf_search_progress)
-      |> assign(:encoding_progress, default_encoding_progress)
+      |> assign_defaults()
       |> assign_new(:timezone, fn -> "UTC" end)
 
     # Fetch stats asynchronously
@@ -46,33 +41,14 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def handle_info(:load_stats, socket) do
-    default_stats = %{
-      total_videos: 0,
-      reencoded: 0,
-      not_reencoded: 0,
-      queue_length: %{encodes: 0, crf_searches: 0},
-      most_recent_video_update: nil,
-      most_recent_inserted_video: nil,
-      total_vmafs: 0,
-      chosen_vmafs_count: 0,
-      lowest_vmaf: %{percent: 0}
-    }
-    default_encoding_progress = %{filename: :none, percent: 0, fps: 0, eta: ""}
-    default_crf_search_progress = %{filename: :none, crf: nil, percent: 0, score: nil}
     stats = Statistics.get_stats()
-    merged_stats = Map.merge(default_stats, stats.stats || %{})
-    merged_encoding_progress = Map.merge(default_encoding_progress, stats.encoding_progress || %{})
-    merged_crf_search_progress = Map.merge(default_crf_search_progress, stats.crf_search_progress || %{})
+    {:noreply, assign_stats(socket, stats)}
+  end
 
-    {:noreply,
-     socket
-     |> assign(:stats, merged_stats)
-     |> assign(:encoding, stats.encoding)
-     |> assign(:crf_searching, stats.crf_searching)
-     |> assign(:syncing, stats.syncing)
-     |> assign(:sync_progress, stats.sync_progress)
-     |> assign(:crf_search_progress, merged_crf_search_progress)
-     |> assign(:encoding_progress, merged_encoding_progress)}
+  @impl true
+  def handle_info({:stats, new_stats}, socket) do
+    Logger.debug("Received new stats: #{inspect(new_stats)}")
+    {:noreply, assign_stats(socket, new_stats)}
   end
 
   @impl true
@@ -114,11 +90,16 @@ defmodule ReencodarrWeb.DashboardLive do
       chosen_vmafs_count: 0,
       lowest_vmaf: %{percent: 0}
     }
+
     default_encoding_progress = %{filename: :none, percent: 0, fps: 0, eta: ""}
     default_crf_search_progress = %{filename: :none, crf: nil, percent: 0, score: nil}
     merged_stats = Map.merge(default_stats, new_stats.stats || %{})
-    merged_encoding_progress = Map.merge(default_encoding_progress, new_stats.encoding_progress || %{})
-    merged_crf_search_progress = Map.merge(default_crf_search_progress, new_stats.crf_search_progress || %{})
+
+    merged_encoding_progress =
+      Map.merge(default_encoding_progress, new_stats.encoding_progress || %{})
+
+    merged_crf_search_progress =
+      Map.merge(default_crf_search_progress, new_stats.crf_search_progress || %{})
 
     {:noreply,
      socket
@@ -284,6 +265,38 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp parse_integer(value) do
     Integer.parse(to_string(value)) |> elem(0)
+  end
+
+  # --- Assign Helpers ---
+
+  defp assign_defaults(socket) do
+    socket
+    |> assign(:stats, @default_stats)
+    |> assign(:encoding, false)
+    |> assign(:crf_searching, false)
+    |> assign(:syncing, false)
+    |> assign(:sync_progress, 0)
+    |> assign(:crf_search_progress, @default_crf_search_progress)
+    |> assign(:encoding_progress, @default_encoding_progress)
+  end
+
+  defp assign_stats(socket, stats) do
+    merged_stats = Map.merge(@default_stats, stats.stats || %{})
+
+    merged_encoding_progress =
+      Map.merge(@default_encoding_progress, stats.encoding_progress || %{})
+
+    merged_crf_search_progress =
+      Map.merge(@default_crf_search_progress, stats.crf_search_progress || %{})
+
+    socket
+    |> assign(:stats, merged_stats)
+    |> assign(:encoding, stats.encoding)
+    |> assign(:crf_searching, stats.crf_searching)
+    |> assign(:syncing, stats.syncing)
+    |> assign(:sync_progress, stats.sync_progress)
+    |> assign(:crf_search_progress, merged_crf_search_progress)
+    |> assign(:encoding_progress, merged_encoding_progress)
   end
 
   # --- Render Helpers ---
