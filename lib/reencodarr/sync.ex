@@ -140,6 +140,12 @@ defmodule Reencodarr.Sync do
   defp build_mediainfo_from_info(info) do
     {width, height} = info.resolution
 
+    subtitles = case info.subtitles do
+      nil -> []
+      subs when is_binary(subs) -> String.split(subs, "/")
+      subs when is_list(subs) -> subs
+    end
+
     %{
       "media" => %{
         "track" => [
@@ -149,7 +155,7 @@ defmodule Reencodarr.Sync do
             "OverallBitRate" => info.overall_bitrate || info.bitrate,
             "Duration" => CodecHelper.parse_duration(info.run_time),
             "FileSize" => info.size,
-            "TextCount" => length(String.split(info.subtitles || "", "/")),
+            "TextCount" => length(subtitles),
             "VideoCount" => 1,
             "Title" => info.title
           },

@@ -3,7 +3,7 @@ defmodule ReencodarrWeb.WebhookController do
   require Logger
 
   def sonarr(conn, %{"eventType" => "Test"} = params) do
-    dbg(params, label: "Received Sonarr webhook")
+    dbg(params)
     Logger.info("Received test event from Sonarr!")
     send_resp(conn, 200, "ok")
   end
@@ -13,14 +13,34 @@ defmodule ReencodarrWeb.WebhookController do
     send_resp(conn, 200, "ok")
   end
 
-  def sonarr(conn, %{"eventType" => "Download", "episode" => episode} = params) do
-    dbg(params, label: "Received Sonarr webhook")
-    Logger.info("Received download event from Sonarr for episode #{episode["title"]}!")
+  def sonarr(conn, %{"eventType" => "Download", "episodeFiles" => episode_files} = params) do
+    dbg(params)
+    Enum.each(episode_files, fn episode_file ->
+      Logger.info("Received download event from Sonarr for episode #{episode_file["sceneName"]}!")
+      dbg(Reencodarr.Sync.upsert_video_from_file(episode_file, :sonarr))
+    end)
+    send_resp(conn, 200, "ok")
+  end
+
+  def sonarr(conn, %{"eventType" => "EpisodeFileDelete", "episodeFile" => episode_file} = _params) do
+    Logger.info("Received delete event from Sonarr for episode file: #{inspect(episode_file)}")
+    send_resp(conn, 200, "ok")
+  end
+
+  def sonarr(conn, %{"eventType" => "Rename", "renamedEpisodeFiles" => renamed_files} = _params) do
+    Logger.info("Received rename event from Sonarr for files: #{inspect(renamed_files)}")
+
+    renamed_files
+    |> Enum.each(fn file ->
+      dbg(file, label: "Renamed file details")
+      Reencodarr.Sync.upsert_video_from_file(file, :sonarr) |> dbg()
+    end)
+
     send_resp(conn, 200, "ok")
   end
 
   def sonarr(conn, %{"eventType" => "EpisodeFile", "episodeFile" => episode_file} = params) do
-    dbg(params, label: "Received Sonarr webhook")
+    dbg(params)
     Logger.info("Received new episodefile event from Sonarr!")
     dbg(Reencodarr.Sync.upsert_video_from_file(episode_file, :sonarr))
     send_resp(conn, 200, "ok")
