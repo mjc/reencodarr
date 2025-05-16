@@ -8,42 +8,37 @@ defmodule Reencodarr.Statistics do
   # --- Structs ---
 
   defmodule EncodingProgress do
-    @enforce_keys []
+    @enforce_keys [:filename, :percent, :eta, :fps]
     defstruct filename: :none, percent: 0, eta: 0, fps: 0
   end
 
   defmodule CrfSearchProgress do
-    @enforce_keys []
     defstruct filename: :none, percent: 0, eta: 0, fps: 0, crf: 0, score: 0
   end
 
   defmodule Stats do
-    defstruct [
-      :not_reencoded,
-      :reencoded,
-      :total_videos,
-      :avg_vmaf_percentage,
-      :total_vmafs,
-      :chosen_vmafs_count,
-      :lowest_vmaf,
-      :lowest_vmaf_by_time,
-      :most_recent_video_update,
-      :most_recent_inserted_video,
-      :queue_length,
-      :encode_queue_length
-    ]
+    defstruct not_reencoded: 0,
+              reencoded: 0,
+              total_videos: 0,
+              avg_vmaf_percentage: 0.0,
+              total_vmafs: 0,
+              chosen_vmafs_count: 0,
+              lowest_vmaf: %Media.Vmaf{},
+              lowest_vmaf_by_time: %Media.Vmaf{},
+              most_recent_video_update: nil,
+              most_recent_inserted_video: nil,
+              queue_length: %{encodes: 0, crf_searches: 0},
+              encode_queue_length: 0
   end
 
   defmodule State do
-    defstruct [
-      :stats,
-      :encoding,
-      :crf_searching,
-      :encoding_progress,
-      :crf_search_progress,
-      :syncing,
-      :sync_progress
-    ]
+    defstruct stats: %Stats{},
+              encoding: false,
+              crf_searching: false,
+              encoding_progress: %EncodingProgress{},
+              crf_search_progress: %CrfSearchProgress{},
+              syncing: false,
+              sync_progress: 0
   end
 
   # --- Public API ---
@@ -82,102 +77,86 @@ defmodule Reencodarr.Statistics do
     crf_searching = CrfSearcher.scanning?()
 
     new_state = %State{
-      state |
-      stats: stats,
-      encoding: encoding,
-      crf_searching: crf_searching
+      state
+      | stats: stats,
+        encoding: encoding,
+        crf_searching: crf_searching
     }
+
     {:noreply, new_state}
   end
 
   @impl true
-  def handle_info({:crf_search_progress, %CrfSearchProgress{} = progress}, state) do
-    %{state | crf_search_progress: progress}
-    |> broadcast_stats_and_reply()
+  def handle_info({:crf_search_progress, %CrfSearchProgress{} = progress}, %State{} = state) do
+    broadcast_stats_and_reply(%State{state | crf_search_progress: progress})
   end
 
-  def handle_info({:crf_search_progress, %{filename: :none}}, state) do
-    %{state | crf_search_progress: %CrfSearchProgress{}}
-    |> broadcast_stats_and_reply()
+  def handle_info({:crf_search_progress, %{filename: :none}}, %State{} = state) do
+    broadcast_stats_and_reply(%State{state | crf_search_progress: %CrfSearchProgress{}})
   end
 
-  def handle_info({:encoding, %EncodingProgress{} = progress}, state) do
-    %{state | encoding_progress: progress}
-    |> broadcast_stats_and_reply()
+  def handle_info({:encoding, %EncodingProgress{} = progress}, %State{} = state) do
+    broadcast_stats_and_reply(%State{state | encoding_progress: progress})
   end
 
-  def handle_info({:encoding, %{percent: percent, eta: eta, fps: fps}}, state) do
+  def handle_info({:encoding, %{percent: percent, eta: eta, fps: fps}}, %State{} = state) do
     progress = %EncodingProgress{percent: percent, eta: eta, fps: fps}
-    %{state | encoding_progress: progress}
-    |> broadcast_stats_and_reply()
+    broadcast_stats_and_reply(%State{state | encoding_progress: progress})
   end
 
-  def handle_info({:encoder, :started, filename}, state) do
+  def handle_info({:encoder, :started, filename}, %State{} = state) do
     progress = %EncodingProgress{filename: filename}
-    %{state | encoding: true, encoding_progress: progress}
-    |> broadcast_stats_and_reply()
+    broadcast_stats_and_reply(%State{state | encoding: true, encoding_progress: progress})
   end
 
-  def handle_info({:encoder, :paused}, state) do
-    %{state | encoding: false}
-    |> broadcast_stats_and_reply()
+  def handle_info({:encoder, :paused}, %State{} = state) do
+    broadcast_stats_and_reply(%State{state | encoding: false})
   end
 
-  def handle_info({:encoder, :none}, state) do
-    %{state | encoding_progress: %EncodingProgress{}}
-    |> broadcast_stats_and_reply()
+  def handle_info({:encoder, :none}, %State{} = state) do
+    broadcast_stats_and_reply(%State{state | encoding_progress: %EncodingProgress{}})
   end
 
-  def handle_info({:sync_progress, progress}, state) do
-    %{state | sync_progress: progress}
-    |> broadcast_stats_and_reply()
+  def handle_info({:sync_progress, progress}, %State{} = state) do
+    broadcast_stats_and_reply(%State{state | sync_progress: progress})
   end
 
-  def handle_info(:sync_complete, state) do
-    # Sync complete, refresh stats
+  def handle_info(:sync_complete, %State{} = state) do
     stats = Media.fetch_stats()
-
-    %{state | syncing: false, sync_progress: 0, stats: stats}
-    |> broadcast_stats_and_reply()
+    broadcast_stats_and_reply(%State{state | syncing: false, sync_progress: 0, stats: stats})
   end
 
-  def handle_info({:crf_searcher, :started}, state) do
-    %{state | crf_searching: true}
-    |> broadcast_stats_and_reply()
+  def handle_info({:crf_searcher, :started}, %State{} = state) do
+    broadcast_stats_and_reply(%State{state | crf_searching: true})
   end
 
-  def handle_info({:crf_searcher, :paused}, state) do
-    %{state | crf_searching: false}
-    |> broadcast_stats_and_reply()
+  def handle_info({:crf_searcher, :paused}, %State{} = state) do
+    broadcast_stats_and_reply(%State{state | crf_searching: false})
   end
 
-  def handle_info({:video_upserted, _video}, state) do
+  def handle_info({:video_upserted, _video}, %State{} = state) do
     stats = Media.fetch_stats()
-
-    %{state | stats: stats}
-    |> broadcast_stats_and_reply()
+    broadcast_stats_and_reply(%State{state | stats: stats})
   end
 
-  def handle_info({:vmaf_upserted, _vmaf}, state) do
+  def handle_info({:vmaf_upserted, _vmaf}, %State{} = state) do
     stats = Media.fetch_stats()
-
-    %{state | stats: stats}
-    |> broadcast_stats_and_reply()
+    broadcast_stats_and_reply(%State{state | stats: stats})
   end
 
   @impl true
-  def handle_info(:broadcast_stats, state) do
+  def handle_info(:broadcast_stats, %State{} = state) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, state})
     {:noreply, state}
   end
 
   @impl true
-  def handle_call(:get_stats, _from, state) do
+  def handle_call(:get_stats, _from, %State{} = state) do
     {:reply, state, state}
   end
 
   @impl true
-  def handle_call({:get_progress, key}, _from, state) do
+  def handle_call({:get_progress, key}, _from, %State{} = state) do
     {:reply, Map.get(state, key), state}
   end
 
