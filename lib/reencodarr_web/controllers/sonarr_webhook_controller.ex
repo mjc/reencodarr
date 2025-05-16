@@ -66,9 +66,16 @@ defmodule ReencodarrWeb.SonarrWebhookController do
   defp handle_rename(conn, %{"renamedEpisodeFiles" => renamed_files}) do
     Logger.info("Received rename event from Sonarr for files: #{inspect(renamed_files)}")
 
-    Enum.each(renamed_files, fn file ->
-      Logger.debug("Renamed file details: #{inspect(file)}")
-      Reencodarr.Sync.upsert_video_from_file(file, :sonarr)
+    Enum.each(renamed_files, fn %{"previousPath" => old_path, "path" => new_path} = file ->
+      case Reencodarr.Media.get_video_by_path(old_path) do
+        nil ->
+          Logger.warning("No video found for old path: #{old_path}, upserting as new")
+          Reencodarr.Sync.upsert_video_from_file(file, :sonarr)
+
+        video ->
+          {:ok, _} = Reencodarr.Media.update_video(video, %{path: new_path})
+          Logger.info("Updated video path from #{old_path} to #{new_path}")
+      end
     end)
 
     send_resp(conn, :no_content, "")
