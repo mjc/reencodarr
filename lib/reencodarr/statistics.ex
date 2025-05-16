@@ -32,6 +32,7 @@ defmodule Reencodarr.Statistics do
     subscribe_to_topics()
 
     stats = Media.fetch_stats()
+
     state = %{
       stats: stats,
       encoding: Encoder.scanning?(),
@@ -99,6 +100,7 @@ defmodule Reencodarr.Statistics do
   def handle_info(:sync_complete, state) do
     # Sync complete, refresh stats
     stats = Media.fetch_stats()
+
     %{state | syncing: false, sync_progress: 0, stats: stats}
     |> broadcast_stats_and_reply()
   end
@@ -115,12 +117,14 @@ defmodule Reencodarr.Statistics do
 
   def handle_info({:video_upserted, _video}, state) do
     stats = Media.fetch_stats()
+
     %{state | stats: stats}
     |> broadcast_stats_and_reply()
   end
 
   def handle_info({:vmaf_upserted, _vmaf}, state) do
     stats = Media.fetch_stats()
+
     %{state | stats: stats}
     |> broadcast_stats_and_reply()
   end
@@ -133,15 +137,16 @@ defmodule Reencodarr.Statistics do
 
   @impl true
   def handle_call(:get_stats, _from, state) do
-    {:reply, %{
-      stats: state.stats,
-      encoding: state.encoding,
-      crf_searching: state.crf_searching,
-      encoding_progress: state.encoding_progress,
-      crf_search_progress: state.crf_search_progress,
-      syncing: state.syncing,
-      sync_progress: state.sync_progress
-    }, state}
+    {:reply,
+     %{
+       stats: state.stats,
+       encoding: state.encoding,
+       crf_searching: state.crf_searching,
+       encoding_progress: state.encoding_progress,
+       crf_search_progress: state.crf_search_progress,
+       syncing: state.syncing,
+       sync_progress: state.sync_progress
+     }, state}
   end
 
   @impl true
