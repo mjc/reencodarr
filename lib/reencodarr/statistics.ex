@@ -22,15 +22,7 @@ defmodule Reencodarr.Statistics do
   def start_link(_), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   def get_stats do
-    %{
-      stats: Media.fetch_stats(),
-      encoding: Encoder.scanning?(),
-      crf_searching: CrfSearcher.scanning?(),
-      encoding_progress: get_encoding_progress(),
-      crf_search_progress: get_crf_search_progress(),
-      syncing: get_syncing(),
-      sync_progress: get_sync_progress()
-    }
+    GenServer.call(__MODULE__, :get_stats)
   end
 
   # --- GenServer Callbacks ---
@@ -39,7 +31,9 @@ defmodule Reencodarr.Statistics do
   def init(:ok) do
     subscribe_to_topics()
 
+    stats = Media.fetch_stats()
     state = %{
+      stats: stats,
       encoding: Encoder.scanning?(),
       crf_searching: CrfSearcher.scanning?(),
       syncing: false,
@@ -105,7 +99,9 @@ defmodule Reencodarr.Statistics do
   end
 
   def handle_info(:sync_complete, state) do
-    %{state | syncing: false, sync_progress: 0}
+    # Sync complete, refresh stats
+    stats = Media.fetch_stats()
+    %{state | syncing: false, sync_progress: 0, stats: stats}
     |> broadcast_stats_and_reply()
   end
 
@@ -119,22 +115,35 @@ defmodule Reencodarr.Statistics do
     |> broadcast_stats_and_reply()
   end
 
-  def handle_info({:video_upserted, _video}, state), do: broadcast_stats_and_reply(state)
-  def handle_info({:vmaf_upserted, _vmaf}, state), do: broadcast_stats_and_reply(state)
+  def handle_info({:video_upserted, _video}, state) do
+    stats = Media.fetch_stats()
+    %{state | stats: stats}
+    |> broadcast_stats_and_reply()
+  end
+
+  def handle_info({:vmaf_upserted, _vmaf}, state) do
+    stats = Media.fetch_stats()
+    %{state | stats: stats}
+    |> broadcast_stats_and_reply()
+  end
 
   @impl true
   def handle_info(:broadcast_stats, state) do
-    stats = %{
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, state})
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_call(:get_stats, _from, state) do
+    {:reply, %{
+      stats: state.stats,
       encoding: state.encoding,
       crf_searching: state.crf_searching,
-      syncing: state.syncing,
-      sync_progress: state.sync_progress,
+      encoding_progress: state.encoding_progress,
       crf_search_progress: state.crf_search_progress,
-      encoding_progress: state.encoding_progress
-    }
-
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, stats})
-    {:noreply, state}
+      syncing: state.syncing,
+      sync_progress: state.sync_progress
+    }, state}
   end
 
   @impl true
@@ -154,14 +163,6 @@ defmodule Reencodarr.Statistics do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, state})
     {:noreply, state}
   end
-
-  defp get_encoding_progress, do: GenServer.call(__MODULE__, {:get_progress, :encoding_progress})
-
-  defp get_crf_search_progress,
-    do: GenServer.call(__MODULE__, {:get_progress, :crf_search_progress})
-
-  defp get_syncing, do: GenServer.call(__MODULE__, {:get_progress, :syncing})
-  defp get_sync_progress, do: GenServer.call(__MODULE__, {:get_progress, :sync_progress})
 
   @spec update_progress(struct(), struct()) :: struct()
   defp update_progress(current, incoming) when is_map(current) and is_map(incoming) do

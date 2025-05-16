@@ -55,22 +55,16 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_info({:stats, new_stats}, socket) do
     Logger.debug("Received new stats: #{inspect(new_stats)}")
 
-    stats_map =
-      if Map.has_key?(new_stats, :stats) do
-        new_stats
-      else
-        Statistics.get_stats()
-      end
-
+    # new_stats is always the full state now, so just use it directly
     {:noreply,
      socket
-     |> assign(:stats, stats_map.stats)
-     |> assign(:encoding, stats_map.encoding)
-     |> assign(:crf_searching, stats_map.crf_searching)
-     |> assign(:syncing, stats_map.syncing)
-     |> assign(:sync_progress, stats_map.sync_progress)
-     |> assign(:crf_search_progress, stats_map.crf_search_progress)
-     |> assign(:encoding_progress, stats_map.encoding_progress)}
+     |> assign(:stats, new_stats.stats)
+     |> assign(:encoding, new_stats.encoding)
+     |> assign(:crf_searching, new_stats.crf_searching)
+     |> assign(:syncing, new_stats.syncing)
+     |> assign(:sync_progress, new_stats.sync_progress)
+     |> assign(:crf_search_progress, new_stats.crf_search_progress)
+     |> assign(:encoding_progress, new_stats.encoding_progress)}
   end
 
   @impl true
