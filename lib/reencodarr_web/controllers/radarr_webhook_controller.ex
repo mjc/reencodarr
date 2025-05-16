@@ -15,7 +15,6 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   end
 
   defp handle_test(conn, params) do
-    dbg(params)
     Logger.info("Received test event from Radarr!")
     send_resp(conn, :no_content, "")
   end
@@ -26,8 +25,6 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   end
 
   defp handle_download(conn, %{"movieFiles" => movie_files} = params) do
-    dbg(params)
-
     results =
       Enum.map(movie_files, fn file ->
         Logger.info("Received download event from Radarr for #{file["sceneName"]}!")
@@ -52,22 +49,19 @@ defmodule ReencodarrWeb.RadarrWebhookController do
     Logger.info("Received rename event from Radarr for files: #{inspect(renamed_files)}")
 
     Enum.each(renamed_files, fn file ->
-      dbg(file, label: "Renamed file details")
-      Reencodarr.Sync.upsert_video_from_file(file, :radarr) |> dbg()
+      Reencodarr.Sync.upsert_video_from_file(file, :radarr)
     end)
 
     send_resp(conn, :no_content, "")
   end
 
   defp handle_moviefile(conn, %{"movieFile" => movie_file} = params) do
-    dbg(params)
     Logger.info("Received new MovieFile event from Radarr!")
-    dbg(Reencodarr.Sync.upsert_video_from_file(movie_file, :radarr))
+    Reencodarr.Sync.upsert_video_from_file(movie_file, :radarr)
     send_resp(conn, :no_content, "")
   end
 
   defp handle_unknown(conn, params) do
-    dbg(params, label: "Received Radarr webhook (other event)")
     Logger.info("Received unsupported event from Radarr: #{inspect(params["eventType"])}")
     send_resp(conn, :no_content, "ignored")
   end

@@ -14,8 +14,7 @@ defmodule ReencodarrWeb.SonarrWebhookController do
     end
   end
 
-  defp handle_test(conn, params) do
-    dbg(params)
+  defp handle_test(conn, _params) do
     Logger.info("Received test event from Sonarr!")
     send_resp(conn, :no_content, "")
   end
@@ -25,9 +24,7 @@ defmodule ReencodarrWeb.SonarrWebhookController do
     send_resp(conn, :no_content, "")
   end
 
-  defp handle_download(conn, %{"episodeFiles" => episode_files} = params) do
-    dbg(params)
-
+  defp handle_download(conn, %{"episodeFiles" => episode_files}) do
     results =
       Enum.map(episode_files, fn file ->
         Logger.info("Received download event from Sonarr for #{file["sceneName"]}!")
@@ -52,22 +49,20 @@ defmodule ReencodarrWeb.SonarrWebhookController do
     Logger.info("Received rename event from Sonarr for files: #{inspect(renamed_files)}")
 
     Enum.each(renamed_files, fn file ->
-      dbg(file, label: "Renamed file details")
-      Reencodarr.Sync.upsert_video_from_file(file, :sonarr) |> dbg()
+      Logger.debug("Renamed file details: #{inspect(file)}")
+      Reencodarr.Sync.upsert_video_from_file(file, :sonarr)
     end)
 
     send_resp(conn, :no_content, "")
   end
 
-  defp handle_episodefile(conn, %{"episodeFile" => episode_file} = params) do
-    dbg(params)
+  defp handle_episodefile(conn, %{"episodeFile" => episode_file}) do
     Logger.info("Received new episodefile event from Sonarr!")
-    dbg(Reencodarr.Sync.upsert_video_from_file(episode_file, :sonarr))
+    Reencodarr.Sync.upsert_video_from_file(episode_file, :sonarr)
     send_resp(conn, :no_content, "")
   end
 
   defp handle_unknown(conn, params) do
-    dbg(params, label: "Received Sonarr webhook (other event)")
     Logger.info("Received unsupported event from Sonarr: #{inspect(params["eventType"])}")
     send_resp(conn, :no_content, "ignored")
   end
