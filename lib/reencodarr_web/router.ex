@@ -48,6 +48,12 @@ defmodule ReencodarrWeb.Router do
     live "/configs/:id/show/edit", ConfigLive.Show, :edit
   end
 
+  scope "/api", ReencodarrWeb do
+    pipe_through :api
+
+    post "/webhooks/sonarr", WebhookController, :sonarr
+  end
+
   # Other scopes may use custom stacks.
   # scope "/api", ReencodarrWeb do
   #   pipe_through :api

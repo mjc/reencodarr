@@ -87,7 +87,7 @@ defmodule Reencodarr.Sync do
     :ok
   end
 
-  defp upsert_video_from_file(file, service_type) do
+  def upsert_video_from_file(file, service_type) do
     info = build_video_file_info(file, service_type)
 
     if is_nil(info.size), do: Logger.warning("File size is missing: #{inspect(file)}")
