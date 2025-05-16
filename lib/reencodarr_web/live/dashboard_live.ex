@@ -157,22 +157,15 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_event("toggle", %{"target" => "crf_search"}, socket), do: toggle_app(CrfSearcher, :crf_searching, socket)
 
   @impl true
-  def handle_event("sync", %{"target" => "sonarr"}, socket) do
-    Logger.info("Syncing with sonarr")
-    Sync.sync_episodes()
+  def handle_event("sync", %{"target" => target}, socket) when target in ["sonarr", "radarr"] do
+    Logger.info("Syncing with #{target}")
+    case target do
+      "sonarr" -> Sync.sync_episodes()
+      "radarr" -> Sync.sync_movies()
+    end
 
+    # Optimistically set syncing state locally only
     state = socket.assigns.state |> Map.put(:syncing, true) |> Map.put(:sync_progress, 0)
-
-    {:noreply, assign(socket, :state, state)}
-  end
-
-  @impl true
-  def handle_event("sync", %{"target" => "radarr"}, socket) do
-    Logger.info("Syncing with radarr")
-    Sync.sync_movies()
-
-    state = socket.assigns.state |> Map.put(:syncing, true) |> Map.put(:sync_progress, 0)
-
     {:noreply, assign(socket, :state, state)}
   end
 
