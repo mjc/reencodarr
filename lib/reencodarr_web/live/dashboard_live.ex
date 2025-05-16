@@ -48,68 +48,51 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def handle_info({:encoder, status}, socket) when status in [:started, :paused] do
     Logger.debug("Encoder #{status}")
-    {:noreply, assign(socket, :encoding, status == :started)}
+    # Update stats_state instead of old :encoding assign
+    stats_state = Map.put(socket.assigns.stats_state, :encoding, status == :started)
+    {:noreply, assign(socket, :stats_state, stats_state)}
   end
 
   @impl true
   def handle_info({:crf_searcher, status}, socket) when status in [:started, :paused] do
     Logger.debug("CRF search #{status}")
-    {:noreply, assign(socket, :crf_searching, status == :started)}
+    stats_state = Map.put(socket.assigns.stats_state, :crf_searching, status == :started)
+    {:noreply, assign(socket, :stats_state, stats_state)}
   end
 
   @impl true
   def handle_info(:sync_complete, socket) do
     Logger.info("Sync complete")
-    {:noreply, assign(socket, syncing: false, sync_progress: 0)}
+    stats_state = socket.assigns.stats_state
+    stats_state = stats_state |> Map.put(:syncing, false) |> Map.put(:sync_progress, 0)
+    {:noreply, assign(socket, :stats_state, stats_state)}
   end
 
   @impl true
   def handle_info({:sync_progress, progress}, socket) do
     Logger.debug("Sync progress: #{inspect(progress)}")
-    {:noreply, assign(socket, syncing: true, sync_progress: progress)}
+    stats_state = socket.assigns.stats_state
+    stats_state = stats_state |> Map.put(:syncing, true) |> Map.put(:sync_progress, progress)
+    {:noreply, assign(socket, :stats_state, stats_state)}
   end
 
   @impl true
   def handle_info({:stats, new_stats}, socket) do
     Logger.debug("Received new stats: #{inspect(new_stats)}")
-
-    default_stats = %{
-      total_videos: 0,
-      reencoded: 0,
-      not_reencoded: 0,
-      queue_length: %{encodes: 0, crf_searches: 0},
-      most_recent_video_update: nil,
-      most_recent_inserted_video: nil,
-      total_vmafs: 0,
-      chosen_vmafs_count: 0,
-      lowest_vmaf: %{percent: 0}
-    }
-
-    default_encoding_progress = %{filename: :none, percent: 0, fps: 0, eta: ""}
-    default_crf_search_progress = %{filename: :none, crf: nil, percent: 0, score: nil}
-    merged_stats = Map.merge(default_stats, new_stats.stats || %{})
-
-    merged_encoding_progress =
-      Map.merge(default_encoding_progress, new_stats.encoding_progress || %{})
-
-    merged_crf_search_progress =
-      Map.merge(default_crf_search_progress, new_stats.crf_search_progress || %{})
-
-    {:noreply,
-     socket
-     |> assign(:stats, merged_stats)
-     |> assign(:encoding, new_stats.encoding)
-     |> assign(:crf_searching, new_stats.crf_searching)
-     |> assign(:syncing, new_stats.syncing)
-     |> assign(:sync_progress, new_stats.sync_progress)
-     |> assign(:crf_search_progress, merged_crf_search_progress)
-     |> assign(:encoding_progress, merged_encoding_progress)}
+    {:noreply, assign(socket, :stats_state, new_stats)}
   end
 
   @impl true
   def handle_info({:encoding, :none}, socket) do
     # Clear encoding progress when encoding completes
-    {:noreply, assign(socket, :encoding_progress, %Reencodarr.Statistics.EncodingProgress{})}
+    stats_state =
+      Map.put(
+        socket.assigns.stats_state,
+        :encoding_progress,
+        %Reencodarr.Statistics.EncodingProgress{filename: :none, percent: 0, eta: 0, fps: 0}
+      )
+
+    {:noreply, assign(socket, :stats_state, stats_state)}
   end
 
   @impl true
@@ -120,20 +103,28 @@ defmodule ReencodarrWeb.DashboardLive do
       "Encoding progress: #{progress.percent}% ETA: #{progress.eta} FPS: #{progress.fps}"
     )
 
-    {:noreply, assign(socket, :encoding_progress, progress)}
+    stats_state = Map.put(socket.assigns.stats_state, :encoding_progress, progress)
+    {:noreply, assign(socket, :stats_state, stats_state)}
   end
 
   @impl true
   def handle_info({:crf_search, :none}, socket) do
     # Clear CRF search progress when CRF search completes
-    {:noreply, assign(socket, :crf_search_progress, %Reencodarr.Statistics.CrfSearchProgress{})}
+    stats_state =
+      Map.put(
+        socket.assigns.stats_state,
+        :crf_search_progress,
+        %Reencodarr.Statistics.CrfSearchProgress{}
+      )
+
+    {:noreply, assign(socket, :stats_state, stats_state)}
   end
 
   @impl true
   def handle_info({:crf_search, progress}, socket) do
     Logger.debug("Received CRF search progress: #{inspect(progress)}")
-
-    {:noreply, assign(socket, :crf_search_progress, progress)}
+    stats_state = Map.put(socket.assigns.stats_state, :crf_search_progress, progress)
+    {:noreply, assign(socket, :stats_state, stats_state)}
   end
 
   # --- Handle Events ---
@@ -175,7 +166,33 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, socket}
   end
 
+  defp toggle_app(app, :crf_searching, socket) do
+    Logger.info("Toggling CRF search")
+    new_state = not socket.assigns.stats_state.crf_searching
+
+    case new_state do
+      true -> app.start()
+      false -> app.pause()
+    end
+
+    {:noreply, assign(socket, crf_searching: new_state)}
+  end
+
+  defp toggle_app(app, :encoding, socket) do
+    Logger.info("Toggling encoding")
+    new_state = not socket.assigns.stats_state.encoding
+
+    case new_state do
+      true -> app.start()
+      false -> app.pause()
+    end
+
+    {:noreply, assign(socket, encoding: new_state)}
+  end
+
   defp toggle_app(app, state_key, socket) do
+    dbg(state_key)
+    dbg(socket.assigns)
     new_state = not socket.assigns[state_key]
     Logger.info("#{state_key} #{if new_state, do: "started", else: "paused"}")
     if new_state, do: app.start(), else: app.pause()
@@ -201,23 +218,27 @@ defmodule ReencodarrWeb.DashboardLive do
         </div>
         <div class="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-6 mt-4 md:mt-0">
           <div class="flex flex-wrap gap-2">
-            <.render_control_buttons {assigns} />
+            <.render_control_buttons
+              encoding={@stats_state.encoding}
+              crf_searching={@stats_state.crf_searching}
+              syncing={@stats_state.syncing}
+            />
           </div>
         </div>
       </header>
 
-      <.render_summary_row stats={@stats} />
+      <.render_summary_row stats={@stats_state.stats} />
 
       <.render_manual_scan_form />
 
       <div class="w-full max-w-6xl grid grid-cols-1 md:grid-cols-3 gap-8">
-        <.render_queue_information stats={@stats} />
+        <.render_queue_information stats={@stats_state.stats} />
         <.render_progress_information
-          sync_progress={@sync_progress}
-          encoding_progress={@encoding_progress}
-          crf_search_progress={@crf_search_progress}
+          sync_progress={@stats_state.sync_progress}
+          encoding_progress={@stats_state.encoding_progress}
+          crf_search_progress={@stats_state.crf_search_progress}
         />
-        <.render_statistics stats={@stats} timezone={@timezone} />
+        <.render_statistics stats={@stats_state.stats} timezone={@timezone} />
       </div>
 
       <footer class="w-full max-w-6xl mt-12 text-center text-xs text-gray-500 border-t border-gray-700 pt-4">
@@ -265,32 +286,20 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp assign_defaults(socket) do
     socket
-    |> assign(:stats, @default_stats)
-    |> assign(:encoding, false)
-    |> assign(:crf_searching, false)
-    |> assign(:syncing, false)
-    |> assign(:sync_progress, 0)
-    |> assign(:crf_search_progress, @default_crf_search_progress)
-    |> assign(:encoding_progress, @default_encoding_progress)
+    |> assign(:stats_state, %{
+      stats: @default_stats,
+      encoding: false,
+      crf_searching: false,
+      syncing: false,
+      sync_progress: 0,
+      crf_search_progress: @default_crf_search_progress,
+      encoding_progress: @default_encoding_progress
+    })
+    |> assign(:timezone, "UTC")
   end
 
   defp assign_stats(socket, stats) do
-    merged_stats = Map.merge(@default_stats, stats.stats || %{})
-
-    merged_encoding_progress =
-      Map.merge(@default_encoding_progress, stats.encoding_progress || %{})
-
-    merged_crf_search_progress =
-      Map.merge(@default_crf_search_progress, stats.crf_search_progress || %{})
-
-    socket
-    |> assign(:stats, merged_stats)
-    |> assign(:encoding, stats.encoding)
-    |> assign(:crf_searching, stats.crf_searching)
-    |> assign(:syncing, stats.syncing)
-    |> assign(:sync_progress, stats.sync_progress)
-    |> assign(:crf_search_progress, merged_crf_search_progress)
-    |> assign(:encoding_progress, merged_encoding_progress)
+    assign(socket, :stats_state, stats)
   end
 
   # --- Render Helpers ---
@@ -310,7 +319,7 @@ defmodule ReencodarrWeb.DashboardLive do
           <circle cx="12" cy="7" r="4"></circle>
         </svg>
         <div>
-          <div class="text-lg font-bold text-white">{assigns.stats.total_videos}</div>
+          <div class="text-lg font-bold text-white">{@stats.total_videos}</div>
           <div class="text-xs text-indigo-100">Total Videos</div>
         </div>
       </div>
@@ -325,7 +334,7 @@ defmodule ReencodarrWeb.DashboardLive do
           <path d="M5 13l4 4L19 7"></path>
         </svg>
         <div>
-          <div class="text-lg font-bold text-white">{assigns.stats.reencoded}</div>
+          <div class="text-lg font-bold text-white">{@stats.reencoded}</div>
           <div class="text-xs text-green-100">Reencoded</div>
         </div>
       </div>
@@ -341,7 +350,7 @@ defmodule ReencodarrWeb.DashboardLive do
           <path d="M12 8v4l3 3"></path>
         </svg>
         <div>
-          <div class="text-lg font-bold text-white">{assigns.stats.not_reencoded}</div>
+          <div class="text-lg font-bold text-white">{@stats.not_reencoded}</div>
           <div class="text-xs text-yellow-100">Not Reencoded</div>
         </div>
       </div>
@@ -357,7 +366,7 @@ defmodule ReencodarrWeb.DashboardLive do
           <path d="M2 10h20"></path>
         </svg>
         <div>
-          <div class="text-lg font-bold text-white">{assigns.stats.queue_length.encodes}</div>
+          <div class="text-lg font-bold text-white">{@stats.queue_length.encodes}</div>
           <div class="text-xs text-blue-100">Encodes in Queue</div>
         </div>
       </div>
@@ -404,6 +413,29 @@ defmodule ReencodarrWeb.DashboardLive do
       </h2>
       <div class="flex flex-col space-y-4">
         <.render_queue_info stats={@stats} />
+      </div>
+    </div>
+    """
+  end
+
+  defp render_queue_info(assigns) do
+    ~H"""
+    <div class="flex items-center justify-between">
+      <div class="text-sm leading-5 text-gray-200 dark:text-gray-300 flex items-center space-x-1">
+        <span>CRF Searches in Queue</span>
+        <span class="ml-1 text-xs text-gray-400" title="Number of CRF search jobs waiting.">?</span>
+      </div>
+      <div class="text-sm leading-5 text-gray-100 dark:text-gray-200 font-mono">
+        {@stats.queue_length.crf_searches}
+      </div>
+    </div>
+    <div class="flex items-center justify-between">
+      <div class="text-sm leading-5 text-gray-200 dark:text-gray-300 flex items-center space-x-1">
+        <span>Encodes in Queue</span>
+        <span class="ml-1 text-xs text-gray-400" title="Number of encoding jobs waiting.">?</span>
+      </div>
+      <div class="text-sm leading-5 text-gray-100 dark:text-gray-200 font-mono">
+        {@stats.queue_length.encodes}
       </div>
     </div>
     """
@@ -572,29 +604,6 @@ defmodule ReencodarrWeb.DashboardLive do
         </svg>
         <span>Sync Radarr</span>
       </button>
-    </div>
-    """
-  end
-
-  defp render_queue_info(assigns) do
-    ~H"""
-    <div class="flex items-center justify-between">
-      <div class="text-sm leading-5 text-gray-200 dark:text-gray-300 flex items-center space-x-1">
-        <span>CRF Searches in Queue</span>
-        <span class="ml-1 text-xs text-gray-400" title="Number of CRF search jobs waiting.">?</span>
-      </div>
-      <div class="text-sm leading-5 text-gray-100 dark:text-gray-200 font-mono">
-        {@stats.queue_length.crf_searches}
-      </div>
-    </div>
-    <div class="flex items-center justify-between">
-      <div class="text-sm leading-5 text-gray-200 dark:text-gray-300 flex items-center space-x-1">
-        <span>Encodes in Queue</span>
-        <span class="ml-1 text-xs text-gray-400" title="Number of encoding jobs waiting.">?</span>
-      </div>
-      <div class="text-sm leading-5 text-gray-100 dark:text-gray-200 font-mono">
-        {@stats.queue_length.encodes}
-      </div>
     </div>
     """
   end

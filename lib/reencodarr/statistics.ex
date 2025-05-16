@@ -28,10 +28,18 @@ defmodule Reencodarr.Statistics do
       syncing: false,
       sync_progress: 0,
       crf_search_progress: %CrfSearchProgress{
-        filename: :none, percent: 0, eta: 0, fps: 0, crf: 0, score: 0
+        filename: :none,
+        percent: 0,
+        eta: 0,
+        fps: 0,
+        crf: 0,
+        score: 0
       },
       encoding_progress: %EncodingProgress{
-        filename: :none, percent: 0, eta: 0, fps: 0
+        filename: :none,
+        percent: 0,
+        eta: 0,
+        fps: 0
       }
     }
 
@@ -83,7 +91,10 @@ defmodule Reencodarr.Statistics do
   end
 
   def handle_info({:encoder, :none}, %State{} = state) do
-    broadcast_stats_and_reply(%State{state | encoding_progress: %EncodingProgress{filename: :none, percent: 0, eta: 0, fps: 0}})
+    broadcast_stats_and_reply(%State{
+      state
+      | encoding_progress: %EncodingProgress{filename: :none, percent: 0, eta: 0, fps: 0}
+    })
   end
 
   def handle_info({:sync_progress, progress}, %State{} = state) do
