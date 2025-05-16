@@ -72,14 +72,17 @@ defmodule Reencodarr.Media.CodecMapper do
 
   @spec has_low_resolution_hevc?(list(String.t()), map()) :: boolean()
   def has_low_resolution_hevc?(video_codecs, mediainfo) do
-    "V_MPEGH/ISO/HEVC" in video_codecs and
-      CodecHelper.get_int(mediainfo, "Video", "Height") < 720
+    height = CodecHelper.get_int(mediainfo, "Video", "Height")
+    case height do
+      0 -> false
+      _ -> "V_MPEGH/ISO/HEVC" in video_codecs and CodecHelper.get_int(mediainfo, "Video", "Height") < 720
+    end
   end
 
   @spec low_bitrate_1080p?(list(String.t()), map()) :: boolean()
   def low_bitrate_1080p?(video_codecs, mediainfo) do
     "V_MPEGH/ISO/HEVC" in video_codecs and
-      CodecHelper.get_str(mediainfo, "Video", "Width") == "1920" and
+      CodecHelper.get_int(mediainfo, "Video", "Width") == 1920 and
       CodecHelper.get_int(mediainfo, "General", "OverallBitRate") < 20_000_000
   end
 
