@@ -51,8 +51,8 @@ defmodule ReencodarrWeb.Router do
   scope "/api", ReencodarrWeb do
     pipe_through :api
 
-    post "/webhooks/sonarr", WebhookController, :sonarr
-    post "/webhooks/radarr", WebhookController, :radarr
+    post "/webhooks/sonarr", SonarrWebhookController, :sonarr
+    post "/webhooks/radarr", RadarrWebhookController, :radarr
   end
 
   # Other scopes may use custom stacks.
