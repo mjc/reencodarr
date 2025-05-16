@@ -8,19 +8,19 @@ defmodule ReencodarrWeb.DashboardLive do
   require Logger
 
   # --- Default Assigns ---
-  @default_stats %Reencodarr.Media.Stats{
+  @default_stats %{
     total_videos: 0,
     reencoded: 0,
     not_reencoded: 0,
-    queue_length: %Reencodarr.Statistics.QueueLength{encodes: 0, crf_searches: 0},
+    queue_length: %{encodes: 0, crf_searches: 0},
     most_recent_video_update: nil,
     most_recent_inserted_video: nil,
     total_vmafs: 0,
     chosen_vmafs_count: 0,
-    lowest_vmaf: %Reencodarr.Media.Vmaf{percent: 0}
+    lowest_vmaf: %{percent: 0}
   }
-  @default_encoding_progress %Reencodarr.Statistics.EncodingProgress{filename: :none, percent: 0, fps: 0, eta: ""}
-  @default_crf_search_progress %Reencodarr.Statistics.CrfSearchProgress{filename: :none, crf: nil, percent: 0, score: nil}
+  @default_encoding_progress %{filename: :none, percent: 0, fps: 0, eta: ""}
+  @default_crf_search_progress %{filename: :none, crf: nil, percent: 0, score: nil}
 
   # --- LiveView Callbacks ---
 
@@ -73,6 +73,43 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_info({:sync_progress, progress}, socket) do
     Logger.debug("Sync progress: #{inspect(progress)}")
     {:noreply, assign(socket, syncing: true, sync_progress: progress)}
+  end
+
+  @impl true
+  def handle_info({:stats, new_stats}, socket) do
+    Logger.debug("Received new stats: #{inspect(new_stats)}")
+
+    default_stats = %{
+      total_videos: 0,
+      reencoded: 0,
+      not_reencoded: 0,
+      queue_length: %{encodes: 0, crf_searches: 0},
+      most_recent_video_update: nil,
+      most_recent_inserted_video: nil,
+      total_vmafs: 0,
+      chosen_vmafs_count: 0,
+      lowest_vmaf: %{percent: 0}
+    }
+
+    default_encoding_progress = %{filename: :none, percent: 0, fps: 0, eta: ""}
+    default_crf_search_progress = %{filename: :none, crf: nil, percent: 0, score: nil}
+    merged_stats = Map.merge(default_stats, new_stats.stats || %{})
+
+    merged_encoding_progress =
+      Map.merge(default_encoding_progress, new_stats.encoding_progress || %{})
+
+    merged_crf_search_progress =
+      Map.merge(default_crf_search_progress, new_stats.crf_search_progress || %{})
+
+    {:noreply,
+     socket
+     |> assign(:stats, merged_stats)
+     |> assign(:encoding, new_stats.encoding)
+     |> assign(:crf_searching, new_stats.crf_searching)
+     |> assign(:syncing, new_stats.syncing)
+     |> assign(:sync_progress, new_stats.sync_progress)
+     |> assign(:crf_search_progress, merged_crf_search_progress)
+     |> assign(:encoding_progress, merged_encoding_progress)}
   end
 
   @impl true
@@ -244,49 +281,22 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   defp assign_stats(socket, stats) do
-    stats_struct =
-      cond do
-        is_struct(stats, Reencodarr.Media.Stats) -> stats
-        is_map(stats) and Map.has_key?(stats, :stats) -> struct(Reencodarr.Media.Stats, stats.stats || %{})
-        is_map(stats) -> struct(Reencodarr.Media.Stats, stats)
-        true -> @default_stats
-      end
+    merged_stats = Map.merge(@default_stats, stats.stats || %{})
 
-    # Ensure queue_length is always a QueueLength struct
-    queue_length_struct =
-      case stats_struct.queue_length do
-        %Reencodarr.Statistics.QueueLength{} = ql -> ql
-        ql when is_map(ql) and not is_struct(ql) ->
-          struct(Reencodarr.Statistics.QueueLength, ql)
-        ql when is_struct(ql) ->
-          ql
-        _ -> %Reencodarr.Statistics.QueueLength{encodes: 0, crf_searches: 0}
-      end
+    merged_encoding_progress =
+      Map.merge(@default_encoding_progress, stats.encoding_progress || %{})
 
-    # Ensure lowest_vmaf is always a %Vmaf{} struct
-    lowest_vmaf =
-      case stats_struct.lowest_vmaf do
-        %Reencodarr.Media.Vmaf{} = vmaf -> vmaf
-        lv when is_map(lv) and not is_struct(lv) ->
-          struct(Reencodarr.Media.Vmaf, lv)
-        lv when is_struct(lv) ->
-          lv
-        _ -> %Reencodarr.Media.Vmaf{percent: 0}
-      end
-
-    stats_struct = %{stats_struct | queue_length: queue_length_struct, lowest_vmaf: lowest_vmaf}
-
-    encoding_progress_struct = struct(Reencodarr.Statistics.EncodingProgress, Map.from_struct(stats.encoding_progress || @default_encoding_progress))
-    crf_search_progress_struct = struct(Reencodarr.Statistics.CrfSearchProgress, Map.from_struct(stats.crf_search_progress || @default_crf_search_progress))
+    merged_crf_search_progress =
+      Map.merge(@default_crf_search_progress, stats.crf_search_progress || %{})
 
     socket
-    |> assign(:stats, stats_struct)
+    |> assign(:stats, merged_stats)
     |> assign(:encoding, stats.encoding)
     |> assign(:crf_searching, stats.crf_searching)
     |> assign(:syncing, stats.syncing)
     |> assign(:sync_progress, stats.sync_progress)
-    |> assign(:crf_search_progress, crf_search_progress_struct)
-    |> assign(:encoding_progress, encoding_progress_struct)
+    |> assign(:crf_search_progress, merged_crf_search_progress)
+    |> assign(:encoding_progress, merged_encoding_progress)
   end
 
   # --- Render Helpers ---

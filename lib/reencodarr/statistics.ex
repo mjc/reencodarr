@@ -17,11 +17,6 @@ defmodule Reencodarr.Statistics do
     defstruct filename: :none, percent: 0, eta: 0, fps: 0, crf: 0, score: 0
   end
 
-  defmodule QueueLength do
-    @enforce_keys []
-    defstruct encodes: 0, crf_searches: 0
-  end
-
   # --- Public API ---
 
   def start_link(_), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
