@@ -81,7 +81,7 @@ defmodule Reencodarr.Media.Video do
     |> validate_required(@required)
     |> unique_constraint(:path)
     |> validate_inclusion(:service_type, @service_types)
-    |> validate_number(:bitrate, greater_than_or_equal_to: 1, allow_nil: true) # allow_nil added
+    |> validate_number(:bitrate, greater_than_or_equal_to: 1)
   end
 
   defp maybe_remove_size_zero(changeset) do
