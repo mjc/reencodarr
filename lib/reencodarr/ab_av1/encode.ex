@@ -135,7 +135,7 @@ defmodule Reencodarr.AbAv1.Encode do
     GenServer.cast(Reencodarr.Encoder, {:encoding_failed, video, exit_code})
   end
 
-  def process_line(data, _state) do
+  def process_line(data, state) do
     cond do
       captures = Regex.named_captures(~r/\[.*\] encoding (?<filename>\d+\.mkv)/, data) ->
         Logger.info("Encoding should start for #{captures["filename"]}")
@@ -157,6 +157,7 @@ defmodule Reencodarr.AbAv1.Encode do
           Helper.convert_to_seconds(String.to_integer(captures["eta"]), captures["unit"])
 
         human_readable_eta = "#{captures["eta"]} #{captures["unit"]}"
+        filename = Path.basename(state.video.path)
 
         Logger.debug(
           "Encoding progress: #{captures["percent"]}%, #{captures["fps"]} fps, ETA: #{human_readable_eta}"
@@ -166,7 +167,12 @@ defmodule Reencodarr.AbAv1.Encode do
           Reencodarr.PubSub,
           "progress",
           {:encoding,
-           %{percent: captures["percent"], eta: human_readable_eta, fps: captures["fps"]}}
+           %Reencodarr.Statistics.EncodingProgress{
+             percent: String.to_integer(captures["percent"]),
+             eta: human_readable_eta,
+             fps: String.to_integer(captures["fps"]),
+             filename: filename
+           }}
         )
 
       captures =

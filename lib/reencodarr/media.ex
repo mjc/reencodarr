@@ -4,23 +4,6 @@ defmodule Reencodarr.Media do
   alias Reencodarr.Media.{Video, Library, Vmaf}
   require Logger
 
-  defmodule Stats do
-    defstruct [
-      :not_reencoded,
-      :reencoded,
-      :total_videos,
-      :avg_vmaf_percentage,
-      :total_vmafs,
-      :chosen_vmafs_count,
-      :lowest_vmaf,
-      :lowest_vmaf_by_time,
-      :most_recent_video_update,
-      :most_recent_inserted_video,
-      :queue_length,
-      :encode_queue_length
-    ]
-  end
-
   # --- Video-related functions ---
 
   def list_videos, do: Repo.all(from v in Video, order_by: [desc: v.updated_at])
@@ -190,7 +173,7 @@ defmodule Reencodarr.Media do
   def fetch_stats do
     stats = Repo.one(aggregated_stats_query())
 
-    %Stats{
+    %Reencodarr.Statistics.Stats{
       avg_vmaf_percentage: stats.avg_vmaf_percentage,
       chosen_vmafs_count: stats.chosen_vmafs_count,
       lowest_vmaf_by_time: get_next_for_encoding_by_time() || %Vmaf{},

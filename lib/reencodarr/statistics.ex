@@ -17,6 +17,23 @@ defmodule Reencodarr.Statistics do
     defstruct filename: :none, percent: 0, eta: 0, fps: 0, crf: 0, score: 0
   end
 
+  defmodule Stats do
+    defstruct [
+      :not_reencoded,
+      :reencoded,
+      :total_videos,
+      :avg_vmaf_percentage,
+      :total_vmafs,
+      :chosen_vmafs_count,
+      :lowest_vmaf,
+      :lowest_vmaf_by_time,
+      :most_recent_video_update,
+      :most_recent_inserted_video,
+      :queue_length,
+      :encode_queue_length
+    ]
+  end
+
   # --- Public API ---
 
   def start_link(_), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
@@ -48,36 +65,30 @@ defmodule Reencodarr.Statistics do
   end
 
   @impl true
-  def handle_info({:crf_search_progress, %{filename: :none}}, state) do
-    state
-    |> Map.put(:crf_search_progress, %CrfSearchProgress{})
+  def handle_info({:crf_search_progress, %CrfSearchProgress{} = progress}, state) do
+    %{state | crf_search_progress: progress}
     |> broadcast_stats_and_reply()
   end
 
-  def handle_info({:crf_search_progress, vmaf}, state) do
-    new_crf_search_progress = update_progress(state.crf_search_progress, vmaf)
+  def handle_info({:crf_search_progress, %{filename: :none}}, state) do
+    %{state | crf_search_progress: %CrfSearchProgress{}}
+    |> broadcast_stats_and_reply()
+  end
 
-    %{state | crf_search_progress: new_crf_search_progress}
+  def handle_info({:encoding, %EncodingProgress{} = progress}, state) do
+    %{state | encoding_progress: progress}
     |> broadcast_stats_and_reply()
   end
 
   def handle_info({:encoding, %{percent: percent, eta: eta, fps: fps}}, state) do
-    new_encoding_progress =
-      update_progress(state.encoding_progress, %EncodingProgress{
-        percent: percent,
-        eta: eta,
-        fps: fps
-      })
-
-    %{state | encoding_progress: new_encoding_progress}
+    progress = %EncodingProgress{percent: percent, eta: eta, fps: fps}
+    %{state | encoding_progress: progress}
     |> broadcast_stats_and_reply()
   end
 
   def handle_info({:encoder, :started, filename}, state) do
-    new_encoding_progress =
-      update_progress(state.encoding_progress, %EncodingProgress{filename: filename})
-
-    %{state | encoding: true, encoding_progress: new_encoding_progress}
+    progress = %EncodingProgress{filename: filename}
+    %{state | encoding: true, encoding_progress: progress}
     |> broadcast_stats_and_reply()
   end
 
@@ -87,7 +98,6 @@ defmodule Reencodarr.Statistics do
   end
 
   def handle_info({:encoder, :none}, state) do
-    # Reset the entire EncodingProgress struct when encoding completes
     %{state | encoding_progress: %EncodingProgress{}}
     |> broadcast_stats_and_reply()
   end
@@ -165,16 +175,5 @@ defmodule Reencodarr.Statistics do
   defp broadcast_stats_and_reply(state) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, state})
     {:noreply, state}
-  end
-
-  @spec update_progress(struct(), struct()) :: struct()
-  defp update_progress(current, incoming) when is_map(current) and is_map(incoming) do
-    defaults = struct(current.__struct__)
-
-    incoming
-    |> Map.from_struct()
-    |> Enum.reject(fn {key, new} -> new == Map.get(defaults, key) end)
-    |> Enum.into(%{})
-    |> then(&struct(current, &1))
   end
 end
