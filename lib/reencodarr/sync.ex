@@ -195,4 +195,11 @@ defmodule Reencodarr.Sync do
 
   def rescan_and_rename_series(episode_file_id),
     do: refresh_operations(episode_file_id, :sonarr)
+
+  def delete_video_and_vmafs(path) do
+    case Reencodarr.Media.delete_videos_with_path(path) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
 end

@@ -14,7 +14,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
     end
   end
 
-  defp handle_test(conn, params) do
+  defp handle_test(conn, _params) do
     Logger.info("Received test event from Radarr!")
     send_resp(conn, :no_content, "")
   end
@@ -28,6 +28,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
     Logger.info("Received download event from Radarr for #{inspect(params)}!")
 
     movie_files = params["movieFiles"] || []
+
     results =
       Enum.map(movie_files, fn file ->
         Logger.info("Processing file #{file["sceneName"]}...")
@@ -50,6 +51,16 @@ defmodule ReencodarrWeb.RadarrWebhookController do
 
   defp handle_delete(conn, %{"movieFile" => movie_file}) do
     Logger.info("Received delete event from Radarr for movie file: #{inspect(movie_file)}")
+    path = movie_file["path"]
+
+    case Reencodarr.Sync.delete_video_and_vmafs(path) do
+      :ok ->
+        Logger.info("Deleted video and vmafs for path: #{path}")
+
+      {:error, reason} ->
+        Logger.error("Failed to delete video and vmafs for path #{path}: #{inspect(reason)}")
+    end
+
     send_resp(conn, :no_content, "")
   end
 
@@ -63,7 +74,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
     send_resp(conn, :no_content, "")
   end
 
-  defp handle_moviefile(conn, %{"movieFile" => movie_file} = params) do
+  defp handle_moviefile(conn, %{"movieFile" => movie_file}) do
     Logger.info("Received new MovieFile event from Radarr!")
     Reencodarr.Sync.upsert_video_from_file(movie_file, :radarr)
     send_resp(conn, :no_content, "")

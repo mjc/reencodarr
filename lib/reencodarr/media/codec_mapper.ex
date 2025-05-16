@@ -73,9 +73,14 @@ defmodule Reencodarr.Media.CodecMapper do
   @spec has_low_resolution_hevc?(list(String.t()), map()) :: boolean()
   def has_low_resolution_hevc?(video_codecs, mediainfo) do
     height = CodecHelper.get_int(mediainfo, "Video", "Height")
+
     case height do
-      0 -> false
-      _ -> "V_MPEGH/ISO/HEVC" in video_codecs and CodecHelper.get_int(mediainfo, "Video", "Height") < 720
+      0 ->
+        false
+
+      _ ->
+        "V_MPEGH/ISO/HEVC" in video_codecs and
+          CodecHelper.get_int(mediainfo, "Video", "Height") < 720
     end
   end
 
