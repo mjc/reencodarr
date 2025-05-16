@@ -70,8 +70,40 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_info({:stats, stats}, socket) do
-    {:noreply, assign_stats(socket, stats)}
+  def handle_info({:stats, new_stats}, socket) do
+    Logger.debug("Received new stats: #{inspect(new_stats)}")
+
+    default_stats = %{
+      total_videos: 0,
+      reencoded: 0,
+      not_reencoded: 0,
+      queue_length: %{encodes: 0, crf_searches: 0},
+      most_recent_video_update: nil,
+      most_recent_inserted_video: nil,
+      total_vmafs: 0,
+      chosen_vmafs_count: 0,
+      lowest_vmaf: %{percent: 0}
+    }
+
+    default_encoding_progress = %{filename: :none, percent: 0, fps: 0, eta: ""}
+    default_crf_search_progress = %{filename: :none, crf: nil, percent: 0, score: nil}
+    merged_stats = Map.merge(default_stats, new_stats.stats || %{})
+
+    merged_encoding_progress =
+      Map.merge(default_encoding_progress, new_stats.encoding_progress || %{})
+
+    merged_crf_search_progress =
+      Map.merge(default_crf_search_progress, new_stats.crf_search_progress || %{})
+
+    {:noreply,
+     socket
+     |> assign(:stats, merged_stats)
+     |> assign(:encoding, new_stats.encoding)
+     |> assign(:crf_searching, new_stats.crf_searching)
+     |> assign(:syncing, new_stats.syncing)
+     |> assign(:sync_progress, new_stats.sync_progress)
+     |> assign(:crf_search_progress, merged_crf_search_progress)
+     |> assign(:encoding_progress, merged_encoding_progress)}
   end
 
   @impl true
@@ -243,21 +275,20 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   defp assign_stats(socket, stats) do
-    # stats is now a struct, not a map with a :stats key
-    merged_stats = Map.merge(@default_stats, Map.from_struct(stats))
+    merged_stats = Map.merge(@default_stats, stats.stats || %{})
 
     merged_encoding_progress =
-      Map.merge(@default_encoding_progress, Map.get(merged_stats, :encoding_progress) || %{})
+      Map.merge(@default_encoding_progress, stats.encoding_progress || %{})
 
     merged_crf_search_progress =
-      Map.merge(@default_crf_search_progress, Map.get(merged_stats, :crf_search_progress) || %{})
+      Map.merge(@default_crf_search_progress, stats.crf_search_progress || %{})
 
     socket
     |> assign(:stats, merged_stats)
-    |> assign(:encoding, merged_stats.encoding)
-    |> assign(:crf_searching, merged_stats.crf_searching)
-    |> assign(:syncing, merged_stats.syncing)
-    |> assign(:sync_progress, merged_stats.sync_progress)
+    |> assign(:encoding, stats.encoding)
+    |> assign(:crf_searching, stats.crf_searching)
+    |> assign(:syncing, stats.syncing)
+    |> assign(:sync_progress, stats.sync_progress)
     |> assign(:crf_search_progress, merged_crf_search_progress)
     |> assign(:encoding_progress, merged_encoding_progress)
   end
