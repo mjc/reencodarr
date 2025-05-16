@@ -109,6 +109,7 @@ defmodule Reencodarr.Media do
 
   def delete_videos_with_path(path) do
     video_ids = from(v in Video, where: ilike(v.path, ^path), select: v.id) |> Repo.all()
+
     Repo.transaction(fn ->
       from(v in Vmaf, where: v.video_id in ^video_ids) |> Repo.delete_all()
       from(v in Video, where: v.id in ^video_ids) |> Repo.delete_all()

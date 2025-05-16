@@ -140,11 +140,12 @@ defmodule Reencodarr.Sync do
   defp build_mediainfo_from_info(info) do
     {width, height} = info.resolution
 
-    subtitles = case info.subtitles do
-      nil -> []
-      subs when is_binary(subs) -> String.split(subs, "/")
-      subs when is_list(subs) -> subs
-    end
+    subtitles =
+      case info.subtitles do
+        nil -> []
+        subs when is_binary(subs) -> String.split(subs, "/")
+        subs when is_list(subs) -> subs
+      end
 
     %{
       "media" => %{
