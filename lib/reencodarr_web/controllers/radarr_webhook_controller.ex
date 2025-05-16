@@ -27,7 +27,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   defp handle_download(conn, %{"eventType" => "Download"} = params) do
     Logger.info("Received download event from Radarr for #{inspect(params)}!")
 
-    movie_files = params["movieFiles"] || []
+    movie_files = params["movieFiles"] || [params["movieFile"]]
 
     results =
       Enum.map(movie_files, fn file ->
