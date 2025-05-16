@@ -189,7 +189,8 @@ defmodule ReencodarrWeb.DashboardLive do
 
     if new_state, do: app.start(), else: app.pause()
 
-    {:noreply, assign(socket, :state, Map.put(state, type, new_state))}
+    # Fetch the latest state after toggling to ensure encoding/crf_searching and progress are correct
+    {:noreply, socket}
   end
 
   @impl true
