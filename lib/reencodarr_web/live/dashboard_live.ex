@@ -45,6 +45,11 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, assign_stats(socket, stats)}
   end
 
+  @impl true
+  def handle_info({:stats, new_stats}, socket) do
+    Logger.debug("Received new stats: #{inspect(new_stats)}")
+    {:noreply, assign_stats(socket, new_stats)}
+  end
 
   @impl true
   def handle_info({:encoder, status}, socket) when status in [:started, :paused] do
