@@ -24,10 +24,13 @@ defmodule ReencodarrWeb.RadarrWebhookController do
     send_resp(conn, :no_content, "")
   end
 
-  defp handle_download(conn, %{"movieFiles" => movie_files} = params) do
+  defp handle_download(conn, %{"eventType" => "Download"} = params) do
+    Logger.info("Received download event from Radarr for #{inspect(params)}!")
+
+    movie_files = params["movieFiles"] || []
     results =
       Enum.map(movie_files, fn file ->
-        Logger.info("Received download event from Radarr for #{file["sceneName"]}!")
+        Logger.info("Processing file #{file["sceneName"]}...")
         Reencodarr.Sync.upsert_video_from_file(file, :radarr)
       end)
 
@@ -38,6 +41,11 @@ defmodule ReencodarrWeb.RadarrWebhookController do
     end
 
     send_resp(conn, :no_content, "")
+  end
+
+  defp handle_download(conn, params) do
+    Logger.error("Unhandled Radarr webhook payload: #{inspect(params)}")
+    send_resp(conn, 400, "Unhandled payload")
   end
 
   defp handle_delete(conn, %{"movieFile" => movie_file}) do
