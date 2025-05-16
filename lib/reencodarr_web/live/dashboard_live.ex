@@ -68,7 +68,10 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_info({:encoding, :none}, socket), do: {:noreply, socket}
+  def handle_info({:encoding, :none}, socket) do
+    # Clear encoding progress when encoding completes
+    {:noreply, assign(socket, :encoding_progress, %Reencodarr.Statistics.EncodingProgress{})}
+  end
 
   @impl true
   def handle_info({:encoding, progress}, socket) do
@@ -79,6 +82,19 @@ defmodule ReencodarrWeb.DashboardLive do
     )
 
     {:noreply, assign(socket, :encoding_progress, progress)}
+  end
+
+  @impl true
+  def handle_info({:crf_search, :none}, socket) do
+    # Clear CRF search progress when CRF search completes
+    {:noreply, assign(socket, :crf_search_progress, %Reencodarr.Statistics.CrfSearchProgress{})}
+  end
+
+  @impl true
+  def handle_info({:crf_search, progress}, socket) do
+    Logger.debug("Received CRF search progress: #{inspect(progress)}")
+
+    {:noreply, assign(socket, :crf_search_progress, progress)}
   end
 
   # --- Handle Events ---

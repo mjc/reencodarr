@@ -86,10 +86,8 @@ defmodule Reencodarr.Statistics do
   end
 
   def handle_info({:encoder, :none}, state) do
-    new_encoding_progress =
-      update_progress(state.encoding_progress, %EncodingProgress{filename: :none})
-
-    %{state | encoding_progress: new_encoding_progress}
+    # Reset the entire EncodingProgress struct when encoding completes
+    %{state | encoding_progress: %EncodingProgress{}}
     |> broadcast_stats_and_reply()
   end
 
