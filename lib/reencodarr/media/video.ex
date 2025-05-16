@@ -81,7 +81,7 @@ defmodule Reencodarr.Media.Video do
     |> validate_required(@required)
     |> unique_constraint(:path)
     |> validate_inclusion(:service_type, @service_types)
-    |> validate_number(:bitrate, greater_than_or_equal_to: 1)
+    |> validate_number(:bitrate, greater_than_or_equal_to: 1, allow_nil: true) # allow_nil added
   end
 
   defp maybe_remove_size_zero(changeset) do
@@ -144,18 +144,18 @@ defmodule Reencodarr.Media.Video do
 
     params = %{
       audio_codecs: audio_codecs,
-      audio_count: general["AudioCount"],
+      audio_count: CodecHelper.parse_int(general["AudioCount"], 0),
       atmos: atmos,
-      bitrate: general["OverallBitRate"],
-      duration: general["Duration"],
+      bitrate: CodecHelper.parse_int(general["OverallBitRate"], 0),
+      duration: CodecHelper.parse_float(general["Duration"], 0.0),
       frame_rate: frame_rate,
       hdr: hdr,
       height: height,
       max_audio_channels: max_audio_channels,
-      size: general["FileSize"],
-      text_count: general["TextCount"],
+      size: CodecHelper.parse_int(general["FileSize"], 0),
+      text_count: CodecHelper.parse_int(general["TextCount"], 0),
       video_codecs: video_codecs,
-      video_count: general["VideoCount"],
+      video_count: CodecHelper.parse_int(general["VideoCount"], 0),
       width: width,
       reencoded: reencoded?(video_codecs, mediainfo),
       title: general["Title"] || Path.basename(get_field(changeset, :path))
