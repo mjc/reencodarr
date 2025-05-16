@@ -13,6 +13,12 @@ defmodule ReencodarrWeb.WebhookController do
     send_resp(conn, 200, "ok")
   end
 
+  def sonarr(conn, %{"eventType" => "Download", "episode" => episode} = params) do
+    dbg(params, label: "Received Sonarr webhook")
+    Logger.info("Received download event from Sonarr for episode #{episode["title"]}!")
+    send_resp(conn, 200, "ok")
+  end
+
   def sonarr(conn, %{"eventType" => "EpisodeFile", "episodeFile" => episode_file} = params) do
     dbg(params, label: "Received Sonarr webhook")
     Logger.info("Received new episodefile event from Sonarr!")
