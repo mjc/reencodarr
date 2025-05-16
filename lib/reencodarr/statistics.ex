@@ -1,45 +1,10 @@
 defmodule Reencodarr.Statistics do
   use GenServer
   alias Reencodarr.{Media, Encoder, CrfSearcher}
+  alias Reencodarr.Statistics.{EncodingProgress, CrfSearchProgress, Stats, State}
   require Logger
 
   @broadcast_interval 5_000
-
-  # --- Structs ---
-
-  defmodule EncodingProgress do
-    @enforce_keys [:filename, :percent, :eta, :fps]
-    defstruct filename: :none, percent: 0, eta: 0, fps: 0
-  end
-
-  defmodule CrfSearchProgress do
-    defstruct filename: :none, percent: 0, eta: 0, fps: 0, crf: 0, score: 0
-  end
-
-  defmodule Stats do
-    defstruct not_reencoded: 0,
-              reencoded: 0,
-              total_videos: 0,
-              avg_vmaf_percentage: 0.0,
-              total_vmafs: 0,
-              chosen_vmafs_count: 0,
-              lowest_vmaf: %Media.Vmaf{},
-              lowest_vmaf_by_time: %Media.Vmaf{},
-              most_recent_video_update: nil,
-              most_recent_inserted_video: nil,
-              queue_length: %{encodes: 0, crf_searches: 0},
-              encode_queue_length: 0
-  end
-
-  defmodule State do
-    defstruct stats: %Stats{},
-              encoding: false,
-              crf_searching: false,
-              encoding_progress: %EncodingProgress{},
-              crf_search_progress: %CrfSearchProgress{},
-              syncing: false,
-              sync_progress: 0
-  end
 
   # --- Public API ---
 
@@ -62,8 +27,12 @@ defmodule Reencodarr.Statistics do
       crf_searching: false,
       syncing: false,
       sync_progress: 0,
-      crf_search_progress: %CrfSearchProgress{},
-      encoding_progress: %EncodingProgress{}
+      crf_search_progress: %CrfSearchProgress{
+        filename: :none, percent: 0, eta: 0, fps: 0, crf: 0, score: 0
+      },
+      encoding_progress: %EncodingProgress{
+        filename: :none, percent: 0, eta: 0, fps: 0
+      }
     }
 
     :timer.send_interval(@broadcast_interval, :broadcast_stats)
@@ -100,12 +69,12 @@ defmodule Reencodarr.Statistics do
   end
 
   def handle_info({:encoding, %{percent: percent, eta: eta, fps: fps}}, %State{} = state) do
-    progress = %EncodingProgress{percent: percent, eta: eta, fps: fps}
+    progress = %EncodingProgress{filename: :none, percent: percent, eta: eta, fps: fps}
     broadcast_stats_and_reply(%State{state | encoding_progress: progress})
   end
 
   def handle_info({:encoder, :started, filename}, %State{} = state) do
-    progress = %EncodingProgress{filename: filename}
+    progress = %EncodingProgress{filename: filename, percent: 0, eta: 0, fps: 0}
     broadcast_stats_and_reply(%State{state | encoding: true, encoding_progress: progress})
   end
 
@@ -114,7 +83,7 @@ defmodule Reencodarr.Statistics do
   end
 
   def handle_info({:encoder, :none}, %State{} = state) do
-    broadcast_stats_and_reply(%State{state | encoding_progress: %EncodingProgress{}})
+    broadcast_stats_and_reply(%State{state | encoding_progress: %EncodingProgress{filename: :none, percent: 0, eta: 0, fps: 0}})
   end
 
   def handle_info({:sync_progress, progress}, %State{} = state) do
