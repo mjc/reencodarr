@@ -10,36 +10,49 @@ defmodule Reencodarr.Media.MediaInfo do
   """
   def from_video_file_info(%VideoFileInfo{} = info) do
     {width, height} = info.resolution
+
     %{
       "media" => %{
         "track" => [
-          %{
-            "@type" => "General",
-            "AudioCount" => info.audio_stream_count,
-            "OverallBitRate" => info.overall_bitrate || info.bitrate,
-            "Duration" => CodecHelper.parse_duration(info.run_time),
-            "FileSize" => info.size,
-            "TextCount" => length(info.subtitles || []),
-            "VideoCount" => 1,
-            "Title" => info.title
-          },
-          %{
-            "@type" => "Video",
-            "FrameRate" => info.video_fps,
-            "Height" => height,
-            "Width" => width,
-            "HDR_Format" => info.video_dynamic_range,
-            "HDR_Format_Compatibility" => info.video_dynamic_range_type,
-            "CodecID" => info.video_codec
-          },
-          %{
-            "@type" => "Audio",
-            "CodecID" => info.audio_codec,
-            "Channels" => to_string(info.audio_channels),
-            "Format_Commercial_IfAny" => CodecMapper.format_commercial_if_any(info.audio_codec)
-          }
+          build_general_track(info),
+          build_video_track(info, width, height),
+          build_audio_track(info)
         ]
       }
+    }
+  end
+
+  defp build_general_track(info) do
+    %{
+      "@type" => "General",
+      "AudioCount" => info.audio_stream_count,
+      "OverallBitRate" => info.overall_bitrate || info.bitrate,
+      "Duration" => CodecHelper.parse_duration(info.run_time),
+      "FileSize" => info.size,
+      "TextCount" => length(info.subtitles || []),
+      "VideoCount" => 1,
+      "Title" => info.title
+    }
+  end
+
+  defp build_video_track(info, width, height) do
+    %{
+      "@type" => "Video",
+      "FrameRate" => info.video_fps,
+      "Height" => height,
+      "Width" => width,
+      "HDR_Format" => info.video_dynamic_range,
+      "HDR_Format_Compatibility" => info.video_dynamic_range_type,
+      "CodecID" => info.video_codec
+    }
+  end
+
+  defp build_audio_track(info) do
+    %{
+      "@type" => "Audio",
+      "CodecID" => info.audio_codec,
+      "Channels" => to_string(info.audio_channels),
+      "Format_Commercial_IfAny" => CodecMapper.format_commercial_if_any(info.audio_codec)
     }
   end
 
@@ -53,24 +66,17 @@ defmodule Reencodarr.Media.MediaInfo do
     video_tracks = Enum.filter(tracks, &(&1["@type"] == "Video"))
     audio_tracks = Enum.filter(tracks, &(&1["@type"] == "Audio"))
     last_video = List.last(video_tracks)
+
     video_codecs = Enum.map(video_tracks, & &1["CodecID"])
     audio_codecs = Enum.map(audio_tracks, &Map.get(&1, "CodecID"))
+
     frame_rate = CodecHelper.parse_float(last_video && last_video["FrameRate"], 0.0)
     height = CodecHelper.parse_int(last_video && last_video["Height"], 0)
     width = CodecHelper.parse_int(last_video && last_video["Width"], 0)
-    hdr = CodecHelper.parse_hdr([
-      last_video && last_video["HDR_Format"],
-      last_video && last_video["HDR_Format_Compatibility"],
-      last_video && last_video["transfer_characteristics"]
-    ])
-    atmos = Enum.any?(audio_tracks, fn t ->
-      String.contains?(Map.get(t, "Format_AdditionalFeatures", ""), "JOC") or
-        String.contains?(Map.get(t, "Format_Commercial_IfAny", ""), "Atmos")
-    end)
-    max_audio_channels =
-      audio_tracks
-      |> Enum.map(&CodecHelper.parse_int(Map.get(&1, "Channels", "0"), 0))
-      |> Enum.max(fn -> 0 end)
+    hdr = parse_hdr_from_video(last_video)
+    atmos = has_atmos?(audio_tracks)
+    max_audio_channels = max_audio_channels(audio_tracks)
+
     %{
       audio_codecs: audio_codecs,
       audio_count: CodecHelper.parse_int(general["AudioCount"], 0),
@@ -91,11 +97,35 @@ defmodule Reencodarr.Media.MediaInfo do
     }
   end
 
+  defp parse_hdr_from_video(nil), do: nil
+
+  defp parse_hdr_from_video(video) do
+    CodecHelper.parse_hdr([
+      video["HDR_Format"],
+      video["HDR_Format_Compatibility"],
+      video["transfer_characteristics"]
+    ])
+  end
+
+  defp has_atmos?(audio_tracks) do
+    Enum.any?(audio_tracks, fn t ->
+      String.contains?(Map.get(t, "Format_AdditionalFeatures", ""), "JOC") or
+        String.contains?(Map.get(t, "Format_Commercial_IfAny", ""), "Atmos")
+    end)
+  end
+
+  defp max_audio_channels(audio_tracks) do
+    audio_tracks
+    |> Enum.map(&CodecHelper.parse_int(Map.get(&1, "Channels", "0"), 0))
+    |> Enum.max(fn -> 0 end)
+  end
+
   @doc """
   Returns true if the video is considered reencoded based on codecs and mediainfo.
   """
   def reencoded?(video_codecs, mediainfo) do
     alias Reencodarr.Media.CodecMapper
+
     Enum.any?([
       CodecMapper.has_av1_codec?(video_codecs),
       CodecMapper.has_opus_audio?(mediainfo),

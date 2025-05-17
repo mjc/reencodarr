@@ -151,14 +151,17 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_event("toggle", %{"target" => "encoder"}, socket), do: toggle_app(Encoder, :encoding, socket)
+  def handle_event("toggle", %{"target" => "encoder"}, socket),
+    do: toggle_app(Encoder, :encoding, socket)
 
   @impl true
-  def handle_event("toggle", %{"target" => "crf_search"}, socket), do: toggle_app(CrfSearcher, :crf_searching, socket)
+  def handle_event("toggle", %{"target" => "crf_search"}, socket),
+    do: toggle_app(CrfSearcher, :crf_searching, socket)
 
   @impl true
   def handle_event("sync", %{"target" => target}, socket) when target in ["sonarr", "radarr"] do
     Logger.info("Syncing with #{target}")
+
     case target do
       "sonarr" -> Sync.sync_episodes()
       "radarr" -> Sync.sync_movies()

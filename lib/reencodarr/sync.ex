@@ -113,7 +113,9 @@ defmodule Reencodarr.Sync do
     :ok
   end
 
-  defp needs_analysis?(%{audio_codec: c, bitrate: b}) when c in ["TrueHD", "EAC3"] or b == 0, do: true
+  defp needs_analysis?(%{audio_codec: c, bitrate: b}) when c in ["TrueHD", "EAC3"] or b == 0,
+    do: true
+
   defp needs_analysis?(_), do: false
 
   defp build_video_file_info(file, service_type) do

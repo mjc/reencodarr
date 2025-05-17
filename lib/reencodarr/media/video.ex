@@ -99,9 +99,13 @@ defmodule Reencodarr.Media.Video do
 
   defp validate_media_info(changeset) do
     case get_change(changeset, :mediainfo) do
-      nil -> changeset
+      nil ->
+        changeset
+
       mediainfo ->
-        params = Reencodarr.Media.MediaInfo.to_video_params(mediainfo, get_field(changeset, :path))
+        params =
+          Reencodarr.Media.MediaInfo.to_video_params(mediainfo, get_field(changeset, :path))
+
         changeset
         |> cast(params, @mediainfo_params)
         |> maybe_remove_size_zero()
