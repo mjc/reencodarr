@@ -94,4 +94,29 @@ defmodule Reencodarr.Media.CodecHelper do
     |> Enum.uniq()
     |> Enum.join(", ")
   end
+
+  @spec parse_hdr_from_video(nil | map()) :: String.t() | nil
+  def parse_hdr_from_video(nil), do: nil
+  def parse_hdr_from_video(%{} = video) do
+    parse_hdr([
+      video["HDR_Format"],
+      video["HDR_Format_Compatibility"],
+      video["transfer_characteristics"]
+    ])
+  end
+
+  @spec has_atmos?(list()) :: boolean
+  def has_atmos?(audio_tracks) when is_list(audio_tracks) do
+    Enum.any?(audio_tracks, fn t ->
+      String.contains?(Map.get(t, "Format_AdditionalFeatures", ""), "JOC") or
+        String.contains?(Map.get(t, "Format_Commercial_IfAny", ""), "Atmos")
+    end)
+  end
+
+  @spec max_audio_channels(list()) :: integer()
+  def max_audio_channels(audio_tracks) when is_list(audio_tracks) do
+    audio_tracks
+    |> Enum.map(&parse_int(Map.get(&1, "Channels", "0"), 0))
+    |> Enum.max(fn -> 0 end)
+  end
 end
