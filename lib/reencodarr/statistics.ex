@@ -73,15 +73,19 @@ defmodule Reencodarr.Statistics do
 
   @impl true
   def handle_info({:crf_search_progress, %CrfSearchProgress{} = progress}, %State{} = state) do
-    broadcast_stats_and_reply(%State{state | crf_search_progress: progress})
+    merged = merge_progress(state.crf_search_progress, progress)
+    broadcast_stats_and_reply(%State{state | crf_search_progress: merged})
   end
 
+  @impl true
   def handle_info({:crf_search_progress, %{filename: :none}}, %State{} = state) do
     broadcast_stats_and_reply(%State{state | crf_search_progress: %CrfSearchProgress{}})
   end
 
+  @impl true
   def handle_info({:encoding, %EncodingProgress{} = progress}, %State{} = state) do
-    broadcast_stats_and_reply(%State{state | encoding_progress: progress})
+    merged = merge_progress(state.encoding_progress, progress)
+    broadcast_stats_and_reply(%State{state | encoding_progress: merged})
   end
 
   def handle_info({:encoding, %{percent: percent, eta: eta, fps: fps}}, %State{} = state) do
@@ -159,5 +163,13 @@ defmodule Reencodarr.Statistics do
   defp broadcast_stats_and_reply(state) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, state})
     {:noreply, state}
+  end
+
+    # Merge progress helper: only update fields if new value is not a default
+  defp merge_progress(%mod{} = old, %mod{} = new) do
+    Enum.reduce(Map.from_struct(new), old, fn {k, v}, acc ->
+      default = Map.get(mod.__struct__(), k)
+      if v != default, do: %{acc | k => v}, else: acc
+    end)
   end
 end
