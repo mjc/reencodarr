@@ -5,11 +5,37 @@ defmodule Reencodarr.Media.MediaInfo do
   alias Reencodarr.Media.{CodecHelper, CodecMapper, VideoFileInfo}
 
   def from_video_file_info(%VideoFileInfo{} = info) do
-    %{"media" => %{"track" => [
-      %{"@type" => "General", "AudioCount" => info.audio_stream_count, "OverallBitRate" => info.overall_bitrate || info.bitrate, "Duration" => CodecHelper.parse_duration(info.run_time), "FileSize" => info.size, "TextCount" => length(info.subtitles || []), "VideoCount" => 1, "Title" => info.title},
-      %{"@type" => "Video", "FrameRate" => info.video_fps, "Height" => elem(info.resolution, 1), "Width" => elem(info.resolution, 0), "HDR_Format" => info.video_dynamic_range, "HDR_Format_Compatibility" => info.video_dynamic_range_type, "CodecID" => info.video_codec},
-      %{"@type" => "Audio", "CodecID" => info.audio_codec, "Channels" => to_string(info.audio_channels), "Format_Commercial_IfAny" => CodecMapper.format_commercial_if_any(info.audio_codec)}
-    ]}}
+    %{
+      "media" => %{
+        "track" => [
+          %{
+            "@type" => "General",
+            "AudioCount" => info.audio_stream_count,
+            "OverallBitRate" => info.overall_bitrate || info.bitrate,
+            "Duration" => CodecHelper.parse_duration(info.run_time),
+            "FileSize" => info.size,
+            "TextCount" => length(info.subtitles || []),
+            "VideoCount" => 1,
+            "Title" => info.title
+          },
+          %{
+            "@type" => "Video",
+            "FrameRate" => info.video_fps,
+            "Height" => elem(info.resolution, 1),
+            "Width" => elem(info.resolution, 0),
+            "HDR_Format" => info.video_dynamic_range,
+            "HDR_Format_Compatibility" => info.video_dynamic_range_type,
+            "CodecID" => info.video_codec
+          },
+          %{
+            "@type" => "Audio",
+            "CodecID" => info.audio_codec,
+            "Channels" => to_string(info.audio_channels),
+            "Format_Commercial_IfAny" => CodecMapper.format_commercial_if_any(info.audio_codec)
+          }
+        ]
+      }
+    }
   end
 
   def to_video_params(mediainfo, path) do
@@ -19,6 +45,7 @@ defmodule Reencodarr.Media.MediaInfo do
     audio_tracks = Enum.filter(tracks, &(&1["@type"] == "Audio"))
     last_video = List.last(video_tracks)
     video_codecs = Enum.map(video_tracks, & &1["CodecID"])
+
     %{
       audio_codecs: Enum.map(audio_tracks, & &1["CodecID"]),
       audio_count: CodecHelper.parse_int(general["AudioCount"], 0),
@@ -39,27 +66,34 @@ defmodule Reencodarr.Media.MediaInfo do
     }
   end
 
-  def reencoded?(video_codecs, mediainfo), do:
-    CodecMapper.has_av1_codec?(video_codecs) or
-    CodecMapper.has_opus_audio?(mediainfo) or
-    CodecMapper.low_bitrate_1080p?(video_codecs, mediainfo) or
-    CodecMapper.has_low_resolution_hevc?(video_codecs, mediainfo)
+  def reencoded?(video_codecs, mediainfo),
+    do:
+      CodecMapper.has_av1_codec?(video_codecs) or
+        CodecMapper.has_opus_audio?(mediainfo) or
+        CodecMapper.low_bitrate_1080p?(video_codecs, mediainfo) or
+        CodecMapper.has_low_resolution_hevc?(video_codecs, mediainfo)
 
   def video_file_info_from_file(file, service_type) do
     media = file["mediaInfo"] || %{}
     {width, height} = CodecHelper.parse_resolution(media["resolution"])
+
     %VideoFileInfo{
-      path: file["path"], size: file["size"], service_id: to_string(file["id"]), service_type: service_type,
-      audio_codec: CodecMapper.map_codec_id(media["audioCodec"]), video_codec: CodecMapper.map_codec_id(media["videoCodec"]),
-      bitrate: media["overallBitrate"] || media["videoBitrate"], audio_channels: CodecMapper.map_channels(media["audioChannels"]),
-      resolution: {width, height}, video_fps: media["videoFps"], video_dynamic_range: media["videoDynamicRange"],
-      video_dynamic_range_type: media["videoDynamicRangeType"], audio_stream_count: media["audioStreamCount"],
-      overall_bitrate: media["overallBitrate"], run_time: media["runTime"],
-      subtitles: cond do
-        is_binary(media["subtitles"]) -> String.split(media["subtitles"], "/")
-        is_list(media["subtitles"]) -> media["subtitles"]
-        true -> []
-      end,
+      path: file["path"],
+      size: file["size"],
+      service_id: to_string(file["id"]),
+      service_type: service_type,
+      audio_codec: CodecMapper.map_codec_id(media["audioCodec"]),
+      video_codec: CodecMapper.map_codec_id(media["videoCodec"]),
+      bitrate: media["overallBitrate"] || media["videoBitrate"],
+      audio_channels: CodecMapper.map_channels(media["audioChannels"]),
+      resolution: {width, height},
+      video_fps: media["videoFps"],
+      video_dynamic_range: media["videoDynamicRange"],
+      video_dynamic_range_type: media["videoDynamicRangeType"],
+      audio_stream_count: media["audioStreamCount"],
+      overall_bitrate: media["overallBitrate"],
+      run_time: media["runTime"],
+      subtitles: CodecHelper.parse_subtitles(media["subtitles"]),
       title: file["title"]
     }
   end

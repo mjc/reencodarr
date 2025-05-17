@@ -50,18 +50,25 @@ defmodule Reencodarr.Sync do
           items_count = length(items)
 
           items
-          |> Task.async_stream(&fetch_and_upsert_files(&1["id"], get_files, service_type), max_concurrency: 10, timeout: 60_000, on_timeout: :kill_task)
+          |> Task.async_stream(&fetch_and_upsert_files(&1["id"], get_files, service_type),
+            max_concurrency: 10,
+            timeout: 60_000,
+            on_timeout: :kill_task
+          )
           |> Stream.with_index()
           |> Enum.each(fn {res, idx} ->
             progress = div((idx + 1) * 100, items_count)
             Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync_progress, progress})
             if !match?({:ok, :ok}, res), do: Logger.error("Sync error: #{inspect(res)}")
           end)
+
         _ ->
           Logger.error("Sync error: unexpected response")
       end
+
       Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", :sync_complete)
     end)
+
     {:noreply, state}
   end
 
@@ -69,24 +76,45 @@ defmodule Reencodarr.Sync do
     case get_files.(id) do
       {:ok, %Req.Response{body: files}} when is_list(files) ->
         Enum.each(files, &upsert_video_from_file(&1, service_type))
+
       _ ->
         Logger.error("Fetch files error for id #{inspect(id)}")
     end
+
     :ok
   end
 
   def upsert_video_from_file(file, service_type) do
     info = Reencodarr.Media.MediaInfo.video_file_info_from_file(file, service_type)
     if is_nil(info.size), do: Logger.warning("File size is missing: #{inspect(file)}")
-    if needs_analysis?(info), do: Reencodarr.Analyzer.process_path(%{path: info.path, service_id: info.service_id, service_type: info.service_type})
+
+    if needs_analysis?(info),
+      do:
+        Reencodarr.Analyzer.process_path(%{
+          path: info.path,
+          service_id: info.service_id,
+          service_type: info.service_type
+        })
+
     unless needs_analysis?(info) do
       mediainfo = Reencodarr.Media.MediaInfo.from_video_file_info(info)
-      Media.upsert_video(%{"path" => info.path, "size" => info.size, "service_id" => info.service_id, "service_type" => info.service_type, "mediainfo" => mediainfo, "bitrate" => info.bitrate})
+
+      Media.upsert_video(%{
+        "path" => info.path,
+        "size" => info.size,
+        "service_id" => info.service_id,
+        "service_type" => info.service_type,
+        "mediainfo" => mediainfo,
+        "bitrate" => info.bitrate
+      })
     end
+
     :ok
   end
 
-  defp needs_analysis?(%{audio_codec: c, bitrate: b}) when c in ["TrueHD", "EAC3"] or b == 0, do: true
+  defp needs_analysis?(%{audio_codec: c, bitrate: b}) when c in ["TrueHD", "EAC3"] or b == 0,
+    do: true
+
   defp needs_analysis?(_), do: false
 
   def refresh_operations(file_id, :sonarr) do
@@ -99,7 +127,13 @@ defmodule Reencodarr.Sync do
     end
   end
 
-  def refresh_and_rename_from_video(%{service_type: :sonarr, service_id: id}), do: refresh_operations(id, :sonarr)
+  def refresh_and_rename_from_video(%{service_type: :sonarr, service_id: id}),
+    do: refresh_operations(id, :sonarr)
+
   def rescan_and_rename_series(id), do: refresh_operations(id, :sonarr)
-  def delete_video_and_vmafs(path), do: Reencodarr.Media.delete_videos_with_path(path) |> case do {:ok, _} -> :ok; err -> err end
+
+  def delete_video_and_vmafs(path), do: Reencodarr.Media.delete_videos_with_path(path) |> case do
+    {:ok, _} -> :ok
+    err -> err
+  end
 end

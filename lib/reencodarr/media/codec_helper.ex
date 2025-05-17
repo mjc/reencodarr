@@ -97,6 +97,7 @@ defmodule Reencodarr.Media.CodecHelper do
 
   @spec parse_hdr_from_video(nil | map()) :: String.t() | nil
   def parse_hdr_from_video(nil), do: nil
+
   def parse_hdr_from_video(%{} = video) do
     parse_hdr([
       video["HDR_Format"],
@@ -118,5 +119,13 @@ defmodule Reencodarr.Media.CodecHelper do
     audio_tracks
     |> Enum.map(&parse_int(Map.get(&1, "Channels", "0"), 0))
     |> Enum.max(fn -> 0 end)
+  end
+
+  @spec parse_subtitles(String.t() | list() | nil) :: list()
+  def parse_subtitles(subtitles),
+    do: cond do
+    is_binary(subtitles) -> String.split(subtitles, "/")
+    is_list(subtitles) -> subtitles
+    true -> []
   end
 end
