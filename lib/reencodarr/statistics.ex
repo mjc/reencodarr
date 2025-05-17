@@ -145,6 +145,7 @@ defmodule Reencodarr.Statistics do
 
   @impl true
   def handle_call(:get_stats, _from, %State{} = state) do
+    Process.send_after(self(), :broadcast_stats, @broadcast_interval)
     {:reply, state, state}
   end
 
