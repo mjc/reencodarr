@@ -24,7 +24,7 @@ end
 defmodule Reencodarr.Sync do
   use GenServer
   require Logger
-  alias Reencodarr.{Media, Services, Media.CodecMapper, Media.CodecHelper}
+  alias Reencodarr.{Media, Services}
 
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   def sync_episodes, do: GenServer.cast(__MODULE__, :sync_episodes)
@@ -132,8 +132,10 @@ defmodule Reencodarr.Sync do
 
   def rescan_and_rename_series(id), do: refresh_operations(id, :sonarr)
 
-  def delete_video_and_vmafs(path), do: Reencodarr.Media.delete_videos_with_path(path) |> case do
-    {:ok, _} -> :ok
-    err -> err
+  def delete_video_and_vmafs(path) do
+    case Reencodarr.Media.delete_videos_with_path(path) do
+      {:ok, _} -> :ok
+      err -> err
+    end
   end
 end

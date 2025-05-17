@@ -122,10 +122,11 @@ defmodule Reencodarr.Media.CodecHelper do
   end
 
   @spec parse_subtitles(String.t() | list() | nil) :: list()
-  def parse_subtitles(subtitles),
-    do: cond do
-    is_binary(subtitles) -> String.split(subtitles, "/")
-    is_list(subtitles) -> subtitles
-    true -> []
+  def parse_subtitles(subtitles) do
+    cond do
+      is_binary(subtitles) -> String.split(subtitles, "/")
+      is_list(subtitles) -> subtitles
+      true -> []
+    end
   end
 end

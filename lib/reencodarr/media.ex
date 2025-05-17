@@ -5,7 +5,6 @@ defmodule Reencodarr.Media do
   require Logger
 
   # --- Video-related functions ---
-
   def list_videos, do: Repo.all(from v in Video, order_by: [desc: v.updated_at])
   def get_video!(id), do: Repo.get!(Video, id)
   def get_video_by_path(path), do: Repo.one(from v in Video, where: v.path == ^path)
@@ -14,32 +13,32 @@ defmodule Reencodarr.Media do
   def find_videos_by_path_wildcard(pattern),
     do: Repo.all(from v in Video, where: like(v.path, ^pattern))
 
-  def get_next_crf_search(limit \\ 10) do
-    Repo.all(
-      from v in Video,
-        left_join: m in Vmaf,
-        on: m.video_id == v.id,
-        where: is_nil(m.id) and v.reencoded == false and v.failed == false,
-        order_by: [desc: v.size, desc: v.bitrate, asc: v.updated_at],
-        limit: ^limit,
-        select: v
-    )
-  end
+  def get_next_crf_search(limit \\ 10),
+    do:
+      Repo.all(
+        from v in Video,
+          left_join: m in Vmaf,
+          on: m.video_id == v.id,
+          where: is_nil(m.id) and v.reencoded == false and v.failed == false,
+          order_by: [desc: v.size, desc: v.bitrate, asc: v.updated_at],
+          limit: ^limit,
+          select: v
+      )
 
-  def list_videos_by_estimated_percent(limit \\ 10) do
-    Repo.all(
-      from v in Video,
-        left_join: m in Vmaf,
-        on: m.video_id == v.id,
-        where:
-          m.chosen == true and not is_nil(m.percent) and v.reencoded == false and
-            v.failed == false,
-        order_by: [asc: m.percent],
-        limit: ^limit,
-        select: [v.path, m.percent]
-    )
-    |> Enum.map(fn [k, v] -> {List.last(String.split(k, "/")), v} end)
-  end
+  def list_videos_by_estimated_percent(limit \\ 10),
+    do:
+      Repo.all(
+        from v in Video,
+          left_join: m in Vmaf,
+          on: m.video_id == v.id,
+          where:
+            m.chosen == true and not is_nil(m.percent) and v.reencoded == false and
+              v.failed == false,
+          order_by: [asc: m.percent],
+          limit: ^limit,
+          select: [v.path, m.percent]
+      )
+      |> Enum.map(fn [k, v] -> {List.last(String.split(k, "/")), v} end)
 
   def create_video(attrs \\ %{}), do: %Video{} |> Video.changeset(attrs) |> Repo.insert()
 
@@ -69,10 +68,10 @@ defmodule Reencodarr.Media do
 
   defp ensure_library_id(attrs), do: attrs
 
-  defp find_library_id(path) do
-    from(l in Library, where: like(^path, fragment("concat(?, '%')", l.path)), select: l.id)
-    |> Repo.one()
-  end
+  defp find_library_id(path),
+    do:
+      from(l in Library, where: like(^path, fragment("concat(?, '%')", l.path)), select: l.id)
+      |> Repo.one()
 
   def update_video(%Video{} = video, attrs), do: video |> Video.changeset(attrs) |> Repo.update()
   def delete_video(%Video{} = video), do: Repo.delete(video)
@@ -85,7 +84,6 @@ defmodule Reencodarr.Media do
     do: update_video_status(video, %{reencoded: true, failed: false})
 
   def mark_as_failed(%Video{} = video), do: update_video_status(video, %{failed: true})
-
   def most_recent_video_update, do: Repo.one(from v in Video, select: max(v.updated_at))
   def get_most_recent_inserted_at, do: Repo.one(from v in Video, select: max(v.inserted_at))
   def video_has_vmafs?(%Video{id: id}), do: Repo.exists?(from v in Vmaf, where: v.video_id == ^id)
@@ -113,16 +111,13 @@ defmodule Reencodarr.Media do
   end
 
   # --- Library-related functions ---
-
   def list_libraries, do: Repo.all(Library)
   def get_library!(id), do: Repo.get!(Library, id)
   def create_library(attrs \\ %{}), do: %Library{} |> Library.changeset(attrs) |> Repo.insert()
   def update_library(%Library{} = l, attrs), do: l |> Library.changeset(attrs) |> Repo.update()
   def delete_library(%Library{} = l), do: Repo.delete(l)
   def change_library(%Library{} = l, attrs \\ %{}), do: Library.changeset(l, attrs)
-
   # --- Vmaf-related functions ---
-
   def list_vmafs, do: Repo.all(Vmaf)
   def get_vmaf!(id), do: Repo.get!(Vmaf, id) |> Repo.preload(:video)
   def create_vmaf(attrs \\ %{}), do: %Vmaf{} |> Vmaf.changeset(attrs) |> Repo.insert()
@@ -154,22 +149,20 @@ defmodule Reencodarr.Media do
   def chosen_vmaf_exists?(%{id: id}),
     do: Repo.exists?(from v in Vmaf, where: v.video_id == ^id and v.chosen == true)
 
-  def list_chosen_vmafs do
-    Repo.all(
-      from v in Vmaf,
-        join: vid in assoc(v, :video),
-        where: v.chosen == true and vid.reencoded == false and vid.failed == false,
-        order_by: [asc: v.percent, asc: v.time],
-        preload: [:video]
-    )
-  end
+  def list_chosen_vmafs,
+    do:
+      Repo.all(
+        from v in Vmaf,
+          join: vid in assoc(v, :video),
+          where: v.chosen == true and vid.reencoded == false and vid.failed == false,
+          order_by: [asc: v.percent, asc: v.time],
+          preload: [:video]
+      )
 
-  def get_chosen_vmaf_for_video(%Video{id: id}) do
-    Repo.one(from v in Vmaf, where: v.video_id == ^id and v.chosen == true, preload: [:video])
-  end
+  def get_chosen_vmaf_for_video(%Video{id: id}),
+    do: Repo.one(from v in Vmaf, where: v.video_id == ^id and v.chosen == true, preload: [:video])
 
   # --- Stats and helpers ---
-
   def fetch_stats do
     stats = Repo.one(aggregated_stats_query())
 
@@ -214,27 +207,27 @@ defmodule Reencodarr.Media do
       }
   end
 
-  def get_next_for_encoding do
-    Repo.one(
-      from v in Vmaf,
-        join: vid in assoc(v, :video),
-        where: v.chosen == true and vid.reencoded == false and vid.failed == false,
-        order_by: [asc: v.percent, asc: v.time],
-        limit: 1,
-        preload: [:video]
-    )
-  end
+  def get_next_for_encoding,
+    do:
+      Repo.one(
+        from v in Vmaf,
+          join: vid in assoc(v, :video),
+          where: v.chosen == true and vid.reencoded == false and vid.failed == false,
+          order_by: [asc: v.percent, asc: v.time],
+          limit: 1,
+          preload: [:video]
+      )
 
-  def get_next_for_encoding_by_time do
-    Repo.one(
-      from v in Vmaf,
-        join: vid in assoc(v, :video),
-        where: v.chosen == true and vid.reencoded == false and vid.failed == false,
-        order_by: [asc: v.time],
-        limit: 1,
-        preload: [:video]
-    )
-  end
+  def get_next_for_encoding_by_time,
+    do:
+      Repo.one(
+        from v in Vmaf,
+          join: vid in assoc(v, :video),
+          where: v.chosen == true and vid.reencoded == false and vid.failed == false,
+          order_by: [asc: v.time],
+          limit: 1,
+          preload: [:video]
+      )
 
   def mark_vmaf_as_chosen(video_id, crf) do
     crf_float = parse_crf(crf)
@@ -252,16 +245,17 @@ defmodule Reencodarr.Media do
   end
 
   defp parse_crf(crf) do
-    case Float.parse(crf) do
+    case(Float.parse(crf)) do
       {value, _} -> value
       :error -> raise ArgumentError, "Invalid CRF value: #{crf}"
     end
   end
 
-  def queued_crf_searches_query do
-    from v in Video,
-      left_join: vmafs in assoc(v, :vmafs),
-      where: is_nil(vmafs.id) and not v.reencoded and v.failed == false,
-      select: v
-  end
+  def queued_crf_searches_query,
+    do:
+      from(v in Video,
+        left_join: vmafs in assoc(v, :vmafs),
+        where: is_nil(vmafs.id) and not v.reencoded and v.failed == false,
+        select: v
+      )
 end
