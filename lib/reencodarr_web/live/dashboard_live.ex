@@ -151,14 +151,6 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_event("toggle", %{"target" => "encoder"}, socket),
-    do: toggle_app(Encoder, :encoding, socket)
-
-  @impl true
-  def handle_event("toggle", %{"target" => "crf_search"}, socket),
-    do: toggle_app(CrfSearcher, :crf_searching, socket)
-
-  @impl true
   def handle_event("sync", %{"target" => target}, socket) when target in ["sonarr", "radarr"] do
     Logger.info("Syncing with #{target}")
 
@@ -176,16 +168,6 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_event("manual_scan", %{"path" => path}, socket) do
     Logger.info("Starting manual scan for path: #{path}")
     Reencodarr.ManualScanner.scan(path)
-    {:noreply, socket}
-  end
-
-  defp toggle_app(app, type, %{assigns: %{state: state}} = socket) do
-    Logger.info("Toggling #{type}")
-    new_state = not Map.get(state, type)
-
-    if new_state, do: app.start(), else: app.pause()
-
-    # Fetch the latest state after toggling to ensure encoding/crf_searching and progress are correct
     {:noreply, socket}
   end
 

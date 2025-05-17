@@ -16,6 +16,16 @@ defmodule Reencodarr.CrfSearcher do
   def start, do: GenServer.cast(__MODULE__, :start_searching)
   def pause, do: GenServer.cast(__MODULE__, :pause_searching)
   def scanning?, do: GenServer.call(__MODULE__, :scanning?)
+  # Returns true if CRF searching is active, false otherwise
+  def running? do
+    case GenServer.whereis(__MODULE__) do
+      nil ->
+        false
+
+      pid ->
+        GenServer.call(pid, :searching?)
+    end
+  end
 
   # GenServer Callbacks
   @impl true
@@ -49,6 +59,11 @@ defmodule Reencodarr.CrfSearcher do
 
   @impl true
   def handle_call(:scanning?, _from, %{searching: searching} = state) do
+    {:reply, searching, state}
+  end
+
+  @impl true
+  def handle_call(:searching?, _from, %{searching: searching} = state) do
     {:reply, searching, state}
   end
 

@@ -52,10 +52,11 @@ defmodule Reencodarr.Statistics do
     # Offload potentially slow work to a Task
     Task.start(fn ->
       stats = Media.fetch_stats()
-      encoding = Encoder.scanning?()
-      crf_searching = CrfSearcher.scanning?()
+      encoding = Encoder.running?()
+      crf_searching = CrfSearcher.running?()
       send(self(), {:fetched_stats, stats, encoding, crf_searching})
     end)
+
     {:noreply, state}
   end
 
@@ -165,7 +166,7 @@ defmodule Reencodarr.Statistics do
     {:noreply, state}
   end
 
-    # Merge progress helper: only update fields if new value is not a default
+  # Merge progress helper: only update fields if new value is not a default
   defp merge_progress(%mod{} = old, %mod{} = new) do
     Enum.reduce(Map.from_struct(new), old, fn {k, v}, acc ->
       default = Map.get(mod.__struct__(), k)
