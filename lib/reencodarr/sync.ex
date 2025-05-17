@@ -1,4 +1,5 @@
 defmodule Reencodarr.Media.VideoFileInfo do
+  @moduledoc false
   defstruct [
     :path,
     :size,
@@ -26,10 +27,8 @@ defmodule Reencodarr.Sync do
   alias Reencodarr.{Media, Services, Media.CodecMapper, Media.CodecHelper}
 
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
-
   def sync_episodes, do: GenServer.cast(__MODULE__, :sync_episodes)
   def sync_movies, do: GenServer.cast(__MODULE__, :sync_movies)
-
   def init(state), do: {:ok, state}
 
   def handle_cast(action, state) when action in [:sync_episodes, :sync_movies] do
@@ -92,25 +91,30 @@ defmodule Reencodarr.Sync do
 
     if is_nil(info.size), do: Logger.warning("File size is missing: #{inspect(file)}")
 
-    if info.audio_codec in ["TrueHD", "EAC3"] or info.bitrate == 0 do
+    if needs_analysis?(info) do
       Reencodarr.Analyzer.process_path(%{
         path: info.path,
         service_id: info.service_id,
         service_type: info.service_type
       })
     else
+      mediainfo = Reencodarr.Media.MediaInfo.from_video_file_info(info)
+
       Media.upsert_video(%{
         "path" => info.path,
         "size" => info.size,
         "service_id" => info.service_id,
         "service_type" => info.service_type,
-        "mediainfo" => build_mediainfo_from_info(info),
+        "mediainfo" => mediainfo,
         "bitrate" => info.bitrate
       })
     end
 
     :ok
   end
+
+  defp needs_analysis?(%{audio_codec: c, bitrate: b}) when c in ["TrueHD", "EAC3"] or b == 0, do: true
+  defp needs_analysis?(_), do: false
 
   defp build_video_file_info(file, service_type) do
     media = file["mediaInfo"] || %{}
@@ -132,53 +136,14 @@ defmodule Reencodarr.Sync do
       audio_stream_count: media["audioStreamCount"],
       overall_bitrate: media["overallBitrate"],
       run_time: media["runTime"],
-      subtitles: media["subtitles"],
+      subtitles: normalize_subtitles(media["subtitles"]),
       title: file["title"]
     }
   end
 
-  defp build_mediainfo_from_info(info) do
-    {width, height} = info.resolution
-
-    subtitles =
-      case info.subtitles do
-        nil -> []
-        subs when is_binary(subs) -> String.split(subs, "/")
-        subs when is_list(subs) -> subs
-      end
-
-    %{
-      "media" => %{
-        "track" => [
-          %{
-            "@type" => "General",
-            "AudioCount" => info.audio_stream_count,
-            "OverallBitRate" => info.overall_bitrate || info.bitrate,
-            "Duration" => CodecHelper.parse_duration(info.run_time),
-            "FileSize" => info.size,
-            "TextCount" => length(subtitles),
-            "VideoCount" => 1,
-            "Title" => info.title
-          },
-          %{
-            "@type" => "Video",
-            "FrameRate" => info.video_fps,
-            "Height" => height,
-            "Width" => width,
-            "HDR_Format" => info.video_dynamic_range,
-            "HDR_Format_Compatibility" => info.video_dynamic_range_type,
-            "CodecID" => info.video_codec
-          },
-          %{
-            "@type" => "Audio",
-            "CodecID" => info.audio_codec,
-            "Channels" => to_string(info.audio_channels),
-            "Format_Commercial_IfAny" => CodecMapper.format_commercial_if_any(info.audio_codec)
-          }
-        ]
-      }
-    }
-  end
+  defp normalize_subtitles(nil), do: []
+  defp normalize_subtitles(subs) when is_binary(subs), do: String.split(subs, "/")
+  defp normalize_subtitles(subs) when is_list(subs), do: subs
 
   def refresh_operations(file_id, :sonarr) do
     with {:ok, %Req.Response{body: episode_file}} <- Services.Sonarr.get_episode_file(file_id),

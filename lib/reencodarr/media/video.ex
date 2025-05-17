@@ -2,8 +2,6 @@ defmodule Reencodarr.Media.Video do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Reencodarr.Media.{CodecMapper, CodecHelper}
-
   @type t() :: %__MODULE__{}
 
   @mediainfo_params [
@@ -37,7 +35,6 @@ defmodule Reencodarr.Media.Video do
   ]
 
   @required [:path, :size]
-
   @service_types [:sonarr, :radarr]
 
   schema "videos" do
@@ -100,85 +97,15 @@ defmodule Reencodarr.Media.Video do
     end
   end
 
-  # Validate media info and apply changes
-  @spec validate_media_info(Ecto.Changeset.t()) :: Ecto.Changeset.t()
   defp validate_media_info(changeset) do
     case get_change(changeset, :mediainfo) do
       nil -> changeset
-      mediainfo -> apply_media_info(changeset, mediainfo)
+      mediainfo ->
+        params = Reencodarr.Media.MediaInfo.to_video_params(mediainfo, get_field(changeset, :path))
+        changeset
+        |> cast(params, @mediainfo_params)
+        |> maybe_remove_size_zero()
+        |> maybe_remove_bitrate_zero()
     end
-  end
-
-  @spec apply_media_info(Ecto.Changeset.t(), map()) :: Ecto.Changeset.t()
-  defp apply_media_info(changeset, mediainfo) do
-    tracks = mediainfo["media"]["track"] || []
-    general = CodecHelper.get_track(mediainfo, "General") || %{}
-    video_tracks = Enum.filter(tracks, &(&1["@type"] == "Video"))
-    audio_tracks = Enum.filter(tracks, &(&1["@type"] == "Audio"))
-
-    last_video = List.last(video_tracks)
-    video_codecs = Enum.map(video_tracks, & &1["CodecID"])
-    audio_codecs = Enum.map(audio_tracks, &Map.get(&1, "CodecID"))
-
-    frame_rate = CodecHelper.parse_float(last_video && last_video["FrameRate"], 0.0)
-    height = CodecHelper.parse_int(last_video && last_video["Height"], 0)
-    width = CodecHelper.parse_int(last_video && last_video["Width"], 0)
-
-    hdr =
-      CodecHelper.parse_hdr([
-        last_video && last_video["HDR_Format"],
-        last_video && last_video["HDR_Format_Compatibility"],
-        last_video && last_video["transfer_characteristics"]
-      ])
-
-    atmos =
-      Enum.any?(audio_tracks, fn t ->
-        String.contains?(Map.get(t, "Format_AdditionalFeatures", ""), "JOC") or
-          String.contains?(Map.get(t, "Format_Commercial_IfAny", ""), "Atmos")
-      end)
-
-    max_audio_channels =
-      audio_tracks
-      |> Enum.map(&CodecHelper.parse_int(Map.get(&1, "Channels", "0"), 0))
-      |> Enum.max(fn -> 0 end)
-
-    params = %{
-      audio_codecs: audio_codecs,
-      audio_count: CodecHelper.parse_int(general["AudioCount"], 0),
-      atmos: atmos,
-      bitrate: CodecHelper.parse_int(general["OverallBitRate"], 0),
-      duration: CodecHelper.parse_float(general["Duration"], 0.0),
-      frame_rate: frame_rate,
-      hdr: hdr,
-      height: height,
-      max_audio_channels: max_audio_channels,
-      size: CodecHelper.parse_int(general["FileSize"], 0),
-      text_count: CodecHelper.parse_int(general["TextCount"], 0),
-      video_codecs: video_codecs,
-      video_count: CodecHelper.parse_int(general["VideoCount"], 0),
-      width: width,
-      reencoded: reencoded?(video_codecs, mediainfo),
-      title: general["Title"] || Path.basename(get_field(changeset, :path))
-    }
-
-    changeset
-    |> cast(params, @mediainfo_params)
-    |> maybe_remove_size_zero()
-    |> maybe_remove_bitrate_zero()
-  end
-
-  # Determine if the video has been reencoded
-  @spec reencoded?(list(String.t()), map()) :: boolean()
-  defp reencoded?(video_codecs, mediainfo) do
-    Enum.any?([
-      CodecMapper.has_av1_codec?(video_codecs),
-      CodecMapper.has_opus_audio?(mediainfo),
-      bitrate_and_resolution_low?(video_codecs, mediainfo),
-      CodecMapper.has_low_resolution_hevc?(video_codecs, mediainfo)
-    ])
-  end
-
-  defp bitrate_and_resolution_low?(video_codecs, mediainfo) do
-    CodecMapper.low_bitrate_1080p?(video_codecs, mediainfo)
   end
 end
