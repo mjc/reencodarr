@@ -49,10 +49,18 @@ defmodule Reencodarr.Statistics do
 
   @impl true
   def handle_continue(:fetch_stats, state) do
-    stats = Media.fetch_stats()
-    encoding = Encoder.scanning?()
-    crf_searching = CrfSearcher.scanning?()
+    # Offload potentially slow work to a Task
+    Task.start(fn ->
+      stats = Media.fetch_stats()
+      encoding = Encoder.scanning?()
+      crf_searching = CrfSearcher.scanning?()
+      send(self(), {:fetched_stats, stats, encoding, crf_searching})
+    end)
+    {:noreply, state}
+  end
 
+  @impl true
+  def handle_info({:fetched_stats, stats, encoding, crf_searching}, %State{} = state) do
     new_state = %State{
       state
       | stats: stats,
