@@ -48,7 +48,6 @@ defmodule Reencodarr.Media.MediaInfo do
   Returns a map suitable for passing to Video.changeset/2.
   """
   def to_video_params(mediainfo, path) do
-    alias Reencodarr.Media.Video
     tracks = mediainfo["media"]["track"] || []
     general = CodecHelper.get_track(mediainfo, "General") || %{}
     video_tracks = Enum.filter(tracks, &(&1["@type"] == "Video"))
