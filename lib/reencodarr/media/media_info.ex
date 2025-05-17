@@ -104,4 +104,27 @@ defmodule Reencodarr.Media.MediaInfo do
       CodecMapper.has_low_resolution_hevc?(video_codecs, mediainfo)
     ])
   end
+
+  @doc """
+  Build a VideoFileInfo struct from a file map and service_type.
+  """
+  @spec video_file_info_from_file(map(), atom()) :: VideoFileInfo.t()
+  def video_file_info_from_file(file, service_type) do
+    media = file["mediaInfo"] || %{}
+    {width, height} = CodecHelper.parse_resolution(media["resolution"])
+    %VideoFileInfo{
+      path: file["path"], size: file["size"], service_id: to_string(file["id"]), service_type: service_type,
+      audio_codec: CodecMapper.map_codec_id(media["audioCodec"]), video_codec: CodecMapper.map_codec_id(media["videoCodec"]),
+      bitrate: media["overallBitrate"] || media["videoBitrate"], audio_channels: CodecMapper.map_channels(media["audioChannels"]),
+      resolution: {width, height}, video_fps: media["videoFps"], video_dynamic_range: media["videoDynamicRange"],
+      video_dynamic_range_type: media["videoDynamicRangeType"], audio_stream_count: media["audioStreamCount"],
+      overall_bitrate: media["overallBitrate"], run_time: media["runTime"],
+      subtitles: cond do
+        is_binary(media["subtitles"]) -> String.split(media["subtitles"], "/")
+        is_list(media["subtitles"]) -> media["subtitles"]
+        true -> []
+      end,
+      title: file["title"]
+    }
+  end
 end
