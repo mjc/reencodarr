@@ -14,13 +14,11 @@ defmodule Reencodarr.Media.MediaInfo do
   """
   @spec from_video_file_info(VideoFileInfo.t()) :: mediainfo_map
   def from_video_file_info(%VideoFileInfo{} = info) do
-    {width, height} = info.resolution
-
     %{
       "media" => %{
         "track" => [
           build_general_track(info),
-          build_video_track(info, width, height),
+          build_video_track(info),
           build_audio_track(info)
         ]
       }
@@ -40,7 +38,7 @@ defmodule Reencodarr.Media.MediaInfo do
     }
   end
 
-  defp build_video_track(info, width, height) do
+  defp build_video_track(%{resolution: {width, height}} = info) do
     %{
       "@type" => "Video",
       "FrameRate" => info.video_fps,
@@ -72,6 +70,7 @@ defmodule Reencodarr.Media.MediaInfo do
     video_tracks = Enum.filter(tracks, &(&1["@type"] == "Video"))
     audio_tracks = Enum.filter(tracks, &(&1["@type"] == "Audio"))
     last_video = List.last(video_tracks)
+    video_codecs = Enum.map(video_tracks, & &1["CodecID"])
 
     %{
       audio_codecs: Enum.map(audio_tracks, & &1["CodecID"]),
@@ -85,7 +84,7 @@ defmodule Reencodarr.Media.MediaInfo do
       max_audio_channels: CodecHelper.max_audio_channels(audio_tracks),
       size: CodecHelper.parse_int(general["FileSize"], 0),
       text_count: CodecHelper.parse_int(general["TextCount"], 0),
-      video_codecs: Enum.map(video_tracks, & &1["CodecID"]),
+      video_codecs: video_codecs,
       video_count: CodecHelper.parse_int(general["VideoCount"], 0),
       width: CodecHelper.parse_int(last_video && last_video["Width"], 0),
       reencoded: reencoded?(video_codecs, mediainfo),
