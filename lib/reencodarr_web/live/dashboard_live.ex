@@ -221,4 +221,14 @@ defmodule ReencodarrWeb.DashboardLive do
     </div>
     """
   end
+
+  @impl true
+  def handle_info({:encoder, :started, filename}, socket) do
+    Logger.debug("Encoder started for #{filename}")
+    state =
+      socket.assigns.state
+      |> Map.put(:encoding, true)
+      |> Map.put(:encoding_progress, %Reencodarr.Statistics.EncodingProgress{filename: filename, percent: 0, eta: 0, fps: 0})
+    {:noreply, assign(socket, :state, state)}
+  end
 end
