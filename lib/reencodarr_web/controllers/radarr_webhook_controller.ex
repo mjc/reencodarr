@@ -50,7 +50,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   end
 
   defp handle_delete(conn, %{"movieFile" => movie_file}) do
-    Logger.info("Received delete event from Radarr for movie file: #{inspect(movie_file)}")
+    Logger.info("Received delete event from Radarr for movie file: #{movie_file["relativePath"]}")
     path = movie_file["path"]
 
     case Reencodarr.Sync.delete_video_and_vmafs(path) do
