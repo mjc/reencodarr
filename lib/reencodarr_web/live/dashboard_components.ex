@@ -88,22 +88,7 @@ defmodule ReencodarrWeb.DashboardComponents do
   # Manual Scan Form
   def render_manual_scan_form(assigns) do
     ~H"""
-    <div class="w-full max-w-2xl flex justify-center mb-6">
-      <form phx-submit="manual_scan" class="flex items-center space-x-2 w-full">
-        <input
-          type="text"
-          name="path"
-          placeholder="Enter path to scan"
-          class="input px-4 py-2 rounded shadow border border-gray-600 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full bg-gray-900 text-gray-100"
-        />
-        <button
-          type="submit"
-          class="text-white font-bold py-2 px-4 rounded shadow bg-indigo-500 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        >
-          Start Manual Scan
-        </button>
-      </form>
-    </div>
+    <.live_component module={ReencodarrWeb.ManualScanComponent} id="manual-scan" />
     """
   end
 
