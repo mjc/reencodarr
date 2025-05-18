@@ -64,7 +64,7 @@ defmodule ReencodarrWeb.SonarrWebhookController do
   end
 
   defp handle_rename(conn, %{"renamedEpisodeFiles" => renamed_files}) do
-    Logger.info("Received rename event from Sonarr for files: #{inspect(renamed_files)}")
+    Logger.debug("Received rename event from Sonarr for files: #{inspect(renamed_files)}")
 
     Enum.each(renamed_files, &update_or_upsert_video(&1, :sonarr))
 
