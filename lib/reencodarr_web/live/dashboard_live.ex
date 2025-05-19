@@ -41,16 +41,7 @@ defmodule ReencodarrWeb.DashboardLive do
       end)
       |> assign_new(:timezone, fn -> "UTC" end)
 
-    # Fetch stats asynchronously
-    if connected?(socket), do: send(self(), :load_stats)
-
     {:ok, socket}
-  end
-
-  @impl true
-  def handle_info(:load_stats, socket) do
-    stats = Statistics.get_stats()
-    {:noreply, assign(socket, :state, stats)}
   end
 
   @impl true
