@@ -3,7 +3,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   import ReencodarrWeb.DashboardComponents
 
-  alias Reencodarr.{Encoder, CrfSearcher, Statistics, Sync}
+  alias Reencodarr.{Statistics, Sync}
 
   require Logger
 
@@ -54,6 +54,22 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
+  def handle_info({:encoder, :started, filename}, socket) do
+    Logger.debug("Encoder started for #{filename}")
+
+    state =
+      socket.assigns.state
+      |> Map.put(:encoding, true)
+      |> Map.put(:encoding_progress, %Reencodarr.Statistics.EncodingProgress{
+        filename: filename,
+        percent: 0,
+        eta: 0,
+        fps: 0
+      })
+
+    {:noreply, assign(socket, :state, state)}
+  end
+
   def handle_info({:encoder, status}, socket) when status in [:started, :paused] do
     Logger.debug("Encoder #{status}")
 
@@ -220,15 +236,5 @@ defmodule ReencodarrWeb.DashboardLive do
       </footer>
     </div>
     """
-  end
-
-  @impl true
-  def handle_info({:encoder, :started, filename}, socket) do
-    Logger.debug("Encoder started for #{filename}")
-    state =
-      socket.assigns.state
-      |> Map.put(:encoding, true)
-      |> Map.put(:encoding_progress, %Reencodarr.Statistics.EncodingProgress{filename: filename, percent: 0, eta: 0, fps: 0})
-    {:noreply, assign(socket, :state, state)}
   end
 end
