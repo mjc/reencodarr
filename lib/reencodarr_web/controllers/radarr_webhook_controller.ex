@@ -25,7 +25,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   end
 
   defp handle_download(conn, %{"eventType" => "Download"} = params) do
-    Logger.info("Received download event from Radarr for #{inspect(params)}!")
+    Logger.debug("Received download event from Radarr for #{inspect(params)}!")
 
     movie_files = params["movieFiles"] || [params["movieFile"]]
 
