@@ -45,7 +45,12 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
   end
 
   @impl true
-  def handle_event("sync", %{"target" => _target}, socket) do
+  def handle_event("sync", %{"target" => target}, socket) do
+    case target do
+      "sonarr" -> Reencodarr.Sync.sync_episodes()
+      "radarr" -> Reencodarr.Sync.sync_movies()
+      _ -> :noop
+    end
     {:noreply, assign(socket, :syncing, true)}
   end
 

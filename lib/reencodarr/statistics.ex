@@ -115,8 +115,16 @@ defmodule Reencodarr.Statistics do
   end
 
   def handle_info(:sync_complete, %State{} = state) do
-    stats = Media.fetch_stats()
-    broadcast_stats_and_reply(%State{state | syncing: false, sync_progress: 0, stats: stats})
+    # Offload stats fetching to a Task to avoid blocking the GenServer
+    Task.start(fn ->
+      stats = Media.fetch_stats()
+      send(self(), {:fetched_stats_after_sync, stats})
+    end)
+    {:noreply, %State{state | syncing: false, sync_progress: 0}}
+  end
+
+  def handle_info({:fetched_stats_after_sync, stats}, %State{} = state) do
+    broadcast_stats_and_reply(%State{state | stats: stats})
   end
 
   def handle_info({:crf_searcher, :started}, %State{} = state) do
@@ -128,12 +136,26 @@ defmodule Reencodarr.Statistics do
   end
 
   def handle_info({:video_upserted, _video}, %State{} = state) do
-    stats = Media.fetch_stats()
+    Task.start(fn ->
+      stats = Media.fetch_stats()
+      send(self(), {:fetched_stats_after_video_upsert, stats})
+    end)
+    {:noreply, state}
+  end
+
+  def handle_info({:fetched_stats_after_video_upsert, stats}, %State{} = state) do
     broadcast_stats_and_reply(%State{state | stats: stats})
   end
 
   def handle_info({:vmaf_upserted, _vmaf}, %State{} = state) do
-    stats = Media.fetch_stats()
+    Task.start(fn ->
+      stats = Media.fetch_stats()
+      send(self(), {:fetched_stats_after_vmaf_upsert, stats})
+    end)
+    {:noreply, state}
+  end
+
+  def handle_info({:fetched_stats_after_vmaf_upsert, stats}, %State{} = state) do
     broadcast_stats_and_reply(%State{state | stats: stats})
   end
 

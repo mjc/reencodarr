@@ -3,7 +3,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   import ReencodarrWeb.DashboardComponents
 
-  alias Reencodarr.{Statistics, Sync}
+  alias Reencodarr.Statistics
 
   require Logger
 
@@ -164,20 +164,6 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_event("set_timezone", %{"timezone" => tz}, socket) do
     Logger.debug("Setting timezone to #{tz}")
     {:noreply, assign(socket, :timezone, tz)}
-  end
-
-  @impl true
-  def handle_event("sync", %{"target" => target}, socket) when target in ["sonarr", "radarr"] do
-    Logger.info("Syncing with #{target}")
-
-    case target do
-      "sonarr" -> Sync.sync_episodes()
-      "radarr" -> Sync.sync_movies()
-    end
-
-    # Optimistically set syncing state locally only
-    state = socket.assigns.state |> Map.put(:syncing, true) |> Map.put(:sync_progress, 0)
-    {:noreply, assign(socket, :state, state)}
   end
 
   @impl true
