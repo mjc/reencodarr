@@ -110,11 +110,11 @@ defmodule Reencodarr.Statistics do
     })
   end
 
-  def handle_info({:sync_progress, progress}, %State{} = state) do
+  def handle_info({:sync, :progress, progress}, %State{} = state) do
     broadcast_stats_and_reply(%State{state | sync_progress: progress})
   end
 
-  def handle_info(:sync_complete, %State{} = state) do
+  def handle_info({:sync, :complete}, %State{} = state) do
     # Offload stats fetching to a Task to avoid blocking the GenServer
     Task.start(fn ->
       stats = Media.fetch_stats()

@@ -58,7 +58,7 @@ defmodule Reencodarr.Sync do
           |> Stream.with_index()
           |> Enum.each(fn {res, idx} ->
             progress = div((idx + 1) * 100, items_count)
-            Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync_progress, progress})
+            Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync, :progress, progress})
             if !match?({:ok, :ok}, res), do: Logger.error("Sync error: #{inspect(res)}")
           end)
 
@@ -66,7 +66,7 @@ defmodule Reencodarr.Sync do
           Logger.error("Sync error: unexpected response")
       end
 
-      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", :sync_complete)
+      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync, :complete})
     end)
 
     {:noreply, state}
