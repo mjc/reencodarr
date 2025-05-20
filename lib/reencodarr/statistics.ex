@@ -45,19 +45,20 @@ defmodule Reencodarr.Statistics do
   end
 
   @impl true
-  def handle_cast({:update_stats, stats}, %State{} = state) do
-    new_state = %State{state | stats: stats}
-    broadcast_state(new_state)
-  end
-
-  @impl true
   def handle_info(:broadcast_stats, %State{} = state) do
-    Task.start(fn ->
-      stats = Media.fetch_stats()
-      GenServer.cast(__MODULE__, {:update_stats, stats})
-    end)
+    if state.stats_update_in_progress do
+      Logger.info("Stats update already in progress, skipping new update.")
+      {:noreply, state}
+    else
+      new_state = %State{state | stats_update_in_progress: true}
+      Task.start(fn ->
+        stats = Media.fetch_stats()
+        GenServer.cast(__MODULE__, {:update_stats, stats})
+        GenServer.cast(__MODULE__, :stats_update_complete)
+      end)
 
-    {:noreply, state}
+      {:noreply, new_state}
+    end
   end
 
   @impl true
@@ -85,11 +86,6 @@ defmodule Reencodarr.Statistics do
   end
 
   @impl true
-  def handle_call(:get_stats, _from, %State{} = state) do
-    {:reply, state, state}
-  end
-
-  @impl true
   def handle_info({:video_upserted, _video}, %State{} = state) do
     Task.start(fn ->
       stats = Media.fetch_stats()
@@ -97,6 +93,23 @@ defmodule Reencodarr.Statistics do
     end)
 
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast({:update_stats, stats}, %State{} = state) do
+    new_state = %State{state | stats: stats}
+    broadcast_state(new_state)
+  end
+
+  @impl true
+  def handle_cast(:stats_update_complete, %State{} = state) do
+    new_state = %State{state | stats_update_in_progress: false}
+    {:noreply, new_state}
+  end
+
+  @impl true
+  def handle_call(:get_stats, _from, %State{} = state) do
+    {:reply, state, state}
   end
 
   # --- Private Helpers ---

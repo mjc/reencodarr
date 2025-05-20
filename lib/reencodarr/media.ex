@@ -4,6 +4,20 @@ defmodule Reencodarr.Media do
   alias Reencodarr.Media.{Video, Library, Vmaf}
   require Logger
 
+  @default_stats %Reencodarr.Statistics.Stats{
+    avg_vmaf_percentage: 0,
+    chosen_vmafs_count: 0,
+    lowest_vmaf_by_time: %Vmaf{},
+    lowest_vmaf: %Vmaf{},
+    not_reencoded: 0,
+    reencoded: 0,
+    total_videos: 0,
+    total_vmafs: 0,
+    most_recent_video_update: nil,
+    most_recent_inserted_video: nil,
+    queue_length: %{encodes: 0, crf_searches: 0}
+  }
+
   # --- Video-related functions ---
   def list_videos, do: Repo.all(from v in Video, order_by: [desc: v.updated_at])
   def get_video!(id), do: Repo.get!(Video, id)
@@ -164,21 +178,34 @@ defmodule Reencodarr.Media do
 
   # --- Stats and helpers ---
   def fetch_stats do
-    stats = Repo.one(aggregated_stats_query())
+    case Repo.transaction(fn -> Repo.one(aggregated_stats_query()) end) do
+      {:ok, stats} ->
+        %Reencodarr.Statistics.Stats{
+          avg_vmaf_percentage: stats.avg_vmaf_percentage,
+          chosen_vmafs_count: stats.chosen_vmafs_count,
+          lowest_vmaf_by_time: get_next_for_encoding_by_time() || %Vmaf{},
+          lowest_vmaf: get_next_for_encoding() || %Vmaf{},
+          not_reencoded: stats.not_reencoded,
+          reencoded: stats.reencoded,
+          total_videos: stats.total_videos,
+          total_vmafs: stats.total_vmafs,
+          most_recent_video_update: stats.most_recent_video_update,
+          most_recent_inserted_video: stats.most_recent_inserted_video,
+          queue_length: %{
+            encodes: stats.encodes_count,
+            crf_searches: stats.queued_crf_searches_count
+          }
+        }
 
-    %Reencodarr.Statistics.Stats{
-      avg_vmaf_percentage: stats.avg_vmaf_percentage,
-      chosen_vmafs_count: stats.chosen_vmafs_count,
-      lowest_vmaf_by_time: get_next_for_encoding_by_time() || %Vmaf{},
-      lowest_vmaf: get_next_for_encoding() || %Vmaf{},
-      not_reencoded: stats.not_reencoded,
-      reencoded: stats.reencoded,
-      total_videos: stats.total_videos,
-      total_vmafs: stats.total_vmafs,
-      most_recent_video_update: stats.most_recent_video_update,
-      most_recent_inserted_video: stats.most_recent_inserted_video,
-      queue_length: %{encodes: stats.encodes_count, crf_searches: stats.queued_crf_searches_count}
-    }
+      {:error, _} ->
+        Logger.error("Failed to fetch stats")
+
+        %{
+          @default_stats
+          | most_recent_video_update: most_recent_video_update() || nil,
+            most_recent_inserted_video: get_most_recent_inserted_at() || nil
+        }
+    end
   end
 
   defp aggregated_stats_query do

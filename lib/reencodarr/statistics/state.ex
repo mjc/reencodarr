@@ -17,5 +17,6 @@ defmodule Reencodarr.Statistics.State do
               score: 0
             },
             syncing: false,
-            sync_progress: 0
+            sync_progress: 0,
+            stats_update_in_progress: false
 end
