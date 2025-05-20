@@ -1,6 +1,6 @@
 defmodule Reencodarr.Statistics do
   use GenServer
-  alias Reencodarr.{Media, Encoder, CrfSearcher}
+  alias Reencodarr.Media
   alias Reencodarr.Statistics.{EncodingProgress, CrfSearchProgress, Stats, State}
   require Logger
 
@@ -20,163 +20,83 @@ defmodule Reencodarr.Statistics do
   def init(:ok) do
     subscribe_to_topics()
 
-    # Use safe defaults; fetch risky data in handle_continue
     state = %State{
       stats: %Stats{},
       encoding: false,
       crf_searching: false,
       syncing: false,
       sync_progress: 0,
-      crf_search_progress: %CrfSearchProgress{
-        filename: :none,
-        percent: 0,
-        eta: 0,
-        fps: 0,
-        crf: 0,
-        score: 0
-      },
-      encoding_progress: %EncodingProgress{
-        filename: :none,
-        percent: 0,
-        eta: 0,
-        fps: 0
-      }
+      crf_search_progress: %CrfSearchProgress{},
+      encoding_progress: %EncodingProgress{}
     }
 
     :timer.send_interval(@broadcast_interval, :broadcast_stats)
-    {:ok, state, {:continue, :fetch_stats}}
+    {:ok, state, {:continue, :fetch_initial_stats}}
   end
 
   @impl true
-  def handle_continue(:fetch_stats, state) do
-    # Offload potentially slow work to a Task
+  def handle_continue(:fetch_initial_stats, state) do
     Task.start(fn ->
       stats = Media.fetch_stats()
-      encoding = Encoder.running?()
-      crf_searching = CrfSearcher.running?()
-      send(self(), {:fetched_stats, stats, encoding, crf_searching})
+      GenServer.cast(__MODULE__, {:update_stats, stats})
     end)
 
     {:noreply, state}
   end
 
   @impl true
-  def handle_info({:fetched_stats, stats, encoding, crf_searching}, %State{} = state) do
-    new_state = %State{
-      state
-      | stats: stats,
-        encoding: encoding,
-        crf_searching: crf_searching
-    }
-
-    {:noreply, new_state}
-  end
-
-  @impl true
-  def handle_info({:crf_search_progress, %CrfSearchProgress{} = progress}, %State{} = state) do
-    merged = merge_progress(state.crf_search_progress, progress)
-    broadcast_stats_and_reply(%State{state | crf_search_progress: merged})
-  end
-
-  @impl true
-  def handle_info({:crf_search_progress, %{filename: :none}}, %State{} = state) do
-    broadcast_stats_and_reply(%State{state | crf_search_progress: %CrfSearchProgress{}})
-  end
-
-  @impl true
-  def handle_info({:encoding, %EncodingProgress{} = progress}, %State{} = state) do
-    merged = merge_progress(state.encoding_progress, progress)
-    broadcast_stats_and_reply(%State{state | encoding_progress: merged})
-  end
-
-  def handle_info({:encoding, %{percent: percent, eta: eta, fps: fps}}, %State{} = state) do
-    progress = %EncodingProgress{filename: :none, percent: percent, eta: eta, fps: fps}
-    broadcast_stats_and_reply(%State{state | encoding_progress: progress})
-  end
-
-  def handle_info({:encoder, :started, filename}, %State{} = state) do
-    progress = %EncodingProgress{filename: filename, percent: 0, eta: 0, fps: 0}
-    broadcast_stats_and_reply(%State{state | encoding: true, encoding_progress: progress})
-  end
-
-  def handle_info({:encoder, :paused}, %State{} = state) do
-    broadcast_stats_and_reply(%State{state | encoding: false})
-  end
-
-  def handle_info({:encoder, :none}, %State{} = state) do
-    broadcast_stats_and_reply(%State{
-      state
-      | encoding_progress: %EncodingProgress{filename: :none, percent: 0, eta: 0, fps: 0}
-    })
-  end
-
-  @impl true
-  def handle_info({:sync, :started}, %State{} = state) do
-    Logger.info("Sync started")
-    broadcast_stats_and_reply(%State{state | syncing: true, sync_progress: 0})
-  end
-
-  @impl true
-  def handle_info({:sync, :progress, progress}, %State{} = state) do
-    Logger.debug("Sync progress: #{progress}%")
-    broadcast_stats_and_reply(%State{state | sync_progress: progress})
-  end
-
-  @impl true
-  def handle_info({:sync, :complete}, %State{} = state) do
-    Logger.info("Sync complete")
-    # Reset syncing state and progress
-    broadcast_stats_and_reply(%State{state | syncing: false, sync_progress: 0})
-  end
-
-  @impl true
-  def handle_info({:crf_searcher, :started}, %State{} = state) do
-    broadcast_stats_and_reply(%State{state | crf_searching: true})
-  end
-
-  def handle_info({:crf_searcher, :paused}, %State{} = state) do
-    broadcast_stats_and_reply(%State{state | crf_searching: false})
-  end
-
-  def handle_info({:video_upserted, _video}, %State{} = state) do
-    Task.start(fn ->
-      stats = Media.fetch_stats()
-      send(self(), {:fetched_stats_after_video_upsert, stats})
-    end)
-    {:noreply, state}
-  end
-
-  def handle_info({:fetched_stats_after_video_upsert, stats}, %State{} = state) do
-    broadcast_stats_and_reply(%State{state | stats: stats})
-  end
-
-  def handle_info({:vmaf_upserted, _vmaf}, %State{} = state) do
-    Task.start(fn ->
-      stats = Media.fetch_stats()
-      send(self(), {:fetched_stats_after_vmaf_upsert, stats})
-    end)
-    {:noreply, state}
-  end
-
-  def handle_info({:fetched_stats_after_vmaf_upsert, stats}, %State{} = state) do
-    broadcast_stats_and_reply(%State{state | stats: stats})
+  def handle_cast({:update_stats, stats}, %State{} = state) do
+    new_state = %State{state | stats: stats}
+    broadcast_state(new_state)
   end
 
   @impl true
   def handle_info(:broadcast_stats, %State{} = state) do
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, state})
+    Task.start(fn ->
+      stats = Media.fetch_stats()
+      GenServer.cast(__MODULE__, {:update_stats, stats})
+    end)
+
     {:noreply, state}
   end
 
   @impl true
+  def handle_info({:progress_update, key, progress}, %State{} = state) do
+    new_state = Map.put(state, key, progress)
+    broadcast_state(new_state)
+  end
+
+  @impl true
+  def handle_info({:sync, :started}, %State{} = state) do
+    new_state = %State{state | syncing: true, sync_progress: 0}
+    broadcast_state(new_state)
+  end
+
+  @impl true
+  def handle_info({:sync, :progress, progress}, %State{} = state) do
+    new_state = %State{state | sync_progress: progress}
+    broadcast_state(new_state)
+  end
+
+  @impl true
+  def handle_info({:sync, :complete}, %State{} = state) do
+    new_state = %State{state | syncing: false, sync_progress: 0}
+    broadcast_state(new_state)
+  end
+
+  @impl true
   def handle_call(:get_stats, _from, %State{} = state) do
-    Process.send_after(self(), :broadcast_stats, @broadcast_interval)
     {:reply, state, state}
   end
 
   @impl true
-  def handle_call({:get_progress, key}, _from, %State{} = state) do
-    {:reply, Map.get(state, key), state}
+  def handle_info({:video_upserted, _video}, %State{} = state) do
+    Task.start(fn ->
+      stats = Media.fetch_stats()
+      GenServer.cast(__MODULE__, {:update_stats, stats})
+    end)
+
+    {:noreply, state}
   end
 
   # --- Private Helpers ---
@@ -187,16 +107,8 @@ defmodule Reencodarr.Statistics do
     end
   end
 
-  defp broadcast_stats_and_reply(state) do
+  defp broadcast_state(state) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, state})
     {:noreply, state}
-  end
-
-  # Merge progress helper: only update fields if new value is not a default
-  defp merge_progress(%mod{} = old, %mod{} = new) do
-    Enum.reduce(Map.from_struct(new), old, fn {k, v}, acc ->
-      default = Map.get(mod.__struct__(), k)
-      if v != default, do: %{acc | k => v}, else: acc
-    end)
   end
 end

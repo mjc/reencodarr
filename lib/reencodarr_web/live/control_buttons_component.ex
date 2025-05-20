@@ -51,6 +51,7 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
       "radarr" -> Reencodarr.Sync.sync_movies()
       _ -> :noop
     end
+
     {:noreply, assign(socket, :syncing, true)}
   end
 
