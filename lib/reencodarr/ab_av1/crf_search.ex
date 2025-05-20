@@ -143,23 +143,17 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
-  def handle_info({port, {:exit_status, exit_code}}, %{port: port} = state) do
-    if exit_code == 0 do
-      Logger.debug("CRF search finished successfully")
-    else
-      Logger.error("CRF search failed with exit code #{exit_code}")
-      Media.mark_as_failed(state.current_task.video)
-    end
+  def handle_info({port, {:exit_status, 0}}, %{port: port, current_task: %{video: video}} = state) do
+    Logger.debug("CRF search finished successfully for video #{video.id}")
+    perform_crf_search_cleanup(state)
+  end
 
-    GenServer.cast(Reencodarr.CrfSearcher, :crf_search_finished)
-
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "progress",
-      {:crf_search_progress, %CrfSearchProgress{filename: :none}}
-    )
-
-    {:noreply, %{state | port: :none, current_task: :none, partial_line_buffer: ""}}
+  @impl true
+  def handle_info({port, {:exit_status, exit_code}}, %{port: port, current_task: %{video: video}} = state)
+      when exit_code != 0 do
+    Logger.error("CRF search failed for video #{video.id} with exit code #{exit_code}")
+    Media.mark_as_failed(video)
+    perform_crf_search_cleanup(state)
   end
 
   @impl true
@@ -186,8 +180,20 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   # Private helper functions
+  defp perform_crf_search_cleanup(state) do
+    GenServer.cast(Reencodarr.CrfSearcher, :crf_search_finished)
+
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "progress",
+      {:crf_search_progress, %CrfSearchProgress{filename: :none}}
+    )
+
+    new_state = %{state | port: :none, current_task: :none, partial_line_buffer: ""}
+    {:noreply, new_state}
+  end
+
   defp append_decimal_before_float(str) do
-    str = if String.contains?(str, "."), do: str, else: str <> ".0"
     String.to_float(str)
   end
 
