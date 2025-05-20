@@ -53,22 +53,24 @@ defmodule Reencodarr.Sync do
           batch_size = 50
 
           items
-          |> Enum.chunk_every(batch_size)
-          |> Enum.with_index()
-          |> Enum.each(fn {batch, batch_index} ->
+          |> Stream.chunk_every(batch_size)
+          |> Stream.with_index()
+          |> Stream.each(fn {batch, batch_index} ->
             batch
             |> Task.async_stream(&fetch_and_upsert_files(&1["id"], get_files, service_type),
               max_concurrency: 10,
               timeout: 60_000,
               on_timeout: :kill_task
             )
-            |> Enum.with_index(batch_index * batch_size)
-            |> Enum.each(fn {res, idx} ->
+            |> Stream.with_index(batch_index * batch_size)
+            |> Stream.each(fn {res, idx} ->
               progress = div((idx + 1) * 100, items_count)
               Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync, :progress, progress})
               if !match?({:ok, :ok}, res), do: Logger.error("Sync error: #{inspect(res)}")
             end)
+            |> Stream.run()
           end)
+          |> Stream.run()
 
         _ ->
           Logger.error("Sync error: unexpected response")
