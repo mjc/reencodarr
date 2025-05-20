@@ -44,6 +44,8 @@ defmodule Reencodarr.Sync do
         :sync_movies -> {&Services.get_movies/0, &Services.get_movie_files/1, :radarr}
       end
 
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync, :started})
+
     Task.start(fn ->
       case get_items.() do
         {:ok, %Req.Response{body: items}} when is_list(items) ->

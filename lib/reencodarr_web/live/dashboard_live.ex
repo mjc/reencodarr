@@ -80,10 +80,10 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_info({:sync, :complete}, socket) do
-    Logger.info("Sync complete")
+  def handle_info({:sync, :started}, socket) do
+    Logger.info("Sync started")
 
-    state = socket.assigns.state |> Map.put(:syncing, false) |> Map.put(:sync_progress, 0)
+    state = socket.assigns.state |> Map.put(:syncing, true) |> Map.put(:sync_progress, 0)
 
     {:noreply, assign(socket, :state, state)}
   end
@@ -92,7 +92,16 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_info({:sync, :progress, progress}, socket) do
     Logger.debug("Sync progress: #{inspect(progress)}")
 
-    state = socket.assigns.state |> Map.put(:syncing, true) |> Map.put(:sync_progress, progress)
+    state = socket.assigns.state |> Map.put(:sync_progress, progress)
+
+    {:noreply, assign(socket, :state, state)}
+  end
+
+  @impl true
+  def handle_info({:sync, :complete}, socket) do
+    Logger.info("Sync complete")
+
+    state = socket.assigns.state |> Map.put(:syncing, false) |> Map.put(:sync_progress, 0)
 
     {:noreply, assign(socket, :state, state)}
   end

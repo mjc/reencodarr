@@ -12,12 +12,12 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
 
   @impl true
   def update(assigns, socket) do
-    # Allow parent to override state if needed
+    # Ensure syncing state is updated correctly
     socket =
       socket
-      |> assign_new(:encoding, fn -> Map.get(assigns, :encoding, false) end)
-      |> assign_new(:crf_searching, fn -> Map.get(assigns, :crf_searching, false) end)
-      |> assign_new(:syncing, fn -> Map.get(assigns, :syncing, false) end)
+      |> assign(:encoding, Map.get(assigns, :encoding, false))
+      |> assign(:crf_searching, Map.get(assigns, :crf_searching, false))
+      |> assign(:syncing, Map.get(assigns, :syncing, false))
 
     {:ok, socket}
   end

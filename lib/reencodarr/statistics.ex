@@ -110,23 +110,26 @@ defmodule Reencodarr.Statistics do
     })
   end
 
+  @impl true
+  def handle_info({:sync, :started}, %State{} = state) do
+    Logger.info("Sync started")
+    broadcast_stats_and_reply(%State{state | syncing: true, sync_progress: 0})
+  end
+
+  @impl true
   def handle_info({:sync, :progress, progress}, %State{} = state) do
+    Logger.debug("Sync progress: #{progress}%")
     broadcast_stats_and_reply(%State{state | sync_progress: progress})
   end
 
+  @impl true
   def handle_info({:sync, :complete}, %State{} = state) do
-    # Offload stats fetching to a Task to avoid blocking the GenServer
-    Task.start(fn ->
-      stats = Media.fetch_stats()
-      send(self(), {:fetched_stats_after_sync, stats})
-    end)
-    {:noreply, %State{state | syncing: false, sync_progress: 0}}
+    Logger.info("Sync complete")
+    # Reset syncing state and progress
+    broadcast_stats_and_reply(%State{state | syncing: false, sync_progress: 0})
   end
 
-  def handle_info({:fetched_stats_after_sync, stats}, %State{} = state) do
-    broadcast_stats_and_reply(%State{state | stats: stats})
-  end
-
+  @impl true
   def handle_info({:crf_searcher, :started}, %State{} = state) do
     broadcast_stats_and_reply(%State{state | crf_searching: true})
   end
