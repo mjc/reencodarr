@@ -112,6 +112,12 @@ defmodule Reencodarr.Statistics do
   end
 
   @impl true
+  def handle_info({:crf_searcher, :paused}, %State{} = state) do
+    new_state = %State{state | crf_searching: false}
+    broadcast_state(new_state)
+  end
+
+  @impl true
   def handle_info({:crf_search_progress, progress}, %State{} = state) do
     new_state = %State{state | crf_search_progress: progress}
     broadcast_state(new_state)
@@ -132,6 +138,12 @@ defmodule Reencodarr.Statistics do
   @impl true
   def handle_info({:encoder, :complete, _filename}, %State{} = state) do
     new_state = %State{state | encoding: false, encoding_progress: %EncodingProgress{}}
+    broadcast_state(new_state)
+  end
+
+  @impl true
+  def handle_info({:encoder, :paused}, %State{} = state) do
+    new_state = %State{state | encoding: false}
     broadcast_state(new_state)
   end
 
