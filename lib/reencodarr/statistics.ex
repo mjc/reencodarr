@@ -96,6 +96,42 @@ defmodule Reencodarr.Statistics do
   end
 
   @impl true
+  def handle_info({:crf_searcher, :started}, %State{} = state) do
+    new_state = %State{state | crf_searching: true}
+    broadcast_state(new_state)
+  end
+
+  @impl true
+  def handle_info({:crf_search_progress, progress}, %State{} = state) do
+    new_state = %State{state | crf_search_progress: progress}
+    broadcast_state(new_state)
+  end
+
+  @impl true
+  def handle_info({:encoder, :started, filename}, %State{} = state) do
+    new_state = %State{state | encoding: true, encoding_progress: %EncodingProgress{filename: filename, percent: 0, eta: 0, fps: 0}}
+    broadcast_state(new_state)
+  end
+
+  @impl true
+  def handle_info({:encoder, :progress, %EncodingProgress{} = progress}, %State{} = state) do
+    new_state = %State{state | encoding_progress: progress}
+    broadcast_state(new_state)
+  end
+
+  @impl true
+  def handle_info({:encoder, :complete, _filename}, %State{} = state) do
+    new_state = %State{state | encoding: false, encoding_progress: %EncodingProgress{}}
+    broadcast_state(new_state)
+  end
+
+  @impl true
+  def handle_info({:encoder, :none}, %State{} = state) do
+    # No encoding currently active, ignore
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_cast({:update_stats, stats}, %State{} = state) do
     new_state = %State{state | stats: stats}
     broadcast_state(new_state)

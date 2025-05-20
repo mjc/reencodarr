@@ -202,18 +202,14 @@ defmodule ReencodarrWeb.DashboardLive do
         </div>
       </header>
 
-      <.render_summary_row stats={@state.stats} />
+      <.live_component module={ReencodarrWeb.SummaryRowComponent} id="summary-row" stats={@state.stats} />
 
       <.render_manual_scan_form />
 
       <div class="w-full max-w-6xl grid grid-cols-1 md:grid-cols-3 gap-8">
-        <.render_queue_information stats={@state.stats} />
-        <.render_progress_information
-          sync_progress={@state.sync_progress}
-          encoding_progress={@state.encoding_progress}
-          crf_search_progress={@state.crf_search_progress}
-        />
-        <.render_statistics stats={@state.stats} timezone={@timezone} />
+        <.live_component module={ReencodarrWeb.QueueInformationComponent} id="queue-information" stats={@state.stats} />
+        <.live_component module={ReencodarrWeb.ProgressInformationComponent} id="progress-information" sync_progress={@state.sync_progress} encoding_progress={@state.encoding_progress} crf_search_progress={@state.crf_search_progress} />
+        <.live_component module={ReencodarrWeb.StatisticsComponent} id="statistics" stats={@state.stats} timezone={@timezone} />
       </div>
 
       <footer class="w-full max-w-6xl mt-12 text-center text-xs text-gray-500 border-t border-gray-700 pt-4">
