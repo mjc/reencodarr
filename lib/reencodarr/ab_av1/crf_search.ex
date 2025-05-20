@@ -193,60 +193,126 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp process_line(line, video, args) do
     cond do
-      captures = Regex.named_captures(@encoding_sample_regex, line) ->
-        Logger.debug(
-          "CrfSearch: Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
-        )
+      handle_encoding_sample_line(line, video) ->
+        :ok
 
-        broadcast_crf_search_progress(video.path, %CrfSearchProgress{
-          filename: video.path,
-          crf: captures["crf"]
-        })
+      handle_vmaf_line(line, video, args) ->
+        :ok
 
-      captures =
-          Regex.named_captures(@simple_vmaf_regex, line) ||
-            Regex.named_captures(@sample_regex, line) ->
-        Logger.debug(
-          "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
-        )
+      handle_eta_vmaf_line(line, video, args) ->
+        :ok
 
-        upsert_vmaf(Map.put(captures, "chosen", false), video, args)
+      handle_vmaf_comparison_line(line) ->
+        :ok
 
-      captures = Regex.named_captures(@eta_vmaf_regex, line) ->
-        Logger.debug(
-          "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["vmaf"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}"
-        )
+      handle_progress_line(line, video) ->
+        :ok
 
-        upsert_vmaf(Map.put(captures, "chosen", true), video, args)
+      handle_success_line(line, video) ->
+        :ok
 
-      captures = Regex.named_captures(@vmaf_regex, line) ->
-        Logger.debug("VMAF comparison: #{captures["file1"]} vs #{captures["file2"]}")
-
-      captures = Regex.named_captures(@progress_regex, line) ->
-        Logger.debug(
-          "CrfSearch Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
-        )
-
-        percent = append_decimal_before_float(captures["progress"])
-        fps = append_decimal_before_float(captures["fps"])
-
-        broadcast_crf_search_progress(video.path, %CrfSearchProgress{
-          filename: video.path,
-          percent: percent,
-          eta: captures["eta"],
-          fps: fps
-        })
-
-      captures = Regex.named_captures(@success_line_regex, line) ->
-        Logger.info("CrfSearch successful for CRF: #{captures["crf"]}")
-        Media.mark_vmaf_as_chosen(video.id, captures["crf"])
-
-      line == "Error: Failed to find a suitable crf" ->
-        Logger.error("Failed to find a suitable CRF.")
-        Media.mark_as_failed(video)
+      handle_error_line(line, video) ->
+        :ok
 
       true ->
         Logger.error("CrfSearch: No match for line: #{line}")
+    end
+  end
+
+  defp handle_encoding_sample_line(line, video) do
+    with captures when not is_nil(captures) <-
+           Regex.named_captures(@encoding_sample_regex, line) do
+      Logger.debug(
+        "CrfSearch: Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
+      )
+
+      broadcast_crf_search_progress(video.path, %CrfSearchProgress{
+        filename: video.path,
+        crf: captures["crf"]
+      })
+
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp handle_vmaf_line(line, video, args) do
+    with captures when not is_nil(captures) <-
+           Regex.named_captures(@simple_vmaf_regex, line) ||
+             Regex.named_captures(@sample_regex, line) do
+      Logger.debug(
+        "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
+      )
+
+      upsert_vmaf(Map.put(captures, "chosen", false), video, args)
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp handle_eta_vmaf_line(line, video, args) do
+    with captures when not is_nil(captures) <- Regex.named_captures(@eta_vmaf_regex, line) do
+      Logger.debug(
+        "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}"
+      )
+
+      upsert_vmaf(Map.put(captures, "chosen", true), video, args)
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp handle_vmaf_comparison_line(line) do
+    with captures when not is_nil(captures) <- Regex.named_captures(@vmaf_regex, line) do
+      Logger.debug("VMAF comparison: #{captures["file1"]} vs #{captures["file2"]}")
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp handle_progress_line(line, video) do
+    with captures when not is_nil(captures) <- Regex.named_captures(@progress_regex, line) do
+      Logger.debug(
+        "CrfSearch Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
+      )
+
+      percent = append_decimal_before_float(captures["progress"])
+      fps = append_decimal_before_float(captures["fps"])
+
+      broadcast_crf_search_progress(video.path, %CrfSearchProgress{
+        filename: video.path,
+        percent: percent,
+        eta: captures["eta"],
+        fps: fps
+      })
+
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp handle_success_line(line, video) do
+    with captures when not is_nil(captures) <- Regex.named_captures(@success_line_regex, line) do
+      Logger.info("CrfSearch successful for CRF: #{captures["crf"]}")
+      Media.mark_vmaf_as_chosen(video.id, captures["crf"])
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp handle_error_line(line, video) do
+    if line == "Error: Failed to find a suitable crf" do
+      Logger.error("Failed to find a suitable CRF.")
+      Media.mark_as_failed(video)
+      true
+    else
+      false
     end
   end
 
