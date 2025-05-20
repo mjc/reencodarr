@@ -50,18 +50,24 @@ defmodule Reencodarr.Sync do
       case get_items.() do
         {:ok, %Req.Response{body: items}} when is_list(items) ->
           items_count = length(items)
+          batch_size = 50
 
           items
-          |> Task.async_stream(&fetch_and_upsert_files(&1["id"], get_files, service_type),
-            max_concurrency: 10,
-            timeout: 60_000,
-            on_timeout: :kill_task
-          )
-          |> Stream.with_index()
-          |> Enum.each(fn {res, idx} ->
-            progress = div((idx + 1) * 100, items_count)
-            Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync, :progress, progress})
-            if !match?({:ok, :ok}, res), do: Logger.error("Sync error: #{inspect(res)}")
+          |> Enum.chunk_every(batch_size)
+          |> Enum.with_index()
+          |> Enum.each(fn {batch, batch_index} ->
+            batch
+            |> Task.async_stream(&fetch_and_upsert_files(&1["id"], get_files, service_type),
+              max_concurrency: 10,
+              timeout: 60_000,
+              on_timeout: :kill_task
+            )
+            |> Enum.with_index(batch_index * batch_size)
+            |> Enum.each(fn {res, idx} ->
+              progress = div((idx + 1) * 100, items_count)
+              Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync, :progress, progress})
+              if !match?({:ok, :ok}, res), do: Logger.error("Sync error: #{inspect(res)}")
+            end)
           end)
 
         _ ->
