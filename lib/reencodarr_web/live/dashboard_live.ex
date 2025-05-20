@@ -4,102 +4,77 @@ defmodule ReencodarrWeb.DashboardLive do
   import ReencodarrWeb.DashboardComponents
 
   alias Reencodarr.Statistics
+  alias Reencodarr.Statistics.State, as: State
 
   require Logger
-
-  @default_stats %{
-    total_videos: 0,
-    reencoded: 0,
-    not_reencoded: 0,
-    queue_length: %{encodes: 0, crf_searches: 0},
-    most_recent_video_update: nil,
-    most_recent_inserted_video: nil,
-    total_vmafs: 0,
-    chosen_vmafs_count: 0,
-    lowest_vmaf: %{percent: 0}
-  }
-
-  @default_encoding_progress %{filename: :none, percent: 0, fps: 0, eta: ""}
-  @default_crf_search_progress %{filename: :none, crf: nil, percent: 0, score: nil}
 
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
 
-    # fetch current stats and override running flags so UI persists across reload
+    # fetch current stats and build initial struct state
     fetched = Statistics.get_stats()
-    initial_state = fetched
-      |> Map.put(:crf_searching, Reencodarr.CrfSearcher.running?())
-      |> Map.put(:encoding, Reencodarr.Encoder.running?())
+    initial_state = %State{fetched | crf_searching: Reencodarr.CrfSearcher.running?(), encoding: Reencodarr.Encoder.running?()}
 
     socket =
-      socket
-      |> assign(:state, initial_state)
-      |> assign_new(:timezone, fn -> "UTC" end)
+      assign(socket,
+        state: initial_state,
+        timezone: socket.assigns[:timezone] || "UTC"
+      )
 
     {:ok, socket}
+  end
+
+  # helper to update nested DashboardState and re-assign
+  defp update_state(socket, fun) do
+    new_state = fun.(socket.assigns.state)
+    assign(socket, :state, new_state)
   end
 
   @impl true
   def handle_info({:encoder, :started, filename}, socket) do
     Logger.debug("Encoder started for #{filename}")
 
-    state =
-      socket.assigns.state
-      |> Map.put(:encoding, true)
-      |> Map.put(:encoding_progress, %Reencodarr.Statistics.EncodingProgress{
-        filename: filename,
-        percent: 0,
-        eta: 0,
-        fps: 0
-      })
-
-    {:noreply, assign(socket, :state, state)}
+    {:noreply,
+      update_state(socket, &%State{&1 | encoding: true, encoding_progress: %Statistics.EncodingProgress{filename: filename, percent: 0, eta: 0, fps: 0}})
+    }
   end
 
   def handle_info({:encoder, status}, socket) when status in [:started, :paused] do
     Logger.debug("Encoder #{status}")
 
-    # Update state instead of old :encoding assign
-    state = Map.put(socket.assigns.state, :encoding, status == :started)
-
-    {:noreply, assign(socket, :state, state)}
+    {:noreply, update_state(socket, &%State{&1 | encoding: status == :started})}
   end
 
   @impl true
   def handle_info({:crf_searcher, status}, socket) when status in [:started, :paused] do
     Logger.debug("CRF search #{status}")
 
-    state = Map.put(socket.assigns.state, :crf_searching, status == :started)
-
-    {:noreply, assign(socket, :state, state)}
+    {:noreply, update_state(socket, &%State{&1 | crf_searching: status == :started})}
   end
 
   @impl true
   def handle_info({:sync, :started}, socket) do
     Logger.info("Sync started")
 
-    state = socket.assigns.state |> Map.put(:syncing, true) |> Map.put(:sync_progress, 0)
-
-    {:noreply, assign(socket, :state, state)}
+    {:noreply,
+     update_state(socket, &%State{&1 | syncing: true, sync_progress: 0})}
   end
 
   @impl true
   def handle_info({:sync, :progress, progress}, socket) do
     Logger.debug("Sync progress: #{inspect(progress)}")
 
-    state = socket.assigns.state |> Map.put(:sync_progress, progress)
-
-    {:noreply, assign(socket, :state, state)}
+    {:noreply,
+     update_state(socket, &%State{&1 | sync_progress: progress})}
   end
 
   @impl true
   def handle_info({:sync, :complete}, socket) do
     Logger.info("Sync complete")
 
-    state = socket.assigns.state |> Map.put(:syncing, false) |> Map.put(:sync_progress, 0)
-
-    {:noreply, assign(socket, :state, state)}
+    {:noreply,
+     update_state(socket, &%State{&1 | syncing: false, sync_progress: 0})}
   end
 
   @impl true
@@ -111,14 +86,9 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def handle_info({:encoding, :none}, socket) do
     # Clear encoding progress when encoding completes
-    state =
-      Map.put(
-        socket.assigns.state,
-        :encoding_progress,
-        %Reencodarr.Statistics.EncodingProgress{filename: :none, percent: 0, eta: 0, fps: 0}
-      )
-
-    {:noreply, assign(socket, :state, state)}
+    {:noreply,
+      update_state(socket, &%State{&1 | encoding_progress: %Statistics.EncodingProgress{filename: :none, percent: 0, eta: 0, fps: 0}})
+    }
   end
 
   @impl true
@@ -129,31 +99,20 @@ defmodule ReencodarrWeb.DashboardLive do
       "Encoding progress: #{progress.percent}% ETA: #{progress.eta} FPS: #{progress.fps}"
     )
 
-    state = Map.put(socket.assigns.state, :encoding_progress, progress)
-
-    {:noreply, assign(socket, :state, state)}
+    {:noreply, update_state(socket, &%State{&1 | encoding_progress: progress})}
   end
 
   @impl true
   def handle_info({:crf_search, :none}, socket) do
     # Clear CRF search progress when CRF search completes
-    state =
-      Map.put(
-        socket.assigns.state,
-        :crf_search_progress,
-        %Reencodarr.Statistics.CrfSearchProgress{}
-      )
-
-    {:noreply, assign(socket, :state, state)}
+    {:noreply, update_state(socket, &%State{&1 | crf_search_progress: %Statistics.CrfSearchProgress{}})}
   end
 
   @impl true
   def handle_info({:crf_search, progress}, socket) do
     Logger.debug("Received CRF search progress: #{inspect(progress)}")
 
-    state = Map.put(socket.assigns.state, :crf_search_progress, progress)
-
-    {:noreply, assign(socket, :state, state)}
+    {:noreply, update_state(socket, &%State{&1 | crf_search_progress: progress})}
   end
 
   @impl true
@@ -198,14 +157,33 @@ defmodule ReencodarrWeb.DashboardLive do
         </div>
       </header>
 
-      <.live_component module={ReencodarrWeb.SummaryRowComponent} id="summary-row" stats={@state.stats} />
+      <.live_component
+        module={ReencodarrWeb.SummaryRowComponent}
+        id="summary-row"
+        stats={@state.stats}
+      />
 
       <.render_manual_scan_form />
 
       <div class="w-full max-w-6xl grid grid-cols-1 md:grid-cols-3 gap-8">
-        <.live_component module={ReencodarrWeb.QueueInformationComponent} id="queue-information" stats={@state.stats} />
-        <.live_component module={ReencodarrWeb.ProgressInformationComponent} id="progress-information" sync_progress={@state.sync_progress} encoding_progress={@state.encoding_progress} crf_search_progress={@state.crf_search_progress} />
-        <.live_component module={ReencodarrWeb.StatisticsComponent} id="statistics" stats={@state.stats} timezone={@timezone} />
+        <.live_component
+          module={ReencodarrWeb.QueueInformationComponent}
+          id="queue-information"
+          stats={@state.stats}
+        />
+        <.live_component
+          module={ReencodarrWeb.ProgressInformationComponent}
+          id="progress-information"
+          sync_progress={@state.sync_progress}
+          encoding_progress={@state.encoding_progress}
+          crf_search_progress={@state.crf_search_progress}
+        />
+        <.live_component
+          module={ReencodarrWeb.StatisticsComponent}
+          id="statistics"
+          stats={@state.stats}
+          timezone={@timezone}
+        />
       </div>
 
       <footer class="w-full max-w-6xl mt-12 text-center text-xs text-gray-500 border-t border-gray-700 pt-4">

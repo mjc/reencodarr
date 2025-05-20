@@ -18,5 +18,6 @@ defmodule Reencodarr.Statistics.State do
             },
             syncing: false,
             sync_progress: 0,
-            stats_update_in_progress: false
+            stats_update_in_progress: false,
+            most_recent_video_update: nil
 end

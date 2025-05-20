@@ -51,6 +51,7 @@ defmodule Reencodarr.Statistics do
       {:noreply, state}
     else
       new_state = %State{state | stats_update_in_progress: true}
+
       Task.start(fn ->
         stats = Media.fetch_stats()
         GenServer.cast(__MODULE__, {:update_stats, stats})
@@ -125,7 +126,12 @@ defmodule Reencodarr.Statistics do
 
   @impl true
   def handle_info({:encoder, :started, filename}, %State{} = state) do
-    new_state = %State{state | encoding: true, encoding_progress: %EncodingProgress{filename: filename, percent: 0, eta: 0, fps: 0}}
+    new_state = %State{
+      state
+      | encoding: true,
+        encoding_progress: %EncodingProgress{filename: filename, percent: 0, eta: 0, fps: 0}
+    }
+
     broadcast_state(new_state)
   end
 

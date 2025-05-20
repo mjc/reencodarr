@@ -17,11 +17,7 @@ defmodule ReencodarrWeb.DashboardComponents do
   # Summary Row
   def render_summary_row(assigns) do
     ~H"""
-    <.live_component
-      module={ReencodarrWeb.SummaryRowComponent}
-      id="summary-row"
-      stats={@stats}
-    />
+    <.live_component module={ReencodarrWeb.SummaryRowComponent} id="summary-row" stats={@stats} />
     """
   end
 

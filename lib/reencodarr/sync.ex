@@ -65,7 +65,13 @@ defmodule Reencodarr.Sync do
             |> Stream.with_index(batch_index * batch_size)
             |> Stream.each(fn {res, idx} ->
               progress = div((idx + 1) * 100, items_count)
-              Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync, :progress, progress})
+
+              Phoenix.PubSub.broadcast(
+                Reencodarr.PubSub,
+                "progress",
+                {:sync, :progress, progress}
+              )
+
               if !match?({:ok, :ok}, res), do: Logger.error("Sync error: #{inspect(res)}")
             end)
             |> Stream.run()

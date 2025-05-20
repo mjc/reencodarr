@@ -17,7 +17,7 @@ defmodule ReencodarrWeb.SyncProgressComponent do
           </div>
         </div>
         <div class="text-sm leading-5 text-gray-100 dark:text-gray-200 font-mono">
-          <strong><%= @sync_progress %>%</strong>
+          <strong>{@sync_progress}%</strong>
         </div>
       </div>
     </div>

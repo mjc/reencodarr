@@ -23,9 +23,21 @@ defmodule ReencodarrWeb.ProgressInformationComponent do
         <span>Progress Information</span>
       </h2>
       <div class="flex flex-col space-y-4">
-        <.live_component module={ReencodarrWeb.EncodingProgressComponent} id="encoding-progress" encoding_progress={@encoding_progress} />
-        <.live_component module={ReencodarrWeb.CrfSearchProgressComponent} id="crf-search-progress" crf_search_progress={@crf_search_progress} />
-        <.live_component module={ReencodarrWeb.SyncProgressComponent} id="sync-progress" sync_progress={@sync_progress} />
+        <.live_component
+          module={ReencodarrWeb.EncodingProgressComponent}
+          id="encoding-progress"
+          encoding_progress={@encoding_progress}
+        />
+        <.live_component
+          module={ReencodarrWeb.CrfSearchProgressComponent}
+          id="crf-search-progress"
+          crf_search_progress={@crf_search_progress}
+        />
+        <.live_component
+          module={ReencodarrWeb.SyncProgressComponent}
+          id="sync-progress"
+          sync_progress={@sync_progress}
+        />
       </div>
     </div>
     """
