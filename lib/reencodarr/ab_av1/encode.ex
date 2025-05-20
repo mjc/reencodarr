@@ -165,8 +165,8 @@ defmodule Reencodarr.AbAv1.Encode do
 
         Phoenix.PubSub.broadcast(
           Reencodarr.PubSub,
-          "progress",
-          {:encoding,
+          "encoder",
+          {:encoder, :progress,
            %Reencodarr.Statistics.EncodingProgress{
              percent: String.to_integer(captures["percent"]),
              eta: human_readable_eta,

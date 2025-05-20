@@ -26,19 +26,15 @@ defmodule ReencodarrWeb.DashboardLive do
   def mount(_params, _session, socket) do
     if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
 
+    # fetch current stats and override running flags so UI persists across reload
+    fetched = Statistics.get_stats()
+    initial_state = fetched
+      |> Map.put(:crf_searching, Reencodarr.CrfSearcher.running?())
+      |> Map.put(:encoding, Reencodarr.Encoder.running?())
+
     socket =
       socket
-      |> assign_new(:state, fn ->
-        %Statistics.State{
-          stats: @default_stats,
-          encoding: false,
-          crf_searching: false,
-          syncing: false,
-          sync_progress: 0,
-          crf_search_progress: @default_crf_search_progress,
-          encoding_progress: @default_encoding_progress
-        }
-      end)
+      |> assign(:state, initial_state)
       |> assign_new(:timezone, fn -> "UTC" end)
 
     {:ok, socket}

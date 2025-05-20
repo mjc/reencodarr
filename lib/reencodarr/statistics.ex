@@ -96,6 +96,16 @@ defmodule Reencodarr.Statistics do
   end
 
   @impl true
+  def handle_info({:vmaf_upserted, _vmaf}, %State{} = state) do
+    Task.start(fn ->
+      stats = Media.fetch_stats()
+      GenServer.cast(__MODULE__, {:update_stats, stats})
+    end)
+
+    {:noreply, state}
+  end
+
+  @impl true
   def handle_info({:crf_searcher, :started}, %State{} = state) do
     new_state = %State{state | crf_searching: true}
     broadcast_state(new_state)
