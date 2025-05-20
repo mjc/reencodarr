@@ -107,7 +107,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   # GenServer callbacks
   @impl true
   def init(:ok) do
-    {:ok, %{port: :none, current_task: :none}}
+    {:ok, %{port: :none, current_task: :none, partial_line_buffer: ""}}
   end
 
   @impl true
@@ -125,19 +125,21 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   @impl true
   def handle_info(
         {port, {:data, {:eol, line}}},
-        %{port: port, current_task: %{video: video, args: args}} = state
+        %{port: port, current_task: %{video: video, args: args}, partial_line_buffer: buffer} = state
       ) do
-    process_line(line, video, args)
-    {:noreply, state}
+    full_line = buffer <> line
+    process_line(full_line, video, args)
+    {:noreply, %{state | partial_line_buffer: ""}}
   end
 
   @impl true
   def handle_info(
         {port, {:data, {:noeol, data}}},
-        %{port: port, current_task: %{video: video}} = state
+        %{port: port, current_task: %{video: video}, partial_line_buffer: buffer} = state
       ) do
-    Logger.error("Received partial data: for video: #{video.id}, #{data}")
-    {:noreply, state}
+    Logger.debug("Received partial data chunk for video #{video.id}, buffering.")
+    new_buffer = buffer <> data
+    {:noreply, %{state | partial_line_buffer: new_buffer}}
   end
 
   @impl true
@@ -157,7 +159,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       {:crf_search_progress, %CrfSearchProgress{filename: :none}}
     )
 
-    {:noreply, %{state | port: :none, current_task: :none}}
+    {:noreply, %{state | port: :none, current_task: :none, partial_line_buffer: ""}}
   end
 
   @impl true
