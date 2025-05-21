@@ -125,7 +125,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   @impl true
   def handle_info(
         {port, {:data, {:eol, line}}},
-        %{port: port, current_task: %{video: video, args: args}, partial_line_buffer: buffer} = state
+        %{port: port, current_task: %{video: video, args: args}, partial_line_buffer: buffer} =
+          state
       ) do
     full_line = buffer <> line
     process_line(full_line, video, args)
@@ -149,7 +150,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
-  def handle_info({port, {:exit_status, exit_code}}, %{port: port, current_task: %{video: video}} = state)
+  def handle_info(
+        {port, {:exit_status, exit_code}},
+        %{port: port, current_task: %{video: video}} = state
+      )
       when exit_code != 0 do
     Logger.error("CRF search failed for video #{video.id} with exit code #{exit_code}")
     Media.mark_as_failed(video)

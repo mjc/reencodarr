@@ -112,7 +112,7 @@ defmodule Reencodarr.Sync do
           service_type: info.service_type
         })
 
-    unless needs_analysis?(info) do
+    if !needs_analysis?(info) do
       mediainfo = Reencodarr.Media.MediaInfo.from_video_file_info(info)
 
       Media.upsert_video(%{

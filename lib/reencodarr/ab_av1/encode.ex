@@ -56,14 +56,20 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   @impl true
-  def handle_info({port, {:data, {:eol, data}}}, %{port: port, partial_line_buffer: buffer} = state) do
+  def handle_info(
+        {port, {:data, {:eol, data}}},
+        %{port: port, partial_line_buffer: buffer} = state
+      ) do
     full_line = buffer <> data
     process_line(full_line, state)
     {:noreply, %{state | partial_line_buffer: ""}}
   end
 
   @impl true
-  def handle_info({port, {:data, {:noeol, message}}}, %{port: port, partial_line_buffer: buffer} = state) do
+  def handle_info(
+        {port, {:data, {:noeol, message}}},
+        %{port: port, partial_line_buffer: buffer} = state
+      ) do
     Logger.debug("Received partial data chunk, buffering.")
     new_buffer = buffer <> message
     {:noreply, %{state | partial_line_buffer: new_buffer}}
@@ -89,7 +95,15 @@ defmodule Reencodarr.AbAv1.Encode do
       notify_encoder_failure(vmaf.video, exit_code)
     end
 
-    new_state = %{state | port: :none, video: :none, vmaf: :none, output_file: nil, partial_line_buffer: ""}
+    new_state = %{
+      state
+      | port: :none,
+        video: :none,
+        vmaf: :none,
+        output_file: nil,
+        partial_line_buffer: ""
+    }
+
     {:noreply, new_state}
   end
 
