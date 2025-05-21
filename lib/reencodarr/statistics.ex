@@ -120,53 +120,8 @@ defmodule Reencodarr.Statistics do
 
   @impl true
   def handle_info({:crf_search_progress, progress_update}, %State{} = state) do
-    current_progress = state.crf_search_progress
-    defaults = %Reencodarr.Statistics.CrfSearchProgress{}
-
     updated_crf_progress =
-      cond do
-        progress_update.filename == :none ->
-          # Reset signal
-          %Reencodarr.Statistics.CrfSearchProgress{filename: :none}
-
-        (is_nil(current_progress.filename) or current_progress.filename == :none or current_progress.filename != progress_update.filename) and
-            not is_nil(progress_update.filename) and progress_update.filename != :none ->
-          # New file processing starts, or first update after a reset/nil state.
-          # The incoming progress is the new baseline.
-          progress_update
-
-        current_progress.filename == progress_update.filename and
-            not is_nil(current_progress.filename) and current_progress.filename != :none ->
-          # Same file, merge fields.
-          # Filter out default values from progress_update before merging.
-          defaults_map = Map.from_struct(defaults)
-          progress_update_map = Map.from_struct(progress_update)
-
-          # Identify fields that can be updated (all fields of the struct except __struct__ and filename).
-          updatable_fields = Map.keys(defaults_map) -- [:__struct__, :filename]
-
-          # Build a map of only the changed (non-default) values from progress_update.
-          changes_to_apply =
-            Enum.reduce(updatable_fields, %{}, fn field, acc ->
-              incoming_value = Map.get(progress_update_map, field)
-              default_for_field = Map.get(defaults_map, field)
-
-              if incoming_value != default_for_field do
-                Map.put(acc, field, incoming_value)
-              else
-                acc
-              end
-            end)
-
-          # Merge these changes into the current_progress struct.
-          struct(current_progress, changes_to_apply)
-
-        true ->
-          # Fallback: This case handles scenarios like both current and incoming are :none or nil.
-          # Or if current_progress.filename is set, but income_progress.filename is nil (not :none), which is unlikely for a struct.
-          # In most such fallbacks, taking progress_update is a reasonable default.
-          progress_update
-      end
+      determine_crf_progress(state.crf_search_progress, progress_update)
 
     new_state = %State{state | crf_search_progress: updated_crf_progress}
     broadcast_state(new_state)
@@ -225,6 +180,52 @@ defmodule Reencodarr.Statistics do
   end
 
   # --- Private Helpers ---
+
+  # Clause 1: Explicit reset signal from progress_update
+  defp determine_crf_progress(_current_progress, %CrfSearchProgress{filename: :none}) do
+    reset_crf_progress()
+  end
+
+  # Clause 2: Same valid (string) filename, merge progress
+  defp determine_crf_progress(
+         %CrfSearchProgress{filename: fname} = current_progress,
+         %CrfSearchProgress{filename: fname} = progress_update
+       )
+       when is_binary(fname) do
+    merge_crf_progress(current_progress, progress_update)
+  end
+
+  # Clause 3: New valid (string) filename in progress_update (different from current, or current was nil/:none)
+  defp determine_crf_progress(
+         _current_progress, # current_progress.filename is not a string matching update_fn, or was nil/:none
+         %CrfSearchProgress{filename: update_fn} = progress_update
+       )
+       when is_binary(update_fn) do
+    progress_update # This is effectively starting new progress
+  end
+
+  # Clause 4: Fallback (e.g., progress_update.filename is nil)
+  # This handles cases where progress_update.filename is not :none and not a binary string.
+  defp determine_crf_progress(_current_progress, progress_update) do
+    progress_update
+  end
+
+  defp reset_crf_progress do
+    %Reencodarr.Statistics.CrfSearchProgress{filename: :none}
+  end
+
+  defp merge_crf_progress(current_progress, progress_update) do
+    defaults = %Reencodarr.Statistics.CrfSearchProgress{} # Defaults instantiated locally
+
+    changes_to_apply =
+      progress_update
+      |> Map.from_struct()
+      |> Map.filter(fn {key, value} ->
+        key != :filename && value != Map.get(defaults, key)
+      end)
+
+    struct(current_progress, changes_to_apply)
+  end
 
   defp subscribe_to_topics do
     for topic <- ["progress", "encoder", "crf_searcher", "media_events"] do
