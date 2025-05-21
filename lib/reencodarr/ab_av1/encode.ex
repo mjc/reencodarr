@@ -167,7 +167,7 @@ defmodule Reencodarr.AbAv1.Encode do
 
       captures =
           Regex.named_captures(
-            ~r/(?<percent>\d+)%\s*,\s*(?<fps>\d+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
+            ~r/\[.*\]\s+(?<percent>\d+)%\s*,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
             data
           ) ->
         _eta_seconds =
@@ -187,7 +187,7 @@ defmodule Reencodarr.AbAv1.Encode do
            %Reencodarr.Statistics.EncodingProgress{
              percent: String.to_integer(captures["percent"]),
              eta: human_readable_eta,
-             fps: String.to_integer(captures["fps"]),
+             fps: parse_fps(captures["fps"]),
              filename: filename
            }}
         )
@@ -199,5 +199,18 @@ defmodule Reencodarr.AbAv1.Encode do
       true ->
         Logger.error("No match for data: #{data}")
     end
+  end
+
+  defp parse_fps(fps_string) do
+    fps_string
+    |> then(fn str ->
+      if String.contains?(str, ".") do
+        str
+      else
+        str <> ".0"
+      end
+    end)
+    |> String.to_float()
+    |> Float.round()
   end
 end
