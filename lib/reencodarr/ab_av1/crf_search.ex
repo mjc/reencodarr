@@ -198,6 +198,13 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp append_decimal_before_float(str) do
+    str =
+      if String.contains?(str, ".") do
+        str
+      else
+        str <> ".0"
+      end
+
     String.to_float(str)
   end
 
