@@ -143,8 +143,21 @@ defmodule Reencodarr.Sync do
     end
   end
 
+  def refresh_operations(file_id, :radarr) do
+    with {:ok, %Req.Response{body: movie_file}} <- Services.Radarr.get_movie_file(file_id),
+         {:ok, _} <- Services.Radarr.refresh_movie(movie_file["movieId"]),
+         {:ok, _} <- {:ok, "No rename operation for Radarr file"} do # Placeholder for rename
+      {:ok, "Refresh triggered for Radarr"}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   def refresh_and_rename_from_video(%{service_type: :sonarr, service_id: id}),
     do: refresh_operations(id, :sonarr)
+
+  def refresh_and_rename_from_video(%{service_type: :radarr, service_id: id}),
+    do: refresh_operations(id, :radarr)
 
   def rescan_and_rename_series(id), do: refresh_operations(id, :sonarr)
 
