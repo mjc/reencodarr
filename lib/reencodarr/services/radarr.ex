@@ -32,4 +32,27 @@ defmodule Reencodarr.Services.Radarr do
   def get_movie_files(movie_id) do
     request(url: "/api/v3/moviefile?movieId=#{movie_id}", method: :get)
   end
+
+  @spec get_movie_file(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
+  def get_movie_file(movie_file_id) do
+    request(url: "/api/v3/moviefile/#{movie_file_id}", method: :get)
+  end
+
+  @spec refresh_movie(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
+  def refresh_movie(movie_id) do
+    request(
+      url: "/api/v3/command",
+      method: :post,
+      json: %{name: "RefreshMovie", movieIds: [movie_id]}
+    )
+  end
+
+  @spec rename_movie_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
+  def rename_movie_files(movie_id) do
+    request(
+      url: "/api/v3/command",
+      method: :post,
+      json: %{name: "RenameFiles", movieIds: [movie_id]}
+    )
+  end
 end
