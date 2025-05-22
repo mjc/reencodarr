@@ -197,11 +197,13 @@ defmodule Reencodarr.Statistics do
 
   # Clause 3: New valid (string) filename in progress_update (different from current, or current was nil/:none)
   defp determine_crf_progress(
-         _current_progress, # current_progress.filename is not a string matching update_fn, or was nil/:none
+         # current_progress.filename is not a string matching update_fn, or was nil/:none
+         _current_progress,
          %CrfSearchProgress{filename: update_fn} = progress_update
        )
        when is_binary(update_fn) do
-    progress_update # This is effectively starting new progress
+    # This is effectively starting new progress
+    progress_update
   end
 
   # Clause 4: Fallback (e.g., progress_update.filename is nil)
@@ -215,7 +217,8 @@ defmodule Reencodarr.Statistics do
   end
 
   defp merge_crf_progress(current_progress, progress_update) do
-    defaults = %Reencodarr.Statistics.CrfSearchProgress{} # Defaults instantiated locally
+    # Defaults instantiated locally
+    defaults = %Reencodarr.Statistics.CrfSearchProgress{}
 
     changes_to_apply =
       progress_update

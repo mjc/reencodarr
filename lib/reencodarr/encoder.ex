@@ -60,14 +60,21 @@ defmodule Reencodarr.Encoder do
 
     intermediate_reencoded_path = calculate_intermediate_path(video)
 
-    case move_encoder_output_to_intermediate(output_file_from_encoder, intermediate_reencoded_path, video) do
+    case move_encoder_output_to_intermediate(
+           output_file_from_encoder,
+           intermediate_reencoded_path,
+           video
+         ) do
       {:ok, actual_intermediate_path} ->
-        Media.mark_as_reencoded(video) # Mark as re-encoded first
+        # Mark as re-encoded first
+        Media.mark_as_reencoded(video)
         # Then, attempt to finalize (rename to original path) and sync
         finalize_and_sync_video(video, actual_intermediate_path)
+
       {:error, _reason_already_logged_and_video_marked_failed} ->
         # Error handled and video marked as failed within move_encoder_output_to_intermediate
-        :ok # Nothing more to do here, error is logged and video status updated
+        # Nothing more to do here, error is logged and video status updated
+        :ok
     end
 
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :none})
@@ -149,30 +156,50 @@ defmodule Reencodarr.Encoder do
   defp rename_or_copy_file(source, destination, log_prefix, video) do
     case File.rename(source, destination) do
       :ok ->
-        Logger.info("[#{log_prefix}] Successfully renamed #{source} to #{destination} for video #{video.id}")
+        Logger.info(
+          "[#{log_prefix}] Successfully renamed #{source} to #{destination} for video #{video.id}"
+        )
+
         :ok
+
       {:error, :exdev} ->
         Logger.info(
           "[#{log_prefix}] Cross-device rename for #{source} to #{destination} (video #{video.id}). Attempting copy and delete."
         )
+
         case File.cp(source, destination) do
           :ok ->
-            Logger.info("[#{log_prefix}] Successfully copied #{source} to #{destination} for video #{video.id}")
+            Logger.info(
+              "[#{log_prefix}] Successfully copied #{source} to #{destination} for video #{video.id}"
+            )
+
             case File.rm(source) do
-              :ok -> Logger.info("[#{log_prefix}] Successfully removed original file #{source} after copy for video #{video.id}")
-              {:error, rm_reason} -> Logger.error("[#{log_prefix}] Failed to remove original file #{source} after copy for video #{video.id}: #{rm_reason}")
+              :ok ->
+                Logger.info(
+                  "[#{log_prefix}] Successfully removed original file #{source} after copy for video #{video.id}"
+                )
+
+              {:error, rm_reason} ->
+                Logger.error(
+                  "[#{log_prefix}] Failed to remove original file #{source} after copy for video #{video.id}: #{rm_reason}"
+                )
             end
+
             :ok
+
           {:error, cp_reason} ->
             Logger.error(
               "[#{log_prefix}] Failed to copy #{source} to #{destination} for video #{video.id}: #{cp_reason}. File remains at #{source}."
             )
+
             {:error, cp_reason}
         end
+
       {:error, reason} ->
         Logger.error(
           "[#{log_prefix}] Failed to rename #{source} to #{destination} for video #{video.id}: #{reason}. File remains at #{source}."
         )
+
         {:error, reason}
     end
   end
@@ -180,15 +207,32 @@ defmodule Reencodarr.Encoder do
   # Moves the raw output from the encoder to an intermediate path (e.g., original_name.reencoded.mkv)
   # Marks video as failed if this step fails.
   # Returns {:ok, intermediate_path} or {:error, reason_atom}
-  defp move_encoder_output_to_intermediate(output_file_from_encoder, intermediate_reencoded_path, video) do
+  defp move_encoder_output_to_intermediate(
+         output_file_from_encoder,
+         intermediate_reencoded_path,
+         video
+       ) do
     log_prefix = "IntermediateMove"
-    case rename_or_copy_file(output_file_from_encoder, intermediate_reencoded_path, log_prefix, video) do
+
+    case rename_or_copy_file(
+           output_file_from_encoder,
+           intermediate_reencoded_path,
+           log_prefix,
+           video
+         ) do
       :ok ->
-        Logger.info("[#{log_prefix}] Encoder output #{output_file_from_encoder} successfully placed at intermediate path #{intermediate_reencoded_path} for video #{video.id}")
+        Logger.info(
+          "[#{log_prefix}] Encoder output #{output_file_from_encoder} successfully placed at intermediate path #{intermediate_reencoded_path} for video #{video.id}"
+        )
+
         {:ok, intermediate_reencoded_path}
+
       {:error, _reason} ->
         # rename_or_copy_file already logged the specific error
-        Logger.error("[#{log_prefix}] Failed to place encoder output at intermediate path #{intermediate_reencoded_path} for video #{video.id}. Marking as failed.")
+        Logger.error(
+          "[#{log_prefix}] Failed to place encoder output at intermediate path #{intermediate_reencoded_path} for video #{video.id}. Marking as failed."
+        )
+
         Media.mark_as_failed(video)
         {:error, :failed_to_move_to_intermediate}
     end
@@ -201,16 +245,23 @@ defmodule Reencodarr.Encoder do
     # Attempt to rename the intermediate file to the final video.path
     case rename_or_copy_file(intermediate_path, video.path, log_prefix, video) do
       :ok ->
-        Logger.info("[#{log_prefix}] Successfully finalized re-encoded file from #{intermediate_path} to #{video.path} for video #{video.id}")
+        Logger.info(
+          "[#{log_prefix}] Successfully finalized re-encoded file from #{intermediate_path} to #{video.path} for video #{video.id}"
+        )
+
       {:error, _reason} ->
         # rename_or_copy_file already logged the specific error
         Logger.error(
           "[#{log_prefix}] Failed to finalize re-encoded file from #{intermediate_path} to #{video.path} for video #{video.id}. " <>
-          "The file may remain at #{intermediate_path}. Sync will still be called."
+            "The file may remain at #{intermediate_path}. Sync will still be called."
         )
     end
+
     # Always call Sync as per original logic for errors/success in this stage
-    Logger.info("Calling Sync.refresh_and_rename_from_video for video #{video.id} (path: #{video.path}) after finalization attempt.")
+    Logger.info(
+      "Calling Sync.refresh_and_rename_from_video for video #{video.id} (path: #{video.path}) after finalization attempt."
+    )
+
     Reencodarr.Sync.refresh_and_rename_from_video(video)
   end
 
