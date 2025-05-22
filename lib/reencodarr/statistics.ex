@@ -121,7 +121,7 @@ defmodule Reencodarr.Statistics do
   @impl true
   def handle_info({:crf_search_progress, progress_update}, %State{} = state) do
     updated_crf_progress =
-      determine_crf_progress(state.crf_search_progress, progress_update)
+      determine_progress(state.crf_search_progress, progress_update)
 
     new_state = %State{state | crf_search_progress: updated_crf_progress}
     broadcast_state(new_state)
@@ -140,7 +140,10 @@ defmodule Reencodarr.Statistics do
 
   @impl true
   def handle_info({:encoder, :progress, %EncodingProgress{} = progress}, %State{} = state) do
-    new_state = %State{state | encoding_progress: progress}
+    updated_encoding_progress =
+      determine_progress(state.encoding_progress, progress)
+
+    new_state = %State{state | encoding_progress: updated_encoding_progress}
     broadcast_state(new_state)
   end
 
@@ -181,53 +184,43 @@ defmodule Reencodarr.Statistics do
 
   # --- Private Helpers ---
 
-  # Clause 1: Explicit reset signal from progress_update
-  defp determine_crf_progress(_current_progress, %CrfSearchProgress{filename: :none}) do
-    reset_crf_progress()
+  # Clause 1: Incoming update signals a reset (filename: :none)
+  defp determine_progress(_current_progress, %{filename: :none, __struct__: module_name} = _incoming_progress) do
+    # Inlined reset_progress: Reset to default struct of the incoming type with filename: :none
+    struct(module_name, filename: :none)
   end
 
-  # Clause 2: Same valid (string) filename, merge progress
-  defp determine_crf_progress(
-         %CrfSearchProgress{filename: fname} = current_progress,
-         %CrfSearchProgress{filename: fname} = progress_update
+  # Clause 2: Filenames match and are binary strings -> merge
+  defp determine_progress(
+         %{filename: fname, __struct__: module_name} = current_progress,
+         %{filename: fname} = incoming_progress
        )
        when is_binary(fname) do
-    merge_crf_progress(current_progress, progress_update)
-  end
-
-  # Clause 3: New valid (string) filename in progress_update (different from current, or current was nil/:none)
-  defp determine_crf_progress(
-         # current_progress.filename is not a string matching update_fn, or was nil/:none
-         _current_progress,
-         %CrfSearchProgress{filename: update_fn} = progress_update
-       )
-       when is_binary(update_fn) do
-    # This is effectively starting new progress
-    progress_update
-  end
-
-  # Clause 4: Fallback (e.g., progress_update.filename is nil)
-  # This handles cases where progress_update.filename is not :none and not a binary string.
-  defp determine_crf_progress(_current_progress, progress_update) do
-    progress_update
-  end
-
-  defp reset_crf_progress do
-    %Reencodarr.Statistics.CrfSearchProgress{filename: :none}
-  end
-
-  defp merge_crf_progress(current_progress, progress_update) do
-    # Defaults instantiated locally
-    defaults = %Reencodarr.Statistics.CrfSearchProgress{}
-
+    # Inlined merge_progress:
+    defaults = struct(module_name) # Get defaults for the type of the current progress struct
     changes_to_apply =
-      progress_update
+      incoming_progress
       |> Map.from_struct()
       |> Map.filter(fn {key, value} ->
+        # Only apply if key is not :filename and value is different from its default
         key != :filename && value != Map.get(defaults, key)
       end)
-
     struct(current_progress, changes_to_apply)
+  end
+
+  # Clause 3: Incoming update has a new binary filename -> start new progress tracking
+  defp determine_progress(
+         _current_progress, # Current progress is not used as we are replacing it
+         %{filename: update_fn} = incoming_progress
+       )
+       when is_binary(update_fn) do
+    incoming_progress # Use the incoming progress struct as is
+  end
+
+  # Clause 4: Fallback -> use incoming progress as is
+  # This covers any other cases, typically meaning the incoming_progress is taken as the new state.
+  defp determine_progress(_current_progress, incoming_progress) do
+    incoming_progress
   end
 
   defp subscribe_to_topics do
