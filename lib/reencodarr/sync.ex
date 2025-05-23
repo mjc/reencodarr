@@ -113,23 +113,14 @@ defmodule Reencodarr.Sync do
   end
 
   def upsert_video_from_file(%{"path" => path, "size" => size, "mediaInfo" => media_info} = file, service_type) do
-    audio_languages =
-      case media_info["audioLanguages"] do
-        list when is_list(list) -> list
-        binary when is_binary(binary) -> String.split(binary, "/")
-        _ -> [] # Default to an empty list if not a list or binary
-      end
+    info = build_video_file_info(file, media_info, service_type)
+    upsert_video_from_file(info, service_type)
+  end
 
-    subtitles =
-      case media_info["subtitles"] do
-        list when is_list(list) -> list
-        binary when is_binary(binary) -> String.split(binary, "/")
-        _ -> [] # Default to an empty list if not a list or binary
-      end
-
-    info = %Reencodarr.Media.VideoFileInfo{
-      path: path,
-      size: size,
+  defp build_video_file_info(file, media_info, service_type) do
+    %Reencodarr.Media.VideoFileInfo{
+      path: file["path"],
+      size: file["size"],
       service_id: file["id"],
       service_type: service_type,
       audio_codec: media_info["audioCodec"],
@@ -140,14 +131,20 @@ defmodule Reencodarr.Sync do
       video_fps: file["videoFps"],
       video_dynamic_range: media_info["videoDynamicRange"],
       video_dynamic_range_type: media_info["videoDynamicRangeType"],
-      audio_stream_count: length(audio_languages),
+      audio_stream_count: length(parse_list_or_binary(media_info["audioLanguages"])),
       overall_bitrate: file["overallBitrate"],
       run_time: file["runTime"],
-      subtitles: subtitles,
+      subtitles: parse_list_or_binary(media_info["subtitles"]),
       title: file["sceneName"]
     }
+  end
 
-    upsert_video_from_file(info, service_type)
+  defp parse_list_or_binary(value) do
+    cond do
+      is_list(value) -> value
+      is_binary(value) -> String.split(value, "/")
+      true -> []
+    end
   end
 
   defp process_video_file(%Reencodarr.Media.VideoFileInfo{audio_codec: codec, bitrate: 0} = info, service_type) when codec in ["TrueHD", "EAC3"] do
