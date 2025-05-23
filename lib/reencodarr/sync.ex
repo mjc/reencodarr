@@ -113,6 +113,20 @@ defmodule Reencodarr.Sync do
   end
 
   def upsert_video_from_file(%{"path" => path, "size" => size, "mediaInfo" => media_info} = file, service_type) do
+    audio_languages =
+      case media_info["audioLanguages"] do
+        list when is_list(list) -> list
+        binary when is_binary(binary) -> String.split(binary, "/")
+        _ -> [] # Default to an empty list if not a list or binary
+      end
+
+    subtitles =
+      case media_info["subtitles"] do
+        list when is_list(list) -> list
+        binary when is_binary(binary) -> String.split(binary, "/")
+        _ -> [] # Default to an empty list if not a list or binary
+      end
+
     info = %Reencodarr.Media.VideoFileInfo{
       path: path,
       size: size,
@@ -126,10 +140,10 @@ defmodule Reencodarr.Sync do
       video_fps: file["videoFps"],
       video_dynamic_range: media_info["videoDynamicRange"],
       video_dynamic_range_type: media_info["videoDynamicRangeType"],
-      audio_stream_count: length(media_info["audioLanguages"]),
+      audio_stream_count: length(audio_languages),
       overall_bitrate: file["overallBitrate"],
       run_time: file["runTime"],
-      subtitles: media_info["subtitles"],
+      subtitles: subtitles,
       title: file["sceneName"]
     }
 
@@ -147,7 +161,13 @@ defmodule Reencodarr.Sync do
   defp process_video_file(%Reencodarr.Media.VideoFileInfo{resolution: resolution} = info, _service_type) do
     resolution_tuple =
       case String.split(resolution, "x") do
-        [width, height] -> {String.to_integer(width), String.to_integer(height)}
+        [width, height] ->
+          with {:ok, width_int} <- safe_binary_to_integer(width),
+               {:ok, height_int} <- safe_binary_to_integer(height) do
+            {width_int, height_int}
+          else
+            _ -> {0, 0} # Default to an invalid resolution if parsing fails
+          end
         _ -> {0, 0} # Default to an invalid resolution if parsing fails
       end
 
@@ -163,6 +183,13 @@ defmodule Reencodarr.Sync do
       "mediainfo" => mediainfo,
       "bitrate" => updated_info.bitrate
     })
+  end
+
+  defp safe_binary_to_integer(binary) do
+    case Integer.parse(binary) do
+      {int, ""} -> {:ok, int}
+      _ -> :error
+    end
   end
 
   def refresh_operations(file_id, :sonarr) do
