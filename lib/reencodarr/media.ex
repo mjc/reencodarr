@@ -285,4 +285,8 @@ defmodule Reencodarr.Media do
         where: is_nil(vmafs.id) and not v.reencoded and v.failed == false,
         select: v
       )
+
+  def get_video(id) do
+    Repo.get(Video, id)
+  end
 end
