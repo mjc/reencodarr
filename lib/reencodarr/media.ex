@@ -33,7 +33,9 @@ defmodule Reencodarr.Media do
         from v in Video,
           left_join: m in Vmaf,
           on: m.video_id == v.id,
-          where: is_nil(m.id) and v.reencoded == false and v.failed == false,
+          where: is_nil(m.id) and v.reencoded == false and v.failed == false and
+                 not fragment("EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) = LOWER(?))", v.audio_codecs, "opus") and
+                 not fragment("EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) = LOWER(?))", v.video_codecs, "av1"),
           order_by: [desc: v.size, desc: v.bitrate, asc: v.updated_at],
           limit: ^limit,
           select: v
