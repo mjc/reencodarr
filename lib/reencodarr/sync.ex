@@ -112,7 +112,7 @@ defmodule Reencodarr.Sync do
     process_video_file(file, service_type)
   end
 
-  def upsert_video_from_file(%{"path" => path, "size" => size, "mediaInfo" => media_info} = file, service_type) do
+  def upsert_video_from_file(%{"path" => _path, "size" => _size, "mediaInfo" => media_info} = file, service_type) do
     info = build_video_file_info(file, media_info, service_type)
     upsert_video_from_file(info, service_type)
   end
@@ -121,7 +121,7 @@ defmodule Reencodarr.Sync do
     %Reencodarr.Media.VideoFileInfo{
       path: file["path"],
       size: file["size"],
-      service_id: file["id"],
+      service_id: to_string(file["id"]),
       service_type: service_type,
       audio_codec: media_info["audioCodec"],
       bitrate: file["bitrate"],

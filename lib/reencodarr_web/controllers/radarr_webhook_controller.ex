@@ -35,10 +35,10 @@ defmodule ReencodarrWeb.RadarrWebhookController do
         Reencodarr.Sync.upsert_video_from_file(file, :radarr)
       end)
 
-    if Enum.all?(results, &(&1 == :ok)) do
+    if Enum.all?(results, &match?({:ok, _}, &1)) do
       Logger.info("Successfully processed download event for Radarr")
     else
-      Logger.error("No successful upserts for download event")
+      Logger.error("No successful upserts for download event: #{inspect(results)}")
     end
 
     send_resp(conn, :no_content, "")

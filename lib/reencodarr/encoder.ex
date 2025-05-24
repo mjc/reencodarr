@@ -2,7 +2,7 @@ defmodule Reencodarr.Encoder do
   use GenServer
   require Logger
 
-  alias Reencodarr.{Media, AbAv1}
+  alias Reencodarr.{Media, AbAv1, Repo}
 
   @check_interval 5000
 
@@ -66,10 +66,21 @@ defmodule Reencodarr.Encoder do
            video
          ) do
       {:ok, actual_intermediate_path} ->
-        # Mark as re-encoded first
-        Media.mark_as_reencoded(video)
-        # Then, attempt to finalize (rename to original path) and sync
-        finalize_and_sync_video(video, actual_intermediate_path)
+        # Reload the video using Repo.reload for simplicity
+        case Repo.reload(video) do
+          nil ->
+            Logger.error("Failed to reload video #{video.id}: Video not found.")
+
+          reloaded_video ->
+            case Media.mark_as_reencoded(reloaded_video) do
+              {:ok, _updated_video} ->
+                # Then, attempt to finalize (rename to original path) and sync
+                finalize_and_sync_video(reloaded_video, actual_intermediate_path)
+
+              {:error, reason} ->
+                Logger.error("Failed to mark video #{video.id} as re-encoded: #{inspect(reason)}")
+            end
+        end
 
       {:error, _reason_already_logged_and_video_marked_failed} ->
         # Error handled and video marked as failed within move_encoder_output_to_intermediate
