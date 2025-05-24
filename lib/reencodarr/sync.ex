@@ -24,7 +24,7 @@ end
 defmodule Reencodarr.Sync do
   use GenServer
   require Logger
-  alias Reencodarr.{Media, Services}
+  alias Reencodarr.{Media, Services, Repo}
 
   # Public API
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -35,7 +35,7 @@ defmodule Reencodarr.Sync do
   def init(state), do: {:ok, state}
 
   def handle_cast(:refresh_and_rename_series, state) do
-    Task.start(fn -> Services.Sonarr.refresh_and_rename_all_series() end)
+    Services.Sonarr.refresh_and_rename_all_series()
     {:noreply, state}
   end
 
@@ -43,23 +43,24 @@ defmodule Reencodarr.Sync do
     {get_items, get_files, service_type} = resolve_action(action)
 
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync, :started})
-
-    Task.start(fn ->
-      sync_items(get_items, get_files, service_type)
-      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync, :complete})
-    end)
+    sync_items(get_items, get_files, service_type)
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync, :complete})
 
     {:noreply, state}
   end
 
   # Private Functions
-  defp resolve_action(:sync_episodes), do: {&Services.get_shows/0, &Services.get_episode_files/1, :sonarr}
-  defp resolve_action(:sync_movies), do: {&Services.get_movies/0, &Services.get_movie_files/1, :radarr}
+  defp resolve_action(:sync_episodes),
+    do: {&Services.get_shows/0, &Services.get_episode_files/1, :sonarr}
+
+  defp resolve_action(:sync_movies),
+    do: {&Services.get_movies/0, &Services.get_movie_files/1, :radarr}
 
   defp sync_items(get_items, get_files, service_type) do
     case get_items.() do
       {:ok, %Req.Response{body: items}} when is_list(items) ->
         process_items_in_batches(items, get_files, service_type)
+
       _ ->
         Logger.error("Sync error: unexpected response")
     end
@@ -76,7 +77,7 @@ defmodule Reencodarr.Sync do
   defp process_batch({batch, batch_index}, get_files, service_type, total_items) do
     batch
     |> Task.async_stream(&fetch_and_upsert_files(&1["id"], get_files, service_type),
-      max_concurrency: 10,
+      max_concurrency: 5,
       timeout: 60_000,
       on_timeout: :kill_task
     )
@@ -96,6 +97,7 @@ defmodule Reencodarr.Sync do
     case get_files.(id) do
       {:ok, %Req.Response{body: files}} when is_list(files) ->
         Enum.each(files, &upsert_video_from_file(&1, service_type))
+
       _ ->
         Logger.error("Fetch files error for id #{inspect(id)}")
     end
@@ -112,7 +114,10 @@ defmodule Reencodarr.Sync do
     process_video_file(file, service_type)
   end
 
-  def upsert_video_from_file(%{"path" => _path, "size" => _size, "mediaInfo" => media_info} = file, service_type) do
+  def upsert_video_from_file(
+        %{"path" => _path, "size" => _size, "mediaInfo" => media_info} = file,
+        service_type
+      ) do
     info = build_video_file_info(file, media_info, service_type)
     upsert_video_from_file(info, service_type)
   end
@@ -147,15 +152,24 @@ defmodule Reencodarr.Sync do
     end
   end
 
-  defp process_video_file(%Reencodarr.Media.VideoFileInfo{audio_codec: codec, bitrate: 0} = info, service_type) when codec in ["TrueHD", "EAC3"] do
-    Reencodarr.Analyzer.process_path(%{
-      path: info.path,
-      service_id: info.service_id,
-      service_type: service_type
-    })
+  defp process_video_file(
+         %Reencodarr.Media.VideoFileInfo{audio_codec: codec, bitrate: 0} = info,
+         service_type
+       )
+       when codec in ["TrueHD", "EAC3"] do
+    Repo.checkout(fn ->
+      Reencodarr.Analyzer.process_path(%{
+        path: info.path,
+        service_id: info.service_id,
+        service_type: service_type
+      })
+    end)
   end
 
-  defp process_video_file(%Reencodarr.Media.VideoFileInfo{resolution: resolution} = info, _service_type) do
+  defp process_video_file(
+         %Reencodarr.Media.VideoFileInfo{resolution: resolution} = info,
+         _service_type
+       ) do
     resolution_tuple =
       case String.split(resolution, "x") do
         [width, height] ->
@@ -163,23 +177,29 @@ defmodule Reencodarr.Sync do
                {:ok, height_int} <- safe_binary_to_integer(height) do
             {width_int, height_int}
           else
-            _ -> {0, 0} # Default to an invalid resolution if parsing fails
+            # Default to an invalid resolution if parsing fails
+            _ -> {0, 0}
           end
-        _ -> {0, 0} # Default to an invalid resolution if parsing fails
+
+        # Default to an invalid resolution if parsing fails
+        _ ->
+          {0, 0}
       end
 
     updated_info = %{info | resolution: resolution_tuple}
 
     mediainfo = Reencodarr.Media.MediaInfo.from_video_file_info(updated_info)
 
-    Media.upsert_video(%{
-      "path" => updated_info.path,
-      "size" => updated_info.size,
-      "service_id" => updated_info.service_id,
-      "service_type" => updated_info.service_type,
-      "mediainfo" => mediainfo,
-      "bitrate" => updated_info.bitrate
-    })
+    Repo.checkout(fn ->
+      Media.upsert_video(%{
+        "path" => updated_info.path,
+        "size" => updated_info.size,
+        "service_id" => updated_info.service_id,
+        "service_type" => updated_info.service_type,
+        "mediainfo" => mediainfo,
+        "bitrate" => updated_info.bitrate
+      })
+    end)
   end
 
   defp safe_binary_to_integer(binary) do
