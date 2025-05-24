@@ -185,7 +185,10 @@ defmodule Reencodarr.Statistics do
   # --- Private Helpers ---
 
   # Clause 1: Incoming update signals a reset (filename: :none)
-  defp determine_progress(_current_progress, %{filename: :none, __struct__: module_name} = _incoming_progress) do
+  defp determine_progress(
+         _current_progress,
+         %{filename: :none, __struct__: module_name} = _incoming_progress
+       ) do
     # Inlined reset_progress: Reset to default struct of the incoming type with filename: :none
     struct(module_name, filename: :none)
   end
@@ -197,7 +200,9 @@ defmodule Reencodarr.Statistics do
        )
        when is_binary(fname) do
     # Inlined merge_progress:
-    defaults = struct(module_name) # Get defaults for the type of the current progress struct
+    # Get defaults for the type of the current progress struct
+    defaults = struct(module_name)
+
     changes_to_apply =
       incoming_progress
       |> Map.from_struct()
@@ -205,16 +210,19 @@ defmodule Reencodarr.Statistics do
         # Only apply if key is not :filename and value is different from its default
         key != :filename && value != Map.get(defaults, key)
       end)
+
     struct(current_progress, changes_to_apply)
   end
 
   # Clause 3: Incoming update has a new binary filename -> start new progress tracking
   defp determine_progress(
-         _current_progress, # Current progress is not used as we are replacing it
+         # Current progress is not used as we are replacing it
+         _current_progress,
          %{filename: update_fn} = incoming_progress
        )
        when is_binary(update_fn) do
-    incoming_progress # Use the incoming progress struct as is
+    # Use the incoming progress struct as is
+    incoming_progress
   end
 
   # Clause 4: Fallback -> use incoming progress as is
