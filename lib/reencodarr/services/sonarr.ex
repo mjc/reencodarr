@@ -34,7 +34,8 @@ defmodule Reencodarr.Services.Sonarr do
 
   @spec get_episode_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
   def get_episode_files(series_id) do
-    request(url: "/api/v3/episodefile?seriesId=#{series_id}", method: :get)
+    response = request(url: "/api/v3/episodefile?seriesId=#{series_id}", method: :get)
+    response
   end
 
   @spec get_episode_file(integer()) :: {:ok, Req.Response.t()} | {:error, any()}

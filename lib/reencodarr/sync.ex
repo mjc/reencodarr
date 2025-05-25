@@ -129,7 +129,7 @@ defmodule Reencodarr.Sync do
       service_id: to_string(file["id"]),
       service_type: service_type,
       audio_codec: media_info["audioCodec"],
-      bitrate: file["bitrate"],
+      bitrate: (media_info["videoBitrate"] || 0) + (media_info["audioBitrate"] || 0),
       audio_channels: media_info["audioChannels"],
       video_codec: media_info["videoCodec"],
       resolution: "#{media_info["width"]}x#{media_info["height"]}",
