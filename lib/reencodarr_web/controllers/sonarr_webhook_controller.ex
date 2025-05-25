@@ -32,10 +32,10 @@ defmodule ReencodarrWeb.SonarrWebhookController do
         Reencodarr.Sync.upsert_video_from_file(file, :sonarr)
       end)
 
-    if Enum.all?(results, &match?({:ok, _}, &1)) do
+    if Enum.all?(results, fn res -> res == :ok or match?({:ok, _}, res) end) do
       Logger.info("Successfully processed download event for Sonarr")
     else
-      Logger.error("No successful upserts for download event: #{inspect(results)}")
+      Logger.error("Some upserts failed for download event: #{inspect(results)}")
     end
 
     send_resp(conn, :no_content, "")
