@@ -129,7 +129,7 @@ defmodule Reencodarr.Sync do
       service_id: to_string(file["id"]),
       service_type: service_type,
       audio_codec: media_info["audioCodec"],
-      bitrate: (media_info["videoBitrate"] || 0) + (media_info["audioBitrate"] || 0),
+      bitrate: calculate_bitrate(media_info),
       audio_channels: media_info["audioChannels"],
       video_codec: media_info["videoCodec"],
       resolution: "#{media_info["width"]}x#{media_info["height"]}",
@@ -142,6 +142,10 @@ defmodule Reencodarr.Sync do
       subtitles: parse_list_or_binary(media_info["subtitles"]),
       title: file["sceneName"]
     }
+  end
+
+  defp calculate_bitrate(media_info) do
+    (media_info["videoBitrate"] || 0) + (media_info["audioBitrate"] || 0)
   end
 
   defp parse_list_or_binary(value) do
@@ -164,6 +168,18 @@ defmodule Reencodarr.Sync do
         service_type: service_type
       })
     end)
+  end
+
+  defp process_video_file(
+         %Reencodarr.Media.VideoFileInfo{bitrate: 0} = info,
+         service_type
+       ) do
+    Logger.debug("Bitrate is zero, analyzing video: #{info.path}")
+    Reencodarr.Analyzer.process_path(%{
+      path: info.path,
+      service_id: info.service_id,
+      service_type: service_type
+    })
   end
 
   defp process_video_file(
