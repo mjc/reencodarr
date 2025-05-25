@@ -50,20 +50,25 @@ defmodule Reencodarr.Media do
           select: v
       )
 
-  def list_videos_by_estimated_percent(limit \\ 10),
-    do:
-      Repo.all(
-        from v in Video,
-          left_join: m in Vmaf,
-          on: m.video_id == v.id,
-          where:
-            m.chosen == true and not is_nil(m.percent) and v.reencoded == false and
-              v.failed == false,
-          order_by: [asc: m.percent],
-          limit: ^limit,
-          select: [v.path, m.percent]
-      )
-      |> Enum.map(fn [k, v] -> {List.last(String.split(k, "/")), v} end)
+  defp base_query_for_videos do
+    from v in Vmaf,
+      join: vid in assoc(v, :video),
+      where: v.chosen == true and vid.reencoded == false and vid.failed == false,
+      order_by: [asc: v.percent, asc: v.time],
+      preload: [:video]
+  end
+
+  def list_videos_by_estimated_percent(limit \\ 10) do
+    Repo.all(base_query_for_videos() |> limit(^limit))
+    |> Enum.map(fn vmaf ->
+      video_path = vmaf.video.path
+      {List.last(String.split(video_path, "/")), vmaf.percent}
+    end)
+  end
+
+  def get_next_for_encoding do
+    Repo.one(base_query_for_videos() |> limit(1))
+  end
 
   def create_video(attrs \\ %{}), do: %Video{} |> Video.changeset(attrs) |> Repo.insert()
 
@@ -244,17 +249,6 @@ defmodule Reencodarr.Media do
         most_recent_inserted_video: max(v.inserted_at)
       }
   end
-
-  def get_next_for_encoding,
-    do:
-      Repo.one(
-        from v in Vmaf,
-          join: vid in assoc(v, :video),
-          where: v.chosen == true and vid.reencoded == false and vid.failed == false,
-          order_by: [asc: v.percent, asc: v.time],
-          limit: 1,
-          preload: [:video]
-      )
 
   def get_next_for_encoding_by_time,
     do:
