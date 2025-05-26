@@ -14,7 +14,7 @@ defmodule Reencodarr.Rules do
   def apply(video) do
     rules_to_apply = [
       &audio/1,
-      &cuda/1,
+      # &cuda/1,
       &hdr/1,
       &resolution/1,
       &video/1
@@ -55,15 +55,19 @@ defmodule Reencodarr.Rules do
   def grain(_, _), do: []
 
   @spec hdr(Media.Video.t()) :: list()
-  def hdr(%Media.Video{hdr: nil}) do
-    [{"--svt", "tune=0"}]
-  end
+  # def hdr(%Media.Video{hdr: nil}) do
+  #   [{"--svt", "tune=0"}]
+  # end
+
+  # def hdr(_) do
+  #   [
+  #     {"--encoder", "libx265"},
+  #     {"--preset", "medium"}
+  #   ]
+  # end
 
   def hdr(_) do
-    [
-      {"--encoder", "libx265"},
-      {"--preset", "medium"}
-    ]
+    [{"--svt", "tune=0"}]
   end
 
   @spec resolution(Media.Video.t()) :: list()

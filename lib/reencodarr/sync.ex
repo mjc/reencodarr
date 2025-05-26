@@ -175,6 +175,7 @@ defmodule Reencodarr.Sync do
          service_type
        ) do
     Logger.debug("Bitrate is zero, analyzing video: #{info.path}")
+
     Reencodarr.Analyzer.process_path(%{
       path: info.path,
       service_id: info.service_id,

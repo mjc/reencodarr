@@ -63,7 +63,7 @@ defmodule Reencodarr.Media.CodecMapper do
   end
 
   @spec has_av1_codec?(list(String.t())) :: boolean()
-  def has_av1_codec?(video_codecs), do: "V_AV1" in video_codecs
+  def has_av1_codec?(video_codecs), do: "V_AV1" in video_codecs || "AV1" in video_codecs
 
   @spec has_opus_audio?(map()) :: boolean()
   def has_opus_audio?(mediainfo) do
@@ -92,6 +92,7 @@ defmodule Reencodarr.Media.CodecMapper do
   end
 
   @spec audio_track_is_opus?(map()) :: boolean()
+  def audio_track_is_opus?(%{"@type" => "Audio", "Format" => "Opus"}), do: true
   def audio_track_is_opus?(%{"@type" => "Audio", "CodecID" => "A_OPUS"}), do: true
   def audio_track_is_opus?(_), do: false
 
