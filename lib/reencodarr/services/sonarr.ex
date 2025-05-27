@@ -55,9 +55,9 @@ defmodule Reencodarr.Services.Sonarr do
   @spec rename_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
   def rename_files(series_id) do
     request(
-      url: "/api/v3/rename",
+      url: "/api/v3/command",
       method: :post,
-      query: %{seriesId: series_id}
+      json: %{name: "RenameFiles", seriesId: series_id}
     )
   end
 
