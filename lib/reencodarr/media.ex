@@ -36,14 +36,14 @@ defmodule Reencodarr.Media do
           where:
             is_nil(m.id) and v.reencoded == false and v.failed == false and
               not fragment(
-                "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) = LOWER(?))",
+                "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
                 v.audio_codecs,
-                "opus"
+                "%opus%"
               ) and
               not fragment(
-                "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) = LOWER(?))",
+                "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
                 v.video_codecs,
-                "av1"
+                "%av1%"
               ),
           order_by: [desc: v.size, desc: v.bitrate, asc: v.updated_at],
           limit: ^limit,
