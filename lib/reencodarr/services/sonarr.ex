@@ -48,16 +48,23 @@ defmodule Reencodarr.Services.Sonarr do
     request(
       url: "/api/v3/command",
       method: :post,
-      json: %{name: "RefreshSeries", seriesId: series_id}
+      json: %{name: "RefreshSeries", commandName: "RefreshSeries", seriesId: series_id}
     )
   end
 
-  @spec rename_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
-  def rename_files(series_id) do
+  @spec rename_files(integer(), [integer()]) :: {:ok, Req.Response.t()} | {:error, any()}
+  def rename_files(series_id, file_ids) when is_list(file_ids) do
+    request(url: "/api/v3/rename?seriesId=#{series_id}") |> dbg()
+
     request(
       url: "/api/v3/command",
       method: :post,
-      json: %{name: "RenameFiles", seriesId: series_id}
+      json: %{
+        name: "RenameFiles",
+        commandName: "RenameFiles",
+        seriesId: series_id,
+        files: file_ids
+      }
     )
   end
 
@@ -69,9 +76,9 @@ defmodule Reencodarr.Services.Sonarr do
         shows
         |> Enum.take(10)
         |> Task.async_stream(
-          fn %{"id" => id} ->
-            # refresh_series(id)
-            rename_files(id)
+          fn %{"id" => series_id} ->
+            # TODO: fix this
+            rename_files(series_id, [])
           end,
           max_concurrency: 1
         )
