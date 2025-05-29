@@ -28,7 +28,8 @@ defmodule ReencodarrWeb.SonarrWebhookController do
        when is_list(episode_files) do
     results =
       Enum.map(episode_files, fn file ->
-        Logger.info("Received download event from Sonarr for #{file["sceneName"]}!")
+        scene_name = file["sceneName"] || Path.basename(file["path"])
+        Logger.info("Received download event from Sonarr for #{scene_name}!")
         Reencodarr.Sync.upsert_video_from_file(file, :sonarr)
       end)
 
@@ -43,7 +44,8 @@ defmodule ReencodarrWeb.SonarrWebhookController do
 
   defp handle_download(conn, %{"episodeFile" => episode_file} = _params)
        when is_map(episode_file) do
-    Logger.info("Received download event from Sonarr for #{episode_file["sceneName"]}!")
+    scene_name = episode_file["sceneName"] || Path.basename(episode_file["path"])
+    Logger.info("Received download event from Sonarr for #{scene_name}!")
     Reencodarr.Sync.upsert_video_from_file(episode_file, :sonarr)
     send_resp(conn, :no_content, "")
   end
