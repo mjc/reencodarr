@@ -145,7 +145,10 @@ defmodule Reencodarr.Sync do
   end
 
   defp calculate_bitrate(media_info) do
-    (media_info["videoBitrate"] || 0) + (media_info["audioBitrate"] || 0)
+    case media_info["videoBitrate"] || 0 do
+      0 -> 0
+      video_bitrate -> video_bitrate + (media_info["audioBitrate"] || 0)
+    end
   end
 
   defp parse_list_or_binary(value) do

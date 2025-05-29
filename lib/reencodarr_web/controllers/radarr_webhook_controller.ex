@@ -31,7 +31,8 @@ defmodule ReencodarrWeb.RadarrWebhookController do
 
     results =
       Enum.map(movie_files, fn file ->
-        Logger.info("Processing file #{file["sceneName"]}...")
+        scene_name = file["sceneName"] || Path.basename(file["path"])
+        Logger.info("Processing file #{scene_name}...")
         Reencodarr.Sync.upsert_video_from_file(file, :radarr)
       end)
 
