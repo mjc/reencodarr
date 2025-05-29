@@ -8,6 +8,8 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    # Group PubSub topics and document their purpose
+    # Subscribe to relevant topics
     if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
 
     # fetch current stats and build initial struct state
@@ -88,10 +90,18 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, update_state(socket, &%State{&1 | syncing: false, sync_progress: 0})}
   end
 
+  # Add documentation for PubSub topics
+  @doc "Handles stats updates broadcasted via PubSub"
+  # Handle PubSub messages
   @impl true
-  def handle_info({:stats, new_stats}, socket) do
-    Logger.debug("Received new stats: #{inspect(new_stats)}")
-    {:noreply, assign(socket, :state, new_stats)}
+  def handle_info({:stats, state}, socket) do
+    if is_map(state) do
+      Logger.debug("Received stats update")
+      {:noreply, assign(socket, :state, state)}
+    else
+      Logger.error("Invalid stats update received: #{inspect(state)}")
+      {:noreply, socket}
+    end
   end
 
   @impl true

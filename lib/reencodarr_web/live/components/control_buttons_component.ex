@@ -3,6 +3,7 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
 
   require Logger
 
+  @doc "Handles toggle and sync events broadcasted via PubSub"
   @impl true
   def mount(socket) do
     encoding = Reencodarr.Encoder.running?()
@@ -30,6 +31,9 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
     {:noreply, assign(socket, type, new_state)}
   end
 
+  # Group PubSub topics and document their purpose
+
+  # Handle toggle events for encoder and CRF search
   @impl true
   def handle_event("toggle", %{"target" => target}, socket) do
     case target do
@@ -40,16 +44,20 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
         toggle_app(Reencodarr.CrfSearcher, :crf_searching, socket)
 
       _ ->
+        Logger.error("Unknown toggle target: #{inspect(target)}")
         {:noreply, socket}
     end
   end
 
+  # Handle sync events for Sonarr and Radarr
   @impl true
   def handle_event("sync", %{"target" => target}, socket) do
     case target do
       "sonarr" -> Reencodarr.Sync.sync_episodes()
       "radarr" -> Reencodarr.Sync.sync_movies()
-      _ -> :noop
+      _ ->
+        Logger.error("Unknown sync target: #{inspect(target)}")
+        :noop
     end
 
     {:noreply, assign(socket, :syncing, true)}
