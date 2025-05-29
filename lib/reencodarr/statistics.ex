@@ -161,8 +161,17 @@ defmodule Reencodarr.Statistics do
 
   @impl true
   def handle_info({:encoder, :none}, %State{} = state) do
-    # No encoding currently active, ignore
-    {:noreply, state}
+    new_state = %State{
+      state
+      | encoding_progress: %EncodingProgress{
+          filename: :none,
+          percent: 0,
+          eta: 0,
+          fps: 0
+        }
+    }
+
+    broadcast_state(new_state)
   end
 
   @impl true
