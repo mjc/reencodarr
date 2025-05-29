@@ -2,6 +2,8 @@ defmodule ReencodarrWeb.ManualScanComponent do
   use Phoenix.LiveComponent
   require Logger
 
+  @doc "Handles manual scan events broadcasted via PubSub"
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -24,10 +26,18 @@ defmodule ReencodarrWeb.ManualScanComponent do
     """
   end
 
+  # Document PubSub topics related to manual scanning
+
+  # Handle manual scan events
   @impl true
   def handle_event("manual_scan", %{"path" => path}, socket) do
-    Logger.info("Starting manual scan for path: #{path}")
-    Reencodarr.ManualScanner.scan(path)
-    {:noreply, socket}
+    if is_binary(path) do
+      Logger.info("Starting manual scan for path: #{path}")
+      Reencodarr.ManualScanner.scan(path)
+      {:noreply, socket}
+    else
+      Logger.error("Invalid path received for manual scan: #{inspect(path)}")
+      {:noreply, socket}
+    end
   end
 end

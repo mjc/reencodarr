@@ -62,31 +62,26 @@ defmodule Reencodarr.Statistics do
     end
   end
 
-  @impl true
   def handle_info({:progress_update, key, progress}, %State{} = state) do
     new_state = Map.put(state, key, progress)
     broadcast_state(new_state)
   end
 
-  @impl true
   def handle_info({:sync, :started}, %State{} = state) do
     new_state = %State{state | syncing: true, sync_progress: 0}
     broadcast_state(new_state)
   end
 
-  @impl true
   def handle_info({:sync, :progress, progress}, %State{} = state) do
     new_state = %State{state | sync_progress: progress}
     broadcast_state(new_state)
   end
 
-  @impl true
   def handle_info({:sync, :complete}, %State{} = state) do
     new_state = %State{state | syncing: false, sync_progress: 0}
     broadcast_state(new_state)
   end
 
-  @impl true
   def handle_info({:video_upserted, _video}, %State{} = state) do
     Task.start(fn ->
       stats = Media.fetch_stats()
@@ -96,7 +91,6 @@ defmodule Reencodarr.Statistics do
     {:noreply, state}
   end
 
-  @impl true
   def handle_info({:vmaf_upserted, _vmaf}, %State{} = state) do
     Task.start(fn ->
       stats = Media.fetch_stats()
@@ -106,19 +100,16 @@ defmodule Reencodarr.Statistics do
     {:noreply, state}
   end
 
-  @impl true
   def handle_info({:crf_searcher, :started}, %State{} = state) do
     new_state = %State{state | crf_searching: true}
     broadcast_state(new_state)
   end
 
-  @impl true
   def handle_info({:crf_searcher, :paused}, %State{} = state) do
     new_state = %State{state | crf_searching: false}
     broadcast_state(new_state)
   end
 
-  @impl true
   def handle_info({:crf_search_progress, progress_update}, %State{} = state) do
     updated_crf_progress =
       determine_progress(state.crf_search_progress, progress_update)
@@ -127,7 +118,6 @@ defmodule Reencodarr.Statistics do
     broadcast_state(new_state)
   end
 
-  @impl true
   def handle_info({:encoder, :started, filename}, %State{} = state) do
     new_state = %State{
       state
@@ -138,7 +128,6 @@ defmodule Reencodarr.Statistics do
     broadcast_state(new_state)
   end
 
-  @impl true
   def handle_info({:encoder, :progress, %EncodingProgress{} = progress}, %State{} = state) do
     updated_encoding_progress =
       determine_progress(state.encoding_progress, progress)
@@ -147,19 +136,16 @@ defmodule Reencodarr.Statistics do
     broadcast_state(new_state)
   end
 
-  @impl true
   def handle_info({:encoder, :complete, _filename}, %State{} = state) do
     new_state = %State{state | encoding: false, encoding_progress: %EncodingProgress{}}
     broadcast_state(new_state)
   end
 
-  @impl true
   def handle_info({:encoder, :paused}, %State{} = state) do
     new_state = %State{state | encoding: false}
     broadcast_state(new_state)
   end
 
-  @impl true
   def handle_info({:encoder, :none}, %State{} = state) do
     new_state = %State{
       state
@@ -180,7 +166,6 @@ defmodule Reencodarr.Statistics do
     broadcast_state(new_state)
   end
 
-  @impl true
   def handle_cast(:stats_update_complete, %State{} = state) do
     new_state = %State{state | stats_update_in_progress: false}
     {:noreply, new_state}
