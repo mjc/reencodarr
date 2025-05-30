@@ -27,19 +27,19 @@ defmodule ReencodarrWeb.ProgressInformationComponent do
           module={ReencodarrWeb.EncodingProgressComponent}
           id="encoding-progress"
           encoding_progress={@encoding_progress}
-          class="bg-gray-800 rounded-lg p-4 shadow-md"
+          class="bg-gray-800 rounded-lg p-4 shadow-md hover:bg-gray-700 transition-colors duration-200"
         />
         <.live_component
           module={ReencodarrWeb.CrfSearchProgressComponent}
           id="crf-search-progress"
           crf_search_progress={@crf_search_progress}
-          class="bg-gray-800 rounded-lg p-4 shadow-md"
+          class="bg-gray-800 rounded-lg p-4 shadow-md hover:bg-gray-700 transition-colors duration-200"
         />
         <.live_component
           module={ReencodarrWeb.SyncProgressComponent}
           id="sync-progress"
           sync_progress={@sync_progress}
-          class="bg-gray-800 rounded-lg p-4 shadow-md"
+          class="bg-gray-800 rounded-lg p-4 shadow-md hover:bg-gray-700 transition-colors duration-200"
         />
       </div>
     </div>
