@@ -4,14 +4,16 @@ defmodule ReencodarrWeb.QueueListComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="bg-gray-800 rounded-lg shadow-md p-6">
-      <h2 class="text-xl font-bold text-indigo-400 mb-4">
+    <div class="bg-gray-900 rounded-lg shadow-lg p-6 border border-gray-700">
+      <h2 class="text-2xl font-bold text-indigo-500 mb-4">
         {@title}
       </h2>
-      <ul class="list-disc pl-5 text-gray-300">
+      <ul class="divide-y divide-gray-700">
         <%= for file <- @files do %>
-          <li class="hover:text-indigo-400 transition-colors duration-200">
-            {format_file(file)}
+          <li class="py-2 hover:bg-gray-800 transition-colors duration-200 rounded-md">
+            <span class="text-gray-300 text-sm font-medium">
+              {format_file(file)}
+            </span>
           </li>
         <% end %>
       </ul>
