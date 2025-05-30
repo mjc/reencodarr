@@ -8,51 +8,39 @@ defmodule ReencodarrWeb.QueueListComponent do
       <h2 class="text-2xl font-bold text-indigo-500 mb-4">
         {@title}
       </h2>
-      <ul class="divide-y divide-gray-700">
-        <%= for file <- @files do %>
-          <li class="py-2 hover:bg-gray-800 transition-colors duration-200 rounded-md">
-            <span class="text-gray-300 text-sm font-medium">
-              {format_file(file)}
-            </span>
-          </li>
-        <% end %>
-      </ul>
+      <table class="table-auto w-full border-collapse border border-gray-700">
+        <thead>
+          <tr>
+            <th class="border border-gray-700 px-4 py-2 text-indigo-500">File Name</th>
+            <th class="border border-gray-700 px-4 py-2 text-indigo-500">Bitrate (kbps)</th>
+            <th class="border border-gray-700 px-4 py-2 text-indigo-500">Size</th>
+            <%= if Enum.any?(@files, &Map.has_key?(&1, :percent)) do %>
+              <th class="border border-gray-700 px-4 py-2 text-indigo-500">Percent</th>
+            <% end %>
+          </tr>
+        </thead>
+        <tbody>
+          <%= for file <- @files do %>
+            <tr class="hover:bg-gray-800 transition-colors duration-200">
+              <td class="border border-gray-700 px-4 py-2 text-gray-300">
+                <%= if Map.has_key?(file, :video), do: Path.basename(file.video.path), else: Path.basename(file.path) %>
+              </td>
+              <td class="border border-gray-700 px-4 py-2 text-gray-300">
+                <%= if Map.has_key?(file, :bitrate), do: file.bitrate, else: "N/A" %>
+              </td>
+              <td class="border border-gray-700 px-4 py-2 text-gray-300">
+                <%= if is_integer(file.size), do: "#{Float.round(file.size / 1024 / 1024, 2)} MiB", else: file.size || "N/A" %>
+              </td>
+              <%= if Map.has_key?(file, :percent) do %>
+                <td class="border border-gray-700 px-4 py-2 text-gray-300">
+                  <%= "#{file.percent}%" %>
+                </td>
+              <% end %>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
     </div>
     """
   end
-
-  defp format_file(%Reencodarr.Media.Video{path: path}) do
-    basename = Path.basename(path)
-
-    case Regex.run(~r/^(?<show_name>.+?) - (?<episode_number>S\d+E\d+)/, basename) do
-      [_, show_name, episode_number] -> "#{show_name} - #{episode_number}"
-      _ -> basename
-    end
-  end
-
-  defp format_file(%Reencodarr.Media.Vmaf{
-         percent: percent,
-         video: %Reencodarr.Media.Video{path: path}
-       }) do
-    basename = Path.basename(path)
-
-    case Regex.run(~r/^(?<show_name>.+?) - (?<episode_number>S\d+E\d+)/, basename) do
-      [_, show_name, episode_number] -> "#{show_name} - #{episode_number} (Percent: #{percent}%)"
-      _ -> "#{basename} (Percent: #{percent}%)"
-    end
-  end
-
-  defp format_file(%Reencodarr.Media.Video{path: path, bitrate: bitrate, size: size}) do
-    basename = Path.basename(path)
-
-    case Regex.run(~r/^(?<show_name>.+?) - (?<episode_number>S\d+E\d+)/, basename) do
-      [_, show_name, episode_number] ->
-        "#{show_name} - #{episode_number} (Bitrate: #{bitrate} kbps, Size: #{size} bytes)"
-
-      _ ->
-        "#{basename} (Bitrate: #{bitrate} kbps, Size: #{size} bytes)"
-    end
-  end
-
-  defp format_file(_), do: "Unknown"
 end

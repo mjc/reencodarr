@@ -9,18 +9,8 @@ defmodule ReencodarrWeb.ProgressInformationComponent do
   def render(assigns) do
     ~H"""
     <div class="w-full bg-gray-900 rounded-xl shadow-lg p-6 border border-gray-700">
-      <h2 class="text-lg font-bold mb-4 text-indigo-300 flex items-center space-x-2">
-        <svg
-          class="w-5 h-5 text-indigo-400"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          viewBox="0 0 24 24"
-        >
-          <path d="M3 12h18"></path>
-          <path d="M12 3v18"></path>
-        </svg>
-        <span>Progress Information</span>
+      <h2 class="text-2xl font-bold text-indigo-500 mb-4">
+        Progress Information
       </h2>
       <div class="flex flex-col space-y-6">
         <.live_component
