@@ -202,14 +202,18 @@ defmodule ReencodarrWeb.DashboardLive do
           module={ReencodarrWeb.QueueInformationComponent}
           id="queue-information"
           stats={@state.stats}
+          class="mt-8 mx-auto max-w-4xl"
         />
+
         <.live_component
           module={ReencodarrWeb.ProgressInformationComponent}
           id="progress-information"
           sync_progress={@state.sync_progress}
           encoding_progress={@state.encoding_progress}
           crf_search_progress={@state.crf_search_progress}
+          class="mt-8 mx-auto max-w-4xl"
         />
+
         <.live_component
           module={ReencodarrWeb.StatisticsComponent}
           id="statistics"
@@ -223,6 +227,7 @@ defmodule ReencodarrWeb.DashboardLive do
         id="crf-search-queue"
         title="CRF Search Queue"
         files={@state.next_crf_search}
+        class="mt-8 mx-auto max-w-4xl"
       />
 
       <.live_component
@@ -230,6 +235,7 @@ defmodule ReencodarrWeb.DashboardLive do
         id="encoding-queue"
         title="Encoding Queue"
         files={@state.videos_by_estimated_percent}
+        class="mt-8 mx-auto max-w-4xl"
       />
 
       <footer class="w-full max-w-6xl mt-12 text-center text-xs text-gray-500 border-t border-gray-700 pt-4">
