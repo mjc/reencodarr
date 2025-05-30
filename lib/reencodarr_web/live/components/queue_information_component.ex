@@ -33,6 +33,7 @@ defmodule ReencodarrWeb.QueueInformationComponent do
       """
     else
       Logger.error("Invalid stats received for queue information: #{inspect(assigns.stats)}")
+
       ~H"""
       <div class="w-full bg-gray-800/90 rounded-xl shadow-lg p-6 border border-gray-700">
         <h2 class="text-lg font-bold mb-4 text-red-500">Error: Invalid Queue Information</h2>

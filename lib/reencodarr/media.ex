@@ -59,11 +59,9 @@ defmodule Reencodarr.Media do
   end
 
   def list_videos_by_estimated_percent(limit \\ 10) do
-    Repo.all(base_query_for_videos() |> limit(^limit))
-    |> Enum.map(fn vmaf ->
-      video_path = vmaf.video.path
-      {List.last(String.split(video_path, "/")), vmaf.percent}
-    end)
+    videos = Repo.all(base_query_for_videos() |> limit(^limit))
+    Logger.info("list_videos_by_estimated_percent returned: #{inspect(videos)}")
+    videos
   end
 
   def get_next_for_encoding do
@@ -196,6 +194,9 @@ defmodule Reencodarr.Media do
   def fetch_stats do
     case Repo.transaction(fn -> Repo.one(aggregated_stats_query()) end) do
       {:ok, stats} ->
+        next_crf_search = get_next_crf_search(5)
+        videos_by_estimated_percent = list_videos_by_estimated_percent(5)
+
         %Reencodarr.Statistics.Stats{
           avg_vmaf_percentage: stats.avg_vmaf_percentage,
           chosen_vmafs_count: stats.chosen_vmafs_count,
@@ -210,7 +211,9 @@ defmodule Reencodarr.Media do
           queue_length: %{
             encodes: stats.encodes_count,
             crf_searches: stats.queued_crf_searches_count
-          }
+          },
+          next_crf_search: next_crf_search,
+          videos_by_estimated_percent: videos_by_estimated_percent
         }
 
       {:error, _} ->
