@@ -4,20 +4,6 @@ defmodule Reencodarr.Media do
   alias Reencodarr.Media.{Video, Library, Vmaf}
   require Logger
 
-  @default_stats %Reencodarr.Statistics.Stats{
-    avg_vmaf_percentage: 0,
-    chosen_vmafs_count: 0,
-    lowest_vmaf_by_time: %Vmaf{},
-    lowest_vmaf: %Vmaf{},
-    not_reencoded: 0,
-    reencoded: 0,
-    total_videos: 0,
-    total_vmafs: 0,
-    most_recent_video_update: nil,
-    most_recent_inserted_video: nil,
-    queue_length: %{encodes: 0, crf_searches: 0}
-  }
-
   # --- Video-related functions ---
   def list_videos, do: Repo.all(from v in Video, order_by: [desc: v.updated_at])
   def get_video!(id), do: Repo.get!(Video, id)
@@ -59,6 +45,7 @@ defmodule Reencodarr.Media do
   end
 
   def list_videos_by_estimated_percent(limit \\ 10) do
+
     Repo.all(base_query_for_videos() |> limit(^limit))
   end
 
@@ -217,10 +204,9 @@ defmodule Reencodarr.Media do
       {:error, _} ->
         Logger.error("Failed to fetch stats")
 
-        %{
-          @default_stats
-          | most_recent_video_update: most_recent_video_update() || nil,
-            most_recent_inserted_video: get_most_recent_inserted_at() || nil
+        %Reencodarr.Statistics.Stats{
+          most_recent_video_update: most_recent_video_update() || nil,
+          most_recent_inserted_video: get_most_recent_inserted_at() || nil
         }
     end
   end

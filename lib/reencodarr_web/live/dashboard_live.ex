@@ -2,7 +2,6 @@ defmodule ReencodarrWeb.DashboardLive do
   use ReencodarrWeb, :live_view
 
   alias Reencodarr.Statistics
-  alias Reencodarr.Statistics.State, as: State
 
   require Logger
 
@@ -15,7 +14,7 @@ defmodule ReencodarrWeb.DashboardLive do
     # fetch current stats and build initial struct state
     fetched = Statistics.get_stats()
 
-    initial_state = %State{
+    initial_state = %Statistics{
       fetched
       | crf_searching: Reencodarr.CrfSearcher.running?(),
         encoding: Reencodarr.Encoder.running?()
@@ -43,7 +42,7 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply,
      update_state(
        socket,
-       &%State{
+       &%Statistics{
          &1
          | encoding: true,
            encoding_progress: %Statistics.EncodingProgress{
@@ -59,35 +58,35 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_info({:encoder, status}, socket) when status in [:started, :paused] do
     Logger.debug("Encoder #{status}")
 
-    {:noreply, update_state(socket, &%State{&1 | encoding: status == :started})}
+    {:noreply, update_state(socket, &%Statistics{&1 | encoding: status == :started})}
   end
 
   @impl true
   def handle_info({:crf_searcher, status}, socket) when status in [:started, :paused] do
     Logger.debug("CRF search #{status}")
 
-    {:noreply, update_state(socket, &%State{&1 | crf_searching: status == :started})}
+    {:noreply, update_state(socket, &%Statistics{&1 | crf_searching: status == :started})}
   end
 
   @impl true
   def handle_info({:sync, :started}, socket) do
     Logger.info("Sync started")
 
-    {:noreply, update_state(socket, &%State{&1 | syncing: true, sync_progress: 0})}
+    {:noreply, update_state(socket, &%Statistics{&1 | syncing: true, sync_progress: 0})}
   end
 
   @impl true
   def handle_info({:sync, :progress, progress}, socket) do
     Logger.debug("Sync progress: #{inspect(progress)}")
 
-    {:noreply, update_state(socket, &%State{&1 | sync_progress: progress})}
+    {:noreply, update_state(socket, &%Statistics{&1 | sync_progress: progress})}
   end
 
   @impl true
   def handle_info({:sync, :complete}, socket) do
     Logger.info("Sync complete")
 
-    {:noreply, update_state(socket, &%State{&1 | syncing: false, sync_progress: 0})}
+    {:noreply, update_state(socket, &%Statistics{&1 | syncing: false, sync_progress: 0})}
   end
 
   # Add documentation for PubSub topics
@@ -110,7 +109,7 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply,
      update_state(
        socket,
-       &%State{
+       &%Statistics{
          &1
          | encoding_progress: %Statistics.EncodingProgress{
              filename: :none,
@@ -130,21 +129,21 @@ defmodule ReencodarrWeb.DashboardLive do
       "Encoding progress: #{progress.percent}% ETA: #{progress.eta} FPS: #{progress.fps}"
     )
 
-    {:noreply, update_state(socket, &%State{&1 | encoding_progress: progress})}
+    {:noreply, update_state(socket, &%Statistics{&1 | encoding_progress: progress})}
   end
 
   @impl true
   def handle_info({:crf_search, :none}, socket) do
     # Clear CRF search progress when CRF search completes
     {:noreply,
-     update_state(socket, &%State{&1 | crf_search_progress: %Statistics.CrfSearchProgress{}})}
+     update_state(socket, &%Statistics{&1 | crf_search_progress: %Statistics.CrfSearchProgress{}})}
   end
 
   @impl true
   def handle_info({:crf_search, progress}, socket) do
     Logger.debug("Received CRF search progress: #{inspect(progress)}")
 
-    {:noreply, update_state(socket, &%State{&1 | crf_search_progress: progress})}
+    {:noreply, update_state(socket, &%Statistics{&1 | crf_search_progress: progress})}
   end
 
   @impl true
@@ -301,6 +300,40 @@ defmodule ReencodarrWeb.DashboardLive do
       stats={@stats}
       timezone={@timezone}
     />
+    """
+  end
+
+  # Encoding Queue
+  def render_encoding_queue(assigns) do
+    ~H"""
+    <table class="table-auto w-full border-collapse border border-gray-700">
+      <thead>
+        <tr>
+          <th class="border border-gray-700 px-4 py-2 text-indigo-500">File Name</th>
+          <th class="border border-gray-700 px-4 py-2 text-indigo-500">Bitrate (kbps)</th>
+          <th class="border border-gray-700 px-4 py-2 text-indigo-500">Size (bytes)</th>
+          <th class="border border-gray-700 px-4 py-2 text-indigo-500">Percent</th>
+        </tr>
+      </thead>
+      <tbody>
+        <%= for file <- @files do %>
+          <tr class="hover:bg-gray-800 transition-colors duration-200">
+            <td class="border border-gray-700 px-4 py-2 text-gray-300">
+              <%= Path.basename(file.path) %>
+            </td>
+            <td class="border border-gray-700 px-4 py-2 text-gray-300">
+              <%= file.bitrate || "N/A" %>
+            </td>
+            <td class="border border-gray-700 px-4 py-2 text-gray-300">
+              <%= file.size || "N/A" %>
+            </td>
+            <td class="border border-gray-700 px-4 py-2 text-gray-300">
+              <%= file.percent || "N/A" %>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
     """
   end
 end
