@@ -10,5 +10,7 @@ defmodule Reencodarr.Statistics.Stats do
             most_recent_video_update: nil,
             most_recent_inserted_video: nil,
             queue_length: %{encodes: 0, crf_searches: 0},
-            encode_queue_length: 0
+            encode_queue_length: 0,
+            next_crf_search: [],
+            videos_by_estimated_percent: []
 end

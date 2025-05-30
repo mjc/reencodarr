@@ -86,6 +86,7 @@ defmodule ReencodarrWeb.StatisticsComponent do
       """
     else
       Logger.error("Invalid statistics or timezone received: #{inspect(assigns)}")
+
       ~H"""
       <div class="w-full bg-gray-800/90 rounded-xl shadow-lg p-6 border border-gray-700">
         <h2 class="text-lg font-bold mb-4 text-red-500">Error: Invalid Statistics</h2>

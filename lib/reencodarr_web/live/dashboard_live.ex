@@ -218,6 +218,20 @@ defmodule ReencodarrWeb.DashboardLive do
         />
       </div>
 
+      <.live_component
+        module={ReencodarrWeb.QueueListComponent}
+        id="crf-search-queue"
+        title="CRF Search Queue"
+        files={@state.next_crf_search}
+      />
+
+      <.live_component
+        module={ReencodarrWeb.QueueListComponent}
+        id="encoding-queue"
+        title="Encoding Queue"
+        files={@state.videos_by_estimated_percent}
+      />
+
       <footer class="w-full max-w-6xl mt-12 text-center text-xs text-gray-500 border-t border-gray-700 pt-4">
         Reencodarr &copy; 2024 &mdash;
         <a href="https://github.com/mjc/reencodarr" class="underline hover:text-indigo-400">GitHub</a>

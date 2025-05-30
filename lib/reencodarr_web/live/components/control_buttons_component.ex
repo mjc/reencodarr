@@ -53,8 +53,12 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
   @impl true
   def handle_event("sync", %{"target" => target}, socket) do
     case target do
-      "sonarr" -> Reencodarr.Sync.sync_episodes()
-      "radarr" -> Reencodarr.Sync.sync_movies()
+      "sonarr" ->
+        Reencodarr.Sync.sync_episodes()
+
+      "radarr" ->
+        Reencodarr.Sync.sync_movies()
+
       _ ->
         Logger.error("Unknown sync target: #{inspect(target)}")
         :noop

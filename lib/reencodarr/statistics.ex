@@ -2,7 +2,6 @@ defmodule Reencodarr.Statistics do
   use GenServer
   alias Reencodarr.Media
   alias Reencodarr.Statistics.{EncodingProgress, CrfSearchProgress, Stats, State}
-  require Logger
 
   @broadcast_interval 5_000
 
@@ -38,6 +37,7 @@ defmodule Reencodarr.Statistics do
   def handle_continue(:fetch_initial_stats, state) do
     Task.start(fn ->
       stats = Media.fetch_stats()
+
       GenServer.cast(__MODULE__, {:update_stats, stats})
     end)
 
@@ -47,7 +47,6 @@ defmodule Reencodarr.Statistics do
   @impl true
   def handle_info(:broadcast_stats, %State{} = state) do
     if state.stats_update_in_progress do
-      Logger.debug("Stats update already in progress, skipping new update.")
       {:noreply, state}
     else
       new_state = %State{state | stats_update_in_progress: true}
@@ -162,7 +161,13 @@ defmodule Reencodarr.Statistics do
 
   @impl true
   def handle_cast({:update_stats, stats}, %State{} = state) do
-    new_state = %State{state | stats: stats}
+    new_state = %State{
+      state
+      | stats: stats,
+        next_crf_search: stats.next_crf_search,
+        videos_by_estimated_percent: stats.videos_by_estimated_percent
+    }
+
     broadcast_state(new_state)
   end
 
