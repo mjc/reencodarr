@@ -20,7 +20,7 @@ defmodule ReencodarrWeb.SonarrWebhookController do
   end
 
   defp handle_grab(conn, %{"release" => %{"releaseTitle" => title}}) do
-    Logger.info("Received grab event from Sonarr for #{title}!")
+    Logger.debug("Received grab event from Sonarr for #{title}!")
     send_resp(conn, :no_content, "")
   end
 

@@ -47,7 +47,7 @@ defmodule Reencodarr.Statistics do
   @impl true
   def handle_info(:broadcast_stats, %State{} = state) do
     if state.stats_update_in_progress do
-      Logger.info("Stats update already in progress, skipping new update.")
+      Logger.debug("Stats update already in progress, skipping new update.")
       {:noreply, state}
     else
       new_state = %State{state | stats_update_in_progress: true}
