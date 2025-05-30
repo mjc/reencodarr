@@ -12,7 +12,9 @@ defmodule ReencodarrWeb.QueueListComponent do
         <thead>
           <tr>
             <th class="border border-gray-700 px-4 py-2 text-indigo-500">File Name</th>
-            <th class="border border-gray-700 px-4 py-2 text-indigo-500">Bitrate (kbps)</th>
+            <%= if Enum.any?(@files, &Map.has_key?(&1, :bitrate)) do %>
+              <th class="border border-gray-700 px-4 py-2 text-indigo-500">Bitrate (Mbit/s)</th>
+            <% end %>
             <th class="border border-gray-700 px-4 py-2 text-indigo-500">Size</th>
             <%= if Enum.any?(@files, &Map.has_key?(&1, :percent)) do %>
               <th class="border border-gray-700 px-4 py-2 text-indigo-500">Percent</th>
@@ -25,9 +27,11 @@ defmodule ReencodarrWeb.QueueListComponent do
               <td class="border border-gray-700 px-4 py-2 text-gray-300">
                 <%= if Map.has_key?(file, :video), do: Path.basename(file.video.path), else: Path.basename(file.path) %>
               </td>
-              <td class="border border-gray-700 px-4 py-2 text-gray-300">
-                <%= if Map.has_key?(file, :bitrate), do: file.bitrate, else: "N/A" %>
-              </td>
+              <%= if Map.has_key?(file, :bitrate) do %>
+                <td class="border border-gray-700 px-4 py-2 text-gray-300">
+                  <%= Float.round(file.bitrate / 1_000_000, 2) %> Mbit/s
+                </td>
+              <% end %>
               <td class="border border-gray-700 px-4 py-2 text-gray-300">
                 <%= if is_integer(file.size), do: "#{Float.round(file.size / 1024 / 1024, 2)} MiB", else: file.size || "N/A" %>
               </td>
