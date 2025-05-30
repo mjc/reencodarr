@@ -165,15 +165,15 @@ defmodule ReencodarrWeb.DashboardLive do
     ~H"""
     <div
       id="dashboard-live"
-      class="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex flex-col items-center justify-start space-y-8 p-6"
+      class="min-h-screen bg-gray-900 flex flex-col items-center justify-start space-y-8 p-6"
       phx-hook="TimezoneHook"
     >
       <header class="w-full max-w-6xl flex flex-col md:flex-row items-center justify-between mb-8">
         <div>
-          <h1 class="text-3xl font-extrabold text-indigo-400 tracking-tight drop-shadow-lg">
+          <h1 class="text-5xl font-extrabold text-indigo-400 tracking-tight drop-shadow-lg">
             Reencodarr Dashboard
           </h1>
-          <p class="text-gray-300 mt-2 text-sm">
+          <p class="text-gray-300 mt-2 text-lg">
             Monitor and control your encoding pipeline in real time.
           </p>
         </div>
@@ -202,7 +202,6 @@ defmodule ReencodarrWeb.DashboardLive do
           module={ReencodarrWeb.QueueInformationComponent}
           id="queue-information"
           stats={@state.stats}
-          class="mt-8 mx-auto max-w-4xl"
         />
 
         <.live_component
@@ -211,7 +210,6 @@ defmodule ReencodarrWeb.DashboardLive do
           sync_progress={@state.sync_progress}
           encoding_progress={@state.encoding_progress}
           crf_search_progress={@state.crf_search_progress}
-          class="mt-8 mx-auto max-w-4xl"
         />
 
         <.live_component
@@ -227,7 +225,6 @@ defmodule ReencodarrWeb.DashboardLive do
         id="crf-search-queue"
         title="CRF Search Queue"
         files={@state.next_crf_search}
-        class="mt-8 mx-auto max-w-4xl"
       />
 
       <.live_component
@@ -235,7 +232,6 @@ defmodule ReencodarrWeb.DashboardLive do
         id="encoding-queue"
         title="Encoding Queue"
         files={@state.videos_by_estimated_percent}
-        class="mt-8 mx-auto max-w-4xl"
       />
 
       <footer class="w-full max-w-6xl mt-12 text-center text-xs text-gray-500 border-t border-gray-700 pt-4">
@@ -273,7 +269,6 @@ defmodule ReencodarrWeb.DashboardLive do
     """
   end
 
-  # Queue Information
   def render_queue_information(assigns) do
     ~H"""
     <.live_component
