@@ -13,6 +13,7 @@ defmodule ReencodarrWeb.EncodeQueueComponent do
           <tr>
             <th class="border border-gray-700 px-4 py-2 text-indigo-500">File Name</th>
             <th class="border border-gray-700 px-4 py-2 text-indigo-500">Size</th>
+            <th class="border border-gray-700 px-4 py-2 text-indigo-500">Savings</th>
             <th class="border border-gray-700 px-4 py-2 text-indigo-500">Percent</th>
           </tr>
         </thead>
@@ -26,6 +27,9 @@ defmodule ReencodarrWeb.EncodeQueueComponent do
                 {file.size}
               </td>
               <td class="border border-gray-700 px-4 py-2 text-gray-300">
+              {calculate_savings(file)} GiB
+              </td>
+              <td class="border border-gray-700 px-4 py-2 text-gray-300">
                 {file.percent}
               </td>
             </tr>
@@ -34,6 +38,11 @@ defmodule ReencodarrWeb.EncodeQueueComponent do
       </table>
     </div>
     """
+  end
+
+  defp calculate_savings(file) do
+    savings = file.video.size - (file.video.size * (file.percent / 100))
+    savings / 1_073_741_824 |> Float.round(2)
   end
 
   defp format_name(%{path: path}) do
