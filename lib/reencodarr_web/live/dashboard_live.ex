@@ -164,21 +164,21 @@ defmodule ReencodarrWeb.DashboardLive do
     ~H"""
     <div
       id="dashboard-live"
-      class="min-h-screen bg-gray-900 flex flex-col items-center justify-start space-y-8 p-6"
+      class="min-h-screen bg-gray-900 flex flex-col items-center justify-start space-y-12 p-8"
       phx-hook="TimezoneHook"
     >
-      <header class="w-full max-w-6xl flex flex-col md:flex-row items-center justify-between mb-8">
+      <header class="w-full max-w-6xl flex flex-col md:flex-row items-center justify-between mb-12">
         <div>
           <h1 class="text-5xl font-extrabold text-indigo-400 tracking-tight drop-shadow-lg">
             Reencodarr Dashboard
           </h1>
-          <p class="text-gray-300 mt-2 text-lg">
+          <p class="text-gray-300 mt-4 text-lg">
             Monitor and control your encoding pipeline in real time.
           </p>
         </div>
 
         <div class="flex flex-col md:flex-row items-center space-y-4 md:space-y-0 md:space-x-6 mt-4 md:mt-0">
-          <div class="flex flex-wrap gap-2">
+          <div class="flex flex-wrap gap-4">
             <.render_control_buttons
               encoding={@state.encoding}
               crf_searching={@state.crf_searching}
@@ -196,7 +196,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
       <.render_manual_scan_form />
 
-      <div class="w-full max-w-6xl grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div class="w-full max-w-6xl grid grid-cols-1 md:grid-cols-3 gap-12">
         <.live_component
           module={ReencodarrWeb.QueueInformationComponent}
           id="queue-information"
@@ -219,21 +219,23 @@ defmodule ReencodarrWeb.DashboardLive do
         />
       </div>
 
-      <.live_component
-        module={ReencodarrWeb.CrfSearchQueueComponent}
-        id="crf-search-queue"
-        title="CRF Search Queue"
-        files={@state.next_crf_search}
-      />
+      <div class="w-full max-w-6xl grid grid-cols-1 md:grid-cols-2 gap-12">
+        <.live_component
+          module={ReencodarrWeb.CrfSearchQueueComponent}
+          id="crf-search-queue"
+          title="CRF Search Queue"
+          files={@state.next_crf_search}
+        />
 
-      <.live_component
-        module={ReencodarrWeb.EncodeQueueComponent}
-        id="encoding-queue"
-        title="Encoding Queue"
-        files={@state.videos_by_estimated_percent}
-      />
+        <.live_component
+          module={ReencodarrWeb.EncodeQueueComponent}
+          id="encoding-queue"
+          title="Encoding Queue"
+          files={@state.videos_by_estimated_percent}
+        />
+      </div>
 
-      <footer class="w-full max-w-6xl mt-12 text-center text-xs text-gray-500 border-t border-gray-700 pt-4">
+      <footer class="w-full max-w-6xl mt-16 text-center text-xs text-gray-500 border-t border-gray-700 pt-6">
         Reencodarr &copy; 2024 &mdash;
         <a href="https://github.com/mjc/reencodarr" class="underline hover:text-indigo-400">GitHub</a>
       </footer>

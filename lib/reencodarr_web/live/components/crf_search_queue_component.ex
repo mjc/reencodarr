@@ -4,7 +4,7 @@ defmodule ReencodarrWeb.CrfSearchQueueComponent do
   @impl true
   def render(assigns) do
     ~H"""
-        <div class="bg-gray-900 rounded-lg shadow-lg p-6 border border-gray-700">
+    <div class="bg-gray-900 rounded-lg shadow-lg p-6 border border-gray-700">
       <h2 class="text-2xl font-bold text-indigo-500 mb-4">
         Encoding Queue
       </h2>
@@ -45,5 +45,4 @@ defmodule ReencodarrWeb.CrfSearchQueueComponent do
       _ -> path
     end
   end
-
 end
