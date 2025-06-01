@@ -25,7 +25,9 @@ defmodule Reencodarr.Application do
         id: :worker_supervisor,
         start: {Supervisor, :start_link, [worker_children(), [strategy: :one_for_one]]}
       },
-      Reencodarr.Statistics
+      Reencodarr.Statistics,
+      # Start the TaskSupervisor
+      {Task.Supervisor, name: Reencodarr.TaskSupervisor}
     ]
   end
 
