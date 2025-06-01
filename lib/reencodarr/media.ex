@@ -45,7 +45,6 @@ defmodule Reencodarr.Media do
   end
 
   def list_videos_by_estimated_percent(limit \\ 10) do
-
     Repo.all(base_query_for_videos() |> limit(^limit))
   end
 

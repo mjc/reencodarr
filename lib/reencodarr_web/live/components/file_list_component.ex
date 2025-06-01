@@ -25,19 +25,23 @@ defmodule ReencodarrWeb.QueueListComponent do
           <%= for file <- @files do %>
             <tr class="hover:bg-gray-800 transition-colors duration-200">
               <td class="border border-gray-700 px-4 py-2 text-gray-300">
-                <%= if Map.has_key?(file, :video), do: Path.basename(file.video.path), else: Path.basename(file.path) %>
+                {if Map.has_key?(file, :video),
+                  do: Path.basename(file.video.path),
+                  else: Path.basename(file.path)}
               </td>
               <%= if Map.has_key?(file, :bitrate) do %>
                 <td class="border border-gray-700 px-4 py-2 text-gray-300">
-                  <%= Float.round(file.bitrate / 1_000_000, 2) %> Mbit/s
+                  {Float.round(file.bitrate / 1_000_000, 2)} Mbit/s
                 </td>
               <% end %>
               <td class="border border-gray-700 px-4 py-2 text-gray-300">
-                <%= if is_integer(file.size), do: "#{Float.round(file.size / 1024 / 1024, 2)} MiB", else: file.size || "N/A" %>
+                {if is_integer(file.size),
+                  do: "#{Float.round(file.size / 1024 / 1024, 2)} MiB",
+                  else: file.size || "N/A"}
               </td>
               <%= if Map.has_key?(file, :percent) do %>
                 <td class="border border-gray-700 px-4 py-2 text-gray-300">
-                  <%= "#{file.percent}%" %>
+                  {file.percent}%
                 </td>
               <% end %>
             </tr>
