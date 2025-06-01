@@ -74,7 +74,7 @@ defmodule Reencodarr.Statistics do
     else
       new_state = %Reencodarr.Statistics{state | stats_update_in_progress: true}
 
-      Task.start(fn ->
+      start_task(fn ->
         stats = Media.fetch_stats()
         GenServer.cast(__MODULE__, {:update_stats, stats})
         GenServer.cast(__MODULE__, :stats_update_complete)
@@ -195,6 +195,11 @@ defmodule Reencodarr.Statistics do
     broadcast_state(new_state)
   end
 
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, %Reencodarr.Statistics{} = state) do
+    new_state = %Reencodarr.Statistics{state | stats_update_in_progress: false}
+    broadcast_state(new_state)
+  end
+
   @impl true
   def handle_cast({:update_stats, stats}, %Reencodarr.Statistics{} = state) do
     new_state = %Reencodarr.Statistics{
@@ -275,5 +280,9 @@ defmodule Reencodarr.Statistics do
   defp broadcast_state(state) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "stats", {:stats, state})
     {:noreply, state}
+  end
+
+  defp start_task(task_fun) do
+    Task.Supervisor.start_child(Reencodarr.TaskSupervisor, task_fun)
   end
 end

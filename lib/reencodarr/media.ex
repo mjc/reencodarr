@@ -46,7 +46,7 @@ defmodule Reencodarr.Media do
       from v in Vmaf,
         join: vid in assoc(v, :video),
         where: v.chosen == true and vid.reencoded == false and vid.failed == false,
-        order_by: [asc: v.percent, asc: v.time],
+        order_by: [asc: v.percent, asc: v.time, asc: v.size],
         limit: ^limit,
         preload: [:video]
     )
@@ -133,7 +133,7 @@ defmodule Reencodarr.Media do
 
   # --- Library-related functions ---
   def list_libraries do
-    Repo.all(from l in Library)
+    Repo.all(from(l in Library))
   end
 
   def get_library!(id) do
@@ -198,7 +198,9 @@ defmodule Reencodarr.Media do
     Repo.one(
       from v in Vmaf,
         join: vid in assoc(v, :video),
-        where: v.chosen == true and v.video_id == ^video_id and vid.reencoded == false and vid.failed == false,
+        where:
+          v.chosen == true and v.video_id == ^video_id and vid.reencoded == false and
+            vid.failed == false,
         preload: [:video],
         order_by: [asc: v.percent, asc: v.time]
     )
