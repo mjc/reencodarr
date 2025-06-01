@@ -13,43 +13,51 @@ defmodule Reencodarr.Media do
   def find_videos_by_path_wildcard(pattern),
     do: Repo.all(from v in Video, where: like(v.path, ^pattern))
 
-  def get_next_crf_search(limit \\ 10),
-    do:
-      Repo.all(
-        from v in Video,
-          left_join: m in Vmaf,
-          on: m.video_id == v.id,
-          where:
-            is_nil(m.id) and v.reencoded == false and v.failed == false and
-              not fragment(
-                "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
-                v.audio_codecs,
-                "%opus%"
-              ) and
-              not fragment(
-                "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
-                v.video_codecs,
-                "%av1%"
-              ),
-          order_by: [desc: v.size, desc: v.bitrate, asc: v.updated_at],
-          limit: ^limit,
-          select: v
-      )
+  def get_next_crf_search(limit \\ 10) do
+    Repo.all(
+      from v in Video,
+        left_join: m in Vmaf,
+        on: m.video_id == v.id,
+        where:
+          is_nil(m.id) and v.reencoded == false and v.failed == false and
+            not fragment(
+              "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
+              v.audio_codecs,
+              "%opus%"
+            ) and
+            not fragment(
+              "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
+              v.video_codecs,
+              "%av1%"
+            ),
+        order_by: [
+          desc: v.bitrate,
+          desc: v.size,
+          asc: v.updated_at
+        ],
+        limit: ^limit,
+        select: v
+    )
+  end
 
-  defp base_query_for_videos do
-    from v in Vmaf,
-      join: vid in assoc(v, :video),
-      where: v.chosen == true and vid.reencoded == false and vid.failed == false,
-      order_by: [asc: v.percent, asc: v.time],
-      preload: [:video]
+  # Renamed `base_query_for_videos` to `query_videos_by_criteria` for better understanding
+  defp query_videos_by_criteria(limit) do
+    Repo.all(
+      from v in Vmaf,
+        join: vid in assoc(v, :video),
+        where: v.chosen == true and vid.reencoded == false and vid.failed == false,
+        order_by: [asc: v.percent, asc: v.time],
+        limit: ^limit,
+        preload: [:video]
+    )
   end
 
   def list_videos_by_estimated_percent(limit \\ 10) do
-    Repo.all(base_query_for_videos() |> limit(^limit))
+    query_videos_by_criteria(limit)
   end
 
   def get_next_for_encoding do
-    list_videos_by_estimated_percent(1) |> List.first()
+    query_videos_by_criteria(1) |> List.first()
   end
 
   def create_video(attrs \\ %{}), do: %Video{} |> Video.changeset(attrs) |> Repo.insert()
@@ -100,13 +108,17 @@ defmodule Reencodarr.Media do
   def get_most_recent_inserted_at, do: Repo.one(from v in Video, select: max(v.inserted_at))
   def video_has_vmafs?(%Video{id: id}), do: Repo.exists?(from v in Vmaf, where: v.video_id == ^id)
 
-  def delete_videos_with_path(path) do
-    video_ids = from(v in Video, where: ilike(v.path, ^path), select: v.id) |> Repo.all()
-
+  # Consolidated shared logic for video deletion
+  defp delete_videos_by_ids(video_ids) do
     Repo.transaction(fn ->
       from(v in Vmaf, where: v.video_id in ^video_ids) |> Repo.delete_all()
       from(v in Video, where: v.id in ^video_ids) |> Repo.delete_all()
     end)
+  end
+
+  def delete_videos_with_path(path) do
+    video_ids = from(v in Video, where: ilike(v.path, ^path), select: v.id) |> Repo.all()
+    delete_videos_by_ids(video_ids)
   end
 
   def delete_videos_with_nonexistent_paths do
@@ -116,16 +128,22 @@ defmodule Reencodarr.Media do
       |> Enum.filter(fn %{path: path} -> !File.exists?(path) end)
       |> Enum.map(& &1.id)
 
-    Repo.transaction(fn ->
-      from(v in Vmaf, where: v.video_id in ^video_ids) |> Repo.delete_all()
-      from(v in Video, where: v.id in ^video_ids) |> Repo.delete_all()
-    end)
+    delete_videos_by_ids(video_ids)
   end
 
   # --- Library-related functions ---
-  def list_libraries, do: Repo.all(Library)
-  def get_library!(id), do: Repo.get!(Library, id)
-  def create_library(attrs \\ %{}), do: %Library{} |> Library.changeset(attrs) |> Repo.insert()
+  def list_libraries do
+    Repo.all(from l in Library)
+  end
+
+  def get_library!(id) do
+    Repo.one(from l in Library, where: l.id == ^id)
+  end
+
+  def create_library(attrs \\ %{}) do
+    %Library{} |> Library.changeset(attrs) |> Repo.insert()
+  end
+
   def update_library(%Library{} = l, attrs), do: l |> Library.changeset(attrs) |> Repo.update()
   def delete_library(%Library{} = l), do: Repo.delete(l)
   def change_library(%Library{} = l, attrs \\ %{}), do: Library.changeset(l, attrs)
@@ -161,18 +179,30 @@ defmodule Reencodarr.Media do
   def chosen_vmaf_exists?(%{id: id}),
     do: Repo.exists?(from v in Vmaf, where: v.video_id == ^id and v.chosen == true)
 
-  def list_chosen_vmafs,
-    do:
-      Repo.all(
-        from v in Vmaf,
-          join: vid in assoc(v, :video),
-          where: v.chosen == true and vid.reencoded == false and vid.failed == false,
-          order_by: [asc: v.percent, asc: v.time],
-          preload: [:video]
-      )
+  # Consolidated shared logic for chosen VMAF queries
+  defp query_chosen_vmafs do
+    from v in Vmaf,
+      join: vid in assoc(v, :video),
+      where: v.chosen == true and vid.reencoded == false and vid.failed == false,
+      preload: [:video],
+      order_by: [asc: v.percent, asc: v.time]
+  end
 
-  def get_chosen_vmaf_for_video(%Video{id: id}),
-    do: Repo.one(from v in Vmaf, where: v.video_id == ^id and v.chosen == true, preload: [:video])
+  # Function to list all chosen VMAFs
+  def list_chosen_vmafs do
+    Repo.all(query_chosen_vmafs())
+  end
+
+  # Function to get the chosen VMAF for a specific video
+  def get_chosen_vmaf_for_video(%Video{id: video_id}) do
+    Repo.one(
+      from v in Vmaf,
+        join: vid in assoc(v, :video),
+        where: v.chosen == true and v.video_id == ^video_id and vid.reencoded == false and vid.failed == false,
+        preload: [:video],
+        order_by: [asc: v.percent, asc: v.time]
+    )
+  end
 
   # --- Stats and helpers ---
   def fetch_stats do
