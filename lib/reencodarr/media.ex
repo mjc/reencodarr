@@ -50,7 +50,7 @@ defmodule Reencodarr.Media do
   end
 
   def get_next_for_encoding do
-    Repo.one(base_query_for_videos() |> limit(1))
+    list_videos_by_estimated_percent(1) |> List.first()
   end
 
   def create_video(attrs \\ %{}), do: %Video{} |> Video.changeset(attrs) |> Repo.insert()
