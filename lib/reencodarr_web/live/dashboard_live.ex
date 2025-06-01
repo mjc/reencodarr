@@ -223,14 +223,12 @@ defmodule ReencodarrWeb.DashboardLive do
         <.live_component
           module={ReencodarrWeb.CrfSearchQueueComponent}
           id="crf-search-queue"
-          title="CRF Search Queue"
           files={@state.next_crf_search}
         />
 
         <.live_component
           module={ReencodarrWeb.EncodeQueueComponent}
           id="encoding-queue"
-          title="Encoding Queue"
           files={@state.videos_by_estimated_percent}
         />
       </div>
