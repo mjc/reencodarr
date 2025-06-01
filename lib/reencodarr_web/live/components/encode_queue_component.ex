@@ -6,7 +6,7 @@ defmodule ReencodarrWeb.EncodeQueueComponent do
     ~H"""
     <div class="bg-gray-900 rounded-lg shadow-lg p-6 border border-gray-700">
       <h2 class="text-2xl font-bold text-indigo-500 mb-4">
-        CRF Search Queue
+        Encoding Queue
       </h2>
       <table class="table-auto w-full border-collapse border border-gray-700">
         <thead>
