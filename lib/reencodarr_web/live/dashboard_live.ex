@@ -319,16 +319,16 @@ defmodule ReencodarrWeb.DashboardLive do
         <%= for file <- @files do %>
           <tr class="hover:bg-gray-800 transition-colors duration-200">
             <td class="border border-gray-700 px-4 py-2 text-gray-300">
-              <%= Path.basename(file.path) %>
+              {Path.basename(file.path)}
             </td>
             <td class="border border-gray-700 px-4 py-2 text-gray-300">
-              <%= file.bitrate || "N/A" %>
+              {file.bitrate || "N/A"}
             </td>
             <td class="border border-gray-700 px-4 py-2 text-gray-300">
-              <%= file.size || "N/A" %>
+              {file.size || "N/A"}
             </td>
             <td class="border border-gray-700 px-4 py-2 text-gray-300">
-              <%= file.percent || "N/A" %>
+              {file.percent || "N/A"}
             </td>
           </tr>
         <% end %>
