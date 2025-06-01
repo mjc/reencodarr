@@ -7,11 +7,10 @@ defmodule ReencodarrWeb.EncodingProgressComponent do
   def render(assigns) do
     ~H"""
     <div>
-      <div class="text-sm leading-5 text-gray-200 dark:text-gray-300 mb-1">Encoding Progress</div>
       <%= if @encoding_progress.filename != :none do %>
         <div class="text-sm leading-5 text-gray-100 dark:text-gray-200 mb-1">
           <span class="font-semibold">Encoding:</span>
-          <span class="font-mono">{@encoding_progress.filename}</span>
+          <span class="font-mono">{format_name(@encoding_progress.filename)}</span>
         </div>
         <div class="flex items-center space-x-2 mb-1">
           <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
@@ -40,6 +39,16 @@ defmodule ReencodarrWeb.EncodingProgressComponent do
       <% end %>
     </div>
     """
+  end
+
+    defp format_name(path) do
+    path = Path.basename(path)
+
+    case Regex.run(~r/^(.+?) - (S\d+E\d+)/, path) do
+      [_, series_name, episode_name] -> "#{series_name} - #{episode_name}"
+      [_, movie_name] -> movie_name
+      _ -> path
+    end
   end
 
   defp parse_integer(value), do: Integer.parse(to_string(value)) |> elem(0)

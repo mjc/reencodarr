@@ -36,7 +36,7 @@ defmodule ReencodarrWeb.EncodeQueueComponent do
     """
   end
 
-    defp format_name(%{path: path}) do
+  defp format_name(%{path: path}) do
     path = Path.basename(path)
 
     case Regex.run(~r/^(.+?) - (S\d+E\d+)/, path) do
@@ -45,5 +45,4 @@ defmodule ReencodarrWeb.EncodeQueueComponent do
       _ -> path
     end
   end
-
 end
