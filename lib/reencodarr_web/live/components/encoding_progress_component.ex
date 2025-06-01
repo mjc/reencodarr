@@ -11,13 +11,7 @@ defmodule ReencodarrWeb.EncodingProgressComponent do
         <div class="text-sm leading-5 text-gray-100 dark:text-gray-200 mb-1">
           <span class="font-semibold">Encoding:</span>
           <span class="font-mono">{format_name(@encoding_progress.filename)}</span>
-        </div>
-        <div class="flex items-center space-x-2 mb-1">
-          <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
-            <strong>
-              {parse_integer(@encoding_progress.percent)}%
-            </strong>
-          </div>
+          - {parse_integer(@encoding_progress.percent)}%
         </div>
         <div class="text-xs leading-5 text-gray-400 dark:text-gray-300 mb-2">
           <ul class="list-disc pl-5 fancy-list">
@@ -25,11 +19,16 @@ defmodule ReencodarrWeb.EncodingProgressComponent do
             <li>ETA: <strong>{@encoding_progress.eta}</strong></li>
           </ul>
         </div>
-        <div class="w-full bg-gray-600 dark:bg-gray-500 rounded-full h-2.5 mb-2">
-          <div
-            class="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
-            style={"width: #{parse_integer(@encoding_progress.percent)}%"}
-          >
+        <div class="flex items-center space-x-2">
+          <div class="w-full bg-gray-600 rounded-full h-2.5 dark:bg-gray-500">
+            <div
+              class="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
+              style="width: #{if parse_integer(@encoding_progress.percent) > 0, do: parse_integer(@encoding_progress.percent), else: 0}%"
+            >
+            </div>
+          </div>
+          <div class="text-sm leading-5 text-gray-100 dark:text-gray-200 font-mono">
+            <strong>{parse_integer(@encoding_progress.percent)}%</strong>
           </div>
         </div>
       <% else %>
@@ -41,7 +40,7 @@ defmodule ReencodarrWeb.EncodingProgressComponent do
     """
   end
 
-    defp format_name(path) do
+  defp format_name(path) do
     path = Path.basename(path)
 
     case Regex.run(~r/^(.+?) - (S\d+E\d+)/, path) do
