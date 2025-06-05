@@ -28,11 +28,19 @@ defmodule Reencodarr.Rules do
     if @opus_codec_tag in audio_codecs do
       []
     else
-      [
-        {"--acodec", "libopus"},
-        {"--enc", "b:a=#{opus_bitrate(channels)}k"},
-        {"--enc", "ac=#{channels}"}
-      ]
+      if channels == 3 do
+        [
+          {"--acodec", "libopus"},
+          {"--enc", "b:a=128k"},
+          {"--enc", "ac=6"} # Upmix to 5.1
+        ]
+      else
+        [
+          {"--acodec", "libopus"},
+          {"--enc", "b:a=#{opus_bitrate(channels)}k"},
+          {"--enc", "ac=#{channels}"}
+        ]
+      end
     end
   end
 
@@ -55,16 +63,12 @@ defmodule Reencodarr.Rules do
   def grain(_, _), do: []
 
   @spec hdr(Media.Video.t()) :: list()
-  # def hdr(%Media.Video{hdr: nil}) do
-  #   [{"--svt", "tune=0"}]
-  # end
-
-  # def hdr(_) do
-  #   [
-  #     {"--encoder", "libx265"},
-  #     {"--preset", "medium"}
-  #   ]
-  # end
+  def hdr(%Media.Video{hdr: hdr}) when not is_nil(hdr) do
+    [
+      {"--svt", "tune=0"},
+      {"--svt", "dolbyvision=1"} # Add Dolby Vision for HDR content
+    ]
+  end
 
   def hdr(_) do
     [{"--svt", "tune=0"}]
