@@ -54,18 +54,23 @@ defmodule Reencodarr.Services.Sonarr do
 
   @spec rename_files(integer(), [integer()]) :: {:ok, Req.Response.t()} | {:error, any()}
   def rename_files(series_id, file_ids) when is_list(file_ids) do
-    request(url: "/api/v3/rename?seriesId=#{series_id}") |> dbg()
+    if series_id == nil do
+      Logger.error("Series ID is null, cannot rename files")
+      {:error, :invalid_series_id}
+    else
+      request(url: "/api/v3/rename?seriesId=#{series_id}") |> dbg()
 
-    request(
-      url: "/api/v3/command",
-      method: :post,
-      json: %{
-        name: "RenameFiles",
-        commandName: "RenameFiles",
-        seriesId: series_id,
-        files: file_ids
-      }
-    )
+      request(
+        url: "/api/v3/command",
+        method: :post,
+        json: %{
+          name: "RenameFiles",
+          commandName: "RenameFiles",
+          seriesId: series_id,
+          files: file_ids
+        }
+      )
+    end
   end
 
   @spec refresh_and_rename_all_series() :: :ok

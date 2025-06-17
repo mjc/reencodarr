@@ -32,7 +32,8 @@ defmodule Reencodarr.Rules do
         [
           {"--acodec", "libopus"},
           {"--enc", "b:a=128k"},
-          {"--enc", "ac=6"} # Upmix to 5.1
+          # Upmix to 5.1
+          {"--enc", "ac=6"}
         ]
       else
         [
@@ -66,7 +67,8 @@ defmodule Reencodarr.Rules do
   def hdr(%Media.Video{hdr: hdr}) when not is_nil(hdr) do
     [
       {"--svt", "tune=0"},
-      {"--svt", "dolbyvision=1"} # Add Dolby Vision for HDR content
+      # Add Dolby Vision for HDR content
+      {"--svt", "dolbyvision=1"}
     ]
   end
 

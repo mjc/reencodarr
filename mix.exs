@@ -43,6 +43,7 @@ defmodule Reencodarr.MixProject do
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
       {:finch, "~> 0.13"},
       {:floki, ">= 0.30.0", only: :test},
+      {:live_debugger, "~> 0.2.4", only: :dev},
       {:meck, "~> 1.0", only: :test},
       {:gettext, "~> 0.20"},
       {:heroicons,
