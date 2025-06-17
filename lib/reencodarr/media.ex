@@ -46,7 +46,11 @@ defmodule Reencodarr.Media do
       from v in Vmaf,
         join: vid in assoc(v, :video),
         where: v.chosen == true and vid.reencoded == false and vid.failed == false,
-        order_by: [asc: v.percent, asc: v.time, asc: v.size],
+        order_by: [
+          asc: v.percent,
+          asc: v.time,
+          asc: v.size
+        ],
         limit: ^limit,
         preload: [:video]
     )

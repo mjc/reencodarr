@@ -85,5 +85,20 @@ config :phoenix_live_view,
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
 
+config :live_debugger,
+  # IP on which LiveDebugger will be hosted
+  ip: {192, 168, 1, 5},
+  # Port on which LiveDebugger will be hosted
+  port: 4007,
+  # Secret key used for LiveDebugger.Endpoint
+  secret_key_base: "nxeC3Z+0GcRf0NKbjgCuwBQvld+KftsF+Ebsti02FZUXc6xQNR80V8Kdw5sEYiEk",
+  # Signing salt used for LiveDebugger.Endpoint
+  signing_salt: "QvcMLz2F3V0jO1LRee/B5207o3KoSJoMkdKP/c/V2rt4x2hxZmg7UF74uzN7QAbP",
+  # Adapter used in LiveDebugger.Endpoint
+  adapter: Bandit.PhoenixAdapter,
+  # Forces LiveDebugger to start even if project is not started with the `mix phx.server`
+  server: true,
+  external_url: "http://192.168.1.5:9007"
+
 # Load local overrides from dev.overrides.exs if exists
 if File.exists?("config/dev.overrides.exs"), do: import_config("dev.overrides.exs")
