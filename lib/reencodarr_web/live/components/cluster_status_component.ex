@@ -42,7 +42,12 @@ defmodule ReencodarrWeb.ClusterStatusComponent do
                 <th class="border border-gray-700 px-4 py-2 text-indigo-500">Node</th>
                 <th class="border border-gray-700 px-4 py-2 text-indigo-500">Status</th>
                 <th class="border border-gray-700 px-4 py-2 text-indigo-500">Health</th>
-                <th class="border border-gray-700 px-4 py-2 text-indigo-500">Capabilities</th>
+                <th class="border border-gray-700 px-4 py-2 text-indigo-500">
+                  Capabilities
+                  <div class="text-xs text-gray-400 font-normal mt-1">
+                    Click to toggle
+                  </div>
+                </th>
                 <th class="border border-gray-700 px-4 py-2 text-indigo-500">Type</th>
                 <th class="border border-gray-700 px-4 py-2 text-indigo-500">Metrics</th>
               </tr>
@@ -66,9 +71,30 @@ defmodule ReencodarrWeb.ClusterStatusComponent do
                   <td class="border border-gray-700 px-4 py-2 text-gray-300">
                     <%= case Map.get(@cluster_info.node_capabilities || %{}, node, @cluster_info.local_capabilities || []) do %>
                       <% capabilities when is_list(capabilities) -> %>
-                        <%= Enum.join(capabilities, ", ") %>
+                        <div class="space-y-2">
+                          <%= for capability <- [:crf_search, :encode] do %>
+                            <label class="flex items-center space-x-2 text-sm cursor-pointer hover:bg-gray-700 rounded px-2 py-1 transition-colors">
+                              <input
+                                type="checkbox"
+                                phx-click="toggle_capability"
+                                phx-value-node={node}
+                                phx-value-capability={capability}
+                                phx-target={@myself}
+                                checked={capability in capabilities}
+                                class="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 focus:ring-2"
+                              />
+                              <span class="text-gray-300 select-none">
+                                <%= case capability do %>
+                                  <% :crf_search -> %><span class="text-blue-400">CRF Search</span>
+                                  <% :encode -> %><span class="text-purple-400">Encode</span>
+                                  <% _ -> %><%= capability %>
+                                <% end %>
+                              </span>
+                            </label>
+                          <% end %>
+                        </div>
                       <% _ -> %>
-                        unknown
+                        <span class="text-gray-500">unknown</span>
                     <% end %>
                   </td>
                   <td class="border border-gray-700 px-4 py-2 text-gray-300">
@@ -102,6 +128,35 @@ defmodule ReencodarrWeb.ClusterStatusComponent do
       Logger.debug("ClusterStatusComponent: Cluster info updated")
     end
     {:ok, assign(socket, assigns)}
+  end
+
+  @impl true
+  def handle_event("toggle_capability", %{"node" => node_str, "capability" => capability_str}, socket) do
+    node = String.to_atom(node_str)
+    capability = String.to_atom(capability_str)
+
+    # Get current capabilities for the node
+    current_capabilities = case Map.get(socket.assigns.cluster_info.node_capabilities || %{}, node) do
+      capabilities when is_list(capabilities) -> capabilities
+      _ -> []
+    end
+
+    # Toggle the capability
+    new_capabilities = if capability in current_capabilities do
+      List.delete(current_capabilities, capability)
+    else
+      [capability | current_capabilities] |> Enum.uniq()
+    end
+
+    # Update capabilities via coordinator
+    case Reencodarr.Distributed.Coordinator.update_node_capabilities(node, new_capabilities) do
+      :ok ->
+        Logger.info("Successfully updated capabilities for #{node}: #{inspect(new_capabilities)}")
+        {:noreply, socket}
+      {:error, reason} ->
+        Logger.error("Failed to update capabilities for #{node}: #{inspect(reason)}")
+        {:noreply, socket}
+    end
   end
 
   # Helper functions

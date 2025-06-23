@@ -319,12 +319,18 @@ defmodule Reencodarr.Encoder do
     end
   end
 
-  # Determine if this node should handle the job based on consistent hashing
+  # Determine if this node should handle the job based on consistent hashing and capability
   defp should_handle_job_locally?(video) do
     if Coordinator.distributed_mode?() do
-      case Coordinator.find_node_for_job(video.id, :encode) do
-        {:ok, node} -> node == Node.self()
-        {:error, :no_nodes} -> true  # Fallback to local processing
+      # First check if any nodes have the required capability
+      case Coordinator.get_nodes_for_capability(:encode) do
+        [] ->
+          Logger.warning("No nodes available with :encode capability, skipping job")
+          false
+        capable_nodes ->
+          # Use consistent hashing among capable nodes to determine target
+          target_node = find_capable_node_for_job(video.id, capable_nodes)
+          target_node == Node.self()
       end
     else
       true  # Always handle locally in non-distributed mode
@@ -335,22 +341,28 @@ defmodule Reencodarr.Encoder do
   defp delegate_encoding(vmaf) do
     video = vmaf.video
 
-    case Coordinator.find_node_for_job(video.id, :encode) do
-      {:ok, target_node} ->
+    case Coordinator.get_nodes_for_capability(:encode) do
+      [] ->
+        Logger.warning("No nodes available with :encode capability")
+
+      capable_nodes ->
+        target_node = find_capable_node_for_job(video.id, capable_nodes)
         Logger.info("Delegating encoding for video #{video.id} to node #{target_node}")
 
         try do
           GenServer.cast({__MODULE__, target_node}, {:delegate_encoding, vmaf})
         catch
           :exit, reason ->
-            Logger.warning("Failed to delegate to #{target_node}: #{inspect(reason)}, handling locally")
-            AbAv1.encode(vmaf)
+            Logger.warning("Failed to delegate to #{target_node}: #{inspect(reason)}, skipping job")
         end
-
-      {:error, :no_nodes} ->
-        Logger.info("No distributed nodes available, handling encoding locally")
-        AbAv1.encode(vmaf)
     end
+  end
+
+  # Simple consistent hashing among capable nodes
+  defp find_capable_node_for_job(job_id, capable_nodes) when is_list(capable_nodes) and length(capable_nodes) > 0 do
+    # Use simple modulo-based consistent hashing
+    index = rem(:erlang.phash2(job_id), length(capable_nodes))
+    Enum.at(capable_nodes, index)
   end
 
   defp schedule_check do

@@ -149,35 +149,53 @@ defmodule Reencodarr.CrfSearcher do
     end
   end
 
-  # Determine if this node should handle the job based on consistent hashing
+  # Determine if this node should handle the job based on consistent hashing and capability
   defp should_handle_job_locally?(video) do
     if Coordinator.distributed_mode?() do
-      case Coordinator.find_node_for_job(video.id, :crf_search) do
-        {:ok, node} -> node == Node.self()
-        {:error, :no_nodes} -> true  # Fallback to local processing
+      # First check if any nodes have the required capability
+      case Coordinator.get_nodes_for_capability(:crf_search) do
+        [] ->
+          Logger.warning("No nodes available with :crf_search capability, skipping job")
+          false
+        capable_nodes ->
+          # Use consistent hashing among capable nodes to determine target
+          target_node = find_capable_node_for_job(video.id, capable_nodes)
+          target_node == Node.self()
       end
     else
-      true  # Always handle locally in non-distributed mode
+      # In non-distributed mode, only handle if we have the capability
+      local_capabilities = Coordinator.get_local_capabilities()
+      has_capability = :crf_search in local_capabilities
+      if not has_capability do
+        Logger.warning("Local node does not have :crf_search capability, skipping job")
+      end
+      has_capability
     end
   end
 
   # Delegate CRF search to the appropriate node
   defp delegate_crf_search(video) do
-    case Coordinator.find_node_for_job(video.id, :crf_search) do
-      {:ok, target_node} ->
+    case Coordinator.get_nodes_for_capability(:crf_search) do
+      [] ->
+        Logger.warning("No nodes available with :crf_search capability")
+
+      capable_nodes ->
+        target_node = find_capable_node_for_job(video.id, capable_nodes)
         Logger.info("Delegating CRF search for video #{video.id} to node #{target_node}")
 
         try do
           GenServer.cast({__MODULE__, target_node}, {:delegate_crf_search, video})
         catch
           :exit, reason ->
-            Logger.warning("Failed to delegate to #{target_node}: #{inspect(reason)}, handling locally")
-            AbAv1.crf_search(video)
+            Logger.warning("Failed to delegate to #{target_node}: #{inspect(reason)}, skipping job")
         end
-
-      {:error, :no_nodes} ->
-        Logger.info("No distributed nodes available, handling CRF search locally")
-        AbAv1.crf_search(video)
     end
+  end
+
+  # Simple consistent hashing among capable nodes
+  defp find_capable_node_for_job(job_id, capable_nodes) when is_list(capable_nodes) and length(capable_nodes) > 0 do
+    # Use simple modulo-based consistent hashing
+    index = rem(:erlang.phash2(job_id), length(capable_nodes))
+    Enum.at(capable_nodes, index)
   end
 end

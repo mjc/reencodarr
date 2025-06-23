@@ -180,6 +180,14 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
+  def handle_info({:cluster_change, :capabilities_updated, node, capabilities}, socket) do
+    Logger.info("Dashboard: Node #{node} capabilities updated to #{inspect(capabilities)}")
+    cluster_info = get_cluster_info()
+    Logger.debug("Dashboard: Updated cluster info after capability change: #{inspect(cluster_info)}")
+    {:noreply, update_state(socket, &%{&1 | cluster_info: cluster_info})}
+  end
+
+  @impl true
   def handle_info(:refresh_cluster_info, socket) do
     cluster_info = get_cluster_info()
     Logger.debug("Dashboard: Periodic cluster info refresh: #{inspect(cluster_info)}")

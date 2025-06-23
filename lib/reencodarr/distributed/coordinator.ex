@@ -23,10 +23,10 @@ defmodule Reencodarr.Distributed.Coordinator do
   end
 
   @doc """
-  Get all connected nodes that can handle work.
+  Get all connected nodes that can handle a specific capability.
   """
-  def get_nodes_for_capability(_capability) do
-    GenServer.call(__MODULE__, :get_nodes)
+  def get_nodes_for_capability(capability) do
+    GenServer.call(__MODULE__, {:get_nodes_for_capability, capability})
   end
 
   @doc """
@@ -64,6 +64,27 @@ defmodule Reencodarr.Distributed.Coordinator do
     GenServer.cast(__MODULE__, :heartbeat)
   end
 
+  @doc """
+  Update capabilities for a specific node.
+  """
+  def update_node_capabilities(node, capabilities) when is_list(capabilities) do
+    GenServer.call(__MODULE__, {:update_node_capabilities, node, capabilities})
+  end
+
+  @doc """
+  Add a capability to a specific node.
+  """
+  def add_node_capability(node, capability) when is_atom(capability) do
+    GenServer.call(__MODULE__, {:add_node_capability, node, capability})
+  end
+
+  @doc """
+  Remove a capability from a specific node.
+  """
+  def remove_node_capability(node, capability) when is_atom(capability) do
+    GenServer.call(__MODULE__, {:remove_node_capability, node, capability})
+  end
+
   # GenServer callbacks
 
   @impl true
@@ -77,7 +98,8 @@ defmodule Reencodarr.Distributed.Coordinator do
     state = %{
       ring: ring,
       local_capabilities: get_local_capabilities_internal(),
-      node_health: %{Node.self() => %{status: :healthy, last_seen: DateTime.utc_now()}}
+      node_health: %{Node.self() => %{status: :healthy, last_seen: DateTime.utc_now()}},
+      node_capabilities: %{Node.self() => get_local_capabilities_internal()}
     }
 
     # Schedule periodic heartbeat
@@ -98,14 +120,23 @@ defmodule Reencodarr.Distributed.Coordinator do
       last_seen: DateTime.utc_now()
     })
 
+    # Try to get capabilities from the new node, fallback to default
+    node_capabilities = try do
+      :rpc.call(node, Application, :get_env, [:reencodarr, :node_capabilities, [:crf_search, :encode]], 1000)
+    catch
+      _, _ -> [:crf_search, :encode]  # Default capabilities
+    end
+
+    new_capabilities = Map.put(state.node_capabilities, node, node_capabilities)
+
     # Broadcast cluster change to update dashboard
     Phoenix.PubSub.broadcast(
       Reencodarr.PubSub,
       "cluster",
-      {:cluster_change, :node_added, node, state.local_capabilities}
+      {:cluster_change, :node_added, node, node_capabilities}
     )
 
-    {:noreply, %{state | ring: new_ring, node_health: new_health}}
+    {:noreply, %{state | ring: new_ring, node_health: new_health, node_capabilities: new_capabilities}}
   end
 
   @impl true
@@ -144,7 +175,9 @@ defmodule Reencodarr.Distributed.Coordinator do
   def handle_call({:find_node, job_key}, _from, state) do
     result = case HashRing.key_to_node(state.ring, to_string(job_key)) do
       {:ok, node} -> {:ok, node}
-      {:error, {:invalid_ring, :no_nodes}} -> {:error, :no_nodes}
+      {:error, reason} -> {:error, reason}
+      node when is_atom(node) -> {:ok, node}  # HashRing might return node directly
+      error -> {:error, error}
     end
     {:reply, result, state}
   end
@@ -156,13 +189,24 @@ defmodule Reencodarr.Distributed.Coordinator do
   end
 
   @impl true
+  def handle_call({:get_nodes_for_capability, capability}, _from, state) do
+    # Filter nodes that have the requested capability
+    capable_nodes = state.node_capabilities
+                   |> Enum.filter(fn {node, capabilities} ->
+                        # Only include nodes that are in the ring and have the capability
+                        node in HashRing.nodes(state.ring) and capability in capabilities
+                      end)
+                   |> Enum.map(fn {node, _capabilities} -> node end)
+
+    {:reply, capable_nodes, state}
+  end
+
+  @impl true
   def handle_call(:cluster_info, _from, state) do
     all_nodes = HashRing.nodes(state.ring)
 
-    # Create node_capabilities map for backwards compatibility with UI
-    node_capabilities = Map.new(all_nodes, fn node ->
-      {node, state.local_capabilities}
-    end)
+    # Use tracked node capabilities instead of assuming all nodes have the same capabilities
+    node_capabilities = state.node_capabilities
 
     # Only include health info for nodes that are currently connected
     active_health = state.node_health
@@ -171,11 +215,19 @@ defmodule Reencodarr.Distributed.Coordinator do
                       end)
                    |> Enum.into(%{})
 
+    # Calculate ring sizes for each capability
+    ring_sizes = %{
+      crf_search: length(get_nodes_for_capability_internal(:crf_search, state)),
+      encode: length(get_nodes_for_capability_internal(:encode, state)),
+      any: length(all_nodes)
+    }
+
     info = %{
       local_node: Node.self(),
       cluster_nodes: all_nodes,
       all_connected_nodes: [Node.self() | Node.list()],
       ring_size: length(all_nodes),
+      ring_sizes: ring_sizes,
       node_capabilities: node_capabilities,
       local_capabilities: state.local_capabilities,
       health_info: active_health
@@ -187,6 +239,50 @@ defmodule Reencodarr.Distributed.Coordinator do
   @impl true
   def handle_call(:get_cluster_health, _from, state) do
     {:reply, state.node_health, state}
+  end
+
+  @impl true
+  def handle_call({:update_node_capabilities, node, capabilities}, _from, state) do
+    # Only allow local node to update its own capabilities
+    if node == Node.self() do
+      # Update application environment
+      Application.put_env(:reencodarr, :node_capabilities, capabilities)
+
+      new_capabilities = Map.put(state.node_capabilities, node, capabilities)
+      new_state = %{state |
+        local_capabilities: capabilities,
+        node_capabilities: new_capabilities
+      }
+
+      # Broadcast capability change
+      Phoenix.PubSub.broadcast(
+        Reencodarr.PubSub,
+        "cluster",
+        {:cluster_change, :capabilities_updated, node, capabilities}
+      )
+
+      {:reply, :ok, new_state}
+    else
+      # For remote nodes, make an RPC call
+      case :rpc.call(node, __MODULE__, :update_node_capabilities, [node, capabilities]) do
+        :ok -> {:reply, :ok, state}
+        error -> {:reply, {:error, error}, state}
+      end
+    end
+  end
+
+  @impl true
+  def handle_call({:add_node_capability, node, capability}, _from, state) do
+    current_capabilities = Map.get(state.node_capabilities, node, [])
+    new_capabilities = [capability | current_capabilities] |> Enum.uniq()
+    handle_call({:update_node_capabilities, node, new_capabilities}, nil, state)
+  end
+
+  @impl true
+  def handle_call({:remove_node_capability, node, capability}, _from, state) do
+    current_capabilities = Map.get(state.node_capabilities, node, [])
+    new_capabilities = List.delete(current_capabilities, capability)
+    handle_call({:update_node_capabilities, node, new_capabilities}, nil, state)
   end
 
   @impl true
@@ -209,5 +305,15 @@ defmodule Reencodarr.Distributed.Coordinator do
   defp schedule_heartbeat do
     # Send heartbeat every 30 seconds
     Process.send_after(self(), :heartbeat_timer, :timer.seconds(30))
+  end
+
+  # Helper function to get nodes for capability without GenServer call (for internal use)
+  defp get_nodes_for_capability_internal(capability, state) do
+    state.node_capabilities
+    |> Enum.filter(fn {node, capabilities} ->
+         # Only include nodes that are in the ring and have the capability
+         node in HashRing.nodes(state.ring) and capability in capabilities
+       end)
+    |> Enum.map(fn {node, _capabilities} -> node end)
   end
 end
