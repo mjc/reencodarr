@@ -3,6 +3,86 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.{Media, AbAv1.Helper, Statistics.CrfSearchProgress}
   require Logger
 
+  # Common regex fragments to reduce duplication
+  @crf_pattern "(?<crf>\\d+(?:\\.\\d+)?)"
+  @vmaf_score_pattern "(?<score>\\d+\\.\\d+)"
+  @percent_pattern "\\((?<percent>\\d+)%\\)"
+  @timestamp_pattern "\\[(?<timestamp>[^\\]]+)\\]"
+  @fps_pattern "(?<fps>\\d+(?:\\.\\d+)?)\\sfps?"
+  @eta_pattern "eta\\s(?<eta>\\d+\\s(?:second|minute|hour|day|week|month|year)s?)"
+  @time_unit_pattern "(?<time_unit>second|minute|hour|day|week|month|year)s?"
+
+  # Centralized regex patterns for different line types
+  @patterns %{
+    encoding_sample: ~r/
+      encoding\ssample\s
+      (?<sample_num>\d+)\/             # Capture sample number
+      (?<total_samples>\d+)\s          # Capture total samples
+      crf\s#{@crf_pattern}             # Capture CRF value
+    /x,
+
+    simple_vmaf: ~r/
+      #{@timestamp_pattern}\s
+      .*?
+      crf\s#{@crf_pattern}\s          # Capture CRF value
+      VMAF\s#{@vmaf_score_pattern}\s  # Capture VMAF score
+      #{@percent_pattern}             # Capture percentage
+    /x,
+
+    sample_vmaf: ~r/
+      sample\s
+      (?<sample_num>\d+)\/             # Capture sample number
+      (?<total_samples>\d+)\s          # Capture total samples
+      crf\s#{@crf_pattern}\s          # Capture CRF value
+      VMAF\s#{@vmaf_score_pattern}\s  # Capture VMAF score
+      #{@percent_pattern}             # Capture percentage
+      (?:\s\(.*\))?
+    /x,
+
+    eta_vmaf: ~r/
+      crf\s#{@crf_pattern}\s          # Capture CRF value
+      VMAF\s#{@vmaf_score_pattern}\s  # Capture VMAF score
+      predicted\svideo\sstream\ssize\s
+      (?<size>\d+\.\d+)\s              # Capture size
+      (?<unit>\w+)\s                   # Capture unit
+      #{@percent_pattern}\s           # Capture percentage
+      taking\s
+      (?<time>\d+)\s                   # Capture time
+      #{@time_unit_pattern}           # Capture time unit with optional plural
+      (?:\s\(.*\))?
+    /x,
+
+    vmaf_comparison: ~r/
+      vmaf\s
+      (?<file1>.+?)\s                  # Capture first file name
+      vs\sreference\s
+      (?<file2>.+)                     # Capture second file name
+    /x,
+
+    progress: ~r/
+      #{@timestamp_pattern}\s
+      .*?
+      (?<progress>\d+(?:\.\d+)?)%,\s
+      #{@fps_pattern},\s              # Updated to exclude "fps" from the capture group
+      #{@eta_pattern}
+    /x,
+
+    success: ~r/
+      \[.*\]\s
+      crf\s#{@crf_pattern}\s          # Capture CRF value from this one to know which CRF was selected.
+      successful
+    /x
+  }
+
+  # Unified line matching function using pattern keys
+  defp match_line(line, pattern_key) do
+    pattern = Map.get(@patterns, pattern_key)
+    case Regex.named_captures(pattern, line) do
+      nil -> nil
+      captures -> captures
+    end
+  end
+
   # Public API
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
@@ -161,165 +241,87 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp handle_encoding_sample_line(line, video) do
-    encoding_sample_regex = ~r/
-      # I plan on making a chart for these. input file would be helpful, as well as target vmaf.
-      encoding\ssample\s
-      (?<sample_num>\d+)\/             # Capture sample number
-      (?<total_samples>\d+)\s          # Capture total samples
-      crf\s
-      (?<crf>\d+(\.\d+)?)              # Capture CRF value
-    /x
+    case match_line(line, :encoding_sample) do
+      nil -> false
+      captures ->
+        Logger.debug(
+          "CrfSearch: Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
+        )
 
-    with captures when not is_nil(captures) <-
-           Regex.named_captures(encoding_sample_regex, line) do
-      Logger.debug(
-        "CrfSearch: Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
-      )
+        broadcast_crf_search_progress(video.path, %CrfSearchProgress{
+          filename: video.path,
+          crf: captures["crf"]
+        })
 
-      broadcast_crf_search_progress(video.path, %CrfSearchProgress{
-        filename: video.path,
-        crf: captures["crf"]
-      })
-
-      true
-    else
-      _ -> false
+        true
     end
   end
 
   defp handle_vmaf_line(line, video, args) do
-    simple_vmaf_regex = ~r/
-      \[
-      (?<timestamp>[^\]]+)
-      \]\s
-      .*?
-      crf\s
-      (?<crf>\d+(\.\d+)?)\s            # Capture CRF value
-      VMAF\s
-      (?<score>\d+\.\d+)\s             # Capture VMAF score
-      \((?<percent>\d+)%\)             # Capture percentage
-    /x
+    # Try simple VMAF pattern first, then sample pattern as fallback
+    case match_line(line, :simple_vmaf) || match_line(line, :sample_vmaf) do
+      nil -> false
+      captures ->
+        Logger.debug(
+          "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
+        )
 
-    sample_regex = ~r/
-      sample\s
-      (?<sample_num>\d+)\/             # Capture sample number
-      (?<total_samples>\d+)\s          # Capture total samples
-      crf\s
-      (?<crf>\d+(\.\d+)?)\s            # Capture CRF value
-      VMAF\s
-      (?<score>\d+\.\d+)\s             # Capture VMAF score
-      \((?<percent>\d+)%\)             # Capture percentage
-      (?:\s\(.*\))?
-    /x
-
-    with captures when not is_nil(captures) <-
-           Regex.named_captures(simple_vmaf_regex, line) ||
-             Regex.named_captures(sample_regex, line) do
-      Logger.debug(
-        "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
-      )
-
-      upsert_vmaf(Map.put(captures, "chosen", false), video, args)
-      true
-    else
-      _ -> false
+        upsert_vmaf(Map.put(captures, "chosen", false), video, args)
+        true
     end
   end
 
   defp handle_eta_vmaf_line(line, video, args) do
-    eta_vmaf_regex = ~r/
-      # It would be helpful to have the input path here
-      crf\s
-      (?<crf>\d+(\.\d+)?)\s            # Capture CRF value
-      VMAF\s
-      (?<score>\d+\.\d+)\s             # Capture VMAF score
-      predicted\svideo\sstream\ssize\s
-      (?<size>\d+\.\d+)\s              # Capture size
-      (?<unit>\w+)\s                   # Capture unit
-      \((?<percent>\d+)%\)\s           # Capture percentage
-      taking\s
-      (?<time>\d+)\s                   # Capture time
-      (?<time_unit>second|minute|hour|day|week|month|year)s? # Capture time unit with optional plural
-      (?:\s\(.*\))?
-    /x
+    case match_line(line, :eta_vmaf) do
+      nil -> false
+      captures ->
+        Logger.debug(
+          "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}"
+        )
 
-    with captures when not is_nil(captures) <- Regex.named_captures(eta_vmaf_regex, line) do
-      Logger.debug(
-        "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}"
-      )
-
-      upsert_vmaf(Map.put(captures, "chosen", true), video, args)
-      true
-    else
-      _ -> false
+        upsert_vmaf(Map.put(captures, "chosen", true), video, args)
+        true
     end
   end
 
   defp handle_vmaf_comparison_line(line) do
-    vmaf_regex = ~r/
-      # currently I parse a bunch of stuff out of the filenames here.
-      vmaf\s
-      (?<file1>.+?)\s                  # Capture first file name
-      vs\sreference\s
-      (?<file2>.+)                     # Capture second file name
-    /x
-
-    with captures when not is_nil(captures) <- Regex.named_captures(vmaf_regex, line) do
-      Logger.debug("VMAF comparison: #{captures["file1"]} vs #{captures["file2"]}")
-      true
-    else
-      _ -> false
+    case match_line(line, :vmaf_comparison) do
+      nil -> false
+      captures ->
+        Logger.debug("VMAF comparison: #{captures["file1"]} vs #{captures["file2"]}")
+        true
     end
   end
 
   defp handle_progress_line(line, video) do
-    progress_regex = ~r/
-      \[
-      (?<timestamp>[^\]]+)
-      \]\s
-      .*?
-      (?<progress>\d+(\.\d+)?)%,\s
-      (?<fps>\d+(\.\d+)?)\sfps?,\s     # Updated to exclude "fps" from the capture group
-      eta\s
-      (?<eta>\d+\s(?:second|minute|hour|day|week|month|year)s?)
-    /x
+    case match_line(line, :progress) do
+      nil -> false
+      captures ->
+        Logger.debug(
+          "CrfSearch Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
+        )
 
-    with captures when not is_nil(captures) <- Regex.named_captures(progress_regex, line) do
-      Logger.debug(
-        "CrfSearch Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
-      )
+        percent = append_decimal_before_float(captures["progress"])
+        fps = append_decimal_before_float(captures["fps"])
 
-      percent = append_decimal_before_float(captures["progress"])
-      fps = append_decimal_before_float(captures["fps"])
+        broadcast_crf_search_progress(video.path, %CrfSearchProgress{
+          filename: video.path,
+          percent: percent,
+          eta: captures["eta"],
+          fps: fps
+        })
 
-      broadcast_crf_search_progress(video.path, %CrfSearchProgress{
-        filename: video.path,
-        percent: percent,
-        eta: captures["eta"],
-        fps: fps
-      })
-
-      true
-    else
-      _ -> false
+        true
     end
   end
 
   defp handle_success_line(line, video) do
-    success_line_regex = ~r/
-      # It would be helpful to have the path, target vmaf, percentage, vmaf score, time taken, and path in here.
-      \[.*\]\s
-      crf\s
-      (?<crf>\d+(\.\d+)?)\s            # Capture CRF value from this one to know which CRF was selected.
-      successful
-    /x
-
-    with captures when not is_nil(captures) <- Regex.named_captures(success_line_regex, line) do
-      Logger.info("CrfSearch successful for CRF: #{captures["crf"]}")
-      Media.mark_vmaf_as_chosen(video.id, captures["crf"])
-      true
-    else
-      _ -> false
+    case match_line(line, :success) do
+      nil -> false
+      captures ->
+        Logger.info("CrfSearch successful for CRF: #{captures["crf"]}")
+        Media.mark_vmaf_as_chosen(video.id, captures["crf"])
+        true
     end
   end
 
