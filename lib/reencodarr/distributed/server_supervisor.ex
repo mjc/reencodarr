@@ -16,15 +16,19 @@ defmodule Reencodarr.Distributed.ServerSupervisor do
   @impl true
   def init(_opts) do
     children = [
-      # Server-only processes that coordinate and manage work
+      # Database repository (needed by most server processes)
+      Reencodarr.Repo,
+      # Task supervisor for server coordination tasks
+      {Task.Supervisor, name: Reencodarr.TaskSupervisor},
+      # Server-only business logic processes
+      Reencodarr.Statistics,
       Reencodarr.ManualScanner,
       Reencodarr.Analyzer,
-      Reencodarr.Sync,
-      Reencodarr.Statistics,
-      # Task supervisor for server coordination tasks
-      {Task.Supervisor, name: Reencodarr.TaskSupervisor}
+      Reencodarr.Sync
     ]
 
+    # Use :one_for_one since these are mostly independent processes
+    # Repo is first as other processes may depend on it
     Supervisor.init(children, strategy: :one_for_one)
   end
 end

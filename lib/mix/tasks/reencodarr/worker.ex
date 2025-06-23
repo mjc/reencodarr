@@ -59,11 +59,13 @@ defmodule Mix.Tasks.Reencodarr.Worker do
 
     Enum.each(essential_apps, &Application.ensure_started/1)
 
-    # Start minimal supervision tree for worker
+    # Start minimal supervision tree for worker using our refactored supervisors
     {:ok, _} = Supervisor.start_link([
-      {Phoenix.PubSub, name: Reencodarr.PubSub},
-      {Cluster.Supervisor, [Application.get_env(:libcluster, :topologies), [name: Reencodarr.ClusterSupervisor]]},
-      # Start client supervisor which includes coordinator and workers
+      # Core infrastructure
+      Reencodarr.InfrastructureSupervisor,
+      # Cluster infrastructure
+      Reencodarr.Distributed.ClusterInfrastructureSupervisor,
+      # Client processes (coordination + workers)
       Reencodarr.Distributed.ClientSupervisor
     ], strategy: :one_for_one, name: Reencodarr.WorkerSupervisor)
 

@@ -16,14 +16,10 @@ defmodule Reencodarr.Distributed.ClientSupervisor do
   @impl true
   def init(_opts) do
     children = [
-      # Distributed coordination (runs on all nodes)
-      Reencodarr.Distributed.Coordinator,
-      # Health monitoring (runs on all nodes)
-      Reencodarr.Distributed.HealthMonitor,
-      # Worker processes (run on all nodes, but delegate work based on capabilities)
-      Reencodarr.CrfSearcher,
-      Reencodarr.Encoder,
-      Reencodarr.AbAv1
+      # Distributed coordination and health monitoring
+      Reencodarr.Distributed.CoordinationSupervisor,
+      # Worker processes based on node capabilities
+      Reencodarr.WorkerProcessesSupervisor
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
