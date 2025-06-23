@@ -49,7 +49,7 @@ defmodule Mix.Tasks.Reencodarr.Worker do
       node_type = if String.contains?(name, "@"), do: :longnames, else: :shortnames
       {:ok, _} = Node.start(String.to_atom(name), node_type)
     end
-    
+
     # Always set the cookie (this can be done even if node is already started)
     Node.set_cookie(cookie)
   end
@@ -57,13 +57,13 @@ defmodule Mix.Tasks.Reencodarr.Worker do
   defp connect_to_server(server_node) do
     # Wait for application to fully start
     Process.sleep(5000)
-    
+
     IO.puts("Attempting to connect to server: #{server_node}")
-    
+
     case Node.connect(String.to_atom(server_node)) do
-      true -> 
+      true ->
         IO.puts("Successfully connected to server: #{server_node}")
-      false -> 
+      false ->
         IO.puts("Failed to connect to server: #{server_node}")
         # Retry once after a delay
         Process.sleep(2000)

@@ -46,14 +46,12 @@ defmodule Reencodarr.Application do
 
   # Coordination processes
   defp coordination_processes do
-    if distributed?() do
-      [
-        Reencodarr.Distributed.Coordinator,
-        Reencodarr.Distributed.HealthMonitor
-      ]
-    else
-      []
-    end
+    [
+      # Always start coordinator (handles single-node clusters too)
+      Reencodarr.Distributed.Coordinator,
+      # Always start health monitor (needed for RPC calls from other nodes)
+      Reencodarr.Distributed.HealthMonitor
+    ]
   end
 
   # Worker processes based on capabilities
