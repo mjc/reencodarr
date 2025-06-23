@@ -36,8 +36,15 @@ defmodule Reencodarr.Distributed.JobDistributor do
       case get_available_nodes_for_capability(capability) do
         [] ->
           Logger.warning("No available nodes with #{capability} capability")
+
         available_nodes ->
-          distribute_jobs_to_nodes(jobs, available_nodes, capability, job_processor, job_delegator)
+          distribute_jobs_to_nodes(
+            jobs,
+            available_nodes,
+            capability,
+            job_processor,
+            job_delegator
+          )
       end
     else
       # In non-distributed mode, process one job locally if we have capability
@@ -123,10 +130,14 @@ defmodule Reencodarr.Distributed.JobDistributor do
     node_count = length(available_nodes)
 
     cond do
-      node_count == 0 -> 0  # No available nodes
-      node_count == 1 -> 1  # Only one node, process one job at a time
-      node_count <= 5 -> node_count  # One job per node for small clusters
-      true -> 5  # Cap at 5 jobs for larger clusters
+      # No available nodes
+      node_count == 0 -> 0
+      # Only one node, process one job at a time
+      node_count == 1 -> 1
+      # One job per node for small clusters
+      node_count <= 5 -> node_count
+      # Cap at 5 jobs for larger clusters
+      true -> 5
     end
   end
 

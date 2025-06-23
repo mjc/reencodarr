@@ -10,12 +10,15 @@ defmodule Mix.Tasks.Reencodarr.Worker do
   @shortdoc "Start worker node"
 
   def run(args) do
-    {opts, _} = OptionParser.parse!(args, strict: [
-      name: :string,
-      connect_to: :string,
-      capabilities: :string,
-      cookie: :string
-    ])
+    {opts, _} =
+      OptionParser.parse!(args,
+        strict: [
+          name: :string,
+          connect_to: :string,
+          capabilities: :string,
+          cookie: :string
+        ]
+      )
 
     # Set worker configuration
     Application.put_env(:reencodarr, :distributed_mode, true)
@@ -25,11 +28,13 @@ defmodule Mix.Tasks.Reencodarr.Worker do
 
     # Configure node if name provided
     if node_name = opts[:name] do
-      cookie = case opts[:cookie] do
-        nil -> :reencodarr
-        str when is_binary(str) -> String.to_atom(str)
-        atom when is_atom(atom) -> atom
-      end
+      cookie =
+        case opts[:cookie] do
+          nil -> :reencodarr
+          str when is_binary(str) -> String.to_atom(str)
+          atom when is_atom(atom) -> atom
+        end
+
       configure_node(node_name, cookie)
     end
 
@@ -63,10 +68,12 @@ defmodule Mix.Tasks.Reencodarr.Worker do
     case Node.connect(String.to_atom(server_node)) do
       true ->
         IO.puts("Successfully connected to server: #{server_node}")
+
       false ->
         IO.puts("Failed to connect to server: #{server_node}")
         # Retry once after a shorter delay
         Process.sleep(1000)
+
         case Node.connect(String.to_atom(server_node)) do
           true -> IO.puts("Successfully connected to server on retry: #{server_node}")
           false -> IO.puts("Final connection attempt failed: #{server_node}")
@@ -75,6 +82,7 @@ defmodule Mix.Tasks.Reencodarr.Worker do
   end
 
   defp parse_capabilities(nil), do: [:crf_search, :encode]
+
   defp parse_capabilities(caps) do
     caps |> String.split(",") |> Enum.map(&String.to_atom(String.trim(&1)))
   end
@@ -93,6 +101,7 @@ defmodule Mix.Tasks.Reencodarr.Worker do
           nil ->
             Process.sleep(check_interval)
             wait_loop.(wait_loop)
+
           _pid ->
             elapsed = current_time - start_time
             IO.puts("Application ready after #{elapsed}ms")

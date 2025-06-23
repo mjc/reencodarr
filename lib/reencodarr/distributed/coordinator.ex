@@ -115,17 +115,26 @@ defmodule Reencodarr.Distributed.Coordinator do
     new_ring = HashRing.add_node(state.ring, node)
 
     # Mark node as healthy when it connects
-    new_health = Map.put(state.node_health, node, %{
-      status: :healthy,
-      last_seen: DateTime.utc_now()
-    })
+    new_health =
+      Map.put(state.node_health, node, %{
+        status: :healthy,
+        last_seen: DateTime.utc_now()
+      })
 
     # Try to get capabilities from the new node, fallback to default
-    node_capabilities = try do
-      :rpc.call(node, Application, :get_env, [:reencodarr, :node_capabilities, [:crf_search, :encode]], 1000)
-    catch
-      _, _ -> [:crf_search, :encode]  # Default capabilities
-    end
+    node_capabilities =
+      try do
+        :rpc.call(
+          node,
+          Application,
+          :get_env,
+          [:reencodarr, :node_capabilities, [:crf_search, :encode]],
+          1000
+        )
+      catch
+        # Default capabilities
+        _, _ -> [:crf_search, :encode]
+      end
 
     new_capabilities = Map.put(state.node_capabilities, node, node_capabilities)
 
@@ -136,7 +145,8 @@ defmodule Reencodarr.Distributed.Coordinator do
       {:cluster_change, :node_added, node, node_capabilities}
     )
 
-    {:noreply, %{state | ring: new_ring, node_health: new_health, node_capabilities: new_capabilities}}
+    {:noreply,
+     %{state | ring: new_ring, node_health: new_health, node_capabilities: new_capabilities}}
   end
 
   @impl true
@@ -145,10 +155,11 @@ defmodule Reencodarr.Distributed.Coordinator do
     new_ring = HashRing.remove_node(state.ring, node)
 
     # Mark node as disconnected when it leaves
-    new_health = Map.put(state.node_health, node, %{
-      status: :disconnected,
-      last_seen: DateTime.utc_now()
-    })
+    new_health =
+      Map.put(state.node_health, node, %{
+        status: :disconnected,
+        last_seen: DateTime.utc_now()
+      })
 
     # Broadcast cluster change to update dashboard
     Phoenix.PubSub.broadcast(
@@ -163,22 +174,27 @@ defmodule Reencodarr.Distributed.Coordinator do
   @impl true
   def handle_info(:heartbeat_timer, state) do
     # Update our own heartbeat and schedule next one
-    new_health = Map.put(state.node_health, Node.self(), %{
-      status: :healthy,
-      last_seen: DateTime.utc_now()
-    })
+    new_health =
+      Map.put(state.node_health, Node.self(), %{
+        status: :healthy,
+        last_seen: DateTime.utc_now()
+      })
+
     schedule_heartbeat()
     {:noreply, %{state | node_health: new_health}}
   end
 
   @impl true
   def handle_call({:find_node, job_key}, _from, state) do
-    result = case HashRing.key_to_node(state.ring, to_string(job_key)) do
-      {:ok, node} -> {:ok, node}
-      {:error, reason} -> {:error, reason}
-      node when is_atom(node) -> {:ok, node}  # HashRing might return node directly
-      error -> {:error, error}
-    end
+    result =
+      case HashRing.key_to_node(state.ring, to_string(job_key)) do
+        {:ok, node} -> {:ok, node}
+        {:error, reason} -> {:error, reason}
+        # HashRing might return node directly
+        node when is_atom(node) -> {:ok, node}
+        error -> {:error, error}
+      end
+
     {:reply, result, state}
   end
 
@@ -191,12 +207,13 @@ defmodule Reencodarr.Distributed.Coordinator do
   @impl true
   def handle_call({:get_nodes_for_capability, capability}, _from, state) do
     # Filter nodes that have the requested capability
-    capable_nodes = state.node_capabilities
-                   |> Enum.filter(fn {node, capabilities} ->
-                        # Only include nodes that are in the ring and have the capability
-                        node in HashRing.nodes(state.ring) and capability in capabilities
-                      end)
-                   |> Enum.map(fn {node, _capabilities} -> node end)
+    capable_nodes =
+      state.node_capabilities
+      |> Enum.filter(fn {node, capabilities} ->
+        # Only include nodes that are in the ring and have the capability
+        node in HashRing.nodes(state.ring) and capability in capabilities
+      end)
+      |> Enum.map(fn {node, _capabilities} -> node end)
 
     {:reply, capable_nodes, state}
   end
@@ -209,11 +226,12 @@ defmodule Reencodarr.Distributed.Coordinator do
     node_capabilities = state.node_capabilities
 
     # Only include health info for nodes that are currently connected
-    active_health = state.node_health
-                   |> Enum.filter(fn {node, health} ->
-                        health.status == :healthy and node in all_nodes
-                      end)
-                   |> Enum.into(%{})
+    active_health =
+      state.node_health
+      |> Enum.filter(fn {node, health} ->
+        health.status == :healthy and node in all_nodes
+      end)
+      |> Enum.into(%{})
 
     # Calculate ring sizes for each capability
     ring_sizes = %{
@@ -249,10 +267,7 @@ defmodule Reencodarr.Distributed.Coordinator do
       Application.put_env(:reencodarr, :node_capabilities, capabilities)
 
       new_capabilities = Map.put(state.node_capabilities, node, capabilities)
-      new_state = %{state |
-        local_capabilities: capabilities,
-        node_capabilities: new_capabilities
-      }
+      new_state = %{state | local_capabilities: capabilities, node_capabilities: new_capabilities}
 
       # Broadcast capability change
       Phoenix.PubSub.broadcast(
@@ -288,10 +303,12 @@ defmodule Reencodarr.Distributed.Coordinator do
   @impl true
   def handle_cast(:heartbeat, state) do
     # Update our own health status
-    new_health = Map.put(state.node_health, Node.self(), %{
-      status: :healthy,
-      last_seen: DateTime.utc_now()
-    })
+    new_health =
+      Map.put(state.node_health, Node.self(), %{
+        status: :healthy,
+        last_seen: DateTime.utc_now()
+      })
+
     {:noreply, %{state | node_health: new_health}}
   end
 
@@ -311,9 +328,9 @@ defmodule Reencodarr.Distributed.Coordinator do
   defp get_nodes_for_capability_internal(capability, state) do
     state.node_capabilities
     |> Enum.filter(fn {node, capabilities} ->
-         # Only include nodes that are in the ring and have the capability
-         node in HashRing.nodes(state.ring) and capability in capabilities
-       end)
+      # Only include nodes that are in the ring and have the capability
+      node in HashRing.nodes(state.ring) and capability in capabilities
+    end)
     |> Enum.map(fn {node, _capabilities} -> node end)
   end
 end

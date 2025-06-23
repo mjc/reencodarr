@@ -40,28 +40,47 @@ defmodule Reencodarr.Distributed.JobWorker do
         has_capability = @capability in local_capabilities
 
         if not has_capability do
-          Logger.warning("Cannot process delegated #{@capability} for video #{video_id} - node does not have #{@capability} capability")
+          Logger.warning(
+            "Cannot process delegated #{@capability} for video #{video_id} - node does not have #{@capability} capability"
+          )
+
           {:noreply, state}
         else
           # Process the job locally - the runner module will handle database operations via RPC if needed
           runner_running = @runner_module.running?()
           current_running = Map.get(state, @running_state_key)
-          Logger.debug("#{__MODULE__} state - #{@running_state_key}: #{current_running}, #{@runner_module}.running?: #{runner_running}")
+
+          Logger.debug(
+            "#{__MODULE__} state - #{@running_state_key}: #{current_running}, #{@runner_module}.running?: #{runner_running}"
+          )
 
           cond do
             not current_running ->
-              Logger.info("Auto-starting #{__MODULE__} to process delegated job for video #{video_id}")
+              Logger.info(
+                "Auto-starting #{__MODULE__} to process delegated job for video #{video_id}"
+              )
+
               # Auto-start and process the job
-              Phoenix.PubSub.broadcast(Reencodarr.PubSub, @pubsub_topic, {@pubsub_topic, :started})
+              Phoenix.PubSub.broadcast(
+                Reencodarr.PubSub,
+                @pubsub_topic,
+                {@pubsub_topic, :started}
+              )
+
               schedule_check()
+
               if not runner_running do
                 Logger.info("Processing delegated #{@capability} for video: #{video_id}")
                 @job_processor.(job)
               end
+
               {:noreply, Map.put(state, @running_state_key, true)}
 
             runner_running ->
-              Logger.info("#{@capability} already running, queueing delegated job for video #{video_id}")
+              Logger.info(
+                "#{@capability} already running, queueing delegated job for video #{video_id}"
+              )
+
               updated_queue = state.job_queue ++ [job]
               {:noreply, %{state | job_queue: updated_queue}}
 

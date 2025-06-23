@@ -52,10 +52,10 @@ defmodule Reencodarr.MixProject do
        app: false,
        compile: false,
        depth: 1},
-       {:jason, "~> 1.2"},
-       {:libring, "~> 1.6"},
-       {:nimble_csv, "~> 1.2"},
-       {:phoenix, "~> 1.7.14"},
+      {:jason, "~> 1.2"},
+      {:libring, "~> 1.6"},
+      {:nimble_csv, "~> 1.2"},
+      {:phoenix, "~> 1.7.14"},
       {:phoenix_ecto, "~> 4.5"},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_dashboard, "~> 0.8.3"},
@@ -68,7 +68,7 @@ defmodule Reencodarr.MixProject do
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:tzdata, "~> 1.1"},
-      {:libcluster, "~> 3.3"},
+      {:libcluster, "~> 3.3"}
     ]
   end
 

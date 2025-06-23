@@ -165,6 +165,7 @@ defmodule Reencodarr.AbAv1.Encode do
         case Media.get_video(id) do
           nil ->
             Logger.error("Video with ID #{id} not found")
+
           video ->
             filename = video.path |> Path.basename()
             Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :started, filename})

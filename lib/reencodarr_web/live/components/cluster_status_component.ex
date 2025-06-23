@@ -14,23 +14,27 @@ defmodule ReencodarrWeb.ClusterStatusComponent do
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <div class="bg-gray-800 rounded p-4">
             <h3 class="text-lg font-semibold text-white mb-2">Total Nodes</h3>
-            <p class="text-3xl font-bold text-green-400"><%= length(@cluster_info.cluster_nodes || []) %></p>
+            <p class="text-3xl font-bold text-green-400">
+              {length(@cluster_info.cluster_nodes || [])}
+            </p>
           </div>
 
           <div class="bg-gray-800 rounded p-4">
             <h3 class="text-lg font-semibold text-white mb-2">CRF Workers</h3>
-            <p class="text-3xl font-bold text-blue-400"><%= get_ring_size(@cluster_info, :crf_search) %></p>
+            <p class="text-3xl font-bold text-blue-400">
+              {get_ring_size(@cluster_info, :crf_search)}
+            </p>
           </div>
 
           <div class="bg-gray-800 rounded p-4">
             <h3 class="text-lg font-semibold text-white mb-2">Encoders</h3>
-            <p class="text-3xl font-bold text-purple-400"><%= get_ring_size(@cluster_info, :encode) %></p>
+            <p class="text-3xl font-bold text-purple-400">{get_ring_size(@cluster_info, :encode)}</p>
           </div>
 
           <div class="bg-gray-800 rounded p-4">
             <h3 class="text-lg font-semibold text-white mb-2">Healthy Nodes</h3>
             <p class="text-3xl font-bold text-emerald-400">
-              <%= count_healthy_nodes(@cluster_info) %>/<%= length(@cluster_info.cluster_nodes || []) %>
+              {count_healthy_nodes(@cluster_info)}/{length(@cluster_info.cluster_nodes || [])}
             </p>
           </div>
         </div>
@@ -57,16 +61,18 @@ defmodule ReencodarrWeb.ClusterStatusComponent do
                 <% health = get_node_health(@cluster_info, node) %>
                 <tr class="hover:bg-gray-800 transition-colors duration-200">
                   <td class="border border-gray-700 px-4 py-2 text-gray-300 font-mono">
-                    <%= node %>
+                    {node}
                     <%= if node == @cluster_info.local_node do %>
-                      <span class="ml-2 px-2 py-1 bg-green-600 text-white text-xs rounded">LOCAL</span>
+                      <span class="ml-2 px-2 py-1 bg-green-600 text-white text-xs rounded">
+                        LOCAL
+                      </span>
                     <% end %>
                   </td>
                   <td class="border border-gray-700 px-4 py-2">
                     <span class="px-2 py-1 bg-green-600 text-white text-xs rounded">ONLINE</span>
                   </td>
                   <td class="border border-gray-700 px-4 py-2">
-                    <%= render_health_status(health) %>
+                    {render_health_status(health)}
                   </td>
                   <td class="border border-gray-700 px-4 py-2 text-gray-300">
                     <%= case Map.get(@cluster_info.node_capabilities || %{}, node, @cluster_info.local_capabilities || []) do %>
@@ -85,9 +91,12 @@ defmodule ReencodarrWeb.ClusterStatusComponent do
                               />
                               <span class="text-gray-300 select-none">
                                 <%= case capability do %>
-                                  <% :crf_search -> %><span class="text-blue-400">CRF Search</span>
-                                  <% :encode -> %><span class="text-purple-400">Encode</span>
-                                  <% _ -> %><%= capability %>
+                                  <% :crf_search -> %>
+                                    <span class="text-blue-400">CRF Search</span>
+                                  <% :encode -> %>
+                                    <span class="text-purple-400">Encode</span>
+                                  <% _ -> %>
+                                    {capability}
                                 <% end %>
                               </span>
                             </label>
@@ -105,7 +114,7 @@ defmodule ReencodarrWeb.ClusterStatusComponent do
                     <% end %>
                   </td>
                   <td class="border border-gray-700 px-4 py-2 text-gray-300 text-sm">
-                    <%= render_node_metrics(health) %>
+                    {render_node_metrics(health)}
                   </td>
                 </tr>
               <% end %>
@@ -127,32 +136,40 @@ defmodule ReencodarrWeb.ClusterStatusComponent do
     if assigns.cluster_info != socket.assigns[:cluster_info] do
       Logger.debug("ClusterStatusComponent: Cluster info updated")
     end
+
     {:ok, assign(socket, assigns)}
   end
 
   @impl true
-  def handle_event("toggle_capability", %{"node" => node_str, "capability" => capability_str}, socket) do
+  def handle_event(
+        "toggle_capability",
+        %{"node" => node_str, "capability" => capability_str},
+        socket
+      ) do
     node = String.to_atom(node_str)
     capability = String.to_atom(capability_str)
 
     # Get current capabilities for the node
-    current_capabilities = case Map.get(socket.assigns.cluster_info.node_capabilities || %{}, node) do
-      capabilities when is_list(capabilities) -> capabilities
-      _ -> []
-    end
+    current_capabilities =
+      case Map.get(socket.assigns.cluster_info.node_capabilities || %{}, node) do
+        capabilities when is_list(capabilities) -> capabilities
+        _ -> []
+      end
 
     # Toggle the capability
-    new_capabilities = if capability in current_capabilities do
-      List.delete(current_capabilities, capability)
-    else
-      [capability | current_capabilities] |> Enum.uniq()
-    end
+    new_capabilities =
+      if capability in current_capabilities do
+        List.delete(current_capabilities, capability)
+      else
+        [capability | current_capabilities] |> Enum.uniq()
+      end
 
     # Update capabilities via coordinator
     case Reencodarr.Distributed.Coordinator.update_node_capabilities(node, new_capabilities) do
       :ok ->
         Logger.info("Successfully updated capabilities for #{node}: #{inspect(new_capabilities)}")
         {:noreply, socket}
+
       {:error, reason} ->
         Logger.error("Failed to update capabilities for #{node}: #{inspect(reason)}")
         {:noreply, socket}
@@ -161,27 +178,32 @@ defmodule ReencodarrWeb.ClusterStatusComponent do
 
   # Helper functions
 
-  defp count_healthy_nodes(%{health_info: health_info, cluster_nodes: _nodes}) when is_map(health_info) do
+  defp count_healthy_nodes(%{health_info: health_info, cluster_nodes: _nodes})
+       when is_map(health_info) do
     health_info
     |> Enum.count(fn {_node, health} ->
       Map.get(health, :status) == :healthy
     end)
   end
+
   defp count_healthy_nodes(%{cluster_nodes: nodes}) when is_list(nodes) do
     # If no health info but have cluster nodes, assume all are healthy
     length(nodes)
   end
+
   defp count_healthy_nodes(nil), do: 0
   defp count_healthy_nodes(_), do: "N/A"
 
   defp get_node_health(%{health_info: health_info}, node) when is_map(health_info) do
     Map.get(health_info, node, %{status: :unknown})
   end
+
   defp get_node_health(_, _), do: %{status: :unknown}
 
   defp get_ring_size(%{ring_sizes: ring_sizes}, capability) when is_map(ring_sizes) do
     Map.get(ring_sizes, capability, 0)
   end
+
   defp get_ring_size(_, _), do: 0
 
   defp render_health_status(%{status: :healthy, response_time: response_time}) do
@@ -234,6 +256,7 @@ defmodule ReencodarrWeb.ClusterStatusComponent do
   end
 
   defp format_cpu(nil), do: "N/A"
+
   defp format_cpu(cpu) when is_list(cpu) do
     # Get average CPU usage from detailed utilization
     case Enum.find(cpu, fn {key, _} -> key == :total end) do
@@ -241,13 +264,16 @@ defmodule ReencodarrWeb.ClusterStatusComponent do
       _ -> "N/A"
     end
   end
+
   defp format_cpu(cpu), do: "#{cpu}%"
 
   defp format_uptime(nil), do: "N/A"
+
   defp format_uptime(seconds) when is_integer(seconds) do
     hours = div(seconds, 3600)
     minutes = div(rem(seconds, 3600), 60)
     "#{hours}h #{minutes}m"
   end
+
   defp format_uptime(_), do: "N/A"
 end

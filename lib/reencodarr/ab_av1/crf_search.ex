@@ -20,7 +20,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       (?<total_samples>\d+)\s          # Capture total samples
       crf\s#{@crf_pattern}             # Capture CRF value
     /x,
-
     simple_vmaf: ~r/
       #{@timestamp_pattern}\s
       .*?
@@ -28,7 +27,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       VMAF\s#{@vmaf_score_pattern}\s  # Capture VMAF score
       #{@percent_pattern}             # Capture percentage
     /x,
-
     sample_vmaf: ~r/
       sample\s
       (?<sample_num>\d+)\/             # Capture sample number
@@ -38,7 +36,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       #{@percent_pattern}             # Capture percentage
       (?:\s\(.*\))?
     /x,
-
     eta_vmaf: ~r/
       crf\s#{@crf_pattern}\s          # Capture CRF value
       VMAF\s#{@vmaf_score_pattern}\s  # Capture VMAF score
@@ -51,14 +48,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       #{@time_unit_pattern}           # Capture time unit with optional plural
       (?:\s\(.*\))?
     /x,
-
     vmaf_comparison: ~r/
       vmaf\s
       (?<file1>.+?)\s                  # Capture first file name
       vs\sreference\s
       (?<file2>.+)                     # Capture second file name
     /x,
-
     progress: ~r/
       #{@timestamp_pattern}\s
       .*?
@@ -66,7 +61,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       #{@fps_pattern},\s              # Updated to exclude "fps" from the capture group
       #{@eta_pattern}
     /x,
-
     success: ~r/
       \[.*\]\s
       crf\s#{@crf_pattern}\s          # Capture CRF value from this one to know which CRF was selected.
@@ -77,6 +71,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   # Unified line matching function using pattern keys
   defp match_line(line, pattern_key) do
     pattern = Map.get(@patterns, pattern_key)
+
     case Regex.named_captures(pattern, line) do
       nil -> nil
       captures -> captures
@@ -242,7 +237,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_encoding_sample_line(line, video) do
     case match_line(line, :encoding_sample) do
-      nil -> false
+      nil ->
+        false
+
       captures ->
         Logger.debug(
           "CrfSearch: Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
@@ -260,7 +257,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp handle_vmaf_line(line, video, args) do
     # Try simple VMAF pattern first, then sample pattern as fallback
     case match_line(line, :simple_vmaf) || match_line(line, :sample_vmaf) do
-      nil -> false
+      nil ->
+        false
+
       captures ->
         Logger.debug(
           "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
@@ -273,7 +272,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_eta_vmaf_line(line, video, args) do
     case match_line(line, :eta_vmaf) do
-      nil -> false
+      nil ->
+        false
+
       captures ->
         Logger.debug(
           "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}"
@@ -286,7 +287,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_vmaf_comparison_line(line) do
     case match_line(line, :vmaf_comparison) do
-      nil -> false
+      nil ->
+        false
+
       captures ->
         Logger.debug("VMAF comparison: #{captures["file1"]} vs #{captures["file2"]}")
         true
@@ -295,7 +298,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_progress_line(line, video) do
     case match_line(line, :progress) do
-      nil -> false
+      nil ->
+        false
+
       captures ->
         Logger.debug(
           "CrfSearch Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
@@ -317,7 +322,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_success_line(line, video) do
     case match_line(line, :success) do
-      nil -> false
+      nil ->
+        false
+
       captures ->
         Logger.info("CrfSearch successful for CRF: #{captures["crf"]}")
         Media.mark_vmaf_as_chosen(video.id, captures["crf"])

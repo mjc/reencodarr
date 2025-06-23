@@ -39,14 +39,15 @@ defmodule IExHelpers do
     try do
       Coordinator.get_local_capabilities()
     catch
-      :exit, _ -> [:crf_search, :encode]  # Default capabilities
+      # Default capabilities
+      :exit, _ -> [:crf_search, :encode]
     end
   end
 end
 
 import IExHelpers
 
-IO.puts """
+IO.puts("""
 
 === Reencodarr IEx Helpers ===
 Available functions:
@@ -63,4 +64,4 @@ Examples:
   iex> cluster_info()
   iex> node_mode()
 
-"""
+""")

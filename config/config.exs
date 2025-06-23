@@ -28,7 +28,8 @@ config :libcluster,
     reencodarr_cluster: [
       strategy: Cluster.Strategy.Epmd,
       config: [
-        hosts: []  # Will be configured at runtime
+        # Will be configured at runtime
+        hosts: []
       ]
     ]
   ]

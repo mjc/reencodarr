@@ -10,23 +10,26 @@ defmodule Reencodarr.Application do
   def start(_type, _args) do
     Logger.info("Starting Reencodarr", node: Node.self())
 
-    children = [
-      # Core infrastructure
-      ReencodarrWeb.Telemetry,
-      {Phoenix.PubSub, name: Reencodarr.PubSub},
-      {Finch, name: Reencodarr.Finch},
+    children =
+      [
+        # Core infrastructure
+        ReencodarrWeb.Telemetry,
+        {Phoenix.PubSub, name: Reencodarr.PubSub},
+        {Finch, name: Reencodarr.Finch},
 
-      # Cluster infrastructure
-      cluster_supervisor(),
-      coordination_processes(),
-      worker_processes(),
+        # Cluster infrastructure
+        cluster_supervisor(),
+        coordination_processes(),
+        worker_processes(),
 
-      # Server processes (database, business logic)
-      server_processes(),
+        # Server processes (database, business logic)
+        server_processes(),
 
-      # Web interface
-      web_endpoint()
-    ] |> List.flatten() |> Enum.reject(&is_nil/1)
+        # Web interface
+        web_endpoint()
+      ]
+      |> List.flatten()
+      |> Enum.reject(&is_nil/1)
 
     Supervisor.start_link(children, strategy: :one_for_one, name: Reencodarr.Supervisor)
   end
@@ -60,7 +63,8 @@ defmodule Reencodarr.Application do
 
     %{
       id: Reencodarr.Workers,
-      start: {Supervisor, :start_link, [workers, [strategy: :one_for_one, name: Reencodarr.Workers]]},
+      start:
+        {Supervisor, :start_link, [workers, [strategy: :one_for_one, name: Reencodarr.Workers]]},
       type: :supervisor
     }
   end

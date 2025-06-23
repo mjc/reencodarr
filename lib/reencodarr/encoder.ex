@@ -1,5 +1,6 @@
 defmodule Reencodarr.Encoder do
   use GenServer
+
   use Reencodarr.Distributed.JobWorker,
     capability: :encode,
     job_processor: &Reencodarr.AbAv1.encode/1,
@@ -295,7 +296,6 @@ defmodule Reencodarr.Encoder do
   defp check_next_video do
     with pid when not is_nil(pid) <- GenServer.whereis(Reencodarr.AbAv1.Encode),
          false <- AbAv1.Encode.running?() do
-
       # Calculate optimal batch size based on available nodes
       batch_size = JobDistributor.calculate_optimal_batch_size(:encode)
 
@@ -303,6 +303,7 @@ defmodule Reencodarr.Encoder do
         chosen_vmafs when chosen_vmafs != [] ->
           # Distribute encoding jobs across available capable nodes
           distribute_encoding_jobs(chosen_vmafs)
+
         [] ->
           Logger.debug("No chosen VMAFs found for encoding")
       end
@@ -318,6 +319,7 @@ defmodule Reencodarr.Encoder do
   # Distribute multiple encoding jobs across capable nodes
   defp distribute_encoding_jobs(vmafs) do
     job_processor = &Media.execute_encoding/1
+
     job_delegator = fn vmaf, target_node ->
       GenServer.cast({__MODULE__, target_node}, {:delegate_encoding, vmaf})
     end

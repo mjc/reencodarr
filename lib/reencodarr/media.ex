@@ -288,6 +288,16 @@ defmodule Reencodarr.Media do
       )
 
   def mark_vmaf_as_chosen(video_id, crf) do
+    if can_access_database?() do
+      # Local execution
+      mark_vmaf_as_chosen_local(video_id, crf)
+    else
+      # Delegate to server node via RPC
+      rpc_mark_vmaf_as_chosen(video_id, crf)
+    end
+  end
+
+  defp mark_vmaf_as_chosen_local(video_id, crf) do
     crf_float = parse_crf(crf)
 
     Repo.transaction(fn ->
@@ -326,11 +336,16 @@ defmodule Reencodarr.Media do
         [] ->
           Logger.error("No server nodes available for RPC video fetch")
           nil
+
         [server_node | _] ->
           try do
             case :rpc.call(server_node, __MODULE__, :get_video_direct, [id], 5_000) do
-              video when not is_nil(video) -> video
-              nil -> nil
+              video when not is_nil(video) ->
+                video
+
+              nil ->
+                nil
+
               {:badrpc, reason} ->
                 Logger.error("RPC failed when fetching video #{id}: #{inspect(reason)}")
                 nil
@@ -415,23 +430,39 @@ defmodule Reencodarr.Media do
         {:error, :no_server_nodes}
 
       [server_node | _] ->
-        Logger.info("Delegating CRF search execution to server node #{server_node} for video #{video.id}")
+        Logger.info(
+          "Delegating CRF search execution to server node #{server_node} for video #{video.id}"
+        )
 
         try do
           case :rpc.call(server_node, Reencodarr.AbAv1, :crf_search, [video], 30_000) do
             :ok ->
-              Logger.info("Successfully delegated CRF search for video #{video.id} to server #{server_node}")
+              Logger.info(
+                "Successfully delegated CRF search for video #{video.id} to server #{server_node}"
+              )
+
               :ok
+
             {:error, reason} ->
-              Logger.error("Failed to delegate CRF search for video #{video.id} to server #{server_node}: #{inspect(reason)}")
+              Logger.error(
+                "Failed to delegate CRF search for video #{video.id} to server #{server_node}: #{inspect(reason)}"
+              )
+
               {:error, reason}
+
             {:badrpc, reason} ->
-              Logger.error("RPC failed when delegating CRF search for video #{video.id}: #{inspect(reason)}")
+              Logger.error(
+                "RPC failed when delegating CRF search for video #{video.id}: #{inspect(reason)}"
+              )
+
               {:error, {:rpc_failed, reason}}
           end
         catch
           :exit, reason ->
-            Logger.error("RPC exit when delegating CRF search for video #{video.id}: #{inspect(reason)}")
+            Logger.error(
+              "RPC exit when delegating CRF search for video #{video.id}: #{inspect(reason)}"
+            )
+
             {:error, {:rpc_exit, reason}}
         end
     end
@@ -444,23 +475,39 @@ defmodule Reencodarr.Media do
         {:error, :no_server_nodes}
 
       [server_node | _] ->
-        Logger.info("Delegating encoding execution to server node #{server_node} for video #{vmaf.video.id}")
+        Logger.info(
+          "Delegating encoding execution to server node #{server_node} for video #{vmaf.video.id}"
+        )
 
         try do
           case :rpc.call(server_node, Reencodarr.AbAv1, :encode, [vmaf], 30_000) do
             :ok ->
-              Logger.info("Successfully delegated encoding for video #{vmaf.video.id} to server #{server_node}")
+              Logger.info(
+                "Successfully delegated encoding for video #{vmaf.video.id} to server #{server_node}"
+              )
+
               :ok
+
             {:error, reason} ->
-              Logger.error("Failed to delegate encoding for video #{vmaf.video.id} to server #{server_node}: #{inspect(reason)}")
+              Logger.error(
+                "Failed to delegate encoding for video #{vmaf.video.id} to server #{server_node}: #{inspect(reason)}"
+              )
+
               {:error, reason}
+
             {:badrpc, reason} ->
-              Logger.error("RPC failed when delegating encoding for video #{vmaf.video.id}: #{inspect(reason)}")
+              Logger.error(
+                "RPC failed when delegating encoding for video #{vmaf.video.id}: #{inspect(reason)}"
+              )
+
               {:error, {:rpc_failed, reason}}
           end
         catch
           :exit, reason ->
-            Logger.error("RPC exit when delegating encoding for video #{vmaf.video.id}: #{inspect(reason)}")
+            Logger.error(
+              "RPC exit when delegating encoding for video #{vmaf.video.id}: #{inspect(reason)}"
+            )
+
             {:error, {:rpc_exit, reason}}
         end
     end
@@ -487,30 +534,53 @@ defmodule Reencodarr.Media do
     end
   end
 
+  defp rpc_mark_vmaf_as_chosen(video_id, crf) do
+    case get_server_nodes() do
+      [] ->
+        Logger.error("No server nodes available for RPC mark_vmaf_as_chosen")
+        {:error, :no_server_nodes}
+
+      [server_node | _] ->
+        Logger.debug("Using RPC to mark VMAF as chosen on server node: #{server_node}")
+
+        try do
+          case :rpc.call(server_node, __MODULE__, :mark_vmaf_as_chosen_local, [video_id, crf], 10_000) do
+            {:ok, result} -> {:ok, result}
+            {:error, reason} -> {:error, reason}
+            {:badrpc, reason} -> {:error, {:rpc_failed, reason}}
+            result -> {:ok, result}  # Handle successful transactions that don't return {:ok, result}
+          end
+        catch
+          :exit, reason -> {:error, {:rpc_exit, reason}}
+        end
+    end
+  end
+
   defp get_server_nodes do
     all_nodes = [Node.self() | Node.list()]
 
     # Find nodes that have web server running (indicates server nodes with DB access)
-    server_nodes = all_nodes
-    |> Enum.filter(fn node ->
-      try do
-        case :rpc.call(node, Process, :whereis, [ReencodarrWeb.Endpoint], 2_000) do
-          pid when is_pid(pid) -> true
-          _ -> false
+    server_nodes =
+      all_nodes
+      |> Enum.filter(fn node ->
+        try do
+          case :rpc.call(node, Process, :whereis, [ReencodarrWeb.Endpoint], 2_000) do
+            pid when is_pid(pid) -> true
+            _ -> false
+          end
+        catch
+          _, _ -> false
         end
-      catch
-        _, _ -> false
-      end
-    end)
+      end)
 
     case server_nodes do
       [] ->
         Logger.warning("No server nodes found with web endpoints")
         # Fallback: try all nodes
         all_nodes
+
       nodes ->
         nodes
     end
   end
-
 end

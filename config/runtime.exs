@@ -32,6 +32,7 @@ if Application.get_env(:reencodarr, :distributed_mode, false) do
         {:ok, hostname} ->
           hostname_str = to_string(hostname)
           get_full_hostname(hostname, hostname_str)
+
         _ ->
           "localhost"
       end
@@ -41,6 +42,7 @@ if Application.get_env(:reencodarr, :distributed_mode, false) do
       case :inet.gethostbyname(hostname) do
         {:ok, {:hostent, full_hostname, _aliases, :inet, _length, _addresses}} ->
           to_string(full_hostname)
+
         _ ->
           get_fqdn_from_system(hostname_str)
       end
@@ -55,11 +57,12 @@ if Application.get_env(:reencodarr, :distributed_mode, false) do
 
     @doc "Determine the appropriate node name based on configuration"
     def determine_node_name(fqdn) do
-      node_type = if Application.get_env(:reencodarr, :start_web_server, true) do
-        "server"
-      else
-        "worker"
-      end
+      node_type =
+        if Application.get_env(:reencodarr, :start_web_server, true) do
+          "server"
+        else
+          "worker"
+        end
 
       "reencodarr_#{node_type}@#{fqdn}"
     end
@@ -72,6 +75,7 @@ if Application.get_env(:reencodarr, :distributed_mode, false) do
             # Set a consistent cookie for all nodes
             Node.set_cookie(:reencodarr)
             IO.puts("Started distributed node: #{node_name}")
+
           {:error, reason} ->
             IO.puts("Failed to start distributed node #{node_name}: #{inspect(reason)}")
         end

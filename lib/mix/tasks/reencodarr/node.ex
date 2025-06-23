@@ -10,12 +10,15 @@ defmodule Mix.Tasks.Reencodarr.Node do
   @shortdoc "Start server or worker node"
 
   def run(args) do
-    {opts, args} = OptionParser.parse!(args, strict: [
-      name: :string,
-      connect_to: :string,
-      capabilities: :string,
-      cookie: :string
-    ])
+    {opts, args} =
+      OptionParser.parse!(args,
+        strict: [
+          name: :string,
+          connect_to: :string,
+          capabilities: :string,
+          cookie: :string
+        ]
+      )
 
     case args do
       ["server"] -> start_server(opts)
@@ -62,6 +65,7 @@ defmodule Mix.Tasks.Reencodarr.Node do
   end
 
   defp parse_capabilities(nil), do: [:crf_search, :encode]
+
   defp parse_capabilities(caps) do
     caps |> String.split(",") |> Enum.map(&String.to_atom(String.trim(&1)))
   end

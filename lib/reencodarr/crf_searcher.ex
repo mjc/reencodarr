@@ -1,5 +1,6 @@
 defmodule Reencodarr.CrfSearcher do
   use GenServer
+
   use Reencodarr.Distributed.JobWorker,
     capability: :crf_search,
     job_processor: &Reencodarr.AbAv1.crf_search/1,
@@ -126,7 +127,6 @@ defmodule Reencodarr.CrfSearcher do
     with {:started, pid} when not is_nil(pid) <-
            {:started, GenServer.whereis(Reencodarr.AbAv1.CrfSearch)},
          {:running, false} <- {:running, AbAv1.CrfSearch.running?()} do
-
       # Calculate optimal batch size based on available nodes
       batch_size = JobDistributor.calculate_optimal_batch_size(:crf_search)
 
@@ -134,6 +134,7 @@ defmodule Reencodarr.CrfSearcher do
         videos when videos != [] ->
           # Distribute jobs across available capable nodes
           distribute_crf_search_jobs(videos)
+
         [] ->
           Logger.debug("No videos found without VMAFs")
       end
@@ -149,6 +150,7 @@ defmodule Reencodarr.CrfSearcher do
   # Distribute multiple CRF search jobs across capable nodes
   defp distribute_crf_search_jobs(videos) do
     job_processor = &AbAv1.crf_search/1
+
     job_delegator = fn video, target_node ->
       GenServer.cast({__MODULE__, target_node}, {:delegate_crf_search, video})
     end
@@ -171,5 +173,4 @@ defmodule Reencodarr.CrfSearcher do
       state
     end
   end
-
 end

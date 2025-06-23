@@ -109,10 +109,15 @@ defmodule ReencodarrWeb.DashboardLive do
       # Preserve the cluster_info from the current state when merging new stats
       # unless the incoming state has newer cluster info
       current_cluster_info = socket.assigns.state.cluster_info
-      updated_state = case Map.get(state, :cluster_info) do
-        nil -> %{state | cluster_info: current_cluster_info}  # Stats doesn't have cluster info, preserve ours
-        new_cluster_info -> %{state | cluster_info: new_cluster_info}  # Stats has cluster info, use it
-      end
+
+      updated_state =
+        case Map.get(state, :cluster_info) do
+          # Stats doesn't have cluster info, preserve ours
+          nil -> %{state | cluster_info: current_cluster_info}
+          # Stats has cluster info, use it
+          new_cluster_info -> %{state | cluster_info: new_cluster_info}
+        end
+
       {:noreply, assign(socket, :state, updated_state)}
     else
       Logger.error("Invalid stats update received: #{inspect(state)}")
@@ -183,7 +188,11 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_info({:cluster_change, :capabilities_updated, node, capabilities}, socket) do
     Logger.info("Dashboard: Node #{node} capabilities updated to #{inspect(capabilities)}")
     cluster_info = get_cluster_info()
-    Logger.debug("Dashboard: Updated cluster info after capability change: #{inspect(cluster_info)}")
+
+    Logger.debug(
+      "Dashboard: Updated cluster info after capability change: #{inspect(cluster_info)}"
+    )
+
     {:noreply, update_state(socket, &%{&1 | cluster_info: cluster_info})}
   end
 
@@ -247,8 +256,8 @@ defmodule ReencodarrWeb.DashboardLive do
       />
 
       <.render_manual_scan_form />
-
-      <!-- Cluster Status Section -->
+      
+    <!-- Cluster Status Section -->
       <div class="w-full max-w-6xl mb-8">
         <.live_component
           module={ReencodarrWeb.ClusterStatusComponent}
@@ -412,6 +421,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp get_single_node_info do
     local_node = Node.self()
+
     %{
       local_node: local_node,
       cluster_nodes: [local_node],
