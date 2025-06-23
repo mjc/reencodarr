@@ -22,6 +22,17 @@ config :reencodarr,
   # Whether to start the web server (disable on worker-only nodes)
   start_web_server: true
 
+# Libcluster configuration for automatic node discovery
+config :libcluster,
+  topologies: [
+    reencodarr_cluster: [
+      strategy: Cluster.Strategy.Epmd,
+      config: [
+        hosts: []  # Will be configured at runtime
+      ]
+    ]
+  ]
+
 # Configures the endpoint
 config :reencodarr, ReencodarrWeb.Endpoint,
   url: [host: "localhost"],

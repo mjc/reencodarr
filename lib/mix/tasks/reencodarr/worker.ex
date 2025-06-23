@@ -46,36 +46,33 @@ defmodule Mix.Tasks.Reencodarr.Worker do
   end
 
   defp start_worker_applications do
-    # Start applications in the correct order
-    {:ok, _} = Application.ensure_all_started(:crypto)
-    {:ok, _} = Application.ensure_all_started(:ssl)
-    {:ok, _} = Application.ensure_all_started(:telemetry)
-    {:ok, _} = Application.ensure_all_started(:decimal)
-    {:ok, _} = Application.ensure_all_started(:jason)
-    {:ok, _} = Application.ensure_all_started(:db_connection)
-    {:ok, _} = Application.ensure_all_started(:ecto)
-    {:ok, _} = Application.ensure_all_started(:ecto_sql)
-    {:ok, _} = Application.ensure_all_started(:postgrex)
-    {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
+    # Only start the essential dependencies - use safe starting
+    ensure_started([:logger, :sasl, :os_mon, :runtime_tools, :telemetry, :phoenix_pubsub, :libcluster, :libring])
 
-    # Start essential workers
-    children = [
-      Reencodarr.Repo,
+    # Start basic Reencodarr components manually
+    {:ok, _} = Supervisor.start_link([
       {Phoenix.PubSub, name: Reencodarr.PubSub},
-      Reencodarr.Distributed.Coordinator
-    ]
+      {Cluster.Supervisor, [Application.get_env(:libcluster, :topologies), [name: Reencodarr.ClusterSupervisor]]},
+      Reencodarr.Distributed.Coordinator,
+      Reencodarr.Distributed.HealthMonitor,
+      Reencodarr.CrfSearcher,
+      Reencodarr.Encoder,
+      Reencodarr.AbAv1
+    ], strategy: :one_for_one, name: Reencodarr.WorkerSupervisor)
 
-    # Add capability-specific workers
-    capabilities = Application.get_env(:reencodarr, :node_capabilities, [])
+    Mix.shell().info("Minimal worker node started successfully")
+  end
 
-    children = children ++
-      (if :crf_search in capabilities, do: [Reencodarr.CrfSearcher], else: []) ++
-      (if :encode in capabilities, do: [Reencodarr.Encoder], else: []) ++
-      [Reencodarr.AbAv1]
-
-    {:ok, _sup} = Supervisor.start_link(children, strategy: :one_for_one, name: WorkerSupervisor)
-
-    Mix.shell().info("Worker node applications started successfully")
+  defp ensure_started(apps) do
+    Enum.each(apps, fn app ->
+      case :application.ensure_started(app) do
+        :ok -> :ok
+        {:ok, _} -> :ok
+        {:error, {:already_started, _}} -> :ok
+        {:error, reason} ->
+          Mix.shell().info("Could not start #{app}: #{inspect(reason)}")
+      end
+    end)
   end
 
   defp configure_node(node_name, cookie) do

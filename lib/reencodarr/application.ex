@@ -16,6 +16,8 @@ defmodule Reencodarr.Application do
       ReencodarrWeb.Telemetry,
       Reencodarr.Repo,
       {DNSCluster, query: Application.get_env(:reencodarr, :dns_cluster_query) || :ignore},
+      # Add libcluster for automatic node discovery
+      {Cluster.Supervisor, [Application.get_env(:libcluster, :topologies), [name: Reencodarr.ClusterSupervisor]]},
       {Phoenix.PubSub, name: Reencodarr.PubSub},
       # Start the Finch HTTP client for sending emails
       {Finch, name: Reencodarr.Finch},
@@ -40,6 +42,8 @@ defmodule Reencodarr.Application do
     [
       # Add distributed coordinator first
       Reencodarr.Distributed.Coordinator,
+      # Add health monitoring for distributed nodes
+      Reencodarr.Distributed.HealthMonitor,
       Reencodarr.ManualScanner,
       Reencodarr.Analyzer,
       Reencodarr.CrfSearcher,

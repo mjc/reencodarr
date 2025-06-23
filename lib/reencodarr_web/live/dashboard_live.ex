@@ -103,7 +103,10 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_info({:stats, state}, socket) do
     if is_map(state) do
       Logger.debug("Received stats update")
-      {:noreply, assign(socket, :state, state)}
+      # Preserve the cluster_info from the current state when merging new stats
+      current_cluster_info = socket.assigns.state.cluster_info
+      updated_state = %{state | cluster_info: current_cluster_info}
+      {:noreply, assign(socket, :state, updated_state)}
     else
       Logger.error("Invalid stats update received: #{inspect(state)}")
       {:noreply, socket}
@@ -369,18 +372,8 @@ defmodule ReencodarrWeb.DashboardLive do
   defp get_cluster_info do
     if Application.get_env(:reencodarr, :distributed_mode, false) do
       try do
-        case GenServer.call(Reencodarr.Distributed.Coordinator, :get_cluster_status, 5000) do
-          %{nodes: nodes, node_capabilities: caps, rings_summary: rings} ->
-            %{
-              cluster_nodes: nodes,
-              local_node: Node.self(),
-              node_capabilities: caps,
-              local_capabilities: Application.get_env(:reencodarr, :node_capabilities, []),
-              ring_sizes: %{
-                crf_search: length(Map.get(rings, :crf_search, [])),
-                encode: length(Map.get(rings, :encode, []))
-              }
-            }
+        case GenServer.call(Reencodarr.Distributed.Coordinator, :cluster_info, 5000) do
+          info when is_map(info) -> info
           _ -> nil
         end
       catch

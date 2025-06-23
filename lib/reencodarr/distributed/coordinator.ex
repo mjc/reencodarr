@@ -51,6 +51,13 @@ defmodule Reencodarr.Distributed.Coordinator do
     GenServer.call(__MODULE__, :cluster_info)
   end
 
+  @doc """
+  Get current local capabilities for this node.
+  """
+  def get_local_capabilities do
+    GenServer.call(__MODULE__, :get_local_capabilities)
+  end
+
   # GenServer callbacks
 
   @impl true
@@ -66,7 +73,7 @@ defmodule Reencodarr.Distributed.Coordinator do
         any: HashRing.new()
       },
       node_capabilities: %{},
-      local_capabilities: get_local_capabilities()
+      local_capabilities: get_local_capabilities_internal()
     }
 
     # Register this node
@@ -141,8 +148,9 @@ defmodule Reencodarr.Distributed.Coordinator do
 
   @impl true
   def handle_call({:find_node_for_job, _job_id, _capability}, _from, state) do
-    # For now, just return the current node
-    {:reply, Node.self(), state}
+    # This appears to be a duplicate of the find_node call above
+    # Redirect to the standard find_node implementation
+    {:reply, {:error, :use_find_node_instead}, state}
   end
 
   @impl true
@@ -157,15 +165,28 @@ defmodule Reencodarr.Distributed.Coordinator do
 
   @impl true
   def handle_call(:cluster_info, _from, state) do
+    # Get health information if available
+    health_info = try do
+      Reencodarr.Distributed.HealthMonitor.get_cluster_health()
+    catch
+      :exit, _ -> %{}
+    end
+
     info = %{
       local_node: Node.self(),
       cluster_nodes: [Node.self() | Node.list()],
       ring_sizes: state.rings |> Enum.map(fn {k, ring} -> {k, length(HashRing.nodes(ring))} end) |> Enum.into(%{}),
       node_capabilities: state.node_capabilities,
-      local_capabilities: state.local_capabilities
+      local_capabilities: state.local_capabilities,
+      health_info: health_info
     }
 
     {:reply, info, state}
+  end
+
+  @impl true
+  def handle_call(:get_local_capabilities, _from, state) do
+    {:reply, state.local_capabilities, state}
   end
 
   @impl true
@@ -214,7 +235,7 @@ defmodule Reencodarr.Distributed.Coordinator do
     )
   end
 
-  defp get_local_capabilities do
+  defp get_local_capabilities_internal do
     # Can be configured via environment or config
     Application.get_env(:reencodarr, :node_capabilities, [:crf_search, :encode])
   end

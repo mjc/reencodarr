@@ -12,6 +12,9 @@ defmodule Mix.Tasks.Reencodarr.Node do
 
       # Start specialized worker (encode only)
       mix reencodarr.node worker --name reencodarr_encoder@tina.lan.325i.org --capabilities encode
+
+      # Start with automatic cluster discovery
+      mix reencodarr.node server --name reencodarr_server@tina.lan.325i.org --cluster-hosts "reencodarr_worker@tina.lan.325i.org,reencodarr_encoder@tina.lan.325i.org"
   """
 
   use Mix.Task
@@ -24,7 +27,8 @@ defmodule Mix.Tasks.Reencodarr.Node do
         name: :string,
         connect_to: :string,
         capabilities: :string,
-        cookie: :string
+        cookie: :string,
+        cluster_hosts: :string
       ]
     )
 
@@ -41,6 +45,7 @@ defmodule Mix.Tasks.Reencodarr.Node do
 
     configure_node(node_name, cookie)
     configure_capabilities([:crf_search, :encode])
+    configure_libcluster(opts)
 
     Mix.shell().info("Starting Reencodarr server node: #{node_name}")
     Mix.Task.run("phx.server")
@@ -60,8 +65,9 @@ defmodule Mix.Tasks.Reencodarr.Node do
 
     configure_node(node_name, cookie)
     configure_capabilities(capabilities)
+    configure_libcluster(opts)
 
-    # Stop live_debugger if it's running
+    # Stop live_debugger if it's running to prevent port conflicts
     Application.stop(:live_debugger)
 
     Mix.shell().info("Starting Reencodarr worker node: #{node_name}")
@@ -88,10 +94,28 @@ defmodule Mix.Tasks.Reencodarr.Node do
     Application.put_env(:phoenix, :serve_endpoints, false)
     Application.put_env(:reencodarr, ReencodarrWeb.Endpoint, server: false)
 
-    # Start the full application but with web server disabled
-    {:ok, _} = Application.ensure_all_started(:reencodarr)
+    # Disable live_debugger entirely for worker nodes
+    Application.put_env(:live_debugger, :enabled, false)
+    :application.set_env(:live_debugger, :enabled, false)
 
-    Mix.shell().info("Worker node applications started successfully")
+    # Start the full application but with web server disabled
+    case Application.ensure_all_started(:reencodarr, :temporary) do
+      {:ok, _} ->
+        Mix.shell().info("Worker node applications started successfully")
+      {:error, {app, _reason}} when app == :live_debugger ->
+        # live_debugger failed, but we don't need it for workers
+        Mix.shell().info("live_debugger disabled for worker node")
+        # Try starting reencodarr without live_debugger
+        case Application.ensure_all_started(:reencodarr) do
+          {:ok, _} -> Mix.shell().info("Worker node applications started successfully (without live_debugger)")
+          {:error, reason} ->
+            Mix.shell().error("Failed to start worker applications: #{inspect(reason)}")
+            System.halt(1)
+        end
+      {:error, reason} ->
+        Mix.shell().error("Failed to start worker applications: #{inspect(reason)}")
+        System.halt(1)
+    end
   end
 
   defp configure_node(node_name, cookie) do
@@ -122,6 +146,27 @@ defmodule Mix.Tasks.Reencodarr.Node do
     Application.put_env(:reencodarr, :distributed_mode, true)
   end
 
+  defp configure_libcluster(opts) do
+    if cluster_hosts = opts[:cluster_hosts] do
+      hosts =
+        cluster_hosts
+        |> String.split(",")
+        |> Enum.map(&String.trim/1)
+        |> Enum.map(&String.to_atom/1)
+
+      # Update libcluster configuration
+      topology_config = [
+        reencodarr_cluster: [
+          strategy: Cluster.Strategy.Epmd,
+          config: [hosts: hosts]
+        ]
+      ]
+
+      Application.put_env(:libcluster, :topologies, topology_config)
+      Mix.shell().info("Configured cluster auto-discovery for hosts: #{inspect(hosts)}")
+    end
+  end
+
   defp parse_capabilities(nil), do: [:crf_search, :encode]
   defp parse_capabilities(caps_string) do
     caps_string
@@ -145,8 +190,6 @@ defmodule Mix.Tasks.Reencodarr.Node do
         System.halt(1)
     end
   end
-
-
 
   defp print_usage do
     Mix.shell().info("""

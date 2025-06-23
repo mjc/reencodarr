@@ -69,6 +69,7 @@ defmodule Reencodarr.MixProject do
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:tzdata, "~> 1.1"},
+      {:libcluster, "~> 3.3"},
     ]
   end
 
