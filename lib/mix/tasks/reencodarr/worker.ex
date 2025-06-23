@@ -49,7 +49,7 @@ defmodule Mix.Tasks.Reencodarr.Worker do
   end
 
   defp start_worker_applications do
-    # Start essential dependencies manually
+    # Start essential dependencies manually for worker nodes
     essential_apps = [
       :crypto, :ssl, :public_key, :asn1,
       :logger, :sasl, :os_mon, :runtime_tools,

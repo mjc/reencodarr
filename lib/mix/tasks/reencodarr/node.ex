@@ -59,16 +59,12 @@ defmodule Mix.Tasks.Reencodarr.Node do
 
     # Configure environment before starting node
     Application.put_env(:reencodarr, :start_web_server, false)
-    Application.put_env(:live_debugger, :enabled, false)
     Application.put_env(:phoenix, :serve_endpoints, false)
     Application.put_env(:reencodarr, ReencodarrWeb.Endpoint, server: false)
 
     configure_node(node_name, cookie)
     configure_capabilities(capabilities)
     configure_libcluster(opts)
-
-    # Stop live_debugger if it's running to prevent port conflicts
-    Application.stop(:live_debugger)
 
     Mix.shell().info("Starting Reencodarr worker node: #{node_name}")
     Mix.shell().info("Capabilities: #{inspect(capabilities)}")
@@ -94,24 +90,10 @@ defmodule Mix.Tasks.Reencodarr.Node do
     Application.put_env(:phoenix, :serve_endpoints, false)
     Application.put_env(:reencodarr, ReencodarrWeb.Endpoint, server: false)
 
-    # Disable live_debugger entirely for worker nodes
-    Application.put_env(:live_debugger, :enabled, false)
-    :application.set_env(:live_debugger, :enabled, false)
-
     # Start the full application but with web server disabled
     case Application.ensure_all_started(:reencodarr, :temporary) do
       {:ok, _} ->
         Mix.shell().info("Worker node applications started successfully")
-      {:error, {app, _reason}} when app == :live_debugger ->
-        # live_debugger failed, but we don't need it for workers
-        Mix.shell().info("live_debugger disabled for worker node")
-        # Try starting reencodarr without live_debugger
-        case Application.ensure_all_started(:reencodarr) do
-          {:ok, _} -> Mix.shell().info("Worker node applications started successfully (without live_debugger)")
-          {:error, reason} ->
-            Mix.shell().error("Failed to start worker applications: #{inspect(reason)}")
-            System.halt(1)
-        end
       {:error, reason} ->
         Mix.shell().error("Failed to start worker applications: #{inspect(reason)}")
         System.halt(1)
