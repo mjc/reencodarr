@@ -3,82 +3,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.{Media, AbAv1.Helper, Statistics.CrfSearchProgress}
   require Logger
 
-  @encoding_sample_regex ~r/
-    # I plan on making a chart for these. input file would be helpful, as well as target vmaf.
-    encoding\ssample\s
-    (?<sample_num>\d+)\/             # Capture sample number
-    (?<total_samples>\d+)\s          # Capture total samples
-    crf\s
-    (?<crf>\d+(\.\d+)?)              # Capture CRF value
-  /x
-
-  @simple_vmaf_regex ~r/
-    \[
-    (?<timestamp>[^\]]+)
-    \]\s
-    .*?
-    crf\s
-    (?<crf>\d+(\.\d+)?)\s            # Capture CRF value
-    VMAF\s
-    (?<score>\d+\.\d+)\s             # Capture VMAF score
-    \((?<percent>\d+)%\)             # Capture percentage
-  /x
-
-  @sample_regex ~r/
-    sample\s
-    (?<sample_num>\d+)\/             # Capture sample number
-    (?<total_samples>\d+)\s          # Capture total samples
-    crf\s
-    (?<crf>\d+(\.\d+)?)\s            # Capture CRF value
-    VMAF\s
-    (?<score>\d+\.\d+)\s             # Capture VMAF score
-    \((?<percent>\d+)%\)             # Capture percentage
-    (?:\s\(.*\))?
-  /x
-
-  @eta_vmaf_regex ~r/
-    # It would be helpful to have the input path here
-    crf\s
-    (?<crf>\d+(\.\d+)?)\s            # Capture CRF value
-    VMAF\s
-    (?<score>\d+\.\d+)\s             # Capture VMAF score
-    predicted\svideo\sstream\ssize\s
-    (?<size>\d+\.\d+)\s              # Capture size
-    (?<unit>\w+)\s                   # Capture unit
-    \((?<percent>\d+)%\)\s           # Capture percentage
-    taking\s
-    (?<time>\d+)\s                   # Capture time
-    (?<time_unit>second|minute|hour|day|week|month|year)s? # Capture time unit with optional plural
-    (?:\s\(.*\))?
-  /x
-
-  @vmaf_regex ~r/
-    # currently I parse a bunch of stuff out of the filenames here.
-    vmaf\s
-    (?<file1>.+?)\s                  # Capture first file name
-    vs\sreference\s
-    (?<file2>.+)                     # Capture second file name
-  /x
-
-  @progress_regex ~r/
-    \[
-    (?<timestamp>[^\]]+)
-    \]\s
-    .*?
-    (?<progress>\d+(\.\d+)?)%,\s
-    (?<fps>\d+(\.\d+)?)\sfps?,\s     # Updated to exclude "fps" from the capture group
-    eta\s
-    (?<eta>\d+\s(?:second|minute|hour|day|week|month|year)s?)
-  /x
-
-  @success_line_regex ~r/
-    # It would be helpful to have the path, target vmaf, percentage, vmaf score, time taken, and path in here.
-    \[.*\]\s
-    crf\s
-    (?<crf>\d+(\.\d+)?)\s            # Capture CRF value from this one to know which CRF was selected.
-    successful
-  /x
-
   # Public API
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
@@ -237,8 +161,17 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp handle_encoding_sample_line(line, video) do
+    encoding_sample_regex = ~r/
+      # I plan on making a chart for these. input file would be helpful, as well as target vmaf.
+      encoding\ssample\s
+      (?<sample_num>\d+)\/             # Capture sample number
+      (?<total_samples>\d+)\s          # Capture total samples
+      crf\s
+      (?<crf>\d+(\.\d+)?)              # Capture CRF value
+    /x
+
     with captures when not is_nil(captures) <-
-           Regex.named_captures(@encoding_sample_regex, line) do
+           Regex.named_captures(encoding_sample_regex, line) do
       Logger.debug(
         "CrfSearch: Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
       )
@@ -255,9 +188,33 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp handle_vmaf_line(line, video, args) do
+    simple_vmaf_regex = ~r/
+      \[
+      (?<timestamp>[^\]]+)
+      \]\s
+      .*?
+      crf\s
+      (?<crf>\d+(\.\d+)?)\s            # Capture CRF value
+      VMAF\s
+      (?<score>\d+\.\d+)\s             # Capture VMAF score
+      \((?<percent>\d+)%\)             # Capture percentage
+    /x
+
+    sample_regex = ~r/
+      sample\s
+      (?<sample_num>\d+)\/             # Capture sample number
+      (?<total_samples>\d+)\s          # Capture total samples
+      crf\s
+      (?<crf>\d+(\.\d+)?)\s            # Capture CRF value
+      VMAF\s
+      (?<score>\d+\.\d+)\s             # Capture VMAF score
+      \((?<percent>\d+)%\)             # Capture percentage
+      (?:\s\(.*\))?
+    /x
+
     with captures when not is_nil(captures) <-
-           Regex.named_captures(@simple_vmaf_regex, line) ||
-             Regex.named_captures(@sample_regex, line) do
+           Regex.named_captures(simple_vmaf_regex, line) ||
+             Regex.named_captures(sample_regex, line) do
       Logger.debug(
         "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
       )
@@ -270,7 +227,23 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp handle_eta_vmaf_line(line, video, args) do
-    with captures when not is_nil(captures) <- Regex.named_captures(@eta_vmaf_regex, line) do
+    eta_vmaf_regex = ~r/
+      # It would be helpful to have the input path here
+      crf\s
+      (?<crf>\d+(\.\d+)?)\s            # Capture CRF value
+      VMAF\s
+      (?<score>\d+\.\d+)\s             # Capture VMAF score
+      predicted\svideo\sstream\ssize\s
+      (?<size>\d+\.\d+)\s              # Capture size
+      (?<unit>\w+)\s                   # Capture unit
+      \((?<percent>\d+)%\)\s           # Capture percentage
+      taking\s
+      (?<time>\d+)\s                   # Capture time
+      (?<time_unit>second|minute|hour|day|week|month|year)s? # Capture time unit with optional plural
+      (?:\s\(.*\))?
+    /x
+
+    with captures when not is_nil(captures) <- Regex.named_captures(eta_vmaf_regex, line) do
       Logger.debug(
         "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}"
       )
@@ -283,7 +256,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp handle_vmaf_comparison_line(line) do
-    with captures when not is_nil(captures) <- Regex.named_captures(@vmaf_regex, line) do
+    vmaf_regex = ~r/
+      # currently I parse a bunch of stuff out of the filenames here.
+      vmaf\s
+      (?<file1>.+?)\s                  # Capture first file name
+      vs\sreference\s
+      (?<file2>.+)                     # Capture second file name
+    /x
+
+    with captures when not is_nil(captures) <- Regex.named_captures(vmaf_regex, line) do
       Logger.debug("VMAF comparison: #{captures["file1"]} vs #{captures["file2"]}")
       true
     else
@@ -292,7 +273,18 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp handle_progress_line(line, video) do
-    with captures when not is_nil(captures) <- Regex.named_captures(@progress_regex, line) do
+    progress_regex = ~r/
+      \[
+      (?<timestamp>[^\]]+)
+      \]\s
+      .*?
+      (?<progress>\d+(\.\d+)?)%,\s
+      (?<fps>\d+(\.\d+)?)\sfps?,\s     # Updated to exclude "fps" from the capture group
+      eta\s
+      (?<eta>\d+\s(?:second|minute|hour|day|week|month|year)s?)
+    /x
+
+    with captures when not is_nil(captures) <- Regex.named_captures(progress_regex, line) do
       Logger.debug(
         "CrfSearch Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
       )
@@ -314,7 +306,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp handle_success_line(line, video) do
-    with captures when not is_nil(captures) <- Regex.named_captures(@success_line_regex, line) do
+    success_line_regex = ~r/
+      # It would be helpful to have the path, target vmaf, percentage, vmaf score, time taken, and path in here.
+      \[.*\]\s
+      crf\s
+      (?<crf>\d+(\.\d+)?)\s            # Capture CRF value from this one to know which CRF was selected.
+      successful
+    /x
+
+    with captures when not is_nil(captures) <- Regex.named_captures(success_line_regex, line) do
       Logger.info("CrfSearch successful for CRF: #{captures["crf"]}")
       Media.mark_vmaf_as_chosen(video.id, captures["crf"])
       true
