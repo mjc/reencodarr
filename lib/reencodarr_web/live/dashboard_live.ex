@@ -9,15 +9,22 @@ defmodule ReencodarrWeb.DashboardLive do
   def mount(_params, _session, socket) do
     # Group PubSub topics and document their purpose
     # Subscribe to relevant topics
-    if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "cluster")
+    end
 
     # fetch current stats and build initial struct state
     fetched = Statistics.get_stats()
 
+    # Get cluster information if distributed mode is enabled
+    cluster_info = get_cluster_info()
+
     initial_state = %{
       fetched
       | crf_searching: Reencodarr.CrfSearcher.running?(),
-        encoding: Reencodarr.Encoder.running?()
+        encoding: Reencodarr.Encoder.running?(),
+        cluster_info: cluster_info
     }
 
     socket =
@@ -147,6 +154,18 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
+  def handle_info({:cluster_change, :node_added, _node, _capabilities}, socket) do
+    cluster_info = get_cluster_info()
+    {:noreply, update_state(socket, &%{&1 | cluster_info: cluster_info})}
+  end
+
+  @impl true
+  def handle_info({:cluster_change, :node_removed, _node, _capabilities}, socket) do
+    cluster_info = get_cluster_info()
+    {:noreply, update_state(socket, &%{&1 | cluster_info: cluster_info})}
+  end
+
+  @impl true
   def handle_event("set_timezone", %{"timezone" => tz}, socket) do
     Logger.debug("Setting timezone to #{tz}")
     {:noreply, assign(socket, :timezone, tz)}
@@ -195,6 +214,16 @@ defmodule ReencodarrWeb.DashboardLive do
       />
 
       <.render_manual_scan_form />
+
+      <!-- Cluster Status Section -->
+      <div class="w-full max-w-6xl mb-8">
+        <.live_component
+          module={ReencodarrWeb.ClusterStatusComponent}
+          id="cluster-status"
+          cluster_info={@state.cluster_info || nil}
+          has_web_server={true}
+        />
+      </div>
 
       <div class="w-full max-w-6xl grid grid-cols-1 md:grid-cols-3 gap-12">
         <.live_component
@@ -335,5 +364,30 @@ defmodule ReencodarrWeb.DashboardLive do
       </tbody>
     </table>
     """
+  end
+
+  defp get_cluster_info do
+    if Application.get_env(:reencodarr, :distributed_mode, false) do
+      try do
+        case GenServer.call(Reencodarr.Distributed.Coordinator, :get_cluster_status, 5000) do
+          %{nodes: nodes, node_capabilities: caps, rings_summary: rings} ->
+            %{
+              cluster_nodes: nodes,
+              local_node: Node.self(),
+              node_capabilities: caps,
+              local_capabilities: Application.get_env(:reencodarr, :node_capabilities, []),
+              ring_sizes: %{
+                crf_search: length(Map.get(rings, :crf_search, [])),
+                encode: length(Map.get(rings, :encode, []))
+              }
+            }
+          _ -> nil
+        end
+      catch
+        :exit, _ -> nil
+      end
+    else
+      nil
+    end
   end
 end

@@ -140,8 +140,9 @@ defmodule Reencodarr.Distributed.Coordinator do
   end
 
   @impl true
-  def handle_call({:find_node_for_job, job_id, capability}, _from, state) do
-    # ...existing handle_call code...
+  def handle_call({:find_node_for_job, _job_id, _capability}, _from, state) do
+    # For now, just return the current node
+    {:reply, Node.self(), state}
   end
 
   @impl true

@@ -146,10 +146,7 @@ defmodule Mix.Tasks.Reencodarr.Node do
     end
   end
 
-  defp get_hostname do
-    {:ok, hostname} = :inet.gethostname()
-    to_string(hostname)
-  end
+
 
   defp print_usage do
     Mix.shell().info("""

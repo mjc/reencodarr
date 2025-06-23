@@ -20,7 +20,8 @@ defmodule Reencodarr.Statistics do
             sync_progress: 0,
             stats_update_in_progress: false,
             videos_by_estimated_percent: [],
-            next_crf_search: []
+            next_crf_search: [],
+            cluster_info: nil
 
   use GenServer
   alias Reencodarr.Media
