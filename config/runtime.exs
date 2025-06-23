@@ -25,7 +25,7 @@ if Application.get_env(:reencodarr, :distributed_mode, false) do
     @moduledoc """
     Helper functions for configuring distributed nodes.
     """
-    
+
     @doc "Get the machine's fully qualified domain name"
     def get_fqdn do
       case :inet.gethostname() do
@@ -36,7 +36,7 @@ if Application.get_env(:reencodarr, :distributed_mode, false) do
           "localhost"
       end
     end
-    
+
     defp get_full_hostname(hostname, hostname_str) do
       case :inet.gethostbyname(hostname) do
         {:ok, {:hostent, full_hostname, _aliases, :inet, _length, _addresses}} ->
@@ -45,14 +45,14 @@ if Application.get_env(:reencodarr, :distributed_mode, false) do
           get_fqdn_from_system(hostname_str)
       end
     end
-    
+
     defp get_fqdn_from_system(fallback) do
       case System.cmd("hostname", ["-f"], stderr_to_stdout: true) do
         {fqdn_result, 0} -> String.trim(fqdn_result)
         _ -> fallback
       end
     end
-    
+
     @doc "Determine the appropriate node name based on configuration"
     def determine_node_name(fqdn) do
       node_type = if Application.get_env(:reencodarr, :start_web_server, true) do
@@ -60,23 +60,27 @@ if Application.get_env(:reencodarr, :distributed_mode, false) do
       else
         "worker"
       end
-      
+
       "reencodarr_#{node_type}@#{fqdn}"
     end
-    
+
     @doc "Start the distributed node if not already started"
     def start_distributed_node(node_name) do
       if Node.self() == :nonode@nohost do
         case Node.start(String.to_atom(node_name), :longnames) do
           {:ok, _} ->
+            # Set a consistent cookie for all nodes
+            Node.set_cookie(:reencodarr)
             IO.puts("Started distributed node: #{node_name}")
           {:error, reason} ->
-            IO.puts("Failed to start distributed node #{node_name}: #{reason}")
+            IO.puts("Failed to start distributed node #{node_name}: #{inspect(reason)}")
         end
+      else
+        IO.puts("Node already started: #{Node.self()}")
       end
     end
   end
-  
+
   # Configure the distributed node
   fqdn = NodeHelper.get_fqdn()
   node_name = NodeHelper.determine_node_name(fqdn)

@@ -26,10 +26,9 @@ defmodule Mix.Tasks.Reencodarr.Node do
 
   defp start_server(opts) do
     # Set server configuration
-    Application.put_env(:reencodarr, :distributed, true)
-    Application.put_env(:reencodarr, :worker_only, false)
-    Application.put_env(:reencodarr, :web, true)
-    Application.put_env(:reencodarr, :capabilities, [:crf_search, :encode])
+    Application.put_env(:reencodarr, :distributed_mode, true)
+    Application.put_env(:reencodarr, :start_web_server, true)
+    Application.put_env(:reencodarr, :node_capabilities, [:crf_search, :encode])
 
     # Configure node if name provided
     if node_name = opts[:name] do
@@ -42,10 +41,9 @@ defmodule Mix.Tasks.Reencodarr.Node do
 
   defp start_worker(opts) do
     # Set worker configuration
-    Application.put_env(:reencodarr, :distributed, true)
-    Application.put_env(:reencodarr, :worker_only, true)
-    Application.put_env(:reencodarr, :web, false)
-    Application.put_env(:reencodarr, :capabilities, parse_capabilities(opts[:capabilities]))
+    Application.put_env(:reencodarr, :distributed_mode, true)
+    Application.put_env(:reencodarr, :start_web_server, false)
+    Application.put_env(:reencodarr, :node_capabilities, parse_capabilities(opts[:capabilities]))
     Application.put_env(:phoenix, :serve_endpoints, false)
 
     # Configure node if name provided

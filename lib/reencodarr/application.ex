@@ -91,12 +91,12 @@ defmodule Reencodarr.Application do
   end
 
   # Configuration helpers
-  defp distributed?, do: Application.get_env(:reencodarr, :distributed, false)
-  defp server_mode?, do: not Application.get_env(:reencodarr, :worker_only, false)
-  defp web_enabled?, do: Application.get_env(:reencodarr, :web, true)
+  defp distributed?, do: Application.get_env(:reencodarr, :distributed_mode, false)
+  defp server_mode?, do: Application.get_env(:reencodarr, :start_web_server, true)
+  defp web_enabled?, do: Application.get_env(:reencodarr, :start_web_server, true)
 
   defp capability_workers do
-    Application.get_env(:reencodarr, :capabilities, [:crf_search, :encode])
+    Application.get_env(:reencodarr, :node_capabilities, [:crf_search, :encode])
     |> Enum.flat_map(fn
       :crf_search -> [Reencodarr.CrfSearcher]
       :encode -> [Reencodarr.Encoder]
