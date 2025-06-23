@@ -54,8 +54,7 @@
             ++ lib.optionals pkgs.stdenv.isDarwin (with pkgs.darwin.apple_sdk.frameworks; [CoreFoundation CoreServices]);
           shellHook = ''
             gh auth switch --user mjc
-            # this should be nproc / 2 but whatever
-            export MIX_OS_DEPS_COMPILE_PARTITION_COUNT=$(nproc)
+            export MIX_OS_DEPS_COMPILE_PARTITION_COUNT=$(( $(nproc) / 2 ))
             export ERL_AFLAGS="-kernel shell_history enabled"
             export DATABASE_URL="ecto://mjc@localhost:5432/reencodarr_dev"
             export SECRET_KEY_BASE="WEWsPGIpK/OgJA2ZcwzsgZxWKSAp35IsqWPYsvSUmm5awBUGpvsVOcG2kkDteXR1"
