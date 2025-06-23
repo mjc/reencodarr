@@ -12,6 +12,9 @@ defmodule ReencodarrWeb.DashboardLive do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, "cluster")
+
+      # Schedule periodic cluster info refresh as fallback
+      Process.send_after(self(), :refresh_cluster_info, 10_000)
     end
 
     # fetch current stats and build initial struct state
@@ -164,6 +167,7 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_info({:cluster_change, :node_added, node, capabilities}, socket) do
     Logger.info("Dashboard: Node #{node} added with capabilities #{inspect(capabilities)}")
     cluster_info = get_cluster_info()
+    Logger.debug("Dashboard: Updated cluster info after node addition: #{inspect(cluster_info)}")
     {:noreply, update_state(socket, &%{&1 | cluster_info: cluster_info})}
   end
 
@@ -171,6 +175,18 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_info({:cluster_change, :node_removed, node, _capabilities}, socket) do
     Logger.info("Dashboard: Node #{node} removed")
     cluster_info = get_cluster_info()
+    Logger.debug("Dashboard: Updated cluster info after node removal: #{inspect(cluster_info)}")
+    {:noreply, update_state(socket, &%{&1 | cluster_info: cluster_info})}
+  end
+
+  @impl true
+  def handle_info(:refresh_cluster_info, socket) do
+    cluster_info = get_cluster_info()
+    Logger.debug("Dashboard: Periodic cluster info refresh: #{inspect(cluster_info)}")
+
+    # Schedule next refresh
+    Process.send_after(self(), :refresh_cluster_info, 30_000)
+
     {:noreply, update_state(socket, &%{&1 | cluster_info: cluster_info})}
   end
 
@@ -387,13 +403,15 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   defp get_single_node_info do
+    local_node = Node.self()
     %{
-      local_node: Node.self(),
-      cluster_nodes: [Node.self()],
+      local_node: local_node,
+      cluster_nodes: [local_node],
+      all_connected_nodes: [local_node],
       ring_sizes: %{crf_search: 1, encode: 1, any: 1},
-      node_capabilities: %{Node.self() => [:crf_search, :encode]},
+      node_capabilities: %{local_node => [:crf_search, :encode]},
       local_capabilities: [:crf_search, :encode],
-      health_info: %{Node.self() => %{status: :healthy, response_time: 0}}
+      health_info: %{local_node => %{status: :healthy, response_time: 0}}
     }
   end
 end

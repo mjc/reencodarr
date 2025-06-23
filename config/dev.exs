@@ -85,6 +85,10 @@ config :phoenix_live_view,
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
 
+# Configure Swoosh Local adapter to avoid global name conflicts in distributed environments
+# Use node-specific naming for the storage process
+config :swoosh, Swoosh.Adapters.Local.Storage.Memory, []
+
 # LiveDebugger is started manually in WebSupervisor only when web server is running
 # No global configuration needed here
 
