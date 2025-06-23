@@ -5,22 +5,90 @@ import Config
 # system starts, so it is typically used to load production configuration
 # and secrets from environment variables or elsewhere. Do not define
 # any compile-time configuration in here, as it won't be applied.
-# The block below contains prod specific runtime configuration.
 
-# ## Using releases
-#
-# If you use `mix release`, you need to explicitly enable the server
-# by passing the PHX_SERVER=true when you start it:
-#
-#     PHX_SERVER=true bin/reencodarr start
-#
-# Alternatively, you can use `mix phx.gen.release` to generate a `bin/server`
-# script that automatically sets the env var above.
+# =============================================================================
+# GENERAL RUNTIME CONFIGURATION
+# =============================================================================
+
+# Enable Phoenix server if PHX_SERVER environment variable is set
 if System.get_env("PHX_SERVER") do
   config :reencodarr, ReencodarrWeb.Endpoint, server: true
 end
 
+# =============================================================================
+# DISTRIBUTED NODE CONFIGURATION
+# =============================================================================
+
+# Configure distributed node name when distributed mode is enabled
+if Application.get_env(:reencodarr, :distributed_mode, false) do
+  defmodule NodeHelper do
+    @moduledoc """
+    Helper functions for configuring distributed nodes.
+    """
+    
+    @doc "Get the machine's fully qualified domain name"
+    def get_fqdn do
+      case :inet.gethostname() do
+        {:ok, hostname} ->
+          hostname_str = to_string(hostname)
+          get_full_hostname(hostname, hostname_str)
+        _ ->
+          "localhost"
+      end
+    end
+    
+    defp get_full_hostname(hostname, hostname_str) do
+      case :inet.gethostbyname(hostname) do
+        {:ok, {:hostent, full_hostname, _aliases, :inet, _length, _addresses}} ->
+          to_string(full_hostname)
+        _ ->
+          get_fqdn_from_system(hostname_str)
+      end
+    end
+    
+    defp get_fqdn_from_system(fallback) do
+      case System.cmd("hostname", ["-f"], stderr_to_stdout: true) do
+        {fqdn_result, 0} -> String.trim(fqdn_result)
+        _ -> fallback
+      end
+    end
+    
+    @doc "Determine the appropriate node name based on configuration"
+    def determine_node_name(fqdn) do
+      node_type = if Application.get_env(:reencodarr, :start_web_server, true) do
+        "server"
+      else
+        "worker"
+      end
+      
+      "reencodarr_#{node_type}@#{fqdn}"
+    end
+    
+    @doc "Start the distributed node if not already started"
+    def start_distributed_node(node_name) do
+      if Node.self() == :nonode@nohost do
+        case Node.start(String.to_atom(node_name), :longnames) do
+          {:ok, _} ->
+            IO.puts("Started distributed node: #{node_name}")
+          {:error, reason} ->
+            IO.puts("Failed to start distributed node #{node_name}: #{reason}")
+        end
+      end
+    end
+  end
+  
+  # Configure the distributed node
+  fqdn = NodeHelper.get_fqdn()
+  node_name = NodeHelper.determine_node_name(fqdn)
+  NodeHelper.start_distributed_node(node_name)
+end
+
+# =============================================================================
+# PRODUCTION CONFIGURATION
+# =============================================================================
+
 if config_env() == :prod do
+  # Database configuration
   database_url =
     System.get_env("DATABASE_URL") ||
       raise """
@@ -36,11 +104,7 @@ if config_env() == :prod do
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "50"),
     socket_options: maybe_ipv6
 
-  # The secret key base is used to sign/encrypt cookies and other secrets.
-  # A default value is used in config/dev.exs and config/test.exs but you
-  # want to use a different value for prod and you most likely don't want
-  # to check this value into version control, so we use an environment
-  # variable instead.
+  # Security configuration
   secret_key_base =
     System.get_env("SECRET_KEY_BASE") ||
       raise """
@@ -48,11 +112,14 @@ if config_env() == :prod do
       You can generate one by calling: mix phx.gen.secret
       """
 
+  # Network configuration
   host = System.get_env("PHX_HOST") || "example.com"
   port = String.to_integer(System.get_env("PORT") || "4000")
 
+  # Cluster configuration
   config :reencodarr, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
+  # Endpoint configuration
   config :reencodarr, ReencodarrWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [
@@ -65,7 +132,9 @@ if config_env() == :prod do
     ],
     secret_key_base: secret_key_base
 
-  # ## SSL Support
+  # =============================================================================
+  # SSL CONFIGURATION (OPTIONAL)
+  # =============================================================================
   #
   # To get SSL working, you will need to add the `https` key
   # to your endpoint configuration:
@@ -97,7 +166,9 @@ if config_env() == :prod do
   #
   # Check `Plug.SSL` for all available options in `force_ssl`.
 
-  # ## Configuring the mailer
+  # =============================================================================
+  # MAILER CONFIGURATION (OPTIONAL)
+  # =============================================================================
   #
   # In production you need to configure the mailer to use a different adapter.
   # Also, you may need to configure the Swoosh API client of your choice if you

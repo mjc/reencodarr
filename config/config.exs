@@ -16,7 +16,7 @@ config :reencodarr, :temp_dir, Path.join(System.tmp_dir!(), "ab-av1")
 # Distributed computing configuration
 config :reencodarr,
   # Set to true to enable distributed mode
-  distributed_mode: false,
+  distributed_mode: true,
   # Node capabilities - what this node can do
   node_capabilities: [:crf_search, :encode],
   # Whether to start the web server (disable on worker-only nodes)
