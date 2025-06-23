@@ -15,19 +15,19 @@
         pkgs = import nixpkgs {inherit system;};
         lib = pkgs.lib;
         erlang = pkgs.erlang.override {
-          version = "27.3.4";
+          version = "27.3.4.1";
           src = pkgs.fetchurl {
             url = "https://github.com/erlang/otp/releases/download/OTP-${erlang.version}/otp_src_${erlang.version}.tar.gz";
-            sha256 = "sha256-w6CgtR3wj4d+7Yg3jz0tpwJqdbhVmAO9eAcbtHzUeDs=";
+            sha256 = "sha256-JnLwxSuf85aVucj5nNGEbtnkfiHNWwRczdCHGaMBllI=";
           };
         };
         beamPackages = pkgs.beam.packagesWith erlang;
         elixir = beamPackages.elixir.override {
           erlang = erlang;
-          version = "1.18.3";
+          version = "1.19.0-rc.0";
           src = pkgs.fetchurl {
             url = "https://github.com/elixir-lang/elixir/archive/refs/tags/v${elixir.version}.tar.gz";
-            sha256 = "sha256-+NQ3YxEFjdmnjtNl+h35/Rsi0kaMWH4/D0+zICg6Htc=";
+            sha256 = "sha256-YvkDCI578h4SmtEA5XP2XQNjixDGIHdwIEuOa50Uh5E=";
           };
         };
       in {
@@ -54,6 +54,8 @@
             ++ lib.optionals pkgs.stdenv.isDarwin (with pkgs.darwin.apple_sdk.frameworks; [CoreFoundation CoreServices]);
           shellHook = ''
             gh auth switch --user mjc
+            # this should be nproc / 2 but whatever
+            export MIX_OS_DEPS_COMPILE_PARTITION_COUNT=$(nproc)
             export ERL_AFLAGS="-kernel shell_history enabled"
             export DATABASE_URL="ecto://mjc@localhost:5432/reencodarr_dev"
             export SECRET_KEY_BASE="WEWsPGIpK/OgJA2ZcwzsgZxWKSAp35IsqWPYsvSUmm5awBUGpvsVOcG2kkDteXR1"
