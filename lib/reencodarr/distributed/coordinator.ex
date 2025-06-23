@@ -94,7 +94,27 @@ defmodule Reencodarr.Distributed.Coordinator do
   def handle_info({:nodeup, node}, state) do
     Logger.info("Node #{node} joined cluster")
 
-    # Node will register itself when ready
+    # Wait a moment, then check if node has registered
+    Process.send_after(self(), {:check_node_registration, node}, 2000)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:check_node_registration, node}, state) do
+    case Map.get(state.node_capabilities, node) do
+      nil ->
+        Logger.warning("Node #{node} has not registered capabilities yet, requesting registration")
+        # Try to trigger registration on the remote node
+        try do
+          :rpc.call(node, Reencodarr.Distributed.Coordinator, :register_node, [])
+        rescue
+          _ ->
+            Logger.warning("Could not trigger registration on #{node}")
+        end
+      _capabilities ->
+        Logger.debug("Node #{node} already registered")
+    end
     {:noreply, state}
   end
 
@@ -119,8 +139,10 @@ defmodule Reencodarr.Distributed.Coordinator do
       node_capabilities: new_node_capabilities
     }
 
-    # Broadcast cluster change
-    broadcast_cluster_change(:node_removed, node)
+    # Broadcast cluster change with retry
+    spawn(fn ->
+      broadcast_cluster_change_with_retry(:node_removed, node, [], 3)
+    end)
 
     {:noreply, new_state}
   end
@@ -206,6 +228,13 @@ defmodule Reencodarr.Distributed.Coordinator do
   defp register_node_internal(node, capabilities, state) do
     Logger.info("Registering node #{node} with capabilities: #{inspect(capabilities)}")
 
+    # Check if node is already registered with same capabilities
+    existing_capabilities = Map.get(state.node_capabilities, node)
+    if existing_capabilities == capabilities do
+      Logger.debug("Node #{node} already registered with same capabilities")
+      state
+    else
+
     # Add node to appropriate rings
     new_rings =
       capabilities
@@ -217,22 +246,47 @@ defmodule Reencodarr.Distributed.Coordinator do
     # Update node capabilities
     new_node_capabilities = Map.put(state.node_capabilities, node, capabilities)
 
-    # Broadcast cluster change
-    broadcast_cluster_change(:node_added, node, capabilities)
-
-    %{
+    new_state = %{
       state |
       rings: new_rings,
       node_capabilities: new_node_capabilities
     }
+
+    # Broadcast cluster change with retry mechanism
+    spawn(fn ->
+      broadcast_cluster_change_with_retry(:node_added, node, capabilities, 3)
+    end)
+
+    new_state
+    end
   end
 
-  defp broadcast_cluster_change(event, node, capabilities \\ []) do
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "cluster",
-      {:cluster_change, event, node, capabilities}
-    )
+  defp broadcast_cluster_change_with_retry(event, node, capabilities, retries) when retries > 0 do
+    try do
+      result = Phoenix.PubSub.broadcast(
+        Reencodarr.PubSub,
+        "cluster",
+        {:cluster_change, event, node, capabilities}
+      )
+
+      case result do
+        :ok ->
+          Logger.debug("Successfully broadcast cluster change: #{event} for #{node}")
+        {:error, reason} ->
+          Logger.warning("Failed to broadcast cluster change: #{inspect(reason)}, retrying...")
+          :timer.sleep(500)
+          broadcast_cluster_change_with_retry(event, node, capabilities, retries - 1)
+      end
+    rescue
+      error ->
+        Logger.warning("Error broadcasting cluster change: #{inspect(error)}, retrying...")
+        :timer.sleep(500)
+        broadcast_cluster_change_with_retry(event, node, capabilities, retries - 1)
+    end
+  end
+
+  defp broadcast_cluster_change_with_retry(event, node, _capabilities, 0) do
+    Logger.error("Failed to broadcast cluster change after all retries: #{event} for #{node}")
   end
 
   defp get_local_capabilities_internal do

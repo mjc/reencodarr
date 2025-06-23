@@ -39,6 +39,9 @@ defmodule Mix.Tasks.Reencodarr.Worker do
     # Connect to server node if specified
     if connect_to do
       connect_to_node(connect_to)
+      # Give a moment for the connection to stabilize, then register
+      :timer.sleep(1000)
+      register_with_coordinator()
     end
 
     # Keep the node alive
@@ -118,6 +121,20 @@ defmodule Mix.Tasks.Reencodarr.Worker do
       false ->
         Mix.shell().error("Failed to connect to #{server_node}")
         System.halt(1)
+    end
+  end
+
+  defp register_with_coordinator do
+    try do
+      case Reencodarr.Distributed.Coordinator.register_node() do
+        :ok ->
+          Mix.shell().info("Successfully registered with coordinator")
+        error ->
+          Mix.shell().error("Failed to register with coordinator: #{inspect(error)}")
+      end
+    rescue
+      error ->
+        Mix.shell().error("Error during registration: #{inspect(error)}")
     end
   end
 end

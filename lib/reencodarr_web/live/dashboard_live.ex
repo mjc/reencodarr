@@ -104,8 +104,12 @@ defmodule ReencodarrWeb.DashboardLive do
     if is_map(state) do
       Logger.debug("Received stats update")
       # Preserve the cluster_info from the current state when merging new stats
+      # unless the incoming state has newer cluster info
       current_cluster_info = socket.assigns.state.cluster_info
-      updated_state = %{state | cluster_info: current_cluster_info}
+      updated_state = case Map.get(state, :cluster_info) do
+        nil -> %{state | cluster_info: current_cluster_info}  # Stats doesn't have cluster info, preserve ours
+        new_cluster_info -> %{state | cluster_info: new_cluster_info}  # Stats has cluster info, use it
+      end
       {:noreply, assign(socket, :state, updated_state)}
     else
       Logger.error("Invalid stats update received: #{inspect(state)}")
@@ -157,13 +161,15 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_info({:cluster_change, :node_added, _node, _capabilities}, socket) do
+  def handle_info({:cluster_change, :node_added, node, capabilities}, socket) do
+    Logger.info("Dashboard: Node #{node} added with capabilities #{inspect(capabilities)}")
     cluster_info = get_cluster_info()
     {:noreply, update_state(socket, &%{&1 | cluster_info: cluster_info})}
   end
 
   @impl true
-  def handle_info({:cluster_change, :node_removed, _node, _capabilities}, socket) do
+  def handle_info({:cluster_change, :node_removed, node, _capabilities}, socket) do
+    Logger.info("Dashboard: Node #{node} removed")
     cluster_info = get_cluster_info()
     {:noreply, update_state(socket, &%{&1 | cluster_info: cluster_info})}
   end
