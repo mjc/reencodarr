@@ -7,6 +7,10 @@ defmodule Reencodarr.Distributed.JobDistributor do
   - Busy node filtering to prevent "already in progress" errors
   - Round-robin job assignment for even load distribution
   - Job queueing when nodes are temporarily busy
+
+  Jobs are only sent to nodes that have the required capability. Worker nodes
+  handle database operations via RPC if they don't have direct database access,
+  so no jobs are ever "punted back" to the server.
   """
 
   require Logger
@@ -62,21 +66,15 @@ defmodule Reencodarr.Distributed.JobDistributor do
   Checks if a node is currently busy with a job of the given type.
   """
   def is_node_busy?(node, job_type) do
+    config = job_config(job_type)
+
     if node == Node.self() do
       # For the local node, check directly
-      case job_type do
-        :crf_search -> AbAv1.CrfSearch.running?()
-        :encode -> AbAv1.Encode.running?()
-      end
+      config.runner_module.running?()
     else
       # For remote nodes, call the appropriate GenServer to check if they're busy
       try do
-        case job_type do
-          :crf_search ->
-            GenServer.call({Reencodarr.CrfSearcher, node}, :searching?, 1000)
-          :encode ->
-            GenServer.call({Reencodarr.Encoder, node}, :encoding?, 1000)
-        end
+        GenServer.call({config.genserver_module, node}, config.status_call, 1000)
       catch
         :exit, _reason ->
           # If we can't reach the node, assume it's not busy (it might be down)
@@ -94,79 +92,31 @@ defmodule Reencodarr.Distributed.JobDistributor do
     end)
   end
 
-  @doc """
-  Checks if a node can handle database operations either directly or via RPC.
-  """
-  def can_node_handle_database_operations?(node) do
-    if node == Node.self() do
-      # For the local node, check directly
-      can_access_database_locally?() || can_reach_server_nodes?()
-    else
-      # For remote nodes, check via RPC
-      try do
-        case :rpc.call(node, __MODULE__, :can_handle_database_operations_locally, [], 2000) do
-          true -> true
-          false -> false
-          {:badrpc, _} -> false
-        end
-      catch
-        :exit, _reason -> false
-      end
-    end
-  end
-
-  @doc """
-  Local check for database operations capability.
-  """
-  def can_handle_database_operations_locally do
-    can_access_database_locally?() || can_reach_server_nodes?()
-  end
-
   # Private Functions
 
-  defp can_access_database_locally? do
-    try do
-      Ecto.Adapters.SQL.query(Reencodarr.Repo, "SELECT 1", [])
-      true
-    rescue
-      _ -> false
-    end
+  # Job type configuration - defines the differences between job types
+  defp job_config(:crf_search) do
+    %{
+      runner_module: AbAv1.CrfSearch,
+      genserver_module: Reencodarr.CrfSearcher,
+      status_call: :searching?,
+      id_extractor: fn job -> job.id end
+    }
   end
 
-  defp can_reach_server_nodes? do
-    case get_server_nodes() do
-      [] -> false
-      [_server | _] -> true
-    end
-  end
-
-  defp get_server_nodes do
-    all_nodes = [Node.self() | Node.list()]
-
-    # Find nodes that have web server running (indicates server nodes with DB access)
-    all_nodes
-    |> Enum.filter(fn node ->
-      try do
-        case :rpc.call(node, Process, :whereis, [ReencodarrWeb.Endpoint], 2_000) do
-          pid when is_pid(pid) -> true
-          _ -> false
-        end
-      catch
-        _, _ -> false
-      end
-    end)
+  defp job_config(:encode) do
+    %{
+      runner_module: AbAv1.Encode,
+      genserver_module: Reencodarr.Encoder,
+      status_call: :encoding?,
+      id_extractor: fn job -> job.video.id end
+    }
   end
 
   defp get_available_nodes_for_capability(capability) do
+    # Get nodes that have the capability and filter out busy ones
     capable_nodes = Coordinator.get_nodes_for_capability(capability)
-
-    # Filter by capability and database handling ability
-    db_capable_nodes = Enum.filter(capable_nodes, fn node ->
-      can_node_handle_database_operations?(node)
-    end)
-
-    # Then filter by busy status
-    filter_available_nodes(db_capable_nodes, capability)
+    filter_available_nodes(capable_nodes, capability)
   end
 
   defp calculate_batch_size_for_nodes(available_nodes) do
@@ -186,14 +136,10 @@ defmodule Reencodarr.Distributed.JobDistributor do
 
     if has_capability and jobs != [] do
       [job | _] = jobs
+      config = job_config(capability)
+      video_id = config.id_extractor.(job)
 
-      case capability do
-        :crf_search ->
-          Logger.debug("Next video for CRF search: #{job.id}")
-        :encode ->
-          Logger.debug("Next video to re-encode: #{job.video.path}")
-      end
-
+      Logger.debug("Next video for #{capability}: #{video_id}")
       job_processor.(job)
     else
       if not has_capability do
@@ -205,6 +151,7 @@ defmodule Reencodarr.Distributed.JobDistributor do
   defp distribute_jobs_to_nodes(jobs, available_nodes, job_type, job_processor, job_delegator) do
     job_count = length(jobs)
     node_count = length(available_nodes)
+    config = job_config(job_type)
 
     Logger.info("Distributing #{job_count} #{job_type} jobs across #{node_count} available nodes")
 
@@ -214,11 +161,7 @@ defmodule Reencodarr.Distributed.JobDistributor do
     |> Enum.each(fn {job, index} ->
       # Round-robin assignment: use modulo to cycle through nodes
       target_node = Enum.at(available_nodes, rem(index, node_count))
-
-      video_id = case job_type do
-        :encode -> job.video.id
-        :crf_search -> job.id
-      end
+      video_id = config.id_extractor.(job)
 
       if target_node == Node.self() do
         Logger.info("Processing #{job_type} locally for video: #{video_id}")

@@ -1,5 +1,13 @@
 defmodule Reencodarr.Encoder do
   use GenServer
+  use Reencodarr.Distributed.JobWorker,
+    capability: :encode,
+    job_processor: &Reencodarr.AbAv1.encode/1,
+    runner_module: Reencodarr.AbAv1.Encode,
+    pubsub_topic: "encoder",
+    running_state_key: :encoding,
+    delegate_message: :delegate_encoding
+
   require Logger
 
   alias Reencodarr.{Media, AbAv1, Repo}
@@ -101,46 +109,8 @@ defmodule Reencodarr.Encoder do
     {:noreply, state}
   end
 
-  @impl true
-  def handle_cast({:delegate_encoding, vmaf}, state) do
-    Logger.info("Received delegated encoding for video: #{vmaf.video.id}")
-
-    # Check if we have the capability to process this job
-    local_capabilities = Coordinator.get_local_capabilities()
-    has_capability = :encode in local_capabilities
-
-    if not has_capability do
-      Logger.warning("Cannot process delegated encoding for video #{vmaf.video.id} - node does not have :encode capability")
-      {:noreply, state}
-    else
-      # Process the job locally - AbAv1.Encode will handle database operations via RPC if needed
-      encode_running = AbAv1.Encode.running?()
-      Logger.debug("Encoder state - encoding: #{state.encoding}, AbAv1.Encode.running?: #{encode_running}")
-
-      cond do
-        not state.encoding ->
-          Logger.info("Auto-starting Encoder to process delegated job for video #{vmaf.video.id}")
-          # Auto-start encoding and process the job
-          Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :started})
-          schedule_check()
-          if not encode_running do
-            Logger.info("Processing delegated encoding for video: #{vmaf.video.id}")
-            AbAv1.encode(vmaf)
-          end
-          {:noreply, %{state | encoding: true}}
-
-        encode_running ->
-          Logger.info("Encoding already running, queueing delegated job for video #{vmaf.video.id}")
-          updated_queue = state.job_queue ++ [vmaf]
-          {:noreply, %{state | job_queue: updated_queue}}
-
-        true ->
-          Logger.info("Processing delegated encoding for video: #{vmaf.video.id}")
-          AbAv1.encode(vmaf)
-          {:noreply, state}
-      end
-    end
-  end
+  # Implement the required callback for JobWorker
+  defp extract_video_id(vmaf), do: vmaf.video.id
 
   @impl true
   def handle_info(:check_next_video, %{encoding: true} = state) do
