@@ -72,7 +72,7 @@ defmodule Reencodarr.Statistics do
     if state.stats_update_in_progress do
       {:noreply, state}
     else
-      new_state = %Reencodarr.Statistics{state | stats_update_in_progress: true}
+      new_state = %{state | stats_update_in_progress: true}
 
       start_task(fn ->
         stats = Media.fetch_stats()
@@ -95,17 +95,17 @@ defmodule Reencodarr.Statistics do
   end
 
   def handle_info({:sync, :started}, %Reencodarr.Statistics{} = state) do
-    new_state = %Reencodarr.Statistics{state | syncing: true, sync_progress: 0}
+    new_state = %{state | syncing: true, sync_progress: 0}
     broadcast_state(new_state)
   end
 
   def handle_info({:sync, :progress, progress}, %Reencodarr.Statistics{} = state) do
-    new_state = %Reencodarr.Statistics{state | sync_progress: progress}
+    new_state = %{state | sync_progress: progress}
     broadcast_state(new_state)
   end
 
   def handle_info({:sync, :complete}, %Reencodarr.Statistics{} = state) do
-    new_state = %Reencodarr.Statistics{state | syncing: false, sync_progress: 0}
+    new_state = %{state | syncing: false, sync_progress: 0}
     broadcast_state(new_state)
   end
 
@@ -128,12 +128,12 @@ defmodule Reencodarr.Statistics do
   end
 
   def handle_info({:crf_searcher, :started}, %Reencodarr.Statistics{} = state) do
-    new_state = %Reencodarr.Statistics{state | crf_searching: true}
+    new_state = %{state | crf_searching: true}
     broadcast_state(new_state)
   end
 
   def handle_info({:crf_searcher, :paused}, %Reencodarr.Statistics{} = state) do
-    new_state = %Reencodarr.Statistics{state | crf_searching: false}
+    new_state = %{state | crf_searching: false}
     broadcast_state(new_state)
   end
 
@@ -141,12 +141,12 @@ defmodule Reencodarr.Statistics do
     updated_crf_progress =
       determine_progress(state.crf_search_progress, progress_update)
 
-    new_state = %Reencodarr.Statistics{state | crf_search_progress: updated_crf_progress}
+    new_state = %{state | crf_search_progress: updated_crf_progress}
     broadcast_state(new_state)
   end
 
   def handle_info({:encoder, :started, filename}, %Reencodarr.Statistics{} = state) do
-    new_state = %Reencodarr.Statistics{
+    new_state = %{
       state
       | encoding: true,
         encoding_progress: %EncodingProgress{filename: filename, percent: 0, eta: 0, fps: 0}
@@ -162,12 +162,12 @@ defmodule Reencodarr.Statistics do
     updated_encoding_progress =
       determine_progress(state.encoding_progress, progress)
 
-    new_state = %Reencodarr.Statistics{state | encoding_progress: updated_encoding_progress}
+    new_state = %{state | encoding_progress: updated_encoding_progress}
     broadcast_state(new_state)
   end
 
   def handle_info({:encoder, :complete, _filename}, %Reencodarr.Statistics{} = state) do
-    new_state = %Reencodarr.Statistics{
+    new_state = %{
       state
       | encoding: false,
         encoding_progress: %EncodingProgress{}
@@ -177,12 +177,12 @@ defmodule Reencodarr.Statistics do
   end
 
   def handle_info({:encoder, :paused}, %Reencodarr.Statistics{} = state) do
-    new_state = %Reencodarr.Statistics{state | encoding: false}
+    new_state = %{state | encoding: false}
     broadcast_state(new_state)
   end
 
   def handle_info({:encoder, :none}, %Reencodarr.Statistics{} = state) do
-    new_state = %Reencodarr.Statistics{
+    new_state = %{
       state
       | encoding_progress: %EncodingProgress{
           filename: :none,
@@ -196,13 +196,13 @@ defmodule Reencodarr.Statistics do
   end
 
   def handle_info({:DOWN, _ref, :process, _pid, _reason}, %Reencodarr.Statistics{} = state) do
-    new_state = %Reencodarr.Statistics{state | stats_update_in_progress: false}
+    new_state = %{state | stats_update_in_progress: false}
     broadcast_state(new_state)
   end
 
   @impl true
   def handle_cast({:update_stats, stats}, %Reencodarr.Statistics{} = state) do
-    new_state = %Reencodarr.Statistics{
+    new_state = %{
       state
       | stats: stats,
         next_crf_search: stats.next_crf_search,
@@ -213,7 +213,7 @@ defmodule Reencodarr.Statistics do
   end
 
   def handle_cast(:stats_update_complete, %Reencodarr.Statistics{} = state) do
-    new_state = %Reencodarr.Statistics{state | stats_update_in_progress: false}
+    new_state = %{state | stats_update_in_progress: false}
     {:noreply, new_state}
   end
 

@@ -14,7 +14,7 @@ defmodule ReencodarrWeb.DashboardLive do
     # fetch current stats and build initial struct state
     fetched = Statistics.get_stats()
 
-    initial_state = %Statistics{
+    initial_state = %{
       fetched
       | crf_searching: Reencodarr.CrfSearcher.running?(),
         encoding: Reencodarr.Encoder.running?()
@@ -42,7 +42,7 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply,
      update_state(
        socket,
-       &%Statistics{
+       &%{
          &1
          | encoding: true,
            encoding_progress: %Statistics.EncodingProgress{
@@ -58,35 +58,35 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_info({:encoder, status}, socket) when status in [:started, :paused] do
     Logger.debug("Encoder #{status}")
 
-    {:noreply, update_state(socket, &%Statistics{&1 | encoding: status == :started})}
+    {:noreply, update_state(socket, &%{&1 | encoding: status == :started})}
   end
 
   @impl true
   def handle_info({:crf_searcher, status}, socket) when status in [:started, :paused] do
     Logger.debug("CRF search #{status}")
 
-    {:noreply, update_state(socket, &%Statistics{&1 | crf_searching: status == :started})}
+    {:noreply, update_state(socket, &%{&1 | crf_searching: status == :started})}
   end
 
   @impl true
   def handle_info({:sync, :started}, socket) do
     Logger.info("Sync started")
 
-    {:noreply, update_state(socket, &%Statistics{&1 | syncing: true, sync_progress: 0})}
+    {:noreply, update_state(socket, &%{&1 | syncing: true, sync_progress: 0})}
   end
 
   @impl true
   def handle_info({:sync, :progress, progress}, socket) do
     Logger.debug("Sync progress: #{inspect(progress)}")
 
-    {:noreply, update_state(socket, &%Statistics{&1 | sync_progress: progress})}
+    {:noreply, update_state(socket, &%{&1 | sync_progress: progress})}
   end
 
   @impl true
   def handle_info({:sync, :complete}, socket) do
     Logger.info("Sync complete")
 
-    {:noreply, update_state(socket, &%Statistics{&1 | syncing: false, sync_progress: 0})}
+    {:noreply, update_state(socket, &%{&1 | syncing: false, sync_progress: 0})}
   end
 
   # Add documentation for PubSub topics
@@ -109,7 +109,7 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply,
      update_state(
        socket,
-       &%Statistics{
+       &%{
          &1
          | encoding_progress: %Statistics.EncodingProgress{
              filename: :none,
@@ -129,21 +129,21 @@ defmodule ReencodarrWeb.DashboardLive do
       "Encoding progress: #{progress.percent}% ETA: #{progress.eta} FPS: #{progress.fps}"
     )
 
-    {:noreply, update_state(socket, &%Statistics{&1 | encoding_progress: progress})}
+    {:noreply, update_state(socket, &%{&1 | encoding_progress: progress})}
   end
 
   @impl true
   def handle_info({:crf_search, :none}, socket) do
     # Clear CRF search progress when CRF search completes
     {:noreply,
-     update_state(socket, &%Statistics{&1 | crf_search_progress: %Statistics.CrfSearchProgress{}})}
+     update_state(socket, &%{&1 | crf_search_progress: %Statistics.CrfSearchProgress{}})}
   end
 
   @impl true
   def handle_info({:crf_search, progress}, socket) do
     Logger.debug("Received CRF search progress: #{inspect(progress)}")
 
-    {:noreply, update_state(socket, &%Statistics{&1 | crf_search_progress: progress})}
+    {:noreply, update_state(socket, &%{&1 | crf_search_progress: progress})}
   end
 
   @impl true
