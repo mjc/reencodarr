@@ -2,10 +2,10 @@ defmodule Reencodarr.CrfSearcher do
   use GenServer
 
   alias Reencodarr.{Media, AbAv1}
-  alias Reencodarr.Distributed.Coordinator
+  alias Reencodarr.Distributed.{Coordinator, JobDistributor}
   require Logger
 
-  @check_interval 5000
+  @check_interval 3000
 
   # Public API
   @spec start_link(any()) :: GenServer.on_start()
@@ -33,7 +33,7 @@ defmodule Reencodarr.CrfSearcher do
   def init(:ok) do
     Logger.info("Initializing CrfSearcher...")
     monitor_crf_search()
-    {:ok, %{searching: false}}
+    {:ok, %{searching: false, job_queue: []}}
   end
 
   @impl true
@@ -93,8 +93,9 @@ defmodule Reencodarr.CrfSearcher do
             {:noreply, %{state | searching: true}}
 
           crf_search_running ->
-            Logger.warning("Cannot process delegated CRF search for video #{video.id} - AbAv1.CrfSearch already running")
-            {:noreply, state}
+            Logger.info("CRF search already running, queueing delegated job for video #{video.id}")
+            updated_queue = state.job_queue ++ [video]
+            {:noreply, %{state | job_queue: updated_queue}}
 
           true ->
             Logger.info("Processing delegated CRF search for video: #{video.id}")
@@ -117,8 +118,12 @@ defmodule Reencodarr.CrfSearcher do
   @impl true
   def handle_info(:check_next_crf_search, %{searching: true} = state) do
     get_next_crf_search()
+
+    # Process any queued jobs
+    updated_state = process_job_queue(state)
+
     schedule_check()
-    {:noreply, state}
+    {:noreply, updated_state}
   end
 
   def handle_info(:check_next_crf_search, state) do
@@ -157,17 +162,17 @@ defmodule Reencodarr.CrfSearcher do
   defp get_next_crf_search do
     with {:started, pid} when not is_nil(pid) <-
            {:started, GenServer.whereis(Reencodarr.AbAv1.CrfSearch)},
-         {:running, false} <- {:running, AbAv1.CrfSearch.running?()},
-         [video | _] <- Media.get_next_crf_search(1) do
+         {:running, false} <- {:running, AbAv1.CrfSearch.running?()} do
 
-      # Check if we should handle this job or delegate to another node
-      case should_handle_job_locally?(video) do
-        true ->
-          Logger.info("Calling AbAv1.crf_search for video: #{video.id}")
-          AbAv1.crf_search(video)
+      # Calculate optimal batch size based on available nodes
+      batch_size = JobDistributor.calculate_optimal_batch_size(:crf_search)
 
-        false ->
-          delegate_crf_search(video)
+      case Media.get_next_crf_search(batch_size) do
+        videos when videos != [] ->
+          # Distribute jobs across available capable nodes
+          distribute_crf_search_jobs(videos)
+        [] ->
+          Logger.debug("No videos found without VMAFs")
       end
     else
       {:started, nil} ->
@@ -175,60 +180,33 @@ defmodule Reencodarr.CrfSearcher do
 
       {:running, true} ->
         Logger.debug("CRF search is already in progress, skipping search for new videos.")
-
-      [] ->
-        Logger.debug("No videos found without VMAFs")
     end
   end
 
-  # Determine if this node should handle the job based on consistent hashing and capability
-  defp should_handle_job_locally?(video) do
-    if Coordinator.distributed_mode?() do
-      # First check if any nodes have the required capability
-      case Coordinator.get_nodes_for_capability(:crf_search) do
-        [] ->
-          Logger.warning("No nodes available with :crf_search capability, skipping job")
-          false
-        capable_nodes ->
-          # Use consistent hashing among capable nodes to determine target
-          target_node = find_capable_node_for_job(video.id, capable_nodes)
-          target_node == Node.self()
-      end
+  # Distribute multiple CRF search jobs across capable nodes
+  defp distribute_crf_search_jobs(videos) do
+    job_processor = &AbAv1.crf_search/1
+    job_delegator = fn video, target_node ->
+      GenServer.cast({__MODULE__, target_node}, {:delegate_crf_search, video})
+    end
+
+    JobDistributor.distribute_jobs(videos, :crf_search, job_processor, job_delegator)
+  end
+
+  # Process any queued jobs when the system becomes available
+  defp process_job_queue(%{job_queue: []} = state), do: state
+
+  defp process_job_queue(%{job_queue: [video | remaining_jobs]} = state) do
+    crf_search_running = AbAv1.CrfSearch.running?()
+
+    if not crf_search_running and state.searching do
+      Logger.info("Processing queued CRF search for video: #{video.id}")
+      AbAv1.crf_search(video)
+      %{state | job_queue: remaining_jobs}
     else
-      # In non-distributed mode, only handle if we have the capability
-      local_capabilities = Coordinator.get_local_capabilities()
-      has_capability = :crf_search in local_capabilities
-      if not has_capability do
-        Logger.warning("Local node does not have :crf_search capability, skipping job")
-      end
-      has_capability
+      # Still busy or not searching, keep the queue as is
+      state
     end
-  end
-
-  # Delegate CRF search to the appropriate node
-  defp delegate_crf_search(video) do
-    case Coordinator.get_nodes_for_capability(:crf_search) do
-      [] ->
-        Logger.warning("No nodes available with :crf_search capability")
-
-      capable_nodes ->
-        target_node = find_capable_node_for_job(video.id, capable_nodes)
-        Logger.info("Delegating CRF search for video #{video.id} to node #{target_node}")
-
-        try do
-          GenServer.cast({__MODULE__, target_node}, {:delegate_crf_search, video})
-        catch
-          :exit, reason ->
-            Logger.warning("Failed to delegate to #{target_node}: #{inspect(reason)}, skipping job")
-        end
-    end
-  end
-
-  # Simple consistent hashing among capable nodes
-  defp find_capable_node_for_job(job_id, capable_nodes) when is_list(capable_nodes) and length(capable_nodes) > 0 do
-    # Use simple modulo-based consistent hashing
-    index = rem(:erlang.phash2(job_id), length(capable_nodes))
-    Enum.at(capable_nodes, index)
   end
 
 end

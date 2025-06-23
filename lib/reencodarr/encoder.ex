@@ -3,9 +3,9 @@ defmodule Reencodarr.Encoder do
   require Logger
 
   alias Reencodarr.{Media, AbAv1, Repo}
-  alias Reencodarr.Distributed.Coordinator
+  alias Reencodarr.Distributed.{Coordinator, JobDistributor}
 
-  @check_interval 5000
+  @check_interval 3000
 
   # Public API
   @spec start_link(any()) :: :ignore | {:error, any()} | {:ok, pid()}
@@ -32,7 +32,7 @@ defmodule Reencodarr.Encoder do
   def init(state) do
     Logger.info("Initializing Encoder...")
     monitor_encode()
-    {:ok, Map.put(state, :encoding, false)}
+    {:ok, Map.merge(state, %{encoding: false, job_queue: []})}
   end
 
   @impl true
@@ -137,8 +137,9 @@ defmodule Reencodarr.Encoder do
             {:noreply, %{state | encoding: true}}
 
           encode_running ->
-            Logger.warning("Cannot process delegated encoding for video #{vmaf.video.id} - AbAv1.Encode already running")
-            {:noreply, state}
+            Logger.info("Encoding already running, queueing delegated job for video #{vmaf.video.id}")
+            updated_queue = state.job_queue ++ [vmaf]
+            {:noreply, %{state | job_queue: updated_queue}}
 
           true ->
             Logger.info("Processing delegated encoding for video: #{vmaf.video.id}")
@@ -151,8 +152,12 @@ defmodule Reencodarr.Encoder do
   @impl true
   def handle_info(:check_next_video, %{encoding: true} = state) do
     check_next_video()
+
+    # Process any queued jobs
+    updated_state = process_job_queue(state)
+
     schedule_check()
-    {:noreply, state}
+    {:noreply, updated_state}
   end
 
   def handle_info(:check_next_video, state) do
@@ -326,20 +331,17 @@ defmodule Reencodarr.Encoder do
 
   defp check_next_video do
     with pid when not is_nil(pid) <- GenServer.whereis(Reencodarr.AbAv1.Encode),
-         false <- AbAv1.Encode.running?(),
-         chosen_vmaf when not is_nil(chosen_vmaf) <- Media.get_next_for_encoding() do
+         false <- AbAv1.Encode.running?() do
 
-      video = chosen_vmaf.video
+      # Calculate optimal batch size based on available nodes
+      batch_size = JobDistributor.calculate_optimal_batch_size(:encode)
 
-      # Check if we should handle this job or delegate to another node
-      case should_handle_job_locally?(video) do
-        true ->
-          Logger.debug("Next video to re-encode: #{video.path}")
-          # Use Media context for execution (handles RPC if needed)
-          Media.execute_encoding(chosen_vmaf)
-
-        false ->
-          delegate_encoding(chosen_vmaf)
+      case Media.get_next_for_encoding(batch_size) do
+        chosen_vmafs when chosen_vmafs != [] ->
+          # Distribute encoding jobs across available capable nodes
+          distribute_encoding_jobs(chosen_vmafs)
+        [] ->
+          Logger.debug("No chosen VMAFs found for encoding")
       end
     else
       nil ->
@@ -347,62 +349,17 @@ defmodule Reencodarr.Encoder do
 
       true ->
         Logger.debug("Encoding is already in progress, skipping check for next video.")
-
-      other ->
-        Logger.error("No chosen VMAF found for video or some other error: #{inspect(other)}")
     end
   end
 
-  # Determine if this node should handle the job based on consistent hashing and capability
-  defp should_handle_job_locally?(video) do
-    if Coordinator.distributed_mode?() do
-      # First check if any nodes have the required capability
-      case Coordinator.get_nodes_for_capability(:encode) do
-        [] ->
-          Logger.warning("No nodes available with :encode capability, skipping job")
-          false
-        capable_nodes ->
-          # Use consistent hashing among capable nodes to determine target
-          target_node = find_capable_node_for_job(video.id, capable_nodes)
-          target_node == Node.self()
-      end
-    else
-      # In non-distributed mode, only handle if we have the capability
-      local_capabilities = Coordinator.get_local_capabilities()
-      has_capability = :encode in local_capabilities
-      if not has_capability do
-        Logger.warning("Local node does not have :encode capability, skipping job")
-      end
-      has_capability
+  # Distribute multiple encoding jobs across capable nodes
+  defp distribute_encoding_jobs(vmafs) do
+    job_processor = &Media.execute_encoding/1
+    job_delegator = fn vmaf, target_node ->
+      GenServer.cast({__MODULE__, target_node}, {:delegate_encoding, vmaf})
     end
-  end
 
-  # Delegate encoding to the appropriate node
-  defp delegate_encoding(vmaf) do
-    video = vmaf.video
-
-    case Coordinator.get_nodes_for_capability(:encode) do
-      [] ->
-        Logger.warning("No nodes available with :encode capability")
-
-      capable_nodes ->
-        target_node = find_capable_node_for_job(video.id, capable_nodes)
-        Logger.info("Delegating encoding for video #{video.id} to node #{target_node}")
-
-        try do
-          GenServer.cast({__MODULE__, target_node}, {:delegate_encoding, vmaf})
-        catch
-          :exit, reason ->
-            Logger.warning("Failed to delegate to #{target_node}: #{inspect(reason)}, skipping job")
-        end
-    end
-  end
-
-  # Simple consistent hashing among capable nodes
-  defp find_capable_node_for_job(job_id, capable_nodes) when is_list(capable_nodes) and length(capable_nodes) > 0 do
-    # Use simple modulo-based consistent hashing
-    index = rem(:erlang.phash2(job_id), length(capable_nodes))
-    Enum.at(capable_nodes, index)
+    JobDistributor.distribute_jobs(vmafs, :encode, job_processor, job_delegator)
   end
 
   defp schedule_check do
@@ -417,6 +374,22 @@ defmodule Reencodarr.Encoder do
 
       pid ->
         Process.monitor(pid)
+    end
+  end
+
+  # Process any queued jobs when the system becomes available
+  defp process_job_queue(%{job_queue: []} = state), do: state
+
+  defp process_job_queue(%{job_queue: [vmaf | remaining_jobs]} = state) do
+    encode_running = AbAv1.Encode.running?()
+
+    if not encode_running and state.encoding do
+      Logger.info("Processing queued encoding for video: #{vmaf.video.id}")
+      Media.execute_encoding(vmaf)
+      %{state | job_queue: remaining_jobs}
+    else
+      # Still busy or not encoding, keep the queue as is
+      state
     end
   end
 end
