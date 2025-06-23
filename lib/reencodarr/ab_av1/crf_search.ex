@@ -169,10 +169,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     case status do
       :progress ->
         Logger.debug("Received vmaf search progress")
-        Media.upsert_vmaf(data)
+        Media.save_vmaf_data(data)
 
       :finished ->
-        Media.upsert_vmaf(data)
+        Media.save_vmaf_data(data)
 
       :failed ->
         Logger.error("Scanning failed: #{data}")
@@ -382,14 +382,16 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         "target" => 95
       })
 
-    case Media.upsert_vmaf(vmaf_data) do
+    # Use RPC to save to database if we're on a worker node without direct DB access
+    case Media.save_vmaf_data(vmaf_data) do
       {:ok, created_vmaf} ->
         Logger.debug("Upserted VMAF: #{inspect(created_vmaf)}")
         broadcast_crf_search_progress(video.path, created_vmaf)
         created_vmaf
 
-      {:error, changeset} ->
-        Logger.error("Failed to upsert VMAF: #{inspect(changeset)}")
+      {:error, reason} ->
+        Logger.error("Failed to upsert VMAF: #{inspect(reason)}")
+        nil
     end
   end
 

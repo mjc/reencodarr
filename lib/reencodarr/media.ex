@@ -314,6 +314,199 @@ defmodule Reencodarr.Media do
       )
 
   def get_video(id) do
+    if can_access_database?() do
+      Repo.get(Video, id)
+    else
+      # Use RPC to get video from server node
+      case get_server_nodes() do
+        [] ->
+          Logger.error("No server nodes available for RPC video fetch")
+          nil
+        [server_node | _] ->
+          try do
+            case :rpc.call(server_node, __MODULE__, :get_video_direct, [id], 5_000) do
+              video when not is_nil(video) -> video
+              nil -> nil
+              {:badrpc, reason} ->
+                Logger.error("RPC failed when fetching video #{id}: #{inspect(reason)}")
+                nil
+            end
+          catch
+            :exit, reason ->
+              Logger.error("RPC exit when fetching video #{id}: #{inspect(reason)}")
+              nil
+          end
+      end
+    end
+  end
+
+  @doc """
+  Direct database access for video (used by RPC)
+  """
+  def get_video_direct(id) do
     Repo.get(Video, id)
   end
+
+  # --- Distributed Database Access Functions ---
+
+  @doc """
+  Check if this node can access the database directly
+  """
+  def can_access_database? do
+    try do
+      Ecto.Adapters.SQL.query(Repo, "SELECT 1", [])
+      true
+    rescue
+      _ -> false
+    end
+  end
+
+  @doc """
+  Execute CRF search on a server node via RPC if this node cannot access the database
+  """
+  def execute_crf_search(video) do
+    if can_access_database?() do
+      # Local execution
+      Reencodarr.AbAv1.crf_search(video)
+      :ok
+    else
+      # Delegate to server node via RPC
+      delegate_crf_search_to_server(video)
+    end
+  end
+
+  @doc """
+  Execute encoding on a server node via RPC if this node cannot access the database
+  """
+  def execute_encoding(vmaf) do
+    if can_access_database?() do
+      # Local execution
+      Reencodarr.AbAv1.encode(vmaf)
+      :ok
+    else
+      # Delegate to server node via RPC
+      delegate_encoding_to_server(vmaf)
+    end
+  end
+
+  @doc """
+  Save VMAF data either locally or via RPC to a server node
+  """
+  def save_vmaf_data(vmaf_data) do
+    if can_access_database?() do
+      # Save locally
+      upsert_vmaf(vmaf_data)
+    else
+      # Save via RPC to server
+      rpc_save_vmaf(vmaf_data)
+    end
+  end
+
+  # Private helper functions for RPC operations
+
+  defp delegate_crf_search_to_server(video) do
+    case get_server_nodes() do
+      [] ->
+        Logger.error("No server nodes available to delegate CRF search for video #{video.id}")
+        {:error, :no_server_nodes}
+
+      [server_node | _] ->
+        Logger.info("Delegating CRF search execution to server node #{server_node} for video #{video.id}")
+
+        try do
+          case :rpc.call(server_node, Reencodarr.AbAv1, :crf_search, [video], 30_000) do
+            :ok ->
+              Logger.info("Successfully delegated CRF search for video #{video.id} to server #{server_node}")
+              :ok
+            {:error, reason} ->
+              Logger.error("Failed to delegate CRF search for video #{video.id} to server #{server_node}: #{inspect(reason)}")
+              {:error, reason}
+            {:badrpc, reason} ->
+              Logger.error("RPC failed when delegating CRF search for video #{video.id}: #{inspect(reason)}")
+              {:error, {:rpc_failed, reason}}
+          end
+        catch
+          :exit, reason ->
+            Logger.error("RPC exit when delegating CRF search for video #{video.id}: #{inspect(reason)}")
+            {:error, {:rpc_exit, reason}}
+        end
+    end
+  end
+
+  defp delegate_encoding_to_server(vmaf) do
+    case get_server_nodes() do
+      [] ->
+        Logger.error("No server nodes available to delegate encoding for video #{vmaf.video.id}")
+        {:error, :no_server_nodes}
+
+      [server_node | _] ->
+        Logger.info("Delegating encoding execution to server node #{server_node} for video #{vmaf.video.id}")
+
+        try do
+          case :rpc.call(server_node, Reencodarr.AbAv1, :encode, [vmaf], 30_000) do
+            :ok ->
+              Logger.info("Successfully delegated encoding for video #{vmaf.video.id} to server #{server_node}")
+              :ok
+            {:error, reason} ->
+              Logger.error("Failed to delegate encoding for video #{vmaf.video.id} to server #{server_node}: #{inspect(reason)}")
+              {:error, reason}
+            {:badrpc, reason} ->
+              Logger.error("RPC failed when delegating encoding for video #{vmaf.video.id}: #{inspect(reason)}")
+              {:error, {:rpc_failed, reason}}
+          end
+        catch
+          :exit, reason ->
+            Logger.error("RPC exit when delegating encoding for video #{vmaf.video.id}: #{inspect(reason)}")
+            {:error, {:rpc_exit, reason}}
+        end
+    end
+  end
+
+  defp rpc_save_vmaf(vmaf_data) do
+    case get_server_nodes() do
+      [] ->
+        Logger.error("No server nodes available for RPC VMAF save")
+        {:error, :no_server_nodes}
+
+      [server_node | _] ->
+        Logger.debug("Using RPC to save VMAF data on server node: #{server_node}")
+
+        try do
+          case :rpc.call(server_node, __MODULE__, :upsert_vmaf, [vmaf_data], 10_000) do
+            {:ok, result} -> {:ok, result}
+            {:error, reason} -> {:error, reason}
+            {:badrpc, reason} -> {:error, {:rpc_failed, reason}}
+          end
+        catch
+          :exit, reason -> {:error, {:rpc_exit, reason}}
+        end
+    end
+  end
+
+  defp get_server_nodes do
+    all_nodes = [Node.self() | Node.list()]
+
+    # Find nodes that have web server running (indicates server nodes with DB access)
+    server_nodes = all_nodes
+    |> Enum.filter(fn node ->
+      try do
+        case :rpc.call(node, Process, :whereis, [ReencodarrWeb.Endpoint], 2_000) do
+          pid when is_pid(pid) -> true
+          _ -> false
+        end
+      catch
+        _, _ -> false
+      end
+    end)
+
+    case server_nodes do
+      [] ->
+        Logger.warning("No server nodes found with web endpoints")
+        # Fallback: try all nodes
+        all_nodes
+      nodes ->
+        nodes
+    end
+  end
+
 end

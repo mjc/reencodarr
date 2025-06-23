@@ -161,9 +161,14 @@ defmodule Reencodarr.AbAv1.Encode do
         extname = Path.extname(file)
         id = String.to_integer(Path.basename(file, extname))
 
-        video = Media.get_video!(id)
-        filename = video.path |> Path.basename()
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :started, filename})
+        # Use Media context which handles RPC if needed for database access
+        case Media.get_video(id) do
+          nil ->
+            Logger.error("Video with ID #{id} not found")
+          video ->
+            filename = video.path |> Path.basename()
+            Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :started, filename})
+        end
 
       captures =
           Regex.named_captures(

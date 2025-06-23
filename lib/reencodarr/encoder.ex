@@ -105,14 +105,47 @@ defmodule Reencodarr.Encoder do
   def handle_cast({:delegate_encoding, vmaf}, state) do
     Logger.info("Received delegated encoding for video: #{vmaf.video.id}")
 
-    # Only process if we're currently encoding and encode process is available
-    if state.encoding and not AbAv1.Encode.running?() do
-      AbAv1.encode(vmaf)
-    else
-      Logger.debug("Cannot process delegated encoding - either not encoding or encode process busy")
-    end
+    # Check if we have the capability to process this job
+    local_capabilities = Coordinator.get_local_capabilities()
+    has_capability = :encode in local_capabilities
 
-    {:noreply, state}
+    cond do
+      not has_capability ->
+        Logger.warning("Cannot process delegated encoding for video #{vmaf.video.id} - node does not have :encode capability")
+        {:noreply, state}
+
+      not Media.can_access_database?() ->
+        Logger.info("Worker node cannot access database, delegating encoding execution to server for video #{vmaf.video.id}")
+        Media.execute_encoding(vmaf)
+        {:noreply, state}
+
+      true ->
+        # This node has database access and capability, process locally
+        encode_running = AbAv1.Encode.running?()
+        Logger.debug("Encoder state - encoding: #{state.encoding}, AbAv1.Encode.running?: #{encode_running}")
+
+        cond do
+          not state.encoding ->
+            Logger.info("Auto-starting Encoder to process delegated job for video #{vmaf.video.id}")
+            # Auto-start encoding and process the job
+            Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :started})
+            schedule_check()
+            if not encode_running do
+              Logger.info("Processing delegated encoding for video: #{vmaf.video.id}")
+              AbAv1.encode(vmaf)
+            end
+            {:noreply, %{state | encoding: true}}
+
+          encode_running ->
+            Logger.warning("Cannot process delegated encoding for video #{vmaf.video.id} - AbAv1.Encode already running")
+            {:noreply, state}
+
+          true ->
+            Logger.info("Processing delegated encoding for video: #{vmaf.video.id}")
+            AbAv1.encode(vmaf)
+            {:noreply, state}
+        end
+    end
   end
 
   @impl true
@@ -302,7 +335,8 @@ defmodule Reencodarr.Encoder do
       case should_handle_job_locally?(video) do
         true ->
           Logger.debug("Next video to re-encode: #{video.path}")
-          AbAv1.encode(chosen_vmaf)
+          # Use Media context for execution (handles RPC if needed)
+          Media.execute_encoding(chosen_vmaf)
 
         false ->
           delegate_encoding(chosen_vmaf)
@@ -333,7 +367,13 @@ defmodule Reencodarr.Encoder do
           target_node == Node.self()
       end
     else
-      true  # Always handle locally in non-distributed mode
+      # In non-distributed mode, only handle if we have the capability
+      local_capabilities = Coordinator.get_local_capabilities()
+      has_capability = :encode in local_capabilities
+      if not has_capability do
+        Logger.warning("Local node does not have :encode capability, skipping job")
+      end
+      has_capability
     end
   end
 
