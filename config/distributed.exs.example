@@ -1,0 +1,40 @@
+# Distributed node configuration examples
+#
+# Copy this to your specific environment config files (dev.exs, prod.exs)
+# and customize as needed.
+
+# For server nodes (with web UI)
+config :reencodarr,
+  node_type: :server,
+  node_capabilities: [:crf_search, :encode],  # Server can also do work
+  distributed_mode: true
+
+# For worker-only nodes
+# config :reencodarr,
+#   node_type: :worker,
+#   node_capabilities: [:crf_search, :encode],
+#   distributed_mode: true,
+#   # Disable web server on worker nodes
+#   start_web_server: false
+
+# For specialized nodes
+# config :reencodarr,
+#   node_type: :worker,
+#   node_capabilities: [:encode],  # Only encoding, no CRF search
+#   distributed_mode: true,
+#   start_web_server: false
+
+# Node discovery configuration
+# config :reencodarr, :cluster,
+#   topologies: [
+#     reencodarr: [
+#       strategy: Cluster.Strategy.Epmd,
+#       config: [
+#         hosts: [
+#           :"reencodarr_server@server1.local",
+#           :"reencodarr_worker@worker1.local",
+#           :"reencodarr_worker@worker2.local"
+#         ]
+#       ]
+#     ]
+#   ]

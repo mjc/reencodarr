@@ -12,15 +12,13 @@ defmodule Reencodarr.Application do
   end
 
   defp children do
-    [
+    base_children = [
       ReencodarrWeb.Telemetry,
       Reencodarr.Repo,
       {DNSCluster, query: Application.get_env(:reencodarr, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Reencodarr.PubSub},
       # Start the Finch HTTP client for sending emails
       {Finch, name: Reencodarr.Finch},
-      # Start to serve requests, typically the last entry
-      ReencodarrWeb.Endpoint,
       %{
         id: :worker_supervisor,
         start: {Supervisor, :start_link, [worker_children(), [strategy: :one_for_one]]}
@@ -29,10 +27,19 @@ defmodule Reencodarr.Application do
       # Start the TaskSupervisor
       {Task.Supervisor, name: Reencodarr.TaskSupervisor}
     ]
+
+    # Only start endpoint if server is enabled
+    if Application.get_env(:reencodarr, :start_web_server, true) do
+      base_children ++ [ReencodarrWeb.Endpoint]
+    else
+      base_children
+    end
   end
 
   defp worker_children do
     [
+      # Add distributed coordinator first
+      Reencodarr.Distributed.Coordinator,
       Reencodarr.ManualScanner,
       Reencodarr.Analyzer,
       Reencodarr.CrfSearcher,
