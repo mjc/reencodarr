@@ -94,11 +94,79 @@ defmodule Reencodarr.Distributed.JobDistributor do
     end)
   end
 
+  @doc """
+  Checks if a node can handle database operations either directly or via RPC.
+  """
+  def can_node_handle_database_operations?(node) do
+    if node == Node.self() do
+      # For the local node, check directly
+      can_access_database_locally?() || can_reach_server_nodes?()
+    else
+      # For remote nodes, check via RPC
+      try do
+        case :rpc.call(node, __MODULE__, :can_handle_database_operations_locally, [], 2000) do
+          true -> true
+          false -> false
+          {:badrpc, _} -> false
+        end
+      catch
+        :exit, _reason -> false
+      end
+    end
+  end
+
+  @doc """
+  Local check for database operations capability.
+  """
+  def can_handle_database_operations_locally do
+    can_access_database_locally?() || can_reach_server_nodes?()
+  end
+
   # Private Functions
+
+  defp can_access_database_locally? do
+    try do
+      Ecto.Adapters.SQL.query(Reencodarr.Repo, "SELECT 1", [])
+      true
+    rescue
+      _ -> false
+    end
+  end
+
+  defp can_reach_server_nodes? do
+    case get_server_nodes() do
+      [] -> false
+      [_server | _] -> true
+    end
+  end
+
+  defp get_server_nodes do
+    all_nodes = [Node.self() | Node.list()]
+
+    # Find nodes that have web server running (indicates server nodes with DB access)
+    all_nodes
+    |> Enum.filter(fn node ->
+      try do
+        case :rpc.call(node, Process, :whereis, [ReencodarrWeb.Endpoint], 2_000) do
+          pid when is_pid(pid) -> true
+          _ -> false
+        end
+      catch
+        _, _ -> false
+      end
+    end)
+  end
 
   defp get_available_nodes_for_capability(capability) do
     capable_nodes = Coordinator.get_nodes_for_capability(capability)
-    filter_available_nodes(capable_nodes, capability)
+
+    # Filter by capability and database handling ability
+    db_capable_nodes = Enum.filter(capable_nodes, fn node ->
+      can_node_handle_database_operations?(node)
+    end)
+
+    # Then filter by busy status
+    filter_available_nodes(db_capable_nodes, capability)
   end
 
   defp calculate_batch_size_for_nodes(available_nodes) do

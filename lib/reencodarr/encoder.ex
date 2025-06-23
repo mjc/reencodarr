@@ -109,43 +109,36 @@ defmodule Reencodarr.Encoder do
     local_capabilities = Coordinator.get_local_capabilities()
     has_capability = :encode in local_capabilities
 
-    cond do
-      not has_capability ->
-        Logger.warning("Cannot process delegated encoding for video #{vmaf.video.id} - node does not have :encode capability")
-        {:noreply, state}
+    if not has_capability do
+      Logger.warning("Cannot process delegated encoding for video #{vmaf.video.id} - node does not have :encode capability")
+      {:noreply, state}
+    else
+      # Process the job locally - AbAv1.Encode will handle database operations via RPC if needed
+      encode_running = AbAv1.Encode.running?()
+      Logger.debug("Encoder state - encoding: #{state.encoding}, AbAv1.Encode.running?: #{encode_running}")
 
-      not Media.can_access_database?() ->
-        Logger.info("Worker node cannot access database, delegating encoding execution to server for video #{vmaf.video.id}")
-        Media.execute_encoding(vmaf)
-        {:noreply, state}
-
-      true ->
-        # This node has database access and capability, process locally
-        encode_running = AbAv1.Encode.running?()
-        Logger.debug("Encoder state - encoding: #{state.encoding}, AbAv1.Encode.running?: #{encode_running}")
-
-        cond do
-          not state.encoding ->
-            Logger.info("Auto-starting Encoder to process delegated job for video #{vmaf.video.id}")
-            # Auto-start encoding and process the job
-            Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :started})
-            schedule_check()
-            if not encode_running do
-              Logger.info("Processing delegated encoding for video: #{vmaf.video.id}")
-              AbAv1.encode(vmaf)
-            end
-            {:noreply, %{state | encoding: true}}
-
-          encode_running ->
-            Logger.info("Encoding already running, queueing delegated job for video #{vmaf.video.id}")
-            updated_queue = state.job_queue ++ [vmaf]
-            {:noreply, %{state | job_queue: updated_queue}}
-
-          true ->
+      cond do
+        not state.encoding ->
+          Logger.info("Auto-starting Encoder to process delegated job for video #{vmaf.video.id}")
+          # Auto-start encoding and process the job
+          Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :started})
+          schedule_check()
+          if not encode_running do
             Logger.info("Processing delegated encoding for video: #{vmaf.video.id}")
             AbAv1.encode(vmaf)
-            {:noreply, state}
-        end
+          end
+          {:noreply, %{state | encoding: true}}
+
+        encode_running ->
+          Logger.info("Encoding already running, queueing delegated job for video #{vmaf.video.id}")
+          updated_queue = state.job_queue ++ [vmaf]
+          {:noreply, %{state | job_queue: updated_queue}}
+
+        true ->
+          Logger.info("Processing delegated encoding for video: #{vmaf.video.id}")
+          AbAv1.encode(vmaf)
+          {:noreply, state}
+      end
     end
   end
 

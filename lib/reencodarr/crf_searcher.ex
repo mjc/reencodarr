@@ -65,43 +65,36 @@ defmodule Reencodarr.CrfSearcher do
     local_capabilities = Coordinator.get_local_capabilities()
     has_capability = :crf_search in local_capabilities
 
-    cond do
-      not has_capability ->
-        Logger.warning("Cannot process delegated CRF search for video #{video.id} - node does not have :crf_search capability")
-        {:noreply, state}
+    if not has_capability do
+      Logger.warning("Cannot process delegated CRF search for video #{video.id} - node does not have :crf_search capability")
+      {:noreply, state}
+    else
+      # Process the job locally - AbAv1.CrfSearch will handle database operations via RPC if needed
+      crf_search_running = AbAv1.CrfSearch.running?()
+      Logger.debug("CrfSearcher state - searching: #{state.searching}, AbAv1.CrfSearch.running?: #{crf_search_running}")
 
-      not Media.can_access_database?() ->
-        Logger.info("Worker node cannot access database, delegating CRF search execution to server for video #{video.id}")
-        Media.execute_crf_search(video)
-        {:noreply, state}
-
-      true ->
-        # This node has database access and capability, process locally
-        crf_search_running = AbAv1.CrfSearch.running?()
-        Logger.debug("CrfSearcher state - searching: #{state.searching}, AbAv1.CrfSearch.running?: #{crf_search_running}")
-
-        cond do
-          not state.searching ->
-            Logger.info("Auto-starting CrfSearcher to process delegated job for video #{video.id}")
-            # Auto-start searching and process the job
-            Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :started})
-            schedule_check()
-            if not crf_search_running do
-              Logger.info("Processing delegated CRF search for video: #{video.id}")
-              AbAv1.crf_search(video)
-            end
-            {:noreply, %{state | searching: true}}
-
-          crf_search_running ->
-            Logger.info("CRF search already running, queueing delegated job for video #{video.id}")
-            updated_queue = state.job_queue ++ [video]
-            {:noreply, %{state | job_queue: updated_queue}}
-
-          true ->
+      cond do
+        not state.searching ->
+          Logger.info("Auto-starting CrfSearcher to process delegated job for video #{video.id}")
+          # Auto-start searching and process the job
+          Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :started})
+          schedule_check()
+          if not crf_search_running do
             Logger.info("Processing delegated CRF search for video: #{video.id}")
             AbAv1.crf_search(video)
-            {:noreply, state}
-        end
+          end
+          {:noreply, %{state | searching: true}}
+
+        crf_search_running ->
+          Logger.info("CRF search already running, queueing delegated job for video #{video.id}")
+          updated_queue = state.job_queue ++ [video]
+          {:noreply, %{state | job_queue: updated_queue}}
+
+        true ->
+          Logger.info("Processing delegated CRF search for video: #{video.id}")
+          AbAv1.crf_search(video)
+          {:noreply, state}
+      end
     end
   end
 
