@@ -50,6 +50,20 @@ defmodule Reencodarr.Distributed.Coordinator do
     get_local_capabilities_internal()
   end
 
+  @doc """
+  Get health status for the cluster.
+  """
+  def get_cluster_health do
+    GenServer.call(__MODULE__, :get_cluster_health)
+  end
+
+  @doc """
+  Send a heartbeat to update this node's health status.
+  """
+  def heartbeat do
+    GenServer.cast(__MODULE__, :heartbeat)
+  end
+
   # GenServer callbacks
 
   @impl true
@@ -62,8 +76,12 @@ defmodule Reencodarr.Distributed.Coordinator do
 
     state = %{
       ring: ring,
-      local_capabilities: get_local_capabilities_internal()
+      local_capabilities: get_local_capabilities_internal(),
+      node_health: %{Node.self() => %{status: :healthy, last_seen: DateTime.utc_now()}}
     }
+
+    # Schedule periodic heartbeat
+    schedule_heartbeat()
 
     Logger.info("Distributed coordinator initialized on #{Node.self()}")
     {:ok, state}
@@ -73,14 +91,53 @@ defmodule Reencodarr.Distributed.Coordinator do
   def handle_info({:nodeup, node}, state) do
     Logger.info("Node #{node} joined cluster")
     new_ring = HashRing.add_node(state.ring, node)
-    {:noreply, %{state | ring: new_ring}}
+
+    # Mark node as healthy when it connects
+    new_health = Map.put(state.node_health, node, %{
+      status: :healthy,
+      last_seen: DateTime.utc_now()
+    })
+
+    # Broadcast cluster change to update dashboard
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "cluster",
+      {:cluster_change, :node_added, node, state.local_capabilities}
+    )
+
+    {:noreply, %{state | ring: new_ring, node_health: new_health}}
   end
 
   @impl true
   def handle_info({:nodedown, node}, state) do
     Logger.warning("Node #{node} left cluster")
     new_ring = HashRing.remove_node(state.ring, node)
-    {:noreply, %{state | ring: new_ring}}
+
+    # Mark node as disconnected when it leaves
+    new_health = Map.put(state.node_health, node, %{
+      status: :disconnected,
+      last_seen: DateTime.utc_now()
+    })
+
+    # Broadcast cluster change to update dashboard
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "cluster",
+      {:cluster_change, :node_removed, node, state.local_capabilities}
+    )
+
+    {:noreply, %{state | ring: new_ring, node_health: new_health}}
+  end
+
+  @impl true
+  def handle_info(:heartbeat_timer, state) do
+    # Update our own heartbeat and schedule next one
+    new_health = Map.put(state.node_health, Node.self(), %{
+      status: :healthy,
+      last_seen: DateTime.utc_now()
+    })
+    schedule_heartbeat()
+    {:noreply, %{state | node_health: new_health}}
   end
 
   @impl true
@@ -107,6 +164,13 @@ defmodule Reencodarr.Distributed.Coordinator do
       {node, state.local_capabilities}
     end)
 
+    # Only include health info for nodes that are currently connected
+    active_health = state.node_health
+                   |> Enum.filter(fn {node, health} ->
+                        health.status == :healthy and node in all_nodes
+                      end)
+                   |> Enum.into(%{})
+
     info = %{
       local_node: Node.self(),
       cluster_nodes: all_nodes,
@@ -114,10 +178,25 @@ defmodule Reencodarr.Distributed.Coordinator do
       ring_size: length(all_nodes),
       node_capabilities: node_capabilities,
       local_capabilities: state.local_capabilities,
-      health_info: %{}
+      health_info: active_health
     }
 
     {:reply, info, state}
+  end
+
+  @impl true
+  def handle_call(:get_cluster_health, _from, state) do
+    {:reply, state.node_health, state}
+  end
+
+  @impl true
+  def handle_cast(:heartbeat, state) do
+    # Update our own health status
+    new_health = Map.put(state.node_health, Node.self(), %{
+      status: :healthy,
+      last_seen: DateTime.utc_now()
+    })
+    {:noreply, %{state | node_health: new_health}}
   end
 
   # Private functions
@@ -125,5 +204,10 @@ defmodule Reencodarr.Distributed.Coordinator do
   defp get_local_capabilities_internal do
     # Can be configured via environment or config
     Application.get_env(:reencodarr, :node_capabilities, [:crf_search, :encode])
+  end
+
+  defp schedule_heartbeat do
+    # Send heartbeat every 30 seconds
+    Process.send_after(self(), :heartbeat_timer, :timer.seconds(30))
   end
 end
