@@ -67,14 +67,14 @@ defmodule Mix.Tasks.Reencodarr.Worker do
 
     # Add capability-specific workers
     capabilities = Application.get_env(:reencodarr, :node_capabilities, [])
-    
-    children = children ++ 
+
+    children = children ++
       (if :crf_search in capabilities, do: [Reencodarr.CrfSearcher], else: []) ++
       (if :encode in capabilities, do: [Reencodarr.Encoder], else: []) ++
       [Reencodarr.AbAv1]
 
     {:ok, _sup} = Supervisor.start_link(children, strategy: :one_for_one, name: WorkerSupervisor)
-    
+
     Mix.shell().info("Worker node applications started successfully")
   end
 
@@ -84,7 +84,7 @@ defmodule Mix.Tasks.Reencodarr.Worker do
     else
       :shortnames
     end
-    
+
     case Node.start(String.to_atom(node_name), node_type) do
       {:ok, _} ->
         Node.set_cookie(cookie)
@@ -107,9 +107,9 @@ defmodule Mix.Tasks.Reencodarr.Worker do
     |> Enum.map(&String.trim/1)
     |> Enum.map(&normalize_capability/1)
   end
-  
+
   defp normalize_capability("encoding"), do: :encode
-  defp normalize_capability("crf_search"), do: :crf_search  
+  defp normalize_capability("crf_search"), do: :crf_search
   defp normalize_capability(cap), do: String.to_atom(cap)
 
   defp connect_to_node(server_node) do

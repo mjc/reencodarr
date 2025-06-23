@@ -127,13 +127,13 @@ defmodule Reencodarr.CrfSearcher do
            {:started, GenServer.whereis(Reencodarr.AbAv1.CrfSearch)},
          {:running, false} <- {:running, AbAv1.CrfSearch.running?()},
          [video | _] <- Media.get_next_crf_search(1) do
-           
+
       # Check if we should handle this job or delegate to another node
       case should_handle_job_locally?(video) do
         true ->
           Logger.info("Calling AbAv1.crf_search for video: #{video.id}")
           AbAv1.crf_search(video)
-          
+
         false ->
           delegate_crf_search(video)
       end
@@ -148,7 +148,7 @@ defmodule Reencodarr.CrfSearcher do
         Logger.debug("No videos found without VMAFs")
     end
   end
-  
+
   # Determine if this node should handle the job based on consistent hashing
   defp should_handle_job_locally?(video) do
     if Coordinator.distributed_mode?() do
@@ -160,13 +160,13 @@ defmodule Reencodarr.CrfSearcher do
       true  # Always handle locally in non-distributed mode
     end
   end
-  
+
   # Delegate CRF search to the appropriate node
   defp delegate_crf_search(video) do
     case Coordinator.find_node_for_job(video.id, :crf_search) do
       {:ok, target_node} ->
         Logger.info("Delegating CRF search for video #{video.id} to node #{target_node}")
-        
+
         try do
           GenServer.cast({__MODULE__, target_node}, {:delegate_crf_search, video})
         catch
@@ -174,7 +174,7 @@ defmodule Reencodarr.CrfSearcher do
             Logger.warning("Failed to delegate to #{target_node}: #{inspect(reason)}, handling locally")
             AbAv1.crf_search(video)
         end
-        
+
       {:error, :no_nodes} ->
         Logger.info("No distributed nodes available, handling CRF search locally")
         AbAv1.crf_search(video)

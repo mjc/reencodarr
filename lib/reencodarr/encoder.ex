@@ -295,15 +295,15 @@ defmodule Reencodarr.Encoder do
     with pid when not is_nil(pid) <- GenServer.whereis(Reencodarr.AbAv1.Encode),
          false <- AbAv1.Encode.running?(),
          chosen_vmaf when not is_nil(chosen_vmaf) <- Media.get_next_for_encoding() do
-         
+
       video = chosen_vmaf.video
-      
+
       # Check if we should handle this job or delegate to another node
       case should_handle_job_locally?(video) do
         true ->
           Logger.debug("Next video to re-encode: #{video.path}")
           AbAv1.encode(chosen_vmaf)
-          
+
         false ->
           delegate_encoding(chosen_vmaf)
       end
@@ -318,7 +318,7 @@ defmodule Reencodarr.Encoder do
         Logger.error("No chosen VMAF found for video or some other error: #{inspect(other)}")
     end
   end
-  
+
   # Determine if this node should handle the job based on consistent hashing
   defp should_handle_job_locally?(video) do
     if Coordinator.distributed_mode?() do
@@ -330,15 +330,15 @@ defmodule Reencodarr.Encoder do
       true  # Always handle locally in non-distributed mode
     end
   end
-  
+
   # Delegate encoding to the appropriate node
   defp delegate_encoding(vmaf) do
     video = vmaf.video
-    
+
     case Coordinator.find_node_for_job(video.id, :encode) do
       {:ok, target_node} ->
         Logger.info("Delegating encoding for video #{video.id} to node #{target_node}")
-        
+
         try do
           GenServer.cast({__MODULE__, target_node}, {:delegate_encoding, vmaf})
         catch
@@ -346,7 +346,7 @@ defmodule Reencodarr.Encoder do
             Logger.warning("Failed to delegate to #{target_node}: #{inspect(reason)}, handling locally")
             AbAv1.encode(vmaf)
         end
-        
+
       {:error, :no_nodes} ->
         Logger.info("No distributed nodes available, handling encoding locally")
         AbAv1.encode(vmaf)

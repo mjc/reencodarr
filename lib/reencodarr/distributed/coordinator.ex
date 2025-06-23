@@ -172,8 +172,8 @@ defmodule Reencodarr.Distributed.Coordinator do
     cluster_status = %{
       nodes: Map.keys(state.node_capabilities),
       node_capabilities: state.node_capabilities,
-      rings_summary: Map.new(state.rings, fn {cap, ring} -> 
-        {cap, HashRing.nodes(ring)} 
+      rings_summary: Map.new(state.rings, fn {cap, ring} ->
+        {cap, HashRing.nodes(ring)}
       end)
     }
     {:reply, cluster_status, state}

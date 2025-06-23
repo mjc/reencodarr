@@ -87,10 +87,10 @@ defmodule Mix.Tasks.Reencodarr.Node do
     # Configure environment to disable web server components
     Application.put_env(:phoenix, :serve_endpoints, false)
     Application.put_env(:reencodarr, ReencodarrWeb.Endpoint, server: false)
-    
+
     # Start the full application but with web server disabled
     {:ok, _} = Application.ensure_all_started(:reencodarr)
-    
+
     Mix.shell().info("Worker node applications started successfully")
   end
 
@@ -102,10 +102,10 @@ defmodule Mix.Tasks.Reencodarr.Node do
     else
       :shortnames
     end
-    
+
     # Set environment variable for other applications
     System.put_env("ELIXIR_NODE_NAME", node_name)
-    
+
     # Start the node
     case Node.start(String.to_atom(node_name), node_type) do
       {:ok, _} ->
@@ -129,9 +129,9 @@ defmodule Mix.Tasks.Reencodarr.Node do
     |> Enum.map(&String.trim/1)
     |> Enum.map(&normalize_capability/1)
   end
-  
+
   defp normalize_capability("encoding"), do: :encode
-  defp normalize_capability("crf_search"), do: :crf_search  
+  defp normalize_capability("crf_search"), do: :crf_search
   defp normalize_capability(cap), do: String.to_atom(cap)
 
   defp connect_to_node(server_node) do
