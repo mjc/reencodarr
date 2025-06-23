@@ -376,17 +376,24 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   defp get_cluster_info do
-    if Application.get_env(:reencodarr, :distributed_mode, false) do
-      try do
-        case GenServer.call(Reencodarr.Distributed.Coordinator, :cluster_info, 5000) do
-          info when is_map(info) -> info
-          _ -> nil
-        end
-      catch
-        :exit, _ -> nil
+    try do
+      case GenServer.call(Reencodarr.Distributed.Coordinator, :cluster_info, 5000) do
+        info when is_map(info) -> info
+        _ -> get_single_node_info()
       end
-    else
-      nil
+    catch
+      :exit, _ -> get_single_node_info()
     end
+  end
+
+  defp get_single_node_info do
+    %{
+      local_node: Node.self(),
+      cluster_nodes: [Node.self()],
+      ring_sizes: %{crf_search: 1, encode: 1, any: 1},
+      node_capabilities: %{Node.self() => [:crf_search, :encode]},
+      local_capabilities: [:crf_search, :encode],
+      health_info: %{Node.self() => %{status: :healthy, response_time: 0}}
+    }
   end
 end

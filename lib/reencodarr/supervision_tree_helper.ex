@@ -7,16 +7,16 @@ defmodule Reencodarr.SupervisionTreeHelper do
     IO.puts("\n=== Supervision Tree ===")
     IO.puts("Node: #{Node.self()}")
     IO.puts("Config: #{inspect(config())}")
-    
+
     print_children(Reencodarr.Supervisor, "")
   end
 
   def health_check do
     IO.puts("\n=== Health Check ===")
-    
+
     case Process.whereis(Reencodarr.Supervisor) do
       nil -> IO.puts("❌ Supervisor not running!")
-      pid -> 
+      pid ->
         IO.puts("✅ Supervisor running (#{inspect(pid)})")
         check_children(Reencodarr.Supervisor, "  ")
     end
@@ -28,7 +28,7 @@ defmodule Reencodarr.SupervisionTreeHelper do
       Enum.each(children, fn {id, pid, type, _} ->
         status = if is_pid(pid) and Process.alive?(pid), do: "✅", else: "❌"
         IO.puts("#{indent}#{status} #{inspect(id)} (#{type})")
-        
+
         if type == :supervisor and is_pid(pid) and Process.alive?(pid) do
           print_children(pid, indent <> "  ")
         end

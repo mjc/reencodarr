@@ -12,7 +12,6 @@ alias Reencodarr.Sync
 # Distributed system aliases
 alias Reencodarr.Distributed.Coordinator
 alias Reencodarr.SupervisionTreeHelper
-alias Reencodarr.SupervisionConfig
 
 import Ecto.Query
 
@@ -24,13 +23,25 @@ defmodule IExHelpers do
 
   def tree, do: SupervisionTreeHelper.print_tree()
   def health, do: SupervisionTreeHelper.health_check()
-  def restart(supervisor), do: SupervisionTreeHelper.restart_supervisor(supervisor)
 
   def cluster_info, do: Coordinator.cluster_info()
   def nodes, do: [Node.self() | Node.list()]
 
-  def node_mode, do: SupervisionConfig.node_mode()
-  def capabilities, do: SupervisionConfig.node_capabilities()
+  def node_mode do
+    if Application.get_env(:reencodarr, :distributed_mode, false) do
+      :distributed
+    else
+      :standalone
+    end
+  end
+
+  def capabilities do
+    try do
+      Coordinator.get_local_capabilities()
+    catch
+      :exit, _ -> [:crf_search, :encode]  # Default capabilities
+    end
+  end
 end
 
 import IExHelpers
@@ -41,7 +52,6 @@ IO.puts """
 Available functions:
   • tree()           - Print supervision tree
   • health()         - Check supervisor health
-  • restart(sup)     - Restart a supervisor
   • cluster_info()   - Show cluster status
   • nodes()          - List connected nodes
   • node_mode()      - Show current node mode
@@ -51,6 +61,6 @@ Examples:
   iex> tree()
   iex> health()
   iex> cluster_info()
-  iex> restart(Reencodarr.WebSupervisor)
+  iex> node_mode()
 
 """

@@ -1,6 +1,8 @@
 defmodule Mix.Tasks.Reencodarr.Node do
   @moduledoc """
-  Start Reencodarr server or worker node.
+  Start server or worker node.
+
+  Sets node configuration and uses standard Mix tasks.
   """
 
   use Mix.Task
@@ -23,53 +25,42 @@ defmodule Mix.Tasks.Reencodarr.Node do
   end
 
   defp start_server(opts) do
-    configure_server()
-    start_node(opts[:name] || "server@localhost", opts[:cookie] || :reencodarr)
-    Mix.shell().info("Starting server: #{Node.self()}")
-    Mix.Task.run("phx.server")
-  end
-
-  defp start_worker(opts) do
-    configure_worker(opts)
-    start_node(opts[:name] || "worker@localhost", opts[:cookie] || :reencodarr)
-    Mix.shell().info("Starting worker: #{Node.self()}")
-    
-    Application.ensure_all_started(:reencodarr)
-    
-    if server = opts[:connect_to] do
-      connect_and_register(server)
-    end
-    
-    Process.sleep(:infinity)
-  end
-
-  defp configure_server do
+    # Set server configuration
     Application.put_env(:reencodarr, :distributed, true)
     Application.put_env(:reencodarr, :worker_only, false)
     Application.put_env(:reencodarr, :web, true)
     Application.put_env(:reencodarr, :capabilities, [:crf_search, :encode])
+
+    # Configure node if name provided
+    if node_name = opts[:name] do
+      configure_node(node_name, opts[:cookie] || :reencodarr)
+    end
+
+    # Use standard Phoenix server task
+    Mix.Task.run("phx.server")
   end
 
-  defp configure_worker(opts) do
-    capabilities = parse_capabilities(opts[:capabilities])
-    
+  defp start_worker(opts) do
+    # Set worker configuration
     Application.put_env(:reencodarr, :distributed, true)
     Application.put_env(:reencodarr, :worker_only, true)
     Application.put_env(:reencodarr, :web, false)
-    Application.put_env(:reencodarr, :capabilities, capabilities)
+    Application.put_env(:reencodarr, :capabilities, parse_capabilities(opts[:capabilities]))
     Application.put_env(:phoenix, :serve_endpoints, false)
+
+    # Configure node if name provided
+    if node_name = opts[:name] do
+      configure_node(node_name, opts[:cookie] || :reencodarr)
+    end
+
+    # Use standard run task
+    Mix.Task.run("run", ["--no-halt"])
   end
 
-  defp start_node(name, cookie) do
+  defp configure_node(name, cookie) do
     node_type = if String.contains?(name, "@"), do: :longnames, else: :shortnames
     {:ok, _} = Node.start(String.to_atom(name), node_type)
     Node.set_cookie(cookie)
-  end
-
-  defp connect_and_register(server) do
-    :timer.sleep(2000)
-    Node.connect(String.to_atom(server))
-    Reencodarr.Distributed.Coordinator.register_node()
   end
 
   defp parse_capabilities(nil), do: [:crf_search, :encode]
@@ -93,7 +84,7 @@ defmodule Mix.Tasks.Reencodarr.Node do
 
     Examples:
       mix reencodarr.node server --name server@host
-      mix reencodarr.node worker --name worker@host --connect-to server@host
+      mix reencodarr.node worker --name worker@host
     """)
   end
 end
