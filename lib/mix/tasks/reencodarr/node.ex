@@ -40,7 +40,7 @@ defmodule Mix.Tasks.Reencodarr.Node do
   end
 
   defp start_server_node(opts) do
-    node_name = opts[:name] || "reencodarr_server@tina.lan.325i.org"
+    node_name = opts[:name] || "reencodarr_server@#{:inet.gethostname() |> elem(1) |> to_string()}.lan.325i.org"
     cookie = opts[:cookie] || :reencodarr_cluster
 
     configure_node(node_name, cookie)
@@ -52,7 +52,7 @@ defmodule Mix.Tasks.Reencodarr.Node do
   end
 
   defp start_worker_node(opts) do
-    node_name = opts[:name] || "reencodarr_worker@tina.lan.325i.org"
+    node_name = opts[:name] || "reencodarr_worker@#{:inet.gethostname() |> elem(1) |> to_string()}.lan.325i.org"
     cookie = opts[:cookie] || :reencodarr_cluster
     connect_to = opts[:connect_to]
     capabilities = parse_capabilities(opts[:capabilities])

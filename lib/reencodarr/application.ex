@@ -12,45 +12,52 @@ defmodule Reencodarr.Application do
   end
 
   defp children do
+    # Determine if we're running in distributed mode and what our role is
+    distributed_mode = Application.get_env(:reencodarr, :distributed_mode, false)
+    start_web_server = Application.get_env(:reencodarr, :start_web_server, true)
+
+    # Check if this is a worker-only node
+    is_worker_only = distributed_mode and not start_web_server
+
     base_children = [
+      # Essential infrastructure
       ReencodarrWeb.Telemetry,
-      Reencodarr.Repo,
-      {DNSCluster, query: Application.get_env(:reencodarr, :dns_cluster_query) || :ignore},
-      # Add libcluster for automatic node discovery
-      {Cluster.Supervisor, [Application.get_env(:libcluster, :topologies), [name: Reencodarr.ClusterSupervisor]]},
       {Phoenix.PubSub, name: Reencodarr.PubSub},
-      # Start the Finch HTTP client for sending emails
+      # Start the Finch HTTP client
       {Finch, name: Reencodarr.Finch},
-      %{
-        id: :worker_supervisor,
-        start: {Supervisor, :start_link, [worker_children(), [strategy: :one_for_one]]}
-      },
-      Reencodarr.Statistics,
-      # Start the TaskSupervisor
-      {Task.Supervisor, name: Reencodarr.TaskSupervisor}
+      # Always start client processes (distributed coordination, workers)
+      Reencodarr.Distributed.ClientSupervisor
     ]
+
+    # Add server-specific infrastructure only for server nodes
+    server_children = if is_worker_only do
+      []
+    else
+      [
+        Reencodarr.Repo,
+        {DNSCluster, query: Application.get_env(:reencodarr, :dns_cluster_query) || :ignore},
+        # Add libcluster for automatic node discovery
+        {Cluster.Supervisor, [Application.get_env(:libcluster, :topologies), [name: Reencodarr.ClusterSupervisor]]},
+        # Server processes
+        Reencodarr.Distributed.ServerSupervisor
+      ]
+    end
+
+    # Add libcluster for workers too, but simpler setup
+    worker_cluster_children = if is_worker_only do
+      [{Cluster.Supervisor, [Application.get_env(:libcluster, :topologies), [name: Reencodarr.ClusterSupervisor]]}]
+    else
+      []
+    end
+
+    all_children = base_children ++ worker_cluster_children ++ server_children
 
     # Only start endpoint if server is enabled
-    if Application.get_env(:reencodarr, :start_web_server, true) do
-      base_children ++ [ReencodarrWeb.Endpoint]
+    if start_web_server do
+      all_children ++ [ReencodarrWeb.Endpoint]
     else
-      base_children
+      all_children
     end
-  end
-
-  defp worker_children do
-    [
-      # Add distributed coordinator first
-      Reencodarr.Distributed.Coordinator,
-      # Add health monitoring for distributed nodes
-      Reencodarr.Distributed.HealthMonitor,
-      Reencodarr.ManualScanner,
-      Reencodarr.Analyzer,
-      Reencodarr.CrfSearcher,
-      Reencodarr.Encoder,
-      Reencodarr.AbAv1,
-      Reencodarr.Sync
-    ]
   end
 
   # Tell Phoenix to update the endpoint configuration

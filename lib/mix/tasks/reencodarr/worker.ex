@@ -17,7 +17,7 @@ defmodule Mix.Tasks.Reencodarr.Worker do
       ]
     )
 
-    node_name = opts[:name] || "reencodarr_worker@tina.lan.325i.org"
+    node_name = opts[:name] || "reencodarr_worker@#{:inet.gethostname() |> elem(1) |> to_string()}.lan.325i.org"
     cookie = opts[:cookie] || :reencodarr_cluster
     connect_to = opts[:connect_to]
     capabilities = parse_capabilities(opts[:capabilities])
@@ -39,8 +39,8 @@ defmodule Mix.Tasks.Reencodarr.Worker do
     # Connect to server node if specified
     if connect_to do
       connect_to_node(connect_to)
-      # Give a moment for the connection to stabilize, then register
-      :timer.sleep(1000)
+      # Give time for the application and processes to fully start
+      :timer.sleep(3000)
       register_with_coordinator()
     end
 
@@ -49,33 +49,25 @@ defmodule Mix.Tasks.Reencodarr.Worker do
   end
 
   defp start_worker_applications do
-    # Only start the essential dependencies - use safe starting
-    ensure_started([:logger, :sasl, :os_mon, :runtime_tools, :telemetry, :phoenix_pubsub, :libcluster, :libring])
+    # Start essential dependencies manually
+    essential_apps = [
+      :crypto, :ssl, :public_key, :asn1,
+      :logger, :sasl, :os_mon, :runtime_tools,
+      :telemetry, :castore, :mint, :nimble_pool, :finch,
+      :jason, :decimal, :phoenix_pubsub, :libcluster, :libring
+    ]
 
-    # Start basic Reencodarr components manually
+    Enum.each(essential_apps, &Application.ensure_started/1)
+
+    # Start minimal supervision tree for worker
     {:ok, _} = Supervisor.start_link([
       {Phoenix.PubSub, name: Reencodarr.PubSub},
       {Cluster.Supervisor, [Application.get_env(:libcluster, :topologies), [name: Reencodarr.ClusterSupervisor]]},
-      Reencodarr.Distributed.Coordinator,
-      Reencodarr.Distributed.HealthMonitor,
-      Reencodarr.CrfSearcher,
-      Reencodarr.Encoder,
-      Reencodarr.AbAv1
+      # Start client supervisor which includes coordinator and workers
+      Reencodarr.Distributed.ClientSupervisor
     ], strategy: :one_for_one, name: Reencodarr.WorkerSupervisor)
 
-    Mix.shell().info("Minimal worker node started successfully")
-  end
-
-  defp ensure_started(apps) do
-    Enum.each(apps, fn app ->
-      case :application.ensure_started(app) do
-        :ok -> :ok
-        {:ok, _} -> :ok
-        {:error, {:already_started, _}} -> :ok
-        {:error, reason} ->
-          Mix.shell().info("Could not start #{app}: #{inspect(reason)}")
-      end
-    end)
+    Mix.shell().info("Worker node started successfully")
   end
 
   defp configure_node(node_name, cookie) do
@@ -98,6 +90,8 @@ defmodule Mix.Tasks.Reencodarr.Worker do
   defp configure_capabilities(capabilities) do
     Application.put_env(:reencodarr, :node_capabilities, capabilities)
     Application.put_env(:reencodarr, :distributed_mode, true)
+    # Disable web server for worker nodes
+    Application.put_env(:reencodarr, :start_web_server, false)
   end
 
   defp parse_capabilities(nil), do: [:crf_search, :encode]
