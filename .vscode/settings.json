@@ -16,6 +16,7 @@
         "FLAC",
         "hwaccel",
         "inotify",
+        "libcluster",
         "libopus",
         "libx265",
         "mediainfo",

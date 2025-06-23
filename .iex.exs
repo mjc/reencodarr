@@ -25,10 +25,10 @@ defmodule IExHelpers do
   def tree, do: SupervisionTreeHelper.print_tree()
   def health, do: SupervisionTreeHelper.health_check()
   def restart(supervisor), do: SupervisionTreeHelper.restart_supervisor(supervisor)
-  
+
   def cluster_info, do: Coordinator.cluster_info()
   def nodes, do: [Node.self() | Node.list()]
-  
+
   def node_mode, do: SupervisionConfig.node_mode()
   def capabilities, do: SupervisionConfig.node_capabilities()
 end

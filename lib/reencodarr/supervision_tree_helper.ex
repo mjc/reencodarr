@@ -1,29 +1,55 @@
 defmodule Reencodarr.SupervisionTreeHelper do
   @moduledoc """
   Helper functions for inspecting and debugging the supervision tree.
-  
-  This module provides utilities to understand the current supervision
-  tree structure, which processes are running, and their health status.
   """
 
   @doc """
   Prints the current supervision tree structure for debugging.
   """
   def print_tree do
-    mode = Reencodarr.SupervisionConfig.node_mode()
-    supervisors = Reencodarr.SupervisionConfig.supervisors_for_mode(mode)
-    
     IO.puts("\n=== Reencodarr Supervision Tree ===")
     IO.puts("Node: #{Node.self()}")
-    IO.puts("Mode: #{mode}")
-    IO.puts("Capabilities: #{inspect(Reencodarr.SupervisionConfig.node_capabilities())}")
-    IO.puts("\nSupervisors:")
+    IO.puts("Mode: #{node_mode()}")
+    IO.puts("Capabilities: #{inspect(node_capabilities())}")
+    IO.puts("\nMain Supervisor (#{Reencodarr.Supervisor}):")
     
-    Enum.each(supervisors, fn supervisor ->
-      IO.puts("  └─ #{inspect(supervisor)}")
-      print_supervisor_children(supervisor, "    ")
-    end)
+    print_supervisor_children(Reencodarr.Supervisor, "  ")
   end
+
+  @doc """
+  Performs a health check on the supervision tree.
+  """
+  def health_check do
+    IO.puts("\n=== Supervision Tree Health Check ===")
+    IO.puts("Node: #{Node.self()}")
+    IO.puts("Mode: #{node_mode()}")
+    
+    case Process.whereis(Reencodarr.Supervisor) do
+      nil ->
+        IO.puts("❌ Main supervisor not running!")
+        
+      pid ->
+        IO.puts("✅ Main supervisor running (#{inspect(pid)})")
+        check_supervisor_health(Reencodarr.Supervisor, "  ")
+    end
+  end
+
+  @doc """
+  Lists all running processes in the supervision tree.
+  """
+  def list_processes do
+    IO.puts("\n=== Running Processes ===")
+    
+    case Process.whereis(Reencodarr.Supervisor) do
+      nil ->
+        IO.puts("Main supervisor not running")
+        
+      _pid ->
+        list_supervisor_processes(Reencodarr.Supervisor, "")
+    end
+  end
+
+  # Private helpers
 
   defp print_supervisor_children(supervisor, indent) do
     try do
@@ -31,54 +57,70 @@ defmodule Reencodarr.SupervisionTreeHelper do
       Enum.each(children, fn {id, pid, type, _modules} ->
         status = if is_pid(pid) and Process.alive?(pid), do: "✓", else: "✗"
         IO.puts("#{indent}├─ #{status} #{inspect(id)} (#{type})")
+        
+        # If it's a supervisor, recursively print its children
+        if type == :supervisor and is_pid(pid) and Process.alive?(pid) do
+          print_supervisor_children(pid, indent <> "│   ")
+        end
       end)
     rescue
-      _ -> IO.puts("#{indent}├─ (not started)")
+      _ -> IO.puts("#{indent}├─ (not accessible)")
     end
   end
 
-  @doc """
-  Gets the health status of all supervisors.
-  """
-  def health_check do
-    mode = Reencodarr.SupervisionConfig.node_mode()
-    supervisors = Reencodarr.SupervisionConfig.supervisors_for_mode(mode)
-    
-    results = 
-      supervisors
-      |> Enum.map(fn supervisor ->
-        status = 
-          case Process.whereis(supervisor) do
-            nil -> :not_started
-            pid when is_pid(pid) -> 
-              if Process.alive?(pid), do: :healthy, else: :dead
-          end
-        
-        {supervisor, status}
+  defp check_supervisor_health(supervisor, indent) do
+    try do
+      children = Supervisor.which_children(supervisor)
+      healthy = Enum.count(children, fn {_id, pid, _type, _modules} ->
+        is_pid(pid) and Process.alive?(pid)
       end)
-    
-    %{
-      node: Node.self(),
-      mode: mode,
-      timestamp: DateTime.utc_now(),
-      supervisors: results,
-      overall: if(Enum.all?(results, fn {_, status} -> status == :healthy end), do: :healthy, else: :degraded)
-    }
+      total = length(children)
+      
+      IO.puts("#{indent}└─ Children: #{healthy}/#{total} healthy")
+      
+      if healthy < total do
+        Enum.each(children, fn {id, pid, _type, _modules} ->
+          if not (is_pid(pid) and Process.alive?(pid)) do
+            IO.puts("#{indent}   ❌ #{inspect(id)} - Not running")
+          end
+        end)
+      end
+    rescue
+      _ -> IO.puts("#{indent}└─ Unable to check children")
+    end
   end
 
-  @doc """
-  Restarts a specific supervisor if it's not healthy.
-  """
-  def restart_supervisor(supervisor) when is_atom(supervisor) do
-    case Process.whereis(supervisor) do
-      nil -> 
-        {:error, :not_found}
-      
-      _pid ->
-        case Supervisor.restart_child(Reencodarr.Supervisor, supervisor) do
-          {:ok, _} -> {:ok, :restarted}
-          {:error, reason} -> {:error, reason}
+  defp list_supervisor_processes(supervisor, indent) do
+    try do
+      children = Supervisor.which_children(supervisor)
+      Enum.each(children, fn {id, pid, type, modules} ->
+        status = if is_pid(pid) and Process.alive?(pid), do: "✓", else: "✗"
+        IO.puts("#{indent}#{status} #{inspect(id)} (#{type}) - #{inspect(pid)} - #{inspect(modules)}")
+        
+        if type == :supervisor and is_pid(pid) and Process.alive?(pid) do
+          list_supervisor_processes(pid, indent <> "  ")
         end
+      end)
+    rescue
+      _ -> IO.puts("#{indent}(unable to list processes)")
     end
+  end
+
+  # Configuration helpers (simplified versions of what was in SupervisionConfig)
+  defp node_mode do
+    distributed_mode = Application.get_env(:reencodarr, :distributed_mode, false)
+    web_enabled = Application.get_env(:reencodarr, :start_web_server, true)
+    worker_only = Application.get_env(:reencodarr, :worker_only, false)
+
+    case {distributed_mode, web_enabled, worker_only} do
+      {false, true, _} -> :standalone_server
+      {false, false, _} -> :standalone_headless  
+      {true, _, false} -> :distributed_server
+      {true, _, true} -> :distributed_worker
+    end
+  end
+
+  defp node_capabilities do
+    Application.get_env(:reencodarr, :node_capabilities, [:crf_search, :encode])
   end
 end

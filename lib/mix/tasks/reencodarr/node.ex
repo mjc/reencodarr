@@ -12,9 +12,6 @@ defmodule Mix.Tasks.Reencodarr.Node do
 
       # Start specialized worker (encode only)
       mix reencodarr.node worker --name reencodarr_encoder@tina.lan.325i.org --capabilities encode
-
-      # Start with automatic cluster discovery
-      mix reencodarr.node server --name reencodarr_server@tina.lan.325i.org --cluster-hosts "reencodarr_worker@tina.lan.325i.org,reencodarr_encoder@tina.lan.325i.org"
   """
 
   use Mix.Task
@@ -40,31 +37,26 @@ defmodule Mix.Tasks.Reencodarr.Node do
   end
 
   defp start_server_node(opts) do
-    node_name = opts[:name] || "reencodarr_server@#{:inet.gethostname() |> elem(1) |> to_string()}.lan.325i.org"
+    node_name = opts[:name] || default_node_name("server")
     cookie = opts[:cookie] || :reencodarr_cluster
 
     configure_node(node_name, cookie)
-    configure_capabilities([:crf_search, :encode])
-    configure_libcluster(opts)
+    configure_server_mode()
+    configure_cluster(opts)
 
     Mix.shell().info("Starting Reencodarr server node: #{node_name}")
     Mix.Task.run("phx.server")
   end
 
   defp start_worker_node(opts) do
-    node_name = opts[:name] || "reencodarr_worker@#{:inet.gethostname() |> elem(1) |> to_string()}.lan.325i.org"
+    node_name = opts[:name] || default_node_name("worker")
     cookie = opts[:cookie] || :reencodarr_cluster
     connect_to = opts[:connect_to]
     capabilities = parse_capabilities(opts[:capabilities])
 
-    # Configure environment before starting node
-    Application.put_env(:reencodarr, :start_web_server, false)
-    Application.put_env(:phoenix, :serve_endpoints, false)
-    Application.put_env(:reencodarr, ReencodarrWeb.Endpoint, server: false)
-
     configure_node(node_name, cookie)
-    configure_capabilities(capabilities)
-    configure_libcluster(opts)
+    configure_worker_mode(capabilities)
+    configure_cluster(opts)
 
     Mix.shell().info("Starting Reencodarr worker node: #{node_name}")
     Mix.shell().info("Capabilities: #{inspect(capabilities)}")
@@ -73,24 +65,32 @@ defmodule Mix.Tasks.Reencodarr.Node do
       Mix.shell().info("Will connect to: #{connect_to}")
     end
 
-    # Start only essential applications for worker nodes
-    start_worker_applications()
+    start_application()
 
-    # Connect to server node if specified
     if connect_to do
       connect_to_node(connect_to)
     end
 
-    # Keep the node alive
     :timer.sleep(:infinity)
   end
 
-  defp start_worker_applications do
-    # Configure environment to disable web server components
+  defp configure_server_mode do
+    Application.put_env(:reencodarr, :distributed_mode, true)
+    Application.put_env(:reencodarr, :worker_only, false)
+    Application.put_env(:reencodarr, :start_web_server, true)
+    Application.put_env(:reencodarr, :node_capabilities, [:crf_search, :encode])
+  end
+
+  defp configure_worker_mode(capabilities) do
+    Application.put_env(:reencodarr, :distributed_mode, true)
+    Application.put_env(:reencodarr, :worker_only, true)
+    Application.put_env(:reencodarr, :start_web_server, false)
+    Application.put_env(:reencodarr, :node_capabilities, capabilities)
     Application.put_env(:phoenix, :serve_endpoints, false)
     Application.put_env(:reencodarr, ReencodarrWeb.Endpoint, server: false)
+  end
 
-    # Start the full application but with web server disabled
+  defp start_application do
     case Application.ensure_all_started(:reencodarr, :temporary) do
       {:ok, _} ->
         Mix.shell().info("Worker node applications started successfully")
@@ -101,18 +101,9 @@ defmodule Mix.Tasks.Reencodarr.Node do
   end
 
   defp configure_node(node_name, cookie) do
-    # Set node name and cookie
-    # Use longnames for nodes with @hostname format
-    node_type = if String.contains?(node_name, "@") do
-      :longnames
-    else
-      :shortnames
-    end
-
-    # Set environment variable for other applications
+    node_type = if String.contains?(node_name, "@"), do: :longnames, else: :shortnames
     System.put_env("ELIXIR_NODE_NAME", node_name)
 
-    # Start the node
     case Node.start(String.to_atom(node_name), node_type) do
       {:ok, _} ->
         Node.set_cookie(cookie)
@@ -123,12 +114,7 @@ defmodule Mix.Tasks.Reencodarr.Node do
     end
   end
 
-  defp configure_capabilities(capabilities) do
-    Application.put_env(:reencodarr, :node_capabilities, capabilities)
-    Application.put_env(:reencodarr, :distributed_mode, true)
-  end
-
-  defp configure_libcluster(opts) do
+  defp configure_cluster(opts) do
     if cluster_hosts = opts[:cluster_hosts] do
       hosts =
         cluster_hosts
@@ -136,7 +122,6 @@ defmodule Mix.Tasks.Reencodarr.Node do
         |> Enum.map(&String.trim/1)
         |> Enum.map(&String.to_atom/1)
 
-      # Update libcluster configuration
       topology_config = [
         reencodarr_cluster: [
           strategy: Cluster.Strategy.Epmd,
@@ -147,6 +132,23 @@ defmodule Mix.Tasks.Reencodarr.Node do
       Application.put_env(:libcluster, :topologies, topology_config)
       Mix.shell().info("Configured cluster auto-discovery for hosts: #{inspect(hosts)}")
     end
+  end
+
+  defp connect_to_node(server_node) do
+    server_atom = String.to_atom(server_node)
+
+    case Node.connect(server_atom) do
+      true ->
+        Mix.shell().info("Successfully connected to #{server_node}")
+      false ->
+        Mix.shell().error("Failed to connect to #{server_node}")
+        System.halt(1)
+    end
+  end
+
+  defp default_node_name(type) do
+    hostname = :inet.gethostname() |> elem(1) |> to_string()
+    "reencodarr_#{type}@#{hostname}.lan.325i.org"
   end
 
   defp parse_capabilities(nil), do: [:crf_search, :encode]
@@ -161,18 +163,6 @@ defmodule Mix.Tasks.Reencodarr.Node do
   defp normalize_capability("crf_search"), do: :crf_search
   defp normalize_capability(cap), do: String.to_atom(cap)
 
-  defp connect_to_node(server_node) do
-    server_atom = String.to_atom(server_node)
-
-    case Node.connect(server_atom) do
-      true ->
-        Mix.shell().info("Successfully connected to #{server_node}")
-      false ->
-        Mix.shell().error("Failed to connect to #{server_node}")
-        System.halt(1)
-    end
-  end
-
   defp print_usage do
     Mix.shell().info("""
     Usage: mix reencodarr.node <mode> [options]
@@ -186,6 +176,7 @@ defmodule Mix.Tasks.Reencodarr.Node do
       --connect-to <node>     Connect to server node (worker mode only)
       --capabilities <caps>   Comma-separated capabilities: crf_search,encode
       --cookie <cookie>       Erlang cookie (default: reencodarr_cluster)
+      --cluster-hosts <hosts> Comma-separated cluster hosts
 
     Examples:
       mix reencodarr.node server --name reencodarr_server@tina.lan.325i.org
