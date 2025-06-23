@@ -13,7 +13,7 @@ defmodule ReencodarrWeb.DashboardLive do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, "cluster")
 
-      # Schedule periodic cluster info refresh as fallback
+      # Schedule periodic cluster info refresh as fallback (reduced from 30s to 10s)
       Process.send_after(self(), :refresh_cluster_info, 10_000)
     end
 
@@ -184,8 +184,8 @@ defmodule ReencodarrWeb.DashboardLive do
     cluster_info = get_cluster_info()
     Logger.debug("Dashboard: Periodic cluster info refresh: #{inspect(cluster_info)}")
 
-    # Schedule next refresh
-    Process.send_after(self(), :refresh_cluster_info, 30_000)
+    # Schedule next refresh (reduced from 30s to 10s for faster updates)
+    Process.send_after(self(), :refresh_cluster_info, 10_000)
 
     {:noreply, update_state(socket, &%{&1 | cluster_info: cluster_info})}
   end

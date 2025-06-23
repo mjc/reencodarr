@@ -55,8 +55,8 @@ defmodule Mix.Tasks.Reencodarr.Worker do
   end
 
   defp connect_to_server(server_node) do
-    # Wait for application to fully start
-    Process.sleep(5000)
+    # Wait for application to fully start - reduced from 5s to 2s
+    wait_for_application_ready()
 
     IO.puts("Attempting to connect to server: #{server_node}")
 
@@ -65,8 +65,8 @@ defmodule Mix.Tasks.Reencodarr.Worker do
         IO.puts("Successfully connected to server: #{server_node}")
       false ->
         IO.puts("Failed to connect to server: #{server_node}")
-        # Retry once after a delay
-        Process.sleep(2000)
+        # Retry once after a shorter delay
+        Process.sleep(1000)
         case Node.connect(String.to_atom(server_node)) do
           true -> IO.puts("Successfully connected to server on retry: #{server_node}")
           false -> IO.puts("Final connection attempt failed: #{server_node}")
@@ -77,5 +77,29 @@ defmodule Mix.Tasks.Reencodarr.Worker do
   defp parse_capabilities(nil), do: [:crf_search, :encode]
   defp parse_capabilities(caps) do
     caps |> String.split(",") |> Enum.map(&String.to_atom(String.trim(&1)))
+  end
+
+  defp wait_for_application_ready(max_wait \\ 10_000, check_interval \\ 100) do
+    start_time = System.monotonic_time(:millisecond)
+
+    wait_loop = fn wait_loop ->
+      current_time = System.monotonic_time(:millisecond)
+
+      if current_time - start_time > max_wait do
+        IO.puts("Warning: Application readiness check timed out after #{max_wait}ms")
+      else
+        # Check if the coordinator is running (indicates application is ready)
+        case Process.whereis(Reencodarr.Distributed.Coordinator) do
+          nil ->
+            Process.sleep(check_interval)
+            wait_loop.(wait_loop)
+          _pid ->
+            elapsed = current_time - start_time
+            IO.puts("Application ready after #{elapsed}ms")
+        end
+      end
+    end
+
+    wait_loop.(wait_loop)
   end
 end
