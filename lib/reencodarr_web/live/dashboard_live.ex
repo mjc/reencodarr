@@ -16,8 +16,8 @@ defmodule ReencodarrWeb.DashboardLive do
 
     initial_state = %{
       fetched
-      | crf_searching: Reencodarr.CrfSearcher.running?(),
-        encoding: Reencodarr.Encoder.running?()
+      | crf_searching: Reencodarr.CrfSearcher.Producer.running?(),
+        encoding: Reencodarr.Encoder.Producer.running?()
     }
 
     socket =
