@@ -58,18 +58,62 @@ defmodule Reencodarr.Services.Sonarr do
       Logger.error("Series ID is null, cannot rename files")
       {:error, :invalid_series_id}
     else
-      request(url: "/api/v3/rename?seriesId=#{series_id}") |> dbg()
+      # First refresh the series to update media info
+      Logger.info("Refreshing series ID: #{series_id} before checking for renameable files")
+      case refresh_series(series_id) do
+        {:ok, refresh_response} ->
+          Logger.info("Series refresh initiated: #{inspect(refresh_response.body)}")
+        {:error, reason} ->
+          Logger.warning("Failed to refresh series (continuing anyway): #{inspect(reason)}")
+      end
 
-      request(
-        url: "/api/v3/command",
-        method: :post,
-        json: %{
+      # Give Sonarr a moment to process the refresh
+      Process.sleep(2000)
+
+      # Check what files can be renamed after refresh
+      Logger.info("Checking renameable files for series ID: #{series_id}")
+      renameable_files = case request(url: "/api/v3/rename?seriesId=#{series_id}", method: :get) do
+        {:ok, rename_response} ->
+          Logger.info("Renameable files response: #{inspect(rename_response.body)}")
+          rename_response.body
+        {:error, reason} ->
+          Logger.error("Failed to get renameable files: #{inspect(reason)}")
+          []
+      end
+
+      # If no files need renaming, don't send the command
+      if Enum.empty?(renameable_files) do
+        Logger.info("No files need renaming for series ID: #{series_id}")
+        {:ok, %{message: "No files need renaming"}}
+      else
+        # Extract episode file IDs from the renameable files response
+        renameable_file_ids = Enum.map(renameable_files, fn file -> file["episodeFileId"] end)
+
+        # Use the file IDs from the renameable files response, or fall back to provided IDs
+        files_to_rename = if Enum.empty?(file_ids), do: renameable_file_ids, else: file_ids
+
+        json_payload = %{
           name: "RenameFiles",
-          commandName: "RenameFiles",
           seriesId: series_id,
-          files: file_ids
+          files: files_to_rename
         }
-      )
+
+        Logger.info("Sonarr rename_files request - Series ID: #{series_id}, File IDs: #{inspect(files_to_rename)}")
+        Logger.info("Sonarr rename_files JSON payload: #{inspect(json_payload)}")
+
+        case request(
+          url: "/api/v3/command",
+          method: :post,
+          json: json_payload
+        ) do
+          {:ok, response} = result ->
+            Logger.info("Sonarr rename_files response: #{inspect(response.body)}")
+            result
+          {:error, reason} = error ->
+            Logger.error("Sonarr rename_files error: #{inspect(reason)}")
+            error
+        end
+      end
     end
   end
 
