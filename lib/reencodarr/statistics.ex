@@ -203,6 +203,27 @@ defmodule Reencodarr.Statistics do
     broadcast_state(new_state)
   end
 
+  def handle_info({:encoding_complete, _video}, %Reencodarr.Statistics{} = state) do
+    new_state = %{
+      state
+      | encoding: false,
+        encoding_progress: %EncodingProgress{filename: :none, percent: 0, eta: 0, fps: 0}
+    }
+
+    broadcast_state(new_state)
+  end
+
+  def handle_info({:encoding_complete, _video, _output_file}, %Reencodarr.Statistics{} = state) do
+    # Update UI state - post-encoding cleanup is handled directly in AbAv1.Encode after broadcast
+    new_state = %{
+      state
+      | encoding: false,
+        encoding_progress: %EncodingProgress{filename: :none, percent: 0, eta: 0, fps: 0}
+    }
+
+    broadcast_state(new_state)
+  end
+
   def handle_info({:encoder, :complete, _filename}, %Reencodarr.Statistics{} = state) do
     new_state = %{
       state
