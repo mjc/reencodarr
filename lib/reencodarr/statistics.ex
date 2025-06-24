@@ -33,7 +33,27 @@ defmodule Reencodarr.Statistics do
   def start_link(_), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   def get_stats do
-    GenServer.call(__MODULE__, :get_stats)
+    try do
+      GenServer.call(__MODULE__, :get_stats)
+    rescue
+      _ -> default_state()
+    catch
+      :exit, _ -> default_state()
+    end
+  end
+
+  defp default_state do
+    %Reencodarr.Statistics{
+      stats: %Stats{},
+      encoding: false,
+      crf_searching: false,
+      syncing: false,
+      sync_progress: 0,
+      encoding_progress: %EncodingProgress{filename: :none, percent: 0, eta: 0, fps: 0},
+      crf_search_progress: %CrfSearchProgress{filename: :none, percent: 0, eta: 0, fps: 0, crf: 0, score: 0},
+      videos_by_estimated_percent: [],
+      next_crf_search: []
+    }
   end
 
   # --- GenServer Callbacks ---

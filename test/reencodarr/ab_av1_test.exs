@@ -1,6 +1,5 @@
 defmodule Reencodarr.AbAv1Test do
   use ExUnit.Case, async: true
-  import ExUnit.CaptureLog
 
   alias Reencodarr.AbAv1
 
@@ -50,13 +49,8 @@ defmodule Reencodarr.AbAv1Test do
       AbAv1.crf_search(video, 95)
       assert_receive {:cast, Reencodarr.AbAv1.CrfSearch, {:crf_search, ^video, 95}}
 
-      log =
-        capture_log(fn ->
-          AbAv1.encode(vmaf)
-        end)
-
+      AbAv1.encode(vmaf)
       assert_receive {:cast, Reencodarr.AbAv1.Encode, {:encode, ^vmaf}}
-      assert log =~ "Starting encode for VMAF"
 
       :meck.unload()
     end

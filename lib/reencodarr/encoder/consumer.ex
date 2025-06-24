@@ -39,8 +39,10 @@ defmodule Reencodarr.Encoder.Consumer do
     case GenServer.call(Reencodarr.AbAv1.Encode, :running?) do
       :running ->
         # Still running, wait a bit and check again
-        Process.sleep(1000)  # Use longer sleep for encoding as it takes much longer
+        # Use longer sleep for encoding as it takes much longer
+        Process.sleep(1000)
         wait_for_encoding_completion()
+
       :not_running ->
         # Encoding is complete
         :ok

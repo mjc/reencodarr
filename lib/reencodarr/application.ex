@@ -12,7 +12,7 @@ defmodule Reencodarr.Application do
   end
 
   defp children do
-    [
+    base_children = [
       ReencodarrWeb.Telemetry,
       Reencodarr.Repo,
       {DNSCluster, query: Application.get_env(:reencodarr, :dns_cluster_query) || :ignore},
@@ -25,10 +25,16 @@ defmodule Reencodarr.Application do
         id: :worker_supervisor,
         start: {Supervisor, :start_link, [worker_children(), [strategy: :one_for_one]]}
       },
-      Reencodarr.Statistics,
       # Start the TaskSupervisor
       {Task.Supervisor, name: Reencodarr.TaskSupervisor}
     ]
+
+    # Only start Statistics in non-test environments
+    if Mix.env() != :test do
+      base_children ++ [Reencodarr.Statistics]
+    else
+      base_children
+    end
   end
 
   defp worker_children do

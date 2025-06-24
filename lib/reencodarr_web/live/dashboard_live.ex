@@ -7,18 +7,10 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    # Group PubSub topics and document their purpose
     # Subscribe to relevant topics
     if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
 
-    # fetch current stats and build initial struct state
-    fetched = Statistics.get_stats()
-
-    initial_state = %{
-      fetched
-      | crf_searching: Reencodarr.CrfSearcher.Producer.running?(),
-        encoding: Reencodarr.Encoder.Producer.running?()
-    }
+    initial_state = Statistics.get_stats()
 
     socket =
       assign(socket,

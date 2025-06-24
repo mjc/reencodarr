@@ -9,7 +9,8 @@ defmodule Reencodarr.Encoder.Producer do
 
   def pause, do: GenStage.cast(__MODULE__, :pause)
   def resume, do: GenStage.cast(__MODULE__, :resume)
-  def start, do: GenStage.cast(__MODULE__, :resume)  # Alias for API compatibility
+  # Alias for API compatibility
+  def start, do: GenStage.cast(__MODULE__, :resume)
 
   def running? do
     case GenServer.whereis(__MODULE__) do
@@ -30,7 +31,7 @@ defmodule Reencodarr.Encoder.Producer do
 
   @impl true
   def handle_call(:running?, _from, state) do
-    {:reply, not(state.paused), [], state}
+    {:reply, not state.paused, [], state}
   end
 
   @impl true
@@ -51,7 +52,7 @@ defmodule Reencodarr.Encoder.Producer do
       items = Media.get_next_for_encoding(new_state.demand)
 
       # Convert single item to list if needed for consistency
-      vmafs = if is_list(items), do: items, else: (if items, do: [items], else: [])
+      vmafs = if is_list(items), do: items, else: if(items, do: [items], else: [])
 
       if length(vmafs) > 0 do
         Logger.debug("Encoder producer dispatching #{length(vmafs)} videos for encoding")
@@ -75,7 +76,7 @@ defmodule Reencodarr.Encoder.Producer do
       items = Media.get_next_for_encoding(state.demand)
 
       # Convert single item to list if needed for consistency
-      vmafs = if is_list(items), do: items, else: (if items, do: [items], else: [])
+      vmafs = if is_list(items), do: items, else: if(items, do: [items], else: [])
 
       if length(vmafs) > 0 do
         Logger.debug("Encoder producer dispatching #{length(vmafs)} videos for encoding")
@@ -92,6 +93,7 @@ defmodule Reencodarr.Encoder.Producer do
   @impl true
   def handle_demand(demand, state) when demand > 0 do
     new_state = %{state | demand: state.demand + demand}
+
     if new_state.paused or new_state.demand == 0 do
       {:noreply, [], new_state}
     else
@@ -99,7 +101,7 @@ defmodule Reencodarr.Encoder.Producer do
       items = Media.get_next_for_encoding(new_state.demand)
 
       # Convert single item to list if needed for consistency
-      vmafs = if is_list(items), do: items, else: (if items, do: [items], else: [])
+      vmafs = if is_list(items), do: items, else: if(items, do: [items], else: [])
 
       if length(vmafs) > 0 do
         Logger.debug("Encoder producer dispatching #{length(vmafs)} videos for encoding")
@@ -123,7 +125,7 @@ defmodule Reencodarr.Encoder.Producer do
       items = Media.get_next_for_encoding(state.demand)
 
       # Convert single item to list if needed for consistency
-      vmafs = if is_list(items), do: items, else: (if items, do: [items], else: [])
+      vmafs = if is_list(items), do: items, else: if(items, do: [items], else: [])
 
       if length(vmafs) > 0 do
         Logger.debug("Encoder producer dispatching #{length(vmafs)} videos for encoding")
