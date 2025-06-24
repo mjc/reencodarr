@@ -189,8 +189,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   # Private helper functions
   defp perform_crf_search_cleanup(state) do
-    GenServer.cast(Reencodarr.CrfSearcher, :crf_search_finished)
-
     Phoenix.PubSub.broadcast(
       Reencodarr.PubSub,
       "progress",

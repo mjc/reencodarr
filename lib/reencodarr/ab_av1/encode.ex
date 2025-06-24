@@ -145,11 +145,13 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   defp notify_encoder_success(video, output_file) do
-    GenServer.cast(Reencodarr.Encoder, {:encoding_complete, video, output_file})
+    # With GenStage, we can send a message directly or use PubSub
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoding_complete, video, output_file})
   end
 
   defp notify_encoder_failure(video, exit_code) do
-    GenServer.cast(Reencodarr.Encoder, {:encoding_failed, video, exit_code})
+    # With GenStage, we can send a message directly or use PubSub
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoding_failed, video, exit_code})
   end
 
   def process_line(data, state) do

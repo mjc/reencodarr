@@ -35,8 +35,8 @@ defmodule Reencodarr.Application do
     [
       Reencodarr.ManualScanner,
       Reencodarr.Analyzer,
-      Reencodarr.CrfSearcher,
-      Reencodarr.Encoder,
+      Reencodarr.CrfSearcher.Supervisor,
+      Reencodarr.Encoder.Supervisor,
       Reencodarr.AbAv1,
       Reencodarr.Sync
     ]

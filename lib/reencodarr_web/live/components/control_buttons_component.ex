@@ -6,8 +6,8 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
   @doc "Handles toggle and sync events broadcasted via PubSub"
   @impl true
   def mount(socket) do
-    encoding = Reencodarr.Encoder.running?()
-    crf_searching = Reencodarr.CrfSearcher.running?()
+    encoding = Reencodarr.Encoder.Producer.running?()
+    crf_searching = Reencodarr.CrfSearcher.Producer.running?()
     {:ok, assign(socket, encoding: encoding, crf_searching: crf_searching, syncing: false)}
   end
 
@@ -38,10 +38,10 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
   def handle_event("toggle", %{"target" => target}, socket) do
     case target do
       "encoder" ->
-        toggle_app(Reencodarr.Encoder, :encoding, socket)
+        toggle_app(Reencodarr.Encoder.Producer, :encoding, socket)
 
       "crf_search" ->
-        toggle_app(Reencodarr.CrfSearcher, :crf_searching, socket)
+        toggle_app(Reencodarr.CrfSearcher.Producer, :crf_searching, socket)
 
       _ ->
         Logger.error("Unknown toggle target: #{inspect(target)}")
