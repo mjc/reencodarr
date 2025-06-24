@@ -30,7 +30,7 @@ defmodule Reencodarr.CrfSearcher.Producer do
 
   @impl true
   def handle_call(:running?, _from, state) do
-    {:reply, not(state.paused), state}
+    {:reply, not(state.paused), [], state}
   end
 
   @impl true
@@ -44,37 +44,31 @@ defmodule Reencodarr.CrfSearcher.Producer do
     Logger.info("CrfSearcher producer resumed")
     new_state = %{state | paused: false}
     # Try to fulfill any pending demand immediately
-    fulfill_demand(new_state)
+    if new_state.demand == 0 do
+      {:noreply, [], new_state}
+    else
+      # Fulfill up to the current demand
+      videos = Media.get_next_crf_search(new_state.demand)
+
+      if length(videos) > 0 do
+        Logger.debug("CrfSearcher producer dispatching #{length(videos)} videos for CRF search")
+        new_demand = new_state.demand - length(videos)
+        final_state = %{new_state | demand: new_demand}
+        {:noreply, videos, final_state}
+      else
+        # No items available, keep the demand for later
+        {:noreply, [], new_state}
+      end
+    end
   end
 
   @impl true
   def handle_cast(:dispatch_available, state) do
     # External trigger that new items might be available
-    fulfill_demand(state)
-  end
-
-  @impl true
-  def handle_demand(demand, state) when demand > 0 do
-    new_state = %{state | demand: state.demand + demand}
-    fulfill_demand(new_state)
-  end
-
-  @impl true
-  def handle_info({:video_upserted, _video}, state) do
-    # New video created, might need CRF search
-    fulfill_demand(state)
-  end
-
-  @impl true
-  def handle_info(_msg, state) do
-    # Ignore other PubSub messages
-    {:noreply, [], state}
-  end
-
-  defp fulfill_demand(state) do
     if state.paused or state.demand == 0 do
       {:noreply, [], state}
     else
+      # Fulfill up to the current demand
       videos = Media.get_next_crf_search(state.demand)
 
       if length(videos) > 0 do
@@ -87,5 +81,59 @@ defmodule Reencodarr.CrfSearcher.Producer do
         {:noreply, [], state}
       end
     end
+  end
+
+  @impl true
+  def handle_demand(demand, state) when demand > 0 do
+    new_state = %{state | demand: state.demand + demand}
+    if new_state.paused or new_state.demand == 0 do
+      {:noreply, [], new_state}
+    else
+      # Fulfill up to the current demand
+      videos = Media.get_next_crf_search(new_state.demand)
+
+      if length(videos) > 0 do
+        Logger.debug("CrfSearcher producer dispatching #{length(videos)} videos for CRF search")
+        final_demand = new_state.demand - length(videos)
+        final_state = %{new_state | demand: final_demand}
+        {:noreply, videos, final_state}
+      else
+        # No items available, keep the demand for later
+        {:noreply, [], new_state}
+      end
+    end
+  end
+
+  @impl true
+  def handle_info({:video_upserted, _video}, state) do
+    # New video created, might need CRF search
+    if state.paused or state.demand == 0 do
+      {:noreply, [], state}
+    else
+      # Fulfill up to the current demand
+      videos = Media.get_next_crf_search(state.demand)
+
+      if length(videos) > 0 do
+        Logger.debug("CrfSearcher producer dispatching #{length(videos)} videos for CRF search")
+        new_demand = state.demand - length(videos)
+        new_state = %{state | demand: new_demand}
+        {:noreply, videos, new_state}
+      else
+        # No items available, keep the demand for later
+        {:noreply, [], state}
+      end
+    end
+  end
+
+  @impl true
+  def handle_info({:vmaf_upserted, _vmaf}, state) do
+    # VMAF created (CRF search completed) - CrfSearcher doesn't need to react to this
+    {:noreply, [], state}
+  end
+
+  @impl true
+  def handle_info(_msg, state) do
+    # Ignore other PubSub messages
+    {:noreply, [], state}
   end
 end
