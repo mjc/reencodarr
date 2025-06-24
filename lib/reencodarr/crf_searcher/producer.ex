@@ -37,12 +37,14 @@ defmodule Reencodarr.CrfSearcher.Producer do
   @impl true
   def handle_cast(:pause, state) do
     Logger.info("CrfSearcher producer paused")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :paused})
     {:noreply, [], %{state | paused: true}}
   end
 
   @impl true
   def handle_cast(:resume, state) do
     Logger.info("CrfSearcher producer resumed")
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :started})
     new_state = %{state | paused: false}
     # Try to fulfill any pending demand immediately
     if new_state.demand == 0 do
