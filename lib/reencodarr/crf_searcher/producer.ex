@@ -129,13 +129,11 @@ defmodule Reencodarr.CrfSearcher.Producer do
     end
   end
 
-  @impl true
   def handle_info({:vmaf_upserted, _vmaf}, state) do
     # VMAF created (CRF search completed) - CrfSearcher doesn't need to react to this
     {:noreply, [], state}
   end
 
-  @impl true
   def handle_info(_msg, state) do
     # Ignore other PubSub messages
     {:noreply, [], state}

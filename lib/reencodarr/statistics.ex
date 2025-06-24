@@ -172,6 +172,16 @@ defmodule Reencodarr.Statistics do
     broadcast_state(new_state)
   end
 
+  def handle_info({:encoder, :started}, %Reencodarr.Statistics{} = state) do
+    new_state = %{state | encoding: true}
+    broadcast_state(new_state)
+  end
+
+  def handle_info({:encoder, :paused}, %Reencodarr.Statistics{} = state) do
+    new_state = %{state | encoding: false}
+    broadcast_state(new_state)
+  end
+
   def handle_info({:encoder, :started, filename}, %Reencodarr.Statistics{} = state) do
     new_state = %{
       state
@@ -200,11 +210,6 @@ defmodule Reencodarr.Statistics do
         encoding_progress: %EncodingProgress{}
     }
 
-    broadcast_state(new_state)
-  end
-
-  def handle_info({:encoder, :paused}, %Reencodarr.Statistics{} = state) do
-    new_state = %{state | encoding: false}
     broadcast_state(new_state)
   end
 

@@ -14,7 +14,7 @@ defmodule ReencodarrWeb.SyncProgressComponent do
             <div class="w-full bg-gray-600 rounded-full h-2.5 dark:bg-gray-500">
               <div
                 class="bg-indigo-600 h-2.5 rounded-full transition-all duration-300"
-                style="width: #{@sync_progress}%"
+                style={"width: #{@sync_progress}%"}
               >
               </div>
             </div>
