@@ -27,6 +27,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       crf\s#{@crf_pattern}\s          # Capture CRF value
       VMAF\s#{@vmaf_score_pattern}\s  # Capture VMAF score
       #{@percent_pattern}             # Capture percentage
+      (?:\s\(cache\))?              # Optionally match ' (cache)'
     /x,
 
     sample_vmaf: ~r/
@@ -36,6 +37,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       crf\s#{@crf_pattern}\s          # Capture CRF value
       VMAF\s#{@vmaf_score_pattern}\s  # Capture VMAF score
       #{@percent_pattern}             # Capture percentage
+      (?:\s\(cache\))?              # Optionally match ' (cache)'
       (?:\s\(.*\))?
     /x,
 
@@ -210,7 +212,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     String.to_float(str)
   end
 
-  defp process_line(line, video, args) do
+  def process_line(line, video, args) do
     cond do
       handle_encoding_sample_line(line, video) ->
         :ok
