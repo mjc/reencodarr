@@ -31,6 +31,35 @@
           };
         };
       in {
+        # Docker image for the application
+        dockerImage = pkgs.dockerTools.buildLayeredImage {
+          name = "reencodarr";
+          tag = "latest";
+
+          contents = with pkgs; [
+            erlang
+            elixir
+            ffmpeg-full
+            fd
+            curl
+            bash
+            coreutils
+          ];
+
+          config = {
+            Cmd = ["${pkgs.bash}/bin/bash"];
+            WorkingDir = "/app";
+            Env = [
+              "MIX_ENV=prod"
+              "PHX_SERVER=true"
+              "PORT=4000"
+            ];
+            ExposedPorts = {
+              "4000/tcp" = {};
+            };
+          };
+        };
+
         devShell = pkgs.mkShell {
           nativeBuildInputs =
             [
@@ -47,6 +76,10 @@
               pkgs.nodePackages.cspell
               pkgs.alejandra
               pkgs.nil
+              pkgs.ffmpeg-full
+              pkgs.fd
+              pkgs.curl
+              pkgs.docker-compose
             ]
             ++ lib.optional pkgs.stdenv.isLinux pkgs.libnotify
             ++ lib.optional pkgs.stdenv.isLinux pkgs.inotify-tools
@@ -58,6 +91,7 @@
             export ERL_AFLAGS="-kernel shell_history enabled"
             export DATABASE_URL="ecto://mjc@localhost:5432/reencodarr_dev"
             export SECRET_KEY_BASE="WEWsPGIpK/OgJA2ZcwzsgZxWKSAp35IsqWPYsvSUmm5awBUGpvsVOcG2kkDteXR1"
+            export COMPOSE_BAKE=true
           '';
         };
       }

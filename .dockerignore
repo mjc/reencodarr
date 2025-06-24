@@ -1,0 +1,40 @@
+# Dependencies
+/deps/
+/node_modules/
+
+# Build artifacts
+/_build/
+/priv/static/
+/assets/node_modules/
+
+# Development files
+/.elixir_ls/
+/.vscode/
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# Logs
+*.log
+erl_crash.dump
+
+# Test files
+/test/
+/cover/
+
+# CSV files (likely temporary data)
+*.csv
+
+# Documentation
+/doc/
+/docs/
+
+# CI/CD
+/.github/
+
+# Environment files
+.env
+.env.local
+.env.*.local
