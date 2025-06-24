@@ -35,5 +35,20 @@ jobs:
         restore-keys: ${{ runner.os }}-mix-
     - name: Install dependencies
       run: mix deps.get
+    - name: Set up PostgreSQL
+      uses: harmon758/postgresql-action@v1
+      with:
+        postgresql version: '15'
+        postgresql db: reencodarr_test
+        postgresql user: postgres
+        postgresql password: postgres
+    - name: Wait for PostgreSQL
+      run: |
+        for i in {1..30}; do
+          pg_isready -h localhost -p 5432 -U postgres && break
+          sleep 1
+        done
+    - name: Set MIX_ENV to test
+      run: echo "MIX_ENV=test" >> $GITHUB_ENV
     - name: Run tests
       run: mix test
