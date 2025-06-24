@@ -60,8 +60,11 @@ defmodule Reencodarr.Media do
     query_videos_by_criteria(limit)
   end
 
-  def get_next_for_encoding do
-    query_videos_by_criteria(1) |> List.first()
+  def get_next_for_encoding(limit \\ 1) do
+    case limit do
+      1 -> query_videos_by_criteria(1) |> List.first()
+      _ -> query_videos_by_criteria(limit)
+    end
   end
 
   def create_video(attrs \\ %{}), do: %Video{} |> Video.changeset(attrs) |> Repo.insert()
