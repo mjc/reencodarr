@@ -19,26 +19,12 @@ defmodule ReencodarrWeb.Router do
 
     live "/", DashboardLive, :index
 
-    live "/videos", VideoLive.Index, :index
-    live "/videos/new", VideoLive.Index, :new
-    live "/videos/:id/edit", VideoLive.Index, :edit
-
-    live "/videos/:id", VideoLive.Show, :show
-    live "/videos/:id/show/edit", VideoLive.Show, :edit
-
     live "/libraries", LibraryLive.Index, :index
     live "/libraries/new", LibraryLive.Index, :new
     live "/libraries/:id/edit", LibraryLive.Index, :edit
 
     live "/libraries/:id", LibraryLive.Show, :show
     live "/libraries/:id/show/edit", LibraryLive.Show, :edit
-
-    live "/vmafs", VmafLive.Index, :index
-    live "/vmafs/new", VmafLive.Index, :new
-    live "/vmafs/:id/edit", VmafLive.Index, :edit
-
-    live "/vmafs/:id", VmafLive.Show, :show
-    live "/vmafs/:id/show/edit", VmafLive.Show, :edit
 
     live "/configs", ConfigLive.Index, :index
     live "/configs/new", ConfigLive.Index, :new
