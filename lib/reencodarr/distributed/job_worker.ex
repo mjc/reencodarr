@@ -17,6 +17,9 @@ defmodule Reencodarr.Distributed.JobWorker do
     running_state_key = Keyword.fetch!(opts, :running_state_key)
     delegate_message = Keyword.fetch!(opts, :delegate_message)
 
+    # Convert string topic to atom for message payload
+    pubsub_topic_atom = String.to_atom(pubsub_topic)
+
     quote do
       require Logger
       alias Reencodarr.Distributed.Coordinator
@@ -25,6 +28,7 @@ defmodule Reencodarr.Distributed.JobWorker do
       @job_processor unquote(job_processor)
       @runner_module unquote(runner_module)
       @pubsub_topic unquote(pubsub_topic)
+      @pubsub_topic_atom unquote(pubsub_topic_atom)
       @running_state_key unquote(running_state_key)
       @delegate_message unquote(delegate_message)
 
@@ -64,7 +68,7 @@ defmodule Reencodarr.Distributed.JobWorker do
               Phoenix.PubSub.broadcast(
                 Reencodarr.PubSub,
                 @pubsub_topic,
-                {@pubsub_topic, :started}
+                {@pubsub_topic_atom, :started}
               )
 
               schedule_check()

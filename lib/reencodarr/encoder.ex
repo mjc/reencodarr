@@ -294,25 +294,30 @@ defmodule Reencodarr.Encoder do
   end
 
   defp check_next_video do
-    with pid when not is_nil(pid) <- GenServer.whereis(Reencodarr.AbAv1.Encode),
-         false <- AbAv1.Encode.running?() do
-      # Calculate optimal batch size based on available nodes
-      batch_size = JobDistributor.calculate_optimal_batch_size(:encode)
-
-      case Media.get_next_for_encoding(batch_size) do
-        chosen_vmafs when chosen_vmafs != [] ->
-          # Distribute encoding jobs across available capable nodes
-          distribute_encoding_jobs(chosen_vmafs)
-
-        [] ->
-          Logger.debug("No chosen VMAFs found for encoding")
-      end
+    # Only fetch new jobs if we can access the database
+    if not Media.can_access_database?() do
+      Logger.debug("Worker node cannot access database - skipping new job fetch")
     else
-      nil ->
-        Logger.error("Encode process is not running.")
+      with pid when not is_nil(pid) <- GenServer.whereis(Reencodarr.AbAv1.Encode),
+           false <- AbAv1.Encode.running?() do
+        # Calculate optimal batch size based on available nodes
+        batch_size = JobDistributor.calculate_optimal_batch_size(:encode)
 
-      true ->
-        Logger.debug("Encoding is already in progress, skipping check for next video.")
+        case Media.get_next_for_encoding(batch_size) do
+          chosen_vmafs when chosen_vmafs != [] ->
+            # Distribute encoding jobs across available capable nodes
+            distribute_encoding_jobs(chosen_vmafs)
+
+          [] ->
+            Logger.debug("No chosen VMAFs found for encoding")
+        end
+      else
+        nil ->
+          Logger.error("Encode process is not running.")
+
+        true ->
+          Logger.debug("Encoding is already in progress, skipping check for next video.")
+      end
     end
   end
 

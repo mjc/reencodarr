@@ -124,26 +124,31 @@ defmodule Reencodarr.CrfSearcher do
   end
 
   defp get_next_crf_search do
-    with {:started, pid} when not is_nil(pid) <-
-           {:started, GenServer.whereis(Reencodarr.AbAv1.CrfSearch)},
-         {:running, false} <- {:running, AbAv1.CrfSearch.running?()} do
-      # Calculate optimal batch size based on available nodes
-      batch_size = JobDistributor.calculate_optimal_batch_size(:crf_search)
-
-      case Media.get_next_crf_search(batch_size) do
-        videos when videos != [] ->
-          # Distribute jobs across available capable nodes
-          distribute_crf_search_jobs(videos)
-
-        [] ->
-          Logger.debug("No videos found without VMAFs")
-      end
+    # Only fetch new jobs if we can access the database
+    if not Media.can_access_database?() do
+      Logger.debug("Worker node cannot access database - skipping new job fetch")
     else
-      {:started, nil} ->
-        Logger.warning("CrfSearch process is not started.")
+      with {:started, pid} when not is_nil(pid) <-
+             {:started, GenServer.whereis(Reencodarr.AbAv1.CrfSearch)},
+           {:running, false} <- {:running, AbAv1.CrfSearch.running?()} do
+        # Calculate optimal batch size based on available nodes
+        batch_size = JobDistributor.calculate_optimal_batch_size(:crf_search)
 
-      {:running, true} ->
-        Logger.debug("CRF search is already in progress, skipping search for new videos.")
+        case Media.get_next_crf_search(batch_size) do
+          videos when videos != [] ->
+            # Distribute jobs across available capable nodes
+            distribute_crf_search_jobs(videos)
+
+          [] ->
+            Logger.debug("No videos found without VMAFs")
+        end
+      else
+        {:started, nil} ->
+          Logger.warning("CrfSearch process is not started.")
+
+        {:running, true} ->
+          Logger.debug("CRF search is already in progress, skipping search for new videos.")
+      end
     end
   end
 
