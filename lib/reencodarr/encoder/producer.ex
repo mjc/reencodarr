@@ -141,7 +141,6 @@ defmodule Reencodarr.Encoder.Producer do
     end
   end
 
-  @impl true
   def handle_info(_msg, state) do
     # Ignore other PubSub messages
     {:noreply, [], state}
