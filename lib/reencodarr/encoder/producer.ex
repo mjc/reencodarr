@@ -18,9 +18,14 @@ defmodule Reencodarr.Encoder.Producer do
     end
   end
 
+  # Called when new items become available
+  def dispatch_available, do: GenStage.cast(__MODULE__, :dispatch_available)
+
   @impl true
   def init(:ok) do
-    {:producer, %{demand: 0, timer: nil, paused: true}}
+    # Subscribe to media events that indicate new items are available
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "media_events")
+    {:producer, %{demand: 0, paused: true}}
   end
 
   @impl true
@@ -30,68 +35,82 @@ defmodule Reencodarr.Encoder.Producer do
 
   @impl true
   def handle_cast(:pause, state) do
-    if timer = state.timer, do: Process.cancel_timer(timer)
     Logger.info("Encoder producer paused")
-    {:noreply, [], %{state | paused: true, timer: nil}}
+    {:noreply, [], %{state | paused: true}}
   end
 
   @impl true
   def handle_cast(:resume, state) do
     Logger.info("Encoder producer resumed")
-    new_state =
-      if state.demand > 0 and state.paused do
-        timer = Process.send_after(self(), :dispatch, 0)
-        %{state | paused: false, timer: timer}
-      else
-        %{state | paused: false}
-      end
-    {:noreply, [], new_state}
+    new_state = %{state | paused: false}
+    # Try to fulfill any pending demand immediately
+    fulfill_demand(new_state)
+  end
+
+  @impl true
+  def handle_cast(:dispatch_available, state) do
+    # External trigger that new items might be available
+    fulfill_demand(state)
   end
 
   @impl true
   def handle_demand(demand, state) when demand > 0 do
-    new_demand = state.demand + demand
-
-    new_state =
-      if is_nil(state.timer) and not state.paused and new_demand > 0 do
-        timer = Process.send_after(self(), :dispatch, 0)  # Dispatch immediately for new demand
-        %{state | demand: new_demand, timer: timer}
-      else
-        %{state | demand: new_demand}
-      end
-
-    {:noreply, [], new_state}
+    new_state = %{state | demand: state.demand + demand}
+    fulfill_demand(new_state)
   end
 
   @impl true
-  def handle_info(:dispatch, state) do
-    if state.paused do
-      {:noreply, [], %{state | timer: nil}}
+  def handle_info({:vmaf_upserted, _vmaf}, state) do
+    # New VMAF created, might have items ready for encoding
+    fulfill_demand(state)
+  end
+
+  @impl true
+  def handle_info(_msg, state) do
+    # Ignore other PubSub messages
+    {:noreply, [], state}
+  end
+
+  defp fulfill_demand(state) do
+    if state.paused or state.demand == 0 do
+      {:noreply, [], state}
     else
-      if state.demand > 0 do
-        case Media.get_next_for_encoding() do
-          nil ->
-            Logger.debug("Encoder producer: no videos ready for encoding")
-            timer = Process.send_after(self(), :dispatch, 5000)
-            {:noreply, [], %{state | timer: timer}}
+      case Media.get_next_for_encoding() do
+        nil ->
+          # No items available, keep the demand for later
+          {:noreply, [], state}
 
-          vmaf ->
-            Logger.debug("Encoder producer dispatching video #{vmaf.video.path} for encoding")
-            new_demand = state.demand - 1
+        vmaf ->
+          Logger.debug("Encoder producer dispatching video #{vmaf.video.path} for encoding")
+          new_demand = state.demand - 1
+          new_state = %{state | demand: new_demand}
 
-            new_state =
-              if new_demand > 0 do
-                timer = Process.send_after(self(), :dispatch, 5000)
-                %{state | demand: new_demand, timer: timer}
-              else
-                %{state | demand: 0, timer: nil}
-              end
-
+          # If we still have demand, try to fulfill more immediately
+          if new_demand > 0 do
+            fulfill_demand_continue(new_state, [vmaf])
+          else
             {:noreply, [vmaf], new_state}
-        end
-      else
-        {:noreply, [], %{state | timer: nil}}
+          end
       end
+    end
+  end
+
+  defp fulfill_demand_continue(state, events) do
+    case Media.get_next_for_encoding() do
+      nil ->
+        {:noreply, Enum.reverse(events), state}
+
+      vmaf ->
+        Logger.debug("Encoder producer dispatching video #{vmaf.video.path} for encoding")
+        new_demand = state.demand - 1
+        new_state = %{state | demand: new_demand}
+        new_events = [vmaf | events]
+
+        if new_demand > 0 do
+          fulfill_demand_continue(new_state, new_events)
+        else
+          {:noreply, Enum.reverse(new_events), new_state}
+        end
     end
   end
 end
