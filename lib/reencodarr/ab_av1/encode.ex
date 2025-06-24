@@ -146,7 +146,11 @@ defmodule Reencodarr.AbAv1.Encode do
 
   defp notify_encoder_success(video, output_file) do
     # With GenStage, we can send a message directly or use PubSub
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoding_complete, video, output_file})
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "encoder",
+      {:encoding_complete, video, output_file}
+    )
   end
 
   defp notify_encoder_failure(video, exit_code) do

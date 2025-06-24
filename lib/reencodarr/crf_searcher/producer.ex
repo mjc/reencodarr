@@ -9,7 +9,8 @@ defmodule Reencodarr.CrfSearcher.Producer do
 
   def pause, do: GenStage.cast(__MODULE__, :pause)
   def resume, do: GenStage.cast(__MODULE__, :resume)
-  def start, do: GenStage.cast(__MODULE__, :resume)  # Alias for API compatibility
+  # Alias for API compatibility
+  def start, do: GenStage.cast(__MODULE__, :resume)
 
   def running? do
     case GenServer.whereis(__MODULE__) do
@@ -30,7 +31,7 @@ defmodule Reencodarr.CrfSearcher.Producer do
 
   @impl true
   def handle_call(:running?, _from, state) do
-    {:reply, not(state.paused), [], state}
+    {:reply, not state.paused, [], state}
   end
 
   @impl true
@@ -86,6 +87,7 @@ defmodule Reencodarr.CrfSearcher.Producer do
   @impl true
   def handle_demand(demand, state) when demand > 0 do
     new_state = %{state | demand: state.demand + demand}
+
     if new_state.paused or new_state.demand == 0 do
       {:noreply, [], new_state}
     else

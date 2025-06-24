@@ -41,6 +41,7 @@ defmodule Reencodarr.CrfSearcher.Consumer do
         # Still running, wait a bit and check again
         Process.sleep(100)
         wait_for_crf_search_completion()
+
       :not_running ->
         # CRF search is complete
         :ok
