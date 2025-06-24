@@ -144,7 +144,7 @@ defmodule Reencodarr.Media do
   end
 
   def get_library!(id) do
-    Repo.one(from l in Library, where: l.id == ^id)
+    Repo.get!(Library, id)
   end
 
   def create_library(attrs \\ %{}) do

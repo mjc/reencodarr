@@ -50,7 +50,14 @@ defmodule Reencodarr.Statistics do
       syncing: false,
       sync_progress: 0,
       encoding_progress: %EncodingProgress{filename: :none, percent: 0, eta: 0, fps: 0},
-      crf_search_progress: %CrfSearchProgress{filename: :none, percent: 0, eta: 0, fps: 0, crf: 0, score: 0},
+      crf_search_progress: %CrfSearchProgress{
+        filename: :none,
+        percent: 0,
+        eta: 0,
+        fps: 0,
+        crf: 0,
+        score: 0
+      },
       videos_by_estimated_percent: [],
       next_crf_search: []
     }
