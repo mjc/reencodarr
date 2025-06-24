@@ -30,7 +30,7 @@ defmodule Reencodarr.Application do
     ]
 
     # Only start Statistics in non-test environments
-    if Mix.env() != :test do
+    if Application.get_env(:reencodarr, :env) != :test do
       base_children ++ [Reencodarr.Statistics]
     else
       base_children
