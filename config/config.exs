@@ -9,7 +9,8 @@ import Config
 
 config :reencodarr,
   ecto_repos: [Reencodarr.Repo],
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime],
+  env: config_env()
 
 config :reencodarr, :temp_dir, Path.join(System.tmp_dir!(), "ab-av1")
 
