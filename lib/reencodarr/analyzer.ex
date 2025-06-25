@@ -256,6 +256,9 @@ defmodule Reencodarr.Analyzer do
     new_throughput = length(updated_ts)
     new_max = max(state.max_throughput, new_throughput)
 
+    # Emit telemetry event
+    Reencodarr.Telemetry.emit_analyzer_throughput(new_throughput, length(state.queue))
+
     %{state | processed_timestamps: updated_ts, max_throughput: new_max}
   end
 

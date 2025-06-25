@@ -31,7 +31,7 @@ defmodule Reencodarr.Application do
 
     # Only start Statistics in non-test environments
     if Application.get_env(:reencodarr, :env) != :test do
-      base_children ++ [Reencodarr.Statistics]
+      base_children ++ [Reencodarr.TelemetryReporter]
     else
       base_children
     end

@@ -1,16 +1,14 @@
 defmodule ReencodarrWeb.DashboardLive do
   use ReencodarrWeb, :live_view
 
-  alias Reencodarr.Statistics
-
   require Logger
 
   @impl true
   def mount(_params, _session, socket) do
-    # Subscribe to relevant topics
-    if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "stats")
+    # Subscribe to telemetry stats instead of multiple topics
+    if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "telemetry_stats")
 
-    initial_state = Statistics.get_stats()
+    initial_state = Reencodarr.TelemetryReporter.get_current_state()
 
     socket =
       assign(socket,
@@ -21,121 +19,9 @@ defmodule ReencodarrWeb.DashboardLive do
     {:ok, socket}
   end
 
-  # helper to update nested DashboardState and re-assign
-  defp update_state(socket, fun) do
-    new_state = fun.(socket.assigns.state)
-    assign(socket, :state, new_state)
-  end
-
   @impl true
-  def handle_info({:encoder, :started, filename}, socket) do
-    Logger.debug("Encoder started for #{filename}")
-
-    {:noreply,
-     update_state(
-       socket,
-       &%{
-         &1
-         | encoding: true,
-           encoding_progress: %Statistics.EncodingProgress{
-             filename: filename,
-             percent: 0,
-             eta: 0,
-             fps: 0
-           }
-       }
-     )}
-  end
-
-  def handle_info({:encoder, status}, socket) when status in [:started, :paused] do
-    Logger.debug("Encoder #{status}")
-
-    {:noreply, update_state(socket, &%{&1 | encoding: status == :started})}
-  end
-
-  @impl true
-  def handle_info({:crf_searcher, status}, socket) when status in [:started, :paused] do
-    Logger.debug("CRF search #{status}")
-
-    {:noreply, update_state(socket, &%{&1 | crf_searching: status == :started})}
-  end
-
-  @impl true
-  def handle_info({:sync, :started}, socket) do
-    Logger.info("Sync started")
-
-    {:noreply, update_state(socket, &%{&1 | syncing: true, sync_progress: 0})}
-  end
-
-  @impl true
-  def handle_info({:sync, :progress, progress}, socket) do
-    Logger.debug("Sync progress: #{inspect(progress)}")
-
-    {:noreply, update_state(socket, &%{&1 | sync_progress: progress})}
-  end
-
-  @impl true
-  def handle_info({:sync, :complete}, socket) do
-    Logger.info("Sync complete")
-
-    {:noreply, update_state(socket, &%{&1 | syncing: false, sync_progress: 0})}
-  end
-
-  # Add documentation for PubSub topics
-  @doc "Handles stats updates broadcasted via PubSub"
-  # Handle PubSub messages
-  @impl true
-  def handle_info({:stats, state}, socket) do
-    if is_map(state) do
-      Logger.debug("Received stats update")
-      {:noreply, assign(socket, :state, state)}
-    else
-      Logger.error("Invalid stats update received: #{inspect(state)}")
-      {:noreply, socket}
-    end
-  end
-
-  @impl true
-  def handle_info({:encoding, :none}, socket) do
-    # Clear encoding progress when encoding completes
-    {:noreply,
-     update_state(
-       socket,
-       &%{
-         &1
-         | encoding_progress: %Statistics.EncodingProgress{
-             filename: :none,
-             percent: 0,
-             eta: 0,
-             fps: 0
-           }
-       }
-     )}
-  end
-
-  @impl true
-  def handle_info({:encoding, progress}, socket) do
-    Logger.debug("Received encoding progress: #{inspect(progress)}")
-
-    Logger.info(
-      "Encoding progress: #{progress.percent}% ETA: #{progress.eta} FPS: #{progress.fps}"
-    )
-
-    {:noreply, update_state(socket, &%{&1 | encoding_progress: progress})}
-  end
-
-  @impl true
-  def handle_info({:crf_search, :none}, socket) do
-    # Clear CRF search progress when CRF search completes
-    {:noreply,
-     update_state(socket, &%{&1 | crf_search_progress: %Statistics.CrfSearchProgress{}})}
-  end
-
-  @impl true
-  def handle_info({:crf_search, progress}, socket) do
-    Logger.debug("Received CRF search progress: #{inspect(progress)}")
-
-    {:noreply, update_state(socket, &%{&1 | crf_search_progress: progress})}
+  def handle_info({:stats_update, state}, socket) do
+    {:noreply, assign(socket, :state, state)}
   end
 
   @impl true
@@ -246,86 +132,10 @@ defmodule ReencodarrWeb.DashboardLive do
     """
   end
 
-  # Summary Row
-  def render_summary_row(assigns) do
-    ~H"""
-    <.live_component module={ReencodarrWeb.SummaryRowComponent} id="summary-row" stats={@stats} />
-    """
-  end
-
   # Manual Scan Form
   def render_manual_scan_form(assigns) do
     ~H"""
     <.live_component module={ReencodarrWeb.ManualScanComponent} id="manual-scan" />
-    """
-  end
-
-  def render_queue_information(assigns) do
-    ~H"""
-    <.live_component
-      module={ReencodarrWeb.QueueInformationComponent}
-      id="queue-information"
-      stats={@stats}
-    />
-    """
-  end
-
-  # Progress Information
-  def render_progress_information(assigns) do
-    ~H"""
-    <.live_component
-      module={ReencodarrWeb.ProgressInformationComponent}
-      id="progress-information"
-      sync_progress={@sync_progress}
-      encoding_progress={@encoding_progress}
-      crf_search_progress={@crf_search_progress}
-    />
-    """
-  end
-
-  # Statistics
-  def render_statistics(assigns) do
-    ~H"""
-    <.live_component
-      module={ReencodarrWeb.StatisticsComponent}
-      id="statistics"
-      stats={@stats}
-      timezone={@timezone}
-    />
-    """
-  end
-
-  # Encoding Queue
-  def render_encoding_queue(assigns) do
-    ~H"""
-    <table class="table-auto w-full border-collapse border border-gray-700">
-      <thead>
-        <tr>
-          <th class="border border-gray-700 px-4 py-2 text-indigo-500">File Name</th>
-          <th class="border border-gray-700 px-4 py-2 text-indigo-500">Bitrate (kbps)</th>
-          <th class="border border-gray-700 px-4 py-2 text-indigo-500">Size (bytes)</th>
-          <th class="border border-gray-700 px-4 py-2 text-indigo-500">Percent</th>
-        </tr>
-      </thead>
-      <tbody>
-        <%= for file <- @files do %>
-          <tr class="hover:bg-gray-800 transition-colors duration-200">
-            <td class="border border-gray-700 px-4 py-2 text-gray-300">
-              {Path.basename(file.path)}
-            </td>
-            <td class="border border-gray-700 px-4 py-2 text-gray-300">
-              {file.bitrate || "N/A"}
-            </td>
-            <td class="border border-gray-700 px-4 py-2 text-gray-300">
-              {file.size || "N/A"}
-            </td>
-            <td class="border border-gray-700 px-4 py-2 text-gray-300">
-              {file.percent || "N/A"}
-            </td>
-          </tr>
-        <% end %>
-      </tbody>
-    </table>
     """
   end
 end

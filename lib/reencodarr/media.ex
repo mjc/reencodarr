@@ -81,7 +81,7 @@ defmodule Reencodarr.Media do
 
     case result do
       {:ok, video} ->
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "media_events", {:video_upserted, video})
+        Reencodarr.Telemetry.emit_video_upserted(video)
 
       _ ->
         :ok
@@ -170,7 +170,7 @@ defmodule Reencodarr.Media do
 
     case result do
       {:ok, vmaf} ->
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "media_events", {:vmaf_upserted, vmaf})
+        Reencodarr.Telemetry.emit_vmaf_upserted(vmaf)
 
       _ ->
         :ok
