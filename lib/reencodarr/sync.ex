@@ -24,7 +24,7 @@ end
 defmodule Reencodarr.Sync do
   use GenServer
   require Logger
-  alias Reencodarr.{Media, Services, Repo}
+  alias Reencodarr.{Media, Services, Repo, Telemetry}
 
   # Public API
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -42,9 +42,9 @@ defmodule Reencodarr.Sync do
   def handle_cast(action, state) when action in [:sync_episodes, :sync_movies] do
     {get_items, get_files, service_type} = resolve_action(action)
 
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync, :started})
+    Telemetry.emit_sync_started()
     sync_items(get_items, get_files, service_type)
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync, :complete})
+    Telemetry.emit_sync_completed()
 
     {:noreply, state}
   end
@@ -88,7 +88,7 @@ defmodule Reencodarr.Sync do
 
   defp handle_task_result({res, idx}, total_items) do
     progress = div((idx + 1) * 100, total_items)
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "progress", {:sync, :progress, progress})
+    Telemetry.emit_sync_progress(progress)
 
     if not match?({:ok, :ok}, res), do: Logger.error("Sync error: #{inspect(res)}")
   end

@@ -10,7 +10,7 @@ defmodule ReencodarrWeb.DashboardLive do
       :telemetry.attach_many(
         "dashboard-#{inspect(self())}",
         [[:reencodarr, :dashboard, :state_updated]],
-        &handle_telemetry_event/4,
+        &__MODULE__.handle_telemetry_event/4,
         %{live_view_pid: self()}
       )
     end

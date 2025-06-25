@@ -36,6 +36,20 @@ defmodule ReencodarrWeb.CrfSearchProgressComponent do
             <% end %>
           </ul>
         </div>
+        <%= if CrfSearchProgress.has_percent?(@crf_search_progress) do %>
+          <div class="flex items-center space-x-2">
+            <div class="w-full bg-gray-600 rounded-full h-2.5 dark:bg-gray-500">
+              <div
+                class="bg-purple-600 h-2.5 rounded-full transition-all duration-300"
+                style={"width: #{if @crf_search_progress.percent > 0, do: @crf_search_progress.percent, else: 0}%"}
+              >
+              </div>
+            </div>
+            <div class="text-sm leading-5 text-gray-100 dark:text-gray-200 font-mono">
+              <strong>{format_percent(@crf_search_progress.percent)}</strong>
+            </div>
+          </div>
+        <% end %>
       <% else %>
         <div class="text-sm leading-5 text-gray-400 dark:text-gray-300">
           No CRF search in progress

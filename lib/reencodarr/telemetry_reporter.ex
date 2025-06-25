@@ -139,11 +139,14 @@ defmodule Reencodarr.TelemetryReporter do
   end
 
   def handle_cast({:update_crf_search, status}, state) do
-    # If CRF search is stopping, reset the progress
+    # When CRF search is stopping, don't reset the progress - preserve the last values
+    # Only reset when starting a new search
     new_progress =
-      if status == false do
+      if status == true do
+        # Starting a new search - reset to fresh state
         %Reencodarr.Statistics.CrfSearchProgress{}
       else
+        # Stopping search - keep the existing progress values
         state.crf_search_progress
       end
 
@@ -167,6 +170,10 @@ defmodule Reencodarr.TelemetryReporter do
 
   def handle_cast({:update_sync, :started, _}, state) do
     {:noreply, emit_state_update_and_return(%{state | syncing: true, sync_progress: 0})}
+  end
+
+  def handle_cast({:update_sync, :progress, %{progress: progress}}, state) do
+    {:noreply, emit_state_update_and_return(%{state | sync_progress: progress})}
   end
 
   def handle_cast({:update_sync, :completed, _}, state) do
@@ -284,7 +291,7 @@ defmodule Reencodarr.TelemetryReporter do
   end
 
   defp schedule_refresh do
-    :timer.send_interval(@refresh_interval, :refresh_stats)
+    :timer.send_interval(@refresh_interval, self(), :refresh_stats)
   end
 
   defp emit_state_update_and_return(state) do
