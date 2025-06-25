@@ -77,16 +77,21 @@ defmodule Reencodarr.Analyzer do
   def handle_info(%{path: path, force_reanalyze: force_reanalyze} = msg, state) do
     video = Media.get_video_by_path(path)
 
-    if video == nil or video.bitrate == 0 or force_reanalyze do
-      Logger.debug("Adding new video to queue: #{path}. Queue size: #{length(state.queue) + 1}")
-      {:noreply, %{state | queue: state.queue ++ [msg]}}
-    else
-      Logger.debug(
-        "Video already exists with non-zero bitrate, skipping: #{path}. Queue size: #{length(state.queue)}"
-      )
+    case should_process_video?(video, force_reanalyze) do
+      true ->
+        Logger.debug("Adding new video to queue: #{path}. Queue size: #{length(state.queue) + 1}")
+        {:noreply, %{state | queue: state.queue ++ [msg]}}
 
-      {:noreply, state}
+      false ->
+        Logger.debug(
+          "Video already exists with non-zero bitrate, skipping: #{path}. Queue size: #{length(state.queue)}"
+        )
+        {:noreply, state}
     end
+  end
+
+  defp should_process_video?(video, force_reanalyze) do
+    is_nil(video) or video.bitrate == 0 or force_reanalyze
   end
 
   # Handle unexpected refresh_stats messages (possibly sent to wrong process)
