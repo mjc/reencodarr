@@ -67,6 +67,33 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
     {:noreply, assign(socket, :syncing, true)}
   end
 
+  # Helper functions for CSS classes
+  defp button_classes(base_classes, condition, active_classes, inactive_classes) do
+    base_classes <> " " <> if condition, do: active_classes, else: inactive_classes
+  end
+
+  defp toggle_button_classes(is_active, active_color \\ "red", inactive_color \\ "indigo") do
+    base = "flex items-center space-x-2 px-4 py-2 rounded-lg shadow font-semibold focus:outline-none focus:ring-2 transition-all duration-150"
+    
+    active_classes = "bg-#{active_color}-500 hover:bg-#{active_color}-600 focus:ring-#{active_color}-500"
+    inactive_classes = "bg-#{inactive_color}-500 hover:bg-#{inactive_color}-600 focus:ring-#{inactive_color}-500"
+    
+    button_classes(base, is_active, active_classes, inactive_classes)
+  end
+
+  defp sync_button_classes(is_syncing, color) do
+    base = "flex items-center space-x-2 font-semibold px-4 py-2 rounded-lg shadow focus:outline-none focus:ring-2 transition-all duration-150"
+    
+    disabled_classes = "bg-gray-500 focus:ring-gray-500 cursor-not-allowed"
+    active_classes = "bg-#{color}-500 hover:bg-#{color}-600 focus:ring-#{color}-500"
+    
+    button_classes(base, is_syncing, disabled_classes, active_classes)
+  end
+
+  defp toggle_button_text(is_active, active_text, inactive_text) do
+    if is_active, do: active_text, else: inactive_text
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -75,8 +102,7 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
         phx-click="toggle"
         phx-target={@myself}
         phx-value-target="encoder"
-        class={"flex items-center space-x-2 px-4 py-2 rounded-lg shadow font-semibold focus:outline-none focus:ring-2 transition-all duration-150 " <>
-          if @encoding, do: "bg-red-500 hover:bg-red-600 focus:ring-red-500", else: "bg-indigo-500 hover:bg-indigo-600 focus:ring-indigo-500"}
+        class={toggle_button_classes(@encoding, "red", "indigo")}
         title={if @encoding, do: "Pause Encoder", else: "Start Encoder"}
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -87,14 +113,13 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
             <polygon points="5,3 19,12 5,21 5,3" />
           <% end %>
         </svg>
-        <span>{(@encoding && "Pause Encoder") || "Start Encoder"}</span>
+        <span>{toggle_button_text(@encoding, "Pause Encoder", "Start Encoder")}</span>
       </button>
       <button
         phx-click="toggle"
         phx-target={@myself}
         phx-value-target="crf_search"
-        class={"flex items-center space-x-2 px-4 py-2 rounded-lg shadow font-semibold focus:outline-none focus:ring-2 transition-all duration-150 " <>
-          if @crf_searching, do: "bg-red-500 hover:bg-red-600 focus:ring-red-500", else: "bg-green-500 hover:bg-green-600 focus:ring-green-500"}
+        class={toggle_button_classes(@crf_searching, "red", "green")}
         title={if @crf_searching, do: "Pause CRF Search", else: "Start CRF Search"}
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
@@ -105,14 +130,13 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
             <polygon points="5,3 19,12 5,21 5,3" />
           <% end %>
         </svg>
-        <span>{(@crf_searching && "Pause CRF Search") || "Start CRF Search"}</span>
+        <span>{toggle_button_text(@crf_searching, "Pause CRF Search", "Start CRF Search")}</span>
       </button>
       <button
         phx-click="sync"
         phx-target={@myself}
         phx-value-target="sonarr"
-        class={"flex items-center space-x-2 font-semibold px-4 py-2 rounded-lg shadow focus:outline-none focus:ring-2 transition-all duration-150 " <>
-          if @syncing, do: "bg-gray-500 focus:ring-gray-500 cursor-not-allowed", else: "bg-yellow-500 hover:bg-yellow-600 focus:ring-yellow-500"}
+        class={sync_button_classes(@syncing, "yellow")}
         disabled={@syncing}
         title="Sync Sonarr"
       >
@@ -125,8 +149,7 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
         phx-click="sync"
         phx-target={@myself}
         phx-value-target="radarr"
-        class={"flex items-center space-x-2 font-semibold px-4 py-2 rounded-lg shadow focus:outline-none focus:ring-2 transition-all duration-150 " <>
-          if @syncing, do: "bg-gray-500 focus:ring-gray-500 cursor-not-allowed", else: "bg-green-500 hover:bg-green-600 focus:ring-green-500"}
+        class={sync_button_classes(@syncing, "green")}
         disabled={@syncing}
         title="Sync Radarr"
       >
