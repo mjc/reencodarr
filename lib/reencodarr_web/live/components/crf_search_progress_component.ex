@@ -24,43 +24,14 @@ defmodule ReencodarrWeb.CrfSearchProgressComponent do
   end
 
   defp build_details(progress) do
-    details = []
-
-    details =
-      if CrfSearchProgress.has_crf?(progress) do
-        ["CRF: #{ProgressHelpers.format_number(progress.crf)}" | details]
-      else
-        details
-      end
-
-    details =
-      if CrfSearchProgress.has_score?(progress) do
-        ["VMAF Score: #{ProgressHelpers.format_number(progress.score)} (Target: 95)" | details]
-      else
-        details
-      end
-
-    details =
-      if CrfSearchProgress.has_percent?(progress) do
-        ["Progress: #{ProgressHelpers.format_percent(progress.percent)}" | details]
-      else
-        details
-      end
-
-    details =
-      if CrfSearchProgress.has_fps?(progress) do
-        ["FPS: #{ProgressHelpers.format_number(progress.fps)}" | details]
-      else
-        details
-      end
-
-    details =
-      if CrfSearchProgress.has_eta?(progress) do
-        ["ETA: #{ProgressHelpers.format_duration(progress.eta)}" | details]
-      else
-        details
-      end
-
-    Enum.reverse(details)
+    [
+      {&CrfSearchProgress.has_crf?/1, fn p -> "CRF: #{ProgressHelpers.format_number(p.crf)}" end},
+      {&CrfSearchProgress.has_score?/1, fn p -> "VMAF Score: #{ProgressHelpers.format_number(p.score)} (Target: 95)" end},
+      {&CrfSearchProgress.has_percent?/1, fn p -> "Progress: #{ProgressHelpers.format_percent(p.percent)}" end},
+      {&CrfSearchProgress.has_fps?/1, fn p -> "FPS: #{ProgressHelpers.format_number(p.fps)}" end},
+      {&CrfSearchProgress.has_eta?/1, fn p -> "ETA: #{ProgressHelpers.format_duration(p.eta)}" end}
+    ]
+    |> Enum.filter(fn {has_value?, _formatter} -> has_value?.(progress) end)
+    |> Enum.map(fn {_has_value?, formatter} -> formatter.(progress) end)
   end
 end
