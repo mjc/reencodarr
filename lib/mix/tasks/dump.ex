@@ -38,26 +38,7 @@ defmodule Mix.Tasks.Dump do
             fn ->
               Repo.stream(schema, timeout: :infinity)
               |> Enum.each(fn record ->
-                values =
-                  Enum.map(fields, fn field ->
-                    value = Map.get(record, field)
-
-                    value =
-                      cond do
-                        is_binary(value) -> value
-                        is_nil(value) -> ""
-                        is_map(value) or is_list(value) -> Jason.encode!(value)
-                        true -> inspect(value)
-                      end
-
-                    # CSV escaping: wrap in double quotes if contains comma, quote, or newline
-                    if String.contains?(value, [",", "\"", "\n"]) do
-                      "\"" <> String.replace(value, "\"", "\"\"") <> "\""
-                    else
-                      value
-                    end
-                  end)
-
+                values = Enum.map(fields, &format_field_value(record, &1))
                 IO.write(file, Enum.join(values, ",") <> "\n")
               end)
             end,
@@ -71,5 +52,30 @@ defmodule Mix.Tasks.Dump do
       timeout: :infinity
     )
     |> Stream.run()
+  end
+
+  # Helper functions for CSV formatting
+  defp format_field_value(record, field) do
+    record
+    |> Map.get(field)
+    |> normalize_value()
+    |> escape_csv_value()
+  end
+
+  defp normalize_value(value) do
+    cond do
+      is_binary(value) -> value
+      is_nil(value) -> ""
+      is_map(value) or is_list(value) -> Jason.encode!(value)
+      true -> inspect(value)
+    end
+  end
+
+  defp escape_csv_value(value) do
+    if String.contains?(value, [",", "\"", "\n"]) do
+      "\"" <> String.replace(value, "\"", "\"\"") <> "\""
+    else
+      value
+    end
   end
 end
