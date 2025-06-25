@@ -319,4 +319,21 @@ defmodule Reencodarr.Media do
   def get_video(id) do
     Repo.get(Video, id)
   end
+
+  def delete_unchosen_vmafs do
+    Repo.transaction(fn ->
+      # Get video_ids that have vmafs but none are chosen
+      video_ids_with_no_chosen_vmafs =
+        from(v in Vmaf,
+          group_by: v.video_id,
+          having: fragment("COUNT(*) FILTER (WHERE ? = true) = 0", v.chosen),
+          select: v.video_id
+        )
+        |> Repo.all()
+
+      # Delete all vmafs for those video_ids
+      from(v in Vmaf, where: v.video_id in ^video_ids_with_no_chosen_vmafs)
+      |> Repo.delete_all()
+    end)
+  end
 end
