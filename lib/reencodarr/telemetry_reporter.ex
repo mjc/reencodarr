@@ -180,7 +180,7 @@ defmodule Reencodarr.TelemetryReporter do
 
   # Telemetry event handlers
 
-  def handle_event([:reencodarr, :encoder, :started], %{filename: filename}, _metadata, _config) do
+  def handle_event([:reencodarr, :encoder, :started], _measurements, %{filename: filename}, _config) do
     GenServer.cast(__MODULE__, {:update_encoding, true, filename})
   end
 
@@ -189,6 +189,11 @@ defmodule Reencodarr.TelemetryReporter do
   end
 
   def handle_event([:reencodarr, :encoder, :completed], _measurements, _metadata, _config) do
+    GenServer.cast(__MODULE__, {:update_encoding, false, :none})
+  end
+
+  def handle_event([:reencodarr, :encoder, :failed], measurements, metadata, _config) do
+    Logger.warning("Encoding failed: #{inspect(measurements)} metadata: #{inspect(metadata)}")
     GenServer.cast(__MODULE__, {:update_encoding, false, :none})
   end
 
@@ -264,6 +269,7 @@ defmodule Reencodarr.TelemetryReporter do
       [:reencodarr, :encoder, :started],
       [:reencodarr, :encoder, :progress],
       [:reencodarr, :encoder, :completed],
+      [:reencodarr, :encoder, :failed],
       [:reencodarr, :crf_search, :started],
       [:reencodarr, :crf_search, :progress],
       [:reencodarr, :crf_search, :completed],

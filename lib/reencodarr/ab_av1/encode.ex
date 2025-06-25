@@ -1,6 +1,6 @@
 defmodule Reencodarr.AbAv1.Encode do
   use GenServer
-  alias Reencodarr.{Media, Helper, Rules, Repo, Sync}
+  alias Reencodarr.{Media, Helper, Rules, Repo, Sync, Telemetry}
   alias Reencodarr.AbAv1.Helper
   require Logger
 
@@ -145,20 +145,16 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   defp notify_encoder_success(video, output_file) do
-    # Broadcast completion message for UI updates
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "encoder",
-      {:encoding_complete, video, output_file}
-    )
+    # Emit telemetry event for completion
+    Telemetry.emit_encoder_completed()
 
     # Do post-encoding cleanup work
     handle_post_encoding_cleanup(video, output_file)
   end
 
   defp notify_encoder_failure(video, exit_code) do
-    # With GenStage, we can send a message directly or use PubSub
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoding_failed, video, exit_code})
+    # Emit telemetry event for failure
+    Telemetry.emit_encoder_failed(exit_code, video)
   end
 
   # Post-encoding cleanup functions
@@ -328,7 +324,9 @@ defmodule Reencodarr.AbAv1.Encode do
 
         video = Media.get_video!(id)
         filename = video.path |> Path.basename()
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :started, filename})
+
+        # Emit telemetry event for encoding start
+        Telemetry.emit_encoder_started(filename)
 
       captures =
           Regex.named_captures(
@@ -345,17 +343,15 @@ defmodule Reencodarr.AbAv1.Encode do
           "Encoding progress: #{captures["percent"]}%, #{captures["fps"]} fps, ETA: #{human_readable_eta}"
         )
 
-        Phoenix.PubSub.broadcast(
-          Reencodarr.PubSub,
-          "encoder",
-          {:encoder, :progress,
-           %Reencodarr.Statistics.EncodingProgress{
-             percent: String.to_integer(captures["percent"]),
-             eta: human_readable_eta,
-             fps: parse_fps(captures["fps"]),
-             filename: filename
-           }}
-        )
+        # Emit telemetry event for encoding progress
+        progress = %Reencodarr.Statistics.EncodingProgress{
+          percent: String.to_integer(captures["percent"]),
+          eta: human_readable_eta,
+          fps: parse_fps(captures["fps"]),
+          filename: filename
+        }
+
+        Telemetry.emit_encoder_progress(progress)
 
       captures =
           Regex.named_captures(~r/Encoded\s(?<size>[\d\.]+\s\w+)\s\((?<percent>\d+)%\)/, data) ->
