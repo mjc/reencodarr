@@ -130,18 +130,16 @@ defmodule Reencodarr.ProgressHelpers do
   # Private helper functions
 
   # Determine if a value is meaningful for updating progress
-  defp meaningful_value?(_key, nil), do: false
-  defp meaningful_value?(_key, ""), do: false
-  defp meaningful_value?(_key, :none), do: false
-  defp meaningful_value?(_key, []), do: false
-  defp meaningful_value?(_key, %{} = map) when map_size(map) == 0, do: false
-
-  # For CRF and score, 0 is not meaningful (these should be positive numbers)
-  defp meaningful_value?(:crf, 0), do: false
-  defp meaningful_value?(:crf, value) when is_float(value) and value == 0.0, do: false
-  defp meaningful_value?(:score, 0), do: false
-  defp meaningful_value?(:score, value) when is_float(value) and value == 0.0, do: false
-
-  # For other values, 0 can be meaningful (like 0% progress at start)
-  defp meaningful_value?(_key, _value), do: true
+  defp meaningful_value?(key, value) do
+    case {key, value} do
+      {_, v} when v in [nil, "", :none] -> false
+      {_, []} -> false
+      {_, %{} = map} when map_size(map) == 0 -> false
+      # For CRF and score, 0 is not meaningful (these should be positive numbers)
+      {k, 0} when k in [:crf, :score] -> false
+      {k, 0.0} when k in [:crf, :score] -> false
+      # For other values, 0 can be meaningful (like 0% progress at start)
+      {_, _} -> true
+    end
+  end
 end
