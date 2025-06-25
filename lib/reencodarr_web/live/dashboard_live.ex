@@ -32,12 +32,6 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_info({:stats_update, state}, socket) do
-    # Keep for backwards compatibility during transition
-    {:noreply, assign(socket, :state, state)}
-  end
-
-  @impl true
   def handle_event("set_timezone", %{"timezone" => tz}, socket) do
     Logger.debug("Setting timezone to #{tz}")
     {:noreply, assign(socket, :timezone, tz)}
