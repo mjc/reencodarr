@@ -209,41 +209,25 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp append_decimal_before_float(str) do
-    str =
-      if String.contains?(str, ".") do
-        str
-      else
-        str <> ".0"
-      end
-
-    String.to_float(str)
+    str
+    |> then(fn s -> if String.contains?(s, "."), do: s, else: s <> ".0" end)
+    |> String.to_float()
   end
 
   def process_line(line, video, args) do
-    cond do
-      handle_encoding_sample_line(line, video) ->
-        :ok
+    handlers = [
+      &handle_encoding_sample_line/2,
+      fn l, v -> handle_vmaf_line(l, v, args) end,
+      fn l, v -> handle_eta_vmaf_line(l, v, args) end,
+      fn l, _v -> handle_vmaf_comparison_line(l) end,
+      &handle_progress_line/2,
+      &handle_success_line/2,
+      &handle_error_line/2
+    ]
 
-      handle_vmaf_line(line, video, args) ->
-        :ok
-
-      handle_eta_vmaf_line(line, video, args) ->
-        :ok
-
-      handle_vmaf_comparison_line(line) ->
-        :ok
-
-      handle_progress_line(line, video) ->
-        :ok
-
-      handle_success_line(line, video) ->
-        :ok
-
-      handle_error_line(line, video) ->
-        :ok
-
-      true ->
-        Logger.error("CrfSearch: No match for line: #{line}")
+    case Enum.find(handlers, fn handler -> handler.(line, video) end) do
+      nil -> Logger.error("CrfSearch: No match for line: #{line}")
+      _handler -> :ok
     end
   end
 
