@@ -30,6 +30,14 @@ defmodule Reencodarr.Telemetry do
     )
   end
 
+  def emit_encoder_failed(exit_code, video) do
+    :telemetry.execute(
+      [:reencodarr, :encoder, :failed],
+      %{exit_code: exit_code},
+      %{video: video}
+    )
+  end
+
   def emit_crf_search_started do
     :telemetry.execute(
       [:reencodarr, :crf_search, :started],
