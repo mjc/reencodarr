@@ -2,6 +2,8 @@ defmodule Reencodarr.TelemetryReporter do
   use GenServer
   require Logger
 
+  alias Reencodarr.{DashboardState, ProgressHelpers}
+
   # Configuration constants
   @refresh_interval :timer.seconds(5)
   @telemetry_handler_id "reencodarr-reporter"
@@ -34,7 +36,7 @@ defmodule Reencodarr.TelemetryReporter do
     attach_telemetry_handlers()
     schedule_refresh()
 
-    {:ok, initial_state(), {:continue, :initial_stats}}
+    {:ok, DashboardState.initial(), {:continue, :initial_stats}}
   end
 
   @impl true
@@ -44,25 +46,26 @@ defmodule Reencodarr.TelemetryReporter do
   end
 
   @impl true
-  def handle_info(:refresh_stats, %{stats_update_in_progress: true} = state) do
+  def handle_info(:refresh_stats, %DashboardState{stats_update_in_progress: true} = state) do
     {:noreply, state}
   end
 
-  def handle_info(:refresh_stats, state) do
-    Task.start(fn ->
+  def handle_info(:refresh_stats, %DashboardState{} = state) do
+    Task.Supervisor.start_child(Reencodarr.TaskSupervisor, fn ->
       Logger.debug("TelemetryReporter: Fetching stats...")
 
-      case fetch_stats_safely() do
-        {:ok, stats} ->
+      case Reencodarr.Media.fetch_stats() do
+        %{} = stats ->
           GenServer.cast(__MODULE__, {:update_stats, stats})
 
-        {:error, reason} ->
-          Logger.error("TelemetryReporter: Failed to fetch stats: #{inspect(reason)}")
-          GenServer.cast(__MODULE__, {:stats_fetch_failed, reason})
+        other ->
+          Logger.error("TelemetryReporter: Unexpected fetch_stats result: #{inspect(other)}")
+          GenServer.cast(__MODULE__, {:stats_fetch_failed, :invalid_stats})
       end
     end)
 
-    {:noreply, %{state | stats_update_in_progress: true}}
+    new_state = DashboardState.set_stats_updating(state, true)
+    {:noreply, new_state}
   end
 
   @impl true
@@ -70,114 +73,61 @@ defmodule Reencodarr.TelemetryReporter do
     {:reply, state, state}
   end
 
-  def handle_call(:get_progress_state, _from, state) do
-    progress_state = %{
-      encoding: state.encoding,
-      crf_searching: state.crf_searching,
-      syncing: state.syncing,
-      encoding_progress: state.encoding_progress,
-      crf_search_progress: state.crf_search_progress,
-      sync_progress: state.sync_progress
-    }
-
+  def handle_call(:get_progress_state, _from, %DashboardState{} = state) do
+    progress_state = DashboardState.progress_state(state)
     {:reply, progress_state, state}
   end
 
   @impl true
-  def handle_cast({:update_stats, stats}, state) do
+  def handle_cast({:update_stats, stats}, %DashboardState{} = state) do
     Logger.debug("TelemetryReporter: Stats updated successfully")
 
-    new_state = %{
-      state
-      | stats: stats,
-        stats_update_in_progress: false,
-        next_crf_search: stats.next_crf_search,
-        videos_by_estimated_percent: stats.videos_by_estimated_percent
-    }
-
+    new_state = DashboardState.update_stats(state, stats)
     {:noreply, emit_state_update_and_return(new_state)}
   end
 
-  def handle_cast({:stats_fetch_failed, error}, state) do
+  def handle_cast({:stats_fetch_failed, error}, %DashboardState{} = state) do
     Logger.error("TelemetryReporter: Stats fetch failed: #{inspect(error)}")
 
-    new_state = %{state | stats_update_in_progress: false}
+    new_state = DashboardState.set_stats_updating(state, false)
     {:noreply, new_state}
   end
 
-  def handle_cast({:update_encoding, true, filename}, state) do
-    new_state = %{
-      state
-      | encoding: true,
-        encoding_progress: %Reencodarr.Statistics.EncodingProgress{filename: filename}
-    }
-
+  # Encoding event handlers
+  def handle_cast({:update_encoding, status, filename}, %DashboardState{} = state) do
+    new_state = DashboardState.update_encoding(state, status, filename)
     {:noreply, emit_state_update_and_return(new_state)}
   end
 
-  def handle_cast({:update_encoding, false, _}, state) do
-    new_state = %{
-      state
-      | encoding: false,
-        encoding_progress: %Reencodarr.Statistics.EncodingProgress{}
-    }
-
-    {:noreply, emit_state_update_and_return(new_state)}
-  end
-
-  def handle_cast({:update_encoding_progress, measurements}, state) do
-    # Smart merge: only update fields that have meaningful values
-    current_progress = state.encoding_progress
-
+  def handle_cast({:update_encoding_progress, measurements}, %DashboardState{} = state) do
     Logger.debug("TelemetryReporter: Updating encoding progress: #{inspect(measurements)}")
 
-    # Merge with existing progress, preserving existing values when new ones are nil/empty
-    updated_progress = smart_merge(Map.from_struct(current_progress), measurements)
-    progress = struct(Reencodarr.Statistics.EncodingProgress, updated_progress)
+    updated_progress = ProgressHelpers.update_progress(state.encoding_progress, measurements)
+    new_state = %{state | encoding_progress: updated_progress}
 
-    {:noreply, emit_state_update_and_return(%{state | encoding_progress: progress})}
+    {:noreply, emit_state_update_and_return(new_state)}
   end
 
-  def handle_cast({:update_crf_search, status}, state) do
-    # When CRF search is stopping, don't reset the progress - preserve the last values
-    # Only reset when starting a new search
-    new_progress =
-      if status == true do
-        # Starting a new search - reset to fresh state
-        %Reencodarr.Statistics.CrfSearchProgress{}
-      else
-        # Stopping search - keep the existing progress values
-        state.crf_search_progress
-      end
-
-    {:noreply,
-     emit_state_update_and_return(%{state | crf_searching: status, crf_search_progress: new_progress})}
+  # CRF search event handlers
+  def handle_cast({:update_crf_search, status}, %DashboardState{} = state) do
+    new_state = DashboardState.update_crf_search(state, status)
+    {:noreply, emit_state_update_and_return(new_state)}
   end
 
-  def handle_cast({:update_crf_search_progress, measurements}, state) do
-    # Smart merge: only update fields that have meaningful values
-    current_progress = state.crf_search_progress
-
+  def handle_cast({:update_crf_search_progress, measurements}, %DashboardState{} = state) do
     Logger.debug("TelemetryReporter: Updating CRF search progress: #{inspect(measurements)}")
 
-    # Merge with existing progress, preserving existing values when new ones are nil/empty
-    updated_progress = smart_merge(Map.from_struct(current_progress), measurements)
-    progress = struct(Reencodarr.Statistics.CrfSearchProgress, updated_progress)
+    updated_progress = ProgressHelpers.update_progress(state.crf_search_progress, measurements)
+    new_state = %{state | crf_search_progress: updated_progress}
 
-    Logger.debug("TelemetryReporter: Final progress state: #{inspect(progress)}")
-    {:noreply, emit_state_update_and_return(%{state | crf_search_progress: progress})}
+    Logger.debug("TelemetryReporter: Final progress state: #{inspect(updated_progress)}")
+    {:noreply, emit_state_update_and_return(new_state)}
   end
 
-  def handle_cast({:update_sync, :started, _}, state) do
-    {:noreply, emit_state_update_and_return(%{state | syncing: true, sync_progress: 0})}
-  end
-
-  def handle_cast({:update_sync, :progress, %{progress: progress}}, state) do
-    {:noreply, emit_state_update_and_return(%{state | sync_progress: progress})}
-  end
-
-  def handle_cast({:update_sync, :completed, _}, state) do
-    {:noreply, emit_state_update_and_return(%{state | syncing: false, sync_progress: 0})}
+  # Sync event handlers
+  def handle_cast({:update_sync, event, data}, %DashboardState{} = state) do
+    new_state = DashboardState.update_sync(state, event, data)
+    {:noreply, emit_state_update_and_return(new_state)}
   end
 
   @impl true
@@ -185,108 +135,18 @@ defmodule Reencodarr.TelemetryReporter do
     :telemetry.detach(@telemetry_handler_id)
   end
 
-  # Telemetry event handlers
+  # Telemetry event handlers (delegated to dedicated module)
 
-  def handle_event([:reencodarr, :encoder, :started], _measurements, %{filename: filename}, _config) do
-    GenServer.cast(__MODULE__, {:update_encoding, true, filename})
+  def handle_event(event_name, measurements, metadata, _config) do
+    # Delegate to the dedicated event handler with reporter PID
+    config = %{reporter_pid: __MODULE__}
+    Reencodarr.TelemetryEventHandler.handle_event(event_name, measurements, metadata, config)
   end
-
-  def handle_event([:reencodarr, :encoder, :progress], measurements, _metadata, _config) do
-    GenServer.cast(__MODULE__, {:update_encoding_progress, measurements})
-  end
-
-  def handle_event([:reencodarr, :encoder, :completed], _measurements, _metadata, _config) do
-    GenServer.cast(__MODULE__, {:update_encoding, false, :none})
-  end
-
-  def handle_event([:reencodarr, :encoder, :failed], measurements, metadata, _config) do
-    Logger.warning("Encoding failed: #{inspect(measurements)} metadata: #{inspect(metadata)}")
-    GenServer.cast(__MODULE__, {:update_encoding, false, :none})
-  end
-
-  def handle_event([:reencodarr, :crf_search, :started], _measurements, _metadata, _config) do
-    GenServer.cast(__MODULE__, {:update_crf_search, true})
-  end
-
-  def handle_event([:reencodarr, :crf_search, :progress], measurements, _metadata, _config) do
-    GenServer.cast(__MODULE__, {:update_crf_search_progress, measurements})
-  end
-
-  def handle_event([:reencodarr, :crf_search, :completed], _measurements, _metadata, _config) do
-    GenServer.cast(__MODULE__, {:update_crf_search, false})
-  end
-
-  def handle_event([:reencodarr, :sync, event], measurements, _metadata, _config) do
-    GenServer.cast(__MODULE__, {:update_sync, event, measurements})
-  end
-
-  def handle_event([:reencodarr, :media, _event], _measurements, _metadata, _config) do
-    send(self(), :refresh_stats)
-  end
-
-  def handle_event(_event, _measurements, _metadata, _config), do: :ok
 
   # Private helpers
 
-  # Smart merge: only update fields with meaningful new values, preserve existing values otherwise
-  defp smart_merge(current_map, new_map) do
-    Enum.reduce(new_map, current_map, fn {key, new_value}, acc ->
-      if meaningful_value?(key, new_value) do
-        Map.put(acc, key, new_value)
-      else
-        # Keep existing value
-        acc
-      end
-    end)
-  end
-
-  # Determine if a value is meaningful for updating progress
-  defp meaningful_value?(_key, nil), do: false
-  defp meaningful_value?(_key, ""), do: false
-  defp meaningful_value?(_key, :none), do: false
-  defp meaningful_value?(_key, []), do: false
-  defp meaningful_value?(_key, %{} = map) when map_size(map) == 0, do: false
-
-  # For CRF and score, 0 is not meaningful (these should be positive numbers)
-  defp meaningful_value?(:crf, 0), do: false
-  defp meaningful_value?(:crf, value) when is_float(value) and value == 0.0, do: false
-  defp meaningful_value?(:score, 0), do: false
-  defp meaningful_value?(:score, value) when is_float(value) and value == 0.0, do: false
-
-  # For other values, 0 can be meaningful (like 0% progress at start)
-  defp meaningful_value?(_key, _value), do: true
-
-  defp initial_state do
-    %{
-      stats: %Reencodarr.Statistics.Stats{},
-      encoding: false,
-      crf_searching: false,
-      encoding_progress: %Reencodarr.Statistics.EncodingProgress{},
-      crf_search_progress: %Reencodarr.Statistics.CrfSearchProgress{},
-      syncing: false,
-      sync_progress: 0,
-      stats_update_in_progress: false,
-      videos_by_estimated_percent: [],
-      next_crf_search: []
-    }
-  end
-
   defp attach_telemetry_handlers do
-    events = [
-      [:reencodarr, :encoder, :started],
-      [:reencodarr, :encoder, :progress],
-      [:reencodarr, :encoder, :completed],
-      [:reencodarr, :encoder, :failed],
-      [:reencodarr, :crf_search, :started],
-      [:reencodarr, :crf_search, :progress],
-      [:reencodarr, :crf_search, :completed],
-      [:reencodarr, :sync, :started],
-      [:reencodarr, :sync, :progress],
-      [:reencodarr, :sync, :completed],
-      [:reencodarr, :media, :video_upserted],
-      [:reencodarr, :media, :vmaf_upserted]
-    ]
-
+    events = Reencodarr.TelemetryEventHandler.events()
     :telemetry.attach_many(@telemetry_handler_id, events, &__MODULE__.handle_event/4, nil)
   end
 
@@ -294,19 +154,11 @@ defmodule Reencodarr.TelemetryReporter do
     :timer.send_interval(@refresh_interval, self(), :refresh_stats)
   end
 
-  defp emit_state_update_and_return(state) do
+  defp emit_state_update_and_return(%DashboardState{} = state) do
     # Emit telemetry event for state updates
     :telemetry.execute([:reencodarr, :dashboard, :state_updated], %{}, %{state: state})
 
     Logger.debug("TelemetryReporter: Emitted state update telemetry event")
     state
-  end
-
-  # Safely fetch stats with proper error handling
-  defp fetch_stats_safely do
-    stats = Reencodarr.Media.fetch_stats()
-    {:ok, stats}
-  rescue
-    error -> {:error, error}
   end
 end
