@@ -277,52 +277,43 @@ defmodule Reencodarr.Statistics do
 
   # --- Private Helpers ---
 
-  # Clause 1: Incoming update signals a reset (filename: :none)
-  defp determine_progress(
-         _current_progress,
-         %{filename: :none, __struct__: module_name} = _incoming_progress
-       ) do
-    # Inlined reset_progress: Reset to default struct of the incoming type with filename: :none
+  defp determine_progress(current_progress, incoming_progress) do
+    case {current_progress.filename, incoming_progress.filename} do
+      # Reset case: incoming has :none filename
+      {_, :none} ->
+        reset_progress(incoming_progress.__struct__)
+
+      # Same filename: merge progress
+      {fname, fname} when is_binary(fname) ->
+        merge_progress(current_progress, incoming_progress)
+
+      # New filename: replace entirely
+      {_, fname} when is_binary(fname) ->
+        incoming_progress
+
+      # Fallback: use incoming
+      _ ->
+        incoming_progress
+    end
+  end
+
+  defp reset_progress(module_name) do
     struct(module_name, filename: :none)
   end
 
-  # Clause 2: Filenames match and are binary strings -> merge
-  defp determine_progress(
-         %{filename: fname, __struct__: module_name} = current_progress,
-         %{filename: fname} = incoming_progress
-       )
-       when is_binary(fname) do
-    # Inlined merge_progress:
-    # Get defaults for the type of the current progress struct
-    defaults = struct(module_name)
+  defp merge_progress(current_progress, incoming_progress) do
+    defaults = struct(current_progress.__struct__)
 
     changes_to_apply =
       incoming_progress
       |> Map.from_struct()
-      |> Map.filter(fn {key, value} ->
-        # Only apply if key is not :filename and value is different from its default
-        key != :filename && value != Map.get(defaults, key)
-      end)
+      |> Map.reject(&should_ignore_field?(&1, defaults))
 
     struct(current_progress, changes_to_apply)
   end
 
-  # Clause 3: Incoming update has a new binary filename -> start new progress tracking
-  defp determine_progress(
-         # Current progress is not used as we are replacing it
-         _current_progress,
-         %{filename: update_fn} = incoming_progress
-       )
-       when is_binary(update_fn) do
-    # Use the incoming progress struct as is
-    incoming_progress
-  end
-
-  # Clause 4: Fallback -> use incoming progress as is
-  # This covers any other cases, typically meaning the incoming_progress is taken as the new state.
-  defp determine_progress(_current_progress, incoming_progress) do
-    incoming_progress
-  end
+  defp should_ignore_field?({:filename, _}, _defaults), do: true
+  defp should_ignore_field?({key, value}, defaults), do: value == Map.get(defaults, key)
 
   defp subscribe_to_topics do
     for topic <- ["progress", "encoder", "crf_searcher", "media_events"] do
