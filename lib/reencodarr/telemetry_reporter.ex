@@ -5,7 +5,6 @@ defmodule Reencodarr.TelemetryReporter do
   # Configuration constants
   @refresh_interval :timer.seconds(5)
   @telemetry_handler_id "reencodarr-reporter"
-  @broadcast_topic "telemetry_stats"
 
   # Default timeout for GenServer calls
   @call_timeout :timer.seconds(10)
@@ -96,7 +95,7 @@ defmodule Reencodarr.TelemetryReporter do
         videos_by_estimated_percent: stats.videos_by_estimated_percent
     }
 
-    {:noreply, broadcast_and_return(new_state)}
+    {:noreply, emit_state_update_and_return(new_state)}
   end
 
   def handle_cast({:stats_fetch_failed, error}, state) do
@@ -113,7 +112,7 @@ defmodule Reencodarr.TelemetryReporter do
         encoding_progress: %Reencodarr.Statistics.EncodingProgress{filename: filename}
     }
 
-    {:noreply, broadcast_and_return(new_state)}
+    {:noreply, emit_state_update_and_return(new_state)}
   end
 
   def handle_cast({:update_encoding, false, _}, state) do
@@ -123,7 +122,7 @@ defmodule Reencodarr.TelemetryReporter do
         encoding_progress: %Reencodarr.Statistics.EncodingProgress{}
     }
 
-    {:noreply, broadcast_and_return(new_state)}
+    {:noreply, emit_state_update_and_return(new_state)}
   end
 
   def handle_cast({:update_encoding_progress, measurements}, state) do
@@ -136,7 +135,7 @@ defmodule Reencodarr.TelemetryReporter do
     updated_progress = smart_merge(Map.from_struct(current_progress), measurements)
     progress = struct(Reencodarr.Statistics.EncodingProgress, updated_progress)
 
-    {:noreply, broadcast_and_return(%{state | encoding_progress: progress})}
+    {:noreply, emit_state_update_and_return(%{state | encoding_progress: progress})}
   end
 
   def handle_cast({:update_crf_search, status}, state) do
@@ -149,7 +148,7 @@ defmodule Reencodarr.TelemetryReporter do
       end
 
     {:noreply,
-     broadcast_and_return(%{state | crf_searching: status, crf_search_progress: new_progress})}
+     emit_state_update_and_return(%{state | crf_searching: status, crf_search_progress: new_progress})}
   end
 
   def handle_cast({:update_crf_search_progress, measurements}, state) do
@@ -163,15 +162,15 @@ defmodule Reencodarr.TelemetryReporter do
     progress = struct(Reencodarr.Statistics.CrfSearchProgress, updated_progress)
 
     Logger.debug("TelemetryReporter: Final progress state: #{inspect(progress)}")
-    {:noreply, broadcast_and_return(%{state | crf_search_progress: progress})}
+    {:noreply, emit_state_update_and_return(%{state | crf_search_progress: progress})}
   end
 
   def handle_cast({:update_sync, :started, _}, state) do
-    {:noreply, broadcast_and_return(%{state | syncing: true, sync_progress: 0})}
+    {:noreply, emit_state_update_and_return(%{state | syncing: true, sync_progress: 0})}
   end
 
   def handle_cast({:update_sync, :completed, _}, state) do
-    {:noreply, broadcast_and_return(%{state | syncing: false, sync_progress: 0})}
+    {:noreply, emit_state_update_and_return(%{state | syncing: false, sync_progress: 0})}
   end
 
   @impl true
@@ -282,28 +281,11 @@ defmodule Reencodarr.TelemetryReporter do
     :timer.send_interval(@refresh_interval, :refresh_stats)
   end
 
-  defp broadcast_and_return(state) do
-    # Record broadcast timing for monitoring
-    start_time = System.monotonic_time(:microsecond)
+  defp emit_state_update_and_return(state) do
+    # Emit telemetry event for state updates
+    :telemetry.execute([:reencodarr, :dashboard, :state_updated], %{}, %{state: state})
 
-    result = Phoenix.PubSub.broadcast(Reencodarr.PubSub, @broadcast_topic, {:stats_update, state})
-
-    end_time = System.monotonic_time(:microsecond)
-    duration = end_time - start_time
-
-    # Log slow broadcasts
-    if duration > 1000 do
-      Logger.warning("TelemetryReporter: Slow broadcast took #{duration}μs")
-    end
-
-    case result do
-      :ok ->
-        Logger.debug("TelemetryReporter: Successfully broadcasted state update")
-
-      {:error, reason} ->
-        Logger.error("TelemetryReporter: Failed to broadcast state: #{inspect(reason)}")
-    end
-
+    Logger.debug("TelemetryReporter: Emitted state update telemetry event")
     state
   end
 

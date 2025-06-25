@@ -5,8 +5,15 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    # Subscribe to telemetry stats instead of multiple topics
-    if connected?(socket), do: Phoenix.PubSub.subscribe(Reencodarr.PubSub, "telemetry_stats")
+    # Attach telemetry handler for dashboard state updates
+    if connected?(socket) do
+      :telemetry.attach_many(
+        "dashboard-#{inspect(self())}",
+        [[:reencodarr, :dashboard, :state_updated]],
+        &handle_telemetry_event/4,
+        %{live_view_pid: self()}
+      )
+    end
 
     initial_state = Reencodarr.TelemetryReporter.get_current_state()
 
@@ -20,7 +27,13 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
+  def handle_info({:telemetry_event, state}, socket) do
+    {:noreply, assign(socket, :state, state)}
+  end
+
+  @impl true
   def handle_info({:stats_update, state}, socket) do
+    # Keep for backwards compatibility during transition
     {:noreply, assign(socket, :state, state)}
   end
 
@@ -138,4 +151,19 @@ defmodule ReencodarrWeb.DashboardLive do
     <.live_component module={ReencodarrWeb.ManualScanComponent} id="manual-scan" />
     """
   end
+
+  # Telemetry event handler
+  def handle_telemetry_event([:reencodarr, :dashboard, :state_updated], _measurements, %{state: state}, %{live_view_pid: pid}) do
+    send(pid, {:telemetry_event, state})
+  end
+
+  def handle_telemetry_event(_event, _measurements, _metadata, _config), do: :ok
+
+  @impl true
+  def terminate(_reason, _socket) do
+    :telemetry.detach("dashboard-#{inspect(self())}")
+    :ok
+  end
+
+  # LiveView callbacks
 end
