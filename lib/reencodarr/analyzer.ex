@@ -89,6 +89,20 @@ defmodule Reencodarr.Analyzer do
     end
   end
 
+  # Handle unexpected refresh_stats messages (possibly sent to wrong process)
+  def handle_info(:refresh_stats, state) do
+    Logger.warning("Analyzer received unexpected :refresh_stats message - ignoring")
+    {:noreply, state}
+  end
+
+  # Catch-all for unexpected messages
+  def handle_info(msg, state) do
+    Logger.warning("Analyzer received unexpected message: #{inspect(msg)} - ignoring")
+    {:noreply, state}
+  end
+
+  # Helper functions
+
   defp schedule_process do
     Process.send_after(self(), :process_queue, @process_interval)
   end
