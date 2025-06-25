@@ -1,5 +1,6 @@
 defmodule ReencodarrWeb.CrfSearchProgressComponent do
   use Phoenix.LiveComponent
+  alias Reencodarr.Statistics.CrfSearchProgress
 
   attr :crf_search_progress, :map, required: true
 
@@ -7,14 +8,32 @@ defmodule ReencodarrWeb.CrfSearchProgressComponent do
   def render(assigns) do
     ~H"""
     <div>
-      <%= if @crf_search_progress.filename != :none do %>
+      <%= if CrfSearchProgress.has_data?(@crf_search_progress) do %>
         <div class="text-sm leading-5 text-gray-100 dark:text-gray-200 mb-1">
-          <span class="font-semibold">{@crf_search_progress.filename}</span>
+          <span class="font-semibold">
+            {CrfSearchProgress.display_filename(@crf_search_progress)}
+          </span>
         </div>
         <div class="text-xs leading-5 text-gray-400 dark:text-gray-300 mb-2">
           <ul class="list-disc pl-5 fancy-list">
-            <li>CRF: <strong>{@crf_search_progress.crf}</strong></li>
-            <li>VMAF Score: <strong>{@crf_search_progress.score}</strong> (Target: 95)</li>
+            <%= if CrfSearchProgress.has_crf?(@crf_search_progress) do %>
+              <li>CRF: <strong>{format_number(@crf_search_progress.crf)}</strong></li>
+            <% end %>
+            <%= if CrfSearchProgress.has_score?(@crf_search_progress) do %>
+              <li>
+                VMAF Score: <strong>{format_number(@crf_search_progress.score)}</strong>
+                <span class="text-gray-500">(Target: 95)</span>
+              </li>
+            <% end %>
+            <%= if CrfSearchProgress.has_percent?(@crf_search_progress) do %>
+              <li>Progress: <strong>{format_percent(@crf_search_progress.percent)}</strong></li>
+            <% end %>
+            <%= if CrfSearchProgress.has_fps?(@crf_search_progress) do %>
+              <li>FPS: <strong>{format_number(@crf_search_progress.fps)}</strong></li>
+            <% end %>
+            <%= if CrfSearchProgress.has_eta?(@crf_search_progress) do %>
+              <li>ETA: <strong>{@crf_search_progress.eta}</strong></li>
+            <% end %>
           </ul>
         </div>
       <% else %>
@@ -25,4 +44,18 @@ defmodule ReencodarrWeb.CrfSearchProgressComponent do
     </div>
     """
   end
+
+  # Helper functions for better formatting
+  defp format_number(nil), do: "N/A"
+  defp format_number(num) when is_float(num), do: :erlang.float_to_binary(num, decimals: 2)
+  defp format_number(num) when is_integer(num), do: Integer.to_string(num)
+  defp format_number(num), do: to_string(num)
+
+  defp format_percent(nil), do: "N/A"
+
+  defp format_percent(percent) when is_number(percent) do
+    "#{format_number(percent)}%"
+  end
+
+  defp format_percent(percent), do: "#{percent}%"
 end

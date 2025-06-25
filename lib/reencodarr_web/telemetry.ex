@@ -78,7 +78,35 @@ defmodule ReencodarrWeb.Telemetry do
       summary("vm.memory.total", unit: {:byte, :kilobyte}),
       summary("vm.total_run_queue_lengths.total"),
       summary("vm.total_run_queue_lengths.cpu"),
-      summary("vm.total_run_queue_lengths.io")
+      summary("vm.total_run_queue_lengths.io"),
+
+      # Reencodarr Metrics
+      summary("reencodarr.encoder.duration",
+        unit: {:native, :second},
+        description: "Time taken to encode a video"
+      ),
+      summary("reencodarr.crf_search.duration",
+        unit: {:native, :second},
+        description: "Time taken to complete CRF search"
+      ),
+      summary("reencodarr.sync.duration",
+        unit: {:native, :second},
+        description: "Time taken to sync library"
+      ),
+      counter("reencodarr.media.video_upserted.count",
+        description: "Number of videos upserted"
+      ),
+      counter("reencodarr.media.vmaf_upserted.count",
+        description: "Number of VMAF scores upserted"
+      ),
+      last_value("reencodarr.analyzer.throughput",
+        unit: :file,
+        description: "Current analyzer throughput in files per minute"
+      ),
+      last_value("reencodarr.analyzer.queue_length",
+        unit: :file,
+        description: "Current analyzer queue length"
+      )
     ]
   end
 

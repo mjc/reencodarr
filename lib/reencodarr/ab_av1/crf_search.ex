@@ -120,11 +120,21 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
     args = build_crf_search_args(video, vmaf_percent)
     new_state = %{state | port: Helper.open_port(args), current_task: %{video: video, args: args}}
+
+    # Emit telemetry event for CRF search start
+    Reencodarr.Telemetry.emit_crf_search_started()
+
     {:noreply, new_state}
   end
 
   def handle_cast({:crf_search, video, _vmaf_percent}, state) do
     Logger.error("CRF search already in progress for video #{video.id}")
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:refresh_stats, state) do
+    # Legacy message from old statistics system - ignore since we now use telemetry
     {:noreply, state}
   end
 
@@ -191,11 +201,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   # Private helper functions
   defp perform_crf_search_cleanup(state) do
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "progress",
-      {:crf_search_progress, %CrfSearchProgress{filename: :none}}
-    )
+    # Emit telemetry event for CRF search completion
+    Reencodarr.Telemetry.emit_crf_search_completed()
 
     new_state = %{state | port: :none, current_task: :none, partial_line_buffer: ""}
     {:noreply, new_state}
@@ -252,7 +259,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
         broadcast_crf_search_progress(video.path, %CrfSearchProgress{
           filename: video.path,
-          crf: captures["crf"]
+          crf: append_decimal_before_float(captures["crf"])
         })
 
         true
@@ -414,21 +421,67 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  defp broadcast_crf_search_progress(video_path, vmaf) do
+  defp broadcast_crf_search_progress(video_path, progress_data) do
     filename = Path.basename(video_path)
 
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "progress",
-      {:crf_search_progress,
-       %CrfSearchProgress{
-         filename: filename,
-         percent: vmaf.percent,
-         crf: vmaf.crf,
-         score: vmaf.score
-       }}
-    )
+    progress =
+      case progress_data do
+        %CrfSearchProgress{} = existing_progress ->
+          # Update filename to ensure it's consistent
+          %{existing_progress | filename: filename}
+
+        vmaf when is_map(vmaf) ->
+          # Convert VMAF struct to CrfSearchProgress
+          crf_value = convert_to_number(vmaf.crf)
+          score_value = convert_to_number(vmaf.score)
+          percent_value = convert_to_number(vmaf.percent)
+
+          Logger.debug(
+            "CrfSearch: Converting VMAF to progress - CRF: #{inspect(crf_value)}, Score: #{inspect(score_value)}, Percent: #{inspect(percent_value)}"
+          )
+
+          # Include all fields - the telemetry reporter will handle smart merging
+          %CrfSearchProgress{
+            filename: filename,
+            percent: percent_value,
+            crf: crf_value,
+            score: score_value
+          }
+
+        invalid_data ->
+          Logger.warning("CrfSearch: Invalid progress data received: #{inspect(invalid_data)}")
+          %CrfSearchProgress{filename: filename}
+      end
+
+    # Always emit progress data - the reporter will handle smart merging
+    case emit_progress_safely(progress) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error("CrfSearch: Failed to emit progress for #{video_path}: #{inspect(reason)}")
+    end
   end
+
+  # Safely emit telemetry progress
+  defp emit_progress_safely(progress) do
+    Reencodarr.Telemetry.emit_crf_search_progress(progress)
+    :ok
+  rescue
+    error -> {:error, error}
+  end
+
+  defp convert_to_number(nil), do: nil
+  defp convert_to_number(val) when is_number(val), do: val
+
+  defp convert_to_number(val) when is_binary(val) do
+    case Float.parse(val) do
+      {num, _} -> num
+      :error -> nil
+    end
+  end
+
+  defp convert_to_number(_), do: nil
 
   defp parse_time(nil, _), do: nil
   defp parse_time(_, nil), do: nil

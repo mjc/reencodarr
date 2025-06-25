@@ -60,9 +60,11 @@ defmodule Reencodarr.Services.Sonarr do
     else
       # First refresh the series to update media info
       Logger.info("Refreshing series ID: #{series_id} before checking for renameable files")
+
       case refresh_series(series_id) do
         {:ok, refresh_response} ->
           Logger.info("Series refresh initiated: #{inspect(refresh_response.body)}")
+
         {:error, reason} ->
           Logger.warning("Failed to refresh series (continuing anyway): #{inspect(reason)}")
       end
@@ -72,14 +74,17 @@ defmodule Reencodarr.Services.Sonarr do
 
       # Check what files can be renamed after refresh
       Logger.info("Checking renameable files for series ID: #{series_id}")
-      renameable_files = case request(url: "/api/v3/rename?seriesId=#{series_id}", method: :get) do
-        {:ok, rename_response} ->
-          Logger.info("Renameable files response: #{inspect(rename_response.body)}")
-          rename_response.body
-        {:error, reason} ->
-          Logger.error("Failed to get renameable files: #{inspect(reason)}")
-          []
-      end
+
+      renameable_files =
+        case request(url: "/api/v3/rename?seriesId=#{series_id}", method: :get) do
+          {:ok, rename_response} ->
+            Logger.info("Renameable files response: #{inspect(rename_response.body)}")
+            rename_response.body
+
+          {:error, reason} ->
+            Logger.error("Failed to get renameable files: #{inspect(reason)}")
+            []
+        end
 
       # If no files need renaming, don't send the command
       if Enum.empty?(renameable_files) do
@@ -98,17 +103,21 @@ defmodule Reencodarr.Services.Sonarr do
           files: files_to_rename
         }
 
-        Logger.info("Sonarr rename_files request - Series ID: #{series_id}, File IDs: #{inspect(files_to_rename)}")
+        Logger.info(
+          "Sonarr rename_files request - Series ID: #{series_id}, File IDs: #{inspect(files_to_rename)}"
+        )
+
         Logger.info("Sonarr rename_files JSON payload: #{inspect(json_payload)}")
 
         case request(
-          url: "/api/v3/command",
-          method: :post,
-          json: json_payload
-        ) do
+               url: "/api/v3/command",
+               method: :post,
+               json: json_payload
+             ) do
           {:ok, response} = result ->
             Logger.info("Sonarr rename_files response: #{inspect(response.body)}")
             result
+
           {:error, reason} = error ->
             Logger.error("Sonarr rename_files error: #{inspect(reason)}")
             error
