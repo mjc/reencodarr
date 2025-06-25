@@ -56,17 +56,16 @@ defmodule Mix.Tasks.Restore do
 
   # Try to parse the value as JSON if the schema field is a map or list, else return as is
   defp parse_field(schema, field, value) do
-    type = schema.__schema__(:type, field)
-
-    cond do
-      value == "" -> nil
-      type in [:map, :array] -> Jason.decode!(value)
-      type == :integer -> String.to_integer(value)
-      type == :float -> String.to_float(value)
-      type == :boolean -> value in ["true", "1"]
-      type == :naive_datetime -> NaiveDateTime.from_iso8601!(value)
-      type == :utc_datetime -> DateTime.from_iso8601(value) |> elem(1)
-      true -> value
+    case {value, schema.__schema__(:type, field)} do
+      {"", _} -> nil
+      {v, :map} -> Jason.decode!(v)
+      {v, :array} -> Jason.decode!(v)
+      {v, :integer} -> String.to_integer(v)
+      {v, :float} -> String.to_float(v)
+      {v, :boolean} -> v in ["true", "1"]
+      {v, :naive_datetime} -> NaiveDateTime.from_iso8601!(v)
+      {v, :utc_datetime} -> DateTime.from_iso8601(v) |> elem(1)
+      {v, _} -> v
     end
   rescue
     _ -> value
