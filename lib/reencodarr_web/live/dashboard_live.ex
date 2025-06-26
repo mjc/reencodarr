@@ -225,10 +225,10 @@ defmodule ReencodarrWeb.DashboardLive do
         <div class="flex-1">
           <div class="flex items-center gap-3 mb-2">
             <span class="text-2xl">{@icon}</span>
-            <h3 class="text-slate-300 text-sm font-medium">{@title}</h3>
+            <h3 class="text-slate-200 text-sm font-semibold">{@title}</h3>
           </div>
           <p class="text-3xl font-bold text-white mb-1">{@value}</p>
-          <p class="text-slate-400 text-xs">{@subtitle}</p>
+          <p class="text-slate-300 text-xs font-medium">{@subtitle}</p>
         </div>
 
         <!-- Progress Ring (if provided) -->
@@ -277,17 +277,17 @@ defmodule ReencodarrWeb.DashboardLive do
         <!-- Encoding Status -->
         <div class="space-y-3">
           <div class="flex items-center justify-between">
-            <span class="text-slate-300 text-sm">Encoding</span>
+            <span class="text-slate-200 text-sm font-semibold">Encoding</span>
             <.status_indicator active={@encoding} />
           </div>
           <%= if @encoding and map_size(@encoding_progress) > 0 do %>
             <.progress_bar
               label="Progress"
-              value={@encoding_progress[:percent] || 0}
+              value={@encoding_progress.percent || 0}
               color="from-emerald-500 to-teal-500"
             />
-            <%= if @encoding_progress[:filename] do %>
-              <p class="text-xs text-slate-400 truncate" title={@encoding_progress.filename}>
+            <%= if @encoding_progress.filename do %>
+              <p class="text-xs text-slate-300 truncate font-medium" title={@encoding_progress.filename}>
                 {Path.basename(@encoding_progress.filename)}
               </p>
             <% end %>
@@ -297,17 +297,17 @@ defmodule ReencodarrWeb.DashboardLive do
         <!-- CRF Search Status -->
         <div class="space-y-3">
           <div class="flex items-center justify-between">
-            <span class="text-slate-300 text-sm">CRF Search</span>
+            <span class="text-slate-200 text-sm font-semibold">CRF Search</span>
             <.status_indicator active={@crf_searching} />
           </div>
           <%= if @crf_searching and map_size(@crf_search_progress) > 0 do %>
             <.progress_bar
               label="Progress"
-              value={@crf_search_progress[:percent] || 0}
+              value={@crf_search_progress.percent || 0}
               color="from-blue-500 to-cyan-500"
             />
-            <%= if @crf_search_progress[:filename] do %>
-              <p class="text-xs text-slate-400 truncate" title={@crf_search_progress.filename}>
+            <%= if @crf_search_progress.filename do %>
+              <p class="text-xs text-slate-300 truncate font-medium" title={@crf_search_progress.filename}>
                 {Path.basename(@crf_search_progress.filename)}
               </p>
             <% end %>
@@ -317,7 +317,7 @@ defmodule ReencodarrWeb.DashboardLive do
         <!-- Sync Status -->
         <div class="space-y-3">
           <div class="flex items-center justify-between">
-            <span class="text-slate-300 text-sm">Sync</span>
+            <span class="text-slate-200 text-sm font-semibold">Sync</span>
             <.status_indicator active={@syncing} />
           </div>
           <%= if @syncing and @sync_progress > 0 do %>
@@ -341,8 +341,8 @@ defmodule ReencodarrWeb.DashboardLive do
         if(@active, do: "bg-emerald-400 animate-pulse", else: "bg-slate-600")
       ]}></div>
       <span class={[
-        "text-xs font-medium",
-        if(@active, do: "text-emerald-400", else: "text-slate-500")
+        "text-xs font-semibold",
+        if(@active, do: "text-emerald-300", else: "text-slate-400")
       ]}>
         {if @active, do: "Active", else: "Idle"}
       </span>
@@ -356,8 +356,8 @@ defmodule ReencodarrWeb.DashboardLive do
     ~H"""
     <div class="space-y-1">
       <div class="flex justify-between text-xs">
-        <span class="text-slate-400">{@label}</span>
-        <span class="text-slate-300">{@value}%</span>
+        <span class="text-slate-300 font-medium">{@label}</span>
+        <span class="text-slate-100 font-semibold">{@value}%</span>
       </div>
       <div class="w-full bg-slate-700 rounded-full h-2 overflow-hidden">
         <div
@@ -418,7 +418,7 @@ defmodule ReencodarrWeb.DashboardLive do
       <div class="flex items-center gap-2">
         <span class={if(@small, do: "text-sm", else: "text-base")}>{@icon}</span>
         <span class={[
-          "text-slate-300",
+          "text-slate-200",
           if(@small, do: "text-xs", else: "text-sm")
         ]}>{@label}</span>
       </div>
@@ -438,7 +438,7 @@ defmodule ReencodarrWeb.DashboardLive do
           <span class="text-lg">{@icon}</span>
           {@title}
         </h3>
-        <span class="text-sm text-slate-400 bg-white/5 px-3 py-1 rounded-full">
+        <span class="text-sm text-slate-300 bg-white/10 px-3 py-1 rounded-full font-medium">
           {length(@files)} items
         </span>
       </div>
