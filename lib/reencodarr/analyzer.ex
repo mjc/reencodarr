@@ -90,10 +90,6 @@ defmodule Reencodarr.Analyzer do
     end
   end
 
-  defp should_process_video?(video, force_reanalyze) do
-    is_nil(video) or video.bitrate == 0 or force_reanalyze
-  end
-
   # Handle unexpected refresh_stats messages (possibly sent to wrong process)
   def handle_info(:refresh_stats, state) do
     Logger.warning("Analyzer received unexpected :refresh_stats message - ignoring")
@@ -107,6 +103,10 @@ defmodule Reencodarr.Analyzer do
   end
 
   # Helper functions
+
+  defp should_process_video?(video, force_reanalyze) do
+    is_nil(video) or video.bitrate == 0 or force_reanalyze
+  end
 
   defp schedule_process do
     Process.send_after(self(), :process_queue, @process_interval)

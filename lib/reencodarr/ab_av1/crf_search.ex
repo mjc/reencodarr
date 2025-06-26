@@ -252,8 +252,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_vmaf_line(line, video, args) do
     # Try simple VMAF pattern first, then sample pattern as fallback
-    case match_line(line, :simple_vmaf) || match_line(line, :sample_vmaf) ||
-           match_line(line, :dash_vmaf) do
+    case try_patterns(line, [:simple_vmaf, :sample_vmaf, :dash_vmaf]) do
       nil ->
         false
 
@@ -265,6 +264,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         upsert_vmaf(Map.put(captures, "chosen", false), video, args)
         true
     end
+  end
+
+  defp try_patterns(line, patterns) do
+    Enum.find_value(patterns, fn pattern ->
+      match_line(line, pattern)
+    end)
   end
 
   defp handle_eta_vmaf_line(line, video, args) do

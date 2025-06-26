@@ -46,87 +46,23 @@ defmodule Reencodarr.CrfSearcher.Producer do
     Logger.info("CrfSearcher producer resumed")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :started})
     new_state = %{state | paused: false}
-    # Try to fulfill any pending demand immediately
-    if new_state.demand == 0 do
-      {:noreply, [], new_state}
-    else
-      # Fulfill up to the current demand
-      videos = Media.get_next_crf_search(new_state.demand)
-
-      if length(videos) > 0 do
-        Logger.debug("CrfSearcher producer dispatching #{length(videos)} videos for CRF search")
-        new_demand = new_state.demand - length(videos)
-        final_state = %{new_state | demand: new_demand}
-        {:noreply, videos, final_state}
-      else
-        # No items available, keep the demand for later
-        {:noreply, [], new_state}
-      end
-    end
+    dispatch_if_ready(new_state)
   end
 
   @impl true
   def handle_cast(:dispatch_available, state) do
-    # External trigger that new items might be available
-    if state.paused or state.demand == 0 do
-      {:noreply, [], state}
-    else
-      # Fulfill up to the current demand
-      videos = Media.get_next_crf_search(state.demand)
-
-      if length(videos) > 0 do
-        Logger.debug("CrfSearcher producer dispatching #{length(videos)} videos for CRF search")
-        new_demand = state.demand - length(videos)
-        new_state = %{state | demand: new_demand}
-        {:noreply, videos, new_state}
-      else
-        # No items available, keep the demand for later
-        {:noreply, [], state}
-      end
-    end
+    dispatch_if_ready(state)
   end
 
   @impl true
   def handle_demand(demand, state) when demand > 0 do
     new_state = %{state | demand: state.demand + demand}
-
-    if new_state.paused or new_state.demand == 0 do
-      {:noreply, [], new_state}
-    else
-      # Fulfill up to the current demand
-      videos = Media.get_next_crf_search(new_state.demand)
-
-      if length(videos) > 0 do
-        Logger.debug("CrfSearcher producer dispatching #{length(videos)} videos for CRF search")
-        final_demand = new_state.demand - length(videos)
-        final_state = %{new_state | demand: final_demand}
-        {:noreply, videos, final_state}
-      else
-        # No items available, keep the demand for later
-        {:noreply, [], new_state}
-      end
-    end
+    dispatch_if_ready(new_state)
   end
 
   @impl true
   def handle_info({:video_upserted, _video}, state) do
-    # New video created, might need CRF search
-    if state.paused or state.demand == 0 do
-      {:noreply, [], state}
-    else
-      # Fulfill up to the current demand
-      videos = Media.get_next_crf_search(state.demand)
-
-      if length(videos) > 0 do
-        Logger.debug("CrfSearcher producer dispatching #{length(videos)} videos for CRF search")
-        new_demand = state.demand - length(videos)
-        new_state = %{state | demand: new_demand}
-        {:noreply, videos, new_state}
-      else
-        # No items available, keep the demand for later
-        {:noreply, [], state}
-      end
-    end
+    dispatch_if_ready(state)
   end
 
   def handle_info({:vmaf_upserted, _vmaf}, state) do
@@ -137,5 +73,33 @@ defmodule Reencodarr.CrfSearcher.Producer do
   def handle_info(_msg, state) do
     # Ignore other PubSub messages
     {:noreply, [], state}
+  end
+
+  # Helper function to reduce duplication
+  defp dispatch_if_ready(state) do
+    if should_dispatch?(state) do
+      dispatch_videos(state)
+    else
+      {:noreply, [], state}
+    end
+  end
+
+  defp should_dispatch?(state) do
+    not state.paused and state.demand > 0
+  end
+
+  defp dispatch_videos(state) do
+    videos = Media.get_next_crf_search(state.demand)
+
+    case videos do
+      [] ->
+        {:noreply, [], state}
+
+      videos ->
+        Logger.debug("CrfSearcher producer dispatching #{length(videos)} videos for CRF search")
+        new_demand = state.demand - length(videos)
+        new_state = %{state | demand: new_demand}
+        {:noreply, videos, new_state}
+    end
   end
 end

@@ -1,7 +1,7 @@
 defmodule Reencodarr.ProgressHelpers do
   @moduledoc """
   Utilities for progress tracking, updating, and formatting across the application.
-  
+
   This module provides both progress update logic and consistent formatting
   for various progress-related data types.
   """
@@ -41,15 +41,15 @@ defmodule Reencodarr.ProgressHelpers do
 
   @doc """
   Formats a numeric value for display.
-  
+
   ## Examples
-  
+
       iex> ProgressHelpers.format_number(nil)
       "N/A"
-      
+
       iex> ProgressHelpers.format_number(3.14159)
       "3.14"
-      
+
       iex> ProgressHelpers.format_number(42)
       "42"
   """
@@ -60,15 +60,15 @@ defmodule Reencodarr.ProgressHelpers do
 
   @doc """
   Formats a percentage value for display.
-  
+
   ## Examples
-  
+
       iex> ProgressHelpers.format_percent(nil)
       "N/A"
-      
+
       iex> ProgressHelpers.format_percent(85.5)
       "85.50%"
-      
+
       iex> ProgressHelpers.format_percent(100)
       "100%"
   """
@@ -82,12 +82,12 @@ defmodule Reencodarr.ProgressHelpers do
 
   @doc """
   Formats a filename for display, extracting series/episode information if present.
-  
+
   ## Examples
-  
+
       iex> ProgressHelpers.format_filename("/path/to/Breaking Bad - S01E01.mkv")
       "Breaking Bad - S01E01"
-      
+
       iex> ProgressHelpers.format_filename("/path/to/movie.mp4")
       "movie.mp4"
   """
@@ -105,15 +105,15 @@ defmodule Reencodarr.ProgressHelpers do
 
   @doc """
   Formats a value as a string, handling nil values gracefully.
-  
+
   ## Examples
-  
+
       iex> ProgressHelpers.format_value(nil)
       "N/A"
-      
+
       iex> ProgressHelpers.format_value("Hello")
       "Hello"
-      
+
       iex> ProgressHelpers.format_value(42)
       "42"
   """
@@ -137,7 +137,7 @@ defmodule Reencodarr.ProgressHelpers do
       {_, %{} = map} when map_size(map) == 0 -> false
       # For CRF and score, 0 is not meaningful (these should be positive numbers)
       {k, 0} when k in [:crf, :score] -> false
-      {k, 0.0} when k in [:crf, :score] -> false
+      {k, v} when k in [:crf, :score] and v == 0.0 -> false
       # For other values, 0 can be meaningful (like 0% progress at start)
       {_, _} -> true
     end
