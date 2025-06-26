@@ -84,18 +84,6 @@ defmodule ReencodarrWeb.StatisticsComponent do
     datetime
     |> DateTime.from_naive!("Etc/UTC")
     |> DateTime.shift_zone!(tz)
-    |> relative_time()
-  end
-
-  defp relative_time(datetime) do
-    now = DateTime.utc_now()
-    diff = DateTime.diff(now, datetime, :second)
-
-    cond do
-      diff < 60 -> "#{diff} second(s) ago"
-      diff < 3600 -> "#{div(diff, 60)} minute(s) ago"
-      diff < 86400 -> "#{div(diff, 3600)} hour(s) ago"
-      true -> "#{div(diff, 86400)} day(s) ago"
-    end
+    |> ReencodarrWeb.Utils.TimeUtils.relative_time()
   end
 end

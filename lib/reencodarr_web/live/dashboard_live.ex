@@ -503,36 +503,9 @@ defmodule ReencodarrWeb.DashboardLive do
   defp calculate_progress(_, _), do: 0
 
   # Helper function for human readable time (relative time like "2 hours ago")
-  defp human_readable_time(nil, _timezone), do: "Never"
-  defp human_readable_time(datetime, _timezone) when is_binary(datetime) do
-    case DateTime.from_iso8601(datetime) do
-      {:ok, dt, _} ->
-        time_ago(dt)
-      _ -> "Invalid date"
-    end
-  end
-  defp human_readable_time(%DateTime{} = datetime, _timezone) do
-    time_ago(datetime)
-  end
-  defp human_readable_time(%NaiveDateTime{} = datetime, _timezone) do
-    datetime
-    |> DateTime.from_naive!("Etc/UTC")
-    |> time_ago()
-  end
-  defp human_readable_time(datetime, _), do: inspect(datetime)
-
-  defp time_ago(datetime) do
-    now = DateTime.utc_now()
-    diff = DateTime.diff(now, datetime, :second)
-
-    cond do
-      diff < 60 -> "#{diff} seconds ago"
-      diff < 3600 -> "#{div(diff, 60)} minutes ago"
-      diff < 86400 -> "#{div(diff, 3600)} hours ago"
-      diff < 2592000 -> "#{div(diff, 86400)} days ago"
-      diff < 31536000 -> "#{div(diff, 2592000)} months ago"
-      true -> "#{div(diff, 31536000)} years ago"
-    end
+  # Uses the shared TimeUtils module for consistent formatting across the app
+  defp human_readable_time(datetime, _timezone) do
+    ReencodarrWeb.Utils.TimeUtils.relative_time(datetime)
   end
 
   # Helper functions to extract data from file structs
