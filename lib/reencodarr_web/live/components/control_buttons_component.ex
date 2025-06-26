@@ -73,7 +73,7 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
   end
 
   defp toggle_button_classes(is_active, active_color, inactive_color) do
-    base = "flex items-center space-x-2 px-4 py-2 rounded-lg shadow font-semibold focus:outline-none focus:ring-2 transition-all duration-150"
+    base = "group relative overflow-hidden rounded-xl px-4 py-3 font-semibold text-white transition-all duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-transparent"
 
     active_classes = color_classes(active_color)
     inactive_classes = color_classes(inactive_color)
@@ -82,25 +82,25 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
   end
 
   defp sync_button_classes(is_syncing, color) do
-    base = "flex items-center space-x-2 font-semibold px-4 py-2 rounded-lg shadow focus:outline-none focus:ring-2 transition-all duration-150"
+    base = "group relative overflow-hidden rounded-xl px-4 py-3 font-semibold text-white transition-all duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-transparent"
 
-    disabled_classes = "bg-gray-500 hover:bg-gray-600 focus:ring-gray-500 cursor-not-allowed"
+    disabled_classes = "bg-gradient-to-r from-slate-500 to-slate-600 cursor-not-allowed opacity-50"
     active_classes = color_classes(color)
 
     button_classes(base, is_syncing, disabled_classes, active_classes)
   end
 
-  # Map color names to actual Tailwind classes to avoid purging issues
-  defp color_classes("red"), do: "bg-red-500 hover:bg-red-600 focus:ring-red-500"
-  defp color_classes("indigo"), do: "bg-indigo-500 hover:bg-indigo-600 focus:ring-indigo-500"
-  defp color_classes("green"), do: "bg-green-500 hover:bg-green-600 focus:ring-green-500"
-  defp color_classes("yellow"), do: "bg-yellow-500 hover:bg-yellow-600 focus:ring-yellow-500"
-  defp color_classes("blue"), do: "bg-blue-500 hover:bg-blue-600 focus:ring-blue-500"
-  defp color_classes("purple"), do: "bg-purple-500 hover:bg-purple-600 focus:ring-purple-500"
-  defp color_classes("pink"), do: "bg-pink-500 hover:bg-pink-600 focus:ring-pink-500"
-  defp color_classes("gray"), do: "bg-gray-500 hover:bg-gray-600 focus:ring-gray-500"
+  # Map color names to actual Tailwind classes with modern styling
+  defp color_classes("red"), do: "bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 shadow-lg shadow-red-500/25"
+  defp color_classes("indigo"), do: "bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 shadow-lg shadow-indigo-500/25"
+  defp color_classes("green"), do: "bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 shadow-lg shadow-emerald-500/25"
+  defp color_classes("yellow"), do: "bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 shadow-lg shadow-amber-500/25"
+  defp color_classes("blue"), do: "bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-lg shadow-blue-500/25"
+  defp color_classes("purple"), do: "bg-gradient-to-r from-purple-500 to-purple-600 hover:from-purple-600 hover:to-purple-700 shadow-lg shadow-purple-500/25"
+  defp color_classes("pink"), do: "bg-gradient-to-r from-pink-500 to-pink-600 hover:from-pink-600 hover:to-pink-700 shadow-lg shadow-pink-500/25"
+  defp color_classes("gray"), do: "bg-gradient-to-r from-slate-500 to-slate-600 hover:from-slate-600 hover:to-slate-700 shadow-lg shadow-slate-500/25"
   # Fallback for unknown colors
-  defp color_classes(_), do: "bg-gray-500 hover:bg-gray-600 focus:ring-gray-500"
+  defp color_classes(_), do: "bg-gradient-to-r from-slate-500 to-slate-600 hover:from-slate-600 hover:to-slate-700 shadow-lg shadow-slate-500/25"
 
   defp toggle_button_text(is_active, active_text, inactive_text) do
     if is_active, do: active_text, else: inactive_text
@@ -160,15 +160,20 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
       class={@button_classes}
       title={@button_title}
     >
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <%= if @config.state do %>
-          <rect x="6" y="4" width="4" height="16" rx="1" />
-          <rect x="14" y="4" width="4" height="16" rx="1" />
-        <% else %>
-          <polygon points="5,3 19,12 5,21 5,3" />
-        <% end %>
-      </svg>
-      <span>{@button_text}</span>
+      <!-- Background glow effect -->
+      <div class="absolute inset-0 bg-white/10 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200"></div>
+
+      <div class="relative flex items-center space-x-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <%= if @config.state do %>
+            <rect x="6" y="4" width="4" height="16" rx="1" />
+            <rect x="14" y="4" width="4" height="16" rx="1" />
+          <% else %>
+            <polygon points="5,3 19,12 5,21 5,3" />
+          <% end %>
+        </svg>
+        <span class="text-sm font-medium">{@button_text}</span>
+      </div>
     </button>
     """
   end
@@ -187,10 +192,15 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
       disabled={@config.disabled}
       title={@config.text}
     >
-      <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-        <path d="M4 4v5h.582M20 20v-5h-.581M5 9A7 7 0 0 1 19 15M19 15V9M5 9v6" />
-      </svg>
-      <span>{@config.text}</span>
+      <!-- Background glow effect -->
+      <div class="absolute inset-0 bg-white/10 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-200"></div>
+
+      <div class="relative flex items-center space-x-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path d="M4 4v5h.582M20 20v-5h-.581M5 9A7 7 0 0 1 19 15M19 15V9M5 9v6" />
+        </svg>
+        <span class="text-sm font-medium">{@config.text}</span>
+      </div>
     </button>
     """
   end
