@@ -73,7 +73,7 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
   end
 
   defp toggle_button_classes(is_active, active_color, inactive_color) do
-    base = "group relative overflow-hidden rounded-xl px-4 py-3 font-semibold text-white transition-all duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-transparent"
+    base = "group relative overflow-hidden rounded-xl px-4 py-3 font-bold text-white text-shadow transition-all duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-transparent"
 
     active_classes = color_classes(active_color)
     inactive_classes = color_classes(inactive_color)
@@ -82,7 +82,7 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
   end
 
   defp sync_button_classes(is_syncing, color) do
-    base = "group relative overflow-hidden rounded-xl px-4 py-3 font-semibold text-white transition-all duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-transparent"
+    base = "group relative overflow-hidden rounded-xl px-4 py-3 font-bold text-white text-shadow transition-all duration-200 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-transparent"
 
     disabled_classes = "bg-gradient-to-r from-slate-500 to-slate-600 cursor-not-allowed opacity-50"
     active_classes = color_classes(color)
@@ -172,7 +172,7 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
             <polygon points="5,3 19,12 5,21 5,3" />
           <% end %>
         </svg>
-        <span class="text-sm font-medium">{@button_text}</span>
+        <span class="text-sm font-bold tracking-wide">{@button_text}</span>
       </div>
     </button>
     """
@@ -199,7 +199,7 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
         <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
           <path d="M4 4v5h.582M20 20v-5h-.581M5 9A7 7 0 0 1 19 15M19 15V9M5 9v6" />
         </svg>
-        <span class="text-sm font-medium">{@config.text}</span>
+        <span class="text-sm font-bold tracking-wide">{@config.text}</span>
       </div>
     </button>
     """
