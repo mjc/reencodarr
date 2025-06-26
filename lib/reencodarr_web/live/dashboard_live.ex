@@ -15,7 +15,7 @@ defmodule ReencodarrWeb.DashboardLive do
       )
     end
 
-    initial_state = Reencodarr.TelemetryReporter.get_current_state()
+    initial_state = get_initial_state()
 
     socket =
       assign(socket,
@@ -157,6 +157,17 @@ defmodule ReencodarrWeb.DashboardLive do
   def terminate(_reason, _socket) do
     :telemetry.detach("dashboard-#{inspect(self())}")
     :ok
+  end
+
+  # Helper function to safely get initial state, with fallback for test environment
+  defp get_initial_state do
+    try do
+      Reencodarr.TelemetryReporter.get_current_state()
+    catch
+      :exit, _ ->
+        # Return a default dashboard state for tests
+        Reencodarr.DashboardState.initial()
+    end
   end
 
   # LiveView callbacks

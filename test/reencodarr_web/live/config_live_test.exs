@@ -18,6 +18,23 @@ defmodule ReencodarrWeb.ConfigLiveTest do
     %{config: config}
   end
 
+  # Test helper functions to reduce repetition
+  defp test_form_validation(live_view, form_id, invalid_attrs, expected_error \\ "can&#39;t be blank") do
+    live_view
+    |> form(form_id, config: invalid_attrs)
+    |> render_change() =~ expected_error
+  end
+
+  defp test_form_submission(live_view, form_id, attrs) do
+    live_view
+    |> form(form_id, config: attrs)
+    |> render_submit()
+  end
+
+  defp click_element_and_assert(live_view, selector, text, expected_content) do
+    assert live_view |> element(selector, text) |> render_click() =~ expected_content
+  end
+
   describe "Index" do
     setup [:create_config]
 
@@ -31,18 +48,11 @@ defmodule ReencodarrWeb.ConfigLiveTest do
     test "saves new config", %{conn: conn} do
       {:ok, index_live, _html} = live(conn, ~p"/configs")
 
-      assert index_live |> element("a", "New Config") |> render_click() =~
-               "New Config"
-
+      click_element_and_assert(index_live, "a", "New Config", "New Config")
       assert_patch(index_live, ~p"/configs/new")
 
-      assert index_live
-             |> form("#config-form", config: @invalid_attrs)
-             |> render_change() =~ "can&#39;t be blank"
-
-      assert index_live
-             |> form("#config-form", config: @create_attrs)
-             |> render_submit()
+      assert test_form_validation(index_live, "#config-form", @invalid_attrs)
+      test_form_submission(index_live, "#config-form", @create_attrs)
 
       assert_patch(index_live, ~p"/configs")
 
@@ -54,18 +64,11 @@ defmodule ReencodarrWeb.ConfigLiveTest do
     test "updates config in listing", %{conn: conn, config: config} do
       {:ok, index_live, _html} = live(conn, ~p"/configs")
 
-      assert index_live |> element("#configs-#{config.id} a", "Edit") |> render_click() =~
-               "Edit Config"
-
+      click_element_and_assert(index_live, "#configs-#{config.id} a", "Edit", "Edit Config")
       assert_patch(index_live, ~p"/configs/#{config}/edit")
 
-      assert index_live
-             |> form("#config-form", config: @invalid_attrs)
-             |> render_change() =~ "can&#39;t be blank"
-
-      assert index_live
-             |> form("#config-form", config: @update_attrs)
-             |> render_submit()
+      assert test_form_validation(index_live, "#config-form", @invalid_attrs)
+      test_form_submission(index_live, "#config-form", @update_attrs)
 
       assert_patch(index_live, ~p"/configs")
 
