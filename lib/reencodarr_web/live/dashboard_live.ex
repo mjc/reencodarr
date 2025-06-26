@@ -525,14 +525,11 @@ defmodule ReencodarrWeb.DashboardLive do
   defp human_readable_time(datetime, _), do: inspect(datetime)
 
   # Helper functions to extract data from file structs
-  defp get_file_path(file) do
-    file.path || "Unknown"
-  rescue
-    _ -> "Unknown"
-  end
+  defp get_file_path(%{video: %{path: path}}) when is_binary(path), do: path
+  defp get_file_path(%{path: path}) when is_binary(path), do: path
+  defp get_file_path(_), do: "Unknown"
 
   defp get_estimated_percent(file) do
-    # Check if the struct has estimated_percent field, otherwise return nil
     Map.get(file, :estimated_percent, nil)
   rescue
     _ -> nil
