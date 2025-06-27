@@ -287,8 +287,8 @@ defmodule ReencodarrWeb.DashboardLive do
               color="from-emerald-500 to-teal-500"
             />
             <%= if @encoding_progress.filename do %>
-              <p class="text-xs text-slate-300 truncate font-medium" title={@encoding_progress.filename}>
-                {Path.basename(@encoding_progress.filename)}
+              <p class="text-xs text-slate-300 truncate font-medium" title={safe_filename(@encoding_progress.filename)}>
+                {safe_basename(@encoding_progress.filename)}
               </p>
             <% end %>
           <% end %>
@@ -307,8 +307,8 @@ defmodule ReencodarrWeb.DashboardLive do
               color="from-blue-500 to-cyan-500"
             />
             <%= if @crf_search_progress.filename do %>
-              <p class="text-xs text-slate-300 truncate font-medium" title={@crf_search_progress.filename}>
-                {Path.basename(@crf_search_progress.filename)}
+              <p class="text-xs text-slate-300 truncate font-medium" title={safe_filename(@crf_search_progress.filename)}>
+                {safe_basename(@crf_search_progress.filename)}
               </p>
             <% end %>
           <% end %>
@@ -518,4 +518,13 @@ defmodule ReencodarrWeb.DashboardLive do
   rescue
     _ -> nil
   end
+
+  # Helper functions to safely handle filenames that might be atoms or non-strings
+  defp safe_filename(filename) when is_binary(filename), do: filename
+  defp safe_filename(:none), do: "Unknown"
+  defp safe_filename(filename), do: inspect(filename)
+
+  defp safe_basename(filename) when is_binary(filename), do: Path.basename(filename)
+  defp safe_basename(:none), do: "Unknown"
+  defp safe_basename(filename), do: inspect(filename)
 end
