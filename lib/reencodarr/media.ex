@@ -220,11 +220,16 @@ defmodule Reencodarr.Media do
         next_crf_search = get_next_crf_search(5)
         videos_by_estimated_percent = list_videos_by_estimated_percent(5)
 
+        # Get minimal data instead of full VMAF structs to reduce memory usage
+        next_encoding = get_next_for_encoding()
+        next_encoding_by_time = get_next_for_encoding_by_time()
+
         %Reencodarr.Statistics.Stats{
           avg_vmaf_percentage: stats.avg_vmaf_percentage,
           chosen_vmafs_count: stats.chosen_vmafs_count,
-          lowest_vmaf_by_time: get_next_for_encoding_by_time() || %Vmaf{},
-          lowest_vmaf: get_next_for_encoding() || %Vmaf{},
+          # Store only the percent value instead of full VMAF struct (~90% memory reduction)
+          lowest_vmaf_percent: next_encoding && next_encoding.percent,
+          lowest_vmaf_by_time_seconds: next_encoding_by_time && next_encoding_by_time.time,
           not_reencoded: stats.not_reencoded,
           reencoded: stats.reencoded,
           total_videos: stats.total_videos,

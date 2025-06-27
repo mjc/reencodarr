@@ -68,7 +68,7 @@ defmodule ReencodarrWeb.StatisticsComponent do
             </span>
           </div>
           <div class="text-sm leading-5 text-gray-100 dark:text-gray-200">
-            {@stats.lowest_vmaf.percent}
+            {@stats.lowest_vmaf_percent || "N/A"}
           </div>
         </div>
       </div>

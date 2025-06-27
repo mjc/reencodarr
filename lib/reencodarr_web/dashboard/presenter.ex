@@ -17,32 +17,6 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
     }
   end
 
-  @doc """
-  Efficiently present only the parts of the state that have changed.
-  This reduces memory allocation and GC pressure.
-  """
-  def present_partial(dashboard_state, previous_data, timezone \\ "UTC") do
-    # Only update what's changed to reduce memory usage
-    new_metrics = present_metrics(dashboard_state.stats)
-    new_status = present_status(dashboard_state)
-    new_stats = present_stats(dashboard_state.stats, timezone)
-
-    # Only update queues if the underlying data changed
-    new_queues =
-      if queues_changed?(dashboard_state, previous_data) do
-        present_queues(dashboard_state)
-      else
-        previous_data.queues
-      end
-
-    %{
-      metrics: new_metrics,
-      status: new_status,
-      queues: new_queues,
-      stats: new_stats
-    }
-  end
-
   defp present_metrics(stats) do
     [
       %{
@@ -100,13 +74,13 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
         title: "CRF Search Queue",
         icon: "🔍",
         color: "from-cyan-500 to-blue-500",
-        files: normalize_queue_files(dashboard_state.next_crf_search)
+        files: normalize_queue_files(Reencodarr.DashboardState.crf_search_queue(dashboard_state))
       },
       encoding: %{
         title: "Encoding Queue",
         icon: "⚡",
         color: "from-emerald-500 to-teal-500",
-        files: normalize_queue_files(dashboard_state.videos_by_estimated_percent)
+        files: normalize_queue_files(Reencodarr.DashboardState.encoding_queue(dashboard_state))
       }
     }
   end
@@ -139,27 +113,13 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   defp normalize_filename(_), do: nil
 
   defp normalize_queue_files(files) when is_list(files) do
-    # Only process and store the items we'll actually display (first 10)
-    # This can reduce memory usage by 90%+ for large queues
+    # Since DashboardState already limits to 10 items, we can process directly
+    # Use more efficient Stream operations for better memory usage
     files
-    |> Stream.take(10)  # Use Stream for lazy evaluation
     |> Stream.with_index(1)  # Start index at 1
-    |> Enum.map(fn {file, index} ->
-      QueueItem.from_video(file, index)
-    end)
+    |> Enum.map(fn {file, index} -> QueueItem.from_video(file, index) end)
   end
   defp normalize_queue_files(_), do: []
-
-  # Check if queue data has actually changed to avoid unnecessary processing
-  defp queues_changed?(dashboard_state, previous_data) do
-    current_crf_count = length(dashboard_state.stats.next_crf_search)
-    current_encoding_count = length(dashboard_state.stats.videos_by_estimated_percent)
-
-    previous_crf_count = length(previous_data.queues.crf_search.files)
-    previous_encoding_count = length(previous_data.queues.encoding.files)
-
-    current_crf_count != previous_crf_count or current_encoding_count != previous_encoding_count
-  end
 
   @doc """
   Reports approximate memory usage of dashboard data for monitoring.
