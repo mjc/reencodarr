@@ -2,7 +2,7 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   @moduledoc """
   Transforms raw dashboard state into presentation-ready data structures.
   This layer handles all data normalization and formatting logic.
-  
+
   ## Performance Optimizations:
   - Memory efficient by limiting data structures and using streams
   - Simple ETS-based caching for repeated computations
@@ -27,13 +27,13 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   def present(dashboard_state, timezone \\ "UTC") do
     # Ensure cache table exists
     start_cache()
-    
+
     # Generate cache key based on state hash and timezone
     cache_key = {
       state_hash(dashboard_state),
       timezone
     }
-    
+
     # Try to get from cache first
     case :ets.lookup(@cache_table, cache_key) do
       [{^cache_key, cached_result}] ->
@@ -46,11 +46,11 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
           queues: present_queues(dashboard_state),
           stats: present_stats(dashboard_state.stats, timezone)
         }
-        
+
         # Cache with TTL-like cleanup (keep only last 3 entries)
         cleanup_cache()
         :ets.insert(@cache_table, {cache_key, result})
-        
+
         result
     end
   end
@@ -90,35 +90,57 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   end
 
   defp present_status(dashboard_state) do
+    # Handle both DashboardState struct and telemetry event map
+    encoding = Map.get(dashboard_state, :encoding, false)
+    crf_searching = Map.get(dashboard_state, :crf_searching, false)
+    syncing = Map.get(dashboard_state, :syncing, false)
+
+    encoding_progress = Map.get(dashboard_state, :encoding_progress)
+    crf_search_progress = Map.get(dashboard_state, :crf_search_progress)
+    sync_progress = Map.get(dashboard_state, :sync_progress)
+
     %{
       encoding: %{
-        active: dashboard_state.encoding,
-        progress: normalize_progress(dashboard_state.encoding_progress)
+        active: encoding,
+        progress: normalize_progress(encoding_progress)
       },
       crf_searching: %{
-        active: dashboard_state.crf_searching,
-        progress: normalize_progress(dashboard_state.crf_search_progress)
+        active: crf_searching,
+        progress: normalize_progress(crf_search_progress)
       },
       syncing: %{
-        active: dashboard_state.syncing,
-        progress: dashboard_state.sync_progress
+        active: syncing,
+        progress: normalize_sync_progress(sync_progress)
       }
     }
   end
 
   defp present_queues(dashboard_state) do
+    # Handle both struct and map formats from telemetry
+    crf_search_files = case dashboard_state do
+      %{stats: %{next_crf_search: files}} -> files || []
+      %Reencodarr.DashboardState{} -> Reencodarr.DashboardState.crf_search_queue(dashboard_state)
+      _ -> []
+    end
+
+    encoding_files = case dashboard_state do
+      %{stats: %{videos_by_estimated_percent: files}} -> files || []
+      %Reencodarr.DashboardState{} -> Reencodarr.DashboardState.encoding_queue(dashboard_state)
+      _ -> []
+    end
+
     %{
       crf_search: %{
         title: "CRF Search Queue",
         icon: "🔍",
         color: "from-cyan-500 to-blue-500",
-        files: normalize_queue_files(Reencodarr.DashboardState.crf_search_queue(dashboard_state))
+        files: normalize_queue_files(crf_search_files)
       },
       encoding: %{
         title: "Encoding Queue",
         icon: "⚡",
         color: "from-emerald-500 to-teal-500",
-        files: normalize_queue_files(Reencodarr.DashboardState.encoding_queue(dashboard_state))
+        files: normalize_queue_files(encoding_files)
       }
     }
   end
@@ -144,7 +166,25 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
       filename: normalize_filename(Map.get(progress, :filename))
     }
   end
-  defp normalize_progress(_), do: nil
+  defp normalize_progress(_) do
+    %{
+      percent: 0,
+      filename: nil
+    }
+  end
+
+  defp normalize_sync_progress(progress) when is_integer(progress) and progress > 0 do
+    %{
+      percent: progress,
+      filename: "MEDIA SYNC"
+    }
+  end
+  defp normalize_sync_progress(_) do
+    %{
+      percent: 0,
+      filename: nil
+    }
+  end
 
   defp normalize_filename(filename) when is_binary(filename), do: filename
   defp normalize_filename(:none), do: nil
@@ -168,10 +208,14 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
       dashboard_state.encoding,
       dashboard_state.crf_searching,
       dashboard_state.syncing,
-      dashboard_state.encoding_progress.percent,
-      dashboard_state.crf_search_progress.percent
+      get_progress_percent(dashboard_state.encoding_progress),
+      get_progress_percent(dashboard_state.crf_search_progress),
+      Map.get(dashboard_state, :sync_progress, 0)  # sync_progress is an integer
     }
   end
+
+  defp get_progress_percent(progress) when is_map(progress), do: Map.get(progress, :percent, 0)
+  defp get_progress_percent(_), do: 0
 
   # Simple cache cleanup to prevent unbounded growth
   defp cleanup_cache do

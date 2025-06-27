@@ -175,7 +175,7 @@ defmodule Reencodarr.TelemetryReporter do
   defp emit_state_update_and_return(%DashboardState{} = new_state) do
     # Get the previous state for comparison (stored in process dictionary for efficiency)
     old_state = Process.get(:last_emitted_state, DashboardState.initial())
-    
+
     # Only emit telemetry if the change is significant to reduce LiveView update frequency
     if DashboardState.significant_change?(old_state, new_state) do
       # Emit telemetry event with minimal payload - only essential state for dashboard updates
@@ -191,15 +191,15 @@ defmodule Reencodarr.TelemetryReporter do
       }
 
       :telemetry.execute([:reencodarr, :dashboard, :state_updated], %{}, %{state: minimal_state})
-      
+
       # Store this state for next comparison
       Process.put(:last_emitted_state, new_state)
-      
+
       Logger.debug("TelemetryReporter: Emitted optimized state update telemetry event")
     else
       Logger.debug("TelemetryReporter: Skipped telemetry emission - no significant changes")
     end
-    
+
     new_state
   end
 end

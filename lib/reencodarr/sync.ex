@@ -40,10 +40,16 @@ defmodule Reencodarr.Sync do
   end
 
   def handle_cast(action, state) when action in [:sync_episodes, :sync_movies] do
+    Logger.info("Sync: Received #{action} action")
     {get_items, get_files, service_type} = resolve_action(action)
 
+    Logger.info("Sync: Emitting sync_started telemetry")
     Telemetry.emit_sync_started()
+
+    Logger.info("Sync: Starting sync_items")
     sync_items(get_items, get_files, service_type)
+
+    Logger.info("Sync: Emitting sync_completed telemetry")
     Telemetry.emit_sync_completed()
 
     {:noreply, state}

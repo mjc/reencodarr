@@ -49,6 +49,7 @@ defmodule Reencodarr.TelemetryEventHandler do
 
   # Sync events
   def handle_event([:reencodarr, :sync, event], measurements, _metadata, %{reporter_pid: pid}) do
+    Logger.info("TelemetryEventHandler: Sync event #{event} - measurements: #{inspect(measurements)}")
     GenServer.cast(pid, {:update_sync, event, measurements})
   end
 
@@ -58,7 +59,10 @@ defmodule Reencodarr.TelemetryEventHandler do
   end
 
   # Catch-all for unhandled events
-  def handle_event(_event, _measurements, _metadata, _config), do: :ok
+  def handle_event(event, measurements, _metadata, _config) do
+    Logger.debug("TelemetryEventHandler: Unhandled event #{inspect(event)} - measurements: #{inspect(measurements)}")
+    :ok
+  end
 
   @doc """
   Returns the list of telemetry events that should be handled.
