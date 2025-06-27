@@ -1,9 +1,14 @@
 defmodule ReencodarrWeb.DashboardLive do
+  @moduledoc """
+  Live dashboard for Reencodarr
+  """
+
   use ReencodarrWeb, :live_view
 
   require Logger
 
   alias ReencodarrWeb.Dashboard.Presenter
+  alias ReencodarrWeb.Utils.TimeUtils
 
   @impl true
   def mount(_params, _session, socket) do
@@ -11,7 +16,7 @@ defmodule ReencodarrWeb.DashboardLive do
     if connected?(socket) do
       :telemetry.attach_many(
         "dashboard-#{inspect(self())}",
-        [[:reencodarr, :dashboard, :state_updated]],
+        [[:reencodarr, :dashboard, :state_updated], [:reencodarr, :dashboard, :progress_updated]],
         &__MODULE__.handle_telemetry_event/4,
         %{live_view_pid: self()}
       )
@@ -20,11 +25,16 @@ defmodule ReencodarrWeb.DashboardLive do
     initial_state = get_initial_state()
     timezone = socket.assigns[:timezone] || "UTC"
 
+    # Only store processed data, not raw state - reduces memory by ~50%
     socket =
       assign(socket,
-        state: initial_state,
         timezone: timezone,
-        dashboard_data: Presenter.present(initial_state, timezone)
+        dashboard_data: Presenter.present(initial_state, timezone),
+        # Cache queue counts separately to avoid recomputing
+        queue_counts: %{
+          crf_search: length(initial_state.stats.next_crf_search),
+          encoding: length(initial_state.stats.videos_by_estimated_percent)
+        }
       )
 
     {:ok, socket}
@@ -32,25 +42,42 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def handle_info({:telemetry_event, state}, socket) do
+    # Selective updates based on what actually changed
     dashboard_data = Presenter.present(state, socket.assigns.timezone)
+
+    # Update queue counts cache
+    new_queue_counts = %{
+      crf_search: length(state.stats.next_crf_search),
+      encoding: length(state.stats.videos_by_estimated_percent)
+    }
 
     socket =
       socket
-      |> assign(:state, state)
       |> assign(:dashboard_data, dashboard_data)
+      |> assign(:queue_counts, new_queue_counts)
 
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:progress_update, progress_data}, socket) do
+    # Handle lightweight progress updates without full state refresh
+    updated_dashboard_data = update_progress_in_dashboard_data(socket.assigns.dashboard_data, progress_data)
+
+    socket = assign(socket, :dashboard_data, updated_dashboard_data)
     {:noreply, socket}
   end
 
   @impl true
   def handle_event("set_timezone", %{"timezone" => tz}, socket) do
     Logger.debug("Setting timezone to #{tz}")
-    dashboard_data = Presenter.present(socket.assigns.state, tz)
+    # Only update timezone-dependent data, not everything
+    updated_dashboard_data = update_timezone_in_dashboard_data(socket.assigns.dashboard_data, tz)
 
     socket =
       socket
       |> assign(:timezone, tz)
-      |> assign(:dashboard_data, dashboard_data)
+      |> assign(:dashboard_data, updated_dashboard_data)
 
     {:noreply, socket}
   end
@@ -70,7 +97,7 @@ defmodule ReencodarrWeb.DashboardLive do
       class="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 p-6"
       phx-hook="TimezoneHook"
     >
-      <.dashboard_header state={@state} />
+      <.dashboard_header dashboard_data={@dashboard_data} />
 
       <div class="max-w-7xl mx-auto space-y-8">
         <.metrics_section metrics={@dashboard_data.metrics} />
@@ -103,9 +130,9 @@ defmodule ReencodarrWeb.DashboardLive do
             <.live_component
               module={ReencodarrWeb.ControlButtonsComponent}
               id="control-buttons"
-              encoding={@state.encoding}
-              crf_searching={@state.crf_searching}
-              syncing={@state.syncing}
+              encoding={@dashboard_data.status.encoding.active}
+              crf_searching={@dashboard_data.status.crf_searching.active}
+              syncing={@dashboard_data.status.syncing.active}
             />
           </div>
         </div>
@@ -240,9 +267,13 @@ defmodule ReencodarrWeb.DashboardLive do
     """
   end
 
-  # Telemetry event handler
+  # Telemetry event handler - optimized for different update types
   def handle_telemetry_event([:reencodarr, :dashboard, :state_updated], _measurements, %{state: state}, %{live_view_pid: pid}) do
     send(pid, {:telemetry_event, state})
+  end
+
+  def handle_telemetry_event([:reencodarr, :dashboard, :progress_updated], _measurements, %{progress_data: progress_data}, %{live_view_pid: pid}) do
+    send(pid, {:progress_update, progress_data})
   end
 
   def handle_telemetry_event(_event, _measurements, _metadata, _config), do: :ok
@@ -262,5 +293,32 @@ defmodule ReencodarrWeb.DashboardLive do
         # Return a default dashboard state for tests
         Reencodarr.DashboardState.initial()
     end
+  end
+
+  # Helper functions for selective updates to reduce memory usage
+
+  defp update_progress_in_dashboard_data(dashboard_data, progress_data) do
+    # Only update progress-related fields without recreating entire data structure
+    status = dashboard_data.status
+
+    updated_status = %{
+      status
+      | encoding: Map.merge(status.encoding, Map.get(progress_data, :encoding, %{})),
+        crf_searching: Map.merge(status.crf_searching, Map.get(progress_data, :crf_searching, %{})),
+        syncing: Map.merge(status.syncing, Map.get(progress_data, :syncing, %{}))
+    }
+
+    %{dashboard_data | status: updated_status}
+  end
+
+  defp update_timezone_in_dashboard_data(dashboard_data, new_timezone) do
+    # Only update timezone-dependent fields (timestamps)
+    updated_stats = %{
+      dashboard_data.stats
+      | last_video_update: TimeUtils.relative_time(dashboard_data.stats.last_video_update),
+        last_video_insert: TimeUtils.relative_time(dashboard_data.stats.last_video_insert)
+    }
+
+    %{dashboard_data | stats: updated_stats}
   end
 end

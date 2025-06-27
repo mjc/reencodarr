@@ -67,6 +67,31 @@ defmodule Reencodarr.DashboardState do
   end
 
   @doc """
+  Updates the state with new statistics, limiting queue data to reduce memory usage.
+  """
+  def update_stats_optimized(%__MODULE__{} = state, stats) do
+    # Only store the queue items we'll actually display (first 10 each)
+    # This can reduce memory usage by 90%+ for large queues
+    limited_next_crf_search = Enum.take(stats.next_crf_search, 10)
+    limited_videos_by_estimated_percent = Enum.take(stats.videos_by_estimated_percent, 10)
+
+    # Store full counts but limited queue data
+    optimized_stats = %{
+      stats
+      | next_crf_search: limited_next_crf_search,
+        videos_by_estimated_percent: limited_videos_by_estimated_percent
+    }
+
+    %{
+      state
+      | stats: optimized_stats,
+        stats_update_in_progress: false,
+        next_crf_search: limited_next_crf_search,
+        videos_by_estimated_percent: limited_videos_by_estimated_percent
+    }
+  end
+
+  @doc """
   Updates encoding status and progress.
   """
   def update_encoding(%__MODULE__{} = state, status, filename \\ nil) do
