@@ -4,6 +4,13 @@ defmodule Reencodarr.DashboardState do
 
   This module centralizes the state structure used across the dashboard and telemetry
   reporter, making it easier to maintain and understand state transitions.
+
+  ## Memory Optimizations:
+  - Removed duplicate queue storage (only stored in stats)
+  - Automatically limits queue data to first 10 items
+  - Provides helper functions for efficient data access
+  - Consolidated update methods to reduce complexity
+  - Stats struct optimized to store minimal VMAF data instead of full structs
   """
 
   alias Reencodarr.Statistics.{Stats, EncodingProgress, CrfSearchProgress}
@@ -16,9 +23,7 @@ defmodule Reencodarr.DashboardState do
           encoding_progress: EncodingProgress.t(),
           crf_search_progress: CrfSearchProgress.t(),
           sync_progress: non_neg_integer(),
-          stats_update_in_progress: boolean(),
-          videos_by_estimated_percent: list(),
-          next_crf_search: list()
+          stats_update_in_progress: boolean()
         }
 
   defstruct stats: %Stats{},
@@ -28,9 +33,7 @@ defmodule Reencodarr.DashboardState do
             encoding_progress: %EncodingProgress{},
             crf_search_progress: %CrfSearchProgress{},
             sync_progress: 0,
-            stats_update_in_progress: false,
-            videos_by_estimated_percent: [],
-            next_crf_search: []
+            stats_update_in_progress: false
 
   @doc """
   Creates a new initial dashboard state.
@@ -54,41 +57,15 @@ defmodule Reencodarr.DashboardState do
   end
 
   @doc """
-  Updates the state with new statistics.
+  Updates the state with new statistics, optimizing queue data for memory efficiency.
+  Only stores the first 10 items of each queue since that's all the UI displays.
   """
   def update_stats(%__MODULE__{} = state, stats) do
-    %{
-      state
-      | stats: stats,
-        stats_update_in_progress: false,
-        next_crf_search: stats.next_crf_search,
-        videos_by_estimated_percent: stats.videos_by_estimated_percent
-    }
-  end
-
-  @doc """
-  Updates the state with new statistics, limiting queue data to reduce memory usage.
-  """
-  def update_stats_optimized(%__MODULE__{} = state, stats) do
-    # Only store the queue items we'll actually display (first 10 each)
+    # Optimize queue data to only store what we'll display (first 10 items)
     # This can reduce memory usage by 90%+ for large queues
-    limited_next_crf_search = Enum.take(stats.next_crf_search, 10)
-    limited_videos_by_estimated_percent = Enum.take(stats.videos_by_estimated_percent, 10)
+    optimized_stats = optimize_queue_data(stats)
 
-    # Store full counts but limited queue data
-    optimized_stats = %{
-      stats
-      | next_crf_search: limited_next_crf_search,
-        videos_by_estimated_percent: limited_videos_by_estimated_percent
-    }
-
-    %{
-      state
-      | stats: optimized_stats,
-        stats_update_in_progress: false,
-        next_crf_search: limited_next_crf_search,
-        videos_by_estimated_percent: limited_videos_by_estimated_percent
-    }
+    %{state | stats: optimized_stats, stats_update_in_progress: false}
   end
 
   @doc """
@@ -136,5 +113,40 @@ defmodule Reencodarr.DashboardState do
   """
   def set_stats_updating(%__MODULE__{} = state, updating) do
     %{state | stats_update_in_progress: updating}
+  end
+
+  @doc """
+  Gets the CRF search queue items (limited to display needs).
+  """
+  def crf_search_queue(%__MODULE__{} = state) do
+    state.stats.next_crf_search
+  end
+
+  @doc """
+  Gets the encoding queue items (limited to display needs).
+  """
+  def encoding_queue(%__MODULE__{} = state) do
+    state.stats.videos_by_estimated_percent
+  end
+
+  @doc """
+  Gets queue counts without loading full queue data.
+  """
+  def queue_counts(%__MODULE__{} = state) do
+    %{
+      crf_search: length(state.stats.next_crf_search),
+      encoding: length(state.stats.videos_by_estimated_percent)
+    }
+  end
+
+  # Private helper functions
+
+  # Optimize queue data by limiting to what we actually display
+  defp optimize_queue_data(stats) do
+    %{
+      stats
+      | next_crf_search: Enum.take(stats.next_crf_search, 10),
+        videos_by_estimated_percent: Enum.take(stats.videos_by_estimated_percent, 10)
+    }
   end
 end
