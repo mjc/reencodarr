@@ -3,6 +3,8 @@ defmodule Reencodarr.Telemetry do
   Telemetry integration for Reencodarr.
   """
 
+  require Logger
+
   def emit_encoder_started(filename) do
     :telemetry.execute(
       [:reencodarr, :encoder, :started],
@@ -66,6 +68,7 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_sync_started do
+    Logger.info("Telemetry: Emitting sync started event")
     :telemetry.execute(
       [:reencodarr, :sync, :started],
       %{},

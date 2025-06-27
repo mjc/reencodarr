@@ -7,21 +7,34 @@ defmodule ReencodarrWeb.ManualScanComponent do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="w-full max-w-2xl flex justify-center mb-6">
-      <form phx-submit="manual_scan" phx-target={@myself} class="flex items-center space-x-2 w-full">
-        <input
-          type="text"
-          name="path"
-          placeholder="Enter path to scan"
-          class="input px-4 py-2 rounded shadow border border-gray-600 dark:border-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full bg-gray-900 text-gray-100 hover:bg-gray-800 transition-colors duration-200"
-        />
+    <div class="space-y-4">
+      <form phx-submit="manual_scan" phx-target={@myself} class="space-y-3">
+        <div class="space-y-2">
+          <label class="block text-orange-300 text-sm font-bold tracking-wide">
+            SCAN PATH
+          </label>
+          <input
+            type="text"
+            name="path"
+            placeholder="/path/to/media/files"
+            class="w-full px-4 py-3 bg-gray-800 border-2 border-orange-500 rounded font-mono text-orange-400 placeholder-orange-600 focus:outline-none focus:border-yellow-400 focus:bg-gray-700 transition-all duration-200"
+          />
+        </div>
+
         <button
           type="submit"
-          class="text-white font-bold py-2 px-4 rounded shadow bg-indigo-500 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-transform transform hover:scale-105"
+          class="w-full h-12 bg-red-500 hover:bg-red-400 text-black font-bold tracking-wider rounded transition-all duration-200 hover:brightness-110 flex items-center justify-center space-x-2"
         >
-          Start Manual Scan
+          <span>🔍</span>
+          <span>INITIATE SCAN</span>
         </button>
       </form>
+
+      <div class="text-xs text-orange-300 tracking-wide space-y-1">
+        <p>• SPECIFY FULL PATH TO MEDIA DIRECTORY</p>
+        <p>• SCAN WILL PROCESS ALL VIDEO FILES RECURSIVELY</p>
+        <p>• OPERATION MAY TAKE SEVERAL MINUTES</p>
+      </div>
     </div>
     """
   end
