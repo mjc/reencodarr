@@ -48,9 +48,10 @@ defmodule Reencodarr.TelemetryEventHandler do
   end
 
   # Sync events
-  def handle_event([:reencodarr, :sync, event], measurements, _metadata, %{reporter_pid: pid}) do
+  def handle_event([:reencodarr, :sync, event], measurements, metadata, %{reporter_pid: pid}) do
     Logger.info("TelemetryEventHandler: Sync event #{event} - measurements: #{inspect(measurements)}")
-    GenServer.cast(pid, {:update_sync, event, measurements})
+    service_type = Map.get(metadata, :service_type)
+    GenServer.cast(pid, {:update_sync, event, measurements, service_type})
   end
 
   # Media events (trigger stats refresh)

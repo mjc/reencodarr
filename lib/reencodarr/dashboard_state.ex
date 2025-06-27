@@ -28,6 +28,7 @@ defmodule Reencodarr.DashboardState do
           encoding_progress: EncodingProgress.t(),
           crf_search_progress: CrfSearchProgress.t(),
           sync_progress: non_neg_integer(),
+          service_type: atom() | nil,
           stats_update_in_progress: boolean()
         }
 
@@ -38,6 +39,7 @@ defmodule Reencodarr.DashboardState do
             encoding_progress: %EncodingProgress{},
             crf_search_progress: %CrfSearchProgress{},
             sync_progress: 0,
+            service_type: nil,
             stats_update_in_progress: false
 
   @doc """
@@ -104,12 +106,11 @@ defmodule Reencodarr.DashboardState do
 
   @doc """
   Updates sync status and progress.
-  """
-  def update_sync(%__MODULE__{} = state, event, data \\ %{}) do
+  """  def update_sync(%__MODULE__{} = state, event, data \\ %{}, service_type \\ nil) do
     case event do
-      :started -> %{state | syncing: true, sync_progress: 0}
-      :progress -> %{state | sync_progress: Map.get(data, :progress, 0)}
-      :completed -> %{state | syncing: false, sync_progress: 0}
+      :started -> %{state | syncing: true, sync_progress: 0, service_type: service_type}
+      :progress -> %{state | sync_progress: Map.get(data, :progress, 0), service_type: state.service_type}  # Preserve existing service_type
+      :completed -> %{state | syncing: false, sync_progress: 0, service_type: nil}
     end
   end
 

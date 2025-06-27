@@ -44,13 +44,13 @@ defmodule Reencodarr.Sync do
     {get_items, get_files, service_type} = resolve_action(action)
 
     Logger.info("Sync: Emitting sync_started telemetry")
-    Telemetry.emit_sync_started()
+    Telemetry.emit_sync_started(service_type)
 
     Logger.info("Sync: Starting sync_items")
     sync_items(get_items, get_files, service_type)
 
     Logger.info("Sync: Emitting sync_completed telemetry")
-    Telemetry.emit_sync_completed()
+    Telemetry.emit_sync_completed(service_type)
 
     {:noreply, state}
   end
@@ -88,13 +88,13 @@ defmodule Reencodarr.Sync do
       on_timeout: :kill_task
     )
     |> Stream.with_index(batch_index * 50)
-    |> Stream.each(&handle_task_result(&1, total_items))
+    |> Stream.each(&handle_task_result(&1, total_items, service_type))
     |> Stream.run()
   end
 
-  defp handle_task_result({res, idx}, total_items) do
+  defp handle_task_result({res, idx}, total_items, service_type) do
     progress = div((idx + 1) * 100, total_items)
-    Telemetry.emit_sync_progress(progress)
+    Telemetry.emit_sync_progress(progress, service_type)
 
     if not match?({:ok, :ok}, res), do: Logger.error("Sync error: #{inspect(res)}")
   end

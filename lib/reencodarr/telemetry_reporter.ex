@@ -143,6 +143,12 @@ defmodule Reencodarr.TelemetryReporter do
   end
 
   # Sync event handlers
+  def handle_cast({:update_sync, event, data, service_type}, %DashboardState{} = state) do
+    new_state = DashboardState.update_sync(state, event, data, service_type)
+    {:noreply, emit_state_update_and_return(new_state)}
+  end
+
+  # Legacy handler for backwards compatibility
   def handle_cast({:update_sync, event, data}, %DashboardState{} = state) do
     new_state = DashboardState.update_sync(state, event, data)
     {:noreply, emit_state_update_and_return(new_state)}
@@ -187,7 +193,8 @@ defmodule Reencodarr.TelemetryReporter do
         # Only send progress if actively processing
         encoding_progress: if(new_state.encoding, do: new_state.encoding_progress, else: nil),
         crf_search_progress: if(new_state.crf_searching, do: new_state.crf_search_progress, else: nil),
-        sync_progress: if(new_state.syncing, do: new_state.sync_progress, else: 0)
+        sync_progress: if(new_state.syncing, do: new_state.sync_progress, else: 0),
+        service_type: new_state.service_type
       }
 
       :telemetry.execute([:reencodarr, :dashboard, :state_updated], %{}, %{state: minimal_state})
