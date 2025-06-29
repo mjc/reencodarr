@@ -3,7 +3,17 @@ defmodule Reencodarr.TelemetryReporter do
   Optimized telemetry reporter for dashboard state management with intelligent emission control.
 
   ## Performance Optimizations:
-  1. Significant change detection - only emit telemetry when changes affect UI
+       :t      # Store the new state for next comparison
+      Process.put(:last_emitted_state, new_state)
+    end
+
+    new_stateexecute([:reencodarr, :dashboard, :state_updated], %{}, %{state: minimal_state})
+
+      # Store the new state for next comparison
+      Process.put(:last_emitted_state, new_state)
+    end
+
+    new_statecant change detection - only emit telemetry when changes affect UI
   2. Minimal telemetry payloads - exclude inactive progress data
   3. Process dictionary caching of last state for efficient comparison
   4. Progress threshold filtering (5% change minimum)
@@ -70,8 +80,6 @@ defmodule Reencodarr.TelemetryReporter do
 
   def handle_info(:refresh_stats, %DashboardState{} = state) do
     Task.Supervisor.start_child(Reencodarr.TaskSupervisor, fn ->
-      Logger.debug("TelemetryReporter: Fetching stats...")
-
       case Reencodarr.Media.fetch_stats() do
         %{} = stats ->
           GenServer.cast(__MODULE__, {:update_stats, stats})
@@ -98,8 +106,6 @@ defmodule Reencodarr.TelemetryReporter do
 
   @impl true
   def handle_cast({:update_stats, stats}, %DashboardState{} = state) do
-    Logger.debug("TelemetryReporter: Stats updated successfully")
-
     new_state = DashboardState.update_stats(state, stats)
     {:noreply, emit_state_update_and_return(new_state)}
   end
@@ -118,8 +124,6 @@ defmodule Reencodarr.TelemetryReporter do
   end
 
   def handle_cast({:update_encoding_progress, measurements}, %DashboardState{} = state) do
-    Logger.debug("TelemetryReporter: Updating encoding progress: #{inspect(measurements)}")
-
     updated_progress = ProgressHelpers.update_progress(state.encoding_progress, measurements)
     new_state = %{state | encoding_progress: updated_progress}
 
@@ -133,12 +137,9 @@ defmodule Reencodarr.TelemetryReporter do
   end
 
   def handle_cast({:update_crf_search_progress, measurements}, %DashboardState{} = state) do
-    Logger.debug("TelemetryReporter: Updating CRF search progress: #{inspect(measurements)}")
-
     updated_progress = ProgressHelpers.update_progress(state.crf_search_progress, measurements)
     new_state = %{state | crf_search_progress: updated_progress}
 
-    Logger.debug("TelemetryReporter: Final progress state: #{inspect(updated_progress)}")
     {:noreply, emit_state_update_and_return(new_state)}
   end
 
@@ -201,10 +202,6 @@ defmodule Reencodarr.TelemetryReporter do
 
       # Store this state for next comparison
       Process.put(:last_emitted_state, new_state)
-
-      Logger.debug("TelemetryReporter: Emitted optimized state update telemetry event")
-    else
-      Logger.debug("TelemetryReporter: Skipped telemetry emission - no significant changes")
     end
 
     new_state
