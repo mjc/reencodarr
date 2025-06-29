@@ -106,7 +106,8 @@ defmodule Reencodarr.DashboardState do
 
   @doc """
   Updates sync status and progress.
-  """  def update_sync(%__MODULE__{} = state, event, data \\ %{}, service_type \\ nil) do
+  """
+  def update_sync(%__MODULE__{} = state, event, data \\ %{}, service_type \\ nil) do
     case event do
       :started -> %{state | syncing: true, sync_progress: 0, service_type: service_type}
       :progress -> %{state | sync_progress: Map.get(data, :progress, 0), service_type: state.service_type}  # Preserve existing service_type

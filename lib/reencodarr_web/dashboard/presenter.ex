@@ -100,8 +100,6 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
     sync_progress = Map.get(dashboard_state, :sync_progress)
     service_type = Map.get(dashboard_state, :service_type)
 
-    IO.puts("DEBUG: presenter - syncing=#{syncing}, sync_progress=#{sync_progress}, service_type=#{inspect(service_type)}")
-
     %{
       encoding: %{
         active: encoding,
@@ -177,8 +175,6 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   end
 
   defp normalize_sync_progress(progress, service_type) when is_integer(progress) and progress > 0 do
-    IO.puts("DEBUG: normalize_sync_progress called with progress=#{progress}, service_type=#{inspect(service_type)}")
-
     sync_label = case service_type do
       :sonarr -> "TV SYNC"
       :radarr -> "MOVIE SYNC"
