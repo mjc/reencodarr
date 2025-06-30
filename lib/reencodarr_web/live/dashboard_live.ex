@@ -293,7 +293,7 @@ defmodule ReencodarrWeb.DashboardLive do
           </span>
         </div>
 
-        <%= if @progress.percent > 0 do %>
+        <%= if @active and (@progress.percent > 0 or @progress.filename) do %>
           <div class="space-y-1">
             <div class="text-xs text-orange-300 tracking-wide">
               {String.upcase(to_string(@progress.filename || "PROCESSING"))}
