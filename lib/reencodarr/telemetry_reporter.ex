@@ -132,12 +132,16 @@ defmodule Reencodarr.TelemetryReporter do
 
   # CRF search event handlers
   def handle_cast({:update_crf_search, status}, %DashboardState{} = state) do
+    Logger.debug("TelemetryReporter: CRF search status update: #{status}")
     new_state = DashboardState.update_crf_search(state, status)
+    Logger.debug("TelemetryReporter: New CRF search state: crf_searching=#{new_state.crf_searching}, progress=#{inspect(new_state.crf_search_progress)}")
     {:noreply, emit_state_update_and_return(new_state)}
   end
 
   def handle_cast({:update_crf_search_progress, measurements}, %DashboardState{} = state) do
+    Logger.debug("TelemetryReporter: CRF search progress update: #{inspect(measurements)}")
     updated_progress = ProgressHelpers.update_progress(state.crf_search_progress, measurements)
+    Logger.debug("TelemetryReporter: Updated CRF search progress: #{inspect(updated_progress)}")
     new_state = %{state | crf_search_progress: updated_progress}
 
     {:noreply, emit_state_update_and_return(new_state)}
@@ -185,6 +189,7 @@ defmodule Reencodarr.TelemetryReporter do
 
     # Only emit telemetry if the change is significant to reduce LiveView update frequency
     if DashboardState.significant_change?(old_state, new_state) do
+      Logger.debug("TelemetryReporter: Emitting state update - crf_searching: #{new_state.crf_searching}, crf_progress: #{inspect(new_state.crf_search_progress)}")
       # Emit telemetry event with minimal payload - only essential state for dashboard updates
       minimal_state = %{
         stats: new_state.stats,

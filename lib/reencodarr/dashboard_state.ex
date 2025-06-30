@@ -93,10 +93,15 @@ defmodule Reencodarr.DashboardState do
   Updates CRF search status and optionally resets progress.
   """
   def update_crf_search(%__MODULE__{} = state, status) do
-    # When starting a new search, reset progress. When stopping, preserve last values
+    # When starting a new search, reset progress but preserve filename if available
+    # When stopping, preserve last values
     new_progress =
       if status do
-        %CrfSearchProgress{}
+        # Reset progress but keep filename if we have one
+        case state.crf_search_progress.filename do
+          :none -> %CrfSearchProgress{}
+          filename -> %CrfSearchProgress{filename: filename}
+        end
       else
         state.crf_search_progress
       end
@@ -180,9 +185,17 @@ defmodule Reencodarr.DashboardState do
       old_stats.most_recent_video_update != new_stats.most_recent_video_update
   end
 
-  # Check if progress data changed significantly (>5% change or status change)
+  # Check if progress data changed significantly (>5% change for encoding, >1% for CRF search, or status change)
   defp progress_changed?(old_progress, new_progress) do
-    abs(old_progress.percent - new_progress.percent) >= 5 ||
-      old_progress.filename != new_progress.filename
+    percent_diff = abs(old_progress.percent - new_progress.percent)
+    filename_changed = old_progress.filename != new_progress.filename
+
+    # More sensitive threshold for CRF search since it tends to update more slowly
+    threshold = case old_progress.__struct__ do
+      Reencodarr.Statistics.CrfSearchProgress -> 1.0
+      _ -> 5.0
+    end
+
+    percent_diff >= threshold || filename_changed
   end
 end

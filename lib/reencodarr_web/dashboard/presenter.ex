@@ -161,11 +161,22 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   end
   defp calculate_progress(_, _), do: 0
 
-  defp normalize_progress(progress) when is_map(progress) and map_size(progress) > 0 do
-    %{
-      percent: Map.get(progress, :percent, 0),
-      filename: normalize_filename(Map.get(progress, :filename))
-    }
+  defp normalize_progress(progress) when is_map(progress) do
+    filename = normalize_filename(Map.get(progress, :filename))
+    percent = Map.get(progress, :percent, 0)
+
+    # Show progress if we have either a meaningful percent or filename
+    if percent > 0 or filename do
+      %{
+        percent: percent,
+        filename: filename
+      }
+    else
+      %{
+        percent: 0,
+        filename: nil
+      }
+    end
   end
   defp normalize_progress(_) do
     %{
