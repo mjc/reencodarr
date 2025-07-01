@@ -3,6 +3,6 @@ defmodule ReencodarrWeb.PageControllerTest do
 
   test "GET /", %{conn: conn} do
     conn = get(conn, ~p"/")
-    assert html_response(conn, 200) =~ "Total VMAFs"
+    assert html_response(conn, 200) =~ "TOTAL VMAFS"
   end
 end
