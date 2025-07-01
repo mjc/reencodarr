@@ -90,14 +90,29 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   @spec crf_search(Media.Video.t(), integer()) :: :ok
-  def crf_search(%Media.Video{reencoded: true, path: path}, _vmaf_percent) do
+  def crf_search(%Media.Video{reencoded: true, path: path, id: video_id}, _vmaf_percent) do
     Logger.debug("Skipping crf search for video #{path} as it is already reencoded")
+
+    # Publish skipped event to PubSub
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "crf_search_events",
+      {:crf_search_completed, video_id, :skipped}
+    )
+
     :ok
   end
 
   def crf_search(%Media.Video{} = video, vmaf_percent) do
     if Media.chosen_vmaf_exists?(video) do
       Logger.debug("Skipping crf search for video #{video.path} as a chosen VMAF already exists")
+
+      # Publish skipped event to PubSub
+      Phoenix.PubSub.broadcast(
+        Reencodarr.PubSub,
+        "crf_search_events",
+        {:crf_search_completed, video.id, :skipped}
+      )
     else
       Logger.info("Initiating crf search for video #{video.id}")
       GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
@@ -129,6 +144,14 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   def handle_cast({:crf_search, video, _vmaf_percent}, state) do
     Logger.error("CRF search already in progress for video #{video.id}")
+
+    # Publish a skipped event since this request was rejected
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "crf_search_events",
+      {:crf_search_completed, video.id, :skipped}
+    )
+
     {:noreply, state}
   end
 
@@ -162,6 +185,14 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   @impl true
   def handle_info({port, {:exit_status, 0}}, %{port: port, current_task: %{video: video}} = state) do
     Logger.debug("CRF search finished successfully for video #{video.id}")
+
+    # Publish completion event to PubSub
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "crf_search_events",
+      {:crf_search_completed, video.id, :success}
+    )
+
     perform_crf_search_cleanup(state)
   end
 
@@ -172,6 +203,14 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       )
       when exit_code != 0 do
     Logger.error("CRF search failed for video #{video.id} with exit code #{exit_code}")
+
+    # Publish completion event to PubSub
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "crf_search_events",
+      {:crf_search_completed, video.id, {:error, exit_code}}
+    )
+
     Media.mark_as_failed(video)
     perform_crf_search_cleanup(state)
   end

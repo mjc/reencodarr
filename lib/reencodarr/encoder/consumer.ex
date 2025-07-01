@@ -9,43 +9,68 @@ defmodule Reencodarr.Encoder.Consumer do
 
   @impl true
   def init(:ok) do
-    {:consumer, :ok, subscribe_to: [{Reencodarr.Encoder.Producer, max_demand: 1}]}
+    # Subscribe to encoding completion events
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoding_events")
+
+    {:consumer, %{pending_operations: %{}},
+     subscribe_to: [{Reencodarr.Encoder.Producer, max_demand: 1}]}
   end
 
   @impl true
   def handle_events(vmafs, _from, state) do
-    for vmaf <- vmafs do
-      try do
-        Logger.info("Starting encoding for #{vmaf.video.path}")
-        # AbAv1.encode expects a VMAF struct
-        AbAv1.encode(vmaf)
+    new_state =
+      vmafs
+      |> Enum.reduce(state, &process_vmaf_with_tracking/2)
 
-        # Block until encoding is actually complete
-        wait_for_encoding_completion()
-
-        Logger.info("Completed encoding for #{vmaf.video.path}")
-      rescue
-        e ->
-          Logger.error("Encoding failed for #{vmaf.video.path}: #{inspect(e)}")
-          # Optionally mark video as failed or retry logic here
-      end
-    end
-
-    {:noreply, [], state}
+    {:noreply, [], new_state}
   end
 
-  # Poll the encoding status until it's no longer running
-  defp wait_for_encoding_completion() do
-    case GenServer.call(Reencodarr.AbAv1.Encode, :running?) do
-      :running ->
-        # Still running, wait a bit and check again
-        # Use longer sleep for encoding as it takes much longer
-        Process.sleep(1000)
-        wait_for_encoding_completion()
+  # Handle encoding completion messages from PubSub
+  @impl true
+  def handle_info({:encoding_completed, vmaf_id, result}, state) do
+    # Check if this operation was tracked by this consumer
+    case Map.pop(state.pending_operations, vmaf_id) do
+      {nil, _pending_operations} ->
+        # Operation not tracked by this consumer, ignore
+        {:noreply, [], state}
 
-      :not_running ->
-        # Encoding is complete
-        :ok
+      {vmaf, new_pending} ->
+        # Remove from pending operations
+        new_state = %{state | pending_operations: new_pending}
+
+        case result do
+          :success ->
+            Logger.info("Completed encoding for #{vmaf.video.path}")
+
+          :skipped ->
+            Logger.info("Skipped encoding for #{vmaf.video.path} (already in progress)")
+
+          {:error, exit_code} ->
+            Logger.error("Encoding failed for #{vmaf.video.path} with exit code: #{exit_code}")
+        end
+
+        {:noreply, [], new_state}
+    end
+  end
+
+  defp process_vmaf_with_tracking(vmaf, state) do
+    operation_id = vmaf.id
+
+    # Check if this vmaf is already being processed
+    case Map.has_key?(state.pending_operations, operation_id) do
+      false ->
+        Logger.info("Starting encoding for #{vmaf.video.path}")
+
+        # Start encoding
+        AbAv1.encode(vmaf)
+
+        # Track the operation
+        new_pending = Map.put(state.pending_operations, operation_id, vmaf)
+        %{state | pending_operations: new_pending}
+
+      true ->
+        Logger.debug("Encoding already in progress for #{vmaf.video.path}, skipping")
+        state
     end
   end
 end

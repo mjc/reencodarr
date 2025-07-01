@@ -50,8 +50,16 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   @impl true
-  def handle_cast({:encode, %Media.Vmaf{} = _vmaf}, %{port: port} = state) when port != :none do
+  def handle_cast({:encode, %Media.Vmaf{} = vmaf}, %{port: port} = state) when port != :none do
     Logger.info("Encoding is already in progress, skipping new encode request.")
+
+    # Publish a skipped event since this request was rejected
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "encoding_events",
+      {:encoding_completed, vmaf.id, :skipped}
+    )
+
     {:noreply, state}
   end
 
@@ -88,6 +96,15 @@ defmodule Reencodarr.AbAv1.Encode do
       end
 
     Logger.debug("Exit status: #{inspect(result)}")
+
+    # Publish completion event to PubSub
+    pubsub_result = if result == {:ok, :success}, do: :success, else: {:error, exit_code}
+
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "encoding_events",
+      {:encoding_completed, vmaf.id, pubsub_result}
+    )
 
     if result == {:ok, :success} do
       notify_encoder_success(vmaf.video, output_file)
