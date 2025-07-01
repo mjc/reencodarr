@@ -45,7 +45,7 @@ defmodule Reencodarr.Application do
       Reencodarr.AbAv1,
       Reencodarr.Sync
     ]
-    
+
     # Only start Analyzer GenStage in non-test environments to avoid database ownership issues
     if Application.get_env(:reencodarr, :env) != :test do
       [Reencodarr.Analyzer.Supervisor | base_workers]

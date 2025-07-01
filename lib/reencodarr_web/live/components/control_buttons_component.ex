@@ -9,7 +9,8 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
   def mount(socket) do
     encoding = Reencodarr.Encoder.Producer.running?()
     crf_searching = Reencodarr.CrfSearcher.Producer.running?()
-    {:ok, assign(socket, encoding: encoding, crf_searching: crf_searching, syncing: false)}
+    analyzing = Reencodarr.Analyzer.running?()
+    {:ok, assign(socket, encoding: encoding, crf_searching: crf_searching, analyzing: analyzing, syncing: false)}
   end
 
   @impl true
@@ -18,6 +19,7 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
       socket
       |> assign(:encoding, Map.get(assigns, :encoding, false))
       |> assign(:crf_searching, Map.get(assigns, :crf_searching, false))
+      |> assign(:analyzing, Map.get(assigns, :analyzing, false))
       |> assign(:syncing, Map.get(assigns, :syncing, false))
 
     {:ok, socket}
@@ -31,6 +33,9 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
 
       "crf_search" ->
         toggle_app(Reencodarr.CrfSearcher.Producer, :crf_searching, socket)
+
+      "analyzer" ->
+        toggle_app(Reencodarr.Analyzer.Producer, :analyzing, socket)
 
       _ ->
         Logger.error("Unknown toggle target: #{inspect(target)}")
@@ -77,6 +82,13 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
           label="CRF SEARCH"
           active={@crf_searching}
           target="crf_search"
+          type="toggle"
+          myself={@myself}
+        />
+        <.lcars_control_button
+          label="ANALYZER"
+          active={@analyzing}
+          target="analyzer"
           type="toggle"
           myself={@myself}
         />

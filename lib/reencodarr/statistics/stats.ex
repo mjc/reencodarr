@@ -17,8 +17,9 @@ defmodule Reencodarr.Statistics.Stats do
             lowest_vmaf_by_time_seconds: nil,
             most_recent_video_update: nil,
             most_recent_inserted_video: nil,
-            queue_length: %{encodes: 0, crf_searches: 0},
+            queue_length: %{encodes: 0, crf_searches: 0, analyzer: 0},
             encode_queue_length: 0,
             next_crf_search: [],
-            videos_by_estimated_percent: []
+            videos_by_estimated_percent: [],
+            next_analyzer: []
 end

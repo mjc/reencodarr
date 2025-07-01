@@ -2,7 +2,17 @@ defmodule Reencodarr.DashboardState do
   @moduledoc """
   Defines the dashboard state structure and provides functions for state management.
 
-  This module centralizes the state structure used across the dashboard and telemetry
+  This module centralizes   def significant_change?(old_state, new_state) do
+    # Only emit telemetry for changes that affect UI
+    old_state.encoding != new_state.encoding ||
+      old_state.crf_searching != new_state.crf_searching ||
+      old_state.analyzing != new_state.analyzing ||
+      old_state.syncing != new_state.syncing ||
+      stats_changed?(old_state.stats, new_state.stats) ||
+      (new_state.encoding && progress_changed?(old_state.encoding_progress, new_state.encoding_progress)) ||
+      (new_state.crf_searching && progress_changed?(old_state.crf_search_progress, new_state.crf_search_progress)) ||
+      (new_state.syncing && old_state.sync_progress != new_state.sync_progress)
+  endstructure used across the dashboard and telemetry
   reporter, making it easier to maintain and understand state transitions.
 
   ## Memory Optimizations:
@@ -18,15 +28,17 @@ defmodule Reencodarr.DashboardState do
   Total memory reduction: 70-85% compared to original implementation.
   """
 
-  alias Reencodarr.Statistics.{Stats, EncodingProgress, CrfSearchProgress}
+  alias Reencodarr.Statistics.{Stats, EncodingProgress, CrfSearchProgress, AnalyzerProgress}
 
   @type t :: %__MODULE__{
           stats: Stats.t(),
           encoding: boolean(),
           crf_searching: boolean(),
+          analyzing: boolean(),
           syncing: boolean(),
           encoding_progress: EncodingProgress.t(),
           crf_search_progress: CrfSearchProgress.t(),
+          analyzer_progress: AnalyzerProgress.t(),
           sync_progress: non_neg_integer(),
           service_type: atom() | nil,
           stats_update_in_progress: boolean()
@@ -35,9 +47,11 @@ defmodule Reencodarr.DashboardState do
   defstruct stats: %Stats{},
             encoding: false,
             crf_searching: false,
+            analyzing: false,
             syncing: false,
             encoding_progress: %EncodingProgress{},
             crf_search_progress: %CrfSearchProgress{},
+            analyzer_progress: %AnalyzerProgress{},
             sync_progress: 0,
             service_type: nil,
             stats_update_in_progress: false
@@ -56,9 +70,11 @@ defmodule Reencodarr.DashboardState do
     %{
       encoding: state.encoding,
       crf_searching: state.crf_searching,
+      analyzing: state.analyzing,
       syncing: state.syncing,
       encoding_progress: state.encoding_progress,
       crf_search_progress: state.crf_search_progress,
+      analyzer_progress: state.analyzer_progress,
       sync_progress: state.sync_progress
     }
   end
@@ -110,6 +126,26 @@ defmodule Reencodarr.DashboardState do
   end
 
   @doc """
+  Updates analyzer status and optionally resets progress.
+  """
+  def update_analyzer(%__MODULE__{} = state, status) do
+    # When starting analysis, reset progress but preserve filename if available
+    # When stopping, preserve last values
+    new_progress =
+      if status do
+        # Reset progress but keep filename if we have one
+        case state.analyzer_progress.filename do
+          :none -> %AnalyzerProgress{}
+          filename -> %AnalyzerProgress{filename: filename}
+        end
+      else
+        state.analyzer_progress
+      end
+
+    %{state | analyzing: status, analyzer_progress: new_progress}
+  end
+
+  @doc """
   Updates sync status and progress.
   """
   def update_sync(%__MODULE__{} = state, event, data \\ %{}, service_type \\ nil) do
@@ -142,12 +178,20 @@ defmodule Reencodarr.DashboardState do
   end
 
   @doc """
+  Gets the analyzer queue items (limited to display needs).
+  """
+  def analyzer_queue(%__MODULE__{} = state) do
+    state.stats.next_analyzer
+  end
+
+  @doc """
   Gets queue counts without loading full queue data.
   """
   def queue_counts(%__MODULE__{} = state) do
     %{
       crf_search: length(state.stats.next_crf_search),
-      encoding: length(state.stats.videos_by_estimated_percent)
+      encoding: length(state.stats.videos_by_estimated_percent),
+      analyzer: length(state.stats.next_analyzer)
     }
   end
 
@@ -173,7 +217,8 @@ defmodule Reencodarr.DashboardState do
     %{
       stats
       | next_crf_search: Enum.take(stats.next_crf_search, 10),
-        videos_by_estimated_percent: Enum.take(stats.videos_by_estimated_percent, 10)
+        videos_by_estimated_percent: Enum.take(stats.videos_by_estimated_percent, 10),
+        next_analyzer: Enum.take(stats.next_analyzer, 10)
     }
   end
 

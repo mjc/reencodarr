@@ -19,6 +19,14 @@ defmodule Reencodarr.Analyzer.Producer do
     end
   end
 
+  # Get current manual queue for dashboard display
+  def get_manual_queue do
+    case GenServer.whereis(__MODULE__) do
+      nil -> []
+      pid -> GenStage.call(pid, :get_manual_queue)
+    end
+  end
+
   # Called to add a specific video for processing (e.g., force_reanalyze)
   def add_video(video_info), do: GenStage.cast(__MODULE__, {:add_video, video_info})
 
@@ -26,7 +34,7 @@ defmodule Reencodarr.Analyzer.Producer do
   def init(:ok) do
     # Subscribe to media events that indicate new items are available
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "media_events")
-    
+
     {:producer, %{demand: 0, paused: true, manual_queue: []}}
   end
 
@@ -36,9 +44,15 @@ defmodule Reencodarr.Analyzer.Producer do
   end
 
   @impl true
+  def handle_call(:get_manual_queue, _from, state) do
+    {:reply, state.manual_queue, [], state}
+  end
+
+  @impl true
   def handle_cast(:pause, state) do
     Logger.info("Analyzer producer paused")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :paused})
+    :telemetry.execute([:reencodarr, :analyzer, :paused], %{}, %{})
     {:noreply, [], %{state | paused: true}}
   end
 
@@ -46,6 +60,7 @@ defmodule Reencodarr.Analyzer.Producer do
   def handle_cast(:resume, state) do
     Logger.info("Analyzer producer resumed")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :started})
+    :telemetry.execute([:reencodarr, :analyzer, :started], %{}, %{})
     new_state = %{state | paused: false}
     dispatch_if_ready(new_state)
   end
@@ -95,19 +110,19 @@ defmodule Reencodarr.Analyzer.Producer do
   defp dispatch_videos(state) do
     # First, dispatch any manually queued videos (e.g., force_reanalyze)
     {manual_videos, remaining_manual} = Enum.split(state.manual_queue, state.demand)
-    
+
     dispatched_count = length(manual_videos)
     remaining_demand = state.demand - dispatched_count
-    
+
     # If we still have demand after manual videos, get videos from the database
     database_videos = if remaining_demand > 0 do
       Media.get_next_for_analysis(remaining_demand)
     else
       []
     end
-    
+
     all_videos = manual_videos ++ database_videos
-    
+
     case all_videos do
       [] ->
         # No videos available, keep the demand for later

@@ -116,6 +116,7 @@ defmodule ReencodarrWeb.DashboardLive do
               id="control-buttons"
               encoding={@dashboard_data.status.encoding.active}
               crf_searching={@dashboard_data.status.crf_searching.active}
+              analyzing={@dashboard_data.status.analyzing.active}
               syncing={@dashboard_data.status.syncing.active}
             />
           </div>
@@ -245,7 +246,7 @@ defmodule ReencodarrWeb.DashboardLive do
         <span class="text-black font-bold tracking-wider">SYSTEM STATUS</span>
       </div>
 
-      <div class="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="p-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
         <.lcars_operation_status
           title="ENCODING"
           active={@status.encoding.active}
@@ -257,6 +258,12 @@ defmodule ReencodarrWeb.DashboardLive do
           active={@status.crf_searching.active}
           progress={@status.crf_searching.progress}
           color="purple"
+        />
+        <.lcars_operation_status
+          title="ANALYZER"
+          active={@status.analyzing.active}
+          progress={@status.analyzing.progress}
+          color="green"
         />
         <.lcars_operation_status
           title="SYNC"
@@ -293,7 +300,7 @@ defmodule ReencodarrWeb.DashboardLive do
           </span>
         </div>
 
-        <%= if @active and (@progress.percent > 0 or @progress.filename) do %>
+        <%= if @active and (@progress.percent > 0 or @progress.filename != :none) do %>
           <div class="space-y-1">
             <div class="text-xs text-orange-300 tracking-wide">
               {String.upcase(to_string(@progress.filename || "PROCESSING"))}
@@ -317,7 +324,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp lcars_queues_section(assigns) do
     ~H"""
-    <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
       <.lcars_queue_panel
         title="CRF SEARCH QUEUE"
         queue={@queues.crf_search}
@@ -327,6 +334,11 @@ defmodule ReencodarrWeb.DashboardLive do
         title="ENCODING QUEUE"
         queue={@queues.encoding}
         color="green"
+      />
+      <.lcars_queue_panel
+        title="ANALYZER QUEUE"
+        queue={@queues.analyzer}
+        color="purple"
       />
     </div>
     """
@@ -468,6 +480,7 @@ defmodule ReencodarrWeb.DashboardLive do
     case color do
       "blue" -> "bg-blue-500"
       "purple" -> "bg-purple-500"
+      "green" -> "bg-green-500"
       "red" -> "bg-red-500"
       _ -> "bg-orange-500"
     end
@@ -477,6 +490,7 @@ defmodule ReencodarrWeb.DashboardLive do
     case color do
       "blue" -> "bg-gradient-to-r from-blue-400 to-cyan-500"
       "purple" -> "bg-gradient-to-r from-purple-400 to-pink-500"
+      "green" -> "bg-gradient-to-r from-green-400 to-emerald-500"
       "red" -> "bg-gradient-to-r from-red-400 to-orange-500"
       _ -> "bg-gradient-to-r from-orange-400 to-red-500"
     end
@@ -486,6 +500,7 @@ defmodule ReencodarrWeb.DashboardLive do
     case color do
       "cyan" -> "bg-cyan-400"
       "green" -> "bg-green-500"
+      "purple" -> "bg-purple-500"
       _ -> "bg-orange-500"
     end
   end

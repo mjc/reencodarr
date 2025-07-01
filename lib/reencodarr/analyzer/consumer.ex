@@ -45,18 +45,18 @@ defmodule Reencodarr.Analyzer.Consumer do
     # Check if we should process this video
     video = Media.get_video_by_path(path)
     force_reanalyze = Map.get(video_info, :force_reanalyze, false)
-    
+
     should_process = should_process_video?(video, force_reanalyze)
-    
+
     if should_process do
       case fetch_mediainfo([path]) do
         {:ok, mediainfo_map} ->
           mediainfo = Map.get(mediainfo_map, path)
-          
+
           if mediainfo do
             validate_audio_metadata(mediainfo, path)
             file_size = get_in(mediainfo, ["media", "track", Access.at(0), "FileSize"])
-            
+
             with size when size not in [nil, ""] <- file_size,
                  {:ok, _video} <- Media.upsert_video(%{
                    path: path,
@@ -80,7 +80,7 @@ defmodule Reencodarr.Analyzer.Consumer do
           else
             Logger.error("No mediainfo found for #{path}")
           end
-          
+
         {:error, reason} ->
           Logger.error("Failed to fetch mediainfo for #{path}: #{reason}")
       end

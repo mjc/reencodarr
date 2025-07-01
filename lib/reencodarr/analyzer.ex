@@ -12,10 +12,10 @@ defmodule Reencodarr.Analyzer do
   @spec process_path(map()) :: :ok
   def process_path(%{path: path} = video_info) do
     Logger.debug("Processing video path: #{path}")
-    
+
     # For force_reanalyze videos, add them directly to the producer's manual queue
     force_reanalyze = Map.get(video_info, :force_reanalyze, false)
-    
+
     if force_reanalyze do
       Logger.debug("Force reanalyze requested for #{path}")
       Reencodarr.Analyzer.Producer.add_video(video_info)
@@ -24,7 +24,7 @@ defmodule Reencodarr.Analyzer do
       # We don't need to trigger dispatch - GenStage handles this via demand
       Logger.debug("Video will be processed when demand is available: #{path}")
     end
-    
+
     :ok
   end
 
