@@ -43,14 +43,58 @@ defmodule ReencodarrWeb.DashboardLive do
     initial_state = get_initial_state()
     timezone = socket.assigns[:timezone] || "UTC"
 
+    # Start timer for stardate updates (every 5 seconds)
+    if connected?(socket) do
+      Process.send_after(self(), :update_stardate, 5000)
+    end
+
     # Only store processed data, not raw state - reduces memory by ~50%
     socket =
       assign(socket,
         timezone: timezone,
-        dashboard_data: Presenter.present(initial_state, timezone)
+        dashboard_data: Presenter.present(initial_state, timezone),
+        current_stardate: calculate_stardate(DateTime.utc_now())
       )
 
     {:ok, socket}
+  end
+
+  # Calculate a proper Star Trek TNG-style stardate using the revised convention
+  # Based on TNG Writer's Guide: 1000 units = 1 year, decimal = fractional days
+  # Reference: Year 2000 = Stardate 50000.0 (extrapolated from canon progression)
+  defp calculate_stardate(datetime) do
+    try do
+      # Convert to date and time components
+      current_date = DateTime.to_date(datetime)
+      current_time = DateTime.to_time(datetime)
+
+      # Calculate years since reference (2000 = 50000.0)
+      reference_year = 2000
+      current_year = current_date.year
+      years_diff = current_year - reference_year
+
+      # Calculate day of year (1-365/366)
+      day_of_year = Date.day_of_year(current_date)
+
+      # Calculate fractional day (0.0 to 0.9)
+      {seconds_in_day, _microseconds} = Time.to_seconds_after_midnight(current_time)
+      day_fraction = seconds_in_day / 86400.0 # 86400 seconds in a day
+
+      # TNG Formula: base + (years * 1000) + (day_of_year * 1000/365.25) + (day_fraction / 10)
+      base_stardate = 50000.0
+      year_component = years_diff * 1000.0
+      day_component = day_of_year * (1000.0 / 365.25)
+      fractional_component = day_fraction / 10.0 # Decimal represents tenths of days
+
+      stardate = base_stardate + year_component + day_component + fractional_component
+
+      # Format to one decimal place, TNG style
+      Float.round(stardate, 1)
+    rescue
+      _error ->
+        # Fallback to a simple calculation if anything goes wrong
+        75182.5 # Approximate stardate for mid-2025
+    end
   end
 
   @impl true
@@ -59,6 +103,15 @@ defmodule ReencodarrWeb.DashboardLive do
     dashboard_data = Presenter.present(state, socket.assigns.timezone)
 
     socket = assign(socket, :dashboard_data, dashboard_data)
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info(:update_stardate, socket) do
+    # Update the stardate and schedule the next update
+    Process.send_after(self(), :update_stardate, 5000)
+
+    socket = assign(socket, :current_stardate, calculate_stardate(DateTime.utc_now()))
     {:noreply, socket}
   end
 
@@ -116,7 +169,7 @@ defmodule ReencodarrWeb.DashboardLive do
         <!-- LCARS Bottom Frame - Now part of content flow -->
         <div class="h-6 sm:h-8 bg-gradient-to-r from-red-500 via-yellow-400 to-orange-500 rounded">
           <div class="flex items-center justify-center h-full">
-            <span class="text-black lcars-label text-xs sm:text-sm">STARDATE #{DateTime.utc_now() |> DateTime.to_unix()}</span>
+            <span class="text-black lcars-label text-xs sm:text-sm">STARDATE {@current_stardate}</span>
           </div>
         </div>
       </div>
