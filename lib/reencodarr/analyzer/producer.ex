@@ -13,17 +13,25 @@ defmodule Reencodarr.Analyzer.Producer do
   def start, do: GenStage.cast(__MODULE__, :resume)
 
   def running? do
-    case GenServer.whereis(__MODULE__) do
-      nil -> false
-      pid -> GenStage.call(pid, :running?)
+    case process_alive?() do
+      true -> GenStage.call(__MODULE__, :running?)
+      false -> false
     end
   end
 
   # Get current manual queue for dashboard display
   def get_manual_queue do
+    case process_alive?() do
+      true -> GenStage.call(__MODULE__, :get_manual_queue)
+      false -> []
+    end
+  end
+
+  # Helper function to check if the process is alive
+  defp process_alive? do
     case GenServer.whereis(__MODULE__) do
-      nil -> []
-      pid -> GenStage.call(pid, :get_manual_queue)
+      nil -> false
+      _pid -> true
     end
   end
 

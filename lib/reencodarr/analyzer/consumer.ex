@@ -25,7 +25,7 @@ defmodule Reencodarr.Analyzer.Consumer do
   # State management
   defmodule State do
     @moduledoc false
-    defstruct batch: [], batch_timer: nil
+    defstruct batch: [], batch_timer: :no_timer
   end
 
   @doc "Starts the analyzer consumer"
@@ -71,14 +71,14 @@ defmodule Reencodarr.Analyzer.Consumer do
 
   defp batch_full?(batch), do: length(batch) >= @batch_size
 
-  defp should_start_timer?(%State{batch_timer: nil}, batch) when batch != [], do: true
+  defp should_start_timer?(%State{batch_timer: :no_timer}, batch) when batch != [], do: true
   defp should_start_timer?(_state, _batch), do: false
 
   defp schedule_batch_processing do
     Process.send_after(self(), :process_batch, @batch_timeout)
   end
 
-  defp cancel_timer(nil), do: :ok
+  defp cancel_timer(:no_timer), do: :ok
   defp cancel_timer(timer), do: Process.cancel_timer(timer)
 
   # Core batch processing
@@ -121,7 +121,7 @@ defmodule Reencodarr.Analyzer.Consumer do
 
     video_infos
     |> Task.async_stream(
-      &process_video_with_mediainfo(&1, Map.get(mediainfo_map, &1.path)),
+      &process_video_with_mediainfo(&1, Map.get(mediainfo_map, &1.path, :no_mediainfo)),
       max_concurrency: @concurrent_files,
       timeout: @processing_timeout,
       on_timeout: :kill_task
@@ -206,7 +206,7 @@ defmodule Reencodarr.Analyzer.Consumer do
   # Helper functions
 
   defp check_processing_eligibility(%{path: path} = video_info) do
-    video = Media.get_video_by_path(path)
+    video = Media.get_video_by_path(path) || :not_found
     force_reanalyze = Map.get(video_info, :force_reanalyze, false)
 
     if should_process_video?(video, force_reanalyze) do
@@ -217,10 +217,10 @@ defmodule Reencodarr.Analyzer.Consumer do
   end
 
   defp should_process_video?(video, force_reanalyze) do
-    is_nil(video) or video.bitrate == 0 or force_reanalyze
+    video == :not_found or video.bitrate == 0 or force_reanalyze
   end
 
-  defp validate_mediainfo(nil, path) do
+  defp validate_mediainfo(:no_mediainfo, path) do
     {:error, "no mediainfo found for #{path}"}
   end
 
@@ -236,7 +236,8 @@ defmodule Reencodarr.Analyzer.Consumer do
 
   defp extract_file_size(mediainfo) do
     case get_in(mediainfo, ["media", "track", Access.at(0), "FileSize"]) do
-      size when size not in [nil, ""] -> {:ok, size}
+      size when is_binary(size) and size != "" -> {:ok, size}
+      size when is_integer(size) and size > 0 -> {:ok, size}
       _ -> {:error, "empty or missing file size in mediainfo"}
     end
   end
@@ -271,7 +272,7 @@ defmodule Reencodarr.Analyzer.Consumer do
     case execute_mediainfo_command([path]) do
       {:ok, mediainfo_map} ->
         case Map.get(mediainfo_map, path) do
-          nil -> {:error, "no mediainfo found for path"}
+          :no_mediainfo -> {:error, "no mediainfo found for path"}
           mediainfo -> {:ok, mediainfo}
         end
 
@@ -294,9 +295,9 @@ defmodule Reencodarr.Analyzer.Consumer do
     json
     |> Enum.map(fn
       %{"media" => %{"@ref" => ref}} = mediainfo -> {ref, mediainfo}
-      _ -> nil
+      _ -> :invalid_entry
     end)
-    |> Enum.reject(&is_nil/1)
+    |> Enum.reject(&(&1 == :invalid_entry))
     |> Enum.into(%{})
   end
 

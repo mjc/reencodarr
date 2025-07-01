@@ -13,9 +13,17 @@ defmodule Reencodarr.Encoder.Producer do
   def start, do: GenStage.cast(__MODULE__, :resume)
 
   def running? do
+    case process_alive?() do
+      true -> GenStage.call(__MODULE__, :running?)
+      false -> false
+    end
+  end
+
+  # Helper function to check if the process is alive
+  defp process_alive? do
     case GenServer.whereis(__MODULE__) do
       nil -> false
-      pid -> GenStage.call(pid, :running?)
+      _pid -> true
     end
   end
 
@@ -54,7 +62,7 @@ defmodule Reencodarr.Encoder.Producer do
       items = Media.get_next_for_encoding(new_state.demand)
 
       # Convert single item to list if needed for consistency
-      vmafs = if is_list(items), do: items, else: if(items, do: [items], else: [])
+      vmafs = List.wrap(items)
 
       if length(vmafs) > 0 do
         Logger.debug("Encoder producer dispatching #{length(vmafs)} videos for encoding")
@@ -78,7 +86,7 @@ defmodule Reencodarr.Encoder.Producer do
       items = Media.get_next_for_encoding(state.demand)
 
       # Convert single item to list if needed for consistency
-      vmafs = if is_list(items), do: items, else: if(items, do: [items], else: [])
+      vmafs = List.wrap(items)
 
       if length(vmafs) > 0 do
         Logger.debug("Encoder producer dispatching #{length(vmafs)} videos for encoding")
@@ -103,7 +111,7 @@ defmodule Reencodarr.Encoder.Producer do
       items = Media.get_next_for_encoding(new_state.demand)
 
       # Convert single item to list if needed for consistency
-      vmafs = if is_list(items), do: items, else: if(items, do: [items], else: [])
+      vmafs = List.wrap(items)
 
       if length(vmafs) > 0 do
         Logger.debug("Encoder producer dispatching #{length(vmafs)} videos for encoding")
@@ -127,7 +135,7 @@ defmodule Reencodarr.Encoder.Producer do
       items = Media.get_next_for_encoding(state.demand)
 
       # Convert single item to list if needed for consistency
-      vmafs = if is_list(items), do: items, else: if(items, do: [items], else: [])
+      vmafs = List.wrap(items)
 
       if length(vmafs) > 0 do
         Logger.debug("Encoder producer dispatching #{length(vmafs)} videos for encoding")
