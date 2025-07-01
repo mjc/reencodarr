@@ -10,41 +10,68 @@ defmodule Reencodarr.CrfSearcher.Consumer do
 
   @impl true
   def init(:ok) do
-    {:consumer, :ok, subscribe_to: [{Reencodarr.CrfSearcher.Producer, max_demand: 1}]}
+    # Subscribe to CRF search completion events
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_search_events")
+
+    {:consumer, %{pending_operations: %{}},
+     subscribe_to: [{Reencodarr.CrfSearcher.Producer, max_demand: 1}]}
   end
 
   @impl true
   def handle_events(videos, _from, state) do
-    for video <- videos do
-      try do
-        Logger.info("Starting CRF search for #{video.path}")
-        AbAv1.crf_search(video)
+    new_state =
+      videos
+      |> Enum.reduce(state, &process_video_with_tracking/2)
 
-        # Block until CRF search is actually complete
-        wait_for_crf_search_completion()
-
-        Logger.info("Completed CRF search for #{video.path}")
-      rescue
-        e ->
-          Logger.error("CRF search failed for #{video.path}: #{inspect(e)}")
-          # Optionally mark video as failed or retry logic here
-      end
-    end
-
-    {:noreply, [], state}
+    {:noreply, [], new_state}
   end
 
-  # Poll the CRF search status until it's no longer running
-  defp wait_for_crf_search_completion() do
-    case GenServer.call(Reencodarr.AbAv1.CrfSearch, :running?) do
-      :running ->
-        # Still running, wait a bit and check again
-        Process.sleep(100)
-        wait_for_crf_search_completion()
+  # Handle CRF search completion messages from PubSub
+  @impl true
+  def handle_info({:crf_search_completed, video_id, result}, state) do
+    # Check if this operation was tracked by this consumer
+    case Map.pop(state.pending_operations, video_id) do
+      {nil, _pending_operations} ->
+        # Operation not tracked by this consumer, ignore
+        {:noreply, [], state}
 
-      :not_running ->
-        # CRF search is complete
-        :ok
+      {video, new_pending} ->
+        # Remove from pending operations
+        new_state = %{state | pending_operations: new_pending}
+
+        case result do
+          :success ->
+            Logger.info("Completed CRF search for #{video.path}")
+
+          :skipped ->
+            Logger.info("Skipped CRF search for #{video.path} (already exists or reencoded)")
+
+          {:error, exit_code} ->
+            Logger.error("CRF search failed for #{video.path} with exit code: #{exit_code}")
+        end
+
+        {:noreply, [], new_state}
+    end
+  end
+
+  defp process_video_with_tracking(video, state) do
+    operation_id = video.id
+
+    # Check if this video is already being processed
+    case Map.has_key?(state.pending_operations, operation_id) do
+      false ->
+        Logger.info("Starting CRF search for #{video.path}")
+
+        # Start CRF search (default VMAF percent 95)
+        AbAv1.crf_search(video, 95)
+
+        # Track the operation
+        new_pending = Map.put(state.pending_operations, operation_id, video)
+        %{state | pending_operations: new_pending}
+
+      true ->
+        Logger.debug("CRF search already in progress for #{video.path}, skipping")
+        state
     end
   end
 end
