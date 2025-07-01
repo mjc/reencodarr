@@ -192,6 +192,10 @@ defmodule Reencodarr.Analyzer do
          queue_length
        ) do
     mediainfo = Map.get(mediainfo_map, path)
+
+    # Validate audio metadata
+    validate_audio_metadata(mediainfo, path)
+
     file_size = get_in(mediainfo, ["media", "track", Access.at(0), "FileSize"])
 
     with size when size not in [nil, ""] <- file_size,
@@ -221,6 +225,38 @@ defmodule Reencodarr.Analyzer do
           "Failed to upsert video for #{path}: #{inspect(reason)}. Queue size: #{queue_length}"
         )
     end
+
+    # Add audio validation to the upsert process
+    validate_audio_metadata(mediainfo, path)
+  end
+
+  defp validate_audio_metadata(mediainfo, path) do
+    tracks = get_in(mediainfo, ["media", "track"]) || []
+    audio_tracks = Enum.filter(tracks, &(&1["@type"] == "Audio"))
+
+    if Enum.empty?(audio_tracks) do
+      Logger.warning("No audio tracks found in MediaInfo for #{path}")
+    end
+
+    # Check for suspicious audio metadata
+    Enum.each(audio_tracks, fn track ->
+      channels = Map.get(track, "Channels", "0")
+      codec = Map.get(track, "CodecID", "")
+
+      case Integer.parse(to_string(channels)) do
+        {ch, _} when ch > 16 ->
+          Logger.warning("Suspicious channel count (#{ch}) for #{path}")
+        {0, _} ->
+          Logger.warning("Zero channels reported for audio track in #{path}")
+        :error ->
+          Logger.warning("Invalid channel format '#{channels}' for #{path}")
+        _ -> :ok
+      end
+
+      if codec == "" do
+        Logger.warning("Missing audio codec information for #{path}")
+      end
+    end)
   end
 
   @spec fetch_mediainfo(list(String.t())) :: {:ok, map()} | {:error, any()}

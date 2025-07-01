@@ -73,6 +73,7 @@ defmodule Reencodarr.Media.Video do
     video
     |> cast(attrs, @required ++ @optional)
     |> validate_media_info()
+    |> validate_audio_fields()
     |> maybe_remove_size_zero()
     |> maybe_remove_bitrate_zero()
     |> validate_required(@required)
@@ -110,6 +111,25 @@ defmodule Reencodarr.Media.Video do
         |> cast(params, @mediainfo_params)
         |> maybe_remove_size_zero()
         |> maybe_remove_bitrate_zero()
+    end
+  end
+
+  defp validate_audio_fields(changeset) do
+    changeset
+    |> validate_number(:max_audio_channels, greater_than_or_equal_to: 0, less_than: 32)
+    |> validate_number(:audio_count, greater_than_or_equal_to: 0)
+    |> validate_audio_codecs_consistency()
+  end
+
+  defp validate_audio_codecs_consistency(changeset) do
+    audio_count = get_field(changeset, :audio_count) || 0
+    audio_codecs = get_field(changeset, :audio_codecs) || []
+
+    # If audio_count > 0, we should have audio_codecs
+    if audio_count > 0 and Enum.empty?(audio_codecs) do
+      add_error(changeset, :audio_codecs, "should not be empty when audio tracks are present")
+    else
+      changeset
     end
   end
 end
