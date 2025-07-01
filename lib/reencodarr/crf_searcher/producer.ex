@@ -13,9 +13,9 @@ defmodule Reencodarr.CrfSearcher.Producer do
   def start, do: GenStage.cast(__MODULE__, :resume)
 
   def running? do
-    case GenServer.whereis(__MODULE__) do
-      nil -> false
-      pid -> GenStage.call(pid, :running?)
+    case process_alive?() do
+      true -> GenStage.call(__MODULE__, :running?)
+      false -> false
     end
   end
 
@@ -100,6 +100,14 @@ defmodule Reencodarr.CrfSearcher.Producer do
         new_demand = state.demand - length(videos)
         new_state = %{state | demand: new_demand}
         {:noreply, videos, new_state}
+    end
+  end
+
+  # Helper function to check if the process is alive
+  defp process_alive? do
+    case GenServer.whereis(__MODULE__) do
+      nil -> false
+      _pid -> true
     end
   end
 end
