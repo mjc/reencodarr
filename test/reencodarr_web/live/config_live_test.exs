@@ -19,7 +19,12 @@ defmodule ReencodarrWeb.ConfigLiveTest do
   end
 
   # Test helper functions to reduce repetition
-  defp test_form_validation(live_view, form_id, invalid_attrs, expected_error \\ "can&#39;t be blank") do
+  defp test_form_validation(
+         live_view,
+         form_id,
+         invalid_attrs,
+         expected_error \\ "can&#39;t be blank"
+       ) do
     live_view
     |> form(form_id, config: invalid_attrs)
     |> render_change() =~ expected_error

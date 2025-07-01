@@ -78,13 +78,15 @@ defmodule ReencodarrWeb.DashboardLive do
 
       # Calculate fractional day (0.0 to 0.9)
       {seconds_in_day, _microseconds} = Time.to_seconds_after_midnight(current_time)
-      day_fraction = seconds_in_day / 86400.0 # 86400 seconds in a day
+      # 86400 seconds in a day
+      day_fraction = seconds_in_day / 86400.0
 
       # TNG Formula: base + (years * 1000) + (day_of_year * 1000/365.25) + (day_fraction / 10)
       base_stardate = 50000.0
       year_component = years_diff * 1000.0
       day_component = day_of_year * (1000.0 / 365.25)
-      fractional_component = day_fraction / 10.0 # Decimal represents tenths of days
+      # Decimal represents tenths of days
+      fractional_component = day_fraction / 10.0
 
       stardate = base_stardate + year_component + day_component + fractional_component
 
@@ -93,7 +95,8 @@ defmodule ReencodarrWeb.DashboardLive do
     rescue
       _error ->
         # Fallback to a simple calculation if anything goes wrong
-        75182.5 # Approximate stardate for mid-2025
+        # Approximate stardate for mid-2025
+        75182.5
     end
   end
 
@@ -142,34 +145,40 @@ defmodule ReencodarrWeb.DashboardLive do
     >
       <!-- LCARS Top Frame -->
       <div class="h-12 sm:h-16 bg-gradient-to-r from-orange-500 via-yellow-400 to-red-500 relative lcars-border-gradient">
-        <div class="absolute top-0 left-0 w-16 sm:w-32 h-12 sm:h-16 bg-orange-500 lcars-corner-br"></div>
-        <div class="absolute top-0 right-0 w-16 sm:w-32 h-12 sm:h-16 bg-red-500 lcars-corner-bl"></div>
+        <div class="absolute top-0 left-0 w-16 sm:w-32 h-12 sm:h-16 bg-orange-500 lcars-corner-br">
+        </div>
+        <div class="absolute top-0 right-0 w-16 sm:w-32 h-12 sm:h-16 bg-red-500 lcars-corner-bl">
+        </div>
         <div class="flex items-center justify-center h-full px-4">
-          <h1 class="text-black text-lg sm:text-2xl lcars-title text-center">REENCODARR OPERATIONS</h1>
+          <h1 class="text-black text-lg sm:text-2xl lcars-title text-center">
+            REENCODARR OPERATIONS
+          </h1>
         </div>
       </div>
-
-      <!-- Main Content Area -->
+      
+    <!-- Main Content Area -->
       <div class="p-3 sm:p-6 space-y-4 sm:space-y-6">
         <!-- Metrics Overview -->
         <.lcars_metrics_grid metrics={@dashboard_data.metrics} />
-
-        <!-- Operations Status -->
+        
+    <!-- Operations Status -->
         <.lcars_operations_panel status={@dashboard_data.status} />
-
-        <!-- Queue Management -->
+        
+    <!-- Queue Management -->
         <.lcars_queues_section queues={@dashboard_data.queues} />
-
-        <!-- Control Panel -->
+        
+    <!-- Control Panel -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
           <.lcars_control_panel status={@dashboard_data.status} stats={@dashboard_data.stats} />
           <.lcars_manual_scan_section />
         </div>
-
-        <!-- LCARS Bottom Frame - Now part of content flow -->
+        
+    <!-- LCARS Bottom Frame - Now part of content flow -->
         <div class="h-6 sm:h-8 bg-gradient-to-r from-red-500 via-yellow-400 to-orange-500 rounded">
           <div class="flex items-center justify-center h-full">
-            <span class="text-black lcars-label text-xs sm:text-sm">STARDATE {@current_stardate}</span>
+            <span class="text-black lcars-label text-xs sm:text-sm">
+              STARDATE {@current_stardate}
+            </span>
           </div>
         </div>
       </div>
@@ -194,17 +203,23 @@ defmodule ReencodarrWeb.DashboardLive do
     <div class="bg-gray-900 border-2 border-orange-500 lcars-corner-tr lcars-corner-bl overflow-hidden lcars-panel">
       <!-- LCARS Header -->
       <div class="h-8 sm:h-10 bg-orange-500 flex items-center px-2 sm:px-3 lcars-data-stream">
-        <span class="text-black lcars-label text-xs sm:text-sm font-bold truncate">{String.upcase(@metric.title)}</span>
+        <span class="text-black lcars-label text-xs sm:text-sm font-bold truncate">
+          {String.upcase(@metric.title)}
+        </span>
       </div>
-
-      <!-- Content -->
+      
+    <!-- Content -->
       <div class="p-2 sm:p-3 space-y-2">
         <div class="flex items-center justify-between">
           <span class="text-xl sm:text-2xl">{@metric.icon}</span>
-          <span class="text-lg sm:text-2xl lg:text-3xl font-bold lcars-text-primary lcars-title truncate">{format_metric_value(@metric.value)}</span>
+          <span class="text-lg sm:text-2xl lg:text-3xl font-bold lcars-text-primary lcars-title truncate">
+            {format_metric_value(@metric.value)}
+          </span>
         </div>
 
-        <div class="lcars-text-secondary lcars-label text-xs sm:text-sm truncate">{String.upcase(@metric.subtitle)}</div>
+        <div class="lcars-text-secondary lcars-label text-xs sm:text-sm truncate">
+          {String.upcase(@metric.subtitle)}
+        </div>
 
         <%= if Map.get(@metric, :progress) do %>
           <div class="space-y-1">
@@ -212,9 +227,12 @@ defmodule ReencodarrWeb.DashboardLive do
               <div
                 class="h-full lcars-progress transition-all duration-500"
                 style={"width: #{@metric.progress}%"}
-              ></div>
+              >
+              </div>
             </div>
-            <div class="text-xs lcars-text-secondary text-right lcars-data">{@metric.progress}% COMPLETE</div>
+            <div class="text-xs lcars-text-secondary text-right lcars-data">
+              {@metric.progress}% COMPLETE
+            </div>
           </div>
         <% end %>
       </div>
@@ -227,7 +245,9 @@ defmodule ReencodarrWeb.DashboardLive do
     <div class="bg-gray-900 border-2 border-yellow-400 rounded-lg overflow-hidden">
       <!-- LCARS Header -->
       <div class="h-10 sm:h-12 bg-yellow-400 flex items-center px-3 sm:px-4">
-        <span class="text-black font-bold tracking-wider text-sm sm:text-base">SYSTEM OPERATIONS</span>
+        <span class="text-black font-bold tracking-wider text-sm sm:text-base">
+          SYSTEM OPERATIONS
+        </span>
       </div>
 
       <div class="p-3 sm:p-4 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -275,7 +295,8 @@ defmodule ReencodarrWeb.DashboardLive do
           <div class={[
             "w-2 h-2 sm:w-3 sm:h-3 rounded-full",
             if(@active, do: "bg-green-400 animate-pulse", else: "bg-gray-600")
-          ]}></div>
+          ]}>
+          </div>
           <span class={[
             "text-xs sm:text-sm font-bold tracking-wide",
             if(@active, do: "text-green-400", else: "text-gray-500")
@@ -298,7 +319,8 @@ defmodule ReencodarrWeb.DashboardLive do
                   lcars_progress_color(@color)
                 ]}
                 style={"width: #{@progress.percent}%"}
-              ></div>
+              >
+              </div>
             </div>
             <div class="text-xs text-orange-300 text-right">{@progress.percent}%</div>
           </div>
@@ -311,21 +333,9 @@ defmodule ReencodarrWeb.DashboardLive do
   defp lcars_queues_section(assigns) do
     ~H"""
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
-      <.lcars_queue_panel
-        title="CRF SEARCH QUEUE"
-        queue={@queues.crf_search}
-        color="cyan"
-      />
-      <.lcars_queue_panel
-        title="ENCODING QUEUE"
-        queue={@queues.encoding}
-        color="green"
-      />
-      <.lcars_queue_panel
-        title="ANALYZER QUEUE"
-        queue={@queues.analyzer}
-        color="purple"
-      />
+      <.lcars_queue_panel title="CRF SEARCH QUEUE" queue={@queues.crf_search} color="cyan" />
+      <.lcars_queue_panel title="ENCODING QUEUE" queue={@queues.encoding} color="green" />
+      <.lcars_queue_panel title="ANALYZER QUEUE" queue={@queues.analyzer} color="purple" />
     </div>
     """
   end
@@ -338,13 +348,17 @@ defmodule ReencodarrWeb.DashboardLive do
         "h-8 sm:h-10 flex items-center px-2 sm:px-3",
         lcars_queue_header_color(@color)
       ]}>
-        <span class="text-black font-bold tracking-wider text-xs sm:text-sm truncate flex-1">{@title}</span>
+        <span class="text-black font-bold tracking-wider text-xs sm:text-sm truncate flex-1">
+          {@title}
+        </span>
         <div class="ml-2">
-          <span class="text-black font-bold text-xs sm:text-sm">{format_count(@queue.total_count)}</span>
+          <span class="text-black font-bold text-xs sm:text-sm">
+            {format_count(@queue.total_count)}
+          </span>
         </div>
       </div>
-
-      <!-- Queue Content -->
+      
+    <!-- Queue Content -->
       <div class="p-2 sm:p-3">
         <%= if @queue.files == [] do %>
           <div class="text-center py-4 sm:py-6">
@@ -404,8 +418,8 @@ defmodule ReencodarrWeb.DashboardLive do
             <.lcars_stat_row label="LAST INSERT" value={@stats.last_video_insert} small={true} />
           </div>
         </div>
-
-        <!-- Control Buttons -->
+        
+    <!-- Control Buttons -->
         <div class="space-y-2">
           <div class="text-orange-300 text-xs sm:text-sm font-bold tracking-wide">OPERATIONS</div>
           <.live_component
@@ -445,6 +459,7 @@ defmodule ReencodarrWeb.DashboardLive do
       true -> to_string(value)
     end
   end
+
   defp format_metric_value(value) when is_binary(value), do: value
   defp format_metric_value(value), do: to_string(value)
 
@@ -455,6 +470,7 @@ defmodule ReencodarrWeb.DashboardLive do
       true -> to_string(count)
     end
   end
+
   defp format_count(count), do: to_string(count)
 
   defp lcars_stat_row(assigns) do
@@ -465,11 +481,15 @@ defmodule ReencodarrWeb.DashboardLive do
       <span class={[
         "lcars-text-secondary lcars-data",
         if(@small, do: "text-xs", else: "text-xs sm:text-sm")
-      ]}>{@label}</span>
+      ]}>
+        {@label}
+      </span>
       <span class={[
         "lcars-text-primary lcars-data font-bold truncate",
         if(@small, do: "text-xs", else: "text-xs sm:text-sm")
-      ]}>{@value}</span>
+      ]}>
+        {@value}
+      </span>
     </div>
     """
   end
@@ -505,8 +525,16 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   # Telemetry event handler
-  def handle_telemetry_event([:reencodarr, :dashboard, :state_updated], _measurements, %{state: state}, %{live_view_pid: pid}) do
-    Logger.debug("DashboardLive: Received telemetry state update - syncing: #{Map.get(state, :syncing, false)}")
+  def handle_telemetry_event(
+        [:reencodarr, :dashboard, :state_updated],
+        _measurements,
+        %{state: state},
+        %{live_view_pid: pid}
+      ) do
+    Logger.debug(
+      "DashboardLive: Received telemetry state update - syncing: #{Map.get(state, :syncing, false)}"
+    )
+
     send(pid, {:telemetry_event, state})
   end
 

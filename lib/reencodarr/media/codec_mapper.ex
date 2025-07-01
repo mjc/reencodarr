@@ -47,15 +47,19 @@ defmodule Reencodarr.Media.CodecMapper do
     "5.1" => 6,
     "5.0" => 5,
     "5" => 5,
-    "4.1" => 5,  # 4.1 = 4 main + 1 LFE = 5 total
+    # 4.1 = 4 main + 1 LFE = 5 total
+    "4.1" => 5,
     "4" => 4,
     "4.0" => 4,
-    "3.1" => 4,  # 3.1 = 3 main + 1 LFE = 4 total
+    # 3.1 = 3 main + 1 LFE = 4 total
+    "3.1" => 4,
     "3" => 3,
-    "2.1" => 3,  # 2.1 = 2 main + 1 LFE = 3 total
+    # 2.1 = 2 main + 1 LFE = 3 total
+    "2.1" => 3,
     "2" => 2,
     "1" => 1,
-    "0" => 0     # Add explicit 0 mapping
+    # Add explicit 0 mapping
+    "0" => 0
   }
 
   alias Reencodarr.Media.CodecHelper
@@ -110,6 +114,7 @@ defmodule Reencodarr.Media.CodecMapper do
           {int_val, _} -> int_val
           :error -> 0
         end
+
       mapped_value ->
         mapped_value
     end
@@ -130,11 +135,13 @@ defmodule Reencodarr.Media.CodecMapper do
       surround_codecs = ["DTS", "AC3", "EAC3", "TrueHD", "DTS-HD"]
 
       if Enum.any?(surround_codecs, &String.contains?(codec, &1)) or
-         Enum.any?(surround_codecs, &String.contains?(format, &1)) or
-         String.contains?(commercial, "Atmos") do
-        6  # Assume 5.1 = 6 channels for surround sound codecs
+           Enum.any?(surround_codecs, &String.contains?(format, &1)) or
+           String.contains?(commercial, "Atmos") do
+        # Assume 5.1 = 6 channels for surround sound codecs
+        6
       else
-        5  # True 5.0 for other codecs
+        # True 5.0 for other codecs
+        5
       end
     else
       # Use regular mapping for other channel counts
@@ -145,6 +152,7 @@ defmodule Reencodarr.Media.CodecMapper do
   @spec format_commercial_if_any(String.t() | any) :: String.t()
   def format_commercial_if_any(atmos) when is_binary(atmos) do
     lower_atmos = String.downcase(atmos)
+
     cond do
       String.contains?(lower_atmos, "atmos") -> "Atmos"
       String.contains?(lower_atmos, "dts-x") or String.contains?(lower_atmos, "dts:x") -> "Atmos"

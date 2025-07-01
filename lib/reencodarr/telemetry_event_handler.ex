@@ -17,15 +17,21 @@ defmodule Reencodarr.TelemetryEventHandler do
   def handle_event(event_name, measurements, metadata, config)
 
   # Encoder events
-  def handle_event([:reencodarr, :encoder, :started], _measurements, %{filename: filename}, %{reporter_pid: pid}) do
+  def handle_event([:reencodarr, :encoder, :started], _measurements, %{filename: filename}, %{
+        reporter_pid: pid
+      }) do
     GenServer.cast(pid, {:update_encoding, true, filename})
   end
 
-  def handle_event([:reencodarr, :encoder, :progress], measurements, _metadata, %{reporter_pid: pid}) do
+  def handle_event([:reencodarr, :encoder, :progress], measurements, _metadata, %{
+        reporter_pid: pid
+      }) do
     GenServer.cast(pid, {:update_encoding_progress, measurements})
   end
 
-  def handle_event([:reencodarr, :encoder, :completed], _measurements, _metadata, %{reporter_pid: pid}) do
+  def handle_event([:reencodarr, :encoder, :completed], _measurements, _metadata, %{
+        reporter_pid: pid
+      }) do
     GenServer.cast(pid, {:update_encoding, false, :none})
   end
 
@@ -35,24 +41,34 @@ defmodule Reencodarr.TelemetryEventHandler do
   end
 
   # CRF search events
-  def handle_event([:reencodarr, :crf_search, :started], _measurements, _metadata, %{reporter_pid: pid}) do
+  def handle_event([:reencodarr, :crf_search, :started], _measurements, _metadata, %{
+        reporter_pid: pid
+      }) do
     GenServer.cast(pid, {:update_crf_search, true})
   end
 
-  def handle_event([:reencodarr, :crf_search, :progress], measurements, _metadata, %{reporter_pid: pid}) do
+  def handle_event([:reencodarr, :crf_search, :progress], measurements, _metadata, %{
+        reporter_pid: pid
+      }) do
     GenServer.cast(pid, {:update_crf_search_progress, measurements})
   end
 
-  def handle_event([:reencodarr, :crf_search, :completed], _measurements, _metadata, %{reporter_pid: pid}) do
+  def handle_event([:reencodarr, :crf_search, :completed], _measurements, _metadata, %{
+        reporter_pid: pid
+      }) do
     GenServer.cast(pid, {:update_crf_search, false})
   end
 
   # Analyzer events
-  def handle_event([:reencodarr, :analyzer, :started], _measurements, _metadata, %{reporter_pid: pid}) do
+  def handle_event([:reencodarr, :analyzer, :started], _measurements, _metadata, %{
+        reporter_pid: pid
+      }) do
     GenServer.cast(pid, {:update_analyzer, true})
   end
 
-  def handle_event([:reencodarr, :analyzer, :paused], _measurements, _metadata, %{reporter_pid: pid}) do
+  def handle_event([:reencodarr, :analyzer, :paused], _measurements, _metadata, %{
+        reporter_pid: pid
+      }) do
     GenServer.cast(pid, {:update_analyzer, false})
   end
 
@@ -69,7 +85,10 @@ defmodule Reencodarr.TelemetryEventHandler do
 
   # Catch-all for unhandled events
   def handle_event(event, measurements, _metadata, _config) do
-    Logger.debug("TelemetryEventHandler: Unhandled event #{inspect(event)} - measurements: #{inspect(measurements)}")
+    Logger.debug(
+      "TelemetryEventHandler: Unhandled event #{inspect(event)} - measurements: #{inspect(measurements)}"
+    )
+
     :ok
   end
 

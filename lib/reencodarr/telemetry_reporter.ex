@@ -135,7 +135,11 @@ defmodule Reencodarr.TelemetryReporter do
   def handle_cast({:update_crf_search, status}, %DashboardState{} = state) do
     Logger.debug("TelemetryReporter: CRF search status update: #{status}")
     new_state = DashboardState.update_crf_search(state, status)
-    Logger.debug("TelemetryReporter: New CRF search state: crf_searching=#{new_state.crf_searching}, progress=#{inspect(new_state.crf_search_progress)}")
+
+    Logger.debug(
+      "TelemetryReporter: New CRF search state: crf_searching=#{new_state.crf_searching}, progress=#{inspect(new_state.crf_search_progress)}"
+    )
+
     {:noreply, emit_state_update_and_return(new_state)}
   end
 
@@ -197,7 +201,10 @@ defmodule Reencodarr.TelemetryReporter do
 
     # Only emit telemetry if the change is significant to reduce LiveView update frequency
     if DashboardState.significant_change?(old_state, new_state) do
-      Logger.debug("TelemetryReporter: Emitting state update - crf_searching: #{new_state.crf_searching}, crf_progress: #{inspect(new_state.crf_search_progress)}")
+      Logger.debug(
+        "TelemetryReporter: Emitting state update - crf_searching: #{new_state.crf_searching}, crf_progress: #{inspect(new_state.crf_search_progress)}"
+      )
+
       # Emit telemetry event with minimal payload - only essential state for dashboard updates
       minimal_state = %{
         stats: new_state.stats,
@@ -206,9 +213,15 @@ defmodule Reencodarr.TelemetryReporter do
         analyzing: new_state.analyzing,
         syncing: new_state.syncing,
         # Always send progress structs - use empty structs when not processing
-        encoding_progress: if(new_state.encoding, do: new_state.encoding_progress, else: %EncodingProgress{}),
-        crf_search_progress: if(new_state.crf_searching, do: new_state.crf_search_progress, else: %CrfSearchProgress{}),
-        analyzer_progress: if(new_state.analyzing, do: new_state.analyzer_progress, else: %AnalyzerProgress{}),
+        encoding_progress:
+          if(new_state.encoding, do: new_state.encoding_progress, else: %EncodingProgress{}),
+        crf_search_progress:
+          if(new_state.crf_searching,
+            do: new_state.crf_search_progress,
+            else: %CrfSearchProgress{}
+          ),
+        analyzer_progress:
+          if(new_state.analyzing, do: new_state.analyzer_progress, else: %AnalyzerProgress{}),
         sync_progress: if(new_state.syncing, do: new_state.sync_progress, else: 0),
         service_type: new_state.service_type
       }

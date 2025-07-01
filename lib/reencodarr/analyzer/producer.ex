@@ -115,11 +115,12 @@ defmodule Reencodarr.Analyzer.Producer do
     remaining_demand = state.demand - dispatched_count
 
     # If we still have demand after manual videos, get videos from the database
-    database_videos = if remaining_demand > 0 do
-      Media.get_next_for_analysis(remaining_demand)
-    else
-      []
-    end
+    database_videos =
+      if remaining_demand > 0 do
+        Media.get_next_for_analysis(remaining_demand)
+      else
+        []
+      end
 
     all_videos = manual_videos ++ database_videos
 
@@ -129,7 +130,10 @@ defmodule Reencodarr.Analyzer.Producer do
         {:noreply, [], state}
 
       videos ->
-        Logger.debug("Analyzer producer dispatching #{length(videos)} videos for analysis (#{dispatched_count} manual, #{length(database_videos)} from DB)")
+        Logger.debug(
+          "Analyzer producer dispatching #{length(videos)} videos for analysis (#{dispatched_count} manual, #{length(database_videos)} from DB)"
+        )
+
         new_demand = state.demand - length(videos)
         new_state = %{state | demand: new_demand, manual_queue: remaining_manual}
         {:noreply, videos, new_state}

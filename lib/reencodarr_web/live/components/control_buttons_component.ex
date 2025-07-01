@@ -10,7 +10,14 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
     encoding = Reencodarr.Encoder.Producer.running?()
     crf_searching = Reencodarr.CrfSearcher.Producer.running?()
     analyzing = Reencodarr.Analyzer.running?()
-    {:ok, assign(socket, encoding: encoding, crf_searching: crf_searching, analyzing: analyzing, syncing: false)}
+
+    {:ok,
+     assign(socket,
+       encoding: encoding,
+       crf_searching: crf_searching,
+       analyzing: analyzing,
+       syncing: false
+     )}
   end
 
   @impl true
@@ -145,8 +152,12 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
       <div class="flex items-center space-x-2">
         <div class={[
           "w-2 h-2 rounded-full",
-          if(@type == "toggle" && @active, do: "bg-green-300 lcars-status-online", else: "bg-gray-800")
-        ]}></div>
+          if(@type == "toggle" && @active,
+            do: "bg-green-300 lcars-status-online",
+            else: "bg-gray-800"
+          )
+        ]}>
+        </div>
         <span>{@label}</span>
       </div>
     </button>

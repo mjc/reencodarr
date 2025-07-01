@@ -69,6 +69,7 @@ defmodule Reencodarr.Telemetry do
 
   def emit_sync_started(service_type \\ nil) do
     Logger.info("Telemetry: Emitting sync started event - service_type: #{service_type}")
+
     :telemetry.execute(
       [:reencodarr, :sync, :started],
       %{},
