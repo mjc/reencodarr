@@ -38,14 +38,20 @@ defmodule Reencodarr.Application do
   end
 
   defp worker_children do
-    [
+    base_workers = [
       Reencodarr.ManualScanner,
-      Reencodarr.Analyzer,
       Reencodarr.CrfSearcher.Supervisor,
       Reencodarr.Encoder.Supervisor,
       Reencodarr.AbAv1,
       Reencodarr.Sync
     ]
+    
+    # Only start Analyzer GenStage in non-test environments to avoid database ownership issues
+    if Application.get_env(:reencodarr, :env) != :test do
+      [Reencodarr.Analyzer.Supervisor | base_workers]
+    else
+      base_workers
+    end
   end
 
   # Tell Phoenix to update the endpoint configuration

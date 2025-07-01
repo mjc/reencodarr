@@ -40,6 +40,36 @@ defmodule Reencodarr.Media do
     )
   end
 
+  def get_next_for_analysis(limit \\ 10) do
+    # Get videos that need analysis (bitrate = 0 or nil)
+    videos_needing_analysis = 
+      Repo.all(
+        from v in Video,
+          where: (v.bitrate == 0 or is_nil(v.bitrate)) and v.failed == false,
+          order_by: [
+            desc: v.size,
+            asc: v.updated_at
+          ],
+          limit: ^limit,
+          select: %{
+            path: v.path,
+            service_id: v.service_id,
+            service_type: v.service_type,
+            force_reanalyze: false
+          }
+      )
+    
+    # Convert to the format expected by the consumer
+    Enum.map(videos_needing_analysis, fn video ->
+      %{
+        path: video.path,
+        service_id: video.service_id,
+        service_type: video.service_type,
+        force_reanalyze: video.force_reanalyze
+      }
+    end)
+  end
+
   # Renamed `base_query_for_videos` to `query_videos_by_criteria` for better understanding
   defp query_videos_by_criteria(limit) do
     Repo.all(
