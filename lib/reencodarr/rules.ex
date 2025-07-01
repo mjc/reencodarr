@@ -4,10 +4,17 @@ defmodule Reencodarr.Rules do
   @opus_codec_tag "A_OPUS"
 
   @recommended_opus_bitrates %{
-    1 => 48,
-    2 => 96,
-    6 => 128,
-    8 => 256
+    1 => 48,     # Mono - official recommendation
+    2 => 96,     # Stereo - official recommendation
+    3 => 160,    # 2.1 or 3.0 - (~53 kbps per channel)
+    4 => 192,    # 4.0 or 3.1 - (~48 kbps per channel)
+    5 => 224,    # 5.0 or 4.1 - (~45 kbps per channel)
+    6 => 256,    # 5.1 - official recommendation (~43 kbps per channel)
+    7 => 320,    # 6.1 - (~46 kbps per channel)
+    8 => 450,    # 7.1 - official recommendation (~56 kbps per channel)
+    9 => 500,    # 8.1 - (~56 kbps per channel)
+    10 => 510,   # 9.1 - Max supported bitrate
+    11 => 510    # 9.2 - Max supported bitrate
   }
 
   @spec apply(Media.Video.t()) :: list()
@@ -47,8 +54,14 @@ defmodule Reencodarr.Rules do
 
   def audio(_), do: []
 
+  defp opus_bitrate(channels) when channels > 11 do
+    # For very high channel counts, use maximum supported bitrate
+    510
+  end
+
   defp opus_bitrate(channels) do
-    Map.get(@recommended_opus_bitrates, channels, 512)
+    # Use ~64 kbps per channel as fallback for unmapped channel counts
+    Map.get(@recommended_opus_bitrates, channels, min(510, channels * 64))
   end
 
   @spec cuda(any()) :: list()

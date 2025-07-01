@@ -85,7 +85,7 @@ defmodule Reencodarr.Media.MediaInfo do
       audio_codec: CodecMapper.map_codec_id(media["audioCodec"]),
       video_codec: CodecMapper.map_codec_id(media["videoCodec"]),
       bitrate: media["overallBitrate"] || media["videoBitrate"],
-      audio_channels: CodecMapper.map_channels(media["audioChannels"]),
+      audio_channels: CodecMapper.map_channels_with_context(media["audioChannels"], media),
       resolution: {width, height},
       video_fps: media["videoFps"],
       video_dynamic_range: media["videoDynamicRange"],

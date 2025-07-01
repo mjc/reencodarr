@@ -47,14 +47,15 @@ defmodule Reencodarr.Media.CodecMapper do
     "5.1" => 6,
     "5.0" => 5,
     "5" => 5,
-    "4.1" => 5,
+    "4.1" => 5,  # 4.1 = 4 main + 1 LFE = 5 total
     "4" => 4,
     "4.0" => 4,
-    "3.1" => 4,
+    "3.1" => 4,  # 3.1 = 3 main + 1 LFE = 4 total
     "3" => 3,
-    "2.1" => 3,
+    "2.1" => 3,  # 2.1 = 2 main + 1 LFE = 3 total
     "2" => 2,
-    "1" => 1
+    "1" => 1,
+    "0" => 0     # Add explicit 0 mapping
   }
 
   alias Reencodarr.Media.CodecHelper
@@ -98,14 +99,62 @@ defmodule Reencodarr.Media.CodecMapper do
   def audio_track_is_opus?(%{"@type" => "Audio", "CodecID" => "A_OPUS"}), do: true
   def audio_track_is_opus?(_), do: false
 
-  @spec map_channels(String.t() | float()) :: integer()
+  @spec map_channels(String.t() | float() | integer()) :: integer()
   def map_channels(channel) do
-    Map.get(@channel_map, to_string(channel), 0)
+    channel_str = to_string(channel)
+
+    case Map.get(@channel_map, channel_str) do
+      nil ->
+        # If not found in map, try to parse as integer
+        case Integer.parse(channel_str) do
+          {int_val, _} -> int_val
+          :error -> 0
+        end
+      mapped_value ->
+        mapped_value
+    end
+  end
+
+  @spec map_channels_with_context(String.t() | float() | integer(), map()) :: integer()
+  def map_channels_with_context(channel, audio_track \\ %{}) do
+    channel_str = to_string(channel)
+
+    # Check if this might be 5.1 surround when reported as "5" channels
+    if channel_str == "5" do
+      # Look for indicators this is actually 5.1 surround sound
+      codec = Map.get(audio_track, "audioCodec", "")
+      commercial = Map.get(audio_track, "Format_Commercial_IfAny", "")
+      format = Map.get(audio_track, "Format", "")
+
+      # Common 5.1 surround codecs that might be misreported
+      surround_codecs = ["DTS", "AC3", "EAC3", "TrueHD", "DTS-HD"]
+
+      if Enum.any?(surround_codecs, &String.contains?(codec, &1)) or
+         Enum.any?(surround_codecs, &String.contains?(format, &1)) or
+         String.contains?(commercial, "Atmos") do
+        6  # Assume 5.1 = 6 channels for surround sound codecs
+      else
+        5  # True 5.0 for other codecs
+      end
+    else
+      # Use regular mapping for other channel counts
+      map_channels(channel)
+    end
   end
 
   @spec format_commercial_if_any(String.t() | any) :: String.t()
-  def format_commercial_if_any(atmos) when atmos in ["TrueHD Atmos", "EAC3 Atmos", "DTS-X"],
-    do: "Atmos"
+  def format_commercial_if_any(atmos) when is_binary(atmos) do
+    lower_atmos = String.downcase(atmos)
+    cond do
+      String.contains?(lower_atmos, "atmos") -> "Atmos"
+      String.contains?(lower_atmos, "dts-x") or String.contains?(lower_atmos, "dts:x") -> "Atmos"
+      String.contains?(lower_atmos, "truehd atmos") -> "Atmos"
+      String.contains?(lower_atmos, "eac3 atmos") -> "Atmos"
+      String.contains?(lower_atmos, "dd+ atmos") -> "Atmos"
+      true -> ""
+    end
+  end
 
+  def format_commercial_if_any(atmos) when atmos in [:eac3_atmos, :truehd_atmos], do: "Atmos"
   def format_commercial_if_any(_), do: ""
 end
