@@ -354,7 +354,7 @@ defmodule ReencodarrWeb.DashboardLive do
       ]}>
         <span class="text-black font-bold tracking-wider">{@title}</span>
         <div class="ml-auto">
-          <span class="text-black font-bold">{length(@queue.files)} ITEMS</span>
+          <span class="text-black font-bold">{@queue.total_count} ITEMS</span>
         </div>
       </div>
 
@@ -385,10 +385,10 @@ defmodule ReencodarrWeb.DashboardLive do
               </div>
             <% end %>
 
-            <%= if length(@queue.files) == 10 do %>
+            <%= if length(@queue.files) == 10 and @queue.total_count > 10 do %>
               <div class="text-center py-2">
                 <span class="text-xs text-orange-300 tracking-wide">
-                  SHOWING FIRST 10 ITEMS
+                  SHOWING FIRST 10 OF {@queue.total_count} ITEMS
                 </span>
               </div>
             <% end %>

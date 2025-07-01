@@ -147,19 +147,22 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
         title: "CRF Search Queue",
         icon: "🔍",
         color: "from-cyan-500 to-blue-500",
-        files: normalize_queue_files(crf_search_files)
+        files: normalize_queue_files(crf_search_files),
+        total_count: get_queue_total_count(dashboard_state, :crf_searches)
       },
       encoding: %{
         title: "Encoding Queue",
         icon: "⚡",
         color: "from-emerald-500 to-teal-500",
-        files: normalize_queue_files(encoding_files)
+        files: normalize_queue_files(encoding_files),
+        total_count: get_queue_total_count(dashboard_state, :encodes)
       },
       analyzer: %{
         title: "Analyzer Queue",
         icon: "📊",
         color: "from-purple-500 to-pink-500",
-        files: normalize_queue_files(analyzer_files)
+        files: normalize_queue_files(analyzer_files),
+        total_count: get_queue_total_count(dashboard_state, :analyzer)
       }
     }
   end
@@ -252,6 +255,15 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
 
   defp get_progress_percent(progress) when is_map(progress), do: Map.get(progress, :percent, 0)
   defp get_progress_percent(_), do: 0
+
+  # Helper function to get total queue count from stats
+  defp get_queue_total_count(dashboard_state, queue_type) do
+    case dashboard_state do
+      %{stats: %{queue_length: queue_length}} -> Map.get(queue_length, queue_type, 0)
+      %Reencodarr.DashboardState{stats: %{queue_length: queue_length}} -> Map.get(queue_length, queue_type, 0)
+      _ -> 0
+    end
+  end
 
   # Simple cache cleanup to prevent unbounded growth
   defp cleanup_cache do
