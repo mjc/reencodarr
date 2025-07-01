@@ -21,65 +21,69 @@ defmodule Reencodarr.CrfSearcher.Consumer do
     # Subscribe to CRF search completion events
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_search_events")
 
-    {:consumer, %{pending_operations: %{}},
-     subscribe_to: [{Reencodarr.CrfSearcher.Producer, max_demand: 1}]}
+    # Start with no demand - we'll ask for the first video manually
+    {:consumer, %{current_video_id: nil},
+     subscribe_to: [{Reencodarr.CrfSearcher.Producer, min_demand: 0, max_demand: 1}]}
   end
 
   @impl true
-  def handle_events(videos, _from, state) do
-    new_state =
-      videos
-      |> Enum.reduce(state, &process_video_with_tracking/2)
+  def handle_subscribe(:producer, _opts, from, state) do
+    # When we first subscribe to the producer, ask for 1 video
+    GenStage.ask(from, 1)
+    {:manual, state}
+  end
 
-    {:noreply, [], new_state}
+  @impl true
+  def handle_events([video], _from, state) do
+    Logger.info("Consumer received video #{video.id} (#{video.path}), current_video_id: #{inspect(state.current_video_id)}")
+
+    # Check if we're already processing a video
+    case state.current_video_id do
+      nil ->
+        Logger.info("Starting CRF search for #{video.path}")
+
+        # Start CRF search and track the current video ID
+        # Don't ask for more videos until this one completes
+        AbAv1.crf_search(video, 95)
+        new_state = %{state | current_video_id: video.id}
+
+        {:noreply, [], new_state}
+
+      current_id when current_id == video.id ->
+        # Same video sent again - this shouldn't happen anymore with manual demand
+        Logger.warning("Ignoring duplicate video #{video.id} - already processing")
+        {:noreply, [], state}
+
+      other_id ->
+        # Different video while processing another - this is the bug we're fixing
+        Logger.error("Consumer received video #{video.id} while already processing video #{other_id}! This indicates a demand management bug.")
+        {:noreply, [], state}
+    end
   end
 
   # Handle CRF search completion messages from PubSub
   @impl true
-  def handle_info({:crf_search_completed, video_id, result}, state) do
-    # Check if this operation was tracked by this consumer
-    case Map.pop(state.pending_operations, video_id) do
-      {nil, _pending_operations} ->
-        # Operation not tracked by this consumer, ignore
-        {:noreply, [], state}
+  def handle_info({:crf_search_completed, video_id, result}, %{current_video_id: video_id} = state) do
+    # This is the completion for our current video
+    case result do
+      :success ->
+        Logger.info("Completed CRF search for video #{video_id}")
 
-      {video, new_pending} ->
-        # Remove from pending operations
-        new_state = %{state | pending_operations: new_pending}
+      :skipped ->
+        Logger.info("Skipped CRF search for video #{video_id} (already exists or reencoded)")
 
-        case result do
-          :success ->
-            Logger.info("Completed CRF search for #{video.path}")
-
-          :skipped ->
-            Logger.info("Skipped CRF search for #{video.path} (already exists or reencoded)")
-
-          {:error, exit_code} ->
-            Logger.error("CRF search failed for #{video.path} with exit code: #{exit_code}")
-        end
-
-        {:noreply, [], new_state}
+      {:error, exit_code} ->
+        Logger.error("CRF search failed for video #{video_id} with exit code: #{exit_code}")
     end
+
+    # Clear current video and ask for the next one from the producer
+    new_state = %{state | current_video_id: nil}
+    GenStage.ask(Reencodarr.CrfSearcher.Producer, 1)
+    {:noreply, [], new_state}
   end
 
-  defp process_video_with_tracking(video, state) do
-    operation_id = video.id
-
-    # Check if this video is already being processed
-    case Map.has_key?(state.pending_operations, operation_id) do
-      false ->
-        Logger.info("Starting CRF search for #{video.path}")
-
-        # Start CRF search (default VMAF percent 95)
-        AbAv1.crf_search(video, 95)
-
-        # Track the operation
-        new_pending = Map.put(state.pending_operations, operation_id, video)
-        %{state | pending_operations: new_pending}
-
-      true ->
-        Logger.debug("CRF search already in progress for #{video.path}, skipping")
-        state
-    end
+  # Ignore completion events for other videos (shouldn't happen with max_demand: 1, but just in case)
+  def handle_info({:crf_search_completed, _other_video_id, _result}, state) do
+    {:noreply, [], state}
   end
 end
