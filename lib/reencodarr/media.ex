@@ -252,15 +252,20 @@ defmodule Reencodarr.Media do
         next_analyzer = get_next_for_analysis(5)
 
         # Get manual queue items from the analyzer producer and merge them
-        manual_analyzer_items = case Application.get_env(:reencodarr, :env) do
-          :test -> []  # Skip in test environment
-          _ ->
-            try do
-              Reencodarr.Analyzer.Producer.get_manual_queue()
-            rescue
-              _ -> []  # Handle case where producer is not running
-            end
-        end
+        manual_analyzer_items =
+          case Application.get_env(:reencodarr, :env) do
+            # Skip in test environment
+            :test ->
+              []
+
+            _ ->
+              try do
+                Reencodarr.Analyzer.Producer.get_manual_queue()
+              rescue
+                # Handle case where producer is not running
+                _ -> []
+              end
+          end
 
         # Combine database and manual queue items (manual items first)
         combined_analyzer = manual_analyzer_items ++ next_analyzer

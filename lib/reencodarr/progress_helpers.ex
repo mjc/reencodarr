@@ -24,7 +24,8 @@ defmodule Reencodarr.ProgressHelpers do
   @doc """
   Update progress struct with new measurements, preserving meaningful existing values.
   """
-  def update_progress(current_progress, measurements) when is_struct(current_progress) and is_map(measurements) do
+  def update_progress(current_progress, measurements)
+      when is_struct(current_progress) and is_map(measurements) do
     current_map = Map.from_struct(current_progress)
     updated_map = smart_merge(current_map, measurements)
     struct(current_progress.__struct__, updated_map)

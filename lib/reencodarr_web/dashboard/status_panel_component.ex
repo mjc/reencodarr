@@ -5,8 +5,7 @@ defmodule ReencodarrWeb.Dashboard.StatusPanelComponent do
     ~H"""
     <div class="rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 p-6">
       <h2 class="text-xl font-semibold text-white mb-6 flex items-center gap-2">
-        <span class="text-xl">⚡</span>
-        Real-time Status
+        <span class="text-xl">⚡</span> Real-time Status
       </h2>
 
       <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -69,7 +68,8 @@ defmodule ReencodarrWeb.Dashboard.StatusPanelComponent do
       <div class={[
         "w-2 h-2 rounded-full",
         if(@active, do: "bg-emerald-400 animate-pulse", else: "bg-slate-600")
-      ]}></div>
+      ]}>
+      </div>
       <span class={[
         "text-xs font-semibold",
         if(@active, do: "text-emerald-300", else: "text-slate-400")
@@ -91,7 +91,8 @@ defmodule ReencodarrWeb.Dashboard.StatusPanelComponent do
         <div
           class={"h-full bg-gradient-to-r #{@color} transition-all duration-300 ease-out"}
           style={"width: #{@value}%"}
-        ></div>
+        >
+        </div>
       </div>
     </div>
     """

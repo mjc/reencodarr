@@ -7,8 +7,10 @@ defmodule ReencodarrWeb.Utils.TimeUtils do
   @seconds_per_minute 60
   @seconds_per_hour 3600
   @seconds_per_day 86400
-  @seconds_per_month 2_592_000  # 30 days
-  @seconds_per_year 31_536_000  # 365 days
+  # 30 days
+  @seconds_per_month 2_592_000
+  # 365 days
+  @seconds_per_year 31_536_000
 
   @doc """
   Formats a datetime as a relative time string (e.g., "2 hours ago", "3 days ago").

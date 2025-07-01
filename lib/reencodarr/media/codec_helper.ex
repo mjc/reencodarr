@@ -127,16 +127,21 @@ defmodule Reencodarr.Media.CodecHelper do
   @spec get_channel_count_from_track(map()) :: integer()
   defp get_channel_count_from_track(track) do
     # Try multiple MediaInfo field name variations (case-insensitive)
-    channel_positions = get_field_case_insensitive(track, ["ChannelPositions", "Channel_s_", "ChannelLayout"])
-    channel_layout = get_field_case_insensitive(track, ["ChannelLayout", "Channel_Layout", "Channels_Layout"])
-    channels_string = get_field_case_insensitive(track, ["Channel(s)/String", "Channels/String", "ChannelString"])
+    channel_positions =
+      get_field_case_insensitive(track, ["ChannelPositions", "Channel_s_", "ChannelLayout"])
+
+    channel_layout =
+      get_field_case_insensitive(track, ["ChannelLayout", "Channel_Layout", "Channels_Layout"])
+
+    channels_string =
+      get_field_case_insensitive(track, ["Channel(s)/String", "Channels/String", "ChannelString"])
 
     # Check if this is 5.1 surround by looking for LFE in channel positions
     cond do
       # Look for LFE (Low Frequency Effects) channel in various fields (case-insensitive)
       contains_lfe_or_surround?(channel_positions) or
-      contains_lfe_or_surround?(channel_layout) or
-      contains_lfe_or_surround?(channels_string) ->
+        contains_lfe_or_surround?(channel_layout) or
+          contains_lfe_or_surround?(channels_string) ->
         detect_surround_channel_count(channel_positions, channel_layout, channels_string)
 
       # Fall back to the raw channel count
@@ -149,21 +154,23 @@ defmodule Reencodarr.Media.CodecHelper do
   defp get_field_case_insensitive(track, field_names) do
     Enum.find_value(field_names, "", fn field_name ->
       Map.get(track, field_name) ||
-      Enum.find_value(track, fn {k, v} ->
-        if String.downcase(to_string(k)) == String.downcase(field_name), do: v
-      end)
+        Enum.find_value(track, fn {k, v} ->
+          if String.downcase(to_string(k)) == String.downcase(field_name), do: v
+        end)
     end) || ""
   end
 
   # Check if string contains LFE or surround sound indicators (case-insensitive)
   defp contains_lfe_or_surround?(str) when is_binary(str) do
     lower_str = String.downcase(str)
+
     String.contains?(lower_str, "lfe") or
-    String.contains?(lower_str, "5.1") or
-    String.contains?(lower_str, "7.1") or
-    String.contains?(lower_str, "6.1") or
-    String.contains?(lower_str, "surround")
+      String.contains?(lower_str, "5.1") or
+      String.contains?(lower_str, "7.1") or
+      String.contains?(lower_str, "6.1") or
+      String.contains?(lower_str, "surround")
   end
+
   defp contains_lfe_or_surround?(_), do: false
 
   # Detect channel count from surround sound indicators
@@ -183,8 +190,10 @@ defmodule Reencodarr.Media.CodecHelper do
       String.contains?(combined, "3.1") -> 4
       String.contains?(combined, "2.1") -> 3
       # Default fallback for any LFE detection
-      String.contains?(combined, "lfe") -> 6  # Assume 5.1 if LFE detected but format unclear
-      true -> 6  # Conservative assumption for surround sound
+      # Assume 5.1 if LFE detected but format unclear
+      String.contains?(combined, "lfe") -> 6
+      # Conservative assumption for surround sound
+      true -> 6
     end
   end
 

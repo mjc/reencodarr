@@ -150,9 +150,15 @@ defmodule Reencodarr.DashboardState do
   """
   def update_sync(%__MODULE__{} = state, event, data \\ %{}, service_type \\ nil) do
     case event do
-      :started -> %{state | syncing: true, sync_progress: 0, service_type: service_type}
-      :progress -> %{state | sync_progress: Map.get(data, :progress, 0), service_type: state.service_type}  # Preserve existing service_type
-      :completed -> %{state | syncing: false, sync_progress: 0, service_type: nil}
+      :started ->
+        %{state | syncing: true, sync_progress: 0, service_type: service_type}
+
+      # Preserve existing service_type
+      :progress ->
+        %{state | sync_progress: Map.get(data, :progress, 0), service_type: state.service_type}
+
+      :completed ->
+        %{state | syncing: false, sync_progress: 0, service_type: nil}
     end
   end
 
@@ -205,8 +211,10 @@ defmodule Reencodarr.DashboardState do
       old_state.crf_searching != new_state.crf_searching ||
       old_state.syncing != new_state.syncing ||
       stats_changed?(old_state.stats, new_state.stats) ||
-      (new_state.encoding && progress_changed?(old_state.encoding_progress, new_state.encoding_progress)) ||
-      (new_state.crf_searching && progress_changed?(old_state.crf_search_progress, new_state.crf_search_progress)) ||
+      (new_state.encoding &&
+         progress_changed?(old_state.encoding_progress, new_state.encoding_progress)) ||
+      (new_state.crf_searching &&
+         progress_changed?(old_state.crf_search_progress, new_state.crf_search_progress)) ||
       (new_state.syncing && old_state.sync_progress != new_state.sync_progress)
   end
 
@@ -236,10 +244,11 @@ defmodule Reencodarr.DashboardState do
     filename_changed = old_progress.filename != new_progress.filename
 
     # More sensitive threshold for CRF search since it tends to update more slowly
-    threshold = case old_progress.__struct__ do
-      Reencodarr.Statistics.CrfSearchProgress -> 1.0
-      _ -> 5.0
-    end
+    threshold =
+      case old_progress.__struct__ do
+        Reencodarr.Statistics.CrfSearchProgress -> 1.0
+        _ -> 5.0
+      end
 
     percent_diff >= threshold || filename_changed
   end

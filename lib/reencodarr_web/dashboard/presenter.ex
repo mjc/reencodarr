@@ -21,7 +21,8 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   def start_cache do
     :ets.new(@cache_table, [:set, :public, :named_table])
   rescue
-    ArgumentError -> :ok  # Table already exists
+    # Table already exists
+    ArgumentError -> :ok
   end
 
   def present(dashboard_state, timezone \\ "UTC") do
@@ -38,6 +39,7 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
     case :ets.lookup(@cache_table, cache_key) do
       [{^cache_key, cached_result}] ->
         cached_result
+
       [] ->
         # Compute and cache the result
         result = %{
@@ -81,7 +83,9 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
       },
       %{
         title: "Queue Length",
-        value: stats.queue_length.crf_searches + stats.queue_length.encodes + stats.queue_length.analyzer,
+        value:
+          stats.queue_length.crf_searches + stats.queue_length.encodes +
+            stats.queue_length.analyzer,
         icon: "⏳",
         color: "from-amber-500 to-orange-500",
         subtitle: "pending jobs"
@@ -124,23 +128,31 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
 
   defp present_queues(dashboard_state) do
     # Handle both struct and map formats from telemetry
-    crf_search_files = case dashboard_state do
-      %{stats: %{next_crf_search: files}} -> files || []
-      %Reencodarr.DashboardState{} -> Reencodarr.DashboardState.crf_search_queue(dashboard_state)
-      _ -> []
-    end
+    crf_search_files =
+      case dashboard_state do
+        %{stats: %{next_crf_search: files}} ->
+          files || []
 
-    encoding_files = case dashboard_state do
-      %{stats: %{videos_by_estimated_percent: files}} -> files || []
-      %Reencodarr.DashboardState{} -> Reencodarr.DashboardState.encoding_queue(dashboard_state)
-      _ -> []
-    end
+        %Reencodarr.DashboardState{} ->
+          Reencodarr.DashboardState.crf_search_queue(dashboard_state)
 
-    analyzer_files = case dashboard_state do
-      %{stats: %{next_analyzer: files}} -> files || []
-      %Reencodarr.DashboardState{} -> Reencodarr.DashboardState.analyzer_queue(dashboard_state)
-      _ -> []
-    end
+        _ ->
+          []
+      end
+
+    encoding_files =
+      case dashboard_state do
+        %{stats: %{videos_by_estimated_percent: files}} -> files || []
+        %Reencodarr.DashboardState{} -> Reencodarr.DashboardState.encoding_queue(dashboard_state)
+        _ -> []
+      end
+
+    analyzer_files =
+      case dashboard_state do
+        %{stats: %{next_analyzer: files}} -> files || []
+        %Reencodarr.DashboardState{} -> Reencodarr.DashboardState.analyzer_queue(dashboard_state)
+        _ -> []
+      end
 
     %{
       crf_search: %{
@@ -180,6 +192,7 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   defp calculate_progress(completed, total) when total > 0 do
     (completed / total * 100) |> Float.round(1)
   end
+
   defp calculate_progress(_, _), do: 0
 
   defp normalize_progress(progress) when is_map(progress) do
@@ -199,6 +212,7 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
       }
     end
   end
+
   defp normalize_progress(_) do
     %{
       percent: 0,
@@ -206,18 +220,21 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
     }
   end
 
-  defp normalize_sync_progress(progress, service_type) when is_integer(progress) and progress > 0 do
-    sync_label = case service_type do
-      :sonarr -> "TV SYNC"
-      :radarr -> "MOVIE SYNC"
-      _ -> "LIBRARY SYNC"
-    end
+  defp normalize_sync_progress(progress, service_type)
+       when is_integer(progress) and progress > 0 do
+    sync_label =
+      case service_type do
+        :sonarr -> "TV SYNC"
+        :radarr -> "MOVIE SYNC"
+        _ -> "LIBRARY SYNC"
+      end
 
     %{
       percent: progress,
       filename: sync_label
     }
   end
+
   defp normalize_sync_progress(_, _) do
     %{
       percent: 0,
@@ -233,9 +250,11 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
     # Since DashboardState already limits to 10 items, we can process directly
     # Use more efficient Stream operations for better memory usage
     files
-    |> Stream.with_index(1)  # Start index at 1
+    # Start index at 1
+    |> Stream.with_index(1)
     |> Enum.map(fn {file, index} -> QueueItem.from_video(file, index) end)
   end
+
   defp normalize_queue_files(_), do: []
 
   # Generate a simple hash of the state for cache key
@@ -249,7 +268,8 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
       dashboard_state.syncing,
       get_progress_percent(dashboard_state.encoding_progress),
       get_progress_percent(dashboard_state.crf_search_progress),
-      Map.get(dashboard_state, :sync_progress, 0)  # sync_progress is an integer
+      # sync_progress is an integer
+      Map.get(dashboard_state, :sync_progress, 0)
     }
   end
 
@@ -259,9 +279,14 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   # Helper function to get total queue count from stats
   defp get_queue_total_count(dashboard_state, queue_type) do
     case dashboard_state do
-      %{stats: %{queue_length: queue_length}} -> Map.get(queue_length, queue_type, 0)
-      %Reencodarr.DashboardState{stats: %{queue_length: queue_length}} -> Map.get(queue_length, queue_type, 0)
-      _ -> 0
+      %{stats: %{queue_length: queue_length}} ->
+        Map.get(queue_length, queue_type, 0)
+
+      %Reencodarr.DashboardState{stats: %{queue_length: queue_length}} ->
+        Map.get(queue_length, queue_type, 0)
+
+      _ ->
+        0
     end
   end
 
@@ -271,6 +296,7 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
       size when size > 3 ->
         # Remove oldest entries (simple FIFO)
         :ets.delete_all_objects(@cache_table)
+
       _ ->
         :ok
     end
@@ -283,10 +309,10 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   def memory_usage(dashboard_data) do
     queue_items_count =
       length(dashboard_data.queues.crf_search.files) +
-      length(dashboard_data.queues.encoding.files)
+        length(dashboard_data.queues.encoding.files)
 
     # Rough estimation - each queue item ~200 bytes, other data ~2KB
-    estimated_bytes = (queue_items_count * 200) + 2048
+    estimated_bytes = queue_items_count * 200 + 2048
 
     %{
       queue_items: queue_items_count,

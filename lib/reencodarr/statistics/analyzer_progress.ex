@@ -11,6 +11,8 @@ defmodule Reencodarr.Statistics.AnalyzerProgress do
   @doc """
   Returns true if we have file count information.
   """
-  def has_file_count?(%__MODULE__{total_files: total}) when is_number(total) and total > 0, do: true
+  def has_file_count?(%__MODULE__{total_files: total}) when is_number(total) and total > 0,
+    do: true
+
   def has_file_count?(_), do: false
 end
