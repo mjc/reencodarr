@@ -1,16 +1,16 @@
 defmodule Reencodarr.AbAv1.Encode do
   @moduledoc """
   GenServer for handling video encoding operations using ab-av1.
-  
+
   This module manages the encoding process for videos based on VMAF data,
   handles file operations, and coordinates with the media database.
   """
-  
+
   use GenServer
-  
+
   alias Reencodarr.AbAv1.Helper
-  alias Reencodarr.{Media, Helper, Rules, Repo, Sync, Telemetry}
-  
+  alias Reencodarr.{Media, Repo, Rules, Sync, Telemetry}
+
   require Logger
 
   # Public API
@@ -185,35 +185,31 @@ defmodule Reencodarr.AbAv1.Encode do
 
   # Post-encoding cleanup functions
   defp handle_post_encoding_cleanup(video, output_file) do
-    intermediate_reencoded_path = calculate_intermediate_path(video)
+    intermediate_path = calculate_intermediate_path(video)
 
-    case move_encoder_output_to_intermediate(
-           output_file,
-           intermediate_reencoded_path,
-           video
-         ) do
-      {:ok, actual_intermediate_path} ->
-        # Reload the video using Repo.reload for freshness
-        case Repo.reload(video) do
-          nil ->
-            Logger.error("Failed to reload video #{video.id}: Video not found.")
+    case move_encoder_output_to_intermediate(output_file, intermediate_path, video) do
+      {:ok, actual_path} -> process_intermediate_ok(video, actual_path)
+      {:error, _} -> :ok
+    end
+  end
 
-          reloaded_video ->
-            case Media.mark_as_reencoded(reloaded_video) do
-              {:ok, _updated_video} ->
-                Logger.info("Successfully marked video #{video.id} as re-encoded")
-                # Then, attempt to finalize (rename to original path) and sync
-                finalize_and_sync_video(reloaded_video, actual_intermediate_path)
+  # Processes successful intermediate move: reload and mark re-encoded
+  defp process_intermediate_ok(video, actual_path) do
+    case Repo.reload(video) do
+      nil -> Logger.error("Failed to reload video #{video.id}: Video not found.")
+      reloaded -> process_reloaded_video(reloaded, actual_path)
+    end
+  end
 
-              {:error, reason} ->
-                Logger.error("Failed to mark video #{video.id} as re-encoded: #{inspect(reason)}")
-            end
-        end
+  # Handles marking the reloaded video and finalizing
+  defp process_reloaded_video(video, actual_path) do
+    case Media.mark_as_reencoded(video) do
+      {:ok, _} ->
+        Logger.info("Successfully marked video #{video.id} as re-encoded")
+        finalize_and_sync_video(video, actual_path)
 
-      {:error, _reason_already_logged_and_video_marked_failed} ->
-        # Error handled and video marked as failed within move_encoder_output_to_intermediate
-        # Nothing more to do here, error is logged and video status updated
-        :ok
+      {:error, reason} ->
+        Logger.error("Failed to mark video #{video.id} as re-encoded: #{inspect(reason)}")
     end
   end
 
@@ -237,45 +233,60 @@ defmodule Reencodarr.AbAv1.Encode do
         :ok
 
       {:error, :exdev} ->
-        Logger.info(
-          "[#{log_prefix}] Cross-device rename for #{source} to #{destination} (video #{video.id}). Attempting copy and delete."
-        )
-
-        case File.cp(source, destination) do
-          :ok ->
-            Logger.info(
-              "[#{log_prefix}] Successfully copied #{source} to #{destination} for video #{video.id}"
-            )
-
-            case File.rm(source) do
-              :ok ->
-                Logger.info(
-                  "[#{log_prefix}] Successfully removed original file #{source} after copy for video #{video.id}"
-                )
-
-              {:error, rm_reason} ->
-                Logger.error(
-                  "[#{log_prefix}] Failed to remove original file #{source} after copy for video #{video.id}: #{rm_reason}"
-                )
-            end
-
-            :ok
-
-          {:error, cp_reason} ->
-            Logger.error(
-              "[#{log_prefix}] Failed to copy #{source} to #{destination} for video #{video.id}: #{cp_reason}. File remains at #{source}."
-            )
-
-            {:error, cp_reason}
-        end
+        handle_exdev_rename(source, destination, log_prefix, video)
 
       {:error, reason} ->
-        Logger.error(
-          "[#{log_prefix}] Failed to rename #{source} to #{destination} for video #{video.id}: #{reason}. File remains at #{source}."
+        handle_rename_error(reason, source, destination, log_prefix, video)
+    end
+  end
+
+  # Handle cross-device rename by copying then deleting
+  defp handle_exdev_rename(source, destination, log_prefix, video) do
+    Logger.info(
+      "[#{log_prefix}] Cross-device rename for #{source} to #{destination} (video #{video.id}). Attempting copy and delete."
+    )
+
+    case File.cp(source, destination) do
+      :ok ->
+        Logger.info(
+          "[#{log_prefix}] Successfully copied #{source} to #{destination} for video #{video.id}"
         )
 
-        {:error, reason}
+        handle_post_copy(source, log_prefix, video)
+
+      {:error, cp_reason} ->
+        Logger.error(
+          "[#{log_prefix}] Failed to copy #{source} to #{destination} for video #{video.id}: #{cp_reason}. File remains at #{source}."
+        )
+
+        {:error, cp_reason}
     end
+  end
+
+  # After successful copy, attempt to remove original
+  defp handle_post_copy(source, log_prefix, video) do
+    case File.rm(source) do
+      :ok ->
+        Logger.info(
+          "[#{log_prefix}] Successfully removed original file #{source} after copy for video #{video.id}"
+        )
+
+      {:error, rm_reason} ->
+        Logger.error(
+          "[#{log_prefix}] Failed to remove original file #{source} after copy for video #{video.id}: #{rm_reason}"
+        )
+    end
+
+    :ok
+  end
+
+  # Log rename error and return
+  defp handle_rename_error(reason, source, destination, log_prefix, video) do
+    Logger.error(
+      "[#{log_prefix}] Failed to rename #{source} to #{destination} for video #{video.id}: #{reason}. File remains at #{source}."
+    )
+
+    {:error, reason}
   end
 
   # Moves the raw output from the encoder to an intermediate path (e.g., original_name.reencoded.mkv)

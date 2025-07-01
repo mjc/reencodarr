@@ -2,6 +2,8 @@ defmodule Reencodarr.Media.Library do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @moduledoc "Represents a media library."
+
   @type t() :: %__MODULE__{}
 
   schema "libraries" do

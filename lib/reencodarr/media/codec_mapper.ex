@@ -1,4 +1,6 @@
 defmodule Reencodarr.Media.CodecMapper do
+  @moduledoc "Maps codec identifiers to standardized tags."
+
   @codec_id_map %{
     "AV1" => "V_AV1",
     "x265" => "V_MPEGH/ISO/HEVC",

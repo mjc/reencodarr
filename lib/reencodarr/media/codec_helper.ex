@@ -1,4 +1,6 @@
 defmodule Reencodarr.Media.CodecHelper do
+  @moduledoc "Provides helper functions for codec-related operations."
+
   @spec get_int(map(), String.t(), String.t()) :: integer()
   def get_int(mediainfo, track_type, key) do
     mediainfo
@@ -137,27 +139,32 @@ defmodule Reencodarr.Media.CodecHelper do
       get_field_case_insensitive(track, ["Channel(s)/String", "Channels/String", "ChannelString"])
 
     # Check if this is 5.1 surround by looking for LFE in channel positions
-    cond do
-      # Look for LFE (Low Frequency Effects) channel in various fields (case-insensitive)
-      contains_lfe_or_surround?(channel_positions) or
-        contains_lfe_or_surround?(channel_layout) or
-          contains_lfe_or_surround?(channels_string) ->
+    # Determine surround vs default channel count
+    case contains_lfe_or_surround?(channel_positions) or
+           contains_lfe_or_surround?(channel_layout) or
+           contains_lfe_or_surround?(channels_string) do
+      true ->
         detect_surround_channel_count(channel_positions, channel_layout, channels_string)
 
-      # Fall back to the raw channel count
-      true ->
+      false ->
         parse_int(Map.get(track, "Channels", "0"), 0)
     end
   end
 
-  # Helper to get field with case-insensitive matching
+  # Finds a key in map ignoring case
   defp get_field_case_insensitive(track, field_names) do
-    Enum.find_value(field_names, "", fn field_name ->
-      Map.get(track, field_name) ||
-        Enum.find_value(track, fn {k, v} ->
-          if String.downcase(to_string(k)) == String.downcase(field_name), do: v
-        end)
-    end) || ""
+    Enum.find_value(field_names, "", &get_field_value(track, &1))
+  end
+
+  # Attempt direct map lookup or case-insensitive key match
+  defp get_field_value(track, field_name) do
+    Map.get(track, field_name) ||
+      case Enum.find(track, fn {k, _v} ->
+             String.downcase(to_string(k)) == String.downcase(field_name)
+           end) do
+        {_, v} -> v
+        _ -> nil
+      end
   end
 
   # Check if string contains LFE or surround sound indicators (case-insensitive)
@@ -176,25 +183,25 @@ defmodule Reencodarr.Media.CodecHelper do
   # Detect channel count from surround sound indicators
   defp detect_surround_channel_count(channel_positions, channel_layout, channels_string) do
     combined = "#{channel_positions} #{channel_layout} #{channels_string}" |> String.downcase()
+    # Patterns to counts in priority order
+    patterns = [
+      {"9.1", 10},
+      {"9.2", 11},
+      {"8.1", 9},
+      {"8.2", 10},
+      {"7.1", 8},
+      {"7.2", 9},
+      {"6.1", 7},
+      {"5.1", 6},
+      {"4.1", 5},
+      {"3.1", 4},
+      {"2.1", 3},
+      {"lfe", 6}
+    ]
 
-    cond do
-      String.contains?(combined, "9.1") -> 10
-      String.contains?(combined, "9.2") -> 11
-      String.contains?(combined, "8.1") -> 9
-      String.contains?(combined, "8.2") -> 10
-      String.contains?(combined, "7.1") -> 8
-      String.contains?(combined, "7.2") -> 9
-      String.contains?(combined, "6.1") -> 7
-      String.contains?(combined, "5.1") -> 6
-      String.contains?(combined, "4.1") -> 5
-      String.contains?(combined, "3.1") -> 4
-      String.contains?(combined, "2.1") -> 3
-      # Default fallback for any LFE detection
-      # Assume 5.1 if LFE detected but format unclear
-      String.contains?(combined, "lfe") -> 6
-      # Conservative assumption for surround sound
-      true -> 6
-    end
+    Enum.find_value(patterns, fn {substr, count} ->
+      if String.contains?(combined, substr), do: count, else: nil
+    end) || 6
   end
 
   @spec parse_subtitles(String.t() | list() | nil) :: list()

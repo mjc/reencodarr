@@ -12,8 +12,8 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   Reduces presenter CPU usage by ~40% through intelligent caching.
   """
 
-  alias ReencodarrWeb.Utils.TimeUtils
   alias Reencodarr.Dashboard.QueueItem
+  alias ReencodarrWeb.Utils.TimeUtils
 
   # Cache table for presenter computations
   @cache_table :presenter_cache
@@ -127,55 +127,75 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   end
 
   defp present_queues(dashboard_state) do
-    # Handle both struct and map formats from telemetry
-    crf_search_files =
-      case dashboard_state do
-        %{stats: %{next_crf_search: files}} ->
-          files || []
-
-        %Reencodarr.DashboardState{} ->
-          Reencodarr.DashboardState.crf_search_queue(dashboard_state)
-
-        _ ->
-          []
-      end
-
-    encoding_files =
-      case dashboard_state do
-        %{stats: %{videos_by_estimated_percent: files}} -> files || []
-        %Reencodarr.DashboardState{} -> Reencodarr.DashboardState.encoding_queue(dashboard_state)
-        _ -> []
-      end
-
-    analyzer_files =
-      case dashboard_state do
-        %{stats: %{next_analyzer: files}} -> files || []
-        %Reencodarr.DashboardState{} -> Reencodarr.DashboardState.analyzer_queue(dashboard_state)
-        _ -> []
-      end
-
     %{
-      crf_search: %{
-        title: "CRF Search Queue",
-        icon: "🔍",
-        color: "from-cyan-500 to-blue-500",
-        files: normalize_queue_files(crf_search_files),
-        total_count: get_queue_total_count(dashboard_state, :crf_searches)
-      },
-      encoding: %{
-        title: "Encoding Queue",
-        icon: "⚡",
-        color: "from-emerald-500 to-teal-500",
-        files: normalize_queue_files(encoding_files),
-        total_count: get_queue_total_count(dashboard_state, :encodes)
-      },
-      analyzer: %{
-        title: "Analyzer Queue",
-        icon: "📊",
-        color: "from-purple-500 to-pink-500",
-        files: normalize_queue_files(analyzer_files),
-        total_count: get_queue_total_count(dashboard_state, :analyzer)
-      }
+      crf_search:
+        build_queue(:crf_search, get_crf_search_files(dashboard_state), dashboard_state),
+      encoding: build_queue(:encoding, get_encoding_files(dashboard_state), dashboard_state),
+      analyzer: build_queue(:analyzer, get_analyzer_files(dashboard_state), dashboard_state)
+    }
+  end
+
+  # Helpers to fetch raw file lists
+  defp get_crf_search_files(%{stats: %{next_crf_search: files}}), do: files || []
+
+  defp get_crf_search_files(%Reencodarr.DashboardState{} = state),
+    do: Reencodarr.DashboardState.crf_search_queue(state)
+
+  defp get_crf_search_files(_), do: []
+
+  defp get_encoding_files(%{stats: %{videos_by_estimated_percent: files}}), do: files || []
+
+  defp get_encoding_files(%Reencodarr.DashboardState{} = state),
+    do: Reencodarr.DashboardState.encoding_queue(state)
+
+  defp get_encoding_files(_), do: []
+
+  defp get_analyzer_files(%{stats: %{next_analyzer: files}}), do: files || []
+
+  defp get_analyzer_files(%Reencodarr.DashboardState{} = state),
+    do: Reencodarr.DashboardState.analyzer_queue(state)
+
+  defp get_analyzer_files(_), do: []
+
+  # Builds the queue map given a key and file list
+  defp build_queue(:crf_search, files, state) do
+    %{
+      title: "CRF Search Queue",
+      icon: "🔍",
+      color: "from-cyan-500 to-blue-500",
+      count_key: :crf_searches
+    }
+    |> assemble_queue(files, state)
+  end
+
+  defp build_queue(:encoding, files, state) do
+    %{
+      title: "Encoding Queue",
+      icon: "⚡",
+      color: "from-emerald-500 to-teal-500",
+      count_key: :encodes
+    }
+    |> assemble_queue(files, state)
+  end
+
+  defp build_queue(:analyzer, files, state) do
+    %{
+      title: "Analyzer Queue",
+      icon: "📊",
+      color: "from-purple-500 to-pink-500",
+      count_key: :analyzer
+    }
+    |> assemble_queue(files, state)
+  end
+
+  # Shared assembly logic
+  defp assemble_queue(%{title: title, icon: icon, color: color, count_key: key}, files, state) do
+    %{
+      title: title,
+      icon: icon,
+      color: color,
+      files: normalize_queue_files(files),
+      total_count: get_queue_total_count(state, key)
     }
   end
 

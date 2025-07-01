@@ -1,6 +1,8 @@
 defmodule ReencodarrWeb.CrfSearchQueueComponent do
   use Phoenix.LiveComponent
 
+  @moduledoc "Displays the CRF search queue."
+
   @impl true
   def render(assigns) do
     ~H"""

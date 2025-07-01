@@ -1,4 +1,6 @@
 defmodule Reencodarr.Services.Config do
+  @moduledoc "Represents configuration settings for external services."
+
   use Ecto.Schema
   import Ecto.Changeset
 

@@ -1,4 +1,5 @@
 defmodule Reencodarr.Statistics.CrfSearchProgress do
+  @moduledoc "Holds progress data for CRF quality search operations."
   defstruct filename: :none, percent: 0, eta: 0, fps: 0, crf: nil, score: nil
 
   @doc """

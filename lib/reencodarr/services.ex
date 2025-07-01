@@ -4,7 +4,8 @@ defmodule Reencodarr.Services do
   """
   alias Reencodarr.Repo
   alias Reencodarr.Services.Config
-  alias Reencodarr.Services.{Sonarr, Radarr}
+  alias Reencodarr.Services.Radarr
+  alias Reencodarr.Services.Sonarr
 
   @doc """
   Returns the list of configs.
@@ -35,40 +36,34 @@ defmodule Reencodarr.Services do
   """
   def get_config!(id), do: Repo.get!(Config, id)
 
-  @doc """
-  Gets the Sonarr config.
-
-  Raises `Ecto.NoResultsError` if the Sonarr config does not exist.
-
-  ## Examples
-
-      iex> get_sonarr_config!()
-      %Config{}
-
-      iex> get_sonarr_config!()
-      ** (Ecto.NoResultsError)
-
-  """
+  @doc "Gets the Sonarr config or raises if not found."
+  @spec get_sonarr_config! :: Config.t()
   def get_sonarr_config! do
     Repo.get_by!(Config, service_type: :sonarr)
   end
 
-  @doc """
-  Gets the Radarr config.
+  @doc "Gets the Sonarr config."
+  @spec get_sonarr_config :: {:ok, Config.t()} | {:error, :not_found}
+  def get_sonarr_config do
+    case Repo.get_by(Config, service_type: :sonarr) do
+      nil -> {:error, :not_found}
+      config -> {:ok, config}
+    end
+  end
 
-  Raises `Ecto.NoResultsError` if the Radarr config does not exist.
-
-  ## Examples
-
-      iex> get_radarr_config!()
-      %Config{}
-
-      iex> get_radarr_config!()
-      ** (Ecto.NoResultsError)
-
-  """
+  @doc "Gets the Radarr config or raises if not found."
+  @spec get_radarr_config! :: Config.t()
   def get_radarr_config! do
     Repo.get_by!(Config, service_type: :radarr)
+  end
+
+  @doc "Gets the Radarr config."
+  @spec get_radarr_config :: {:ok, Config.t()} | {:error, :not_found}
+  def get_radarr_config do
+    case Repo.get_by(Config, service_type: :radarr) do
+      nil -> {:error, :not_found}
+      config -> {:ok, config}
+    end
   end
 
   @doc """
@@ -136,27 +131,19 @@ defmodule Reencodarr.Services do
     Config.changeset(config, attrs)
   end
 
-  @spec get_sonarr_status() :: {:ok, any()} | {:error, any()}
-  def get_sonarr_status do
-    case Reencodarr.Services.Sonarr.system_status() do
-      {:ok, status} -> {:ok, status}
-      {:error, reason} -> {:error, reason}
-    end
-  end
+  @doc "Fetches the Sonarr system status."
+  @spec get_sonarr_status :: {:ok, any()} | {:error, any()}
+  def get_sonarr_status, do: Sonarr.system_status()
 
-  def get_shows do
-    Sonarr.get_shows()
-  end
+  @doc "Fetches all shows from Sonarr."
+  def get_shows, do: Sonarr.get_shows()
 
-  def get_episode_files(show_id) do
-    Sonarr.get_episode_files(show_id)
-  end
+  @doc "Fetches all episode files for a given show."
+  def get_episode_files(show_id), do: Sonarr.get_episode_files(show_id)
 
-  def get_movies do
-    Radarr.get_movies()
-  end
+  @doc "Fetches all movies from Radarr."
+  def get_movies, do: Radarr.get_movies()
 
-  def get_movie_files(movie_id) do
-    Radarr.get_movie_files(movie_id)
-  end
+  @doc "Fetches all movie files for a given movie."
+  def get_movie_files(movie_id), do: Radarr.get_movie_files(movie_id)
 end

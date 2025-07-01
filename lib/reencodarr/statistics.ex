@@ -1,4 +1,6 @@
 defmodule Reencodarr.Statistics do
+  @moduledoc "Handles statistics and progress tracking for various operations."
+
   defstruct stats: %Reencodarr.Statistics.Stats{},
             encoding: false,
             crf_searching: false,
@@ -24,7 +26,7 @@ defmodule Reencodarr.Statistics do
 
   use GenServer
   alias Reencodarr.Media
-  alias Reencodarr.Statistics.{EncodingProgress, CrfSearchProgress, Stats}
+  alias Reencodarr.Statistics.{CrfSearchProgress, EncodingProgress, Stats}
 
   @broadcast_interval 5_000
 
@@ -33,12 +35,16 @@ defmodule Reencodarr.Statistics do
   def start_link(_), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   def get_stats do
-    try do
-      GenServer.call(__MODULE__, :get_stats)
-    rescue
-      _ -> default_state()
-    catch
-      :exit, _ -> default_state()
+    case Process.whereis(__MODULE__) do
+      nil ->
+        default_state()
+
+      pid when is_pid(pid) ->
+        if Process.alive?(pid) do
+          GenServer.call(__MODULE__, :get_stats, 1000)
+        else
+          default_state()
+        end
     end
   end
 

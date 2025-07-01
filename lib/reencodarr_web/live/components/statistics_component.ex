@@ -4,6 +4,7 @@ defmodule ReencodarrWeb.StatisticsComponent do
   Since this only displays static data, LiveComponent overhead is unnecessary.
   """
   use Phoenix.Component
+  alias ReencodarrWeb.Utils.TimeUtils
 
   require Logger
 
@@ -84,6 +85,6 @@ defmodule ReencodarrWeb.StatisticsComponent do
     datetime
     |> DateTime.from_naive!("Etc/UTC")
     |> DateTime.shift_zone!(tz)
-    |> ReencodarrWeb.Utils.TimeUtils.relative_time()
+    |> TimeUtils.relative_time()
   end
 end

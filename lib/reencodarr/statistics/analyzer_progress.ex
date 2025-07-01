@@ -1,4 +1,6 @@
 defmodule Reencodarr.Statistics.AnalyzerProgress do
+  @moduledoc "Represents the progress of an analyzer operation."
+
   defstruct filename: :none, percent: 0, current_file: :none, total_files: 0
 
   @doc """

@@ -31,7 +31,7 @@ defmodule Reencodarr.TelemetryReporter do
   require Logger
 
   alias Reencodarr.{DashboardState, ProgressHelpers}
-  alias Reencodarr.Statistics.{EncodingProgress, CrfSearchProgress, AnalyzerProgress}
+  alias Reencodarr.Statistics.{AnalyzerProgress, CrfSearchProgress, EncodingProgress}
 
   # Configuration constants
   @refresh_interval :timer.seconds(5)

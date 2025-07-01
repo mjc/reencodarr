@@ -63,26 +63,21 @@ defmodule ReencodarrWeb.DashboardLive do
   # Based on TNG Writer's Guide: 1000 units = 1 year, decimal = fractional days
   # Reference: Year 2000 = Stardate 50000.0 (extrapolated from canon progression)
   defp calculate_stardate(datetime) do
-    try do
-      # Convert to date and time components
-      current_date = DateTime.to_date(datetime)
-      current_time = DateTime.to_time(datetime)
-
+    with %DateTime{} <- datetime,
+         current_date = DateTime.to_date(datetime),
+         current_time = DateTime.to_time(datetime),
+         {:ok, day_of_year} when is_integer(day_of_year) <- {:ok, Date.day_of_year(current_date)},
+         {seconds_in_day, _microseconds} <- Time.to_seconds_after_midnight(current_time) do
       # Calculate years since reference (2000 = 50000.0)
       reference_year = 2000
       current_year = current_date.year
       years_diff = current_year - reference_year
 
-      # Calculate day of year (1-365/366)
-      day_of_year = Date.day_of_year(current_date)
-
       # Calculate fractional day (0.0 to 0.9)
-      {seconds_in_day, _microseconds} = Time.to_seconds_after_midnight(current_time)
-      # 86400 seconds in a day
-      day_fraction = seconds_in_day / 86400.0
+      day_fraction = seconds_in_day / 86_400.0
 
       # TNG Formula: base + (years * 1000) + (day_of_year * 1000/365.25) + (day_fraction / 10)
-      base_stardate = 50000.0
+      base_stardate = 50_000.0
       year_component = years_diff * 1000.0
       day_component = day_of_year * (1000.0 / 365.25)
       # Decimal represents tenths of days
@@ -92,11 +87,11 @@ defmodule ReencodarrWeb.DashboardLive do
 
       # Format to one decimal place, TNG style
       Float.round(stardate, 1)
-    rescue
-      _error ->
+    else
+      _ ->
         # Fallback to a simple calculation if anything goes wrong
         # Approximate stardate for mid-2025
-        75182.5
+        75_182.5
     end
   end
 
@@ -548,12 +543,16 @@ defmodule ReencodarrWeb.DashboardLive do
 
   # Helper function to safely get initial state, with fallback for test environment
   defp get_initial_state do
-    try do
-      Reencodarr.TelemetryReporter.get_current_state()
-    catch
-      :exit, _ ->
-        # Return a default dashboard state for tests
+    case Process.whereis(Reencodarr.TelemetryReporter) do
+      nil ->
         Reencodarr.DashboardState.initial()
+
+      pid when is_pid(pid) ->
+        if Process.alive?(pid) do
+          Reencodarr.TelemetryReporter.get_current_state()
+        else
+          Reencodarr.DashboardState.initial()
+        end
     end
   end
 end

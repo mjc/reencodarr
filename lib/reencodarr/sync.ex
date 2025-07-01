@@ -22,9 +22,11 @@ defmodule Reencodarr.Media.VideoFileInfo do
 end
 
 defmodule Reencodarr.Sync do
+  @moduledoc "Coordinates fetching items from Sonarr/Radarr and syncing them into the database."
   use GenServer
   require Logger
-  alias Reencodarr.{Media, Services, Repo, Telemetry}
+  alias Reencodarr.{Media, Repo, Services, Telemetry}
+  alias Reencodarr.Media.MediaInfo
 
   # Public API
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -208,7 +210,7 @@ defmodule Reencodarr.Sync do
 
     updated_info = %{info | resolution: resolution_tuple}
 
-    mediainfo = Reencodarr.Media.MediaInfo.from_video_file_info(updated_info)
+    mediainfo = MediaInfo.from_video_file_info(updated_info)
 
     Repo.checkout(fn ->
       Media.upsert_video(%{

@@ -1,6 +1,8 @@
 defmodule ReencodarrWeb.Dashboard.QueueDisplayComponent do
   use ReencodarrWeb, :live_component
 
+  @moduledoc "Displays a queue of items in the dashboard."
+
   def render(assigns) do
     ~H"""
     <div class="rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 p-6">

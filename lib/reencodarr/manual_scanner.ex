@@ -1,4 +1,6 @@
 defmodule Reencodarr.ManualScanner do
+  @moduledoc "Implements manual scanning functionality for media files."
+
   use GenServer
   require Logger
 
@@ -58,8 +60,8 @@ defmodule Reencodarr.ManualScanner do
     Port.open({:spawn_executable, fd_path}, [:binary, :exit_status, args: args])
   end
 
-  @spec find_fd_path() :: String.t()
-  defp find_fd_path() do
+  @spec find_fd_path :: String.t()
+  defp find_fd_path do
     System.find_executable("fd") || System.find_executable("fd-find") ||
       raise "fd or fd-find executable not found"
   end

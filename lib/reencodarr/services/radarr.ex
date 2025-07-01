@@ -13,11 +13,11 @@ defmodule Reencodarr.Services.Radarr do
     fuse_opts: {{:standard, 5, 30_000}, {:reset, 60_000}}
 
   def client_options do
-    try do
-      %{url: url, api_key: api_key} = Services.get_radarr_config!()
-      [base_url: url, headers: ["X-Api-Key": api_key]]
-    rescue
-      Ecto.NoResultsError ->
+    case Services.get_radarr_config() do
+      {:ok, %{url: url, api_key: api_key}} ->
+        [base_url: url, headers: ["X-Api-Key": api_key]]
+
+      {:error, :not_found} ->
         Logger.error("Radarr config not found")
         []
     end
@@ -47,73 +47,82 @@ defmodule Reencodarr.Services.Radarr do
     )
   end
 
-  @spec rename_movie_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
+  @spec rename_movie_files(integer() | nil) :: {:ok, Req.Response.t()} | {:error, any()}
+  def rename_movie_files(nil) do
+    Logger.error("Movie ID is null, cannot rename files")
+    {:error, :invalid_movie_id}
+  end
+
   def rename_movie_files(movie_id) do
-    if movie_id == nil do
-      Logger.error("Movie ID is null, cannot rename files")
-      {:error, :invalid_movie_id}
-    else
-      # First refresh the movie to update media info
-      Logger.info("Refreshing movie ID: #{movie_id} before checking for renameable files")
+    perform_movie_refresh(movie_id)
 
-      case refresh_movie(movie_id) do
-        {:ok, refresh_response} ->
-          Logger.info("Movie refresh initiated: #{inspect(refresh_response.body)}")
+    # Give Radarr a moment to process the refresh
+    Process.sleep(2000)
 
-        {:error, reason} ->
-          Logger.warning("Failed to refresh movie (continuing anyway): #{inspect(reason)}")
-      end
-
-      # Give Radarr a moment to process the refresh
-      Process.sleep(2000)
-
-      # Check what files can be renamed after refresh
-      Logger.info("Checking renameable files for movie ID: #{movie_id}")
-
-      renameable_files =
-        case request(url: "/api/v3/rename?movieId=#{movie_id}", method: :get) do
-          {:ok, rename_response} ->
-            Logger.info("Renameable files response: #{inspect(rename_response.body)}")
-            rename_response.body
-
-          {:error, reason} ->
-            Logger.error("Failed to get renameable files: #{inspect(reason)}")
-            []
-        end
-
-      # If no files need renaming, don't send the command
-      if Enum.empty?(renameable_files) do
+    get_radarr_renameable_files(movie_id)
+    |> case do
+      [] ->
         Logger.info("No files need renaming for movie ID: #{movie_id}")
         {:ok, %{message: "No files need renaming"}}
-      else
-        # Extract movie file IDs from the renameable files response
-        renameable_file_ids = Enum.map(renameable_files, fn file -> file["movieFileId"] end)
 
-        json_payload = %{
-          name: "RenameFiles",
-          files: renameable_file_ids
-        }
+      files ->
+        execute_movie_rename(movie_id, files)
+    end
+  end
 
-        Logger.info(
-          "Radarr rename_movie_files request - Movie ID: #{movie_id}, File IDs: #{inspect(renameable_file_ids)}"
-        )
+  defp perform_movie_refresh(movie_id) do
+    Logger.info("Refreshing movie ID: #{movie_id} before checking for renameable files")
 
-        Logger.info("Radarr rename_movie_files JSON payload: #{inspect(json_payload)}")
+    case refresh_movie(movie_id) do
+      {:ok, refresh_response} ->
+        Logger.info("Movie refresh initiated: #{inspect(refresh_response.body)}")
 
-        case request(
-               url: "/api/v3/command",
-               method: :post,
-               json: json_payload
-             ) do
-          {:ok, response} = result ->
-            Logger.info("Radarr rename_movie_files response: #{inspect(response.body)}")
-            result
+      {:error, reason} ->
+        Logger.warning("Failed to refresh movie (continuing anyway): #{inspect(reason)}")
+    end
+  end
 
-          {:error, reason} = error ->
-            Logger.error("Radarr rename_movie_files error: #{inspect(reason)}")
-            error
-        end
-      end
+  defp get_radarr_renameable_files(movie_id) do
+    Logger.info("Checking renameable files for movie ID: #{movie_id}")
+
+    case request(url: "/api/v3/rename?movieId=#{movie_id}", method: :get) do
+      {:ok, rename_response} ->
+        Logger.info("Renameable files response: #{inspect(rename_response.body)}")
+        rename_response.body
+
+      {:error, reason} ->
+        Logger.error("Failed to get renameable files: #{inspect(reason)}")
+        []
+    end
+  end
+
+  defp execute_movie_rename(movie_id, renameable_files) do
+    # Extract movie file IDs from the renameable files response
+    renameable_file_ids = Enum.map(renameable_files, fn file -> file["movieFileId"] end)
+
+    json_payload = %{
+      name: "RenameFiles",
+      files: renameable_file_ids
+    }
+
+    Logger.info(
+      "Radarr rename_movie_files request - Movie ID: #{movie_id}, File IDs: #{inspect(renameable_file_ids)}"
+    )
+
+    Logger.info("Radarr rename_movie_files JSON payload: #{inspect(json_payload)}")
+
+    case request(
+           url: "/api/v3/command",
+           method: :post,
+           json: json_payload
+         ) do
+      {:ok, response} = result ->
+        Logger.info("Radarr rename_movie_files response: #{inspect(response.body)}")
+        result
+
+      {:error, reason} = error ->
+        Logger.error("Radarr rename_movie_files error: #{inspect(reason)}")
+        error
     end
   end
 end
