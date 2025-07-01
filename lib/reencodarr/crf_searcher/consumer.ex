@@ -1,10 +1,18 @@
 defmodule Reencodarr.CrfSearcher.Consumer do
+  @moduledoc """
+  GenStage consumer for processing CRF search operations.
+
+  This consumer subscribes to the CrfSearcher.Producer and processes videos
+  by initiating CRF searches. It tracks ongoing operations and handles
+  completion notifications via PubSub.
+  """
+
   use GenStage
   require Logger
 
   alias Reencodarr.AbAv1
 
-  def start_link() do
+  def start_link do
     GenStage.start_link(__MODULE__, :ok)
   end
 

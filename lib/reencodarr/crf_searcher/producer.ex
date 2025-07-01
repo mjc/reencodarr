@@ -1,9 +1,16 @@
 defmodule Reencodarr.CrfSearcher.Producer do
+  @moduledoc """
+  GenStage producer for CRF search operations.
+  
+  This producer manages the queue of videos that need CRF searches and
+  provides control functions for pausing/resuming the search process.
+  """
+  
   use GenStage
   require Logger
   alias Reencodarr.Media
 
-  def start_link() do
+  def start_link do
     GenStage.start_link(__MODULE__, :ok, name: __MODULE__)
   end
 

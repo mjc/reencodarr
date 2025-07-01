@@ -1,9 +1,16 @@
 defmodule Reencodarr.Analyzer.Producer do
+  @moduledoc """
+  GenStage producer for file analysis operations.
+  
+  This producer manages the queue of files that need media analysis and
+  provides control functions for pausing/resuming the analysis process.
+  """
+  
   use GenStage
   require Logger
   alias Reencodarr.Media
 
-  def start_link() do
+  def start_link do
     GenStage.start_link(__MODULE__, :ok, name: __MODULE__)
   end
 
