@@ -100,10 +100,14 @@ defmodule Reencodarr.CrfSearcher.Producer do
 
     case videos do
       [] ->
+        Logger.debug("CrfSearcher producer: no videos available, demand: #{state.demand}")
         {:noreply, [], state}
 
       videos ->
-        Logger.debug("CrfSearcher producer dispatching #{length(videos)} videos for CRF search")
+        Logger.info("CrfSearcher producer dispatching #{length(videos)} videos for CRF search (demand: #{state.demand})")
+        Enum.each(videos, fn video ->
+          Logger.debug("  - Video #{video.id}: #{video.path}")
+        end)
         new_demand = state.demand - length(videos)
         new_state = %{state | demand: new_demand}
         {:noreply, videos, new_state}
