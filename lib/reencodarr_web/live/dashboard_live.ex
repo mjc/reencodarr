@@ -84,62 +84,40 @@ defmodule ReencodarrWeb.DashboardLive do
     ~H"""
     <div
       id="dashboard-live"
-      class="min-h-screen bg-black text-orange-400 font-mono overflow-hidden lcars-screen lcars-scan-lines"
+      class="min-h-screen bg-black text-orange-400 font-mono lcars-screen lcars-scan-lines"
       phx-hook="TimezoneHook"
     >
       <!-- LCARS Top Frame -->
-      <div class="h-16 bg-gradient-to-r from-orange-500 via-yellow-400 to-red-500 relative lcars-border-gradient">
-        <div class="absolute top-0 left-0 w-32 h-16 bg-orange-500 lcars-corner-br"></div>
-        <div class="absolute top-0 right-0 w-32 h-16 bg-red-500 lcars-corner-bl"></div>
-        <div class="flex items-center justify-center h-full">
-          <h1 class="text-black text-2xl lcars-title">REENCODARR OPERATIONS</h1>
+      <div class="h-12 sm:h-16 bg-gradient-to-r from-orange-500 via-yellow-400 to-red-500 relative lcars-border-gradient">
+        <div class="absolute top-0 left-0 w-16 sm:w-32 h-12 sm:h-16 bg-orange-500 lcars-corner-br"></div>
+        <div class="absolute top-0 right-0 w-16 sm:w-32 h-12 sm:h-16 bg-red-500 lcars-corner-bl"></div>
+        <div class="flex items-center justify-center h-full px-4">
+          <h1 class="text-black text-lg sm:text-2xl lcars-title text-center">REENCODARR OPERATIONS</h1>
         </div>
       </div>
 
-      <!-- Main LCARS Interface -->
-      <div class="flex h-[calc(100vh-4rem)]">
-        <!-- Left Panel -->
-        <div class="w-64 bg-black border-r-4 border-orange-500 p-4 space-y-2">
-          <.lcars_sidebar_button label="MAIN" color="orange" active={true} />
-          <.lcars_sidebar_button label="METRICS" color="blue" />
-          <.lcars_sidebar_button label="PROGRESS" color="yellow" />
-          <.lcars_sidebar_button label="QUEUES" color="red" />
-          <.lcars_sidebar_button label="SETTINGS" color="purple" />
+      <!-- Main Content Area -->
+      <div class="p-3 sm:p-6 space-y-4 sm:space-y-6 overflow-y-auto" style="height: calc(100vh - 5rem);">
+        <!-- Metrics Overview -->
+        <.lcars_metrics_grid metrics={@dashboard_data.metrics} />
 
-          <div class="mt-8">
-            <.lcars_stats_panel stats={@dashboard_data.stats} />
-          </div>
+        <!-- Operations Status -->
+        <.lcars_operations_panel status={@dashboard_data.status} />
 
-          <div class="mt-8">
-            <.live_component
-              module={ReencodarrWeb.ControlButtonsComponent}
-              id="control-buttons"
-              encoding={@dashboard_data.status.encoding.active}
-              crf_searching={@dashboard_data.status.crf_searching.active}
-              analyzing={@dashboard_data.status.analyzing.active}
-              syncing={@dashboard_data.status.syncing.active}
-            />
-          </div>
-        </div>
+        <!-- Queue Management -->
+        <.lcars_queues_section queues={@dashboard_data.queues} />
 
-        <!-- Main Content Area -->
-        <div class="flex-1 p-6 space-y-6 overflow-y-auto">
-          <.lcars_metrics_grid metrics={@dashboard_data.metrics} />
-          <.lcars_status_panel status={@dashboard_data.status} />
-          <.lcars_queues_section queues={@dashboard_data.queues} />
+        <!-- Control Panel -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+          <.lcars_control_panel status={@dashboard_data.status} stats={@dashboard_data.stats} />
           <.lcars_manual_scan_section />
-        </div>
-
-        <!-- Right Panel -->
-        <div class="w-48 bg-black border-l-4 border-orange-500 p-4">
-          <.lcars_system_status status={@dashboard_data.status} />
         </div>
       </div>
 
       <!-- LCARS Bottom Frame -->
-      <div class="h-8 bg-gradient-to-r from-red-500 via-yellow-400 to-orange-500">
+      <div class="h-6 sm:h-8 bg-gradient-to-r from-red-500 via-yellow-400 to-orange-500">
         <div class="flex items-center justify-center h-full">
-          <span class="text-black lcars-label text-sm">STARDATE #{DateTime.utc_now() |> DateTime.to_unix()}</span>
+          <span class="text-black lcars-label text-xs sm:text-sm">STARDATE #{DateTime.utc_now() |> DateTime.to_unix()}</span>
         </div>
       </div>
     </div>
@@ -148,56 +126,9 @@ defmodule ReencodarrWeb.DashboardLive do
 
   # LCARS Interface Components
 
-  defp lcars_sidebar_button(assigns) do
-    assigns = assign_new(assigns, :active, fn -> false end)
-
-    ~H"""
-    <div class={[
-      "h-12 lcars-corner-br flex items-center px-4 cursor-pointer transition-all duration-300 hover:brightness-110 lcars-button",
-      lcars_color_class(@color, @active)
-    ]}>
-      <span class="text-black lcars-label text-sm">{@label}</span>
-    </div>
-    """
-  end
-
-  defp lcars_stats_panel(assigns) do
-    ~H"""
-    <div class="space-y-3">
-      <div class="h-8 bg-orange-500 lcars-corner-br flex items-center px-4">
-        <span class="text-black lcars-label text-sm">STATISTICS</span>
-      </div>
-
-      <div class="space-y-2 text-xs">
-        <.lcars_stat_row label="TOTAL VMAFS" value={@stats.total_vmafs} />
-        <.lcars_stat_row label="CHOSEN VMAFS" value={@stats.chosen_vmafs_count} />
-        <.lcars_stat_row label="LAST UPDATE" value={@stats.last_video_update} small={true} />
-        <.lcars_stat_row label="LAST INSERT" value={@stats.last_video_insert} small={true} />
-      </div>
-    </div>
-    """
-  end
-
-  defp lcars_stat_row(assigns) do
-    assigns = assign_new(assigns, :small, fn -> false end)
-
-    ~H"""
-    <div class="flex justify-between items-center">
-      <span class={[
-        "lcars-text-secondary lcars-data",
-        if(@small, do: "text-xs", else: "text-sm")
-      ]}>{@label}</span>
-      <span class={[
-        "lcars-text-primary lcars-data font-bold",
-        if(@small, do: "text-xs", else: "text-sm")
-      ]}>{@value}</span>
-    </div>
-    """
-  end
-
   defp lcars_metrics_grid(assigns) do
     ~H"""
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
       <%= for metric <- @metrics do %>
         <.lcars_metric_card metric={metric} />
       <% end %>
@@ -209,22 +140,22 @@ defmodule ReencodarrWeb.DashboardLive do
     ~H"""
     <div class="bg-gray-900 border-2 border-orange-500 lcars-corner-tr lcars-corner-bl overflow-hidden lcars-panel">
       <!-- LCARS Header -->
-      <div class="h-12 bg-orange-500 flex items-center px-4 lcars-data-stream">
-        <span class="text-black lcars-label text-sm">{String.upcase(@metric.title)}</span>
+      <div class="h-8 sm:h-10 bg-orange-500 flex items-center px-2 sm:px-3 lcars-data-stream">
+        <span class="text-black lcars-label text-xs sm:text-sm font-bold truncate">{String.upcase(@metric.title)}</span>
       </div>
 
       <!-- Content -->
-      <div class="p-4 space-y-3">
+      <div class="p-2 sm:p-3 space-y-2">
         <div class="flex items-center justify-between">
-          <span class="text-4xl">{@metric.icon}</span>
-          <span class="text-3xl font-bold lcars-text-primary lcars-title">{@metric.value}</span>
+          <span class="text-xl sm:text-2xl">{@metric.icon}</span>
+          <span class="text-lg sm:text-2xl lg:text-3xl font-bold lcars-text-primary lcars-title truncate">{format_metric_value(@metric.value)}</span>
         </div>
 
-        <div class="lcars-text-secondary lcars-label text-sm">{String.upcase(@metric.subtitle)}</div>
+        <div class="lcars-text-secondary lcars-label text-xs sm:text-sm truncate">{String.upcase(@metric.subtitle)}</div>
 
         <%= if Map.get(@metric, :progress) do %>
           <div class="space-y-1">
-            <div class="h-2 bg-gray-800 lcars-corner-tl lcars-corner-br overflow-hidden">
+            <div class="h-1.5 sm:h-2 bg-gray-800 lcars-corner-tl lcars-corner-br overflow-hidden">
               <div
                 class="h-full lcars-progress transition-all duration-500"
                 style={"width: #{@metric.progress}%"}
@@ -238,15 +169,15 @@ defmodule ReencodarrWeb.DashboardLive do
     """
   end
 
-  defp lcars_status_panel(assigns) do
+  defp lcars_operations_panel(assigns) do
     ~H"""
     <div class="bg-gray-900 border-2 border-yellow-400 rounded-lg overflow-hidden">
       <!-- LCARS Header -->
-      <div class="h-12 bg-yellow-400 flex items-center px-4">
-        <span class="text-black font-bold tracking-wider">SYSTEM STATUS</span>
+      <div class="h-10 sm:h-12 bg-yellow-400 flex items-center px-3 sm:px-4">
+        <span class="text-black font-bold tracking-wider text-sm sm:text-base">SYSTEM OPERATIONS</span>
       </div>
 
-      <div class="p-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div class="p-3 sm:p-4 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <.lcars_operation_status
           title="ENCODING"
           active={@status.encoding.active}
@@ -278,22 +209,22 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp lcars_operation_status(assigns) do
     ~H"""
-    <div class="space-y-3">
+    <div class="space-y-2 sm:space-y-3">
       <div class={[
-        "h-8 rounded-r-full flex items-center px-3",
+        "h-6 sm:h-8 rounded-r-full flex items-center px-2 sm:px-3",
         lcars_operation_color(@color)
       ]}>
-        <span class="text-black font-bold tracking-wider text-sm">{@title}</span>
+        <span class="text-black font-bold tracking-wider text-xs sm:text-sm truncate">{@title}</span>
       </div>
 
-      <div class="space-y-2">
+      <div class="space-y-1 sm:space-y-2">
         <div class="flex items-center space-x-2">
           <div class={[
-            "w-3 h-3 rounded-full",
+            "w-2 h-2 sm:w-3 sm:h-3 rounded-full",
             if(@active, do: "bg-green-400 animate-pulse", else: "bg-gray-600")
           ]}></div>
           <span class={[
-            "text-sm font-bold tracking-wide",
+            "text-xs sm:text-sm font-bold tracking-wide",
             if(@active, do: "text-green-400", else: "text-gray-500")
           ]}>
             {if @active, do: "ONLINE", else: "STANDBY"}
@@ -302,10 +233,12 @@ defmodule ReencodarrWeb.DashboardLive do
 
         <%= if @active and (@progress.percent > 0 or @progress.filename != :none) do %>
           <div class="space-y-1">
-            <div class="text-xs text-orange-300 tracking-wide">
-              {String.upcase(to_string(@progress.filename || "PROCESSING"))}
-            </div>
-            <div class="h-2 bg-gray-800 rounded-full overflow-hidden">
+            <%= if @progress.filename do %>
+              <div class="text-xs text-orange-300 tracking-wide truncate">
+                {String.upcase(to_string(@progress.filename))}
+              </div>
+            <% end %>
+            <div class="h-1.5 sm:h-2 bg-gray-800 rounded-full overflow-hidden">
               <div
                 class={[
                   "h-full transition-all duration-500",
@@ -324,7 +257,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp lcars_queues_section(assigns) do
     ~H"""
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
       <.lcars_queue_panel
         title="CRF SEARCH QUEUE"
         queue={@queues.crf_search}
@@ -349,36 +282,36 @@ defmodule ReencodarrWeb.DashboardLive do
     <div class="bg-gray-900 border-2 border-cyan-400 rounded-lg overflow-hidden">
       <!-- LCARS Header -->
       <div class={[
-        "h-12 flex items-center px-4",
+        "h-8 sm:h-10 flex items-center px-2 sm:px-3",
         lcars_queue_header_color(@color)
       ]}>
-        <span class="text-black font-bold tracking-wider">{@title}</span>
-        <div class="ml-auto">
-          <span class="text-black font-bold">{@queue.total_count} ITEMS</span>
+        <span class="text-black font-bold tracking-wider text-xs sm:text-sm truncate flex-1">{@title}</span>
+        <div class="ml-2">
+          <span class="text-black font-bold text-xs sm:text-sm">{format_count(@queue.total_count)}</span>
         </div>
       </div>
 
       <!-- Queue Content -->
-      <div class="p-4">
+      <div class="p-2 sm:p-3">
         <%= if @queue.files == [] do %>
-          <div class="text-center py-8">
-            <div class="text-6xl mb-4">🎉</div>
-            <p class="text-orange-300 tracking-wide">QUEUE EMPTY</p>
+          <div class="text-center py-4 sm:py-6">
+            <div class="text-3xl sm:text-4xl mb-2">🎉</div>
+            <p class="text-orange-300 tracking-wide text-xs sm:text-sm">QUEUE EMPTY</p>
           </div>
         <% else %>
-          <div class="space-y-2 max-h-64 overflow-y-auto">
+          <div class="space-y-1 sm:space-y-2 max-h-48 sm:max-h-64 overflow-y-auto">
             <%= for file <- @queue.files do %>
-              <div class="flex items-center space-x-3 p-3 bg-gray-800 rounded border-l-4 border-orange-500">
-                <div class="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center">
-                  <span class="text-black font-bold text-sm">{file.index}</span>
+              <div class="flex items-center space-x-2 sm:space-x-3 p-2 sm:p-3 bg-gray-800 rounded border-l-2 sm:border-l-4 border-orange-500">
+                <div class="w-6 h-6 sm:w-8 sm:h-8 bg-orange-500 rounded-full flex items-center justify-center flex-shrink-0">
+                  <span class="text-black font-bold text-xs sm:text-sm">{file.index}</span>
                 </div>
                 <div class="flex-1 min-w-0">
-                  <p class="text-orange-300 text-sm tracking-wide truncate font-mono">
+                  <p class="text-orange-300 text-xs sm:text-sm tracking-wide truncate font-mono">
                     {String.upcase(file.display_name)}
                   </p>
                   <%= if file.estimated_percent do %>
                     <p class="text-xs text-orange-400">
-                      EST: ~{file.estimated_percent}% COMPRESSION
+                      EST: ~{file.estimated_percent}%
                     </p>
                   <% end %>
                 </div>
@@ -386,9 +319,9 @@ defmodule ReencodarrWeb.DashboardLive do
             <% end %>
 
             <%= if length(@queue.files) == 10 and @queue.total_count > 10 do %>
-              <div class="text-center py-2">
+              <div class="text-center py-1 sm:py-2">
                 <span class="text-xs text-orange-300 tracking-wide">
-                  SHOWING FIRST 10 OF {@queue.total_count} ITEMS
+                  SHOWING FIRST 10 OF {format_count(@queue.total_count)} ITEMS
                 </span>
               </div>
             <% end %>
@@ -399,83 +332,96 @@ defmodule ReencodarrWeb.DashboardLive do
     """
   end
 
+  defp lcars_control_panel(assigns) do
+    ~H"""
+    <div class="bg-gray-900 border-2 border-green-500 rounded-lg overflow-hidden">
+      <!-- LCARS Header -->
+      <div class="h-8 sm:h-10 bg-green-500 flex items-center px-2 sm:px-3">
+        <span class="text-black font-bold tracking-wider text-xs sm:text-sm">CONTROL PANEL</span>
+      </div>
+
+      <div class="p-3 sm:p-4 space-y-3 sm:space-y-4">
+        <!-- Statistics -->
+        <div class="space-y-2">
+          <div class="text-orange-300 text-xs sm:text-sm font-bold tracking-wide">STATISTICS</div>
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <.lcars_stat_row label="TOTAL VMAFS" value={format_count(@stats.total_vmafs)} />
+            <.lcars_stat_row label="CHOSEN VMAFS" value={format_count(@stats.chosen_vmafs_count)} />
+            <.lcars_stat_row label="LAST UPDATE" value={@stats.last_video_update} small={true} />
+            <.lcars_stat_row label="LAST INSERT" value={@stats.last_video_insert} small={true} />
+          </div>
+        </div>
+
+        <!-- Control Buttons -->
+        <div class="space-y-2">
+          <div class="text-orange-300 text-xs sm:text-sm font-bold tracking-wide">OPERATIONS</div>
+          <.live_component
+            module={ReencodarrWeb.ControlButtonsComponent}
+            id="control-buttons"
+            encoding={@status.encoding.active}
+            crf_searching={@status.crf_searching.active}
+            analyzing={@status.analyzing.active}
+            syncing={@status.syncing.active}
+          />
+        </div>
+      </div>
+    </div>
+    """
+  end
+
   defp lcars_manual_scan_section(assigns) do
     ~H"""
     <div class="bg-gray-900 border-2 border-red-500 rounded-lg overflow-hidden">
       <!-- LCARS Header -->
-      <div class="h-12 bg-red-500 flex items-center px-4">
-        <span class="text-black font-bold tracking-wider">MANUAL SCAN OPERATIONS</span>
+      <div class="h-8 sm:h-10 bg-red-500 flex items-center px-2 sm:px-3">
+        <span class="text-black font-bold tracking-wider text-xs sm:text-sm">MANUAL SCAN</span>
       </div>
 
-      <div class="p-6">
+      <div class="p-3 sm:p-4">
         <.live_component module={ReencodarrWeb.ManualScanComponent} id="manual-scan" />
       </div>
     </div>
     """
   end
 
-  defp lcars_system_status(assigns) do
-    ~H"""
-    <div class="space-y-4">
-      <div class="h-8 bg-orange-500 rounded-l-full flex items-center px-4">
-        <span class="text-black font-bold tracking-wider text-sm">SYSTEM</span>
-      </div>
-
-      <div class="space-y-3 text-xs">
-        <.lcars_system_indicator
-          label="ENCODING"
-          active={@status.encoding.active}
-          color="blue"
-        />
-        <.lcars_system_indicator
-          label="CRF SEARCH"
-          active={@status.crf_searching.active}
-          color="purple"
-        />
-        <.lcars_system_indicator
-          label="SYNC"
-          active={@status.syncing.active}
-          color="red"
-        />
-      </div>
-
-      <div class="mt-8 space-y-2">
-        <div class="h-6 bg-yellow-400 rounded-l-full flex items-center px-3">
-          <span class="text-black font-bold text-xs tracking-wider">ALERTS</span>
-        </div>
-        <div class="text-green-400 text-xs tracking-wide">
-          ALL SYSTEMS NOMINAL
-        </div>
-      </div>
-    </div>
-    """
+  # Helper functions for formatting
+  defp format_metric_value(value) when is_integer(value) and value >= 1000 do
+    cond do
+      value >= 1_000_000 -> "#{Float.round(value / 1_000_000, 1)}M"
+      value >= 1_000 -> "#{Float.round(value / 1_000, 1)}K"
+      true -> to_string(value)
+    end
   end
+  defp format_metric_value(value) when is_binary(value), do: value
+  defp format_metric_value(value), do: to_string(value)
 
-  defp lcars_system_indicator(assigns) do
+  defp format_count(count) when is_integer(count) and count >= 1000 do
+    cond do
+      count >= 1_000_000 -> "#{Float.round(count / 1_000_000, 1)}M"
+      count >= 1_000 -> "#{Float.round(count / 1_000, 1)}K"
+      true -> to_string(count)
+    end
+  end
+  defp format_count(count), do: to_string(count)
+
+  defp lcars_stat_row(assigns) do
+    assigns = assign_new(assigns, :small, fn -> false end)
+
     ~H"""
-    <div class="flex items-center justify-between">
-      <span class="text-orange-300 tracking-wide">{@label}</span>
-      <div class={[
-        "w-3 h-3 rounded-full",
-        if(@active, do: "bg-green-400 animate-pulse", else: "bg-gray-600")
-      ]}></div>
+    <div class="flex justify-between items-center">
+      <span class={[
+        "lcars-text-secondary lcars-data",
+        if(@small, do: "text-xs", else: "text-xs sm:text-sm")
+      ]}>{@label}</span>
+      <span class={[
+        "lcars-text-primary lcars-data font-bold truncate",
+        if(@small, do: "text-xs", else: "text-xs sm:text-sm")
+      ]}>{@value}</span>
     </div>
     """
   end
 
   # LCARS Color Helper Functions
-  defp lcars_color_class(color, active) do
-    base_class = case color do
-      "orange" -> if active, do: "bg-orange-500", else: "bg-orange-600 opacity-70"
-      "blue" -> if active, do: "bg-blue-500", else: "bg-blue-600 opacity-70"
-      "yellow" -> if active, do: "bg-yellow-400", else: "bg-yellow-500 opacity-70"
-      "red" -> if active, do: "bg-red-500", else: "bg-red-600 opacity-70"
-      "purple" -> if active, do: "bg-purple-500", else: "bg-purple-600 opacity-70"
-      _ -> if active, do: "bg-orange-500", else: "bg-orange-600 opacity-70"
-    end
-    base_class
-  end
-
   defp lcars_operation_color(color) do
     case color do
       "blue" -> "bg-blue-500"
