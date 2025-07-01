@@ -1,11 +1,11 @@
 defmodule Reencodarr.Encoder.Producer do
   @moduledoc """
   GenStage producer for encoding operations.
-  
+
   This producer manages the queue of videos that need encoding and
   provides control functions for pausing/resuming the encoding process.
   """
-  
+
   use GenStage
   require Logger
   alias Reencodarr.Media

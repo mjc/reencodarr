@@ -5,6 +5,8 @@ defmodule Reencodarr.Analyzer do
   """
   require Logger
 
+  alias Reencodarr.Analyzer.Producer
+
   @doc """
   Process a video path. This function maintains compatibility with the old API
   but now adds the video info to the GenStage pipeline.
@@ -18,7 +20,7 @@ defmodule Reencodarr.Analyzer do
 
     if force_reanalyze do
       Logger.debug("Force reanalyze requested for #{path}")
-      Reencodarr.Analyzer.Producer.add_video(video_info)
+      Producer.add_video(video_info)
     else
       # Normal videos will be picked up by the producer automatically when there's demand
       # We don't need to trigger dispatch - GenStage handles this via demand
@@ -47,20 +49,20 @@ defmodule Reencodarr.Analyzer do
   Start the analyzer. This function maintains compatibility with the old API.
   """
   def start do
-    Reencodarr.Analyzer.Producer.resume()
+    Producer.resume()
   end
 
   @doc """
   Pause the analyzer. This function maintains compatibility with the old API.
   """
   def pause do
-    Reencodarr.Analyzer.Producer.pause()
+    Producer.pause()
   end
 
   @doc """
   Check if the analyzer is running.
   """
   def running? do
-    Reencodarr.Analyzer.Producer.running?()
+    Producer.running?()
   end
 end

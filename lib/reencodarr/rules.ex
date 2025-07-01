@@ -1,4 +1,6 @@
 defmodule Reencodarr.Rules do
+  @moduledoc "Defines rules and recommendations for media encoding."
+
   alias Reencodarr.Media
 
   @opus_codec_tag "A_OPUS"

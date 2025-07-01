@@ -1,6 +1,8 @@
 defmodule ReencodarrWeb.SummaryRowComponent do
   use Phoenix.LiveComponent
 
+  @moduledoc "Displays a summary row with statistics."
+
   attr :stats, :map, required: true
 
   @impl true

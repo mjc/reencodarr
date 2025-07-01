@@ -20,33 +20,41 @@ defmodule Mix.Tasks.Restore do
       modules
       |> Enum.filter(&({:__schema__, 1} in &1.__info__(:functions)))
 
-    Enum.each(schemas, fn schema ->
-      file_name = "#{Atom.to_string(schema)}.csv"
+    Enum.each(schemas, &restore_schema/1)
+  end
 
-      if File.exists?(file_name) do
-        IO.puts("Restoring #{file_name} ...")
+  # Restores a single schema from its CSV file
+  defp restore_schema(schema) do
+    file_name = "#{Atom.to_string(schema)}.csv"
 
-        [header | rows] =
-          File.stream!(file_name, [], :line) |> Enum.map(&String.trim_trailing(&1, "\n"))
+    if File.exists?(file_name) do
+      IO.puts("Restoring #{file_name} ...")
 
-        fields = String.split(header, ",") |> Enum.map(&String.to_atom/1)
+      [header | rows] =
+        File.stream!(file_name, [], :line)
+        |> Enum.map(&String.trim_trailing(&1, "\n"))
 
-        Enum.each(rows, fn row ->
-          values = parse_csv_row(row)
+      fields = String.split(header, ",") |> Enum.map(&String.to_atom/1)
+      Enum.each(rows, &process_csv_row(schema, &1, fields))
+    end
+  end
 
-          if values != nil and is_list(values) and length(values) == length(fields) do
-            attrs =
-              Enum.zip(fields, values)
-              |> Enum.into(%{}, fn {field, value} ->
-                {field, parse_field(schema, field, value)}
-              end)
+  # Processes a single CSV row: parses, validates, and inserts
+  defp process_csv_row(schema, row, fields) do
+    values = parse_csv_row(row)
+    valid? = is_list(values) and length(values) == length(fields)
 
-            struct = struct(schema, attrs)
-            Repo.insert!(struct)
-          end
+    if valid? do
+      attrs =
+        fields
+        |> Enum.zip(values)
+        |> Enum.into(%{}, fn {field, value} ->
+          {field, parse_field(schema, field, value)}
         end)
-      end
-    end)
+
+      struct(schema, attrs)
+      |> Repo.insert!()
+    end
   end
 
   # Parses a CSV row into a list of values, handling quoted fields and escaped quotes
@@ -54,19 +62,25 @@ defmodule Mix.Tasks.Restore do
     NimbleCSV.RFC4180.parse_string(row) |> List.first()
   end
 
-  # Try to parse the value as JSON if the schema field is a map or list, else return as is
+  # Parse a field value based on schema type, return nil for empty string
+  defp parse_field(_schema, _field, ""), do: nil
+
   defp parse_field(schema, field, value) do
-    case {value, schema.__schema__(:type, field)} do
-      {"", _} -> nil
-      {v, :map} -> Jason.decode!(v)
-      {v, :array} -> Jason.decode!(v)
-      {v, :integer} -> String.to_integer(v)
-      {v, :float} -> String.to_float(v)
-      {v, :boolean} -> v in ["true", "1"]
-      {v, :naive_datetime} -> NaiveDateTime.from_iso8601!(v)
-      {v, :utc_datetime} -> DateTime.from_iso8601(v) |> elem(1)
-      {v, _} -> v
-    end
+    type = schema.__schema__(:type, field)
+
+    parsed =
+      case type do
+        :map -> Jason.decode!(value)
+        :array -> Jason.decode!(value)
+        :integer -> String.to_integer(value)
+        :float -> String.to_float(value)
+        :boolean -> value in ["true", "1"]
+        :naive_datetime -> NaiveDateTime.from_iso8601!(value)
+        :utc_datetime -> DateTime.from_iso8601(value) |> elem(1)
+        _ -> value
+      end
+
+    parsed
   rescue
     _ -> value
   end

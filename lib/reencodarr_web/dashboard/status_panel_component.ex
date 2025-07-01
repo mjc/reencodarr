@@ -1,4 +1,6 @@
 defmodule ReencodarrWeb.Dashboard.StatusPanelComponent do
+  @moduledoc "Displays the overall dashboard system status panel."
+
   use ReencodarrWeb, :live_component
 
   def render(assigns) do

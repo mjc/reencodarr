@@ -13,45 +13,48 @@ defmodule Mix.Tasks.Dump do
 
   alias Reencodarr.Repo
 
+  @doc "Run the dump task asynchronously for all schemas."
   def run(_args) do
     Mix.Task.run("app.start")
+    schemas = get_schemas()
 
-    # get a list of all the schemas in the application
-
-    {:ok, modules} = :application.get_key(:reencodarr, :modules)
-
-    schemas =
-      modules
-      |> Enum.filter(&({:__schema__, 1} in &1.__info__(:functions)))
-
-    # dump each schema to a csv file with header
-    Task.async_stream(
-      schemas,
-      fn schema ->
-        fields = schema.__schema__(:fields)
-        file_name = "#{Atom.to_string(schema)}.csv"
-
-        File.open(file_name, [:write, :utf8], fn file ->
-          IO.write(file, Enum.join(fields, ",") <> "\n")
-
-          Repo.transaction(
-            fn ->
-              Repo.stream(schema, timeout: :infinity)
-              |> Enum.each(fn record ->
-                values = Enum.map(fields, &format_field_value(record, &1))
-                IO.write(file, Enum.join(values, ",") <> "\n")
-              end)
-            end,
-            timeout: :infinity
-          )
-        end)
-
-        IO.puts("Dumped #{Atom.to_string(schema)} to #{file_name}")
-      end,
+    Task.async_stream(schemas, &dump_schema/1,
       max_concurrency: System.schedulers_online(),
       timeout: :infinity
     )
     |> Stream.run()
+  end
+
+  # Retrieves all Ecto schemas from the application modules
+  defp get_schemas do
+    {:ok, modules} = :application.get_key(:reencodarr, :modules)
+    Enum.filter(modules, &({:__schema__, 1} in &1.__info__(:functions)))
+  end
+
+  # Dumps a single schema to CSV file with header and records
+  defp dump_schema(schema) do
+    file_name = "#{Atom.to_string(schema)}.csv"
+    fields = schema.__schema__(:fields)
+
+    File.open(file_name, [:write, :utf8], fn file ->
+      IO.write(file, Enum.join(fields, ",") <> "\n")
+
+      Repo.transaction(
+        fn ->
+          Repo.stream(schema, timeout: :infinity)
+          |> Enum.each(&write_record_line(&1, fields, file))
+        end,
+        timeout: :infinity
+      )
+    end)
+
+    IO.puts("Dumped #{Atom.to_string(schema)} to #{file_name}")
+  end
+
+  # Writes a single record line to the CSV file
+  defp write_record_line(record, fields, file) do
+    values = Enum.map(fields, &format_field_value(record, &1))
+    IO.write(file, Enum.join(values, ",") <> "\n")
   end
 
   # Helper functions for CSV formatting

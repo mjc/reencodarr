@@ -1,6 +1,8 @@
 defmodule ReencodarrWeb.Dashboard.MetricCardComponent do
   use ReencodarrWeb, :live_component
 
+  @moduledoc "Displays a metric card with statistics."
+
   def render(assigns) do
     ~H"""
     <div class="relative overflow-hidden rounded-2xl bg-white/5 backdrop-blur-sm border border-white/10 p-6 hover:bg-white/10 transition-all duration-300">

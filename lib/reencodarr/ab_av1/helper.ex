@@ -1,11 +1,11 @@
 defmodule Reencodarr.AbAv1.Helper do
   @moduledoc """
   Helper functions for ab-av1 operations.
-  
+
   This module provides utility functions for working with ab-av1 parameters,
   VMAF data processing, and command-line argument manipulation.
   """
-  
+
   require Logger
 
   alias Reencodarr.{Media, Rules}

@@ -1,4 +1,6 @@
 defmodule Reencodarr.Media.Vmaf do
+  @moduledoc "Represents VMAF quality metrics for media files."
+
   use Ecto.Schema
   import Ecto.Changeset
 

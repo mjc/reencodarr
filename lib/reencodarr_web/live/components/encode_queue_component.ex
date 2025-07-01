@@ -1,6 +1,8 @@
 defmodule ReencodarrWeb.EncodeQueueComponent do
   use Phoenix.LiveComponent
 
+  @moduledoc "Displays the encoding queue."
+
   @impl true
   def render(assigns) do
     ~H"""

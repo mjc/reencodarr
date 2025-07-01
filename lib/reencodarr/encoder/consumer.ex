@@ -1,12 +1,12 @@
 defmodule Reencodarr.Encoder.Consumer do
   @moduledoc """
   GenStage consumer for processing encoding operations.
-  
+
   This consumer subscribes to the Encoder.Producer and processes videos
   by initiating encoding. It tracks ongoing operations and handles
   completion notifications via PubSub.
   """
-  
+
   use GenStage
   require Logger
   alias Reencodarr.AbAv1

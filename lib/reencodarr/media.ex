@@ -1,8 +1,11 @@
 defmodule Reencodarr.Media do
   import Ecto.Query, warn: false
+  alias Reencodarr.Analyzer.Producer
+  alias Reencodarr.Media.{Library, Video, Vmaf}
   alias Reencodarr.Repo
-  alias Reencodarr.Media.{Video, Library, Vmaf}
   require Logger
+
+  @moduledoc "Handles media-related operations and database interactions."
 
   # --- Video-related functions ---
   def list_videos, do: Repo.all(from v in Video, order_by: [desc: v.updated_at])
@@ -247,63 +250,67 @@ defmodule Reencodarr.Media do
   def fetch_stats do
     case Repo.transaction(fn -> Repo.one(aggregated_stats_query()) end) do
       {:ok, stats} ->
-        next_crf_search = get_next_crf_search(5)
-        videos_by_estimated_percent = list_videos_by_estimated_percent(5)
-        next_analyzer = get_next_for_analysis(5)
-
-        # Get manual queue items from the analyzer producer and merge them
-        manual_analyzer_items =
-          case Application.get_env(:reencodarr, :env) do
-            # Skip in test environment
-            :test ->
-              []
-
-            _ ->
-              try do
-                Reencodarr.Analyzer.Producer.get_manual_queue()
-              rescue
-                # Handle case where producer is not running
-                _ -> []
-              end
-          end
-
-        # Combine database and manual queue items (manual items first)
-        combined_analyzer = manual_analyzer_items ++ next_analyzer
-
-        # Get minimal data instead of full VMAF structs to reduce memory usage
-        next_encoding = get_next_for_encoding()
-        next_encoding_by_time = get_next_for_encoding_by_time()
-
-        %Reencodarr.Statistics.Stats{
-          avg_vmaf_percentage: stats.avg_vmaf_percentage,
-          chosen_vmafs_count: stats.chosen_vmafs_count,
-          # Store only the percent value instead of full VMAF struct (~90% memory reduction)
-          lowest_vmaf_percent: next_encoding && next_encoding.percent,
-          lowest_vmaf_by_time_seconds: next_encoding_by_time && next_encoding_by_time.time,
-          not_reencoded: stats.not_reencoded,
-          reencoded: stats.reencoded,
-          total_videos: stats.total_videos,
-          total_vmafs: stats.total_vmafs,
-          most_recent_video_update: stats.most_recent_video_update,
-          most_recent_inserted_video: stats.most_recent_inserted_video,
-          queue_length: %{
-            encodes: stats.encodes_count,
-            crf_searches: stats.queued_crf_searches_count,
-            analyzer: stats.analyzer_count + length(manual_analyzer_items)
-          },
-          next_crf_search: next_crf_search,
-          videos_by_estimated_percent: videos_by_estimated_percent,
-          next_analyzer: combined_analyzer
-        }
+        build_stats(stats)
 
       {:error, _} ->
         Logger.error("Failed to fetch stats")
-
-        %Reencodarr.Statistics.Stats{
-          most_recent_video_update: most_recent_video_update() || nil,
-          most_recent_inserted_video: get_most_recent_inserted_at() || nil
-        }
+        build_empty_stats()
     end
+  end
+
+  # Build full stats struct on successful DB query
+  defp build_stats(stats) do
+    next_crf_search = get_next_crf_search(5)
+    videos_by_estimated_percent = list_videos_by_estimated_percent(5)
+    next_analyzer = get_next_for_analysis(5)
+    manual_items = manual_analyzer_items()
+    combined_analyzer = manual_items ++ next_analyzer
+    next_encoding = get_next_for_encoding()
+    next_encoding_by_time = get_next_for_encoding_by_time()
+
+    %Reencodarr.Statistics.Stats{
+      avg_vmaf_percentage: stats.avg_vmaf_percentage,
+      chosen_vmafs_count: stats.chosen_vmafs_count,
+      lowest_vmaf_percent: next_encoding && next_encoding.percent,
+      lowest_vmaf_by_time_seconds: next_encoding_by_time && next_encoding_by_time.time,
+      not_reencoded: stats.not_reencoded,
+      reencoded: stats.reencoded,
+      total_videos: stats.total_videos,
+      total_vmafs: stats.total_vmafs,
+      most_recent_video_update: stats.most_recent_video_update,
+      most_recent_inserted_video: stats.most_recent_inserted_video,
+      queue_length: %{
+        encodes: stats.encodes_count,
+        crf_searches: stats.queued_crf_searches_count,
+        analyzer: stats.analyzer_count + length(manual_items)
+      },
+      next_crf_search: next_crf_search,
+      videos_by_estimated_percent: videos_by_estimated_percent,
+      next_analyzer: combined_analyzer
+    }
+  end
+
+  # Manual analyzer queue items, skipping in test env and rescuing failures
+  defp manual_analyzer_items do
+    case Application.get_env(:reencodarr, :env) do
+      :test ->
+        []
+
+      _ ->
+        try do
+          Producer.get_manual_queue()
+        rescue
+          _ -> []
+        end
+    end
+  end
+
+  # Build minimal stats struct when DB query fails
+  defp build_empty_stats do
+    %Reencodarr.Statistics.Stats{
+      most_recent_video_update: most_recent_video_update() || nil,
+      most_recent_inserted_video: get_most_recent_inserted_at() || nil
+    }
   end
 
   defp aggregated_stats_query do

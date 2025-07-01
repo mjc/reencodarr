@@ -28,7 +28,7 @@ defmodule Reencodarr.DashboardState do
   Total memory reduction: 70-85% compared to original implementation.
   """
 
-  alias Reencodarr.Statistics.{Stats, EncodingProgress, CrfSearchProgress, AnalyzerProgress}
+  alias Reencodarr.Statistics.{AnalyzerProgress, CrfSearchProgress, EncodingProgress, Stats}
 
   @type t :: %__MODULE__{
           stats: Stats.t(),
@@ -59,7 +59,7 @@ defmodule Reencodarr.DashboardState do
   @doc """
   Creates a new initial dashboard state.
   """
-  def initial() do
+  def initial do
     %__MODULE__{}
   end
 
@@ -207,15 +207,19 @@ defmodule Reencodarr.DashboardState do
   """
   def significant_change?(old_state, new_state) do
     # Only emit telemetry for changes that affect UI
-    old_state.encoding != new_state.encoding ||
-      old_state.crf_searching != new_state.crf_searching ||
-      old_state.syncing != new_state.syncing ||
-      stats_changed?(old_state.stats, new_state.stats) ||
-      (new_state.encoding &&
-         progress_changed?(old_state.encoding_progress, new_state.encoding_progress)) ||
-      (new_state.crf_searching &&
-         progress_changed?(old_state.crf_search_progress, new_state.crf_search_progress)) ||
-      (new_state.syncing && old_state.sync_progress != new_state.sync_progress)
+    checks = [
+      old_state.encoding != new_state.encoding,
+      old_state.crf_searching != new_state.crf_searching,
+      old_state.syncing != new_state.syncing,
+      stats_changed?(old_state.stats, new_state.stats),
+      new_state.encoding and
+        progress_changed?(old_state.encoding_progress, new_state.encoding_progress),
+      new_state.crf_searching and
+        progress_changed?(old_state.crf_search_progress, new_state.crf_search_progress),
+      new_state.syncing and old_state.sync_progress != new_state.sync_progress
+    ]
+
+    Enum.any?(checks)
   end
 
   # Private helper functions

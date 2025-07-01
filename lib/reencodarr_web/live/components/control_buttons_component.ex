@@ -1,4 +1,6 @@
 defmodule ReencodarrWeb.ControlButtonsComponent do
+  @moduledoc "Renders the LCARS control buttons for dashboard actions."
+  use Phoenix.Component
   use Phoenix.LiveComponent
 
   require Logger
@@ -178,5 +180,14 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
         _ -> "bg-orange-500"
       end
     end
+  end
+
+  @doc "Defines the live component behavior for ControlButtonsComponent."
+  def __live__ do
+    %{
+      id: __MODULE__,
+      module: __MODULE__,
+      assigns: %{}
+    }
   end
 end

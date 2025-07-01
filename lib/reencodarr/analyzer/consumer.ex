@@ -282,9 +282,10 @@ defmodule Reencodarr.Analyzer.Consumer do
   end
 
   defp decode_and_parse_mediainfo_json(json) do
-    with {:ok, decoded} <- Jason.decode(json) do
-      {:ok, parse_mediainfo_response(decoded)}
-    else
+    case Jason.decode(json) do
+      {:ok, decoded} ->
+        {:ok, parse_mediainfo_response(decoded)}
+
       error ->
         Logger.error("Failed to decode mediainfo JSON: #{inspect(error)}")
         {:error, :invalid_json}

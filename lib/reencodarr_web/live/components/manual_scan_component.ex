@@ -2,6 +2,8 @@ defmodule ReencodarrWeb.ManualScanComponent do
   use Phoenix.LiveComponent
   require Logger
 
+  @moduledoc "Handles manual scanning of media files."
+
   @doc "Handles manual scan events broadcasted via PubSub"
 
   @impl true
