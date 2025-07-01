@@ -97,7 +97,7 @@ defmodule ReencodarrWeb.DashboardLive do
       </div>
 
       <!-- Main Content Area -->
-      <div class="p-3 sm:p-6 space-y-4 sm:space-y-6 overflow-y-auto" style="height: calc(100vh - 5rem);">
+      <div class="p-3 sm:p-6 space-y-4 sm:space-y-6">
         <!-- Metrics Overview -->
         <.lcars_metrics_grid metrics={@dashboard_data.metrics} />
 
@@ -112,12 +112,12 @@ defmodule ReencodarrWeb.DashboardLive do
           <.lcars_control_panel status={@dashboard_data.status} stats={@dashboard_data.stats} />
           <.lcars_manual_scan_section />
         </div>
-      </div>
 
-      <!-- LCARS Bottom Frame -->
-      <div class="h-6 sm:h-8 bg-gradient-to-r from-red-500 via-yellow-400 to-orange-500">
-        <div class="flex items-center justify-center h-full">
-          <span class="text-black lcars-label text-xs sm:text-sm">STARDATE #{DateTime.utc_now() |> DateTime.to_unix()}</span>
+        <!-- LCARS Bottom Frame - Now part of content flow -->
+        <div class="h-6 sm:h-8 bg-gradient-to-r from-red-500 via-yellow-400 to-orange-500 rounded">
+          <div class="flex items-center justify-center h-full">
+            <span class="text-black lcars-label text-xs sm:text-sm">STARDATE #{DateTime.utc_now() |> DateTime.to_unix()}</span>
+          </div>
         </div>
       </div>
     </div>
