@@ -31,6 +31,7 @@ defmodule Reencodarr.TelemetryReporter do
   require Logger
 
   alias Reencodarr.{DashboardState, ProgressHelpers}
+  alias Reencodarr.Statistics.{EncodingProgress, CrfSearchProgress, AnalyzerProgress}
 
   # Configuration constants
   @refresh_interval :timer.seconds(5)
@@ -147,6 +148,13 @@ defmodule Reencodarr.TelemetryReporter do
     {:noreply, emit_state_update_and_return(new_state)}
   end
 
+  # Analyzer event handlers
+  def handle_cast({:update_analyzer, status}, %DashboardState{} = state) do
+    Logger.debug("TelemetryReporter: Analyzer status update: #{status}")
+    new_state = DashboardState.update_analyzer(state, status)
+    {:noreply, emit_state_update_and_return(new_state)}
+  end
+
   # Sync event handlers
   def handle_cast({:update_sync, event, data, service_type}, %DashboardState{} = state) do
     new_state = DashboardState.update_sync(state, event, data, service_type)
@@ -195,10 +203,12 @@ defmodule Reencodarr.TelemetryReporter do
         stats: new_state.stats,
         encoding: new_state.encoding,
         crf_searching: new_state.crf_searching,
+        analyzing: new_state.analyzing,
         syncing: new_state.syncing,
-        # Only send progress if actively processing
-        encoding_progress: if(new_state.encoding, do: new_state.encoding_progress, else: nil),
-        crf_search_progress: if(new_state.crf_searching, do: new_state.crf_search_progress, else: nil),
+        # Always send progress structs - use empty structs when not processing
+        encoding_progress: if(new_state.encoding, do: new_state.encoding_progress, else: %EncodingProgress{}),
+        crf_search_progress: if(new_state.crf_searching, do: new_state.crf_search_progress, else: %CrfSearchProgress{}),
+        analyzer_progress: if(new_state.analyzing, do: new_state.analyzer_progress, else: %AnalyzerProgress{}),
         sync_progress: if(new_state.syncing, do: new_state.sync_progress, else: 0),
         service_type: new_state.service_type
       }

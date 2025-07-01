@@ -81,7 +81,7 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
       },
       %{
         title: "Queue Length",
-        value: stats.queue_length.crf_searches + stats.queue_length.encodes,
+        value: stats.queue_length.crf_searches + stats.queue_length.encodes + stats.queue_length.analyzer,
         icon: "⏳",
         color: "from-amber-500 to-orange-500",
         subtitle: "pending jobs"
@@ -93,10 +93,12 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
     # Handle both DashboardState struct and telemetry event map
     encoding = Map.get(dashboard_state, :encoding, false)
     crf_searching = Map.get(dashboard_state, :crf_searching, false)
+    analyzing = Map.get(dashboard_state, :analyzing, false)
     syncing = Map.get(dashboard_state, :syncing, false)
 
     encoding_progress = Map.get(dashboard_state, :encoding_progress)
     crf_search_progress = Map.get(dashboard_state, :crf_search_progress)
+    analyzer_progress = Map.get(dashboard_state, :analyzer_progress)
     sync_progress = Map.get(dashboard_state, :sync_progress)
     service_type = Map.get(dashboard_state, :service_type)
 
@@ -108,6 +110,10 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
       crf_searching: %{
         active: crf_searching,
         progress: normalize_progress(crf_search_progress)
+      },
+      analyzing: %{
+        active: analyzing,
+        progress: normalize_progress(analyzer_progress)
       },
       syncing: %{
         active: syncing,
@@ -130,6 +136,12 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
       _ -> []
     end
 
+    analyzer_files = case dashboard_state do
+      %{stats: %{next_analyzer: files}} -> files || []
+      %Reencodarr.DashboardState{} -> Reencodarr.DashboardState.analyzer_queue(dashboard_state)
+      _ -> []
+    end
+
     %{
       crf_search: %{
         title: "CRF Search Queue",
@@ -142,6 +154,12 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
         icon: "⚡",
         color: "from-emerald-500 to-teal-500",
         files: normalize_queue_files(encoding_files)
+      },
+      analyzer: %{
+        title: "Analyzer Queue",
+        icon: "📊",
+        color: "from-purple-500 to-pink-500",
+        files: normalize_queue_files(analyzer_files)
       }
     }
   end

@@ -42,7 +42,7 @@ defmodule Reencodarr.Media do
 
   def get_next_for_analysis(limit \\ 10) do
     # Get videos that need analysis (bitrate = 0 or nil)
-    videos_needing_analysis = 
+    videos_needing_analysis =
       Repo.all(
         from v in Video,
           where: (v.bitrate == 0 or is_nil(v.bitrate)) and v.failed == false,
@@ -58,7 +58,7 @@ defmodule Reencodarr.Media do
             force_reanalyze: false
           }
       )
-    
+
     # Convert to the format expected by the consumer
     Enum.map(videos_needing_analysis, fn video ->
       %{
@@ -249,6 +249,21 @@ defmodule Reencodarr.Media do
       {:ok, stats} ->
         next_crf_search = get_next_crf_search(5)
         videos_by_estimated_percent = list_videos_by_estimated_percent(5)
+        next_analyzer = get_next_for_analysis(5)
+
+        # Get manual queue items from the analyzer producer and merge them
+        manual_analyzer_items = case Application.get_env(:reencodarr, :env) do
+          :test -> []  # Skip in test environment
+          _ ->
+            try do
+              Reencodarr.Analyzer.Producer.get_manual_queue()
+            rescue
+              _ -> []  # Handle case where producer is not running
+            end
+        end
+
+        # Combine database and manual queue items (manual items first)
+        combined_analyzer = manual_analyzer_items ++ next_analyzer
 
         # Get minimal data instead of full VMAF structs to reduce memory usage
         next_encoding = get_next_for_encoding()
@@ -268,10 +283,12 @@ defmodule Reencodarr.Media do
           most_recent_inserted_video: stats.most_recent_inserted_video,
           queue_length: %{
             encodes: stats.encodes_count,
-            crf_searches: stats.queued_crf_searches_count
+            crf_searches: stats.queued_crf_searches_count,
+            analyzer: stats.analyzer_count + length(manual_analyzer_items)
           },
           next_crf_search: next_crf_search,
-          videos_by_estimated_percent: videos_by_estimated_percent
+          videos_by_estimated_percent: videos_by_estimated_percent,
+          next_analyzer: combined_analyzer
         }
 
       {:error, _} ->
@@ -305,6 +322,8 @@ defmodule Reencodarr.Media do
             v.reencoded,
             v.failed
           ),
+        analyzer_count:
+          fragment("COUNT(*) FILTER (WHERE ? = 0 AND ? = false)", v.bitrate, v.failed),
         most_recent_video_update: max(v.updated_at),
         most_recent_inserted_video: max(v.inserted_at)
       }
