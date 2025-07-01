@@ -1,4 +1,11 @@
 defmodule Reencodarr.AbAv1.Helper do
+  @moduledoc """
+  Helper functions for ab-av1 operations.
+  
+  This module provides utility functions for working with ab-av1 parameters,
+  VMAF data processing, and command-line argument manipulation.
+  """
+  
   require Logger
 
   alias Reencodarr.{Media, Rules}
@@ -48,7 +55,7 @@ defmodule Reencodarr.AbAv1.Helper do
 
   defp unit_to_multiplier("minute"), do: 60
   defp unit_to_multiplier("hour"), do: 3600
-  defp unit_to_multiplier("day"), do: 86400
+  defp unit_to_multiplier("day"), do: 86_400
   defp unit_to_multiplier("week"), do: 604_800
   defp unit_to_multiplier("month"), do: 2_628_000
   defp unit_to_multiplier("year"), do: 31_536_000

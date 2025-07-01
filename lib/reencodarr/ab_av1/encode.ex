@@ -1,7 +1,16 @@
 defmodule Reencodarr.AbAv1.Encode do
+  @moduledoc """
+  GenServer for handling video encoding operations using ab-av1.
+  
+  This module manages the encoding process for videos based on VMAF data,
+  handles file operations, and coordinates with the media database.
+  """
+  
   use GenServer
-  alias Reencodarr.{Media, Helper, Rules, Repo, Sync, Telemetry}
+  
   alias Reencodarr.AbAv1.Helper
+  alias Reencodarr.{Media, Helper, Rules, Repo, Sync, Telemetry}
+  
   require Logger
 
   # Public API

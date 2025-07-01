@@ -1,6 +1,16 @@
 defmodule Reencodarr.AbAv1.CrfSearch do
+  @moduledoc """
+  GenServer for handling CRF search operations using ab-av1.
+  
+  This module manages the CRF search process for videos to find optimal
+  encoding parameters based on VMAF quality targets.
+  """
+  
   use GenServer
-  alias Reencodarr.{Media, AbAv1.Helper, Statistics.CrfSearchProgress}
+  
+  alias Reencodarr.AbAv1.Helper
+  alias Reencodarr.{Media, Statistics.CrfSearchProgress}
+  
   require Logger
 
   # Common regex fragments to reduce duplication
