@@ -38,7 +38,9 @@ Hooks.TimezoneHook = {
 }
 
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
-let liveSocket = new LiveSocket("/live", Socket, {
+// Use embedded socket for iframe pages
+let socketUrl = window.location.pathname.startsWith("/embed/") ? "/embed/live" : "/live"
+let liveSocket = new LiveSocket(socketUrl, Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
   hooks: Hooks

@@ -14,6 +14,17 @@ defmodule ReencodarrWeb.Router do
     plug :accepts, ["json"]
   end
 
+  # Pipeline for embedded views (like Broadway Dashboard in iframe)
+  pipeline :embedded do
+    plug :accepts, ["html"]
+    plug :fetch_session
+    plug :fetch_live_flash
+    plug :put_root_layout, html: {ReencodarrWeb.Layouts, :embedded}
+    plug :protect_from_forgery
+    plug :put_secure_browser_headers
+    plug :allow_iframe
+  end
+
   scope "/", ReencodarrWeb do
     pipe_through :browser
 
@@ -66,5 +77,29 @@ defmodule ReencodarrWeb.Router do
 
       forward "/mailbox", Plug.Swoosh.MailboxPreview
     end
+
+    # Embedded Broadway Dashboard for iframe integration
+    scope "/embed" do
+      pipe_through :embedded
+
+      live "/broadway", ReencodarrWeb.BroadwayLive
+
+      live_dashboard "/dashboard",
+        metrics: ReencodarrWeb.Telemetry,
+        additional_pages: [
+          broadway: BroadwayDashboard
+        ],
+        live_session_name: :embedded_broadway
+    end
+  end
+
+  # Plug to allow iframe embedding for Broadway Dashboard
+  defp allow_iframe(conn, _opts) do
+    conn
+    |> delete_resp_header("x-frame-options")
+    |> put_resp_header(
+      "content-security-policy",
+      "frame-ancestors 'self'"
+    )
   end
 end

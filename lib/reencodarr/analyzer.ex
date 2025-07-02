@@ -1,15 +1,15 @@
 defmodule Reencodarr.Analyzer do
   @moduledoc """
-  Analyzer module that uses GenStage for processing video analysis.
+  Analyzer module that uses Broadway for processing video analysis.
   Provides backward compatibility with the old GenServer-based analyzer.
   """
   require Logger
 
-  alias Reencodarr.Analyzer.Producer
+  alias Reencodarr.Analyzer.Broadway
 
   @doc """
   Process a video path. This function maintains compatibility with the old API
-  but now adds the video info to the GenStage pipeline.
+  but now adds the video info to the Broadway pipeline.
   """
   @spec process_path(map()) :: :ok
   def process_path(%{path: path} = video_info) do
@@ -20,10 +20,10 @@ defmodule Reencodarr.Analyzer do
 
     if force_reanalyze do
       Logger.debug("Force reanalyze requested for #{path}")
-      Producer.add_video(video_info)
+      Broadway.process_path(video_info)
     else
       # Normal videos will be picked up by the producer automatically when there's demand
-      # We don't need to trigger dispatch - GenStage handles this via demand
+      # We don't need to trigger dispatch - Broadway handles this via demand
       Logger.debug("Video will be processed when demand is available: #{path}")
     end
 
@@ -49,20 +49,27 @@ defmodule Reencodarr.Analyzer do
   Start the analyzer. This function maintains compatibility with the old API.
   """
   def start do
-    Producer.resume()
+    Broadway.resume()
   end
 
   @doc """
   Pause the analyzer. This function maintains compatibility with the old API.
   """
   def pause do
-    Producer.pause()
+    Broadway.pause()
   end
 
   @doc """
   Check if the analyzer is running.
   """
   def running? do
-    Producer.running?()
+    Broadway.running?()
+  end
+
+  @doc """
+  Get the current manual queue for dashboard display.
+  """
+  def get_manual_queue do
+    Broadway.get_manual_queue()
   end
 end
