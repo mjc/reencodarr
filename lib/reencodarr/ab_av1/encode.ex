@@ -353,8 +353,6 @@ defmodule Reencodarr.AbAv1.Encode do
   def process_line(data, state) do
     cond do
       captures = Regex.named_captures(~r/\[.*\] encoding (?<filename>\d+\.mkv)/, data) ->
-        Logger.info("Encoding should start for #{captures["filename"]}")
-
         file = captures["filename"]
         extname = Path.extname(file)
         id = String.to_integer(Path.basename(file, extname))
@@ -376,10 +374,6 @@ defmodule Reencodarr.AbAv1.Encode do
         human_readable_eta = "#{captures["eta"]} #{captures["unit"]}"
         filename = Path.basename(state.video.path)
 
-        Logger.debug(
-          "Encoding progress: #{captures["percent"]}%, #{captures["fps"]} fps, ETA: #{human_readable_eta}"
-        )
-
         # Emit telemetry event for encoding progress
         progress = %Reencodarr.Statistics.EncodingProgress{
           percent: String.to_integer(captures["percent"]),
@@ -390,12 +384,14 @@ defmodule Reencodarr.AbAv1.Encode do
 
         Telemetry.emit_encoder_progress(progress)
 
-      captures =
+      _captures =
           Regex.named_captures(~r/Encoded\s(?<size>[\d\.]+\s\w+)\s\((?<percent>\d+)%\)/, data) ->
-        Logger.info("Encoded #{captures["size"]} (#{captures["percent"]}%)")
+        # File size progress - not doing anything specific here currently
+        :ok
 
       true ->
-        Logger.error("No match for data: #{data}")
+        # Non-matching lines are ignored
+        :ok
     end
   end
 

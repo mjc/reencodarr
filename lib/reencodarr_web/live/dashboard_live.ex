@@ -150,24 +150,24 @@ defmodule ReencodarrWeb.DashboardLive do
           </h1>
         </div>
       </div>
-      
+
     <!-- Main Content Area -->
       <div class="p-3 sm:p-6 space-y-4 sm:space-y-6">
         <!-- Metrics Overview -->
         <.lcars_metrics_grid metrics={@dashboard_data.metrics} />
-        
+
     <!-- Operations Status -->
         <.lcars_operations_panel status={@dashboard_data.status} />
-        
+
     <!-- Queue Management -->
         <.lcars_queues_section queues={@dashboard_data.queues} />
-        
+
     <!-- Control Panel -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
           <.lcars_control_panel status={@dashboard_data.status} stats={@dashboard_data.stats} />
           <.lcars_manual_scan_section />
         </div>
-        
+
     <!-- LCARS Bottom Frame - Now part of content flow -->
         <div class="h-6 sm:h-8 bg-gradient-to-r from-red-500 via-yellow-400 to-orange-500 rounded">
           <div class="flex items-center justify-center h-full">
@@ -202,7 +202,7 @@ defmodule ReencodarrWeb.DashboardLive do
           {String.upcase(@metric.title)}
         </span>
       </div>
-      
+
     <!-- Content -->
       <div class="p-2 sm:p-3 space-y-2">
         <div class="flex items-center justify-between">
@@ -300,7 +300,7 @@ defmodule ReencodarrWeb.DashboardLive do
           </span>
         </div>
 
-        <%= if @active and (@progress.percent > 0 or @progress.filename != :none) do %>
+        <%= if @active and (@progress.percent > 0 or (@progress.filename && @progress.filename != :none)) do %>
           <div class="space-y-1">
             <%= if @progress.filename do %>
               <div class="text-xs text-orange-300 tracking-wide truncate">
@@ -317,7 +317,23 @@ defmodule ReencodarrWeb.DashboardLive do
               >
               </div>
             </div>
-            <div class="text-xs text-orange-300 text-right">{@progress.percent}%</div>
+            <div class="flex justify-between text-xs text-orange-300">
+              <span>{@progress.percent}%</span>
+              <%= if Map.get(@progress, :fps) && @progress.fps > 0 do %>
+                <span>{format_fps(@progress.fps)} FPS</span>
+              <% end %>
+            </div>
+            <%= if Map.get(@progress, :eta) && @progress.eta != 0 do %>
+              <div class="text-xs text-orange-400 text-center">
+                ETA: {format_eta(@progress.eta)}
+              </div>
+            <% end %>
+            <%= if Map.get(@progress, :crf) && Map.get(@progress, :score) do %>
+              <div class="flex justify-between text-xs text-orange-400">
+                <span>CRF: {format_crf(@progress.crf)}</span>
+                <span>VMAF: {format_score(@progress.score)}</span>
+              </div>
+            <% end %>
           </div>
         <% end %>
       </div>
@@ -352,7 +368,7 @@ defmodule ReencodarrWeb.DashboardLive do
           </span>
         </div>
       </div>
-      
+
     <!-- Queue Content -->
       <div class="p-2 sm:p-3">
         <%= if @queue.files == [] do %>
@@ -413,7 +429,7 @@ defmodule ReencodarrWeb.DashboardLive do
             <.lcars_stat_row label="LAST INSERT" value={@stats.last_video_insert} small={true} />
           </div>
         </div>
-        
+
     <!-- Control Buttons -->
         <div class="space-y-2">
           <div class="text-orange-300 text-xs sm:text-sm font-bold tracking-wide">OPERATIONS</div>
@@ -467,6 +483,27 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   defp format_count(count), do: to_string(count)
+
+  defp format_fps(fps) when is_number(fps) do
+    if fps == trunc(fps) do
+      "#{trunc(fps)}"
+    else
+      "#{Float.round(fps, 1)}"
+    end
+  end
+  defp format_fps(fps), do: to_string(fps)
+
+  defp format_eta(eta) when is_binary(eta), do: eta
+  defp format_eta(eta) when is_number(eta) and eta > 0, do: "#{eta}s"
+  defp format_eta(_), do: "N/A"
+
+  defp format_crf(crf) when is_number(crf), do: "#{crf}"
+  defp format_crf(crf), do: to_string(crf)
+
+  defp format_score(score) when is_number(score) do
+    "#{Float.round(score, 1)}"
+  end
+  defp format_score(score), do: to_string(score)
 
   defp lcars_stat_row(assigns) do
     assigns = assign_new(assigns, :small, fn -> false end)

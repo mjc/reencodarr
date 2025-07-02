@@ -35,36 +35,23 @@ defmodule Reencodarr.CrfSearcher.Consumer do
 
   @impl true
   def handle_events([video], _from, state) do
-    Logger.info("Consumer received video #{video.id} (#{video.path}), current_video_id: #{inspect(state.current_video_id)}")
+    Logger.info("Starting CRF search for #{video.path}")
 
-    # Check if we're already processing a video
-    case state.current_video_id do
-      nil ->
-        Logger.info("Starting CRF search for #{video.path}")
+    # Start CRF search and track the current video ID
+    AbAv1.crf_search(video, 95)
+    new_state = %{state | current_video_id: video.id}
 
-        # Start CRF search and track the current video ID
-        # Don't ask for more videos until this one completes
-        AbAv1.crf_search(video, 95)
-        new_state = %{state | current_video_id: video.id}
-
-        {:noreply, [], new_state}
-
-      current_id when current_id == video.id ->
-        # Same video sent again - this shouldn't happen anymore with manual demand
-        Logger.warning("Ignoring duplicate video #{video.id} - already processing")
-        {:noreply, [], state}
-
-      other_id ->
-        # Different video while processing another - this is the bug we're fixing
-        Logger.error("Consumer received video #{video.id} while already processing video #{other_id}! This indicates a demand management bug.")
-        {:noreply, [], state}
-    end
+    {:noreply, [], new_state}
   end
 
   # Handle CRF search completion messages from PubSub
   @impl true
-  def handle_info({:crf_search_completed, video_id, result}, %{current_video_id: video_id} = state) do
-    # This is the completion for our current video
+  def handle_info(
+        {:crf_search_completed, video_id, result},
+        %{current_video_id: current_video_id} = state
+      )
+      when video_id == current_video_id do
+    # Log the completion
     case result do
       :success ->
         Logger.info("Completed CRF search for video #{video_id}")
@@ -76,13 +63,13 @@ defmodule Reencodarr.CrfSearcher.Consumer do
         Logger.error("CRF search failed for video #{video_id} with exit code: #{exit_code}")
     end
 
-    # Clear current video and ask for the next one from the producer
+    # Clear current video and ask for the next one
     new_state = %{state | current_video_id: nil}
     GenStage.ask(Reencodarr.CrfSearcher.Producer, 1)
     {:noreply, [], new_state}
   end
 
-  # Ignore completion events for other videos (shouldn't happen with max_demand: 1, but just in case)
+  # Ignore completion events for other videos
   def handle_info({:crf_search_completed, _other_video_id, _result}, state) do
     {:noreply, [], state}
   end
