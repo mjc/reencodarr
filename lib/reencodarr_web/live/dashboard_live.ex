@@ -150,24 +150,24 @@ defmodule ReencodarrWeb.DashboardLive do
           </h1>
         </div>
       </div>
-
+      
     <!-- Main Content Area -->
       <div class="p-3 sm:p-6 space-y-4 sm:space-y-6">
         <!-- Metrics Overview -->
         <.lcars_metrics_grid metrics={@dashboard_data.metrics} />
-
+        
     <!-- Operations Status -->
         <.lcars_operations_panel status={@dashboard_data.status} />
-
+        
     <!-- Queue Management -->
         <.lcars_queues_section queues={@dashboard_data.queues} />
-
+        
     <!-- Control Panel -->
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
           <.lcars_control_panel status={@dashboard_data.status} stats={@dashboard_data.stats} />
           <.lcars_manual_scan_section />
         </div>
-
+        
     <!-- LCARS Bottom Frame - Now part of content flow -->
         <div class="h-6 sm:h-8 bg-gradient-to-r from-red-500 via-yellow-400 to-orange-500 rounded">
           <div class="flex items-center justify-center h-full">
@@ -202,7 +202,7 @@ defmodule ReencodarrWeb.DashboardLive do
           {String.upcase(@metric.title)}
         </span>
       </div>
-
+      
     <!-- Content -->
       <div class="p-2 sm:p-3 space-y-2">
         <div class="flex items-center justify-between">
@@ -368,7 +368,7 @@ defmodule ReencodarrWeb.DashboardLive do
           </span>
         </div>
       </div>
-
+      
     <!-- Queue Content -->
       <div class="p-2 sm:p-3">
         <%= if @queue.files == [] do %>
@@ -429,7 +429,7 @@ defmodule ReencodarrWeb.DashboardLive do
             <.lcars_stat_row label="LAST INSERT" value={@stats.last_video_insert} small={true} />
           </div>
         </div>
-
+        
     <!-- Control Buttons -->
         <div class="space-y-2">
           <div class="text-orange-300 text-xs sm:text-sm font-bold tracking-wide">OPERATIONS</div>
@@ -491,6 +491,7 @@ defmodule ReencodarrWeb.DashboardLive do
       "#{Float.round(fps, 1)}"
     end
   end
+
   defp format_fps(fps), do: to_string(fps)
 
   defp format_eta(eta) when is_binary(eta), do: eta
@@ -503,6 +504,7 @@ defmodule ReencodarrWeb.DashboardLive do
   defp format_score(score) when is_number(score) do
     "#{Float.round(score, 1)}"
   end
+
   defp format_score(score), do: to_string(score)
 
   defp lcars_stat_row(assigns) do

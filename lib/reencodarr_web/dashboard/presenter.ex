@@ -12,7 +12,8 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   Reduces presenter CPU usage by ~40% through intelligent caching.
   """
 
-  alias Reencodarr.Dashboard.QueueItem
+  alias Reencodarr.Dashboard.QueueBuilder
+  alias Reencodarr.Progress.Normalizer
   alias ReencodarrWeb.Utils.TimeUtils
 
   require Logger
@@ -111,19 +112,19 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
     %{
       encoding: %{
         active: encoding,
-        progress: normalize_progress(encoding_progress)
+        progress: Normalizer.normalize_progress(encoding_progress)
       },
       crf_searching: %{
         active: crf_searching,
-        progress: normalize_progress(crf_search_progress)
+        progress: Normalizer.normalize_progress(crf_search_progress)
       },
       analyzing: %{
         active: analyzing,
-        progress: normalize_progress(analyzer_progress)
+        progress: Normalizer.normalize_progress(analyzer_progress)
       },
       syncing: %{
         active: syncing,
-        progress: normalize_sync_progress(sync_progress, service_type)
+        progress: Normalizer.normalize_sync_progress(sync_progress, service_type)
       }
     }
   end
@@ -131,9 +132,15 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   defp present_queues(dashboard_state) do
     %{
       crf_search:
-        build_queue(:crf_search, get_crf_search_files(dashboard_state), dashboard_state),
-      encoding: build_queue(:encoding, get_encoding_files(dashboard_state), dashboard_state),
-      analyzer: build_queue(:analyzer, get_analyzer_files(dashboard_state), dashboard_state)
+        QueueBuilder.build_queue(
+          :crf_search,
+          get_crf_search_files(dashboard_state),
+          dashboard_state
+        ),
+      encoding:
+        QueueBuilder.build_queue(:encoding, get_encoding_files(dashboard_state), dashboard_state),
+      analyzer:
+        QueueBuilder.build_queue(:analyzer, get_analyzer_files(dashboard_state), dashboard_state)
     }
   end
 
@@ -159,48 +166,6 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
 
   defp get_analyzer_files(_), do: []
 
-  # Builds the queue map given a key and file list
-  defp build_queue(:crf_search, files, state) do
-    %{
-      title: "CRF Search Queue",
-      icon: "🔍",
-      color: "from-cyan-500 to-blue-500",
-      count_key: :crf_searches
-    }
-    |> assemble_queue(files, state)
-  end
-
-  defp build_queue(:encoding, files, state) do
-    %{
-      title: "Encoding Queue",
-      icon: "⚡",
-      color: "from-emerald-500 to-teal-500",
-      count_key: :encodes
-    }
-    |> assemble_queue(files, state)
-  end
-
-  defp build_queue(:analyzer, files, state) do
-    %{
-      title: "Analyzer Queue",
-      icon: "📊",
-      color: "from-purple-500 to-pink-500",
-      count_key: :analyzer
-    }
-    |> assemble_queue(files, state)
-  end
-
-  # Shared assembly logic
-  defp assemble_queue(%{title: title, icon: icon, color: color, count_key: key}, files, state) do
-    %{
-      title: title,
-      icon: icon,
-      color: color,
-      files: normalize_queue_files(files),
-      total_count: get_queue_total_count(state, key)
-    }
-  end
-
   defp present_stats(stats, _timezone) do
     %{
       total_vmafs: stats.total_vmafs,
@@ -216,86 +181,6 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   end
 
   defp calculate_progress(_, _), do: 0
-
-  defp normalize_progress(progress) when is_map(progress) do
-    filename = normalize_filename(Map.get(progress, :filename))
-    percent = Map.get(progress, :percent, 0)
-    # Only get these fields if they exist (encoding/CRF search have them, sync doesn't)
-    fps = Map.get(progress, :fps, 0)
-    eta = Map.get(progress, :eta, 0)
-    # CRF search specific fields
-    crf = Map.get(progress, :crf)
-    score = Map.get(progress, :score)
-
-    # Show progress if we have either a meaningful percent or filename
-    if percent > 0 or filename do
-      %{
-        percent: percent,
-        filename: filename,
-        fps: fps,
-        eta: eta,
-        crf: crf,
-        score: score
-      }
-    else
-      %{
-        percent: 0,
-        filename: nil,
-        fps: 0,
-        eta: 0,
-        crf: nil,
-        score: nil
-      }
-    end
-  end
-
-  defp normalize_progress(_) do
-    %{
-      percent: 0,
-      filename: nil,
-      fps: 0,
-      eta: 0,
-      crf: nil,
-      score: nil
-    }
-  end
-
-  defp normalize_sync_progress(progress, service_type)
-       when is_integer(progress) and progress > 0 do
-    sync_label =
-      case service_type do
-        :sonarr -> "TV SYNC"
-        :radarr -> "MOVIE SYNC"
-        _ -> "LIBRARY SYNC"
-      end
-
-    %{
-      percent: progress,
-      filename: sync_label
-    }
-  end
-
-  defp normalize_sync_progress(_, _) do
-    %{
-      percent: 0,
-      filename: nil
-    }
-  end
-
-  defp normalize_filename(filename) when is_binary(filename), do: filename
-  defp normalize_filename(:none), do: nil
-  defp normalize_filename(_), do: nil
-
-  defp normalize_queue_files(files) when is_list(files) do
-    # Since DashboardState already limits to 10 items, we can process directly
-    # Use more efficient Stream operations for better memory usage
-    files
-    # Start index at 1
-    |> Stream.with_index(1)
-    |> Enum.map(fn {file, index} -> QueueItem.from_video(file, index) end)
-  end
-
-  defp normalize_queue_files(_), do: []
 
   # Generate a simple hash of the state for cache key
   defp state_hash(dashboard_state) do
@@ -315,20 +200,6 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
 
   defp get_progress_percent(progress) when is_map(progress), do: Map.get(progress, :percent, 0)
   defp get_progress_percent(_), do: 0
-
-  # Helper function to get total queue count from stats
-  defp get_queue_total_count(dashboard_state, queue_type) do
-    case dashboard_state do
-      %{stats: %{queue_length: queue_length}} ->
-        Map.get(queue_length, queue_type, 0)
-
-      %Reencodarr.DashboardState{stats: %{queue_length: queue_length}} ->
-        Map.get(queue_length, queue_type, 0)
-
-      _ ->
-        0
-    end
-  end
 
   # Simple cache cleanup to prevent unbounded growth
   defp cleanup_cache do
