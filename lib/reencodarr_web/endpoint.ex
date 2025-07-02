@@ -15,6 +15,9 @@ defmodule ReencodarrWeb.Endpoint do
     websocket: [connect_info: [session: @session_options]],
     longpoll: [connect_info: [session: @session_options]]
 
+  # Socket for embedded LiveViews (like Broadway Dashboard in iframe)
+  socket "/embed/live", Phoenix.LiveView.Socket, websocket: true, longpoll: true
+
   # Serve at "/" the static files from "priv/static" directory.
   #
   # You should set gzip to true if you are running phx.digest

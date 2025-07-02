@@ -1,7 +1,7 @@
 defmodule Reencodarr.Analyzer.Supervisor do
   use Supervisor
 
-  @moduledoc "Supervises analyzer-related processes."
+  @moduledoc "Supervises analyzer-related processes using Broadway."
 
   def start_link(opts \\ []) do
     Supervisor.start_link(__MODULE__, :ok, opts ++ [name: __MODULE__])
@@ -10,14 +10,8 @@ defmodule Reencodarr.Analyzer.Supervisor do
   @impl true
   def init(:ok) do
     children = [
-      %{
-        id: Reencodarr.Analyzer.Producer,
-        start: {Reencodarr.Analyzer.Producer, :start_link, []}
-      },
-      %{
-        id: Reencodarr.Analyzer.Consumer,
-        start: {Reencodarr.Analyzer.Consumer, :start_link, []}
-      }
+      # Start the Broadway pipeline instead of GenStage producer/consumer
+      {Reencodarr.Analyzer.Broadway, []}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
