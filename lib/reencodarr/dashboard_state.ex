@@ -97,7 +97,12 @@ defmodule Reencodarr.DashboardState do
   def update_encoding(%__MODULE__{} = state, status, filename \\ nil) do
     progress =
       if status do
-        %EncodingProgress{filename: filename}
+        # When starting encoding, preserve existing progress but update filename
+        # This prevents resetting progress to 0% when encoding status changes
+        case state.encoding_progress.filename do
+          :none -> %EncodingProgress{filename: filename}
+          _ -> %{state.encoding_progress | filename: filename || state.encoding_progress.filename}
+        end
       else
         %EncodingProgress{}
       end
@@ -242,15 +247,16 @@ defmodule Reencodarr.DashboardState do
       old_stats.most_recent_video_update != new_stats.most_recent_video_update
   end
 
-  # Check if progress data changed significantly (>5% change for encoding, >1% for CRF search, or status change)
+  # Check if progress data changed significantly (>1% change for encoding/CRF search, or status change)
   defp progress_changed?(old_progress, new_progress) do
     percent_diff = abs(old_progress.percent - new_progress.percent)
     filename_changed = old_progress.filename != new_progress.filename
 
-    # More sensitive threshold for CRF search since it tends to update more slowly
+    # Use 1% threshold for both encoding and CRF search to ensure responsive progress updates
     threshold =
       case old_progress.__struct__ do
         Reencodarr.Statistics.CrfSearchProgress -> 1.0
+        Reencodarr.Statistics.EncodingProgress -> 1.0
         _ -> 5.0
       end
 

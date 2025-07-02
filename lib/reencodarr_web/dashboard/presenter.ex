@@ -15,6 +15,8 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   alias Reencodarr.Dashboard.QueueItem
   alias ReencodarrWeb.Utils.TimeUtils
 
+  require Logger
+
   # Cache table for presenter computations
   @cache_table :presenter_cache
 
@@ -218,17 +220,31 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   defp normalize_progress(progress) when is_map(progress) do
     filename = normalize_filename(Map.get(progress, :filename))
     percent = Map.get(progress, :percent, 0)
+    # Only get these fields if they exist (encoding/CRF search have them, sync doesn't)
+    fps = Map.get(progress, :fps, 0)
+    eta = Map.get(progress, :eta, 0)
+    # CRF search specific fields
+    crf = Map.get(progress, :crf)
+    score = Map.get(progress, :score)
 
     # Show progress if we have either a meaningful percent or filename
     if percent > 0 or filename do
       %{
         percent: percent,
-        filename: filename
+        filename: filename,
+        fps: fps,
+        eta: eta,
+        crf: crf,
+        score: score
       }
     else
       %{
         percent: 0,
-        filename: nil
+        filename: nil,
+        fps: 0,
+        eta: 0,
+        crf: nil,
+        score: nil
       }
     end
   end
@@ -236,7 +252,11 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   defp normalize_progress(_) do
     %{
       percent: 0,
-      filename: nil
+      filename: nil,
+      fps: 0,
+      eta: 0,
+      crf: nil,
+      score: nil
     }
   end
 
