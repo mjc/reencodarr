@@ -50,16 +50,16 @@ defmodule Reencodarr.Analyzer.Broadway do
   Add a video to the pipeline for processing.
   """
   def process_path(video_info) do
-    GenStage.cast(Reencodarr.Analyzer.Broadway.Producer, {:add_video, video_info})
+    Reencodarr.Analyzer.Broadway.Producer.add_video(video_info)
   end
 
   @doc """
-  Check if the analyzer is running.
+  Check if the analyzer is running (not paused).
   """
   def running? do
     case Process.whereis(__MODULE__) do
       nil -> false
-      pid -> Process.alive?(pid)
+      _pid -> Reencodarr.Analyzer.Broadway.Producer.running?()
     end
   end
 
@@ -67,27 +67,18 @@ defmodule Reencodarr.Analyzer.Broadway do
   Pause the analyzer.
   """
   def pause do
-    GenStage.cast(Reencodarr.Analyzer.Broadway.Producer, :pause)
+    Reencodarr.Analyzer.Broadway.Producer.pause()
   end
 
   @doc """
   Resume the analyzer.
   """
   def resume do
-    GenStage.cast(Reencodarr.Analyzer.Broadway.Producer, :resume)
+    Reencodarr.Analyzer.Broadway.Producer.resume()
   end
 
   # Alias for API compatibility
   def start, do: resume()
-
-  @doc """
-  Get current manual queue for dashboard display.
-  """
-  def get_manual_queue do
-    GenStage.call(Reencodarr.Analyzer.Broadway.Producer, :get_manual_queue)
-  rescue
-    _ -> []
-  end
 
   @impl Broadway
   def handle_message(_processor_name, message, _context) do
@@ -203,6 +194,11 @@ defmodule Reencodarr.Analyzer.Broadway do
     :ok
   end
 
+  defp process_video_with_mediainfo(video_info, :no_mediainfo) do
+    Logger.warning("No mediainfo available for #{video_info.path}, processing individually")
+    process_video_individually(video_info)
+  end
+
   defp process_video_with_mediainfo(video_info, mediainfo) do
     with {:ok, _eligibility} <- check_processing_eligibility(video_info),
          {:ok, validated_mediainfo} <- validate_mediainfo(mediainfo, video_info.path),
@@ -221,6 +217,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   rescue
     e ->
       Logger.error("Unexpected error processing #{video_info.path}: #{inspect(e)}")
+      Logger.error("Stacktrace: #{inspect(__STACKTRACE__)}")
       :error
   end
 
@@ -250,7 +247,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   # Helper functions - ported from existing GenStage consumer
 
   defp check_processing_eligibility(%{path: path} = video_info) do
-    video = Media.get_video_by_path(path) || :not_found
+    video = Media.get_video_by_path(path)
     force_reanalyze = Map.get(video_info, :force_reanalyze, false)
 
     if should_process_video?(video, force_reanalyze) do
@@ -260,40 +257,131 @@ defmodule Reencodarr.Analyzer.Broadway do
     end
   end
 
+  defp should_process_video?(nil, _force_reanalyze), do: true
+
   defp should_process_video?(video, force_reanalyze) do
-    video == :not_found or video.bitrate == 0 or force_reanalyze
+    video.bitrate == 0 or force_reanalyze
   end
 
   defp validate_mediainfo(:no_mediainfo, path) do
     {:error, "no mediainfo found for #{path}"}
   end
 
-  defp validate_mediainfo(mediainfo, path) do
-    # Use existing CodecHelper for audio validation
-    validate_audio_metadata(mediainfo, path)
+  defp validate_mediainfo(nil, path) do
+    {:error, "nil mediainfo received for #{path}"}
+  end
 
+  defp validate_mediainfo(mediainfo, path) when is_map(mediainfo) do
+    # Log structure for debugging
+    Logger.debug("Validating mediainfo for #{path}")
+
+    # Check for common structure patterns
+    if Map.has_key?(mediainfo, "media") do
+      Logger.debug("Standard mediainfo structure with 'media' key detected")
+    else
+      Logger.debug("Non-standard mediainfo structure detected (no 'media' key), will be handled by conversion logic")
+    end
+
+    # Try different ways to extract file size
     case extract_file_size(mediainfo) do
       {:ok, file_size} ->
+        # Add file size to mediainfo for later use
         {:ok, Map.put(mediainfo, :size, file_size)}
 
       {:error, reason} ->
-        {:error, reason}
+        # Log issue but try to proceed anyway with a default size
+        Logger.warning("Could not extract file size for #{path}: #{reason}")
+        # Use stat command to get file size as fallback
+        case get_file_size_from_path(path) do
+          {:ok, fallback_size} ->
+            Logger.info("Using fallback file size of #{fallback_size} for #{path}")
+            {:ok, Map.put(mediainfo, :size, fallback_size)}
+          {:error, _} ->
+            # If all attempts fail, use a default size and warn
+            Logger.warning("Using default file size for #{path}")
+            {:ok, Map.put(mediainfo, :size, 0)}
+        end
+    end
+  end
+
+  # Add a catch-all clause for validate_mediainfo
+  defp validate_mediainfo(invalid_mediainfo, path) do
+    Logger.error("Invalid mediainfo format for #{path}: #{inspect(invalid_mediainfo)}")
+    {:error, "invalid mediainfo format"}
+  end
+
+  # Fallback to get file size using the file system
+  defp get_file_size_from_path(path) do
+    try do
+      case File.stat(path) do
+        {:ok, %{size: size}} -> {:ok, size}
+        {:error, reason} ->
+          Logger.warning("File stat failed for #{path}: #{reason}")
+          {:error, reason}
+      end
+    rescue
+      e ->
+        Logger.warning("Exception getting file size for #{path}: #{inspect(e)}")
+        {:error, :exception}
     end
   end
 
   defp extract_file_size(mediainfo) do
-    case Map.get(mediainfo, "FileSize") do
-      size when is_integer(size) and size > 0 ->
+    # Try multiple possible locations for file size in different MediaInfo structures
+    cond do
+      # Check direct FileSize key (common in flat structures)
+      size = get_size_if_valid(Map.get(mediainfo, "FileSize")) ->
         {:ok, size}
 
-      size_str when is_binary(size_str) ->
-        case Integer.parse(size_str) do
-          {size, _} when size > 0 -> {:ok, size}
-          _ -> {:error, "invalid file size format"}
+      # Check in media.track structure - General track
+      media = Map.get(mediainfo, "media") ->
+        track = get_in(media, ["track"])
+        cond do
+          # If track is a list, look for General track
+          is_list(track) ->
+            general_track = Enum.find(track, &(&1["@type"] == "General"))
+            if general_track do
+              if size = get_size_if_valid(Map.get(general_track, "FileSize")) do
+                {:ok, size}
+              else
+                {:error, "no valid file size in general track"}
+              end
+            else
+              {:error, "no general track found"}
+            end
+
+          # If track is a map and it's the General track
+          is_map(track) and Map.get(track, "@type") == "General" ->
+            if size = get_size_if_valid(Map.get(track, "FileSize")) do
+              {:ok, size}
+            else
+              {:error, "no valid file size in general track"}
+            end
+
+          # Otherwise no valid size found
+          true ->
+            {:error, "could not find file size in mediainfo structure"}
         end
 
-      _ ->
-        {:error, "missing or invalid file size"}
+      # No known structure found
+      true ->
+        {:error, "missing or invalid file size, unknown mediainfo structure"}
+    end
+  end
+
+  # Helper to validate and convert size values
+  defp get_size_if_valid(size) do
+    cond do
+      is_integer(size) and size > 0 ->
+        size
+
+      is_binary(size) ->
+        case Integer.parse(size) do
+          {parsed_size, _} when parsed_size > 0 -> parsed_size
+          _ -> nil
+        end
+
+      true -> nil
     end
   end
 
@@ -301,13 +389,34 @@ defmodule Reencodarr.Analyzer.Broadway do
     %{path: path, service_id: service_id, service_type: service_type} = video_info
     file_size = Map.get(mediainfo, :size, 0)
 
-    Media.upsert_video(%{
+    case Media.upsert_video(%{
       path: path,
       mediainfo: mediainfo,
       service_id: service_id,
       service_type: service_type,
       size: file_size
-    })
+    }) do
+      {:ok, video} ->
+        {:ok, video}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        errors = format_changeset_errors(changeset)
+        Logger.error("Failed to upsert video record for #{path}: #{errors}")
+        {:error, "validation failed: #{errors}"}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp format_changeset_errors(%Ecto.Changeset{} = changeset) do
+    Ecto.Changeset.traverse_errors(changeset, fn {msg, opts} ->
+      Enum.reduce(opts, msg, fn {key, value}, acc ->
+        String.replace(acc, "%{#{key}}", to_string(value))
+      end)
+    end)
+    |> Enum.map(fn {k, v} -> "#{k}: #{Enum.join(v, ", ")}" end)
+    |> Enum.join("; ")
   end
 
   defp execute_mediainfo_command(paths) when is_list(paths) and paths != [] do
@@ -336,35 +445,98 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp decode_and_parse_mediainfo_json(json) do
-    case Jason.decode(json) do
-      {:ok, %{"media" => media_list}} when is_list(media_list) ->
-        parse_mediainfo_list(media_list)
+    Logger.debug("Decoding mediainfo JSON")
 
-      {:ok, data} ->
-        {:error, "unexpected JSON structure: #{inspect(data)}"}
+    json_trimmed = String.slice(json, 0, 1000)
+    Logger.debug("JSON sample: #{json_trimmed}...")
 
-      {:error, reason} ->
-        {:error, "JSON decode failed: #{inspect(reason)}"}
+    try do
+      case Jason.decode(json) do
+        {:ok, [%{"media" => _} | _] = media_info_list} when is_list(media_info_list) ->
+          Logger.debug("Parsing mediainfo from list of media objects")
+          media_list = Enum.map(media_info_list, & &1["media"])
+          parse_mediainfo_list(media_list)
+
+        {:ok, %{"media" => media_item}} when is_map(media_item) ->
+          Logger.debug("Parsing mediainfo from single media object")
+          parse_mediainfo_list([media_item])
+
+        {:ok, %{"media" => media_list}} when is_list(media_list) ->
+          Logger.debug("Parsing mediainfo from media list")
+          parse_mediainfo_list(media_list)
+
+        # Handle flat MediaInfo structure (no "media" key)
+        {:ok, data} when is_map(data) ->
+          # Check if this looks like a flat structure
+          if Map.has_key?(data, "track") or
+             (Map.has_key?(data, "FileSize") and Map.has_key?(data, "Duration")) or
+             Map.has_key?(data, "Width") or Map.has_key?(data, "Height") or
+             Map.has_key?(data, "Format") do
+
+            Logger.debug("Detected flat MediaInfo structure, wrapping in proper format")
+            # Wrap in the expected structure
+            wrapped_data = %{"media" => data}
+            # Try to extract path
+            path =
+              case data do
+                %{"@ref" => path} when is_binary(path) -> path
+                %{"CompleteName" => path} when is_binary(path) -> path
+                _ -> nil
+              end
+
+            if path do
+              # Create a map with the path as key
+              {:ok, %{path => wrapped_data}}
+            else
+              Logger.warning("Flat MediaInfo structure detected but no path found: #{inspect(data, pretty: true, limit: 5000)}")
+              {:error, "no path in flat mediainfo structure"}
+            end
+          else
+            Logger.error("Unexpected JSON structure from mediainfo: #{inspect(data, pretty: true, limit: 5000)}")
+            {:error, "unexpected JSON structure"}
+          end
+
+        {:ok, data} ->
+          Logger.error("Unexpected JSON structure from mediainfo: #{inspect(data, pretty: true, limit: 5000)}")
+          {:error, "unexpected JSON structure"}
+
+        {:error, reason} ->
+          Logger.error("JSON decode failed: #{inspect(reason)}")
+          {:error, "JSON decode failed: #{inspect(reason)}"}
+      end
+    rescue
+      e ->
+        Logger.error("Error parsing mediainfo JSON: #{inspect(e)}")
+        Logger.error("Stacktrace: #{inspect(__STACKTRACE__)}")
+        {:error, "error parsing JSON: #{inspect(e)}"}
     end
   end
 
   defp parse_mediainfo_list(media_list) do
     Enum.reduce(media_list, {:ok, %{}}, fn media_item, {:ok, acc} ->
+      Logger.debug("Parsing media item: #{inspect(media_item)}")
+
       case extract_complete_name(media_item) do
         {:ok, path} ->
+          Logger.debug("Extracted path: #{path}")
+
           case parse_single_media_item(media_item) do
             {:ok, mediainfo} ->
               {:ok, Map.put(acc, path, mediainfo)}
 
-            {:error, _reason} ->
+            {:error, reason} ->
+              Logger.warning("Failed to parse single media item for #{path}: #{reason}")
               {:ok, Map.put(acc, path, :no_mediainfo)}
           end
 
-        {:error, _reason} ->
+        {:error, reason} ->
+          Logger.warning("Failed to extract complete name: #{reason}")
           {:ok, acc}
       end
     end)
   end
+
+  defp extract_complete_name(%{"@ref" => path}) when is_binary(path), do: {:ok, path}
 
   defp extract_complete_name(%{"track" => tracks}) when is_list(tracks) do
     case Enum.find(tracks, &(Map.get(&1, "@type") == "General")) do
@@ -376,100 +548,16 @@ defmodule Reencodarr.Analyzer.Broadway do
     end
   end
 
-  defp extract_complete_name(_), do: {:error, "invalid media structure"}
+  defp extract_complete_name(media_item) do
+    Logger.debug("Attempting to extract complete name from: #{inspect(media_item)}")
+    {:error, "invalid media structure"}
+  end
 
   defp parse_single_media_item(%{"track" => tracks}) when is_list(tracks) do
-    general = Enum.find(tracks, &(Map.get(&1, "@type") == "General"))
-    video = Enum.find(tracks, &(Map.get(&1, "@type") == "Video"))
-    audio = Enum.find(tracks, &(Map.get(&1, "@type") == "Audio"))
-
-    case {general, video} do
-      {%{} = g, %{} = v} ->
-        mediainfo = %{
-          "Duration" => extract_duration(g),
-          "FileSize" => extract_file_size_from_track(g),
-          "Width" => extract_numeric(v, "Width"),
-          "Height" => extract_numeric(v, "Height"),
-          "FrameRate" => extract_numeric(v, "FrameRate"),
-          "BitRate" => extract_numeric(v, "BitRate"),
-          "Format" => Map.get(v, "Format"),
-          "CodecID" => Map.get(v, "CodecID")
-        }
-
-        mediainfo =
-          if audio do
-            Map.merge(mediainfo, %{
-              "AudioFormat" => Map.get(audio, "Format"),
-              "AudioCodecID" => Map.get(audio, "CodecID"),
-              "AudioChannels" => extract_numeric(audio, "Channels"),
-              "AudioSamplingRate" => extract_numeric(audio, "SamplingRate")
-            })
-          else
-            mediainfo
-          end
-
-        {:ok, mediainfo}
-
-      _ ->
-        {:error, "missing required tracks"}
-    end
+    # Return the original nested structure that downstream code expects
+    # The structure should be %{"media" => %{"track" => tracks}}
+    {:ok, %{"media" => %{"track" => tracks}}}
   end
 
   defp parse_single_media_item(_), do: {:error, "invalid media item structure"}
-
-  defp extract_duration(track) do
-    case Map.get(track, "Duration") do
-      duration when is_number(duration) -> trunc(duration)
-      duration_str when is_binary(duration_str) ->
-        case Float.parse(duration_str) do
-          {duration, _} -> trunc(duration)
-          _ -> 0
-        end
-      _ -> 0
-    end
-  end
-
-  defp extract_file_size_from_track(track) do
-    case Map.get(track, "FileSize") do
-      size when is_integer(size) -> size
-      size_str when is_binary(size_str) ->
-        case Integer.parse(size_str) do
-          {size, _} -> size
-          _ -> 0
-        end
-      _ -> 0
-    end
-  end
-
-  defp extract_numeric(track, key) do
-    case Map.get(track, key) do
-      value when is_number(value) -> value
-      value_str when is_binary(value_str) ->
-        case Float.parse(value_str) do
-          {value, _} -> value
-          _ -> 0
-        end
-      _ -> 0
-    end
-  end
-
-  defp validate_audio_metadata(mediainfo, path) do
-    codec = Map.get(mediainfo, "AudioCodecID", "")
-    channels = Map.get(mediainfo, "AudioChannels", 0)
-
-    case channels do
-      ch when is_number(ch) and ch >= 1 and ch <= 32 ->
-        :ok
-
-      ch when is_number(ch) ->
-        Logger.warning("Unusual channel count #{ch} for #{path}")
-
-      _ ->
-        Logger.warning("Invalid channel format '#{channels}' for #{path}")
-    end
-
-    if codec == "" do
-      Logger.warning("Missing audio codec information for #{path}")
-    end
-  end
 end

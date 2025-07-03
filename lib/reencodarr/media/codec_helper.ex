@@ -18,15 +18,36 @@ defmodule Reencodarr.Media.CodecHelper do
     |> to_string()
   end
 
-  @spec get_track(map(), String.t()) :: map() | nil
-  def get_track(mediainfo, type) do
-    Enum.find(mediainfo["media"]["track"], &(&1["@type"] == type))
+  @spec get_track(map() | nil, String.t()) :: map() | nil
+  def get_track(nil, _type), do: nil
+  def get_track(%{"media" => nil}, _type), do: nil
+  def get_track(%{"media" => %{"track" => nil}}, _type), do: nil
+  def get_track(%{"media" => %{"track" => []}}, _type), do: nil
+
+  def get_track(%{"media" => %{"track" => tracks}}, type) when is_list(tracks) do
+    Enum.find(tracks, &(&1["@type"] == type))
   end
 
-  def get_tracks(mediainfo, type) do
-    (mediainfo["media"]["track"] || [])
-    |> Enum.filter(&(&1["@type"] == type))
+  def get_track(%{"media" => %{"track" => track}}, type) when is_map(track) do
+    if track["@type"] == type, do: track, else: nil
   end
+
+  def get_track(_mediainfo, _type), do: nil
+
+  def get_tracks(nil, _type), do: []
+  def get_tracks(%{"media" => nil}, _type), do: []
+  def get_tracks(%{"media" => %{"track" => nil}}, _type), do: []
+  def get_tracks(%{"media" => %{"track" => []}}, _type), do: []
+
+  def get_tracks(%{"media" => %{"track" => tracks}}, type) when is_list(tracks) do
+    Enum.filter(tracks, &(&1["@type"] == type))
+  end
+
+  def get_tracks(%{"media" => %{"track" => track}}, type) when is_map(track) do
+    if track["@type"] == type, do: [track], else: []
+  end
+
+  def get_tracks(_mediainfo, _type), do: []
 
   @spec parse_duration(String.t() | number()) :: number()
   def parse_duration(duration) when is_binary(duration) do

@@ -10,7 +10,9 @@ defmodule Reencodarr.Analyzer.Supervisor do
   @impl true
   def init(:ok) do
     children = [
-      # Start the Broadway pipeline instead of GenStage producer/consumer
+      # Start the QueueManager to track analyzer queue state
+      {Reencodarr.Analyzer.QueueManager, []},
+      # Start the Broadway pipeline
       {Reencodarr.Analyzer.Broadway, []}
     ]
 
