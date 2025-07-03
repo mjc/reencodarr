@@ -71,15 +71,24 @@ defmodule Reencodarr.Media.CodecMapper do
     Map.fetch!(@codec_id_map, codec)
   end
 
-  @spec has_av1_codec?(list(String.t())) :: boolean()
+  @spec has_av1_codec?(list(String.t()) | nil) :: boolean()
+  def has_av1_codec?(nil), do: false
   def has_av1_codec?(video_codecs), do: "V_AV1" in video_codecs || "AV1" in video_codecs
 
   @spec has_opus_audio?(map()) :: boolean()
   def has_opus_audio?(mediainfo) do
-    Enum.any?(mediainfo["media"]["track"], &audio_track_is_opus?/1)
+    tracks = get_in(mediainfo, ["media", "track"])
+
+    case tracks do
+      nil -> false
+      tracks when is_list(tracks) -> Enum.any?(tracks, &audio_track_is_opus?/1)
+      track when is_map(track) -> audio_track_is_opus?(track)
+      _ -> false
+    end
   end
 
-  @spec has_low_resolution_hevc?(list(String.t()), map()) :: boolean()
+  @spec has_low_resolution_hevc?(list(String.t()) | nil, map()) :: boolean()
+  def has_low_resolution_hevc?(nil, _mediainfo), do: false
   def has_low_resolution_hevc?(video_codecs, mediainfo) do
     height = CodecHelper.get_int(mediainfo, "Video", "Height")
 
@@ -93,7 +102,8 @@ defmodule Reencodarr.Media.CodecMapper do
     end
   end
 
-  @spec low_bitrate_1080p?(list(String.t()), map()) :: boolean()
+  @spec low_bitrate_1080p?(list(String.t()) | nil, map()) :: boolean()
+  def low_bitrate_1080p?(nil, _mediainfo), do: false
   def low_bitrate_1080p?(video_codecs, mediainfo) do
     "V_MPEGH/ISO/HEVC" in video_codecs and
       CodecHelper.get_int(mediainfo, "Video", "Width") == 1920 and

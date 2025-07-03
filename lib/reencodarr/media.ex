@@ -1,6 +1,5 @@
 defmodule Reencodarr.Media do
   import Ecto.Query, warn: false
-  alias Reencodarr.Analyzer.Producer
   alias Reencodarr.Media.{Library, Video, Vmaf}
   alias Reencodarr.Repo
   require Logger
@@ -290,19 +289,9 @@ defmodule Reencodarr.Media do
     }
   end
 
-  # Manual analyzer queue items, skipping in test env and rescuing failures
+  # Manual analyzer queue items from QueueManager
   defp manual_analyzer_items do
-    case Application.get_env(:reencodarr, :env) do
-      :test ->
-        []
-
-      _ ->
-        try do
-          Producer.get_manual_queue()
-        rescue
-          _ -> []
-        end
-    end
+    Reencodarr.Analyzer.QueueManager.get_queue()
   end
 
   # Build minimal stats struct when DB query fails

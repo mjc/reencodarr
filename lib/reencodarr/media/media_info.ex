@@ -39,30 +39,59 @@ defmodule Reencodarr.Media.MediaInfo do
   end
 
   def to_video_params(mediainfo, path) do
-    tracks = mediainfo["media"]["track"] || []
+    require Logger
+
+    # Safer access to tracks, handling nil values at any level
+    tracks =
+      case mediainfo do
+        %{"media" => %{"track" => tracks}} when is_list(tracks) -> tracks
+        %{"media" => %{"track" => track}} when is_map(track) -> [track]  # Handle single track as a map
+        %{"media" => nil} -> []
+        nil -> []
+        _ ->
+          # Log unexpected structure but don't crash
+          Logger.warning("Unexpected mediainfo structure for #{path}: #{inspect(mediainfo, pretty: true, limit: 1000)}")
+          []
+      end
+
     general = CodecHelper.get_track(mediainfo, "General") || %{}
     video_tracks = Enum.filter(tracks, &(&1["@type"] == "Video"))
     audio_tracks = Enum.filter(tracks, &(&1["@type"] == "Audio"))
     last_video = List.last(video_tracks)
-    video_codecs = Enum.map(video_tracks, & &1["CodecID"])
+    video_codecs = Enum.map(video_tracks, &Map.get(&1, "CodecID"))
+
+    # Log structure in case of issues
+    if Enum.empty?(video_tracks) do
+      Logger.warning("No video tracks found for #{path}: #{inspect(mediainfo, pretty: true, limit: 1000)}")
+      Logger.warning("Parsed tracks: #{inspect(tracks, pretty: true, limit: 1000)}")
+      Logger.warning("video_codecs will be: #{inspect(video_codecs)}")
+    end
+
+    # Additional debugging for video_codecs
+    if video_codecs == nil do
+      Logger.error("❌ CRITICAL: video_codecs extracted as nil!")
+      Logger.error("video_tracks: #{inspect(video_tracks)}")
+      Logger.error("Full mediainfo: #{inspect(mediainfo, pretty: true, limit: :infinity)}")
+      raise "video_codecs is nil after extraction - this indicates a bug"
+    end
 
     %{
-      audio_codecs: Enum.map(audio_tracks, & &1["CodecID"]),
+      audio_codecs: Enum.map(audio_tracks, &Map.get(&1, "CodecID")),
       audio_count: CodecHelper.parse_int(general["AudioCount"], 0),
       atmos: CodecHelper.has_atmos?(audio_tracks),
       bitrate: CodecHelper.parse_int(general["OverallBitRate"], 0),
       duration: CodecHelper.parse_float(general["Duration"], 0.0),
-      frame_rate: CodecHelper.parse_float(last_video && last_video["FrameRate"], 0.0),
+      frame_rate: CodecHelper.parse_float(last_video && Map.get(last_video, "FrameRate"), 0.0),
       hdr: CodecHelper.parse_hdr_from_video(last_video),
-      height: CodecHelper.parse_int(last_video && last_video["Height"], 0),
+      height: CodecHelper.parse_int(last_video && Map.get(last_video, "Height"), 0),
       max_audio_channels: CodecHelper.max_audio_channels(audio_tracks),
       size: CodecHelper.parse_int(general["FileSize"], 0),
       text_count: CodecHelper.parse_int(general["TextCount"], 0),
       video_codecs: video_codecs,
       video_count: CodecHelper.parse_int(general["VideoCount"], 0),
-      width: CodecHelper.parse_int(last_video && last_video["Width"], 0),
+      width: CodecHelper.parse_int(last_video && Map.get(last_video, "Width"), 0),
       reencoded: reencoded?(video_codecs, mediainfo),
-      title: general["Title"] || Path.basename(path)
+      title: Map.get(general, "Title") || Path.basename(path)
     }
   end
 
