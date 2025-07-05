@@ -56,11 +56,74 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       actual_count = Repo.aggregate(Vmaf, :count, :id)
 
       msg =
-        "Expected #{expected_count} VMAF records " <> vvvvvvv
-
-      "(one per unique CRF value), got #{actual_count}"
+        "Expected #{expected_count} VMAF records " <>
+        "(one per unique CRF value), got #{actual_count}"
 
       assert actual_count == expected_count, msg
+    end
+  end
+
+  describe "enhanced error handling" do
+    setup do
+      video = %{id: 2, path: "test_error_path", size: 100}
+      {:ok, video} = Media.create_video(video)
+      %{video: video}
+    end
+
+    test "provides detailed error message when no VMAF scores are found", %{video: video} do
+      error_line = "Error: Failed to find a suitable crf"
+
+      # Capture logs to verify the detailed error message
+      import ExUnit.CaptureLog
+
+      log = capture_log(fn ->
+        CrfSearch.process_line(error_line, video, [], 95)
+      end)
+
+      assert log =~ "Failed to find a suitable CRF for #{Path.basename(video.path)} (target VMAF: 95)"
+      assert log =~ "No VMAF scores were recorded"
+      assert log =~ "encoding samples failed completely"
+    end
+
+    test "provides detailed error message when few VMAF scores are found", %{video: video} do
+      # Create a couple of VMAF scores for the video
+      {:ok, _vmaf1} = Media.create_vmaf(%{video_id: video.id, crf: 22.0, score: 88.5, params: []})
+      {:ok, _vmaf2} = Media.create_vmaf(%{video_id: video.id, crf: 18.0, score: 92.3, params: []})
+
+      error_line = "Error: Failed to find a suitable crf"
+
+      import ExUnit.CaptureLog
+
+      log = capture_log(fn ->
+        CrfSearch.process_line(error_line, video, [], 95)
+      end)
+
+      assert log =~ "Failed to find a suitable CRF for #{Path.basename(video.path)} (target VMAF: 95)"
+      assert log =~ "Only 2 VMAF score(s) were tested"
+      assert log =~ "highest: 92.3"
+      assert log =~ "search space may be too limited"
+    end
+
+    test "provides detailed error message when target cannot be reached", %{video: video} do
+      # Create several VMAF scores that are all below the target
+      {:ok, _vmaf1} = Media.create_vmaf(%{video_id: video.id, crf: 28.0, score: 85.0, params: []})
+      {:ok, _vmaf2} = Media.create_vmaf(%{video_id: video.id, crf: 22.0, score: 88.5, params: []})
+      {:ok, _vmaf3} = Media.create_vmaf(%{video_id: video.id, crf: 18.0, score: 92.3, params: []})
+      {:ok, _vmaf4} = Media.create_vmaf(%{video_id: video.id, crf: 15.0, score: 94.1, params: []})
+
+      error_line = "Error: Failed to find a suitable crf"
+
+      import ExUnit.CaptureLog
+
+      log = capture_log(fn ->
+        CrfSearch.process_line(error_line, video, [], 96)
+      end)
+
+      assert log =~ "Failed to find a suitable CRF for #{Path.basename(video.path)} (target VMAF: 96)"
+      assert log =~ "Tested 4 CRF values"
+      assert log =~ "VMAF scores ranging from 85.0 to 94.1"
+      assert log =~ "highest quality (94.1) is still 1.9 points below the target"
+      assert log =~ "Try lowering the target VMAF"
     end
   end
 end

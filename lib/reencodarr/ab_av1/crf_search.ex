@@ -9,7 +9,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   use GenServer
 
   alias Reencodarr.AbAv1.Helper
-  alias Reencodarr.{Media, Statistics.CrfSearchProgress}
+  alias Reencodarr.{Media, Statistics.CrfSearchProgress, Repo}
 
   require Logger
 
@@ -124,7 +124,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         {:crf_search_completed, video.id, :skipped}
       )
     else
-      Logger.info("Initiating crf search for video #{video.id}")
+      Logger.info("Initiating crf search for video #{video.id} (#{Path.basename(video.path)}) with target VMAF: #{vmaf_percent}")
       GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
     end
 
@@ -144,7 +144,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
     args = build_crf_search_args(video, vmaf_percent)
-    new_state = %{state | port: Helper.open_port(args), current_task: %{video: video, args: args}}
+    new_state = %{state | port: Helper.open_port(args), current_task: %{video: video, args: args, target_vmaf: vmaf_percent}}
 
     # Emit telemetry event for CRF search start
     Reencodarr.Telemetry.emit_crf_search_started()
@@ -174,11 +174,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   @impl true
   def handle_info(
         {port, {:data, {:eol, line}}},
-        %{port: port, current_task: %{video: video, args: args}, partial_line_buffer: buffer} =
+        %{port: port, current_task: %{video: video, args: args, target_vmaf: target_vmaf}, partial_line_buffer: buffer} =
           state
       ) do
     full_line = buffer <> line
-    process_line(full_line, video, args)
+    process_line(full_line, video, args, target_vmaf)
     {:noreply, %{state | partial_line_buffer: ""}}
   end
 
@@ -263,7 +263,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     |> String.to_float()
   end
 
-  def process_line(line, video, args) do
+  def process_line(line, video, args, target_vmaf \\ 95) do
     handlers = [
       &handle_encoding_sample_line/2,
       fn l, v -> handle_vmaf_line(l, v, args) end,
@@ -271,7 +271,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       fn l, _v -> handle_vmaf_comparison_line(l) end,
       &handle_progress_line/2,
       &handle_success_line/2,
-      &handle_error_line/2
+      fn l, v -> handle_error_line(l, v, target_vmaf) end
     ]
 
     case Enum.find(handlers, fn handler -> handler.(line, video) end) do
@@ -383,13 +383,61 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  defp handle_error_line(line, video) do
+  defp handle_error_line(line, video, target_vmaf) do
     if line == "Error: Failed to find a suitable crf" do
-      Logger.error("Failed to find a suitable CRF.")
+      tested_scores = get_vmaf_scores_for_video(video.id)
+
+      error_msg = build_detailed_error_message(target_vmaf, tested_scores, video.path)
+      Logger.error(error_msg)
+
       Media.mark_as_failed(video)
       true
     else
       false
+    end
+  end
+
+  # Helper function to get VMAF scores that were tested for this video
+  defp get_vmaf_scores_for_video(video_id) do
+    import Ecto.Query
+
+    query = from v in Media.Vmaf,
+      where: v.video_id == ^video_id,
+      order_by: [desc: v.score],
+      limit: 10,
+      select: %{crf: v.crf, score: v.score}
+
+    case Repo.all(query) do
+      [] -> []
+      vmaf_entries ->
+        vmaf_entries
+        |> Enum.map(fn %{crf: crf, score: score} -> {crf, score} end)
+    end
+  end
+
+  # Helper function to build a detailed error message
+  defp build_detailed_error_message(target_vmaf, tested_scores, video_path) do
+    base_msg = "Failed to find a suitable CRF for #{Path.basename(video_path)} (target VMAF: #{target_vmaf})"
+
+    case tested_scores do
+      [] ->
+        "#{base_msg}. No VMAF scores were recorded - this suggests the encoding samples failed completely. Check if ffmpeg and ab-av1 are properly installed and the video file is accessible."
+
+      scores when length(scores) < 3 ->
+        max_score = scores |> Enum.map(fn {_crf, score} -> score end) |> Enum.max()
+        "#{base_msg}. Only #{length(scores)} VMAF score(s) were tested (highest: #{Float.round(max_score, 2)}). The search space may be too limited - try using a wider CRF range or different encoder settings."
+
+      scores ->
+        max_score = scores |> Enum.map(fn {_crf, score} -> score end) |> Enum.max()
+        min_score = scores |> Enum.map(fn {_crf, score} -> score end) |> Enum.min()
+        score_count = length(scores)
+
+        if max_score < target_vmaf do
+          gap = target_vmaf - max_score
+          "#{base_msg}. Tested #{score_count} CRF values with VMAF scores ranging from #{Float.round(min_score, 2)} to #{Float.round(max_score, 2)}. The highest quality (#{Float.round(max_score, 2)}) is still #{Float.round(gap, 2)} points below the target. Try lowering the target VMAF or using a higher quality encoder preset."
+        else
+          "#{base_msg}. Tested #{score_count} CRF values with VMAF scores ranging from #{Float.round(min_score, 2)} to #{Float.round(max_score, 2)}. The search algorithm couldn't converge on a suitable CRF value - this may indicate an issue with the binary search algorithm or encoder settings."
+        end
     end
   end
 
