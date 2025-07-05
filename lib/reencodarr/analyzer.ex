@@ -13,18 +13,18 @@ defmodule Reencodarr.Analyzer do
   """
   @spec process_path(map()) :: :ok
   def process_path(%{path: path} = video_info) do
-    Logger.info("🎭 Processing video path: #{path}")
+    Logger.debug("🎭 Processing video path: #{path}")
 
     # For force_reanalyze videos, add them directly to the producer's manual queue
     force_reanalyze = Map.get(video_info, :force_reanalyze, false)
 
     if force_reanalyze do
-      Logger.info("🎭 Force reanalyze requested for #{path}, adding to Broadway queue")
+      Logger.debug("🎭 Force reanalyze requested for #{path}, adding to Broadway queue")
       Broadway.process_path(video_info)
     else
       # Normal videos will be picked up by the producer automatically when there's demand
       # We don't need to trigger dispatch - Broadway handles this via demand
-      Logger.info("🎭 Video will be processed when demand is available: #{path}")
+      Logger.debug("🎭 Video will be processed when demand is available: #{path}")
     end
 
     :ok
