@@ -8,10 +8,16 @@ defmodule Reencodarr.Dashboard.QueueItem do
           index: pos_integer(),
           path: String.t(),
           display_name: String.t(),
-          estimated_percent: float() | nil
+          estimated_percent: float() | nil,
+          # CRF search specific
+          bitrate: integer() | nil,
+          size: integer() | nil,
+          # Encoding specific
+          estimated_savings_gb: float() | nil,
+          vmaf_percent: float() | nil
         }
 
-  defstruct [:index, :path, :display_name, :estimated_percent]
+  defstruct [:index, :path, :display_name, :estimated_percent, :bitrate, :size, :estimated_savings_gb, :vmaf_percent]
 
   @doc """
   Creates a minimal queue item from a full video/file structure.
@@ -20,16 +26,120 @@ defmodule Reencodarr.Dashboard.QueueItem do
   def from_video(video, index) when is_map(video) do
     path = extract_path(video)
 
-    %__MODULE__{
-      index: index,
-      path: path,
-      display_name: Path.basename(path),
-      estimated_percent: Map.get(video, :estimated_percent)
-    }
+    # Extract different data based on the type of queue item
+    cond do
+      # VMAF struct (encoding queue) - has video field and percent
+      Map.has_key?(video, :video) and Map.has_key?(video, :percent) ->
+        video_data = Map.get(video, :video, %{})
+        video_size = Map.get(video_data, :size, 0)
+        percent = Map.get(video, :percent, 0)
+        
+        estimated_savings = if video_size > 0 and percent > 0 and percent < 100 do
+          (video_size * (100 - percent) / 100) / (1024 * 1024 * 1024)
+        else
+          nil
+        end
+
+        %__MODULE__{
+          index: index,
+          path: path,
+          display_name: clean_display_name(Path.basename(path)),
+          estimated_percent: Map.get(video, :estimated_percent),
+          estimated_savings_gb: estimated_savings,
+          vmaf_percent: percent,
+          size: video_size
+        }
+
+      # Video struct (CRF search or analyzer queue)
+      true ->
+        bitrate = Map.get(video, :bitrate)
+        size = Map.get(video, :size)
+
+        %__MODULE__{
+          index: index,
+          path: path,
+          display_name: clean_display_name(Path.basename(path)),
+          estimated_percent: Map.get(video, :estimated_percent),
+          bitrate: bitrate,
+          size: size
+        }
+    end
   end
 
   # Extract path from various video/file structures
   defp extract_path(%{video: %{path: path}}) when is_binary(path), do: path
   defp extract_path(%{path: path}) when is_binary(path), do: path
   defp extract_path(_), do: "Unknown"
+
+  # Clean up display name to make it more readable
+  defp clean_display_name(filename) do
+    filename
+    |> String.replace(~r/\.(mkv|mp4|avi|mov|wmv|flv|webm)$/i, "")  # Remove file extensions
+    |> String.replace(~r/\b(WEBDL|WEB-DL|BluRay|BDRip|DVDRip|HDTV|WEBRip|BRRip)\b/i, "")  # Remove quality indicators
+    |> String.replace(~r/\b(x264|x265|H\.264|H\.265|HEVC|AVC|XviD)\b/i, "")  # Remove codec info
+    |> String.replace(~r/\b(1080p|720p|2160p|4K|UHD|480p)\b/i, "")  # Remove resolution info
+    |> String.replace(~r/\b(AAC|AC3|DTS|TrueHD|Atmos|MP3|FLAC)\b/i, "")  # Remove audio codec info
+    |> String.replace(~r/\s*\(\d{4}\)/, "")  # Remove years in parentheses like (2023)
+    |> String.replace(~r/\b\d{4}\b/, "")  # Remove standalone years
+    |> String.replace(~r/\bR\d+DK\d+\b/i, "")  # Remove release group tags like "R04DK1"
+    |> String.replace(~r/\b(REPACK|PROPER|INTERNAL|LIMITED)\b/i, "")  # Remove release flags
+    |> String.replace(~r/\b(S\d{2}E\d{2})\b/i, "\\1")  # Keep season/episode but clean surrounding
+    |> String.replace(~r/\s*-\s*$/, "")  # Remove trailing dashes
+    |> String.replace(~r/\s*-\s*/, " - ")  # Normalize internal dashes
+    |> String.replace(~r/\s+/, " ")  # Collapse multiple spaces
+    |> String.trim()
+    |> String.trim("-")
+    |> String.trim()
+    |> shorten_common_titles()
+    |> truncate_title(35)  # Limit to 35 characters for better display
+  end
+
+  # Shorten common long title patterns
+  defp shorten_common_titles(title) do
+    title
+    |> String.replace("THE HANDMAID'S TALE", "Handmaid's Tale")
+    |> String.replace("THE PHOENICIAN SCHEME", "Phoenician Scheme")
+    |> String.replace("GONE IN SIXTY SECONDS", "Gone in 60 Seconds")
+    |> String.replace("LOVE AFTER WORLD DOMINATION", "Love After World Dom")
+    |> String.replace("DOCTOR WHO", "Dr Who")
+    |> String.replace("FLIGHT RISK", "Flight Risk")
+    |> String.replace("TWISTED METAL", "Twisted Metal")
+    |> String.replace("TSUGUMOMO", "Tsugumomo")
+    |> String.replace(~r/\bTHE\s+/, "")  # Remove "THE " at the beginning
+    |> to_title_case()
+  end
+
+  # Convert to title case for better readability
+  defp to_title_case(title) do
+    title
+    |> String.downcase()
+    |> String.split(" ")
+    |> Enum.map(&String.capitalize/1)
+    |> Enum.join(" ")
+    |> String.replace(~r/\b(S\d{2}E\d{2})\b/i, fn match -> String.upcase(match) end)  # Keep episode format uppercase
+  end
+
+  # Truncate title intelligently - try to keep full words
+  defp truncate_title(title, max_length) when byte_size(title) <= max_length, do: title
+  defp truncate_title(title, max_length) do
+    if byte_size(title) <= max_length do
+      title
+    else
+      # Try to truncate at word boundary
+      truncated = String.slice(title, 0, max_length - 3)
+      
+      # Find the last space to avoid cutting words
+      words = String.split(truncated, " ")
+      
+      case length(words) do
+        1 -> truncated <> "..."
+        _ -> 
+          # Remove the last (potentially partial) word and add ellipsis
+          words
+          |> Enum.drop(-1)
+          |> Enum.join(" ")
+          |> Kernel.<>("...")
+      end
+    end
+  end
 end
