@@ -437,6 +437,35 @@ defmodule ReencodarrWeb.DashboardLive do
                     <p class="text-xs text-orange-400">
                       EST: ~{file.estimated_percent}%
                     </p>
+                  <% end %>                  <!-- Queue-specific information -->
+                  <%= cond do %>
+                    <% @queue.title == "CRF Search Queue" and (file.bitrate || file.size) -> %>
+                      <div class="flex justify-between text-xs text-cyan-300 mt-1">
+                        <%= if file.bitrate do %>
+                          <span>Bitrate: {format_bitrate_mbps(file.bitrate)}</span>
+                        <% end %>
+                        <%= if file.size do %>
+                          <span>Size: {format_size_gb(file.size)}</span>
+                        <% end %>
+                      </div>
+                    
+                    <% @queue.title == "Encoding Queue" and (file.estimated_savings_gb || file.vmaf_percent) -> %>
+                      <div class="flex justify-between text-xs text-green-300 mt-1">
+                        <%= if file.estimated_savings_gb do %>
+                          <span>Est. Savings: {Float.round(file.estimated_savings_gb, 2)} GB</span>
+                        <% end %>
+                        <%= if file.vmaf_percent do %>
+                          <span>VMAF: {file.vmaf_percent}%</span>
+                        <% end %>
+                      </div>
+                    
+                    <% @queue.title == "Analyzer Queue" and file.size -> %>
+                      <div class="text-xs text-purple-300 mt-1">
+                        Size: {format_size_gb(file.size)}
+                      </div>
+                    
+                    <% true -> %>
+                      <div></div>
                   <% end %>
                 </div>
               </div>
@@ -990,4 +1019,17 @@ defmodule ReencodarrWeb.DashboardLive do
         end
     end
   end
+
+  # Helper functions for formatting queue-specific data
+  defp format_bitrate_mbps(bitrate) when is_integer(bitrate) and bitrate > 0 do
+    mbps = bitrate / 1_000_000
+    "#{Float.round(mbps, 1)} Mbps"
+  end
+  defp format_bitrate_mbps(_), do: "N/A"
+
+  defp format_size_gb(size) when is_integer(size) and size > 0 do
+    gb = size / (1024 * 1024 * 1024)
+    "#{Float.round(gb, 2)} GB"
+  end
+  defp format_size_gb(_), do: "N/A"
 end

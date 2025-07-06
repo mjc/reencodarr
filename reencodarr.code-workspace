@@ -13,6 +13,7 @@
 			"pkgs",
 			"TRUEHD",
 			"whereis"
-		]
+		],
+		"makefile.configureOnOpen": false
 	}
 }

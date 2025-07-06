@@ -9,17 +9,8 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
 
   @impl true
   def mount(socket) do
-    encoding = Reencodarr.Encoder.Producer.running?()
-    crf_searching = Reencodarr.CrfSearcher.Producer.running?()
-    analyzing = Reencodarr.Analyzer.running?()
-
-    {:ok,
-     assign(socket,
-       encoding: encoding,
-       crf_searching: crf_searching,
-       analyzing: analyzing,
-       syncing: false
-     )}
+    # Don't initialize state here since it's provided by the parent component
+    {:ok, socket}
   end
 
   @impl true
@@ -130,7 +121,8 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
 
     if new_state, do: app.start(), else: app.pause()
 
-    {:noreply, assign(socket, type, new_state)}
+    # Don't update local state - let the global telemetry system handle it
+    {:noreply, socket}
   end
 
   defp lcars_control_button(assigns) do
@@ -183,12 +175,4 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
     end
   end
 
-  @doc "Defines the live component behavior for ControlButtonsComponent."
-  def __live__ do
-    %{
-      id: __MODULE__,
-      module: __MODULE__,
-      assigns: %{}
-    }
-  end
 end
