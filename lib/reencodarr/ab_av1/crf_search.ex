@@ -265,6 +265,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     # Emit telemetry event for CRF search completion
     Reencodarr.Telemetry.emit_crf_search_completed()
 
+    # Notify the Broadway producer that CRF search is now available
+    Reencodarr.CrfSearcher.Broadway.Producer.dispatch_available()
+
     new_state = %{state | port: :none, current_task: :none, partial_line_buffer: ""}
     {:noreply, new_state}
   end
