@@ -32,7 +32,7 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
         toggle_app(Reencodarr.Encoder.Producer, :encoding, socket)
 
       "crf_search" ->
-        toggle_app(Reencodarr.CrfSearcher.Producer, :crf_searching, socket)
+        toggle_app(Reencodarr.CrfSearcher, :crf_searching, socket)
 
       "analyzer" ->
         toggle_app(Reencodarr.Analyzer, :analyzing, socket)

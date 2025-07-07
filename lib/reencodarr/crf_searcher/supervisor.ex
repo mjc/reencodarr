@@ -10,14 +10,7 @@ defmodule Reencodarr.CrfSearcher.Supervisor do
   @impl true
   def init(:ok) do
     children = [
-      %{
-        id: Reencodarr.CrfSearcher.Producer,
-        start: {Reencodarr.CrfSearcher.Producer, :start_link, []}
-      },
-      %{
-        id: Reencodarr.CrfSearcher.Consumer,
-        start: {Reencodarr.CrfSearcher.Consumer, :start_link, []}
-      }
+      {Reencodarr.CrfSearcher.Broadway, []}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

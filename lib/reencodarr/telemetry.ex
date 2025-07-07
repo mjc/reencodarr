@@ -116,4 +116,12 @@ defmodule Reencodarr.Telemetry do
       %{}
     )
   end
+
+  def emit_crf_search_throughput(success_count, error_count) do
+    :telemetry.execute(
+      [:reencodarr, :crf_search, :throughput],
+      %{success_count: success_count, error_count: error_count},
+      %{}
+    )
+  end
 end
