@@ -80,9 +80,30 @@ defmodule ReencodarrWeb.SonarrWebhookController do
         Reencodarr.Sync.upsert_video_from_file(file, source)
 
       video ->
-        {:ok, _} = Reencodarr.Media.update_video(video, %{path: new_path})
-        Logger.info("Updated video path from #{old_path} to #{new_path}")
+        video
+        |> Reencodarr.Media.update_video(%{path: new_path})
+        |> handle_update_result(video, old_path, new_path, file, source)
     end
+  end
+
+  defp handle_update_result({:ok, _}, _video, old_path, new_path, _file, _source) do
+    Logger.info("Updated video path from #{old_path} to #{new_path}")
+  end
+
+  defp handle_update_result({:error, %Ecto.Changeset{errors: [path: {"has already been taken", _}]}}, video, old_path, new_path, file, source) do
+    Logger.warning("Video with path #{new_path} already exists, removing old entry and updating existing video")
+
+    with {:ok, _} <- Reencodarr.Media.delete_video(video) do
+      Logger.info("Successfully removed old video entry at #{old_path}")
+      Reencodarr.Sync.upsert_video_from_file(file, source)
+    else
+      {:error, reason} ->
+        Logger.error("Failed to remove old video entry at #{old_path}: #{inspect(reason)}")
+    end
+  end
+
+  defp handle_update_result({:error, changeset}, _video, old_path, new_path, _file, _source) do
+    Logger.error("Failed to update video path from #{old_path} to #{new_path}: #{inspect(changeset.errors)}")
   end
 
   defp handle_episodefile(conn, %{"episodeFile" => episode_file}) do
