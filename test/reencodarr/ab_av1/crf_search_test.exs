@@ -57,7 +57,7 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
 
       msg =
         "Expected #{expected_count} VMAF records " <>
-        "(one per unique CRF value), got #{actual_count}"
+          "(one per unique CRF value), got #{actual_count}"
 
       assert actual_count == expected_count, msg
     end
@@ -76,11 +76,14 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       # Capture logs to verify the detailed error message
       import ExUnit.CaptureLog
 
-      log = capture_log(fn ->
-        CrfSearch.process_line(error_line, video, [], 95)
-      end)
+      log =
+        capture_log(fn ->
+          CrfSearch.process_line(error_line, video, [], 95)
+        end)
 
-      assert log =~ "Failed to find a suitable CRF for #{Path.basename(video.path)} (target VMAF: 95)"
+      assert log =~
+               "Failed to find a suitable CRF for #{Path.basename(video.path)} (target VMAF: 95)"
+
       assert log =~ "No VMAF scores were recorded"
       assert log =~ "encoding samples failed completely"
     end
@@ -94,11 +97,14 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
 
       import ExUnit.CaptureLog
 
-      log = capture_log(fn ->
-        CrfSearch.process_line(error_line, video, [], 95)
-      end)
+      log =
+        capture_log(fn ->
+          CrfSearch.process_line(error_line, video, [], 95)
+        end)
 
-      assert log =~ "Failed to find a suitable CRF for #{Path.basename(video.path)} (target VMAF: 95)"
+      assert log =~
+               "Failed to find a suitable CRF for #{Path.basename(video.path)} (target VMAF: 95)"
+
       assert log =~ "Only 2 VMAF score(s) were tested"
       assert log =~ "highest: 92.3"
       assert log =~ "search space may be too limited"
@@ -115,11 +121,14 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
 
       import ExUnit.CaptureLog
 
-      log = capture_log(fn ->
-        CrfSearch.process_line(error_line, video, [], 96)
-      end)
+      log =
+        capture_log(fn ->
+          CrfSearch.process_line(error_line, video, [], 96)
+        end)
 
-      assert log =~ "Failed to find a suitable CRF for #{Path.basename(video.path)} (target VMAF: 96)"
+      assert log =~
+               "Failed to find a suitable CRF for #{Path.basename(video.path)} (target VMAF: 96)"
+
       assert log =~ "Tested 4 CRF values"
       assert log =~ "VMAF scores ranging from 85.0 to 94.1"
       assert log =~ "highest quality (94.1) is still 1.9 points below the target"

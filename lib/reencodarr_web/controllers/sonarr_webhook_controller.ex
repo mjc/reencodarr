@@ -90,8 +90,17 @@ defmodule ReencodarrWeb.SonarrWebhookController do
     Logger.info("Updated video path from #{old_path} to #{new_path}")
   end
 
-  defp handle_update_result({:error, %Ecto.Changeset{errors: [path: {"has already been taken", _}]}}, video, old_path, new_path, file, source) do
-    Logger.warning("Video with path #{new_path} already exists, removing old entry and updating existing video")
+  defp handle_update_result(
+         {:error, %Ecto.Changeset{errors: [path: {"has already been taken", _}]}},
+         video,
+         old_path,
+         new_path,
+         file,
+         source
+       ) do
+    Logger.warning(
+      "Video with path #{new_path} already exists, removing old entry and updating existing video"
+    )
 
     with {:ok, _} <- Reencodarr.Media.delete_video(video) do
       Logger.info("Successfully removed old video entry at #{old_path}")
@@ -103,7 +112,9 @@ defmodule ReencodarrWeb.SonarrWebhookController do
   end
 
   defp handle_update_result({:error, changeset}, _video, old_path, new_path, _file, _source) do
-    Logger.error("Failed to update video path from #{old_path} to #{new_path}: #{inspect(changeset.errors)}")
+    Logger.error(
+      "Failed to update video path from #{old_path} to #{new_path}: #{inspect(changeset.errors)}"
+    )
   end
 
   defp handle_episodefile(conn, %{"episodeFile" => episode_file}) do
