@@ -34,12 +34,15 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       nil ->
         Logger.error("Producer supervisor not found, cannot add video")
         {:error, :producer_supervisor_not_found}
+
       producer_supervisor_pid ->
         children = Supervisor.which_children(producer_supervisor_pid)
+
         case find_producer_process(children) do
           nil ->
             Logger.error("Producer process not found, cannot add video")
             {:error, :producer_process_not_found}
+
           producer_pid ->
             GenStage.cast(producer_pid, {:add_video, video_info})
         end
@@ -54,9 +57,12 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     producer_supervisor_name = :"#{broadway_name}.Broadway.ProducerSupervisor"
 
     case Process.whereis(producer_supervisor_name) do
-      nil -> {:error, :producer_supervisor_not_found}
+      nil ->
+        {:error, :producer_supervisor_not_found}
+
       producer_supervisor_pid ->
         children = Supervisor.which_children(producer_supervisor_pid)
+
         case find_producer_process(children) do
           nil -> {:error, :producer_process_not_found}
           producer_pid -> GenStage.cast(producer_pid, :pause)
@@ -72,9 +78,12 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     producer_supervisor_name = :"#{broadway_name}.Broadway.ProducerSupervisor"
 
     case Process.whereis(producer_supervisor_name) do
-      nil -> {:error, :producer_supervisor_not_found}
+      nil ->
+        {:error, :producer_supervisor_not_found}
+
       producer_supervisor_pid ->
         children = Supervisor.which_children(producer_supervisor_pid)
+
         case find_producer_process(children) do
           nil -> {:error, :producer_process_not_found}
           producer_pid -> GenStage.cast(producer_pid, :resume)
@@ -91,12 +100,17 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     case Process.whereis(broadway_name) do
       nil ->
         false
+
       _broadway_pid ->
         producer_supervisor_name = :"#{broadway_name}.Broadway.ProducerSupervisor"
+
         case Process.whereis(producer_supervisor_name) do
-          nil -> false
+          nil ->
+            false
+
           producer_supervisor_pid ->
             children = Supervisor.which_children(producer_supervisor_pid)
+
             case find_producer_process(children) do
               nil -> false
               producer_pid -> GenStage.call(producer_pid, :running?, 1000)
@@ -133,13 +147,12 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     {:reply, not state.paused, [], state}
   end
 
-
-
   @impl GenStage
   def handle_call(:get_state, _from, state) do
     # Provide the full state for debugging
     {:reply, state, [], state}
   end
+
   @impl GenStage
   def handle_cast(:pause, state) do
     Logger.info("Analyzer Broadway producer paused")
@@ -160,7 +173,11 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   @impl GenStage
   def handle_cast({:add_video, video_info}, state) do
     Logger.info("Adding video to Broadway queue: #{video_info.path}")
-    Logger.info("Current state - demand: #{state.demand}, paused: #{state.paused}, queue size: #{length(state.manual_queue)}")
+
+    Logger.info(
+      "Current state - demand: #{state.demand}, paused: #{state.paused}, queue size: #{length(state.manual_queue)}"
+    )
+
     new_manual_queue = [video_info | state.manual_queue]
     new_state = %{state | manual_queue: new_manual_queue}
     Logger.info("After adding - queue size: #{length(new_state.manual_queue)}")
@@ -198,7 +215,10 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   # Helper function to reduce duplication
   defp dispatch_if_ready(state) do
-    Logger.info("dispatch_if_ready called - demand: #{state.demand}, paused: #{state.paused}, queue size: #{length(state.manual_queue)}")
+    Logger.info(
+      "dispatch_if_ready called - demand: #{state.demand}, paused: #{state.paused}, queue size: #{length(state.manual_queue)}"
+    )
+
     if should_dispatch?(state) do
       Logger.info("Conditions met, dispatching videos")
       dispatch_videos(state)
@@ -225,14 +245,15 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   # Broadcast queue state changes to QueueManager
   defp broadcast_queue_state(manual_queue) do
-    queue_items = Enum.map(manual_queue, fn video_info ->
-      %{
-        path: video_info.path,
-        service_id: video_info.service_id,
-        service_type: video_info.service_type,
-        force_reanalyze: Map.get(video_info, :force_reanalyze, false)
-      }
-    end)
+    queue_items =
+      Enum.map(manual_queue, fn video_info ->
+        %{
+          path: video_info.path,
+          service_id: video_info.service_id,
+          service_type: video_info.service_type,
+          force_reanalyze: Map.get(video_info, :force_reanalyze, false)
+        }
+      end)
 
     Reencodarr.Analyzer.QueueManager.broadcast_queue_update(queue_items)
   end
@@ -240,6 +261,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   defp should_dispatch?(state) do
     not state.paused and state.demand > 0 and not Enum.empty?(state.manual_queue)
   end
+
   defp dispatch_videos(state) do
     # First, dispatch any manually queued videos (e.g., force_reanalyze)
     {manual_videos, remaining_manual} = Enum.split(state.manual_queue, state.demand)
@@ -286,15 +308,18 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       nil ->
         IO.puts("❌ Broadway pipeline not found")
         {:error, :broadway_not_found}
+
       broadway_pid ->
         IO.puts("✅ Broadway pipeline found: #{inspect(broadway_pid)}")
 
         # Check for producer supervisor
         producer_supervisor_name = :"#{broadway_name}.Broadway.ProducerSupervisor"
+
         case Process.whereis(producer_supervisor_name) do
           nil ->
             IO.puts("❌ Producer supervisor not found")
             {:error, :producer_supervisor_not_found}
+
           producer_supervisor_pid ->
             IO.puts("✅ Producer supervisor found: #{inspect(producer_supervisor_pid)}")
 
@@ -307,6 +332,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
               nil ->
                 IO.puts("❌ Producer process not found in supervision tree")
                 {:error, :producer_process_not_found}
+
               producer_pid ->
                 IO.puts("✅ Producer process found: #{inspect(producer_pid)}")
                 get_producer_state(producer_pid)
@@ -318,11 +344,16 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   # Helper to get and display producer state
   defp get_producer_state(producer_pid) do
     state = GenStage.call(producer_pid, :get_state, 1000)
-    IO.puts("State: demand=#{state.demand}, paused=#{state.paused}, queue_size=#{length(state.manual_queue)}")
+
+    IO.puts(
+      "State: demand=#{state.demand}, paused=#{state.paused}, queue_size=#{length(state.manual_queue)}"
+    )
+
     if not Enum.empty?(state.manual_queue) do
       IO.puts("Queued videos:")
       Enum.each(state.manual_queue, fn video -> IO.puts("  - #{video.path}") end)
     end
+
     {:ok, state}
   rescue
     e ->

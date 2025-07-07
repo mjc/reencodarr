@@ -8,8 +8,8 @@ defmodule Reencodarr.ProgressParser do
 
   require Logger
 
-alias Reencodarr.AbAv1.Helper
-alias Reencodarr.{Media, Telemetry}
+  alias Reencodarr.AbAv1.Helper
+  alias Reencodarr.{Media, Telemetry}
 
   @doc """
   Processes a single line of output from the encoding process.

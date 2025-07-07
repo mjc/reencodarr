@@ -170,8 +170,8 @@ defmodule ReencodarrWeb.DashboardLive do
           </h1>
         </div>
       </div>
-
-      <!-- Tab Navigation -->
+      
+    <!-- Tab Navigation -->
       <div class="border-b-2 border-orange-500 bg-gray-900">
         <div class="flex space-x-1 p-2">
           <button
@@ -190,21 +190,21 @@ defmodule ReencodarrWeb.DashboardLive do
           </button>
         </div>
       </div>
-
-      <!-- Tab Content -->
+      
+    <!-- Tab Content -->
       <div class="p-3 sm:p-6 space-y-4 sm:space-y-6">
         <%= if @active_tab == "overview" do %>
           <!-- Original Dashboard Content -->
           <!-- Metrics Overview -->
           <.lcars_metrics_grid metrics={@dashboard_data.metrics} />
-
-          <!-- Operations Status -->
+          
+    <!-- Operations Status -->
           <.lcars_operations_panel status={@dashboard_data.status} />
-
-          <!-- Queue Management -->
+          
+    <!-- Queue Management -->
           <.lcars_queues_section queues={@dashboard_data.queues} />
-
-          <!-- Control Panel -->
+          
+    <!-- Control Panel -->
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             <.lcars_control_panel status={@dashboard_data.status} stats={@dashboard_data.stats} />
             <.lcars_manual_scan_section />
@@ -213,8 +213,8 @@ defmodule ReencodarrWeb.DashboardLive do
           <!-- Broadway Dashboard Section -->
           <.lcars_broadway_section broadway_stats={@broadway_stats} />
         <% end %>
-
-        <!-- LCARS Bottom Frame - Now part of content flow -->
+        
+    <!-- LCARS Bottom Frame - Now part of content flow -->
         <div class="h-6 sm:h-8 bg-gradient-to-r from-red-500 via-yellow-400 to-orange-500 rounded">
           <div class="flex items-center justify-center h-full">
             <span class="text-black lcars-label text-xs sm:text-sm">
@@ -248,7 +248,7 @@ defmodule ReencodarrWeb.DashboardLive do
           {String.upcase(@metric.title)}
         </span>
       </div>
-
+      
     <!-- Content -->
       <div class="p-2 sm:p-3 space-y-2">
         <div class="flex items-center justify-between">
@@ -414,7 +414,7 @@ defmodule ReencodarrWeb.DashboardLive do
           </span>
         </div>
       </div>
-
+      
     <!-- Queue Content -->
       <div class="p-2 sm:p-3">
         <%= if @queue.files == [] do %>
@@ -437,7 +437,8 @@ defmodule ReencodarrWeb.DashboardLive do
                     <p class="text-xs text-orange-400">
                       EST: ~{file.estimated_percent}%
                     </p>
-                  <% end %>                  <!-- Queue-specific information -->
+                  <% end %>
+                  <!-- Queue-specific information -->
                   <%= cond do %>
                     <% @queue.title == "CRF Search Queue" and (file.bitrate || file.size) -> %>
                       <div class="flex justify-between text-xs text-cyan-300 mt-1">
@@ -448,7 +449,6 @@ defmodule ReencodarrWeb.DashboardLive do
                           <span>Size: {format_size_gb(file.size)}</span>
                         <% end %>
                       </div>
-                    
                     <% @queue.title == "Encoding Queue" and (file.estimated_savings_gb || file.vmaf_percent) -> %>
                       <div class="flex justify-between text-xs text-green-300 mt-1">
                         <%= if file.estimated_savings_gb do %>
@@ -458,12 +458,10 @@ defmodule ReencodarrWeb.DashboardLive do
                           <span>VMAF: {file.vmaf_percent}%</span>
                         <% end %>
                       </div>
-                    
                     <% @queue.title == "Analyzer Queue" and file.size -> %>
                       <div class="text-xs text-purple-300 mt-1">
                         Size: {format_size_gb(file.size)}
                       </div>
-                    
                     <% true -> %>
                       <div></div>
                   <% end %>
@@ -504,7 +502,7 @@ defmodule ReencodarrWeb.DashboardLive do
             <.lcars_stat_row label="LAST INSERT" value={@stats.last_video_insert} small={true} />
           </div>
         </div>
-
+        
     <!-- Control Buttons -->
         <div class="space-y-2">
           <div class="text-orange-300 text-xs sm:text-sm font-bold tracking-wide">OPERATIONS</div>
@@ -561,8 +559,8 @@ defmodule ReencodarrWeb.DashboardLive do
                 Broadway pipelines detected and running. Full observability available.
               </p>
             </div>
-
-            <!-- Broadway Metrics Display -->
+            
+    <!-- Broadway Metrics Display -->
             <div class="bg-gray-800 border border-orange-500/50 rounded p-4">
               <%= if @broadway_stats.pipelines_running do %>
                 <div class="space-y-4">
@@ -580,8 +578,8 @@ defmodule ReencodarrWeb.DashboardLive do
                 </div>
               <% end %>
             </div>
-
-            <!-- Broadway Pipeline Status -->
+            
+    <!-- Broadway Pipeline Status -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
               <.pipeline_status_card
                 name="ANALYZER"
@@ -607,8 +605,8 @@ defmodule ReencodarrWeb.DashboardLive do
                 status="legacy"
               />
             </div>
-
-            <!-- Usage Info -->
+            
+    <!-- Usage Info -->
             <div class="bg-blue-900/20 border border-blue-500/30 rounded p-3 mt-4">
               <div class="flex items-center space-x-2 mb-2">
                 <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
@@ -618,7 +616,8 @@ defmodule ReencodarrWeb.DashboardLive do
                 The embedded Broadway Dashboard provides real-time metrics, throughput monitoring, error tracking, and pipeline health status.
               </p>
               <p class="text-blue-300 text-xs">
-                Full dashboard also available at <code class="text-blue-200">/dev/dashboard</code> in development mode.
+                Full dashboard also available at <code class="text-blue-200">/dev/dashboard</code>
+                in development mode.
               </p>
             </div>
           <% else %>
@@ -632,8 +631,8 @@ defmodule ReencodarrWeb.DashboardLive do
                 Currently using GenStage pipelines. Broadway Dashboard requires Broadway pipelines for monitoring.
               </p>
             </div>
-
-            <!-- GenStage Pipeline Status -->
+            
+    <!-- GenStage Pipeline Status -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               <.pipeline_status_card
                 name="ANALYZER"
@@ -659,8 +658,8 @@ defmodule ReencodarrWeb.DashboardLive do
                 status="legacy"
               />
             </div>
-
-            <!-- Migration Info -->
+            
+    <!-- Migration Info -->
             <div class="bg-blue-900/20 border border-blue-500/30 rounded p-3">
               <div class="flex items-center space-x-2 mb-2">
                 <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
@@ -677,7 +676,8 @@ defmodule ReencodarrWeb.DashboardLive do
                 <li>• Broadway Dashboard integration</li>
               </ul>
               <div class="text-xs text-blue-400">
-                <strong>Note:</strong> Your pipelines would benefit from Broadway conversion for multi-node deployment.
+                <strong>Note:</strong>
+                Your pipelines would benefit from Broadway conversion for multi-node deployment.
               </div>
             </div>
           <% end %>
@@ -688,48 +688,53 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   defp pipeline_status_card(assigns) do
-    border_class = case assigns.color do
-      "cyan" -> "border-cyan-500/30"
-      "purple" -> "border-purple-500/30"
-      "red" -> "border-red-500/30"
-      _ -> "border-orange-500/30"
-    end
+    border_class =
+      case assigns.color do
+        "cyan" -> "border-cyan-500/30"
+        "purple" -> "border-purple-500/30"
+        "red" -> "border-red-500/30"
+        _ -> "border-orange-500/30"
+      end
 
-    name_color_class = case assigns.color do
-      "cyan" -> "text-cyan-400"
-      "purple" -> "text-purple-400"
-      "red" -> "text-red-400"
-      _ -> "text-orange-400"
-    end
+    name_color_class =
+      case assigns.color do
+        "cyan" -> "text-cyan-400"
+        "purple" -> "text-purple-400"
+        "red" -> "text-red-400"
+        _ -> "text-orange-400"
+      end
 
-    type_color_class = case assigns.color do
-      "cyan" -> "text-cyan-300"
-      "purple" -> "text-purple-300"
-      "red" -> "text-red-300"
-      _ -> "text-orange-300"
-    end
+    type_color_class =
+      case assigns.color do
+        "cyan" -> "text-cyan-300"
+        "purple" -> "text-purple-300"
+        "red" -> "text-red-300"
+        _ -> "text-orange-300"
+      end
 
-    status_indicator = case assigns[:status] do
-      "active" -> "bg-green-500 animate-pulse"
-      "legacy" -> "bg-yellow-500"
-      _ -> "bg-green-500 animate-pulse"
-    end
+    status_indicator =
+      case assigns[:status] do
+        "active" -> "bg-green-500 animate-pulse"
+        "legacy" -> "bg-yellow-500"
+        _ -> "bg-green-500 animate-pulse"
+      end
 
-    assigns = assign(assigns,
-      border_class: border_class,
-      name_color_class: name_color_class,
-      type_color_class: type_color_class,
-      status_indicator: status_indicator
-    )
+    assigns =
+      assign(assigns,
+        border_class: border_class,
+        name_color_class: name_color_class,
+        type_color_class: type_color_class,
+        status_indicator: status_indicator
+      )
 
     ~H"""
     <div class={"bg-gray-800 border #{@border_class} rounded p-3"}>
       <div class="flex items-center justify-between mb-2">
-        <span class={"#{@name_color_class} text-sm font-medium"}><%= @name %></span>
+        <span class={"#{@name_color_class} text-sm font-medium"}>{@name}</span>
         <div class={"w-2 h-2 #{@status_indicator} rounded-full"}></div>
       </div>
-      <p class="text-gray-300 text-xs"><%= @description %></p>
-      <p class={"#{@type_color_class} text-xs mt-1"}><%= @type %></p>
+      <p class="text-gray-300 text-xs">{@description}</p>
+      <p class={"#{@type_color_class} text-xs mt-1"}>{@type}</p>
     </div>
     """
   end
@@ -756,11 +761,12 @@ defmodule ReencodarrWeb.DashboardLive do
     ~H"""
     <div class="bg-gray-900 border border-gray-600 rounded-lg p-4">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="text-lg font-semibold text-orange-400"><%= @pipeline.name %></h3>
+        <h3 class="text-lg font-semibold text-orange-400">{@pipeline.name}</h3>
         <div class={"flex items-center space-x-2 #{if @pipeline.running, do: "text-green-400", else: "text-red-400"}"}>
-          <div class={"w-3 h-3 rounded-full #{if @pipeline.running, do: "bg-green-400 animate-pulse", else: "bg-red-400"}"}></div>
+          <div class={"w-3 h-3 rounded-full #{if @pipeline.running, do: "bg-green-400 animate-pulse", else: "bg-red-400"}"}>
+          </div>
           <span class="text-sm font-medium">
-            <%= if @pipeline.running, do: "RUNNING", else: "STOPPED" %>
+            {if @pipeline.running, do: "RUNNING", else: "STOPPED"}
           </span>
         </div>
       </div>
@@ -779,11 +785,11 @@ defmodule ReencodarrWeb.DashboardLive do
             <%= for processor <- @pipeline.processors do %>
               <div class="bg-gray-800 rounded p-2">
                 <div class="flex justify-between items-center">
-                  <span class="text-xs text-orange-300"><%= processor.name %></span>
-                  <span class="text-xs text-green-400"><%= processor.concurrency %> workers</span>
+                  <span class="text-xs text-orange-300">{processor.name}</span>
+                  <span class="text-xs text-green-400">{processor.concurrency} workers</span>
                 </div>
                 <div class="text-xs text-gray-400 mt-1">
-                  Processed: <%= processor.processed || 0 %>
+                  Processed: {processor.processed || 0}
                 </div>
               </div>
             <% end %>
@@ -797,8 +803,8 @@ defmodule ReencodarrWeb.DashboardLive do
   defp broadway_metric_card(assigns) do
     ~H"""
     <div class="bg-gray-800 rounded p-3 text-center">
-      <div class="text-xs text-gray-400 mb-1"><%= @title %></div>
-      <div class="text-lg font-bold text-white"><%= format_broadway_metric(@value) %></div>
+      <div class="text-xs text-gray-400 mb-1">{@title}</div>
+      <div class="text-lg font-bold text-white">{format_broadway_metric(@value)}</div>
     </div>
     """
   end
@@ -808,11 +814,13 @@ defmodule ReencodarrWeb.DashboardLive do
 
     # Check for Analyzer Broadway pipeline
     analyzer_stats = get_broadway_pipeline_stats(Reencodarr.Analyzer.Broadway)
-    pipelines = if analyzer_stats do
-      [analyzer_stats | pipelines]
-    else
-      pipelines
-    end
+
+    pipelines =
+      if analyzer_stats do
+        [analyzer_stats | pipelines]
+      else
+        pipelines
+      end
 
     # Add other Broadway pipelines here as they are converted
 
@@ -826,6 +834,7 @@ defmodule ReencodarrWeb.DashboardLive do
     case Process.whereis(pipeline_module) do
       nil ->
         nil
+
       pid when is_pid(pid) ->
         if Process.alive?(pid) do
           # Broadway doesn't expose detailed stats through GenServer calls
@@ -873,6 +882,7 @@ defmodule ReencodarrWeb.DashboardLive do
         [
           %{name: "analyzer", concurrency: 10, processed: "N/A"}
         ]
+
       _ ->
         []
     end
@@ -885,6 +895,7 @@ defmodule ReencodarrWeb.DashboardLive do
       true -> to_string(value)
     end
   end
+
   defp format_broadway_metric(value), do: to_string(value || 0)
 
   # Helper functions for formatting
@@ -1025,11 +1036,13 @@ defmodule ReencodarrWeb.DashboardLive do
     mbps = bitrate / 1_000_000
     "#{Float.round(mbps, 1)} Mbps"
   end
+
   defp format_bitrate_mbps(_), do: "N/A"
 
   defp format_size_gb(size) when is_integer(size) and size > 0 do
     gb = size / (1024 * 1024 * 1024)
     "#{Float.round(gb, 2)} GB"
   end
+
   defp format_size_gb(_), do: "N/A"
 end

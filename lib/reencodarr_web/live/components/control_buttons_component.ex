@@ -35,7 +35,7 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
         toggle_app(Reencodarr.CrfSearcher.Producer, :crf_searching, socket)
 
       "analyzer" ->
-        toggle_app(Reencodarr.Analyzer.Broadway, :analyzing, socket)
+        toggle_app(Reencodarr.Analyzer, :analyzing, socket)
 
       _ ->
         Logger.error("Unknown toggle target: #{inspect(target)}")
@@ -174,5 +174,4 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
       end
     end
   end
-
 end

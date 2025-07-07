@@ -44,13 +44,25 @@ defmodule Reencodarr.Media.MediaInfo do
     # Safer access to tracks, handling nil values at any level
     tracks =
       case mediainfo do
-        %{"media" => %{"track" => tracks}} when is_list(tracks) -> tracks
-        %{"media" => %{"track" => track}} when is_map(track) -> [track]  # Handle single track as a map
-        %{"media" => nil} -> []
-        nil -> []
+        %{"media" => %{"track" => tracks}} when is_list(tracks) ->
+          tracks
+
+        # Handle single track as a map
+        %{"media" => %{"track" => track}} when is_map(track) ->
+          [track]
+
+        %{"media" => nil} ->
+          []
+
+        nil ->
+          []
+
         _ ->
           # Log unexpected structure but don't crash
-          Logger.warning("Unexpected mediainfo structure for #{path}: #{inspect(mediainfo, pretty: true, limit: 1000)}")
+          Logger.warning(
+            "Unexpected mediainfo structure for #{path}: #{inspect(mediainfo, pretty: true, limit: 1000)}"
+          )
+
           []
       end
 
@@ -62,7 +74,10 @@ defmodule Reencodarr.Media.MediaInfo do
 
     # Log structure in case of issues
     if Enum.empty?(video_tracks) do
-      Logger.warning("No video tracks found for #{path}: #{inspect(mediainfo, pretty: true, limit: 1000)}")
+      Logger.warning(
+        "No video tracks found for #{path}: #{inspect(mediainfo, pretty: true, limit: 1000)}"
+      )
+
       Logger.warning("Parsed tracks: #{inspect(tracks, pretty: true, limit: 1000)}")
       Logger.warning("video_codecs will be: #{inspect(video_codecs)}")
     end

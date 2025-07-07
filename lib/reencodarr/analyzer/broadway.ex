@@ -94,7 +94,7 @@ defmodule Reencodarr.Analyzer.Broadway do
     Logger.info("Processing batch of #{batch_size} videos")
 
     # Extract video_infos from messages
-    video_infos = Enum.map(messages, &(&1.data))
+    video_infos = Enum.map(messages, & &1.data)
 
     # Process the batch using existing logic from the GenStage consumer
     process_batch(video_infos, context)
@@ -279,7 +279,9 @@ defmodule Reencodarr.Analyzer.Broadway do
     if Map.has_key?(mediainfo, "media") do
       Logger.debug("Standard mediainfo structure with 'media' key detected")
     else
-      Logger.debug("Non-standard mediainfo structure detected (no 'media' key), will be handled by conversion logic")
+      Logger.debug(
+        "Non-standard mediainfo structure detected (no 'media' key), will be handled by conversion logic"
+      )
     end
 
     # Try different ways to extract file size
@@ -296,6 +298,7 @@ defmodule Reencodarr.Analyzer.Broadway do
           {:ok, fallback_size} ->
             Logger.info("Using fallback file size of #{fallback_size} for #{path}")
             {:ok, Map.put(mediainfo, :size, fallback_size)}
+
           {:error, _} ->
             # If all attempts fail, use a default size and warn
             Logger.warning("Using default file size for #{path}")
@@ -314,7 +317,9 @@ defmodule Reencodarr.Analyzer.Broadway do
   defp get_file_size_from_path(path) do
     try do
       case File.stat(path) do
-        {:ok, %{size: size}} -> {:ok, size}
+        {:ok, %{size: size}} ->
+          {:ok, size}
+
         {:error, reason} ->
           Logger.warning("File stat failed for #{path}: #{reason}")
           {:error, reason}
@@ -336,10 +341,12 @@ defmodule Reencodarr.Analyzer.Broadway do
       # Check in media.track structure - General track
       media = Map.get(mediainfo, "media") ->
         track = get_in(media, ["track"])
+
         cond do
           # If track is a list, look for General track
           is_list(track) ->
             general_track = Enum.find(track, &(&1["@type"] == "General"))
+
             if general_track do
               if size = get_size_if_valid(Map.get(general_track, "FileSize")) do
                 {:ok, size}
@@ -381,7 +388,8 @@ defmodule Reencodarr.Analyzer.Broadway do
           _ -> nil
         end
 
-      true -> nil
+      true ->
+        nil
     end
   end
 
@@ -390,12 +398,12 @@ defmodule Reencodarr.Analyzer.Broadway do
     file_size = Map.get(mediainfo, :size, 0)
 
     case Media.upsert_video(%{
-      path: path,
-      mediainfo: mediainfo,
-      service_id: service_id,
-      service_type: service_type,
-      size: file_size
-    }) do
+           path: path,
+           mediainfo: mediainfo,
+           service_id: service_id,
+           service_type: service_type,
+           size: file_size
+         }) do
       {:ok, video} ->
         {:ok, video}
 
@@ -469,10 +477,9 @@ defmodule Reencodarr.Analyzer.Broadway do
         {:ok, data} when is_map(data) ->
           # Check if this looks like a flat structure
           if Map.has_key?(data, "track") or
-             (Map.has_key?(data, "FileSize") and Map.has_key?(data, "Duration")) or
-             Map.has_key?(data, "Width") or Map.has_key?(data, "Height") or
-             Map.has_key?(data, "Format") do
-
+               (Map.has_key?(data, "FileSize") and Map.has_key?(data, "Duration")) or
+               Map.has_key?(data, "Width") or Map.has_key?(data, "Height") or
+               Map.has_key?(data, "Format") do
             Logger.debug("Detected flat MediaInfo structure, wrapping in proper format")
             # Wrap in the expected structure
             wrapped_data = %{"media" => data}
@@ -488,16 +495,25 @@ defmodule Reencodarr.Analyzer.Broadway do
               # Create a map with the path as key
               {:ok, %{path => wrapped_data}}
             else
-              Logger.warning("Flat MediaInfo structure detected but no path found: #{inspect(data, pretty: true, limit: 5000)}")
+              Logger.warning(
+                "Flat MediaInfo structure detected but no path found: #{inspect(data, pretty: true, limit: 5000)}"
+              )
+
               {:error, "no path in flat mediainfo structure"}
             end
           else
-            Logger.error("Unexpected JSON structure from mediainfo: #{inspect(data, pretty: true, limit: 5000)}")
+            Logger.error(
+              "Unexpected JSON structure from mediainfo: #{inspect(data, pretty: true, limit: 5000)}"
+            )
+
             {:error, "unexpected JSON structure"}
           end
 
         {:ok, data} ->
-          Logger.error("Unexpected JSON structure from mediainfo: #{inspect(data, pretty: true, limit: 5000)}")
+          Logger.error(
+            "Unexpected JSON structure from mediainfo: #{inspect(data, pretty: true, limit: 5000)}"
+          )
+
           {:error, "unexpected JSON structure"}
 
         {:error, reason} ->
