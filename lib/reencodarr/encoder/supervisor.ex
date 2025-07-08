@@ -10,14 +10,7 @@ defmodule Reencodarr.Encoder.Supervisor do
   @impl true
   def init(:ok) do
     children = [
-      %{
-        id: Reencodarr.Encoder.Producer,
-        start: {Reencodarr.Encoder.Producer, :start_link, []}
-      },
-      %{
-        id: Reencodarr.Encoder.Consumer,
-        start: {Reencodarr.Encoder.Consumer, :start_link, []}
-      }
+      {Reencodarr.Encoder.Broadway, []}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)

@@ -29,7 +29,7 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
   def handle_event("toggle", %{"target" => target}, socket) do
     case target do
       "encoder" ->
-        toggle_app(Reencodarr.Encoder.Producer, :encoding, socket)
+        toggle_app(Reencodarr.Encoder, :encoding, socket)
 
       "crf_search" ->
         toggle_app(Reencodarr.CrfSearcher, :crf_searching, socket)
