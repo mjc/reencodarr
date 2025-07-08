@@ -78,24 +78,7 @@ defmodule Reencodarr.AbAv1.Encode do
         %{port: port, partial_line_buffer: buffer} = state
       ) do
     full_line = buffer <> data
-    Logger.debug("AbAv1.Encode: Received complete line: #{inspect(full_line)}")
-    Logger.debug("AbAv1.Encode: Current state - video: #{inspect(state.video && state.video.path)}, vmaf: #{inspect(state.vmaf && state.vmaf.id)}")
-
-    # Log specifically for progress-looking lines
-    cond do
-      String.contains?(full_line, "%") and String.contains?(full_line, "fps") ->
-        Logger.warning("AbAv1.Encode: POTENTIAL PROGRESS LINE: #{inspect(full_line)}")
-
-      String.contains?(full_line, "encoding") ->
-        Logger.debug("AbAv1.Encode: ENCODING STATUS LINE: #{inspect(full_line)}")
-
-      true ->
-        Logger.debug("AbAv1.Encode: OTHER LINE: #{inspect(full_line)}")
-    end
-
-    Logger.debug("AbAv1.Encode: Calling ProgressParser.process_line")
     ProgressParser.process_line(full_line, state)
-    Logger.debug("AbAv1.Encode: ProgressParser.process_line completed")
     {:noreply, %{state | partial_line_buffer: ""}}
   end
 
@@ -104,15 +87,7 @@ defmodule Reencodarr.AbAv1.Encode do
         {port, {:data, {:noeol, message}}},
         %{port: port, partial_line_buffer: buffer} = state
       ) do
-    Logger.debug("AbAv1.Encode: Received partial data chunk: #{inspect(message)}, current buffer: #{inspect(buffer)}")
     new_buffer = buffer <> message
-    Logger.debug("AbAv1.Encode: New buffer after append: #{inspect(new_buffer)}")
-
-    # Check if the buffer contains progress-like content
-    if String.contains?(new_buffer, "%") or String.contains?(new_buffer, "fps") or String.contains?(new_buffer, "eta") do
-      Logger.warning("AbAv1.Encode: Buffer contains progress-like content: #{inspect(new_buffer)}")
-    end
-
     {:noreply, %{state | partial_line_buffer: new_buffer}}
   end
 
@@ -138,6 +113,9 @@ defmodule Reencodarr.AbAv1.Encode do
       "encoding_events",
       {:encoding_completed, vmaf.id, pubsub_result}
     )
+
+    # Notify the Broadway producer that encoding is now available
+    Reencodarr.Encoder.Broadway.Producer.dispatch_available()
 
     if result == {:ok, :success} do
       notify_encoder_success(vmaf.video, output_file)
@@ -175,13 +153,21 @@ defmodule Reencodarr.AbAv1.Encode do
   def handle_info(:periodic_check, %{port: port, video: video} = state) when port != :none do
     Logger.debug("AbAv1.Encode: Periodic check - encoding still active for video: #{video.path}")
 
+    # Get the last known progress from the telemetry system to preserve ETA
+    last_progress = case Reencodarr.TelemetryReporter.get_progress_state() do
+      %{encoding_progress: %{eta: eta, percent: percent, fps: fps}} when eta != 0 ->
+        %{eta: eta, percent: percent, fps: fps}
+      _ ->
+        %{eta: "Unknown", percent: 1, fps: 0}
+    end
+
     # Emit a minimal progress update to show the encoding is still running
-    # This will at least update the UI to show the process is active
+    # This preserves the last known ETA instead of always showing "Unknown"
     filename = Path.basename(video.path)
     progress = %Reencodarr.Statistics.EncodingProgress{
-      percent: 1,  # Show minimal progress to indicate activity
-      eta: "Unknown",
-      fps: 0,
+      percent: last_progress.percent,
+      eta: last_progress.eta,
+      fps: last_progress.fps,
       filename: filename
     }
 
@@ -257,5 +243,36 @@ defmodule Reencodarr.AbAv1.Encode do
   defp notify_encoder_failure(video, exit_code) do
     # Emit telemetry event for failure
     Telemetry.emit_encoder_failed(exit_code, video)
+  end
+
+  # Helper function to extract progress information from output lines
+  defp extract_progress_info(line) do
+    case Regex.named_captures(
+           ~r/\[.*\]\s*(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
+           line
+         ) do
+      %{"percent" => percent, "fps" => fps, "eta" => eta, "unit" => unit} ->
+        {:ok, %{
+          percent: String.to_integer(percent),
+          fps: parse_fps_simple(fps),
+          eta: "#{eta} #{unit}"
+        }}
+      nil ->
+        :no_progress
+    end
+  end
+
+  # Simple FPS parser (similar to the one in ProgressParser)
+  defp parse_fps_simple(fps_string) do
+    fps_string
+    |> then(fn str ->
+      if String.contains?(str, ".") do
+        str
+      else
+        str <> ".0"
+      end
+    end)
+    |> String.to_float()
+    |> Float.round()
   end
 end

@@ -74,6 +74,13 @@ config :reencodarr, Reencodarr.CrfSearcher.Broadway,
   batch_timeout: 5_000,
   crf_quality: 95
 
+# Configure Broadway Encoder Pipeline
+config :reencodarr, Reencodarr.Encoder.Broadway,
+  rate_limit_messages: 5,
+  rate_limit_interval: 1_000,
+  batch_size: 1,
+  batch_timeout: 10_000
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"
