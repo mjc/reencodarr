@@ -91,7 +91,7 @@ defmodule Reencodarr.Analyzer.Broadway do
     start_time = System.monotonic_time(:millisecond)
     batch_size = length(messages)
 
-    Logger.info("Processing batch of #{batch_size} videos")
+    Logger.debug("Processing batch of #{batch_size} videos")
 
     # Extract video_infos from messages
     video_infos = Enum.map(messages, & &1.data)
@@ -101,7 +101,7 @@ defmodule Reencodarr.Analyzer.Broadway do
 
     # Log completion and emit telemetry
     duration = System.monotonic_time(:millisecond) - start_time
-    Logger.info("Completed batch of #{batch_size} videos in #{duration}ms")
+    Logger.debug("Completed batch of #{batch_size} videos in #{duration}ms")
     Telemetry.emit_analyzer_throughput(batch_size, 0)
 
     # Since process_batch always returns :ok, all messages are successful
@@ -296,7 +296,7 @@ defmodule Reencodarr.Analyzer.Broadway do
         # Use stat command to get file size as fallback
         case get_file_size_from_path(path) do
           {:ok, fallback_size} ->
-            Logger.info("Using fallback file size of #{fallback_size} for #{path}")
+            Logger.debug("Using fallback file size of #{fallback_size} for #{path}")
             {:ok, Map.put(mediainfo, :size, fallback_size)}
 
           {:error, _} ->

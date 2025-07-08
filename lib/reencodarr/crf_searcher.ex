@@ -32,14 +32,14 @@ defmodule Reencodarr.CrfSearcher do
   @spec start :: :ok
   def start do
     Logger.info("🔍 Starting CRF searcher")
-    Logger.info("🔍 Calling Broadway.start()")
+    Logger.debug("🔍 Calling Broadway.start()")
     result = Broadway.start()
-    Logger.info("🔍 Broadway.start() returned: #{inspect(result)}")
+    Logger.debug("🔍 Broadway.start() returned: #{inspect(result)}")
 
     # Trigger dispatch of available videos
-    Logger.info("🔍 Calling Broadway Producer dispatch_available()")
+    Logger.debug("🔍 Calling Broadway Producer dispatch_available()")
     dispatch_result = Reencodarr.CrfSearcher.Broadway.Producer.dispatch_available()
-    Logger.info("🔍 dispatch_available() returned: #{inspect(dispatch_result)}")
+    Logger.debug("🔍 dispatch_available() returned: #{inspect(dispatch_result)}")
     :ok
   end
 

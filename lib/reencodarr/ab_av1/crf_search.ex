@@ -392,7 +392,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         false
 
       captures ->
-        Logger.info("CrfSearch successful for CRF: #{captures["crf"]}")
+        Logger.debug("CrfSearch successful for CRF: #{captures["crf"]}")
         Media.mark_vmaf_as_chosen(video.id, captures["crf"])
         true
     end

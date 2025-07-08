@@ -75,7 +75,7 @@ defmodule Reencodarr.Services.Radarr do
 
     case refresh_movie(movie_id) do
       {:ok, refresh_response} ->
-        Logger.info("Movie refresh initiated: #{inspect(refresh_response.body)}")
+        Logger.debug("Movie refresh initiated: #{inspect(refresh_response.body)}")
 
       {:error, reason} ->
         Logger.warning("Failed to refresh movie (continuing anyway): #{inspect(reason)}")
@@ -87,7 +87,7 @@ defmodule Reencodarr.Services.Radarr do
 
     case request(url: "/api/v3/rename?movieId=#{movie_id}", method: :get) do
       {:ok, rename_response} ->
-        Logger.info("Renameable files response: #{inspect(rename_response.body)}")
+        Logger.debug("Renameable files response: #{inspect(rename_response.body)}")
         rename_response.body
 
       {:error, reason} ->
@@ -109,7 +109,7 @@ defmodule Reencodarr.Services.Radarr do
       "Radarr rename_movie_files request - Movie ID: #{movie_id}, File IDs: #{inspect(renameable_file_ids)}"
     )
 
-    Logger.info("Radarr rename_movie_files JSON payload: #{inspect(json_payload)}")
+    Logger.debug("Radarr rename_movie_files JSON payload: #{inspect(json_payload)}")
 
     case request(
            url: "/api/v3/command",
@@ -117,7 +117,7 @@ defmodule Reencodarr.Services.Radarr do
            json: json_payload
          ) do
       {:ok, response} = result ->
-        Logger.info("Radarr rename_movie_files response: #{inspect(response.body)}")
+        Logger.debug("Radarr rename_movie_files response: #{inspect(response.body)}")
         result
 
       {:error, reason} = error ->

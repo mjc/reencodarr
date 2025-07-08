@@ -99,7 +99,7 @@ defmodule Reencodarr.Services.Sonarr do
 
     case refresh_series(series_id) do
       {:ok, resp} ->
-        Logger.info("Series refresh initiated: #{inspect(resp.body)}")
+        Logger.debug("Series refresh initiated: #{inspect(resp.body)}")
 
       {:error, reason} ->
         Logger.warning("Failed to refresh series (continuing anyway): #{inspect(reason)}")
@@ -112,7 +112,7 @@ defmodule Reencodarr.Services.Sonarr do
 
     case request(url: "/api/v3/rename?seriesId=#{series_id}", method: :get) do
       {:ok, resp} ->
-        Logger.info("Renameable files response: #{inspect(resp.body)}")
+        Logger.debug("Renameable files response: #{inspect(resp.body)}")
         resp.body
 
       {:error, reason} ->
@@ -131,7 +131,7 @@ defmodule Reencodarr.Services.Sonarr do
       "Sonarr rename_files request - Series ID: #{series_id}, File IDs: #{inspect(files_to_rename)}"
     )
 
-    Logger.info("Sonarr rename_files JSON payload: #{inspect(json_payload)}")
+    Logger.debug("Sonarr rename_files JSON payload: #{inspect(json_payload)}")
 
     case request(
            url: "/api/v3/command",
@@ -139,7 +139,7 @@ defmodule Reencodarr.Services.Sonarr do
            json: json_payload
          ) do
       {:ok, response} = result ->
-        Logger.info("Sonarr rename_files response: #{inspect(response.body)}")
+        Logger.debug("Sonarr rename_files response: #{inspect(response.body)}")
         result
 
       {:error, reason} = error ->
