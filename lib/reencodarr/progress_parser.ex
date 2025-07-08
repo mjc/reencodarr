@@ -18,22 +18,41 @@ defmodule Reencodarr.ProgressParser do
   def process_line(data, state) do
     cond do
       captures = Regex.named_captures(~r/\[.*\] encoding (?<filename>\d+\.mkv)/, data) ->
+        Logger.debug("ProgressParser: Encoding start detected: #{inspect(captures)}")
         handle_encoding_start(captures, state)
 
+      # Main progress pattern - matches ab-av1 output format
       captures =
           Regex.named_captures(
-            ~r/\[.*\]\s+(?<percent>\d+)%\s*,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
+            ~r/\[.*\]\s*(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
             data
           ) ->
+        Logger.debug("ProgressParser: Progress update detected: #{inspect(captures)}")
         handle_progress_update(captures, state)
 
-      _captures =
+      # Alternative pattern without timestamp/brackets
+      captures =
+          Regex.named_captures(
+            ~r/(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
+            data
+          ) ->
+        Logger.debug("ProgressParser: Alternative progress update detected: #{inspect(captures)}")
+        handle_progress_update(captures, state)
+
+      captures =
           Regex.named_captures(~r/Encoded\s(?<size>[\d\.]+\s\w+)\s\((?<percent>\d+)%\)/, data) ->
+        Logger.debug("ProgressParser: File size progress detected: #{inspect(captures)}")
         # File size progress - not doing anything specific here currently
         :ok
 
+      # Check for any line containing percentage, fps, or eta
+      String.contains?(data, "%") or String.contains?(data, "fps") or String.contains?(data, "eta") ->
+        Logger.warning("ProgressParser: Unmatched progress-like line: #{inspect(data)}")
+        :ok
+
       true ->
-        # Non-matching lines are ignored
+        # Non-matching lines are logged as debug
+        Logger.debug("ProgressParser: Non-progress line: #{inspect(data)}")
         :ok
     end
   end
@@ -74,6 +93,8 @@ defmodule Reencodarr.ProgressParser do
       fps: parse_fps(fps_str),
       filename: filename
     }
+
+    Logger.debug("ProgressParser: Progress #{percent_str}% - #{fps_str} fps - ETA #{human_readable_eta} - #{filename}")
 
     # Emit telemetry event for progress
     Telemetry.emit_encoder_progress(progress)

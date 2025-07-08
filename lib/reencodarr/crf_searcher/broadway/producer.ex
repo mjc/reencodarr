@@ -175,7 +175,7 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
           {:noreply, [], new_state}
 
         {video, new_state} ->
-          Logger.info("Dispatching video #{video.id} for CRF search")
+          Logger.debug("Dispatching video #{video.id} for CRF search")
           # Mark as processing and decrement demand
           updated_state = %{new_state | demand: state.demand - 1, processing: true}
           {:noreply, [video], updated_state}

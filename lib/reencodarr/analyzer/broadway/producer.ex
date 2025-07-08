@@ -172,15 +172,15 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_cast({:add_video, video_info}, state) do
-    Logger.info("Adding video to Broadway queue: #{video_info.path}")
+    Logger.debug("Adding video to Broadway queue: #{video_info.path}")
 
-    Logger.info(
+    Logger.debug(
       "Current state - demand: #{state.demand}, paused: #{state.paused}, queue size: #{length(state.manual_queue)}"
     )
 
     new_manual_queue = [video_info | state.manual_queue]
     new_state = %{state | manual_queue: new_manual_queue}
-    Logger.info("After adding - queue size: #{length(new_state.manual_queue)}")
+    Logger.debug("After adding - queue size: #{length(new_state.manual_queue)}")
 
     # Broadcast queue state change
     broadcast_queue_state(new_state.manual_queue)
@@ -215,15 +215,15 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   # Helper function to reduce duplication
   defp dispatch_if_ready(state) do
-    Logger.info(
+    Logger.debug(
       "dispatch_if_ready called - demand: #{state.demand}, paused: #{state.paused}, queue size: #{length(state.manual_queue)}"
     )
 
     if should_dispatch?(state) do
-      Logger.info("Conditions met, dispatching videos")
+      Logger.debug("Conditions met, dispatching videos")
       dispatch_videos(state)
     else
-      Logger.info("Conditions not met for dispatch")
+      Logger.debug("Conditions not met for dispatch")
       {:noreply, [], state}
     end
   end
@@ -285,7 +285,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
         {:noreply, [], state}
 
       videos ->
-        Logger.info("Broadway producer dispatching #{length(videos)} videos for analysis")
+        Logger.debug("Broadway producer dispatching #{length(videos)} videos for analysis")
         new_demand = state.demand - length(videos)
         new_state = %{state | demand: new_demand, manual_queue: remaining_manual}
 

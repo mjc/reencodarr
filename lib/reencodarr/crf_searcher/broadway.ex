@@ -204,7 +204,7 @@ defmodule Reencodarr.CrfSearcher.Broadway do
     # The actual success/failure is handled by the GenServer
     :ok = AbAv1.crf_search(video, crf_quality)
 
-    Logger.info("CRF search queued successfully for video #{video.id}")
+    Logger.debug("CRF search queued successfully for video #{video.id}")
 
     :telemetry.execute(
       [:reencodarr, :crf_search, :success],

@@ -104,7 +104,7 @@ defmodule Reencodarr.CrfSearcher.Producer do
         {:noreply, [], state}
 
       videos ->
-        Logger.info(
+        Logger.debug(
           "CrfSearcher producer dispatching #{length(videos)} videos for CRF search (demand: #{state.demand})"
         )
 

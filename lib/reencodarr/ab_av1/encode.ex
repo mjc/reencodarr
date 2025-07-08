@@ -2,7 +2,7 @@ defmodule Reencodarr.AbAv1.Encode do
   @moduledoc """
   GenServer for handling video encoding operations using ab-av1.
 
-  This module manages the encoding process for videos based on VMAF data,
+  This module manages the encoding process for videos, processes output data,
   handles file operations, and coordinates with the media database.
   """
 
@@ -78,7 +78,24 @@ defmodule Reencodarr.AbAv1.Encode do
         %{port: port, partial_line_buffer: buffer} = state
       ) do
     full_line = buffer <> data
+    Logger.debug("AbAv1.Encode: Received complete line: #{inspect(full_line)}")
+    Logger.debug("AbAv1.Encode: Current state - video: #{inspect(state.video && state.video.path)}, vmaf: #{inspect(state.vmaf && state.vmaf.id)}")
+
+    # Log specifically for progress-looking lines
+    cond do
+      String.contains?(full_line, "%") and String.contains?(full_line, "fps") ->
+        Logger.warning("AbAv1.Encode: POTENTIAL PROGRESS LINE: #{inspect(full_line)}")
+
+      String.contains?(full_line, "encoding") ->
+        Logger.debug("AbAv1.Encode: ENCODING STATUS LINE: #{inspect(full_line)}")
+
+      true ->
+        Logger.debug("AbAv1.Encode: OTHER LINE: #{inspect(full_line)}")
+    end
+
+    Logger.debug("AbAv1.Encode: Calling ProgressParser.process_line")
     ProgressParser.process_line(full_line, state)
+    Logger.debug("AbAv1.Encode: ProgressParser.process_line completed")
     {:noreply, %{state | partial_line_buffer: ""}}
   end
 
@@ -87,8 +104,15 @@ defmodule Reencodarr.AbAv1.Encode do
         {port, {:data, {:noeol, message}}},
         %{port: port, partial_line_buffer: buffer} = state
       ) do
-    Logger.debug("Received partial data chunk, buffering.")
+    Logger.debug("AbAv1.Encode: Received partial data chunk: #{inspect(message)}, current buffer: #{inspect(buffer)}")
     new_buffer = buffer <> message
+    Logger.debug("AbAv1.Encode: New buffer after append: #{inspect(new_buffer)}")
+
+    # Check if the buffer contains progress-like content
+    if String.contains?(new_buffer, "%") or String.contains?(new_buffer, "fps") or String.contains?(new_buffer, "eta") do
+      Logger.warning("AbAv1.Encode: Buffer contains progress-like content: #{inspect(new_buffer)}")
+    end
+
     {:noreply, %{state | partial_line_buffer: new_buffer}}
   end
 
@@ -133,16 +157,68 @@ defmodule Reencodarr.AbAv1.Encode do
     {:noreply, new_state}
   end
 
+  # Catch-all for any other port messages
+  @impl true
+  def handle_info({port, message}, %{port: port} = state) do
+    Logger.warning("AbAv1.Encode: Received unexpected port message: #{inspect(message)}")
+    {:noreply, state}
+  end
+
+  # Periodic check to see if encoding is still active
+  @impl true
+  def handle_info(:periodic_check, %{port: :none} = state) do
+    # Encoding not active, don't schedule another check
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:periodic_check, %{port: port, video: video} = state) when port != :none do
+    Logger.debug("AbAv1.Encode: Periodic check - encoding still active for video: #{video.path}")
+
+    # Emit a minimal progress update to show the encoding is still running
+    # This will at least update the UI to show the process is active
+    filename = Path.basename(video.path)
+    progress = %Reencodarr.Statistics.EncodingProgress{
+      percent: 1,  # Show minimal progress to indicate activity
+      eta: "Unknown",
+      fps: 0,
+      filename: filename
+    }
+
+    Logger.debug("AbAv1.Encode: Emitting keepalive progress update")
+    Telemetry.emit_encoder_progress(progress)
+
+    # Schedule the next check
+    Process.send_after(self(), :periodic_check, 10_000)
+    {:noreply, state}
+  end
+
+  # Catch-all for any other messages
+  @impl true
+  def handle_info(message, state) do
+    Logger.warning("AbAv1.Encode: Received unexpected message: #{inspect(message)}")
+    {:noreply, state}
+  end
+
   # Private Helper Functions
   defp prepare_encode_state(vmaf, state) do
     args = build_encode_args(vmaf)
     output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
 
-    Logger.info("Starting encode with args: #{inspect(args)}")
+    Logger.debug("AbAv1.Encode: Starting encode with args: #{inspect(args)}")
+    Logger.debug("AbAv1.Encode: Output file: #{output_file}")
+    Logger.debug("AbAv1.Encode: Video path: #{vmaf.video.path}")
+    Logger.debug("AbAv1.Encode: VMAF ID: #{vmaf.id}, CRF: #{vmaf.crf}")
+
+    port = Helper.open_port(args)
+    Logger.debug("AbAv1.Encode: Port opened successfully: #{inspect(port)}")
+
+    # Set up a periodic timer to check if we're still alive and potentially emit progress
+    Process.send_after(self(), :periodic_check, 10_000)  # Check every 10 seconds
 
     %{
       state
-      | port: Helper.open_port(args),
+      | port: port,
         video: vmaf.video,
         vmaf: vmaf,
         output_file: output_file
