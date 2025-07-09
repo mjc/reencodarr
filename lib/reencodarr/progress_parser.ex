@@ -42,7 +42,8 @@ defmodule Reencodarr.ProgressParser do
         :ok
 
       # Check for any line containing percentage, fps, or eta
-      String.contains?(data, "%") or String.contains?(data, "fps") or String.contains?(data, "eta") ->
+      String.contains?(data, "%") or String.contains?(data, "fps") or
+          String.contains?(data, "eta") ->
         Logger.warning("ProgressParser: Unmatched progress-like line: #{inspect(data)}")
         :ok
 

@@ -46,12 +46,7 @@ defmodule ReencodarrWeb.DashboardLive do
     # Start timer for stardate updates (every 5 seconds)
     if connected?(socket) do
       Process.send_after(self(), :update_stardate, 5000)
-      # Also start Broadway stats refresh
-      Process.send_after(self(), :refresh_broadway_stats, 100)
     end
-
-    # Initialize Broadway stats immediately
-    broadway_stats = get_broadway_stats()
 
     # Only store processed data, not raw state - reduces memory by ~50%
     socket =
@@ -59,8 +54,7 @@ defmodule ReencodarrWeb.DashboardLive do
         timezone: timezone,
         dashboard_data: Presenter.present(initial_state, timezone),
         current_stardate: calculate_stardate(DateTime.utc_now()),
-        active_tab: "overview",
-        broadway_stats: broadway_stats
+        active_tab: "overview"
       )
 
     {:ok, socket}
@@ -121,14 +115,6 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_info(:refresh_broadway_stats, socket) do
-    # Schedule next refresh
-    Process.send_after(self(), :refresh_broadway_stats, 2000)
-
-    {:noreply, assign(socket, broadway_stats: get_broadway_stats())}
-  end
-
-  @impl true
   def handle_event("set_timezone", %{"timezone" => tz}, socket) do
     Logger.debug("Setting timezone to #{tz}")
     # Timezone only affects timestamp formatting, which is lightweight to recompute
@@ -170,7 +156,7 @@ defmodule ReencodarrWeb.DashboardLive do
           </h1>
         </div>
       </div>
-      
+
     <!-- Tab Navigation -->
       <div class="border-b-2 border-orange-500 bg-gray-900">
         <div class="flex space-x-1 p-2">
@@ -190,20 +176,20 @@ defmodule ReencodarrWeb.DashboardLive do
           </button>
         </div>
       </div>
-      
+
     <!-- Tab Content -->
       <div class="p-3 sm:p-6 space-y-4 sm:space-y-6">
         <%= if @active_tab == "overview" do %>
           <!-- Original Dashboard Content -->
           <!-- Metrics Overview -->
           <.lcars_metrics_grid metrics={@dashboard_data.metrics} />
-          
+
     <!-- Operations Status -->
           <.lcars_operations_panel status={@dashboard_data.status} />
-          
+
     <!-- Queue Management -->
           <.lcars_queues_section queues={@dashboard_data.queues} />
-          
+
     <!-- Control Panel -->
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
             <.lcars_control_panel status={@dashboard_data.status} stats={@dashboard_data.stats} />
@@ -211,9 +197,9 @@ defmodule ReencodarrWeb.DashboardLive do
           </div>
         <% else %>
           <!-- Broadway Dashboard Section -->
-          <.lcars_broadway_section broadway_stats={@broadway_stats} />
+          <.lcars_broadway_section />
         <% end %>
-        
+
     <!-- LCARS Bottom Frame - Now part of content flow -->
         <div class="h-6 sm:h-8 bg-gradient-to-r from-red-500 via-yellow-400 to-orange-500 rounded">
           <div class="flex items-center justify-center h-full">
@@ -248,7 +234,7 @@ defmodule ReencodarrWeb.DashboardLive do
           {String.upcase(@metric.title)}
         </span>
       </div>
-      
+
     <!-- Content -->
       <div class="p-2 sm:p-3 space-y-2">
         <div class="flex items-center justify-between">
@@ -293,16 +279,16 @@ defmodule ReencodarrWeb.DashboardLive do
 
       <div class="p-3 sm:p-4 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <.lcars_operation_status
-          title="ENCODING"
-          active={@status.encoding.active}
-          progress={@status.encoding.progress}
-          color="blue"
-        />
-        <.lcars_operation_status
           title="CRF SEARCH"
           active={@status.crf_searching.active}
           progress={@status.crf_searching.progress}
           color="purple"
+        />
+        <.lcars_operation_status
+          title="ENCODING"
+          active={@status.encoding.active}
+          progress={@status.encoding.progress}
+          color="blue"
         />
         <.lcars_operation_status
           title="ANALYZER"
@@ -414,7 +400,7 @@ defmodule ReencodarrWeb.DashboardLive do
           </span>
         </div>
       </div>
-      
+
     <!-- Queue Content -->
       <div class="p-2 sm:p-3">
         <%= if @queue.files == [] do %>
@@ -502,7 +488,7 @@ defmodule ReencodarrWeb.DashboardLive do
             <.lcars_stat_row label="LAST INSERT" value={@stats.last_video_insert} small={true} />
           </div>
         </div>
-        
+
     <!-- Control Buttons -->
         <div class="space-y-2">
           <div class="text-orange-300 text-xs sm:text-sm font-bold tracking-wide">OPERATIONS</div>
@@ -541,364 +527,76 @@ defmodule ReencodarrWeb.DashboardLive do
       <!-- Pipeline Monitor Header -->
       <div class="bg-gray-900 border-2 border-orange-500 lcars-corner-tr lcars-corner-bl overflow-hidden lcars-panel">
         <div class="h-10 bg-orange-500 flex items-center px-4 lcars-data-stream">
-          <span class="text-black lcars-label font-bold">PIPELINE MONITOR</span>
+          <span class="text-black lcars-label font-bold">BROADWAY PIPELINE MONITOR</span>
         </div>
         <div class="p-4">
           <p class="text-orange-400 text-sm mb-4">
-            Real-time Broadway pipeline monitoring and metrics.
+            Live Broadway pipeline monitoring via integrated dashboard.
           </p>
 
-          <%= if has_broadway_pipelines?() do %>
-            <!-- Broadway Dashboard Status -->
-            <div class="bg-green-900/20 border border-green-500/30 rounded p-3 mb-4">
-              <div class="flex items-center space-x-2">
-                <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
-                <span class="text-green-400 text-sm font-medium">BROADWAY ACTIVE</span>
-              </div>
-              <p class="text-green-300 text-xs mt-2">
-                Broadway pipelines detected and running. Full observability available.
-              </p>
+          <!-- Broadway Dashboard Status -->
+          <div class="bg-green-900/20 border border-green-500/30 rounded p-3 mb-4">
+            <div class="flex items-center space-x-2">
+              <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+              <span class="text-green-400 text-sm font-medium">BROADWAY DASHBOARD ACTIVE</span>
             </div>
-            
-    <!-- Broadway Metrics Display -->
-            <div class="bg-gray-800 border border-orange-500/50 rounded p-4">
-              <%= if @broadway_stats.pipelines_running do %>
-                <div class="space-y-4">
-                  <%= for pipeline <- @broadway_stats.pipelines do %>
-                    <.broadway_pipeline_card pipeline={pipeline} />
-                  <% end %>
-                </div>
-              <% else %>
-                <div class="bg-yellow-900/20 border border-yellow-500/30 rounded p-4 text-center">
-                  <div class="text-yellow-400 text-lg mb-2">⚠️ No Broadway Pipelines Running</div>
-                  <p class="text-yellow-300 text-sm">
-                    Broadway pipelines are not currently active.
-                    Start the pipelines to view real-time metrics.
-                  </p>
-                </div>
-              <% end %>
-            </div>
-            
-    <!-- Broadway Pipeline Status -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-6">
-              <.pipeline_status_card
-                name="ANALYZER"
-                color="cyan"
-                description="Media analysis pipeline"
-                type="Broadway Pipeline"
-                status="active"
-              />
-
-              <.pipeline_status_card
-                name="CRF SEARCHER"
-                color="purple"
-                description="CRF optimization pipeline"
-                type="GenStage (Legacy)"
-                status="legacy"
-              />
-
-              <.pipeline_status_card
-                name="ENCODER"
-                color="red"
-                description="Video encoding pipeline"
-                type="GenStage (Legacy)"
-                status="legacy"
-              />
-            </div>
-            
-    <!-- Usage Info -->
-            <div class="bg-blue-900/20 border border-blue-500/30 rounded p-3 mt-4">
-              <div class="flex items-center space-x-2 mb-2">
-                <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
-                <span class="text-blue-400 text-sm font-medium">BROADWAY DASHBOARD</span>
-              </div>
-              <p class="text-blue-300 text-xs mb-2">
-                The embedded Broadway Dashboard provides real-time metrics, throughput monitoring, error tracking, and pipeline health status.
-              </p>
-              <p class="text-blue-300 text-xs">
-                Full dashboard also available at <code class="text-blue-200">/dev/dashboard</code>
-                in development mode.
-              </p>
-            </div>
-          <% else %>
-            <!-- GenStage Status and Migration Info -->
-            <div class="bg-yellow-900/20 border border-yellow-500/30 rounded p-3 mb-4">
-              <div class="flex items-center space-x-2">
-                <div class="w-3 h-3 bg-yellow-500 rounded-full"></div>
-                <span class="text-yellow-400 text-sm font-medium">GENESTAGE MODE</span>
-              </div>
-              <p class="text-yellow-300 text-xs mt-2">
-                Currently using GenStage pipelines. Broadway Dashboard requires Broadway pipelines for monitoring.
-              </p>
-            </div>
-            
-    <!-- GenStage Pipeline Status -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-              <.pipeline_status_card
-                name="ANALYZER"
-                color="cyan"
-                description="Media analysis pipeline"
-                type="GenStage Producer/Consumer"
-                status="legacy"
-              />
-
-              <.pipeline_status_card
-                name="CRF SEARCHER"
-                color="purple"
-                description="CRF optimization pipeline"
-                type="GenStage Producer/Consumer"
-                status="legacy"
-              />
-
-              <.pipeline_status_card
-                name="ENCODER"
-                color="red"
-                description="Video encoding pipeline"
-                type="GenStage Producer/Consumer"
-                status="legacy"
-              />
-            </div>
-            
-    <!-- Migration Info -->
-            <div class="bg-blue-900/20 border border-blue-500/30 rounded p-3">
-              <div class="flex items-center space-x-2 mb-2">
-                <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
-                <span class="text-blue-400 text-sm font-medium">BROADWAY MIGRATION</span>
-              </div>
-              <p class="text-blue-300 text-xs mb-2">
-                Benefits of migrating to Broadway:
-              </p>
-              <ul class="text-blue-300 text-xs space-y-1 ml-4 mb-3">
-                <li>• Built-in observability and metrics</li>
-                <li>• Rate limiting and back-pressure</li>
-                <li>• Enhanced fault tolerance</li>
-                <li>• Multi-node distribution support</li>
-                <li>• Broadway Dashboard integration</li>
-              </ul>
-              <div class="text-xs text-blue-400">
-                <strong>Note:</strong>
-                Your pipelines would benefit from Broadway conversion for multi-node deployment.
-              </div>
-            </div>
-          <% end %>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  defp pipeline_status_card(assigns) do
-    border_class =
-      case assigns.color do
-        "cyan" -> "border-cyan-500/30"
-        "purple" -> "border-purple-500/30"
-        "red" -> "border-red-500/30"
-        _ -> "border-orange-500/30"
-      end
-
-    name_color_class =
-      case assigns.color do
-        "cyan" -> "text-cyan-400"
-        "purple" -> "text-purple-400"
-        "red" -> "text-red-400"
-        _ -> "text-orange-400"
-      end
-
-    type_color_class =
-      case assigns.color do
-        "cyan" -> "text-cyan-300"
-        "purple" -> "text-purple-300"
-        "red" -> "text-red-300"
-        _ -> "text-orange-300"
-      end
-
-    status_indicator =
-      case assigns[:status] do
-        "active" -> "bg-green-500 animate-pulse"
-        "legacy" -> "bg-yellow-500"
-        _ -> "bg-green-500 animate-pulse"
-      end
-
-    assigns =
-      assign(assigns,
-        border_class: border_class,
-        name_color_class: name_color_class,
-        type_color_class: type_color_class,
-        status_indicator: status_indicator
-      )
-
-    ~H"""
-    <div class={"bg-gray-800 border #{@border_class} rounded p-3"}>
-      <div class="flex items-center justify-between mb-2">
-        <span class={"#{@name_color_class} text-sm font-medium"}>{@name}</span>
-        <div class={"w-2 h-2 #{@status_indicator} rounded-full"}></div>
-      </div>
-      <p class="text-gray-300 text-xs">{@description}</p>
-      <p class={"#{@type_color_class} text-xs mt-1"}>{@type}</p>
-    </div>
-    """
-  end
-
-  # Check if Broadway pipelines are running
-  defp has_broadway_pipelines? do
-    # Check for Broadway processes by looking for Broadway in process names
-    broadway_processes = [
-      Reencodarr.Analyzer.Broadway
-    ]
-
-    Enum.any?(broadway_processes, fn process_name ->
-      case Process.whereis(process_name) do
-        nil -> false
-        pid -> Process.alive?(pid)
-      end
-    end)
-  rescue
-    _ -> false
-  end
-
-  # Broadway Pipeline Components
-  defp broadway_pipeline_card(assigns) do
-    ~H"""
-    <div class="bg-gray-900 border border-gray-600 rounded-lg p-4">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="text-lg font-semibold text-orange-400">{@pipeline.name}</h3>
-        <div class={"flex items-center space-x-2 #{if @pipeline.running, do: "text-green-400", else: "text-red-400"}"}>
-          <div class={"w-3 h-3 rounded-full #{if @pipeline.running, do: "bg-green-400 animate-pulse", else: "bg-red-400"}"}>
+            <p class="text-green-300 text-xs mt-2">
+              Real-time pipeline monitoring and metrics available below.
+            </p>
           </div>
-          <span class="text-sm font-medium">
-            {if @pipeline.running, do: "RUNNING", else: "STOPPED"}
-          </span>
-        </div>
-      </div>
 
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-        <.broadway_metric_card title="Messages/sec" value={@pipeline.rate} />
-        <.broadway_metric_card title="Total Processed" value={@pipeline.total_messages} />
-        <.broadway_metric_card title="Errors" value={@pipeline.errors} />
-        <.broadway_metric_card title="Backlog" value={@pipeline.backlog} />
-      </div>
-
-      <%= if @pipeline.processors do %>
-        <div>
-          <h4 class="text-sm font-medium text-gray-300 mb-2">Processors</h4>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
-            <%= for processor <- @pipeline.processors do %>
-              <div class="bg-gray-800 rounded p-2">
-                <div class="flex justify-between items-center">
-                  <span class="text-xs text-orange-300">{processor.name}</span>
-                  <span class="text-xs text-green-400">{processor.concurrency} workers</span>
-                </div>
-                <div class="text-xs text-gray-400 mt-1">
-                  Processed: {processor.processed || 0}
-                </div>
-              </div>
-            <% end %>
+          <!-- Broadway Dashboard Iframe -->
+          <div class="bg-gray-800 border border-orange-500/50 rounded p-2">
+            <iframe
+              src="/dev/dashboard/broadway"
+              class="w-full h-96 border-0 rounded bg-white"
+              title="Broadway Dashboard"
+            />
           </div>
         </div>
-      <% end %>
+      </div>
     </div>
     """
   end
 
-  defp broadway_metric_card(assigns) do
-    ~H"""
-    <div class="bg-gray-800 rounded p-3 text-center">
-      <div class="text-xs text-gray-400 mb-1">{@title}</div>
-      <div class="text-lg font-bold text-white">{format_broadway_metric(@value)}</div>
-    </div>
-    """
+  # Telemetry event handler
+  def handle_telemetry_event(
+        [:reencodarr, :dashboard, :state_updated],
+        _measurements,
+        %{state: state},
+        %{live_view_pid: pid}
+      ) do
+    Logger.debug(
+      "DashboardLive: Received telemetry state update - syncing: #{Map.get(state, :syncing, false)}"
+    )
+
+    send(pid, {:telemetry_event, state})
   end
 
-  defp get_broadway_stats do
-    pipelines = []
+  def handle_telemetry_event(_event, _measurements, _metadata, _config), do: :ok
 
-    # Check for Analyzer Broadway pipeline
-    analyzer_stats = get_broadway_pipeline_stats(Reencodarr.Analyzer.Broadway)
-
-    pipelines =
-      if analyzer_stats do
-        [analyzer_stats | pipelines]
-      else
-        pipelines
-      end
-
-    # Add other Broadway pipelines here as they are converted
-
-    %{
-      pipelines_running: length(pipelines) > 0,
-      pipelines: pipelines
-    }
+  @impl true
+  def terminate(_reason, _socket) do
+    :telemetry.detach("dashboard-#{inspect(self())}")
+    :ok
   end
 
-  defp get_broadway_pipeline_stats(pipeline_module) do
-    case Process.whereis(pipeline_module) do
+  # Helper function to safely get initial state, with fallback for test environment
+  defp get_initial_state do
+    case Process.whereis(Reencodarr.TelemetryReporter) do
       nil ->
-        nil
+        Reencodarr.DashboardState.initial()
 
       pid when is_pid(pid) ->
         if Process.alive?(pid) do
-          # Broadway doesn't expose detailed stats through GenServer calls
-          # We'll show basic status and use telemetry for detailed metrics in the future
-          %{
-            name: format_broadway_pipeline_name(pipeline_module),
-            running: true,
-            rate: get_broadway_pipeline_rate(pipeline_module),
-            total_messages: get_broadway_pipeline_total(pipeline_module),
-            errors: 0,
-            backlog: 0,
-            processors: get_broadway_pipeline_processors(pipeline_module)
-          }
+          Reencodarr.TelemetryReporter.get_current_state()
         else
-          nil
+          Reencodarr.DashboardState.initial()
         end
     end
   end
 
-  defp format_broadway_pipeline_name(module) do
-    module
-    |> to_string()
-    |> String.split(".")
-    |> List.last()
-    |> String.replace("Broadway", "")
-    |> String.upcase()
-  end
-
-  # These functions provide basic pipeline information
-  # In the future, we can enhance these with telemetry data
-  defp get_broadway_pipeline_rate(_pipeline_module) do
-    # TODO: Implement with telemetry subscription
-    "N/A"
-  end
-
-  defp get_broadway_pipeline_total(_pipeline_module) do
-    # TODO: Implement with telemetry subscription
-    "N/A"
-  end
-
-  defp get_broadway_pipeline_processors(pipeline_module) do
-    # Basic processor information based on configuration
-    case pipeline_module do
-      Reencodarr.Analyzer.Broadway ->
-        [
-          %{name: "analyzer", concurrency: 10, processed: "N/A"}
-        ]
-
-      _ ->
-        []
-    end
-  end
-
-  defp format_broadway_metric(value) when is_number(value) and value >= 1000 do
-    cond do
-      value >= 1_000_000 -> "#{Float.round(value / 1_000_000, 1)}M"
-      value >= 1_000 -> "#{Float.round(value / 1_000, 1)}K"
-      true -> to_string(value)
-    end
-  end
-
-  defp format_broadway_metric(value), do: to_string(value || 0)
-
-  # Helper functions for formatting
+  # Formatting functions for dashboard display
   defp format_metric_value(value) when is_integer(value) and value >= 1000 do
     cond do
       value >= 1_000_000 -> "#{Float.round(value / 1_000_000, 1)}M"
@@ -991,43 +689,6 @@ defmodule ReencodarrWeb.DashboardLive do
       "green" -> "bg-green-500"
       "purple" -> "bg-purple-500"
       _ -> "bg-orange-500"
-    end
-  end
-
-  # Telemetry event handler
-  def handle_telemetry_event(
-        [:reencodarr, :dashboard, :state_updated],
-        _measurements,
-        %{state: state},
-        %{live_view_pid: pid}
-      ) do
-    Logger.debug(
-      "DashboardLive: Received telemetry state update - syncing: #{Map.get(state, :syncing, false)}"
-    )
-
-    send(pid, {:telemetry_event, state})
-  end
-
-  def handle_telemetry_event(_event, _measurements, _metadata, _config), do: :ok
-
-  @impl true
-  def terminate(_reason, _socket) do
-    :telemetry.detach("dashboard-#{inspect(self())}")
-    :ok
-  end
-
-  # Helper function to safely get initial state, with fallback for test environment
-  defp get_initial_state do
-    case Process.whereis(Reencodarr.TelemetryReporter) do
-      nil ->
-        Reencodarr.DashboardState.initial()
-
-      pid when is_pid(pid) ->
-        if Process.alive?(pid) do
-          Reencodarr.TelemetryReporter.get_current_state()
-        else
-          Reencodarr.DashboardState.initial()
-        end
     end
   end
 
