@@ -193,39 +193,116 @@ defmodule Reencodarr.Encoder.Broadway do
 
       # Open port and handle encoding
       port = Helper.open_port(args)
-      Logger.debug("Broadway: Port opened successfully: #{inspect(port)}")
 
-      # Handle the encoding process synchronously within Broadway
-      result = handle_encoding_process(port, vmaf, output_file)
+      case port do
+        :error ->
+          # Port creation failure is always critical
+          case classify_failure(:port_error) do
+            {:pause, reason} ->
+              Logger.error("Broadway: Critical failure for VMAF #{vmaf.id}: #{reason}")
+              Logger.error("Broadway: Pausing pipeline due to critical system issue")
 
-      case result do
-        {:ok, :success} ->
-          case notify_encoding_success(vmaf.video, output_file) do
-            {:ok, :success} ->
-              Logger.info("Broadway: Encoding and post-processing completed successfully for VMAF #{vmaf.id}")
-            {:error, reason} ->
-              Logger.error("Broadway: Encoding succeeded but post-processing failed for VMAF #{vmaf.id}: #{reason}")
+              # Notify about the failure
+              notify_encoding_failure(vmaf.video, :port_error)
+
+              # Pause the pipeline
+              Reencodarr.Encoder.Broadway.Producer.pause()
+
+              # Return :ok to Broadway since we're handling the pause manually
+              :ok
           end
-          # Always return :ok for Broadway to indicate message was processed
-          :ok
 
-        {:error, exit_code} ->
-          notify_encoding_failure(vmaf.video, exit_code)
+        _valid_port ->
+          Logger.debug("Broadway: Port opened successfully: #{inspect(port)}")
 
-          Logger.error(
-            "Broadway: Encoding failed for VMAF #{vmaf.id} with exit code: #{exit_code}"
-          )
-          # Still return :ok to prevent pipeline pausing - failure is handled via database marking
-          :ok
+          # Handle the encoding process synchronously within Broadway
+          result = handle_encoding_process(port, vmaf, output_file)
+
+          case result do
+            {:ok, :success} ->
+              case notify_encoding_success(vmaf.video, output_file) do
+                {:ok, :success} ->
+                  Logger.info("Broadway: Encoding and post-processing completed successfully for VMAF #{vmaf.id}")
+                {:error, reason} ->
+                  Logger.error("Broadway: Encoding succeeded but post-processing failed for VMAF #{vmaf.id}: #{reason}")
+              end
+              # Always return :ok for Broadway to indicate message was processed
+              :ok
+
+            {:error, exit_code} ->
+              # Classify the failure to determine if we should pause or continue
+              case classify_failure(exit_code) do
+                {:pause, reason} ->
+                  Logger.error("Broadway: Critical failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})")
+                  Logger.error("Broadway: Pausing pipeline due to critical system issue")
+
+                  # Notify about the failure
+                  notify_encoding_failure(vmaf.video, exit_code)
+
+                  # Pause the pipeline
+                  Reencodarr.Encoder.Broadway.Producer.pause()
+
+                  # Still return :ok to Broadway since we're handling the pause manually
+                  :ok
+
+                {:continue, reason} ->
+                  Logger.warning("Broadway: Recoverable failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})")
+
+                  # Notify about the failure and mark as failed
+                  notify_encoding_failure(vmaf.video, exit_code)
+
+                  # Continue processing - return :ok to Broadway
+                  :ok
+              end
+          end
       end
     rescue
       exception ->
-        error_message =
-          "Exception during Broadway encoding for VMAF #{vmaf.id}: #{Exception.message(exception)}"
+        error_message = Exception.message(exception)
+        Logger.error("Broadway: Exception during encoding for VMAF #{vmaf.id}: #{error_message}")
 
-        Logger.error(error_message)
-        # Return :ok to prevent pipeline pausing - exception is logged and handled
-        :ok
+        # Classify exception based on type
+        action = cond do
+          # System.no_memory or similar memory issues
+          String.contains?(error_message, "memory") or String.contains?(error_message, "enomem") ->
+            {:pause, "Memory allocation failure - system may be out of memory"}
+
+          # File system issues
+          String.contains?(error_message, "enospc") ->
+            {:pause, "No space left on device"}
+
+          # Port/process issues
+          String.contains?(error_message, "port") or String.contains?(error_message, "process") ->
+            {:pause, "Process management failure"}
+
+          # Default to recoverable
+          true ->
+            {:continue, "Exception: #{error_message}"}
+        end
+
+        case action do
+          {:pause, reason} ->
+            Logger.error("Broadway: Critical exception for VMAF #{vmaf.id}: #{reason}")
+            Logger.error("Broadway: Pausing pipeline due to critical system issue")
+
+            # Notify about the failure
+            notify_encoding_failure(vmaf.video, :exception)
+
+            # Pause the pipeline
+            Reencodarr.Encoder.Broadway.Producer.pause()
+
+            # Return :ok to Broadway since we're handling the pause manually
+            :ok
+
+          {:continue, reason} ->
+            Logger.warning("Broadway: Recoverable exception for VMAF #{vmaf.id}: #{reason}")
+
+            # Notify about the failure
+            notify_encoding_failure(vmaf.video, :exception)
+
+            # Continue processing
+            :ok
+        end
     end
   end
 
@@ -291,6 +368,14 @@ defmodule Reencodarr.Encoder.Broadway do
         # Timeout after 5 minutes of no activity (encoding can take a long time)
         Logger.error("Broadway: Encoding timeout for VMAF #{state.vmaf.id}")
         Port.close(state.port)
+
+        # Publish timeout event to PubSub
+        Phoenix.PubSub.broadcast(
+          Reencodarr.PubSub,
+          "encoding_events",
+          {:encoding_completed, state.vmaf.id, {:error, :timeout}}
+        )
+
         {:error, :timeout}
     end
   end
@@ -330,7 +415,7 @@ defmodule Reencodarr.Encoder.Broadway do
     PostProcessor.process_encoding_success(video, output_file)
   end
 
-  @spec notify_encoding_failure(map(), integer()) :: :ok
+  @spec notify_encoding_failure(map(), integer() | atom()) :: :ok
   defp notify_encoding_failure(video, exit_code) do
     alias Reencodarr.{PostProcessor, Telemetry}
 
@@ -338,6 +423,86 @@ defmodule Reencodarr.Encoder.Broadway do
     Telemetry.emit_encoder_failed(exit_code, video)
 
     # Mark the video as failed and handle cleanup
-    PostProcessor.process_encoding_failure(video, exit_code)
+    # Convert atom exit codes to integers for database storage
+    db_exit_code = case exit_code do
+      :port_error -> -1
+      :timeout -> -2
+      :exception -> -3
+      code when is_integer(code) -> code
+      _ -> -999
+    end
+
+    PostProcessor.process_encoding_failure(video, db_exit_code)
+  end
+
+  # Failure classification - determines whether a failure should pause the pipeline
+  # or just skip the current file and continue processing
+  @failure_classification %{
+    # System-level failures that indicate the environment is compromised
+    # These should pause the pipeline to prevent further issues
+    critical_failures: %{
+      # Process was killed by system (OOM, etc.)
+      137 => %{action: :pause, reason: "Process killed by system (likely OOM)"},
+      143 => %{action: :pause, reason: "Process terminated by SIGTERM"},
+      # Disk full
+      28 => %{action: :pause, reason: "No space left on device"},
+      # Permission denied - might be a mount issue
+      13 => %{action: :pause, reason: "Permission denied - check file system permissions"},
+      # I/O error - could indicate hardware issues
+      5 => %{action: :pause, reason: "I/O error - possible hardware issue"},
+      # Invalid command line arguments - indicates configuration issue
+      2 => %{action: :pause, reason: "Invalid command line arguments - configuration error"},
+      # Network timeout - may indicate systemic network issues
+      110 => %{action: :pause, reason: "Network timeout - systemic network connectivity issue"},
+      # Port/process creation failures
+      :port_error => %{action: :pause, reason: "Failed to create encoding process"},
+      :timeout => %{action: :pause, reason: "Encoding timeout - system may be overloaded"}
+    },
+
+    # File-specific failures that should skip the file but continue processing
+    # These are usually due to corrupted/invalid input files
+    recoverable_failures: %{
+      # Standard encoding failures
+      1 => %{action: :continue, reason: "Standard encoding failure (corrupted/invalid input)"},
+      # File format issues
+      22 => %{action: :continue, reason: "Invalid file format"},
+      # Codec issues
+      69 => %{action: :continue, reason: "Unsupported codec or format"}
+    }
+  }
+
+  # Classifies a failure and determines the appropriate action.
+  #
+  # Returns:
+  # - `{:pause, reason}` - Pipeline should pause due to critical system issue
+  # - `{:continue, reason}` - Skip this file but continue processing
+  @spec classify_failure(integer() | atom()) :: {:pause, String.t()} | {:continue, String.t()}
+  defp classify_failure(exit_code) do
+    cond do
+      Map.has_key?(@failure_classification.critical_failures, exit_code) ->
+        failure_info = @failure_classification.critical_failures[exit_code]
+        {:pause, failure_info.reason}
+
+      Map.has_key?(@failure_classification.recoverable_failures, exit_code) ->
+        failure_info = @failure_classification.recoverable_failures[exit_code]
+        {:continue, failure_info.reason}
+
+      # Unknown exit codes default to continue (conservative approach)
+      true ->
+        {:continue, "Unknown exit code #{exit_code} - treating as recoverable failure"}
+    end
+  end
+
+  @doc """
+  Returns the current failure classification map for inspection or configuration.
+  This can be useful for understanding which exit codes trigger which actions.
+  """
+  @spec get_failure_classification() :: map()
+  def get_failure_classification, do: @failure_classification
+
+  # Helper functions for testing failure classification
+  if Mix.env() == :test do
+    @doc false
+    def test_classify_failure(exit_code), do: classify_failure(exit_code)
   end
 end
