@@ -31,8 +31,14 @@ defmodule Reencodarr.AnalyzerTest do
     test "analyzer provides backward compatibility functions" do
       # These functions should exist and not crash
       assert is_boolean(Analyzer.running?())
-      assert :ok == Analyzer.start()
-      assert :ok == Analyzer.pause()
+
+      # In test environment, Broadway pipeline is not started by default
+      # So these functions should return error tuples instead of crashing
+      assert Analyzer.start() == {:error, :producer_supervisor_not_found}
+      assert Analyzer.pause() == {:error, :producer_supervisor_not_found}
+
+      # running? should return false when pipeline is not started
+      assert Analyzer.running?() == false
     end
   end
 end

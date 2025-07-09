@@ -154,16 +154,19 @@ defmodule Reencodarr.AbAv1.Encode do
     Logger.debug("AbAv1.Encode: Periodic check - encoding still active for video: #{video.path}")
 
     # Get the last known progress from the telemetry system to preserve ETA
-    last_progress = case Reencodarr.TelemetryReporter.get_progress_state() do
-      %{encoding_progress: %{eta: eta, percent: percent, fps: fps}} when eta != 0 ->
-        %{eta: eta, percent: percent, fps: fps}
-      _ ->
-        %{eta: "Unknown", percent: 1, fps: 0}
-    end
+    last_progress =
+      case Reencodarr.TelemetryReporter.get_progress_state() do
+        %{encoding_progress: %{eta: eta, percent: percent, fps: fps}} when eta != 0 ->
+          %{eta: eta, percent: percent, fps: fps}
+
+        _ ->
+          %{eta: "Unknown", percent: 1, fps: 0}
+      end
 
     # Emit a minimal progress update to show the encoding is still running
     # This preserves the last known ETA instead of always showing "Unknown"
     filename = Path.basename(video.path)
+
     progress = %Reencodarr.Statistics.EncodingProgress{
       percent: last_progress.percent,
       eta: last_progress.eta,
@@ -200,7 +203,8 @@ defmodule Reencodarr.AbAv1.Encode do
     Logger.debug("AbAv1.Encode: Port opened successfully: #{inspect(port)}")
 
     # Set up a periodic timer to check if we're still alive and potentially emit progress
-    Process.send_after(self(), :periodic_check, 10_000)  # Check every 10 seconds
+    # Check every 10 seconds
+    Process.send_after(self(), :periodic_check, 10_000)
 
     %{
       state
@@ -243,36 +247,5 @@ defmodule Reencodarr.AbAv1.Encode do
   defp notify_encoder_failure(video, exit_code) do
     # Emit telemetry event for failure
     Telemetry.emit_encoder_failed(exit_code, video)
-  end
-
-  # Helper function to extract progress information from output lines
-  defp extract_progress_info(line) do
-    case Regex.named_captures(
-           ~r/\[.*\]\s*(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
-           line
-         ) do
-      %{"percent" => percent, "fps" => fps, "eta" => eta, "unit" => unit} ->
-        {:ok, %{
-          percent: String.to_integer(percent),
-          fps: parse_fps_simple(fps),
-          eta: "#{eta} #{unit}"
-        }}
-      nil ->
-        :no_progress
-    end
-  end
-
-  # Simple FPS parser (similar to the one in ProgressParser)
-  defp parse_fps_simple(fps_string) do
-    fps_string
-    |> then(fn str ->
-      if String.contains?(str, ".") do
-        str
-      else
-        str <> ".0"
-      end
-    end)
-    |> String.to_float()
-    |> Float.round()
   end
 end
