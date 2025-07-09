@@ -15,7 +15,6 @@ defmodule Reencodarr.Encoder.Broadway do
   use Broadway
   require Logger
 
-  alias Reencodarr.AbAv1
   alias Broadway.Message
 
   @typedoc "VMAF struct for encoding processing"
@@ -27,10 +26,7 @@ defmodule Reencodarr.Encoder.Broadway do
   # Configuration constants
   @default_config [
     rate_limit_messages: 5,
-    rate_limit_interval: 1_000,
-    batch_size: 1,
-    # Encoding takes longer than CRF search
-    batch_timeout: 10_000
+    rate_limit_interval: 1_000
   ]
 
   @doc """
@@ -68,13 +64,6 @@ defmodule Reencodarr.Encoder.Broadway do
         default: [
           concurrency: 1,
           max_demand: 1
-        ]
-      ],
-      batchers: [
-        default: [
-          batch_size: config[:batch_size],
-          batch_timeout: config[:batch_timeout],
-          concurrency: 1
         ]
       ]
     )
@@ -152,22 +141,23 @@ defmodule Reencodarr.Encoder.Broadway do
 
   @impl Broadway
   def handle_message(_processor_name, message, _context) do
-    # Messages are processed in batches, so we just pass them through
-    message
-  end
-
-  @impl Broadway
-  def handle_batch(:default, messages, _batch_info, _context) do
-    Enum.map(messages, fn message ->
-      case process_vmaf_encoding(message.data) do
-        :ok ->
-          message
-
-        {:error, reason} ->
-          Logger.warning("Encoding failed for VMAF #{inspect(message.data)}: #{reason}")
-          Message.failed(message, reason)
-      end
+    # Start encoding asynchronously but wait for completion to maintain single-concurrency
+    task = Task.async(fn ->
+      process_vmaf_encoding(message.data)
     end)
+
+    # Wait for the task to complete
+    case Task.await(task, :infinity) do
+      :ok ->
+        Logger.info("Broadway: Encoding completed successfully for VMAF #{message.data.id}")
+        message
+
+      {:error, reason} ->
+        Logger.warning("Broadway: Encoding failed for VMAF #{message.data.id}: #{reason}")
+        # Don't fail the Broadway message to avoid pausing the pipeline
+        # The failure is already logged and reported via PubSub in process_vmaf_encoding
+        message
+    end
   end
 
   @doc """
@@ -188,22 +178,160 @@ defmodule Reencodarr.Encoder.Broadway do
 
   @spec process_vmaf_encoding(vmaf()) :: :ok | {:error, term()}
   defp process_vmaf_encoding(vmaf) do
-    Logger.info("Starting encoding for VMAF #{vmaf.id}: #{vmaf.video.path}")
+    Logger.info("Broadway: Starting encoding for VMAF #{vmaf.id}: #{vmaf.video.path}")
 
-    # AbAv1.encode/1 always returns :ok since it's a GenServer.cast
-    # The actual success/failure is handled by the GenServer
-    :ok = AbAv1.encode(vmaf)
+    # Import necessary modules
+    alias Reencodarr.AbAv1.Helper
+    alias Reencodarr.{PostProcessor, Rules, Telemetry}
 
-    Logger.info("Encoding queued successfully for VMAF #{vmaf.id}")
+    try do
+      # Build encoding arguments
+      args = build_encode_args(vmaf)
+      output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
 
-    :ok
-  rescue
-    exception ->
-      error_message =
-        "Exception during encoding for VMAF #{vmaf.id}: #{Exception.message(exception)}"
+      Logger.debug("Broadway: Starting encode with args: #{inspect(args)}")
+      Logger.debug("Broadway: Output file: #{output_file}")
 
-      Logger.error(error_message)
+      # Open port and handle encoding
+      port = Helper.open_port(args)
+      Logger.debug("Broadway: Port opened successfully: #{inspect(port)}")
 
-      {:error, error_message}
+      # Handle the encoding process synchronously within Broadway
+      result = handle_encoding_process(port, vmaf, output_file)
+
+      case result do
+        {:ok, :success} ->
+          case notify_encoding_success(vmaf.video, output_file) do
+            {:ok, :success} ->
+              Logger.info("Broadway: Encoding and post-processing completed successfully for VMAF #{vmaf.id}")
+              :ok
+            {:error, reason} ->
+              Logger.error("Broadway: Encoding succeeded but post-processing failed for VMAF #{vmaf.id}: #{reason}")
+              {:error, "Post-processing failed: #{reason}"}
+          end
+
+        {:error, exit_code} ->
+          notify_encoding_failure(vmaf.video, exit_code)
+
+          Logger.error(
+            "Broadway: Encoding failed for VMAF #{vmaf.id} with exit code: #{exit_code}"
+          )
+
+          {:error, "Encoding failed with exit code #{exit_code}"}
+      end
+    rescue
+      exception ->
+        error_message =
+          "Exception during Broadway encoding for VMAF #{vmaf.id}: #{Exception.message(exception)}"
+
+        Logger.error(error_message)
+        {:error, error_message}
+    end
+  end
+
+  @spec handle_encoding_process(port(), vmaf(), String.t()) ::
+          {:ok, :success} | {:error, integer()}
+  defp handle_encoding_process(port, vmaf, output_file) do
+    # Initialize state for progress tracking
+    state = %{
+      port: port,
+      video: vmaf.video,
+      vmaf: vmaf,
+      output_file: output_file,
+      partial_line_buffer: ""
+    }
+
+    # Process port messages until completion
+    process_port_messages(state)
+  end
+
+  @spec process_port_messages(map()) :: {:ok, :success} | {:error, integer()}
+  defp process_port_messages(state) do
+    receive do
+      {port, {:data, {:eol, data}}} when port == state.port ->
+        full_line = state.partial_line_buffer <> data
+        Reencodarr.ProgressParser.process_line(full_line, state)
+        new_state = %{state | partial_line_buffer: ""}
+
+        # Yield control back to the scheduler to allow Broadway metrics to update
+        Process.sleep(1)
+        process_port_messages(new_state)
+
+      {port, {:data, {:noeol, message}}} when port == state.port ->
+        new_buffer = state.partial_line_buffer <> message
+        new_state = %{state | partial_line_buffer: new_buffer}
+        process_port_messages(new_state)
+
+      {port, {:exit_status, exit_code}} when port == state.port ->
+        Logger.debug("Broadway: Process exit status: #{exit_code}")
+
+        # Publish completion event to PubSub
+        pubsub_result = if exit_code in [0, 1], do: :success, else: {:error, exit_code}
+
+        Phoenix.PubSub.broadcast(
+          Reencodarr.PubSub,
+          "encoding_events",
+          {:encoding_completed, state.vmaf.id, pubsub_result}
+        )
+
+        # Return result based on exit code
+        if exit_code in [0, 1] do
+          {:ok, :success}
+        else
+          {:error, exit_code}
+        end
+    after
+      300_000 ->
+        # Timeout after 5 minutes of no activity (encoding can take a long time)
+        Logger.error("Broadway: Encoding timeout for VMAF #{state.vmaf.id}")
+        Port.close(state.port)
+        {:error, :timeout}
+    end
+  end
+
+  @spec build_encode_args(vmaf()) :: [String.t()]
+  defp build_encode_args(vmaf) do
+    alias Reencodarr.{Rules, AbAv1.Helper}
+
+    base_args = [
+      "encode",
+      "--crf",
+      to_string(vmaf.crf),
+      "-o",
+      Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv"),
+      "-i",
+      vmaf.video.path
+    ]
+
+    rule_args =
+      vmaf.video
+      |> Rules.apply()
+      |> Enum.flat_map(fn
+        {k, v} -> [to_string(k), to_string(v)]
+      end)
+
+    base_args ++ rule_args
+  end
+
+  @spec notify_encoding_success(map(), String.t()) :: {:ok, :success} | {:error, atom()}
+  defp notify_encoding_success(video, output_file) do
+    alias Reencodarr.{PostProcessor, Telemetry}
+
+    # Emit telemetry event for completion
+    Telemetry.emit_encoder_completed()
+
+    # Use PostProcessor for cleanup work and return its result
+    PostProcessor.process_encoding_success(video, output_file)
+  end
+
+  @spec notify_encoding_failure(map(), integer()) :: :ok
+  defp notify_encoding_failure(video, exit_code) do
+    alias Reencodarr.{PostProcessor, Telemetry}
+
+    # Emit telemetry event for failure
+    Telemetry.emit_encoder_failed(exit_code, video)
+
+    # Mark the video as failed and handle cleanup
+    PostProcessor.process_encoding_failure(video, exit_code)
   end
 end
