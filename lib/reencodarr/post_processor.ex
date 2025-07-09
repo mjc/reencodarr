@@ -14,14 +14,29 @@ defmodule Reencodarr.PostProcessor do
 
   alias Reencodarr.{FileOperations, Media, Repo, Sync}
 
-  @spec process_encoding_success(video :: any(), output_file :: String.t()) :: :ok
+  @spec process_encoding_success(video :: any(), output_file :: String.t()) :: {:ok, :success} | {:error, atom()}
   def process_encoding_success(video, output_file) do
     intermediate_path = FileOperations.calculate_intermediate_path(video)
 
     case move_to_intermediate(output_file, intermediate_path, video) do
-      {:ok, actual_path} -> process_intermediate_success(video, actual_path)
-      {:error, _} -> :ok
+      {:ok, actual_path} ->
+        process_intermediate_success(video, actual_path)
+        {:ok, :success}
+      {:error, reason} ->
+        {:error, reason}
     end
+  end
+
+  @spec process_encoding_failure(video :: any(), exit_code :: integer()) :: :ok
+  def process_encoding_failure(video, exit_code) do
+    Logger.error(
+      "Encoding failed for video #{video.id} (#{video.path}) with exit code #{exit_code}. Marking as failed."
+    )
+
+    # Mark the video as failed so it won't be retried
+    Media.mark_as_failed(video)
+
+    :ok
   end
 
   @spec move_to_intermediate(String.t(), String.t(), any()) ::
