@@ -146,16 +146,15 @@ defmodule Reencodarr.Encoder.Broadway do
       process_vmaf_encoding(message.data)
     end)
 
-    # Wait for the task to complete
+    # Wait for the task to complete - process_vmaf_encoding handles all logging internally
     case Task.await(task, :infinity) do
       :ok ->
-        Logger.info("Broadway: Encoding completed successfully for VMAF #{message.data.id}")
+        # Success/failure logging is handled within process_vmaf_encoding
         message
 
       {:error, reason} ->
-        Logger.warning("Broadway: Encoding failed for VMAF #{message.data.id}: #{reason}")
-        # Don't fail the Broadway message to avoid pausing the pipeline
-        # The failure is already logged and reported via PubSub in process_vmaf_encoding
+        # This should not happen since process_vmaf_encoding always returns :ok now
+        Logger.warning("Broadway: Unexpected error from process_vmaf_encoding for VMAF #{message.data.id}: #{reason}")
         message
     end
   end
@@ -204,11 +203,11 @@ defmodule Reencodarr.Encoder.Broadway do
           case notify_encoding_success(vmaf.video, output_file) do
             {:ok, :success} ->
               Logger.info("Broadway: Encoding and post-processing completed successfully for VMAF #{vmaf.id}")
-              :ok
             {:error, reason} ->
               Logger.error("Broadway: Encoding succeeded but post-processing failed for VMAF #{vmaf.id}: #{reason}")
-              {:error, "Post-processing failed: #{reason}"}
           end
+          # Always return :ok for Broadway to indicate message was processed
+          :ok
 
         {:error, exit_code} ->
           notify_encoding_failure(vmaf.video, exit_code)
@@ -216,8 +215,8 @@ defmodule Reencodarr.Encoder.Broadway do
           Logger.error(
             "Broadway: Encoding failed for VMAF #{vmaf.id} with exit code: #{exit_code}"
           )
-
-          {:error, "Encoding failed with exit code #{exit_code}"}
+          # Still return :ok to prevent pipeline pausing - failure is handled via database marking
+          :ok
       end
     rescue
       exception ->
@@ -225,7 +224,8 @@ defmodule Reencodarr.Encoder.Broadway do
           "Exception during Broadway encoding for VMAF #{vmaf.id}: #{Exception.message(exception)}"
 
         Logger.error(error_message)
-        {:error, error_message}
+        # Return :ok to prevent pipeline pausing - exception is logged and handled
+        :ok
     end
   end
 
@@ -263,10 +263,16 @@ defmodule Reencodarr.Encoder.Broadway do
         process_port_messages(new_state)
 
       {port, {:exit_status, exit_code}} when port == state.port ->
-        Logger.debug("Broadway: Process exit status: #{exit_code}")
+        Logger.info("Broadway: Process exit status: #{exit_code} for VMAF #{state.vmaf.id}")
+
+        # Check if output file was actually created
+        output_exists = File.exists?(state.output_file)
+        Logger.info("Broadway: Output file #{state.output_file} exists: #{output_exists}")
 
         # Publish completion event to PubSub
-        pubsub_result = if exit_code in [0, 1], do: :success, else: {:error, exit_code}
+        # Only consider it success if exit code is 0 AND the output file exists
+        success = exit_code == 0 and output_exists
+        pubsub_result = if success, do: :success, else: {:error, exit_code}
 
         Phoenix.PubSub.broadcast(
           Reencodarr.PubSub,
@@ -274,8 +280,8 @@ defmodule Reencodarr.Encoder.Broadway do
           {:encoding_completed, state.vmaf.id, pubsub_result}
         )
 
-        # Return result based on exit code
-        if exit_code in [0, 1] do
+        # Return result based on exit code AND file existence
+        if success do
           {:ok, :success}
         else
           {:error, exit_code}
