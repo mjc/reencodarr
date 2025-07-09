@@ -43,6 +43,8 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   def init(_opts) do
     # Subscribe to media events for new VMAFs
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "media_events")
+    # Subscribe to encoding events to know when processing completes
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoding_events")
 
     {:producer,
      %{
@@ -103,6 +105,14 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   @impl GenStage
   def handle_info({:vmaf_upserted, _vmaf}, state) do
     dispatch_if_ready(state)
+  end
+
+  @impl GenStage
+  def handle_info({:encoding_completed, _vmaf_id, _result}, state) do
+    # Encoding completed (success or failure), mark as not processing and try to dispatch next
+    Logger.info("Producer: Received encoding completion notification")
+    new_state = %{state | processing: false}
+    dispatch_if_ready(new_state)
   end
 
   @impl GenStage
