@@ -14,7 +14,8 @@ defmodule Reencodarr.PostProcessor do
 
   alias Reencodarr.{FileOperations, Media, Repo, Sync}
 
-  @spec process_encoding_success(video :: any(), output_file :: String.t()) :: {:ok, :success} | {:error, atom()}
+  @spec process_encoding_success(video :: any(), output_file :: String.t()) ::
+          {:ok, :success} | {:error, atom()}
   def process_encoding_success(video, output_file) do
     intermediate_path = FileOperations.calculate_intermediate_path(video)
 
@@ -22,6 +23,7 @@ defmodule Reencodarr.PostProcessor do
       {:ok, actual_path} ->
         process_intermediate_success(video, actual_path)
         {:ok, :success}
+
       {:error, reason} ->
         {:error, reason}
     end

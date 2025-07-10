@@ -135,4 +135,91 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       assert log =~ "Try lowering the target VMAF"
     end
   end
+
+  describe "savings calculation" do
+    setup do
+      video = %{id: 3, path: "test_savings_path", size: 1_000_000_000}
+      {:ok, video} = Media.create_video(video)
+      %{video: video}
+    end
+
+    test "calculates savings correctly for VMAF records with percent data", %{video: video} do
+      # Test with 80% size (20% savings)
+      line =
+        "[2024-12-12T00:13:08Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 25 VMAF 95.50 (80%)"
+
+      assert Repo.aggregate(Vmaf, :count, :id) == 0
+      CrfSearch.process_line(line, video, [])
+
+      assert Repo.aggregate(Vmaf, :count, :id) == 1
+      vmaf = Repo.one(Vmaf)
+
+      # Verify VMAF data
+      assert vmaf.video_id == video.id
+      assert vmaf.crf == 25.0
+      assert vmaf.score == 95.50
+      assert vmaf.percent == 80.0
+
+      # Verify savings calculation: (100 - 80) / 100 * 1,000,000,000 = 200,000,000
+      assert vmaf.savings == 200_000_000
+    end
+
+    test "calculates different savings for different percentages", %{video: video} do
+      # Test multiple percentages
+      test_cases = [
+        # 50% savings
+        {50, 500_000_000},
+        # 25% savings
+        {75, 250_000_000},
+        # 10% savings
+        {90, 100_000_000},
+        # 5% savings
+        {95, 50_000_000}
+      ]
+
+      Enum.each(test_cases, fn {percent, expected_savings} ->
+        # Generate unique CRF values
+        crf = 20.0 + percent / 10
+
+        line =
+          "[2024-12-12T00:13:08Z INFO  ab_av1::command::sample_encode] sample 1/5 crf #{crf} VMAF 95.00 (#{percent}%)"
+
+        CrfSearch.process_line(line, video, [])
+
+        vmaf = Repo.one(from v in Vmaf, where: v.crf == ^crf)
+
+        assert vmaf.savings == expected_savings,
+               "Expected savings #{expected_savings} for #{percent}% but got #{vmaf.savings}"
+      end)
+    end
+
+    test "handles missing percent gracefully", %{video: video} do
+      # Test direct upsert without percent
+      {:ok, vmaf} =
+        Media.upsert_vmaf(%{
+          "video_id" => video.id,
+          "crf" => 30.0,
+          "score" => 90.0,
+          "params" => []
+        })
+
+      # Should not crash and savings should be nil
+      assert vmaf.savings == nil
+    end
+
+    test "calculates savings from Media.upsert_vmaf when percent is provided", %{video: video} do
+      {:ok, vmaf} =
+        Media.upsert_vmaf(%{
+          "video_id" => video.id,
+          "crf" => 28.0,
+          "score" => 93.0,
+          # 30% savings
+          "percent" => "70",
+          "params" => []
+        })
+
+      # Verify savings: (100 - 70) / 100 * 1,000,000,000 = 300,000,000
+      assert vmaf.savings == 300_000_000
+    end
+  end
 end

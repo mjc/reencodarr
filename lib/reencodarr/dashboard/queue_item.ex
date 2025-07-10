@@ -43,11 +43,19 @@ defmodule Reencodarr.Dashboard.QueueItem do
         video_size = Map.get(video_data, :size, 0)
         percent = Map.get(video, :percent, 0)
 
-        estimated_savings =
-          if video_size > 0 and percent > 0 and percent < 100 do
-            video_size * (100 - percent) / 100 / (1024 * 1024 * 1024)
+        # Use the savings field from the database if available, otherwise calculate
+        estimated_savings_bytes = Map.get(video, :savings)
+
+        estimated_savings_gb =
+          if estimated_savings_bytes && is_integer(estimated_savings_bytes) do
+            estimated_savings_bytes / (1024 * 1024 * 1024)
           else
-            nil
+            # Fallback to calculation if savings field is not available
+            if video_size > 0 and percent > 0 and percent < 100 do
+              video_size * (100 - percent) / 100 / (1024 * 1024 * 1024)
+            else
+              nil
+            end
           end
 
         %__MODULE__{
@@ -55,7 +63,7 @@ defmodule Reencodarr.Dashboard.QueueItem do
           path: path,
           display_name: clean_display_name(Path.basename(path)),
           estimated_percent: Map.get(video, :estimated_percent),
-          estimated_savings_gb: estimated_savings,
+          estimated_savings_gb: estimated_savings_gb,
           vmaf_percent: percent,
           size: video_size
         }
