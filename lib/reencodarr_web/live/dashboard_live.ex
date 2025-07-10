@@ -435,13 +435,13 @@ defmodule ReencodarrWeb.DashboardLive do
                           <span>Size: {format_size_gb(file.size)}</span>
                         <% end %>
                       </div>
-                    <% @queue.title == "Encoding Queue" and (file.estimated_savings_gb || file.vmaf_percent) -> %>
+                    <% @queue.title == "Encoding Queue" and (file.estimated_savings_bytes || file.size) -> %>
                       <div class="flex justify-between text-xs text-green-300 mt-1">
-                        <%= if file.estimated_savings_gb do %>
-                          <span>Est. Savings: {format_savings(file.estimated_savings_gb)}</span>
+                        <%= if file.estimated_savings_bytes do %>
+                          <span>Savings: {format_savings_bytes(file.estimated_savings_bytes)}</span>
                         <% end %>
-                        <%= if file.vmaf_percent do %>
-                          <span>VMAF: {file.vmaf_percent}%</span>
+                        <%= if file.size do %>
+                          <span>Size: {format_size_gb(file.size)}</span>
                         <% end %>
                       </div>
                     <% @queue.title == "Analyzer Queue" and file.size -> %>
@@ -707,14 +707,18 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp format_size_gb(_), do: "N/A"
 
-  defp format_savings(savings_gb) when is_number(savings_gb) and savings_gb > 0 do
+  # Format savings from bytes
+  defp format_savings_bytes(nil), do: "N/A"
+
+  defp format_savings_bytes(bytes) when is_integer(bytes) and bytes > 0 do
     cond do
-      savings_gb >= 1000 -> "#{Float.round(savings_gb / 1000, 1)} TB"
-      savings_gb >= 1 -> "#{Float.round(savings_gb, 2)} GB"
-      savings_gb >= 0.001 -> "#{round(savings_gb * 1000)} MB"
-      true -> "< 1 MB"
+      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776, 1)} TB"
+      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824, 1)} GB"
+      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576, 1)} MB"
+      bytes >= 1024 -> "#{Float.round(bytes / 1024, 1)} KB"
+      true -> "#{bytes} B"
     end
   end
 
-  defp format_savings(_), do: "N/A"
+  defp format_savings_bytes(_), do: "N/A"
 end
