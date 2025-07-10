@@ -55,6 +55,8 @@ defmodule Reencodarr.MixProject do
        compile: false,
        depth: 1},
       {:jason, "~> 1.2"},
+      {:logger_backends, "~> 1.0"},
+      {:logger_file_backend, "~> 0.0.13"},
       {:phoenix, "~> 1.7.14"},
       {:phoenix_ecto, "~> 4.5"},
       {:phoenix_html, "~> 4.1"},

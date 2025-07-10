@@ -197,13 +197,13 @@ defmodule Reencodarr.Encoder.Broadway do
       case port do
         :error ->
           # Port creation failure is always critical
-          case classify_failure(:port_error) do
-            {:pause, reason} ->
-              Logger.error("Broadway: Critical failure for VMAF #{vmaf.id}: #{reason}")
-              Logger.error("Broadway: Pausing pipeline due to critical system issue")
+          case classify_failure(:port_error) do          {:pause, reason} ->
+            Logger.error("Broadway: Critical failure for VMAF #{vmaf.id}: #{reason}")
+            Logger.error("Broadway: Pausing pipeline due to critical system issue")
+            Logger.error("Broadway: Video path: #{vmaf.video.path}")
 
-              # Notify about the failure
-              notify_encoding_failure(vmaf.video, :port_error)
+            # Notify about the failure
+            notify_encoding_failure(vmaf.video, :port_error)
 
               # Pause the pipeline
               Reencodarr.Encoder.Broadway.Producer.pause()

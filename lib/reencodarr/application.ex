@@ -7,8 +7,17 @@ defmodule Reencodarr.Application do
 
   @impl true
   def start(_type, _args) do
+    # Setup file logging
+    setup_file_logging()
+    
     opts = [strategy: :one_for_one, name: Reencodarr.Supervisor]
     Supervisor.start_link(children(), opts)
+  end
+
+  defp setup_file_logging do
+    if Code.ensure_loaded?(LoggerBackends) do
+      LoggerBackends.add({LoggerFileBackend, :file})
+    end
   end
 
   defp children do
