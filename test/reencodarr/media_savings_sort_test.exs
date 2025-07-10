@@ -1,7 +1,6 @@
 defmodule Reencodarr.MediaSavingsSortTest do
   use Reencodarr.DataCase, async: true
   alias Reencodarr.Media
-  alias Reencodarr.Media.{Video, Vmaf}
 
   describe "encoding queue sorting by savings" do
     setup do
