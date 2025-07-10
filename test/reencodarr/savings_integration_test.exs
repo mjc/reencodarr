@@ -51,7 +51,8 @@ defmodule Reencodarr.SavingsIntegrationTest do
 
       # Verify the video shows up in encoding queue (has chosen VMAF)
       next_video = Media.get_next_for_encoding()
-      assert next_video.id == video.id
+      assert next_video != nil
+      assert next_video.video.path == video.path
 
       # Create another video with higher savings to test sorting
       {:ok, video2} =
@@ -76,12 +77,14 @@ defmodule Reencodarr.SavingsIntegrationTest do
 
       # Now the queue should prioritize video2 (higher savings)
       next_video_updated = Media.get_next_for_encoding()
-      assert next_video_updated.id == video2.id
+      assert next_video_updated != nil
+      assert next_video_updated.video.path == video2.path
 
       # Mark video2 as reencoded and verify video1 comes next
       Repo.update!(Ecto.Changeset.change(video2, reencoded: true))
       next_after_video2 = Media.get_next_for_encoding()
-      assert next_after_video2.id == video.id
+      assert next_after_video2 != nil
+      assert next_after_video2.video.path == video.path
 
       # Verify queue count
       queue_count = Media.encoding_queue_count()
@@ -138,8 +141,9 @@ defmodule Reencodarr.SavingsIntegrationTest do
 
       # Verify queue sorting prioritizes higher absolute savings
       next_video = Media.get_next_for_encoding()
-      # 950MB > 40KB
-      assert next_video.id == perfect_video.id
+      # 950MB > 40KB, so perfect_video should come first
+      assert next_video != nil
+      assert next_video.video.path == perfect_video.path
     end
 
     test "savings field is preserved through database operations" do
