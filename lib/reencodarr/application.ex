@@ -9,7 +9,7 @@ defmodule Reencodarr.Application do
   def start(_type, _args) do
     # Setup file logging
     setup_file_logging()
-    
+
     opts = [strategy: :one_for_one, name: Reencodarr.Supervisor]
     Supervisor.start_link(children(), opts)
   end

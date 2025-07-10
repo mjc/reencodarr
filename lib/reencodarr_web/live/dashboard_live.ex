@@ -438,7 +438,7 @@ defmodule ReencodarrWeb.DashboardLive do
                     <% @queue.title == "Encoding Queue" and (file.estimated_savings_gb || file.vmaf_percent) -> %>
                       <div class="flex justify-between text-xs text-green-300 mt-1">
                         <%= if file.estimated_savings_gb do %>
-                          <span>Est. Savings: {Float.round(file.estimated_savings_gb, 2)} GB</span>
+                          <span>Est. Savings: {format_savings(file.estimated_savings_gb)}</span>
                         <% end %>
                         <%= if file.vmaf_percent do %>
                           <span>VMAF: {file.vmaf_percent}%</span>
@@ -534,7 +534,7 @@ defmodule ReencodarrWeb.DashboardLive do
             Live Broadway pipeline monitoring via integrated dashboard.
           </p>
 
-          <!-- Broadway Dashboard Status -->
+    <!-- Broadway Dashboard Status -->
           <div class="bg-green-900/20 border border-green-500/30 rounded p-3 mb-4">
             <div class="flex items-center space-x-2">
               <div class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
@@ -545,7 +545,7 @@ defmodule ReencodarrWeb.DashboardLive do
             </p>
           </div>
 
-          <!-- Broadway Dashboard Iframe -->
+    <!-- Broadway Dashboard Iframe -->
           <div class="bg-gray-800 border border-orange-500/50 rounded p-2">
             <iframe
               src="/dev/dashboard/broadway"
@@ -706,4 +706,15 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   defp format_size_gb(_), do: "N/A"
+
+  defp format_savings(savings_gb) when is_number(savings_gb) and savings_gb > 0 do
+    cond do
+      savings_gb >= 1000 -> "#{Float.round(savings_gb / 1000, 1)} TB"
+      savings_gb >= 1 -> "#{Float.round(savings_gb, 2)} GB"
+      savings_gb >= 0.001 -> "#{round(savings_gb * 1000)} MB"
+      true -> "< 1 MB"
+    end
+  end
+
+  defp format_savings(_), do: "N/A"
 end

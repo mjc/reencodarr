@@ -507,12 +507,16 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         {size, unit} -> "#{size} #{unit}"
       end
 
+    # Calculate savings based on percent and video size
+    savings = calculate_savings(params["percent"], video.size)
+
     vmaf_data =
       Map.merge(params, %{
         "video_id" => video.id,
         "params" => Helper.remove_args(args, ["--min-vmaf", "crf-search"]),
         "time" => time,
         "size" => size_info,
+        "savings" => savings,
         "target" => 95
       })
 
@@ -599,4 +603,26 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       :error -> nil
     end
   end
+
+  # Calculate estimated space savings in bytes based on percent and video size
+  defp calculate_savings(nil, _video_size), do: nil
+  defp calculate_savings(_percent, nil), do: nil
+
+  defp calculate_savings(percent, video_size) when is_binary(percent) do
+    case Float.parse(percent) do
+      {percent_float, _} -> calculate_savings(percent_float, video_size)
+      :error -> nil
+    end
+  end
+
+  defp calculate_savings(percent, video_size) when is_number(percent) and is_number(video_size) do
+    if percent > 0 and percent <= 100 do
+      # Savings = (100 - percent) / 100 * original_size
+      round((100 - percent) / 100 * video_size)
+    else
+      nil
+    end
+  end
+
+  defp calculate_savings(_, _), do: nil
 end

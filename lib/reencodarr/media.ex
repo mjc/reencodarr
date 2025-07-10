@@ -79,9 +79,9 @@ defmodule Reencodarr.Media do
         join: vid in assoc(v, :video),
         where: v.chosen == true and vid.reencoded == false and vid.failed == false,
         order_by: [
+          desc: v.savings,
           asc: v.percent,
-          asc: v.time,
-          asc: v.size
+          asc: v.time
         ],
         limit: ^limit,
         preload: [:video]
@@ -192,9 +192,12 @@ defmodule Reencodarr.Media do
   def create_vmaf(attrs \\ %{}), do: %Vmaf{} |> Vmaf.changeset(attrs) |> Repo.insert()
 
   def upsert_vmaf(attrs) do
+    # Calculate savings if not provided but percent and video are available
+    attrs_with_savings = maybe_calculate_savings(attrs)
+
     result =
       %Vmaf{}
-      |> Vmaf.changeset(attrs)
+      |> Vmaf.changeset(attrs_with_savings)
       |> Repo.insert(
         on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
         conflict_target: [:crf, :video_id]
@@ -210,6 +213,44 @@ defmodule Reencodarr.Media do
 
     result
   end
+
+  # Calculate savings if not already provided and we have the necessary data
+  defp maybe_calculate_savings(attrs) do
+    case {Map.get(attrs, "savings"), Map.get(attrs, "percent"), Map.get(attrs, "video_id")} do
+      {nil, percent, video_id} when not is_nil(percent) and not is_nil(video_id) ->
+        case get_video(video_id) do
+          %Video{size: size} when not is_nil(size) ->
+            savings = calculate_vmaf_savings(percent, size)
+            Map.put(attrs, "savings", savings)
+
+          _ ->
+            attrs
+        end
+
+      _ ->
+        attrs
+    end
+  end
+
+  # Calculate estimated space savings in bytes based on percent and video size
+  defp calculate_vmaf_savings(percent, video_size) when is_binary(percent) do
+    case Float.parse(percent) do
+      {percent_float, _} -> calculate_vmaf_savings(percent_float, video_size)
+      :error -> nil
+    end
+  end
+
+  defp calculate_vmaf_savings(percent, video_size)
+       when is_number(percent) and is_number(video_size) do
+    if percent > 0 and percent <= 100 do
+      # Savings = (100 - percent) / 100 * original_size
+      round((100 - percent) / 100 * video_size)
+    else
+      nil
+    end
+  end
+
+  defp calculate_vmaf_savings(_, _), do: nil
 
   def update_vmaf(%Vmaf{} = vmaf, attrs), do: vmaf |> Vmaf.changeset(attrs) |> Repo.update()
   def delete_vmaf(%Vmaf{} = vmaf), do: Repo.delete(vmaf)
@@ -336,7 +377,7 @@ defmodule Reencodarr.Media do
         from v in Vmaf,
           join: vid in assoc(v, :video),
           where: v.chosen == true and vid.reencoded == false and vid.failed == false,
-          order_by: [asc: v.time],
+          order_by: [desc: v.savings, asc: v.time],
           limit: 1,
           preload: [:video]
       )

@@ -75,7 +75,8 @@ config :logger, :file,
   format: "$time [$level] $metadata $message\n",
   metadata: [:pid, :module, :function, :line],
   level: :info,
-  rotate: %{max_bytes: 10_485_760, keep: 5}  # 10MB files, keep 5 rotations
+  # 10MB files, keep 5 rotations
+  rotate: %{max_bytes: 10_485_760, keep: 5}
 
 config :logger, level: :info
 

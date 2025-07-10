@@ -142,9 +142,10 @@ defmodule Reencodarr.Encoder.Broadway do
   @impl Broadway
   def handle_message(_processor_name, message, _context) do
     # Start encoding asynchronously but wait for completion to maintain single-concurrency
-    task = Task.async(fn ->
-      process_vmaf_encoding(message.data)
-    end)
+    task =
+      Task.async(fn ->
+        process_vmaf_encoding(message.data)
+      end)
 
     # Wait for the task to complete - process_vmaf_encoding handles all logging internally
     case Task.await(task, :infinity) do
@@ -154,7 +155,10 @@ defmodule Reencodarr.Encoder.Broadway do
 
       {:error, reason} ->
         # This should not happen since process_vmaf_encoding always returns :ok now
-        Logger.warning("Broadway: Unexpected error from process_vmaf_encoding for VMAF #{message.data.id}: #{reason}")
+        Logger.warning(
+          "Broadway: Unexpected error from process_vmaf_encoding for VMAF #{message.data.id}: #{reason}"
+        )
+
         message
     end
   end
@@ -197,13 +201,14 @@ defmodule Reencodarr.Encoder.Broadway do
       case port do
         :error ->
           # Port creation failure is always critical
-          case classify_failure(:port_error) do          {:pause, reason} ->
-            Logger.error("Broadway: Critical failure for VMAF #{vmaf.id}: #{reason}")
-            Logger.error("Broadway: Pausing pipeline due to critical system issue")
-            Logger.error("Broadway: Video path: #{vmaf.video.path}")
+          case classify_failure(:port_error) do
+            {:pause, reason} ->
+              Logger.error("Broadway: Critical failure for VMAF #{vmaf.id}: #{reason}")
+              Logger.error("Broadway: Pausing pipeline due to critical system issue")
+              Logger.error("Broadway: Video path: #{vmaf.video.path}")
 
-            # Notify about the failure
-            notify_encoding_failure(vmaf.video, :port_error)
+              # Notify about the failure
+              notify_encoding_failure(vmaf.video, :port_error)
 
               # Pause the pipeline
               Reencodarr.Encoder.Broadway.Producer.pause()
@@ -222,10 +227,16 @@ defmodule Reencodarr.Encoder.Broadway do
             {:ok, :success} ->
               case notify_encoding_success(vmaf.video, output_file) do
                 {:ok, :success} ->
-                  Logger.info("Broadway: Encoding and post-processing completed successfully for VMAF #{vmaf.id}")
+                  Logger.info(
+                    "Broadway: Encoding and post-processing completed successfully for VMAF #{vmaf.id}"
+                  )
+
                 {:error, reason} ->
-                  Logger.error("Broadway: Encoding succeeded but post-processing failed for VMAF #{vmaf.id}: #{reason}")
+                  Logger.error(
+                    "Broadway: Encoding succeeded but post-processing failed for VMAF #{vmaf.id}: #{reason}"
+                  )
               end
+
               # Always return :ok for Broadway to indicate message was processed
               :ok
 
@@ -233,7 +244,10 @@ defmodule Reencodarr.Encoder.Broadway do
               # Classify the failure to determine if we should pause or continue
               case classify_failure(exit_code) do
                 {:pause, reason} ->
-                  Logger.error("Broadway: Critical failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})")
+                  Logger.error(
+                    "Broadway: Critical failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})"
+                  )
+
                   Logger.error("Broadway: Pausing pipeline due to critical system issue")
 
                   # Notify about the failure
@@ -246,7 +260,9 @@ defmodule Reencodarr.Encoder.Broadway do
                   :ok
 
                 {:continue, reason} ->
-                  Logger.warning("Broadway: Recoverable failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})")
+                  Logger.warning(
+                    "Broadway: Recoverable failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})"
+                  )
 
                   # Notify about the failure and mark as failed
                   notify_encoding_failure(vmaf.video, exit_code)
@@ -262,23 +278,24 @@ defmodule Reencodarr.Encoder.Broadway do
         Logger.error("Broadway: Exception during encoding for VMAF #{vmaf.id}: #{error_message}")
 
         # Classify exception based on type
-        action = cond do
-          # System.no_memory or similar memory issues
-          String.contains?(error_message, "memory") or String.contains?(error_message, "enomem") ->
-            {:pause, "Memory allocation failure - system may be out of memory"}
+        action =
+          cond do
+            # System.no_memory or similar memory issues
+            String.contains?(error_message, "memory") or String.contains?(error_message, "enomem") ->
+              {:pause, "Memory allocation failure - system may be out of memory"}
 
-          # File system issues
-          String.contains?(error_message, "enospc") ->
-            {:pause, "No space left on device"}
+            # File system issues
+            String.contains?(error_message, "enospc") ->
+              {:pause, "No space left on device"}
 
-          # Port/process issues
-          String.contains?(error_message, "port") or String.contains?(error_message, "process") ->
-            {:pause, "Process management failure"}
+            # Port/process issues
+            String.contains?(error_message, "port") or String.contains?(error_message, "process") ->
+              {:pause, "Process management failure"}
 
-          # Default to recoverable
-          true ->
-            {:continue, "Exception: #{error_message}"}
-        end
+            # Default to recoverable
+            true ->
+              {:continue, "Exception: #{error_message}"}
+          end
 
         case action do
           {:pause, reason} ->
@@ -424,13 +441,14 @@ defmodule Reencodarr.Encoder.Broadway do
 
     # Mark the video as failed and handle cleanup
     # Convert atom exit codes to integers for database storage
-    db_exit_code = case exit_code do
-      :port_error -> -1
-      :timeout -> -2
-      :exception -> -3
-      code when is_integer(code) -> code
-      _ -> -999
-    end
+    db_exit_code =
+      case exit_code do
+        :port_error -> -1
+        :timeout -> -2
+        :exception -> -3
+        code when is_integer(code) -> code
+        _ -> -999
+      end
 
     PostProcessor.process_encoding_failure(video, db_exit_code)
   end
