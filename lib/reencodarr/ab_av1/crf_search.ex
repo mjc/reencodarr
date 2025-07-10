@@ -57,11 +57,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       crf\s#{@crf_pattern}\s          # Capture CRF value
       VMAF\s#{@vmaf_score_pattern}\s  # Capture VMAF score
       predicted\svideo\sstream\ssize\s
-      (?<size>\d+\.\d+)\s              # Capture size
+      (?<size>\d+\.?\d*)\s             # Capture size (allow integers or decimals)
       (?<unit>\w+)\s                   # Capture unit
       #{@percent_pattern}\s           # Capture percentage
       taking\s
-      (?<time>\d+)\s                   # Capture time
+      (?<time>\d+\.?\d*)\s             # Capture time (allow integers or decimals)
       #{@time_unit_pattern}           # Capture time unit with optional plural
       (?:\s\(.*\))?
     /x,
@@ -79,7 +79,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       #{@eta_pattern}
     /x,
     success: ~r/
-      \[.*\]\s
+      (?:\[.*\]\s)?                   # Optional timestamp prefix
       crf\s#{@crf_pattern}\s          # Capture CRF value from this one to know which CRF was selected.
       successful
     /x
@@ -346,6 +346,19 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}"
         )
 
+        # Always insert the VMAF record, but log a warning if size exceeds 10GB
+        estimated_size_bytes = convert_size_to_bytes(captures["size"], captures["unit"])
+        # 10GB in bytes
+        max_size_bytes = 10 * 1024 * 1024 * 1024
+
+        if estimated_size_bytes && estimated_size_bytes > max_size_bytes do
+          estimated_size_gb = estimated_size_bytes / (1024 * 1024 * 1024)
+
+          Logger.warning(
+            "CrfSearch: VMAF CRF #{captures["crf"]} estimated file size (#{Float.round(estimated_size_gb, 2)} GB) exceeds 10GB limit for video #{video.id}. Recording VMAF but may fail if chosen."
+          )
+        end
+
         upsert_vmaf(Map.put(captures, "chosen", true), video, args)
         true
     end
@@ -393,7 +406,41 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
       captures ->
         Logger.debug("CrfSearch successful for CRF: #{captures["crf"]}")
+
+        # Mark VMAF as chosen first
         Media.mark_vmaf_as_chosen(video.id, captures["crf"])
+
+        # Check if the chosen VMAF has a file size estimate that exceeds 10GB
+        case get_vmaf_by_crf(video.id, captures["crf"]) do
+          nil ->
+            Logger.warning(
+              "CrfSearch: Could not find VMAF record for chosen CRF #{captures["crf"]} for video #{video.id}"
+            )
+
+          vmaf ->
+            case check_vmaf_size_limit(vmaf, video) do
+              :ok ->
+                Logger.info(
+                  "CrfSearch: Chosen VMAF CRF #{captures["crf"]} is within size limits for video #{video.id}"
+                )
+
+              {:error, :size_too_large} ->
+                Logger.error(
+                  "CrfSearch: Chosen VMAF CRF #{captures["crf"]} exceeds 10GB limit for video #{video.id}. Marking as failed."
+                )
+
+                # Mark the video as failed to prevent encoding
+                Media.mark_as_failed(video)
+
+                # Publish failure event to PubSub
+                Phoenix.PubSub.broadcast(
+                  Reencodarr.PubSub,
+                  "crf_search_events",
+                  {:crf_search_completed, video.id, {:error, :file_size_too_large}}
+                )
+            end
+        end
+
         true
     end
   end
@@ -593,6 +640,89 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp convert_to_number(_), do: nil
+
+  # Convert size with unit to bytes
+  defp convert_size_to_bytes(size_str, unit) when is_binary(size_str) and is_binary(unit) do
+    case Float.parse(size_str) do
+      {size_value, _} ->
+        multiplier =
+          case String.downcase(unit) do
+            "b" -> 1
+            "kb" -> 1024
+            "mb" -> 1024 * 1024
+            "gb" -> 1024 * 1024 * 1024
+            "tb" -> 1024 * 1024 * 1024 * 1024
+            _ -> nil
+          end
+
+        if multiplier, do: round(size_value * multiplier), else: nil
+
+      :error ->
+        nil
+    end
+  end
+
+  defp convert_size_to_bytes(_, _), do: nil
+
+  # Get VMAF record by video ID and CRF value
+  defp get_vmaf_by_crf(video_id, crf_str) do
+    case Float.parse(crf_str) do
+      {crf_float, _} ->
+        import Ecto.Query
+
+        query =
+          from v in Media.Vmaf,
+            where: v.video_id == ^video_id and v.crf == ^crf_float,
+            limit: 1
+
+        Repo.one(query)
+
+      :error ->
+        nil
+    end
+  end
+
+  # Check if VMAF's estimated size exceeds 10GB limit
+  defp check_vmaf_size_limit(vmaf, video) do
+    case vmaf.size do
+      nil ->
+        # No size info available, allow it
+        :ok
+
+      size_str when is_binary(size_str) ->
+        # Parse size string like "12.5 GB" or "8.2 MB"
+        case Regex.run(~r/^(\d+\.?\d*)\s+(\w+)$/, String.trim(size_str)) do
+          [_, size_value, unit] ->
+            estimated_size_bytes = convert_size_to_bytes(size_value, unit)
+            # 10GB in bytes
+            max_size_bytes = 10 * 1024 * 1024 * 1024
+
+            if estimated_size_bytes && estimated_size_bytes > max_size_bytes do
+              estimated_size_gb = estimated_size_bytes / (1024 * 1024 * 1024)
+
+              Logger.info(
+                "CrfSearch: VMAF estimated size #{Float.round(estimated_size_gb, 2)} GB exceeds 10GB limit for video #{video.id}"
+              )
+
+              {:error, :size_too_large}
+            else
+              :ok
+            end
+
+          nil ->
+            Logger.warning(
+              "CrfSearch: Could not parse size string '#{size_str}' for video #{video.id}"
+            )
+
+            # If we can't parse, allow it
+            :ok
+        end
+
+      _ ->
+        # Unknown size format, allow it
+        :ok
+    end
+  end
 
   defp parse_time(nil, _), do: nil
   defp parse_time(_, nil), do: nil

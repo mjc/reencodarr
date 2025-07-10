@@ -222,4 +222,117 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       assert vmaf.savings == 300_000_000
     end
   end
+
+  describe "10GB size limit" do
+    setup do
+      video = %{id: 3, path: "test_large_video.mkv", size: 20_000_000_000}
+      {:ok, video} = Media.create_video(video)
+      %{video: video}
+    end
+
+    test "marks video as failed when chosen VMAF estimated size exceeds 10GB", %{video: video} do
+      # First insert a VMAF that would exceed 10GB
+      eta_line = "crf 23 VMAF 95.2 predicted video stream size 12.5 GB (75%) taking 3 hours"
+      CrfSearch.process_line(eta_line, video, [], 95)
+
+      # Verify VMAF record was created (but not failed yet)
+      vmaf_count = Repo.aggregate(Vmaf, :count, :id)
+      assert vmaf_count == 1
+
+      # Verify video is not failed yet
+      reloaded_video = Repo.get(Media.Video, video.id)
+      assert reloaded_video.failed == false
+
+      # Now process the success line that marks this CRF as chosen
+      success_line = "crf 23 successful"
+      CrfSearch.process_line(success_line, video, [], 95)
+
+      # Now the video should be marked as failed
+      final_video = Repo.get(Media.Video, video.id)
+      assert final_video.failed == true
+
+      # Verify the VMAF is still there and marked as chosen
+      vmaf = Repo.one(Vmaf)
+      assert vmaf.chosen == true
+      assert vmaf.crf == 23.0
+    end
+
+    test "allows video when chosen VMAF estimated size is under 10GB", %{video: video} do
+      # Insert a VMAF that would be under 10GB
+      eta_line = "crf 25 VMAF 95.0 predicted video stream size 8.2 GB (60%) taking 2 hours"
+      CrfSearch.process_line(eta_line, video, [], 95)
+
+      # Process the success line
+      success_line = "crf 25 successful"
+      CrfSearch.process_line(success_line, video, [], 95)
+
+      # Video should not be marked as failed
+      reloaded_video = Repo.get(Media.Video, video.id)
+      assert reloaded_video.failed == false
+
+      # Verify VMAF record exists and is chosen
+      vmaf_count = Repo.aggregate(Vmaf, :count, :id)
+      assert vmaf_count == 1
+
+      vmaf = Repo.one(Vmaf)
+      assert vmaf.chosen == true
+      assert vmaf.crf == 25.0
+    end
+
+    test "allows multiple VMAF records but only fails if chosen one exceeds limit", %{
+      video: video
+    } do
+      # Insert multiple VMAFs, some over 10GB, some under
+      eta_line1 = "crf 20 VMAF 96.0 predicted video stream size 15.0 GB (85%) taking 4 hours"
+      eta_line2 = "crf 22 VMAF 95.5 predicted video stream size 12.0 GB (78%) taking 3.5 hours"
+      eta_line3 = "crf 24 VMAF 95.0 predicted video stream size 9.5 GB (65%) taking 3 hours"
+
+      CrfSearch.process_line(eta_line1, video, [], 95)
+      CrfSearch.process_line(eta_line2, video, [], 95)
+      CrfSearch.process_line(eta_line3, video, [], 95)
+
+      # All VMAFs should be created
+      vmaf_count = Repo.aggregate(Vmaf, :count, :id)
+      assert vmaf_count == 3
+
+      # Video should not be failed yet
+      reloaded_video = Repo.get(Media.Video, video.id)
+      assert reloaded_video.failed == false
+
+      # Choose the one under 10GB (CRF 24)
+      success_line = "crf 24 successful"
+      CrfSearch.process_line(success_line, video, [], 95)
+
+      # Video should not be failed
+      final_video = Repo.get(Media.Video, video.id)
+      assert final_video.failed == false
+
+      # Verify the correct VMAF is chosen
+      chosen_vmaf = Repo.one(from v in Vmaf, where: v.chosen == true)
+      assert chosen_vmaf.crf == 24.0
+    end
+
+    test "fails video when chosen VMAF exceeds limit even with multiple options", %{video: video} do
+      # Insert multiple VMAFs
+      eta_line1 = "crf 20 VMAF 96.0 predicted video stream size 15.0 GB (85%) taking 4 hours"
+      eta_line2 = "crf 22 VMAF 95.5 predicted video stream size 12.0 GB (78%) taking 3.5 hours"
+      eta_line3 = "crf 24 VMAF 95.0 predicted video stream size 9.5 GB (65%) taking 3 hours"
+
+      CrfSearch.process_line(eta_line1, video, [], 95)
+      CrfSearch.process_line(eta_line2, video, [], 95)
+      CrfSearch.process_line(eta_line3, video, [], 95)
+
+      # Choose the one over 10GB (CRF 22)
+      success_line = "crf 22 successful"
+      CrfSearch.process_line(success_line, video, [], 95)
+
+      # Video should be failed
+      final_video = Repo.get(Media.Video, video.id)
+      assert final_video.failed == true
+
+      # Verify the correct VMAF is chosen
+      chosen_vmaf = Repo.one(from v in Vmaf, where: v.chosen == true)
+      assert chosen_vmaf.crf == 22.0
+    end
+  end
 end
