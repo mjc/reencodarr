@@ -34,12 +34,12 @@ defmodule Reencodarr.Analyzer do
   Re-analyze a video by ID. This function maintains compatibility with the old API.
   """
   def reanalyze_video(video_id) do
-    Logger.info("🎭 Reanalyzing video with ID: #{video_id}")
+    Logger.debug("🎭 Reanalyzing video with ID: #{video_id}")
 
     %{path: path, service_id: service_id, service_type: service_type} =
       Reencodarr.Media.get_video!(video_id)
 
-    Logger.info("🎭 Found video at path: #{path}")
+    Logger.debug("🎭 Found video at path: #{path}")
 
     process_path(%{
       path: path,
