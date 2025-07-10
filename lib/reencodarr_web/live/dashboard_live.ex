@@ -269,15 +269,15 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp lcars_operations_panel(assigns) do
     ~H"""
-    <div class="bg-gray-900 border-2 border-yellow-400 rounded-lg overflow-hidden">
+    <div class="bg-gray-900 border-2 border-yellow-400 rounded-lg overflow-hidden h-64 sm:h-72 flex flex-col">
       <!-- LCARS Header -->
-      <div class="h-10 sm:h-12 bg-yellow-400 flex items-center px-3 sm:px-4">
+      <div class="h-10 sm:h-12 bg-yellow-400 flex items-center px-3 sm:px-4 flex-shrink-0">
         <span class="text-black font-bold tracking-wider text-sm sm:text-base">
           SYSTEM OPERATIONS
         </span>
       </div>
 
-      <div class="p-3 sm:p-4 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      <div class="p-3 sm:p-4 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 flex-1 overflow-hidden">
         <.lcars_operation_status
           title="CRF SEARCH"
           active={@status.crf_searching.active}
