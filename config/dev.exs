@@ -68,6 +68,15 @@ config :reencodarr, dev_routes: true
 
 # Do not include metadata nor timestamps in development logs
 config :logger, :console, format: "[$level] $message\n"
+
+# Configure file logging for capturing Broadway and encoding issues
+config :logger, :file,
+  path: "logs/reencodarr.log",
+  format: "$time [$level] $metadata $message\n",
+  metadata: [:pid, :module, :function, :line],
+  level: :info,
+  rotate: %{max_bytes: 10_485_760, keep: 5}  # 10MB files, keep 5 rotations
+
 config :logger, level: :info
 
 # Set a higher stacktrace during development. Avoid configuring such

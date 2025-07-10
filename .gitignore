@@ -40,3 +40,6 @@ npm-debug.log
 flake-inputs
 flake-profile*
 config/dev.overrides.exs
+
+# Log files
+/logs/
