@@ -79,7 +79,7 @@ defmodule Reencodarr.Media do
         join: vid in assoc(v, :video),
         where: v.chosen == true and vid.reencoded == false and vid.failed == false,
         order_by: [
-          desc: v.savings,
+          fragment("? DESC NULLS LAST", v.savings),
           asc: v.percent,
           asc: v.time
         ],
@@ -97,6 +97,15 @@ defmodule Reencodarr.Media do
       1 -> query_videos_by_criteria(1) |> List.first()
       _ -> query_videos_by_criteria(limit)
     end
+  end
+
+  def encoding_queue_count do
+    Repo.one(
+      from v in Vmaf,
+        join: vid in assoc(v, :video),
+        where: v.chosen == true and vid.reencoded == false and vid.failed == false,
+        select: count(v.id)
+    )
   end
 
   def create_video(attrs \\ %{}), do: %Video{} |> Video.changeset(attrs) |> Repo.insert()
@@ -377,7 +386,7 @@ defmodule Reencodarr.Media do
         from v in Vmaf,
           join: vid in assoc(v, :video),
           where: v.chosen == true and vid.reencoded == false and vid.failed == false,
-          order_by: [desc: v.savings, asc: v.time],
+          order_by: [fragment("? DESC NULLS LAST", v.savings), asc: v.time],
           limit: 1,
           preload: [:video]
       )

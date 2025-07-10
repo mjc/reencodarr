@@ -13,8 +13,7 @@ defmodule Reencodarr.Dashboard.QueueItem do
           bitrate: integer() | nil,
           size: integer() | nil,
           # Encoding specific
-          estimated_savings_gb: float() | nil,
-          vmaf_percent: float() | nil
+          estimated_savings_bytes: integer() | nil
         }
 
   defstruct [
@@ -24,8 +23,7 @@ defmodule Reencodarr.Dashboard.QueueItem do
     :estimated_percent,
     :bitrate,
     :size,
-    :estimated_savings_gb,
-    :vmaf_percent
+    :estimated_savings_bytes
   ]
 
   @doc """
@@ -41,30 +39,16 @@ defmodule Reencodarr.Dashboard.QueueItem do
       Map.has_key?(video, :video) and Map.has_key?(video, :percent) ->
         video_data = Map.get(video, :video, %{})
         video_size = Map.get(video_data, :size, 0)
-        percent = Map.get(video, :percent, 0)
 
-        # Use the savings field from the database if available, otherwise calculate
+        # Always use the savings field from the database - don't fallback to calculation
         estimated_savings_bytes = Map.get(video, :savings)
-
-        estimated_savings_gb =
-          if estimated_savings_bytes && is_integer(estimated_savings_bytes) do
-            estimated_savings_bytes / (1024 * 1024 * 1024)
-          else
-            # Fallback to calculation if savings field is not available
-            if video_size > 0 and percent > 0 and percent < 100 do
-              video_size * (100 - percent) / 100 / (1024 * 1024 * 1024)
-            else
-              nil
-            end
-          end
 
         %__MODULE__{
           index: index,
           path: path,
           display_name: clean_display_name(Path.basename(path)),
           estimated_percent: Map.get(video, :estimated_percent),
-          estimated_savings_gb: estimated_savings_gb,
-          vmaf_percent: percent,
+          estimated_savings_bytes: estimated_savings_bytes,
           size: video_size
         }
 
