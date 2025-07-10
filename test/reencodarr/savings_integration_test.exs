@@ -78,14 +78,14 @@ defmodule Reencodarr.SavingsIntegrationTest do
       next_video_updated = Media.get_next_for_encoding()
       assert next_video_updated.id == video2.id
 
-      # Mark video2 as encoding and verify video1 comes next
-      Repo.update!(Ecto.Changeset.change(video2, encoding: true))
+      # Mark video2 as reencoded and verify video1 comes next
+      Repo.update!(Ecto.Changeset.change(video2, reencoded: true))
       next_after_video2 = Media.get_next_for_encoding()
       assert next_after_video2.id == video.id
 
       # Verify queue count
       queue_count = Media.encoding_queue_count()
-      # Only video1 available (video2 is encoding)
+      # Only video1 available (video2 is reencoded)
       assert queue_count == 1
     end
 

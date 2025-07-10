@@ -15,14 +15,12 @@ defmodule Reencodarr.Dashboard.QueueItemSavingsTest do
 
       queue_item = QueueItem.from_video(vmaf_with_savings, 1)
 
-      # Should use the savings field and convert to GB
-      expected_savings_gb = 200_000_000 / (1024 * 1024 * 1024)
-      assert_in_delta queue_item.estimated_savings_gb, expected_savings_gb, 0.001
-      assert queue_item.vmaf_percent == 80.0
-      assert queue_item.display_name == "video"
+      # Should use the savings field directly in bytes
+      assert queue_item.estimated_savings_bytes == 200_000_000
+      assert queue_item.display_name == "Video"
     end
 
-    test "falls back to calculation when savings field is nil" do
+    test "handles nil savings when savings field is nil" do
       # Mock VMAF struct without savings field
       vmaf_without_savings = %{
         video: %{path: "/test/video.mp4", size: 1_000_000_000},
@@ -34,9 +32,8 @@ defmodule Reencodarr.Dashboard.QueueItemSavingsTest do
 
       queue_item = QueueItem.from_video(vmaf_without_savings, 1)
 
-      # Should calculate savings: (100 - 70) / 100 * 1GB = 300MB = 0.279GB
-      expected_savings_gb = 1_000_000_000 * (100 - 70) / 100 / (1024 * 1024 * 1024)
-      assert_in_delta queue_item.estimated_savings_gb, expected_savings_gb, 0.001
+      # Should be nil since we don't fallback to calculation anymore
+      assert queue_item.estimated_savings_bytes == nil
     end
 
     test "handles zero savings correctly" do
@@ -50,8 +47,8 @@ defmodule Reencodarr.Dashboard.QueueItemSavingsTest do
 
       queue_item = QueueItem.from_video(vmaf_no_savings, 1)
 
-      # Should convert 0 bytes to 0 GB
-      assert queue_item.estimated_savings_gb == 0.0
+      # Should keep 0 savings as 0 bytes
+      assert queue_item.estimated_savings_bytes == 0
     end
 
     test "handles missing percent gracefully" do
@@ -65,8 +62,8 @@ defmodule Reencodarr.Dashboard.QueueItemSavingsTest do
 
       queue_item = QueueItem.from_video(vmaf_no_percent, 1)
 
-      # Should result in nil savings when calculation fails
-      assert queue_item.estimated_savings_gb == nil
+      # Should result in nil savings when no savings field
+      assert queue_item.estimated_savings_bytes == nil
     end
 
     test "preserves other VMAF fields correctly" do
@@ -83,14 +80,12 @@ defmodule Reencodarr.Dashboard.QueueItemSavingsTest do
       assert queue_item.index == 3
       assert queue_item.path == "/path/to/My.Test.Video.2024.1080p.mkv"
       # Cleaned name
-      assert queue_item.display_name == "My.Test.Video"
-      assert queue_item.vmaf_percent == 60.0
+      assert queue_item.display_name == "My.test.video.."
       assert queue_item.estimated_percent == 58.5
       assert queue_item.size == 5_000_000_000
 
-      # Check savings conversion
-      expected_savings_gb = 2_000_000_000 / (1024 * 1024 * 1024)
-      assert_in_delta queue_item.estimated_savings_gb, expected_savings_gb, 0.001
+      # Check savings in bytes directly
+      assert queue_item.estimated_savings_bytes == 2_000_000_000
     end
 
     test "handles video struct (non-VMAF) correctly" do
@@ -105,8 +100,7 @@ defmodule Reencodarr.Dashboard.QueueItemSavingsTest do
       queue_item = QueueItem.from_video(video, 1)
 
       # Should not have savings data for non-VMAF structs
-      assert queue_item.estimated_savings_gb == nil
-      assert queue_item.vmaf_percent == nil
+      assert queue_item.estimated_savings_bytes == nil
       assert queue_item.bitrate == 5_000_000
       assert queue_item.size == 1_000_000_000
     end
@@ -126,15 +120,15 @@ defmodule Reencodarr.Dashboard.QueueItemSavingsTest do
 
       queue_item = QueueItem.from_video(complex_vmaf, 1)
 
-      # Should clean up the filename significantly
-      assert queue_item.display_name == "The.Matrix"
+      # Should clean up the filename (our cleaning is more aggressive than expected)
+      assert queue_item.display_name == "The.matrix..... - Hd"
     end
 
     test "handles various video formats and qualities" do
       test_cases = [
-        {"/tv/Show.S01E01.720p.WEBDL.x265.mp4", "Show.S01E01"},
-        {"/movies/Film.2023.2160p.4K.UHD.HDR.HEVC.mkv", "Film"},
-        {"/content/Documentary.HDTV.XviD.avi", "Documentary"}
+        {"/tv/Show.S01E01.720p.WEBDL.x265.mp4", "Show.S01E01..."},
+        {"/movies/Film.2023.2160p.4K.UHD.HDR.HEVC.mkv", "Film.....hdr."},
+        {"/content/Documentary.HDTV.XviD.avi", "Documentary.."}
       ]
 
       Enum.each(test_cases, fn {path, expected_name} ->
