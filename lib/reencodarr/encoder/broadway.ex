@@ -26,7 +26,9 @@ defmodule Reencodarr.Encoder.Broadway do
   # Configuration constants
   @default_config [
     rate_limit_messages: 5,
-    rate_limit_interval: 1_000
+    rate_limit_interval: 1_000,
+    # 30 days (1 month) default timeout for encoding operations
+    encoding_timeout: 2_592_000_000
   ]
 
   @doc """
@@ -37,12 +39,16 @@ defmodule Reencodarr.Encoder.Broadway do
     * `:rate_limit_interval` - Rate limit interval in milliseconds (default: 1000)
     * `:batch_size` - Number of messages per batch (default: 1)
     * `:batch_timeout` - Batch timeout in milliseconds (default: 10000)
+    * `:encoding_timeout` - Encoding timeout in milliseconds (default: 2592000000 = 30 days)
 
   ## Examples
       iex> Reencodarr.Encoder.Broadway.start_link([])
       {:ok, pid}
 
       iex> Reencodarr.Encoder.Broadway.start_link([rate_limit_messages: 3])
+      {:ok, pid}
+
+      iex> Reencodarr.Encoder.Broadway.start_link([encoding_timeout: 14400000])  # 4 hours
       {:ok, pid}
   """
   @spec start_link(config()) :: GenServer.on_start()
@@ -65,7 +71,10 @@ defmodule Reencodarr.Encoder.Broadway do
           concurrency: 1,
           max_demand: 1
         ]
-      ]
+      ],
+      context: %{
+        encoding_timeout: config[:encoding_timeout]
+      }
     )
   end
 
@@ -140,11 +149,11 @@ defmodule Reencodarr.Encoder.Broadway do
   # Broadway callbacks
 
   @impl Broadway
-  def handle_message(_processor_name, message, _context) do
+  def handle_message(_processor_name, message, context) do
     # Start encoding asynchronously but wait for completion to maintain single-concurrency
     task =
       Task.async(fn ->
-        process_vmaf_encoding(message.data)
+        process_vmaf_encoding(message.data, context)
       end)
 
     # Wait for the task to complete - process_vmaf_encoding handles all logging internally
@@ -179,8 +188,8 @@ defmodule Reencodarr.Encoder.Broadway do
 
   # Private functions
 
-  @spec process_vmaf_encoding(vmaf()) :: :ok | {:error, term()}
-  defp process_vmaf_encoding(vmaf) do
+  @spec process_vmaf_encoding(vmaf(), map()) :: :ok | {:error, term()}
+  defp process_vmaf_encoding(vmaf, context) do
     Logger.info("Broadway: Starting encoding for VMAF #{vmaf.id}: #{vmaf.video.path}")
 
     # Import necessary modules
@@ -221,7 +230,9 @@ defmodule Reencodarr.Encoder.Broadway do
           Logger.debug("Broadway: Port opened successfully: #{inspect(port)}")
 
           # Handle the encoding process synchronously within Broadway
-          result = handle_encoding_process(port, vmaf, output_file)
+          # Default to 30 days
+          encoding_timeout = Map.get(context, :encoding_timeout, 2_592_000_000)
+          result = handle_encoding_process(port, vmaf, output_file, encoding_timeout)
 
           case result do
             {:ok, :success} ->
@@ -323,9 +334,9 @@ defmodule Reencodarr.Encoder.Broadway do
     end
   end
 
-  @spec handle_encoding_process(port(), vmaf(), String.t()) ::
+  @spec handle_encoding_process(port(), vmaf(), String.t(), integer()) ::
           {:ok, :success} | {:error, integer()}
-  defp handle_encoding_process(port, vmaf, output_file) do
+  defp handle_encoding_process(port, vmaf, output_file, encoding_timeout) do
     # Initialize state for progress tracking
     state = %{
       port: port,
@@ -336,11 +347,11 @@ defmodule Reencodarr.Encoder.Broadway do
     }
 
     # Process port messages until completion
-    process_port_messages(state)
+    process_port_messages(state, encoding_timeout)
   end
 
-  @spec process_port_messages(map()) :: {:ok, :success} | {:error, integer()}
-  defp process_port_messages(state) do
+  @spec process_port_messages(map(), integer()) :: {:ok, :success} | {:error, integer()}
+  defp process_port_messages(state, encoding_timeout) do
     receive do
       {port, {:data, {:eol, data}}} when port == state.port ->
         full_line = state.partial_line_buffer <> data
@@ -349,12 +360,12 @@ defmodule Reencodarr.Encoder.Broadway do
 
         # Yield control back to the scheduler to allow Broadway metrics to update
         Process.sleep(1)
-        process_port_messages(new_state)
+        process_port_messages(new_state, encoding_timeout)
 
       {port, {:data, {:noeol, message}}} when port == state.port ->
         new_buffer = state.partial_line_buffer <> message
         new_state = %{state | partial_line_buffer: new_buffer}
-        process_port_messages(new_state)
+        process_port_messages(new_state, encoding_timeout)
 
       {port, {:exit_status, exit_code}} when port == state.port ->
         Logger.info("Broadway: Process exit status: #{exit_code} for VMAF #{state.vmaf.id}")
@@ -381,9 +392,15 @@ defmodule Reencodarr.Encoder.Broadway do
           {:error, exit_code}
         end
     after
-      300_000 ->
-        # Timeout after 5 minutes of no activity (encoding can take a long time)
-        Logger.error("Broadway: Encoding timeout for VMAF #{state.vmaf.id}")
+      encoding_timeout ->
+        # Timeout after configured duration (default 30 days for very large files)
+        # Convert to days for logging
+        timeout_days = encoding_timeout / 86_400_000
+
+        Logger.error(
+          "Broadway: Encoding timeout for VMAF #{state.vmaf.id} after #{timeout_days} days"
+        )
+
         Port.close(state.port)
 
         # Publish timeout event to PubSub

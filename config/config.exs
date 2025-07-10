@@ -79,7 +79,11 @@ config :reencodarr, Reencodarr.Encoder.Broadway,
   rate_limit_messages: 5,
   rate_limit_interval: 1_000,
   batch_size: 1,
-  batch_timeout: 10_000
+  batch_timeout: 10_000,
+  # Encoding timeout in milliseconds (default: 2 hours for large files)
+  # For very large 4K files or slow systems, consider increasing to 4-8 hours
+  # 2 hours
+  encoding_timeout: 7_200_000
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
