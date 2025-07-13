@@ -111,24 +111,47 @@ defmodule Reencodarr.Media do
   def create_video(attrs \\ %{}), do: %Video{} |> Video.changeset(attrs) |> Repo.insert()
 
   def upsert_video(attrs) do
-    result =
+    attrs = ensure_library_id(attrs)
+    path = Map.get(attrs, :path) || Map.get(attrs, "path")
+    new_size = Map.get(attrs, :size) || Map.get(attrs, "size")
+    new_bitrate = Map.get(attrs, :bitrate) || Map.get(attrs, "bitrate")
+
+    result = Repo.transaction(fn ->
+      # Efficiently check if we need to delete VMAFs
+      if new_size || new_bitrate do
+        video_info = Repo.one(
+          from v in Video,
+            where: v.path == ^path and v.reencoded == false and v.failed == false,
+            select: %{id: v.id, size: v.size, bitrate: v.bitrate}
+        )
+
+        case video_info do
+          %{id: video_id, size: old_size, bitrate: old_bitrate}
+            when (not is_nil(new_size) and new_size != old_size) or
+                 (not is_nil(new_bitrate) and new_bitrate != old_bitrate) ->
+            from(v in Vmaf, where: v.video_id == ^video_id) |> Repo.delete_all()
+          _ ->
+            :ok
+        end
+      end
+
       attrs
-      |> ensure_library_id()
       |> Video.changeset()
       |> Repo.insert(
         on_conflict: {:replace_all_except, [:id, :inserted_at, :reencoded, :failed]},
         conflict_target: :path
       )
+    end)
 
     case result do
-      {:ok, video} ->
+      {:ok, {:ok, video}} ->
         Reencodarr.Telemetry.emit_video_upserted(video)
-
-      _ ->
-        :ok
+        {:ok, video}
+      {:ok, error} ->
+        error
+      {:error, _} = error ->
+        error
     end
-
-    result
   end
 
   defp ensure_library_id(%{library_id: nil} = attrs),
@@ -440,5 +463,51 @@ defmodule Reencodarr.Media do
       from(v in Vmaf, where: v.video_id in ^video_ids_with_no_chosen_vmafs)
       |> Repo.delete_all()
     end)
+  end
+
+  # --- Bulk operations ---
+
+  @doc """
+  Reset all videos for reanalysis by clearing their bitrate.
+  This is much more efficient than calling Analyzer.reanalyze_video/1 for each video.
+  Videos will be automatically picked up by the analyzer when there's demand.
+  VMAFs will be deleted automatically when videos are re-analyzed and their properties change.
+  """
+  def reset_all_videos_for_reanalysis do
+    from(v in Video,
+      where: v.reencoded == false and v.failed == false,
+      update: [set: [bitrate: 0]]
+    ) |> Repo.update_all([])
+  end
+
+  @doc """
+  Reset videos for reanalysis in batches to avoid overwhelming the Broadway queue.
+  VMAFs will be deleted automatically when videos are re-analyzed and their properties change.
+  """
+  def reset_videos_for_reanalysis_batched(batch_size \\ 1000) do
+    videos_to_reset = from(v in Video,
+      where: v.reencoded == false and v.failed == false,
+      select: %{id: v.id}
+    ) |> Repo.all()
+
+    total_videos = length(videos_to_reset)
+    Logger.info("Resetting #{total_videos} videos for reanalysis in batches of #{batch_size}")
+
+    videos_to_reset
+    |> Enum.chunk_every(batch_size)
+    |> Enum.with_index()
+    |> Enum.each(fn {batch, index} ->
+      Logger.info("Processing batch #{index + 1}/#{div(total_videos, batch_size) + 1}")
+
+      # Reset bitrate for this batch
+      video_ids = Enum.map(batch, & &1.id)
+      from(v in Video, where: v.id in ^video_ids, update: [set: [bitrate: 0]])
+      |> Repo.update_all([])
+
+      # Small delay to prevent overwhelming the system
+      Process.sleep(100)
+    end)
+
+    Logger.info("Completed resetting videos for reanalysis")
   end
 end
