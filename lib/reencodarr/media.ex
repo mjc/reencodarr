@@ -79,6 +79,8 @@ defmodule Reencodarr.Media do
         join: vid in assoc(v, :video),
         where: v.chosen == true and vid.reencoded == false and vid.failed == false,
         order_by: [
+          # Alternate by library_id, then by quality within each library
+          fragment("? % (SELECT COUNT(DISTINCT library_id) FROM videos WHERE library_id IS NOT NULL)", vid.library_id),
           fragment("? DESC NULLS LAST", v.savings),
           asc: v.percent,
           asc: v.time
@@ -160,14 +162,28 @@ defmodule Reencodarr.Media do
   end
 
   defp ensure_library_id(%{library_id: nil} = attrs),
-    do: %{attrs | library_id: find_library_id(attrs[:path])}
+    do: Map.put(attrs, :library_id, find_library_id(attrs[:path]))
 
-  defp ensure_library_id(attrs), do: attrs
+  defp ensure_library_id(%{library_id: _} = attrs), do: attrs
 
-  defp find_library_id(path),
-    do:
-      from(l in Library, where: like(^path, fragment("concat(?, '%')", l.path)), select: l.id)
-      |> Repo.one()
+  defp ensure_library_id(attrs) do
+    path = Map.get(attrs, :path) || Map.get(attrs, "path")
+    Map.put(attrs, :library_id, find_library_id(path))
+  end
+
+  defp find_library_id(path) when is_binary(path) do
+    # Find the library with the longest matching path (most specific)
+    # Video path should start with library path
+    from(l in Library,
+      where: like(^path, fragment("concat(?, '%')", l.path)),
+      order_by: [desc: fragment("length(?)", l.path)],
+      select: l.id,
+      limit: 1
+    )
+    |> Repo.one()
+  end
+
+  defp find_library_id(_), do: nil
 
   def update_video(%Video{} = video, attrs), do: video |> Video.changeset(attrs) |> Repo.update()
   def delete_video(%Video{} = video), do: Repo.delete(video)
@@ -572,5 +588,24 @@ defmodule Reencodarr.Media do
       nil ->
         {:error, "Video not found at path: #{video_path}"}
     end
+  end
+
+  @doc """
+  Debug function to show how the encoding queue alternates between libraries.
+  """
+  def debug_encoding_queue_libraries(limit \\ 10) do
+    videos = query_videos_by_criteria(limit)
+
+    videos
+    |> Enum.with_index()
+    |> Enum.map(fn {vmaf, index} ->
+      %{
+        position: index + 1,
+        library_id: vmaf.video.library_id,
+        video_path: vmaf.video.path,
+        percent: vmaf.percent,
+        savings: vmaf.savings
+      }
+    end)
   end
 end
