@@ -15,7 +15,8 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     defstruct [
       :demand,
       :paused,
-      :manual_queue
+      :manual_queue,
+      :processing
     ]
   end
 
@@ -128,12 +129,15 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   def init(_opts) do
     # Subscribe to media events that indicate new items are available
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "media_events")
+    # Subscribe to analyzer events to know when analysis completes
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "analyzer_events")
 
     # Start in paused state by default for safety
     state = %State{
       demand: 0,
       paused: true,
-      manual_queue: []
+      manual_queue: [],
+      processing: false
     }
 
     # Broadcast initial empty queue state
@@ -192,7 +196,13 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   def handle_demand(demand, state) when demand > 0 do
     Logger.debug("Broadway producer received demand for #{demand} items")
     new_state = %{state | demand: state.demand + demand}
-    dispatch_if_ready(new_state)
+    # Only dispatch if we're not already processing something
+    if not state.processing do
+      dispatch_if_ready(new_state)
+    else
+      # If we're already processing, just store the demand for later
+      {:noreply, [], new_state}
+    end
   end
 
   @impl GenStage
@@ -208,6 +218,14 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   end
 
   @impl GenStage
+  def handle_info({:analysis_completed, _video_id, _result}, state) do
+    # Analysis completed (success or failure), mark as not processing and try to dispatch next
+    Logger.debug("Producer: Received analysis completion notification")
+    new_state = %{state | processing: false}
+    dispatch_if_ready(new_state)
+  end
+
+  @impl GenStage
   def handle_info(_msg, state) do
     # Ignore other PubSub messages
     {:noreply, [], state}
@@ -216,10 +234,10 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   # Helper function to reduce duplication
   defp dispatch_if_ready(state) do
     Logger.debug(
-      "dispatch_if_ready called - demand: #{state.demand}, paused: #{state.paused}, queue size: #{length(state.manual_queue)}"
+      "dispatch_if_ready called - demand: #{state.demand}, paused: #{state.paused}, processing: #{state.processing}, queue size: #{length(state.manual_queue)}"
     )
 
-    if should_dispatch?(state) do
+    if should_dispatch?(state) and state.demand > 0 do
       Logger.debug("Conditions met, dispatching videos")
       dispatch_videos(state)
     else
@@ -259,42 +277,70 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   end
 
   defp should_dispatch?(state) do
-    not state.paused and state.demand > 0 and not Enum.empty?(state.manual_queue)
+    result = not state.paused and not state.processing and analysis_available?()
+
+    Logger.debug(
+      "should_dispatch? paused: #{state.paused}, processing: #{state.processing}, analysis_available: #{analysis_available?()}, result: #{result}"
+    )
+
+    result
+  end
+
+  # Check if the analysis system is ready to process videos
+  defp analysis_available? do
+    # For now, we'll assume analysis is always available since it's done in Broadway
+    # In the future, this could check system resources or other constraints
+    true
   end
 
   defp dispatch_videos(state) do
-    # First, dispatch any manually queued videos (e.g., force_reanalyze)
-    {manual_videos, remaining_manual} = Enum.split(state.manual_queue, state.demand)
+    Logger.debug(
+      "dispatch_videos called with processing: #{state.processing}, demand: #{state.demand}"
+    )
 
-    dispatched_count = length(manual_videos)
-    remaining_demand = state.demand - dispatched_count
+    # Mark as processing immediately to prevent duplicate dispatches
+    updated_state = %{state | processing: true}
+    Logger.debug("Setting processing: true")
 
-    # If we still have demand after manual videos, get videos from the database
-    database_videos =
-      if remaining_demand > 0 do
-        Media.get_next_for_analysis(remaining_demand)
-      else
-        []
-      end
+    # Get next video from queue or database (single item to match encoder pattern)
+    case get_next_video(updated_state) do
+      {nil, new_state} ->
+        Logger.debug("No video available, resetting processing flag")
+        # No video available, reset processing flag
+        {:noreply, [], %{new_state | processing: false}}
 
-    all_videos = manual_videos ++ database_videos
+      {video, new_state} ->
+        Logger.debug("Dispatching video #{video.path} for analysis")
+        # Decrement demand but keep processing: true
+        final_state = %{new_state | demand: state.demand - 1}
 
-    case all_videos do
+        Logger.debug(
+          "Final state: processing: #{final_state.processing}, demand: #{final_state.demand}"
+        )
+
+        {:noreply, [video], final_state}
+    end
+  end
+
+  defp get_next_video(state) do
+    case state.manual_queue do
+      [video | remaining_queue] ->
+        new_state = %{state | manual_queue: remaining_queue}
+        # Broadcast queue state change
+        broadcast_queue_state(remaining_queue)
+        {video, new_state}
+
       [] ->
-        # No videos available, keep the demand for later
-        {:noreply, [], state}
-
-      videos ->
-        Logger.debug("Broadway producer dispatching #{length(videos)} videos for analysis")
-        new_demand = state.demand - length(videos)
-        new_state = %{state | demand: new_demand, manual_queue: remaining_manual}
-
-        # Broadcast queue state change if manual queue changed
-        if length(remaining_manual) != length(state.manual_queue) do
-          broadcast_queue_state(remaining_manual)
+        case Media.get_next_for_analysis(1) do
+          # Handle case where a single video is returned
+          %{path: _} = video -> {video, state}
+          # Handle case where a list is returned
+          [video | _] -> {video, state}
+          # Handle case where an empty list is returned
+          [] -> {nil, state}
+          # Handle case where nil is returned
+          nil -> {nil, state}
         end
-
-        {:noreply, videos, new_state}
     end
   end
 
@@ -346,7 +392,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     state = GenStage.call(producer_pid, :get_state, 1000)
 
     IO.puts(
-      "State: demand=#{state.demand}, paused=#{state.paused}, queue_size=#{length(state.manual_queue)}"
+      "State: demand=#{state.demand}, paused=#{state.paused}, processing=#{state.processing}, queue_size=#{length(state.manual_queue)}"
     )
 
     if not Enum.empty?(state.manual_queue) do
