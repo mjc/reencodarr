@@ -8,7 +8,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   use GenStage
   require Logger
-  alias Reencodarr.Media
+  alias Reencodarr.{Media, Telemetry}
 
   @broadway_name Reencodarr.Analyzer.Broadway
 
@@ -76,6 +76,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   @impl GenStage
   def handle_cast(:pause, state) do
     Logger.info("Analyzer paused")
+    Telemetry.emit_analyzer_paused()
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :paused})
     {:noreply, [], %{state | paused: true}}
   end
@@ -83,6 +84,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   @impl GenStage
   def handle_cast(:resume, state) do
     Logger.info("Analyzer resumed")
+    Telemetry.emit_analyzer_started()
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :started})
     new_state = %{state | paused: false}
     dispatch_if_ready(new_state)
