@@ -116,7 +116,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   @impl GenStage
   def handle_info({:batch_analysis_completed, _batch_size}, state) do
     # Batch analysis completed, mark as not processing and try to dispatch next
-    Logger.info("Producer: Received batch analysis completion notification")
+    Logger.debug("Producer: Received batch analysis completion notification")
     new_state = %{state | processing: false}
     dispatch_if_ready(new_state)
   end
