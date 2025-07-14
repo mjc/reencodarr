@@ -116,39 +116,44 @@ defmodule Reencodarr.Media do
     new_size = Map.get(attrs, :size) || Map.get(attrs, "size")
     new_bitrate = Map.get(attrs, :bitrate) || Map.get(attrs, "bitrate")
 
-    result = Repo.transaction(fn ->
-      # Efficiently check if we need to delete VMAFs
-      if new_size || new_bitrate do
-        video_info = Repo.one(
-          from v in Video,
-            where: v.path == ^path and v.reencoded == false and v.failed == false,
-            select: %{id: v.id, size: v.size, bitrate: v.bitrate}
-        )
+    result =
+      Repo.transaction(fn ->
+        # Efficiently check if we need to delete VMAFs
+        if new_size || new_bitrate do
+          video_info =
+            Repo.one(
+              from v in Video,
+                where: v.path == ^path and v.reencoded == false and v.failed == false,
+                select: %{id: v.id, size: v.size, bitrate: v.bitrate}
+            )
 
-        case video_info do
-          %{id: video_id, size: old_size, bitrate: old_bitrate}
+          case video_info do
+            %{id: video_id, size: old_size, bitrate: old_bitrate}
             when (not is_nil(new_size) and new_size != old_size) or
-                 (not is_nil(new_bitrate) and new_bitrate != old_bitrate) ->
-            from(v in Vmaf, where: v.video_id == ^video_id) |> Repo.delete_all()
-          _ ->
-            :ok
-        end
-      end
+                   (not is_nil(new_bitrate) and new_bitrate != old_bitrate) ->
+              from(v in Vmaf, where: v.video_id == ^video_id) |> Repo.delete_all()
 
-      attrs
-      |> Video.changeset()
-      |> Repo.insert(
-        on_conflict: {:replace_all_except, [:id, :inserted_at, :reencoded, :failed]},
-        conflict_target: :path
-      )
-    end)
+            _ ->
+              :ok
+          end
+        end
+
+        attrs
+        |> Video.changeset()
+        |> Repo.insert(
+          on_conflict: {:replace_all_except, [:id, :inserted_at, :reencoded, :failed]},
+          conflict_target: :path
+        )
+      end)
 
     case result do
       {:ok, {:ok, video}} ->
         Reencodarr.Telemetry.emit_video_upserted(video)
         {:ok, video}
+
       {:ok, error} ->
         error
+
       {:error, _} = error ->
         error
     end
@@ -477,7 +482,8 @@ defmodule Reencodarr.Media do
     from(v in Video,
       where: v.reencoded == false and v.failed == false,
       update: [set: [bitrate: 0]]
-    ) |> Repo.update_all([])
+    )
+    |> Repo.update_all([])
   end
 
   @doc """
@@ -485,10 +491,12 @@ defmodule Reencodarr.Media do
   VMAFs will be deleted automatically when videos are re-analyzed and their properties change.
   """
   def reset_videos_for_reanalysis_batched(batch_size \\ 1000) do
-    videos_to_reset = from(v in Video,
-      where: v.reencoded == false and v.failed == false,
-      select: %{id: v.id}
-    ) |> Repo.all()
+    videos_to_reset =
+      from(v in Video,
+        where: v.reencoded == false and v.failed == false,
+        select: %{id: v.id}
+      )
+      |> Repo.all()
 
     total_videos = length(videos_to_reset)
     Logger.info("Resetting #{total_videos} videos for reanalysis in batches of #{batch_size}")
@@ -501,6 +509,7 @@ defmodule Reencodarr.Media do
 
       # Reset bitrate for this batch
       video_ids = Enum.map(batch, & &1.id)
+
       from(v in Video, where: v.id in ^video_ids, update: [set: [bitrate: 0]])
       |> Repo.update_all([])
 
@@ -509,5 +518,59 @@ defmodule Reencodarr.Media do
     end)
 
     Logger.info("Completed resetting videos for reanalysis")
+  end
+
+  @doc """
+  Reset all failed videos to not failed in a single bulk operation.
+  """
+  def reset_failed_videos do
+    from(v in Video, where: v.failed == true, update: [set: [failed: false]])
+    |> Repo.update_all([])
+  end
+
+  # --- Debug helpers ---
+
+  @doc """
+  Debug function to check the analyzer state and queue status.
+  """
+  def debug_analyzer_status do
+    %{
+      analyzer_running: Reencodarr.Analyzer.running?(),
+      videos_needing_analysis: get_next_for_analysis(5),
+      manual_queue: manual_analyzer_items(),
+      total_analyzer_queue_count:
+        length(get_next_for_analysis(100)) + length(manual_analyzer_items())
+    }
+  end
+
+  @doc """
+  Force trigger analysis of a specific video for debugging.
+  """
+  def debug_force_analyze_video(video_path) when is_binary(video_path) do
+    case get_video_by_path(video_path) do
+      %{path: path, service_id: service_id, service_type: service_type} = video ->
+        Logger.info("🐛 Force analyzing video: #{path}")
+
+        # Try both approaches
+        result1 =
+          Reencodarr.Analyzer.process_path(%{
+            path: path,
+            service_id: service_id,
+            service_type: service_type,
+            force_reanalyze: true
+          })
+
+        result2 = Reencodarr.Analyzer.reanalyze_video(video.id)
+
+        %{
+          video: video,
+          process_path_result: result1,
+          reanalyze_video_result: result2,
+          broadway_running: Reencodarr.Analyzer.running?()
+        }
+
+      nil ->
+        {:error, "Video not found at path: #{video_path}"}
+    end
   end
 end
