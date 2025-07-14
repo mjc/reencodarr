@@ -215,12 +215,14 @@ defmodule Reencodarr.Analyzer.Broadway do
 
       {:error, reason} ->
         Logger.error("Failed to process video #{video_info.path}: #{reason}")
+        mark_video_as_failed(video_info.path, reason)
         :error
     end
   rescue
     e ->
       Logger.error("Unexpected error processing #{video_info.path}: #{inspect(e)}")
       Logger.error("Stacktrace: #{inspect(__STACKTRACE__)}")
+      mark_video_as_failed(video_info.path, "Exception: #{Exception.message(e)}")
       :error
   end
 
@@ -238,11 +240,13 @@ defmodule Reencodarr.Analyzer.Broadway do
 
       {:error, reason} ->
         Logger.error("Failed to process video #{video_info.path}: #{reason}")
+        mark_video_as_failed(video_info.path, reason)
         :error
     end
   rescue
     e ->
       Logger.error("Unexpected error processing #{video_info.path}: #{inspect(e)}")
+      mark_video_as_failed(video_info.path, "Exception: #{Exception.message(e)}")
       :error
   end
 
@@ -301,8 +305,6 @@ defmodule Reencodarr.Analyzer.Broadway do
         {:error, "error parsing JSON: #{inspect(e)}"}
     end
   end
-
-  # ...existing code...
 
   defp execute_batch_mediainfo_command(paths) when is_list(paths) and paths != [] do
     Logger.debug("Executing batch mediainfo command for #{length(paths)} files")
@@ -481,6 +483,25 @@ defmodule Reencodarr.Analyzer.Broadway do
       {:error, changeset} ->
         Logger.error("Failed to upsert video #{video_info.path}: #{inspect(changeset.errors)}")
         {:error, "failed to upsert video"}
+    end
+  end
+
+  defp mark_video_as_failed(path, reason) do
+    Logger.warning("Marking video as failed due to analysis error: #{path} - #{reason}")
+
+    case Media.get_video_by_path(path) do
+      %Media.Video{} = video ->
+        case Media.mark_as_failed(video) do
+          {:ok, _} ->
+            Logger.info("Successfully marked video #{video.id} as failed")
+            :ok
+          {:error, error} ->
+            Logger.error("Failed to mark video #{video.id} as failed: #{inspect(error)}")
+            :error
+        end
+      nil ->
+        Logger.warning("Video not found in database, cannot mark as failed: #{path}")
+        :ok
     end
   end
 end
