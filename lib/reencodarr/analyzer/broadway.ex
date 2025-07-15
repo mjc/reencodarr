@@ -468,10 +468,10 @@ defmodule Reencodarr.Analyzer.Broadway do
     # Add service metadata
     attrs =
       Map.merge(video_params, %{
-        path: video_info.path,
-        service_id: video_info.service_id,
-        service_type: video_info.service_type,
-        mediainfo: validated_mediainfo
+        "path" => video_info.path,
+        "service_id" => video_info.service_id,
+        "service_type" => to_string(video_info.service_type),
+        "mediainfo" => validated_mediainfo
       })
 
     # Upsert the video record
@@ -495,10 +495,12 @@ defmodule Reencodarr.Analyzer.Broadway do
           {:ok, _} ->
             Logger.info("Successfully marked video #{video.id} as failed")
             :ok
+
           {:error, error} ->
             Logger.error("Failed to mark video #{video.id} as failed: #{inspect(error)}")
             :error
         end
+
       nil ->
         Logger.warning("Video not found in database, cannot mark as failed: #{path}")
         :ok

@@ -170,7 +170,7 @@ defmodule Reencodarr.Sync do
       Reencodarr.Analyzer.process_path(%{
         path: info.path,
         service_id: info.service_id,
-        service_type: service_type
+        service_type: to_string(service_type)
       })
     end)
   end
@@ -184,7 +184,7 @@ defmodule Reencodarr.Sync do
     Reencodarr.Analyzer.process_path(%{
       path: info.path,
       service_id: info.service_id,
-      service_type: service_type
+      service_type: to_string(service_type)
     })
   end
 
@@ -217,7 +217,7 @@ defmodule Reencodarr.Sync do
         "path" => updated_info.path,
         "size" => updated_info.size,
         "service_id" => updated_info.service_id,
-        "service_type" => updated_info.service_type,
+        "service_type" => to_string(updated_info.service_type),
         "mediainfo" => mediainfo,
         "bitrate" => updated_info.bitrate
       })

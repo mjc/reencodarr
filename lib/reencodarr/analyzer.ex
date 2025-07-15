@@ -44,7 +44,7 @@ defmodule Reencodarr.Analyzer do
     process_path(%{
       path: path,
       service_id: service_id,
-      service_type: service_type,
+      service_type: to_string(service_type),
       force_reanalyze: true
     })
   end

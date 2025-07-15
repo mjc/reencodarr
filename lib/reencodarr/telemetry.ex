@@ -32,6 +32,17 @@ defmodule Reencodarr.Telemetry do
     )
   end
 
+  def emit_encoder_paused do
+    require Logger
+    Logger.info("🚨 Telemetry: Emitting encoder paused event")
+
+    safe_telemetry_execute(
+      [:reencodarr, :encoder, :paused],
+      %{},
+      %{}
+    )
+  end
+
   def emit_encoder_failed(exit_code, video) do
     safe_telemetry_execute(
       [:reencodarr, :encoder, :failed],
@@ -67,6 +78,17 @@ defmodule Reencodarr.Telemetry do
     )
   end
 
+  def emit_crf_search_paused do
+    require Logger
+    Logger.info("🚨 Telemetry: Emitting CRF search paused event")
+
+    safe_telemetry_execute(
+      [:reencodarr, :crf_search, :paused],
+      %{},
+      %{}
+    )
+  end
+
   def emit_sync_started(service_type \\ nil) do
     Logger.info("Telemetry: Emitting sync started event - service_type: #{service_type}")
 
@@ -90,6 +112,14 @@ defmodule Reencodarr.Telemetry do
       [:reencodarr, :sync, :completed],
       %{},
       %{service_type: service_type}
+    )
+  end
+
+  def emit_sync_failed(error, service_type \\ nil) do
+    safe_telemetry_execute(
+      [:reencodarr, :sync, :failed],
+      %{},
+      %{error: error, service_type: service_type}
     )
   end
 
