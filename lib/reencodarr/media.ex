@@ -80,7 +80,10 @@ defmodule Reencodarr.Media do
         where: v.chosen == true and vid.reencoded == false and vid.failed == false,
         order_by: [
           # Alternate by library_id, then by quality within each library
-          fragment("? % (SELECT COUNT(DISTINCT library_id) FROM videos WHERE library_id IS NOT NULL)", vid.library_id),
+          fragment(
+            "? % (SELECT COUNT(DISTINCT library_id) FROM videos WHERE library_id IS NOT NULL)",
+            vid.library_id
+          ),
           fragment("? DESC NULLS LAST", v.savings),
           asc: v.percent,
           asc: v.time
@@ -164,11 +167,21 @@ defmodule Reencodarr.Media do
   defp ensure_library_id(%{library_id: nil} = attrs),
     do: Map.put(attrs, :library_id, find_library_id(attrs[:path]))
 
+  defp ensure_library_id(%{"library_id" => nil} = attrs),
+    do: Map.put(attrs, "library_id", find_library_id(attrs["path"]))
+
   defp ensure_library_id(%{library_id: _} = attrs), do: attrs
+
+  defp ensure_library_id(%{"library_id" => _} = attrs), do: attrs
 
   defp ensure_library_id(attrs) do
     path = Map.get(attrs, :path) || Map.get(attrs, "path")
-    Map.put(attrs, :library_id, find_library_id(path))
+    # Determine if this is an atom-keyed or string-keyed map and use consistent keys
+    if Map.has_key?(attrs, :path) do
+      Map.put(attrs, :library_id, find_library_id(path))
+    else
+      Map.put(attrs, "library_id", find_library_id(path))
+    end
   end
 
   defp find_library_id(path) when is_binary(path) do
