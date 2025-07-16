@@ -117,30 +117,20 @@ defmodule Reencodarr.Media do
 
   def upsert_video(attrs) do
     attrs = ensure_library_id(attrs)
-    path = Map.get(attrs, :path) || Map.get(attrs, "path")
-    new_size = Map.get(attrs, :size) || Map.get(attrs, "size")
-    new_bitrate = Map.get(attrs, :bitrate) || Map.get(attrs, "bitrate")
+    path = get_path_from_attrs(attrs)
+
+    # Extract the values we care about for comparison
+    new_values = extract_comparison_values(attrs)
+    being_marked_reencoded = get_attr_value(attrs, :reencoded) == true
 
     result =
       Repo.transaction(fn ->
-        # Efficiently check if we need to delete VMAFs
-        if new_size || new_bitrate do
-          video_info =
-            Repo.one(
-              from v in Video,
-                where: v.path == ^path and v.reencoded == false and v.failed == false,
-                select: %{id: v.id, size: v.size, bitrate: v.bitrate}
-            )
+        # Check if video exists and if any tracked properties are changing
+        # Don't delete VMAFs if the video is being marked as reencoded
+        existing_video = get_existing_video_for_comparison(path)
 
-          case video_info do
-            %{id: video_id, size: old_size, bitrate: old_bitrate}
-            when (not is_nil(new_size) and new_size != old_size) or
-                   (not is_nil(new_bitrate) and new_bitrate != old_bitrate) ->
-              from(v in Vmaf, where: v.video_id == ^video_id) |> Repo.delete_all()
-
-            _ ->
-              :ok
-          end
+        if not being_marked_reencoded and should_delete_vmafs?(existing_video, new_values) do
+          from(v in Vmaf, where: v.video_id == ^existing_video.id) |> Repo.delete_all()
         end
 
         attrs
@@ -162,6 +152,55 @@ defmodule Reencodarr.Media do
       {:error, _} = error ->
         error
     end
+  end
+
+  # Helper functions for cleaner attribute access
+  defp get_path_from_attrs(attrs), do: Map.get(attrs, :path) || Map.get(attrs, "path")
+
+  defp extract_comparison_values(attrs) do
+    %{
+      size: get_attr_value(attrs, :size),
+      bitrate: get_attr_value(attrs, :bitrate),
+      duration: get_attr_value(attrs, :duration),
+      video_codecs: get_attr_value(attrs, :video_codecs),
+      audio_codecs: get_attr_value(attrs, :audio_codecs)
+    }
+  end
+
+  defp get_attr_value(attrs, key) when is_atom(key) do
+    Map.get(attrs, key) || Map.get(attrs, to_string(key))
+  end
+
+  defp get_existing_video_for_comparison(path) do
+    Repo.one(
+      from v in Video,
+        where: v.path == ^path and v.reencoded == false and v.failed == false,
+        select: %{
+          id: v.id,
+          size: v.size,
+          bitrate: v.bitrate,
+          duration: v.duration,
+          video_codecs: v.video_codecs,
+          audio_codecs: v.audio_codecs
+        }
+    )
+  end
+
+  defp should_delete_vmafs?(nil, _new_values), do: false
+
+  defp should_delete_vmafs?(existing, new_values) do
+    # Only check fields that have non-nil values in the new attributes
+    # This avoids false positives when a field isn't being updated
+    [
+      {new_values.size, existing.size},
+      {new_values.bitrate, existing.bitrate},
+      {new_values.duration, existing.duration},
+      {new_values.video_codecs, existing.video_codecs},
+      {new_values.audio_codecs, existing.audio_codecs}
+    ]
+    |> Enum.any?(fn {new_val, old_val} ->
+      not is_nil(new_val) and new_val != old_val
+    end)
   end
 
   defp ensure_library_id(%{library_id: nil} = attrs),
