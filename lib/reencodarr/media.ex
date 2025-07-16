@@ -1,5 +1,6 @@
 defmodule Reencodarr.Media do
   import Ecto.Query, warn: false
+  alias Reencodarr.Analyzer.QueueManager
   alias Reencodarr.Media.{Library, Video, Vmaf}
   alias Reencodarr.Repo
   require Logger
@@ -15,7 +16,7 @@ defmodule Reencodarr.Media do
   def find_videos_by_path_wildcard(pattern),
     do: Repo.all(from v in Video, where: like(v.path, ^pattern))
 
-  def get_next_crf_search(limit \\ 10) do
+  def get_videos_for_crf_search(limit \\ 10) do
     Repo.all(
       from v in Video,
         left_join: m in Vmaf,
@@ -42,38 +43,27 @@ defmodule Reencodarr.Media do
     )
   end
 
-  def get_next_for_analysis(limit \\ 10) do
+  def get_videos_needing_analysis(limit \\ 10) do
     # Get videos that need analysis (bitrate = 0 or nil)
-    videos_needing_analysis =
-      Repo.all(
-        from v in Video,
-          where: (v.bitrate == 0 or is_nil(v.bitrate)) and v.failed == false,
-          order_by: [
-            desc: v.size,
-            asc: v.updated_at
-          ],
-          limit: ^limit,
-          select: %{
-            path: v.path,
-            service_id: v.service_id,
-            service_type: v.service_type,
-            force_reanalyze: false
-          }
-      )
-
-    # Convert to the format expected by the consumer
-    Enum.map(videos_needing_analysis, fn video ->
-      %{
-        path: video.path,
-        service_id: video.service_id,
-        service_type: video.service_type,
-        force_reanalyze: video.force_reanalyze
-      }
-    end)
+    Repo.all(
+      from v in Video,
+        where: (v.bitrate == 0 or is_nil(v.bitrate)) and v.failed == false,
+        order_by: [
+          desc: v.size,
+          asc: v.updated_at
+        ],
+        limit: ^limit,
+        select: %{
+          path: v.path,
+          service_id: v.service_id,
+          service_type: v.service_type,
+          force_reanalyze: false
+        }
+    )
   end
 
-  # Renamed `base_query_for_videos` to `query_videos_by_criteria` for better understanding
-  defp query_videos_by_criteria(limit) do
+  # Query for videos ready for encoding (chosen VMAFs with valid videos)
+  defp query_videos_ready_for_encoding(limit) do
     Repo.all(
       from v in Vmaf,
         join: vid in assoc(v, :video),
@@ -94,13 +84,13 @@ defmodule Reencodarr.Media do
   end
 
   def list_videos_by_estimated_percent(limit \\ 10) do
-    query_videos_by_criteria(limit)
+    query_videos_ready_for_encoding(limit)
   end
 
   def get_next_for_encoding(limit \\ 1) do
     case limit do
-      1 -> query_videos_by_criteria(1) |> List.first()
-      _ -> query_videos_by_criteria(limit)
+      1 -> query_videos_ready_for_encoding(1) |> List.first()
+      _ -> query_videos_ready_for_encoding(limit)
     end
   end
 
@@ -127,7 +117,7 @@ defmodule Reencodarr.Media do
       Repo.transaction(fn ->
         # Check if video exists and if any tracked properties are changing
         # Don't delete VMAFs if the video is being marked as reencoded
-        existing_video = get_existing_video_for_comparison(path)
+        existing_video = get_video_metadata_for_comparison(path)
 
         if not being_marked_reencoded and should_delete_vmafs?(existing_video, new_values) do
           from(v in Vmaf, where: v.video_id == ^existing_video.id) |> Repo.delete_all()
@@ -171,7 +161,7 @@ defmodule Reencodarr.Media do
     Map.get(attrs, key) || Map.get(attrs, to_string(key))
   end
 
-  defp get_existing_video_for_comparison(path) do
+  defp get_video_metadata_for_comparison(path) do
     Repo.one(
       from v in Video,
         where: v.path == ^path and v.reencoded == false and v.failed == false,
@@ -191,14 +181,15 @@ defmodule Reencodarr.Media do
   defp should_delete_vmafs?(existing, new_values) do
     # Only check fields that have non-nil values in the new attributes
     # This avoids false positives when a field isn't being updated
-    [
+    comparison_pairs = [
       {new_values.size, existing.size},
       {new_values.bitrate, existing.bitrate},
       {new_values.duration, existing.duration},
       {new_values.video_codecs, existing.video_codecs},
       {new_values.audio_codecs, existing.audio_codecs}
     ]
-    |> Enum.any?(fn {new_val, old_val} ->
+
+    Enum.any?(comparison_pairs, fn {new_val, old_val} ->
       not is_nil(new_val) and new_val != old_val
     end)
   end
@@ -210,17 +201,15 @@ defmodule Reencodarr.Media do
     do: Map.put(attrs, "library_id", find_library_id(attrs["path"]))
 
   defp ensure_library_id(%{library_id: _} = attrs), do: attrs
-
   defp ensure_library_id(%{"library_id" => _} = attrs), do: attrs
 
   defp ensure_library_id(attrs) do
     path = Map.get(attrs, :path) || Map.get(attrs, "path")
-    # Determine if this is an atom-keyed or string-keyed map and use consistent keys
-    if Map.has_key?(attrs, :path) do
-      Map.put(attrs, :library_id, find_library_id(path))
-    else
-      Map.put(attrs, "library_id", find_library_id(path))
-    end
+    library_id = find_library_id(path)
+
+    # Use atom keys if the map has atom keys, otherwise use string keys
+    key = if Map.has_key?(attrs, :path), do: :library_id, else: "library_id"
+    Map.put(attrs, key, library_id)
   end
 
   defp find_library_id(path) when is_binary(path) do
@@ -266,14 +255,18 @@ defmodule Reencodarr.Media do
   end
 
   def delete_videos_with_nonexistent_paths do
-    video_ids =
-      from(v in Video, select: %{id: v.id, path: v.path})
-      |> Repo.all()
-      |> Enum.filter(fn %{path: path} -> !File.exists?(path) end)
-      |> Enum.map(& &1.id)
-
+    video_ids = get_video_ids_with_missing_files()
     delete_videos_by_ids(video_ids)
   end
+
+  defp get_video_ids_with_missing_files do
+    from(v in Video, select: %{id: v.id, path: v.path})
+    |> Repo.all()
+    |> Enum.filter(&file_missing?/1)
+    |> Enum.map(& &1.id)
+  end
+
+  defp file_missing?(%{path: path}), do: not File.exists?(path)
 
   # --- Library-related functions ---
   def list_libraries do
@@ -346,13 +339,10 @@ defmodule Reencodarr.Media do
   end
 
   defp calculate_vmaf_savings(percent, video_size)
-       when is_number(percent) and is_number(video_size) do
-    if percent > 0 and percent <= 100 do
-      # Savings = (100 - percent) / 100 * original_size
-      round((100 - percent) / 100 * video_size)
-    else
-      nil
-    end
+       when is_number(percent) and is_number(video_size) and
+              percent > 0 and percent <= 100 do
+    # Savings = (100 - percent) / 100 * original_size
+    round((100 - percent) / 100 * video_size)
   end
 
   defp calculate_vmaf_savings(_, _), do: nil
@@ -405,39 +395,59 @@ defmodule Reencodarr.Media do
 
   # Build full stats struct on successful DB query
   defp build_stats(stats) do
-    next_crf_search = get_next_crf_search(5)
-    videos_by_estimated_percent = list_videos_by_estimated_percent(5)
-    next_analyzer = get_next_for_analysis(5)
-    manual_items = manual_analyzer_items()
-    combined_analyzer = manual_items ++ next_analyzer
-    next_encoding = get_next_for_encoding()
-    next_encoding_by_time = get_next_for_encoding_by_time()
+    next_items = fetch_next_items()
+    queue_lengths = calculate_queue_lengths(stats, next_items.manual_items)
 
     %Reencodarr.Statistics.Stats{
       avg_vmaf_percentage: stats.avg_vmaf_percentage,
       chosen_vmafs_count: stats.chosen_vmafs_count,
-      lowest_vmaf_percent: next_encoding && next_encoding.percent,
-      lowest_vmaf_by_time_seconds: next_encoding_by_time && next_encoding_by_time.time,
+      lowest_vmaf_percent: next_items.next_encoding && next_items.next_encoding.percent,
+      lowest_vmaf_by_time_seconds:
+        next_items.next_encoding_by_time && next_items.next_encoding_by_time.time,
       not_reencoded: stats.not_reencoded,
       reencoded: stats.reencoded,
       total_videos: stats.total_videos,
       total_vmafs: stats.total_vmafs,
       most_recent_video_update: stats.most_recent_video_update,
       most_recent_inserted_video: stats.most_recent_inserted_video,
-      queue_length: %{
-        encodes: stats.encodes_count,
-        crf_searches: stats.queued_crf_searches_count,
-        analyzer: stats.analyzer_count + length(manual_items)
-      },
+      queue_length: queue_lengths,
+      next_crf_search: next_items.next_crf_search,
+      videos_by_estimated_percent: next_items.videos_by_estimated_percent,
+      next_analyzer: next_items.combined_analyzer
+    }
+  end
+
+  defp fetch_next_items do
+    next_crf_search = get_videos_for_crf_search(5)
+    videos_by_estimated_percent = list_videos_by_estimated_percent(5)
+    next_analyzer = get_videos_needing_analysis(5)
+    manual_items = get_manual_analyzer_items()
+    combined_analyzer = manual_items ++ next_analyzer
+    next_encoding = get_next_for_encoding()
+    next_encoding_by_time = get_next_for_encoding_by_time()
+
+    %{
       next_crf_search: next_crf_search,
       videos_by_estimated_percent: videos_by_estimated_percent,
-      next_analyzer: combined_analyzer
+      next_analyzer: next_analyzer,
+      manual_items: manual_items,
+      combined_analyzer: combined_analyzer,
+      next_encoding: next_encoding,
+      next_encoding_by_time: next_encoding_by_time
+    }
+  end
+
+  defp calculate_queue_lengths(stats, manual_items) do
+    %{
+      encodes: stats.encodes_count,
+      crf_searches: stats.queued_crf_searches_count,
+      analyzer: stats.analyzer_count + length(manual_items)
     }
   end
 
   # Manual analyzer queue items from QueueManager
-  defp manual_analyzer_items do
-    Reencodarr.Analyzer.QueueManager.get_queue()
+  defp get_manual_analyzer_items do
+    QueueManager.get_queue()
   end
 
   # Build minimal stats struct when DB query fails
@@ -503,19 +513,20 @@ defmodule Reencodarr.Media do
   end
 
   defp parse_crf(crf) do
-    case(Float.parse(crf)) do
+    case Float.parse(crf) do
       {value, _} -> value
       :error -> raise ArgumentError, "Invalid CRF value: #{crf}"
     end
   end
 
-  def queued_crf_searches_query,
-    do:
-      from(v in Video,
-        left_join: vmafs in assoc(v, :vmafs),
-        where: is_nil(vmafs.id) and not v.reencoded and v.failed == false,
-        select: v
-      )
+  def list_videos_awaiting_crf_search do
+    from(v in Video,
+      left_join: vmafs in assoc(v, :vmafs),
+      where: is_nil(vmafs.id) and not v.reencoded and v.failed == false,
+      select: v
+    )
+    |> Repo.all()
+  end
 
   def get_video(id) do
     Repo.get(Video, id)
@@ -604,10 +615,10 @@ defmodule Reencodarr.Media do
   def debug_analyzer_status do
     %{
       analyzer_running: Reencodarr.Analyzer.running?(),
-      videos_needing_analysis: get_next_for_analysis(5),
-      manual_queue: manual_analyzer_items(),
+      videos_needing_analysis: get_videos_needing_analysis(5),
+      manual_queue: get_manual_analyzer_items(),
       total_analyzer_queue_count:
-        length(get_next_for_analysis(100)) + length(manual_analyzer_items())
+        length(get_videos_needing_analysis(100)) + length(get_manual_analyzer_items())
     }
   end
 
@@ -645,8 +656,8 @@ defmodule Reencodarr.Media do
   @doc """
   Debug function to show how the encoding queue alternates between libraries.
   """
-  def debug_encoding_queue_libraries(limit \\ 10) do
-    videos = query_videos_by_criteria(limit)
+  def debug_encoding_queue_by_library(limit \\ 10) do
+    videos = query_videos_ready_for_encoding(limit)
 
     videos
     |> Enum.with_index()

@@ -14,8 +14,9 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   use Broadway
   require Logger
 
-  alias Reencodarr.AbAv1
   alias Broadway.Message
+  alias Reencodarr.AbAv1
+  alias Reencodarr.CrfSearcher.Broadway.Producer
 
   @typedoc "Video struct for CRF search processing"
   @type video :: %{id: integer(), path: binary()}
@@ -57,7 +58,7 @@ defmodule Reencodarr.CrfSearcher.Broadway do
     Broadway.start_link(__MODULE__,
       name: __MODULE__,
       producer: [
-        module: {Reencodarr.CrfSearcher.Broadway.Producer, []},
+        module: {Producer, []},
         transformer: {__MODULE__, :transform, []},
         rate_limiting: [
           allowed_messages: config[:rate_limit_messages],
@@ -94,7 +95,7 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   """
   @spec process_video(video()) :: :ok | {:error, term()}
   def process_video(video) do
-    case Reencodarr.CrfSearcher.Broadway.Producer.add_video(video) do
+    case Producer.add_video(video) do
       :ok -> :ok
       {:error, reason} -> {:error, reason}
     end
@@ -111,7 +112,7 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   def running? do
     with pid when is_pid(pid) <- Process.whereis(__MODULE__),
          true <- Process.alive?(pid) do
-      Reencodarr.CrfSearcher.Broadway.Producer.running?()
+      Producer.running?()
     else
       _ -> false
     end
@@ -126,7 +127,7 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   """
   @spec pause() :: :ok | {:error, term()}
   def pause do
-    Reencodarr.CrfSearcher.Broadway.Producer.pause()
+    Producer.pause()
   end
 
   @doc """
@@ -138,7 +139,7 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   """
   @spec resume() :: :ok | {:error, term()}
   def resume do
-    Reencodarr.CrfSearcher.Broadway.Producer.resume()
+    Producer.resume()
   end
 
   @doc """

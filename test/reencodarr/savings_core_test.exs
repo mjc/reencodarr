@@ -85,7 +85,7 @@ defmodule Reencodarr.SavingsCoreTest do
           path: "/test/persistence.mkv",
           # 3GB
           size: 3_000_000_000,
-          bitrate: 10000
+          bitrate: 10_000
         })
 
       # Create initial VMAF

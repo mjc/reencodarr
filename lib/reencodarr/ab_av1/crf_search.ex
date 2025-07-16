@@ -9,7 +9,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   use GenServer
 
   alias Reencodarr.AbAv1.Helper
-  alias Reencodarr.{Media, Statistics.CrfSearchProgress, Repo}
+  alias Reencodarr.CrfSearcher.Broadway.Producer
+  alias Reencodarr.{Media, Repo, Rules, Telemetry}
+  alias Reencodarr.Statistics.CrfSearchProgress
 
   require Logger
 
@@ -155,7 +157,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     }
 
     # Emit telemetry event for CRF search start
-    Reencodarr.Telemetry.emit_crf_search_started()
+    Telemetry.emit_crf_search_started()
 
     {:noreply, new_state}
   end
@@ -263,10 +265,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   # Private helper functions
   defp perform_crf_search_cleanup(state) do
     # Emit telemetry event for CRF search completion
-    Reencodarr.Telemetry.emit_crf_search_completed()
+    Telemetry.emit_crf_search_completed()
 
     # Notify the Broadway producer that CRF search is now available
-    Reencodarr.CrfSearcher.Broadway.Producer.dispatch_available()
+    Producer.dispatch_available()
 
     new_state = %{state | port: :none, current_task: :none, partial_line_buffer: ""}
     {:noreply, new_state}
@@ -418,31 +420,39 @@ defmodule Reencodarr.AbAv1.CrfSearch do
             )
 
           vmaf ->
-            case check_vmaf_size_limit(vmaf, video) do
-              :ok ->
-                Logger.info(
-                  "CrfSearch: Chosen VMAF CRF #{captures["crf"]} is within size limits for video #{video.id}"
-                )
-
-              {:error, :size_too_large} ->
-                Logger.error(
-                  "CrfSearch: Chosen VMAF CRF #{captures["crf"]} exceeds 10GB limit for video #{video.id}. Marking as failed."
-                )
-
-                # Mark the video as failed to prevent encoding
-                Media.mark_as_failed(video)
-
-                # Publish failure event to PubSub
-                Phoenix.PubSub.broadcast(
-                  Reencodarr.PubSub,
-                  "crf_search_events",
-                  {:crf_search_completed, video.id, {:error, :file_size_too_large}}
-                )
-            end
+            handle_vmaf_size_check(vmaf, video, captures["crf"])
         end
 
         true
     end
+  end
+
+  defp handle_vmaf_size_check(vmaf, video, crf) do
+    case check_vmaf_size_limit(vmaf, video) do
+      :ok ->
+        Logger.info(
+          "CrfSearch: Chosen VMAF CRF #{crf} is within size limits for video #{video.id}"
+        )
+
+      {:error, :size_too_large} ->
+        handle_size_limit_exceeded(video, crf)
+    end
+  end
+
+  defp handle_size_limit_exceeded(video, crf) do
+    Logger.error(
+      "CrfSearch: Chosen VMAF CRF #{crf} exceeds 10GB limit for video #{video.id}. Marking as failed."
+    )
+
+    # Mark the video as failed to prevent encoding
+    Media.mark_as_failed(video)
+
+    # Publish failure event to PubSub
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "crf_search_events",
+      {:crf_search_completed, video.id, {:error, :file_size_too_large}}
+    )
   end
 
   defp handle_error_line(line, video, target_vmaf) do
@@ -522,7 +532,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     rule_args =
       video
-      |> Reencodarr.Rules.apply()
+      |> Rules.apply()
       |> Enum.reject(fn
         # {"--enc-input", "hwaccel=cuda"} ->
         #   true
@@ -623,7 +633,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   # Safely emit telemetry progress
   defp emit_progress_safely(progress) do
-    Reencodarr.Telemetry.emit_crf_search_progress(progress)
+    Telemetry.emit_crf_search_progress(progress)
     :ok
   rescue
     error -> {:error, error}
@@ -643,26 +653,27 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   # Convert size with unit to bytes
   defp convert_size_to_bytes(size_str, unit) when is_binary(size_str) and is_binary(unit) do
-    case Float.parse(size_str) do
-      {size_value, _} ->
-        multiplier =
-          case String.downcase(unit) do
-            "b" -> 1
-            "kb" -> 1024
-            "mb" -> 1024 * 1024
-            "gb" -> 1024 * 1024 * 1024
-            "tb" -> 1024 * 1024 * 1024 * 1024
-            _ -> nil
-          end
-
-        if multiplier, do: round(size_value * multiplier), else: nil
-
-      :error ->
-        nil
+    with {size_value, _} <- Float.parse(size_str),
+         multiplier when not is_nil(multiplier) <- get_unit_multiplier(unit) do
+      round(size_value * multiplier)
+    else
+      _ -> nil
     end
   end
 
   defp convert_size_to_bytes(_, _), do: nil
+
+  # Get the byte multiplier for a given unit
+  defp get_unit_multiplier(unit) do
+    case String.downcase(unit) do
+      "b" -> 1
+      "kb" -> 1024
+      "mb" -> 1024 * 1024
+      "gb" -> 1024 * 1024 * 1024
+      "tb" -> 1024 * 1024 * 1024 * 1024
+      _ -> nil
+    end
+  end
 
   # Get VMAF record by video ID and CRF value
   defp get_vmaf_by_crf(video_id, crf_str) do
@@ -690,37 +701,39 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         :ok
 
       size_str when is_binary(size_str) ->
-        # Parse size string like "12.5 GB" or "8.2 MB"
-        case Regex.run(~r/^(\d+\.?\d*)\s+(\w+)$/, String.trim(size_str)) do
-          [_, size_value, unit] ->
-            estimated_size_bytes = convert_size_to_bytes(size_value, unit)
-            # 10GB in bytes
-            max_size_bytes = 10 * 1024 * 1024 * 1024
-
-            if estimated_size_bytes && estimated_size_bytes > max_size_bytes do
-              estimated_size_gb = estimated_size_bytes / (1024 * 1024 * 1024)
-
-              Logger.info(
-                "CrfSearch: VMAF estimated size #{Float.round(estimated_size_gb, 2)} GB exceeds 10GB limit for video #{video.id}"
-              )
-
-              {:error, :size_too_large}
-            else
-              :ok
-            end
-
-          nil ->
-            Logger.warning(
-              "CrfSearch: Could not parse size string '#{size_str}' for video #{video.id}"
-            )
-
-            # If we can't parse, allow it
-            :ok
-        end
+        check_size_string_limit(size_str, video)
 
       _ ->
-        # Unknown size format, allow it
         :ok
+    end
+  end
+
+  defp check_size_string_limit(size_str, video) do
+    # Parse size string like "12.5 GB" or "8.2 MB"
+    case Regex.run(~r/^(\d+\.?\d*)\s+(\w+)$/, String.trim(size_str)) do
+      [_, size_value, unit] ->
+        validate_size_limit(size_value, unit, video)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp validate_size_limit(size_value, unit, video) do
+    estimated_size_bytes = convert_size_to_bytes(size_value, unit)
+    # 10GB in bytes
+    max_size_bytes = 10 * 1024 * 1024 * 1024
+
+    if estimated_size_bytes && estimated_size_bytes > max_size_bytes do
+      estimated_size_gb = estimated_size_bytes / (1024 * 1024 * 1024)
+
+      Logger.info(
+        "CrfSearch: VMAF estimated size #{Float.round(estimated_size_gb, 2)} GB exceeds 10GB limit for video #{video.id}"
+      )
+
+      {:error, :size_too_large}
+    else
+      :ok
     end
   end
 

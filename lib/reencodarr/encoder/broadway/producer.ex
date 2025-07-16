@@ -60,11 +60,11 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   def handle_demand(demand, state) when demand > 0 do
     new_state = %{state | demand: state.demand + demand}
     # Only dispatch if we're not already processing something
-    if not state.processing do
-      dispatch_if_ready(new_state)
-    else
+    if state.processing do
       # If we're already processing, just store the demand for later
       {:noreply, [], new_state}
+    else
+      dispatch_if_ready(new_state)
     end
   end
 
@@ -76,6 +76,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   @impl GenStage
   def handle_cast(:pause, state) do
     Logger.info("Encoder paused")
+    Reencodarr.Telemetry.emit_encoder_paused()
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :paused})
     {:noreply, [], %{state | paused: true}}
   end

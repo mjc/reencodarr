@@ -44,6 +44,7 @@ defmodule Reencodarr.CrfSearcher.Producer do
   @impl true
   def handle_cast(:pause, state) do
     Logger.info("CrfSearcher producer paused")
+    Reencodarr.Telemetry.emit_crf_search_paused()
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :paused})
     {:noreply, [], %{state | paused: true}}
   end
@@ -96,7 +97,7 @@ defmodule Reencodarr.CrfSearcher.Producer do
   end
 
   defp dispatch_videos(state) do
-    videos = Media.get_next_crf_search(state.demand)
+    videos = Media.get_videos_for_crf_search(state.demand)
 
     case videos do
       [] ->

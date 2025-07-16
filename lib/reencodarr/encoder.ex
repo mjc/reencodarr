@@ -6,6 +6,7 @@ defmodule Reencodarr.Encoder do
 
   require Logger
   alias Reencodarr.Encoder.Broadway
+  alias Reencodarr.Encoder.Broadway.Producer
 
   @doc """
   Check if the encoder is currently running.
@@ -29,7 +30,7 @@ defmodule Reencodarr.Encoder do
 
     # Trigger dispatch of available VMAFs
     Logger.info("🎬 Calling Broadway Producer dispatch_available()")
-    dispatch_result = Reencodarr.Encoder.Broadway.Producer.dispatch_available()
+    dispatch_result = Producer.dispatch_available()
     Logger.info("🎬 dispatch_available() returned: #{inspect(dispatch_result)}")
     :ok
   end
@@ -79,6 +80,6 @@ defmodule Reencodarr.Encoder do
   """
   @spec dispatch_available() :: :ok
   def dispatch_available do
-    Reencodarr.Encoder.Broadway.Producer.dispatch_available()
+    Producer.dispatch_available()
   end
 end

@@ -6,6 +6,8 @@ defmodule Reencodarr.CrfSearcher do
   require Logger
 
   alias Reencodarr.CrfSearcher.Broadway
+  alias Reencodarr.CrfSearcher.Broadway.Producer
+  alias Reencodarr.Media
 
   @doc """
   Process a video for CRF search. This function maintains compatibility with the old API
@@ -38,7 +40,7 @@ defmodule Reencodarr.CrfSearcher do
 
     # Trigger dispatch of available videos
     Logger.debug("🔍 Calling Broadway Producer dispatch_available()")
-    dispatch_result = Reencodarr.CrfSearcher.Broadway.Producer.dispatch_available()
+    dispatch_result = Producer.dispatch_available()
     Logger.debug("🔍 dispatch_available() returned: #{inspect(dispatch_result)}")
     :ok
   end
@@ -69,14 +71,14 @@ defmodule Reencodarr.CrfSearcher do
   def crf_search_video(video_id) do
     Logger.info("🔍 Starting CRF search for video with ID: #{video_id}")
 
-    video = Reencodarr.Media.get_video!(video_id)
+    video = Media.get_video!(video_id)
     Logger.info("🔍 Found video at path: #{video.path}")
 
     process_video(video)
   end
 
   # Delegate functions for backward compatibility
-  def dispatch_available() do
-    Reencodarr.CrfSearcher.Broadway.Producer.dispatch_available()
+  def dispatch_available do
+    Producer.dispatch_available()
   end
 end

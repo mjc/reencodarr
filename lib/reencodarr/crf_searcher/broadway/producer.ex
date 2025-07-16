@@ -68,6 +68,7 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   @impl GenStage
   def handle_cast(:pause, state) do
     Logger.info("CrfSearcher paused")
+    Reencodarr.Telemetry.emit_crf_search_paused()
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :paused})
     {:noreply, [], %{state | paused: true}}
   end
@@ -191,7 +192,7 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
         {video, %{state | queue: remaining_queue}}
 
       {:empty, _queue} ->
-        case Media.get_next_crf_search(1) do
+        case Media.get_videos_for_crf_search(1) do
           [video | _] -> {video, state}
           [] -> {nil, state}
         end

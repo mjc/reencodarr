@@ -9,8 +9,10 @@ defmodule Reencodarr.Analyzer.Broadway do
   use Broadway
   require Logger
 
-  alias Reencodarr.{Media, Telemetry}
   alias Broadway.Message
+  alias Reencodarr.Analyzer.Broadway.Producer
+  alias Reencodarr.{Media, Telemetry}
+  alias Reencodarr.Media.MediaInfo
 
   @doc """
   Start the Broadway pipeline.
@@ -19,7 +21,7 @@ defmodule Reencodarr.Analyzer.Broadway do
     Broadway.start_link(__MODULE__,
       name: __MODULE__,
       producer: [
-        module: {Reencodarr.Analyzer.Broadway.Producer, []},
+        module: {Producer, []},
         transformer: {__MODULE__, :transform, []},
         rate_limiting: [
           allowed_messages: 25,
@@ -50,7 +52,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   Add a video to the pipeline for processing.
   """
   def process_path(video_info) do
-    Reencodarr.Analyzer.Broadway.Producer.add_video(video_info)
+    Producer.add_video(video_info)
   end
 
   @doc """
@@ -59,7 +61,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   def running? do
     case Process.whereis(__MODULE__) do
       nil -> false
-      _pid -> Reencodarr.Analyzer.Broadway.Producer.running?()
+      _pid -> Producer.running?()
     end
   end
 
@@ -67,14 +69,14 @@ defmodule Reencodarr.Analyzer.Broadway do
   Pause the analyzer.
   """
   def pause do
-    Reencodarr.Analyzer.Broadway.Producer.pause()
+    Producer.pause()
   end
 
   @doc """
   Resume the analyzer.
   """
   def resume do
-    Reencodarr.Analyzer.Broadway.Producer.resume()
+    Producer.resume()
   end
 
   # Alias for API compatibility
@@ -265,34 +267,8 @@ defmodule Reencodarr.Analyzer.Broadway do
 
     try do
       case Jason.decode(json) do
-        {:ok, %{"media" => media_item}} when is_map(media_item) ->
-          Logger.debug("Parsing mediainfo from single media object")
-          parse_single_media_item(media_item)
-
-        # Handle flat MediaInfo structure (no "media" key)
-        {:ok, data} when is_map(data) ->
-          # Check if this looks like a flat structure
-          if Map.has_key?(data, "track") or
-               (Map.has_key?(data, "FileSize") and Map.has_key?(data, "Duration")) or
-               Map.has_key?(data, "Width") or Map.has_key?(data, "Height") or
-               Map.has_key?(data, "Format") do
-            Logger.debug("Detected flat MediaInfo structure, wrapping in proper format")
-            # Return the wrapped structure directly
-            {:ok, %{"media" => data}}
-          else
-            Logger.error(
-              "Unexpected JSON structure from mediainfo: #{inspect(data, pretty: true, limit: 5000)}"
-            )
-
-            {:error, "unexpected JSON structure"}
-          end
-
         {:ok, data} ->
-          Logger.error(
-            "Unexpected JSON structure from mediainfo: #{inspect(data, pretty: true, limit: 5000)}"
-          )
-
-          {:error, "unexpected JSON structure"}
+          handle_decoded_single_mediainfo(data)
 
         {:error, reason} ->
           Logger.error("JSON decode failed: #{inspect(reason)}")
@@ -304,6 +280,34 @@ defmodule Reencodarr.Analyzer.Broadway do
         Logger.error("Stacktrace: #{inspect(__STACKTRACE__)}")
         {:error, "error parsing JSON: #{inspect(e)}"}
     end
+  end
+
+  defp handle_decoded_single_mediainfo(%{"media" => media_item}) when is_map(media_item) do
+    Logger.debug("Parsing mediainfo from single media object")
+    parse_single_media_item(media_item)
+  end
+
+  defp handle_decoded_single_mediainfo(data) when is_map(data) do
+    # Check if this looks like a flat structure
+    if valid_flat_mediainfo?(data) do
+      Logger.debug("Detected flat MediaInfo structure, wrapping in proper format")
+      # Return the wrapped structure directly
+      {:ok, %{"media" => data}}
+    else
+      Logger.error(
+        "Unexpected JSON structure from mediainfo: #{inspect(data, pretty: true, limit: 5000)}"
+      )
+
+      {:error, "unexpected JSON structure"}
+    end
+  end
+
+  defp handle_decoded_single_mediainfo(data) do
+    Logger.error(
+      "Unexpected JSON structure from mediainfo: #{inspect(data, pretty: true, limit: 5000)}"
+    )
+
+    {:error, "unexpected JSON structure"}
   end
 
   defp execute_batch_mediainfo_command(paths) when is_list(paths) and paths != [] do
@@ -325,49 +329,8 @@ defmodule Reencodarr.Analyzer.Broadway do
 
     try do
       case Jason.decode(json) do
-        # Handle list of media objects (multiple files)
-        {:ok, media_info_list} when is_list(media_info_list) ->
-          Logger.debug("Parsing mediainfo from list of #{length(media_info_list)} media objects")
-          parse_batch_mediainfo_list(media_info_list)
-
-        # Handle single media object
-        {:ok, %{"media" => media_item}} when is_map(media_item) ->
-          Logger.debug("Parsing mediainfo from single media object")
-
-          case extract_complete_name(media_item) do
-            {:ok, path} ->
-              case parse_single_media_item(media_item) do
-                {:ok, mediainfo} -> {:ok, %{path => mediainfo}}
-                {:error, reason} -> {:error, reason}
-              end
-
-            {:error, reason} ->
-              {:error, reason}
-          end
-
-        # Handle flat MediaInfo structure (no "media" key) - single file
-        {:ok, data} when is_map(data) and length(paths) == 1 ->
-          path = List.first(paths)
-
-          if Map.has_key?(data, "track") or
-               (Map.has_key?(data, "FileSize") and Map.has_key?(data, "Duration")) or
-               Map.has_key?(data, "Width") or Map.has_key?(data, "Height") or
-               Map.has_key?(data, "Format") do
-            Logger.debug(
-              "Detected flat MediaInfo structure for single file, wrapping in proper format"
-            )
-
-            {:ok, %{path => %{"media" => data}}}
-          else
-            {:error, "unexpected JSON structure for single file"}
-          end
-
         {:ok, data} ->
-          Logger.error(
-            "Unexpected JSON structure from batch mediainfo: #{inspect(data, pretty: true, limit: 1000)}"
-          )
-
-          {:error, "unexpected JSON structure"}
+          handle_decoded_mediainfo_data(data, paths)
 
         {:error, reason} ->
           Logger.error("JSON decode failed: #{inspect(reason)}")
@@ -380,34 +343,94 @@ defmodule Reencodarr.Analyzer.Broadway do
     end
   end
 
+  defp handle_decoded_mediainfo_data(media_info_list, _paths) when is_list(media_info_list) do
+    Logger.debug("Parsing mediainfo from list of #{length(media_info_list)} media objects")
+    parse_batch_mediainfo_list(media_info_list)
+  end
+
+  defp handle_decoded_mediainfo_data(%{"media" => media_item}, _paths) when is_map(media_item) do
+    Logger.debug("Parsing mediainfo from single media object")
+    handle_single_media_object(media_item)
+  end
+
+  defp handle_decoded_mediainfo_data(data, paths) when is_map(data) and length(paths) == 1 do
+    handle_flat_mediainfo_structure(data, paths)
+  end
+
+  defp handle_decoded_mediainfo_data(data, _paths) do
+    Logger.error(
+      "Unexpected JSON structure from batch mediainfo: #{inspect(data, pretty: true, limit: 1000)}"
+    )
+
+    {:error, "unexpected JSON structure"}
+  end
+
+  defp handle_single_media_object(media_item) do
+    case extract_complete_name(media_item) do
+      {:ok, path} ->
+        case parse_single_media_item(media_item) do
+          {:ok, mediainfo} -> {:ok, %{path => mediainfo}}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp handle_flat_mediainfo_structure(data, paths) do
+    path = List.first(paths)
+
+    if valid_flat_mediainfo?(data) do
+      Logger.debug("Detected flat MediaInfo structure for single file, wrapping in proper format")
+
+      {:ok, %{path => %{"media" => data}}}
+    else
+      {:error, "unexpected JSON structure for single file"}
+    end
+  end
+
+  defp valid_flat_mediainfo?(data) do
+    Map.has_key?(data, "track") or
+      (Map.has_key?(data, "FileSize") and Map.has_key?(data, "Duration")) or
+      Map.has_key?(data, "Width") or Map.has_key?(data, "Height") or
+      Map.has_key?(data, "Format")
+  end
+
   defp parse_batch_mediainfo_list(media_info_list) do
     result_map =
       Enum.reduce(media_info_list, %{}, fn media_info, acc ->
-        case media_info do
-          %{"media" => media_item} ->
-            case extract_complete_name(media_item) do
-              {:ok, path} ->
-                case parse_single_media_item(media_item) do
-                  {:ok, mediainfo} ->
-                    Map.put(acc, path, mediainfo)
-
-                  {:error, reason} ->
-                    Logger.warning("Failed to parse media item for #{path}: #{reason}")
-                    Map.put(acc, path, :no_mediainfo)
-                end
-
-              {:error, reason} ->
-                Logger.warning("Failed to extract complete name: #{reason}")
-                acc
-            end
-
-          _ ->
-            Logger.warning("Invalid media info structure: #{inspect(media_info)}")
-            acc
-        end
+        process_media_info_item(media_info, acc)
       end)
 
     {:ok, result_map}
+  end
+
+  defp process_media_info_item(%{"media" => media_item}, acc) do
+    case extract_complete_name(media_item) do
+      {:ok, path} ->
+        add_parsed_media_to_acc(media_item, path, acc)
+
+      {:error, reason} ->
+        Logger.warning("Failed to extract complete name: #{reason}")
+        acc
+    end
+  end
+
+  defp process_media_info_item(invalid_media_info, acc) do
+    Logger.warning("Invalid media info structure: #{inspect(invalid_media_info)}")
+    acc
+  end
+
+  defp add_parsed_media_to_acc(media_item, path, acc) do
+    case parse_single_media_item(media_item) do
+      {:ok, mediainfo} ->
+        Map.put(acc, path, mediainfo)
+
+      {:error, reason} ->
+        Logger.warning("Failed to parse media item for #{path}: #{reason}")
+        Map.put(acc, path, :no_mediainfo)
+    end
   end
 
   defp extract_complete_name(%{"@ref" => path}) when is_binary(path), do: {:ok, path}
@@ -463,7 +486,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   defp upsert_video_record(video_info, validated_mediainfo) do
     # Convert mediainfo to video parameters using the existing MediaInfo module
     video_params =
-      Reencodarr.Media.MediaInfo.to_video_params(validated_mediainfo, video_info.path)
+      MediaInfo.to_video_params(validated_mediainfo, video_info.path)
 
     # Add service metadata
     attrs =
