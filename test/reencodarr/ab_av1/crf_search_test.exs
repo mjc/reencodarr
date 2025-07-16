@@ -1,5 +1,6 @@
 defmodule Reencodarr.AbAv1.CrfSearchTest do
   use Reencodarr.DataCase, async: true
+  import ExUnit.CaptureLog
   alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.Media
   alias Reencodarr.Media.Vmaf
@@ -233,7 +234,14 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
     test "marks video as failed when chosen VMAF estimated size exceeds 10GB", %{video: video} do
       # First insert a VMAF that would exceed 10GB
       eta_line = "crf 23 VMAF 95.2 predicted video stream size 12.5 GB (75%) taking 3 hours"
-      CrfSearch.process_line(eta_line, video, [], 95)
+
+      log_output =
+        capture_log(fn ->
+          CrfSearch.process_line(eta_line, video, [], 95)
+        end)
+
+      assert log_output =~
+               "CrfSearch: VMAF CRF 23 estimated file size (12.5 GB) exceeds 10GB limit"
 
       # Verify VMAF record was created (but not failed yet)
       vmaf_count = Repo.aggregate(Vmaf, :count, :id)
@@ -245,7 +253,14 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
 
       # Now process the success line that marks this CRF as chosen
       success_line = "crf 23 successful"
-      CrfSearch.process_line(success_line, video, [], 95)
+
+      log_output =
+        capture_log(fn ->
+          CrfSearch.process_line(success_line, video, [], 95)
+        end)
+
+      assert log_output =~ "CrfSearch: Chosen VMAF CRF 23 exceeds 10GB limit"
+      assert log_output =~ "Marking as failed"
 
       # Now the video should be marked as failed
       final_video = Repo.get(Media.Video, video.id)
@@ -287,9 +302,19 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       eta_line2 = "crf 22 VMAF 95.5 predicted video stream size 12.0 GB (78%) taking 3.5 hours"
       eta_line3 = "crf 24 VMAF 95.0 predicted video stream size 9.5 GB (65%) taking 3 hours"
 
-      CrfSearch.process_line(eta_line1, video, [], 95)
-      CrfSearch.process_line(eta_line2, video, [], 95)
-      CrfSearch.process_line(eta_line3, video, [], 95)
+      log_output =
+        capture_log(fn ->
+          CrfSearch.process_line(eta_line1, video, [], 95)
+          CrfSearch.process_line(eta_line2, video, [], 95)
+          CrfSearch.process_line(eta_line3, video, [], 95)
+        end)
+
+      # Check that warnings were logged for VMAFs exceeding 10GB
+      assert log_output =~
+               "CrfSearch: VMAF CRF 20 estimated file size (15.0 GB) exceeds 10GB limit"
+
+      assert log_output =~
+               "CrfSearch: VMAF CRF 22 estimated file size (12.0 GB) exceeds 10GB limit"
 
       # All VMAFs should be created
       vmaf_count = Repo.aggregate(Vmaf, :count, :id)
@@ -318,13 +343,30 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       eta_line2 = "crf 22 VMAF 95.5 predicted video stream size 12.0 GB (78%) taking 3.5 hours"
       eta_line3 = "crf 24 VMAF 95.0 predicted video stream size 9.5 GB (65%) taking 3 hours"
 
-      CrfSearch.process_line(eta_line1, video, [], 95)
-      CrfSearch.process_line(eta_line2, video, [], 95)
-      CrfSearch.process_line(eta_line3, video, [], 95)
+      log_output =
+        capture_log(fn ->
+          CrfSearch.process_line(eta_line1, video, [], 95)
+          CrfSearch.process_line(eta_line2, video, [], 95)
+          CrfSearch.process_line(eta_line3, video, [], 95)
+        end)
+
+      # Check that warnings were logged for VMAFs exceeding 10GB
+      assert log_output =~
+               "CrfSearch: VMAF CRF 20 estimated file size (15.0 GB) exceeds 10GB limit"
+
+      assert log_output =~
+               "CrfSearch: VMAF CRF 22 estimated file size (12.0 GB) exceeds 10GB limit"
 
       # Choose the one over 10GB (CRF 22)
       success_line = "crf 22 successful"
-      CrfSearch.process_line(success_line, video, [], 95)
+
+      log_output =
+        capture_log(fn ->
+          CrfSearch.process_line(success_line, video, [], 95)
+        end)
+
+      assert log_output =~ "CrfSearch: Chosen VMAF CRF 22 exceeds 10GB limit"
+      assert log_output =~ "Marking as failed"
 
       # Video should be failed
       final_video = Repo.get(Media.Video, video.id)

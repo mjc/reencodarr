@@ -1,5 +1,6 @@
 defmodule Reencodarr.AnalyzerTest do
   use Reencodarr.DataCase
+  import ExUnit.CaptureLog
 
   alias Reencodarr.Analyzer
 
@@ -24,8 +25,14 @@ defmodule Reencodarr.AnalyzerTest do
         force_reanalyze: true
       }
 
-      # This should not fail and should return :ok
-      assert :ok == Analyzer.process_path(video_info)
+      log_output =
+        capture_log(fn ->
+          # This should not fail and should return :ok
+          assert :ok == Analyzer.process_path(video_info)
+        end)
+
+      # Verify the expected error log is generated
+      assert log_output =~ "Producer supervisor not found, cannot add video"
     end
 
     test "analyzer provides backward compatibility functions" do
