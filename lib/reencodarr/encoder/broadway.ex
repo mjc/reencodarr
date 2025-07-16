@@ -16,6 +16,9 @@ defmodule Reencodarr.Encoder.Broadway do
   require Logger
 
   alias Broadway.Message
+  alias Reencodarr.AbAv1.Helper
+  alias Reencodarr.Encoder.Broadway.Producer
+  alias Reencodarr.{PostProcessor, Rules, Telemetry}
 
   @typedoc "VMAF struct for encoding processing"
   @type vmaf :: %{id: integer(), video: map()}
@@ -59,7 +62,7 @@ defmodule Reencodarr.Encoder.Broadway do
     Broadway.start_link(__MODULE__,
       name: __MODULE__,
       producer: [
-        module: {Reencodarr.Encoder.Broadway.Producer, []},
+        module: {Producer, []},
         transformer: {__MODULE__, :transform, []},
         rate_limiting: [
           allowed_messages: config[:rate_limit_messages],
@@ -91,7 +94,7 @@ defmodule Reencodarr.Encoder.Broadway do
   """
   @spec process_vmaf(vmaf()) :: :ok | {:error, term()}
   def process_vmaf(vmaf) do
-    case Reencodarr.Encoder.Broadway.Producer.add_vmaf(vmaf) do
+    case Producer.add_vmaf(vmaf) do
       :ok -> :ok
       {:error, reason} -> {:error, reason}
     end
@@ -108,7 +111,7 @@ defmodule Reencodarr.Encoder.Broadway do
   def running? do
     with pid when is_pid(pid) <- Process.whereis(__MODULE__),
          true <- Process.alive?(pid) do
-      Reencodarr.Encoder.Broadway.Producer.running?()
+      Producer.running?()
     else
       _ -> false
     end
@@ -123,7 +126,7 @@ defmodule Reencodarr.Encoder.Broadway do
   """
   @spec pause() :: :ok | {:error, term()}
   def pause do
-    Reencodarr.Encoder.Broadway.Producer.pause()
+    Producer.pause()
   end
 
   @doc """
@@ -135,7 +138,7 @@ defmodule Reencodarr.Encoder.Broadway do
   """
   @spec resume() :: :ok | {:error, term()}
   def resume do
-    Reencodarr.Encoder.Broadway.Producer.resume()
+    Producer.resume()
   end
 
   @doc """
@@ -192,10 +195,6 @@ defmodule Reencodarr.Encoder.Broadway do
   defp process_vmaf_encoding(vmaf, context) do
     Logger.info("Broadway: Starting encoding for VMAF #{vmaf.id}: #{vmaf.video.path}")
 
-    # Import necessary modules
-    alias Reencodarr.AbAv1.Helper
-    alias Reencodarr.{PostProcessor, Rules, Telemetry}
-
     try do
       # Build encoding arguments
       args = build_encode_args(vmaf)
@@ -206,132 +205,158 @@ defmodule Reencodarr.Encoder.Broadway do
 
       # Open port and handle encoding
       port = Helper.open_port(args)
-
-      case port do
-        :error ->
-          # Port creation failure is always critical
-          case classify_failure(:port_error) do
-            {:pause, reason} ->
-              Logger.error("Broadway: Critical failure for VMAF #{vmaf.id}: #{reason}")
-              Logger.error("Broadway: Pausing pipeline due to critical system issue")
-              Logger.error("Broadway: Video path: #{vmaf.video.path}")
-
-              # Notify about the failure
-              notify_encoding_failure(vmaf.video, :port_error)
-
-              # Pause the pipeline
-              Reencodarr.Encoder.Broadway.Producer.pause()
-
-              # Return :ok to Broadway since we're handling the pause manually
-              :ok
-          end
-
-        _valid_port ->
-          Logger.debug("Broadway: Port opened successfully: #{inspect(port)}")
-
-          # Handle the encoding process synchronously within Broadway
-          # Default to 30 days
-          encoding_timeout = Map.get(context, :encoding_timeout, 2_592_000_000)
-          result = handle_encoding_process(port, vmaf, output_file, encoding_timeout)
-
-          case result do
-            {:ok, :success} ->
-              case notify_encoding_success(vmaf.video, output_file) do
-                {:ok, :success} ->
-                  Logger.info(
-                    "Broadway: Encoding and post-processing completed successfully for VMAF #{vmaf.id}"
-                  )
-
-                {:error, reason} ->
-                  Logger.error(
-                    "Broadway: Encoding succeeded but post-processing failed for VMAF #{vmaf.id}: #{reason}"
-                  )
-              end
-
-              # Always return :ok for Broadway to indicate message was processed
-              :ok
-
-            {:error, exit_code} ->
-              # Classify the failure to determine if we should pause or continue
-              case classify_failure(exit_code) do
-                {:pause, reason} ->
-                  Logger.error(
-                    "Broadway: Critical failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})"
-                  )
-
-                  Logger.error("Broadway: Pausing pipeline due to critical system issue")
-
-                  # Notify about the failure
-                  notify_encoding_failure(vmaf.video, exit_code)
-
-                  # Pause the pipeline
-                  Reencodarr.Encoder.Broadway.Producer.pause()
-
-                  # Still return :ok to Broadway since we're handling the pause manually
-                  :ok
-
-                {:continue, reason} ->
-                  Logger.warning(
-                    "Broadway: Recoverable failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})"
-                  )
-
-                  # Notify about the failure and mark as failed
-                  notify_encoding_failure(vmaf.video, exit_code)
-
-                  # Continue processing - return :ok to Broadway
-                  :ok
-              end
-          end
-      end
+      handle_encoding_port(port, vmaf, output_file, context)
     rescue
       exception ->
-        error_message = Exception.message(exception)
-        Logger.error("Broadway: Exception during encoding for VMAF #{vmaf.id}: #{error_message}")
-
-        # Classify exception based on type
-        action =
-          cond do
-            # System.no_memory or similar memory issues
-            String.contains?(error_message, "memory") or String.contains?(error_message, "enomem") ->
-              {:pause, "Memory allocation failure - system may be out of memory"}
-
-            # File system issues
-            String.contains?(error_message, "enospc") ->
-              {:pause, "No space left on device"}
-
-            # Port/process issues
-            String.contains?(error_message, "port") or String.contains?(error_message, "process") ->
-              {:pause, "Process management failure"}
-
-            # Default to recoverable
-            true ->
-              {:continue, "Exception: #{error_message}"}
-          end
-
-        case action do
-          {:pause, reason} ->
-            Logger.error("Broadway: Critical exception for VMAF #{vmaf.id}: #{reason}")
-            Logger.error("Broadway: Pausing pipeline due to critical system issue")
-
-            # Notify about the failure
-            notify_encoding_failure(vmaf.video, :exception)
-
-            # Pause the pipeline
-            Reencodarr.Encoder.Broadway.Producer.pause()
-
-            # Return :ok to Broadway since we're handling the pause manually
-            :ok
-
-          {:continue, reason} ->
-            Logger.warning("Broadway: Recoverable exception for VMAF #{vmaf.id}: #{reason}")
-
-            # Notify about the failure
-            notify_encoding_failure(vmaf.video, :exception)
-
-            # Continue processing
-            :ok
-        end
+        handle_encoding_exception(exception, vmaf)
     end
+  end
+
+  defp handle_encoding_port(:error, vmaf, _output_file, _context) do
+    # Port creation failure is always critical
+    case classify_failure(:port_error) do
+      {:pause, reason} ->
+        Logger.error("Broadway: Critical failure for VMAF #{vmaf.id}: #{reason}")
+        Logger.error("Broadway: Pausing pipeline due to critical system issue")
+        Logger.error("Broadway: Video path: #{vmaf.video.path}")
+
+        # Notify about the failure
+        notify_encoding_failure(vmaf.video, :port_error)
+
+        # Pause the pipeline
+        Producer.pause()
+
+        # Return :ok to Broadway since we're handling the pause manually
+        :ok
+    end
+  end
+
+  defp handle_encoding_port(port, vmaf, output_file, context) do
+    Logger.debug("Broadway: Port opened successfully: #{inspect(port)}")
+
+    # Handle the encoding process synchronously within Broadway
+    # Default to 30 days
+    encoding_timeout = Map.get(context, :encoding_timeout, 2_592_000_000)
+    result = handle_encoding_process(port, vmaf, output_file, encoding_timeout)
+
+    handle_encoding_result(result, vmaf, output_file)
+  end
+
+  defp handle_encoding_result({:ok, :success}, vmaf, output_file) do
+    case notify_encoding_success(vmaf.video, output_file) do
+      {:ok, :success} ->
+        Logger.info(
+          "Broadway: Encoding and post-processing completed successfully for VMAF #{vmaf.id}"
+        )
+
+      {:error, reason} ->
+        Logger.error(
+          "Broadway: Encoding succeeded but post-processing failed for VMAF #{vmaf.id}: #{reason}"
+        )
+    end
+
+    # Always return :ok for Broadway to indicate message was processed
+    :ok
+  end
+
+  defp handle_encoding_result({:error, exit_code}, vmaf, _output_file) do
+    # Classify the failure to determine if we should pause or continue
+    case classify_failure(exit_code) do
+      {:pause, reason} ->
+        handle_critical_encoding_failure(vmaf, exit_code, reason)
+
+      {:continue, reason} ->
+        handle_recoverable_encoding_failure(vmaf, exit_code, reason)
+    end
+  end
+
+  defp handle_critical_encoding_failure(vmaf, exit_code, reason) do
+    Logger.error(
+      "Broadway: Critical failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})"
+    )
+
+    Logger.error("Broadway: Pausing pipeline due to critical system issue")
+
+    # Notify about the failure
+    notify_encoding_failure(vmaf.video, exit_code)
+
+    # Pause the pipeline
+    Producer.pause()
+
+    # Still return :ok to Broadway since we're handling the pause manually
+    :ok
+  end
+
+  defp handle_recoverable_encoding_failure(vmaf, exit_code, reason) do
+    Logger.warning(
+      "Broadway: Recoverable failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})"
+    )
+
+    # Notify about the failure and mark as failed
+    notify_encoding_failure(vmaf.video, exit_code)
+
+    # Continue processing - return :ok to Broadway
+    :ok
+  end
+
+  defp handle_encoding_exception(exception, vmaf) do
+    error_message = Exception.message(exception)
+    Logger.error("Broadway: Exception during encoding for VMAF #{vmaf.id}: #{error_message}")
+
+    # Classify exception based on type
+    action = classify_exception_action(error_message)
+
+    case action do
+      {:pause, reason} ->
+        handle_critical_exception(vmaf, reason)
+
+      {:continue, reason} ->
+        handle_recoverable_exception(vmaf, reason)
+    end
+  end
+
+  defp classify_exception_action(error_message) do
+    cond do
+      # System.no_memory or similar memory issues
+      String.contains?(error_message, "memory") or String.contains?(error_message, "enomem") ->
+        {:pause, "Memory allocation failure - system may be out of memory"}
+
+      # File system issues
+      String.contains?(error_message, "enospc") ->
+        {:pause, "No space left on device"}
+
+      # Port/process issues
+      String.contains?(error_message, "port") or String.contains?(error_message, "process") ->
+        {:pause, "Process management failure"}
+
+      # Default to recoverable
+      true ->
+        {:continue, "Exception: #{error_message}"}
+    end
+  end
+
+  defp handle_critical_exception(vmaf, reason) do
+    Logger.error("Broadway: Critical exception for VMAF #{vmaf.id}: #{reason}")
+    Logger.error("Broadway: Pausing pipeline due to critical system issue")
+
+    # Notify about the failure
+    notify_encoding_failure(vmaf.video, :exception)
+
+    # Pause the pipeline
+    Producer.pause()
+
+    # Return :ok to Broadway since we're handling the pause manually
+    :ok
+  end
+
+  defp handle_recoverable_exception(vmaf, reason) do
+    Logger.warning("Broadway: Recoverable exception for VMAF #{vmaf.id}: #{reason}")
+
+    # Notify about the failure
+    notify_encoding_failure(vmaf.video, :exception)
+
+    # Continue processing
+    :ok
   end
 
   @spec handle_encoding_process(port(), vmaf(), String.t(), integer()) ::
@@ -416,8 +441,6 @@ defmodule Reencodarr.Encoder.Broadway do
 
   @spec build_encode_args(vmaf()) :: [String.t()]
   defp build_encode_args(vmaf) do
-    alias Reencodarr.{Rules, AbAv1.Helper}
-
     base_args = [
       "encode",
       "--crf",
@@ -440,8 +463,6 @@ defmodule Reencodarr.Encoder.Broadway do
 
   @spec notify_encoding_success(map(), String.t()) :: {:ok, :success} | {:error, atom()}
   defp notify_encoding_success(video, output_file) do
-    alias Reencodarr.{PostProcessor, Telemetry}
-
     # Emit telemetry event for completion
     Telemetry.emit_encoder_completed()
 
@@ -451,8 +472,6 @@ defmodule Reencodarr.Encoder.Broadway do
 
   @spec notify_encoding_failure(map(), integer() | atom()) :: :ok
   defp notify_encoding_failure(video, exit_code) do
-    alias Reencodarr.{PostProcessor, Telemetry}
-
     # Emit telemetry event for failure
     Telemetry.emit_encoder_failed(exit_code, video)
 

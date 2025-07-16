@@ -60,11 +60,11 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   def handle_demand(demand, state) when demand > 0 do
     new_state = %{state | demand: state.demand + demand}
     # Only dispatch if we're not already processing something
-    if not state.processing do
-      dispatch_if_ready(new_state)
-    else
+    if state.processing do
       # If we're already processing, just store the demand for later
       {:noreply, [], new_state}
+    else
+      dispatch_if_ready(new_state)
     end
   end
 
@@ -219,7 +219,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
     if remaining_needed > 0 do
       # Get additional videos from database
-      db_videos = Media.get_next_for_analysis(remaining_needed)
+      db_videos = Media.get_videos_needing_analysis(remaining_needed)
       all_videos = queue_videos ++ db_videos
       {all_videos, new_state}
     else

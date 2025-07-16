@@ -9,7 +9,8 @@ defmodule Reencodarr.AbAv1.Encode do
   use GenServer
 
   alias Reencodarr.AbAv1.Helper
-  alias Reencodarr.{Media, PostProcessor, ProgressParser, Rules, Telemetry}
+  alias Reencodarr.Encoder.Broadway.Producer
+  alias Reencodarr.{Media, PostProcessor, ProgressParser, Rules, Telemetry, TelemetryReporter}
 
   require Logger
 
@@ -115,7 +116,7 @@ defmodule Reencodarr.AbAv1.Encode do
     )
 
     # Notify the Broadway producer that encoding is now available
-    Reencodarr.Encoder.Broadway.Producer.dispatch_available()
+    Producer.dispatch_available()
 
     if result == {:ok, :success} do
       notify_encoder_success(vmaf.video, output_file)
@@ -155,7 +156,7 @@ defmodule Reencodarr.AbAv1.Encode do
 
     # Get the last known progress from the telemetry system to preserve ETA
     last_progress =
-      case Reencodarr.TelemetryReporter.get_progress_state() do
+      case TelemetryReporter.get_progress_state() do
         %{encoding_progress: %{eta: eta, percent: percent, fps: fps}} when eta != 0 ->
           %{eta: eta, percent: percent, fps: fps}
 

@@ -40,6 +40,12 @@ defmodule Reencodarr.TelemetryEventHandler do
     GenServer.cast(pid, {:update_encoding, false, :none})
   end
 
+  def handle_event([:reencodarr, :encoder, :paused], _measurements, _metadata, %{
+        reporter_pid: pid
+      }) do
+    GenServer.cast(pid, {:update_encoding, false, :none})
+  end
+
   # CRF search events
   def handle_event([:reencodarr, :crf_search, :started], _measurements, _metadata, %{
         reporter_pid: pid
@@ -54,6 +60,12 @@ defmodule Reencodarr.TelemetryEventHandler do
   end
 
   def handle_event([:reencodarr, :crf_search, :completed], _measurements, _metadata, %{
+        reporter_pid: pid
+      }) do
+    GenServer.cast(pid, {:update_crf_search, false})
+  end
+
+  def handle_event([:reencodarr, :crf_search, :paused], _measurements, _metadata, %{
         reporter_pid: pid
       }) do
     GenServer.cast(pid, {:update_crf_search, false})
@@ -101,9 +113,11 @@ defmodule Reencodarr.TelemetryEventHandler do
       [:reencodarr, :encoder, :progress],
       [:reencodarr, :encoder, :completed],
       [:reencodarr, :encoder, :failed],
+      [:reencodarr, :encoder, :paused],
       [:reencodarr, :crf_search, :started],
       [:reencodarr, :crf_search, :progress],
       [:reencodarr, :crf_search, :completed],
+      [:reencodarr, :crf_search, :paused],
       [:reencodarr, :analyzer, :started],
       [:reencodarr, :analyzer, :paused],
       [:reencodarr, :sync, :started],

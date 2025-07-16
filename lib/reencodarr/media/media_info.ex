@@ -41,36 +41,56 @@ defmodule Reencodarr.Media.MediaInfo do
   def to_video_params(mediainfo, path) do
     require Logger
 
-    # Safer access to tracks, handling nil values at any level
-    tracks =
-      case mediainfo do
-        %{"media" => %{"track" => tracks}} when is_list(tracks) ->
-          tracks
+    tracks = extract_tracks_safely(mediainfo, path)
+    {general, video_tracks, audio_tracks} = extract_track_types(tracks, mediainfo)
+    video_codecs = extract_video_codecs(video_tracks, path, mediainfo)
 
-        # Handle single track as a map
-        %{"media" => %{"track" => track}} when is_map(track) ->
-          [track]
+    build_video_params(general, video_tracks, audio_tracks, video_codecs, mediainfo, path)
+  end
 
-        %{"media" => nil} ->
-          []
+  defp extract_tracks_safely(mediainfo, path) do
+    require Logger
 
-        nil ->
-          []
+    case mediainfo do
+      %{"media" => %{"track" => tracks}} when is_list(tracks) ->
+        tracks
 
-        _ ->
-          # Log unexpected structure but don't crash
-          Logger.warning(
-            "Unexpected mediainfo structure for #{path}: #{inspect(mediainfo, pretty: true, limit: 1000)}"
-          )
+      # Handle single track as a map
+      %{"media" => %{"track" => track}} when is_map(track) ->
+        [track]
 
-          []
-      end
+      %{"media" => nil} ->
+        []
 
+      nil ->
+        []
+
+      _ ->
+        # Log unexpected structure but don't crash
+        Logger.warning(
+          "Unexpected mediainfo structure for #{path}: #{inspect(mediainfo, pretty: true, limit: 1000)}"
+        )
+
+        []
+    end
+  end
+
+  defp extract_track_types(tracks, mediainfo) do
     general = CodecHelper.get_track(mediainfo, "General") || %{}
     video_tracks = Enum.filter(tracks, &(&1["@type"] == "Video"))
     audio_tracks = Enum.filter(tracks, &(&1["@type"] == "Audio"))
-    last_video = List.last(video_tracks)
+
+    {general, video_tracks, audio_tracks}
+  end
+
+  defp extract_video_codecs(video_tracks, path, mediainfo) do
     video_codecs = Enum.map(video_tracks, &Map.get(&1, "CodecID"))
+
+    validate_video_codecs(video_codecs, video_tracks, path, mediainfo)
+  end
+
+  defp validate_video_codecs(video_codecs, video_tracks, path, mediainfo) do
+    require Logger
 
     # Log structure in case of issues
     if Enum.empty?(video_tracks) do
@@ -78,7 +98,6 @@ defmodule Reencodarr.Media.MediaInfo do
         "No video tracks found for #{path}: #{inspect(mediainfo, pretty: true, limit: 1000)}"
       )
 
-      Logger.warning("Parsed tracks: #{inspect(tracks, pretty: true, limit: 1000)}")
       Logger.warning("video_codecs will be: #{inspect(video_codecs)}")
     end
 
@@ -89,6 +108,12 @@ defmodule Reencodarr.Media.MediaInfo do
       Logger.error("Full mediainfo: #{inspect(mediainfo, pretty: true, limit: :infinity)}")
       raise "video_codecs is nil after extraction - this indicates a bug"
     end
+
+    video_codecs
+  end
+
+  defp build_video_params(general, video_tracks, audio_tracks, video_codecs, mediainfo, path) do
+    last_video = List.last(video_tracks)
 
     %{
       audio_codecs: Enum.map(audio_tracks, &Map.get(&1, "CodecID")),

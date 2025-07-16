@@ -34,37 +34,35 @@ defmodule Reencodarr.Dashboard.QueueItem do
     path = extract_path(video)
 
     # Extract different data based on the type of queue item
-    cond do
+    if Map.has_key?(video, :video) and Map.has_key?(video, :percent) do
       # VMAF struct (encoding queue) - has video field and percent
-      Map.has_key?(video, :video) and Map.has_key?(video, :percent) ->
-        video_data = Map.get(video, :video, %{})
-        video_size = Map.get(video_data, :size, 0)
+      video_data = Map.get(video, :video, %{})
+      video_size = Map.get(video_data, :size, 0)
 
-        # Always use the savings field from the database - don't fallback to calculation
-        estimated_savings_bytes = Map.get(video, :savings)
+      # Always use the savings field from the database - don't fallback to calculation
+      estimated_savings_bytes = Map.get(video, :savings)
 
-        %__MODULE__{
-          index: index,
-          path: path,
-          display_name: clean_display_name(Path.basename(path)),
-          estimated_percent: Map.get(video, :estimated_percent),
-          estimated_savings_bytes: estimated_savings_bytes,
-          size: video_size
-        }
-
+      %__MODULE__{
+        index: index,
+        path: path,
+        display_name: clean_display_name(Path.basename(path)),
+        estimated_percent: Map.get(video, :estimated_percent),
+        estimated_savings_bytes: estimated_savings_bytes,
+        size: video_size
+      }
+    else
       # Video struct (CRF search or analyzer queue)
-      true ->
-        bitrate = Map.get(video, :bitrate)
-        size = Map.get(video, :size)
+      bitrate = Map.get(video, :bitrate)
+      size = Map.get(video, :size)
 
-        %__MODULE__{
-          index: index,
-          path: path,
-          display_name: clean_display_name(Path.basename(path)),
-          estimated_percent: Map.get(video, :estimated_percent),
-          bitrate: bitrate,
-          size: size
-        }
+      %__MODULE__{
+        index: index,
+        path: path,
+        display_name: clean_display_name(Path.basename(path)),
+        estimated_percent: Map.get(video, :estimated_percent),
+        bitrate: bitrate,
+        size: size
+      }
     end
   end
 
@@ -131,8 +129,7 @@ defmodule Reencodarr.Dashboard.QueueItem do
     title
     |> String.downcase()
     |> String.split(" ")
-    |> Enum.map(&String.capitalize/1)
-    |> Enum.join(" ")
+    |> Enum.map_join(" ", &String.capitalize/1)
     # Keep episode format uppercase
     |> String.replace(~r/\b(S\d{2}E\d{2})\b/i, fn match -> String.upcase(match) end)
   end

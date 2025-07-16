@@ -52,6 +52,7 @@ defmodule Reencodarr.Encoder.Producer do
   @impl true
   def handle_cast(:pause, state) do
     Logger.info("Encoder producer paused")
+    Reencodarr.Telemetry.emit_encoder_paused()
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :paused})
     {:noreply, [], %{state | paused: true}}
   end

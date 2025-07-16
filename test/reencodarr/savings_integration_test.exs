@@ -60,7 +60,7 @@ defmodule Reencodarr.SavingsIntegrationTest do
           path: "/test/high_savings_video.mkv",
           # 3GB
           size: 3_000_000_000,
-          bitrate: 10000
+          bitrate: 10_000
         })
 
       {:ok, _vmaf3} =
@@ -152,7 +152,7 @@ defmodule Reencodarr.SavingsIntegrationTest do
           path: "/test/persistence_test.mkv",
           # 5GB
           size: 5_000_000_000,
-          bitrate: 12000
+          bitrate: 12_000
         })
 
       # Create VMAF with explicit savings
