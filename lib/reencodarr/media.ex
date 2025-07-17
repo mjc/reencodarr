@@ -64,23 +64,75 @@ defmodule Reencodarr.Media do
 
   # Query for videos ready for encoding (chosen VMAFs with valid videos)
   defp query_videos_ready_for_encoding(limit) do
+    # Use a more efficient approach: fetch top N from each library, then alternate in Elixir
+    # This is much more efficient than fetching ALL records
+    library_ids = get_active_library_ids()
+
+    case library_ids do
+      [] ->
+        []
+
+      _ ->
+        # Calculate how many videos we need per library to ensure we can fill the limit
+        videos_per_library = max(1, div(limit, length(library_ids)) + 1)
+
+        # Fetch top videos from each library in parallel
+        videos_by_library =
+          library_ids
+          |> Task.async_stream(
+            fn library_id ->
+              videos =
+                Repo.all(
+                  from v in Vmaf,
+                    join: vid in assoc(v, :video),
+                    where:
+                      v.chosen == true and vid.reencoded == false and vid.failed == false and
+                        vid.library_id == ^library_id,
+                    order_by: [
+                      fragment("? DESC NULLS LAST", v.savings),
+                      asc: v.percent,
+                      asc: v.time
+                    ],
+                    limit: ^videos_per_library,
+                    preload: [:video]
+                )
+
+              {library_id, videos}
+            end,
+            max_concurrency: System.schedulers_online()
+          )
+          |> Enum.map(fn {:ok, result} -> result end)
+          |> Enum.into(%{})
+
+        # Efficiently alternate between libraries
+        alternate_libraries(videos_by_library, library_ids, limit)
+    end
+  end
+
+  # Get list of library IDs that have videos ready for encoding
+  defp get_active_library_ids do
     Repo.all(
       from v in Vmaf,
         join: vid in assoc(v, :video),
         where: v.chosen == true and vid.reencoded == false and vid.failed == false,
-        order_by: [
-          # Alternate by library_id, then by quality within each library
-          fragment(
-            "? % (SELECT COUNT(DISTINCT library_id) FROM videos WHERE library_id IS NOT NULL)",
-            vid.library_id
-          ),
-          fragment("? DESC NULLS LAST", v.savings),
-          asc: v.percent,
-          asc: v.time
-        ],
-        limit: ^limit,
-        preload: [:video]
+        distinct: vid.library_id,
+        select: vid.library_id
     )
+  end
+
+  # Efficient alternation using indexed access
+  defp alternate_libraries(videos_by_library, library_ids, limit) do
+    Stream.iterate(0, &(&1 + 1))
+    |> Stream.take(limit)
+    |> Stream.map(fn index ->
+      library_index = rem(index, length(library_ids))
+      library_id = Enum.at(library_ids, library_index)
+      video_position = div(index, length(library_ids))
+
+      videos_by_library[library_id] |> Enum.at(video_position)
+    end)
+    |> Stream.reject(&is_nil/1)
+    |> Enum.to_list()
   end
 
   def list_videos_by_estimated_percent(limit \\ 10) do
