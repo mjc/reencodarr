@@ -60,7 +60,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "analyzer_events")
 
     {:producer,
-     %{
+     %State{
        demand: 0,
        paused: true,
        queue: :queue.new(),
