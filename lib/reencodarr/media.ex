@@ -64,19 +64,38 @@ defmodule Reencodarr.Media do
 
   # Query for videos ready for encoding (chosen VMAFs with valid videos)
   defp query_videos_ready_for_encoding(limit) do
-    # Use a more efficient approach: fetch top N from each library, then alternate in Elixir
-    # This is much more efficient than fetching ALL records
-    library_ids = get_active_library_ids()
+    # Use a more efficient approach: fetch videos by service type with 5:1 Sonarr:Radarr ratio
+    sonarr_videos = get_videos_by_service_type("sonarr", calculate_sonarr_limit(limit))
+    radarr_videos = get_videos_by_service_type("radarr", calculate_radarr_limit(limit))
+
+    # Alternate with 5:1 ratio (5 Sonarr for every 1 Radarr)
+    alternate_by_service_type(sonarr_videos, radarr_videos, limit)
+  end
+
+  # Calculate how many Sonarr videos we need (roughly 5/6 of total)
+  defp calculate_sonarr_limit(total_limit) do
+    # +2 buffer for safety
+    max(1, round(total_limit * 5 / 6) + 2)
+  end
+
+  # Calculate how many Radarr videos we need (roughly 1/6 of total)
+  defp calculate_radarr_limit(total_limit) do
+    # +2 buffer for safety
+    max(1, round(total_limit * 1 / 6) + 2)
+  end
+
+  # Get videos for a specific service type, alternating between libraries within that service
+  defp get_videos_by_service_type(service_type, limit) do
+    library_ids = get_active_library_ids_for_service(service_type)
 
     case library_ids do
       [] ->
         []
 
       _ ->
-        # Calculate how many videos we need per library to ensure we can fill the limit
         videos_per_library = max(1, div(limit, length(library_ids)) + 1)
 
-        # Fetch top videos from each library in parallel
+        # Fetch top videos from each library for this service type in parallel
         videos_by_library =
           library_ids
           |> Task.async_stream(
@@ -87,7 +106,7 @@ defmodule Reencodarr.Media do
                     join: vid in assoc(v, :video),
                     where:
                       v.chosen == true and vid.reencoded == false and vid.failed == false and
-                        vid.library_id == ^library_id,
+                        vid.library_id == ^library_id and vid.service_type == ^service_type,
                     order_by: [
                       fragment("? DESC NULLS LAST", v.savings),
                       asc: v.percent,
@@ -104,20 +123,49 @@ defmodule Reencodarr.Media do
           |> Enum.map(fn {:ok, result} -> result end)
           |> Enum.into(%{})
 
-        # Efficiently alternate between libraries
+        # Alternate between libraries within this service type
         alternate_libraries(videos_by_library, library_ids, limit)
     end
   end
 
-  # Get list of library IDs that have videos ready for encoding
-  defp get_active_library_ids do
+  # Get library IDs that have videos for a specific service type
+  defp get_active_library_ids_for_service(service_type) do
     Repo.all(
       from v in Vmaf,
         join: vid in assoc(v, :video),
-        where: v.chosen == true and vid.reencoded == false and vid.failed == false,
+        where:
+          v.chosen == true and vid.reencoded == false and vid.failed == false and
+            vid.service_type == ^service_type,
         distinct: vid.library_id,
         select: vid.library_id
     )
+  end
+
+  # Alternate between Sonarr and Radarr with 5:1 ratio
+  defp alternate_by_service_type(sonarr_videos, radarr_videos, limit) do
+    # Create a pattern: [S, S, S, S, S, R, S, S, S, S, S, R, ...]
+    # where S = Sonarr, R = Radarr
+    result = []
+    sonarr_index = 0
+    radarr_index = 0
+
+    0..(limit - 1)
+    |> Enum.reduce({result, sonarr_index, radarr_index}, fn index, {acc, s_idx, r_idx} ->
+      # Every 6th position (0-indexed: 5, 11, 17, ...) gets a Radarr video
+      if rem(index, 6) == 5 do
+        case Enum.at(radarr_videos, r_idx) do
+          nil -> {acc, s_idx, r_idx}
+          video -> {[video | acc], s_idx, r_idx + 1}
+        end
+      else
+        case Enum.at(sonarr_videos, s_idx) do
+          nil -> {acc, s_idx, r_idx}
+          video -> {[video | acc], s_idx + 1, r_idx}
+        end
+      end
+    end)
+    |> elem(0)
+    |> Enum.reverse()
   end
 
   # Efficient alternation using indexed access
