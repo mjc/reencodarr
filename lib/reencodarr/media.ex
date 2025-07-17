@@ -86,7 +86,10 @@ defmodule Reencodarr.Media do
 
   # Get videos for a specific service type, alternating between libraries within that service
   defp get_videos_by_service_type(service_type, limit) do
-    library_ids = get_active_library_ids_for_service(service_type)
+    library_ids =
+      get_active_library_ids_for_service(service_type)
+      # Filter out any nil values for safety
+      |> Enum.reject(&is_nil/1)
 
     case library_ids do
       [] ->
@@ -135,7 +138,7 @@ defmodule Reencodarr.Media do
         join: vid in assoc(v, :video),
         where:
           v.chosen == true and vid.reencoded == false and vid.failed == false and
-            vid.service_type == ^service_type,
+            vid.service_type == ^service_type and not is_nil(vid.library_id),
         distinct: vid.library_id,
         select: vid.library_id
     )
