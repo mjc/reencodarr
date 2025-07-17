@@ -17,6 +17,10 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       :paused,
       :manual_queue
     ]
+
+    def update(state, updates) do
+      struct(state, updates)
+    end
   end
 
   def start_link(opts) do
@@ -158,7 +162,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     Logger.info("Analyzer Broadway producer paused")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :paused})
     :telemetry.execute([:reencodarr, :analyzer, :paused], %{}, %{})
-    {:noreply, [], %{state | paused: true}}
+    {:noreply, [], State.update(state, paused: true)}
   end
 
   @impl GenStage
@@ -166,7 +170,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     Logger.info("Analyzer Broadway producer resumed")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :started})
     :telemetry.execute([:reencodarr, :analyzer, :started], %{}, %{})
-    new_state = %{state | paused: false}
+    new_state = State.update(state, paused: false)
     dispatch_if_ready(new_state)
   end
 
@@ -179,7 +183,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     )
 
     new_manual_queue = [video_info | state.manual_queue]
-    new_state = %{state | manual_queue: new_manual_queue}
+    new_state = State.update(state, manual_queue: new_manual_queue)
     Logger.debug("After adding - queue size: #{length(new_state.manual_queue)}")
 
     # Broadcast queue state change
@@ -191,7 +195,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   @impl GenStage
   def handle_demand(demand, state) when demand > 0 do
     Logger.debug("Broadway producer received demand for #{demand} items")
-    new_state = %{state | demand: state.demand + demand}
+    new_state = State.update(state, demand: state.demand + demand)
     dispatch_if_ready(new_state)
   end
 
@@ -287,7 +291,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       videos ->
         Logger.debug("Broadway producer dispatching #{length(videos)} videos for analysis")
         new_demand = state.demand - length(videos)
-        new_state = %{state | demand: new_demand, manual_queue: remaining_manual}
+        new_state = State.update(state, demand: new_demand, manual_queue: remaining_manual)
 
         # Broadcast queue state change if manual queue changed
         if length(remaining_manual) != length(state.manual_queue) do
