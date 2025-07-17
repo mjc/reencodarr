@@ -17,11 +17,20 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     defstruct [
       :demand,
       :paused,
+      :queue,
+      :processing,
       :manual_queue
     ]
 
-    def update(state, updates) do
+    def update(state, updates) when is_struct(state, __MODULE__) do
       struct(state, updates)
+    end
+
+    def update(state, updates) when is_map(state) do
+      # Handle case where state is a plain map (e.g., after crash/restart)
+      # Convert it to a proper State struct first
+      state_struct = struct(__MODULE__, state)
+      struct(state_struct, updates)
     end
   end
 
@@ -65,7 +74,8 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
        paused: true,
        queue: :queue.new(),
        # Track if we're currently processing videos
-       processing: false
+       processing: false,
+       manual_queue: []
      }}
   end
 
