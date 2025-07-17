@@ -75,13 +75,13 @@ defmodule Reencodarr.Media do
   # Calculate how many Sonarr videos we need (roughly 5/6 of total)
   defp calculate_sonarr_limit(total_limit) do
     # +2 buffer for safety
-    max(1, round(total_limit * 5 / 6) + 2)
+    max(1, round(total_limit * 9 / 10) + 2)
   end
 
   # Calculate how many Radarr videos we need (roughly 1/6 of total)
   defp calculate_radarr_limit(total_limit) do
     # +2 buffer for safety
-    max(1, round(total_limit * 1 / 6) + 2)
+    max(1, round(total_limit * 1 / 10) + 2)
   end
 
   # Get videos for a specific service type, alternating between libraries within that service
@@ -206,15 +206,27 @@ defmodule Reencodarr.Media do
     )
   end
 
-  def create_video(attrs \\ %{}), do: %Video{} |> Video.changeset(attrs) |> Repo.insert()
+  def create_video(attrs \\ %{}) do
+    %Video{} |> Video.changeset(attrs) |> Repo.insert()
+  end
 
   def upsert_video(attrs) do
+    # Normalize all keys to strings to avoid mixed key issues with Ecto
+    attrs = normalize_keys_to_strings(attrs)
+
+    # Debug log to see what we're working with
+    if Map.has_key?(attrs, :size) do
+      Logger.warning(
+        "❌ Still have atom keys after normalization: #{inspect(Map.keys(attrs) |> Enum.take(10))}"
+      )
+    end
+
     attrs = ensure_library_id(attrs)
     path = get_path_from_attrs(attrs)
 
     # Extract the values we care about for comparison
     new_values = extract_comparison_values(attrs)
-    being_marked_reencoded = get_attr_value(attrs, :reencoded) == true
+    being_marked_reencoded = get_attr_value(attrs, "reencoded") == true
 
     result =
       Repo.transaction(fn ->
@@ -226,8 +238,8 @@ defmodule Reencodarr.Media do
           from(v in Vmaf, where: v.video_id == ^existing_video.id) |> Repo.delete_all()
         end
 
-        attrs
-        |> Video.changeset()
+        %Video{}
+        |> Video.changeset(attrs)
         |> Repo.insert(
           on_conflict: {:replace_all_except, [:id, :inserted_at, :reencoded, :failed]},
           conflict_target: :path
@@ -248,20 +260,34 @@ defmodule Reencodarr.Media do
   end
 
   # Helper functions for cleaner attribute access
-  defp get_path_from_attrs(attrs), do: Map.get(attrs, :path) || Map.get(attrs, "path")
+  defp normalize_keys_to_strings(attrs) when is_map(attrs) do
+    # Force conversion using for comprehension to ensure all keys become strings
+    for {key, value} <- attrs, into: %{} do
+      string_key =
+        cond do
+          is_atom(key) -> Atom.to_string(key)
+          is_binary(key) -> key
+          true -> to_string(key)
+        end
+
+      {string_key, value}
+    end
+  end
+
+  defp get_path_from_attrs(attrs), do: Map.get(attrs, "path")
 
   defp extract_comparison_values(attrs) do
     %{
-      size: get_attr_value(attrs, :size),
-      bitrate: get_attr_value(attrs, :bitrate),
-      duration: get_attr_value(attrs, :duration),
-      video_codecs: get_attr_value(attrs, :video_codecs),
-      audio_codecs: get_attr_value(attrs, :audio_codecs)
+      size: get_attr_value(attrs, "size"),
+      bitrate: get_attr_value(attrs, "bitrate"),
+      duration: get_attr_value(attrs, "duration"),
+      video_codecs: get_attr_value(attrs, "video_codecs"),
+      audio_codecs: get_attr_value(attrs, "audio_codecs")
     }
   end
 
-  defp get_attr_value(attrs, key) when is_atom(key) do
-    Map.get(attrs, key) || Map.get(attrs, to_string(key))
+  defp get_attr_value(attrs, key) when is_binary(key) do
+    Map.get(attrs, key)
   end
 
   defp get_video_metadata_for_comparison(path) do
@@ -297,22 +323,15 @@ defmodule Reencodarr.Media do
     end)
   end
 
-  defp ensure_library_id(%{library_id: nil} = attrs),
-    do: Map.put(attrs, :library_id, find_library_id(attrs[:path]))
-
   defp ensure_library_id(%{"library_id" => nil} = attrs),
     do: Map.put(attrs, "library_id", find_library_id(attrs["path"]))
 
-  defp ensure_library_id(%{library_id: _} = attrs), do: attrs
   defp ensure_library_id(%{"library_id" => _} = attrs), do: attrs
 
   defp ensure_library_id(attrs) do
-    path = Map.get(attrs, :path) || Map.get(attrs, "path")
+    path = Map.get(attrs, "path")
     library_id = find_library_id(path)
-
-    # Use atom keys if the map has atom keys, otherwise use string keys
-    key = if Map.has_key?(attrs, :path), do: :library_id, else: "library_id"
-    Map.put(attrs, key, library_id)
+    Map.put(attrs, "library_id", library_id)
   end
 
   defp find_library_id(path) when is_binary(path) do
@@ -329,17 +348,24 @@ defmodule Reencodarr.Media do
 
   defp find_library_id(_), do: nil
 
-  def update_video(%Video{} = video, attrs), do: video |> Video.changeset(attrs) |> Repo.update()
-  def delete_video(%Video{} = video), do: Repo.delete(video)
-  def change_video(%Video{} = video, attrs \\ %{}), do: Video.changeset(video, attrs)
+  def update_video(%Video{} = video, attrs) do
+    video |> Video.changeset(attrs) |> Repo.update()
+  end
 
-  def update_video_status(%Video{} = video, attrs),
-    do: video |> Video.changeset(attrs) |> Repo.update()
+  def delete_video(%Video{} = video), do: Repo.delete(video)
+
+  def change_video(%Video{} = video, attrs \\ %{}) do
+    Video.changeset(video, attrs)
+  end
+
+  def update_video_status(%Video{} = video, attrs) do
+    video |> Video.changeset(attrs) |> Repo.update()
+  end
 
   def mark_as_reencoded(%Video{} = video),
-    do: update_video_status(video, %{reencoded: true, failed: false})
+    do: update_video_status(video, %{"reencoded" => true, "failed" => false})
 
-  def mark_as_failed(%Video{} = video), do: update_video_status(video, %{failed: true})
+  def mark_as_failed(%Video{} = video), do: update_video_status(video, %{"failed" => true})
   def most_recent_video_update, do: Repo.one(from v in Video, select: max(v.updated_at))
   def get_most_recent_inserted_at, do: Repo.one(from v in Video, select: max(v.inserted_at))
   def video_has_vmafs?(%Video{id: id}), do: Repo.exists?(from v in Vmaf, where: v.video_id == ^id)
@@ -384,13 +410,23 @@ defmodule Reencodarr.Media do
     %Library{} |> Library.changeset(attrs) |> Repo.insert()
   end
 
-  def update_library(%Library{} = l, attrs), do: l |> Library.changeset(attrs) |> Repo.update()
+  def update_library(%Library{} = l, attrs) do
+    l |> Library.changeset(attrs) |> Repo.update()
+  end
+
   def delete_library(%Library{} = l), do: Repo.delete(l)
-  def change_library(%Library{} = l, attrs \\ %{}), do: Library.changeset(l, attrs)
+
+  def change_library(%Library{} = l, attrs \\ %{}) do
+    Library.changeset(l, attrs)
+  end
+
   # --- Vmaf-related functions ---
   def list_vmafs, do: Repo.all(Vmaf)
   def get_vmaf!(id), do: Repo.get!(Vmaf, id) |> Repo.preload(:video)
-  def create_vmaf(attrs \\ %{}), do: %Vmaf{} |> Vmaf.changeset(attrs) |> Repo.insert()
+
+  def create_vmaf(attrs \\ %{}) do
+    %Vmaf{} |> Vmaf.changeset(attrs) |> Repo.insert()
+  end
 
   def upsert_vmaf(attrs) do
     # Calculate savings if not provided but percent and video are available
@@ -450,9 +486,15 @@ defmodule Reencodarr.Media do
 
   defp calculate_vmaf_savings(_, _), do: nil
 
-  def update_vmaf(%Vmaf{} = vmaf, attrs), do: vmaf |> Vmaf.changeset(attrs) |> Repo.update()
+  def update_vmaf(%Vmaf{} = vmaf, attrs) do
+    vmaf |> Vmaf.changeset(attrs) |> Repo.update()
+  end
+
   def delete_vmaf(%Vmaf{} = vmaf), do: Repo.delete(vmaf)
-  def change_vmaf(%Vmaf{} = vmaf, attrs \\ %{}), do: Vmaf.changeset(vmaf, attrs)
+
+  def change_vmaf(%Vmaf{} = vmaf, attrs \\ %{}) do
+    Vmaf.changeset(vmaf, attrs)
+  end
 
   def chosen_vmaf_exists?(%{id: id}),
     do: Repo.exists?(from v in Vmaf, where: v.video_id == ^id and v.chosen == true)
