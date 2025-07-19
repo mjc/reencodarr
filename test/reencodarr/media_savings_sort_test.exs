@@ -4,18 +4,38 @@ defmodule Reencodarr.MediaSavingsSortTest do
 
   describe "encoding queue sorting by savings" do
     setup do
+      # Create a test library first
+      {:ok, library} = Media.create_library(%{path: "/test/library", monitor: true})
+
       # Create test videos with same size but different savings
       {:ok, video1} =
-        Media.create_video(%{path: "/test/small_savings.mp4", size: 1_000_000_000, bitrate: 5000})
+        Media.create_video(%{
+          path: "/test/library/small_savings.mp4",
+          size: 1_000_000_000,
+          bitrate: 5000,
+          service_type: "sonarr",
+          service_id: "1",
+          library_id: library.id
+        })
 
       {:ok, video2} =
-        Media.create_video(%{path: "/test/large_savings.mp4", size: 1_000_000_000, bitrate: 5000})
+        Media.create_video(%{
+          path: "/test/library/large_savings.mp4",
+          size: 1_000_000_000,
+          bitrate: 5000,
+          service_type: "sonarr",
+          service_id: "2",
+          library_id: library.id
+        })
 
       {:ok, video3} =
         Media.create_video(%{
-          path: "/test/medium_savings.mp4",
+          path: "/test/library/medium_savings.mp4",
           size: 1_000_000_000,
-          bitrate: 5000
+          bitrate: 5000,
+          service_type: "sonarr",
+          service_id: "3",
+          library_id: library.id
         })
 
       %{video1: video1, video2: video2, video3: video3}
