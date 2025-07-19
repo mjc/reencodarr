@@ -8,59 +8,58 @@ defmodule Reencodarr.SavingsIntegrationTest do
 
   describe "savings integration" do
     test "savings flow from CRF search to encoding queue" do
+      # Create a test library first
+      {:ok, library} = Media.create_library(%{path: "/test/library", monitor: true})
+
       # Create a test video
       {:ok, video} =
         Media.create_video(%{
-          path: "/test/integration_video.mkv",
+          path: "/test/library/integration_video.mkv",
           # 2GB
           size: 2_000_000_000,
-          bitrate: 8000
+          bitrate: 8000,
+          service_type: "sonarr",
+          service_id: "1",
+          library_id: library.id
         })
 
-      # Simulate CRF search results with different compression ratios
-      {:ok, vmaf1} =
+      # Simulate CRF search results being saved
+      {:ok, vmaf} =
         Media.upsert_vmaf(%{
           "video_id" => video.id,
           "crf" => "22.0",
-          "score" => "96.5",
-          # 30% of original = 70% savings = 1.4GB
-          "percent" => "30",
-          "chosen" => false,
-          "params" => ["--preset", "slow"],
-          "target" => 95
-        })
-
-      {:ok, vmaf2} =
-        Media.upsert_vmaf(%{
-          "video_id" => video.id,
-          "crf" => "24.0",
           "score" => "95.2",
-          # 45% of original = 55% savings = 1.1GB
-          "percent" => "45",
-          # This is the chosen one
+          # 30% savings = 600MB
+          "percent" => "70",
           "chosen" => true,
-          "params" => ["--preset", "slow"],
+          "params" => ["--preset", "medium"],
           "target" => 95
         })
 
-      # Verify savings were calculated correctly
-      # 1.4GB
-      assert vmaf1.savings == 1_400_000_000
-      # 1.1GB
-      assert vmaf2.savings == 1_100_000_000
+      # Verify savings calculation
+      assert vmaf.savings == 600_000_000
+      assert vmaf.score == 95.2
 
-      # Verify the video shows up in encoding queue (has chosen VMAF)
+      # Verify video is now in encoding queue
       next_video = Media.get_next_for_encoding()
       assert next_video != nil
-      assert next_video.video.path == video.path
+      assert next_video.video.id == video.id
+      assert next_video.id == vmaf.id
+
+      # Verify queue count
+      queue_count = Media.encoding_queue_count()
+      assert queue_count == 1
 
       # Create another video with higher savings to test sorting
       {:ok, video2} =
         Media.create_video(%{
-          path: "/test/high_savings_video.mkv",
+          path: "/test/library/high_savings_video.mkv",
           # 3GB
           size: 3_000_000_000,
-          bitrate: 10_000
+          bitrate: 10_000,
+          service_type: "sonarr",
+          service_id: "2",
+          library_id: library.id
         })
 
       {:ok, _vmaf3} =
@@ -93,13 +92,19 @@ defmodule Reencodarr.SavingsIntegrationTest do
     end
 
     test "savings calculation handles edge cases" do
+      # Create a test library first
+      {:ok, library} = Media.create_library(%{path: "/test/library", monitor: true})
+
       # Test with very small file
       {:ok, small_video} =
         Media.create_video(%{
-          path: "/test/small_video.mp4",
+          path: "/test/library/small_video.mp4",
           # 100KB
           size: 100_000,
-          bitrate: 1000
+          bitrate: 1000,
+          service_type: "sonarr",
+          service_id: "2",
+          library_id: library.id
         })
 
       {:ok, small_vmaf} =
@@ -119,10 +124,13 @@ defmodule Reencodarr.SavingsIntegrationTest do
       # Test with near-perfect compression
       {:ok, perfect_video} =
         Media.create_video(%{
-          path: "/test/perfect_compression.mkv",
+          path: "/test/library/perfect_compression.mkv",
           # 1GB
           size: 1_000_000_000,
-          bitrate: 5000
+          bitrate: 5000,
+          service_type: "sonarr",
+          service_id: "3",
+          library_id: library.id
         })
 
       {:ok, perfect_vmaf} =
@@ -146,27 +154,30 @@ defmodule Reencodarr.SavingsIntegrationTest do
       assert next_video.video.path == perfect_video.path
     end
 
-    test "savings field is preserved through database operations" do
+    test "explicit savings override calculation" do
+      # Create a test library first
+      {:ok, library} = Media.create_library(%{path: "/test/library", monitor: true})
+
+      # Create test video
       {:ok, video} =
         Media.create_video(%{
-          path: "/test/persistence_test.mkv",
-          # 5GB
-          size: 5_000_000_000,
-          bitrate: 12_000
+          path: "/test/library/explicit_savings_video.mp4",
+          size: 500_000_000,
+          bitrate: 3000,
+          service_type: "sonarr",
+          service_id: "4",
+          library_id: library.id
         })
 
-      # Create VMAF with explicit savings
-      # 3.75GB
-      explicit_savings = 3_750_000_000
+      # Explicit savings value (different from calculated)
+      explicit_savings = 123_456_789
 
       {:ok, vmaf} =
         Media.upsert_vmaf(%{
           "video_id" => video.id,
-          "crf" => "21.0",
-          "score" => "97.2",
-          # Would calculate 75% savings = 3.75GB
-          "percent" => "25",
-          # Explicit value should be used
+          "crf" => "20.0",
+          "score" => "96.5",
+          "percent" => "40",
           "savings" => explicit_savings,
           "chosen" => true,
           "params" => ["--preset", "medium"],

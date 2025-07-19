@@ -4,7 +4,9 @@ defmodule Reencodarr.Media.CodecHelper do
   @spec get_int(map(), String.t(), String.t()) :: integer()
   def get_int(mediainfo, track_type, key) do
     case get_track(mediainfo, track_type) do
-      nil -> 0
+      nil ->
+        0
+
       track ->
         track
         |> Map.get(key, "0")
@@ -16,7 +18,9 @@ defmodule Reencodarr.Media.CodecHelper do
   @spec get_str(map(), String.t(), String.t()) :: String.t()
   def get_str(mediainfo, track_type, key) do
     case get_track(mediainfo, track_type) do
-      nil -> ""
+      nil ->
+        ""
+
       track ->
         track
         |> Map.get(key, "")
