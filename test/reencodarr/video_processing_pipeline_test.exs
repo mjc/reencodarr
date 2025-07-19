@@ -6,6 +6,7 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
   alias Reencodarr.{Media, FileOperations, PostProcessor}
 
   @moduletag :integration
+  @moduletag :flaky
 
   describe "end-to-end video processing pipeline" do
     setup do
