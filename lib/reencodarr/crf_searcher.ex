@@ -1,7 +1,6 @@
 defmodule Reencodarr.CrfSearcher do
   @moduledoc """
   CrfSearcher module that uses Broadway for processing CRF search operations.
-  Provides backward compatibility with the old GenStage-based CRF searcher.
   """
   require Logger
 
@@ -10,8 +9,7 @@ defmodule Reencodarr.CrfSearcher do
   alias Reencodarr.Media
 
   @doc """
-  Process a video for CRF search. This function maintains compatibility with the old API
-  but now adds the video to the Broadway pipeline.
+  Process a video for CRF search using the Broadway pipeline.
   """
   @spec process_video(map()) :: :ok
   def process_video(video) do
@@ -34,14 +32,8 @@ defmodule Reencodarr.CrfSearcher do
   @spec start :: :ok
   def start do
     Logger.info("🔍 Starting CRF searcher")
-    Logger.debug("🔍 Calling Broadway.start()")
-    result = Broadway.start()
-    Logger.debug("🔍 Broadway.start() returned: #{inspect(result)}")
-
-    # Trigger dispatch of available videos
-    Logger.debug("🔍 Calling Broadway Producer dispatch_available()")
-    dispatch_result = Producer.dispatch_available()
-    Logger.debug("🔍 dispatch_available() returned: #{inspect(dispatch_result)}")
+    Broadway.start()
+    Producer.dispatch_available()
     :ok
   end
 
@@ -77,7 +69,9 @@ defmodule Reencodarr.CrfSearcher do
     process_video(video)
   end
 
-  # Delegate functions for backward compatibility
+  @doc """
+  Dispatch available videos for processing.
+  """
   def dispatch_available do
     Producer.dispatch_available()
   end

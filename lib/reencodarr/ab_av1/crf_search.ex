@@ -260,7 +260,18 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       {:crf_search_completed, video.id, :success}
     )
 
-    perform_crf_search_cleanup(state)
+    # Check for pending preset 6 retry
+    case Process.get(:pending_preset_6_retry) do
+      {retry_video, retry_target_vmaf} ->
+        Process.delete(:pending_preset_6_retry)
+        {cleanup_reply, cleanup_state} = perform_crf_search_cleanup(state)
+
+        {cleanup_reply, cleanup_state,
+         {:continue, {:preset_6_retry, retry_video, retry_target_vmaf}}}
+
+      nil ->
+        perform_crf_search_cleanup(state)
+    end
   end
 
   @impl true
@@ -310,7 +321,19 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         )
 
         Media.mark_as_failed(video)
-        perform_crf_search_cleanup(state)
+
+        # Check for pending preset 6 retry even in failure cases
+        case Process.get(:pending_preset_6_retry) do
+          {retry_video, retry_target_vmaf} ->
+            Process.delete(:pending_preset_6_retry)
+            {cleanup_reply, cleanup_state} = perform_crf_search_cleanup(state)
+
+            {cleanup_reply, cleanup_state,
+             {:continue, {:preset_6_retry, retry_video, retry_target_vmaf}}}
+
+          nil ->
+            perform_crf_search_cleanup(state)
+        end
 
       :mark_failed ->
         # Publish completion event to PubSub
@@ -321,7 +344,19 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         )
 
         Media.mark_as_failed(video)
-        perform_crf_search_cleanup(state)
+
+        # Check for pending preset 6 retry even in failure cases
+        case Process.get(:pending_preset_6_retry) do
+          {retry_video, retry_target_vmaf} ->
+            Process.delete(:pending_preset_6_retry)
+            {cleanup_reply, cleanup_state} = perform_crf_search_cleanup(state)
+
+            {cleanup_reply, cleanup_state,
+             {:continue, {:preset_6_retry, retry_video, retry_target_vmaf}}}
+
+          nil ->
+            perform_crf_search_cleanup(state)
+        end
     end
   end
 
@@ -339,6 +374,13 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         Logger.error("Scanning failed: #{data}")
     end
 
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_continue({:preset_6_retry, video, target_vmaf}, state) do
+    Logger.info("CrfSearch: Executing preset 6 retry for video #{video.id} via handle_continue")
+    GenServer.cast(__MODULE__, {:crf_search_with_preset_6, video, target_vmaf})
     {:noreply, state}
   end
 
@@ -556,14 +598,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       case retry_result do
         {:retry, existing_vmafs} ->
           Logger.info(
-            "CrfSearch: Retrying video #{video.id} (#{Path.basename(video.path)}) with --preset 6 after CRF search failure"
+            "CrfSearch: Scheduling retry for video #{video.id} (#{Path.basename(video.path)}) with --preset 6 after CRF search failure"
           )
 
           # Clear existing VMAF records for this video to start fresh
           clear_vmaf_records_for_video_private(video.id, existing_vmafs)
 
-          # Requeue the video with --preset 6 parameter
-          GenServer.cast(__MODULE__, {:crf_search_with_preset_6, video, target_vmaf})
+          # Mark that we should retry when the current process exits
+          # Store retry info for later processing
+          Process.put(:pending_preset_6_retry, {video, target_vmaf})
 
         :already_retried ->
           Logger.error(
@@ -718,6 +761,17 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp has_preset_6_params_private(_), do: false
+
+  # Test helper functions (only available in test environment)
+  if Mix.env() == :test do
+    def should_retry_with_preset_6_for_test(video_id),
+      do: should_retry_with_preset_6_private(video_id)
+
+    def has_preset_6_params_for_test(params), do: has_preset_6_params_private(params)
+
+    def build_crf_search_args_with_preset_6_for_test(video, vmaf_percent),
+      do: build_crf_search_args_with_preset_6_private(video, vmaf_percent)
+  end
 
   # Clear VMAF records for a video before retrying
   defp clear_vmaf_records_for_video_private(video_id, vmaf_records) do
