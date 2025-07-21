@@ -1,41 +1,21 @@
 defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
   use Reencodarr.DataCase, async: true
-  import ExUnit.CaptureLog
 
   alias Reencodarr.Analyzer.Broadway
 
+  import Reencodarr.TestHelpers
+  import ExUnit.CaptureLog
+
   describe "Broadway pipeline error resilience" do
     test "handles mediainfo command failures without crashing" do
-      # Test that the Broadway pipeline is resilient to mediainfo command failures
-      # This tests the public API rather than internal private functions
-
-      # Create a test video file
-      test_file = Path.join(System.tmp_dir!(), "test_video_#{:rand.uniform(10000)}.mkv")
-      File.write!(test_file, "fake video content")
-
-      log =
-        capture_log(fn ->
-          # Use the public API to process a path
-          try do
-            Broadway.process_path(%{
-              path: test_file,
-              service_id: "1",
-              service_type: :sonarr,
-              force_reanalyze: false
-            })
-
-            # Give it a moment to process
-            Process.sleep(100)
-          rescue
-            _ -> :ok
-          end
-        end)
-
-      # Clean up
-      File.rm(test_file)
-
-      # The test passes if no crash occurs - any logging is acceptable
-      assert is_binary(log)
+      with_temp_video_file("fake video content", fn test_file ->
+        test_broadway_error_handling(Broadway, %{
+          path: test_file,
+          service_id: "1",
+          service_type: :sonarr,
+          force_reanalyze: false
+        })
+      end)
     end
 
     test "handles missing files gracefully" do

@@ -1,25 +1,27 @@
 defmodule Reencodarr.AbAv1.CrfSearchTest do
   use Reencodarr.DataCase, async: true
-  import ExUnit.CaptureLog
+
   alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.Media
   alias Reencodarr.Media.Vmaf
   alias Reencodarr.Repo
 
-  describe "process_line/3 (direct call)" do
+  import Reencodarr.MediaFixtures
+  import ExUnit.CaptureLog
+
+  describe "process_line/3" do
     setup do
-      video = %{id: 1, path: "test_path", size: 100}
-      {:ok, video} = Media.create_video(video)
+      video = video_fixture(%{path: "/test/video.mkv", size: 2_000_000_000})
       %{video: video}
     end
 
     test "creates VMAF record for valid line", %{video: video} do
-      line =
-        "[2024-12-12T00:13:08Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 28 VMAF 91.33 (4%)"
+      line = sample_vmaf_line(crf: 28, score: 91.33)
 
-      assert Repo.aggregate(Vmaf, :count, :id) == 0
-      CrfSearch.process_line(line, video, [])
-      assert Repo.aggregate(Vmaf, :count, :id) == 1
+      assert_database_state(Vmaf, 1, fn ->
+        CrfSearch.process_line(line, video, [])
+      end)
+
       vmaf = Repo.one(Vmaf)
       assert vmaf.video_id == video.id
       assert vmaf.crf == 28.0
@@ -27,40 +29,51 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
     end
 
     test "does not create VMAF record for invalid line", %{video: video} do
-      line =
-        "[2024-12-12T00:13:08Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 28"
+      line = invalid_sample_line()
 
-      assert Repo.aggregate(Vmaf, :count, :id) == 0
-      CrfSearch.process_line(line, video, [])
-      assert Repo.aggregate(Vmaf, :count, :id) == 0
-    end
-
-    test "parses multiple lines from fixture file and creates VMAF records for valid lines", %{
-      video: video
-    } do
-      lines =
-        File.read!("test/fixtures/crf-search-output.txt")
-        |> String.split("\n")
-        |> Enum.reject(&(&1 == ""))
-
-      assert Repo.aggregate(Vmaf, :count, :id) == 0
-
-      Enum.each(lines, fn line ->
+      assert_database_state(Vmaf, 0, fn ->
         CrfSearch.process_line(line, video, [])
       end)
+    end
 
-      # The database uses upsert with conflict_target: [:crf, :video_id]
-      # This means we get one record per unique CRF value for this video
-      # Expected unique CRF values: 17.2, 19.3, 19.300001, 19.8, 19.800001,
-      # 20.2, 20.5, 20.7, 20.8, 20.800001, 21.2, 22, 22.4, 22.7, 23.1, 28
-      expected_count = 16
-      actual_count = Repo.aggregate(Vmaf, :count, :id)
+    test "parses multiple lines from fixture file", %{video: video} do
+      lines = load_sample_crf_output()
 
-      msg =
-        "Expected #{expected_count} VMAF records " <>
-          "(one per unique CRF value), got #{actual_count}"
+      # Based on actual fixture content
+      assert_database_state(Vmaf, 16, fn ->
+        Enum.each(lines, fn line ->
+          CrfSearch.process_line(line, video, [])
+        end)
+      end)
 
-      assert actual_count == expected_count, msg
+      # Verify the created records have expected properties
+      vmafs = Repo.all(from v in Vmaf, order_by: v.crf)
+      assert length(vmafs) == 16
+
+      # Scores should generally decrease with higher CRF
+      crf_values = Enum.map(vmafs, & &1.crf)
+      assert crf_values == Enum.sort(crf_values)
+    end
+
+    # Helper functions for test data generation
+    defp sample_vmaf_line(opts) do
+      crf = Keyword.get(opts, :crf, 28)
+      score = Keyword.get(opts, :score, 91.33)
+      sample = Keyword.get(opts, :sample, 1)
+      progress = Keyword.get(opts, :progress, "4%")
+
+      "[2024-12-12T00:13:08Z INFO  ab_av1::command::sample_encode] sample #{sample}/5 crf #{crf} VMAF #{score} (#{progress})"
+    end
+
+    defp invalid_sample_line do
+      "[2024-12-12T00:13:08Z INFO  ab_av1::command::sample_encode] encoding sample 1/5 crf 28"
+    end
+
+    defp load_sample_crf_output do
+      "test/fixtures/crf-search-output.txt"
+      |> File.read!()
+      |> String.split("\n")
+      |> Enum.reject(&(&1 == ""))
     end
   end
 

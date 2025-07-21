@@ -65,6 +65,7 @@ defmodule Reencodarr.MixProject do
       {:phoenix_live_view, "~> 1.0.0-rc.1", override: true},
       {:postgrex, ">= 0.0.0"},
       {:req, "~> 0.5"},
+      {:stream_data, "~> 1.2.0", only: :test},
       {:swoosh, "~> 1.5"},
       {:tailwind, "~> 0.2", runtime: Mix.env() == :dev},
       {:telemetry_metrics, "~> 1.0"},
