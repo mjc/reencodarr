@@ -10,6 +10,8 @@ defmodule ReencodarrWeb.SonarrWebhookController do
       "EpisodeFileDelete" -> handle_delete(conn, params)
       "Rename" -> handle_rename(conn, params)
       "EpisodeFile" -> handle_episodefile(conn, params)
+      "SeriesAdd" -> handle_series_add(conn, params)
+      "SeriesDelete" -> handle_series_delete(conn, params)
       _ -> handle_unknown(conn, params)
     end
   end
@@ -121,6 +123,32 @@ defmodule ReencodarrWeb.SonarrWebhookController do
   defp handle_episodefile(conn, %{"episodeFile" => episode_file}) do
     Logger.info("Received new episodefile event from Sonarr!")
     Reencodarr.Sync.upsert_video_from_file(episode_file, :sonarr)
+    send_resp(conn, :no_content, "")
+  end
+
+  defp handle_series_add(conn, %{"series" => series} = _params) do
+    series_title = series["title"]
+    series_id = series["id"]
+    Logger.info("Received SeriesAdd event from Sonarr for: #{series_title} (ID: #{series_id})")
+
+    # For now, just log the event. In the future, this could:
+    # - Trigger a library scan for the series path
+    # - Initialize series tracking in the database
+    # - Queue the series for monitoring
+
+    send_resp(conn, :no_content, "")
+  end
+
+  defp handle_series_delete(conn, %{"series" => series} = _params) do
+    series_title = series["title"]
+    series_id = series["id"]
+    Logger.info("Received SeriesDelete event from Sonarr for: #{series_title} (ID: #{series_id})")
+
+    # For now, just log the event. In the future, this could:
+    # - Remove all videos associated with this series
+    # - Clean up any tracking data for the series
+    # - Update library statistics
+
     send_resp(conn, :no_content, "")
   end
 
