@@ -10,6 +10,8 @@ defmodule ReencodarrWeb.RadarrWebhookController do
       "MovieFileDelete" -> handle_delete(conn, params)
       "Rename" -> handle_rename(conn, params)
       "MovieFile" -> handle_moviefile(conn, params)
+      "MovieAdd" -> handle_movie_add(conn, params)
+      "MovieDelete" -> handle_movie_delete(conn, params)
       _ -> handle_unknown(conn, params)
     end
   end
@@ -121,6 +123,32 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   defp handle_moviefile(conn, %{"movieFile" => movie_file}) do
     Logger.info("Received new MovieFile event from Radarr!")
     Reencodarr.Sync.upsert_video_from_file(movie_file, :radarr)
+    send_resp(conn, :no_content, "")
+  end
+
+  defp handle_movie_add(conn, %{"movie" => movie} = _params) do
+    movie_title = movie["title"]
+    movie_id = movie["id"]
+    Logger.info("Received MovieAdd event from Radarr for: #{movie_title} (ID: #{movie_id})")
+
+    # For now, just log the event. In the future, this could:
+    # - Trigger a library scan for the movie path
+    # - Initialize movie tracking in the database
+    # - Queue the movie for monitoring
+
+    send_resp(conn, :no_content, "")
+  end
+
+  defp handle_movie_delete(conn, %{"movie" => movie} = _params) do
+    movie_title = movie["title"]
+    movie_id = movie["id"]
+    Logger.info("Received MovieDelete event from Radarr for: #{movie_title} (ID: #{movie_id})")
+
+    # For now, just log the event. In the future, this could:
+    # - Remove all videos associated with this movie
+    # - Clean up any tracking data for the movie
+    # - Update library statistics
+
     send_resp(conn, :no_content, "")
   end
 
