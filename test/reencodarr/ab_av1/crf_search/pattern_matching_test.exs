@@ -1,5 +1,10 @@
 defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
+  @moduledoc """
+  Tests for regex pattern matching in CRF search output parsing.
+  Validates pattern matching against real ab-av1 output fixtures.
+  """
   use Reencodarr.DataCase, async: true
+
   import ExUnit.CaptureLog
 
   alias Reencodarr.AbAv1.CrfSearch

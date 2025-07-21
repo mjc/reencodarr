@@ -3,7 +3,7 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
   use Reencodarr.DataCase, async: false
   import ExUnit.CaptureLog
 
-  alias Reencodarr.{Media, FileOperations, PostProcessor}
+  alias Reencodarr.{FileOperations, Media, PostProcessor}
 
   @moduletag :integration
   @moduletag :flaky

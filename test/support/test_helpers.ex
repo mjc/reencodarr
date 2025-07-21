@@ -43,19 +43,7 @@ defmodule Reencodarr.TestHelpers do
       ], Reencodarr.Analyzer.Broadway)
   """
   def test_concurrent_broadway_operations(data_list, broadway_module) do
-    tasks =
-      Enum.map(data_list, fn data ->
-        Task.async(fn ->
-          capture_log(fn ->
-            try do
-              broadway_module.process_path(data)
-              Process.sleep(50)
-            rescue
-              _ -> :ok
-            end
-          end)
-        end)
-      end)
+    tasks = Enum.map(data_list, &create_broadway_task(&1, broadway_module))
 
     # All tasks should complete without hanging
     logs = Task.await_many(tasks, 5_000)
@@ -63,6 +51,21 @@ defmodule Reencodarr.TestHelpers do
     # Should return log entries for all operations
     assert length(logs) == length(data_list)
     Enum.each(logs, &assert(is_binary(&1)))
+  end
+
+  defp create_broadway_task(data, broadway_module) do
+    Task.async(fn ->
+      capture_log(fn ->
+        safely_process_path(data, broadway_module)
+      end)
+    end)
+  end
+
+  defp safely_process_path(data, broadway_module) do
+    broadway_module.process_path(data)
+    Process.sleep(50)
+  rescue
+    _ -> :ok
   end
 
   @doc """

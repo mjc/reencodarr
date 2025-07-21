@@ -2,8 +2,8 @@ defmodule Reencodarr.ProgressParserTest do
   use Reencodarr.DataCase, async: true
   import ExUnit.CaptureLog
 
-  alias Reencodarr.ProgressParser
   alias Reencodarr.Media
+  alias Reencodarr.ProgressParser
 
   describe "process_line/2" do
     setup do

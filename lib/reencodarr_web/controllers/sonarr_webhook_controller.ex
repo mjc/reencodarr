@@ -2,19 +2,21 @@ defmodule ReencodarrWeb.SonarrWebhookController do
   use ReencodarrWeb, :controller
   require Logger
 
-  def sonarr(conn, %{"eventType" => event} = params) do
-    case event do
-      "Test" -> handle_test(conn, params)
-      "Grab" -> handle_grab(conn, params)
-      "Download" -> handle_download(conn, params)
-      "EpisodeFileDelete" -> handle_delete(conn, params)
-      "Rename" -> handle_rename(conn, params)
-      "EpisodeFile" -> handle_episodefile(conn, params)
-      "SeriesAdd" -> handle_series_add(conn, params)
-      "SeriesDelete" -> handle_series_delete(conn, params)
-      _ -> handle_unknown(conn, params)
-    end
-  end
+  def sonarr(conn, %{"eventType" => "Test"} = params), do: handle_test(conn, params)
+  def sonarr(conn, %{"eventType" => "Grab"} = params), do: handle_grab(conn, params)
+  def sonarr(conn, %{"eventType" => "Download"} = params), do: handle_download(conn, params)
+
+  def sonarr(conn, %{"eventType" => "EpisodeFileDelete"} = params),
+    do: handle_delete(conn, params)
+
+  def sonarr(conn, %{"eventType" => "Rename"} = params), do: handle_rename(conn, params)
+  def sonarr(conn, %{"eventType" => "EpisodeFile"} = params), do: handle_episodefile(conn, params)
+  def sonarr(conn, %{"eventType" => "SeriesAdd"} = params), do: handle_series_add(conn, params)
+
+  def sonarr(conn, %{"eventType" => "SeriesDelete"} = params),
+    do: handle_series_delete(conn, params)
+
+  def sonarr(conn, params), do: handle_unknown(conn, params)
 
   defp handle_test(conn, _params) do
     Logger.info("Received test event from Sonarr!")

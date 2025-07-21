@@ -140,6 +140,18 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     GenServer.call(__MODULE__, :running?) == :running
   end
 
+  # Test helpers - only available in test environment
+  if Mix.env() == :test do
+    def has_preset_6_params?(params), do: has_preset_6_params_private(params)
+    def should_retry_with_preset_6(video_id), do: should_retry_with_preset_6_private(video_id)
+
+    def clear_vmaf_records_for_video(video_id, vmaf_records),
+      do: clear_vmaf_records_for_video_private(video_id, vmaf_records)
+
+    def build_crf_search_args_with_preset_6(video, vmaf_percent),
+      do: build_crf_search_args_with_preset_6_private(video, vmaf_percent)
+  end
+
   # GenServer callbacks
   @impl true
   def init(:ok) do
@@ -160,6 +172,37 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     Telemetry.emit_crf_search_started()
 
     {:noreply, new_state}
+  end
+
+  def handle_cast({:crf_search_with_preset_6, video, vmaf_percent}, %{port: :none} = state) do
+    Logger.info("CrfSearch: Starting retry with --preset 6 for video #{video.id}")
+    args = build_crf_search_args_with_preset_6_private(video, vmaf_percent)
+
+    new_state = %{
+      state
+      | port: Helper.open_port(args),
+        current_task: %{video: video, args: args, target_vmaf: vmaf_percent}
+    }
+
+    # Emit telemetry event for CRF search start
+    Telemetry.emit_crf_search_started()
+
+    {:noreply, new_state}
+  end
+
+  def handle_cast({:crf_search_with_preset_6, video, _vmaf_percent}, state) do
+    Logger.error(
+      "CRF search already in progress, cannot retry with preset 6 for video #{video.id}"
+    )
+
+    # Publish a skipped event since this request was rejected
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "crf_search_events",
+      {:crf_search_completed, video.id, :skipped}
+    )
+
+    {:noreply, state}
   end
 
   def handle_cast({:crf_search, video, _vmaf_percent}, state) do
@@ -223,20 +266,63 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   @impl true
   def handle_info(
         {port, {:exit_status, exit_code}},
-        %{port: port, current_task: %{video: video}} = state
+        %{port: port, current_task: %{video: video, args: _args, target_vmaf: target_vmaf}} =
+          state
       )
       when exit_code != 0 do
     Logger.error("CRF search failed for video #{video.id} with exit code #{exit_code}")
 
-    # Publish completion event to PubSub
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video.id, {:error, exit_code}}
-    )
+    # Check if we should retry with --preset 6 on process failure as well
+    case should_retry_with_preset_6_private(video.id) do
+      {:retry, existing_vmafs} ->
+        Logger.info(
+          "CrfSearch: Retrying video #{video.id} (#{Path.basename(video.path)}) with --preset 6 after process failure (exit code #{exit_code})"
+        )
 
-    Media.mark_as_failed(video)
-    perform_crf_search_cleanup(state)
+        # Clear existing VMAF records for this video to start fresh
+        clear_vmaf_records_for_video_private(video.id, existing_vmafs)
+
+        # Publish failure event first
+        Phoenix.PubSub.broadcast(
+          Reencodarr.PubSub,
+          "crf_search_events",
+          {:crf_search_completed, video.id, {:error, exit_code}}
+        )
+
+        # Clean up current state
+        {_reply, cleanup_state} = perform_crf_search_cleanup(state)
+
+        # Requeue the video with --preset 6 parameter
+        GenServer.cast(__MODULE__, {:crf_search_with_preset_6, video, target_vmaf})
+
+        {:noreply, cleanup_state}
+
+      :already_retried ->
+        Logger.error(
+          "CrfSearch: Video #{video.id} (#{Path.basename(video.path)}) already retried with --preset 6, marking as failed"
+        )
+
+        # Publish completion event to PubSub
+        Phoenix.PubSub.broadcast(
+          Reencodarr.PubSub,
+          "crf_search_events",
+          {:crf_search_completed, video.id, {:error, exit_code}}
+        )
+
+        Media.mark_as_failed(video)
+        perform_crf_search_cleanup(state)
+
+      :mark_failed ->
+        # Publish completion event to PubSub
+        Phoenix.PubSub.broadcast(
+          Reencodarr.PubSub,
+          "crf_search_events",
+          {:crf_search_completed, video.id, {:error, exit_code}}
+        )
+
+        Media.mark_as_failed(video)
+        perform_crf_search_cleanup(state)
+    end
   end
 
   @impl true
@@ -457,12 +543,40 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_error_line(line, video, target_vmaf) do
     if line == "Error: Failed to find a suitable crf" do
+      Logger.info("CrfSearch: Processing error line for video #{video.id}")
       tested_scores = get_vmaf_scores_for_video(video.id)
 
       error_msg = build_detailed_error_message(target_vmaf, tested_scores, video.path)
       Logger.error(error_msg)
 
-      Media.mark_as_failed(video)
+      # Check if we should retry with --preset 6
+      retry_result = should_retry_with_preset_6_private(video.id)
+      Logger.info("CrfSearch: Retry result: #{inspect(retry_result)}")
+
+      case retry_result do
+        {:retry, existing_vmafs} ->
+          Logger.info(
+            "CrfSearch: Retrying video #{video.id} (#{Path.basename(video.path)}) with --preset 6 after CRF search failure"
+          )
+
+          # Clear existing VMAF records for this video to start fresh
+          clear_vmaf_records_for_video_private(video.id, existing_vmafs)
+
+          # Requeue the video with --preset 6 parameter
+          GenServer.cast(__MODULE__, {:crf_search_with_preset_6, video, target_vmaf})
+
+        :already_retried ->
+          Logger.error(
+            "CrfSearch: Video #{video.id} (#{Path.basename(video.path)}) already retried with --preset 6, marking as failed"
+          )
+
+          Media.mark_as_failed(video)
+
+        :mark_failed ->
+          Logger.info("CrfSearch: Marking video #{video.id} as failed due to no VMAF records")
+          Media.mark_as_failed(video)
+      end
+
       true
     else
       false
@@ -537,6 +651,108 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         # {"--enc-input", "hwaccel=cuda"} ->
         #   true
 
+        {"--acodec", _v} ->
+          true
+
+        {"--enc", <<"b:a=", _::binary>>} ->
+          true
+
+        {"--enc", <<"ac=", _::binary>>} ->
+          true
+
+        {_k, _v} ->
+          false
+      end)
+      |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
+
+    base_args ++ rule_args
+  end
+
+  # Check if we should retry with --preset 6
+  defp should_retry_with_preset_6_private(video_id) do
+    import Ecto.Query
+
+    # Get all VMAF records for this video to check their params
+    query =
+      from v in Media.Vmaf,
+        where: v.video_id == ^video_id,
+        select: %{id: v.id, params: v.params}
+
+    existing_vmafs = Repo.all(query)
+
+    case existing_vmafs do
+      [] ->
+        # No VMAF records found, something went wrong, mark as failed
+        :mark_failed
+
+      vmafs ->
+        # Check if any existing VMAF has --preset 6
+        has_preset_6 = check_any_vmaf_has_preset_6(vmafs)
+
+        if has_preset_6 do
+          :already_retried
+        else
+          {:retry, vmafs}
+        end
+    end
+  end
+
+  # Check if any VMAF records have --preset 6 parameters
+  defp check_any_vmaf_has_preset_6(vmafs) do
+    Enum.any?(vmafs, fn vmaf ->
+      case vmaf.params do
+        params when is_list(params) -> has_preset_6_params_private(params)
+        _ -> false
+      end
+    end)
+  end
+
+  # Check if params list contains --preset 6
+  defp has_preset_6_params_private(params) when is_list(params) do
+    params
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.any?(fn
+      ["--preset", "6"] -> true
+      _ -> false
+    end)
+  end
+
+  defp has_preset_6_params_private(_), do: false
+
+  # Clear VMAF records for a video before retrying
+  defp clear_vmaf_records_for_video_private(video_id, vmaf_records) do
+    vmaf_ids = Enum.map(vmaf_records, & &1.id)
+
+    if length(vmaf_ids) > 0 do
+      Logger.info(
+        "CrfSearch: Clearing #{length(vmaf_ids)} existing VMAF records for video #{video_id} before retry"
+      )
+
+      import Ecto.Query
+
+      from(v in Media.Vmaf, where: v.id in ^vmaf_ids)
+      |> Repo.delete_all()
+    end
+  end
+
+  # Build CRF search args with --preset 6 added
+  defp build_crf_search_args_with_preset_6_private(video, vmaf_percent) do
+    base_args = [
+      "crf-search",
+      "-i",
+      video.path,
+      "--min-vmaf",
+      Integer.to_string(vmaf_percent),
+      "--preset",
+      "6",
+      "--temp-dir",
+      Helper.temp_dir()
+    ]
+
+    rule_args =
+      video
+      |> Rules.apply()
+      |> Enum.reject(fn
         {"--acodec", _v} ->
           true
 
