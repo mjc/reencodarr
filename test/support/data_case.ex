@@ -25,6 +25,7 @@ defmodule Reencodarr.DataCase do
       import Ecto.Changeset
       import Ecto.Query
       import Reencodarr.DataCase
+      import Reencodarr.TestHelpers
     end
   end
 
@@ -55,5 +56,109 @@ defmodule Reencodarr.DataCase do
         opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
       end)
     end)
+  end
+
+  @doc """
+  Assert that a changeset has specific errors on given fields.
+
+      assert_changeset_error(changeset, :password, "can't be blank")
+      assert_changeset_error(changeset, %{password: ["can't be blank"], email: ["is invalid"]})
+  """
+  def assert_changeset_error(changeset, field, expected_error) when is_atom(field) do
+    errors = errors_on(changeset)
+
+    assert expected_error in Map.get(errors, field, []),
+           "Expected error '#{expected_error}' on field #{field}, got: #{inspect(errors)}"
+  end
+
+  def assert_changeset_error(changeset, expected_errors) when is_map(expected_errors) do
+    errors = errors_on(changeset)
+
+    Enum.each(expected_errors, fn {field, field_errors} ->
+      if is_list(field_errors) do
+        Enum.each(field_errors, fn error ->
+          assert error in Map.get(errors, field, []),
+                 "Expected error '#{error}' on field #{field}, got: #{inspect(errors)}"
+        end)
+      else
+        assert field_errors in Map.get(errors, field, []),
+               "Expected error '#{field_errors}' on field #{field}, got: #{inspect(errors)}"
+      end
+    end)
+  end
+
+  @doc """
+  Assert that an operation returns a successful result.
+
+      assert_ok(Media.create_video(attrs))
+      assert_ok(Media.create_video(attrs), fn video ->
+        assert video.path == "test.mkv"
+      end)
+  """
+  def assert_ok({:ok, result}), do: result
+
+  def assert_ok({:error, reason}) do
+    flunk("Expected {:ok, _}, got {:error, #{inspect(reason)}}")
+  end
+
+  def assert_ok(other) do
+    flunk("Expected {:ok, _}, got #{inspect(other)}")
+  end
+
+  def assert_ok({:ok, result}, validator) when is_function(validator, 1) do
+    validator.(result)
+    result
+  end
+
+  @doc """
+  Assert that an operation returns an error result.
+
+      assert_error(Media.create_video(%{}))
+      assert_error(Media.create_video(%{}), fn changeset ->
+        assert %{path: ["can't be blank"]} = errors_on(changeset)
+      end)
+  """
+  def assert_error({:error, result}), do: result
+
+  def assert_error({:ok, result}) do
+    flunk("Expected {:error, _}, got {:ok, #{inspect(result)}}")
+  end
+
+  def assert_error(other) do
+    flunk("Expected {:error, _}, got #{inspect(other)}")
+  end
+
+  def assert_error({:error, result}, validator) when is_function(validator, 1) do
+    validator.(result)
+    result
+  end
+
+  @doc """
+  Create a temporary test file with given content.
+  File is automatically cleaned up after the test.
+
+      test_file = create_temp_file("fake video content", ".mkv")
+  """
+  def create_temp_file(content \\ "test content", extension \\ ".txt") do
+    file_path = Path.join(System.tmp_dir!(), "test_#{:rand.uniform(10000)}#{extension}")
+    File.write!(file_path, content)
+
+    # Schedule cleanup
+    ExUnit.Callbacks.on_exit(fn -> File.rm(file_path) end)
+
+    file_path
+  end
+
+  @doc """
+  Capture log output and return both the log and the result of the function.
+
+      {log, result} = capture_log_and_result(fn ->
+        SomeModule.process()
+      end)
+  """
+  def capture_log_and_result(fun) do
+    import ExUnit.CaptureLog
+    log = capture_log(fun)
+    {log, fun.()}
   end
 end

@@ -4,44 +4,37 @@ defmodule ReencodarrWeb.ConfigLiveTest do
   import Phoenix.LiveViewTest
   import Reencodarr.ServicesFixtures
 
-  @create_attrs %{api_key: "some api_key", enabled: true, service_type: :radarr, url: "some url"}
+  @create_attrs %{
+    api_key: "some api_key",
+    enabled: true,
+    service_type: :radarr,
+    url: "some url"
+  }
+
   @update_attrs %{
     api_key: "some updated api_key",
     enabled: false,
     service_type: :plex,
     url: "some updated url"
   }
-  @invalid_attrs %{api_key: nil, enabled: false, service_type: nil, url: nil}
+
+  @invalid_attrs %{
+    api_key: nil,
+    enabled: false,
+    service_type: nil,
+    url: nil
+  }
 
   defp create_config(_) do
     config = config_fixture()
     %{config: config}
   end
 
-  # Test helper functions to reduce repetition
-  defp test_form_validation(
-         live_view,
-         form_id,
-         invalid_attrs,
-         expected_error \\ "can&#39;t be blank"
-       ) do
-    live_view
-    |> form(form_id, config: invalid_attrs)
-    |> render_change() =~ expected_error
-  end
-
-  defp test_form_submission(live_view, form_id, attrs) do
-    live_view
-    |> form(form_id, config: attrs)
-    |> render_submit()
-  end
-
-  defp click_element_and_assert(live_view, selector, text, expected_content) do
-    assert live_view |> element(selector, text) |> render_click() =~ expected_content
-  end
-
   describe "Index" do
-    setup [:create_config]
+    setup do
+      config = config_fixture()
+      %{config: config}
+    end
 
     test "lists all configs", %{conn: conn, config: config} do
       {:ok, _index_live, html} = live(conn, ~p"/configs")
@@ -53,11 +46,16 @@ defmodule ReencodarrWeb.ConfigLiveTest do
     test "saves new config", %{conn: conn} do
       {:ok, index_live, _html} = live(conn, ~p"/configs")
 
-      click_element_and_assert(index_live, "a", "New Config", "New Config")
+      assert index_live |> element("a", "New Config") |> render_click() =~ "New Config"
       assert_patch(index_live, ~p"/configs/new")
 
-      assert test_form_validation(index_live, "#config-form", @invalid_attrs)
-      test_form_submission(index_live, "#config-form", @create_attrs)
+      assert index_live
+             |> form("#config-form", config: @invalid_attrs)
+             |> render_change() =~ "can&#39;t be blank"
+
+      assert index_live
+             |> form("#config-form", config: @create_attrs)
+             |> render_submit()
 
       assert_patch(index_live, ~p"/configs")
 
@@ -69,11 +67,18 @@ defmodule ReencodarrWeb.ConfigLiveTest do
     test "updates config in listing", %{conn: conn, config: config} do
       {:ok, index_live, _html} = live(conn, ~p"/configs")
 
-      click_element_and_assert(index_live, "#configs-#{config.id} a", "Edit", "Edit Config")
+      assert index_live |> element("#configs-#{config.id} a", "Edit") |> render_click() =~
+               "Edit Config"
+
       assert_patch(index_live, ~p"/configs/#{config}/edit")
 
-      assert test_form_validation(index_live, "#config-form", @invalid_attrs)
-      test_form_submission(index_live, "#config-form", @update_attrs)
+      assert index_live
+             |> form("#config-form", config: @invalid_attrs)
+             |> render_change() =~ "can&#39;t be blank"
+
+      assert index_live
+             |> form("#config-form", config: @update_attrs)
+             |> render_submit()
 
       assert_patch(index_live, ~p"/configs")
 
