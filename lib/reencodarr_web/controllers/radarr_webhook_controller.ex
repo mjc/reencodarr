@@ -2,19 +2,18 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   use ReencodarrWeb, :controller
   require Logger
 
-  def radarr(conn, %{"eventType" => event} = params) do
-    case event do
-      "Test" -> handle_test(conn, params)
-      "Grab" -> handle_grab(conn, params)
-      "Download" -> handle_download(conn, params)
-      "MovieFileDelete" -> handle_delete(conn, params)
-      "Rename" -> handle_rename(conn, params)
-      "MovieFile" -> handle_moviefile(conn, params)
-      "MovieAdd" -> handle_movie_add(conn, params)
-      "MovieDelete" -> handle_movie_delete(conn, params)
-      _ -> handle_unknown(conn, params)
-    end
-  end
+  def radarr(conn, %{"eventType" => "Test"} = params), do: handle_test(conn, params)
+  def radarr(conn, %{"eventType" => "Grab"} = params), do: handle_grab(conn, params)
+  def radarr(conn, %{"eventType" => "Download"} = params), do: handle_download(conn, params)
+  def radarr(conn, %{"eventType" => "MovieFileDelete"} = params), do: handle_delete(conn, params)
+  def radarr(conn, %{"eventType" => "Rename"} = params), do: handle_rename(conn, params)
+  def radarr(conn, %{"eventType" => "MovieFile"} = params), do: handle_moviefile(conn, params)
+  def radarr(conn, %{"eventType" => "MovieAdd"} = params), do: handle_movie_add(conn, params)
+
+  def radarr(conn, %{"eventType" => "MovieDelete"} = params),
+    do: handle_movie_delete(conn, params)
+
+  def radarr(conn, params), do: handle_unknown(conn, params)
 
   defp handle_test(conn, _params) do
     Logger.info("Received test event from Radarr!")

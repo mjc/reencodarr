@@ -75,16 +75,20 @@ defmodule Reencodarr.DataCase do
     errors = errors_on(changeset)
 
     Enum.each(expected_errors, fn {field, field_errors} ->
-      if is_list(field_errors) do
-        Enum.each(field_errors, fn error ->
-          assert error in Map.get(errors, field, []),
-                 "Expected error '#{error}' on field #{field}, got: #{inspect(errors)}"
-        end)
-      else
-        assert field_errors in Map.get(errors, field, []),
-               "Expected error '#{field_errors}' on field #{field}, got: #{inspect(errors)}"
-      end
+      assert_field_errors(field, field_errors, errors)
     end)
+  end
+
+  defp assert_field_errors(field, field_errors, errors) when is_list(field_errors) do
+    Enum.each(field_errors, fn error ->
+      assert error in Map.get(errors, field, []),
+             "Expected error '#{error}' on field #{field}, got: #{inspect(errors)}"
+    end)
+  end
+
+  defp assert_field_errors(field, field_error, errors) do
+    assert field_error in Map.get(errors, field, []),
+           "Expected error '#{field_error}' on field #{field}, got: #{inspect(errors)}"
   end
 
   @doc """

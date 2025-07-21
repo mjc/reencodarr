@@ -262,33 +262,36 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
       broadway_pid ->
         IO.puts("✅ Broadway pipeline found: #{inspect(broadway_pid)}")
+        debug_producer_supervisor(broadway_name)
+    end
+  end
 
-        # Check for producer supervisor
-        producer_supervisor_name = :"#{broadway_name}.Broadway.ProducerSupervisor"
+  defp debug_producer_supervisor(broadway_name) do
+    producer_supervisor_name = :"#{broadway_name}.Broadway.ProducerSupervisor"
 
-        case Process.whereis(producer_supervisor_name) do
-          nil ->
-            IO.puts("❌ Producer supervisor not found")
-            {:error, :producer_supervisor_not_found}
+    case Process.whereis(producer_supervisor_name) do
+      nil ->
+        IO.puts("❌ Producer supervisor not found")
+        {:error, :producer_supervisor_not_found}
 
-          producer_supervisor_pid ->
-            IO.puts("✅ Producer supervisor found: #{inspect(producer_supervisor_pid)}")
+      producer_supervisor_pid ->
+        IO.puts("✅ Producer supervisor found: #{inspect(producer_supervisor_pid)}")
+        debug_producer_children(producer_supervisor_pid)
+    end
+  end
 
-            # Get children of producer supervisor to find our producer
-            children = Supervisor.which_children(producer_supervisor_pid)
-            IO.puts("Producer supervisor children: #{inspect(children)}")
+  defp debug_producer_children(producer_supervisor_pid) do
+    children = Supervisor.which_children(producer_supervisor_pid)
+    IO.puts("Producer supervisor children: #{inspect(children)}")
 
-            # Find the actual producer process
-            case find_actual_producer(children) do
-              nil ->
-                IO.puts("❌ Producer process not found in supervision tree")
-                {:error, :producer_process_not_found}
+    case find_actual_producer(children) do
+      nil ->
+        IO.puts("❌ Producer process not found in supervision tree")
+        {:error, :producer_process_not_found}
 
-              producer_pid ->
-                IO.puts("✅ Producer process found: #{inspect(producer_pid)}")
-                get_producer_state(producer_pid)
-            end
-        end
+      producer_pid ->
+        IO.puts("✅ Producer process found: #{inspect(producer_pid)}")
+        get_producer_state(producer_pid)
     end
   end
 
