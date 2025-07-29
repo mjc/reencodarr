@@ -3,17 +3,7 @@ defmodule Reencodarr.TelemetryReporter do
   Optimized telemetry reporter for dashboard state management with intelligent emission control.
 
   ## Performance Optimizations:
-       :t      # Store the new state for next comparison
-      Process.put(:last_emitted_state, new_state)
-    end
-
-    new_stateexecute([:reencodarr, :dashboard, :state_updated], %{}, %{state: minimal_state})
-
-      # Store the new state for next comparison
-      Process.put(:last_emitted_state, new_state)
-    end
-
-    new_statecant change detection - only emit telemetry when changes affect UI
+  1. Significant change detection - only emit telemetry when changes affect UI
   2. Minimal telemetry payloads - exclude inactive progress data
   3. Process dictionary caching of last state for efficient comparison
   4. Progress threshold filtering (5% change minimum)

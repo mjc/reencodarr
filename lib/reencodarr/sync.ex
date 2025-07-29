@@ -179,8 +179,36 @@ defmodule Reencodarr.Sync do
          %Reencodarr.Media.VideoFileInfo{bitrate: 0} = info,
          service_type
        ) do
-    Logger.debug("Bitrate is zero, analyzing video: #{info.path}")
+    Logger.debug("Bitrate is zero, inserting to DB then analyzing video: #{info.path}")
 
+    # First insert into database with bitrate 0 so analyzer can find it
+    resolution_tuple =
+      case String.split(info.resolution, "x") do
+        [width, height] ->
+          with {:ok, width_int} <- safe_binary_to_integer(width),
+               {:ok, height_int} <- safe_binary_to_integer(height) do
+            {width_int, height_int}
+          else
+            _ -> {0, 0}
+          end
+        _ -> {0, 0}
+      end
+
+    updated_info = %{info | resolution: resolution_tuple}
+    mediainfo = MediaInfo.from_video_file_info(updated_info)
+
+    Repo.checkout(fn ->
+      Media.upsert_video(%{
+        "path" => updated_info.path,
+        "size" => updated_info.size,
+        "service_id" => updated_info.service_id,
+        "service_type" => to_string(updated_info.service_type),
+        "mediainfo" => mediainfo,
+        "bitrate" => updated_info.bitrate
+      })
+    end)
+
+    # Then send to analyzer for processing
     Reencodarr.Analyzer.process_path(%{
       path: info.path,
       service_id: info.service_id,

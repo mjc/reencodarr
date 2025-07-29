@@ -44,10 +44,10 @@ defmodule Reencodarr.Media do
   end
 
   def get_videos_needing_analysis(limit \\ 10) do
-    # Get videos that need analysis (bitrate = 0 or nil)
+    # Get videos that need analysis (bitrate is null)
     Repo.all(
       from v in Video,
-        where: (v.bitrate == 0 or is_nil(v.bitrate)) and v.failed == false,
+        where: is_nil(v.bitrate) and v.failed == false,
         order_by: [
           desc: v.size,
           asc: v.updated_at
@@ -710,7 +710,7 @@ defmodule Reencodarr.Media do
             v.failed
           ),
         analyzer_count:
-          fragment("COUNT(*) FILTER (WHERE ? = 0 AND ? = false)", v.bitrate, v.failed),
+          fragment("COUNT(*) FILTER (WHERE ? IS NULL AND ? = false)", v.bitrate, v.failed),
         most_recent_video_update: max(v.updated_at),
         most_recent_inserted_video: max(v.inserted_at)
       }
@@ -994,7 +994,7 @@ defmodule Reencodarr.Media do
         chosen_vmaf = Enum.find(vmafs, & &1.chosen)
 
         # Determine database state
-        analyzed = video.bitrate != 0 && !is_nil(video.bitrate)
+        analyzed = !is_nil(video.bitrate)
         has_vmaf = length(vmafs) > 0
         ready_for_encoding = !is_nil(chosen_vmaf) && !video.reencoded && !video.failed
 

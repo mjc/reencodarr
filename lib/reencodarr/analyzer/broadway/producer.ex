@@ -68,10 +68,13 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     # Subscribe to analyzer events to know when processing completes
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "analyzer_events")
 
+    # Send a delayed message to trigger initial dispatch
+    Process.send_after(self(), :initial_dispatch, 1000)
+
     {:producer,
      %State{
        demand: 0,
-       paused: true,
+       paused: false,
        queue: :queue.new(),
        # Track if we're currently processing videos
        processing: false,
@@ -82,6 +85,11 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   @impl GenStage
   def handle_call(:running?, _from, state) do
     {:reply, not state.paused, [], state}
+  end
+
+  @impl GenStage
+  def handle_call(:get_state, _from, state) do
+    {:reply, state, [], state}
   end
 
   @impl GenStage
@@ -122,6 +130,12 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   end
 
   @impl GenStage
+  def handle_cast(:dispatch_available, state) do
+    # Trigger dispatch to check for videos that need analysis
+    dispatch_if_ready(state)
+  end
+
+  @impl GenStage
   def handle_demand(demand, state) when demand > 0 do
     Logger.debug("Broadway producer received demand for #{demand} items")
     new_state = State.update(state, demand: state.demand + demand)
@@ -145,6 +159,13 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     Logger.debug("Producer: Received batch analysis completion notification")
     new_state = %{state | processing: false}
     dispatch_if_ready(new_state)
+  end
+
+  @impl GenStage
+  def handle_info(:initial_dispatch, state) do
+    # Trigger initial dispatch after startup to check for videos needing analysis
+    Logger.debug("Producer: Initial dispatch triggered")
+    dispatch_if_ready(state)
   end
 
   @impl GenStage
@@ -206,6 +227,10 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
         %{path: video_info.path, service_id: video_info.service_id}
       end)
 
+    # Update the QueueManager with current queue state
+    Reencodarr.Analyzer.QueueManager.broadcast_queue_update(queue_items)
+
+    # Also broadcast to analyzer topic for backward compatibility
     Phoenix.PubSub.broadcast(
       Reencodarr.PubSub,
       "analyzer",
