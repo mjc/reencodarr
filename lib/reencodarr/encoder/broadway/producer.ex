@@ -165,11 +165,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   defp should_dispatch?(state) do
     result = not state.paused and not state.processing and encoding_available?()
-
-    Logger.info(
-      "should_dispatch? paused: #{state.paused}, processing: #{state.processing}, encoding_available: #{encoding_available?()}, result: #{result}"
-    )
-
     result
   end
 
@@ -191,29 +186,18 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   defp dispatch_vmafs(state) do
-    Logger.info(
-      "dispatch_vmafs called with processing: #{state.processing}, demand: #{state.demand}"
-    )
-
     # Mark as processing immediately to prevent duplicate dispatches
     updated_state = %{state | processing: true}
-    Logger.info("Setting processing: true")
 
     # Get one VMAF from queue or database
     case get_next_vmaf(updated_state) do
       {nil, new_state} ->
-        Logger.info("No VMAF available, resetting processing flag")
         # No VMAF available, reset processing flag
         {:noreply, [], %{new_state | processing: false}}
 
       {vmaf, new_state} ->
-        Logger.info("Dispatching VMAF #{vmaf.id} for encoding")
         # Decrement demand but keep processing: true
         final_state = %{new_state | demand: state.demand - 1}
-
-        Logger.info(
-          "Final state: processing: #{final_state.processing}, demand: #{final_state.demand}"
-        )
 
         {:noreply, [vmaf], final_state}
     end

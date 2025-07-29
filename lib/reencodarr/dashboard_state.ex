@@ -57,10 +57,14 @@ defmodule Reencodarr.DashboardState do
             stats_update_in_progress: false
 
   @doc """
-  Creates a new initial dashboard state.
+  Creates a new initial dashboard state with actual service states.
   """
   def initial do
-    %__MODULE__{}
+    %__MODULE__{
+      analyzing: Reencodarr.Analyzer.running?(),
+      encoding: Reencodarr.Encoder.running?(),
+      crf_searching: Reencodarr.CrfSearcher.running?()
+    }
   end
 
   @doc """
