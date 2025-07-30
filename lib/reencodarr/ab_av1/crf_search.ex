@@ -155,7 +155,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   # GenServer callbacks
   @impl true
   def init(:ok) do
-    {:ok, %{port: :none, current_task: :none, partial_line_buffer: ""}}
+    {:ok, %{port: :none, current_task: :none, partial_line_buffer: "", output_buffer: []}}
   end
 
   @impl true
@@ -165,7 +165,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     new_state = %{
       state
       | port: Helper.open_port(args),
-        current_task: %{video: video, args: args, target_vmaf: vmaf_percent}
+        current_task: %{video: video, args: args, target_vmaf: vmaf_percent},
+        output_buffer: []
     }
 
     # Emit telemetry event for CRF search start
@@ -181,7 +182,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     new_state = %{
       state
       | port: Helper.open_port(args),
-        current_task: %{video: video, args: args, target_vmaf: vmaf_percent}
+        current_task: %{video: video, args: args, target_vmaf: vmaf_percent},
+        output_buffer: []
     }
 
     # Emit telemetry event for CRF search start
@@ -230,13 +232,18 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         %{
           port: port,
           current_task: %{video: video, args: args, target_vmaf: target_vmaf},
-          partial_line_buffer: buffer
+          partial_line_buffer: buffer,
+          output_buffer: output_buffer
         } =
           state
       ) do
     full_line = buffer <> line
     process_line(full_line, video, args, target_vmaf)
-    {:noreply, %{state | partial_line_buffer: ""}}
+
+    # Add the line to our output buffer for failure tracking
+    new_output_buffer = [full_line | output_buffer]
+
+    {:noreply, %{state | partial_line_buffer: "", output_buffer: new_output_buffer}}
   end
 
   @impl true
@@ -277,17 +284,37 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   @impl true
   def handle_info(
         {port, {:exit_status, exit_code}},
-        %{port: port, current_task: %{video: video, args: _args, target_vmaf: target_vmaf}} =
-          state
+        %{
+          port: port,
+          current_task: %{video: video, args: args, target_vmaf: target_vmaf},
+          output_buffer: output_buffer
+        } = state
       )
       when exit_code != 0 do
     Logger.error("CRF search failed for video #{video.id} with exit code #{exit_code}")
+
+    # Capture the full command output for failure analysis
+    full_output = output_buffer |> Enum.reverse() |> Enum.join("\n")
+    command_line = "ab-av1 " <> Enum.join(args, " ")
 
     # Check if we should retry with --preset 6 on process failure as well
     case should_retry_with_preset_6_private(video.id) do
       {:retry, existing_vmafs} ->
         Logger.info(
           "CrfSearch: Retrying video #{video.id} (#{Path.basename(video.path)}) with --preset 6 after process failure (exit code #{exit_code})"
+        )
+
+        # Record the process failure with full output before retrying
+        Reencodarr.FailureTracker.record_vmaf_calculation_failure(
+          video,
+          "Process failed with exit code #{exit_code}",
+          context: %{
+            exit_code: exit_code,
+            command: command_line,
+            full_output: full_output,
+            will_retry: true,
+            target_vmaf: target_vmaf
+          }
         )
 
         # Clear existing VMAF records for this video to start fresh
@@ -313,6 +340,17 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           "CrfSearch: Video #{video.id} (#{Path.basename(video.path)}) already retried with --preset 6, marking as failed"
         )
 
+        # Record the final failure with full output
+        Reencodarr.FailureTracker.record_preset_retry_failure(video, 6, 1,
+          context: %{
+            exit_code: exit_code,
+            command: command_line,
+            full_output: full_output,
+            target_vmaf: target_vmaf,
+            final_failure: true
+          }
+        )
+
         # Publish completion event to PubSub
         Phoenix.PubSub.broadcast(
           Reencodarr.PubSub,
@@ -336,6 +374,19 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         end
 
       :mark_failed ->
+        # Record the process failure with full output
+        Reencodarr.FailureTracker.record_vmaf_calculation_failure(
+          video,
+          "Process failed with exit code #{exit_code}",
+          context: %{
+            exit_code: exit_code,
+            command: command_line,
+            full_output: full_output,
+            target_vmaf: target_vmaf,
+            final_failure: true
+          }
+        )
+
         # Publish completion event to PubSub
         Phoenix.PubSub.broadcast(
           Reencodarr.PubSub,
@@ -572,8 +623,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       "CrfSearch: Chosen VMAF CRF #{crf} exceeds 10GB limit for video #{video.id}. Marking as failed."
     )
 
-    # Mark the video as failed to prevent encoding
-    Media.mark_as_failed(video)
+    # Record size limit failure with detailed context
+    Reencodarr.FailureTracker.record_size_limit_failure(video, "Estimated > 10GB", "10GB",
+      context: %{chosen_crf: crf}
+    )
 
     # Publish failure event to PubSub
     Phoenix.PubSub.broadcast(
@@ -613,11 +666,20 @@ defmodule Reencodarr.AbAv1.CrfSearch do
             "CrfSearch: Video #{video.id} (#{Path.basename(video.path)}) already retried with --preset 6, marking as failed"
           )
 
-          Media.mark_as_failed(video)
+          # Record preset retry failure
+          Reencodarr.FailureTracker.record_preset_retry_failure(video, 6, 1,
+            context: %{target_vmaf: target_vmaf, tested_scores: tested_scores}
+          )
 
         :mark_failed ->
           Logger.info("CrfSearch: Marking video #{video.id} as failed due to no VMAF records")
-          Media.mark_as_failed(video)
+
+          # Record CRF optimization failure
+          Reencodarr.FailureTracker.record_crf_optimization_failure(
+            video,
+            target_vmaf,
+            tested_scores
+          )
       end
 
       true
@@ -643,7 +705,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
       vmaf_entries ->
         vmaf_entries
-        |> Enum.map(fn %{crf: crf, score: score} -> {crf, score} end)
+        |> Enum.map(fn %{crf: crf, score: score} -> %{crf: crf, score: score} end)
     end
   end
 
@@ -657,13 +719,13 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         "#{base_msg}. No VMAF scores were recorded - this suggests the encoding samples failed completely. Check if ffmpeg and ab-av1 are properly installed and the video file is accessible."
 
       scores when length(scores) < 3 ->
-        max_score = scores |> Enum.map(fn {_crf, score} -> score end) |> Enum.max()
+        max_score = scores |> Enum.map(fn %{score: score} -> score end) |> Enum.max()
 
         "#{base_msg}. Only #{length(scores)} VMAF score(s) were tested (highest: #{Float.round(max_score, 2)}). The search space may be too limited - try using a wider CRF range or different encoder settings."
 
       scores ->
-        max_score = scores |> Enum.map(fn {_crf, score} -> score end) |> Enum.max()
-        min_score = scores |> Enum.map(fn {_crf, score} -> score end) |> Enum.min()
+        max_score = scores |> Enum.map(fn %{score: score} -> score end) |> Enum.max()
+        min_score = scores |> Enum.map(fn %{score: score} -> score end) |> Enum.min()
         score_count = length(scores)
 
         if max_score < target_vmaf do
