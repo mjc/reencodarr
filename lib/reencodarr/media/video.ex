@@ -66,6 +66,7 @@ defmodule Reencodarr.Media.Video do
 
     belongs_to :library, Reencodarr.Media.Library
     has_many :vmafs, Reencodarr.Media.Vmaf
+    has_many :failures, Reencodarr.Media.VideoFailure
 
     timestamps(type: :utc_datetime)
   end

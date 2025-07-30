@@ -29,14 +29,14 @@ defmodule Reencodarr.PostProcessor do
     end
   end
 
-  @spec process_encoding_failure(video :: any(), exit_code :: integer()) :: :ok
-  def process_encoding_failure(video, exit_code) do
+  @spec process_encoding_failure(video :: any(), exit_code :: integer(), context :: map()) :: :ok
+  def process_encoding_failure(video, exit_code, context \\ %{}) do
     Logger.error(
       "Encoding failed for video #{video.id} (#{video.path}) with exit code #{exit_code}. Marking as failed."
     )
 
-    # Mark the video as failed so it won't be retried
-    Media.mark_as_failed(video)
+    # Record detailed failure information with enhanced context
+    Reencodarr.FailureTracker.record_process_failure(video, exit_code, context: context)
 
     :ok
   end
@@ -53,12 +53,20 @@ defmodule Reencodarr.PostProcessor do
 
         {:ok, intermediate_path}
 
-      {:error, _reason} ->
+      {:error, reason} ->
         Logger.error(
           "[IntermediateMove] Failed to place encoder output at intermediate path #{intermediate_path} for video #{video.id}. Marking as failed."
         )
 
-        Media.mark_as_failed(video)
+        # Record detailed file operation failure
+        Reencodarr.FailureTracker.record_file_operation_failure(
+          video,
+          :move,
+          output_file,
+          intermediate_path,
+          reason
+        )
+
         {:error, :failed_to_move_to_intermediate}
     end
   end

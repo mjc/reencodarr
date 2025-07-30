@@ -260,25 +260,41 @@ defmodule Reencodarr.Encoder.Broadway do
   end
 
   defp handle_encoding_result({:error, exit_code}, vmaf, _output_file) do
+    handle_encoding_error(vmaf, exit_code, %{})
+  end
+
+  defp handle_encoding_result({:error, exit_code, context}, vmaf, _output_file) do
+    handle_encoding_error(vmaf, exit_code, context)
+  end
+
+  defp handle_encoding_error(vmaf, exit_code, context) do
     # Classify the failure to determine if we should pause or continue
     case classify_failure(exit_code) do
       {:pause, reason} ->
-        handle_critical_encoding_failure(vmaf, exit_code, reason)
+        handle_critical_encoding_failure(vmaf, exit_code, reason, context)
 
       {:continue, reason} ->
-        handle_recoverable_encoding_failure(vmaf, exit_code, reason)
+        handle_recoverable_encoding_failure(vmaf, exit_code, reason, context)
     end
   end
 
-  defp handle_critical_encoding_failure(vmaf, exit_code, reason) do
+  defp handle_critical_encoding_failure(vmaf, exit_code, reason, context) do
     Logger.error(
       "Broadway: Critical failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})"
     )
 
     Logger.error("Broadway: Pausing pipeline due to critical system issue")
 
-    # Notify about the failure
-    notify_encoding_failure(vmaf.video, exit_code)
+    # Build enhanced context for failure tracking
+    enhanced_context =
+      if Map.has_key?(context, :args) do
+        Reencodarr.FailureTracker.build_command_context(context.args, context[:output], context)
+      else
+        context
+      end
+
+    # Notify about the failure with enhanced context
+    notify_encoding_failure(vmaf.video, exit_code, enhanced_context)
 
     # Pause the pipeline
     Producer.pause()
@@ -287,13 +303,21 @@ defmodule Reencodarr.Encoder.Broadway do
     :ok
   end
 
-  defp handle_recoverable_encoding_failure(vmaf, exit_code, reason) do
+  defp handle_recoverable_encoding_failure(vmaf, exit_code, reason, context) do
     Logger.warning(
       "Broadway: Recoverable failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})"
     )
 
-    # Notify about the failure and mark as failed
-    notify_encoding_failure(vmaf.video, exit_code)
+    # Build enhanced context for failure tracking
+    enhanced_context =
+      if Map.has_key?(context, :args) do
+        Reencodarr.FailureTracker.build_command_context(context.args, context[:output], context)
+      else
+        context
+      end
+
+    # Notify about the failure and mark as failed with enhanced context
+    notify_encoding_failure(vmaf.video, exit_code, enhanced_context)
 
     # Continue processing - return :ok to Broadway
     :ok
@@ -368,7 +392,8 @@ defmodule Reencodarr.Encoder.Broadway do
       video: vmaf.video,
       vmaf: vmaf,
       output_file: output_file,
-      partial_line_buffer: ""
+      partial_line_buffer: "",
+      output_buffer: []
     }
 
     # Process port messages until completion
@@ -381,7 +406,10 @@ defmodule Reencodarr.Encoder.Broadway do
       {port, {:data, {:eol, data}}} when port == state.port ->
         full_line = state.partial_line_buffer <> data
         Reencodarr.ProgressParser.process_line(full_line, state)
-        new_state = %{state | partial_line_buffer: ""}
+
+        # Add line to output buffer for failure tracking
+        new_output_buffer = [full_line | state.output_buffer]
+        new_state = %{state | partial_line_buffer: "", output_buffer: new_output_buffer}
 
         # Yield control back to the scheduler to allow Broadway metrics to update
         Process.sleep(1)
@@ -414,7 +442,9 @@ defmodule Reencodarr.Encoder.Broadway do
         if success do
           {:ok, :success}
         else
-          {:error, exit_code}
+          # Include output buffer and args in error for failure tracking
+          full_output = state.output_buffer |> Enum.reverse() |> Enum.join("\n")
+          {:error, exit_code, %{output: full_output, args: build_encode_args(state.vmaf)}}
         end
     after
       encoding_timeout ->
@@ -435,7 +465,9 @@ defmodule Reencodarr.Encoder.Broadway do
           {:encoding_completed, state.vmaf.id, {:error, :timeout}}
         )
 
-        {:error, :timeout}
+        # Include output buffer for timeout failures
+        full_output = state.output_buffer |> Enum.reverse() |> Enum.join("\n")
+        {:error, :timeout, %{output: full_output, args: build_encode_args(state.vmaf)}}
     end
   end
 
@@ -570,8 +602,8 @@ defmodule Reencodarr.Encoder.Broadway do
     PostProcessor.process_encoding_success(video, output_file)
   end
 
-  @spec notify_encoding_failure(map(), integer() | atom()) :: :ok
-  defp notify_encoding_failure(video, exit_code) do
+  @spec notify_encoding_failure(map(), integer() | atom(), map()) :: :ok
+  defp notify_encoding_failure(video, exit_code, context \\ %{}) do
     # Emit telemetry event for failure
     Telemetry.emit_encoder_failed(exit_code, video)
 
@@ -586,7 +618,7 @@ defmodule Reencodarr.Encoder.Broadway do
         _ -> -999
       end
 
-    PostProcessor.process_encoding_failure(video, db_exit_code)
+    PostProcessor.process_encoding_failure(video, db_exit_code, context)
   end
 
   # Failure classification - determines whether a failure should pause the pipeline

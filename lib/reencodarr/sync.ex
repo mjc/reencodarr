@@ -191,7 +191,9 @@ defmodule Reencodarr.Sync do
           else
             _ -> {0, 0}
           end
-        _ -> {0, 0}
+
+        _ ->
+          {0, 0}
       end
 
     updated_info = %{info | resolution: resolution_tuple}

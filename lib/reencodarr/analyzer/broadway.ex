@@ -514,19 +514,35 @@ defmodule Reencodarr.Analyzer.Broadway do
 
     case Media.get_video_by_path(path) do
       %Media.Video{} = video ->
-        case Media.mark_as_failed(video) do
-          {:ok, _} ->
-            Logger.info("Successfully marked video #{video.id} as failed")
-            :ok
+        # Record detailed failure information based on reason
+        record_analysis_failure(video, reason)
 
-          {:error, error} ->
-            Logger.error("Failed to mark video #{video.id} as failed: #{inspect(error)}")
-            :error
-        end
+        Logger.info("Successfully recorded analysis failure for video #{video.id}")
+        :ok
 
       nil ->
         Logger.warning("Video not found in database, cannot mark as failed: #{path}")
         :ok
+    end
+  end
+
+  # Private helper to categorize and record analysis failures
+  defp record_analysis_failure(video, reason) do
+    cond do
+      String.contains?(reason, "MediaInfo") or String.contains?(reason, "mediainfo") ->
+        Reencodarr.FailureTracker.record_mediainfo_failure(video, reason)
+
+      String.contains?(reason, "file") or String.contains?(reason, "access") ->
+        Reencodarr.FailureTracker.record_file_access_failure(video, reason)
+
+      String.contains?(reason, "validation") or String.contains?(reason, "changeset") ->
+        Reencodarr.FailureTracker.record_validation_failure(video, [], context: %{reason: reason})
+
+      String.contains?(reason, "Exception") ->
+        Reencodarr.FailureTracker.record_unknown_failure(video, :analysis, reason)
+
+      true ->
+        Reencodarr.FailureTracker.record_unknown_failure(video, :analysis, reason)
     end
   end
 end

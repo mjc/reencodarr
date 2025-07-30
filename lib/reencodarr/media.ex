@@ -1,7 +1,7 @@
 defmodule Reencodarr.Media do
   import Ecto.Query, warn: false
   alias Reencodarr.Analyzer.QueueManager
-  alias Reencodarr.Media.{Library, Video, Vmaf}
+  alias Reencodarr.Media.{Library, Video, VideoFailure, Vmaf}
   alias Reencodarr.Repo
   require Logger
 
@@ -451,6 +451,58 @@ defmodule Reencodarr.Media do
     do: update_video_status(video, %{"reencoded" => true, "failed" => false})
 
   def mark_as_failed(%Video{} = video), do: update_video_status(video, %{"failed" => true})
+
+  # --- Video Failure Tracking Functions ---
+
+  @doc """
+  Records a detailed failure for a video and marks it as failed.
+
+  ## Examples
+
+      iex> record_video_failure(video, "encoding", "process_failure",
+      ...>   code: "1", message: "ab-av1 encoding failed")
+      {:ok, %VideoFailure{}}
+  """
+  def record_video_failure(video, stage, category, opts \\ []) do
+    with {:ok, failure} <- VideoFailure.record_failure(video, stage, category, opts),
+         {:ok, _video} <- mark_as_failed(video) do
+      Logger.warning(
+        "Recorded #{stage}/#{category} failure for video #{video.id}: #{opts[:message] || "No message"}"
+      )
+
+      {:ok, failure}
+    else
+      error ->
+        Logger.error("Failed to record video failure: #{inspect(error)}")
+        error
+    end
+  end
+
+  @doc """
+  Gets unresolved failures for a video.
+  """
+  def get_video_failures(video_id), do: VideoFailure.get_unresolved_failures_for_video(video_id)
+
+  @doc """
+  Resolves all failures for a video (typically when re-processing succeeds).
+  """
+  def resolve_video_failures(video_id) do
+    video_id
+    |> VideoFailure.get_unresolved_failures_for_video()
+    |> Enum.each(&VideoFailure.resolve_failure/1)
+  end
+
+  @doc """
+  Gets failure statistics for monitoring and investigation.
+  """
+  def get_failure_statistics(opts \\ []), do: VideoFailure.get_failure_statistics(opts)
+
+  @doc """
+  Gets common failure patterns for investigation.
+  """
+  def get_common_failure_patterns(limit \\ 10),
+    do: VideoFailure.get_common_failure_patterns(limit)
+
   def most_recent_video_update, do: Repo.one(from v in Video, select: max(v.updated_at))
   def get_most_recent_inserted_at, do: Repo.one(from v in Video, select: max(v.inserted_at))
   def video_has_vmafs?(%Video{id: id}), do: Repo.exists?(from v in Vmaf, where: v.video_id == ^id)
