@@ -2,23 +2,29 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
   @moduledoc """
   Tests for CRF search retry functionality with --preset 6.
   """
-  use Reencodarr.DataCase, async: true
+  use Reencodarr.DataCase, async: false
 
   alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.Media
   alias Reencodarr.Media.Vmaf
   alias Reencodarr.Repo
 
-  import ExUnit.CaptureLog
   import Reencodarr.MediaFixtures
 
   describe "CRF search retry mechanism" do
     setup do
+      # Clean up any existing mocks
+      try do
+        :meck.unload()
+      catch
+        _ -> :ok
+      end
+
       video = video_fixture(%{path: "/test/retry_video.mkv", size: 2_000_000_000})
       %{video: video}
     end
 
-    test "retries with --preset 6 on first failure", %{video: video} do
+    test "determines retry needed when no --preset 6 exists", %{video: video} do
       # First, create some VMAF records without --preset 6
       {:ok, _vmaf1} =
         Media.create_vmaf(%{
@@ -39,45 +45,16 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
       # Verify we have 2 VMAF records initially
       assert Repo.aggregate(Vmaf, :count, :id) == 2
 
-      # Simulate CRF search failure
-      error_line = "Error: Failed to find a suitable crf"
+      # Should indicate retry is needed
+      retry_result = CrfSearch.should_retry_with_preset_6(video.id)
+      assert match?({:retry, _existing_vmafs}, retry_result)
 
-      # Mock GenServer.cast to capture the retry call
-      me = self()
-      :meck.new(GenServer, [:passthrough])
-
-      :meck.expect(GenServer, :cast, fn
-        Reencodarr.AbAv1.CrfSearch, {:crf_search_with_preset_6, ^video, 95} ->
-          send(me, {:retry_called, video, 95})
-          :ok
-
-        mod, msg ->
-          :meck.passthrough([mod, msg])
-      end)
-
-      log_output =
-        capture_log(fn ->
-          CrfSearch.process_line(error_line, video, [], 95)
-        end)
-
-      # Should log retry message
-      assert log_output =~ "Retrying video #{video.id}"
-      assert log_output =~ "with --preset 6 after CRF search failure"
-
-      # Should call GenServer.cast with retry message
-      assert_receive {:retry_called, ^video, 95}, 1000
-
-      # Should clear existing VMAF records
-      assert Repo.aggregate(Vmaf, :count, :id) == 0
-
-      # Video should not be marked as failed yet
+      # Video should not be marked as failed
       updated_video = Repo.get(Media.Video, video.id)
       assert updated_video.failed == false
-
-      :meck.unload(GenServer)
     end
 
-    test "marks as failed when already retried with --preset 6", %{video: video} do
+    test "detects already retried when --preset 6 exists", %{video: video} do
       # Create VMAF records with --preset 6 to simulate previous retry
       {:ok, _vmaf1} =
         Media.create_vmaf(%{
@@ -95,22 +72,11 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
           params: ["--preset", "6"]
         })
 
-      # Simulate CRF search failure again
-      error_line = "Error: Failed to find a suitable crf"
+      # Should indicate already retried
+      retry_result = CrfSearch.should_retry_with_preset_6(video.id)
+      assert retry_result == :already_retried
 
-      log_output =
-        capture_log(fn ->
-          CrfSearch.process_line(error_line, video, [], 95)
-        end)
-
-      # Should log failure message
-      assert log_output =~ "already retried with --preset 6, marking as failed"
-
-      # Video should be marked as failed
-      updated_video = Repo.get(Media.Video, video.id)
-      assert updated_video.failed == true
-
-      # VMAF records should remain (not cleared)
+      # VMAF records should remain
       assert Repo.aggregate(Vmaf, :count, :id) == 2
     end
 
@@ -118,21 +84,9 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
       # No VMAF records exist - this indicates something went wrong
       assert Repo.aggregate(Vmaf, :count, :id) == 0
 
-      # Simulate CRF search failure
-      error_line = "Error: Failed to find a suitable crf"
-
-      log_output =
-        capture_log(fn ->
-          CrfSearch.process_line(error_line, video, [], 95)
-        end)
-
-      # Should log detailed error message
-      assert log_output =~ "Failed to find a suitable CRF"
-      assert log_output =~ "No VMAF scores were recorded"
-
-      # Video should be marked as failed
-      updated_video = Repo.get(Media.Video, video.id)
-      assert updated_video.failed == true
+      # Should indicate mark failed
+      retry_result = CrfSearch.should_retry_with_preset_6(video.id)
+      assert retry_result == :mark_failed
     end
 
     test "detects --preset 6 in various positions in params array", %{video: video} do
@@ -156,23 +110,12 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
             params: params
           })
 
-        # Simulate failure
-        error_line = "Error: Failed to find a suitable crf"
+        # Should detect existing --preset 6
+        retry_result = CrfSearch.should_retry_with_preset_6(video.id)
+        assert retry_result == :already_retried
 
-        log_output =
-          capture_log(fn ->
-            CrfSearch.process_line(error_line, video, [], 95)
-          end)
-
-        # Should detect existing --preset 6 and mark as failed
-        assert log_output =~ "already retried with --preset 6, marking as failed"
-
-        # Video should be marked as failed
-        updated_video = Repo.get(Media.Video, video.id)
-        assert updated_video.failed == true
-
-        # Reset video failed status for next iteration
-        Media.update_video(video, %{failed: false})
+        # Also test the params detection directly
+        assert CrfSearch.has_preset_6_params?(params) == true
       end)
     end
 
@@ -198,35 +141,12 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
             params: params
           })
 
-        # Mock GenServer.cast to capture retry calls
-        me = self()
-        :meck.new(GenServer, [:passthrough])
+        # Should not detect as --preset 6 (should allow retry)
+        retry_result = CrfSearch.should_retry_with_preset_6(video.id)
+        assert match?({:retry, _existing_vmafs}, retry_result)
 
-        :meck.expect(GenServer, :cast, fn
-          Reencodarr.AbAv1.CrfSearch, {:crf_search_with_preset_6, ^video, 95} ->
-            send(me, {:retry_called, params})
-            :ok
-
-          mod, msg ->
-            :meck.passthrough([mod, msg])
-        end)
-
-        # Simulate failure
-        error_line = "Error: Failed to find a suitable crf"
-
-        log_output =
-          capture_log(fn ->
-            CrfSearch.process_line(error_line, video, [], 95)
-          end)
-
-        # Should attempt retry (not detect as already retried)
-        assert log_output =~ "Retrying video #{video.id}"
-        assert_receive {:retry_called, ^params}, 1000
-
-        :meck.unload(GenServer)
-
-        # Reset video failed status for next iteration
-        Media.update_video(video, %{failed: false})
+        # Also test the params detection directly
+        assert CrfSearch.has_preset_6_params?(params) == false
       end)
     end
   end

@@ -106,7 +106,7 @@ defmodule Reencodarr.Integration.Preset6WorkflowTest do
 
       # Should include basic CRF search args
       assert "crf-search" in args
-      assert "-i" in args
+      assert "--input" in args
       assert video.path in args
       assert "--min-vmaf" in args
       assert "95" in args

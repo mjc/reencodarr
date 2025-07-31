@@ -10,7 +10,7 @@ defmodule Reencodarr.AbAv1.Encode do
 
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.Encoder.Broadway.Producer
-  alias Reencodarr.{Media, PostProcessor, ProgressParser, Rules, Telemetry, TelemetryReporter}
+  alias Reencodarr.{Media, PostProcessor, ProgressParser, Telemetry, TelemetryReporter}
 
   require Logger
 
@@ -221,118 +221,18 @@ defmodule Reencodarr.AbAv1.Encode do
       "encode",
       "--crf",
       to_string(vmaf.crf),
-      "-o",
+      "--output",
       Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv"),
-      "-i",
+      "--input",
       vmaf.video.path
     ]
 
-    # Include parameters from CRF search (like --preset 6 from retries)
-    # Filter out CRF search specific params that don't apply to encoding
-    vmaf_params =
-      if vmaf.params && is_list(vmaf.params) do
-        vmaf.params
-        |> filter_encode_relevant_params()
-      else
-        []
-      end
+    # Get rule-based arguments from centralized Rules module
+    # Extract VMAF params for use in Rules.build_args
+    vmaf_params = if vmaf.params && is_list(vmaf.params), do: vmaf.params, else: []
 
-    rule_args =
-      vmaf.video
-      |> Rules.apply()
-      |> Enum.flat_map(fn
-        {k, v} -> [to_string(k), to_string(v)]
-      end)
-
-    # Combine all arguments, with VMAF params taking precedence over rules
-    # (since VMAF params come from successful CRF searches)
-    combined_args = base_args ++ vmaf_params ++ rule_args
-    final_args = remove_duplicate_args(combined_args)
-
-    final_args
-  end
-
-  # Filter VMAF params to only include those relevant for encoding
-  # This removes CRF search specific arguments and file paths
-  defp filter_encode_relevant_params(params) do
-    # Process params in pairs, keeping track of flags that need their values
-    {filtered, _skip_next} =
-      Enum.reduce(params, {[], false}, fn
-        param, {acc, skip_next} ->
-          cond do
-            # Skip this parameter (it was a value for a skipped flag)
-            skip_next ->
-              {acc, false}
-
-            # Skip file paths (anything that doesn't start with --)
-            not String.starts_with?(param, "--") ->
-              {acc, false}
-
-            # Skip CRF search specific flags and their values
-            param in ["--temp-dir", "--min-vmaf", "--max-vmaf"] ->
-              # Skip this flag and its next value
-              {acc, true}
-
-            # Keep encoding-relevant flags (and their values will be kept in next iteration)
-            param in ["--preset", "--cpu-used", "--svt", "--pix-format", "--threads"] ->
-              {[param | acc], false}
-
-            # Default: skip unknown flags to be safe
-            true ->
-              {acc, false}
-          end
-      end)
-
-    # Now we need to add the values for the flags we kept
-    # Process the original params again to get flag-value pairs
-    result = build_flag_value_pairs(params, filtered)
-
-    result
-  end
-
-  # Build flag-value pairs for the flags we want to keep
-  defp build_flag_value_pairs(original_params, flags_to_keep) do
-    flags_to_keep_set = MapSet.new(flags_to_keep)
-
-    {result, _expecting_value} =
-      Enum.reduce(original_params, {[], nil}, fn
-        param, {acc, expecting_value} ->
-          cond do
-            # If we're expecting a value for a flag we kept, add it
-            expecting_value && MapSet.member?(flags_to_keep_set, expecting_value) ->
-              {[param | acc], nil}
-
-            # If this is a flag we want to keep, add it and expect its value next
-            String.starts_with?(param, "--") && MapSet.member?(flags_to_keep_set, param) ->
-              {[param | acc], param}
-
-            # Otherwise, skip
-            true ->
-              {acc, nil}
-          end
-      end)
-
-    Enum.reverse(result)
-  end
-
-  # Remove duplicate arguments, keeping the first occurrence
-  # This ensures VMAF params (like --preset 6) take precedence over rules
-  defp remove_duplicate_args(args) do
-    {result, _seen} =
-      Enum.reduce(args, {[], MapSet.new()}, fn
-        "--" <> flag = arg, {acc, seen} ->
-          if MapSet.member?(seen, flag) do
-            {acc, seen}
-          else
-            {[arg | acc], MapSet.put(seen, flag)}
-          end
-
-        arg, {acc, seen} ->
-          # Non-flag arguments (like values) are always kept
-          {[arg | acc], seen}
-      end)
-
-    Enum.reverse(result)
+    # Pass base_args to Rules.build_args so it can handle deduplication properly
+    Reencodarr.Rules.build_args(vmaf.video, :encode, vmaf_params, base_args)
   end
 
   # Test helper function to expose build_encode_args for testing

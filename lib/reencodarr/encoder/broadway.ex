@@ -18,7 +18,7 @@ defmodule Reencodarr.Encoder.Broadway do
   alias Broadway.Message
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.Encoder.Broadway.Producer
-  alias Reencodarr.{PostProcessor, Rules, Telemetry}
+  alias Reencodarr.{PostProcessor, Telemetry}
 
   @typedoc "VMAF struct for encoding processing"
   @type vmaf :: %{id: integer(), video: map()}
@@ -477,120 +477,92 @@ defmodule Reencodarr.Encoder.Broadway do
       "encode",
       "--crf",
       to_string(vmaf.crf),
-      "-o",
+      "--output",
       Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv"),
-      "-i",
+      "--input",
       vmaf.video.path
     ]
 
-    # Include parameters from CRF search (like --preset 6 from retries)
-    # Filter out CRF search specific params that don't apply to encoding
-    vmaf_params =
-      if vmaf.params && is_list(vmaf.params) do
-        vmaf.params
-        |> filter_encode_relevant_params()
-      else
-        []
-      end
+    # Get rule-based arguments from centralized Rules module
+    # Extract VMAF params for use in Rules.build_args
+    vmaf_params = if vmaf.params && is_list(vmaf.params), do: vmaf.params, else: []
 
-    rule_args =
-      vmaf.video
-      |> Rules.apply()
-      |> Enum.flat_map(fn
-        {k, v} -> [to_string(k), to_string(v)]
+    Logger.info("Broadway: build_encode_args debug - VMAF ID: #{vmaf.id}")
+    Logger.info("Broadway: build_encode_args debug - base_args: #{inspect(base_args)}")
+    Logger.info("Broadway: build_encode_args debug - vmaf_params: #{inspect(vmaf_params)}")
+
+    # Use the 4-arity version that handles deduplication properly
+    result_args = Reencodarr.Rules.build_args(vmaf.video, :encode, vmaf_params, base_args)
+
+    Logger.info("Broadway: build_encode_args debug - result_args: #{inspect(result_args)}")
+
+    # Count duplicates for debugging
+    input_count = Enum.count(result_args, &(&1 == "--input"))
+    path_count = Enum.count(result_args, &(&1 == vmaf.video.path))
+
+    Logger.info("Broadway: build_encode_args debug - --input count: #{input_count}")
+    Logger.info("Broadway: build_encode_args debug - path count: #{path_count}")
+
+    if path_count > 1 do
+      Logger.error("Broadway: build_encode_args ERROR - Duplicate path detected!")
+
+      # Find positions of the path
+      path_positions =
+        result_args
+        |> Enum.with_index()
+        |> Enum.filter(fn {arg, _idx} -> arg == vmaf.video.path end)
+        |> Enum.map(fn {_arg, idx} -> idx end)
+
+      Logger.error(
+        "Broadway: build_encode_args ERROR - Path appears at positions: #{inspect(path_positions)}"
+      )
+
+      # Show context around each occurrence
+      Enum.each(path_positions, fn pos ->
+        start_pos = max(0, pos - 2)
+        end_pos = min(length(result_args) - 1, pos + 2)
+        context = Enum.slice(result_args, start_pos..end_pos)
+
+        Logger.error(
+          "Broadway: build_encode_args ERROR - Position #{pos} context: #{inspect(context)}"
+        )
       end)
+    end
 
-    # Combine all arguments, with VMAF params taking precedence over rules
-    # (since VMAF params come from successful CRF searches)
-    (base_args ++ vmaf_params ++ rule_args)
-    |> remove_duplicate_args()
-  end
-
-  # Filter VMAF params to only include those relevant for encoding
-  # This removes CRF search specific arguments and file paths
-  defp filter_encode_relevant_params(params) do
-    # Process params in pairs, keeping track of flags that need their values
-    {filtered, _skip_next} =
-      Enum.reduce(params, {[], false}, fn
-        param, {acc, skip_next} ->
-          cond do
-            # Skip this parameter (it was a value for a skipped flag)
-            skip_next ->
-              {acc, false}
-
-            # Skip file paths (anything that doesn't start with --)
-            not String.starts_with?(param, "--") ->
-              {acc, false}
-
-            # Skip CRF search specific flags and their values
-            param in ["--temp-dir", "--min-vmaf", "--max-vmaf"] ->
-              # Skip this flag and its next value
-              {acc, true}
-
-            # Keep encoding-relevant flags (and their values will be kept in next iteration)
-            param in ["--preset", "--cpu-used", "--svt", "--pix-format", "--threads"] ->
-              {[param | acc], false}
-
-            # Default: skip unknown flags to be safe
-            true ->
-              {acc, false}
-          end
-      end)
-
-    # Now we need to add the values for the flags we kept
-    # Process the original params again to get flag-value pairs
-    result = build_flag_value_pairs(params, filtered)
-
-    result
-  end
-
-  # Build flag-value pairs for the flags we want to keep
-  defp build_flag_value_pairs(original_params, flags_to_keep) do
-    flags_to_keep_set = MapSet.new(flags_to_keep)
-
-    {result, _expecting_value} =
-      Enum.reduce(original_params, {[], nil}, fn
-        param, {acc, expecting_value} ->
-          cond do
-            # If we're expecting a value for a flag we kept, add it
-            expecting_value && MapSet.member?(flags_to_keep_set, expecting_value) ->
-              {[param | acc], nil}
-
-            # If this is a flag we want to keep, add it and expect its value next
-            String.starts_with?(param, "--") && MapSet.member?(flags_to_keep_set, param) ->
-              {[param | acc], param}
-
-            # Otherwise, skip
-            true ->
-              {acc, nil}
-          end
-      end)
-
-    Enum.reverse(result)
-  end
-
-  # Remove duplicate arguments, keeping the first occurrence
-  # This ensures VMAF params (like --preset 6) take precedence over rules
-  defp remove_duplicate_args(args) do
-    {result, _seen} =
-      Enum.reduce(args, {[], MapSet.new()}, fn
-        "--" <> flag = arg, {acc, seen} ->
-          if MapSet.member?(seen, flag) do
-            {acc, seen}
-          else
-            {[arg | acc], MapSet.put(seen, flag)}
-          end
-
-        arg, {acc, seen} ->
-          {[arg | acc], seen}
-      end)
-
-    Enum.reverse(result)
+    result_args
   end
 
   # Test helper function to expose build_encode_args for testing
   if Mix.env() == :test do
     def build_encode_args_for_test(vmaf), do: build_encode_args(vmaf)
+    def filter_input_output_args_for_test(args), do: filter_input_output_args(args)
+
+    # Filter out input/output arguments and their values from a list of arguments
+    defp filter_input_output_args(args) do
+      {filtered, _expecting_value} =
+        Enum.reduce(args, {[], nil}, fn
+          arg, {acc, expecting_value} ->
+            cond do
+              expecting_value ->
+                # Skip the value for input/output flags
+                if expecting_value in ["--input", "-i", "--output", "-o"] do
+                  {acc, nil}
+                else
+                  {[arg | acc], nil}
+                end
+
+              arg in ["--input", "-i", "--output", "-o"] ->
+                # Skip input/output flags and expect their values next
+                {acc, arg}
+
+              true ->
+                # Keep other arguments
+                {[arg | acc], nil}
+            end
+        end)
+
+      Enum.reverse(filtered)
+    end
   end
 
   @spec notify_encoding_success(map(), String.t()) :: {:ok, :success} | {:error, atom()}
