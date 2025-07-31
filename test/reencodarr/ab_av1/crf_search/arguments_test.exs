@@ -25,7 +25,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.ArgumentsTest do
       args = CrfSearch.build_crf_search_args_with_preset_6(video, 95)
 
       assert "crf-search" in args
-      assert "-i" in args
+      assert "--input" in args
       assert video.path in args
       assert "--min-vmaf" in args
       assert "95" in args

@@ -114,8 +114,8 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
             CrfSearch.process_line(line, video, [])
           end)
 
-        # Warning lines that don't match patterns are logged as "No match"
-        assert log =~ "No match for line"
+        # Warning lines should now be handled properly and not generate "No match" errors
+        refute log =~ "No match for line"
       end)
     end
 
