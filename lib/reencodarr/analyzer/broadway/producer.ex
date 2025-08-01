@@ -17,9 +17,8 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     @moduledoc false
     defstruct [
       :demand,
-      :paused,
+      :status,
       :queue,
-      :processing,
       :manual_queue
     ]
 
@@ -62,6 +61,20 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     end
   end
 
+  def actively_running? do
+    case find_producer_process() do
+      nil ->
+        false
+
+      producer_pid ->
+        try do
+          GenStage.call(producer_pid, :actively_running?, 1000)
+        catch
+          :exit, _ -> false
+        end
+    end
+  end
+
   @impl GenStage
   def init(_opts) do
     # Subscribe to media events for new videos
@@ -75,19 +88,25 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     {:producer,
      %State{
        demand: 0,
-       paused: false,
+       status: :paused,
        queue: :queue.new(),
-       # Track if we're currently processing videos
-       processing: false,
        manual_queue: []
      }}
   end
 
   @impl GenStage
   def handle_call(:running?, _from, state) do
-    # Consider it "running" if not paused OR if paused but still processing current batch
-    running = not state.paused or (state.paused and state.processing)
+    # Button should reflect user intent - not running if paused or pausing
+    running = state.status == :running
     {:reply, running, [], state}
+  end
+
+  @impl GenStage
+  def handle_call(:actively_running?, _from, state) do
+    # For telemetry/progress - actively running if processing or pausing
+    # This allows progress to continue during pausing state
+    actively_running = state.status in [:processing, :pausing]
+    {:reply, actively_running, [], state}
   end
 
   @impl GenStage
@@ -97,15 +116,18 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:pause, state) do
-    if state.processing do
-      Logger.info("Analyzer pausing - will finish current batch and stop")
-    else
-      Logger.info("Analyzer paused")
-      Telemetry.emit_analyzer_paused()
-      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :paused})
-      :telemetry.execute([:reencodarr, :analyzer, :paused], %{}, %{})
+    case state.status do
+      :processing ->
+        Logger.info("Analyzer pausing - will finish current batch and stop")
+        {:noreply, [], State.update(state, status: :pausing)}
+
+      _ ->
+        Logger.info("Analyzer paused")
+        Telemetry.emit_analyzer_paused()
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :paused})
+        :telemetry.execute([:reencodarr, :analyzer, :paused], %{}, %{})
+        {:noreply, [], State.update(state, status: :paused)}
     end
-    {:noreply, [], State.update(state, paused: true)}
   end
 
   @impl GenStage
@@ -114,7 +136,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     Telemetry.emit_analyzer_started()
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :started})
     :telemetry.execute([:reencodarr, :analyzer, :started], %{}, %{})
-    new_state = State.update(state, paused: false)
+    new_state = State.update(state, status: :running)
     dispatch_if_ready(new_state)
   end
 
@@ -123,7 +145,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     Logger.debug("Adding video to Broadway queue: #{video_info.path}")
 
     Logger.debug(
-      "Current state - demand: #{state.demand}, paused: #{state.paused}, queue size: #{length(state.manual_queue)}"
+      "Current state - demand: #{state.demand}, status: #{state.status}, queue size: #{length(state.manual_queue)}"
     )
 
     new_manual_queue = [video_info | state.manual_queue]
@@ -162,19 +184,22 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_info({:batch_analysis_completed, _batch_size}, state) do
-    # Batch analysis completed, mark as not processing and try to dispatch next
+    # Batch analysis completed
     Logger.debug("Producer: Received batch analysis completion notification")
-    new_state = %{state | processing: false}
 
-    # If we were paused but finished a batch, emit the paused telemetry now
-    if new_state.paused do
-      Logger.info("Analyzer finished current batch - now fully paused")
-      Telemetry.emit_analyzer_paused()
-      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :paused})
-      :telemetry.execute([:reencodarr, :analyzer, :paused], %{}, %{})
+    case state.status do
+      :pausing ->
+        Logger.info("Analyzer finished current batch - now fully paused")
+        Telemetry.emit_analyzer_paused()
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :paused})
+        :telemetry.execute([:reencodarr, :analyzer, :paused], %{}, %{})
+        new_state = State.update(state, status: :paused)
+        {:noreply, [], new_state}
+
+      _ ->
+        new_state = State.update(state, status: :running)
+        dispatch_if_ready(new_state)
     end
-
-    dispatch_if_ready(new_state)
   end
 
   @impl GenStage
@@ -225,10 +250,10 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   defp dispatch_if_ready(state) do
     Logger.debug(
-      "dispatch_if_ready called - demand: #{state.demand}, paused: #{state.paused}, queue size: #{length(state.manual_queue)}"
+      "dispatch_if_ready called - demand: #{state.demand}, status: #{state.status}, queue size: #{length(state.manual_queue)}"
     )
 
-    if not state.paused and state.demand > 0 do
+    if state.status == :running and state.demand > 0 do
       Logger.debug("Conditions met, dispatching videos")
       dispatch_videos(state)
     else
@@ -341,7 +366,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     state = GenStage.call(producer_pid, :get_state, 1000)
 
     IO.puts(
-      "State: demand=#{state.demand}, paused=#{state.paused}, queue_size=#{length(state.manual_queue)}"
+      "State: demand=#{state.demand}, status=#{state.status}, queue_size=#{length(state.manual_queue)}"
     )
 
     if not Enum.empty?(state.manual_queue) do
@@ -359,12 +384,11 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       {videos, new_state} ->
         video_count = length(videos)
         Logger.debug("Dispatching #{video_count} videos for analysis")
-        # Decrement demand but keep processing: true
-        final_state = %{new_state | demand: state.demand - video_count}
+        # Decrement demand and mark as processing
+        final_state =
+          State.update(new_state, demand: state.demand - video_count, status: :processing)
 
-        Logger.debug(
-          "Final state: processing: #{final_state.processing}, demand: #{final_state.demand}"
-        )
+        Logger.debug("Final state: status: #{final_state.status}, demand: #{final_state.demand}")
 
         {:noreply, videos, final_state}
     end

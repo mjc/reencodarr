@@ -50,7 +50,7 @@ defmodule ReencodarrWeb.RulesLive do
         <div class="lg:col-span-1">
           <.rules_navigation selected_section={@selected_section} />
         </div>
-
+        
     <!-- Main Content -->
         <div class="lg:col-span-3">
           <%= case @selected_section do %>
@@ -206,8 +206,7 @@ defmodule ReencodarrWeb.RulesLive do
               </li>
               <li>
                 <span class="text-blue-400 font-bold">2. Resolution Rule:</span>
-                <code>resolution/1</code>
-                - 4K+ downscaling to 1080p
+                <code>resolution/1</code> - 4K+ downscaling to 1080p
               </li>
               <li>
                 <span class="text-blue-400 font-bold">3. Video Rule:</span> <code>video/1</code>
@@ -1008,7 +1007,7 @@ defmodule ReencodarrWeb.RulesLive do
                 </div>
               </div>
             </div>
-
+            
     <!-- Grain Rule -->
             <div class="bg-gray-800 p-4 rounded border border-indigo-500">
               <h3 class="text-indigo-400 font-bold mb-3">🎬 Film Grain Synthesis</h3>
@@ -1042,7 +1041,10 @@ defmodule ReencodarrWeb.RulesLive do
                   <ul class="space-y-1">
                     <li>• <strong>SDR Videos:</strong> Film grain can be applied</li>
                     <li>• <strong>HDR Videos:</strong> Film grain rule returns empty (no effect)</li>
-                    <li>• <strong>Reasoning:</strong> HDR content typically has appropriate grain already</li>
+                    <li>
+                      • <strong>Reasoning:</strong>
+                      HDR content typically has appropriate grain already
+                    </li>
                     <li>• <strong>Safety:</strong> Prevents degrading HDR metadata or quality</li>
                   </ul>
                 </div>
@@ -1290,20 +1292,44 @@ defmodule ReencodarrWeb.RulesLive do
               <div class="bg-gray-800 p-3 rounded">
                 <h4 class="text-teal-300 font-semibold mb-2">🎯 How It Works</h4>
                 <div class="space-y-2">
-                  <div><strong>Initial Attempt:</strong> CRF search starts with <code>--preset 8</code> (faster encoding)</div>
-                  <div><strong>If Failed:</strong> Automatically retries with <code>--preset 6</code> (slower but more reliable)</div>
-                  <div><strong>Smart Detection:</strong> System tracks which preset was used for each video</div>
-                  <div><strong>Final Encoding:</strong> Uses the same preset that worked during CRF search</div>
+                  <div>
+                    <strong>Initial Attempt:</strong>
+                    CRF search starts with <code>--preset 8</code>
+                    (faster encoding)
+                  </div>
+                  <div>
+                    <strong>If Failed:</strong>
+                    Automatically retries with <code>--preset 6</code>
+                    (slower but more reliable)
+                  </div>
+                  <div>
+                    <strong>Smart Detection:</strong>
+                    System tracks which preset was used for each video
+                  </div>
+                  <div>
+                    <strong>Final Encoding:</strong>
+                    Uses the same preset that worked during CRF search
+                  </div>
                 </div>
               </div>
 
               <div class="bg-gray-800 p-3 rounded">
                 <h4 class="text-teal-300 font-semibold mb-2">⚙️ Why This Matters</h4>
                 <div class="space-y-2">
-                  <div><strong>Speed Optimization:</strong> Most videos work fine with preset 8 (faster processing)</div>
-                  <div><strong>Reliability:</strong> Difficult content gets preset 6 automatically (better quality/stability)</div>
-                  <div><strong>Consistency:</strong> CRF search and final encoding use the same settings</div>
-                  <div><strong>No Manual Intervention:</strong> System handles failures gracefully</div>
+                  <div>
+                    <strong>Speed Optimization:</strong>
+                    Most videos work fine with preset 8 (faster processing)
+                  </div>
+                  <div>
+                    <strong>Reliability:</strong>
+                    Difficult content gets preset 6 automatically (better quality/stability)
+                  </div>
+                  <div>
+                    <strong>Consistency:</strong> CRF search and final encoding use the same settings
+                  </div>
+                  <div>
+                    <strong>No Manual Intervention:</strong> System handles failures gracefully
+                  </div>
                 </div>
               </div>
 
@@ -1364,8 +1390,8 @@ defmodule ReencodarrWeb.RulesLive do
                 ⚙️ Rules applied: video/1 (10-bit format) + hdr/1 (SDR tune) + audio/1 (DTS→Opus 5.1)
               </div>
             </div>
-
-            <!-- 4K HDR Example -->
+            
+    <!-- 4K HDR Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">🎬 4K HDR Movie</h3>
               <div class="text-sm mb-2 text-yellow-200">
@@ -1379,7 +1405,8 @@ defmodule ReencodarrWeb.RulesLive do
               <div class="text-xs text-yellow-300 mt-2">
                 ⚙️ Rules applied: resolution/1 (4K→1080p) + hdr/1 (HDR+DV) + video/1 (10-bit) + audio/1 (TrueHD→Opus 7.1)
               </div>
-            </div>    <!-- Atmos Example -->
+            </div>
+            <!-- Atmos Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">🔊 Atmos Content</h3>
               <div class="text-sm mb-2 text-yellow-200">
@@ -1394,8 +1421,8 @@ defmodule ReencodarrWeb.RulesLive do
                 ⚙️ Rules applied: video/1 (10-bit) + hdr/1 (SDR tune) + audio/1 (SKIPPED - Atmos preserved)
               </div>
             </div>
-
-            <!-- 2.1 Upmix Example -->
+            
+    <!-- 2.1 Upmix Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">⭐ TV Show with 2.1 Audio</h3>
               <div class="text-sm mb-2 text-yellow-200">
@@ -1409,7 +1436,8 @@ defmodule ReencodarrWeb.RulesLive do
               <div class="text-xs text-yellow-300 mt-2">
                 ⭐ Special: 3-channel upmixed to 6-channel 5.1 Opus (fixes Opus 2.1 encoding issues)
               </div>
-            </div>    <!-- Already Optimized Example -->
+            </div>
+            <!-- Already Optimized Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">✅ Already Optimized</h3>
               <div class="text-sm mb-2 text-yellow-200">
@@ -1424,8 +1452,8 @@ defmodule ReencodarrWeb.RulesLive do
                 ✅ Audio skipped: Already optimal Opus format, no re-encoding needed
               </div>
             </div>
-
-            <!-- DVD Upscale Example -->
+            
+    <!-- DVD Upscale Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">📼 DVD Collection</h3>
               <div class="text-sm mb-2 text-yellow-200">Properties: 720x480, SDR, AC3 5.1 Audio</div>
@@ -1437,7 +1465,8 @@ defmodule ReencodarrWeb.RulesLive do
               <div class="text-xs text-yellow-300 mt-2">
                 📼 Low resolution preserved, audio upgraded from AC3 to Opus, 10-bit for better AV1 compression
               </div>
-            </div>    <!-- Ultrawide Gaming Example -->
+            </div>
+            <!-- Ultrawide Gaming Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">🎮 Ultrawide Gaming Capture</h3>
               <div class="text-sm mb-2 text-yellow-200">Properties: 3440x1440, SDR, Stereo PCM</div>
@@ -1450,7 +1479,7 @@ defmodule ReencodarrWeb.RulesLive do
                 🎮 Downscaled from 3440×1440 to 1920×800 (maintains 21:9), stereo PCM to Opus
               </div>
             </div>
-
+            
     <!-- Mixed Series Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">📺 Modern TV Series (Mixed HDR/SDR)</h3>

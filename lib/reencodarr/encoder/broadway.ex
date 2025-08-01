@@ -605,26 +605,26 @@ defmodule Reencodarr.Encoder.Broadway do
       # Process was killed by system (OOM, etc.)
       137 => %{action: :pause, reason: "Process killed by system (likely OOM)"},
       143 => %{action: :pause, reason: "Process terminated by SIGTERM"},
-      # Disk full
-      28 => %{action: :pause, reason: "No space left on device"},
-      # Permission denied - might be a mount issue
-      13 => %{action: :pause, reason: "Permission denied - check file system permissions"},
-      # I/O error - could indicate hardware issues
-      5 => %{action: :pause, reason: "I/O error - possible hardware issue"},
       # Invalid command line arguments - indicates configuration issue
       2 => %{action: :pause, reason: "Invalid command line arguments - configuration error"},
+      # I/O error - could indicate hardware issues
+      5 => %{action: :pause, reason: "I/O error - possible hardware issue"},
+      # Disk full - definitely systemic
+      28 => %{action: :pause, reason: "No space left on device"},
       # Network timeout - may indicate systemic network issues
       110 => %{action: :pause, reason: "Network timeout - systemic network connectivity issue"},
-      # Port/process creation failures
+      # Port/process creation failures - systemic
       :port_error => %{action: :pause, reason: "Failed to create encoding process"},
       :timeout => %{action: :pause, reason: "Encoding timeout - system may be overloaded"}
     },
 
     # File-specific failures that should skip the file but continue processing
-    # These are usually due to corrupted/invalid input files
+    # These are usually due to corrupted/invalid input files or file-specific issues
     recoverable_failures: %{
       # Standard encoding failures
       1 => %{action: :continue, reason: "Standard encoding failure (corrupted/invalid input)"},
+      # Permission denied - might be file-specific permissions
+      13 => %{action: :continue, reason: "Permission denied (file-specific permissions)"},
       # File format issues
       22 => %{action: :continue, reason: "Invalid file format"},
       # Codec issues
