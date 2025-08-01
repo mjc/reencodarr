@@ -31,6 +31,7 @@ defmodule ReencodarrWeb.Router do
     live "/", DashboardLive, :index
     live "/broadway", BroadwayLive, :index
     live "/failures", FailuresLive, :index
+    live "/rules", RulesLive, :index
 
     live "/libraries", LibraryLive.Index, :index
     live "/libraries/new", LibraryLive.Index, :new

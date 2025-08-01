@@ -66,6 +66,7 @@ defmodule ReencodarrWeb.LcarsComponents do
         <.nav_link page={:overview} current={@current_page} path="/" label="OVERVIEW" />
         <.nav_link page={:broadway} current={@current_page} path="/broadway" label="PIPELINE MONITOR" />
         <.nav_link page={:failures} current={@current_page} path="/failures" label="FAILURES" />
+        <.nav_link page={:rules} current={@current_page} path="/rules" label="ENCODING RULES" />
       </div>
     </div>
     """
