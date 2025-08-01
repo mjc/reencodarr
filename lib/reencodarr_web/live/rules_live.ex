@@ -50,7 +50,7 @@ defmodule ReencodarrWeb.RulesLive do
         <div class="lg:col-span-1">
           <.rules_navigation selected_section={@selected_section} />
         </div>
-        
+
     <!-- Main Content -->
         <div class="lg:col-span-3">
           <%= case @selected_section do %>
@@ -1008,7 +1008,7 @@ defmodule ReencodarrWeb.RulesLive do
                 </div>
               </div>
             </div>
-            
+
     <!-- Grain Rule -->
             <div class="bg-gray-800 p-4 rounded border border-indigo-500">
               <h3 class="text-indigo-400 font-bold mb-3">🎬 Film Grain Synthesis</h3>
@@ -1036,6 +1036,14 @@ defmodule ReencodarrWeb.RulesLive do
                     <li>• HDR content is left untouched</li>
                     <li>• Adjustable strength levels (0-50)</li>
                     <li>• Preserves existing film characteristics</li>
+                  </ul>
+
+                  <h5 class="text-indigo-300 font-semibold mt-3">HDR Fallback Behavior:</h5>
+                  <ul class="space-y-1">
+                    <li>• <strong>SDR Videos:</strong> Film grain can be applied</li>
+                    <li>• <strong>HDR Videos:</strong> Film grain rule returns empty (no effect)</li>
+                    <li>• <strong>Reasoning:</strong> HDR content typically has appropriate grain already</li>
+                    <li>• <strong>Safety:</strong> Prevents degrading HDR metadata or quality</li>
                   </ul>
                 </div>
               </div>
@@ -1275,6 +1283,55 @@ defmodule ReencodarrWeb.RulesLive do
               </div>
             </div>
           </div>
+
+          <div class="bg-teal-900 p-4 rounded border border-teal-400">
+            <h3 class="text-teal-200 font-bold mb-3">⚡ Preset Fallback System</h3>
+            <div class="space-y-4 text-sm">
+              <div class="bg-gray-800 p-3 rounded">
+                <h4 class="text-teal-300 font-semibold mb-2">🎯 How It Works</h4>
+                <div class="space-y-2">
+                  <div><strong>Initial Attempt:</strong> CRF search starts with <code>--preset 8</code> (faster encoding)</div>
+                  <div><strong>If Failed:</strong> Automatically retries with <code>--preset 6</code> (slower but more reliable)</div>
+                  <div><strong>Smart Detection:</strong> System tracks which preset was used for each video</div>
+                  <div><strong>Final Encoding:</strong> Uses the same preset that worked during CRF search</div>
+                </div>
+              </div>
+
+              <div class="bg-gray-800 p-3 rounded">
+                <h4 class="text-teal-300 font-semibold mb-2">⚙️ Why This Matters</h4>
+                <div class="space-y-2">
+                  <div><strong>Speed Optimization:</strong> Most videos work fine with preset 8 (faster processing)</div>
+                  <div><strong>Reliability:</strong> Difficult content gets preset 6 automatically (better quality/stability)</div>
+                  <div><strong>Consistency:</strong> CRF search and final encoding use the same settings</div>
+                  <div><strong>No Manual Intervention:</strong> System handles failures gracefully</div>
+                </div>
+              </div>
+
+              <div class="bg-teal-800 p-3 rounded border border-teal-300">
+                <h4 class="text-teal-200 font-semibold mb-2">📊 Preset Differences</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <strong>Preset 8 (Default):</strong>
+                    <ul class="mt-1 space-y-1">
+                      <li>• Faster encoding (2-3x speed)</li>
+                      <li>• Good for most content</li>
+                      <li>• May fail on complex scenes</li>
+                      <li>• Preferred for efficiency</li>
+                    </ul>
+                  </div>
+                  <div>
+                    <strong>Preset 6 (Fallback):</strong>
+                    <ul class="mt-1 space-y-1">
+                      <li>• Slower but more thorough</li>
+                      <li>• Handles complex content better</li>
+                      <li>• Higher success rate</li>
+                      <li>• Used when 8 fails</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </.lcars_panel>
     </div>
@@ -1300,15 +1357,15 @@ defmodule ReencodarrWeb.RulesLive do
               </div>
               <div class="bg-black p-3 rounded font-mono text-xs overflow-x-auto">
                 <code class="text-green-400">
-                  ab-av1 encode --input movie.mkv --encoder svt-av1 --preset 6 --crf 28 --pix-format yuv420p10le --svt tune=0 --acodec libopus --enc b:a=384k --enc ac=6
+                  ab-av1 encode --input movie.mkv --encoder svt-av1 --preset 8 --crf 28 --pix-format yuv420p10le --svt tune=0 --acodec libopus --enc b:a=384k --enc ac=6
                 </code>
               </div>
               <div class="text-xs text-yellow-300 mt-2">
                 ⚙️ Rules applied: video/1 (10-bit format) + hdr/1 (SDR tune) + audio/1 (DTS→Opus 5.1)
               </div>
             </div>
-            
-    <!-- 4K HDR Example -->
+
+            <!-- 4K HDR Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">🎬 4K HDR Movie</h3>
               <div class="text-sm mb-2 text-yellow-200">
@@ -1316,15 +1373,13 @@ defmodule ReencodarrWeb.RulesLive do
               </div>
               <div class="bg-black p-3 rounded font-mono text-xs overflow-x-auto">
                 <code class="text-green-400">
-                  ab-av1 encode --input movie_4k.mkv --encoder svt-av1 --preset 6 --crf 26 --pix-format yuv420p10le --vfilter scale=1920:-2 --svt tune=0 --svt dolbyvision=1 --acodec libopus --enc b:a=510k --enc ac=8
+                  ab-av1 encode --input movie_4k.mkv --encoder svt-av1 --preset 8 --crf 26 --pix-format yuv420p10le --vfilter scale=1920:-2 --svt tune=0 --svt dolbyvision=1 --acodec libopus --enc b:a=510k --enc ac=8
                 </code>
               </div>
               <div class="text-xs text-yellow-300 mt-2">
                 ⚙️ Rules applied: resolution/1 (4K→1080p) + hdr/1 (HDR+DV) + video/1 (10-bit) + audio/1 (TrueHD→Opus 7.1)
               </div>
-            </div>
-            
-    <!-- Atmos Example -->
+            </div>    <!-- Atmos Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">🔊 Atmos Content</h3>
               <div class="text-sm mb-2 text-yellow-200">
@@ -1332,15 +1387,15 @@ defmodule ReencodarrWeb.RulesLive do
               </div>
               <div class="bg-black p-3 rounded font-mono text-xs overflow-x-auto">
                 <code class="text-green-400">
-                  ab-av1 encode --input atmos_movie.mkv --encoder svt-av1 --preset 6 --crf 28 --pix-format yuv420p10le --svt tune=0
+                  ab-av1 encode --input atmos_movie.mkv --encoder svt-av1 --preset 8 --crf 28 --pix-format yuv420p10le --svt tune=0
                 </code>
               </div>
               <div class="text-xs text-yellow-300 mt-2">
                 ⚙️ Rules applied: video/1 (10-bit) + hdr/1 (SDR tune) + audio/1 (SKIPPED - Atmos preserved)
               </div>
             </div>
-            
-    <!-- 2.1 Upmix Example -->
+
+            <!-- 2.1 Upmix Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">⭐ TV Show with 2.1 Audio</h3>
               <div class="text-sm mb-2 text-yellow-200">
@@ -1348,15 +1403,13 @@ defmodule ReencodarrWeb.RulesLive do
               </div>
               <div class="bg-black p-3 rounded font-mono text-xs overflow-x-auto">
                 <code class="text-green-400">
-                  ab-av1 encode --input tv_show.mkv --encoder svt-av1 --preset 6 --crf 30 --pix-format yuv420p10le --svt tune=0 --acodec libopus --enc b:a=128k --enc ac=6
+                  ab-av1 encode --input tv_show.mkv --encoder svt-av1 --preset 8 --crf 30 --pix-format yuv420p10le --svt tune=0 --acodec libopus --enc b:a=128k --enc ac=6
                 </code>
               </div>
               <div class="text-xs text-yellow-300 mt-2">
                 ⭐ Special: 3-channel upmixed to 6-channel 5.1 Opus (fixes Opus 2.1 encoding issues)
               </div>
-            </div>
-            
-    <!-- Already Optimized Example -->
+            </div>    <!-- Already Optimized Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">✅ Already Optimized</h3>
               <div class="text-sm mb-2 text-yellow-200">
@@ -1364,42 +1417,40 @@ defmodule ReencodarrWeb.RulesLive do
               </div>
               <div class="bg-black p-3 rounded font-mono text-xs overflow-x-auto">
                 <code class="text-green-400">
-                  ab-av1 encode --input optimized.mkv --encoder svt-av1 --preset 6 --crf 28 --pix-format yuv420p10le --svt tune=0
+                  ab-av1 encode --input optimized.mkv --encoder svt-av1 --preset 8 --crf 28 --pix-format yuv420p10le --svt tune=0
                 </code>
               </div>
               <div class="text-xs text-yellow-300 mt-2">
                 ✅ Audio skipped: Already optimal Opus format, no re-encoding needed
               </div>
             </div>
-            
-    <!-- DVD Upscale Example -->
+
+            <!-- DVD Upscale Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">📼 DVD Collection</h3>
               <div class="text-sm mb-2 text-yellow-200">Properties: 720x480, SDR, AC3 5.1 Audio</div>
               <div class="bg-black p-3 rounded font-mono text-xs overflow-x-auto">
                 <code class="text-green-400">
-                  ab-av1 encode --input dvd_movie.mkv --encoder svt-av1 --preset 6 --crf 32 --pix-format yuv420p10le --svt tune=0 --acodec libopus --enc b:a=384k --enc ac=6
+                  ab-av1 encode --input dvd_movie.mkv --encoder svt-av1 --preset 8 --crf 32 --pix-format yuv420p10le --svt tune=0 --acodec libopus --enc b:a=384k --enc ac=6
                 </code>
               </div>
               <div class="text-xs text-yellow-300 mt-2">
                 📼 Low resolution preserved, audio upgraded from AC3 to Opus, 10-bit for better AV1 compression
               </div>
-            </div>
-            
-    <!-- Ultrawide Gaming Example -->
+            </div>    <!-- Ultrawide Gaming Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">🎮 Ultrawide Gaming Capture</h3>
               <div class="text-sm mb-2 text-yellow-200">Properties: 3440x1440, SDR, Stereo PCM</div>
               <div class="bg-black p-3 rounded font-mono text-xs overflow-x-auto">
                 <code class="text-green-400">
-                  ab-av1 encode --input gaming.mkv --encoder svt-av1 --preset 6 --crf 26 --pix-format yuv420p10le --vfilter scale=1920:-2 --svt tune=0 --acodec libopus --enc b:a=96k --enc ac=2
+                  ab-av1 encode --input gaming.mkv --encoder svt-av1 --preset 8 --crf 26 --pix-format yuv420p10le --vfilter scale=1920:-2 --svt tune=0 --acodec libopus --enc b:a=96k --enc ac=2
                 </code>
               </div>
               <div class="text-xs text-yellow-300 mt-2">
                 🎮 Downscaled from 3440×1440 to 1920×800 (maintains 21:9), stereo PCM to Opus
               </div>
             </div>
-            
+
     <!-- Mixed Series Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">📺 Modern TV Series (Mixed HDR/SDR)</h3>
@@ -1433,7 +1484,7 @@ defmodule ReencodarrWeb.RulesLive do
               <h4 class="text-blue-400 font-bold mb-2">Video Parameters</h4>
               <ul class="space-y-1">
                 <li><code>--encoder svt-av1</code> - AV1 encoder selection</li>
-                <li><code>--preset 6</code> - Speed/quality preset</li>
+                <li><code>--preset 8</code> - Speed/quality preset (fallback to 6 if needed)</li>
                 <li><code>--svt tune=0</code> - Visual quality optimization</li>
                 <li><code>--keyint 240</code> - 10-second keyframe interval</li>
                 <li><code>--min-vmaf 95</code> - Perceptual quality target</li>

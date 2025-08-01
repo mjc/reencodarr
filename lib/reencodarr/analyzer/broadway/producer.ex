@@ -85,7 +85,9 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_call(:running?, _from, state) do
-    {:reply, not state.paused, [], state}
+    # Consider it "running" if not paused OR if paused but still processing current batch
+    running = not state.paused or (state.paused and state.processing)
+    {:reply, running, [], state}
   end
 
   @impl GenStage
@@ -95,10 +97,14 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:pause, state) do
-    Logger.info("Analyzer paused")
-    Telemetry.emit_analyzer_paused()
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :paused})
-    :telemetry.execute([:reencodarr, :analyzer, :paused], %{}, %{})
+    if state.processing do
+      Logger.info("Analyzer pausing - will finish current batch and stop")
+    else
+      Logger.info("Analyzer paused")
+      Telemetry.emit_analyzer_paused()
+      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :paused})
+      :telemetry.execute([:reencodarr, :analyzer, :paused], %{}, %{})
+    end
     {:noreply, [], State.update(state, paused: true)}
   end
 
@@ -159,6 +165,15 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     # Batch analysis completed, mark as not processing and try to dispatch next
     Logger.debug("Producer: Received batch analysis completion notification")
     new_state = %{state | processing: false}
+
+    # If we were paused but finished a batch, emit the paused telemetry now
+    if new_state.paused do
+      Logger.info("Analyzer finished current batch - now fully paused")
+      Telemetry.emit_analyzer_paused()
+      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :paused})
+      :telemetry.execute([:reencodarr, :analyzer, :paused], %{}, %{})
+    end
+
     dispatch_if_ready(new_state)
   end
 
