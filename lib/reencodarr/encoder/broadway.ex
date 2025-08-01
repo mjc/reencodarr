@@ -540,28 +540,31 @@ defmodule Reencodarr.Encoder.Broadway do
     # Filter out input/output arguments and their values from a list of arguments
     defp filter_input_output_args(args) do
       {filtered, _expecting_value} =
-        Enum.reduce(args, {[], nil}, fn
-          arg, {acc, expecting_value} ->
-            cond do
-              expecting_value ->
-                # Skip the value for input/output flags
-                if expecting_value in ["--input", "-i", "--output", "-o"] do
-                  {acc, nil}
-                else
-                  {[arg | acc], nil}
-                end
-
-              arg in ["--input", "-i", "--output", "-o"] ->
-                # Skip input/output flags and expect their values next
-                {acc, arg}
-
-              true ->
-                # Keep other arguments
-                {[arg | acc], nil}
-            end
+        Enum.reduce(args, {[], nil}, fn arg, {acc, expecting_value} ->
+          process_arg_filter(arg, acc, expecting_value)
         end)
 
       Enum.reverse(filtered)
+    end
+
+    defp process_arg_filter(arg, acc, expecting_value) do
+      cond do
+        expecting_value -> handle_expected_value(arg, acc, expecting_value)
+        input_output_flag?(arg) -> {acc, arg}
+        true -> {[arg | acc], nil}
+      end
+    end
+
+    defp handle_expected_value(arg, acc, expecting_value) do
+      if expecting_value in ["--input", "-i", "--output", "-o"] do
+        {acc, nil}
+      else
+        {[arg | acc], nil}
+      end
+    end
+
+    defp input_output_flag?(arg) do
+      arg in ["--input", "-i", "--output", "-o"]
     end
   end
 

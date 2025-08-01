@@ -8,6 +8,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   use GenStage
   require Logger
+  alias Reencodarr.Analyzer.QueueManager
   alias Reencodarr.{Media, Telemetry}
 
   @broadway_name Reencodarr.Analyzer.Broadway
@@ -228,7 +229,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       end)
 
     # Update the QueueManager with current queue state
-    Reencodarr.Analyzer.QueueManager.broadcast_queue_update(queue_items)
+    QueueManager.broadcast_queue_update(queue_items)
 
     # Also broadcast to analyzer topic for backward compatibility
     Phoenix.PubSub.broadcast(

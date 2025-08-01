@@ -7,12 +7,14 @@
 	"settings": {
 		"cSpell.words": [
 			"Deprioritize",
+			"dolbyvision",
 			"esbuild",
 			"nixpkgs",
 			"numtide",
 			"pkgs",
 			"stardate",
 			"TRUEHD",
+			"Upmix",
 			"whereis"
 		],
 		"makefile.configureOnOpen": false

@@ -40,9 +40,7 @@ defmodule Reencodarr.FailureTracker do
 
   def record_validation_failure(video, changeset_errors, opts \\ []) do
     error_summary =
-      changeset_errors
-      |> Enum.map(fn {field, {msg, _}} -> "#{field}: #{msg}" end)
-      |> Enum.join(", ")
+      Enum.map_join(changeset_errors, ", ", fn {field, {msg, _}} -> "#{field}: #{msg}" end)
 
     context = Map.merge(%{changeset_errors: changeset_errors}, Keyword.get(opts, :context, %{}))
 
@@ -286,32 +284,78 @@ defmodule Reencodarr.FailureTracker do
 
   # Private helper to classify encoding exit codes
   defp classify_encoding_exit_code(exit_code) do
+    cond do
+      resource_exhaustion_error?(exit_code) ->
+        classify_resource_exhaustion_error(exit_code)
+
+      system_environment_error?(exit_code) ->
+        classify_system_environment_error(exit_code)
+
+      configuration_error?(exit_code) ->
+        {:configuration, "Invalid command line arguments - configuration error"}
+
+      codec_error?(exit_code) ->
+        classify_codec_error(exit_code)
+
+      special_atom_code?(exit_code) ->
+        classify_special_atom_code(exit_code)
+
+      exit_code == 1 ->
+        {:process_failure, "Standard encoding failure (corrupted/invalid input)"}
+
+      true ->
+        {:process_failure, "Unknown exit code: #{exit_code}"}
+    end
+  end
+
+  defp resource_exhaustion_error?(exit_code) do
+    exit_code in [137, 143, 28]
+  end
+
+  defp classify_resource_exhaustion_error(exit_code) do
     case exit_code do
-      # Process was killed by system (OOM, etc.)
       137 -> {:resource_exhaustion, "Process killed by system (likely OOM)"}
       143 -> {:resource_exhaustion, "Process terminated by SIGTERM"}
-      # Disk full
       28 -> {:resource_exhaustion, "No space left on device"}
-      # Permission denied
+    end
+  end
+
+  defp system_environment_error?(exit_code) do
+    exit_code in [13, 5, 110]
+  end
+
+  defp classify_system_environment_error(exit_code) do
+    case exit_code do
       13 -> {:system_environment, "Permission denied - check file system permissions"}
-      # I/O error
       5 -> {:system_environment, "I/O error - possible hardware issue"}
-      # Invalid command line arguments
-      2 -> {:configuration, "Invalid command line arguments - configuration error"}
-      # Standard encoding failures
-      1 -> {:process_failure, "Standard encoding failure (corrupted/invalid input)"}
-      # File format issues
-      22 -> {:codec_issues, "Invalid file format"}
-      # Codec issues
-      69 -> {:codec_issues, "Unsupported codec or format"}
-      # Network timeout
       110 -> {:system_environment, "Network timeout - systemic network connectivity issue"}
-      # Special atom codes
+    end
+  end
+
+  defp configuration_error?(exit_code) do
+    exit_code == 2
+  end
+
+  defp codec_error?(exit_code) do
+    exit_code in [22, 69]
+  end
+
+  defp classify_codec_error(exit_code) do
+    case exit_code do
+      22 -> {:codec_issues, "Invalid file format"}
+      69 -> {:codec_issues, "Unsupported codec or format"}
+    end
+  end
+
+  defp special_atom_code?(exit_code) do
+    exit_code in [:port_error, :timeout, :exception]
+  end
+
+  defp classify_special_atom_code(exit_code) do
+    case exit_code do
       :port_error -> {:system_environment, "Failed to create encoding process"}
       :timeout -> {:timeout, "Encoding timeout - system may be overloaded"}
       :exception -> {:process_failure, "Unexpected exception during encoding"}
-      # Unknown exit codes
-      _ -> {:process_failure, "Unknown exit code: #{exit_code}"}
     end
   end
 end

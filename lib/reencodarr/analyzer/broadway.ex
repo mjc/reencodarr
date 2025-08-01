@@ -61,7 +61,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   def running? do
     case Process.whereis(__MODULE__) do
       nil -> false
-      _pid -> Reencodarr.Analyzer.Broadway.Producer.running?()
+      _pid -> Producer.running?()
     end
   end
 

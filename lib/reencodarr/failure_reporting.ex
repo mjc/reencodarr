@@ -209,7 +209,7 @@ defmodule Reencodarr.FailureReporting do
         recommendations
 
       stages ->
-        stage_names = Enum.map(stages, & &1.stage) |> Enum.join(", ")
+        stage_names = Enum.map_join(stages, ", ", & &1.stage)
 
         recommendation = %{
           priority: :high,
@@ -237,7 +237,7 @@ defmodule Reencodarr.FailureReporting do
         recommendations
 
       categories ->
-        cat_names = Enum.map(categories, & &1.category) |> Enum.join(", ")
+        cat_names = Enum.map_join(categories, ", ", & &1.category)
 
         recommendation = %{
           priority: :medium,
@@ -307,43 +307,49 @@ defmodule Reencodarr.FailureReporting do
     end
 
     # Common Patterns
-    if length(report.common_patterns) > 0 do
-      IO.puts(IO.ANSI.bright() <> "Most Common Failure Patterns:" <> IO.ANSI.reset())
+    print_common_patterns(report.common_patterns)
+    print_recommendations(report.recommendations)
+  end
 
-      Enum.each(report.common_patterns, fn pattern ->
-        IO.puts(
-          "  #{pattern.stage}/#{pattern.category} (#{pattern.code}): #{pattern.count} occurrences"
-        )
+  defp print_common_patterns([]), do: :ok
 
-        if pattern.sample_message do
-          IO.puts("    Sample: #{String.slice(pattern.sample_message, 0, 80)}...")
+  defp print_common_patterns(patterns) do
+    IO.puts(IO.ANSI.bright() <> "Most Common Failure Patterns:" <> IO.ANSI.reset())
+
+    Enum.each(patterns, fn pattern ->
+      IO.puts(
+        "  #{pattern.stage}/#{pattern.category} (#{pattern.code}): #{pattern.count} occurrences"
+      )
+
+      if pattern.sample_message do
+        IO.puts("    Sample: #{String.slice(pattern.sample_message, 0, 80)}...")
+      end
+    end)
+
+    IO.puts("")
+  end
+
+  defp print_recommendations([]), do: :ok
+
+  defp print_recommendations(recommendations) do
+    IO.puts(IO.ANSI.bright() <> "Recommendations:" <> IO.ANSI.reset())
+
+    Enum.each(recommendations, fn rec ->
+      priority_color =
+        case rec.priority do
+          :high -> IO.ANSI.red()
+          :medium -> IO.ANSI.yellow()
+          :low -> IO.ANSI.green()
         end
-      end)
 
+      IO.puts(
+        "  #{priority_color}[#{String.upcase(to_string(rec.priority))}]#{IO.ANSI.reset()} #{rec.title}"
+      )
+
+      IO.puts("    #{rec.description}")
+      IO.puts("    Action: #{rec.action}")
       IO.puts("")
-    end
-
-    # Recommendations
-    if length(report.recommendations) > 0 do
-      IO.puts(IO.ANSI.bright() <> "Recommendations:" <> IO.ANSI.reset())
-
-      Enum.each(report.recommendations, fn rec ->
-        priority_color =
-          case rec.priority do
-            :high -> IO.ANSI.red()
-            :medium -> IO.ANSI.yellow()
-            :low -> IO.ANSI.green()
-          end
-
-        IO.puts(
-          "  #{priority_color}[#{String.upcase(to_string(rec.priority))}]#{IO.ANSI.reset()} #{rec.title}"
-        )
-
-        IO.puts("    #{rec.description}")
-        IO.puts("    Action: #{rec.action}")
-        IO.puts("")
-      end)
-    end
+    end)
   end
 
   @doc """

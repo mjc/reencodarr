@@ -261,32 +261,33 @@ defmodule Reencodarr.Rules do
         %Media.Video{atmos: atmos, max_audio_channels: channels, audio_codecs: audio_codecs} =
           _video
       ) do
-    if atmos == false and not is_nil(channels) and not is_nil(audio_codecs) do
-      if @opus_codec_tag in audio_codecs do
-        []
-      else
-        if channels == 3 do
-          [
-            {"--acodec", "libopus"},
-            {"--enc", "b:a=128k"},
-            # Upmix to 5.1
-            {"--enc", "ac=6"}
-          ]
-        else
-          [
-            {"--acodec", "libopus"},
-            {"--enc", "b:a=#{opus_bitrate(channels)}k"},
-            {"--enc", "ac=#{channels}"}
-          ]
-        end
-      end
-    else
-      []
+    cond do
+      atmos == true -> []
+      is_nil(channels) or is_nil(audio_codecs) -> []
+      @opus_codec_tag in audio_codecs -> []
+      true -> build_opus_audio_config(channels)
     end
   end
 
   # Handle map inputs (for tests that don't use proper structs)
   def audio(%{} = _video_map), do: []
+
+  defp build_opus_audio_config(channels) do
+    if channels == 3 do
+      [
+        {"--acodec", "libopus"},
+        {"--enc", "b:a=128k"},
+        # Upmix to 5.1
+        {"--enc", "ac=6"}
+      ]
+    else
+      [
+        {"--acodec", "libopus"},
+        {"--enc", "b:a=#{opus_bitrate(channels)}k"},
+        {"--enc", "ac=#{channels}"}
+      ]
+    end
+  end
 
   defp opus_bitrate(channels) when channels > 11 do
     # For very high channel counts, use maximum supported bitrate
