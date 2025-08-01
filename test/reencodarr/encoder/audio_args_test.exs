@@ -1,9 +1,9 @@
 defmodule Reencodarr.Encoder.AudioArgsTest do
   use Reencodarr.DataCase
 
-  alias Reencodarr.{Media, Repo, Rules}
+  alias Reencodarr.AbAv1.{CrfSearch, Encode}
   alias Reencodarr.Encoder.Broadway
-  alias Reencodarr.AbAv1.{Encode, CrfSearch}
+  alias Reencodarr.{Media, Repo, Rules}
 
   describe "centralized argument building" do
     setup do

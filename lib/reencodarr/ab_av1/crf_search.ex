@@ -1056,36 +1056,30 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
       vmafs ->
         # Check if any existing record was done with --preset 6
-        has_preset_6 =
-          Enum.any?(vmafs, fn vmaf ->
-            case vmaf.params do
-              nil ->
-                false
-
-              params_string when is_binary(params_string) ->
-                String.contains?(params_string, "--preset 6")
-
-              params_list when is_list(params_list) ->
-                # Check for adjacent --preset and 6 in the list
-                has_preset_6_in_list?(params_list)
-
-              _ ->
-                false
-            end
-          end)
+        has_preset_6 = Enum.any?(vmafs, &vmaf_has_preset_6?/1)
 
         # Check if we have too many failed attempts (more than 3 VMAF records suggests multiple failures)
-        if length(vmafs) > 3 do
-          :mark_failed
-        else
-          if has_preset_6 do
-            # Already tried with preset 6, don't retry
-            :already_retried
-          else
-            # Has records but no preset 6, can retry
-            {:retry, vmafs}
-          end
+        cond do
+          length(vmafs) > 3 -> :mark_failed
+          has_preset_6 -> :already_retried
+          true -> {:retry, vmafs}
         end
+    end
+  end
+
+  defp vmaf_has_preset_6?(vmaf) do
+    case vmaf.params do
+      nil ->
+        false
+
+      params_string when is_binary(params_string) ->
+        String.contains?(params_string, "--preset 6")
+
+      params_list when is_list(params_list) ->
+        has_preset_6_in_list?(params_list)
+
+      _ ->
+        false
     end
   end
 

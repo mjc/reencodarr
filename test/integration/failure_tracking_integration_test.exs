@@ -2,7 +2,7 @@ defmodule Reencodarr.FailureTrackingIntegrationTest do
   use Reencodarr.DataCase
 
   import Reencodarr.MediaFixtures
-  alias Reencodarr.{FailureTracker, FailureReporting}
+  alias Reencodarr.{FailureReporting, FailureTracker}
 
   describe "failure tracking integration" do
     test "end-to-end failure tracking and reporting" do

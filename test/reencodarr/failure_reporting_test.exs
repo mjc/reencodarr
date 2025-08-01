@@ -1,6 +1,7 @@
 defmodule Reencodarr.FailureReportingTest do
   use Reencodarr.DataCase
   alias Reencodarr.{FailureReporting, FailureTracker}
+  alias Reencodarr.Media.VideoFailure
   import Reencodarr.MediaFixtures
 
   describe "failure summary" do
@@ -23,7 +24,7 @@ defmodule Reencodarr.FailureReportingTest do
       {:ok, _failure2} = FailureTracker.record_mediainfo_failure(video2, "Error 2")
 
       # Resolve one failure
-      Reencodarr.Media.VideoFailure.resolve_failure(failure1)
+      VideoFailure.resolve_failure(failure1)
 
       summary = FailureReporting.get_failure_summary(7)
 

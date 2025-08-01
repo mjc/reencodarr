@@ -2,8 +2,8 @@ defmodule QuickDebugTest do
   use ExUnit.Case, async: true
   use Reencodarr.DataCase
 
-  alias Reencodarr.{Media, Repo}
   alias Reencodarr.AbAv1.Encode
+  alias Reencodarr.{Media, Repo}
 
   test "production scenario does not create duplicate paths" do
     # Create a video matching the production error
@@ -54,15 +54,8 @@ defmodule QuickDebugTest do
     # Count how many times the path appears
     path_count = Enum.count(args, &(&1 == video.path))
 
-    # Debug output
-    IO.puts("\n=== Production Scenario Test ===")
-    IO.puts("Generated args:")
-    IO.inspect(args, pretty: true)
-    IO.puts("\nInput path appears #{path_count} times")
-
     # Generate the command
     command = "ab-av1 " <> Enum.join(args, " ")
-    IO.puts("\nFull command:")
     IO.puts(command)
 
     # This should pass with the fix

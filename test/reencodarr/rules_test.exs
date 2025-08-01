@@ -2,9 +2,9 @@ defmodule Reencodarr.RulesTest do
   use ExUnit.Case, async: true
   use Reencodarr.DataCase
 
-  alias Reencodarr.{Media, Repo, Rules}
+  alias Reencodarr.AbAv1.{CrfSearch, Encode}
   alias Reencodarr.Encoder.Broadway
-  alias Reencodarr.AbAv1.{Encode, CrfSearch}
+  alias Reencodarr.{Media, Repo, Rules}
 
   # Test video fixtures
   defp create_test_video(overrides \\ %{}) do
@@ -831,12 +831,6 @@ defmodule Reencodarr.RulesTest do
       encode_args =
         Rules.build_args(video, :encode, ["--crf", "13.0", "-o", "/tmp/ab-av1/8443455.mkv"])
 
-      # Debug: print the generated command
-      IO.puts("\n=== Generated encode args ===")
-      IO.inspect(encode_args, pretty: true)
-      IO.puts("\n=== Full command ===")
-      IO.puts("ab-av1 " <> Enum.join(encode_args, " "))
-
       # Check for duplicates of the long file path
       path_count = Enum.count(encode_args, &(&1 == video.path))
       assert path_count <= 1, "Input path appears #{path_count} times: #{inspect(encode_args)}"
@@ -874,12 +868,7 @@ defmodule Reencodarr.RulesTest do
       }
 
       # Build the command like Encode module would
-      encode_args = Reencodarr.AbAv1.Encode.build_encode_args_for_test(vmaf)
-
-      IO.puts("\n=== Encode module generated args ===")
-      IO.inspect(encode_args, pretty: true)
-      IO.puts("\n=== Full encode command ===")
-      IO.puts("ab-av1 " <> Enum.join(encode_args, " "))
+      encode_args = Encode.build_encode_args_for_test(vmaf)
 
       # Count how many times the input path appears
       input_path_count = Enum.count(encode_args, &(&1 == video.path))
