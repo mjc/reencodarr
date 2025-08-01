@@ -70,14 +70,20 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def handle_call(:running?, _from, state) do
-    {:reply, not state.paused, [], state}
+    # Consider it "running" if not paused OR if paused but still processing current job
+    running = not state.paused or (state.paused and state.processing)
+    {:reply, running, [], state}
   end
 
   @impl GenStage
   def handle_cast(:pause, state) do
-    Logger.info("Encoder paused")
-    Reencodarr.Telemetry.emit_encoder_paused()
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :paused})
+    if state.processing do
+      Logger.info("Encoder pausing - will finish current job and stop")
+    else
+      Logger.info("Encoder paused")
+      Reencodarr.Telemetry.emit_encoder_paused()
+      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :paused})
+    end
     {:noreply, [], %{state | paused: true}}
   end
 
@@ -100,6 +106,14 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   def handle_cast(:dispatch_available, state) do
     # Encoding completed, mark as not processing and try to dispatch next
     new_state = %{state | processing: false}
+
+    # If we were paused but finished a job, emit the paused telemetry now
+    if new_state.paused do
+      Logger.info("Encoder finished current job - now fully paused")
+      Reencodarr.Telemetry.emit_encoder_paused()
+      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :paused})
+    end
+
     dispatch_if_ready(new_state)
   end
 
