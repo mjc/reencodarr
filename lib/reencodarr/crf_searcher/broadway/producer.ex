@@ -39,6 +39,21 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     end
   end
 
+  # Check if actively processing (for telemetry/progress updates)
+  def actively_running? do
+    case find_producer_process() do
+      nil ->
+        false
+
+      producer_pid ->
+        try do
+          GenStage.call(producer_pid, :actively_running?, 1000)
+        catch
+          :exit, _ -> false
+        end
+    end
+  end
+
   @impl GenStage
   def init(_opts) do
     # Subscribe to media events for new videos
@@ -47,10 +62,8 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     {:producer,
      %{
        demand: 0,
-       paused: true,
-       queue: :queue.new(),
-       # Track if we're currently processing a video
-       processing: false
+       status: :paused,
+       queue: :queue.new()
      }}
   end
 
@@ -62,28 +75,39 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
 
   @impl GenStage
   def handle_call(:running?, _from, state) do
-    # Consider it "running" if not paused OR if paused but still processing current job
-    running = not state.paused or (state.paused and state.processing)
+    # Button should reflect user intent - not running if paused or pausing
+    running = state.status == :running
     {:reply, running, [], state}
   end
 
   @impl GenStage
+  def handle_call(:actively_running?, _from, state) do
+    # For telemetry/progress - actively running if processing or pausing
+    # This allows progress to continue during pausing state
+    actively_running = state.status in [:processing, :pausing]
+    {:reply, actively_running, [], state}
+  end
+
+  @impl GenStage
   def handle_cast(:pause, state) do
-    if state.processing do
-      Logger.info("CrfSearcher pausing - will finish current job and stop")
-    else
-      Logger.info("CrfSearcher paused")
-      Reencodarr.Telemetry.emit_crf_search_paused()
-      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :paused})
+    case state.status do
+      :processing ->
+        Logger.info("CrfSearcher pausing - will finish current job and stop")
+        {:noreply, [], %{state | status: :pausing}}
+
+      _ ->
+        Logger.info("CrfSearcher paused")
+        Reencodarr.Telemetry.emit_crf_search_paused()
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :paused})
+        {:noreply, [], %{state | status: :paused}}
     end
-    {:noreply, [], %{state | paused: true}}
   end
 
   @impl GenStage
   def handle_cast(:resume, state) do
     Logger.info("CrfSearcher resumed")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :started})
-    new_state = %{state | paused: false}
+    new_state = %{state | status: :running}
     dispatch_if_ready(new_state)
   end
 
@@ -96,17 +120,19 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:dispatch_available, state) do
-    # CRF search completed, mark as not processing and try to dispatch next
-    new_state = %{state | processing: false}
+    # CRF search completed
+    case state.status do
+      :pausing ->
+        Logger.info("CrfSearcher finished current job - now fully paused")
+        Reencodarr.Telemetry.emit_crf_search_paused()
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :paused})
+        new_state = %{state | status: :paused}
+        {:noreply, [], new_state}
 
-    # If we were paused but finished a job, emit the paused telemetry now
-    if new_state.paused do
-      Logger.info("CrfSearcher finished current job - now fully paused")
-      Reencodarr.Telemetry.emit_crf_search_paused()
-      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :paused})
+      _ ->
+        new_state = %{state | status: :running}
+        dispatch_if_ready(new_state)
     end
-
-    dispatch_if_ready(new_state)
   end
 
   @impl GenStage
@@ -162,7 +188,7 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   end
 
   defp should_dispatch?(state) do
-    not state.paused and not state.processing and crf_search_available?()
+    state.status == :running and crf_search_available?()
   end
 
   defp crf_search_available? do
@@ -192,7 +218,7 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
         {video, new_state} ->
           Logger.debug("Dispatching video #{video.id} for CRF search")
           # Mark as processing and decrement demand
-          updated_state = %{new_state | demand: state.demand - 1, processing: true}
+          updated_state = %{new_state | demand: state.demand - 1, status: :processing}
           {:noreply, [video], updated_state}
       end
     else

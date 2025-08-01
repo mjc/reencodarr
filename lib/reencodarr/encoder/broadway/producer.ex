@@ -39,20 +39,33 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     end
   end
 
+  # Check if actively processing (for telemetry/progress updates)
+  def actively_running? do
+    case find_producer_process() do
+      nil ->
+        false
+
+      producer_pid ->
+        try do
+          GenStage.call(producer_pid, :actively_running?, 1000)
+        catch
+          :exit, _ -> false
+        end
+    end
+  end
+
   @impl GenStage
   def init(_opts) do
     # Subscribe to media events for new VMAFs
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "media_events")
     # Subscribe to encoding events to know when processing completes
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoding_events")
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
 
     {:producer,
      %{
        demand: 0,
-       paused: true,
-       queue: :queue.new(),
-       # Track if we're currently processing a VMAF
-       processing: false
+       status: :paused,
+       queue: :queue.new()
      }}
   end
 
@@ -60,7 +73,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   def handle_demand(demand, state) when demand > 0 do
     new_state = %{state | demand: state.demand + demand}
     # Only dispatch if we're not already processing something
-    if state.processing do
+    if state.status == :processing do
       # If we're already processing, just store the demand for later
       {:noreply, [], new_state}
     else
@@ -70,28 +83,39 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def handle_call(:running?, _from, state) do
-    # Consider it "running" if not paused OR if paused but still processing current job
-    running = not state.paused or (state.paused and state.processing)
+    # Button should reflect user intent - not running if paused or pausing
+    running = state.status == :running
     {:reply, running, [], state}
   end
 
   @impl GenStage
+  def handle_call(:actively_running?, _from, state) do
+    # For telemetry/progress - actively running if processing or pausing
+    # This allows progress to continue during pausing state
+    actively_running = state.status in [:processing, :pausing]
+    {:reply, actively_running, [], state}
+  end
+
+  @impl GenStage
   def handle_cast(:pause, state) do
-    if state.processing do
-      Logger.info("Encoder pausing - will finish current job and stop")
-    else
-      Logger.info("Encoder paused")
-      Reencodarr.Telemetry.emit_encoder_paused()
-      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :paused})
+    case state.status do
+      :processing ->
+        Logger.info("Encoder pausing - will finish current job and stop")
+        {:noreply, [], %{state | status: :pausing}}
+
+      _ ->
+        Logger.info("Encoder paused")
+        Reencodarr.Telemetry.emit_encoder_paused()
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :paused})
+        {:noreply, [], %{state | status: :paused}}
     end
-    {:noreply, [], %{state | paused: true}}
   end
 
   @impl GenStage
   def handle_cast(:resume, state) do
     Logger.info("Encoder resumed")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :started})
-    new_state = %{state | paused: false}
+    new_state = %{state | status: :running}
     dispatch_if_ready(new_state)
   end
 
@@ -104,17 +128,19 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:dispatch_available, state) do
-    # Encoding completed, mark as not processing and try to dispatch next
-    new_state = %{state | processing: false}
+    # Encoding completed
+    case state.status do
+      :pausing ->
+        Logger.info("Encoder finished current job - now fully paused")
+        Reencodarr.Telemetry.emit_encoder_paused()
+        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :paused})
+        new_state = %{state | status: :paused}
+        {:noreply, [], new_state}
 
-    # If we were paused but finished a job, emit the paused telemetry now
-    if new_state.paused do
-      Logger.info("Encoder finished current job - now fully paused")
-      Reencodarr.Telemetry.emit_encoder_paused()
-      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :paused})
+      _ ->
+        new_state = %{state | status: :running}
+        dispatch_if_ready(new_state)
     end
-
-    dispatch_if_ready(new_state)
   end
 
   @impl GenStage
@@ -124,9 +150,9 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def handle_info({:encoding_completed, _vmaf_id, _result}, state) do
-    # Encoding completed (success or failure), mark as not processing and try to dispatch next
+    # Encoding completed (success or failure), transition back to running
     Logger.info("Producer: Received encoding completion notification")
-    new_state = %{state | processing: false}
+    new_state = %{state | status: :running}
     dispatch_if_ready(new_state)
   end
 
@@ -178,8 +204,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   defp should_dispatch?(state) do
-    result = not state.paused and not state.processing and encoding_available?()
-    result
+    state.status == :running and encoding_available?()
   end
 
   defp encoding_available? do
@@ -201,16 +226,16 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   defp dispatch_vmafs(state) do
     # Mark as processing immediately to prevent duplicate dispatches
-    updated_state = %{state | processing: true}
+    updated_state = %{state | status: :processing}
 
     # Get one VMAF from queue or database
     case get_next_vmaf(updated_state) do
       {nil, new_state} ->
-        # No VMAF available, reset processing flag
-        {:noreply, [], %{new_state | processing: false}}
+        # No VMAF available, reset to running
+        {:noreply, [], %{new_state | status: :running}}
 
       {vmaf, new_state} ->
-        # Decrement demand but keep processing: true
+        # Decrement demand and keep processing status
         final_state = %{new_state | demand: state.demand - 1}
 
         {:noreply, [vmaf], final_state}
