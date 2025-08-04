@@ -149,14 +149,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   @impl GenStage
-  def handle_info({:encoding_completed, _vmaf_id, _result}, state) do
-    # Encoding completed (success or failure), transition back to running
-    Logger.info("Producer: Received encoding completion notification")
-    new_state = %{state | status: :running}
-    dispatch_if_ready(new_state)
-  end
-
-  @impl GenStage
   def handle_info(_msg, state) do
     {:noreply, [], state}
   end
@@ -196,30 +188,61 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   defp dispatch_if_ready(state) do
+    Logger.info(
+      "Producer: dispatch_if_ready called - status: #{state.status}, demand: #{state.demand}"
+    )
+
     if should_dispatch?(state) and state.demand > 0 do
+      Logger.info("Producer: dispatch_if_ready - conditions met, dispatching VMAFs")
       dispatch_vmafs(state)
     else
+      Logger.info("Producer: dispatch_if_ready - conditions NOT met, not dispatching")
       {:noreply, [], state}
     end
   end
 
   defp should_dispatch?(state) do
-    state.status == :running and encoding_available?()
+    status_check = state.status == :running
+    availability_check = encoding_available?()
+    result = status_check and availability_check
+
+    Logger.info(
+      "Producer: should_dispatch? - status: #{state.status}, status_check: #{status_check}, availability_check: #{availability_check}, result: #{result}"
+    )
+
+    result
   end
 
   defp encoding_available? do
     case GenServer.whereis(Reencodarr.AbAv1.Encode) do
       nil ->
+        Logger.info("Producer: encoding_available? - Encode GenServer not found")
         false
 
       pid ->
         try do
           case GenServer.call(pid, :running?, 1000) do
-            :not_running -> true
-            _ -> false
+            :not_running ->
+              Logger.info(
+                "Producer: encoding_available? - Encode GenServer is :not_running - AVAILABLE"
+              )
+
+              true
+
+            status ->
+              Logger.info(
+                "Producer: encoding_available? - Encode GenServer status: #{inspect(status)} - NOT AVAILABLE"
+              )
+
+              false
           end
         catch
-          :exit, _ -> false
+          :exit, reason ->
+            Logger.info(
+              "Producer: encoding_available? - Encode GenServer call failed: #{inspect(reason)}"
+            )
+
+            false
         end
     end
   end

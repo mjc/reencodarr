@@ -33,9 +33,6 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_encoder_paused do
-    require Logger
-    Logger.info("🚨 Telemetry: Emitting encoder paused event")
-
     safe_telemetry_execute(
       [:reencodarr, :encoder, :paused],
       %{},
@@ -79,9 +76,6 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_crf_search_paused do
-    require Logger
-    Logger.info("🚨 Telemetry: Emitting CRF search paused event")
-
     safe_telemetry_execute(
       [:reencodarr, :crf_search, :paused],
       %{},
