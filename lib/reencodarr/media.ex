@@ -842,7 +842,7 @@ defmodule Reencodarr.Media do
   def reset_all_videos_for_reanalysis do
     from(v in Video,
       where: v.reencoded == false and v.failed == false,
-      update: [set: [bitrate: 0]]
+      update: [set: [bitrate: nil]]
     )
     |> Repo.update_all([])
   end
@@ -868,10 +868,10 @@ defmodule Reencodarr.Media do
     |> Enum.each(fn {batch, index} ->
       Logger.info("Processing batch #{index + 1}/#{div(total_videos, batch_size) + 1}")
 
-      # Reset bitrate for this batch
+      # Reset bitrate for this batch (set to NULL so analyzer picks them up)
       video_ids = Enum.map(batch, & &1.id)
 
-      from(v in Video, where: v.id in ^video_ids, update: [set: [bitrate: 0]])
+      from(v in Video, where: v.id in ^video_ids, update: [set: [bitrate: nil]])
       |> Repo.update_all([])
 
       # Small delay to prevent overwhelming the system
