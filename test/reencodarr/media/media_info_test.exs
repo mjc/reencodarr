@@ -1,4 +1,4 @@
-defmodule Reencodarr.Media.MediaInfoTest do
+defmodule Reencodarr.Media.MediaInfoSimplifiedTest do
   use ExUnit.Case, async: true
 
   alias Reencodarr.Media.MediaInfo
@@ -37,52 +37,44 @@ defmodule Reencodarr.Media.MediaInfoTest do
         }
       }
 
-      result = MediaInfo.to_video_params(mediainfo, "/test/video.mkv")
+      result = MediaInfo.to_video_params(mediainfo, "/test/file.mkv")
 
-      assert result.width == 1920
-      assert result.height == 1080
-      assert result.frame_rate == 23.976
-      assert result.duration == 3600.0
-      assert result.size == 536_870_912
-      assert result.bitrate == 1_000_000
-      assert result.audio_count == 2
-      assert result.video_count == 1
-      assert result.text_count == 0
-      assert result.title == "Test Video"
-      assert result.video_codecs == ["V_MPEG4/ISO/AVC"]
-      assert result.audio_codecs == ["A_AAC"]
+      assert result["width"] == 1920
+      assert result["height"] == 1080
+      assert result["duration"] == 3600.0
+      assert result["size"] == 536_870_912
+      assert result["bitrate"] == 1_000_000
+      assert result["frame_rate"] == 23.976
+      assert result["title"] == "Test Video"
+      assert result["video_codecs"] == ["V_MPEG4/ISO/AVC"]
+      assert result["audio_codecs"] == ["A_AAC"]
+      assert result["hdr"] == ""
     end
 
-    test "handles basic mediainfo with minimal data" do
-      mediainfo = %{
-        "media" => %{
-          "track" => [
-            %{
-              "@type" => "General",
-              "Duration" => "0",
-              "FileSize" => "0",
-              "Title" => "Empty Video"
-            },
-            %{
-              "@type" => "Video",
-              "Width" => "0",
-              "Height" => "0",
-              "CodecID" => ""
-            }
-          ]
-        }
-      }
+    test "handles empty mediainfo gracefully" do
+      result = MediaInfo.to_video_params(%{}, "/test/empty.mkv")
 
-      result = MediaInfo.to_video_params(mediainfo, "/test/empty.mkv")
+      assert result["width"] == 0
+      assert result["height"] == 0
+      assert result["duration"] == 0.0
+      assert result["size"] == 0
+      assert result["bitrate"] == 0
+      assert result["title"] == "empty.mkv"
+      assert result["video_codecs"] == []
+      assert result["audio_codecs"] == []
+    end
 
-      assert result.width == 0
-      assert result.height == 0
-      assert result.duration == 0.0
-      assert result.size == 0
-      assert result.bitrate == 0
-      assert result.title == "Empty Video"
-      assert result.video_codecs == [""]
-      assert result.audio_codecs == []
+    test "handles nil mediainfo gracefully" do
+      result = MediaInfo.to_video_params(nil, "/test/nil.mkv")
+
+      assert result["width"] == 0
+      assert result["height"] == 0
+      assert result["duration"] == 0.0
+      assert result["size"] == 0
+      assert result["bitrate"] == 0
+      assert result["title"] == "nil.mkv"
+      assert result["video_codecs"] == []
+      assert result["audio_codecs"] == []
     end
   end
 

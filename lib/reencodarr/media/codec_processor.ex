@@ -18,7 +18,7 @@ defmodule Reencodarr.Media.CodecProcessor do
 
       iex> CodecProcessor.process_codec_list("h264")
       ["H.264"]
-      
+
       iex> CodecProcessor.process_codec_list(["h264", "aac"])
       ["H.264", "AAC"]
   """
@@ -51,7 +51,7 @@ defmodule Reencodarr.Media.CodecProcessor do
 
       iex> CodecProcessor.contains_codec?(["H.264", "AAC"], "h264")
       true
-      
+
       iex> CodecProcessor.contains_codec?(["H.264", "AAC"], "av1")
       false
   """

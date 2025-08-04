@@ -24,7 +24,7 @@ defmodule ReencodarrWeb.BroadwayLive do
   def mount(_params, _session, socket) do
     socket =
       socket
-      |> DashboardLiveHelpers.setup_dashboard_assigns()
+      |> assign(:current_stardate, DashboardLiveHelpers.calculate_stardate(DateTime.utc_now()))
       |> DashboardLiveHelpers.start_stardate_timer()
 
     {:ok, socket}
@@ -32,14 +32,18 @@ defmodule ReencodarrWeb.BroadwayLive do
 
   @impl true
   def handle_info(:update_stardate, socket) do
-    socket = DashboardLiveHelpers.handle_stardate_update(socket)
+    socket =
+      socket
+      |> assign(:current_stardate, DashboardLiveHelpers.calculate_stardate(DateTime.utc_now()))
+      |> DashboardLiveHelpers.handle_stardate_update()
+
     {:noreply, socket}
   end
 
   @impl true
   def handle_event("set_timezone", %{"timezone" => tz}, socket) do
     Logger.debug("Setting timezone to #{tz}")
-    socket = DashboardLiveHelpers.handle_timezone_change(socket, tz)
+    socket = ReencodarrWeb.DashboardLiveHelpers.handle_timezone_change(socket, tz)
     {:noreply, socket}
   end
 

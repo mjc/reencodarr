@@ -91,48 +91,41 @@ defmodule Reencodarr.Services.ApiClient do
   """
   defmacro define_file_operations(item_type, _item_id_field) do
     quote do
+      unquote(define_refresh_operation(item_type))
+      unquote(define_rename_operation(item_type))
+    end
+  end
+
+  # Separate macro for refresh operation
+  defp define_refresh_operation(item_type) do
+    quote do
       @spec refresh_item(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
       def refresh_item(item_id) do
-        command_name =
+        {command_name, params} =
           case unquote(item_type) do
-            :series -> "RefreshSeries"
-            :movie -> "RefreshMovie"
+            :series -> {"RefreshSeries", %{name: "RefreshSeries", seriesIds: [item_id]}}
+            :movie -> {"RefreshMovie", %{name: "RefreshMovie", movieIds: [item_id]}}
           end
 
-        params =
-          case unquote(item_type) do
-            :series -> %{name: command_name, seriesIds: [item_id]}
-            :movie -> %{name: command_name, movieIds: [item_id]}
-          end
-
-        request(
-          url: "/api/v3/command",
-          method: :post,
-          json: params
-        )
+        request(url: "/api/v3/command", method: :post, json: params)
       end
+    end
+  end
 
+  # Separate macro for rename operation
+  defp define_rename_operation(item_type) do
+    quote do
       @spec rename_item_files(integer() | nil) :: {:ok, Req.Response.t()} | {:error, any()}
       def rename_item_files(item_id \\ nil) do
-        command_name =
-          case unquote(item_type) do
-            :series -> "RenameFiles"
-            :movie -> "RenameFiles"
-          end
-
         params =
           case {unquote(item_type), item_id} do
-            {:series, nil} -> %{name: command_name}
-            {:series, id} -> %{name: command_name, seriesId: id}
-            {:movie, nil} -> %{name: command_name}
-            {:movie, id} -> %{name: command_name, movieId: id}
+            {:series, nil} -> %{name: "RenameFiles"}
+            {:series, id} -> %{name: "RenameFiles", seriesId: id}
+            {:movie, nil} -> %{name: "RenameFiles"}
+            {:movie, id} -> %{name: "RenameFiles", movieId: id}
           end
 
-        request(
-          url: "/api/v3/command",
-          method: :post,
-          json: params
-        )
+        request(url: "/api/v3/command", method: :post, json: params)
       end
     end
   end
@@ -142,38 +135,36 @@ defmodule Reencodarr.Services.ApiClient do
   """
   defmacro define_get_operations(item_type, _file_type) do
     quote do
-      case unquote(item_type) do
-        :series ->
-          @spec get_items() :: {:ok, Req.Response.t()} | {:error, any()}
-          def get_items do
-            request(url: "/api/v3/series?includeSeasonImages=false", method: :get)
-          end
+      if unquote(item_type) == :series do
+        @spec get_items() :: {:ok, Req.Response.t()} | {:error, any()}
+        def get_items do
+          request(url: "/api/v3/series?includeSeasonImages=false", method: :get)
+        end
 
-          @spec get_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
-          def get_files(series_id) do
-            request(url: "/api/v3/episodefile?seriesId=#{series_id}", method: :get)
-          end
+        @spec get_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
+        def get_files(series_id) do
+          request(url: "/api/v3/episodefile?seriesId=#{series_id}", method: :get)
+        end
 
-          @spec get_file(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
-          def get_file(episode_file_id) do
-            request(url: "/api/v3/episodefile/#{episode_file_id}", method: :get)
-          end
+        @spec get_file(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
+        def get_file(episode_file_id) do
+          request(url: "/api/v3/episodefile/#{episode_file_id}", method: :get)
+        end
+      else
+        @spec get_items() :: {:ok, Req.Response.t()} | {:error, any()}
+        def get_items do
+          request(url: "/api/v3/movie?includeImages=false", method: :get)
+        end
 
-        :movie ->
-          @spec get_items() :: {:ok, Req.Response.t()} | {:error, any()}
-          def get_items do
-            request(url: "/api/v3/movie?includeImages=false", method: :get)
-          end
+        @spec get_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
+        def get_files(movie_id) do
+          request(url: "/api/v3/moviefile?movieId=#{movie_id}", method: :get)
+        end
 
-          @spec get_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
-          def get_files(movie_id) do
-            request(url: "/api/v3/moviefile?movieId=#{movie_id}", method: :get)
-          end
-
-          @spec get_file(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
-          def get_file(movie_file_id) do
-            request(url: "/api/v3/moviefile/#{movie_file_id}", method: :get)
-          end
+        @spec get_file(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
+        def get_file(movie_file_id) do
+          request(url: "/api/v3/moviefile/#{movie_file_id}", method: :get)
+        end
       end
     end
   end

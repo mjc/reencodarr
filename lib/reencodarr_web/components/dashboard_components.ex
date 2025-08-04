@@ -8,7 +8,7 @@ defmodule ReencodarrWeb.DashboardComponents do
 
   use Phoenix.Component
   import ReencodarrWeb.LcarsComponents
-  import ReencodarrWeb.DashboardFormatters
+  import Reencodarr.FormatHelpers
 
   @doc """
   Renders the metrics grid with all metric cards.

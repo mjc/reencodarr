@@ -8,7 +8,7 @@ defmodule Reencodarr.AbAv1.Helper do
 
   require Logger
 
-  alias Reencodarr.{Media, Rules}
+  alias Reencodarr.{Media, Rules, TimeHelpers}
 
   @spec attach_params(list(map()), Media.Video.t()) :: list(map())
   def attach_params(vmafs, video) do
@@ -33,33 +33,14 @@ defmodule Reencodarr.AbAv1.Helper do
   end
 
   @spec convert_time_to_duration(map()) :: map()
-  def convert_time_to_duration(%{"time" => time, "unit" => unit} = captures) do
-    case Integer.parse(time) do
-      {time_value, _} ->
-        Map.put(captures, "time", convert_to_seconds(time_value, unit)) |> Map.delete("unit")
-
-      :error ->
-        captures
-    end
+  def convert_time_to_duration(captures) do
+    TimeHelpers.convert_time_to_duration(captures)
   end
-
-  def convert_time_to_duration(captures), do: captures
 
   @spec convert_to_seconds(integer(), String.t()) :: integer()
   def convert_to_seconds(time, unit) do
-    unit
-    |> String.trim_trailing("s")
-    |> unit_to_multiplier()
-    |> Kernel.*(time)
+    TimeHelpers.to_seconds(time, unit)
   end
-
-  defp unit_to_multiplier("minute"), do: 60
-  defp unit_to_multiplier("hour"), do: 3600
-  defp unit_to_multiplier("day"), do: 86_400
-  defp unit_to_multiplier("week"), do: 604_800
-  defp unit_to_multiplier("month"), do: 2_628_000
-  defp unit_to_multiplier("year"), do: 31_536_000
-  defp unit_to_multiplier(_), do: 1
 
   @spec temp_dir() :: String.t()
   def temp_dir do

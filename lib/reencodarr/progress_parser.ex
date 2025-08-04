@@ -8,8 +8,7 @@ defmodule Reencodarr.ProgressParser do
 
   require Logger
 
-  alias Reencodarr.AbAv1.Helper
-  alias Reencodarr.{Media, Telemetry}
+  alias Reencodarr.{Media, Telemetry, TimeHelpers}
 
   @doc """
   Processes a single line of output from the encoding process.
@@ -78,7 +77,7 @@ defmodule Reencodarr.ProgressParser do
       "unit" => unit
     } = captures
 
-    _eta_seconds = Helper.convert_to_seconds(String.to_integer(eta_str), unit)
+    _eta_seconds = TimeHelpers.to_seconds(String.to_integer(eta_str), unit)
     human_readable_eta = "#{eta_str} #{unit}"
     filename = Path.basename(state.video.path)
 
