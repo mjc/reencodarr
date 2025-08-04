@@ -183,26 +183,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   end
 
   @impl GenStage
-  def handle_info({:batch_analysis_completed, _batch_size}, state) do
-    # Batch analysis completed
-    Logger.debug("Producer: Received batch analysis completion notification")
-
-    case state.status do
-      :pausing ->
-        Logger.info("Analyzer finished current batch - now fully paused")
-        Telemetry.emit_analyzer_paused()
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :paused})
-        :telemetry.execute([:reencodarr, :analyzer, :paused], %{}, %{})
-        new_state = State.update(state, status: :paused)
-        {:noreply, [], new_state}
-
-      _ ->
-        new_state = State.update(state, status: :running)
-        dispatch_if_ready(new_state)
-    end
-  end
-
-  @impl GenStage
   def handle_info(:initial_dispatch, state) do
     # Trigger initial dispatch after startup to check for videos needing analysis
     Logger.debug("Producer: Initial dispatch triggered")

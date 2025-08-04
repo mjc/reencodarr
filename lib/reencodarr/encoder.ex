@@ -24,14 +24,10 @@ defmodule Reencodarr.Encoder do
   @spec start() :: :ok
   def start do
     Logger.info("🎬 Starting encoder")
-    Logger.info("🎬 Calling Broadway.start()")
-    result = Broadway.start()
-    Logger.info("🎬 Broadway.start() returned: #{inspect(result)}")
+    Broadway.start()
 
     # Trigger dispatch of available VMAFs
-    Logger.info("🎬 Calling Broadway Producer dispatch_available()")
-    dispatch_result = Producer.dispatch_available()
-    Logger.info("🎬 dispatch_available() returned: #{inspect(dispatch_result)}")
+    Producer.dispatch_available()
     :ok
   end
 
@@ -68,7 +64,6 @@ defmodule Reencodarr.Encoder do
   """
   @spec process_vmaf(map()) :: :ok
   def process_vmaf(vmaf) do
-    Logger.debug("🎬 Processing VMAF for encoding: #{vmaf.video.path}")
     Broadway.process_vmaf(vmaf)
     :ok
   end

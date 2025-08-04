@@ -160,19 +160,29 @@ defmodule Reencodarr.Encoder.Broadway do
       end)
 
     # Wait for the task to complete - process_vmaf_encoding handles all logging internally
-    case Task.await(task, :infinity) do
-      :ok ->
-        # Success/failure logging is handled within process_vmaf_encoding
-        message
+    result =
+      case Task.await(task, :infinity) do
+        :ok ->
+          # Success/failure logging is handled within process_vmaf_encoding
+          message
 
-      {:error, reason} ->
-        # This should not happen since process_vmaf_encoding always returns :ok now
-        Logger.warning(
-          "Broadway: Unexpected error from process_vmaf_encoding for VMAF #{message.data.id}: #{reason}"
-        )
+        {:error, reason} ->
+          # This should not happen since process_vmaf_encoding always returns :ok now
+          Logger.warning(
+            "Broadway: Unexpected error from process_vmaf_encoding for VMAF #{message.data.id}: #{reason}"
+          )
 
-        message
-    end
+          message
+      end
+
+    # CRITICAL: Notify producer that message processing is complete and ready for next demand
+    Logger.info(
+      "Broadway: Message processing complete for VMAF #{message.data.id} - notifying producer"
+    )
+
+    Producer.dispatch_available()
+
+    result
   end
 
   @doc """
@@ -193,15 +203,10 @@ defmodule Reencodarr.Encoder.Broadway do
 
   @spec process_vmaf_encoding(vmaf(), map()) :: :ok | {:error, term()}
   defp process_vmaf_encoding(vmaf, context) do
-    Logger.info("Broadway: Starting encoding for VMAF #{vmaf.id}: #{vmaf.video.path}")
-
     try do
       # Build encoding arguments
       args = build_encode_args(vmaf)
       output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
-
-      Logger.debug("Broadway: Starting encode with args: #{inspect(args)}")
-      Logger.debug("Broadway: Output file: #{output_file}")
 
       # Open port and handle encoding
       port = Helper.open_port(args)
@@ -232,8 +237,6 @@ defmodule Reencodarr.Encoder.Broadway do
   end
 
   defp handle_encoding_port(port, vmaf, output_file, context) do
-    Logger.debug("Broadway: Port opened successfully: #{inspect(port)}")
-
     # Handle the encoding process synchronously within Broadway
     # Default to 30 days
     encoding_timeout = Map.get(context, :encoding_timeout, 2_592_000_000)
@@ -279,11 +282,14 @@ defmodule Reencodarr.Encoder.Broadway do
   end
 
   defp handle_critical_encoding_failure(vmaf, exit_code, reason, context) do
+    Logger.error("Broadway: ENTERING handle_critical_encoding_failure")
+
     Logger.error(
       "Broadway: Critical failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})"
     )
 
-    Logger.error("Broadway: Pausing pipeline due to critical system issue")
+    Logger.error("Broadway: Pausing pipeline due to critical system issue - #{reason}")
+    Logger.error("Broadway: Video path: #{vmaf.video.path}")
 
     # Build enhanced context for failure tracking
     enhanced_context =
@@ -297,6 +303,7 @@ defmodule Reencodarr.Encoder.Broadway do
     notify_encoding_failure(vmaf.video, exit_code, enhanced_context)
 
     # Pause the pipeline
+    Logger.error("Broadway: PAUSING ENCODER - Critical failure with exit code #{exit_code}")
     Producer.pause()
 
     # Still return :ok to Broadway since we're handling the pause manually
@@ -304,9 +311,13 @@ defmodule Reencodarr.Encoder.Broadway do
   end
 
   defp handle_recoverable_encoding_failure(vmaf, exit_code, reason, context) do
+    Logger.warning("Broadway: ENTERING handle_recoverable_encoding_failure")
+
     Logger.warning(
       "Broadway: Recoverable failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})"
     )
+
+    Logger.warning("Broadway: This should NOT pause the pipeline - continuing processing")
 
     # Build enhanced context for failure tracking
     enhanced_context =
@@ -320,6 +331,10 @@ defmodule Reencodarr.Encoder.Broadway do
     notify_encoding_failure(vmaf.video, exit_code, enhanced_context)
 
     # Continue processing - return :ok to Broadway
+    Logger.warning(
+      "Broadway: EXITING handle_recoverable_encoding_failure - returning :ok (no pause)"
+    )
+
     :ok
   end
 
@@ -427,19 +442,8 @@ defmodule Reencodarr.Encoder.Broadway do
         output_exists = File.exists?(state.output_file)
         Logger.info("Broadway: Output file #{state.output_file} exists: #{output_exists}")
 
-        # Publish completion event to PubSub
-        # Only consider it success if exit code is 0 AND the output file exists
-        success = exit_code == 0 and output_exists
-        pubsub_result = if success, do: :success, else: {:error, exit_code}
-
-        Phoenix.PubSub.broadcast(
-          Reencodarr.PubSub,
-          "encoding_events",
-          {:encoding_completed, state.vmaf.id, pubsub_result}
-        )
-
         # Return result based on exit code AND file existence
-        if success do
+        if exit_code == 0 and output_exists do
           {:ok, :success}
         else
           # Include output buffer and args in error for failure tracking
@@ -457,13 +461,6 @@ defmodule Reencodarr.Encoder.Broadway do
         )
 
         Port.close(state.port)
-
-        # Publish timeout event to PubSub
-        Phoenix.PubSub.broadcast(
-          Reencodarr.PubSub,
-          "encoding_events",
-          {:encoding_completed, state.vmaf.id, {:error, :timeout}}
-        )
 
         # Include output buffer for timeout failures
         full_output = state.output_buffer |> Enum.reverse() |> Enum.join("\n")
@@ -487,47 +484,8 @@ defmodule Reencodarr.Encoder.Broadway do
     # Extract VMAF params for use in Rules.build_args
     vmaf_params = if vmaf.params && is_list(vmaf.params), do: vmaf.params, else: []
 
-    Logger.info("Broadway: build_encode_args debug - VMAF ID: #{vmaf.id}")
-    Logger.info("Broadway: build_encode_args debug - base_args: #{inspect(base_args)}")
-    Logger.info("Broadway: build_encode_args debug - vmaf_params: #{inspect(vmaf_params)}")
-
     # Use the 4-arity version that handles deduplication properly
     result_args = Reencodarr.Rules.build_args(vmaf.video, :encode, vmaf_params, base_args)
-
-    Logger.info("Broadway: build_encode_args debug - result_args: #{inspect(result_args)}")
-
-    # Count duplicates for debugging
-    input_count = Enum.count(result_args, &(&1 == "--input"))
-    path_count = Enum.count(result_args, &(&1 == vmaf.video.path))
-
-    Logger.info("Broadway: build_encode_args debug - --input count: #{input_count}")
-    Logger.info("Broadway: build_encode_args debug - path count: #{path_count}")
-
-    if path_count > 1 do
-      Logger.error("Broadway: build_encode_args ERROR - Duplicate path detected!")
-
-      # Find positions of the path
-      path_positions =
-        result_args
-        |> Enum.with_index()
-        |> Enum.filter(fn {arg, _idx} -> arg == vmaf.video.path end)
-        |> Enum.map(fn {_arg, idx} -> idx end)
-
-      Logger.error(
-        "Broadway: build_encode_args ERROR - Path appears at positions: #{inspect(path_positions)}"
-      )
-
-      # Show context around each occurrence
-      Enum.each(path_positions, fn pos ->
-        start_pos = max(0, pos - 2)
-        end_pos = min(length(result_args) - 1, pos + 2)
-        context = Enum.slice(result_args, start_pos..end_pos)
-
-        Logger.error(
-          "Broadway: build_encode_args ERROR - Position #{pos} context: #{inspect(context)}"
-        )
-      end)
-    end
 
     result_args
   end
@@ -639,19 +597,39 @@ defmodule Reencodarr.Encoder.Broadway do
   # - `{:continue, reason}` - Skip this file but continue processing
   @spec classify_failure(integer() | atom()) :: {:pause, String.t()} | {:continue, String.t()}
   defp classify_failure(exit_code) do
-    cond do
-      Map.has_key?(@failure_classification.critical_failures, exit_code) ->
-        failure_info = @failure_classification.critical_failures[exit_code]
-        {:pause, failure_info.reason}
+    Logger.info("Broadway: classify_failure called with exit_code: #{inspect(exit_code)}")
 
-      Map.has_key?(@failure_classification.recoverable_failures, exit_code) ->
-        failure_info = @failure_classification.recoverable_failures[exit_code]
-        {:continue, failure_info.reason}
+    result =
+      cond do
+        Map.has_key?(@failure_classification.critical_failures, exit_code) ->
+          failure_info = @failure_classification.critical_failures[exit_code]
 
-      # Unknown exit codes default to continue (conservative approach)
-      true ->
-        {:continue, "Unknown exit code #{exit_code} - treating as recoverable failure"}
-    end
+          Logger.info(
+            "Broadway: Exit code #{exit_code} classified as CRITICAL: #{failure_info.reason}"
+          )
+
+          {:pause, failure_info.reason}
+
+        Map.has_key?(@failure_classification.recoverable_failures, exit_code) ->
+          failure_info = @failure_classification.recoverable_failures[exit_code]
+
+          Logger.info(
+            "Broadway: Exit code #{exit_code} classified as RECOVERABLE: #{failure_info.reason}"
+          )
+
+          {:continue, failure_info.reason}
+
+        # Unknown exit codes default to continue (conservative approach)
+        true ->
+          Logger.info(
+            "Broadway: Exit code #{exit_code} classified as UNKNOWN - treating as recoverable"
+          )
+
+          {:continue, "Unknown exit code #{exit_code} - treating as recoverable failure"}
+      end
+
+    Logger.info("Broadway: classify_failure(#{exit_code}) -> #{inspect(result)}")
+    result
   end
 
   @doc """

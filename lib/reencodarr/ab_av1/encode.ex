@@ -20,7 +20,6 @@ defmodule Reencodarr.AbAv1.Encode do
 
   @spec encode(Media.Vmaf.t()) :: :ok
   def encode(vmaf) do
-    Logger.info("Starting encode for VMAF: #{vmaf.id}")
     GenServer.cast(__MODULE__, {:encode, vmaf})
   end
 
@@ -104,8 +103,6 @@ defmodule Reencodarr.AbAv1.Encode do
         _ -> {:error, exit_code}
       end
 
-    Logger.debug("Exit status: #{inspect(result)}")
-
     # Publish completion event to PubSub
     pubsub_result = if result == {:ok, :success}, do: :success, else: {:error, exit_code}
 
@@ -152,8 +149,6 @@ defmodule Reencodarr.AbAv1.Encode do
 
   @impl true
   def handle_info(:periodic_check, %{port: port, video: video} = state) when port != :none do
-    Logger.debug("AbAv1.Encode: Periodic check - encoding still active for video: #{video.path}")
-
     # Get the last known progress from the telemetry system to preserve ETA
     last_progress =
       case TelemetryReporter.get_progress_state() do
@@ -175,7 +170,6 @@ defmodule Reencodarr.AbAv1.Encode do
       filename: filename
     }
 
-    Logger.debug("AbAv1.Encode: Emitting keepalive progress update")
     Telemetry.emit_encoder_progress(progress)
 
     # Schedule the next check
@@ -195,13 +189,7 @@ defmodule Reencodarr.AbAv1.Encode do
     args = build_encode_args(vmaf)
     output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
 
-    Logger.debug("AbAv1.Encode: Starting encode with args: #{inspect(args)}")
-    Logger.debug("AbAv1.Encode: Output file: #{output_file}")
-    Logger.debug("AbAv1.Encode: Video path: #{vmaf.video.path}")
-    Logger.debug("AbAv1.Encode: VMAF ID: #{vmaf.id}, CRF: #{vmaf.crf}")
-
     port = Helper.open_port(args)
-    Logger.debug("AbAv1.Encode: Port opened successfully: #{inspect(port)}")
 
     # Set up a periodic timer to check if we're still alive and potentially emit progress
     # Check every 10 seconds

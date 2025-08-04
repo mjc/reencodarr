@@ -106,9 +106,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   @spec crf_search(Media.Video.t(), integer()) :: :ok
-  def crf_search(%Media.Video{reencoded: true, path: path, id: video_id}, _vmaf_percent) do
-    Logger.debug("Skipping crf search for video #{path} as it is already reencoded")
-
+  def crf_search(%Media.Video{reencoded: true, path: _path, id: video_id}, _vmaf_percent) do
     # Publish skipped event to PubSub
     Phoenix.PubSub.broadcast(
       Reencodarr.PubSub,

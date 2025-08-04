@@ -162,16 +162,26 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   def handle_batch(:default, messages, _batch_info, context) do
     crf_quality = Map.get(context, :crf_quality, 95)
 
-    Enum.map(messages, fn message ->
-      case process_video_crf_search(message.data, crf_quality) do
-        :ok ->
-          message
+    result =
+      Enum.map(messages, fn message ->
+        case process_video_crf_search(message.data, crf_quality) do
+          :ok ->
+            message
 
-        {:error, reason} ->
-          Logger.warning("CRF search failed for video #{inspect(message.data)}: #{reason}")
-          Message.failed(message, reason)
-      end
-    end)
+          {:error, reason} ->
+            Logger.warning("CRF search failed for video #{inspect(message.data)}: #{reason}")
+            Message.failed(message, reason)
+        end
+      end)
+
+    # CRITICAL: Notify producer that batch processing is complete and ready for next demand
+    Logger.debug(
+      "CRF Searcher: Batch processing complete for #{length(messages)} messages - notifying producer"
+    )
+
+    Producer.dispatch_available()
+
+    result
   end
 
   @doc """

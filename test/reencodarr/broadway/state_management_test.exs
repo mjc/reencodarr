@@ -7,14 +7,13 @@ defmodule Reencodarr.Broadway.StateManagementTest do
     test "initializes with correct default state" do
       state = %State{
         demand: 0,
-        paused: false,
+        status: :paused,
         queue: :queue.new(),
-        processing: false,
         manual_queue: []
       }
 
       assert state.demand == 0
-      assert state.paused == false
+      assert state.status == :paused
       assert state.manual_queue == []
     end
 

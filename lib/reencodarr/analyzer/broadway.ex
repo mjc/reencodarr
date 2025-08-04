@@ -122,6 +122,13 @@ defmodule Reencodarr.Analyzer.Broadway do
       )
     end)
 
+    # CRITICAL: Notify producer that batch processing is complete and ready for next demand
+    Logger.debug(
+      "Analyzer: Batch processing complete for #{batch_size} videos - notifying producer"
+    )
+
+    Producer.dispatch_available()
+
     # Since process_batch always returns :ok, all messages are successful
     messages
   end
