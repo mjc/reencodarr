@@ -176,7 +176,7 @@ defmodule Reencodarr.Encoder.Broadway do
       end
 
     # CRITICAL: Notify producer that message processing is complete and ready for next demand
-    Logger.info(
+    Logger.debug(
       "Broadway: Message processing complete for VMAF #{message.data.id} - notifying producer"
     )
 
@@ -436,11 +436,11 @@ defmodule Reencodarr.Encoder.Broadway do
         process_port_messages(new_state, encoding_timeout)
 
       {port, {:exit_status, exit_code}} when port == state.port ->
-        Logger.info("Broadway: Process exit status: #{exit_code} for VMAF #{state.vmaf.id}")
+        Logger.debug("Broadway: Process exit status: #{exit_code} for VMAF #{state.vmaf.id}")
 
         # Check if output file was actually created
         output_exists = File.exists?(state.output_file)
-        Logger.info("Broadway: Output file #{state.output_file} exists: #{output_exists}")
+        Logger.debug("Broadway: Output file #{state.output_file} exists: #{output_exists}")
 
         # Return result based on exit code AND file existence
         if exit_code == 0 and output_exists do
@@ -597,14 +597,14 @@ defmodule Reencodarr.Encoder.Broadway do
   # - `{:continue, reason}` - Skip this file but continue processing
   @spec classify_failure(integer() | atom()) :: {:pause, String.t()} | {:continue, String.t()}
   defp classify_failure(exit_code) do
-    Logger.info("Broadway: classify_failure called with exit_code: #{inspect(exit_code)}")
+    Logger.debug("Broadway: classify_failure called with exit_code: #{inspect(exit_code)}")
 
     result =
       cond do
         Map.has_key?(@failure_classification.critical_failures, exit_code) ->
           failure_info = @failure_classification.critical_failures[exit_code]
 
-          Logger.info(
+          Logger.debug(
             "Broadway: Exit code #{exit_code} classified as CRITICAL: #{failure_info.reason}"
           )
 
@@ -613,7 +613,7 @@ defmodule Reencodarr.Encoder.Broadway do
         Map.has_key?(@failure_classification.recoverable_failures, exit_code) ->
           failure_info = @failure_classification.recoverable_failures[exit_code]
 
-          Logger.info(
+          Logger.debug(
             "Broadway: Exit code #{exit_code} classified as RECOVERABLE: #{failure_info.reason}"
           )
 
@@ -621,14 +621,14 @@ defmodule Reencodarr.Encoder.Broadway do
 
         # Unknown exit codes default to continue (conservative approach)
         true ->
-          Logger.info(
+          Logger.debug(
             "Broadway: Exit code #{exit_code} classified as UNKNOWN - treating as recoverable"
           )
 
           {:continue, "Unknown exit code #{exit_code} - treating as recoverable failure"}
       end
 
-    Logger.info("Broadway: classify_failure(#{exit_code}) -> #{inspect(result)}")
+    Logger.debug("Broadway: classify_failure(#{exit_code}) -> #{inspect(result)}")
     result
   end
 

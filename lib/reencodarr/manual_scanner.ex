@@ -54,7 +54,7 @@ defmodule Reencodarr.ManualScanner do
 
   @spec find_video_files(String.t(), String.t()) :: port()
   defp find_video_files(path, fd_path) do
-    Logger.info("Using fd executable at: #{fd_path}")
+    Logger.debug("Using fd executable at: #{fd_path}")
     args = Enum.flat_map(@file_extensions, &["-e", &1]) ++ [".", path]
     Logger.debug("Running fd with arguments: #{inspect(args)}")
     Port.open({:spawn_executable, fd_path}, [:binary, :exit_status, args: args])

@@ -188,15 +188,15 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   defp dispatch_if_ready(state) do
-    Logger.info(
+    Logger.debug(
       "Producer: dispatch_if_ready called - status: #{state.status}, demand: #{state.demand}"
     )
 
     if should_dispatch?(state) and state.demand > 0 do
-      Logger.info("Producer: dispatch_if_ready - conditions met, dispatching VMAFs")
+      Logger.debug("Producer: dispatch_if_ready - conditions met, dispatching VMAFs")
       dispatch_vmafs(state)
     else
-      Logger.info("Producer: dispatch_if_ready - conditions NOT met, not dispatching")
+      Logger.debug("Producer: dispatch_if_ready - conditions NOT met, not dispatching")
       {:noreply, [], state}
     end
   end
@@ -206,7 +206,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     availability_check = encoding_available?()
     result = status_check and availability_check
 
-    Logger.info(
+    Logger.debug(
       "Producer: should_dispatch? - status: #{state.status}, status_check: #{status_check}, availability_check: #{availability_check}, result: #{result}"
     )
 
@@ -216,21 +216,21 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   defp encoding_available? do
     case GenServer.whereis(Reencodarr.AbAv1.Encode) do
       nil ->
-        Logger.info("Producer: encoding_available? - Encode GenServer not found")
+        Logger.debug("Producer: encoding_available? - Encode GenServer not found")
         false
 
       pid ->
         try do
           case GenServer.call(pid, :running?, 1000) do
             :not_running ->
-              Logger.info(
+              Logger.debug(
                 "Producer: encoding_available? - Encode GenServer is :not_running - AVAILABLE"
               )
 
               true
 
             status ->
-              Logger.info(
+              Logger.debug(
                 "Producer: encoding_available? - Encode GenServer status: #{inspect(status)} - NOT AVAILABLE"
               )
 
@@ -238,7 +238,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
           end
         catch
           :exit, reason ->
-            Logger.info(
+            Logger.debug(
               "Producer: encoding_available? - Encode GenServer call failed: #{inspect(reason)}"
             )
 
