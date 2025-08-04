@@ -2,7 +2,7 @@ defmodule Reencodarr.Media.CodecHelpers do
   @moduledoc """
   Unified codec processing utilities for Reencodarr.
 
-  Consolidates codec functionality from CodecHelper and CodecProcessor 
+  Consolidates codec functionality from CodecHelper and CodecProcessor
   into a single comprehensive module.
   """
 

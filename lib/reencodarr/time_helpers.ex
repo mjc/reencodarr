@@ -2,7 +2,7 @@ defmodule Reencodarr.TimeHelpers do
   @moduledoc """
   Unified time and duration utilities for Reencodarr.
 
-  Consolidates time-related functionality from ProgressHelpers, TimeUtils, 
+  Consolidates time-related functionality from ProgressHelpers, TimeUtils,
   and AbAv1.Helper into a single module.
   """
 
@@ -22,7 +22,7 @@ defmodule Reencodarr.TimeHelpers do
 
       iex> TimeHelpers.to_seconds(5, "minutes")
       300
-      
+
       iex> TimeHelpers.to_seconds(2, "hours")
       7200
   """
@@ -78,10 +78,10 @@ defmodule Reencodarr.TimeHelpers do
 
       iex> TimeHelpers.format_duration(nil)
       "N/A"
-      
+
       iex> TimeHelpers.format_duration(0)
       "N/A"
-      
+
       iex> TimeHelpers.format_duration("5 minutes")
       "5 minutes"
   """
@@ -96,7 +96,7 @@ defmodule Reencodarr.TimeHelpers do
 
       iex> TimeHelpers.parse_duration("01:30:45")
       5445
-      
+
       iex> TimeHelpers.parse_duration("30:45")
       1845
   """

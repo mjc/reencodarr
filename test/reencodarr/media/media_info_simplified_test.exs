@@ -1,4 +1,4 @@
-defmodule Reencodarr.Media.MediaInfoTest do
+defmodule Reencodarr.Media.MediaInfoSimplifiedTest do
   use ExUnit.Case, async: true
 
   alias Reencodarr.Media.MediaInfo
@@ -72,9 +72,11 @@ defmodule Reencodarr.Media.MediaInfoTest do
       assert result["duration"] == 0.0
       assert result["size"] == 0
       assert result["bitrate"] == 0
+      assert result["frame_rate"] == 0.0
       assert result["title"] == "nil.mkv"
       assert result["video_codecs"] == []
       assert result["audio_codecs"] == []
+      assert result["hdr"] == nil
     end
   end
 

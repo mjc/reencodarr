@@ -243,4 +243,26 @@ defmodule Reencodarr.Media.CodecHelper do
       true -> []
     end
   end
+
+  @doc """
+  Parse HDR information from a map containing HDR_Format field.
+  """
+  @spec parse_hdr_from_map(map()) :: String.t() | nil
+  def parse_hdr_from_map(%{"HDR_Format" => hdr_format}) do
+    parse_hdr([hdr_format])
+  end
+
+  def parse_hdr_from_map(_), do: nil
+
+  @doc """
+  Check if an audio format contains Atmos.
+  """
+  @spec has_atmos_format?(String.t() | nil) :: boolean()
+  def has_atmos_format?(nil), do: false
+
+  def has_atmos_format?(format) when is_binary(format) do
+    String.contains?(format, "Atmos")
+  end
+
+  def has_atmos_format?(_), do: false
 end

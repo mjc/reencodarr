@@ -1,6 +1,6 @@
 defmodule Reencodarr.TestHelpers.Unified do
   @moduledoc """
-  Unified test helpers consolidating functionality from TestHelpers, VideoHelpers, 
+  Unified test helpers consolidating functionality from TestHelpers, VideoHelpers,
   and PropertyHelpers into a single comprehensive module.
 
   Provides standardized patterns for:
