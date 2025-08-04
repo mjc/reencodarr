@@ -365,7 +365,6 @@ defmodule Reencodarr.Media.MediaInfo do
   end
 
   # Convert string key to atom, handling special characters
-  defp atomize_key("@" <> rest), do: String.to_atom("@" <> rest)
   defp atomize_key(key), do: String.to_atom(key)
 
   # Get list of known field names for a specific struct type
@@ -374,13 +373,11 @@ defmodule Reencodarr.Media.MediaInfo do
     |> Map.keys()
     |> Enum.map(&Atom.to_string/1)
     |> Enum.reject(&(&1 in ["extra", "__struct__"]))
-    |> Enum.map(fn
-      # Keep @ keys as strings
-      "@" <> _ = key -> key
-      key -> key
-    end)
   end
 
+  @doc """
+  Converts VideoFileInfo struct to MediaInfo JSON format for database storage.
+  """
   def from_video_file_info(%VideoFileInfo{} = info) do
     %{
       "media" => %{
@@ -409,6 +406,113 @@ defmodule Reencodarr.Media.MediaInfo do
             "CodecID" => info.audio_codec,
             "Channels" => to_string(info.audio_channels),
             "Format_Commercial_IfAny" => CodecMapper.format_commercial_if_any(info.audio_codec)
+          }
+        ]
+      }
+    }
+  end
+
+  @doc """
+  Converts raw Sonarr/Radarr file data directly to MediaInfo struct.
+  This is the most efficient path for service integration.
+  """
+  def from_service_file_to_struct(file, service_type) when service_type in [:sonarr, :radarr] do
+    file
+    |> from_service_file(service_type)
+    |> from_json()
+    # Get the first (and only) MediaInfo struct from the list
+    |> hd()
+  end
+
+  @doc """
+  Converts VideoFileInfo struct to MediaInfo struct via JSON transformation.
+  """
+  def from_video_file_info_to_struct(%VideoFileInfo{} = info) do
+    info
+    |> from_video_file_info()
+    |> from_json()
+    # Get the first (and only) MediaInfo struct from the list
+    |> hd()
+  end
+
+  @doc """
+  Converts raw Sonarr/Radarr file data directly to MediaInfo JSON format.
+  This bypasses the VideoFileInfo struct for simpler processing.
+  """
+  def from_service_file(file, service_type) when service_type in [:sonarr, :radarr] do
+    media_info = file["mediaInfo"] || %{}
+
+    # Parse resolution safely
+    {width, height} =
+      case {media_info["width"], media_info["height"]} do
+        {w, h} when is_integer(w) and is_integer(h) ->
+          {w, h}
+
+        {w, h} when is_binary(w) and is_binary(h) ->
+          with {width_int, ""} <- Integer.parse(w),
+               {height_int, ""} <- Integer.parse(h) do
+            {width_int, height_int}
+          else
+            _ -> {0, 0}
+          end
+
+        _ ->
+          {0, 0}
+      end
+
+    # Calculate overall bitrate
+    overall_bitrate =
+      case {file["overallBitrate"], media_info["videoBitrate"], media_info["audioBitrate"]} do
+        {overall, _, _} when is_integer(overall) and overall > 0 -> overall
+        {_, video, audio} when is_integer(video) and is_integer(audio) -> video + audio
+        {_, video, _} when is_integer(video) -> video
+        _ -> 0
+      end
+
+    # Parse subtitle count
+    subtitles =
+      case media_info["subtitles"] do
+        list when is_list(list) -> list
+        binary when is_binary(binary) -> String.split(binary, "/")
+        _ -> []
+      end
+
+    # Parse audio languages for count
+    audio_languages =
+      case media_info["audioLanguages"] do
+        list when is_list(list) -> list
+        binary when is_binary(binary) -> String.split(binary, "/")
+        _ -> []
+      end
+
+    %{
+      "media" => %{
+        "track" => [
+          %{
+            "@type" => "General",
+            "AudioCount" => length(audio_languages),
+            "OverallBitRate" => overall_bitrate,
+            "Duration" => file["runTime"],
+            "FileSize" => file["size"],
+            "TextCount" => length(subtitles),
+            "VideoCount" => 1,
+            "Title" => file["sceneName"] || file["title"]
+          },
+          %{
+            "@type" => "Video",
+            "FrameRate" => file["videoFps"] || media_info["videoFps"],
+            "Height" => height,
+            "Width" => width,
+            "HDR_Format" => media_info["videoDynamicRange"],
+            "HDR_Format_Compatibility" => media_info["videoDynamicRangeType"],
+            "CodecID" => media_info["videoCodec"]
+          },
+          %{
+            "@type" => "Audio",
+            "CodecID" => media_info["audioCodec"],
+            "Channels" => media_info["audioChannels"],
+            "Format_Commercial_IfAny" =>
+              CodecMapper.format_commercial_if_any(media_info["audioCodec"])
           }
         ]
       }
@@ -695,4 +799,123 @@ defmodule Reencodarr.Media.MediaInfo do
       title: file["title"]
     }
   end
+
+  # Helper functions for extracting data from MediaInfo structs
+
+  @doc """
+  Extracts the first video track from a MediaInfo struct.
+  """
+  def extract_video_track(%__MODULE__{media: %Media{track: tracks}}) when is_list(tracks) do
+    Enum.find(tracks, fn track ->
+      case track do
+        %VideoTrack{} -> true
+        _ -> false
+      end
+    end)
+  end
+
+  def extract_video_track(_), do: nil
+
+  @doc """
+  Extracts the first audio track from a MediaInfo struct.
+  """
+  def extract_audio_track(%__MODULE__{media: %Media{track: tracks}}) when is_list(tracks) do
+    Enum.find(tracks, fn track ->
+      case track do
+        %AudioTrack{} -> true
+        _ -> false
+      end
+    end)
+  end
+
+  def extract_audio_track(_), do: nil
+
+  @doc """
+  Extracts the general track from a MediaInfo struct.
+  """
+  def extract_general_track(%__MODULE__{media: %Media{track: tracks}}) when is_list(tracks) do
+    Enum.find(tracks, fn track ->
+      case track do
+        %GeneralTrack{} -> true
+        _ -> false
+      end
+    end)
+  end
+
+  def extract_general_track(_), do: nil
+
+  @doc """
+  Gets the resolution as a tuple from a video track.
+  """
+  def get_resolution(%VideoTrack{Width: width, Height: height})
+      when is_integer(width) and is_integer(height) do
+    {width, height}
+  end
+
+  def get_resolution(_), do: {0, 0}
+
+  @doc """
+  Gets the video codec from a video track.
+  """
+  def get_video_codec(%VideoTrack{CodecID: codec}) when is_binary(codec), do: codec
+  def get_video_codec(_), do: nil
+
+  @doc """
+  Gets the audio codec from an audio track.
+  """
+  def get_audio_codec(%AudioTrack{CodecID: codec}) when is_binary(codec), do: codec
+  def get_audio_codec(_), do: nil
+
+  @doc """
+  Gets the audio channels from an audio track.
+  """
+  def get_audio_channels(%AudioTrack{Channels: channels}) when is_binary(channels), do: channels
+  def get_audio_channels(_), do: nil
+
+  @doc """
+  Gets the frame rate from a video track.
+  """
+  def get_fps(%VideoTrack{FrameRate: fps}) when is_number(fps), do: fps
+  def get_fps(_), do: nil
+
+  @doc """
+  Gets the overall bitrate from a general track.
+  """
+  def get_overall_bitrate(%GeneralTrack{OverallBitRate: bitrate}) when is_integer(bitrate),
+    do: bitrate
+
+  def get_overall_bitrate(_), do: 0
+
+  @doc """
+  Gets the audio count from a general track.
+  """
+  def get_audio_count(%GeneralTrack{AudioCount: count}) when is_integer(count), do: count
+  def get_audio_count(_), do: 0
+
+  @doc """
+  Gets the duration from a general track.
+  """
+  def get_duration(%GeneralTrack{Duration: duration}) when is_integer(duration), do: duration
+  def get_duration(_), do: 0
+
+  @doc """
+  Gets the HDR format from a video track.
+  """
+  def get_hdr_format(%VideoTrack{HDR_Format: format}) when is_binary(format), do: format
+  def get_hdr_format(_), do: nil
+
+  @doc """
+  Gets the HDR format compatibility from a video track.
+  """
+  def get_hdr_format_compatibility(%VideoTrack{HDR_Format_Compatibility: compat})
+      when is_binary(compat), do: compat
+
+  def get_hdr_format_compatibility(_), do: nil
+
+  @doc """
+  Parses a subtitle list, returning an empty list if nil.
+  """
+  def parse_subtitle_list(nil), do: []
+  def parse_subtitle_list(list) when is_list(list), do: list
+  def parse_subtitle_list(_), do: []
 end
