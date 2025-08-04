@@ -214,7 +214,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   def handle_cast({:crf_search_with_preset_6, video, vmaf_percent}, %{port: :none} = state) do
-    Logger.info("CrfSearch: Starting retry with --preset 6 for video #{video.id}")
+    Logger.debug("CrfSearch: Starting retry with --preset 6 for video #{video.id}")
     args = build_crf_search_args_with_preset_6_private(video, vmaf_percent)
 
     new_state = %{
@@ -468,7 +468,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_continue({:preset_6_retry, video, target_vmaf}, state) do
-    Logger.info("CrfSearch: Executing preset 6 retry for video #{video.id} via handle_continue")
+    Logger.debug("CrfSearch: Executing preset 6 retry for video #{video.id} via handle_continue")
     GenServer.cast(__MODULE__, {:crf_search_with_preset_6, video, target_vmaf})
     {:noreply, state}
   end
@@ -689,18 +689,18 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_error_line(line, video, target_vmaf) do
     if line == "Error: Failed to find a suitable crf" do
-      Logger.info("CrfSearch: Processing error line for video #{video.id}")
-      Logger.info("CrfSearch: About to get VMAF scores")
+      Logger.debug("CrfSearch: Processing error line for video #{video.id}")
+      Logger.debug("CrfSearch: About to get VMAF scores")
       tested_scores = get_vmaf_scores_for_video(video.id)
-      Logger.info("CrfSearch: Got tested scores: #{inspect(tested_scores)}")
+      Logger.debug("CrfSearch: Got tested scores: #{inspect(tested_scores)}")
 
       error_msg = build_detailed_error_message(target_vmaf, tested_scores, video.path)
       Logger.error(error_msg)
 
       # Check if we should retry with --preset 6
-      Logger.info("CrfSearch: About to check retry logic for video #{video.id}")
+      Logger.debug("CrfSearch: About to check retry logic for video #{video.id}")
       retry_result = should_retry_with_preset_6_private(video.id)
-      Logger.info("CrfSearch: Retry result: #{inspect(retry_result)}")
+      Logger.debug("CrfSearch: Retry result: #{inspect(retry_result)}")
 
       case retry_result do
         {:retry, existing_vmafs} ->
