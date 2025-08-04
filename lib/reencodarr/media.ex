@@ -1,7 +1,7 @@
 defmodule Reencodarr.Media do
   import Ecto.Query, warn: false
   alias Reencodarr.Analyzer.QueueManager
-  alias Reencodarr.Media.{Library, Video, VideoFailure, Vmaf}
+  alias Reencodarr.Media.{Library, Video, VideoFailure, VideoValidator, Vmaf}
   alias Reencodarr.Repo
   require Logger
 
@@ -232,8 +232,8 @@ defmodule Reencodarr.Media do
     attrs = ensure_library_id(attrs)
     path = get_path_from_attrs(attrs)
 
-    # Extract the values we care about for comparison
-    new_values = extract_comparison_values(attrs)
+    # Extract the values we care about for comparison using VideoValidator
+    new_values = VideoValidator.extract_comparison_values(attrs)
     being_marked_reencoded = get_attr_value(attrs, "reencoded") == true
 
     result =
@@ -242,14 +242,43 @@ defmodule Reencodarr.Media do
         # Don't delete VMAFs if the video is being marked as reencoded
         existing_video = get_video_metadata_for_comparison(path)
 
-        if not being_marked_reencoded and should_delete_vmafs?(existing_video, new_values) do
+        if not being_marked_reencoded and
+             VideoValidator.should_delete_vmafs?(existing_video, new_values) do
           from(v in Vmaf, where: v.video_id == ^existing_video.id) |> Repo.delete_all()
         end
 
+        # Don't reset bitrate if no significant properties have changed and we have an existing analyzed bitrate
+        # Use specialized logic for bitrate preservation during sync operations
+        preserve_bitrate = VideoValidator.should_preserve_bitrate?(existing_video, new_values)
+
+        {final_attrs, conflict_except} =
+          if not being_marked_reencoded and preserve_bitrate do
+            # Preserve existing bitrate by removing both bitrate and mediainfo to prevent override
+            # Also exclude bitrate from being replaced in the on_conflict
+            Logger.debug(
+              "Preserving existing bitrate #{existing_video.bitrate} for path #{path} (same file, different metadata)"
+            )
+
+            cleaned_attrs =
+              attrs
+              |> Map.delete("bitrate")
+              |> Map.delete("mediainfo")
+
+            {cleaned_attrs, [:id, :inserted_at, :reencoded, :failed, :bitrate]}
+          else
+            if not is_nil(existing_video) do
+              Logger.debug(
+                "Allowing bitrate update for path #{path}: preserve_bitrate=#{inspect(preserve_bitrate)}"
+              )
+            end
+
+            {attrs, [:id, :inserted_at, :reencoded, :failed]}
+          end
+
         %Video{}
-        |> Video.changeset(attrs)
+        |> Video.changeset(final_attrs)
         |> Repo.insert(
-          on_conflict: {:replace_all_except, [:id, :inserted_at, :reencoded, :failed]},
+          on_conflict: {:replace_all_except, conflict_except},
           conflict_target: :path
         )
       end)
@@ -361,16 +390,6 @@ defmodule Reencodarr.Media do
 
   defp get_path_from_attrs(attrs), do: Map.get(attrs, "path")
 
-  defp extract_comparison_values(attrs) do
-    %{
-      size: get_attr_value(attrs, "size"),
-      bitrate: get_attr_value(attrs, "bitrate"),
-      duration: get_attr_value(attrs, "duration"),
-      video_codecs: get_attr_value(attrs, "video_codecs"),
-      audio_codecs: get_attr_value(attrs, "audio_codecs")
-    }
-  end
-
   defp get_attr_value(attrs, key) when is_binary(key) do
     Map.get(attrs, key)
   end
@@ -388,24 +407,6 @@ defmodule Reencodarr.Media do
           audio_codecs: v.audio_codecs
         }
     )
-  end
-
-  defp should_delete_vmafs?(nil, _new_values), do: false
-
-  defp should_delete_vmafs?(existing, new_values) do
-    # Only check fields that have non-nil values in the new attributes
-    # This avoids false positives when a field isn't being updated
-    comparison_pairs = [
-      {new_values.size, existing.size},
-      {new_values.bitrate, existing.bitrate},
-      {new_values.duration, existing.duration},
-      {new_values.video_codecs, existing.video_codecs},
-      {new_values.audio_codecs, existing.audio_codecs}
-    ]
-
-    Enum.any?(comparison_pairs, fn {new_val, old_val} ->
-      not is_nil(new_val) and new_val != old_val
-    end)
   end
 
   defp ensure_library_id(%{"library_id" => nil} = attrs),
