@@ -15,10 +15,10 @@ defmodule Reencodarr.Media.ResolutionParser do
 
       iex> ResolutionParser.parse("1920x1080")
       {:ok, {1920, 1080}}
-      
+
       iex> ResolutionParser.parse({1920, 1080})
       {:ok, {1920, 1080}}
-      
+
       iex> ResolutionParser.parse("invalid")
       {:error, :invalid_format}
   """
@@ -53,7 +53,7 @@ defmodule Reencodarr.Media.ResolutionParser do
 
       iex> ResolutionParser.parse_with_fallback("1920x1080")
       {1920, 1080}
-      
+
       iex> ResolutionParser.parse_with_fallback("invalid")
       {0, 0}
   """

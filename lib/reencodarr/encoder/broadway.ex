@@ -203,18 +203,16 @@ defmodule Reencodarr.Encoder.Broadway do
 
   @spec process_vmaf_encoding(vmaf(), map()) :: :ok | {:error, term()}
   defp process_vmaf_encoding(vmaf, context) do
-    try do
-      # Build encoding arguments
-      args = build_encode_args(vmaf)
-      output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
+    # Build encoding arguments
+    args = build_encode_args(vmaf)
+    output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
 
-      # Open port and handle encoding
-      port = Helper.open_port(args)
-      handle_encoding_port(port, vmaf, output_file, context)
-    rescue
-      exception ->
-        handle_encoding_exception(exception, vmaf)
-    end
+    # Open port and handle encoding
+    port = Helper.open_port(args)
+    handle_encoding_port(port, vmaf, output_file, context)
+  rescue
+    exception ->
+      handle_encoding_exception(exception, vmaf)
   end
 
   defp handle_encoding_port(:error, vmaf, _output_file, _context) do

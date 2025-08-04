@@ -116,22 +116,23 @@ defmodule Reencodarr.Media.MediaInfo do
     last_video = List.last(video_tracks)
 
     %{
-      audio_codecs: Enum.map(audio_tracks, &Map.get(&1, "CodecID")),
-      audio_count: CodecHelper.parse_int(general["AudioCount"], 0),
-      atmos: CodecHelper.has_atmos?(audio_tracks),
-      bitrate: CodecHelper.parse_int(general["OverallBitRate"], 0),
-      duration: CodecHelper.parse_float(general["Duration"], 0.0),
-      frame_rate: CodecHelper.parse_float(last_video && Map.get(last_video, "FrameRate"), 0.0),
-      hdr: CodecHelper.parse_hdr_from_video(last_video),
-      height: CodecHelper.parse_int(last_video && Map.get(last_video, "Height"), 0),
-      max_audio_channels: CodecHelper.max_audio_channels(audio_tracks),
-      size: CodecHelper.parse_int(general["FileSize"], 0),
-      text_count: CodecHelper.parse_int(general["TextCount"], 0),
-      video_codecs: video_codecs,
-      video_count: CodecHelper.parse_int(general["VideoCount"], 0),
-      width: CodecHelper.parse_int(last_video && Map.get(last_video, "Width"), 0),
-      reencoded: reencoded?(video_codecs, mediainfo),
-      title: Map.get(general, "Title") || Path.basename(path)
+      "audio_codecs" => Enum.map(audio_tracks, &Map.get(&1, "CodecID")),
+      "audio_count" => CodecHelper.parse_int(general["AudioCount"], 0),
+      "atmos" => CodecHelper.has_atmos?(audio_tracks),
+      "bitrate" => CodecHelper.parse_int(general["OverallBitRate"], 0),
+      "duration" => CodecHelper.parse_float(general["Duration"], 0.0),
+      "frame_rate" =>
+        CodecHelper.parse_float(last_video && Map.get(last_video, "FrameRate"), 0.0),
+      "hdr" => CodecHelper.parse_hdr_from_video(last_video),
+      "height" => CodecHelper.parse_int(last_video && Map.get(last_video, "Height"), 0),
+      "max_audio_channels" => CodecHelper.max_audio_channels(audio_tracks),
+      "size" => CodecHelper.parse_int(general["FileSize"], 0),
+      "text_count" => CodecHelper.parse_int(general["TextCount"], 0),
+      "video_codecs" => video_codecs,
+      "video_count" => CodecHelper.parse_int(general["VideoCount"], 0),
+      "width" => CodecHelper.parse_int(last_video && Map.get(last_video, "Width"), 0),
+      "reencoded" => reencoded?(video_codecs, mediainfo),
+      "title" => Map.get(general, "Title") || Path.basename(path)
     }
   end
 

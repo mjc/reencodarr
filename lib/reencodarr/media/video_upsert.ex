@@ -1,0 +1,236 @@
+defmodule Reencodarr.Media.VideoUpsert do
+  @moduledoc """
+  Handles complex video upsert operations with proper validation and error handling.
+
+  This module extracts the intricate upsert logic from the Media module, including
+  attribute normalization, VMAF deletion logic, bitrate preservation, and comprehensive
+  error logging.
+  """
+
+  require Logger
+  import Ecto.Query
+  alias Reencodarr.{Media.Library, Media.Video, Media.VideoValidator, Media.Vmaf, Repo}
+
+  @type attrs :: %{String.t() => any()} | %{atom() => any()}
+  @type upsert_result :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()} | {:error, any()}
+
+  @doc """
+  Upserts a video with complex validation and bitrate preservation logic.
+  """
+  @spec upsert(attrs()) :: upsert_result()
+  def upsert(attrs) do
+    with {:ok, normalized_attrs} <- normalize_and_validate_attrs(attrs),
+         {:ok, final_attrs, conflict_except} <- prepare_upsert_data(normalized_attrs) do
+      perform_upsert(final_attrs, conflict_except, normalized_attrs)
+    else
+      error -> error
+    end
+  end
+
+  # Private functions for upsert logic
+
+  defp normalize_and_validate_attrs(attrs) do
+    normalized_attrs = normalize_keys_to_strings(attrs)
+
+    # Debug log for atom key detection - check the normalized result
+    atom_keys = normalized_attrs |> Map.keys() |> Enum.filter(&is_atom/1)
+
+    if length(atom_keys) > 0 do
+      Logger.warning("❌ Still have atom keys after normalization: #{inspect(atom_keys)}")
+    end
+
+    {:ok, ensure_library_id(normalized_attrs)}
+  end
+
+  defp prepare_upsert_data(attrs) do
+    path = Map.get(attrs, "path")
+    new_values = VideoValidator.extract_comparison_values(attrs)
+    being_marked_reencoded = VideoValidator.get_attr_value(attrs, "reencoded") == true
+
+    existing_video = get_video_metadata_for_comparison(path)
+
+    # Handle VMAF deletion if needed
+    if not being_marked_reencoded and
+         VideoValidator.should_delete_vmafs?(existing_video, new_values) do
+      delete_vmafs_for_video(existing_video.id)
+    end
+
+    # Determine if we should preserve bitrate
+    preserve_bitrate =
+      not being_marked_reencoded and
+        VideoValidator.should_preserve_bitrate?(existing_video, new_values)
+
+    {final_attrs, conflict_except} =
+      prepare_final_attributes(attrs, preserve_bitrate, existing_video, path)
+
+    {:ok, final_attrs, conflict_except}
+  end
+
+  defp prepare_final_attributes(attrs, preserve_bitrate, existing_video, path) do
+    if preserve_bitrate do
+      Logger.debug(
+        "Preserving existing bitrate #{existing_video.bitrate} for path #{path} (same file, different metadata)"
+      )
+
+      cleaned_attrs =
+        attrs
+        |> Map.delete("bitrate")
+        |> Map.delete("mediainfo")
+
+      {cleaned_attrs, [:id, :inserted_at, :reencoded, :failed, :bitrate]}
+    else
+      if not is_nil(existing_video) do
+        Logger.debug(
+          "Allowing bitrate update for path #{path}: preserve_bitrate=#{inspect(preserve_bitrate)}"
+        )
+      end
+
+      {attrs, [:id, :inserted_at, :reencoded, :failed]}
+    end
+  end
+
+  defp perform_upsert(final_attrs, conflict_except, original_attrs) do
+    result =
+      Repo.transaction(fn ->
+        %Video{}
+        |> Video.changeset(final_attrs)
+        |> Repo.insert(
+          on_conflict: {:replace_all_except, conflict_except},
+          conflict_target: :path
+        )
+      end)
+
+    case result do
+      {:ok, {:ok, video}} ->
+        Reencodarr.Telemetry.emit_video_upserted(video)
+        {:ok, video}
+
+      {:ok, error} ->
+        log_upsert_failure(original_attrs, error)
+        error
+
+      {:error, _} = error ->
+        log_upsert_failure(original_attrs, error)
+        error
+    end
+  end
+
+  defp delete_vmafs_for_video(video_id) do
+    from(v in Vmaf, where: v.video_id == ^video_id) |> Repo.delete_all()
+  end
+
+  defp normalize_keys_to_strings(attrs) when is_map(attrs) do
+    for {key, value} <- attrs, into: %{} do
+      string_key =
+        cond do
+          is_atom(key) -> Atom.to_string(key)
+          is_binary(key) -> key
+          true -> to_string(key)
+        end
+
+      {string_key, value}
+    end
+  end
+
+  defp get_video_metadata_for_comparison(path) do
+    Repo.one(
+      from v in Video,
+        where: v.path == ^path and v.reencoded == false and v.failed == false,
+        select: %{
+          id: v.id,
+          size: v.size,
+          bitrate: v.bitrate,
+          duration: v.duration,
+          video_codecs: v.video_codecs,
+          audio_codecs: v.audio_codecs
+        }
+    )
+  end
+
+  defp ensure_library_id(%{"library_id" => nil} = attrs) do
+    path = Map.get(attrs, "path")
+    Map.put(attrs, "library_id", find_library_id(path))
+  end
+
+  defp ensure_library_id(%{"library_id" => _} = attrs), do: attrs
+
+  defp ensure_library_id(attrs) do
+    path = Map.get(attrs, "path")
+    Map.put(attrs, "library_id", find_library_id(path))
+  end
+
+  defp find_library_id(path) when is_binary(path) do
+    # Query library that contains this path
+    Repo.one(
+      from l in Library,
+        where: fragment("? LIKE CONCAT(?, '%')", ^path, l.path),
+        order_by: [desc: fragment("LENGTH(?)", l.path)],
+        limit: 1,
+        select: l.id
+    )
+  end
+
+  defp find_library_id(_), do: nil
+
+  defp log_upsert_failure(attrs, error) do
+    path = Map.get(attrs, "path")
+    file_exists = File.exists?(path)
+    existing_video = Reencodarr.Media.get_video_by_path(path)
+    library_id = find_library_id(path)
+
+    error_details = extract_error_details(error)
+
+    failure_info = %{
+      path: path,
+      success: false,
+      operation: "upsert_failed",
+      video_id: nil,
+      messages: build_diagnostic_messages(file_exists, existing_video, library_id),
+      errors: error_details,
+      library_id: library_id,
+      file_exists: file_exists,
+      had_existing_video: !is_nil(existing_video),
+      provided_attrs: Map.keys(attrs) |> Enum.sort()
+    }
+
+    Logger.warning("❌ Video upsert failed: #{path}")
+    Logger.warning("   Failure details: #{inspect(failure_info, pretty: true)}")
+  end
+
+  defp extract_error_details(error) do
+    case error do
+      {:error, %Ecto.Changeset{} = changeset} ->
+        changeset.errors
+        |> Enum.map(fn {field, {message, _}} -> "#{field}: #{message}" end)
+
+      {:error, reason} ->
+        ["Error: #{inspect(reason)}"]
+
+      other ->
+        ["Unknown error: #{inspect(other)}"]
+    end
+  end
+
+  defp build_diagnostic_messages(file_exists, existing_video, library_id) do
+    messages = []
+
+    messages =
+      if file_exists do
+        ["File exists on filesystem" | messages]
+      else
+        ["File does not exist on filesystem" | messages]
+      end
+
+    messages =
+      case existing_video do
+        nil -> ["No existing video found in database" | messages]
+        %Video{id: id} -> ["Found existing video with ID: #{id}" | messages]
+      end
+
+    case library_id do
+      nil -> ["No matching library found for path" | messages]
+      lib_id -> ["Found library ID: #{lib_id}" | messages]
+    end
+    |> Enum.reverse()
+  end
+end

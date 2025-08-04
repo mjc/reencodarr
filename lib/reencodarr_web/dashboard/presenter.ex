@@ -14,7 +14,7 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
 
   alias Reencodarr.Dashboard.QueueBuilder
   alias Reencodarr.Progress.Normalizer
-  alias ReencodarrWeb.Utils.TimeUtils
+  alias Reencodarr.TimeHelpers
 
   require Logger
 
@@ -170,8 +170,8 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
     %{
       total_vmafs: stats.total_vmafs,
       chosen_vmafs_count: stats.chosen_vmafs_count,
-      last_video_update: TimeUtils.relative_time(stats.most_recent_video_update),
-      last_video_insert: TimeUtils.relative_time(stats.most_recent_inserted_video)
+      last_video_update: TimeHelpers.relative_time(stats.most_recent_video_update),
+      last_video_insert: TimeHelpers.relative_time(stats.most_recent_inserted_video)
     }
   end
 

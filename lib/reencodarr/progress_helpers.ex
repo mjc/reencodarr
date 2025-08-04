@@ -1,10 +1,12 @@
 defmodule Reencodarr.ProgressHelpers do
   @moduledoc """
-  Utilities for progress tracking, updating, and formatting across the application.
+  Utilities for progress tracking, updating, and state management.
 
-  This module provides both progress update logic and consistent formatting
-  for various progress-related data types.
+  This module focuses on progress update logic and state management,
+  while formatting functions have been moved to Reencodarr.FormatHelpers.
   """
+
+  alias Reencodarr.FormatHelpers
 
   # Progress Update Functions
 
@@ -38,95 +40,37 @@ defmodule Reencodarr.ProgressHelpers do
     struct(progress_module, attrs)
   end
 
-  # Formatting Functions
+  # Formatting Functions (delegated to FormatHelpers for consistency)
 
   @doc """
   Formats a numeric value for display.
-
-  ## Examples
-
-      iex> ProgressHelpers.format_number(nil)
-      "N/A"
-
-      iex> ProgressHelpers.format_number(3.14159)
-      "3.14"
-
-      iex> ProgressHelpers.format_number(42)
-      "42"
+  Delegates to FormatHelpers.format_number/1.
   """
-  def format_number(nil), do: "N/A"
-  def format_number(num) when is_float(num), do: :erlang.float_to_binary(num, decimals: 2)
-  def format_number(num) when is_integer(num), do: Integer.to_string(num)
-  def format_number(num), do: to_string(num)
+  def format_number(value), do: FormatHelpers.format_number(value)
 
   @doc """
   Formats a percentage value for display.
-
-  ## Examples
-
-      iex> ProgressHelpers.format_percent(nil)
-      "N/A"
-
-      iex> ProgressHelpers.format_percent(85.5)
-      "85.50%"
-
-      iex> ProgressHelpers.format_percent(100)
-      "100%"
+  Delegates to FormatHelpers.format_percent/1.
   """
-  def format_percent(nil), do: "N/A"
-
-  def format_percent(percent) when is_number(percent) do
-    "#{format_number(percent)}%"
-  end
-
-  def format_percent(percent), do: "#{percent}%"
+  def format_percent(value), do: FormatHelpers.format_percent(value)
 
   @doc """
-  Formats a filename for display, extracting series/episode information if present.
-
-  ## Examples
-
-      iex> ProgressHelpers.format_filename("/path/to/Breaking Bad - S01E01.mkv")
-      "Breaking Bad - S01E01"
-
-      iex> ProgressHelpers.format_filename("/path/to/movie.mp4")
-      "movie.mp4"
+  Formats a filename for display.
+  Delegates to FormatHelpers.format_filename/1.
   """
-  def format_filename(path) when is_binary(path) do
-    path = Path.basename(path)
-
-    case Regex.run(~r/^(.+?) - (S\d+E\d+)/, path) do
-      [_, series_name, episode_name] -> "#{series_name} - #{episode_name}"
-      [_, movie_name] -> movie_name
-      _ -> path
-    end
-  end
-
-  def format_filename(_), do: "N/A"
+  def format_filename(path), do: FormatHelpers.format_filename(path)
 
   @doc """
   Formats a value as a string, handling nil values gracefully.
-
-  ## Examples
-
-      iex> ProgressHelpers.format_value(nil)
-      "N/A"
-
-      iex> ProgressHelpers.format_value("Hello")
-      "Hello"
-
-      iex> ProgressHelpers.format_value(42)
-      "42"
+  Delegates to FormatHelpers.format_value/1.
   """
-  def format_value(nil), do: "N/A"
-  def format_value(value), do: to_string(value)
+  def format_value(value), do: FormatHelpers.format_value(value)
 
   @doc """
   Formats a duration or ETA value for display.
+  Delegates to Reencodarr.TimeHelpers.format_duration/1.
   """
-  def format_duration(nil), do: "N/A"
-  def format_duration(0), do: "N/A"
-  def format_duration(duration), do: to_string(duration)
+  def format_duration(duration), do: Reencodarr.TimeHelpers.format_duration(duration)
 
   # Private helper functions
 

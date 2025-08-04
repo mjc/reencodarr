@@ -1,7 +1,7 @@
 defmodule Reencodarr.Media do
   import Ecto.Query, warn: false
   alias Reencodarr.Analyzer.QueueManager
-  alias Reencodarr.Media.{Library, Video, VideoFailure, VideoValidator, Vmaf}
+  alias Reencodarr.Media.{Library, Video, VideoFailure, VideoQueries, VideoUpsert, Vmaf}
   alias Reencodarr.Repo
   require Logger
 
@@ -17,181 +17,16 @@ defmodule Reencodarr.Media do
     do: Repo.all(from v in Video, where: like(v.path, ^pattern))
 
   def get_videos_for_crf_search(limit \\ 10) do
-    Repo.all(
-      from v in Video,
-        left_join: m in Vmaf,
-        on: m.video_id == v.id,
-        where:
-          is_nil(m.id) and v.reencoded == false and v.failed == false and
-            not fragment(
-              "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
-              v.audio_codecs,
-              "%opus%"
-            ) and
-            not fragment(
-              "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
-              v.video_codecs,
-              "%av1%"
-            ),
-        order_by: [
-          desc: v.bitrate,
-          desc: v.size,
-          asc: v.updated_at
-        ],
-        limit: ^limit,
-        select: v
-    )
+    VideoQueries.videos_for_crf_search(limit)
   end
 
   def get_videos_needing_analysis(limit \\ 10) do
-    # Get videos that need analysis (bitrate is null)
-    Repo.all(
-      from v in Video,
-        where: is_nil(v.bitrate) and v.failed == false,
-        order_by: [
-          desc: v.size,
-          asc: v.updated_at
-        ],
-        limit: ^limit,
-        select: %{
-          path: v.path,
-          service_id: v.service_id,
-          service_type: v.service_type,
-          force_reanalyze: false
-        }
-    )
+    VideoQueries.videos_needing_analysis(limit)
   end
 
   # Query for videos ready for encoding (chosen VMAFs with valid videos)
   defp query_videos_ready_for_encoding(limit) do
-    # Use a more efficient approach: fetch videos by service type with 5:1 Sonarr:Radarr ratio
-    sonarr_videos = get_videos_by_service_type("sonarr", calculate_sonarr_limit(limit))
-    radarr_videos = get_videos_by_service_type("radarr", calculate_radarr_limit(limit))
-
-    # Alternate with 5:1 ratio (5 Sonarr for every 1 Radarr)
-    alternate_by_service_type(sonarr_videos, radarr_videos, limit)
-  end
-
-  # Calculate how many Sonarr videos we need (roughly 5/6 of total)
-  defp calculate_sonarr_limit(total_limit) do
-    # +2 buffer for safety
-    max(1, round(total_limit * 9 / 10) + 2)
-  end
-
-  # Calculate how many Radarr videos we need (roughly 1/6 of total)
-  defp calculate_radarr_limit(total_limit) do
-    # +2 buffer for safety
-    max(1, round(total_limit / 10) + 2)
-  end
-
-  # Get videos for a specific service type, alternating between libraries within that service
-  defp get_videos_by_service_type(service_type, limit) do
-    library_ids =
-      get_active_library_ids_for_service(service_type)
-      # Filter out any nil values for safety
-      |> Enum.reject(&is_nil/1)
-
-    case library_ids do
-      [] ->
-        []
-
-      _ ->
-        videos_per_library = max(1, div(limit, length(library_ids)) + 1)
-
-        # Fetch top videos from each library for this service type in parallel
-        videos_by_library =
-          library_ids
-          |> Task.async_stream(
-            fn library_id ->
-              videos =
-                Repo.all(
-                  from v in Vmaf,
-                    join: vid in assoc(v, :video),
-                    where:
-                      v.chosen == true and vid.reencoded == false and vid.failed == false and
-                        vid.library_id == ^library_id and vid.service_type == ^service_type,
-                    order_by: [
-                      fragment("? DESC NULLS LAST", v.savings),
-                      asc: v.percent,
-                      asc: v.time
-                    ],
-                    limit: ^videos_per_library,
-                    preload: [:video]
-                )
-
-              {library_id, videos}
-            end,
-            max_concurrency: System.schedulers_online()
-          )
-          |> Enum.map(fn {:ok, result} -> result end)
-          |> Enum.into(%{})
-
-        # Alternate between libraries within this service type
-        alternate_libraries(videos_by_library, library_ids, limit)
-    end
-  end
-
-  # Get library IDs that have videos for a specific service type
-  defp get_active_library_ids_for_service(service_type) do
-    Repo.all(
-      from v in Vmaf,
-        join: vid in assoc(v, :video),
-        where:
-          v.chosen == true and vid.reencoded == false and vid.failed == false and
-            vid.service_type == ^service_type and not is_nil(vid.library_id),
-        distinct: vid.library_id,
-        select: vid.library_id
-    )
-  end
-
-  # Alternate between Sonarr and Radarr with 5:1 ratio
-  defp alternate_by_service_type(sonarr_videos, radarr_videos, limit) do
-    # Create a pattern: [S, S, S, S, S, R, S, S, S, S, S, R, ...]
-    # where S = Sonarr, R = Radarr
-    result = []
-    sonarr_index = 0
-    radarr_index = 0
-
-    0..(limit - 1)
-    |> Enum.reduce({result, sonarr_index, radarr_index}, fn index, {acc, s_idx, r_idx} ->
-      # Every 6th position (0-indexed: 5, 11, 17, ...) gets a Radarr video
-      if rem(index, 6) == 5 do
-        add_radarr_video(radarr_videos, r_idx, acc, s_idx)
-      else
-        add_sonarr_video(sonarr_videos, s_idx, acc, r_idx)
-      end
-    end)
-    |> elem(0)
-    |> Enum.reverse()
-  end
-
-  defp add_radarr_video(radarr_videos, r_idx, acc, s_idx) do
-    case Enum.at(radarr_videos, r_idx) do
-      nil -> {acc, s_idx, r_idx}
-      video -> {[video | acc], s_idx, r_idx + 1}
-    end
-  end
-
-  defp add_sonarr_video(sonarr_videos, s_idx, acc, r_idx) do
-    case Enum.at(sonarr_videos, s_idx) do
-      nil -> {acc, s_idx, r_idx}
-      video -> {[video | acc], s_idx + 1, r_idx}
-    end
-  end
-
-  # Efficient alternation using indexed access
-  defp alternate_libraries(videos_by_library, library_ids, limit) do
-    Stream.iterate(0, &(&1 + 1))
-    |> Stream.take(limit)
-    |> Stream.map(fn index ->
-      library_index = rem(index, length(library_ids))
-      library_id = Enum.at(library_ids, library_index)
-      video_position = div(index, length(library_ids))
-
-      videos_by_library[library_id] |> Enum.at(video_position)
-    end)
-    |> Stream.reject(&is_nil/1)
-    |> Enum.to_list()
+    VideoQueries.videos_ready_for_encoding(limit)
   end
 
   def list_videos_by_estimated_percent(limit \\ 10) do
@@ -206,12 +41,7 @@ defmodule Reencodarr.Media do
   end
 
   def encoding_queue_count do
-    Repo.one(
-      from v in Vmaf,
-        join: vid in assoc(v, :video),
-        where: v.chosen == true and vid.reencoded == false and vid.failed == false,
-        select: count(v.id)
-    )
+    VideoQueries.encoding_queue_count()
   end
 
   def create_video(attrs \\ %{}) do
@@ -219,220 +49,8 @@ defmodule Reencodarr.Media do
   end
 
   def upsert_video(attrs) do
-    # Normalize all keys to strings to avoid mixed key issues with Ecto
-    attrs = normalize_keys_to_strings(attrs)
-
-    # Debug log to see what we're working with
-    if Map.has_key?(attrs, :size) do
-      Logger.warning(
-        "❌ Still have atom keys after normalization: #{inspect(Map.keys(attrs) |> Enum.take(10))}"
-      )
-    end
-
-    attrs = ensure_library_id(attrs)
-    path = get_path_from_attrs(attrs)
-
-    # Extract the values we care about for comparison using VideoValidator
-    new_values = VideoValidator.extract_comparison_values(attrs)
-    being_marked_reencoded = get_attr_value(attrs, "reencoded") == true
-
-    result =
-      Repo.transaction(fn ->
-        # Check if video exists and if any tracked properties are changing
-        # Don't delete VMAFs if the video is being marked as reencoded
-        existing_video = get_video_metadata_for_comparison(path)
-
-        if not being_marked_reencoded and
-             VideoValidator.should_delete_vmafs?(existing_video, new_values) do
-          from(v in Vmaf, where: v.video_id == ^existing_video.id) |> Repo.delete_all()
-        end
-
-        # Don't reset bitrate if no significant properties have changed and we have an existing analyzed bitrate
-        # Use specialized logic for bitrate preservation during sync operations
-        preserve_bitrate = VideoValidator.should_preserve_bitrate?(existing_video, new_values)
-
-        {final_attrs, conflict_except} =
-          if not being_marked_reencoded and preserve_bitrate do
-            # Preserve existing bitrate by removing both bitrate and mediainfo to prevent override
-            # Also exclude bitrate from being replaced in the on_conflict
-            Logger.debug(
-              "Preserving existing bitrate #{existing_video.bitrate} for path #{path} (same file, different metadata)"
-            )
-
-            cleaned_attrs =
-              attrs
-              |> Map.delete("bitrate")
-              |> Map.delete("mediainfo")
-
-            {cleaned_attrs, [:id, :inserted_at, :reencoded, :failed, :bitrate]}
-          else
-            if not is_nil(existing_video) do
-              Logger.debug(
-                "Allowing bitrate update for path #{path}: preserve_bitrate=#{inspect(preserve_bitrate)}"
-              )
-            end
-
-            {attrs, [:id, :inserted_at, :reencoded, :failed]}
-          end
-
-        %Video{}
-        |> Video.changeset(final_attrs)
-        |> Repo.insert(
-          on_conflict: {:replace_all_except, conflict_except},
-          conflict_target: :path
-        )
-      end)
-
-    case result do
-      {:ok, {:ok, video}} ->
-        Reencodarr.Telemetry.emit_video_upserted(video)
-        {:ok, video}
-
-      {:ok, error} ->
-        log_upsert_failure(path, attrs, error)
-        error
-
-      {:error, _} = error ->
-        log_upsert_failure(path, attrs, error)
-        error
-    end
+    VideoUpsert.upsert(attrs)
   end
-
-  # Helper functions for cleaner attribute access
-  defp normalize_keys_to_strings(attrs) when is_map(attrs) do
-    # Force conversion using for comprehension to ensure all keys become strings
-    for {key, value} <- attrs, into: %{} do
-      string_key =
-        cond do
-          is_atom(key) -> Atom.to_string(key)
-          is_binary(key) -> key
-          true -> to_string(key)
-        end
-
-      {string_key, value}
-    end
-  end
-
-  defp log_upsert_failure(path, attrs, error) do
-    # Check if file actually exists on filesystem
-    file_exists = File.exists?(path)
-
-    # Check if video already exists in database
-    existing_video = get_video_by_path(path)
-
-    # Find library for this path
-    library_id = find_library_id(path)
-
-    messages = []
-    errors = []
-
-    # Add diagnostics about initial state
-    {messages, errors} =
-      if file_exists do
-        {["File exists on filesystem" | messages], errors}
-      else
-        {["File does not exist on filesystem" | messages],
-         ["File does not exist on filesystem: #{path}" | errors]}
-      end
-
-    messages =
-      case existing_video do
-        nil -> ["No existing video found in database" | messages]
-        %Video{id: id} -> ["Found existing video with ID: #{id}" | messages]
-      end
-
-    {messages, errors} =
-      case library_id do
-        nil ->
-          {["No matching library found for path" | messages],
-           ["No matching library found for path" | errors]}
-
-        lib_id ->
-          {["Found library ID: #{lib_id}" | messages], errors}
-      end
-
-    # Extract error details
-    error_details =
-      case error do
-        {:error, %Ecto.Changeset{} = changeset} ->
-          changeset_errors =
-            changeset.errors
-            |> Enum.map(fn {field, {message, _}} -> "#{field}: #{message}" end)
-
-          changeset_errors
-
-        {:error, reason} ->
-          ["Error: #{inspect(reason)}"]
-
-        other ->
-          ["Unknown error: #{inspect(other)}"]
-      end
-
-    final_errors = error_details ++ errors
-
-    # Log the comprehensive failure information
-    failure_info = %{
-      path: path,
-      success: false,
-      operation: "upsert_failed",
-      video_id: nil,
-      messages: Enum.reverse(messages),
-      errors: Enum.reverse(final_errors),
-      library_id: library_id,
-      file_exists: file_exists,
-      had_existing_video: !is_nil(existing_video),
-      provided_attrs: Map.keys(attrs) |> Enum.sort()
-    }
-
-    Logger.warning("❌ Video upsert failed: #{path}")
-    Logger.warning("   Failure details: #{inspect(failure_info, pretty: true)}")
-  end
-
-  defp get_path_from_attrs(attrs), do: Map.get(attrs, "path")
-
-  defp get_attr_value(attrs, key) when is_binary(key) do
-    Map.get(attrs, key)
-  end
-
-  defp get_video_metadata_for_comparison(path) do
-    Repo.one(
-      from v in Video,
-        where: v.path == ^path and v.reencoded == false and v.failed == false,
-        select: %{
-          id: v.id,
-          size: v.size,
-          bitrate: v.bitrate,
-          duration: v.duration,
-          video_codecs: v.video_codecs,
-          audio_codecs: v.audio_codecs
-        }
-    )
-  end
-
-  defp ensure_library_id(%{"library_id" => nil} = attrs),
-    do: Map.put(attrs, "library_id", find_library_id(attrs["path"]))
-
-  defp ensure_library_id(%{"library_id" => _} = attrs), do: attrs
-
-  defp ensure_library_id(attrs) do
-    path = Map.get(attrs, "path")
-    library_id = find_library_id(path)
-    Map.put(attrs, "library_id", library_id)
-  end
-
-  defp find_library_id(path) when is_binary(path) do
-    # Find the library with the longest matching path (most specific)
-    # Video path should start with library path
-    from(l in Library,
-      where: like(^path, fragment("concat(?, '%')", l.path)),
-      order_by: [desc: fragment("length(?)", l.path)],
-      select: l.id,
-      limit: 1
-    )
-    |> Repo.one()
-  end
-
-  defp find_library_id(_), do: nil
 
   def update_video(%Video{} = video, attrs) do
     video |> Video.changeset(attrs) |> Repo.update()
@@ -1251,7 +869,16 @@ defmodule Reencodarr.Media do
   defp gather_path_diagnostics(path, additional_attrs) do
     file_exists = File.exists?(path)
     existing_video = get_video_by_path(path)
-    library_id = find_library_id(path)
+
+    # Find library for this path - same logic as in VideoUpsert
+    library_id =
+      Repo.one(
+        from l in Library,
+          where: fragment("? LIKE CONCAT(?, '%')", ^path, l.path),
+          order_by: [desc: fragment("LENGTH(?)", l.path)],
+          limit: 1,
+          select: l.id
+      )
 
     attrs = build_base_attrs(path, library_id) |> Map.merge(additional_attrs)
 
