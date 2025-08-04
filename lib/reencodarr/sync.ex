@@ -1,32 +1,9 @@
-defmodule Reencodarr.Media.VideoFileInfo do
-  @moduledoc false
-  defstruct [
-    :path,
-    :size,
-    :service_id,
-    :service_type,
-    :audio_codec,
-    :bitrate,
-    :audio_channels,
-    :video_codec,
-    :resolution,
-    :video_fps,
-    :video_dynamic_range,
-    :video_dynamic_range_type,
-    :audio_stream_count,
-    :overall_bitrate,
-    :run_time,
-    :subtitles,
-    :title
-  ]
-end
-
 defmodule Reencodarr.Sync do
   @moduledoc "Coordinates fetching items from Sonarr/Radarr and syncing them into the database."
   use GenServer
   require Logger
   alias Reencodarr.{Media, Repo, Services, Telemetry}
-  alias Reencodarr.Media.MediaInfo
+  alias Reencodarr.Media.{MediaInfo, VideoFileInfo}
 
   # Public API
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -107,12 +84,12 @@ defmodule Reencodarr.Sync do
     :ok
   end
 
-  def upsert_video_from_file(%Reencodarr.Media.VideoFileInfo{size: nil} = file, service_type) do
+  def upsert_video_from_file(%VideoFileInfo{size: nil} = file, service_type) do
     Logger.warning("File size is missing: #{inspect(file)}")
     process_video_file(file, service_type)
   end
 
-  def upsert_video_from_file(%Reencodarr.Media.VideoFileInfo{} = file, service_type) do
+  def upsert_video_from_file(%VideoFileInfo{} = file, service_type) do
     process_video_file(file, service_type)
   end
 
@@ -124,8 +101,70 @@ defmodule Reencodarr.Sync do
     upsert_video_from_file(info, service_type)
   end
 
+  @doc """
+  Process raw service file data directly using MediaInfo conversion.
+  This bypasses the VideoFileInfo struct for simpler processing.
+  """
+  def upsert_video_from_service_file(file, service_type)
+      when service_type in [:sonarr, :radarr] do
+    # Convert directly to MediaInfo format
+    mediainfo = MediaInfo.from_service_file(file, service_type)
+
+    # Check if we need to analyze due to missing bitrate
+    needs_analysis =
+      case get_in(mediainfo, ["media", "track"]) do
+        tracks when is_list(tracks) ->
+          Enum.any?(tracks, fn track ->
+            track["@type"] == "General" and
+              (track["OverallBitRate"] == 0 or is_nil(track["OverallBitRate"]))
+          end)
+
+        _ ->
+          true
+      end
+
+    # Store in database
+    Repo.checkout(fn ->
+      Media.upsert_video(%{
+        "path" => file["path"],
+        "size" => file["size"],
+        "service_id" => to_string(file["id"]),
+        "service_type" => to_string(service_type),
+        "mediainfo" => mediainfo,
+        "bitrate" => file["overallBitrate"] || 0
+      })
+    end)
+
+    # Send for analysis if needed
+    if needs_analysis do
+      Reencodarr.Analyzer.process_path(%{
+        path: file["path"],
+        service_id: to_string(file["id"]),
+        service_type: to_string(service_type)
+      })
+    end
+  end
+
   defp build_video_file_info(file, media_info, service_type) do
-    %Reencodarr.Media.VideoFileInfo{
+    # Parse resolution safely
+    {width, height} =
+      case {media_info["width"], media_info["height"]} do
+        {w, h} when is_integer(w) and is_integer(h) ->
+          {w, h}
+
+        {w, h} when is_binary(w) and is_binary(h) ->
+          with {width_int, ""} <- Integer.parse(w),
+               {height_int, ""} <- Integer.parse(h) do
+            {width_int, height_int}
+          else
+            _ -> {0, 0}
+          end
+
+        _ ->
+          {0, 0}
+      end
+
+    %VideoFileInfo{
       path: file["path"],
       size: file["size"],
       service_id: to_string(file["id"]),
@@ -134,7 +173,7 @@ defmodule Reencodarr.Sync do
       bitrate: calculate_bitrate(media_info),
       audio_channels: media_info["audioChannels"],
       video_codec: media_info["videoCodec"],
-      resolution: "#{media_info["width"]}x#{media_info["height"]}",
+      resolution: {width, height},
       video_fps: file["videoFps"],
       video_dynamic_range: media_info["videoDynamicRange"],
       video_dynamic_range_type: media_info["videoDynamicRangeType"],
@@ -162,7 +201,7 @@ defmodule Reencodarr.Sync do
   end
 
   defp process_video_file(
-         %Reencodarr.Media.VideoFileInfo{audio_codec: codec, bitrate: 0} = info,
+         %VideoFileInfo{audio_codec: codec, bitrate: 0} = info,
          service_type
        )
        when codec in ["TrueHD", "EAC3"] do
@@ -176,37 +215,22 @@ defmodule Reencodarr.Sync do
   end
 
   defp process_video_file(
-         %Reencodarr.Media.VideoFileInfo{bitrate: 0} = info,
+         %VideoFileInfo{bitrate: 0} = info,
          service_type
        ) do
     Logger.debug("Bitrate is zero, inserting to DB then analyzing video: #{info.path}")
 
-    # First insert into database with bitrate 0 so analyzer can find it
-    resolution_tuple =
-      case String.split(info.resolution, "x") do
-        [width, height] ->
-          with {:ok, width_int} <- safe_binary_to_integer(width),
-               {:ok, height_int} <- safe_binary_to_integer(height) do
-            {width_int, height_int}
-          else
-            _ -> {0, 0}
-          end
-
-        _ ->
-          {0, 0}
-      end
-
-    updated_info = %{info | resolution: resolution_tuple}
-    mediainfo = MediaInfo.from_video_file_info(updated_info)
+    # Convert VideoFileInfo to MediaInfo format for database storage
+    mediainfo = MediaInfo.from_video_file_info(info)
 
     Repo.checkout(fn ->
       Media.upsert_video(%{
-        "path" => updated_info.path,
-        "size" => updated_info.size,
-        "service_id" => updated_info.service_id,
-        "service_type" => to_string(updated_info.service_type),
+        "path" => info.path,
+        "size" => info.size,
+        "service_id" => info.service_id,
+        "service_type" => to_string(info.service_type),
         "mediainfo" => mediainfo,
-        "bitrate" => updated_info.bitrate
+        "bitrate" => info.bitrate
       })
     end)
 
@@ -219,46 +243,22 @@ defmodule Reencodarr.Sync do
   end
 
   defp process_video_file(
-         %Reencodarr.Media.VideoFileInfo{resolution: resolution} = info,
+         %VideoFileInfo{} = info,
          _service_type
        ) do
-    resolution_tuple =
-      case String.split(resolution, "x") do
-        [width, height] ->
-          with {:ok, width_int} <- safe_binary_to_integer(width),
-               {:ok, height_int} <- safe_binary_to_integer(height) do
-            {width_int, height_int}
-          else
-            # Default to an invalid resolution if parsing fails
-            _ -> {0, 0}
-          end
-
-        # Default to an invalid resolution if parsing fails
-        _ ->
-          {0, 0}
-      end
-
-    updated_info = %{info | resolution: resolution_tuple}
-
-    mediainfo = MediaInfo.from_video_file_info(updated_info)
+    # Convert VideoFileInfo to MediaInfo format for database storage
+    mediainfo = MediaInfo.from_video_file_info(info)
 
     Repo.checkout(fn ->
       Media.upsert_video(%{
-        "path" => updated_info.path,
-        "size" => updated_info.size,
-        "service_id" => updated_info.service_id,
-        "service_type" => to_string(updated_info.service_type),
+        "path" => info.path,
+        "size" => info.size,
+        "service_id" => info.service_id,
+        "service_type" => to_string(info.service_type),
         "mediainfo" => mediainfo,
-        "bitrate" => updated_info.bitrate
+        "bitrate" => info.bitrate
       })
     end)
-  end
-
-  defp safe_binary_to_integer(binary) do
-    case Integer.parse(binary) do
-      {int, ""} -> {:ok, int}
-      _ -> :error
-    end
   end
 
   def refresh_operations(file_id, :sonarr) do
