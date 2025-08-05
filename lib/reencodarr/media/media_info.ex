@@ -635,6 +635,24 @@ defmodule Reencodarr.Media.MediaInfo do
     Map.get(struct, field, default)
   end
 
+  @doc """
+  Extracts normalized metadata from a track using the Track Protocol.
+
+  This provides a unified way to get metadata regardless of track type.
+  """
+  def extract_track_metadata(track) do
+    TrackProtocol.extract_metadata(track)
+  end
+
+  @doc """
+  Validates a track using the Track Protocol.
+
+  Returns true if the track has valid required fields for its type.
+  """
+  def validate_track(track) do
+    TrackProtocol.valid?(track)
+  end
+
   defp has_atmos_from_structs?(audio_tracks) do
     Enum.any?(audio_tracks, fn track ->
       case track do
@@ -710,8 +728,8 @@ defmodule Reencodarr.Media.MediaInfo do
 
       iex> extract_tracks_by_type(media_info, :video)
       [%VideoTrack{}, ...]
-      
-      iex> extract_tracks_by_type(media_info, :audio)  
+
+      iex> extract_tracks_by_type(media_info, :audio)
       [%AudioTrack{}, ...]
   """
   def extract_tracks_by_type(%__MODULE__{media: %Media{track: tracks}}, track_type)
@@ -728,7 +746,7 @@ defmodule Reencodarr.Media.MediaInfo do
 
       iex> extract_first_track(media_info, :general)
       %GeneralTrack{}
-      
+
       iex> extract_first_track(media_info, :video)
       %VideoTrack{}
   """
@@ -751,7 +769,7 @@ defmodule Reencodarr.Media.MediaInfo do
 
       iex> extract_codec_ids(media_info, :video)
       ["h264", "hevc"]
-      
+
       iex> extract_codec_ids(media_info, :audio)
       ["aac", "eac3"]
   """

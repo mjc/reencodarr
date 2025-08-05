@@ -121,5 +121,22 @@ defmodule Reencodarr.Media.TrackProtocolTest do
       assert Enum.find(legacy_maps, &(&1["@type"] == "Video"))
       assert Enum.find(legacy_maps, &(&1["@type"] == "Audio"))
     end
+
+    test "extract_track_metadata works with protocol" do
+      video = %VideoTrack{Width: 1920, Height: 1080, FrameRate: 23.976}
+      metadata = MediaInfo.extract_track_metadata(video)
+
+      assert metadata.width == 1920
+      assert metadata.height == 1080
+      assert metadata.frame_rate == 23.976
+    end
+
+    test "validate_track works with protocol" do
+      valid_video = %VideoTrack{Width: 1920, Height: 1080}
+      invalid_video = %VideoTrack{Width: nil, Height: nil}
+
+      assert MediaInfo.validate_track(valid_video) == true
+      assert MediaInfo.validate_track(invalid_video) == false
+    end
   end
 end

@@ -56,7 +56,8 @@ defmodule QuickDebugTest do
 
     # Generate the command
     command = "ab-av1 " <> Enum.join(args, " ")
-    IO.puts(command)
+    require Logger
+    Logger.debug(command)
 
     # This should pass with the fix
     assert path_count == 1, "Input path should appear only once, got #{path_count}"
