@@ -18,7 +18,7 @@ defprotocol Reencodarr.Media.TrackProtocol do
 
       iex> TrackProtocol.track_type(%GeneralTrack{})
       :general
-      
+
       iex> TrackProtocol.track_type(%VideoTrack{})
       :video
   """

@@ -115,6 +115,50 @@ defmodule Reencodarr.Media.Video do
         |> cast(params, @mediainfo_params)
         |> maybe_remove_size_zero()
         |> maybe_remove_bitrate_zero()
+        |> validate_mediainfo_tracks(mediainfo)
+    end
+  end
+
+  defp validate_mediainfo_tracks(changeset, mediainfo) do
+    try do
+      [media_struct] = MediaInfo.from_json(mediainfo)
+
+      # Validate that video tracks are valid if present
+      video_tracks = MediaInfo.extract_tracks_by_type(media_struct, :video)
+      audio_tracks = MediaInfo.extract_tracks_by_type(media_struct, :audio)
+
+      changeset
+      |> validate_video_tracks(video_tracks)
+      |> validate_audio_tracks(audio_tracks)
+    rescue
+      _ ->
+        add_error(changeset, :mediainfo, "contains invalid track data")
+    end
+  end
+
+  defp validate_video_tracks(changeset, video_tracks) do
+    invalid_video_count =
+      video_tracks
+      |> Enum.reject(&Reencodarr.Media.TrackProtocol.valid?/1)
+      |> length()
+
+    if invalid_video_count > 0 do
+      add_error(changeset, :mediainfo, "contains #{invalid_video_count} invalid video tracks")
+    else
+      changeset
+    end
+  end
+
+  defp validate_audio_tracks(changeset, audio_tracks) do
+    invalid_audio_count =
+      audio_tracks
+      |> Enum.reject(&Reencodarr.Media.TrackProtocol.valid?/1)
+      |> length()
+
+    if invalid_audio_count > 0 do
+      add_error(changeset, :mediainfo, "contains #{invalid_audio_count} invalid audio tracks")
+    else
+      changeset
     end
   end
 
