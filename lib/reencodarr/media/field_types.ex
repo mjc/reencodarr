@@ -36,7 +36,12 @@ defmodule Reencodarr.Media.FieldTypes do
     TextCount: {:integer, min: 0, max: 100},
     Title: :string,
     Format: :string,
-    FileExtension: :string
+    Format_Profile: :string,
+    Format_Version: :string,
+    FileExtension: :string,
+    CodecID: :string,
+    CodecID_Compatible: :string,
+    UniqueID: :string
   }
 
   @video_track_fields %{
@@ -54,7 +59,13 @@ defmodule Reencodarr.Media.FieldTypes do
     ChromaSubsampling: :string,
     BitDepth: {:integer, min: 1, max: 32},
     Language: :string,
-    CodecID: :string
+    CodecID: :string,
+    StreamOrder: :string,
+    ID: :string,
+    UniqueID: :string,
+    Default: :string,
+    Forced: :string,
+    Encoded_Library: :string
   }
 
   @audio_track_fields %{
@@ -66,7 +77,12 @@ defmodule Reencodarr.Media.FieldTypes do
     SamplingRate: {:integer, min: 8000, max: 192_000},
     Duration: {:float, min: 0.0, max: 86400.0},
     Language: :string,
-    CodecID: :string
+    CodecID: :string,
+    StreamOrder: :string,
+    ID: :string,
+    UniqueID: :string,
+    Default: :string,
+    Forced: :string
   }
 
   @text_track_fields %{
@@ -76,7 +92,31 @@ defmodule Reencodarr.Media.FieldTypes do
     Default: :string,
     Forced: :string,
     Duration: {:float, min: 0.0, max: 86400.0},
-    CodecID: :string
+    CodecID: :string,
+    StreamOrder: :string,
+    ID: :string,
+    UniqueID: :string,
+    BitRate: {:integer, min: 0, max: 10_000_000},
+    FrameRate: {:float, min: 0.0, max: 120.0},
+    FrameCount: {:integer, min: 0},
+    ElementCount: {:integer, min: 0},
+    StreamSize: {:integer, min: 0}
+  }
+
+  # Video schema fields that need validation (additional to MediaInfo fields)
+  @video_schema_fields %{
+    # Fields that exist in Video schema but not in MediaInfo tracks
+    path: :string,
+    size: {:integer, min: 0, max: 1_000_000_000_000},
+    video_codecs: {:array, :string},
+    audio_codecs: {:array, :string},
+    max_audio_channels: {:integer, min: 0, max: 32},
+    hdr: :string,
+    atmos: :boolean,
+    reencoded: :boolean,
+    failed: :boolean,
+    service_id: :string,
+    service_type: :string
   }
 
   @doc """
@@ -95,6 +135,7 @@ defmodule Reencodarr.Media.FieldTypes do
   def get_field_type(:video, field), do: Map.get(@video_track_fields, field)
   def get_field_type(:audio, field), do: Map.get(@audio_track_fields, field)
   def get_field_type(:text, field), do: Map.get(@text_track_fields, field)
+  def get_field_type(:video_schema, field), do: Map.get(@video_schema_fields, field)
   def get_field_type(_, _), do: nil
 
   @doc """
@@ -165,6 +206,7 @@ defmodule Reencodarr.Media.FieldTypes do
   def get_all_field_types(:video), do: @video_track_fields
   def get_all_field_types(:audio), do: @audio_track_fields
   def get_all_field_types(:text), do: @text_track_fields
+  def get_all_field_types(:video_schema), do: @video_schema_fields
   def get_all_field_types(_), do: %{}
 
   # Private conversion functions
