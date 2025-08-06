@@ -31,7 +31,13 @@ defmodule ReencodarrWeb.DashboardLive do
       |> DashboardLiveHelpers.setup_dashboard_assigns()
       |> DashboardLiveHelpers.start_stardate_timer()
       |> setup_telemetry()
-      |> setup_dashboard_data()
+      |> assign(:dashboard_data, nil)
+      |> setup_streams()
+
+    # Load initial data asynchronously after mount
+    if connected?(socket) do
+      send(self(), :load_initial_data)
+    end
 
     {:ok, socket}
   end
@@ -39,10 +45,36 @@ defmodule ReencodarrWeb.DashboardLive do
   # Event Handlers
 
   @impl true
-  def handle_info({:telemetry_event, state}, socket) do
-    dashboard_data = Presenter.present(state, socket.assigns.timezone)
-    socket = assign(socket, :dashboard_data, dashboard_data)
+  def handle_info(:load_initial_data, socket) do
+    initial_state = DashboardLiveHelpers.get_initial_state()
+    dashboard_data = Presenter.present(initial_state, socket.assigns.timezone)
+
+    socket =
+      socket
+      |> assign(:dashboard_data, dashboard_data)
+      |> update_queue_streams(dashboard_data.queues)
+
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info({:telemetry_event, state}, socket) do
+    try do
+      dashboard_data = Presenter.present(state, socket.assigns.timezone)
+
+      socket =
+        socket
+        |> assign(:dashboard_data, dashboard_data)
+        |> update_queue_streams(dashboard_data.queues)
+
+      {:noreply, socket}
+    rescue
+      error ->
+        Logger.error("Dashboard telemetry event error: #{inspect(error)}")
+        Logger.debug("Received state: #{inspect(state)}")
+        # Don't crash, just ignore the bad event
+        {:noreply, socket}
+    end
   end
 
   @impl true
@@ -90,14 +122,20 @@ defmodule ReencodarrWeb.DashboardLive do
       current_page={:overview}
       current_stardate={@current_stardate}
     >
-      <.metrics_grid metrics={@dashboard_data.metrics} />
-      <.operations_panel status={@dashboard_data.status} />
-      <.queues_section queues={@dashboard_data.queues} />
+      <%= if @dashboard_data do %>
+        <.metrics_grid metrics={@dashboard_data.metrics} />
+        <.operations_panel status={@dashboard_data.status} />
+        <.queues_section queues={@dashboard_data.queues} streams={@streams || %{}} />
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
-        <.control_panel status={@dashboard_data.status} stats={@dashboard_data.stats} />
-        <.manual_scan_section />
-      </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+          <.control_panel status={@dashboard_data.status} stats={@dashboard_data.stats} />
+          <.manual_scan_section />
+        </div>
+      <% else %>
+        <div class="text-center text-lcars-orange-300 py-8">
+          Loading dashboard data...
+        </div>
+      <% end %>
     </.lcars_page_frame>
     """
   end
@@ -125,11 +163,28 @@ defmodule ReencodarrWeb.DashboardLive do
     socket
   end
 
-  defp setup_dashboard_data(socket) do
-    initial_state = DashboardLiveHelpers.get_initial_state()
-    dashboard_data = Presenter.present(initial_state, socket.assigns.timezone)
+  defp setup_streams(socket) do
+    socket
+    |> stream(:crf_search_queue, [])
+    |> stream(:encoding_queue, [])
+    |> stream(:analyzer_queue, [])
+  end
 
-    assign(socket, :dashboard_data, dashboard_data)
+  defp update_queue_streams(socket, queues) do
+    crf_search_items = Enum.map(queues.crf_search.files, &add_stream_id(&1, "crf"))
+    encoding_items = Enum.map(queues.encoding.files, &add_stream_id(&1, "enc"))
+    analyzer_items = Enum.map(queues.analyzer.files, &add_stream_id(&1, "ana"))
+
+    socket
+    |> stream(:crf_search_queue, crf_search_items, reset: true)
+    |> stream(:encoding_queue, encoding_items, reset: true)
+    |> stream(:analyzer_queue, analyzer_items, reset: true)
+  end
+
+  defp add_stream_id(item, prefix) do
+    # Generate a unique ID based on the path hash and prefix
+    path_hash = :erlang.phash2(item.path)
+    Map.put(item, :id, "#{prefix}-#{path_hash}-#{item.index}")
   end
 
   # Telemetry event handler

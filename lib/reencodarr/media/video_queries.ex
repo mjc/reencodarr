@@ -50,7 +50,8 @@ defmodule Reencodarr.Media.VideoQueries do
         where: is_nil(v.bitrate) and v.failed == false,
         order_by: [
           desc: v.size,
-          asc: v.updated_at
+          desc: v.inserted_at,
+          desc: v.updated_at
         ],
         limit: ^limit,
         select: %{

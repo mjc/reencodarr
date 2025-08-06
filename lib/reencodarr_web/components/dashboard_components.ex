@@ -136,16 +136,32 @@ defmodule ReencodarrWeb.DashboardComponents do
   end
 
   @doc """
-  Renders the queues section with all queue panels.
+  Renders the queues section with stream-based queue panels.
   """
   attr :queues, :map, required: true
+  attr :streams, :map, required: true
 
   def queues_section(assigns) do
     ~H"""
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
-      <.queue_panel title="CRF SEARCH QUEUE" queue={@queues.crf_search} color="cyan" />
-      <.queue_panel title="ENCODING QUEUE" queue={@queues.encoding} color="green" />
-      <.queue_panel title="ANALYZER QUEUE" queue={@queues.analyzer} color="purple" />
+      <.queue_panel
+        title="CRF SEARCH QUEUE"
+        queue={@queues.crf_search}
+        queue_stream={@streams.crf_search_queue}
+        color="cyan"
+      />
+      <.queue_panel
+        title="ENCODING QUEUE"
+        queue={@queues.encoding}
+        queue_stream={@streams.encoding_queue}
+        color="green"
+      />
+      <.queue_panel
+        title="ANALYZER QUEUE"
+        queue={@queues.analyzer}
+        queue_stream={@streams.analyzer_queue}
+        color="purple"
+      />
     </div>
     """
   end
@@ -168,18 +184,25 @@ defmodule ReencodarrWeb.DashboardComponents do
       </div>
 
       <div class="p-2 sm:p-3">
-        <%= if @queue.files == [] do %>
+        <%= if @queue.total_count == 0 do %>
           <div class="text-center py-4 sm:py-6">
             <div class="text-3xl sm:text-4xl mb-2">🎉</div>
             <p class="text-orange-300 tracking-wide text-xs sm:text-sm">QUEUE EMPTY</p>
           </div>
         <% else %>
-          <div class="space-y-1 sm:space-y-2 max-h-48 sm:max-h-64 overflow-y-auto">
-            <%= for file <- @queue.files do %>
-              <.queue_file_item file={file} queue={@queue} />
-            <% end %>
+          <div
+            class="space-y-1 sm:space-y-2 max-h-48 sm:max-h-64 overflow-y-auto"
+            id={"#{@color}-queue-container"}
+          >
+            <div phx-update="stream" id={"#{@color}-queue-items"}>
+              <%= for {item_id, file} <- (@queue_stream || []) do %>
+                <div id={item_id}>
+                  <.queue_file_item file={file} queue={@queue} />
+                </div>
+              <% end %>
+            </div>
 
-            <%= if length(@queue.files) == 10 and @queue.total_count > 10 do %>
+            <%= if @queue.total_count > 10 do %>
               <div class="text-center py-1 sm:py-2">
                 <span class="text-xs text-orange-300 tracking-wide">
                   SHOWING FIRST 10 OF {format_count(@queue.total_count)} ITEMS

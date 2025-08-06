@@ -75,12 +75,14 @@ defmodule Reencodarr.TelemetryEventHandler do
   def handle_event([:reencodarr, :analyzer, :started], _measurements, _metadata, %{
         reporter_pid: pid
       }) do
+    Logger.debug("TelemetryEventHandler: Analyzer started event received")
     GenServer.cast(pid, {:update_analyzer, true})
   end
 
   def handle_event([:reencodarr, :analyzer, :paused], _measurements, _metadata, %{
         reporter_pid: pid
       }) do
+    Logger.debug("TelemetryEventHandler: Analyzer paused event received")
     GenServer.cast(pid, {:update_analyzer, false})
   end
 
@@ -90,9 +92,23 @@ defmodule Reencodarr.TelemetryEventHandler do
     GenServer.cast(pid, {:update_sync, event, measurements, service_type})
   end
 
-  # Media events (trigger stats refresh)
-  def handle_event([:reencodarr, :media, _event], _measurements, _metadata, %{reporter_pid: pid}) do
-    send(pid, :refresh_stats)
+  # Queue change events (trigger immediate stats refresh with queue data)
+  def handle_event([:reencodarr, :analyzer, :queue_changed], measurements, metadata, %{
+        reporter_pid: pid
+      }) do
+    GenServer.cast(pid, {:update_queue_state, :analyzer, measurements, metadata})
+  end
+
+  def handle_event([:reencodarr, :crf_searcher, :queue_changed], measurements, metadata, %{
+        reporter_pid: pid
+      }) do
+    GenServer.cast(pid, {:update_queue_state, :crf_searcher, measurements, metadata})
+  end
+
+  def handle_event([:reencodarr, :encoder, :queue_changed], measurements, metadata, %{
+        reporter_pid: pid
+      }) do
+    GenServer.cast(pid, {:update_queue_state, :encoder, measurements, metadata})
   end
 
   # Catch-all for unhandled events
@@ -114,12 +130,15 @@ defmodule Reencodarr.TelemetryEventHandler do
       [:reencodarr, :encoder, :completed],
       [:reencodarr, :encoder, :failed],
       [:reencodarr, :encoder, :paused],
+      [:reencodarr, :encoder, :queue_changed],
       [:reencodarr, :crf_search, :started],
       [:reencodarr, :crf_search, :progress],
       [:reencodarr, :crf_search, :completed],
       [:reencodarr, :crf_search, :paused],
+      [:reencodarr, :crf_searcher, :queue_changed],
       [:reencodarr, :analyzer, :started],
       [:reencodarr, :analyzer, :paused],
+      [:reencodarr, :analyzer, :queue_changed],
       [:reencodarr, :sync, :started],
       [:reencodarr, :sync, :progress],
       [:reencodarr, :sync, :completed],

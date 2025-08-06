@@ -61,6 +61,9 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     # Subscribe to encoding events to know when processing completes
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
 
+    # Send a delayed message to trigger initial telemetry emission
+    Process.send_after(self(), :initial_telemetry, 1000)
+
     {:producer,
      %{
        demand: 0,
@@ -146,6 +149,13 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   @impl GenStage
   def handle_info({:vmaf_upserted, _vmaf}, state) do
     dispatch_if_ready(state)
+  end
+
+  @impl GenStage
+  def handle_info(:initial_telemetry, state) do
+    # Emit initial telemetry on startup to populate dashboard queue
+    emit_initial_telemetry(state)
+    {:noreply, [], state}
   end
 
   @impl GenStage
@@ -261,6 +271,17 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
         # Decrement demand and keep processing status
         final_state = %{new_state | demand: state.demand - 1}
 
+        # Emit telemetry event for queue state change
+        :telemetry.execute(
+          [:reencodarr, :encoder, :queue_changed],
+          %{dispatched_count: 1, remaining_demand: final_state.demand},
+          %{
+            next_vmaf: vmaf,
+            queue_size: :queue.len(new_state.queue),
+            from_queue: new_state.queue != updated_state.queue
+          }
+        )
+
         {:noreply, [vmaf], final_state}
     end
   end
@@ -282,5 +303,46 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
           nil -> {nil, state}
         end
     end
+  end
+
+  # Emit initial telemetry on startup to populate dashboard queues
+  defp emit_initial_telemetry(state) do
+    # Get 5 for dashboard display
+    next_vmafs = get_next_vmafs_for_telemetry(state, 5)
+
+    measurements = %{
+      queue_size: :queue.len(state.queue)
+    }
+
+    metadata = %{
+      producer_type: :encoder,
+      # For backward compatibility
+      next_vmaf: List.first(next_vmafs),
+      # Full list for dashboard
+      next_vmafs: next_vmafs
+    }
+
+    :telemetry.execute([:reencodarr, :encoder, :queue_changed], measurements, metadata)
+  end
+
+  # Get multiple next VMAFs for dashboard display
+  defp get_next_vmafs_for_telemetry(state, limit) do
+    # First get what's in the queue
+    queue_items = :queue.to_list(state.queue) |> Enum.take(limit)
+    remaining_needed = limit - length(queue_items)
+
+    # Then get additional from database if needed
+    db_vmafs =
+      if remaining_needed > 0 do
+        case Media.get_next_for_encoding(remaining_needed) do
+          list when is_list(list) -> list
+          single_item when not is_nil(single_item) -> [single_item]
+          nil -> []
+        end
+      else
+        []
+      end
+
+    queue_items ++ db_vmafs
   end
 end

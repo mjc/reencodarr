@@ -118,19 +118,24 @@ defmodule Reencodarr.FailureTracker do
 
   # Encoding stage failures
   def record_process_failure(video, exit_code, opts \\ []) do
-    {category, message} = classify_encoding_exit_code(exit_code)
+    context = Keyword.get(opts, :context, %{})
 
-    context =
+    # Check if we can extract more specific FFmpeg error information from output
+    {actual_exit_code, category, enhanced_message} =
+      parse_ffmpeg_error_from_output(context, exit_code)
+
+    enhanced_context =
       %{
-        exit_code: exit_code,
+        original_exit_code: exit_code,
+        parsed_exit_code: actual_exit_code,
         classification: category
       }
-      |> Map.merge(Keyword.get(opts, :context, %{}))
+      |> Map.merge(context)
 
     Media.record_video_failure(video, :encoding, category,
-      code: "EXIT_#{exit_code}",
-      message: message,
-      context: context
+      code: "EXIT_#{actual_exit_code}",
+      message: enhanced_message,
+      context: enhanced_context
     )
   end
 
@@ -258,6 +263,75 @@ defmodule Reencodarr.FailureTracker do
   end
 
   @doc """
+  Parse FFmpeg errors from ab-av1 output to get more specific error information.
+
+  Returns {actual_exit_code, category, message} where:
+  - actual_exit_code: The real FFmpeg exit code (if found) or original exit code
+  - category: The appropriate failure category based on the error
+  - message: Enhanced error message with specific details
+  """
+  def parse_ffmpeg_error_from_output(context, original_exit_code) do
+    output = Map.get(context, "full_output", "")
+
+    cond do
+      # FFmpeg exit code pattern: "Error: ffmpeg encode exit code 234"
+      ffmpeg_exit_code = extract_ffmpeg_exit_code(output) ->
+        {category, base_message} = classify_encoding_exit_code(ffmpeg_exit_code)
+
+        enhanced_message =
+          enhance_message_with_ffmpeg_details(output, base_message, ffmpeg_exit_code)
+
+        {ffmpeg_exit_code, category, enhanced_message}
+
+      # No specific FFmpeg error found, use original classification
+      true ->
+        {category, message} = classify_encoding_exit_code(original_exit_code)
+        {original_exit_code, category, message}
+    end
+  end
+
+  defp extract_ffmpeg_exit_code(output) do
+    case Regex.run(~r/Error: ffmpeg encode exit code (\d+)/, output) do
+      [_, exit_code_str] -> String.to_integer(exit_code_str)
+      _ -> nil
+    end
+  end
+
+  defp enhance_message_with_ffmpeg_details(output, base_message, ffmpeg_exit_code) do
+    specific_errors = extract_specific_ffmpeg_errors(output)
+
+    if length(specific_errors) > 0 do
+      error_details = Enum.join(specific_errors, "; ")
+      "#{base_message} (FFmpeg exit #{ffmpeg_exit_code}): #{error_details}"
+    else
+      "#{base_message} (FFmpeg exit #{ffmpeg_exit_code})"
+    end
+  end
+
+  defp extract_specific_ffmpeg_errors(output) do
+    [
+      # Channel layout errors
+      ~r/Invalid channel layout .+ for specified mapping family/,
+      # Codec errors
+      ~r/Error while opening encoder - maybe incorrect parameters/,
+      # Stream mapping errors
+      ~r/Output with label .+ does not exist/,
+      # Format errors
+      ~r/Unknown encoder/,
+      ~r/Encoder .+ not found/,
+      # Resource errors
+      ~r/Cannot allocate memory/,
+      ~r/No space left on device/
+    ]
+    |> Enum.flat_map(fn regex ->
+      case Regex.run(regex, output) do
+        [match] -> [String.trim(match)]
+        _ -> []
+      end
+    end)
+  end
+
+  @doc """
   Build enhanced context for ab-av1 command failures.
 
   ## Examples
@@ -337,13 +411,14 @@ defmodule Reencodarr.FailureTracker do
   end
 
   defp codec_error?(exit_code) do
-    exit_code in [22, 69]
+    exit_code in [22, 69, 234]
   end
 
   defp classify_codec_error(exit_code) do
     case exit_code do
       22 -> {:codec_issues, "Invalid file format"}
       69 -> {:codec_issues, "Unsupported codec or format"}
+      234 -> {:codec_issues, "Audio channel layout or codec conversion error"}
     end
   end
 

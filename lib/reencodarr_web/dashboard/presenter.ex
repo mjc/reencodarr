@@ -29,35 +29,13 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   end
 
   def present(dashboard_state, timezone \\ "UTC") do
-    # Ensure cache table exists
-    start_cache()
-
-    # Generate cache key based on state hash and timezone
-    cache_key = {
-      state_hash(dashboard_state),
-      timezone
+    # Temporarily disable caching to debug UI issues
+    %{
+      metrics: present_metrics(dashboard_state.stats),
+      status: present_status(dashboard_state),
+      queues: present_queues(dashboard_state),
+      stats: present_stats(dashboard_state.stats, timezone)
     }
-
-    # Try to get from cache first
-    case :ets.lookup(@cache_table, cache_key) do
-      [{^cache_key, cached_result}] ->
-        cached_result
-
-      [] ->
-        # Compute and cache the result
-        result = %{
-          metrics: present_metrics(dashboard_state.stats),
-          status: present_status(dashboard_state),
-          queues: present_queues(dashboard_state),
-          stats: present_stats(dashboard_state.stats, timezone)
-        }
-
-        # Cache with TTL-like cleanup (keep only last 3 entries)
-        cleanup_cache()
-        :ets.insert(@cache_table, {cache_key, result})
-
-        result
-    end
   end
 
   defp present_metrics(stats) do
@@ -103,6 +81,10 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
     analyzing = Map.get(dashboard_state, :analyzing, false)
     syncing = Map.get(dashboard_state, :syncing, false)
 
+    Logger.debug(
+      "Presenter: Status - analyzing: #{analyzing}, encoding: #{encoding}, crf_searching: #{crf_searching}"
+    )
+
     encoding_progress = Map.get(dashboard_state, :encoding_progress)
     crf_search_progress = Map.get(dashboard_state, :crf_search_progress)
     analyzer_progress = Map.get(dashboard_state, :analyzer_progress)
@@ -130,6 +112,13 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   end
 
   defp present_queues(dashboard_state) do
+    analyzer_files = get_analyzer_files(dashboard_state)
+    queue_length = Map.get(dashboard_state.stats || %{}, :queue_length, %{})
+
+    Logger.debug(
+      "Presenter: Queues - analyzer files: #{length(analyzer_files)}, queue_length: #{inspect(queue_length)}"
+    )
+
     %{
       crf_search:
         QueueBuilder.build_queue(
@@ -139,8 +128,7 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
         ),
       encoding:
         QueueBuilder.build_queue(:encoding, get_encoding_files(dashboard_state), dashboard_state),
-      analyzer:
-        QueueBuilder.build_queue(:analyzer, get_analyzer_files(dashboard_state), dashboard_state)
+      analyzer: QueueBuilder.build_queue(:analyzer, analyzer_files, dashboard_state)
     }
   end
 
@@ -148,21 +136,21 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   defp get_crf_search_files(%{stats: %{next_crf_search: files}}), do: files || []
 
   defp get_crf_search_files(%Reencodarr.DashboardState{} = state),
-    do: Reencodarr.DashboardState.crf_search_queue(state)
+    do: state.stats.next_crf_search
 
   defp get_crf_search_files(_), do: []
 
   defp get_encoding_files(%{stats: %{videos_by_estimated_percent: files}}), do: files || []
 
   defp get_encoding_files(%Reencodarr.DashboardState{} = state),
-    do: Reencodarr.DashboardState.encoding_queue(state)
+    do: state.stats.videos_by_estimated_percent
 
   defp get_encoding_files(_), do: []
 
   defp get_analyzer_files(%{stats: %{next_analyzer: files}}), do: files || []
 
   defp get_analyzer_files(%Reencodarr.DashboardState{} = state),
-    do: Reencodarr.DashboardState.analyzer_queue(state)
+    do: state.stats.next_analyzer
 
   defp get_analyzer_files(_), do: []
 
@@ -181,37 +169,6 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   end
 
   defp calculate_progress(_, _), do: 0
-
-  # Generate a simple hash of the state for cache key
-  defp state_hash(dashboard_state) do
-    {
-      dashboard_state.stats.total_videos,
-      dashboard_state.stats.reencoded,
-      dashboard_state.stats.queue_length,
-      dashboard_state.encoding,
-      dashboard_state.crf_searching,
-      dashboard_state.syncing,
-      get_progress_percent(dashboard_state.encoding_progress),
-      get_progress_percent(dashboard_state.crf_search_progress),
-      # sync_progress is an integer
-      Map.get(dashboard_state, :sync_progress, 0)
-    }
-  end
-
-  defp get_progress_percent(progress) when is_map(progress), do: Map.get(progress, :percent, 0)
-  defp get_progress_percent(_), do: 0
-
-  # Simple cache cleanup to prevent unbounded growth
-  defp cleanup_cache do
-    case :ets.info(@cache_table, :size) do
-      size when size > 3 ->
-        # Remove oldest entries (simple FIFO)
-        :ets.delete_all_objects(@cache_table)
-
-      _ ->
-        :ok
-    end
-  end
 
   @doc """
   Reports approximate memory usage of dashboard data for monitoring.

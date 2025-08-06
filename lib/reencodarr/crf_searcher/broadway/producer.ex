@@ -59,6 +59,9 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     # Subscribe to media events for new videos
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "media_events")
 
+    # Send a delayed message to trigger initial telemetry emission
+    Process.send_after(self(), :initial_telemetry, 1000)
+
     {:producer,
      %{
        demand: 0,
@@ -141,6 +144,13 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   end
 
   @impl GenStage
+  def handle_info(:initial_telemetry, state) do
+    # Emit initial telemetry on startup to populate dashboard queue
+    emit_initial_telemetry(state)
+    {:noreply, [], state}
+  end
+
+  @impl GenStage
   def handle_info(_msg, state) do
     {:noreply, [], state}
   end
@@ -219,6 +229,18 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
           Logger.debug("Dispatching video #{video.id} for CRF search")
           # Mark as processing and decrement demand
           updated_state = %{new_state | demand: state.demand - 1, status: :processing}
+
+          # Emit telemetry event for queue state change
+          :telemetry.execute(
+            [:reencodarr, :crf_searcher, :queue_changed],
+            %{dispatched_count: 1, remaining_demand: updated_state.demand},
+            %{
+              next_video: video,
+              queue_size: :queue.len(new_state.queue),
+              from_queue: new_state.queue != state.queue
+            }
+          )
+
           {:noreply, [video], updated_state}
       end
     else
@@ -237,5 +259,42 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
           [] -> {nil, state}
         end
     end
+  end
+
+  # Emit initial telemetry on startup to populate dashboard queues
+  defp emit_initial_telemetry(state) do
+    # Get 5 for dashboard display
+    next_videos = get_next_videos_for_telemetry(state, 5)
+
+    measurements = %{
+      queue_size: :queue.len(state.queue)
+    }
+
+    metadata = %{
+      producer_type: :crf_searcher,
+      # For backward compatibility
+      next_video: List.first(next_videos),
+      # Full list for dashboard
+      next_videos: next_videos
+    }
+
+    :telemetry.execute([:reencodarr, :crf_searcher, :queue_changed], measurements, metadata)
+  end
+
+  # Get multiple next videos for dashboard display
+  defp get_next_videos_for_telemetry(state, limit) do
+    # First get what's in the queue
+    queue_items = :queue.to_list(state.queue) |> Enum.take(limit)
+    remaining_needed = limit - length(queue_items)
+
+    # Then get additional from database if needed
+    db_videos =
+      if remaining_needed > 0 do
+        Media.get_videos_for_crf_search(remaining_needed)
+      else
+        []
+      end
+
+    queue_items ++ db_videos
   end
 end

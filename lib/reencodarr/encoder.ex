@@ -7,6 +7,7 @@ defmodule Reencodarr.Encoder do
   require Logger
   alias Reencodarr.Encoder.Broadway
   alias Reencodarr.Encoder.Broadway.Producer
+  alias Reencodarr.Telemetry
 
   @doc """
   Check if the encoder is currently running.
@@ -23,11 +24,9 @@ defmodule Reencodarr.Encoder do
   """
   @spec start() :: :ok
   def start do
-    Logger.info("🎬 Starting encoder")
-    Broadway.start()
-
-    # Trigger dispatch of available VMAFs
-    Producer.dispatch_available()
+    Logger.debug("🎬 Starting encoder")
+    Broadway.resume()
+    # Note: encoder doesn't have generic start/pause telemetry, only specific encoding events
     :ok
   end
 
@@ -36,18 +35,9 @@ defmodule Reencodarr.Encoder do
   """
   @spec pause() :: :ok
   def pause do
-    Logger.info("🎬 Pausing encoder")
+    Logger.debug("🎬 Pausing encoder")
     Broadway.pause()
-    :ok
-  end
-
-  @doc """
-  Resume the encoder.
-  """
-  @spec resume() :: :ok
-  def resume do
-    Logger.info("🎬 Resuming encoder")
-    Broadway.resume()
+    Telemetry.emit_encoder_paused()
     :ok
   end
 

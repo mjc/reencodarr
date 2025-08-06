@@ -186,6 +186,10 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   def handle_info(:initial_dispatch, state) do
     # Trigger initial dispatch after startup to check for videos needing analysis
     Logger.debug("Producer: Initial dispatch triggered")
+
+    # Emit initial telemetry regardless of producer status so dashboard shows queue on startup
+    emit_initial_telemetry(state)
+
     dispatch_if_ready(state)
   end
 
@@ -197,9 +201,16 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   # Private functions
 
   defp send_to_producer(message) do
+    Logger.info("Producer: Sending message #{inspect(message)}")
+
     case find_producer_process() do
-      nil -> {:error, :producer_not_found}
-      producer_pid -> GenStage.cast(producer_pid, message)
+      nil ->
+        Logger.error("Producer: Producer process not found!")
+        {:error, :producer_not_found}
+
+      producer_pid ->
+        Logger.info("Producer: Found producer PID #{inspect(producer_pid)}, sending cast")
+        GenStage.cast(producer_pid, message)
     end
   end
 
@@ -285,6 +296,17 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
         Logger.debug("Broadway producer dispatching #{length(videos)} videos for analysis")
         new_demand = state.demand - length(videos)
         new_state = State.update(state, demand: new_demand, manual_queue: remaining_manual)
+
+        # Emit telemetry event for queue state change
+        :telemetry.execute(
+          [:reencodarr, :analyzer, :queue_changed],
+          %{dispatched_count: length(videos), remaining_demand: new_demand},
+          %{
+            next_videos: Enum.take(all_videos, 5),
+            manual_queue_size: length(remaining_manual),
+            database_queue_available: remaining_demand > 0
+          }
+        )
 
         # Broadcast queue state change if manual queue changed
         if length(remaining_manual) != length(state.manual_queue) do
@@ -407,5 +429,39 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       {:empty, _queue} ->
         {Enum.reverse(acc), queue}
     end
+  end
+
+  # Emit initial telemetry on startup to populate dashboard queues
+  defp emit_initial_telemetry(state) do
+    next_videos = get_next_videos_for_telemetry(state)
+
+    measurements = %{
+      queue_size: :queue.len(state.queue),
+      manual_queue_size: length(state.manual_queue)
+    }
+
+    metadata = %{
+      producer_type: :analyzer,
+      next_videos: next_videos
+    }
+
+    :telemetry.execute([:reencodarr, :analyzer, :queue_changed], measurements, metadata)
+  end
+
+  # Get next videos for telemetry (similar to dispatch_videos logic but without state changes)
+  defp get_next_videos_for_telemetry(state) do
+    # Take from manual queue first
+    manual_videos = Enum.take(state.manual_queue, 5)
+    remaining_needed = 5 - length(manual_videos)
+
+    # Get additional videos from database if needed
+    db_videos =
+      if remaining_needed > 0 do
+        Media.get_videos_needing_analysis(remaining_needed)
+      else
+        []
+      end
+
+    manual_videos ++ db_videos
   end
 end
