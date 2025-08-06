@@ -122,6 +122,50 @@ defmodule Reencodarr.Media do
   def get_common_failure_patterns(limit \\ 10),
     do: VideoFailure.get_common_failure_patterns(limit)
 
+  @doc """
+  Convenience function to reset all failed videos and clear their failure entries.
+
+  This is useful for mass retry scenarios after fixing configuration issues
+  or updating encoding logic. Clears both the `failed` flag on videos and
+  removes all associated VideoFailure records.
+
+  Returns a summary of the operation.
+  """
+  @spec reset_all_failures() :: %{
+          videos_reset: integer(),
+          failures_deleted: integer()
+        }
+  def reset_all_failures() do
+    Repo.transaction(fn ->
+      # First, get count of videos that will be reset
+      videos_to_reset_count =
+        from(v in Video, where: v.failed == true, select: count(v.id))
+        |> Repo.one()
+
+      # Get count of failures that will be deleted
+      failures_to_delete_count =
+        from(f in VideoFailure, where: is_nil(f.resolved_at), select: count(f.id))
+        |> Repo.one()
+
+      # Reset all failed videos
+      from(v in Video, where: v.failed == true)
+      |> Repo.update_all(set: [failed: false, updated_at: DateTime.utc_now()])
+
+      # Delete all unresolved failures
+      from(f in VideoFailure, where: is_nil(f.resolved_at))
+      |> Repo.delete_all()
+
+      %{
+        videos_reset: videos_to_reset_count,
+        failures_deleted: failures_to_delete_count
+      }
+    end)
+    |> case do
+      {:ok, result} -> result
+      {:error, _reason} -> %{videos_reset: 0, failures_deleted: 0}
+    end
+  end
+
   def most_recent_video_update, do: Repo.one(from v in Video, select: max(v.updated_at))
   def get_most_recent_inserted_at, do: Repo.one(from v in Video, select: max(v.inserted_at))
   def video_has_vmafs?(%Video{id: id}), do: Repo.exists?(from v in Vmaf, where: v.video_id == ^id)
@@ -319,20 +363,20 @@ defmodule Reencodarr.Media do
   end
 
   defp fetch_next_items do
-    next_crf_search = get_videos_for_crf_search(5)
-    videos_by_estimated_percent = list_videos_by_estimated_percent(5)
-    next_analyzer = get_videos_needing_analysis(5)
-    manual_items = get_manual_analyzer_items()
-    combined_analyzer = manual_items ++ next_analyzer
+    # Simple direct database queries - no Broadway producer state complexity
+    next_analyzer = get_videos_needing_analysis(10)
+    next_crf_search = get_videos_for_crf_search(10)
+    videos_by_estimated_percent = list_videos_by_estimated_percent(10)
     next_encoding = get_next_for_encoding()
     next_encoding_by_time = get_next_for_encoding_by_time()
+    manual_items = get_manual_analyzer_items()
 
     %{
       next_crf_search: next_crf_search,
       videos_by_estimated_percent: videos_by_estimated_percent,
       next_analyzer: next_analyzer,
       manual_items: manual_items,
-      combined_analyzer: combined_analyzer,
+      combined_analyzer: manual_items ++ next_analyzer,
       next_encoding: next_encoding,
       next_encoding_by_time: next_encoding_by_time
     }

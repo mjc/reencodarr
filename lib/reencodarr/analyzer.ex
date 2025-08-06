@@ -6,6 +6,7 @@ defmodule Reencodarr.Analyzer do
   require Logger
 
   alias Reencodarr.Analyzer.Broadway
+  alias Reencodarr.Telemetry
 
   @doc """
   Process a video path. This function maintains compatibility with the old API
@@ -53,14 +54,18 @@ defmodule Reencodarr.Analyzer do
   Start the analyzer. This function maintains compatibility with the old API.
   """
   def start do
+    Logger.debug("🎭 Starting analyzer")
     Broadway.resume()
+    Telemetry.emit_analyzer_started()
   end
 
   @doc """
   Pause the analyzer. This function maintains compatibility with the old API.
   """
   def pause do
+    Logger.debug("🎭 Pausing analyzer")
     Broadway.pause()
+    Telemetry.emit_analyzer_paused()
   end
 
   @doc """

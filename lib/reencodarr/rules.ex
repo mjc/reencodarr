@@ -281,11 +281,19 @@ defmodule Reencodarr.Rules do
         {"--enc", "ac=6"}
       ]
     else
-      [
+      base_config = [
         {"--acodec", "libopus"},
         {"--enc", "b:a=#{opus_bitrate(channels)}k"},
         {"--enc", "ac=#{channels}"}
       ]
+
+      # Add channel layout workaround for 5.1(side) -> 5.1 mapping
+      # This handles the common FFmpeg error: "Invalid channel layout 5.1(side) for specified mapping family -1"
+      if channels == 6 do
+        base_config ++ [{"--enc", "af=aformat=channel_layouts=5.1"}]
+      else
+        base_config
+      end
     end
   end
 

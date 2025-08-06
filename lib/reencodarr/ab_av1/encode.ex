@@ -99,7 +99,6 @@ defmodule Reencodarr.AbAv1.Encode do
     result =
       case exit_code do
         0 -> {:ok, :success}
-        1 -> {:ok, :success}
         _ -> {:error, exit_code}
       end
 

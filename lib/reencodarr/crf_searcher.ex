@@ -7,6 +7,7 @@ defmodule Reencodarr.CrfSearcher do
   alias Reencodarr.CrfSearcher.Broadway
   alias Reencodarr.CrfSearcher.Broadway.Producer
   alias Reencodarr.Media
+  alias Reencodarr.Telemetry
 
   @doc """
   Process a video for CRF search using the Broadway pipeline.
@@ -31,9 +32,9 @@ defmodule Reencodarr.CrfSearcher do
   """
   @spec start :: :ok
   def start do
-    Logger.info("🔍 Starting CRF searcher")
-    Broadway.start()
-    Producer.dispatch_available()
+    Logger.debug("🔍 Starting CRF searcher")
+    Broadway.resume()
+    Telemetry.emit_crf_search_started()
     :ok
   end
 
@@ -42,8 +43,9 @@ defmodule Reencodarr.CrfSearcher do
   """
   @spec pause :: :ok
   def pause do
-    Logger.info("🔍 Pausing CRF searcher")
+    Logger.debug("🔍 Pausing CRF searcher")
     Broadway.pause()
+    Telemetry.emit_crf_search_paused()
     :ok
   end
 
@@ -52,7 +54,7 @@ defmodule Reencodarr.CrfSearcher do
   """
   @spec resume :: :ok
   def resume do
-    Logger.info("🔍 Resuming CRF searcher")
+    Logger.debug("🔍 Resuming CRF searcher")
     Broadway.resume()
     :ok
   end
@@ -61,10 +63,10 @@ defmodule Reencodarr.CrfSearcher do
   Perform a CRF search on a video by ID.
   """
   def crf_search_video(video_id) do
-    Logger.info("🔍 Starting CRF search for video with ID: #{video_id}")
+    Logger.debug("🔍 Starting CRF search for video with ID: #{video_id}")
 
     video = Media.get_video!(video_id)
-    Logger.info("🔍 Found video at path: #{video.path}")
+    Logger.debug("🔍 Found video at path: #{video.path}")
 
     process_video(video)
   end

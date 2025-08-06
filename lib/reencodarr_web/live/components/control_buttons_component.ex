@@ -116,10 +116,17 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
   # Private helper functions
 
   defp toggle_app(app, type, socket) do
-    Logger.info("Toggling #{type}")
-    new_state = not Map.get(socket.assigns, type)
+    current_state = Map.get(socket.assigns, type)
+    Logger.info("Toggling #{type} - current state: #{current_state}")
+    new_state = not current_state
 
-    if new_state, do: app.start(), else: app.pause()
+    if new_state do
+      Logger.info("Starting #{type}")
+      app.start()
+    else
+      Logger.info("Pausing #{type}")
+      app.pause()
+    end
 
     # Don't update local state - let the global telemetry system handle it
     {:noreply, socket}
