@@ -8,7 +8,7 @@ defmodule Reencodarr.Media.FieldTypesTest do
       assert FieldTypes.get_field_type(:general, :FileSize) ==
                {:integer, min: 0, max: 1_000_000_000_000}
 
-      assert FieldTypes.get_field_type(:general, :Duration) == {:float, min: 0.0, max: 86400.0}
+      assert FieldTypes.get_field_type(:general, :Duration) == {:float, min: 0.0, max: 86_400.0}
       assert FieldTypes.get_field_type(:general, :Title) == :string
     end
 
@@ -30,7 +30,7 @@ defmodule Reencodarr.Media.FieldTypesTest do
     test "returns correct type for text track fields" do
       assert FieldTypes.get_field_type(:text, :Format) == :string
       assert FieldTypes.get_field_type(:text, :Language) == :string
-      assert FieldTypes.get_field_type(:text, :Duration) == {:float, min: 0.0, max: 86400.0}
+      assert FieldTypes.get_field_type(:text, :Duration) == {:float, min: 0.0, max: 86_400.0}
     end
 
     test "returns nil for unknown fields" do
@@ -132,7 +132,7 @@ defmodule Reencodarr.Media.FieldTypesTest do
       assert msg =~ "Width must be at least 1"
 
       assert {:error, {:validation_error, msg}} =
-               FieldTypes.validate_converted_value(10000, {:integer, min: 1, max: 8192}, :Width)
+               FieldTypes.validate_converted_value(10_000, {:integer, min: 1, max: 8192}, :Width)
 
       assert msg =~ "Width must be at most 8192"
     end
@@ -276,9 +276,9 @@ defmodule Reencodarr.Media.FieldTypesTest do
       assert FieldTypes.convert_and_validate(:video, :FrameRate, "29.970") == {:ok, 29.97}
 
       # Common audio sampling rates
-      assert FieldTypes.convert_and_validate(:audio, :SamplingRate, "48000") == {:ok, 48000}
-      assert FieldTypes.convert_and_validate(:audio, :SamplingRate, "44100") == {:ok, 44100}
-      assert FieldTypes.convert_and_validate(:audio, :SamplingRate, "96000") == {:ok, 96000}
+      assert FieldTypes.convert_and_validate(:audio, :SamplingRate, "48000") == {:ok, 48_000}
+      assert FieldTypes.convert_and_validate(:audio, :SamplingRate, "44100") == {:ok, 44_100}
+      assert FieldTypes.convert_and_validate(:audio, :SamplingRate, "96000") == {:ok, 96_000}
 
       # Typical file sizes (in bytes)
       # 1GB

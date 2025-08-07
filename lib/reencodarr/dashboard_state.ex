@@ -63,43 +63,16 @@ defmodule Reencodarr.DashboardState do
   # Fetch initial queue data from database
   defp fetch_queue_data_simple do
     alias Reencodarr.Media
-    alias Reencodarr.Media.{Video, VideoQueries}
-    alias Reencodarr.Repo
-    import Ecto.Query
+    alias Reencodarr.Media.VideoQueries
 
     # Get the queue items (first 10)
     next_analyzer = Media.get_videos_needing_analysis(10)
     next_crf_search = Media.get_videos_for_crf_search(10)
     videos_by_estimated_percent = Media.list_videos_by_estimated_percent(10) || []
 
-    # Count total items in queues using the same queries but with count
-    analyzer_count =
-      Repo.one(
-        from v in Video,
-          where: is_nil(v.bitrate) and v.failed == false,
-          select: count(v.id)
-      )
-
-    crf_search_count =
-      Repo.one(
-        from v in Video,
-          left_join: m in Reencodarr.Media.Vmaf,
-          on: m.video_id == v.id,
-          where:
-            is_nil(m.id) and v.reencoded == false and v.failed == false and
-              not fragment(
-                "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
-                v.audio_codecs,
-                "%opus%"
-              ) and
-              not fragment(
-                "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
-                v.video_codecs,
-                "%av1%"
-              ),
-          select: count(v.id)
-      )
-
+    # Count total items in queues
+    analyzer_count = count_analyzer_queue()
+    crf_search_count = count_crf_search_queue()
     encode_count = VideoQueries.encoding_queue_count()
 
     %Reencodarr.Statistics.Stats{
@@ -113,6 +86,43 @@ defmodule Reencodarr.DashboardState do
       },
       encode_queue_length: encode_count || 0
     }
+  end
+
+  defp count_analyzer_queue do
+    alias Reencodarr.Media.Video
+    alias Reencodarr.Repo
+    import Ecto.Query
+
+    Repo.one(
+      from v in Video,
+        where: is_nil(v.bitrate) and v.failed == false,
+        select: count(v.id)
+    )
+  end
+
+  defp count_crf_search_queue do
+    alias Reencodarr.Media.Video
+    alias Reencodarr.Repo
+    import Ecto.Query
+
+    Repo.one(
+      from v in Video,
+        left_join: m in Reencodarr.Media.Vmaf,
+        on: m.video_id == v.id,
+        where:
+          is_nil(m.id) and v.reencoded == false and v.failed == false and
+            not fragment(
+              "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
+              v.audio_codecs,
+              "%opus%"
+            ) and
+            not fragment(
+              "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
+              v.video_codecs,
+              "%av1%"
+            ),
+        select: count(v.id)
+    )
   rescue
     error ->
       Logger.error("Error fetching queue data: #{inspect(error)}")

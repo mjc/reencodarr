@@ -2,7 +2,7 @@ defmodule Reencodarr.Media.TrackProtocolTest do
   use ExUnit.Case, async: true
 
   alias Reencodarr.Media.MediaInfo
-  alias Reencodarr.Media.MediaInfo.{GeneralTrack, VideoTrack, AudioTrack, TextTrack}
+  alias Reencodarr.Media.MediaInfo.{AudioTrack, GeneralTrack, TextTrack, VideoTrack}
   alias Reencodarr.Media.TrackProtocol
 
   describe "TrackProtocol" do

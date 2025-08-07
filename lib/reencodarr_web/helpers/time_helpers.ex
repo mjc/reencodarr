@@ -77,7 +77,7 @@ defmodule ReencodarrWeb.TimeHelpers do
 
         # Time of day component (fractional part)
         fractional_component =
-          (dt.hour * 3600 + dt.minute * 60 + dt.second) / 86400 * (1000 / 365)
+          (dt.hour * 3600 + dt.minute * 60 + dt.second) / 86_400 * (1000 / 365)
 
         # Base stardate for year 2000
         base_stardate = 50_000.0
@@ -90,7 +90,7 @@ defmodule ReencodarrWeb.TimeHelpers do
 
       _ ->
         # Approximate stardate for August 2025
-        75625.5
+        75_625.5
     end
   end
 
@@ -123,7 +123,7 @@ defmodule ReencodarrWeb.TimeHelpers do
       "seconds" -> time_value
       "minutes" -> time_value * 60
       "hours" -> time_value * 3600
-      "days" -> time_value * 86400
+      "days" -> time_value * 86_400
       "weeks" -> time_value * 604_800
       # average month
       "months" -> time_value * 2_629_746

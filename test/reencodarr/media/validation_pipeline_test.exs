@@ -2,7 +2,7 @@ defmodule Reencodarr.Media.ValidationPipelineTest do
   use ExUnit.Case, async: true
 
   alias Reencodarr.Media.ValidationPipeline
-  alias Reencodarr.Media.MediaInfo.{GeneralTrack, VideoTrack, AudioTrack, TextTrack}
+  alias Reencodarr.Media.MediaInfo.{AudioTrack, GeneralTrack, TextTrack, VideoTrack}
 
   describe "validate_media_info/1" do
     test "validates complete media info with all track types" do
@@ -29,14 +29,14 @@ defmodule Reencodarr.Media.ValidationPipelineTest do
             %AudioTrack{
               Format: "AAC",
               Channels: 2,
-              SamplingRate: 48000,
+              SamplingRate: 48_000,
               BitRate: 128_000,
               Duration: 7200.0
             },
             %AudioTrack{
               Format: "AC-3",
               Channels: 6,
-              SamplingRate: 48000,
+              SamplingRate: 48_000,
               BitRate: 640_000,
               Duration: 7200.0
             },
@@ -159,7 +159,7 @@ defmodule Reencodarr.Media.ValidationPipelineTest do
       audio_track = %AudioTrack{
         Format: "AAC",
         Channels: 2,
-        SamplingRate: 48000,
+        SamplingRate: 48_000,
         BitRate: 128_000,
         Duration: 7200.0
       }
@@ -313,7 +313,7 @@ defmodule Reencodarr.Media.ValidationPipelineTest do
         "width" => 1920,
         "height" => 1080,
         "unknown_field" => "should be ignored",
-        "another_unknown" => 12345
+        "another_unknown" => 12_345
       }
 
       assert {:ok, validated_params} = ValidationPipeline.validate_video_params(params)
@@ -369,7 +369,7 @@ defmodule Reencodarr.Media.ValidationPipelineTest do
             %AudioTrack{
               Format: "AAC",
               Channels: 2,
-              SamplingRate: 48000,
+              SamplingRate: 48_000,
               BitRate: 128_000,
               Duration: 7200.0
             }
@@ -428,7 +428,7 @@ defmodule Reencodarr.Media.ValidationPipelineTest do
               # This should trigger a minimum value recommendation
               Width: 0,
               # This should trigger a maximum value recommendation
-              Height: 10000,
+              Height: 10_000,
               Duration: 7200.0,
               FrameRate: 23.976,
               Format: "AVC"
@@ -499,9 +499,9 @@ defmodule Reencodarr.Media.ValidationPipelineTest do
     test "validates audio count consistency" do
       # General track claims 2 audio tracks but 3 are provided
       audio_tracks = [
-        %AudioTrack{Format: "AAC", Channels: 2, SamplingRate: 48000, Duration: 7200.0},
-        %AudioTrack{Format: "AC-3", Channels: 6, SamplingRate: 48000, Duration: 7200.0},
-        %AudioTrack{Format: "DTS", Channels: 8, SamplingRate: 48000, Duration: 7200.0}
+        %AudioTrack{Format: "AAC", Channels: 2, SamplingRate: 48_000, Duration: 7200.0},
+        %AudioTrack{Format: "AC-3", Channels: 6, SamplingRate: 48_000, Duration: 7200.0},
+        %AudioTrack{Format: "DTS", Channels: 8, SamplingRate: 48_000, Duration: 7200.0}
       ]
 
       media_info = %{
@@ -591,7 +591,7 @@ defmodule Reencodarr.Media.ValidationPipelineTest do
     test "provides descriptive error messages" do
       invalid_params = %{
         "width" => 0,
-        "height" => 10000,
+        "height" => 10_000,
         "duration" => -5.0,
         "frame_rate" => 200.0,
         "audio_codecs" => "not_a_list"
@@ -611,7 +611,7 @@ defmodule Reencodarr.Media.ValidationPipelineTest do
     test "generates appropriate recommendations" do
       errors = [
         {:field_error, :width, "Width must be at least 1, got 0"},
-        {:field_error, :height, "Height must be at most 8192, got 10000"},
+        {:field_error, :height, "Height must be at most 8192, got 10_000"},
         {:conversion_error, :duration, "cannot convert 'invalid' to float"},
         {:track_error, :video, "video track failed protocol validation"}
       ]

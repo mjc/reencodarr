@@ -62,7 +62,7 @@ defmodule Reencodarr.Media.MediaInfoConversionTest do
         "path" => "/path/to/movie.mkv",
         "size" => 2_345_678_901,
         "runTime" => 7320,
-        "overallBitrate" => 12000,
+        "overallBitrate" => 12_000,
         "videoFps" => 24.0,
         "sceneName" => "Movie.2023.2160p.UHD.BluRay.x265-GROUP",
         "title" => "Movie Title",
@@ -87,7 +87,7 @@ defmodule Reencodarr.Media.MediaInfoConversionTest do
       # Check General track
       general_track = Enum.find(tracks, &(&1["@type"] == "General"))
       assert general_track["AudioCount"] == 2
-      assert general_track["OverallBitRate"] == 12000
+      assert general_track["OverallBitRate"] == 12_000
       assert general_track["Duration"] == 7320
       assert general_track["FileSize"] == 2_345_678_901
       assert general_track["TextCount"] == 4
@@ -192,8 +192,8 @@ defmodule Reencodarr.Media.MediaInfoConversionTest do
         video_dynamic_range_type: "HDR10",
         audio_channels: "5.1",
         audio_stream_count: 1,
-        overall_bitrate: 10000,
-        bitrate: 10000,
+        overall_bitrate: 10_000,
+        bitrate: 10_000,
         run_time: 3600,
         subtitles: ["en", "fr"],
         title: "Video Title"
@@ -215,7 +215,7 @@ defmodule Reencodarr.Media.MediaInfoConversionTest do
       assert MediaInfo.get_audio_channels(audio_track) == "5.1"
 
       general_track = MediaInfo.extract_general_track(result)
-      assert MediaInfo.get_overall_bitrate(general_track) == 10000
+      assert MediaInfo.get_overall_bitrate(general_track) == 10_000
       assert MediaInfo.get_duration(general_track) == 3600
     end
   end

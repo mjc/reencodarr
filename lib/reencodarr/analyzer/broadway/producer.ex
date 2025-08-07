@@ -201,7 +201,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   # Private functions
 
   defp send_to_producer(message) do
-    Logger.info("Producer: Sending message #{inspect(message)}")
+    Logger.debug("Producer: Sending message #{inspect(message)}")
 
     case find_producer_process() do
       nil ->
@@ -209,7 +209,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
         {:error, :producer_not_found}
 
       producer_pid ->
-        Logger.info("Producer: Found producer PID #{inspect(producer_pid)}, sending cast")
+        Logger.debug("Producer: Found producer PID #{inspect(producer_pid)}, sending cast")
         GenStage.cast(producer_pid, message)
     end
   end

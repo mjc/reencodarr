@@ -11,7 +11,7 @@ defmodule Reencodarr.Media.EnhancedMediaInfo do
 
   alias Reencodarr.Media.{FieldTypes, ValidationPipeline}
   alias Reencodarr.Media.MediaInfo
-  alias Reencodarr.Media.MediaInfo.{GeneralTrack, VideoTrack, AudioTrack, TextTrack}
+  alias Reencodarr.Media.MediaInfo.{AudioTrack, GeneralTrack, TextTrack, VideoTrack}
 
   @type parsing_mode :: :strict | :lenient
   @type parsing_result :: {:ok, MediaInfo.t()} | {:error, [validation_error()]}
@@ -81,23 +81,35 @@ defmodule Reencodarr.Media.EnhancedMediaInfo do
   def validate_tracks(tracks, mode \\ :lenient) do
     {validated_tracks, errors} =
       Enum.reduce(tracks, {[], []}, fn track, {valid_acc, error_acc} ->
-        case ValidationPipeline.validate_track(track) do
-          {:ok, validated_track} ->
-            {[validated_track | valid_acc], error_acc}
-
-          {:error, track_errors} ->
-            case mode do
-              :strict ->
-                {valid_acc, track_errors ++ error_acc}
-
-              :lenient ->
-                # Log errors but keep original track
-                log_validation_errors(track_errors)
-                {[track | valid_acc], error_acc}
-            end
-        end
+        process_track_validation(track, mode, {valid_acc, error_acc})
       end)
 
+    build_validation_result(validated_tracks, errors, mode)
+  end
+
+  defp process_track_validation(track, mode, {valid_acc, error_acc}) do
+    case ValidationPipeline.validate_track(track) do
+      {:ok, validated_track} ->
+        {[validated_track | valid_acc], error_acc}
+
+      {:error, track_errors} ->
+        handle_track_validation_error(track, track_errors, mode, {valid_acc, error_acc})
+    end
+  end
+
+  defp handle_track_validation_error(track, track_errors, mode, {valid_acc, error_acc}) do
+    case mode do
+      :strict ->
+        {valid_acc, track_errors ++ error_acc}
+
+      :lenient ->
+        # Log errors but keep original track
+        log_validation_errors(track_errors)
+        {[track | valid_acc], error_acc}
+    end
+  end
+
+  defp build_validation_result(validated_tracks, errors, mode) do
     case {mode, errors} do
       {:strict, []} -> {:ok, Enum.reverse(validated_tracks)}
       {:strict, errors} -> {:error, Enum.reverse(errors)}
@@ -270,41 +282,56 @@ defmodule Reencodarr.Media.EnhancedMediaInfo do
     known_fields = get_known_fields(struct_module)
 
     {converted_fields, extra_fields, errors} =
-      Enum.reduce(track_data, {%{}, %{}, []}, fn {key, value},
-                                                 {fields_acc, extra_acc, errors_acc} ->
-        atom_key = atomize_key(key)
-
-        if atom_key in known_fields do
-          case FieldTypes.convert_and_validate(track_type, atom_key, value) do
-            {:ok, converted_value} ->
-              {Map.put(fields_acc, atom_key, converted_value), extra_acc, errors_acc}
-
-            {:error, {error_type, message}} ->
-              error = {error_type, atom_key, message}
-
-              case mode do
-                :strict ->
-                  {fields_acc, extra_acc, [error | errors_acc]}
-
-                :lenient ->
-                  # Keep original value in lenient mode
-                  {Map.put(fields_acc, atom_key, value), extra_acc, errors_acc}
-              end
-          end
-        else
-          {fields_acc, Map.put(extra_acc, key, value), errors_acc}
-        end
+      Enum.reduce(track_data, {%{}, %{}, []}, fn {key, value}, acc ->
+        process_field(key, value, known_fields, track_type, mode, acc)
       end)
 
+    build_track_result(converted_fields, extra_fields, errors, struct_module, mode)
+  end
+
+  defp process_field(
+         key,
+         value,
+         known_fields,
+         track_type,
+         mode,
+         {fields_acc, extra_acc, errors_acc}
+       ) do
+    atom_key = atomize_key(key)
+
+    if atom_key in known_fields do
+      process_known_field(atom_key, value, track_type, mode, {fields_acc, extra_acc, errors_acc})
+    else
+      {fields_acc, Map.put(extra_acc, key, value), errors_acc}
+    end
+  end
+
+  defp process_known_field(atom_key, value, track_type, mode, {fields_acc, extra_acc, errors_acc}) do
+    case FieldTypes.convert_and_validate(track_type, atom_key, value) do
+      {:ok, converted_value} ->
+        {Map.put(fields_acc, atom_key, converted_value), extra_acc, errors_acc}
+
+      {:error, {error_type, message}} ->
+        error = {error_type, atom_key, message}
+        handle_field_error(error, atom_key, value, mode, {fields_acc, extra_acc, errors_acc})
+    end
+  end
+
+  defp handle_field_error(error, atom_key, value, mode, {fields_acc, extra_acc, errors_acc}) do
+    case mode do
+      :strict ->
+        {fields_acc, extra_acc, [error | errors_acc]}
+
+      :lenient ->
+        # Keep original value in lenient mode
+        {Map.put(fields_acc, atom_key, value), extra_acc, errors_acc}
+    end
+  end
+
+  defp build_track_result(converted_fields, extra_fields, errors, struct_module, mode) do
     case {mode, errors} do
       {:strict, []} ->
-        final_fields =
-          if map_size(extra_fields) > 0 do
-            Map.put(converted_fields, :extra, extra_fields)
-          else
-            converted_fields
-          end
-
+        final_fields = maybe_add_extra_fields(converted_fields, extra_fields)
         track = struct(struct_module, final_fields)
         {:ok, track}
 
@@ -312,15 +339,17 @@ defmodule Reencodarr.Media.EnhancedMediaInfo do
         {:error, Enum.reverse(errors)}
 
       {:lenient, _} ->
-        final_fields =
-          if map_size(extra_fields) > 0 do
-            Map.put(converted_fields, :extra, extra_fields)
-          else
-            converted_fields
-          end
-
+        final_fields = maybe_add_extra_fields(converted_fields, extra_fields)
         track = struct(struct_module, final_fields)
         {:ok, track}
+    end
+  end
+
+  defp maybe_add_extra_fields(converted_fields, extra_fields) do
+    if map_size(extra_fields) > 0 do
+      Map.put(converted_fields, :extra, extra_fields)
+    else
+      converted_fields
     end
   end
 
