@@ -111,10 +111,10 @@ defmodule Reencodarr.TelemetryReporter do
 
   # Analyzer event handlers
   def handle_cast({:update_analyzer, status}, %DashboardState{} = state) do
-    Logger.info("TelemetryReporter: Updating analyzer status to #{status}")
+    Logger.debug("TelemetryReporter: Updating analyzer status to #{status}")
     new_state = DashboardState.update_analyzer(state, status)
 
-    Logger.info(
+    Logger.debug(
       "TelemetryReporter: New state - analyzing: #{new_state.analyzing}, queue count: #{new_state.stats.queue_length.analyzer}"
     )
 
