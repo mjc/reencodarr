@@ -123,29 +123,104 @@ defmodule Reencodarr.Media do
     do: VideoFailure.get_common_failure_patterns(limit)
 
   @doc """
+  One-liner to reset videos with invalid audio metadata that would cause 0 bitrate/channels.
+
+  Finds videos where max_audio_channels is nil/0 OR audio_codecs is nil/empty,
+  resets their analysis fields, and deletes their VMAFs since they're based on bad data.
+
+  ## Examples
+      iex> Media.reset_videos_with_invalid_audio_metadata()
+      %{videos_reset: 42, vmafs_deleted: 156}
+  """
+  @spec reset_videos_with_invalid_audio_metadata() :: %{
+          videos_reset: integer(),
+          vmafs_deleted: integer()
+        }
+  def reset_videos_with_invalid_audio_metadata() do
+    Repo.transaction(fn ->
+      # Find videos with problematic audio metadata that would cause Rules.audio/1 to return []
+      # This happens when max_audio_channels is nil/0 OR audio_codecs is nil/empty
+      problematic_video_ids =
+        from(v in Video,
+          where:
+            v.failed == false and
+              v.reencoded == false and
+              v.atmos != true and
+              (is_nil(v.max_audio_channels) or v.max_audio_channels == 0 or
+                 is_nil(v.audio_codecs) or fragment("array_length(?, 1) IS NULL", v.audio_codecs)),
+          select: v.id
+        )
+        |> Repo.all()
+
+      videos_reset_count = length(problematic_video_ids)
+
+      # Delete VMAFs for these videos (they were generated with bad audio data)
+      {vmafs_deleted_count, _} =
+        from(v in Vmaf, where: v.video_id in ^problematic_video_ids)
+        |> Repo.delete_all()
+
+      # Reset analysis fields to force re-analysis
+      from(v in Video, where: v.id in ^problematic_video_ids)
+      |> Repo.update_all(
+        set: [
+          bitrate: nil,
+          video_codecs: nil,
+          audio_codecs: nil,
+          max_audio_channels: nil,
+          atmos: nil,
+          hdr: nil,
+          width: nil,
+          height: nil,
+          frame_rate: nil,
+          duration: nil,
+          updated_at: DateTime.utc_now()
+        ]
+      )
+
+      %{
+        videos_reset: videos_reset_count,
+        vmafs_deleted: vmafs_deleted_count
+      }
+    end)
+    |> case do
+      {:ok, result} -> result
+      {:error, _reason} -> %{videos_reset: 0, vmafs_deleted: 0}
+    end
+  end
+
+  @doc """
   Convenience function to reset all failed videos and clear their failure entries.
 
   This is useful for mass retry scenarios after fixing configuration issues
-  or updating encoding logic. Clears both the `failed` flag on videos and
-  removes all associated VideoFailure records.
+  or updating encoding logic. Clears the `failed` flag on videos, removes all
+  associated VideoFailure records, and deletes VMAFs for failed videos since
+  they were likely generated with incorrect data.
 
   Returns a summary of the operation.
   """
   @spec reset_all_failures() :: %{
           videos_reset: integer(),
-          failures_deleted: integer()
+          failures_deleted: integer(),
+          vmafs_deleted: integer()
         }
   def reset_all_failures() do
     Repo.transaction(fn ->
-      # First, get count of videos that will be reset
-      videos_to_reset_count =
-        from(v in Video, where: v.failed == true, select: count(v.id))
-        |> Repo.one()
+      # First, get IDs and counts of videos that will be reset
+      failed_video_ids =
+        from(v in Video, where: v.failed == true, select: v.id)
+        |> Repo.all()
+
+      videos_to_reset_count = length(failed_video_ids)
 
       # Get count of failures that will be deleted
       failures_to_delete_count =
         from(f in VideoFailure, where: is_nil(f.resolved_at), select: count(f.id))
         |> Repo.one()
+
+      # Delete VMAFs for failed videos (they were likely generated with bad data)
+      {vmafs_deleted_count, _} =
+        from(v in Vmaf, where: v.video_id in ^failed_video_ids)
+        |> Repo.delete_all()
 
       # Reset all failed videos
       from(v in Video, where: v.failed == true)
@@ -157,12 +232,13 @@ defmodule Reencodarr.Media do
 
       %{
         videos_reset: videos_to_reset_count,
-        failures_deleted: failures_to_delete_count
+        failures_deleted: failures_to_delete_count,
+        vmafs_deleted: vmafs_deleted_count
       }
     end)
     |> case do
       {:ok, result} -> result
-      {:error, _reason} -> %{videos_reset: 0, failures_deleted: 0}
+      {:error, _reason} -> %{videos_reset: 0, failures_deleted: 0, vmafs_deleted: 0}
     end
   end
 
@@ -291,6 +367,86 @@ defmodule Reencodarr.Media do
   end
 
   def delete_vmaf(%Vmaf{} = vmaf), do: Repo.delete(vmaf)
+
+  @doc """
+  Deletes all VMAFs for a given video ID.
+
+  ## Parameters
+    - `video_id`: integer video ID
+
+  ## Returns
+    - `{count, nil}` where count is the number of deleted VMAFs
+
+  ## Examples
+      iex> Media.delete_vmafs_for_video(123)
+      {3, nil}
+  """
+  def delete_vmafs_for_video(video_id) when is_integer(video_id) do
+    from(v in Vmaf, where: v.video_id == ^video_id)
+    |> Repo.delete_all()
+  end
+
+  @doc """
+  Forces complete re-analysis of a video by resetting all analysis data and manually queuing it.
+
+  This function:
+  1. Deletes all VMAFs for the video
+  2. Resets video analysis fields (bitrate, etc.)
+  3. Manually adds the video to the analyzer queue
+  4. Returns the video path for verification
+
+  ## Parameters
+    - `video_id`: integer video ID
+
+  ## Returns
+    - `{:ok, video_path}` on success
+    - `{:error, reason}` if video not found
+
+  ## Examples
+      iex> Media.force_reanalyze_video(9008028)
+      {:ok, "/path/to/video.mkv"}
+  """
+  def force_reanalyze_video(video_id) when is_integer(video_id) do
+    case get_video(video_id) do
+      nil ->
+        {:error, "Video #{video_id} not found"}
+
+      video ->
+        Repo.transaction(fn ->
+          # 1. Delete all VMAFs
+          delete_vmafs_for_video(video_id)
+
+          # 2. Reset analysis fields to force re-analysis
+          update_video(video, %{
+            bitrate: nil,
+            video_codecs: nil,
+            audio_codecs: nil,
+            max_audio_channels: nil,
+            atmos: nil,
+            hdr: nil,
+            width: nil,
+            height: nil,
+            frame_rate: nil,
+            duration: nil,
+            failed: false
+          })
+
+          # 3. Manually queue for analysis using Analyzer.process_path
+          Reencodarr.Analyzer.process_path(%{
+            path: video.path,
+            service_id: video.service_id,
+            service_type: video.service_type,
+            force_reanalyze: true
+          })
+
+          video.path
+        end)
+        |> case do
+          {:ok, path} -> {:ok, path}
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
 
   def change_vmaf(%Vmaf{} = vmaf, attrs \\ %{}) do
     Vmaf.changeset(vmaf, attrs)
