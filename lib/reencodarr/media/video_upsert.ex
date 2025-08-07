@@ -92,11 +92,16 @@ defmodule Reencodarr.Media.VideoUpsert do
   defp perform_upsert(final_attrs, conflict_except, original_attrs) do
     result =
       Repo.transaction(fn ->
+        # Build the on_conflict query with dateAdded check
+        on_conflict_query = build_on_conflict_query(final_attrs, conflict_except)
+
         %Video{}
         |> Video.changeset(final_attrs)
         |> Repo.insert(
-          on_conflict: {:replace_all_except, conflict_except},
-          conflict_target: :path
+          on_conflict: on_conflict_query,
+          conflict_target: :path,
+          stale_error_field: :updated_at,
+          returning: true
         )
       end)
 
@@ -104,6 +109,18 @@ defmodule Reencodarr.Media.VideoUpsert do
       {:ok, {:ok, video}} ->
         Reencodarr.Telemetry.emit_video_upserted(video)
         {:ok, video}
+
+      {:ok, {:error, %Ecto.Changeset{errors: [updated_at: {"is stale", _}]} = changeset}} ->
+        # This is expected when dateAdded is not newer than updated_at - treat as success (skip)
+        path = Map.get(original_attrs, "path")
+        Logger.debug("Skipping update for #{path} - dateAdded not newer than updated_at")
+
+        # Return the existing video instead of an error
+        case Repo.get_by(Video, path: path) do
+          # Shouldn't happen, but handle gracefully
+          nil -> {:error, changeset}
+          existing_video -> {:ok, existing_video}
+        end
 
       {:ok, error} ->
         log_upsert_failure(original_attrs, error)
@@ -114,6 +131,66 @@ defmodule Reencodarr.Media.VideoUpsert do
         error
     end
   end
+
+  defp build_on_conflict_query(attrs, conflict_except) do
+    case Map.get(attrs, "dateAdded") do
+      nil ->
+        # No dateAdded provided, use normal replace_all_except
+        {:replace_all_except, conflict_except}
+
+      date_added_str ->
+        # Parse the dateAdded and select the appropriate query
+        case parse_date_added(date_added_str) do
+          {:ok, date_added} ->
+            # Build conditional update with dateAdded check
+            build_conditional_update_query(attrs, conflict_except, date_added)
+
+          {:error, _} ->
+            # If can't parse dateAdded, fall back to normal behavior
+            Logger.warning(
+              "Could not parse dateAdded: #{date_added_str}, proceeding with normal upsert"
+            )
+
+            {:replace_all_except, conflict_except}
+        end
+    end
+  end
+
+  # Pattern match to build the right query based on whether we have dateAdded
+  defp build_conditional_update_query(attrs, conflict_except, date_added) do
+    update_fields = build_update_fields(attrs, conflict_except)
+
+    # Build the update but filter by a WHERE condition in on_conflict
+    # Use Ecto's support for conditional updates in on_conflict
+    update_query =
+      from(v in Video,
+        update: [set: ^update_fields],
+        where: fragment("? > ?", ^date_added, v.updated_at)
+      )
+
+    # Return the update query directly - Ecto should handle this
+    update_query
+  end
+
+  defp build_update_fields(attrs, conflict_except) do
+    attrs
+    |> Map.to_list()
+    |> Enum.reject(fn {key, _} ->
+      string_key = to_string(key)
+      # Exclude conflict_except fields and dateAdded (which is only used for comparison)
+      Enum.any?(conflict_except, &(to_string(&1) == string_key)) or string_key == "dateAdded"
+    end)
+    |> Enum.map(fn {key, value} -> {String.to_atom(key), value} end)
+  end
+
+  defp parse_date_added(date_string) when is_binary(date_string) do
+    case DateTime.from_iso8601(date_string) do
+      {:ok, datetime, _offset} -> {:ok, datetime}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp parse_date_added(_), do: {:error, :invalid_format}
 
   defp delete_vmafs_for_video(video_id) do
     from(v in Vmaf, where: v.video_id == ^video_id) |> Repo.delete_all()

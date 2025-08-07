@@ -10,7 +10,7 @@ defmodule Reencodarr.Media.ValidationPipeline do
   """
 
   alias Reencodarr.Media.{FieldTypes, TrackProtocol}
-  alias Reencodarr.Media.MediaInfo.{GeneralTrack, VideoTrack, AudioTrack, TextTrack}
+  alias Reencodarr.Media.MediaInfo.{AudioTrack, GeneralTrack, TextTrack, VideoTrack}
 
   @type validation_result :: {:ok, map()} | {:error, [validation_error()]}
   @type validation_error ::
@@ -115,22 +115,22 @@ defmodule Reencodarr.Media.ValidationPipeline do
 
     errors =
       Enum.reduce(params, [], fn {key, value}, acc ->
-        case Map.get(video_validations, key) do
-          # Skip unknown fields
-          nil ->
-            acc
-
-          validator ->
-            case validator.(value) do
-              :ok -> acc
-              {:error, message} -> [{:field_error, String.to_atom(key), message} | acc]
-            end
-        end
+        validator = Map.get(video_validations, key)
+        validate_field_with_validator(key, value, validator, acc)
       end)
 
     case errors do
       [] -> {:ok, params}
       errors -> {:error, Enum.reverse(errors)}
+    end
+  end
+
+  defp validate_field_with_validator(_key, _value, nil, acc), do: acc
+
+  defp validate_field_with_validator(key, value, validator, acc) do
+    case validator.(value) do
+      :ok -> acc
+      {:error, message} -> [{:field_error, String.to_atom(key), message} | acc]
     end
   end
 
@@ -260,7 +260,7 @@ defmodule Reencodarr.Media.ValidationPipeline do
 
     case general do
       %GeneralTrack{VideoCount: video_count} when is_integer(video_count) and video_count > 0 ->
-        if length(video_tracks) == 0 do
+        if Enum.empty?(video_tracks) do
           [
             {:track_error, :video, "VideoCount is #{video_count} but no video tracks found"}
             | errors
@@ -372,7 +372,7 @@ defmodule Reencodarr.Media.ValidationPipeline do
 
   defp validate_video_height(_), do: {:error, "height must be an integer"}
 
-  defp validate_duration(value) when is_float(value) and value >= 0.0 and value <= 86400.0,
+  defp validate_duration(value) when is_float(value) and value >= 0.0 and value <= 86_400.0,
     do: :ok
 
   defp validate_duration(value) when is_float(value) and value < 0.0,

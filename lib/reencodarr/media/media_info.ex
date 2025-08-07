@@ -492,80 +492,97 @@ defmodule Reencodarr.Media.MediaInfo do
   def from_service_file(file, service_type) when service_type in [:sonarr, :radarr] do
     media_info = file["mediaInfo"] || %{}
 
-    # Parse resolution safely
-    {width, height} =
-      case {media_info["width"], media_info["height"]} do
-        {w, h} when is_integer(w) and is_integer(h) ->
-          {w, h}
-
-        {w, h} when is_binary(w) and is_binary(h) ->
-          with {width_int, ""} <- Integer.parse(w),
-               {height_int, ""} <- Integer.parse(h) do
-            {width_int, height_int}
-          else
-            _ -> {0, 0}
-          end
-
-        _ ->
-          {0, 0}
-      end
-
-    # Calculate overall bitrate
-    overall_bitrate =
-      case {file["overallBitrate"], media_info["videoBitrate"], media_info["audioBitrate"]} do
-        {overall, _, _} when is_integer(overall) and overall > 0 -> overall
-        {_, video, audio} when is_integer(video) and is_integer(audio) -> video + audio
-        {_, video, _} when is_integer(video) -> video
-        _ -> 0
-      end
-
-    # Parse subtitle count
-    subtitles =
-      case media_info["subtitles"] do
-        list when is_list(list) -> list
-        binary when is_binary(binary) -> String.split(binary, "/")
-        _ -> []
-      end
-
-    # Parse audio languages for count
-    audio_languages =
-      case media_info["audioLanguages"] do
-        list when is_list(list) -> list
-        binary when is_binary(binary) -> String.split(binary, "/")
-        _ -> []
-      end
+    {width, height} = parse_resolution_from_service(media_info)
+    overall_bitrate = calculate_overall_bitrate(file, media_info)
+    subtitles = parse_subtitles_from_service(media_info)
+    audio_languages = parse_audio_languages_from_service(media_info)
 
     %{
       "media" => %{
         "track" => [
-          %{
-            "@type" => "General",
-            "AudioCount" => length(audio_languages),
-            "OverallBitRate" => overall_bitrate,
-            "Duration" => file["runTime"],
-            "FileSize" => file["size"],
-            "TextCount" => length(subtitles),
-            "VideoCount" => 1,
-            "Title" => file["sceneName"] || file["title"]
-          },
-          %{
-            "@type" => "Video",
-            "FrameRate" => file["videoFps"] || media_info["videoFps"],
-            "Height" => height,
-            "Width" => width,
-            "HDR_Format" => media_info["videoDynamicRange"],
-            "HDR_Format_Compatibility" => media_info["videoDynamicRangeType"],
-            "CodecID" => media_info["videoCodec"]
-          },
-          %{
-            "@type" => "Audio",
-            "CodecID" => media_info["audioCodec"],
-            "Channels" => media_info["audioChannels"],
-            "Format_Commercial_IfAny" =>
-              CodecMapper.format_commercial_if_any(media_info["audioCodec"])
-          }
+          build_general_track(file, overall_bitrate, subtitles, audio_languages),
+          build_video_track(file, media_info, width, height),
+          build_audio_track(media_info)
         ]
       }
+    }
+  end
+
+  # Helper functions for from_service_file/2
+  defp parse_resolution_from_service(media_info) do
+    case {media_info["width"], media_info["height"]} do
+      {w, h} when is_integer(w) and is_integer(h) ->
+        {w, h}
+
+      {w, h} when is_binary(w) and is_binary(h) ->
+        with {width_int, ""} <- Integer.parse(w),
+             {height_int, ""} <- Integer.parse(h) do
+          {width_int, height_int}
+        else
+          _ -> {0, 0}
+        end
+
+      _ ->
+        {0, 0}
+    end
+  end
+
+  defp calculate_overall_bitrate(file, media_info) do
+    case {file["overallBitrate"], media_info["videoBitrate"], media_info["audioBitrate"]} do
+      {overall, _, _} when is_integer(overall) and overall > 0 -> overall
+      {_, video, audio} when is_integer(video) and is_integer(audio) -> video + audio
+      {_, video, _} when is_integer(video) -> video
+      _ -> 0
+    end
+  end
+
+  defp parse_subtitles_from_service(media_info) do
+    case media_info["subtitles"] do
+      list when is_list(list) -> list
+      binary when is_binary(binary) -> String.split(binary, "/")
+      _ -> []
+    end
+  end
+
+  defp parse_audio_languages_from_service(media_info) do
+    case media_info["audioLanguages"] do
+      list when is_list(list) -> list
+      binary when is_binary(binary) -> String.split(binary, "/")
+      _ -> []
+    end
+  end
+
+  defp build_general_track(file, overall_bitrate, subtitles, audio_languages) do
+    %{
+      "@type" => "General",
+      "AudioCount" => length(audio_languages),
+      "OverallBitRate" => overall_bitrate,
+      "Duration" => file["runTime"],
+      "FileSize" => file["size"],
+      "TextCount" => length(subtitles),
+      "VideoCount" => 1,
+      "Title" => file["sceneName"] || file["title"]
+    }
+  end
+
+  defp build_video_track(file, media_info, width, height) do
+    %{
+      "@type" => "Video",
+      "FrameRate" => file["videoFps"] || media_info["videoFps"],
+      "Height" => height,
+      "Width" => width,
+      "HDR_Format" => media_info["videoDynamicRange"],
+      "HDR_Format_Compatibility" => media_info["videoDynamicRangeType"],
+      "CodecID" => media_info["videoCodec"]
+    }
+  end
+
+  defp build_audio_track(media_info) do
+    %{
+      "@type" => "Audio",
+      "CodecID" => media_info["audioCodec"],
+      "Channels" => media_info["audioChannels"],
+      "Format_Commercial_IfAny" => CodecMapper.format_commercial_if_any(media_info["audioCodec"])
     }
   end
 

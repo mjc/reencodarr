@@ -9,73 +9,36 @@ defmodule Reencodarr.Media.MediaInfoMigration do
   3. Provide backwards compatibility during transition
   """
 
-  alias Reencodarr.Media.{MediaInfo, FieldTypes, EnhancedMediaInfo, TypeCleanup}
-  alias Reencodarr.Media.MediaInfo.{GeneralTrack, VideoTrack, AudioTrack, TextTrack}
-
-  @doc """
-  Enhanced version of the original convert_field_value function that uses
-  FieldTypes for type conversion and validation.
-
-  This replaces the legacy convert_field_value/2 with a more robust version
-  that leverages our comprehensive FieldTypes system.
-  """
-  @spec convert_field_value_enhanced(atom(), String.t(), atom()) ::
-          {:ok, term()} | {:error, term()}
-  def convert_field_value_enhanced(field_name, value, track_type) when is_binary(value) do
-    case FieldTypes.get_field_type(track_type, field_name) do
-      nil ->
-        # Fallback to legacy behavior for unknown fields
-        convert_field_value_legacy(field_name, value)
-
-      field_config ->
-        TypeCleanup.convert_field_with_types(field_name, value, field_config)
-    end
-  end
-
-  def convert_field_value_enhanced(_field_name, value, _track_type) do
-    {:ok, value}
-  end
+  alias Reencodarr.Media.{EnhancedMediaInfo, MediaInfo}
+  alias Reencodarr.Media.MediaInfo.{AudioTrack, GeneralTrack, TextTrack, VideoTrack}
 
   @doc """
   Legacy convert_field_value implementation for backwards compatibility.
   This preserves the original behavior for fields not yet covered by FieldTypes.
   """
   def convert_field_value_legacy(field_name, value) when is_binary(value) do
-    case field_name do
-      field
-      when field in [
-             :FileSize,
-             :Duration,
-             :OverallBitRate,
-             :Width,
-             :Height,
-             :SamplingRate,
-             :BitRate,
-             :FrameCount,
-             :ElementCount,
-             :StreamSize
-           ] ->
-        case parse_numeric_value(value) do
-          {:ok, numeric_value} -> {:ok, numeric_value}
-          # Keep original if parsing fails
-          {:error, _} -> {:ok, value}
-        end
+    cond do
+      field_name in [
+        :FileSize,
+        :Duration,
+        :OverallBitRate,
+        :Width,
+        :Height,
+        :SamplingRate,
+        :BitRate,
+        :FrameCount,
+        :ElementCount,
+        :StreamSize
+      ] ->
+        parse_numeric_field(value)
 
-      field when field in [:FrameRate] ->
-        case Float.parse(value) do
-          {float_val, ""} -> {:ok, float_val}
-          # Keep original if parsing fails
-          _ -> {:ok, value}
-        end
+      field_name in [:FrameRate] ->
+        parse_float_field(value)
 
-      field when field in [:VideoCount, :AudioCount, :TextCount, :Channels] ->
-        case Integer.parse(value) do
-          {int_val, ""} -> {:ok, int_val}
-          # Keep original if parsing fails
-          _ -> {:ok, value}
-        end
+      field_name in [:VideoCount, :AudioCount, :TextCount, :Channels] ->
+        parse_integer_field(value)
 
-      _ ->
+      true ->
         # Keep as string for unknown fields
         {:ok, value}
     end
@@ -83,6 +46,30 @@ defmodule Reencodarr.Media.MediaInfoMigration do
 
   def convert_field_value_legacy(_field_name, value) do
     {:ok, value}
+  end
+
+  defp parse_numeric_field(value) do
+    case parse_numeric_value(value) do
+      {:ok, numeric_value} -> {:ok, numeric_value}
+      # Keep original if parsing fails
+      {:error, _} -> {:ok, value}
+    end
+  end
+
+  defp parse_float_field(value) do
+    case Float.parse(value) do
+      {float_val, ""} -> {:ok, float_val}
+      # Keep original if parsing fails
+      _ -> {:ok, value}
+    end
+  end
+
+  defp parse_integer_field(value) do
+    case Integer.parse(value) do
+      {int_val, ""} -> {:ok, int_val}
+      # Keep original if parsing fails
+      _ -> {:ok, value}
+    end
   end
 
   @doc """
@@ -188,19 +175,23 @@ defmodule Reencodarr.Media.MediaInfoMigration do
   # Private helper functions
 
   defp migrate_track(%GeneralTrack{} = track) do
-    TypeCleanup.parse_track_with_types(track, :general)
+    # Keep as-is for now
+    {:ok, track}
   end
 
   defp migrate_track(%VideoTrack{} = track) do
-    TypeCleanup.parse_track_with_types(track, :video)
+    # Keep as-is for now
+    {:ok, track}
   end
 
   defp migrate_track(%AudioTrack{} = track) do
-    TypeCleanup.parse_track_with_types(track, :audio)
+    # Keep as-is for now
+    {:ok, track}
   end
 
   defp migrate_track(%TextTrack{} = track) do
-    TypeCleanup.parse_track_with_types(track, :text)
+    # Keep as-is for now
+    {:ok, track}
   end
 
   defp migrate_track(track) do
@@ -209,18 +200,16 @@ defmodule Reencodarr.Media.MediaInfoMigration do
   end
 
   defp parse_numeric_value(value) do
-    cond do
-      String.contains?(value, ".") ->
-        case Float.parse(value) do
-          {float_val, ""} -> {:ok, float_val}
-          _ -> {:error, :invalid_float}
-        end
-
-      true ->
-        case Integer.parse(value) do
-          {int_val, ""} -> {:ok, int_val}
-          _ -> {:error, :invalid_integer}
-        end
+    if String.contains?(value, ".") do
+      case Float.parse(value) do
+        {float_val, ""} -> {:ok, float_val}
+        _ -> {:error, :invalid_float}
+      end
+    else
+      case Integer.parse(value) do
+        {int_val, ""} -> {:ok, int_val}
+        _ -> {:error, :invalid_integer}
+      end
     end
   end
 

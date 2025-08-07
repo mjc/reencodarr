@@ -273,20 +273,18 @@ defmodule Reencodarr.FailureTracker do
   def parse_ffmpeg_error_from_output(context, original_exit_code) do
     output = Map.get(context, "full_output", "")
 
-    cond do
+    if ffmpeg_exit_code = extract_ffmpeg_exit_code(output) do
       # FFmpeg exit code pattern: "Error: ffmpeg encode exit code 234"
-      ffmpeg_exit_code = extract_ffmpeg_exit_code(output) ->
-        {category, base_message} = classify_encoding_exit_code(ffmpeg_exit_code)
+      {category, base_message} = classify_encoding_exit_code(ffmpeg_exit_code)
 
-        enhanced_message =
-          enhance_message_with_ffmpeg_details(output, base_message, ffmpeg_exit_code)
+      enhanced_message =
+        enhance_message_with_ffmpeg_details(output, base_message, ffmpeg_exit_code)
 
-        {ffmpeg_exit_code, category, enhanced_message}
-
+      {ffmpeg_exit_code, category, enhanced_message}
+    else
       # No specific FFmpeg error found, use original classification
-      true ->
-        {category, message} = classify_encoding_exit_code(original_exit_code)
-        {original_exit_code, category, message}
+      {category, message} = classify_encoding_exit_code(original_exit_code)
+      {original_exit_code, category, message}
     end
   end
 

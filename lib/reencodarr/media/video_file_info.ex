@@ -23,7 +23,8 @@ defmodule Reencodarr.Media.VideoFileInfo do
           overall_bitrate: integer() | nil,
           run_time: integer() | nil,
           subtitles: [String.t()] | nil,
-          title: String.t() | nil
+          title: String.t() | nil,
+          date_added: String.t() | nil
         }
 
   defstruct [
@@ -43,6 +44,7 @@ defmodule Reencodarr.Media.VideoFileInfo do
     :overall_bitrate,
     :run_time,
     :subtitles,
-    :title
+    :title,
+    :date_added
   ]
 end

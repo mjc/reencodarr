@@ -129,7 +129,7 @@ defmodule ReencodarrWeb.FormatHelpers do
       "seconds" -> time_value
       "minutes" -> time_value * 60
       "hours" -> time_value * 3600
-      "days" -> time_value * 86400
+      "days" -> time_value * 86_400
       "weeks" -> time_value * 604_800
       # average month
       "months" -> time_value * 2_629_746

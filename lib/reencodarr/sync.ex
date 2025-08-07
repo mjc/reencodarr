@@ -131,7 +131,8 @@ defmodule Reencodarr.Sync do
         "service_id" => to_string(file["id"]),
         "service_type" => to_string(service_type),
         "mediainfo" => mediainfo,
-        "bitrate" => file["overallBitrate"] || 0
+        "bitrate" => file["overallBitrate"] || 0,
+        "dateAdded" => file["dateAdded"]
       })
     end)
 
@@ -181,7 +182,8 @@ defmodule Reencodarr.Sync do
       overall_bitrate: file["overallBitrate"],
       run_time: file["runTime"],
       subtitles: parse_list_or_binary(media_info["subtitles"]),
-      title: file["sceneName"]
+      title: file["sceneName"],
+      date_added: file["dateAdded"]
     }
   end
 
@@ -230,7 +232,8 @@ defmodule Reencodarr.Sync do
         "service_id" => info.service_id,
         "service_type" => to_string(info.service_type),
         "mediainfo" => mediainfo,
-        "bitrate" => info.bitrate
+        "bitrate" => info.bitrate,
+        "dateAdded" => info.date_added
       })
     end)
 
@@ -256,7 +259,8 @@ defmodule Reencodarr.Sync do
         "service_id" => info.service_id,
         "service_type" => to_string(info.service_type),
         "mediainfo" => mediainfo,
-        "bitrate" => info.bitrate
+        "bitrate" => info.bitrate,
+        "dateAdded" => info.date_added
       })
     end)
   end

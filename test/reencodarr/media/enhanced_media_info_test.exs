@@ -3,7 +3,7 @@ defmodule Reencodarr.Media.EnhancedMediaInfoTest do
 
   alias Reencodarr.Media.EnhancedMediaInfo
   alias Reencodarr.Media.MediaInfo
-  alias Reencodarr.Media.MediaInfo.{GeneralTrack, VideoTrack, AudioTrack, TextTrack}
+  alias Reencodarr.Media.MediaInfo.{AudioTrack, GeneralTrack, TextTrack, VideoTrack}
 
   describe "parse_json/2 with strict mode" do
     test "parses valid MediaInfo JSON successfully" do
@@ -172,12 +172,12 @@ defmodule Reencodarr.Media.EnhancedMediaInfoTest do
             %AudioTrack{
               Format: "AAC",
               Channels: "2",
-              SamplingRate: 48000
+              SamplingRate: 48_000
             },
             %AudioTrack{
               Format: "AC-3",
               Channels: "6",
-              SamplingRate: 48000
+              SamplingRate: 48_000
             }
           ]
         }
