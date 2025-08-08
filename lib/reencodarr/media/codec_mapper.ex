@@ -64,7 +64,7 @@ defmodule Reencodarr.Media.CodecMapper do
     "0" => 0
   }
 
-  alias Reencodarr.Media.CodecHelper
+  alias Reencodarr.Media.MediaInfo
 
   @spec map_codec_id(String.t() | nil) :: String.t() | atom()
   def map_codec_id(codec) do
@@ -91,7 +91,7 @@ defmodule Reencodarr.Media.CodecMapper do
   def has_low_resolution_hevc?(nil, _mediainfo), do: false
 
   def has_low_resolution_hevc?(video_codecs, mediainfo) do
-    height = CodecHelper.get_int(mediainfo, "Video", "Height")
+    height = MediaInfo.get_int(mediainfo, "Video", "Height")
 
     case height do
       0 ->
@@ -99,7 +99,7 @@ defmodule Reencodarr.Media.CodecMapper do
 
       _ ->
         "V_MPEGH/ISO/HEVC" in video_codecs and
-          CodecHelper.get_int(mediainfo, "Video", "Height") < 720
+          MediaInfo.get_int(mediainfo, "Video", "Height") < 720
     end
   end
 
@@ -108,8 +108,8 @@ defmodule Reencodarr.Media.CodecMapper do
 
   def low_bitrate_1080p?(video_codecs, mediainfo) do
     "V_MPEGH/ISO/HEVC" in video_codecs and
-      CodecHelper.get_int(mediainfo, "Video", "Width") == 1920 and
-      CodecHelper.get_int(mediainfo, "General", "OverallBitRate") < 20_000_000
+      MediaInfo.get_int(mediainfo, "Video", "Width") == 1920 and
+      MediaInfo.get_int(mediainfo, "General", "OverallBitRate") < 20_000_000
   end
 
   @spec audio_track_is_opus?(map()) :: boolean()

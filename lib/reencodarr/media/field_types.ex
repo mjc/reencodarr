@@ -9,7 +9,7 @@ defmodule Reencodarr.Media.FieldTypes do
   - Generating descriptive error messages for invalid data
   """
 
-  alias Reencodarr.Media.CodecHelper
+  alias Reencodarr.Core.Parsers
 
   @type field_type ::
           :integer
@@ -287,7 +287,7 @@ defmodule Reencodarr.Media.FieldTypes do
   end
 
   defp convert_to_integer(value) when is_binary(value) do
-    case CodecHelper.parse_int(value, nil) do
+    case Parsers.parse_int(value, nil) do
       nil -> {:error, "cannot convert '#{value}' to integer"}
       int_value -> {:ok, int_value}
     end
@@ -301,7 +301,7 @@ defmodule Reencodarr.Media.FieldTypes do
   defp convert_to_float(value) when is_integer(value), do: {:ok, value / 1.0}
 
   defp convert_to_float(value) when is_binary(value) do
-    case CodecHelper.parse_float(value, nil) do
+    case Parsers.parse_float(value, nil) do
       nil -> {:error, "cannot convert '#{value}' to float"}
       float_value -> {:ok, float_value}
     end

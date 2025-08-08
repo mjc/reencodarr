@@ -3,7 +3,8 @@ defmodule Reencodarr.Sync do
   use GenServer
   require Logger
   alias Reencodarr.{Media, Repo, Services, Telemetry}
-  alias Reencodarr.Media.{MediaInfo, VideoFileInfo}
+  alias Reencodarr.Media.Video.MediaInfoConverter
+  alias Reencodarr.Media.VideoFileInfo
 
   # Public API
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -108,7 +109,7 @@ defmodule Reencodarr.Sync do
   def upsert_video_from_service_file(file, service_type)
       when service_type in [:sonarr, :radarr] do
     # Convert directly to MediaInfo format
-    mediainfo = MediaInfo.from_service_file(file, service_type)
+    mediainfo = MediaInfoConverter.from_service_file(file, service_type)
 
     # Check if we need to analyze due to missing bitrate
     needs_analysis =
@@ -146,60 +147,9 @@ defmodule Reencodarr.Sync do
     end
   end
 
-  defp build_video_file_info(file, media_info, service_type) do
-    # Parse resolution safely
-    {width, height} =
-      case {media_info["width"], media_info["height"]} do
-        {w, h} when is_integer(w) and is_integer(h) ->
-          {w, h}
-
-        {w, h} when is_binary(w) and is_binary(h) ->
-          with {width_int, ""} <- Integer.parse(w),
-               {height_int, ""} <- Integer.parse(h) do
-            {width_int, height_int}
-          else
-            _ -> {0, 0}
-          end
-
-        _ ->
-          {0, 0}
-      end
-
-    %VideoFileInfo{
-      path: file["path"],
-      size: file["size"],
-      service_id: to_string(file["id"]),
-      service_type: service_type,
-      audio_codec: media_info["audioCodec"],
-      bitrate: calculate_bitrate(media_info),
-      audio_channels: media_info["audioChannels"],
-      video_codec: media_info["videoCodec"],
-      resolution: {width, height},
-      video_fps: file["videoFps"],
-      video_dynamic_range: media_info["videoDynamicRange"],
-      video_dynamic_range_type: media_info["videoDynamicRangeType"],
-      audio_stream_count: length(parse_list_or_binary(media_info["audioLanguages"])),
-      overall_bitrate: file["overallBitrate"],
-      run_time: file["runTime"],
-      subtitles: parse_list_or_binary(media_info["subtitles"]),
-      title: file["sceneName"],
-      date_added: file["dateAdded"]
-    }
-  end
-
-  defp calculate_bitrate(media_info) do
-    case media_info["videoBitrate"] || 0 do
-      0 -> 0
-      video_bitrate -> video_bitrate + (media_info["audioBitrate"] || 0)
-    end
-  end
-
-  defp parse_list_or_binary(value) do
-    cond do
-      is_list(value) -> value
-      is_binary(value) -> String.split(value, "/")
-      true -> []
-    end
+  defp build_video_file_info(file, _media_info, service_type) do
+    # Use the new converter
+    MediaInfoConverter.video_file_info_from_file(file, service_type)
   end
 
   defp process_video_file(
@@ -223,7 +173,7 @@ defmodule Reencodarr.Sync do
     Logger.debug("Bitrate is zero, inserting to DB then analyzing video: #{info.path}")
 
     # Convert VideoFileInfo to MediaInfo format for database storage
-    mediainfo = MediaInfo.from_video_file_info(info)
+    mediainfo = MediaInfoConverter.from_video_file_info(info)
 
     Repo.checkout(fn ->
       Media.upsert_video(%{
@@ -250,7 +200,7 @@ defmodule Reencodarr.Sync do
          _service_type
        ) do
     # Convert VideoFileInfo to MediaInfo format for database storage
-    mediainfo = MediaInfo.from_video_file_info(info)
+    mediainfo = MediaInfoConverter.from_video_file_info(info)
 
     Repo.checkout(fn ->
       Media.upsert_video(%{
