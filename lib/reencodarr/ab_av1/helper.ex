@@ -8,7 +8,7 @@ defmodule Reencodarr.AbAv1.Helper do
 
   require Logger
 
-  alias Reencodarr.{Media, Rules, TimeHelpers}
+  alias Reencodarr.{Media, Rules}
 
   @spec attach_params(list(map()), Media.Video.t()) :: list(map())
   def attach_params(vmafs, video) do
@@ -34,12 +34,12 @@ defmodule Reencodarr.AbAv1.Helper do
 
   @spec convert_time_to_duration(map()) :: map()
   def convert_time_to_duration(captures) do
-    TimeHelpers.convert_time_to_duration(captures)
+    Reencodarr.TimeHelpers.convert_time_to_duration(captures)
   end
 
   @spec convert_to_seconds(integer(), String.t()) :: integer()
   def convert_to_seconds(time, unit) do
-    TimeHelpers.to_seconds(time, unit)
+    Reencodarr.TimeHelpers.to_seconds(time, unit)
   end
 
   @spec temp_dir() :: String.t()

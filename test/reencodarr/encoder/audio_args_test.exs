@@ -14,7 +14,7 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
             %{
               "@type" => "General",
               "AudioCount" => "1",
-              "OverallBitRate" => "5000000",
+              "OverallBitRate" => "25000000",
               "Duration" => "3600.0",
               "FileSize" => "1000000",
               "TextCount" => "0",
@@ -41,7 +41,7 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
       # Create a video that will get populated from mediainfo
       {:ok, video} =
         Media.create_video(%{
-          path: "/test/video.mkv",
+          path: "/test/centralized_args_video.mkv",
           size: 1_000_000,
           mediainfo: mediainfo
         })
@@ -180,9 +180,46 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
       refute audio_enc_found
     end
 
-    test "Rules.build_args handles multiple SVT flags correctly", %{video: video} do
-      # Update video to have HDR
-      {:ok, hdr_video} = Media.update_video(video, %{hdr: "HDR10"})
+    test "Rules.build_args handles multiple SVT flags correctly", %{video: _video} do
+      # Create an HDR video using MediaInfo processing
+      hdr_mediainfo = %{
+        "media" => %{
+          "track" => [
+            %{
+              "@type" => "General",
+              "AudioCount" => "1",
+              "OverallBitRate" => "25000000",
+              "Duration" => "3600.0",
+              "FileSize" => "1000000",
+              "TextCount" => "0",
+              "VideoCount" => "1",
+              "Title" => "HDR Test Video"
+            },
+            %{
+              "@type" => "Video",
+              "FrameRate" => "24.0",
+              "Height" => "1080",
+              "Width" => "1920",
+              "CodecID" => "V_MPEGH/ISO/HEVC",
+              "HDR_Format" => "SMPTE ST 2086",
+              "HDR_Format_Compatibility" => "HDR10"
+            },
+            %{
+              "@type" => "Audio",
+              "CodecID" => "A_EAC3",
+              "Channels" => "6",
+              "Format_Commercial_IfAny" => "Dolby Digital Plus"
+            }
+          ]
+        }
+      }
+
+      {:ok, hdr_video} =
+        Media.create_video(%{
+          path: "/test/hdr_test_video.mkv",
+          size: 1_000_000,
+          mediainfo: hdr_mediainfo
+        })
 
       args = Rules.build_args(hdr_video, :encode)
 
@@ -208,27 +245,50 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
         end)
 
       assert dv_found, "Should include dolbyvision=1 for HDR"
+
+      # Clean up
+      Media.delete_video(hdr_video)
     end
   end
 
   describe "encoder integration" do
     setup do
+      # Use MediaInfo structure like the main tests
+      mediainfo = %{
+        "media" => %{
+          "track" => [
+            %{
+              "@type" => "General",
+              "AudioCount" => "1",
+              "OverallBitRate" => "25000000",
+              "Duration" => "3600.0",
+              "FileSize" => "1000000",
+              "TextCount" => "0",
+              "VideoCount" => "1",
+              "Title" => "Test Video"
+            },
+            %{
+              "@type" => "Video",
+              "FrameRate" => "24.0",
+              "Height" => "1080",
+              "Width" => "1920",
+              "CodecID" => "V_MPEGH/ISO/HEVC"
+            },
+            %{
+              "@type" => "Audio",
+              "CodecID" => "A_EAC3",
+              "Channels" => "6",
+              "Format_Commercial_IfAny" => "Dolby Digital Plus"
+            }
+          ]
+        }
+      }
+
       {:ok, video} =
         Media.create_video(%{
-          path: "/test/video.mkv",
-          title: "Test Video",
+          path: "/test/encoder_integration_video.mkv",
           size: 1_000_000,
-          duration: 3600.0,
-          width: 1920,
-          height: 1080,
-          frame_rate: 24.0,
-          bitrate: 5_000_000,
-          video_codecs: ["V_MPEGH/ISO/HEVC"],
-          audio_codecs: ["A_EAC3"],
-          max_audio_channels: 6,
-          atmos: false,
-          reencoded: false,
-          failed: false
+          mediainfo: mediainfo
         })
 
       %{video: video}

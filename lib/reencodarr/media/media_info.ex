@@ -2,455 +2,172 @@ defmodule Reencodarr.Media.MediaInfo do
   @moduledoc """
   Logic for converting between VideoFileInfo structs and mediainfo maps, and extracting params for Ecto changesets.
   """
-  alias Reencodarr.Media.{CodecHelper, CodecMapper, VideoFileInfo}
+  alias Reencodarr.Core.Parsers
+  alias Reencodarr.Media.{CodecMapper, VideoFileInfo}
 
-  @derive Jason.Encoder
-  defstruct [
-    :creatingLibrary,
-    :media
-  ]
-
-  @type t :: %__MODULE__{
-          creatingLibrary: CreatingLibrary.t(),
-          media: Media.t()
-        }
-
-  defmodule CreatingLibrary do
-    @moduledoc """
-    Represents the creating library information from MediaInfo.
-    """
-    @derive Jason.Encoder
-    defstruct [
-      :name,
-      :version,
-      :url
-    ]
-
-    @type t :: %__MODULE__{
-            name: String.t(),
-            version: String.t(),
-            url: String.t()
-          }
-  end
-
-  defmodule Media do
-    @moduledoc """
-    Represents media container information from MediaInfo.
-    """
-    @derive Jason.Encoder
-    defstruct [
-      :"@ref",
-      :track
-    ]
-
-    @type t :: %__MODULE__{
-            "@ref": String.t(),
-            track: [Track.t()]
-          }
-  end
-
-  defmodule Track do
-    @moduledoc """
-    Represents a generic track from MediaInfo.
-    """
-    @derive Jason.Encoder
-    defstruct [
-      :"@type",
-      :"@typeorder",
-      :StreamOrder,
-      :ID,
-      :UniqueID,
-      :Format,
-      :Duration,
-      :Language,
-      :Default,
-      :Forced,
-      :extra
-    ]
-
-    @type t :: %__MODULE__{
-            "@type": String.t(),
-            "@typeorder": String.t() | nil,
-            StreamOrder: String.t() | nil,
-            ID: String.t() | nil,
-            UniqueID: String.t() | nil,
-            Format: String.t() | nil,
-            Duration: float() | nil,
-            Language: String.t() | nil,
-            Default: String.t() | nil,
-            Forced: String.t() | nil,
-            extra: map() | nil
-          }
-  end
-
-  defmodule GeneralTrack do
-    @moduledoc """
-    Represents general track information from MediaInfo.
-    """
-    @derive Jason.Encoder
-    defstruct [
-      :"@type",
-      :FileExtension,
-      :Format,
-      :Format_Profile,
-      :Format_Version,
-      :CodecID,
-      :CodecID_Compatible,
-      :FileSize,
-      :Duration,
-      :OverallBitRate,
-      :FrameRate,
-      :FrameCount,
-      :VideoCount,
-      :AudioCount,
-      :TextCount,
-      :Title,
-      :UniqueID,
-      :extra
-    ]
-
-    @type t :: %__MODULE__{
-            "@type": String.t(),
-            FileExtension: String.t() | nil,
-            Format: String.t() | nil,
-            Format_Profile: String.t() | nil,
-            Format_Version: String.t() | nil,
-            CodecID: String.t() | nil,
-            CodecID_Compatible: String.t() | nil,
-            FileSize: integer() | nil,
-            Duration: float() | nil,
-            OverallBitRate: integer() | nil,
-            FrameRate: float() | nil,
-            FrameCount: integer() | nil,
-            VideoCount: integer() | nil,
-            AudioCount: integer() | nil,
-            TextCount: integer() | nil,
-            Title: String.t() | nil,
-            UniqueID: String.t() | nil,
-            extra: map() | nil
-          }
-  end
-
-  defmodule VideoTrack do
-    @moduledoc """
-    Represents a video track from MediaInfo.
-    """
-    @derive Jason.Encoder
-    defstruct [
-      :"@type",
-      :StreamOrder,
-      :ID,
-      :UniqueID,
-      :Duration,
-      :Default,
-      :Forced,
-      :Language,
-      :Format,
-      :Format_Profile,
-      :Format_Level,
-      :CodecID,
-      :Width,
-      :Height,
-      :FrameRate,
-      :BitRate,
-      :HDR_Format,
-      :HDR_Format_Compatibility,
-      :ColorSpace,
-      :ChromaSubsampling,
-      :BitDepth,
-      :Encoded_Library,
-      :extra
-    ]
-
-    @type t :: %__MODULE__{
-            "@type": String.t(),
-            StreamOrder: String.t() | nil,
-            ID: String.t() | nil,
-            UniqueID: String.t() | nil,
-            Duration: float() | nil,
-            Default: String.t() | nil,
-            Forced: String.t() | nil,
-            Language: String.t() | nil,
-            Format: String.t() | nil,
-            Format_Profile: String.t() | nil,
-            Format_Level: String.t() | nil,
-            CodecID: String.t() | nil,
-            Width: integer() | nil,
-            Height: integer() | nil,
-            FrameRate: float() | nil,
-            BitRate: integer() | nil,
-            HDR_Format: String.t() | nil,
-            HDR_Format_Compatibility: String.t() | nil,
-            ColorSpace: String.t() | nil,
-            ChromaSubsampling: String.t() | nil,
-            BitDepth: integer() | nil,
-            Encoded_Library: String.t() | nil,
-            extra: map() | nil
-          }
-  end
-
-  defmodule AudioTrack do
-    @moduledoc """
-    Represents an audio track from MediaInfo.
-    """
-    @derive Jason.Encoder
-    defstruct [
-      :"@type",
-      :StreamOrder,
-      :ID,
-      :UniqueID,
-      :Duration,
-      :Default,
-      :Forced,
-      :Language,
-      :Format,
-      :Format_Commercial_IfAny,
-      :CodecID,
-      :BitRate,
-      :Channels,
-      :ChannelPositions,
-      :SamplingRate,
-      :extra
-    ]
-
-    @type t :: %__MODULE__{
-            "@type": String.t(),
-            StreamOrder: String.t() | nil,
-            ID: String.t() | nil,
-            UniqueID: String.t() | nil,
-            Duration: float() | nil,
-            Default: String.t() | nil,
-            Forced: String.t() | nil,
-            Language: String.t() | nil,
-            Format: String.t() | nil,
-            Format_Commercial_IfAny: String.t() | nil,
-            CodecID: String.t() | nil,
-            BitRate: integer() | nil,
-            Channels: String.t() | nil,
-            ChannelPositions: String.t() | nil,
-            SamplingRate: integer() | nil,
-            extra: map() | nil
-          }
-  end
-
-  defmodule TextTrack do
-    @moduledoc """
-    Represents a text/subtitle track from MediaInfo.
-    """
-    @derive Jason.Encoder
-    defstruct [
-      :"@type",
-      :"@typeorder",
-      :StreamOrder,
-      :ID,
-      :UniqueID,
-      :Duration,
-      :Default,
-      :Forced,
-      :Language,
-      :Title,
-      :Format,
-      :CodecID,
-      :BitRate,
-      :FrameRate,
-      :FrameCount,
-      :ElementCount,
-      :StreamSize,
-      :extra
-    ]
-
-    @type t :: %__MODULE__{
-            "@type": String.t(),
-            "@typeorder": String.t() | nil,
-            StreamOrder: String.t() | nil,
-            ID: String.t() | nil,
-            UniqueID: String.t() | nil,
-            Duration: float() | nil,
-            Default: String.t() | nil,
-            Forced: String.t() | nil,
-            Language: String.t() | nil,
-            Title: String.t() | nil,
-            Format: String.t() | nil,
-            CodecID: String.t() | nil,
-            BitRate: integer() | nil,
-            FrameRate: float() | nil,
-            FrameCount: integer() | nil,
-            ElementCount: integer() | nil,
-            StreamSize: integer() | nil,
-            extra: map() | nil
-          }
-  end
-
-  # Aliases for easier access
-  alias __MODULE__.{Media, GeneralTrack, VideoTrack, AudioTrack, TextTrack}
-  alias Reencodarr.Media.TrackProtocol
+  # === MediaInfo Track Extraction Functions ===
 
   @doc """
-  Converts raw MediaInfo JSON into structured MediaInfo.
+  Gets an integer value from MediaInfo track data.
   """
-  @spec from_json(map() | list() | nil) :: [t()] | {:error, term()}
-  def from_json(nil), do: [%__MODULE__{creatingLibrary: nil, media: nil}]
+  @spec get_int(map(), String.t(), String.t()) :: integer()
+  def get_int(mediainfo, track_type, key) do
+    case get_track(mediainfo, track_type) do
+      nil ->
+        0
 
-  def from_json(json_data) when is_list(json_data) do
-    Enum.map(json_data, &parse_single_media_info/1)
+      track ->
+        track
+        |> Map.get(key, "0")
+        |> to_string()
+        |> Parsers.parse_int(0)
+    end
   end
 
-  def from_json(json_data) when is_map(json_data) do
-    [parse_single_media_info(json_data)]
+  @doc """
+  Gets a string value from MediaInfo track data.
+  """
+  @spec get_str(map(), String.t(), String.t()) :: String.t()
+  def get_str(mediainfo, track_type, key) do
+    case get_track(mediainfo, track_type) do
+      nil ->
+        ""
+
+      track ->
+        track
+        |> Map.get(key, "")
+        |> to_string()
+    end
   end
 
-  # Handle the full MediaInfo JSON format with creatingLibrary
-  defp parse_single_media_info(%{"creatingLibrary" => creating_lib, "media" => media}) do
-    %__MODULE__{
-      creatingLibrary: parse_creating_library(creating_lib),
-      media: parse_media(media)
-    }
+  @doc """
+  Gets a single track of specified type from MediaInfo data.
+  """
+  @spec get_track(map() | nil, String.t()) :: map() | nil
+  def get_track(nil, _type), do: nil
+  def get_track(%{"media" => nil}, _type), do: nil
+  def get_track(%{"media" => %{"track" => nil}}, _type), do: nil
+  def get_track(%{"media" => %{"track" => []}}, _type), do: nil
+
+  def get_track(%{"media" => %{"track" => tracks}}, type) when is_list(tracks) do
+    Enum.find(tracks, &(&1["@type"] == type))
   end
 
-  # Handle legacy format that only has media data (from tests)
-  defp parse_single_media_info(%{"media" => media}) do
-    %__MODULE__{
-      creatingLibrary: nil,
-      media: parse_media(media)
-    }
+  def get_track(%{"media" => %{"track" => track}}, type) when is_map(track) do
+    if track["@type"] == type, do: track, else: nil
   end
 
-  # Handle empty map
-  defp parse_single_media_info(%{}) do
-    %__MODULE__{
-      creatingLibrary: nil,
-      media: nil
-    }
+  def get_track(_mediainfo, _type), do: nil
+
+  @doc """
+  Gets all tracks of specified type from MediaInfo data.
+  """
+  @spec get_tracks(map() | nil, String.t()) :: [map()]
+  def get_tracks(nil, _type), do: []
+  def get_tracks(%{"media" => nil}, _type), do: []
+  def get_tracks(%{"media" => %{"track" => nil}}, _type), do: []
+  def get_tracks(%{"media" => %{"track" => []}}, _type), do: []
+
+  def get_tracks(%{"media" => %{"track" => tracks}}, type) when is_list(tracks) do
+    Enum.filter(tracks, &(&1["@type"] == type))
   end
 
-  defp parse_creating_library(nil), do: nil
-
-  defp parse_creating_library(%{"name" => name, "version" => version, "url" => url}) do
-    %CreatingLibrary{
-      name: name,
-      version: version,
-      url: url
-    }
+  def get_tracks(%{"media" => %{"track" => track}}, type) when is_map(track) do
+    if track["@type"] == type, do: [track], else: []
   end
 
-  defp parse_media(nil), do: nil
+  def get_tracks(_mediainfo, _type), do: []
 
-  defp parse_media(%{"@ref" => ref, "track" => tracks}) when is_list(tracks) do
-    %Media{
-      "@ref": ref,
-      track: Enum.map(tracks, &parse_track/1)
-    }
+  @doc """
+  Checks if audio tracks contain Atmos encoding.
+  """
+  @spec has_atmos?(list()) :: boolean
+  def has_atmos?(audio_tracks) when is_list(audio_tracks) do
+    Enum.any?(audio_tracks, fn t ->
+      String.contains?(Map.get(t, "Format_AdditionalFeatures", ""), "JOC") or
+        String.contains?(Map.get(t, "Format_Commercial_IfAny", ""), "Atmos")
+    end)
   end
 
-  defp parse_media(%{"track" => tracks}) when is_list(tracks) do
-    %Media{
-      "@ref": nil,
-      track: Enum.map(tracks, &parse_track/1)
-    }
+  @doc """
+  Gets the maximum number of audio channels across all tracks.
+  """
+  @spec max_audio_channels(list()) :: integer()
+  def max_audio_channels(audio_tracks) when is_list(audio_tracks) do
+    audio_tracks
+    |> Enum.map(&get_channel_count_from_track/1)
+    |> Enum.max(fn -> 0 end)
   end
 
-  defp parse_track(%{"@type" => "General"} = track_data) do
-    struct(GeneralTrack, atomize_keys_with_extra(track_data, GeneralTrack))
+  @doc """
+  Parses HDR information from video format data.
+  """
+  @spec parse_hdr_from_video(nil | map()) :: String.t() | nil
+  def parse_hdr_from_video(nil), do: nil
+
+  def parse_hdr_from_video(%{} = video) do
+    parse_hdr([
+      video["HDR_Format"],
+      video["HDR_Format_Compatibility"],
+      video["transfer_characteristics"]
+    ])
   end
 
-  defp parse_track(%{"@type" => "Video"} = track_data) do
-    struct(VideoTrack, atomize_keys_with_extra(track_data, VideoTrack))
-  end
-
-  defp parse_track(%{"@type" => "Audio"} = track_data) do
-    struct(AudioTrack, atomize_keys_with_extra(track_data, AudioTrack))
-  end
-
-  defp parse_track(%{"@type" => "Text"} = track_data) do
-    struct(TextTrack, atomize_keys_with_extra(track_data, TextTrack))
-  end
-
-  defp parse_track(track_data) do
-    struct(Track, atomize_keys_with_extra(track_data, Track))
-  end
-
-  # Convert string keys to atoms, handling known fields and putting unknown fields in :extra
-  defp atomize_keys_with_extra(map, struct_module) do
-    known_fields = get_known_fields(struct_module)
-    {known_fields_map, extra_fields} = Map.split(map, known_fields)
-
-    atomized_known =
-      for {k, v} <- known_fields_map, into: %{} do
-        atom_key = atomize_key(k)
-        converted_value = convert_field_value(atom_key, v, struct_module)
-        {atom_key, converted_value}
+  @doc """
+  Parses HDR format information from a list of format strings.
+  """
+  def parse_hdr(formats) do
+    formats
+    |> Enum.reduce([], fn format, acc ->
+      if format &&
+           (String.contains?(format, "Dolby Vision") || String.contains?(format, "HDR") ||
+              String.contains?(format, "PQ") || String.contains?(format, "SMPTE")) do
+        [format | acc]
+      else
+        acc
       end
-
-    if map_size(extra_fields) > 0 do
-      Map.put(atomized_known, :extra, extra_fields)
-    else
-      atomized_known
-    end
-  end
-
-  # Convert string key to atom, handling special characters
-  defp atomize_key(key), do: String.to_atom(key)
-
-  # Convert field values to appropriate types based on the field and struct type
-  defp convert_field_value(_field, value, _struct_module) when is_nil(value), do: nil
-
-  defp convert_field_value(_field, value, _struct_module)
-       when is_binary(value) and byte_size(value) == 0, do: nil
-
-  # Integer fields
-  defp convert_field_value(field, value, _struct_module)
-       when field in [
-              :FileSize,
-              :OverallBitRate,
-              :FrameCount,
-              :VideoCount,
-              :AudioCount,
-              :TextCount,
-              :Width,
-              :Height,
-              :BitRate,
-              :BitDepth,
-              :SamplingRate,
-              :Channels
-            ] do
-    case value do
-      int when is_integer(int) -> int
-      str when is_binary(str) -> CodecHelper.parse_int(str, 0)
-      _ -> 0
-    end
-  end
-
-  # Float fields
-  defp convert_field_value(field, value, _struct_module)
-       when field in [
-              :Duration,
-              :FrameRate
-            ] do
-    case value do
-      float when is_float(float) -> float
-      int when is_integer(int) -> int / 1.0
-      str when is_binary(str) -> CodecHelper.parse_float(str, 0.0)
-      _ -> 0.0
-    end
-  end
-
-  # String fields (default case)
-  defp convert_field_value(_field, value, _struct_module), do: value
-
-  # Get list of known field names for a specific struct type
-  defp get_known_fields(struct_module) do
-    struct_module.__struct__()
-    |> Map.keys()
-    |> Enum.map(&Atom.to_string/1)
-    |> Enum.reject(&(&1 in ["extra", "__struct__"]))
+    end)
+    |> Enum.uniq()
+    |> Enum.join(", ")
   end
 
   @doc """
-  Converts VideoFileInfo struct to MediaInfo JSON format for database storage.
+  Parses subtitle information from various input formats.
   """
-  def from_video_file_info(%VideoFileInfo{} = info) do
-    {width, height} = parse_resolution(info.resolution)
+  @spec parse_subtitles(String.t() | list() | nil) :: list()
+  def parse_subtitles(subtitles) do
+    cond do
+      is_binary(subtitles) -> String.split(subtitles, "/")
+      is_list(subtitles) -> subtitles
+      true -> []
+    end
+  end
 
+  @doc """
+  Parse HDR information from a map containing HDR_Format field.
+  """
+  @spec parse_hdr_from_map(map()) :: String.t() | nil
+  def parse_hdr_from_map(%{"HDR_Format" => hdr_format}) do
+    parse_hdr([hdr_format])
+  end
+
+  def parse_hdr_from_map(_), do: nil
+
+  @doc """
+  Check if an audio format contains Atmos.
+  """
+  @spec has_atmos_format?(String.t() | nil) :: boolean()
+  def has_atmos_format?(nil), do: false
+
+  def has_atmos_format?(format) when is_binary(format) do
+    String.contains?(format, "Atmos")
+  end
+
+  def has_atmos_format?(_), do: false
+
+  # === Main Conversion Functions ===
+
+  def from_video_file_info(%VideoFileInfo{} = info) do
     %{
       "media" => %{
         "track" => [
@@ -458,7 +175,7 @@ defmodule Reencodarr.Media.MediaInfo do
             "@type" => "General",
             "AudioCount" => info.audio_stream_count,
             "OverallBitRate" => info.overall_bitrate || info.bitrate,
-            "Duration" => CodecHelper.parse_duration(info.run_time),
+            "Duration" => Parsers.parse_duration(info.run_time),
             "FileSize" => info.size,
             "TextCount" => length(info.subtitles || []),
             "VideoCount" => 1,
@@ -467,8 +184,8 @@ defmodule Reencodarr.Media.MediaInfo do
           %{
             "@type" => "Video",
             "FrameRate" => info.video_fps,
-            "Height" => height,
-            "Width" => width,
+            "Height" => elem(info.resolution, 1),
+            "Width" => elem(info.resolution, 0),
             "HDR_Format" => info.video_dynamic_range,
             "HDR_Format_Compatibility" => info.video_dynamic_range_type,
             "CodecID" => info.video_codec
@@ -484,347 +201,117 @@ defmodule Reencodarr.Media.MediaInfo do
     }
   end
 
-  @doc """
-  Converts raw Sonarr/Radarr file data directly to MediaInfo struct.
-  This is the most efficient path for service integration.
-  """
-  def from_service_file_to_struct(file, service_type) when service_type in [:sonarr, :radarr] do
-    file
-    |> from_service_file(service_type)
-    |> from_json()
-    # Get the first (and only) MediaInfo struct from the list
-    |> hd()
-  end
-
-  @doc """
-  Converts VideoFileInfo struct to MediaInfo struct via JSON transformation.
-  """
-  def from_video_file_info_to_struct(%VideoFileInfo{} = info) do
-    info
-    |> from_video_file_info()
-    |> from_json()
-    # Get the first (and only) MediaInfo struct from the list
-    |> hd()
-  end
-
-  @doc """
-  Converts raw Sonarr/Radarr file data directly to MediaInfo JSON format.
-  This bypasses the VideoFileInfo struct for simpler processing.
-  """
-  def from_service_file(file, service_type) when service_type in [:sonarr, :radarr] do
-    media_info = file["mediaInfo"] || %{}
-
-    {width, height} = parse_resolution_from_service(media_info)
-    overall_bitrate = calculate_overall_bitrate(file, media_info)
-    subtitles = parse_subtitles_from_service(media_info)
-    audio_languages = parse_audio_languages_from_service(media_info)
-
-    %{
-      "media" => %{
-        "track" => [
-          build_general_track(file, overall_bitrate, subtitles, audio_languages),
-          build_video_track(file, media_info, width, height),
-          build_audio_track(media_info)
-        ]
-      }
-    }
-  end
-
-  # Helper functions for from_service_file/2
-  defp parse_resolution_from_service(media_info) do
-    case {media_info["width"], media_info["height"]} do
-      {w, h} when is_integer(w) and is_integer(h) ->
-        {w, h}
-
-      {w, h} when is_binary(w) and is_binary(h) ->
-        with {width_int, ""} <- Integer.parse(w),
-             {height_int, ""} <- Integer.parse(h) do
-          {width_int, height_int}
-        else
-          _ -> {0, 0}
-        end
-
-      _ ->
-        {0, 0}
-    end
-  end
-
-  defp calculate_overall_bitrate(file, media_info) do
-    case {file["overallBitrate"], media_info["videoBitrate"], media_info["audioBitrate"]} do
-      {overall, _, _} when is_integer(overall) and overall > 0 -> overall
-      {_, video, audio} when is_integer(video) and is_integer(audio) -> video + audio
-      {_, video, _} when is_integer(video) -> video
-      _ -> 0
-    end
-  end
-
-  defp parse_subtitles_from_service(media_info) do
-    case media_info["subtitles"] do
-      list when is_list(list) -> list
-      binary when is_binary(binary) -> String.split(binary, "/")
-      _ -> []
-    end
-  end
-
-  defp parse_audio_languages_from_service(media_info) do
-    case media_info["audioLanguages"] do
-      list when is_list(list) -> list
-      binary when is_binary(binary) -> String.split(binary, "/")
-      _ -> []
-    end
-  end
-
-  defp build_general_track(file, overall_bitrate, subtitles, audio_languages) do
-    %{
-      "@type" => "General",
-      "AudioCount" => length(audio_languages),
-      "OverallBitRate" => overall_bitrate,
-      "Duration" => file["runTime"],
-      "FileSize" => file["size"],
-      "TextCount" => length(subtitles),
-      "VideoCount" => 1,
-      "Title" => file["sceneName"] || file["title"]
-    }
-  end
-
-  defp build_video_track(file, media_info, width, height) do
-    %{
-      "@type" => "Video",
-      "FrameRate" => file["videoFps"] || media_info["videoFps"],
-      "Height" => height,
-      "Width" => width,
-      "HDR_Format" => media_info["videoDynamicRange"],
-      "HDR_Format_Compatibility" => media_info["videoDynamicRangeType"],
-      "CodecID" => media_info["videoCodec"]
-    }
-  end
-
-  defp build_audio_track(media_info) do
-    %{
-      "@type" => "Audio",
-      "CodecID" => media_info["audioCodec"],
-      "Channels" => media_info["audioChannels"],
-      "Format_Commercial_IfAny" => CodecMapper.format_commercial_if_any(media_info["audioCodec"])
-    }
-  end
-
-  def to_video_params(mediainfo_json, path) when is_list(mediainfo_json) do
-    # Handle case where MediaInfo returns array with single item
-    case mediainfo_json do
-      [single_item] -> to_video_params(single_item, path)
-      _ -> raise "Multiple media items not supported"
-    end
-  end
-
-  def to_video_params(mediainfo_json, path) do
+  def to_video_params(mediainfo, path) do
     require Logger
 
-    # Convert raw JSON to structured data
-    [mediainfo_struct] = from_json(mediainfo_json)
+    tracks = extract_tracks_safely(mediainfo, path)
+    {general, video_tracks, audio_tracks} = extract_track_types(tracks, mediainfo)
+    video_codecs = extract_video_codecs(video_tracks, path, mediainfo)
 
-    # Extract structured tracks using protocol-based extraction
-    general_track = extract_first_track(mediainfo_struct, :general)
-    video_tracks = extract_tracks_by_type(mediainfo_struct, :video)
-    audio_tracks = extract_tracks_by_type(mediainfo_struct, :audio)
-
-    # Extract video codecs using the structured data
-    video_codecs = extract_codec_ids(mediainfo_struct, :video)
-
-    case build_video_params_from_structs(
-           general_track,
-           video_tracks,
-           audio_tracks,
-           video_codecs,
-           path
-         ) do
-      {:ok, params} ->
-        params
-
-      {:error, reason} ->
-        Logger.error("Failed to build video params for #{path}: #{reason}")
-        raise "Invalid audio metadata: #{reason}"
-    end
+    build_video_params(general, video_tracks, audio_tracks, video_codecs, mediainfo, path)
   end
 
-  defp build_video_params_from_structs(
-         general_track,
-         video_tracks,
-         audio_tracks,
-         video_codecs,
-         path
-       ) do
-    last_video = List.last(video_tracks)
+  defp extract_tracks_safely(mediainfo, path) do
+    require Logger
 
-    # Validate audio channel information
-    case validate_audio_channels(audio_tracks, general_track) do
-      {:ok, max_channels} ->
-        # Build successful params
-        {:ok,
-         %{
-           "audio_codecs" => Enum.map(audio_tracks, &TrackProtocol.codec_id/1),
-           "audio_count" => get_field_value(general_track, :AudioCount, 0),
-           "atmos" => has_atmos_from_structs?(audio_tracks),
-           "bitrate" => get_field_value(general_track, :OverallBitRate, 0),
-           "duration" => get_field_value(general_track, :Duration, 0.0),
-           "frame_rate" => get_field_value(last_video, :FrameRate, 0.0),
-           "hdr" => get_hdr_from_video_track(last_video),
-           "height" => get_field_value(last_video, :Height, 0),
-           "max_audio_channels" => max_channels,
-           "size" => get_field_value(general_track, :FileSize, 0),
-           "text_count" => get_field_value(general_track, :TextCount, 0),
-           "video_codecs" => video_codecs,
-           "video_count" => get_field_value(general_track, :VideoCount, 0),
-           "width" => get_field_value(last_video, :Width, 0),
-           "reencoded" =>
-             reencoded?(video_codecs, %{
-               "media" => %{
-                 "track" => tracks_to_legacy_maps(general_track, video_tracks, audio_tracks)
-               }
-             }),
-           "title" => get_title_from_struct(general_track, path)
-         }}
+    case mediainfo do
+      # Handle standard MediaInfo structure
+      %{"media" => %{"track" => tracks}} when is_list(tracks) ->
+        tracks
 
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
+      # Handle single track as a map
+      %{"media" => %{"track" => track}} when is_map(track) ->
+        [track]
 
-  # Simplified field access since values are already properly typed
-  defp get_field_value(nil, _field, default), do: default
+      %{"media" => nil} ->
+        []
 
-  defp get_field_value(struct, field, default) do
-    Map.get(struct, field, default)
-  end
-
-  @doc """
-  Extracts normalized metadata from a track using the Track Protocol.
-
-  This provides a unified way to get metadata regardless of track type.
-  """
-  def extract_track_metadata(track) do
-    TrackProtocol.extract_metadata(track)
-  end
-
-  @doc """
-  Validates a track using the Track Protocol.
-
-  Returns true if the track has valid required fields for its type.
-  """
-  def validate_track(track) do
-    TrackProtocol.valid?(track)
-  end
-
-  defp has_atmos_from_structs?(audio_tracks) do
-    Enum.any?(audio_tracks, fn track ->
-      case track do
-        %AudioTrack{Format_Commercial_IfAny: format} ->
-          CodecHelper.has_atmos_format?(format)
-
-        _ ->
-          false
-      end
-    end)
-  end
-
-  # Validate that audio tracks have valid channel information
-  defp validate_audio_channels(audio_tracks, general_track) do
-    audio_count = get_field_value(general_track, :AudioCount, 0)
-
-    # If MediaInfo reports audio tracks but we have no audio track data, that's an error
-    if audio_count > 0 and Enum.empty?(audio_tracks) do
-      {:error, "MediaInfo reports #{audio_count} audio tracks but no audio track data found"}
-    else
-      validate_channel_data(audio_tracks)
-    end
-  end
-
-  defp validate_channel_data(audio_tracks) do
-    max_channels = max_audio_channels_from_structs(audio_tracks)
-
-    # If we have audio tracks but all have 0 or invalid channels, that's suspicious
-    if not Enum.empty?(audio_tracks) and max_channels == 0 do
-      build_invalid_channels_error(audio_tracks)
-    else
-      {:ok, max_channels}
-    end
-  end
-
-  defp build_invalid_channels_error(audio_tracks) do
-    invalid_tracks = format_invalid_track_descriptions(audio_tracks)
-    {:error, "All audio tracks have invalid channel data: #{Enum.join(invalid_tracks, ", ")}"}
-  end
-
-  defp format_invalid_track_descriptions(audio_tracks) do
-    audio_tracks
-    |> Enum.with_index()
-    |> Enum.filter(&track_has_invalid_channels?/1)
-    |> Enum.map(&format_track_description/1)
-  end
-
-  defp track_has_invalid_channels?({track, _idx}) do
-    case track do
-      %AudioTrack{Channels: channels} when is_integer(channels) and channels > 0 ->
-        false
-
-      %AudioTrack{Channels: channels} when is_binary(channels) ->
-        CodecHelper.parse_int(channels, 0) == 0
+      nil ->
+        []
 
       _ ->
-        true
+        # Log unexpected structure but don't crash
+        Logger.warning(
+          "Unexpected mediainfo structure for #{path}: #{inspect(mediainfo, pretty: true, limit: 1000)}"
+        )
+
+        []
     end
   end
 
-  defp format_track_description({track, idx}) do
-    channels_val =
-      case track do
-        %AudioTrack{Channels: channels} -> inspect(channels)
-        _ -> "missing"
-      end
+  defp extract_track_types(tracks, _mediainfo) do
+    general = Enum.find(tracks, &(&1["@type"] == "General")) || %{}
+    video_tracks = Enum.filter(tracks, &(&1["@type"] == "Video"))
+    audio_tracks = Enum.filter(tracks, &(&1["@type"] == "Audio"))
 
-    "track #{idx}: #{channels_val}"
+    {general, video_tracks, audio_tracks}
   end
 
-  defp max_audio_channels_from_structs(audio_tracks) do
-    audio_tracks
-    |> Enum.map(fn track ->
-      case track do
-        %AudioTrack{Channels: channels} when is_integer(channels) and channels > 0 ->
-          channels
+  defp extract_video_codecs(video_tracks, path, mediainfo) do
+    require Logger
 
-        %AudioTrack{Channels: channels} when is_binary(channels) ->
-          CodecHelper.parse_int(channels, 0)
+    video_codecs = Enum.map(video_tracks, &Map.get(&1, "CodecID"))
 
-        %AudioTrack{Channels: channels} when is_nil(channels) ->
-          0
+    validate_video_codecs(video_codecs, video_tracks, path, mediainfo)
+  end
 
-        _ ->
-          0
-      end
-    end)
-    |> case do
-      [] -> 0
-      channel_counts -> Enum.max(channel_counts)
+  defp validate_video_codecs(video_codecs, video_tracks, path, mediainfo) do
+    require Logger
+
+    # Log structure in case of issues
+    if Enum.empty?(video_tracks) do
+      Logger.warning(
+        "No video tracks found for #{path}: #{inspect(mediainfo, pretty: true, limit: 1000)}"
+      )
+
+      Logger.warning("video_codecs will be: #{inspect(video_codecs)}")
     end
+
+    # Additional debugging for video_codecs
+    if video_codecs == nil do
+      Logger.error("❌ CRITICAL: video_codecs extracted as nil!")
+      Logger.error("video_tracks: #{inspect(video_tracks)}")
+      Logger.error("Full mediainfo: #{inspect(mediainfo, pretty: true, limit: :infinity)}")
+      raise "video_codecs is nil after extraction - this indicates a bug"
+    end
+
+    video_codecs
   end
 
-  defp get_title_from_struct(nil, path), do: Path.basename(path)
+  defp build_video_params(general, video_tracks, audio_tracks, video_codecs, _mediainfo, path) do
+    last_video = List.last(video_tracks)
 
-  defp get_title_from_struct(%GeneralTrack{Title: title}, _path) when is_binary(title) do
-    title
+    %{
+      audio_codecs: Enum.map(audio_tracks, &Map.get(&1, "CodecID")),
+      audio_count: Parsers.parse_int(general["AudioCount"], 0),
+      atmos: has_atmos?(audio_tracks),
+      bitrate: Parsers.parse_int(general["OverallBitRate"], 0),
+      duration: Parsers.parse_float(general["Duration"], 0.0),
+      frame_rate: Parsers.parse_float(last_video && Map.get(last_video, "FrameRate"), 0.0),
+      hdr: parse_hdr_from_video(last_video),
+      height: Parsers.parse_int(last_video && Map.get(last_video, "Height"), 0),
+      max_audio_channels: max_audio_channels(audio_tracks),
+      size: Parsers.parse_int(general["FileSize"], 0),
+      text_codecs: [],
+      text_count: Parsers.parse_int(general["TextCount"], 0),
+      video_codecs: video_codecs,
+      video_count: Parsers.parse_int(general["VideoCount"], 0),
+      width: Parsers.parse_int(last_video && Map.get(last_video, "Width"), 0),
+      reencoded: reencoded?(video_codecs, audio_tracks, general, last_video),
+      title: Map.get(general, "Title") || Path.basename(path)
+    }
   end
 
-  defp get_title_from_struct(_, path), do: Path.basename(path)
-
-  def reencoded?(video_codecs, mediainfo),
+  def reencoded?(video_codecs, audio_tracks, general, video_track),
     do:
       CodecMapper.has_av1_codec?(video_codecs) or
-        CodecMapper.has_opus_audio?(mediainfo) or
-        CodecMapper.low_bitrate_1080p?(video_codecs, mediainfo) or
-        CodecMapper.has_low_resolution_hevc?(video_codecs, mediainfo)
+        has_opus_audio_tracks?(audio_tracks) or
+        low_bitrate_1080p?(video_codecs, general, video_track) or
+        has_low_resolution_hevc?(video_codecs, video_track)
 
   def video_file_info_from_file(file, service_type) do
     media = file["mediaInfo"] || %{}
-    {width, height} = CodecHelper.parse_resolution(media["resolution"])
+    {width, height} = Parsers.parse_resolution(media["resolution"])
 
     %VideoFileInfo{
       path: file["path"],
@@ -842,225 +329,110 @@ defmodule Reencodarr.Media.MediaInfo do
       audio_stream_count: media["audioStreamCount"],
       overall_bitrate: media["overallBitrate"],
       run_time: media["runTime"],
-      subtitles: CodecHelper.parse_subtitles(media["subtitles"]),
+      subtitles: parse_subtitles(media["subtitles"]),
       title: file["title"]
     }
   end
 
-  # Helper functions for extracting data from MediaInfo structs
+  # === Private Helper Functions ===
 
-  @doc """
-  Extracts tracks of a specific type using the TrackProtocol.
-
-  ## Examples
-
-      iex> extract_tracks_by_type(media_info, :video)
-      [%VideoTrack{}, ...]
-
-      iex> extract_tracks_by_type(media_info, :audio)
-      [%AudioTrack{}, ...]
-  """
-  def extract_tracks_by_type(%__MODULE__{media: %Media{track: tracks}}, track_type)
-      when is_list(tracks) do
-    Enum.filter(tracks, &(TrackProtocol.track_type(&1) == track_type))
+  # Check if audio tracks contain Opus
+  defp has_opus_audio_tracks?(audio_tracks) when is_list(audio_tracks) do
+    Enum.any?(audio_tracks, fn track ->
+      Map.get(track, "Format") == "Opus" or Map.get(track, "CodecID") == "A_OPUS"
+    end)
   end
 
-  def extract_tracks_by_type(_, _), do: []
+  defp has_opus_audio_tracks?(_), do: false
 
-  @doc """
-  Extracts the first track of a specific type.
-
-  ## Examples
-
-      iex> extract_first_track(media_info, :general)
-      %GeneralTrack{}
-
-      iex> extract_first_track(media_info, :video)
-      %VideoTrack{}
-  """
-  def extract_first_track(media_info, track_type) do
-    media_info
-    |> extract_tracks_by_type(track_type)
-    |> List.first()
+  # Check for low bitrate 1080p content
+  defp low_bitrate_1080p?(video_codecs, general, video_track) do
+    "V_MPEGH/ISO/HEVC" in video_codecs and
+      Parsers.parse_int(video_track && Map.get(video_track, "Width"), 0) == 1920 and
+      Parsers.parse_int(general["OverallBitRate"], 0) < 20_000_000
   end
 
-  @doc """
-  Gets all tracks from MediaInfo struct.
-  """
-  def get_all_tracks(%__MODULE__{media: %Media{track: tracks}}) when is_list(tracks), do: tracks
-  def get_all_tracks(_), do: []
-
-  @doc """
-  Extracts codec IDs from tracks of a specific type.
-
-  ## Examples
-
-      iex> extract_codec_ids(media_info, :video)
-      ["h264", "hevc"]
-
-      iex> extract_codec_ids(media_info, :audio)
-      ["aac", "eac3"]
-  """
-  def extract_codec_ids(media_info, track_type) do
-    media_info
-    |> extract_tracks_by_type(track_type)
-    |> Enum.map(&TrackProtocol.codec_id/1)
-    |> Enum.reject(&is_nil/1)
+  # Check for low resolution HEVC content
+  defp has_low_resolution_hevc?(video_codecs, video_track) do
+    "V_MPEGH/ISO/HEVC" in video_codecs and
+      Parsers.parse_int(video_track && Map.get(video_track, "Height"), 0) < 720
   end
 
-  @doc """
-  Converts all tracks to legacy map format for compatibility.
-  """
-  def tracks_to_legacy_maps(general_track, video_tracks, audio_tracks) do
-    general_map =
-      if general_track,
-        do: TrackProtocol.to_legacy_map(general_track),
-        else: %{"@type" => "General"}
+  # Helper function to better extract channel count from audio track
+  defp get_channel_count_from_track(track) do
+    # Try multiple MediaInfo field name variations (case-insensitive)
+    channel_positions =
+      get_field_case_insensitive(track, ["ChannelPositions", "Channel_s_", "ChannelLayout"])
 
-    video_maps = Enum.map(video_tracks, &TrackProtocol.to_legacy_map/1)
-    audio_maps = Enum.map(audio_tracks, &TrackProtocol.to_legacy_map/1)
+    channel_layout =
+      get_field_case_insensitive(track, ["ChannelLayout", "Channel_Layout", "Channels_Layout"])
 
-    [general_map] ++ video_maps ++ audio_maps
-  end
+    channels_string =
+      get_field_case_insensitive(track, ["Channel(s)/String", "Channels/String", "ChannelString"])
 
-  # Legacy extraction functions - now implemented using protocol
-  @doc """
-  Extracts the first video track from a MediaInfo struct.
-  """
-  def extract_video_track(media_info), do: extract_first_track(media_info, :video)
+    # Check if this is 5.1 surround by looking for LFE in channel positions
+    case contains_lfe_or_surround?(channel_positions) or
+           contains_lfe_or_surround?(channel_layout) or
+           contains_lfe_or_surround?(channels_string) do
+      true ->
+        detect_surround_channel_count(channel_positions, channel_layout, channels_string)
 
-  @doc """
-  Extracts the first audio track from a MediaInfo struct.
-  """
-  def extract_audio_track(media_info), do: extract_first_track(media_info, :audio)
-
-  @doc """
-  Extracts the general track from a MediaInfo struct.
-  """
-  def extract_general_track(media_info), do: extract_first_track(media_info, :general)
-
-  @doc """
-  Gets the resolution as a tuple from a video track.
-  """
-  def get_resolution(%VideoTrack{} = track) do
-    metadata = TrackProtocol.extract_metadata(track)
-    {metadata.width || 0, metadata.height || 0}
-  end
-
-  def get_resolution(_), do: {0, 0}
-
-  @doc """
-  Gets the video codec from a video track.
-  """
-  def get_video_codec(track), do: TrackProtocol.codec_id(track)
-
-  @doc """
-  Gets the audio codec from an audio track.
-  """
-  def get_audio_codec(track), do: TrackProtocol.codec_id(track)
-
-  @doc """
-  Gets the audio channels from an audio track.
-  """
-  def get_audio_channels(%AudioTrack{} = track) do
-    metadata = TrackProtocol.extract_metadata(track)
-    metadata.channels
-  end
-
-  def get_audio_channels(_), do: nil
-
-  @doc """
-  Gets the frame rate from a video track.
-  """
-  def get_fps(%VideoTrack{} = track) do
-    metadata = TrackProtocol.extract_metadata(track)
-    metadata.frame_rate
-  end
-
-  def get_fps(_), do: nil
-
-  @doc """
-  Gets the overall bitrate from a general track.
-  """
-  def get_overall_bitrate(%GeneralTrack{} = track) do
-    metadata = TrackProtocol.extract_metadata(track)
-    metadata.overall_bitrate || 0
-  end
-
-  def get_overall_bitrate(_), do: 0
-
-  @doc """
-  Gets the audio count from a general track.
-  """
-  def get_audio_count(%GeneralTrack{} = track) do
-    metadata = TrackProtocol.extract_metadata(track)
-    metadata.audio_count || 0
-  end
-
-  def get_audio_count(_), do: 0
-
-  @doc """
-  Gets the duration from a general track.
-  """
-  def get_duration(%GeneralTrack{} = track) do
-    metadata = TrackProtocol.extract_metadata(track)
-    if metadata.duration, do: round(metadata.duration), else: 0
-  end
-
-  def get_duration(_), do: 0
-
-  @doc """
-  Gets the HDR format from a video track.
-  """
-  def get_hdr_format(%VideoTrack{} = track) do
-    metadata = TrackProtocol.extract_metadata(track)
-    metadata.hdr_format
-  end
-
-  def get_hdr_format(_), do: nil
-
-  @doc """
-  Gets the HDR format compatibility from a video track.
-  """
-  def get_hdr_format_compatibility(%VideoTrack{} = track) do
-    metadata = TrackProtocol.extract_metadata(track)
-    metadata.hdr_format_compatibility
-  end
-
-  def get_hdr_format_compatibility(_), do: nil
-
-  @doc """
-  Gets the HDR information from a video track, parsing it using CodecHelper.
-  """
-  def get_hdr_from_video_track(%VideoTrack{HDR_Format: hdr_format}) do
-    CodecHelper.parse_hdr_from_map(%{"HDR_Format" => hdr_format})
-  end
-
-  def get_hdr_from_video_track(_), do: nil
-
-  # Helper function to parse resolution from either tuple or string
-  defp parse_resolution({width, height}) when is_integer(width) and is_integer(height) do
-    {width, height}
-  end
-
-  defp parse_resolution(resolution) when is_binary(resolution) do
-    case String.split(resolution, "x") do
-      [width_str, height_str] ->
-        width = CodecHelper.parse_int(width_str, 0)
-        height = CodecHelper.parse_int(height_str, 0)
-        {width, height}
-
-      _ ->
-        {0, 0}
+      false ->
+        Parsers.parse_int(Map.get(track, "Channels", "0"), 0)
     end
   end
 
-  defp parse_resolution(_), do: {0, 0}
+  # Finds a key in map ignoring case
+  defp get_field_case_insensitive(track, field_names) do
+    Enum.find_value(field_names, "", &get_field_value(track, &1))
+  end
 
-  @doc """
-  Parses a subtitle list, returning an empty list if nil.
-  """
-  def parse_subtitle_list(nil), do: []
-  def parse_subtitle_list(list) when is_list(list), do: list
-  def parse_subtitle_list(_), do: []
+  # Attempt direct map lookup or case-insensitive key match
+  defp get_field_value(track, field_name) do
+    Map.get(track, field_name) ||
+      case Enum.find(track, fn {k, _v} ->
+             String.downcase(to_string(k)) == String.downcase(field_name)
+           end) do
+        {_, v} -> v
+        _ -> nil
+      end
+  end
+
+  # Check if string contains LFE or surround sound indicators (case-insensitive)
+  defp contains_lfe_or_surround?(str) when is_binary(str) do
+    lower_str = String.downcase(str)
+
+    String.contains?(lower_str, "lfe") or
+      String.contains?(lower_str, "5.1") or
+      String.contains?(lower_str, "7.1") or
+      String.contains?(lower_str, "6.1") or
+      String.contains?(lower_str, "surround")
+  end
+
+  defp contains_lfe_or_surround?(_), do: false
+
+  # Detect channel count from surround sound indicators
+  defp detect_surround_channel_count(channel_positions, channel_layout, channels_string) do
+    combined = "#{channel_positions} #{channel_layout} #{channels_string}" |> String.downcase()
+
+    # Patterns to counts in priority order
+    patterns = [
+      {"9.1", 10},
+      {"9.2", 11},
+      {"8.1", 9},
+      {"8.2", 10},
+      {"7.1", 8},
+      {"7.2", 9},
+      {"6.1", 7},
+      {"5.1", 6},
+      {"4.1", 5},
+      {"3.1", 4},
+      {"2.1", 3},
+      {"lfe", 6}
+    ]
+
+    Enum.find_value(patterns, fn {substr, count} ->
+      if String.contains?(combined, substr), do: count, else: nil
+    end) || 6
+  end
 end

@@ -1,0 +1,104 @@
+defmodule Reencodarr.Core.Formatters do
+  @moduledoc """
+  Generic formatting utilities for data presentation and normalization.
+
+  This module provides formatting functions for consistent data display
+  and standardization across the application.
+  """
+
+  @doc """
+  Formats a list of items into a comma-separated string.
+
+  ## Examples
+
+      iex> Formatters.format_list(["H.264", "AAC", "DTS"])
+      "H.264, AAC, DTS"
+
+      iex> Formatters.format_list([])
+      ""
+
+      iex> Formatters.format_list(["single"])
+      "single"
+  """
+  @spec format_list(list()) :: String.t()
+  def format_list(list) when is_list(list) do
+    Enum.join(list, ", ")
+  end
+
+  def format_list(_), do: ""
+
+  @doc """
+  Formats file size in bytes to human-readable format.
+
+  ## Examples
+
+      iex> Formatters.format_file_size(1024)
+      "1.0 KB"
+
+      iex> Formatters.format_file_size(1_048_576)
+      "1.0 MB"
+
+      iex> Formatters.format_file_size(1_073_741_824)
+      "1.0 GB"
+  """
+  @spec format_file_size(integer()) :: String.t()
+  def format_file_size(bytes) when is_integer(bytes) and bytes >= 0 do
+    cond do
+      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776, 1)} TB"
+      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824, 1)} GB"
+      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576, 1)} MB"
+      bytes >= 1024 -> "#{Float.round(bytes / 1024, 1)} KB"
+      true -> "#{bytes} B"
+    end
+  end
+
+  def format_file_size(_), do: "0 B"
+
+  @doc """
+  Formats duration in seconds to human-readable format.
+
+  ## Examples
+
+      iex> Formatters.format_duration(3661)
+      "1h 1m 1s"
+
+      iex> Formatters.format_duration(125)
+      "2m 5s"
+
+      iex> Formatters.format_duration(45)
+      "45s"
+  """
+  @spec format_duration(number()) :: String.t()
+  def format_duration(seconds) when is_number(seconds) and seconds >= 0 do
+    hours = div(trunc(seconds), 3600)
+    minutes = div(rem(trunc(seconds), 3600), 60)
+    secs = rem(trunc(seconds), 60)
+
+    parts = []
+    parts = if hours > 0, do: ["#{hours}h" | parts], else: parts
+    parts = if minutes > 0, do: ["#{minutes}m" | parts], else: parts
+    parts = if secs > 0 or parts == [], do: ["#{secs}s" | parts], else: parts
+
+    parts |> Enum.reverse() |> Enum.join(" ")
+  end
+
+  def format_duration(_), do: "0s"
+
+  @doc """
+  Normalizes a string by trimming whitespace and converting to lowercase.
+
+  ## Examples
+
+      iex> Formatters.normalize_string("  Hello World  ")
+      "hello world"
+
+      iex> Formatters.normalize_string("UPPERCASE")
+      "uppercase"
+  """
+  @spec normalize_string(String.t()) :: String.t()
+  def normalize_string(str) when is_binary(str) do
+    str |> String.trim() |> String.downcase()
+  end
+
+  def normalize_string(_), do: ""
+end
