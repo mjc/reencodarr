@@ -59,22 +59,20 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def handle_info({:telemetry_event, state}, socket) do
-    try do
-      dashboard_data = Presenter.present(state, socket.assigns.timezone)
+    dashboard_data = Presenter.present(state, socket.assigns.timezone)
 
-      socket =
-        socket
-        |> assign(:dashboard_data, dashboard_data)
-        |> update_queue_streams(dashboard_data.queues)
+    socket =
+      socket
+      |> assign(:dashboard_data, dashboard_data)
+      |> update_queue_streams(dashboard_data.queues)
 
+    {:noreply, socket}
+  rescue
+    error ->
+      Logger.error("Dashboard telemetry event error: #{inspect(error)}")
+      Logger.debug("Received state: #{inspect(state)}")
+      # Don't crash, just ignore the bad event
       {:noreply, socket}
-    rescue
-      error ->
-        Logger.error("Dashboard telemetry event error: #{inspect(error)}")
-        Logger.debug("Received state: #{inspect(state)}")
-        # Don't crash, just ignore the bad event
-        {:noreply, socket}
-    end
   end
 
   @impl true

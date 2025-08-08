@@ -19,6 +19,14 @@ defmodule Reencodarr.Media.VideoUpsert do
   """
   @spec upsert(attrs()) :: upsert_result()
   def upsert(attrs) do
+    # DEBUG: Show what attributes we receive at the start of upsert
+    Logger.debug("VideoUpsert received attrs: #{inspect(Map.keys(attrs))}")
+    Logger.debug("VideoUpsert size field: #{inspect(Map.get(attrs, "size"))}")
+
+    Logger.debug(
+      "VideoUpsert mediainfo field present: #{inspect(Map.has_key?(attrs, "mediainfo"))}"
+    )
+
     with {:ok, normalized_attrs} <- normalize_and_validate_attrs(attrs),
          {:ok, final_attrs, conflict_except} <- prepare_upsert_data(normalized_attrs) do
       perform_upsert(final_attrs, conflict_except, normalized_attrs)
@@ -77,6 +85,10 @@ defmodule Reencodarr.Media.VideoUpsert do
         |> Map.delete("bitrate")
         |> Map.delete("mediainfo")
 
+      # DEBUG: Check if size is preserved in cleaned_attrs
+      Logger.debug("Cleaned attrs for bitrate preservation: #{inspect(Map.keys(cleaned_attrs))}")
+      Logger.debug("Size in cleaned attrs: #{inspect(Map.get(cleaned_attrs, "size"))}")
+
       {cleaned_attrs, [:id, :inserted_at, :reencoded, :failed, :bitrate]}
     else
       if not is_nil(existing_video) do
@@ -84,6 +96,10 @@ defmodule Reencodarr.Media.VideoUpsert do
           "Allowing bitrate update for path #{path}: preserve_bitrate=#{inspect(preserve_bitrate)}"
         )
       end
+
+      # DEBUG: Check if size is in full attrs
+      Logger.debug("Full attrs for bitrate update: #{inspect(Map.keys(attrs))}")
+      Logger.debug("Size in full attrs: #{inspect(Map.get(attrs, "size"))}")
 
       {attrs, [:id, :inserted_at, :reencoded, :failed]}
     end

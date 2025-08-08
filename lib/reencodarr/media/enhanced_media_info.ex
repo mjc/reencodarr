@@ -197,34 +197,32 @@ defmodule Reencodarr.Media.EnhancedMediaInfo do
   end
 
   defp parse_single_media_info(json_data, mode) do
-    try do
-      # Parse basic structure first
-      creating_library = parse_creating_library(Map.get(json_data, "creatingLibrary"))
-      media_data = Map.get(json_data, "media", %{})
-      tracks_data = Map.get(media_data, "track", [])
+    # Parse basic structure first
+    creating_library = parse_creating_library(Map.get(json_data, "creatingLibrary"))
+    media_data = Map.get(json_data, "media", %{})
+    tracks_data = Map.get(media_data, "track", [])
 
-      # Parse and validate tracks using FieldTypes
-      case parse_tracks_with_validation(tracks_data, mode) do
-        {:ok, validated_tracks} ->
-          media = %MediaInfo.Media{
-            "@ref": Map.get(media_data, "@ref"),
-            track: validated_tracks
-          }
+    # Parse and validate tracks using FieldTypes
+    case parse_tracks_with_validation(tracks_data, mode) do
+      {:ok, validated_tracks} ->
+        media = %MediaInfo.Media{
+          "@ref": Map.get(media_data, "@ref"),
+          track: validated_tracks
+        }
 
-          media_info = %MediaInfo{
-            creatingLibrary: creating_library,
-            media: media
-          }
+        media_info = %MediaInfo{
+          creatingLibrary: creating_library,
+          media: media
+        }
 
-          {:ok, media_info}
+        {:ok, media_info}
 
-        {:error, errors} ->
-          {:error, errors}
-      end
-    rescue
-      error ->
-        {:error, [{:parsing_error, "Failed to parse MediaInfo: #{inspect(error)}"}]}
+      {:error, errors} ->
+        {:error, errors}
     end
+  rescue
+    error ->
+      {:error, [{:parsing_error, "Failed to parse MediaInfo: #{inspect(error)}"}]}
   end
 
   defp parse_creating_library(nil), do: nil

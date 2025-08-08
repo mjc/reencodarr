@@ -123,6 +123,155 @@ defmodule Reencodarr.Media do
     do: VideoFailure.get_common_failure_patterns(limit)
 
   @doc """
+  Counts videos that would generate invalid audio encoding arguments (b:a=0k, ac=0).
+
+  Tests each video by calling Rules.build_args/2 and checking if it produces invalid
+  audio encoding arguments like "--enc b:a=0k" or "--enc ac=0". Useful for monitoring
+  and deciding whether to run reset_videos_with_invalid_audio_args/0.
+
+  ## Examples
+      iex> Media.count_videos_with_invalid_audio_args()
+      %{videos_tested: 1250, videos_with_invalid_args: 42}
+  """
+  @spec count_videos_with_invalid_audio_args() :: %{
+          videos_tested: integer(),
+          videos_with_invalid_args: integer()
+        }
+  def count_videos_with_invalid_audio_args do
+    # Get all non-failed, non-reencoded videos for testing
+    videos_to_test =
+      from(v in Video,
+        where: v.failed == false and v.reencoded == false,
+        select: v
+      )
+      |> Repo.all()
+
+    videos_tested_count = length(videos_to_test)
+
+    # Test each video to see if it produces invalid audio args
+    videos_with_invalid_args_count =
+      videos_to_test
+      |> Enum.count(&produces_invalid_audio_args?/1)
+
+    %{
+      videos_tested: videos_tested_count,
+      videos_with_invalid_args: videos_with_invalid_args_count
+    }
+  end
+
+  @doc """
+  One-liner to reset videos that would generate invalid audio encoding arguments (b:a=0k, ac=0).
+
+  Tests each video by calling Rules.build_args/2 and checking if it produces invalid
+  audio encoding arguments like "--enc b:a=0k" or "--enc ac=0". Resets analysis
+  fields and deletes VMAFs for videos that would generate these invalid arguments.
+
+  ## Examples
+      iex> Media.reset_videos_with_invalid_audio_args()
+      %{videos_tested: 1250, videos_reset: 42, vmafs_deleted: 156}
+  """
+  @spec reset_videos_with_invalid_audio_args() :: %{
+          videos_tested: integer(),
+          videos_reset: integer(),
+          vmafs_deleted: integer()
+        }
+  def reset_videos_with_invalid_audio_args do
+    # Get all non-failed, non-reencoded videos for testing
+    videos_to_test =
+      from(v in Video,
+        where: v.failed == false and v.reencoded == false,
+        select: v
+      )
+      |> Repo.all()
+
+    videos_tested_count = length(videos_to_test)
+
+    # Test each video to see if it produces invalid audio args
+    problematic_video_ids =
+      videos_to_test
+      |> Enum.filter(&produces_invalid_audio_args?/1)
+      |> Enum.map(& &1.id)
+
+    videos_reset_count = length(problematic_video_ids)
+
+    if videos_reset_count > 0 do
+      Repo.transaction(fn ->
+        # Delete VMAFs for these videos (they were generated with bad audio data)
+        {vmafs_deleted_count, _} =
+          from(v in Vmaf, where: v.video_id in ^problematic_video_ids)
+          |> Repo.delete_all()
+
+        # Reset analysis fields to force re-analysis
+        from(v in Video, where: v.id in ^problematic_video_ids)
+        |> Repo.update_all(
+          set: [
+            bitrate: nil,
+            video_codecs: nil,
+            audio_codecs: nil,
+            max_audio_channels: nil,
+            atmos: nil,
+            hdr: nil,
+            width: nil,
+            height: nil,
+            frame_rate: nil,
+            duration: nil,
+            updated_at: DateTime.utc_now()
+          ]
+        )
+
+        %{
+          videos_tested: videos_tested_count,
+          videos_reset: videos_reset_count,
+          vmafs_deleted: vmafs_deleted_count
+        }
+      end)
+      |> case do
+        {:ok, result} ->
+          result
+
+        {:error, _reason} ->
+          %{videos_tested: videos_tested_count, videos_reset: 0, vmafs_deleted: 0}
+      end
+    else
+      %{
+        videos_tested: videos_tested_count,
+        videos_reset: 0,
+        vmafs_deleted: 0
+      }
+    end
+  end
+
+  # Helper function to test if a video would produce invalid audio encoding arguments
+  defp produces_invalid_audio_args?(video) do
+    # Generate encoding arguments using the Rules module
+    args = Reencodarr.Rules.build_args(video, :encode)
+
+    # Look for invalid audio encoding arguments
+    opus_args =
+      args
+      |> Enum.chunk_every(2, 1, :discard)
+      |> Enum.filter(fn
+        [flag, value] when flag == "--enc" ->
+          String.contains?(value, "b:a=") or String.contains?(value, "ac=")
+
+        _ ->
+          false
+      end)
+
+    # Check if any of the audio args are invalid (0 bitrate or 0 channels)
+    Enum.any?(opus_args, fn
+      ["--enc", value] ->
+        String.contains?(value, "b:a=0k") or String.contains?(value, "ac=0")
+
+      _ ->
+        false
+    end)
+  rescue
+    # If there's any error generating args, consider it problematic
+    _ -> true
+  end
+
+  @doc """
   One-liner to reset videos with invalid audio metadata that would cause 0 bitrate/channels.
 
   Finds videos where max_audio_channels is nil/0 OR audio_codecs is nil/empty,
@@ -136,7 +285,7 @@ defmodule Reencodarr.Media do
           videos_reset: integer(),
           vmafs_deleted: integer()
         }
-  def reset_videos_with_invalid_audio_metadata() do
+  def reset_videos_with_invalid_audio_metadata do
     Repo.transaction(fn ->
       # Find videos with problematic audio metadata that would cause Rules.audio/1 to return []
       # This happens when max_audio_channels is nil/0 OR audio_codecs is nil/empty
@@ -203,7 +352,7 @@ defmodule Reencodarr.Media do
           failures_deleted: integer(),
           vmafs_deleted: integer()
         }
-  def reset_all_failures() do
+  def reset_all_failures do
     Repo.transaction(fn ->
       # First, get IDs and counts of videos that will be reset
       failed_video_ids =
