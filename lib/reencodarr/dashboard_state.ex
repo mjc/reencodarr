@@ -131,27 +131,21 @@ defmodule Reencodarr.DashboardState do
 
   # Check actual status of Broadway pipelines for initial state
   defp analyzer_running? do
-    try do
-      Reencodarr.Analyzer.running?()
-    rescue
-      _ -> false
-    end
+    Reencodarr.Analyzer.running?()
+  rescue
+    _ -> false
   end
 
   defp crf_searcher_running? do
-    try do
-      Reencodarr.CrfSearcher.running?()
-    rescue
-      _ -> false
-    end
+    Reencodarr.CrfSearcher.running?()
+  rescue
+    _ -> false
   end
 
   defp encoder_running? do
-    try do
-      Reencodarr.Encoder.running?()
-    rescue
-      _ -> false
-    end
+    Reencodarr.Encoder.running?()
+  rescue
+    _ -> false
   end
 
   @doc """

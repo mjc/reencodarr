@@ -16,6 +16,9 @@ defmodule Reencodarr.Media.MediaInfo do
         }
 
   defmodule CreatingLibrary do
+    @moduledoc """
+    Represents the creating library information from MediaInfo.
+    """
     @derive Jason.Encoder
     defstruct [
       :name,
@@ -31,6 +34,9 @@ defmodule Reencodarr.Media.MediaInfo do
   end
 
   defmodule Media do
+    @moduledoc """
+    Represents media container information from MediaInfo.
+    """
     @derive Jason.Encoder
     defstruct [
       :"@ref",
@@ -44,6 +50,9 @@ defmodule Reencodarr.Media.MediaInfo do
   end
 
   defmodule Track do
+    @moduledoc """
+    Represents a generic track from MediaInfo.
+    """
     @derive Jason.Encoder
     defstruct [
       :"@type",
@@ -75,6 +84,9 @@ defmodule Reencodarr.Media.MediaInfo do
   end
 
   defmodule GeneralTrack do
+    @moduledoc """
+    Represents general track information from MediaInfo.
+    """
     @derive Jason.Encoder
     defstruct [
       :"@type",
@@ -120,6 +132,9 @@ defmodule Reencodarr.Media.MediaInfo do
   end
 
   defmodule VideoTrack do
+    @moduledoc """
+    Represents a video track from MediaInfo.
+    """
     @derive Jason.Encoder
     defstruct [
       :"@type",
@@ -175,6 +190,9 @@ defmodule Reencodarr.Media.MediaInfo do
   end
 
   defmodule AudioTrack do
+    @moduledoc """
+    Represents an audio track from MediaInfo.
+    """
     @derive Jason.Encoder
     defstruct [
       :"@type",
@@ -216,6 +234,9 @@ defmodule Reencodarr.Media.MediaInfo do
   end
 
   defmodule TextTrack do
+    @moduledoc """
+    Represents a text/subtitle track from MediaInfo.
+    """
     @derive Jason.Encoder
     defstruct [
       :"@type",
@@ -389,7 +410,8 @@ defmodule Reencodarr.Media.MediaInfo do
               :Height,
               :BitRate,
               :BitDepth,
-              :SamplingRate
+              :SamplingRate,
+              :Channels
             ] do
     case value do
       int when is_integer(int) -> int
@@ -608,7 +630,20 @@ defmodule Reencodarr.Media.MediaInfo do
     # Extract video codecs using the structured data
     video_codecs = extract_codec_ids(mediainfo_struct, :video)
 
-    build_video_params_from_structs(general_track, video_tracks, audio_tracks, video_codecs, path)
+    case build_video_params_from_structs(
+           general_track,
+           video_tracks,
+           audio_tracks,
+           video_codecs,
+           path
+         ) do
+      {:ok, params} ->
+        params
+
+      {:error, reason} ->
+        Logger.error("Failed to build video params for #{path}: #{reason}")
+        raise "Invalid audio metadata: #{reason}"
+    end
   end
 
   defp build_video_params_from_structs(
@@ -620,29 +655,38 @@ defmodule Reencodarr.Media.MediaInfo do
        ) do
     last_video = List.last(video_tracks)
 
-    %{
-      "audio_codecs" => Enum.map(audio_tracks, &TrackProtocol.codec_id/1),
-      "audio_count" => get_field_value(general_track, :AudioCount, 0),
-      "atmos" => has_atmos_from_structs?(audio_tracks),
-      "bitrate" => get_field_value(general_track, :OverallBitRate, 0),
-      "duration" => get_field_value(general_track, :Duration, 0.0),
-      "frame_rate" => get_field_value(last_video, :FrameRate, 0.0),
-      "hdr" => get_hdr_from_video_track(last_video),
-      "height" => get_field_value(last_video, :Height, 0),
-      "max_audio_channels" => max_audio_channels_from_structs(audio_tracks),
-      "size" => get_field_value(general_track, :FileSize, 0),
-      "text_count" => get_field_value(general_track, :TextCount, 0),
-      "video_codecs" => video_codecs,
-      "video_count" => get_field_value(general_track, :VideoCount, 0),
-      "width" => get_field_value(last_video, :Width, 0),
-      "reencoded" =>
-        reencoded?(video_codecs, %{
-          "media" => %{
-            "track" => tracks_to_legacy_maps(general_track, video_tracks, audio_tracks)
-          }
-        }),
-      "title" => get_title_from_struct(general_track, path)
-    }
+    # Validate audio channel information
+    case validate_audio_channels(audio_tracks, general_track) do
+      {:ok, max_channels} ->
+        # Build successful params
+        {:ok,
+         %{
+           "audio_codecs" => Enum.map(audio_tracks, &TrackProtocol.codec_id/1),
+           "audio_count" => get_field_value(general_track, :AudioCount, 0),
+           "atmos" => has_atmos_from_structs?(audio_tracks),
+           "bitrate" => get_field_value(general_track, :OverallBitRate, 0),
+           "duration" => get_field_value(general_track, :Duration, 0.0),
+           "frame_rate" => get_field_value(last_video, :FrameRate, 0.0),
+           "hdr" => get_hdr_from_video_track(last_video),
+           "height" => get_field_value(last_video, :Height, 0),
+           "max_audio_channels" => max_channels,
+           "size" => get_field_value(general_track, :FileSize, 0),
+           "text_count" => get_field_value(general_track, :TextCount, 0),
+           "video_codecs" => video_codecs,
+           "video_count" => get_field_value(general_track, :VideoCount, 0),
+           "width" => get_field_value(last_video, :Width, 0),
+           "reencoded" =>
+             reencoded?(video_codecs, %{
+               "media" => %{
+                 "track" => tracks_to_legacy_maps(general_track, video_tracks, audio_tracks)
+               }
+             }),
+           "title" => get_title_from_struct(general_track, path)
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   # Simplified field access since values are already properly typed
@@ -682,18 +726,85 @@ defmodule Reencodarr.Media.MediaInfo do
     end)
   end
 
+  # Validate that audio tracks have valid channel information
+  defp validate_audio_channels(audio_tracks, general_track) do
+    audio_count = get_field_value(general_track, :AudioCount, 0)
+
+    # If MediaInfo reports audio tracks but we have no audio track data, that's an error
+    if audio_count > 0 and Enum.empty?(audio_tracks) do
+      {:error, "MediaInfo reports #{audio_count} audio tracks but no audio track data found"}
+    else
+      validate_channel_data(audio_tracks)
+    end
+  end
+
+  defp validate_channel_data(audio_tracks) do
+    max_channels = max_audio_channels_from_structs(audio_tracks)
+
+    # If we have audio tracks but all have 0 or invalid channels, that's suspicious
+    if not Enum.empty?(audio_tracks) and max_channels == 0 do
+      build_invalid_channels_error(audio_tracks)
+    else
+      {:ok, max_channels}
+    end
+  end
+
+  defp build_invalid_channels_error(audio_tracks) do
+    invalid_tracks = format_invalid_track_descriptions(audio_tracks)
+    {:error, "All audio tracks have invalid channel data: #{Enum.join(invalid_tracks, ", ")}"}
+  end
+
+  defp format_invalid_track_descriptions(audio_tracks) do
+    audio_tracks
+    |> Enum.with_index()
+    |> Enum.filter(&track_has_invalid_channels?/1)
+    |> Enum.map(&format_track_description/1)
+  end
+
+  defp track_has_invalid_channels?({track, _idx}) do
+    case track do
+      %AudioTrack{Channels: channels} when is_integer(channels) and channels > 0 ->
+        false
+
+      %AudioTrack{Channels: channels} when is_binary(channels) ->
+        CodecHelper.parse_int(channels, 0) == 0
+
+      _ ->
+        true
+    end
+  end
+
+  defp format_track_description({track, idx}) do
+    channels_val =
+      case track do
+        %AudioTrack{Channels: channels} -> inspect(channels)
+        _ -> "missing"
+      end
+
+    "track #{idx}: #{channels_val}"
+  end
+
   defp max_audio_channels_from_structs(audio_tracks) do
     audio_tracks
     |> Enum.map(fn track ->
       case track do
-        %AudioTrack{Channels: channels} ->
+        %AudioTrack{Channels: channels} when is_integer(channels) and channels > 0 ->
+          channels
+
+        %AudioTrack{Channels: channels} when is_binary(channels) ->
           CodecHelper.parse_int(channels, 0)
+
+        %AudioTrack{Channels: channels} when is_nil(channels) ->
+          0
 
         _ ->
           0
       end
     end)
-    |> Enum.max(fn -> 0 end)
+    |> case do
+      [] -> 0
+      channel_counts -> Enum.max(channel_counts)
+    end
   end
 
   defp get_title_from_struct(nil, path), do: Path.basename(path)

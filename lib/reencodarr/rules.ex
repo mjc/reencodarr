@@ -259,13 +259,31 @@ defmodule Reencodarr.Rules do
   @spec audio(Media.Video.t() | map()) :: list()
   def audio(
         %Media.Video{atmos: atmos, max_audio_channels: channels, audio_codecs: audio_codecs} =
-          _video
+          video
       ) do
     cond do
-      atmos == true -> []
-      is_nil(channels) or is_nil(audio_codecs) -> []
-      @opus_codec_tag in audio_codecs -> []
-      true -> build_opus_audio_config(channels)
+      atmos == true ->
+        []
+
+      is_nil(channels) or is_nil(audio_codecs) ->
+        Logger.debug(
+          "🔴 Invalid audio metadata for video #{video.id}: channels=#{inspect(channels)}, codecs=#{inspect(audio_codecs)}, path=#{video.path}"
+        )
+
+        []
+
+      channels == 0 ->
+        Logger.debug(
+          "🔴 Zero audio channels for video #{video.id}: channels=#{channels}, codecs=#{inspect(audio_codecs)}, path=#{video.path}"
+        )
+
+        []
+
+      @opus_codec_tag in audio_codecs ->
+        []
+
+      true ->
+        build_opus_audio_config(channels)
     end
   end
 
@@ -273,27 +291,45 @@ defmodule Reencodarr.Rules do
   def audio(%{} = _video_map), do: []
 
   defp build_opus_audio_config(channels) do
-    if channels == 3 do
-      [
-        {"--acodec", "libopus"},
-        {"--enc", "b:a=128k"},
-        # Upmix to 5.1
-        {"--enc", "ac=6"}
-      ]
-    else
-      base_config = [
-        {"--acodec", "libopus"},
-        {"--enc", "b:a=#{opus_bitrate(channels)}k"},
-        {"--enc", "ac=#{channels}"}
-      ]
+    # Log problematic inputs that would generate invalid audio arguments
+    cond do
+      is_nil(channels) ->
+        Logger.warning("🔴 Invalid audio config: channels is nil - this should not happen")
+        []
 
-      # Add channel layout workaround for 5.1(side) -> 5.1 mapping
-      # This handles the common FFmpeg error: "Invalid channel layout 5.1(side) for specified mapping family -1"
-      if channels == 6 do
-        base_config ++ [{"--enc", "af=aformat=channel_layouts=5.1"}]
-      else
-        base_config
-      end
+      channels == 0 ->
+        Logger.warning("🔴 Invalid audio config: channels is 0 - indicates bad MediaInfo parsing")
+        []
+
+      channels < 0 ->
+        Logger.warning(
+          "🔴 Invalid audio config: channels is negative (#{channels}) - indicates corrupted data"
+        )
+
+        []
+
+      channels == 3 ->
+        [
+          {"--acodec", "libopus"},
+          {"--enc", "b:a=128k"},
+          # Upmix to 5.1
+          {"--enc", "ac=6"}
+        ]
+
+      true ->
+        base_config = [
+          {"--acodec", "libopus"},
+          {"--enc", "b:a=#{opus_bitrate(channels)}k"},
+          {"--enc", "ac=#{channels}"}
+        ]
+
+        # Add channel layout workaround for 5.1(side) -> 5.1 mapping
+        # This handles the common FFmpeg error: "Invalid channel layout 5.1(side) for specified mapping family -1"
+        if channels == 6 do
+          base_config ++ [{"--enc", "af=aformat=channel_layouts=5.1"}]
+        else
+          base_config
+        end
     end
   end
 
@@ -304,7 +340,16 @@ defmodule Reencodarr.Rules do
 
   defp opus_bitrate(channels) do
     # Use ~64 kbps per channel as fallback for unmapped channel counts
-    Map.get(@recommended_opus_bitrates, channels, min(510, channels * 64))
+    calculated_bitrate = Map.get(@recommended_opus_bitrates, channels, min(510, channels * 64))
+
+    # Log if we calculate a problematic bitrate
+    if calculated_bitrate <= 0 do
+      Logger.warning(
+        "🔴 Invalid opus bitrate calculated: #{calculated_bitrate} for #{channels} channels"
+      )
+    end
+
+    calculated_bitrate
   end
 
   @spec cuda(any()) :: list()

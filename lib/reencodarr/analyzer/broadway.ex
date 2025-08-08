@@ -12,7 +12,6 @@ defmodule Reencodarr.Analyzer.Broadway do
   alias Broadway.Message
   alias Reencodarr.Analyzer.Broadway.Producer
   alias Reencodarr.{Media, Telemetry}
-  alias Reencodarr.Media.MediaInfo
 
   @doc """
   Start the Broadway pipeline.
@@ -223,7 +222,16 @@ defmodule Reencodarr.Analyzer.Broadway do
         :ok
 
       {:error, reason} ->
-        Logger.error("Failed to process video #{video_info.path}: #{reason}")
+        # Handle tuple reasons (like {:audio_validation, msg}) properly
+        reason_str =
+          case reason do
+            {:audio_validation, msg} -> "Audio validation failed: #{msg}"
+            {:mediainfo_validation, msg} -> "MediaInfo validation failed: #{msg}"
+            other when is_binary(other) -> other
+            other -> inspect(other)
+          end
+
+        Logger.error("Failed to process video #{video_info.path}: #{reason_str}")
         mark_video_as_failed(video_info.path, reason)
         :error
     end
@@ -248,7 +256,16 @@ defmodule Reencodarr.Analyzer.Broadway do
         :ok
 
       {:error, reason} ->
-        Logger.error("Failed to process video #{video_info.path}: #{reason}")
+        # Handle tuple reasons (like {:audio_validation, msg}) properly
+        reason_str =
+          case reason do
+            {:audio_validation, msg} -> "Audio validation failed: #{msg}"
+            {:mediainfo_validation, msg} -> "MediaInfo validation failed: #{msg}"
+            other when is_binary(other) -> other
+            other -> inspect(other)
+          end
+
+        Logger.error("Failed to process video #{video_info.path}: #{reason_str}")
         mark_video_as_failed(video_info.path, reason)
         :error
     end
@@ -466,6 +483,32 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   # Helper functions for video processing
 
+  defp extract_basic_fields_from_mediainfo(mediainfo) do
+    alias Reencodarr.Media.Video.MediaInfo, as: EmbeddedMediaInfo
+
+    # Use the embedded schema to extract basic fields for VideoUpsert
+    case EmbeddedMediaInfo.from_json(mediainfo) do
+      {:ok, parsed_mediainfo} ->
+        case EmbeddedMediaInfo.to_video_params(parsed_mediainfo) do
+          {:ok, video_params} ->
+            # Extract just the basic fields needed for VideoUpsert logic
+            basic_fields = %{
+              "size" => Map.get(video_params, "size"),
+              "duration" => Map.get(video_params, "duration"),
+              "bitrate" => Map.get(video_params, "bitrate")
+            }
+
+            {:ok, basic_fields}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp check_processing_eligibility(video_info) do
     # Check if file exists
     if File.exists?(video_info.path) do
@@ -491,23 +534,39 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp upsert_video_record(video_info, validated_mediainfo) do
-    # Convert mediainfo to video parameters using the existing MediaInfo module
-    video_params =
-      MediaInfo.to_video_params(validated_mediainfo, video_info.path)
-
-    # Add service metadata
+    # Pre-extract key fields from mediainfo for VideoUpsert logic
     attrs =
-      Map.merge(video_params, %{
-        "path" => video_info.path,
-        "service_id" => video_info.service_id,
-        "service_type" => to_string(video_info.service_type),
-        "mediainfo" => validated_mediainfo
-      })
+      case extract_basic_fields_from_mediainfo(validated_mediainfo) do
+        {:ok, basic_fields} ->
+          %{
+            "path" => video_info.path,
+            "service_id" => video_info.service_id,
+            "service_type" => to_string(video_info.service_type),
+            "mediainfo" => validated_mediainfo
+          }
+          |> Map.merge(basic_fields)
+
+        {:error, _reason} ->
+          # Fallback to just mediainfo if extraction fails
+          %{
+            "path" => video_info.path,
+            "service_id" => video_info.service_id,
+            "service_type" => to_string(video_info.service_type),
+            "mediainfo" => validated_mediainfo
+          }
+      end
+
+    upsert_video_with_params(attrs, video_info)
+  end
+
+  defp upsert_video_with_params(attrs, video_info) do
+    # DEBUG: Show what attributes are being sent to VideoUpsert
+    Logger.debug("Sending to VideoUpsert - size field: #{inspect(Map.get(attrs, "size"))}")
 
     # Upsert the video record
     case Media.upsert_video(attrs) do
       {:ok, video} ->
-        Logger.debug("Successfully upserted video: #{video.path}")
+        Logger.debug("✅ Successfully upserted video: #{video.path}")
         {:ok, video}
 
       {:error, changeset} ->
@@ -535,21 +594,80 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   # Private helper to categorize and record analysis failures
   defp record_analysis_failure(video, reason) do
+    failure_type = categorize_failure_reason(reason)
+    record_categorized_failure(video, failure_type, reason)
+  end
+
+  defp categorize_failure_reason({:audio_validation, _}), do: :audio_validation
+
+  defp categorize_failure_reason(reason) do
+    reason_string = to_string(reason)
+
     cond do
-      String.contains?(reason, "MediaInfo") or String.contains?(reason, "mediainfo") ->
-        Reencodarr.FailureTracker.record_mediainfo_failure(video, reason)
-
-      String.contains?(reason, "file") or String.contains?(reason, "access") ->
-        Reencodarr.FailureTracker.record_file_access_failure(video, reason)
-
-      String.contains?(reason, "validation") or String.contains?(reason, "changeset") ->
-        Reencodarr.FailureTracker.record_validation_failure(video, [], context: %{reason: reason})
-
-      String.contains?(reason, "Exception") ->
-        Reencodarr.FailureTracker.record_unknown_failure(video, :analysis, reason)
-
-      true ->
-        Reencodarr.FailureTracker.record_unknown_failure(video, :analysis, reason)
+      audio_related_error?(reason_string) -> :audio_metadata
+      mediainfo_related_error?(reason_string) -> :mediainfo
+      file_access_error?(reason_string) -> :file_access
+      validation_error?(reason_string) -> :validation
+      exception_error?(reason_string) -> :exception
+      true -> :unknown
     end
+  end
+
+  defp audio_related_error?(reason_string) do
+    String.contains?(reason_string, "Invalid audio metadata") or
+      String.contains?(reason_string, "invalid channel data") or
+      String.contains?(reason_string, "Audio validation failed")
+  end
+
+  defp mediainfo_related_error?(reason_string) do
+    String.contains?(reason_string, "MediaInfo") or
+      String.contains?(reason_string, "mediainfo")
+  end
+
+  defp file_access_error?(reason_string) do
+    String.contains?(reason_string, "file") or
+      String.contains?(reason_string, "access")
+  end
+
+  defp validation_error?(reason_string) do
+    String.contains?(reason_string, "validation") or
+      String.contains?(reason_string, "changeset")
+  end
+
+  defp exception_error?(reason_string) do
+    String.contains?(reason_string, "Exception")
+  end
+
+  defp record_categorized_failure(video, :audio_validation, {_, error_msg}) do
+    Reencodarr.FailureTracker.record_mediainfo_failure(
+      video,
+      "Audio validation failed: #{error_msg}"
+    )
+  end
+
+  defp record_categorized_failure(video, :audio_metadata, reason) do
+    Reencodarr.FailureTracker.record_mediainfo_failure(video, to_string(reason))
+  end
+
+  defp record_categorized_failure(video, :mediainfo, reason) do
+    Reencodarr.FailureTracker.record_mediainfo_failure(video, to_string(reason))
+  end
+
+  defp record_categorized_failure(video, :file_access, reason) do
+    Reencodarr.FailureTracker.record_file_access_failure(video, to_string(reason))
+  end
+
+  defp record_categorized_failure(video, :validation, reason) do
+    Reencodarr.FailureTracker.record_validation_failure(video, [],
+      context: %{reason: to_string(reason)}
+    )
+  end
+
+  defp record_categorized_failure(video, :exception, reason) do
+    Reencodarr.FailureTracker.record_unknown_failure(video, :analysis, to_string(reason))
+  end
+
+  defp record_categorized_failure(video, :unknown, reason) do
+    Reencodarr.FailureTracker.record_unknown_failure(video, :analysis, to_string(reason))
   end
 end

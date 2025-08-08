@@ -78,23 +78,21 @@ defmodule Reencodarr.Media.MediaInfoMigration do
   """
   @spec migrate_media_info(MediaInfo.t()) :: {:ok, MediaInfo.t()} | {:error, term()}
   def migrate_media_info(%MediaInfo{} = media_info) do
-    try do
-      updated_tracks =
-        media_info.media.track
-        |> Enum.map(&migrate_track/1)
-        |> Enum.map(fn
-          {:ok, track} -> track
-          {:error, _} -> nil
-        end)
-        |> Enum.filter(&(&1 != nil))
+    updated_tracks =
+      media_info.media.track
+      |> Enum.map(&migrate_track/1)
+      |> Enum.map(fn
+        {:ok, track} -> track
+        {:error, _} -> nil
+      end)
+      |> Enum.filter(&(&1 != nil))
 
-      updated_media = %{media_info.media | track: updated_tracks}
-      updated_media_info = %{media_info | media: updated_media}
+    updated_media = %{media_info.media | track: updated_tracks}
+    updated_media_info = %{media_info | media: updated_media}
 
-      {:ok, updated_media_info}
-    rescue
-      error -> {:error, error}
-    end
+    {:ok, updated_media_info}
+  rescue
+    error -> {:error, error}
   end
 
   @doc """

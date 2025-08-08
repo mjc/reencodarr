@@ -2,6 +2,7 @@ defmodule Reencodarr.Media.EnhancedMediaInfoTest do
   use ExUnit.Case, async: true
 
   alias Reencodarr.Media.EnhancedMediaInfo
+  alias Reencodarr.Media.FieldTypes
   alias Reencodarr.Media.MediaInfo
   alias Reencodarr.Media.MediaInfo.{AudioTrack, GeneralTrack, TextTrack, VideoTrack}
 
@@ -465,17 +466,17 @@ defmodule Reencodarr.Media.EnhancedMediaInfoTest do
       # Check MediaInfo fields (should be in general or video track types)
       Enum.each(mediainfo_fields, fn field ->
         covered =
-          Reencodarr.Media.FieldTypes.get_field_type(:general, field) ||
-            Reencodarr.Media.FieldTypes.get_field_type(:video, field) ||
-            Reencodarr.Media.FieldTypes.get_field_type(:audio, field) ||
-            Reencodarr.Media.FieldTypes.get_field_type(:text, field)
+          FieldTypes.get_field_type(:general, field) ||
+            FieldTypes.get_field_type(:video, field) ||
+            FieldTypes.get_field_type(:audio, field) ||
+            FieldTypes.get_field_type(:text, field)
 
         assert covered != nil, "MediaInfo field #{field} is not covered by FieldTypes system"
       end)
 
       # Check Video schema specific fields
       Enum.each(video_schema_fields, fn field ->
-        covered = Reencodarr.Media.FieldTypes.get_field_type(:video_schema, field)
+        covered = FieldTypes.get_field_type(:video_schema, field)
         # Some fields like :reencoded, :failed are optional and may not be defined yet
         # Just check that the essential ones are covered
         if field in [:video_codecs, :audio_codecs, :max_audio_channels, :hdr, :atmos] do
@@ -486,10 +487,10 @@ defmodule Reencodarr.Media.EnhancedMediaInfoTest do
       # Verify overall coverage is reasonable
       all_mediainfo_covered =
         Enum.all?(mediainfo_fields, fn field ->
-          Reencodarr.Media.FieldTypes.get_field_type(:general, field) ||
-            Reencodarr.Media.FieldTypes.get_field_type(:video, field) ||
-            Reencodarr.Media.FieldTypes.get_field_type(:audio, field) ||
-            Reencodarr.Media.FieldTypes.get_field_type(:text, field)
+          FieldTypes.get_field_type(:general, field) ||
+            FieldTypes.get_field_type(:video, field) ||
+            FieldTypes.get_field_type(:audio, field) ||
+            FieldTypes.get_field_type(:text, field)
         end)
 
       assert all_mediainfo_covered, "Not all essential MediaInfo fields are covered"
