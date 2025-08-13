@@ -1,6 +1,8 @@
 defmodule ReencodarrWeb.EncodeQueueComponent do
   use Phoenix.LiveComponent
 
+  alias Reencodarr.FormatHelpers
+
   @moduledoc "Displays the encoding queue."
 
   @impl true
@@ -44,16 +46,10 @@ defmodule ReencodarrWeb.EncodeQueueComponent do
 
   defp calculate_savings(file) do
     savings = file.video.size - file.video.size * (file.percent / 100)
-    (savings / 1_073_741_824) |> Float.round(2)
+    FormatHelpers.format_file_size_gib(trunc(savings))
   end
 
   defp format_name(%{path: path}) do
-    path = Path.basename(path)
-
-    case Regex.run(~r/^(.+?) - (S\d+E\d+)/, path) do
-      [_, series_name, episode_name] -> "#{series_name} - #{episode_name}"
-      [_, movie_name] -> movie_name
-      _ -> path
-    end
+    FormatHelpers.format_filename(path)
   end
 end

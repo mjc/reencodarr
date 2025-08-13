@@ -80,11 +80,6 @@ defmodule ReencodarrWeb.StatisticsComponent do
   defp human_readable_time(nil, _timezone), do: "N/A"
 
   defp human_readable_time(datetime, timezone) do
-    tz = if is_binary(timezone) and timezone != "", do: timezone, else: "UTC"
-
-    datetime
-    |> DateTime.from_naive!("Etc/UTC")
-    |> DateTime.shift_zone!(tz)
-    |> TimeUtils.relative_time()
+    TimeUtils.relative_time_with_timezone(datetime, timezone)
   end
 end

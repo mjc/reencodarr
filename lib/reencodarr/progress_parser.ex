@@ -24,6 +24,17 @@ defmodule Reencodarr.ProgressParser do
       {:ok, %{type: :encoding_progress, data: parsed_data}} ->
         handle_progress_update(parsed_data, state)
 
+      {:ok, %{type: :progress, data: parsed_data}} ->
+        # Transform :progress data to match expected format
+        transformed_data = %{
+          percent: Map.get(parsed_data, :progress),
+          fps: Map.get(parsed_data, :fps),
+          eta: Map.get(parsed_data, :eta),
+          eta_unit: Map.get(parsed_data, :eta_unit)
+        }
+
+        handle_progress_update(transformed_data, state)
+
       {:ok, %{type: :file_size_progress, data: _parsed_data}} ->
         # File size progress - not doing anything specific here currently
         :ok
@@ -54,7 +65,7 @@ defmodule Reencodarr.ProgressParser do
   @spec handle_progress_update(map(), map()) :: :ok
   defp handle_progress_update(%{percent: percent, fps: fps, eta: eta, eta_unit: unit}, state) do
     _eta_seconds = TimeHelpers.to_seconds(eta, unit)
-    human_readable_eta = "#{eta} #{unit}"
+    human_readable_eta = format_eta(eta, unit)
     filename = Path.basename(state.video.path)
 
     # Create progress struct
@@ -68,5 +79,17 @@ defmodule Reencodarr.ProgressParser do
     # Emit telemetry event for progress
     Telemetry.emit_encoder_progress(progress)
     :ok
+  end
+
+  # Helper function to format ETA with proper pluralization
+  defp format_eta(eta, unit) when eta == 1, do: "#{eta} #{unit}"
+
+  defp format_eta(eta, unit) do
+    # If unit already ends with 's', don't add another 's'
+    if String.ends_with?(unit, "s") do
+      "#{eta} #{unit}"
+    else
+      "#{eta} #{unit}s"
+    end
   end
 end

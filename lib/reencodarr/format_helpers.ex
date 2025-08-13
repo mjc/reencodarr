@@ -177,6 +177,25 @@ defmodule Reencodarr.FormatHelpers do
   def format_file_size(_), do: "N/A"
 
   @doc """
+  Formats file size in bytes to GiB (gibibytes) with 2 decimal places.
+
+  ## Examples
+
+      iex> FormatHelpers.format_file_size_gib(1_073_741_824)
+      1.0
+
+      iex> FormatHelpers.format_file_size_gib(2_147_483_648)
+      2.0
+  """
+  def format_file_size_gib(nil), do: 0.0
+
+  def format_file_size_gib(bytes) when is_integer(bytes) and bytes >= 0 do
+    Float.round(bytes / 1_073_741_824, 2)
+  end
+
+  def format_file_size_gib(_), do: 0.0
+
+  @doc """
   Formats bitrate in bits per second to human-readable format.
 
   ## Examples
