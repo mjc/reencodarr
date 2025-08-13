@@ -12,6 +12,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   alias Broadway.Message
   alias Reencodarr.Analyzer.Broadway.Producer
   alias Reencodarr.{Media, Telemetry}
+  alias Reencodarr.Media.MediaInfoExtractor
 
   @doc """
   Start the Broadway pipeline.
@@ -292,6 +293,7 @@ defmodule Reencodarr.Analyzer.Broadway do
     try do
       case Jason.decode(json) do
         {:ok, data} ->
+          # Use the direct extractor instead of complex type conversion + later parsing
           handle_decoded_single_mediainfo(data)
 
         {:error, reason} ->
@@ -354,6 +356,7 @@ defmodule Reencodarr.Analyzer.Broadway do
     try do
       case Jason.decode(json) do
         {:ok, data} ->
+          # Use the direct extractor instead of complex type conversion + later parsing
           handle_decoded_mediainfo_data(data, paths)
 
         {:error, reason} ->
@@ -484,29 +487,20 @@ defmodule Reencodarr.Analyzer.Broadway do
   # Helper functions for video processing
 
   defp extract_basic_fields_from_mediainfo(mediainfo) do
-    alias Reencodarr.Media.Video.MediaInfo, as: EmbeddedMediaInfo
+    # Use the simple extractor to get all fields, then pick what we need
+    params = MediaInfoExtractor.extract_video_params(mediainfo, "unknown_path")
 
-    # Use the embedded schema to extract basic fields for VideoUpsert
-    case EmbeddedMediaInfo.from_json(mediainfo) do
-      {:ok, parsed_mediainfo} ->
-        case EmbeddedMediaInfo.to_video_params(parsed_mediainfo) do
-          {:ok, video_params} ->
-            # Extract just the basic fields needed for VideoUpsert logic
-            basic_fields = %{
-              "size" => Map.get(video_params, "size"),
-              "duration" => Map.get(video_params, "duration"),
-              "bitrate" => Map.get(video_params, "bitrate")
-            }
+    # Extract just the basic fields needed for VideoUpsert logic
+    basic_fields = %{
+      "size" => Map.get(params, :size),
+      "duration" => Map.get(params, :duration),
+      "bitrate" => Map.get(params, :bitrate)
+    }
 
-            {:ok, basic_fields}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    {:ok, basic_fields}
+  rescue
+    e ->
+      {:error, "extraction failed: #{inspect(e)}"}
   end
 
   defp check_processing_eligibility(video_info) do

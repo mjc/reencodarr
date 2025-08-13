@@ -1,7 +1,7 @@
 defmodule Reencodarr.Media.Video do
   use Ecto.Schema
   import Ecto.Changeset
-  alias Reencodarr.Media.MediaInfo
+  alias Reencodarr.Media.MediaInfoExtractor
 
   @moduledoc "Represents video metadata and schema."
 
@@ -129,8 +129,8 @@ defmodule Reencodarr.Media.Video do
         changeset
 
       mediainfo ->
-        params =
-          MediaInfo.to_video_params(mediainfo, get_field(changeset, :path))
+        # Use the simpler extractor that avoids complex track traversal
+        params = MediaInfoExtractor.extract_video_params(mediainfo, get_field(changeset, :path))
 
         changeset
         |> cast(params, @mediainfo_params)
