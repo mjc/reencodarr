@@ -3,63 +3,46 @@ defmodule Reencodarr.ProgressParser do
   Parses encoding progress output and emits telemetry events.
 
   This module handles the parsing of ab-av1 output lines and converts them
-  into structured progress data for the dashboard.
+  into structured progress data for the dashboard. Now uses the centralized
+  AbAv1.OutputParser for consistent parsing.
   """
 
   require Logger
 
   alias Reencodarr.{Media, Telemetry, TimeHelpers}
+  alias Reencodarr.AbAv1.OutputParser
 
   @doc """
   Processes a single line of output from the encoding process.
   """
   @spec process_line(String.t(), map()) :: :ok
   def process_line(data, state) do
-    cond do
-      captures = Regex.named_captures(~r/\[.*\] encoding (?<filename>\d+\.mkv)/, data) ->
-        handle_encoding_start(captures, state)
+    case OutputParser.parse_line(data) do
+      {:ok, %{type: :encoding_start, data: parsed_data}} ->
+        handle_encoding_start(parsed_data, state)
 
-      # Main progress pattern - matches ab-av1 output format
-      captures =
-          Regex.named_captures(
-            ~r/\[.*\]\s*(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
-            data
-          ) ->
-        handle_progress_update(captures, state)
+      {:ok, %{type: :encoding_progress, data: parsed_data}} ->
+        handle_progress_update(parsed_data, state)
 
-      # Alternative pattern without timestamp/brackets
-      captures =
-          Regex.named_captures(
-            ~r/(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
-            data
-          ) ->
-        handle_progress_update(captures, state)
-
-      _captures =
-          Regex.named_captures(~r/Encoded\s(?<size>[\d\.]+\s\w+)\s\((?<percent>\d+)%\)/, data) ->
+      {:ok, %{type: :file_size_progress, data: _parsed_data}} ->
         # File size progress - not doing anything specific here currently
         :ok
 
-      # Check for any line containing percentage, fps, or eta
-      String.contains?(data, "%") or String.contains?(data, "fps") or
-          String.contains?(data, "eta") ->
-        Logger.warning("ProgressParser: Unmatched progress-like line: #{inspect(data)}")
-        :ok
+      :ignore ->
+        # Check for any line containing percentage, fps, or eta that we might have missed
+        if String.contains?(data, "%") or String.contains?(data, "fps") or
+             String.contains?(data, "eta") do
+          Logger.warning("ProgressParser: Unmatched progress-like line: #{inspect(data)}")
+        end
 
-      true ->
-        # Non-matching lines are ignored
         :ok
     end
   end
 
   # Handles the start of encoding for a specific file.
   @spec handle_encoding_start(map(), map()) :: :ok
-  defp handle_encoding_start(%{"filename" => filename}, _state) do
-    file = filename
-    extname = Path.extname(file)
-    id = String.to_integer(Path.basename(file, extname))
-
-    video = Media.get_video!(id)
+  defp handle_encoding_start(%{video_id: video_id}, _state) do
+    video = Media.get_video!(video_id)
     video_filename = video.path |> Path.basename()
 
     # Emit telemetry event for encoding start
@@ -69,43 +52,21 @@ defmodule Reencodarr.ProgressParser do
 
   # Handles progress updates during encoding.
   @spec handle_progress_update(map(), map()) :: :ok
-  defp handle_progress_update(captures, state) do
-    %{
-      "percent" => percent_str,
-      "fps" => fps_str,
-      "eta" => eta_str,
-      "unit" => unit
-    } = captures
-
-    _eta_seconds = TimeHelpers.to_seconds(String.to_integer(eta_str), unit)
-    human_readable_eta = "#{eta_str} #{unit}"
+  defp handle_progress_update(%{percent: percent, fps: fps, eta: eta, eta_unit: unit}, state) do
+    _eta_seconds = TimeHelpers.to_seconds(eta, unit)
+    human_readable_eta = "#{eta} #{unit}"
     filename = Path.basename(state.video.path)
 
     # Create progress struct
     progress = %Reencodarr.Statistics.EncodingProgress{
-      percent: String.to_integer(percent_str),
+      percent: percent,
       eta: human_readable_eta,
-      fps: parse_fps(fps_str),
+      fps: Float.round(fps),
       filename: filename
     }
 
     # Emit telemetry event for progress
     Telemetry.emit_encoder_progress(progress)
     :ok
-  end
-
-  # Parses FPS string to float, handling missing decimal points.
-  @spec parse_fps(String.t()) :: float()
-  defp parse_fps(fps_string) do
-    fps_string
-    |> then(fn str ->
-      if String.contains?(str, ".") do
-        str
-      else
-        str <> ".0"
-      end
-    end)
-    |> String.to_float()
-    |> Float.round()
   end
 end
