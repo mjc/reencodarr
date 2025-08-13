@@ -3,6 +3,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.RetryLogicTest do
   Tests for CRF search retry logic with --preset 6 fallback.
   """
   use Reencodarr.DataCase, async: true
+  import Ecto.Query
 
   alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.Media
@@ -104,15 +105,25 @@ defmodule Reencodarr.AbAv1.CrfSearch.RetryLogicTest do
           params: ["--preset", "fast"]
         })
 
-      # Verify they exist
-      assert Repo.aggregate(Vmaf, :count, :id) == 2
+      # Verify they exist (scoped to this video)
+      video_vmaf_count =
+        Vmaf
+        |> where([v], v.video_id == ^video.id)
+        |> Repo.aggregate(:count, :id)
+
+      assert video_vmaf_count == 2
 
       # Clear them
       vmaf_records = [%{id: vmaf1.id}, %{id: vmaf2.id}]
       CrfSearch.clear_vmaf_records_for_video(video.id, vmaf_records)
 
-      # Verify they're gone
-      assert Repo.aggregate(Vmaf, :count, :id) == 0
+      # Verify they're gone (scoped to this video)
+      video_vmaf_count_after =
+        Vmaf
+        |> where([v], v.video_id == ^video.id)
+        |> Repo.aggregate(:count, :id)
+
+      assert video_vmaf_count_after == 0
     end
   end
 end

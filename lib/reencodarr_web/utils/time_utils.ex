@@ -49,6 +49,28 @@ defmodule ReencodarrWeb.Utils.TimeUtils do
 
   def relative_time(datetime), do: inspect(datetime)
 
+  @doc """
+  Formats a datetime as relative time with timezone support.
+
+  ## Examples
+
+      iex> TimeUtils.relative_time_with_timezone(nil, "UTC")
+      "N/A"
+
+      iex> TimeUtils.relative_time_with_timezone(~N[2023-01-01 12:00:00], "UTC")
+      "..." # relative time string
+  """
+  def relative_time_with_timezone(nil, _timezone), do: "N/A"
+
+  def relative_time_with_timezone(datetime, timezone) do
+    tz = if is_binary(timezone) and timezone != "", do: timezone, else: "UTC"
+
+    datetime
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.shift_zone!(tz)
+    |> relative_time()
+  end
+
   # Private helper functions for formatting relative time differences
 
   defp format_relative_time(seconds) when seconds < @seconds_per_minute do

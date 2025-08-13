@@ -7,11 +7,11 @@ defmodule Reencodarr.ProgressParserTest do
 
   describe "process_line/2" do
     setup do
-      # Create a test video in the database
+      # Create a test video in the database with unique path
       {:ok, video} =
         Media.create_video(%{
           id: 1,
-          path: "/test/video.mkv",
+          path: "/test/unique_#{System.unique_integer([:positive])}/video.mkv",
           service_id: "test",
           service_type: :sonarr,
           size: 1_000_000_000

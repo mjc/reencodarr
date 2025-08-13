@@ -21,10 +21,26 @@ defmodule Reencodarr.MediaFixtures do
   Generate a video with default or custom attributes.
   """
   def video_fixture(attrs \\ %{}) do
+    # Always use unique path to prevent database conflicts, even if path is provided in attrs
+    unique_path =
+      case Map.get(attrs, :path) do
+        nil ->
+          unique_video_path()
+
+        path when is_binary(path) ->
+          # Make any provided path unique by appending a unique integer
+          base = Path.rootname(path)
+          ext = Path.extname(path)
+          "#{base}_#{System.unique_integer([:positive])}#{ext}"
+
+        path ->
+          path
+      end
+
     default_attrs = %{
       # 5 Mbps - more realistic default
       bitrate: 5_000_000,
-      path: unique_video_path(),
+      path: unique_path,
       # 2GB - realistic file size
       size: 2_000_000_000,
       reencoded: false,
@@ -33,7 +49,8 @@ defmodule Reencodarr.MediaFixtures do
 
     {:ok, video} =
       default_attrs
-      |> Map.merge(attrs)
+      # Remove path from attrs since we handle it above
+      |> Map.merge(Map.delete(attrs, :path))
       |> Media.create_video()
 
     video

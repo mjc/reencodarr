@@ -13,12 +13,13 @@ defmodule ReencodarrWeb.RulesLive do
 
   require Logger
   import ReencodarrWeb.LcarsComponents
+  alias ReencodarrWeb.DashboardLiveHelpers
 
   @impl true
   def mount(_params, _session, socket) do
     socket =
       socket
-      |> assign(:current_stardate, format_stardate())
+      |> assign(:current_stardate, DashboardLiveHelpers.calculate_stardate(DateTime.utc_now()))
       |> assign(:selected_section, :overview)
 
     {:ok, socket}
@@ -1532,16 +1533,5 @@ defmodule ReencodarrWeb.RulesLive do
       </.lcars_panel>
     </div>
     """
-  end
-
-  # Helper function to format stardate
-  defp format_stardate do
-    now = DateTime.utc_now()
-    days_since_epoch = Date.diff(DateTime.to_date(now), ~D[2000-01-01])
-    time_fraction = now.hour * 3600 + now.minute * 60 + now.second
-    daily_fraction = time_fraction / 86_400
-
-    stardate = days_since_epoch + daily_fraction
-    :io_lib.format("~.1f", [stardate]) |> to_string()
   end
 end

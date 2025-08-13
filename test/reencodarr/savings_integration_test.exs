@@ -14,7 +14,7 @@ defmodule Reencodarr.SavingsIntegrationTest do
       # Create a test video
       {:ok, video} =
         Media.create_video(%{
-          path: "/test/library/integration_video.mkv",
+          path: "/test/library/integration_video_#{System.unique_integer([:positive])}.mkv",
           # 2GB
           size: 2_000_000_000,
           bitrate: 8000,
@@ -53,7 +53,7 @@ defmodule Reencodarr.SavingsIntegrationTest do
       # Create another video with higher savings to test sorting
       {:ok, video2} =
         Media.create_video(%{
-          path: "/test/library/high_savings_video.mkv",
+          path: "/test/library/high_savings_video_#{System.unique_integer([:positive])}.mkv",
           # 3GB
           size: 3_000_000_000,
           bitrate: 10_000,

@@ -34,7 +34,20 @@ defmodule Reencodarr.Media.Video do
     :reencoded,
     :service_id,
     :service_type,
-    :failed
+    :failed,
+    :duration,
+    :width,
+    :height,
+    :frame_rate,
+    :video_count,
+    :audio_count,
+    :text_count,
+    :video_codecs,
+    :audio_codecs,
+    :max_audio_channels,
+    :hdr,
+    :atmos,
+    :title
   ]
 
   @required [:path, :size]
