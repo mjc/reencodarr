@@ -29,9 +29,11 @@ defmodule Reencodarr.Validation do
     cond do
       is_nil(value) ->
         changeset
+
       is_number(value) and value <= 0 ->
         message = message || "#{field} must be positive"
         add_error(changeset, field, message)
+
       true ->
         changeset
     end
@@ -46,9 +48,11 @@ defmodule Reencodarr.Validation do
     cond do
       is_nil(value) ->
         changeset
+
       is_number(value) and (value < min_val or value > max_val) ->
         message = message || "#{field} seems unrealistic, got: #{value}"
         add_error(changeset, field, message)
+
       true ->
         changeset
     end
@@ -64,9 +68,11 @@ defmodule Reencodarr.Validation do
       is_binary(value) and String.trim(value) == "" ->
         message = message || "#{field} cannot be empty"
         add_error(changeset, field, message)
+
       is_number(value) and value == 0 ->
         message = message || "#{field} cannot be 0"
         add_error(changeset, field, message)
+
       true ->
         changeset
     end
@@ -82,12 +88,16 @@ defmodule Reencodarr.Validation do
     cond do
       is_nil(width) ->
         add_error(changeset, :width, "video width is required")
+
       is_nil(height) ->
         add_error(changeset, :height, "video height is required")
+
       width <= 0 ->
         add_error(changeset, :width, "video width must be positive")
+
       height <= 0 ->
         add_error(changeset, :height, "video height must be positive")
+
       true ->
         changeset
     end
@@ -102,10 +112,13 @@ defmodule Reencodarr.Validation do
     cond do
       is_nil(channels) ->
         add_error(changeset, :channels, "audio channels is required")
+
       channels <= 0 ->
         add_error(changeset, :channels, "audio channels must be positive, got: #{channels}")
+
       channels > 32 ->
         add_error(changeset, :channels, "audio channels seems unrealistic, got: #{channels}")
+
       true ->
         changeset
     end
@@ -120,6 +133,7 @@ defmodule Reencodarr.Validation do
     if format && String.trim(format) != "" do
       Enum.reduce(field_checks, changeset, fn {field, zero_message}, acc ->
         value = get_field(acc, field)
+
         if value == 0 do
           add_error(acc, field, zero_message)
         else

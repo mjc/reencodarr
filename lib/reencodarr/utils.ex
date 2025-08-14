@@ -36,6 +36,7 @@ defmodule Reencodarr.Utils do
   def in_range?(value, min, max) when is_number(value) do
     value >= min and value <= max
   end
+
   def in_range?(_, _, _), do: false
 
   @doc """
@@ -51,12 +52,14 @@ defmodule Reencodarr.Utils do
   """
   def parse_int(value, default \\ 0)
   def parse_int(value, _) when is_integer(value), do: value
+
   def parse_int(value, default) when is_binary(value) do
     case Integer.parse(value) do
       {int, _} -> int
       :error -> default
     end
   end
+
   def parse_int(_, default), do: default
 
   @doc """
@@ -64,12 +67,14 @@ defmodule Reencodarr.Utils do
   """
   def parse_float(value, default \\ 0.0)
   def parse_float(value, _) when is_float(value), do: value
+
   def parse_float(value, default) when is_binary(value) do
     case Float.parse(value) do
       {float, _} -> float
       :error -> default
     end
   end
+
   def parse_float(_, default), do: default
 
   @doc """
@@ -159,7 +164,7 @@ defmodule Reencodarr.Utils do
   Guard for reasonable integer ranges.
   """
   defguard is_reasonable_int(value, min, max)
-    when is_integer(value) and value >= min and value <= max
+           when is_integer(value) and value >= min and value <= max
 
   # === CHANGESET UTILITIES ===
 

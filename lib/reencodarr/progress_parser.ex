@@ -52,9 +52,23 @@ defmodule Reencodarr.ProgressParser do
 
   # Handles the start of encoding for a specific file.
   @spec handle_encoding_start(map(), map()) :: :ok
-  defp handle_encoding_start(%{video_id: video_id}, _state) do
+  defp handle_encoding_start(%{video_id: video_id}, _state) when is_integer(video_id) do
     video = Media.get_video!(video_id)
     video_filename = video.path |> Path.basename()
+
+    # Emit telemetry event for encoding start
+    Telemetry.emit_encoder_started(video_filename)
+    :ok
+  end
+
+  # Fallback for cases where video_id cannot be parsed from the encoding start line
+  defp handle_encoding_start(parsed_data, state) do
+    Logger.debug(
+      "ProgressParser: Could not extract video_id from encoding start data: #{inspect(parsed_data)}"
+    )
+
+    # Use the video from the current state instead
+    video_filename = Path.basename(state.video.path)
 
     # Emit telemetry event for encoding start
     Telemetry.emit_encoder_started(video_filename)
@@ -78,6 +92,27 @@ defmodule Reencodarr.ProgressParser do
 
     # Emit telemetry event for progress
     Telemetry.emit_encoder_progress(progress)
+    :ok
+  end
+
+  # Fallback for cases where progress data cannot be fully parsed
+  defp handle_progress_update(parsed_data, state) do
+    Logger.debug(
+      "ProgressParser: Could not extract complete progress data: #{inspect(parsed_data)}"
+    )
+
+    # Try to emit basic progress with whatever data we have
+    filename = Path.basename(state.video.path)
+
+    basic_progress = %Reencodarr.Statistics.EncodingProgress{
+      percent: Map.get(parsed_data, :percent, 0),
+      eta: "unknown",
+      fps: Map.get(parsed_data, :fps, 0.0) |> Float.round(),
+      filename: filename
+    }
+
+    # Emit telemetry event for basic progress
+    Telemetry.emit_encoder_progress(basic_progress)
     :ok
   end
 
