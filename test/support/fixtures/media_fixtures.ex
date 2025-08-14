@@ -28,10 +28,16 @@ defmodule Reencodarr.MediaFixtures do
           unique_video_path()
 
         path when is_binary(path) ->
-          # Make any provided path unique by appending a unique integer
-          base = Path.rootname(path)
-          ext = Path.extname(path)
-          "#{base}_#{System.unique_integer([:positive])}#{ext}"
+          # Check if path already contains uniqueness (e.g., "unique_12345" in directory)
+          if String.contains?(path, "unique_") do
+            # Path is already unique, use as-is
+            path
+          else
+            # Make path unique by appending a unique integer to filename
+            base = Path.rootname(path)
+            ext = Path.extname(path)
+            "#{base}_#{System.unique_integer([:positive])}#{ext}"
+          end
 
         path ->
           path
