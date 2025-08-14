@@ -25,7 +25,7 @@ defmodule Reencodarr.TelemetryReporter do
   use GenServer
   require Logger
 
-  alias Reencodarr.{DashboardState, ProgressHelpers}
+  alias Reencodarr.{DashboardState, Core.Progress}
   alias Reencodarr.Statistics.{AnalyzerProgress, CrfSearchProgress, EncodingProgress}
 
   # Configuration constants
@@ -89,7 +89,7 @@ defmodule Reencodarr.TelemetryReporter do
   end
 
   def handle_cast({:update_encoding_progress, measurements}, %DashboardState{} = state) do
-    updated_progress = ProgressHelpers.update_progress(state.encoding_progress, measurements)
+    updated_progress = Progress.update_progress(state.encoding_progress, measurements)
     new_state = %{state | encoding_progress: updated_progress}
 
     {:noreply, emit_state_update_and_return(new_state)}
@@ -103,7 +103,7 @@ defmodule Reencodarr.TelemetryReporter do
   end
 
   def handle_cast({:update_crf_search_progress, measurements}, %DashboardState{} = state) do
-    updated_progress = ProgressHelpers.update_progress(state.crf_search_progress, measurements)
+    updated_progress = Progress.update_progress(state.crf_search_progress, measurements)
     new_state = %{state | crf_search_progress: updated_progress}
 
     {:noreply, emit_state_update_and_return(new_state)}

@@ -135,4 +135,59 @@ defmodule Reencodarr.Core.Parsers do
   def get_first(list, default \\ nil) do
     Enum.find(list, & &1) || default
   end
+
+  @doc """
+  Creates a field mapping configuration for regex pattern parsing.
+
+  ## Examples
+
+      iex> field_mapping([{:crf, :float}, {:score, :float, "score"}])
+      %{crf: {:float, "crf"}, score: {:float, "score"}}
+  """
+  @spec field_mapping(list()) :: map()
+  def field_mapping(fields) do
+    fields
+    |> Enum.reduce(%{}, fn
+      {key, type}, acc ->
+        Map.put(acc, key, {type, to_string(key)})
+      {key, type, capture_key}, acc ->
+        Map.put(acc, key, {type, capture_key})
+    end)
+  end
+
+  @doc """
+  Parses a line with a regex pattern and field mapping.
+
+  ## Examples
+
+      iex> pattern = ~r/crf (?<crf>\d+)/
+      iex> mapping = %{crf: {:float, "crf"}}
+      iex> parse_with_pattern("crf 28", :test, %{test: pattern}, mapping)
+      %{crf: 28.0}
+  """
+  @spec parse_with_pattern(String.t(), atom(), map(), map()) :: map() | nil
+  def parse_with_pattern(line, pattern_key, patterns, field_mapping) do
+    pattern = Map.get(patterns, pattern_key)
+
+    case Regex.named_captures(pattern, line) do
+      nil -> nil
+      captures -> extract_fields(captures, field_mapping)
+    end
+  end
+
+  # Extract and convert fields from regex captures
+  defp extract_fields(captures, field_mapping) do
+    field_mapping
+    |> Enum.reduce(%{}, fn {key, {type, capture_key}}, acc ->
+      case Map.get(captures, capture_key) do
+        nil -> acc
+        value -> Map.put(acc, key, convert_value(value, type))
+      end
+    end)
+  end
+
+  # Convert captured string values to appropriate types
+  defp convert_value(value, :int), do: String.to_integer(value)
+  defp convert_value(value, :float), do: String.to_float(value)
+  defp convert_value(value, :string), do: value
 end
