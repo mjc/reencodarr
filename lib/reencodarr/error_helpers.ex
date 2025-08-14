@@ -39,7 +39,7 @@ defmodule Reencodarr.ErrorHelpers do
     case result do
       {:ok, value} -> success_fn.(value)
       {:error, reason} -> log_and_return_error(reason, context)
-      other -> 
+      other ->
         log_and_return_error({:unexpected_result, other}, context)
     end
   end
@@ -104,7 +104,7 @@ defmodule Reencodarr.ErrorHelpers do
       iex> handle_api_response({:ok, %{status: 200, body: data}}, "User fetch")
       {:ok, data}
 
-      iex> handle_api_response({:error, reason}, "User fetch")  
+      iex> handle_api_response({:error, reason}, "User fetch")
       {:error, reason}
 
   """

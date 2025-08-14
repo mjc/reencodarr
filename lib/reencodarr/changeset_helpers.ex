@@ -46,14 +46,14 @@ defmodule Reencodarr.ChangesetHelpers do
   """
   def validate_positive_number(changeset, field, message \\ nil) do
     value = get_field(changeset, field)
-    
+
     cond do
-      is_nil(value) -> 
+      is_nil(value) ->
         changeset
-      is_number(value) and value <= 0 -> 
+      is_number(value) and value <= 0 ->
         message = message || "#{field} must be positive"
         add_error(changeset, field, message)
-      true -> 
+      true ->
         changeset
     end
   end
@@ -71,14 +71,14 @@ defmodule Reencodarr.ChangesetHelpers do
   """
   def validate_reasonable_range(changeset, field, min_val, max_val, message \\ nil) do
     value = get_field(changeset, field)
-    
+
     cond do
-      is_nil(value) -> 
+      is_nil(value) ->
         changeset
-      is_number(value) and (value < min_val or value > max_val) -> 
+      is_number(value) and (value < min_val or value > max_val) ->
         message = message || "#{field} seems unrealistic, got: #{value}"
         add_error(changeset, field, message)
-      true -> 
+      true ->
         changeset
     end
   end
@@ -94,7 +94,7 @@ defmodule Reencodarr.ChangesetHelpers do
   """
   def validate_not_empty(changeset, field, message \\ nil) do
     value = get_field(changeset, field)
-    
+
     cond do
       is_binary(value) and String.trim(value) == "" ->
         message = message || "#{field} cannot be empty"
@@ -117,15 +117,15 @@ defmodule Reencodarr.ChangesetHelpers do
     height = get_field(changeset, :height)
 
     cond do
-      is_nil(width) -> 
+      is_nil(width) ->
         add_error(changeset, :width, "video width is required")
-      is_nil(height) -> 
+      is_nil(height) ->
         add_error(changeset, :height, "video height is required")
-      width <= 0 -> 
+      width <= 0 ->
         add_error(changeset, :width, "video width must be positive")
-      height <= 0 -> 
+      height <= 0 ->
         add_error(changeset, :height, "video height must be positive")
-      true -> 
+      true ->
         changeset
     end
   end
@@ -157,7 +157,7 @@ defmodule Reencodarr.ChangesetHelpers do
   """
   def validate_track_consistency(changeset, field_checks \\ []) do
     format = get_field(changeset, :format)
-    
+
     if format && String.trim(format) != "" do
       Enum.reduce(field_checks, changeset, fn {field, zero_message}, acc ->
         value = get_field(acc, field)
