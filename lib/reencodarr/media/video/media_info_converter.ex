@@ -4,7 +4,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
   This replaces the legacy MediaInfo conversion functions.
   """
 
-  alias Reencodarr.Core.Parsers
+  alias Reencodarr.DataConverters
   alias Reencodarr.Media.{CodecMapper, VideoFileInfo}
 
   @doc """
@@ -33,7 +33,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
             "@type" => "General",
             "AudioCount" => info.audio_stream_count,
             "OverallBitRate" => info.overall_bitrate || info.bitrate,
-            "Duration" => Parsers.parse_duration(info.run_time),
+            "Duration" => DataConverters.parse_duration(info.run_time),
             "FileSize" => info.size,
             "TextCount" => length(info.subtitles || []),
             "VideoCount" => 1,

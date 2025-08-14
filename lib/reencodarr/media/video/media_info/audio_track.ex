@@ -10,7 +10,7 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Reencodarr.NumericParser
+  alias Reencodarr.DataConverters
 
   @primary_key false
   embedded_schema do
@@ -103,10 +103,19 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
     possible_keys
     |> Enum.find_value(fn key ->
       case Map.get(attrs, key) do
-        nil -> nil
-        value when is_number(value) -> value
-        value when is_binary(value) -> NumericParser.parse_audio_numeric(value)
-        _ -> nil
+        nil ->
+          nil
+
+        value when is_number(value) ->
+          value
+
+        value when is_binary(value) ->
+          DataConverters.parse_numeric(value,
+            units: ["Hz", "kHz", "kbps", "Kbps", "KBPS", "bps", "BPS"]
+          )
+
+        _ ->
+          nil
       end
     end)
   end
