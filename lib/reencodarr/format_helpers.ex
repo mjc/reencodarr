@@ -154,27 +154,17 @@ defmodule Reencodarr.FormatHelpers do
   @doc """
   Formats file size in bytes to human-readable format.
 
+  Delegates to ReencodarrWeb.FormatHelpers for consistency.
+
   ## Examples
 
       iex> FormatHelpers.format_file_size(1024)
-      "1.00 KB"
+      "1.0 KB"
 
       iex> FormatHelpers.format_file_size(1_048_576)
-      "1.00 MB"
+      "1.0 MB"
   """
-  def format_file_size(nil), do: "N/A"
-
-  def format_file_size(bytes) when is_integer(bytes) and bytes >= 0 do
-    cond do
-      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776, 2)} TB"
-      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824, 2)} GB"
-      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576, 2)} MB"
-      bytes >= 1024 -> "#{Float.round(bytes / 1024, 2)} KB"
-      true -> "#{bytes} B"
-    end
-  end
-
-  def format_file_size(_), do: "N/A"
+  defdelegate format_file_size(bytes), to: ReencodarrWeb.FormatHelpers
 
   @doc """
   Formats file size in bytes to GiB (gibibytes) with 2 decimal places.
@@ -232,29 +222,17 @@ defmodule Reencodarr.FormatHelpers do
 
   @doc """
   Formats large counts with K/M suffixes.
+  
+  Delegates to ReencodarrWeb.FormatHelpers for consistency.
   """
-  def format_count(count) when is_integer(count) and count >= 1000 do
-    cond do
-      count >= 1_000_000 -> "#{Float.round(count / 1_000_000, 1)}M"
-      count >= 1_000 -> "#{Float.round(count / 1_000, 1)}K"
-      true -> to_string(count)
-    end
-  end
-
-  def format_count(count), do: to_string(count)
+  defdelegate format_count(count), to: ReencodarrWeb.FormatHelpers
 
   @doc """
   Formats FPS values with appropriate precision.
+  
+  Delegates to ReencodarrWeb.FormatHelpers for consistency.
   """
-  def format_fps(fps) when is_number(fps) do
-    if fps == trunc(fps) do
-      "#{trunc(fps)}"
-    else
-      "#{Float.round(fps, 1)}"
-    end
-  end
-
-  def format_fps(fps), do: to_string(fps)
+  defdelegate format_fps(fps), to: ReencodarrWeb.FormatHelpers
 
   @doc """
   Formats CRF values.
@@ -264,19 +242,17 @@ defmodule Reencodarr.FormatHelpers do
 
   @doc """
   Formats VMAF scores with one decimal place.
+  
+  Delegates to ReencodarrWeb.FormatHelpers for consistency.
   """
-  def format_score(score) when is_number(score) do
-    "#{Float.round(score, 1)}"
-  end
-
-  def format_score(score), do: to_string(score)
+  defdelegate format_score(score), to: ReencodarrWeb.FormatHelpers
 
   @doc """
   Formats ETA values as human-readable strings.
+  
+  Delegates to ReencodarrWeb.FormatHelpers for consistency.
   """
-  def format_eta(eta) when is_binary(eta), do: eta
-  def format_eta(eta) when is_number(eta) and eta > 0, do: "#{eta}s"
-  def format_eta(_), do: "N/A"
+  defdelegate format_eta(eta), to: ReencodarrWeb.FormatHelpers
 
   @doc """
   Formats file sizes in gigabytes with 2 decimal precision.
@@ -307,20 +283,10 @@ defmodule Reencodarr.FormatHelpers do
 
   @doc """
   Formats savings from bytes with appropriate units.
+  
+  Delegates to ReencodarrWeb.FormatHelpers for consistency.
   """
-  def format_savings_bytes(nil), do: "N/A"
-
-  def format_savings_bytes(bytes) when is_integer(bytes) and bytes > 0 do
-    cond do
-      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776, 1)} TB"
-      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824, 1)} GB"
-      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576, 1)} MB"
-      bytes >= 1024 -> "#{Float.round(bytes / 1024, 1)} KB"
-      true -> "#{bytes} B"
-    end
-  end
-
-  def format_savings_bytes(_), do: "N/A"
+  defdelegate format_savings_bytes(bytes), to: ReencodarrWeb.FormatHelpers
 
   # Private helpers
 

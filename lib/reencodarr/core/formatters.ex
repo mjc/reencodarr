@@ -30,6 +30,8 @@ defmodule Reencodarr.Core.Formatters do
   @doc """
   Formats file size in bytes to human-readable format.
 
+  Delegates to ReencodarrWeb.FormatHelpers for consistency.
+
   ## Examples
 
       iex> Formatters.format_file_size(1024)
@@ -42,17 +44,7 @@ defmodule Reencodarr.Core.Formatters do
       "1.0 GB"
   """
   @spec format_file_size(integer()) :: String.t()
-  def format_file_size(bytes) when is_integer(bytes) and bytes >= 0 do
-    cond do
-      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776, 1)} TB"
-      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824, 1)} GB"
-      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576, 1)} MB"
-      bytes >= 1024 -> "#{Float.round(bytes / 1024, 1)} KB"
-      true -> "#{bytes} B"
-    end
-  end
-
-  def format_file_size(_), do: "0 B"
+  defdelegate format_file_size(bytes), to: ReencodarrWeb.FormatHelpers
 
   @doc """
   Formats duration in seconds to human-readable format.
