@@ -8,6 +8,8 @@ defmodule Reencodarr.Media.Video.MediaInfo.GeneralTrack do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Reencodarr.NumericParser
+
   @primary_key false
   embedded_schema do
     field :duration, :float
@@ -66,7 +68,7 @@ defmodule Reencodarr.Media.Video.MediaInfo.GeneralTrack do
       case Map.get(attrs, key) do
         nil -> nil
         value when is_number(value) -> value
-        value when is_binary(value) -> parse_numeric(value)
+        value when is_binary(value) -> NumericParser.parse_general_numeric(value)
         _ -> nil
       end
     end)
@@ -81,27 +83,6 @@ defmodule Reencodarr.Media.Video.MediaInfo.GeneralTrack do
         _ -> nil
       end
     end)
-  end
-
-  defp parse_numeric(value) when is_binary(value) do
-    # Remove any non-numeric characters except decimal points
-    cleaned = String.replace(value, ~r/[^\d.]/, "")
-
-    case Float.parse(cleaned) do
-      {float_val, ""} ->
-        # If it's a whole number, convert to integer
-        if float_val == trunc(float_val) do
-          trunc(float_val)
-        else
-          float_val
-        end
-
-      {float_val, _remainder} ->
-        float_val
-
-      :error ->
-        nil
-    end
   end
 
   defp validate_required_fields(changeset) do
