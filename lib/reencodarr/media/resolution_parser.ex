@@ -1,9 +1,17 @@
 defmodule Reencodarr.Media.ResolutionParser do
   @moduledoc """
-  Handles parsing and validation of video resolution formats.
+  **DEPRECATED**: Use `Reencodarr.DataConverters` instead.
 
-  Centralizes resolution parsing logic that was scattered across the codebase.
+  This module has been consolidated into `Reencodarr.DataConverters`.
+
+  ## Migration Guide
+  - `ResolutionParser.parse/1` -> `DataConverters.parse_resolution/1`
+  - `ResolutionParser.parse_with_fallback/2` -> `DataConverters.parse_resolution_with_fallback/2`
+  - `ResolutionParser.format/1` -> `DataConverters.format_resolution/1`
+  - `ResolutionParser.valid_resolution?/1` -> `DataConverters.valid_resolution?/1`
   """
+
+  @deprecated "Use Reencodarr.DataConverters instead"
 
   @type resolution_tuple :: {width :: integer(), height :: integer()}
   @type resolution_input :: String.t() | resolution_tuple() | nil
