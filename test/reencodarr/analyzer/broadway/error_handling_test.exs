@@ -3,12 +3,12 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
 
   alias Reencodarr.Analyzer.Broadway
 
-  import Reencodarr.TestHelpers
+  import Reencodarr.TestUtils
   import ExUnit.CaptureLog
 
   describe "Broadway pipeline error resilience" do
     test "handles mediainfo command failures without crashing" do
-      with_temp_video_file("fake video content", fn test_file ->
+      with_temp_file("fake video content", ".mkv", fn test_file ->
         test_broadway_error_handling(Broadway, %{
           path: test_file,
           service_id: "1",

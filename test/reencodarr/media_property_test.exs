@@ -11,7 +11,7 @@ defmodule Reencodarr.Media.PropertyTest do
   use ExUnitProperties
 
   alias Reencodarr.Media
-  import Reencodarr.PropertyHelpers
+  import Reencodarr.TestUtils
 
   @moduletag :property
 

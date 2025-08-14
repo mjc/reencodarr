@@ -1,49 +1,49 @@
 defmodule Reencodarr.LiveViewHelpersConsolidationTest do
   use ExUnit.Case, async: true
 
-  alias Reencodarr.FormatHelpers
+  alias Reencodarr.Formatters
   alias ReencodarrWeb.Utils.TimeUtils
   alias ReencodarrWeb.DashboardLiveHelpers
 
-  describe "FormatHelpers.format_file_size_gib/1" do
+  describe "Formatters.format_file_size_gib/1" do
     test "converts bytes to GiB correctly" do
       # 1 GiB = 1_073_741_824 bytes
-      assert FormatHelpers.format_file_size_gib(1_073_741_824) == 1.0
-      assert FormatHelpers.format_file_size_gib(2_147_483_648) == 2.0
-      assert FormatHelpers.format_file_size_gib(536_870_912) == 0.5
+      assert Formatters.format_file_size_gib(1_073_741_824) == 1.0
+      assert Formatters.format_file_size_gib(2_147_483_648) == 2.0
+      assert Formatters.format_file_size_gib(536_870_912) == 0.5
     end
 
     test "handles edge cases" do
-      assert FormatHelpers.format_file_size_gib(nil) == 0.0
-      assert FormatHelpers.format_file_size_gib(0) == 0.0
-      assert FormatHelpers.format_file_size_gib("invalid") == 0.0
+      assert Formatters.format_file_size_gib(nil) == 0.0
+      assert Formatters.format_file_size_gib(0) == 0.0
+      assert Formatters.format_file_size_gib("invalid") == 0.0
     end
 
     test "rounds to 2 decimal places" do
       # 1.5 GiB
-      assert FormatHelpers.format_file_size_gib(1_610_612_736) == 1.5
+      assert Formatters.format_file_size_gib(1_610_612_736) == 1.5
       # Complex fractional
-      assert FormatHelpers.format_file_size_gib(1_234_567_890) == 1.15
+      assert Formatters.format_file_size_gib(1_234_567_890) == 1.15
     end
   end
 
-  describe "FormatHelpers.format_filename/1" do
-    test "extracts series and episode" do
-      assert FormatHelpers.format_filename("/path/to/Breaking Bad - S01E01.mkv") ==
-               "Breaking Bad - S01E01"
+  describe "Formatters.format_filename/1" do
+    test "extracts episode info from TV show filenames" do
+      assert Formatters.format_filename("/path/to/Sample Show Alpha - S01E01.mkv") ==
+               "Sample Show Alpha - S01E01"
 
-      assert FormatHelpers.format_filename("The Wire - S02E05 - Something.mp4") ==
-               "The Wire - S02E05"
+      assert Formatters.format_filename("Test Series Beta - S02E05 - Something.mp4") ==
+               "Test Series Beta - S02E05"
     end
 
     test "handles movies without episode pattern" do
-      assert FormatHelpers.format_filename("/path/to/movie.mp4") == "movie.mp4"
-      assert FormatHelpers.format_filename("Some Movie (2023).mkv") == "Some Movie (2023).mkv"
+      assert Formatters.format_filename("/path/to/movie.mp4") == "movie.mp4"
+      assert Formatters.format_filename("Some Movie (2023).mkv") == "Some Movie (2023).mkv"
     end
 
     test "handles edge cases" do
-      assert FormatHelpers.format_filename(nil) == "N/A"
-      assert FormatHelpers.format_filename("") == ""
+      assert Formatters.format_filename(nil) == "N/A"
+      assert Formatters.format_filename("") == ""
     end
   end
 
