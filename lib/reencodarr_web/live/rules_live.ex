@@ -13,13 +13,13 @@ defmodule ReencodarrWeb.RulesLive do
 
   require Logger
   import ReencodarrWeb.LcarsComponents
-  alias ReencodarrWeb.DashboardLiveHelpers
+  alias ReencodarrWeb.LiveViewBase
 
   @impl true
   def mount(_params, _session, socket) do
     socket =
       socket
-      |> assign(:current_stardate, DashboardLiveHelpers.calculate_stardate(DateTime.utc_now()))
+      |> LiveViewBase.standard_mount_setup()
       |> assign(:selected_section, :overview)
 
     {:ok, socket}
@@ -51,7 +51,7 @@ defmodule ReencodarrWeb.RulesLive do
         <div class="lg:col-span-1">
           <.rules_navigation selected_section={@selected_section} />
         </div>
-        
+
     <!-- Main Content -->
         <div class="lg:col-span-3">
           <%= case @selected_section do %>
@@ -1008,7 +1008,7 @@ defmodule ReencodarrWeb.RulesLive do
                 </div>
               </div>
             </div>
-            
+
     <!-- Grain Rule -->
             <div class="bg-gray-800 p-4 rounded border border-indigo-500">
               <h3 class="text-indigo-400 font-bold mb-3">🎬 Film Grain Synthesis</h3>
@@ -1391,7 +1391,7 @@ defmodule ReencodarrWeb.RulesLive do
                 ⚙️ Rules applied: video/1 (10-bit format) + hdr/1 (SDR tune) + audio/1 (DTS→Opus 5.1)
               </div>
             </div>
-            
+
     <!-- 4K HDR Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">🎬 4K HDR Movie</h3>
@@ -1422,7 +1422,7 @@ defmodule ReencodarrWeb.RulesLive do
                 ⚙️ Rules applied: video/1 (10-bit) + hdr/1 (SDR tune) + audio/1 (SKIPPED - Atmos preserved)
               </div>
             </div>
-            
+
     <!-- 2.1 Upmix Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">⭐ TV Show with 2.1 Audio</h3>
@@ -1453,7 +1453,7 @@ defmodule ReencodarrWeb.RulesLive do
                 ✅ Audio skipped: Already optimal Opus format, no re-encoding needed
               </div>
             </div>
-            
+
     <!-- DVD Upscale Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">📼 DVD Collection</h3>
@@ -1480,7 +1480,7 @@ defmodule ReencodarrWeb.RulesLive do
                 🎮 Downscaled from 3440×1440 to 1920×800 (maintains 21:9), stereo PCM to Opus
               </div>
             </div>
-            
+
     <!-- Mixed Series Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">📺 Modern TV Series (Mixed HDR/SDR)</h3>

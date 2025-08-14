@@ -16,37 +16,36 @@ defmodule ReencodarrWeb.FailuresLive do
 
   use ReencodarrWeb, :live_view
 
+  import ReencodarrWeb.UIHelpers, only: [filter_button_classes: 2, action_button_classes: 0, pagination_button_classes: 1]
+  alias ReencodarrWeb.LiveViewBase
   require Logger
 
   alias Reencodarr.Media
   alias Reencodarr.Repo
-  alias ReencodarrWeb.DashboardLiveHelpers
 
   import ReencodarrWeb.LcarsComponents
-  import ReencodarrWeb.CssHelpers
-  import Reencodarr.GuardHelpers
+  import Reencodarr.Utils
 
   @impl true
   def mount(_params, _session, socket) do
     socket =
-      DashboardLiveHelpers.standard_mount_setup(socket, fn s ->
-        s
-        |> setup_failures_data()
-        |> load_failures_data()
-      end)
+      socket
+      |> LiveViewBase.standard_mount_setup(stardate_timer: true)
+      |> setup_failures_data()
+      |> load_failures_data()
 
     {:ok, socket}
   end
 
   @impl true
   def handle_info(:update_stardate, socket) do
-    socket = DashboardLiveHelpers.handle_stardate_update(socket)
+    socket = LiveViewBase.handle_stardate_update(socket)
     {:noreply, socket}
   end
 
   @impl true
   def handle_event("set_timezone", %{"timezone" => tz}, socket) do
-    socket = DashboardLiveHelpers.handle_timezone_change_with_logging(socket, tz)
+    socket = LiveViewBase.handle_timezone_change_with_logging(socket, tz)
     {:noreply, socket}
   end
 
@@ -974,5 +973,18 @@ defmodule ReencodarrWeb.FailuresLive do
     output = Map.get(system_context || %{}, "full_output", "")
 
     !is_nil(command) or String.trim(output) != ""
+  end
+
+  # CSS helper functions
+  defp filter_button_class(is_active, color_scheme \\ :orange) do
+    filter_button_classes(is_active, color_scheme)
+  end
+
+  defp action_button_class do
+    action_button_classes()
+  end
+
+  defp pagination_button_class(is_current) do
+    pagination_button_classes(is_current)
   end
 end

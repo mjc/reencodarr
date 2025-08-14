@@ -48,19 +48,19 @@ defmodule ReencodarrWeb.DashboardLiveHelpers do
 
   @doc """
   Standard mount setup for all dashboard LiveViews.
-  
+
   Provides consistent initialization with optional additional setup function.
-  
+
   ## Examples
-  
+
       # Basic usage
       socket = standard_mount_setup(socket)
-      
+
       # With additional setup
       socket = standard_mount_setup(socket, fn s ->
         s |> assign(:specific_data, load_data())
       end)
-  
+
   """
   def standard_mount_setup(socket, additional_setup \\ fn s -> s end) do
     socket
@@ -71,7 +71,7 @@ defmodule ReencodarrWeb.DashboardLiveHelpers do
 
   @doc """
   Standard timezone change handler for all dashboard LiveViews.
-  
+
   Provides consistent logging and state management.
   """
   def handle_timezone_change_with_logging(socket, timezone) do
@@ -82,7 +82,7 @@ defmodule ReencodarrWeb.DashboardLiveHelpers do
 
   @doc """
   Safely gets the initial dashboard state with fallback for test environment.
-  
+
   Now bypasses TelemetryReporter and queries database directly for better reliability.
   """
   def get_initial_state do
