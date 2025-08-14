@@ -1,7 +1,7 @@
 [
 {
 "creatingLibrary":{"name":"MediaInfoLib","version":"25.04","url":"https://mediaarea.net/MediaInfo"},
-"media":{"@ref":"/mnt/tv/comedy/Trailer Park Boys - Park After Dark/Season 2/Trailer Park Boys - Park After Dark - S02E48 - Happy 420! WEBRip-720p x264 AAC 2.0.mp4","track":[{"@type":"General","FileExtension":"mp4",
+"media":{"@ref":"/mnt/tv/comedy/Sample Show Alpha/Season 2/Sample Show Alpha - S02E48 - Happy 420! WEBRip-720p x264 AAC 2.0.mp4","track":[{"@type":"General","FileExtension":"mp4",
 "Format":"MPEG-4",
 "Format_Profile":"Base Media",
 "CodecID":"isom",
@@ -17,7 +17,7 @@
 },
 {
 "creatingLibrary":{"name":"MediaInfoLib","version":"25.04","url":"https://mediaarea.net/MediaInfo"},
-"media":{"@ref":"/mnt/tv/sci-fi/Foundation (2021)/Season 3/Foundation (2021) - S03E03 - When a Book Finds You WEBDL-2160p HDR10 AV1 EAC3 Atmos 5.1.mkv","track":[{"@type":"General","UniqueID":"265917598923386460530333340970608098743",
+"media":{"@ref":"/mnt/tv/sci-fi/Sample Show Beta/Season 3/Sample Show Beta - S03E03 - When a Book Finds You WEBDL-2160p HDR10 AV1 EAC3 Atmos 5.1.mkv","track":[{"@type":"General","UniqueID":"265917598923386460530333340970608098743",
 "VideoCount":"1",
 "AudioCount":"1",
 "TextCount":"42",
