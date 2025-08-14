@@ -11,7 +11,6 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
   import Ecto.Changeset
 
   alias Reencodarr.NumericParser
-  alias Reencodarr.ChangesetHelpers
 
   @primary_key false
   embedded_schema do
@@ -144,8 +143,8 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
 
   defp validate_required_fields(changeset) do
     changeset
-    |> ChangesetHelpers.validate_field_present(:format, "audio format is required")
-    |> ChangesetHelpers.validate_audio_channels()
+    |> Reencodarr.Validation.validate_required_field(:format, "audio format is required")
+    |> Reencodarr.Validation.validate_audio_channels()
   end
 
   defp validate_channel_consistency(changeset) do

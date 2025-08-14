@@ -6,7 +6,7 @@ defmodule Reencodarr.NumericParser do
   parsing logic with configurable unit handling and format-specific cleaning.
   """
 
-  import Reencodarr.GuardHelpers
+  import Reencodarr.Utils
 
   @doc """
   Parses a string value into a numeric value, handling various formats and units.

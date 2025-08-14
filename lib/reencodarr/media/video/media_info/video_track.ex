@@ -9,7 +9,6 @@ defmodule Reencodarr.Media.Video.MediaInfo.VideoTrack do
   import Ecto.Changeset
 
   alias Reencodarr.NumericParser
-  alias Reencodarr.ChangesetHelpers
 
   @primary_key false
   embedded_schema do
@@ -131,7 +130,7 @@ defmodule Reencodarr.Media.Video.MediaInfo.VideoTrack do
 
   defp validate_required_fields(changeset) do
     changeset
-    |> ChangesetHelpers.validate_field_present(:format, "video format is required")
-    |> ChangesetHelpers.validate_resolution_present()
+    |> Reencodarr.Validation.validate_required_field(:format, "video format is required")
+    |> Reencodarr.Validation.validate_video_resolution()
   end
 end
