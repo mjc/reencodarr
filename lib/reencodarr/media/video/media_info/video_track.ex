@@ -8,7 +8,7 @@ defmodule Reencodarr.Media.Video.MediaInfo.VideoTrack do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Reencodarr.NumericParser
+  alias Reencodarr.DataConverters
 
   @primary_key false
   embedded_schema do
@@ -111,7 +111,7 @@ defmodule Reencodarr.Media.Video.MediaInfo.VideoTrack do
       case Map.get(attrs, key) do
         nil -> nil
         value when is_number(value) -> value
-        value when is_binary(value) -> NumericParser.parse_video_numeric(value)
+        value when is_binary(value) -> DataConverters.parse_numeric(value, units: ["fps", "FPS"])
         _ -> nil
       end
     end)

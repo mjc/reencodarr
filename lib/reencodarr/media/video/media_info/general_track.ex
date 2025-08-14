@@ -8,7 +8,7 @@ defmodule Reencodarr.Media.Video.MediaInfo.GeneralTrack do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Reencodarr.NumericParser
+  alias Reencodarr.DataConverters
 
   @primary_key false
   embedded_schema do
@@ -68,7 +68,7 @@ defmodule Reencodarr.Media.Video.MediaInfo.GeneralTrack do
       case Map.get(attrs, key) do
         nil -> nil
         value when is_number(value) -> value
-        value when is_binary(value) -> NumericParser.parse_general_numeric(value)
+        value when is_binary(value) -> DataConverters.parse_numeric(value, units: [])
         _ -> nil
       end
     end)
@@ -86,6 +86,10 @@ defmodule Reencodarr.Media.Video.MediaInfo.GeneralTrack do
   end
 
   defp validate_required_fields(changeset) do
-    Reencodarr.Validation.validate_required_field(changeset, :duration, "duration is required for general track")
+    Reencodarr.Validation.validate_required_field(
+      changeset,
+      :duration,
+      "duration is required for general track"
+    )
   end
 end
