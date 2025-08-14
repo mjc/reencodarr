@@ -188,13 +188,6 @@ defmodule ReencodarrWeb.TimeHelpers do
   def format_duration(0), do: "N/A"
   def format_duration(duration), do: to_string(duration)
 
-  @doc """
-  Formats ETA values as human-readable strings.
-  """
-  def format_eta(eta) when is_binary(eta), do: eta
-  def format_eta(eta) when is_number(eta) and eta > 0, do: "#{eta}s"
-  def format_eta(_), do: "N/A"
-
   # === UTILITY DATA ===
 
   @doc """

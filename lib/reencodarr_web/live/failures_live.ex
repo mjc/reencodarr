@@ -23,6 +23,7 @@ defmodule ReencodarrWeb.FailuresLive do
   alias ReencodarrWeb.DashboardLiveHelpers
 
   import ReencodarrWeb.LcarsComponents
+  import ReencodarrWeb.CssHelpers
 
   @impl true
   def mount(_params, _session, socket) do
@@ -221,40 +222,35 @@ defmodule ReencodarrWeb.FailuresLive do
               <button
                 phx-click="filter_failures"
                 phx-value-filter="all"
-                class={"px-3 py-1 text-xs rounded transition-colors " <>
-                       if(@failure_filter == "all", do: "bg-orange-500 text-black", else: "bg-gray-700 text-orange-400 hover:bg-orange-600")}
+                class={filter_button_class(@failure_filter == "all")}
               >
                 ALL
               </button>
               <button
                 phx-click="filter_failures"
                 phx-value-filter="analysis"
-                class={"px-3 py-1 text-xs rounded transition-colors " <>
-                       if(@failure_filter == "analysis", do: "bg-orange-500 text-black", else: "bg-gray-700 text-orange-400 hover:bg-orange-600")}
+                class={filter_button_class(@failure_filter == "analysis")}
               >
                 ANALYSIS
               </button>
               <button
                 phx-click="filter_failures"
                 phx-value-filter="crf_search"
-                class={"px-3 py-1 text-xs rounded transition-colors " <>
-                       if(@failure_filter == "crf_search", do: "bg-orange-500 text-black", else: "bg-gray-700 text-orange-400 hover:bg-orange-600")}
+                class={filter_button_class(@failure_filter == "crf_search")}
               >
                 CRF SEARCH
               </button>
               <button
                 phx-click="filter_failures"
                 phx-value-filter="encoding"
-                class={"px-3 py-1 text-xs rounded transition-colors " <>
-                       if(@failure_filter == "encoding", do: "bg-orange-500 text-black", else: "bg-gray-700 text-orange-400 hover:bg-orange-600")}
+                class={filter_button_class(@failure_filter == "encoding")}
               >
                 ENCODING
               </button>
               <button
                 phx-click="filter_failures"
                 phx-value-filter="post_process"
-                class={"px-3 py-1 text-xs rounded transition-colors " <>
-                       if(@failure_filter == "post_process", do: "bg-orange-500 text-black", else: "bg-gray-700 text-orange-400 hover:bg-orange-600")}
+                class={filter_button_class(@failure_filter == "post_process")}
               >
                 POST-PROCESS
               </button>
@@ -266,40 +262,35 @@ defmodule ReencodarrWeb.FailuresLive do
               <button
                 phx-click="filter_category"
                 phx-value-category="all"
-                class={"px-3 py-1 text-xs rounded transition-colors " <>
-                       if(@category_filter == "all", do: "bg-blue-500 text-white", else: "bg-gray-700 text-blue-400 hover:bg-blue-600")}
+                class={filter_button_class(@category_filter == "all", :blue)}
               >
                 ALL
               </button>
               <button
                 phx-click="filter_category"
                 phx-value-category="file_access"
-                class={"px-3 py-1 text-xs rounded transition-colors " <>
-                       if(@category_filter == "file_access", do: "bg-blue-500 text-white", else: "bg-gray-700 text-blue-400 hover:bg-blue-600")}
+                class={filter_button_class(@category_filter == "file_access", :blue)}
               >
                 FILE ACCESS
               </button>
               <button
                 phx-click="filter_category"
                 phx-value-category="process_failure"
-                class={"px-3 py-1 text-xs rounded transition-colors " <>
-                       if(@category_filter == "process_failure", do: "bg-blue-500 text-white", else: "bg-gray-700 text-blue-400 hover:bg-blue-600")}
+                class={filter_button_class(@category_filter == "process_failure", :blue)}
               >
                 PROCESS
               </button>
               <button
                 phx-click="filter_category"
                 phx-value-category="timeout"
-                class={"px-3 py-1 text-xs rounded transition-colors " <>
-                       if(@category_filter == "timeout", do: "bg-blue-500 text-white", else: "bg-gray-700 text-blue-400 hover:bg-blue-600")}
+                class={filter_button_class(@category_filter == "timeout", :blue)}
               >
                 TIMEOUT
               </button>
               <button
                 phx-click="filter_category"
                 phx-value-category="codec_issues"
-                class={"px-3 py-1 text-xs rounded transition-colors " <>
-                       if(@category_filter == "codec_issues", do: "bg-blue-500 text-white", else: "bg-gray-700 text-blue-400 hover:bg-blue-600")}
+                class={filter_button_class(@category_filter == "codec_issues", :blue)}
               >
                 CODEC
               </button>
@@ -712,7 +703,7 @@ defmodule ReencodarrWeb.FailuresLive do
                       <button
                         phx-click="change_page"
                         phx-value-page="1"
-                        class="px-2 py-1 bg-gray-700 text-orange-400 text-xs rounded hover:bg-orange-600 transition-colors"
+                        class={action_button_class()}
                       >
                         ««
                       </button>
@@ -723,7 +714,7 @@ defmodule ReencodarrWeb.FailuresLive do
                       <button
                         phx-click="change_page"
                         phx-value-page={@page - 1}
-                        class="px-2 py-1 bg-gray-700 text-orange-400 text-xs rounded hover:bg-orange-600 transition-colors"
+                        class={action_button_class()}
                       >
                         ‹
                       </button>
@@ -734,8 +725,7 @@ defmodule ReencodarrWeb.FailuresLive do
                       <button
                         phx-click="change_page"
                         phx-value-page={page_num}
-                        class={"px-2 py-1 text-xs rounded transition-colors " <>
-                               if(page_num == @page, do: "bg-orange-500 text-black", else: "bg-gray-700 text-orange-400 hover:bg-orange-600")}
+                        class={pagination_button_class(page_num == @page)}
                       >
                         {page_num}
                       </button>
@@ -746,7 +736,7 @@ defmodule ReencodarrWeb.FailuresLive do
                       <button
                         phx-click="change_page"
                         phx-value-page={@page + 1}
-                        class="px-2 py-1 bg-gray-700 text-orange-400 text-xs rounded hover:bg-orange-600 transition-colors"
+                        class={action_button_class()}
                       >
                         ›
                       </button>
@@ -757,7 +747,7 @@ defmodule ReencodarrWeb.FailuresLive do
                       <button
                         phx-click="change_page"
                         phx-value-page={@total_pages}
-                        class="px-2 py-1 bg-gray-700 text-orange-400 text-xs rounded hover:bg-orange-600 transition-colors"
+                        class={action_button_class()}
                       >
                         »»
                       </button>

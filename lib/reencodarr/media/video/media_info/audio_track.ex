@@ -10,6 +10,8 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias Reencodarr.NumericParser
+
   @primary_key false
   embedded_schema do
     field :format, :string
@@ -103,7 +105,7 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
       case Map.get(attrs, key) do
         nil -> nil
         value when is_number(value) -> value
-        value when is_binary(value) -> parse_numeric(value)
+        value when is_binary(value) -> NumericParser.parse_audio_numeric(value)
         _ -> nil
       end
     end)
@@ -138,35 +140,6 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
   defp parse_boolean_value("1"), do: true
   defp parse_boolean_value("0"), do: false
   defp parse_boolean_value(_), do: nil
-
-  defp parse_numeric(value) when is_binary(value) do
-    # Handle special audio format cases
-    cleaned =
-      value
-      |> String.replace(~r/\s*(Hz|kHz|kbps|Kbps)\s*$/, "")
-      |> String.replace(~r/[^\d.]/, "")
-
-    case cleaned do
-      "" -> nil
-      cleaned_value -> parse_cleaned_numeric_value(cleaned_value)
-    end
-  end
-
-  defp parse_cleaned_numeric_value(cleaned_value) do
-    case Float.parse(cleaned_value) do
-      {float_val, ""} -> convert_to_integer_if_whole(float_val)
-      {float_val, _remainder} -> float_val
-      :error -> nil
-    end
-  end
-
-  defp convert_to_integer_if_whole(float_val) do
-    if float_val == trunc(float_val) do
-      trunc(float_val)
-    else
-      float_val
-    end
-  end
 
   defp validate_required_fields(changeset) do
     changeset
