@@ -6,6 +6,8 @@ defmodule Reencodarr.NumericParser do
   parsing logic with configurable unit handling and format-specific cleaning.
   """
 
+  import Reencodarr.GuardHelpers
+
   @doc """
   Parses a string value into a numeric value, handling various formats and units.
 
@@ -36,12 +38,12 @@ defmodule Reencodarr.NumericParser do
 
   """
   def parse_numeric(value, opts \\ [])
-  def parse_numeric(value, opts) when is_binary(value) and value != "" do
+  def parse_numeric(value, opts) when is_non_empty_binary(value) do
     units = Keyword.get(opts, :units, default_units())
     preserve_float = Keyword.get(opts, :preserve_float, false)
 
     cleaned = clean_numeric_string(value, units)
-    
+
     case cleaned do
       "" -> nil
       cleaned_value -> parse_cleaned_value(cleaned_value, preserve_float)
@@ -83,7 +85,7 @@ defmodule Reencodarr.NumericParser do
   defp clean_numeric_string(value, units) do
     # First remove unit suffixes
     value_without_units = remove_units(value, units)
-    
+
     # Then remove any non-numeric characters except decimal points
     String.replace(value_without_units, ~r/[^\d.]/, "")
   end
@@ -100,15 +102,15 @@ defmodule Reencodarr.NumericParser do
 
   defp parse_cleaned_value(cleaned_value, preserve_float) do
     case Float.parse(cleaned_value) do
-      {float_val, ""} -> 
+      {float_val, ""} ->
         if preserve_float or float_val != trunc(float_val) do
           float_val
         else
           trunc(float_val)
         end
-      {float_val, _remainder} -> 
+      {float_val, _remainder} ->
         float_val
-      :error -> 
+      :error ->
         nil
     end
   end

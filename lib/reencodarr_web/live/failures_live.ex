@@ -24,15 +24,16 @@ defmodule ReencodarrWeb.FailuresLive do
 
   import ReencodarrWeb.LcarsComponents
   import ReencodarrWeb.CssHelpers
+  import Reencodarr.GuardHelpers
 
   @impl true
   def mount(_params, _session, socket) do
     socket =
-      socket
-      |> DashboardLiveHelpers.setup_dashboard_assigns()
-      |> DashboardLiveHelpers.start_stardate_timer()
-      |> setup_failures_data()
-      |> load_failures_data()
+      DashboardLiveHelpers.standard_mount_setup(socket, fn s ->
+        s
+        |> setup_failures_data()
+        |> load_failures_data()
+      end)
 
     {:ok, socket}
   end
@@ -45,8 +46,7 @@ defmodule ReencodarrWeb.FailuresLive do
 
   @impl true
   def handle_event("set_timezone", %{"timezone" => tz}, socket) do
-    Logger.debug("Setting timezone to #{tz}")
-    socket = DashboardLiveHelpers.handle_timezone_change(socket, tz)
+    socket = DashboardLiveHelpers.handle_timezone_change_with_logging(socket, tz)
     {:noreply, socket}
   end
 
@@ -172,10 +172,10 @@ defmodule ReencodarrWeb.FailuresLive do
           </h1>
         </div>
       </div>
-      
+
     <!-- Navigation -->
       <.lcars_navigation current_page={:failures} />
-      
+
     <!-- Failures Content -->
       <div class="p-3 sm:p-6 space-y-4 sm:space-y-6">
         <!-- Failures Summary -->
@@ -196,7 +196,7 @@ defmodule ReencodarrWeb.FailuresLive do
             </div>
           </div>
         </div>
-        
+
     <!-- Failure Controls -->
         <!-- Failure Controls -->
         <div class="bg-gray-900 border border-orange-500 rounded p-4 mb-6">
@@ -215,7 +215,7 @@ defmodule ReencodarrWeb.FailuresLive do
                 />
               </form>
             </div>
-            
+
     <!-- Stage Filter -->
             <div class="flex flex-wrap gap-2">
               <span class="text-orange-400 text-sm font-semibold self-center">STAGE:</span>
@@ -255,7 +255,7 @@ defmodule ReencodarrWeb.FailuresLive do
                 POST-PROCESS
               </button>
             </div>
-            
+
     <!-- Category Filter -->
             <div class="flex flex-wrap gap-2">
               <span class="text-orange-400 text-sm font-semibold self-center">TYPE:</span>
@@ -296,7 +296,7 @@ defmodule ReencodarrWeb.FailuresLive do
               </button>
             </div>
           </div>
-          
+
     <!-- Active Filters Display -->
           <%= if @failure_filter != "all" or @category_filter != "all" or @search_term != "" do %>
             <div class="mt-3 pt-3 border-t border-orange-700">
@@ -422,7 +422,7 @@ defmodule ReencodarrWeb.FailuresLive do
                       <% _ -> %>
                         <div class="mt-2 text-xs text-orange-600">No specific failures recorded</div>
                     <% end %>
-                    
+
     <!-- Mobile expanded details -->
                     <%= if video.id in @expanded_details do %>
                       <div class="mt-3 pt-3 border-t border-orange-700">
@@ -462,7 +462,7 @@ defmodule ReencodarrWeb.FailuresLive do
                                         {if failure.failure_code, do: " (#{failure.failure_code})"}
                                       </div>
                                       <div class="text-red-300">{failure.failure_message}</div>
-                                      
+
     <!-- Command and Output Details -->
                                       <%= if Map.get(failure.system_context || %{}, "command") do %>
                                         <div class="mt-2 pt-2 border-t border-red-700">
@@ -507,7 +507,7 @@ defmodule ReencodarrWeb.FailuresLive do
                 <% end %>
               </div>
             </div>
-            
+
     <!-- Desktop Table Layout -->
             <div class="hidden lg:block overflow-x-auto">
               <table class="w-full">
@@ -639,7 +639,7 @@ defmodule ReencodarrWeb.FailuresLive do
                                           {if failure.failure_code, do: " (#{failure.failure_code})"}
                                         </div>
                                         <div class="text-red-300 mt-1">{failure.failure_message}</div>
-                                        
+
     <!-- Command and Output Details -->
                                         <%= if Map.get(failure.system_context || %{}, "command") do %>
                                           <div class="mt-3 pt-2 border-t border-red-700">
@@ -688,7 +688,7 @@ defmodule ReencodarrWeb.FailuresLive do
                 </tbody>
               </table>
             </div>
-            
+
     <!-- Pagination -->
             <%= if @total_pages > 1 do %>
               <div class="p-4 border-t border-orange-500 bg-gray-800">
@@ -708,7 +708,7 @@ defmodule ReencodarrWeb.FailuresLive do
                         ««
                       </button>
                     <% end %>
-                    
+
     <!-- Previous Page -->
                     <%= if @page > 1 do %>
                       <button
@@ -719,7 +719,7 @@ defmodule ReencodarrWeb.FailuresLive do
                         ‹
                       </button>
                     <% end %>
-                    
+
     <!-- Page Numbers -->
                     <%= for page_num <- pagination_range(@page, @total_pages) do %>
                       <button
@@ -730,7 +730,7 @@ defmodule ReencodarrWeb.FailuresLive do
                         {page_num}
                       </button>
                     <% end %>
-                    
+
     <!-- Next Page -->
                     <%= if @page < @total_pages do %>
                       <button
@@ -741,7 +741,7 @@ defmodule ReencodarrWeb.FailuresLive do
                         ›
                       </button>
                     <% end %>
-                    
+
     <!-- Last Page -->
                     <%= if @page < @total_pages do %>
                       <button
@@ -758,7 +758,7 @@ defmodule ReencodarrWeb.FailuresLive do
             <% end %>
           <% end %>
         </div>
-        
+
     <!-- Common Failure Patterns -->
         <%= if length(@failure_patterns) > 0 do %>
           <div class="bg-gray-900 border border-orange-500 rounded">
@@ -790,7 +790,7 @@ defmodule ReencodarrWeb.FailuresLive do
             </div>
           </div>
         <% end %>
-        
+
     <!-- LCARS Bottom Frame -->
         <div class="h-6 sm:h-8 bg-gradient-to-r from-red-500 via-yellow-400 to-orange-500 rounded">
           <div class="flex items-center justify-center h-full">
@@ -932,7 +932,7 @@ defmodule ReencodarrWeb.FailuresLive do
     %{recent_count: recent_count}
   end
 
-  defp format_file_size(bytes) when is_integer(bytes) do
+  defp format_file_size(bytes) when is_positive_number(bytes) do
     cond do
       bytes >= 1_000_000_000 -> "#{Float.round(bytes / 1_000_000_000, 1)} GB"
       bytes >= 1_000_000 -> "#{Float.round(bytes / 1_000_000, 1)} MB"
@@ -945,7 +945,7 @@ defmodule ReencodarrWeb.FailuresLive do
   defp format_codecs(nil), do: "Unknown"
   defp format_codecs([]), do: "None"
 
-  defp format_codecs(codecs) when is_list(codecs) do
+  defp format_codecs(codecs) when is_non_empty_list(codecs) do
     codecs |> Enum.take(2) |> Enum.join(", ")
   end
 
@@ -957,7 +957,7 @@ defmodule ReencodarrWeb.FailuresLive do
     Enum.to_list(start_page..end_page)
   end
 
-  defp format_command_output(output) when is_binary(output) do
+  defp format_command_output(output) when is_non_empty_binary(output) do
     # Clean up common command output formatting issues
     output
     # Windows line endings

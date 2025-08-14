@@ -11,6 +11,7 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
   import Ecto.Changeset
 
   alias Reencodarr.NumericParser
+  alias Reencodarr.ChangesetHelpers
 
   @primary_key false
   embedded_schema do
@@ -143,34 +144,8 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
 
   defp validate_required_fields(changeset) do
     changeset
-    |> validate_format_present()
-    |> validate_channels_present()
-  end
-
-  defp validate_format_present(changeset) do
-    if is_nil(get_field(changeset, :format)) do
-      add_error(changeset, :format, "audio format is required")
-    else
-      changeset
-    end
-  end
-
-  defp validate_channels_present(changeset) do
-    channels = get_field(changeset, :channels)
-
-    cond do
-      is_nil(channels) ->
-        add_error(changeset, :channels, "audio channels is required")
-
-      channels <= 0 ->
-        add_error(changeset, :channels, "audio channels must be positive, got: #{channels}")
-
-      channels > 32 ->
-        add_error(changeset, :channels, "audio channels seems unrealistic, got: #{channels}")
-
-      true ->
-        changeset
-    end
+    |> ChangesetHelpers.validate_field_present(:format, "audio format is required")
+    |> ChangesetHelpers.validate_audio_channels()
   end
 
   defp validate_channel_consistency(changeset) do
