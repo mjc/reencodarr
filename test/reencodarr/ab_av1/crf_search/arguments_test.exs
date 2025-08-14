@@ -5,21 +5,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.ArgumentsTest do
   use ExUnit.Case, async: true
 
   alias Reencodarr.AbAv1.CrfSearch
-
-  # Helper to create video structs without database
-  defp create_test_video(attrs \\ %{}) do
-    defaults = %{
-      id: 1,
-      path: "/test/video.mkv",
-      size: 2_000_000_000,
-      video_codecs: ["h264"],
-      audio_codecs: ["aac"],
-      reencoded: false,
-      failed: false
-    }
-
-    struct(Reencodarr.Media.Video, Map.merge(defaults, attrs))
-  end
+  import Reencodarr.TestPatterns
 
   describe "build_crf_search_args_with_preset_6/2" do
     setup do

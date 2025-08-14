@@ -2,28 +2,7 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
   use ExUnit.Case, async: true
 
   alias Reencodarr.Rules
-
-  # Helper to create test video structs
-  defp create_test_video(overrides \\ %{}) do
-    defaults = %{
-      atmos: false,
-      max_audio_channels: 6,
-      audio_codecs: ["A_EAC3"],
-      video_codecs: ["V_MPEGH/ISO/HEVC"],
-      height: 1080,
-      width: 1920,
-      hdr: nil,
-      size: 1_000_000,
-      bitrate: 5_000_000,
-      path: "/test/video.mkv"
-    }
-
-    struct(Reencodarr.Media.Video, Map.merge(defaults, overrides))
-  end
-
-  defp create_hdr_video(overrides \\ %{}) do
-    create_test_video(Map.merge(%{hdr: "HDR10"}, overrides))
-  end
+  import Reencodarr.TestPatterns
 
   describe "centralized argument building" do
     setup do

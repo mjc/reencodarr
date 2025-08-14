@@ -13,6 +13,7 @@ defmodule Reencodarr.TestHelpers.VideoHelpers do
   Creates a test video with default attributes that can be overridden.
   """
   def create_test_video(attrs \\ %{}) do
+    # Use the consolidated pattern from TestPatterns, but create database video
     default_attrs = %{
       path: "/test/video.mkv",
       size: 1_000_000_000,
@@ -24,7 +25,6 @@ defmodule Reencodarr.TestHelpers.VideoHelpers do
       failed: false,
       service_type: "sonarr",
       service_id: "1",
-      # Set to nil for tests unless explicitly provided
       library_id: nil
     }
 
