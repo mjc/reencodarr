@@ -34,12 +34,12 @@ defmodule Reencodarr.AbAv1.Helper do
 
   @spec convert_time_to_duration(map()) :: map()
   def convert_time_to_duration(captures) do
-    Reencodarr.TimeHelpers.convert_time_to_duration(captures)
+    Reencodarr.Core.Time.convert_time_to_duration(captures)
   end
 
   @spec convert_to_seconds(integer(), String.t()) :: integer()
   def convert_to_seconds(time, unit) do
-    Reencodarr.TimeHelpers.to_seconds(time, unit)
+    Reencodarr.Core.Time.to_seconds(time, unit)
   end
 
   @spec temp_dir() :: String.t()

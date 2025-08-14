@@ -44,7 +44,7 @@ defmodule Reencodarr.Core.Formatters do
       "1.0 GB"
   """
   @spec format_file_size(integer()) :: String.t()
-  defdelegate format_file_size(bytes), to: ReencodarrWeb.FormatHelpers
+  defdelegate format_file_size(bytes), to: ReencodarrWeb.DashboardFormatters
 
   @doc """
   Formats duration in seconds to human-readable format.

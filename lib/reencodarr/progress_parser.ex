@@ -9,7 +9,7 @@ defmodule Reencodarr.ProgressParser do
 
   require Logger
 
-  alias Reencodarr.{Media, Telemetry, TimeHelpers}
+  alias Reencodarr.{Media, Telemetry, Core.Time}
   alias Reencodarr.AbAv1.OutputParser
 
   @doc """
@@ -64,7 +64,7 @@ defmodule Reencodarr.ProgressParser do
   # Handles progress updates during encoding.
   @spec handle_progress_update(map(), map()) :: :ok
   defp handle_progress_update(%{percent: percent, fps: fps, eta: eta, eta_unit: unit}, state) do
-    _eta_seconds = TimeHelpers.to_seconds(eta, unit)
+    _eta_seconds = Time.to_seconds(eta, unit)
     human_readable_eta = format_eta(eta, unit)
     filename = Path.basename(state.video.path)
 

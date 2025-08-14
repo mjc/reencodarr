@@ -6,7 +6,7 @@ defmodule Reencodarr.AbAv1.OutputParser do
   to structured data immediately, avoiding repeated parsing throughout the application.
   """
 
-  alias Reencodarr.{Core.Parsers, ParseHelpers}
+  alias Reencodarr.Core.Parsers
 
   # Pattern definitions
   @patterns %{
@@ -69,7 +69,7 @@ defmodule Reencodarr.AbAv1.OutputParser do
         field_mapping = field_mappings()[pattern_key]
 
         if field_mapping do
-          case ParseHelpers.parse_with_pattern(line, pattern_key, @patterns, field_mapping) do
+          case Parsers.parse_with_pattern(line, pattern_key, @patterns, field_mapping) do
             nil -> nil
             data -> {:ok, %{type: type, data: data}}
           end
@@ -108,20 +108,20 @@ defmodule Reencodarr.AbAv1.OutputParser do
   defp field_mappings do
     %{
       encoding_sample:
-        ParseHelpers.field_mapping([
+        Parsers.field_mapping([
           {:sample_num, :int},
           {:total_samples, :int},
           {:crf, :float}
         ]),
       simple_vmaf:
-        ParseHelpers.field_mapping([
+        Parsers.field_mapping([
           {:timestamp, :string},
           {:crf, :float},
           {:vmaf_score, :float, "score"},
           {:percent, :int}
         ]),
       sample_vmaf:
-        ParseHelpers.field_mapping([
+        Parsers.field_mapping([
           {:sample_num, :int},
           {:total_samples, :int},
           {:crf, :float},
@@ -129,13 +129,13 @@ defmodule Reencodarr.AbAv1.OutputParser do
           {:percent, :int}
         ]),
       dash_vmaf:
-        ParseHelpers.field_mapping([
+        Parsers.field_mapping([
           {:crf, :float},
           {:vmaf_score, :float, "score"},
           {:percent, :int}
         ]),
       eta_vmaf:
-        ParseHelpers.field_mapping([
+        Parsers.field_mapping([
           {:crf, :float},
           {:vmaf_score, :float, "score"},
           {:predicted_size, :float, "size"},
@@ -145,12 +145,12 @@ defmodule Reencodarr.AbAv1.OutputParser do
           {:time_unit, :string}
         ]),
       vmaf_comparison:
-        ParseHelpers.field_mapping([
+        Parsers.field_mapping([
           {:file1, :string},
           {:file2, :string}
         ]),
       progress:
-        ParseHelpers.field_mapping([
+        Parsers.field_mapping([
           {:timestamp, :string},
           {:progress, :float},
           {:fps, :float},
@@ -158,11 +158,11 @@ defmodule Reencodarr.AbAv1.OutputParser do
           {:eta_unit, :string, "time_unit"}
         ]),
       success:
-        ParseHelpers.field_mapping([
+        Parsers.field_mapping([
           {:crf, :float}
         ]),
       warning:
-        ParseHelpers.field_mapping([
+        Parsers.field_mapping([
           {:message, :string}
         ]),
       encoding_start: %{
@@ -175,26 +175,26 @@ defmodule Reencodarr.AbAv1.OutputParser do
            end}
       },
       encoding_progress:
-        ParseHelpers.field_mapping([
+        Parsers.field_mapping([
           {:percent, :int},
           {:fps, :float},
           {:eta, :int},
           {:eta_unit, :string, "unit"}
         ]),
       encoding_progress_alt:
-        ParseHelpers.field_mapping([
+        Parsers.field_mapping([
           {:percent, :int},
           {:fps, :float},
           {:eta, :int},
           {:eta_unit, :string, "unit"}
         ]),
       file_size_progress:
-        ParseHelpers.field_mapping([
+        Parsers.field_mapping([
           {:encoded_size, :string, "size"},
           {:percent, :int}
         ]),
       ffmpeg_error:
-        ParseHelpers.field_mapping([
+        Parsers.field_mapping([
           {:exit_code, :int}
         ])
     }
