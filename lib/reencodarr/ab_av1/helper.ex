@@ -87,9 +87,10 @@ defmodule Reencodarr.AbAv1.Helper do
         # Check if output contains attachment info with image types
         has_images =
           String.contains?(output, "attachment") and
-          (String.contains?(output, "image/jpeg") or
-           String.contains?(output, "image/jpg") or
-           String.contains?(output, "image/png"))
+            (String.contains?(output, "image/jpeg") or
+               String.contains?(output, "image/jpg") or
+               String.contains?(output, "image/png"))
+
         {:ok, has_images}
 
       {_output, _exit_code} ->
@@ -113,15 +114,29 @@ defmodule Reencodarr.AbAv1.Helper do
         # Remove different image attachment types
         attachment_types = ["image/jpg", "image/jpeg", "image/png"]
 
-        success = Enum.all?(attachment_types, fn mime_type ->
-          case System.cmd("mkvpropedit", ["--delete-attachment", "mime-type:#{mime_type}", cleaned_path], stderr_to_stdout: true) do
-            {_output, 0} -> true
-            {_output, 2} -> true  # Exit code 2 means "no attachments of this type found" - that's OK
-            {output, exit_code} ->
-              Logger.warning("mkvpropedit failed for #{mime_type} on #{cleaned_path}: exit #{exit_code}, output: #{output}")
-              true  # Continue with other types even if one fails
-          end
-        end)
+        success =
+          Enum.all?(attachment_types, fn mime_type ->
+            case System.cmd(
+                   "mkvpropedit",
+                   ["--delete-attachment", "mime-type:#{mime_type}", cleaned_path],
+                   stderr_to_stdout: true
+                 ) do
+              {_output, 0} ->
+                true
+
+              # Exit code 2 means "no attachments of this type found" - that's OK
+              {_output, 2} ->
+                true
+
+              {output, exit_code} ->
+                Logger.warning(
+                  "mkvpropedit failed for #{mime_type} on #{cleaned_path}: exit #{exit_code}, output: #{output}"
+                )
+
+                # Continue with other types even if one fails
+                true
+            end
+          end)
 
         if success do
           Logger.info("Successfully cleaned image attachments from #{file_path}")
@@ -142,10 +157,12 @@ defmodule Reencodarr.AbAv1.Helper do
   @spec open_port([binary()]) :: port() | :error
   def open_port(args) do
     # Check if this is an encoding operation that needs input file cleaning
-    cleaned_args = case preprocess_input_file(args) do
-      {:ok, new_args} -> new_args
-      {:error, _reason} -> args  # Fall back to original args if preprocessing fails
-    end
+    cleaned_args =
+      case preprocess_input_file(args) do
+        {:ok, new_args} -> new_args
+        # Fall back to original args if preprocessing fails
+        {:error, _reason} -> args
+      end
 
     case System.find_executable("ab-av1") do
       nil ->
