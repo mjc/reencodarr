@@ -59,7 +59,7 @@ defmodule ReencodarrWeb.BroadwayLive do
           </h1>
         </div>
       </div>
-
+      
     <!-- Navigation -->
       <div class="border-b-2 border-orange-500 bg-gray-900">
         <div class="flex space-x-1 p-2">
@@ -80,7 +80,7 @@ defmodule ReencodarrWeb.BroadwayLive do
           </.link>
         </div>
       </div>
-
+      
     <!-- Broadway Content -->
       <div class="p-3 sm:p-6 space-y-4 sm:space-y-6">
         <div class="text-center py-12">
@@ -88,7 +88,7 @@ defmodule ReencodarrWeb.BroadwayLive do
           <h2 class="text-xl text-orange-300 font-bold mb-2">PIPELINE MONITOR</h2>
           <p class="text-orange-400">Broadway pipeline monitoring interface coming soon.</p>
         </div>
-
+        
     <!-- LCARS Bottom Frame -->
         <div class="h-6 sm:h-8 bg-gradient-to-r from-red-500 via-yellow-400 to-orange-500 rounded">
           <div class="flex items-center justify-center h-full">

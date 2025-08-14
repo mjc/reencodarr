@@ -282,7 +282,10 @@ defmodule ReencodarrWeb.DashboardComponents do
           <div class="text-orange-300 text-xs sm:text-sm font-bold tracking-wide">STATISTICS</div>
           <div class="grid grid-cols-2 gap-2 text-xs">
             <.lcars_stat_row label="TOTAL VMAFS" value={Formatters.format_count(@stats.total_vmafs)} />
-            <.lcars_stat_row label="CHOSEN VMAFS" value={Formatters.format_count(@stats.chosen_vmafs_count)} />
+            <.lcars_stat_row
+              label="CHOSEN VMAFS"
+              value={Formatters.format_count(@stats.chosen_vmafs_count)}
+            />
             <.lcars_stat_row label="LAST UPDATE" value={@stats.last_video_update} small={true} />
             <.lcars_stat_row label="LAST INSERT" value={@stats.last_video_insert} small={true} />
           </div>

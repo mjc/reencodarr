@@ -20,7 +20,6 @@ defmodule ReencodarrWeb.LiveViewBase do
          current_time = DateTime.to_time(datetime),
          {:ok, day_of_year} when is_integer(day_of_year) <- {:ok, Date.day_of_year(current_date)},
          {seconds_in_day, _microseconds} <- Time.to_seconds_after_midnight(current_time) do
-
       # Calculate years since reference (2000 = 50000.0)
       reference_year = 2000
       current_year = current_date.year
@@ -96,6 +95,7 @@ defmodule ReencodarrWeb.LiveViewBase do
     if Keyword.get(options, :stardate_timer, false) and Phoenix.LiveView.connected?(socket) do
       Process.send_after(self(), :update_stardate, 5000)
     end
+
     socket
   end
 end
