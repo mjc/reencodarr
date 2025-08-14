@@ -27,12 +27,12 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def mount(_params, _session, socket) do
     socket =
-      socket
-      |> DashboardLiveHelpers.setup_dashboard_assigns()
-      |> DashboardLiveHelpers.start_stardate_timer()
-      |> setup_telemetry()
-      |> assign(:dashboard_data, nil)
-      |> setup_streams()
+      DashboardLiveHelpers.standard_mount_setup(socket, fn s ->
+        s
+        |> setup_telemetry()
+        |> assign(:dashboard_data, nil)
+        |> setup_streams()
+      end)
 
     # Load initial data asynchronously after mount
     if connected?(socket) do

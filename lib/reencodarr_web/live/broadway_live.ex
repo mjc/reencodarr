@@ -22,11 +22,7 @@ defmodule ReencodarrWeb.BroadwayLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    socket =
-      socket
-      |> assign(:current_stardate, DashboardLiveHelpers.calculate_stardate(DateTime.utc_now()))
-      |> DashboardLiveHelpers.start_stardate_timer()
-
+    socket = DashboardLiveHelpers.standard_mount_setup(socket)
     {:ok, socket}
   end
 

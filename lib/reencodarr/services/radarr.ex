@@ -4,6 +4,7 @@ defmodule Reencodarr.Services.Radarr do
   """
   require Logger
   alias Reencodarr.Services
+  alias Reencodarr.ErrorHelpers
 
   use CarReq,
     pool_timeout: 100,
@@ -18,7 +19,7 @@ defmodule Reencodarr.Services.Radarr do
         [base_url: url, headers: ["X-Api-Key": api_key]]
 
       {:error, :not_found} ->
-        Logger.error("Radarr config not found")
+        ErrorHelpers.config_not_found_error("Radarr")
         []
     end
   end
@@ -49,8 +50,7 @@ defmodule Reencodarr.Services.Radarr do
 
   @spec rename_movie_files(integer() | nil) :: {:ok, Req.Response.t()} | {:error, any()}
   def rename_movie_files(nil) do
-    Logger.error("Movie ID is null, cannot rename files")
-    {:error, :invalid_movie_id}
+    ErrorHelpers.handle_nil_value(nil, "Movie ID", "Cannot rename files")
   end
 
   def rename_movie_files(movie_id) do

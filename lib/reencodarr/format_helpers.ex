@@ -222,14 +222,14 @@ defmodule Reencodarr.FormatHelpers do
 
   @doc """
   Formats large counts with K/M suffixes.
-  
+
   Delegates to ReencodarrWeb.FormatHelpers for consistency.
   """
   defdelegate format_count(count), to: ReencodarrWeb.FormatHelpers
 
   @doc """
   Formats FPS values with appropriate precision.
-  
+
   Delegates to ReencodarrWeb.FormatHelpers for consistency.
   """
   defdelegate format_fps(fps), to: ReencodarrWeb.FormatHelpers
@@ -242,14 +242,14 @@ defmodule Reencodarr.FormatHelpers do
 
   @doc """
   Formats VMAF scores with one decimal place.
-  
+
   Delegates to ReencodarrWeb.FormatHelpers for consistency.
   """
   defdelegate format_score(score), to: ReencodarrWeb.FormatHelpers
 
   @doc """
   Formats ETA values as human-readable strings.
-  
+
   Delegates to ReencodarrWeb.FormatHelpers for consistency.
   """
   defdelegate format_eta(eta), to: ReencodarrWeb.FormatHelpers
@@ -283,7 +283,7 @@ defmodule Reencodarr.FormatHelpers do
 
   @doc """
   Formats savings from bytes with appropriate units.
-  
+
   Delegates to ReencodarrWeb.FormatHelpers for consistency.
   """
   defdelegate format_savings_bytes(bytes), to: ReencodarrWeb.FormatHelpers

@@ -9,6 +9,7 @@ defmodule Reencodarr.Media.Video.MediaInfo.GeneralTrack do
   import Ecto.Changeset
 
   alias Reencodarr.NumericParser
+  alias Reencodarr.ChangesetHelpers
 
   @primary_key false
   embedded_schema do
@@ -86,11 +87,6 @@ defmodule Reencodarr.Media.Video.MediaInfo.GeneralTrack do
   end
 
   defp validate_required_fields(changeset) do
-    # Duration is the most critical field for a general track
-    if is_nil(get_field(changeset, :duration)) do
-      add_error(changeset, :duration, "duration is required for general track")
-    else
-      changeset
-    end
+    ChangesetHelpers.validate_field_present(changeset, :duration, "duration is required for general track")
   end
 end

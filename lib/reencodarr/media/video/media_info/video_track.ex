@@ -9,6 +9,7 @@ defmodule Reencodarr.Media.Video.MediaInfo.VideoTrack do
   import Ecto.Changeset
 
   alias Reencodarr.NumericParser
+  alias Reencodarr.ChangesetHelpers
 
   @primary_key false
   embedded_schema do
@@ -130,28 +131,7 @@ defmodule Reencodarr.Media.Video.MediaInfo.VideoTrack do
 
   defp validate_required_fields(changeset) do
     changeset
-    |> validate_format_present()
-    |> validate_resolution_present()
-  end
-
-  defp validate_format_present(changeset) do
-    if is_nil(get_field(changeset, :format)) do
-      add_error(changeset, :format, "video format is required")
-    else
-      changeset
-    end
-  end
-
-  defp validate_resolution_present(changeset) do
-    width = get_field(changeset, :width)
-    height = get_field(changeset, :height)
-
-    cond do
-      is_nil(width) -> add_error(changeset, :width, "video width is required")
-      is_nil(height) -> add_error(changeset, :height, "video height is required")
-      width <= 0 -> add_error(changeset, :width, "video width must be positive")
-      height <= 0 -> add_error(changeset, :height, "video height must be positive")
-      true -> changeset
-    end
+    |> ChangesetHelpers.validate_field_present(:format, "video format is required")
+    |> ChangesetHelpers.validate_resolution_present()
   end
 end

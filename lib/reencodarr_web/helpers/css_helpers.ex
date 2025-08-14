@@ -27,7 +27,7 @@ defmodule ReencodarrWeb.CssHelpers do
   """
   def filter_button_class(is_active, color_scheme \\ :orange) do
     base_classes = "px-3 py-1 text-xs rounded transition-colors"
-    
+
     active_state = case {is_active, color_scheme} do
       {true, :orange} -> "bg-orange-500 text-black"
       {false, :orange} -> "bg-gray-700 text-orange-400 hover:bg-orange-600"
@@ -38,7 +38,7 @@ defmodule ReencodarrWeb.CssHelpers do
       {true, :red} -> "bg-red-500 text-white"
       {false, :red} -> "bg-gray-700 text-red-400 hover:bg-red-600"
     end
-    
+
     "#{base_classes} #{active_state}"
   end
 
@@ -58,13 +58,13 @@ defmodule ReencodarrWeb.CssHelpers do
   """
   def pagination_button_class(is_active) do
     base_classes = "px-2 py-1 text-xs rounded transition-colors"
-    
+
     active_state = if is_active do
       "bg-orange-500 text-black"
     else
       "bg-gray-700 text-orange-400 hover:bg-orange-600"
     end
-    
+
     "#{base_classes} #{active_state}"
   end
 
@@ -105,7 +105,7 @@ defmodule ReencodarrWeb.CssHelpers do
   """
   def status_badge_class(status) do
     base_classes = "px-2 py-1 text-xs rounded"
-    
+
     status_classes = case status do
       :success -> "bg-green-600 text-white"
       :error -> "bg-red-600 text-white"
@@ -113,7 +113,7 @@ defmodule ReencodarrWeb.CssHelpers do
       :info -> "bg-blue-600 text-white"
       _ -> "bg-gray-600 text-white"
     end
-    
+
     "#{base_classes} #{status_classes}"
   end
 end
