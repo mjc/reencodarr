@@ -1,10 +1,16 @@
 defmodule Reencodarr.NumericParser do
   @moduledoc """
-  Consolidated numeric parsing utilities for MediaInfo and other parsing contexts.
+  **DEPRECATED**: Use `Reencodarr.DataConverters` instead.
 
-  Eliminates duplication by providing a centralized place for numeric value
-  parsing logic with configurable unit handling and format-specific cleaning.
+  This module has been consolidated into `Reencodarr.DataConverters.parse_numeric/2`.
+
+  ## Migration Guide
+  - `NumericParser.parse_numeric/2` -> `DataConverters.parse_numeric/2`
+  - `NumericParser.parse_audio_numeric/1` -> `DataConverters.parse_numeric(value, units: ["Hz", "kHz", "kbps", ...])`
+  - `NumericParser.parse_video_numeric/1` -> `DataConverters.parse_numeric(value, units: ["fps", "FPS"])`
   """
+
+  @deprecated "Use Reencodarr.DataConverters.parse_numeric/2 instead"
 
   import Reencodarr.Utils
 
@@ -38,6 +44,7 @@ defmodule Reencodarr.NumericParser do
 
   """
   def parse_numeric(value, opts \\ [])
+
   def parse_numeric(value, opts) when is_non_empty_binary(value) do
     units = Keyword.get(opts, :units, default_units())
     preserve_float = Keyword.get(opts, :preserve_float, false)
@@ -108,8 +115,10 @@ defmodule Reencodarr.NumericParser do
         else
           trunc(float_val)
         end
+
       {float_val, _remainder} ->
         float_val
+
       :error ->
         nil
     end
