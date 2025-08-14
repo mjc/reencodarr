@@ -1,8 +1,6 @@
 defmodule ReencodarrWeb.CrfSearchQueueComponent do
   use Phoenix.LiveComponent
 
-  alias Reencodarr.FormatHelpers
-
   @moduledoc "Displays the CRF search queue."
 
   @impl true
@@ -30,7 +28,7 @@ defmodule ReencodarrWeb.CrfSearchQueueComponent do
                 {Float.round(file.bitrate / 1_000_000, 2)} Mbit/s
               </td>
               <td class="border border-gray-700 px-4 py-2 text-gray-300">
-                {FormatHelpers.format_file_size_gib(file.size)} GiB
+                {Reencodarr.Formatters.format_file_size_gib(file.size)} GiB
               </td>
             </tr>
           <% end %>
@@ -41,6 +39,6 @@ defmodule ReencodarrWeb.CrfSearchQueueComponent do
   end
 
   defp format_name(%{path: path}) do
-    FormatHelpers.format_filename(path)
+    Reencodarr.Formatters.format_filename(path)
   end
 end
