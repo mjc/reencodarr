@@ -23,12 +23,13 @@ defmodule Reencodarr.AbAv1.CrfSearch.ArgumentsTest do
 
   describe "build_crf_search_args_with_preset_6/2" do
     setup do
-      video = create_test_video(%{
-        path: "/test/args_video.mkv",
-        size: 2_000_000_000,
-        video_codecs: ["h264"],
-        audio_codecs: ["aac"]
-      })
+      video =
+        create_test_video(%{
+          path: "/test/args_video.mkv",
+          size: 2_000_000_000,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
 
       %{video: video}
     end

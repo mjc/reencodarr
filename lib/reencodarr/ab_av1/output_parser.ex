@@ -6,7 +6,32 @@ defmodule Reencodarr.AbAv1.OutputParser do
   to structured data immediately, avoiding repeated parsing throughout the application.
   """
 
-  alias Reencodarr.Core.Parsers
+  alias Reencodarr.{Core.Parsers, ParseHelpers}
+
+  # Pattern definitions
+  @patterns %{
+    encoding_sample:
+      ~r/encoding\ssample\s(?<sample_num>\d+)\/(?<total_samples>\d+)\scrf\s(?<crf>\d+(?:\.\d+)?)/,
+    simple_vmaf:
+      ~r/\[(?<timestamp>[^\]]+)\].*?crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/,
+    sample_vmaf:
+      ~r/sample\s(?<sample_num>\d+)\/(?<total_samples>\d+)\scrf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/,
+    dash_vmaf: ~r/^-\scrf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/,
+    eta_vmaf:
+      ~r/crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\spredicted\svideo\sstream\ssize\s(?<size>\d+\.?\d*)\s(?<unit>\w+)\s\((?<percent>\d+)%\)\staking\s(?<time>\d+\.?\d*)\s(?<time_unit>\w+)/,
+    vmaf_comparison: ~r/vmaf\s(?<file1>.+?)\svs\sreference\s(?<file2>.+)/,
+    progress:
+      ~r/\[(?<timestamp>[^\]]+)\].*?(?<progress>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,\seta\s(?<eta>\d+)\s(?<time_unit>second|minute|hour|day|week|month|year)s?/,
+    success: ~r/(?:\[.*\]\s)?crf\s(?<crf>\d+(?:\.\d+)?)\ssuccessful/,
+    warning: ~r/^Warning:\s(?<message>.*)/,
+    encoding_start: ~r/\[.*\] encoding (?<filename>\d+\.mkv)/,
+    encoding_progress:
+      ~r/\[.*\]\s*(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
+    encoding_progress_alt:
+      ~r/(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
+    file_size_progress: ~r/Encoded\s(?<size>[\d\.]+\s\w+)\s\((?<percent>\d+)%\)/,
+    ffmpeg_error: ~r/Error: ffmpeg encode exit code (?<exit_code>\d+)/
+  }
 
   @doc """
   Parses a single line of ab-av1 output and returns structured data.
@@ -17,25 +42,43 @@ defmodule Reencodarr.AbAv1.OutputParser do
   def parse_line(line) do
     line = String.trim(line)
 
-    cond do
+    # Try patterns in order of likelihood/importance
+    pattern_attempts = [
       # CRF Search Progress Patterns
-      data = parse_encoding_sample(line) -> {:ok, %{type: :encoding_sample, data: data}}
-      data = parse_simple_vmaf(line) -> {:ok, %{type: :vmaf_result, data: data}}
-      data = parse_sample_vmaf(line) -> {:ok, %{type: :sample_vmaf, data: data}}
-      data = parse_dash_vmaf(line) -> {:ok, %{type: :dash_vmaf, data: data}}
-      data = parse_eta_vmaf(line) -> {:ok, %{type: :eta_vmaf, data: data}}
-      data = parse_vmaf_comparison(line) -> {:ok, %{type: :vmaf_comparison, data: data}}
-      data = parse_progress(line) -> {:ok, %{type: :progress, data: data}}
-      data = parse_success(line) -> {:ok, %{type: :success, data: data}}
-      data = parse_warning(line) -> {:ok, %{type: :warning, data: data}}
+      {:encoding_sample, :encoding_sample},
+      {:simple_vmaf, :vmaf_result},
+      {:sample_vmaf, :sample_vmaf},
+      {:dash_vmaf, :dash_vmaf},
+      {:eta_vmaf, :eta_vmaf},
+      {:vmaf_comparison, :vmaf_comparison},
+      {:progress, :progress},
+      {:success, :success},
+      {:warning, :warning},
       # Encoding Progress Patterns
-      data = parse_encoding_start(line) -> {:ok, %{type: :encoding_start, data: data}}
-      data = parse_encoding_progress(line) -> {:ok, %{type: :encoding_progress, data: data}}
-      data = parse_file_size_progress(line) -> {:ok, %{type: :file_size_progress, data: data}}
+      {:encoding_start, :encoding_start},
+      {:encoding_progress, :encoding_progress},
+      # fallback for encoding progress
+      {:encoding_progress_alt, :encoding_progress},
+      {:file_size_progress, :file_size_progress},
       # Error Patterns
-      data = parse_ffmpeg_error(line) -> {:ok, %{type: :ffmpeg_error, data: data}}
-      true -> :ignore
-    end
+      {:ffmpeg_error, :ffmpeg_error}
+    ]
+
+    result =
+      Enum.find_value(pattern_attempts, fn {pattern_key, type} ->
+        field_mapping = field_mappings()[pattern_key]
+
+        if field_mapping do
+          case ParseHelpers.parse_with_pattern(line, pattern_key, @patterns, field_mapping) do
+            nil -> nil
+            data -> {:ok, %{type: type, data: data}}
+          end
+        else
+          nil
+        end
+      end)
+
+    result || :ignore
   end
 
   @doc """
@@ -57,239 +100,103 @@ defmodule Reencodarr.AbAv1.OutputParser do
     |> Enum.map(fn {:ok, data} -> data end)
   end
 
-  # === Private Parsing Functions ===
+  # Note: All individual parsing functions have been consolidated into ParseHelpers.
+  # Pattern matching is now handled declaratively through @patterns and field_mappings().
+  # This eliminates ~200 lines of repetitive regex parsing code.
 
-  # CRF Search patterns
-  defp parse_encoding_sample(line) do
-    regex =
-      ~r/encoding\ssample\s(?<sample_num>\d+)\/(?<total_samples>\d+)\scrf\s(?<crf>\d+(?:\.\d+)?)/
-
-    case Regex.named_captures(regex, line) do
-      nil ->
-        nil
-
-      captures ->
-        %{
-          sample_num: Parsers.parse_int(captures["sample_num"]),
-          total_samples: Parsers.parse_int(captures["total_samples"]),
-          crf: Parsers.parse_float(captures["crf"])
-        }
-    end
-  end
-
-  defp parse_simple_vmaf(line) do
-    regex =
-      ~r/\[(?<timestamp>[^\]]+)\].*?crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/
-
-    case Regex.named_captures(regex, line) do
-      nil ->
-        nil
-
-      captures ->
-        %{
-          timestamp: captures["timestamp"],
-          crf: Parsers.parse_float(captures["crf"]),
-          vmaf_score: Parsers.parse_float(captures["score"]),
-          percent: Parsers.parse_int(captures["percent"])
-        }
-    end
-  end
-
-  defp parse_sample_vmaf(line) do
-    regex =
-      ~r/sample\s(?<sample_num>\d+)\/(?<total_samples>\d+)\scrf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/
-
-    case Regex.named_captures(regex, line) do
-      nil ->
-        nil
-
-      captures ->
-        %{
-          sample_num: Parsers.parse_int(captures["sample_num"]),
-          total_samples: Parsers.parse_int(captures["total_samples"]),
-          crf: Parsers.parse_float(captures["crf"]),
-          vmaf_score: Parsers.parse_float(captures["score"]),
-          percent: Parsers.parse_int(captures["percent"])
-        }
-    end
-  end
-
-  defp parse_dash_vmaf(line) do
-    regex = ~r/^-\scrf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/
-
-    case Regex.named_captures(regex, line) do
-      nil ->
-        nil
-
-      captures ->
-        %{
-          crf: Parsers.parse_float(captures["crf"]),
-          vmaf_score: Parsers.parse_float(captures["score"]),
-          percent: Parsers.parse_int(captures["percent"])
-        }
-    end
-  end
-
-  defp parse_eta_vmaf(line) do
-    regex =
-      ~r/crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\spredicted\svideo\sstream\ssize\s(?<size>\d+\.?\d*)\s(?<unit>\w+)\s\((?<percent>\d+)%\)\staking\s(?<time>\d+\.?\d*)\s(?<time_unit>\w+)/
-
-    case Regex.named_captures(regex, line) do
-      nil ->
-        nil
-
-      captures ->
-        %{
-          crf: Parsers.parse_float(captures["crf"]),
-          vmaf_score: Parsers.parse_float(captures["score"]),
-          predicted_size: Parsers.parse_float(captures["size"]),
-          size_unit: captures["unit"],
-          percent: Parsers.parse_int(captures["percent"]),
-          time_taken: Parsers.parse_float(captures["time"]),
-          time_unit: captures["time_unit"]
-        }
-    end
-  end
-
-  defp parse_vmaf_comparison(line) do
-    regex = ~r/vmaf\s(?<file1>.+?)\svs\sreference\s(?<file2>.+)/
-
-    case Regex.named_captures(regex, line) do
-      nil ->
-        nil
-
-      captures ->
-        %{
-          file1: String.trim(captures["file1"]),
-          file2: String.trim(captures["file2"])
-        }
-    end
-  end
-
-  defp parse_progress(line) do
-    regex =
-      ~r/\[(?<timestamp>[^\]]+)\].*?(?<progress>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,\seta\s(?<eta>\d+)\s(?<time_unit>second|minute|hour|day|week|month|year)s?/
-
-    case Regex.named_captures(regex, line) do
-      nil ->
-        nil
-
-      captures ->
-        %{
-          timestamp: captures["timestamp"],
-          progress: Parsers.parse_float(captures["progress"]),
-          fps: Parsers.parse_float(captures["fps"]),
-          eta: Parsers.parse_int(captures["eta"]),
-          eta_unit: captures["time_unit"]
-        }
-    end
-  end
-
-  defp parse_success(line) do
-    regex = ~r/(?:\[.*\]\s)?crf\s(?<crf>\d+(?:\.\d+)?)\ssuccessful/
-
-    case Regex.named_captures(regex, line) do
-      nil ->
-        nil
-
-      captures ->
-        %{
-          crf: Parsers.parse_float(captures["crf"])
-        }
-    end
-  end
-
-  defp parse_warning(line) do
-    regex = ~r/^Warning:\s(?<message>.*)/
-
-    case Regex.named_captures(regex, line) do
-      nil ->
-        nil
-
-      captures ->
-        %{
-          message: String.trim(captures["message"])
-        }
-    end
-  end
-
-  # Encoding patterns
-  defp parse_encoding_start(line) do
-    regex = ~r/\[.*\] encoding (?<filename>\d+\.mkv)/
-
-    case Regex.named_captures(regex, line) do
-      nil ->
-        nil
-
-      captures ->
-        filename = captures["filename"]
-        extname = Path.extname(filename)
-        video_id = Parsers.parse_int(Path.basename(filename, extname))
-
-        %{
-          filename: filename,
-          video_id: video_id
-        }
-    end
-  end
-
-  defp parse_encoding_progress(line) do
-    # Try main pattern first
-    regex1 =
-      ~r/\[.*\]\s*(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/
-
-    case Regex.named_captures(regex1, line) do
-      nil ->
-        # Try alternative pattern without timestamp
-        regex2 =
-          ~r/(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/
-
-        case Regex.named_captures(regex2, line) do
-          nil -> nil
-          captures -> build_encoding_progress(captures)
-        end
-
-      captures ->
-        build_encoding_progress(captures)
-    end
-  end
-
-  defp build_encoding_progress(captures) do
+  # Field mappings for different pattern types
+  defp field_mappings do
     %{
-      percent: Parsers.parse_int(captures["percent"]),
-      fps: Parsers.parse_float(captures["fps"]),
-      eta: Parsers.parse_int(captures["eta"]),
-      eta_unit: captures["unit"]
+      encoding_sample:
+        ParseHelpers.field_mapping([
+          {:sample_num, :int},
+          {:total_samples, :int},
+          {:crf, :float}
+        ]),
+      simple_vmaf:
+        ParseHelpers.field_mapping([
+          {:timestamp, :string},
+          {:crf, :float},
+          {:vmaf_score, :float, "score"},
+          {:percent, :int}
+        ]),
+      sample_vmaf:
+        ParseHelpers.field_mapping([
+          {:sample_num, :int},
+          {:total_samples, :int},
+          {:crf, :float},
+          {:vmaf_score, :float, "score"},
+          {:percent, :int}
+        ]),
+      dash_vmaf:
+        ParseHelpers.field_mapping([
+          {:crf, :float},
+          {:vmaf_score, :float, "score"},
+          {:percent, :int}
+        ]),
+      eta_vmaf:
+        ParseHelpers.field_mapping([
+          {:crf, :float},
+          {:vmaf_score, :float, "score"},
+          {:predicted_size, :float, "size"},
+          {:size_unit, :string, "unit"},
+          {:percent, :int},
+          {:time_taken, :float, "time"},
+          {:time_unit, :string}
+        ]),
+      vmaf_comparison:
+        ParseHelpers.field_mapping([
+          {:file1, :string},
+          {:file2, :string}
+        ]),
+      progress:
+        ParseHelpers.field_mapping([
+          {:timestamp, :string},
+          {:progress, :float},
+          {:fps, :float},
+          {:eta, :int},
+          {:eta_unit, :string, "time_unit"}
+        ]),
+      success:
+        ParseHelpers.field_mapping([
+          {:crf, :float}
+        ]),
+      warning:
+        ParseHelpers.field_mapping([
+          {:message, :string}
+        ]),
+      encoding_start: %{
+        filename: {"filename", &Function.identity/1},
+        video_id:
+          {"filename",
+           fn filename ->
+             extname = Path.extname(filename)
+             Parsers.parse_int(Path.basename(filename, extname))
+           end}
+      },
+      encoding_progress:
+        ParseHelpers.field_mapping([
+          {:percent, :int},
+          {:fps, :float},
+          {:eta, :int},
+          {:eta_unit, :string, "unit"}
+        ]),
+      encoding_progress_alt:
+        ParseHelpers.field_mapping([
+          {:percent, :int},
+          {:fps, :float},
+          {:eta, :int},
+          {:eta_unit, :string, "unit"}
+        ]),
+      file_size_progress:
+        ParseHelpers.field_mapping([
+          {:encoded_size, :string, "size"},
+          {:percent, :int}
+        ]),
+      ffmpeg_error:
+        ParseHelpers.field_mapping([
+          {:exit_code, :int}
+        ])
     }
-  end
-
-  defp parse_file_size_progress(line) do
-    regex = ~r/Encoded\s(?<size>[\d\.]+\s\w+)\s\((?<percent>\d+)%\)/
-
-    case Regex.named_captures(regex, line) do
-      nil ->
-        nil
-
-      captures ->
-        %{
-          encoded_size: String.trim(captures["size"]),
-          percent: Parsers.parse_int(captures["percent"])
-        }
-    end
-  end
-
-  # Error patterns
-  defp parse_ffmpeg_error(line) do
-    regex = ~r/Error: ffmpeg encode exit code (?<exit_code>\d+)/
-
-    case Regex.named_captures(regex, line) do
-      nil ->
-        nil
-
-      captures ->
-        %{
-          exit_code: Parsers.parse_int(captures["exit_code"])
-        }
-    end
   end
 end
