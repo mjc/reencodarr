@@ -2,21 +2,33 @@ defmodule Reencodarr.AbAv1.CrfSearch.ArgumentsTest do
   @moduledoc """
   Tests for CRF search argument building and command construction.
   """
-  use Reencodarr.DataCase, async: true
+  use ExUnit.Case, async: true
 
   alias Reencodarr.AbAv1.CrfSearch
 
-  import Reencodarr.MediaFixtures
+  # Helper to create video structs without database
+  defp create_test_video(attrs \\ %{}) do
+    defaults = %{
+      id: 1,
+      path: "/test/video.mkv",
+      size: 2_000_000_000,
+      video_codecs: ["h264"],
+      audio_codecs: ["aac"],
+      reencoded: false,
+      failed: false
+    }
+
+    struct(Reencodarr.Media.Video, Map.merge(defaults, attrs))
+  end
 
   describe "build_crf_search_args_with_preset_6/2" do
     setup do
-      video =
-        video_fixture(%{
-          path: "/test/args_video.mkv",
-          size: 2_000_000_000,
-          video_codecs: ["h264"],
-          audio_codecs: ["aac"]
-        })
+      video = create_test_video(%{
+        path: "/test/args_video.mkv",
+        size: 2_000_000_000,
+        video_codecs: ["h264"],
+        audio_codecs: ["aac"]
+      })
 
       %{video: video}
     end
@@ -66,7 +78,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.ArgumentsTest do
 
   describe "argument validation" do
     setup do
-      video = video_fixture(%{path: "/test/validation_video.mkv", size: 1_000_000_000})
+      video = create_test_video(%{path: "/test/validation_video.mkv", size: 1_000_000_000})
       %{video: video}
     end
 

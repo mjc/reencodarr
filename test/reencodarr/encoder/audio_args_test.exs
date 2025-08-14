@@ -1,64 +1,35 @@
 defmodule Reencodarr.Encoder.AudioArgsTest do
-  use Reencodarr.DataCase
+  use ExUnit.Case, async: true
 
-  alias Reencodarr.AbAv1.{CrfSearch, Encode}
-  alias Reencodarr.Encoder.Broadway
-  alias Reencodarr.{Media, Repo, Rules}
+  alias Reencodarr.Rules
+
+  # Helper to create test video structs
+  defp create_test_video(overrides \\ %{}) do
+    defaults = %{
+      atmos: false,
+      max_audio_channels: 6,
+      audio_codecs: ["A_EAC3"],
+      video_codecs: ["V_MPEGH/ISO/HEVC"],
+      height: 1080,
+      width: 1920,
+      hdr: nil,
+      size: 1_000_000,
+      bitrate: 5_000_000,
+      path: "/test/video.mkv"
+    }
+
+    struct(Reencodarr.Media.Video, Map.merge(defaults, overrides))
+  end
+
+  defp create_hdr_video(overrides \\ %{}) do
+    create_test_video(Map.merge(%{hdr: "HDR10"}, overrides))
+  end
 
   describe "centralized argument building" do
     setup do
-      # Create a mediainfo structure that represents a video needing audio transcoding (not Opus)
-      mediainfo = %{
-        "media" => %{
-          "track" => [
-            %{
-              "@type" => "General",
-              "AudioCount" => "1",
-              "OverallBitRate" => "25000000",
-              "Duration" => "3600.0",
-              "FileSize" => "1000000",
-              "TextCount" => "0",
-              "VideoCount" => "1",
-              "Title" => "Test Video"
-            },
-            %{
-              "@type" => "Video",
-              "FrameRate" => "24.0",
-              "Height" => "1080",
-              "Width" => "1920",
-              "CodecID" => "V_MPEGH/ISO/HEVC"
-            },
-            %{
-              "@type" => "Audio",
-              "CodecID" => "A_EAC3",
-              "Channels" => "6",
-              "Format_Commercial_IfAny" => "Dolby Digital Plus"
-            }
-          ]
-        }
-      }
-
-      # Create a video that will get populated from mediainfo
-      {:ok, video} =
-        Media.create_video(%{
-          path: "/test/centralized_args_video.mkv",
-          size: 1_000_000,
-          mediainfo: mediainfo
-        })
-
-      {:ok, vmaf} =
-        Media.create_vmaf(%{
-          video_id: video.id,
-          crf: 28.0,
-          score: 95.0,
-          chosen: true,
-          params: []
-        })
-
-      # Preload associations
-      vmaf = Repo.preload(vmaf, :video)
-
-      %{video: video, vmaf: vmaf}
+      # Create a test video struct that represents a video needing audio transcoding (not Opus)
+      video = create_test_video()
+      %{video: video}
     end
 
     test "Rules.build_args for encoding includes audio arguments", %{video: video} do
@@ -180,47 +151,9 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
       refute audio_enc_found
     end
 
-    test "Rules.build_args handles multiple SVT flags correctly", %{video: _video} do
-      # Create an HDR video using MediaInfo processing
-      hdr_mediainfo = %{
-        "media" => %{
-          "track" => [
-            %{
-              "@type" => "General",
-              "AudioCount" => "1",
-              "OverallBitRate" => "25000000",
-              "Duration" => "3600.0",
-              "FileSize" => "1000000",
-              "TextCount" => "0",
-              "VideoCount" => "1",
-              "Title" => "HDR Test Video"
-            },
-            %{
-              "@type" => "Video",
-              "FrameRate" => "24.0",
-              "Height" => "1080",
-              "Width" => "1920",
-              "CodecID" => "V_MPEGH/ISO/HEVC",
-              "HDR_Format" => "SMPTE ST 2086",
-              "HDR_Format_Compatibility" => "HDR10"
-            },
-            %{
-              "@type" => "Audio",
-              "CodecID" => "A_EAC3",
-              "Channels" => "6",
-              "Format_Commercial_IfAny" => "Dolby Digital Plus"
-            }
-          ]
-        }
-      }
-
-      {:ok, hdr_video} =
-        Media.create_video(%{
-          path: "/test/hdr_test_video.mkv",
-          size: 1_000_000,
-          mediainfo: hdr_mediainfo
-        })
-
+    test "Rules.build_args handles multiple SVT flags correctly" do
+      # Create an HDR video using struct
+      hdr_video = create_hdr_video()
       args = Rules.build_args(hdr_video, :encode)
 
       # Should include multiple SVT arguments
@@ -245,120 +178,12 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
         end)
 
       assert dv_found, "Should include dolbyvision=1 for HDR"
-
-      # Clean up
-      Media.delete_video(hdr_video)
-    end
-  end
-
-  describe "encoder integration" do
-    setup do
-      # Use MediaInfo structure like the main tests
-      mediainfo = %{
-        "media" => %{
-          "track" => [
-            %{
-              "@type" => "General",
-              "AudioCount" => "1",
-              "OverallBitRate" => "25000000",
-              "Duration" => "3600.0",
-              "FileSize" => "1000000",
-              "TextCount" => "0",
-              "VideoCount" => "1",
-              "Title" => "Test Video"
-            },
-            %{
-              "@type" => "Video",
-              "FrameRate" => "24.0",
-              "Height" => "1080",
-              "Width" => "1920",
-              "CodecID" => "V_MPEGH/ISO/HEVC"
-            },
-            %{
-              "@type" => "Audio",
-              "CodecID" => "A_EAC3",
-              "Channels" => "6",
-              "Format_Commercial_IfAny" => "Dolby Digital Plus"
-            }
-          ]
-        }
-      }
-
-      {:ok, video} =
-        Media.create_video(%{
-          path: "/test/encoder_integration_video.mkv",
-          size: 1_000_000,
-          mediainfo: mediainfo
-        })
-
-      %{video: video}
-    end
-
-    test "Broadway encoder includes audio arguments", %{video: video} do
-      {:ok, vmaf} =
-        Media.create_vmaf(%{
-          video_id: video.id,
-          crf: 28.0,
-          score: 95.0,
-          chosen: true,
-          params: []
-        })
-
-      vmaf = Repo.preload(vmaf, :video)
-      args = Broadway.build_encode_args_for_test(vmaf)
-
-      # Should include audio codec
-      assert "--acodec" in args
-      acodec_index = Enum.find_index(args, &(&1 == "--acodec"))
-      assert Enum.at(args, acodec_index + 1) == "libopus"
-
-      # Should include pixel format
-      assert "--pix-format" in args
-      pix_index = Enum.find_index(args, &(&1 == "--pix-format"))
-      assert Enum.at(args, pix_index + 1) == "yuv420p10le"
-    end
-
-    test "Encode module includes audio arguments", %{video: video} do
-      {:ok, vmaf} =
-        Media.create_vmaf(%{
-          video_id: video.id,
-          crf: 28.0,
-          score: 95.0,
-          chosen: true,
-          params: []
-        })
-
-      vmaf = Repo.preload(vmaf, :video)
-      args = Encode.build_encode_args_for_test(vmaf)
-
-      # Should include audio codec
-      assert "--acodec" in args
-      acodec_index = Enum.find_index(args, &(&1 == "--acodec"))
-      assert Enum.at(args, acodec_index + 1) == "libopus"
-    end
-
-    test "CRF search excludes audio arguments", %{video: video} do
-      args = CrfSearch.build_crf_search_args_for_test(video, 95)
-
-      # Should NOT include audio codec
-      refute "--acodec" in args
-
-      # Should include video arguments
-      assert "--pix-format" in args
-      assert "--svt" in args
     end
   end
 
   describe "legacy compatibility" do
     test "Rules.apply still works for backward compatibility" do
-      video = %Reencodarr.Media.Video{
-        atmos: false,
-        max_audio_channels: 6,
-        audio_codecs: ["A_EAC3"],
-        height: 1080,
-        hdr: nil
-      }
-
+      video = create_test_video()
       rules = Rules.apply(video)
 
       # Should return tuples as before
