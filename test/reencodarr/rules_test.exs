@@ -2,54 +2,7 @@ defmodule Reencodarr.RulesTest do
   use ExUnit.Case, async: true
 
   alias Reencodarr.Rules
-
-  # Test video fixtures
-  defp create_test_video(overrides \\ %{}) do
-    defaults = %{
-      atmos: false,
-      max_audio_channels: 6,
-      audio_codecs: ["A_EAC3"],
-      height: 1080,
-      hdr: nil,
-      path: "/test/video.mkv"
-    }
-
-    struct(Reencodarr.Media.Video, Map.merge(defaults, overrides))
-  end
-
-  # Helper functions for cleaner test assertions
-  defp find_flag_indices(args, flag) do
-    Enum.with_index(args)
-    |> Enum.filter(fn {arg, _} -> arg == flag end)
-    |> Enum.map(&elem(&1, 1))
-  end
-
-  defp find_flag_value(args, flag, expected_value) do
-    indices = find_flag_indices(args, flag)
-
-    Enum.any?(indices, fn idx ->
-      value = Enum.at(args, idx + 1)
-      value == expected_value
-    end)
-  end
-
-  defp assert_flag_value_present(args, flag, expected_value) do
-    flag_index = Enum.find_index(args, &(&1 == flag))
-    assert flag_index, "Flag #{flag} not found in args"
-    assert Enum.at(args, flag_index + 1) == expected_value
-  end
-
-  defp create_opus_video(overrides \\ %{}) do
-    create_test_video(Map.merge(%{audio_codecs: ["A_OPUS"]}, overrides))
-  end
-
-  defp create_hdr_video(overrides \\ %{}) do
-    create_test_video(Map.merge(%{hdr: "HDR10"}, overrides))
-  end
-
-  defp create_4k_video(overrides \\ %{}) do
-    create_test_video(Map.merge(%{height: 2160}, overrides))
-  end
+  import Reencodarr.TestPatterns
 
   describe "build_args/4 - context-based argument building" do
     test "encoding context includes audio arguments for non-Opus audio" do

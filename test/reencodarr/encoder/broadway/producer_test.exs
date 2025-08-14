@@ -1,5 +1,6 @@
 defmodule Reencodarr.Encoder.Broadway.ProducerTest do
   use ExUnit.Case, async: true
+  import Reencodarr.TestPatterns
 
   describe "get_next_vmaf/1" do
     test "handles different return types from Media.get_next_for_encoding/1" do
@@ -21,16 +22,6 @@ defmodule Reencodarr.Encoder.Broadway.ProducerTest do
 
       # Case 4: nil
       assert match_return_value(nil) == :nil_value
-    end
-
-    # Helper function to test our pattern matching logic
-    defp match_return_value(return_value) do
-      case return_value do
-        %Reencodarr.Media.Vmaf{} -> :single_vmaf
-        [_vmaf | _] -> :list_with_vmaf
-        [] -> :empty_list
-        nil -> :nil_value
-      end
     end
   end
 end
