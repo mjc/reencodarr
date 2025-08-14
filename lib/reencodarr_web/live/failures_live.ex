@@ -16,7 +16,9 @@ defmodule ReencodarrWeb.FailuresLive do
 
   use ReencodarrWeb, :live_view
 
-  import ReencodarrWeb.UIHelpers, only: [filter_button_classes: 2, action_button_classes: 0, pagination_button_classes: 1]
+  import ReencodarrWeb.UIHelpers,
+    only: [filter_button_classes: 2, action_button_classes: 0, pagination_button_classes: 1]
+
   alias ReencodarrWeb.LiveViewBase
   require Logger
 
@@ -171,10 +173,10 @@ defmodule ReencodarrWeb.FailuresLive do
           </h1>
         </div>
       </div>
-
+      
     <!-- Navigation -->
       <.lcars_navigation current_page={:failures} />
-
+      
     <!-- Failures Content -->
       <div class="p-3 sm:p-6 space-y-4 sm:space-y-6">
         <!-- Failures Summary -->
@@ -195,7 +197,7 @@ defmodule ReencodarrWeb.FailuresLive do
             </div>
           </div>
         </div>
-
+        
     <!-- Failure Controls -->
         <!-- Failure Controls -->
         <div class="bg-gray-900 border border-orange-500 rounded p-4 mb-6">
@@ -214,7 +216,7 @@ defmodule ReencodarrWeb.FailuresLive do
                 />
               </form>
             </div>
-
+            
     <!-- Stage Filter -->
             <div class="flex flex-wrap gap-2">
               <span class="text-orange-400 text-sm font-semibold self-center">STAGE:</span>
@@ -254,7 +256,7 @@ defmodule ReencodarrWeb.FailuresLive do
                 POST-PROCESS
               </button>
             </div>
-
+            
     <!-- Category Filter -->
             <div class="flex flex-wrap gap-2">
               <span class="text-orange-400 text-sm font-semibold self-center">TYPE:</span>
@@ -295,7 +297,7 @@ defmodule ReencodarrWeb.FailuresLive do
               </button>
             </div>
           </div>
-
+          
     <!-- Active Filters Display -->
           <%= if @failure_filter != "all" or @category_filter != "all" or @search_term != "" do %>
             <div class="mt-3 pt-3 border-t border-orange-700">
@@ -421,7 +423,7 @@ defmodule ReencodarrWeb.FailuresLive do
                       <% _ -> %>
                         <div class="mt-2 text-xs text-orange-600">No specific failures recorded</div>
                     <% end %>
-
+                    
     <!-- Mobile expanded details -->
                     <%= if video.id in @expanded_details do %>
                       <div class="mt-3 pt-3 border-t border-orange-700">
@@ -461,7 +463,7 @@ defmodule ReencodarrWeb.FailuresLive do
                                         {if failure.failure_code, do: " (#{failure.failure_code})"}
                                       </div>
                                       <div class="text-red-300">{failure.failure_message}</div>
-
+                                      
     <!-- Command and Output Details -->
                                       <%= if Map.get(failure.system_context || %{}, "command") do %>
                                         <div class="mt-2 pt-2 border-t border-red-700">
@@ -506,7 +508,7 @@ defmodule ReencodarrWeb.FailuresLive do
                 <% end %>
               </div>
             </div>
-
+            
     <!-- Desktop Table Layout -->
             <div class="hidden lg:block overflow-x-auto">
               <table class="w-full">
@@ -638,7 +640,7 @@ defmodule ReencodarrWeb.FailuresLive do
                                           {if failure.failure_code, do: " (#{failure.failure_code})"}
                                         </div>
                                         <div class="text-red-300 mt-1">{failure.failure_message}</div>
-
+                                        
     <!-- Command and Output Details -->
                                         <%= if Map.get(failure.system_context || %{}, "command") do %>
                                           <div class="mt-3 pt-2 border-t border-red-700">
@@ -687,7 +689,7 @@ defmodule ReencodarrWeb.FailuresLive do
                 </tbody>
               </table>
             </div>
-
+            
     <!-- Pagination -->
             <%= if @total_pages > 1 do %>
               <div class="p-4 border-t border-orange-500 bg-gray-800">
@@ -699,15 +701,11 @@ defmodule ReencodarrWeb.FailuresLive do
                   <div class="flex gap-1">
                     <!-- First Page -->
                     <%= if @page > 1 do %>
-                      <button
-                        phx-click="change_page"
-                        phx-value-page="1"
-                        class={action_button_class()}
-                      >
+                      <button phx-click="change_page" phx-value-page="1" class={action_button_class()}>
                         ««
                       </button>
                     <% end %>
-
+                    
     <!-- Previous Page -->
                     <%= if @page > 1 do %>
                       <button
@@ -718,7 +716,7 @@ defmodule ReencodarrWeb.FailuresLive do
                         ‹
                       </button>
                     <% end %>
-
+                    
     <!-- Page Numbers -->
                     <%= for page_num <- pagination_range(@page, @total_pages) do %>
                       <button
@@ -729,7 +727,7 @@ defmodule ReencodarrWeb.FailuresLive do
                         {page_num}
                       </button>
                     <% end %>
-
+                    
     <!-- Next Page -->
                     <%= if @page < @total_pages do %>
                       <button
@@ -740,7 +738,7 @@ defmodule ReencodarrWeb.FailuresLive do
                         ›
                       </button>
                     <% end %>
-
+                    
     <!-- Last Page -->
                     <%= if @page < @total_pages do %>
                       <button
@@ -757,7 +755,7 @@ defmodule ReencodarrWeb.FailuresLive do
             <% end %>
           <% end %>
         </div>
-
+        
     <!-- Common Failure Patterns -->
         <%= if length(@failure_patterns) > 0 do %>
           <div class="bg-gray-900 border border-orange-500 rounded">
@@ -789,7 +787,7 @@ defmodule ReencodarrWeb.FailuresLive do
             </div>
           </div>
         <% end %>
-
+        
     <!-- LCARS Bottom Frame -->
         <div class="h-6 sm:h-8 bg-gradient-to-r from-red-500 via-yellow-400 to-orange-500 rounded">
           <div class="flex items-center justify-center h-full">
