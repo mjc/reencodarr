@@ -152,7 +152,7 @@ defmodule ReencodarrWeb.LcarsComponents do
         <div class="flex items-center justify-between">
           <span class="text-xl sm:text-2xl">{@metric.icon}</span>
           <span class="text-lg sm:text-2xl lg:text-3xl font-bold lcars-text-primary lcars-title truncate">
-            {ReencodarrWeb.DashboardFormatters.format_metric_value(@metric.value)}
+            {ReencodarrWeb.DashboardFormatters.format_value(@metric.value)}
           </span>
         </div>
 

@@ -8,7 +8,7 @@ defmodule ReencodarrWeb.DashboardComponents do
 
   use Phoenix.Component
   import ReencodarrWeb.LcarsComponents
-  import Reencodarr.FormatHelpers
+  alias Reencodarr.Formatters
 
   @doc """
   Renders the metrics grid with all metric cards.
@@ -114,18 +114,18 @@ defmodule ReencodarrWeb.DashboardComponents do
             <div class="flex justify-between text-xs text-orange-300">
               <span>{@progress.percent}%</span>
               <%= if Map.get(@progress, :fps) && @progress.fps > 0 do %>
-                <span>{format_fps(@progress.fps)} FPS</span>
+                <span>{Formatters.format_fps(@progress.fps)} FPS</span>
               <% end %>
             </div>
             <%= if Map.get(@progress, :eta) && @progress.eta != 0 do %>
               <div class="text-xs text-orange-400 text-center">
-                ETA: {format_eta(@progress.eta)}
+                ETA: {Formatters.format_eta(@progress.eta)}
               </div>
             <% end %>
             <%= if Map.get(@progress, :crf) && Map.get(@progress, :score) do %>
               <div class="flex justify-between text-xs text-orange-400">
-                <span>CRF: {format_crf(@progress.crf)}</span>
-                <span>VMAF: {format_score(@progress.score)}</span>
+                <span>CRF: {Formatters.format_crf(@progress.crf)}</span>
+                <span>VMAF: {Formatters.format_vmaf_score(@progress.score)}</span>
               </div>
             <% end %>
           </div>
@@ -178,7 +178,7 @@ defmodule ReencodarrWeb.DashboardComponents do
         </span>
         <div class="ml-2">
           <span class="text-black font-bold text-xs sm:text-sm">
-            {format_count(@queue.total_count)}
+            {Formatters.format_count(@queue.total_count)}
           </span>
         </div>
       </div>
@@ -205,7 +205,7 @@ defmodule ReencodarrWeb.DashboardComponents do
             <%= if @queue.total_count > 10 do %>
               <div class="text-center py-1 sm:py-2">
                 <span class="text-xs text-orange-300 tracking-wide">
-                  SHOWING FIRST 10 OF {format_count(@queue.total_count)} ITEMS
+                  SHOWING FIRST 10 OF {Formatters.format_count(@queue.total_count)} ITEMS
                 </span>
               </div>
             <% end %>
@@ -243,24 +243,24 @@ defmodule ReencodarrWeb.DashboardComponents do
       <% @queue.title == "CRF Search Queue" and (@file.bitrate || @file.size) -> %>
         <div class="flex justify-between text-xs text-cyan-300 mt-1">
           <%= if @file.bitrate do %>
-            <span>Bitrate: {format_bitrate_mbps(@file.bitrate)}</span>
+            <span>Bitrate: {Formatters.format_bitrate_mbps(@file.bitrate)}</span>
           <% end %>
           <%= if @file.size do %>
-            <span>Size: {format_size_gb(@file.size)}</span>
+            <span>Size: {Formatters.format_size_gb(@file.size)}</span>
           <% end %>
         </div>
       <% @queue.title == "Encoding Queue" and (@file.estimated_savings_bytes || @file.size) -> %>
         <div class="flex justify-between text-xs text-green-300 mt-1">
           <%= if @file.estimated_savings_bytes do %>
-            <span>Savings: {format_savings_bytes(@file.estimated_savings_bytes)}</span>
+            <span>Savings: {Formatters.format_savings_bytes(@file.estimated_savings_bytes)}</span>
           <% end %>
           <%= if @file.size do %>
-            <span>Size: {format_size_gb(@file.size)}</span>
+            <span>Size: {Formatters.format_size_gb(@file.size)}</span>
           <% end %>
         </div>
       <% @queue.title == "Analyzer Queue" and @file.size -> %>
         <div class="text-xs text-purple-300 mt-1">
-          Size: {format_size_gb(@file.size)}
+          Size: {Formatters.format_size_gb(@file.size)}
         </div>
       <% true -> %>
         <div></div>
@@ -281,8 +281,8 @@ defmodule ReencodarrWeb.DashboardComponents do
         <div class="space-y-2">
           <div class="text-orange-300 text-xs sm:text-sm font-bold tracking-wide">STATISTICS</div>
           <div class="grid grid-cols-2 gap-2 text-xs">
-            <.lcars_stat_row label="TOTAL VMAFS" value={format_count(@stats.total_vmafs)} />
-            <.lcars_stat_row label="CHOSEN VMAFS" value={format_count(@stats.chosen_vmafs_count)} />
+            <.lcars_stat_row label="TOTAL VMAFS" value={Formatters.format_count(@stats.total_vmafs)} />
+            <.lcars_stat_row label="CHOSEN VMAFS" value={Formatters.format_count(@stats.chosen_vmafs_count)} />
             <.lcars_stat_row label="LAST UPDATE" value={@stats.last_video_update} small={true} />
             <.lcars_stat_row label="LAST INSERT" value={@stats.last_video_insert} small={true} />
           </div>
