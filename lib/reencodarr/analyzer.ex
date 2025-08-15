@@ -21,14 +21,21 @@ defmodule Reencodarr.Analyzer do
 
     if force_reanalyze do
       Logger.debug("🎭 Force reanalyze requested for #{path}, adding to Broadway queue")
-      Broadway.process_path(video_info)
+
+      case Broadway.process_path(video_info) do
+        {:error, :producer_supervisor_not_found} ->
+          Logger.error("Producer supervisor not found, cannot add video")
+          :ok
+
+        _ ->
+          :ok
+      end
     else
       # Normal videos will be picked up by the producer automatically when there's demand
       # We don't need to trigger dispatch - Broadway handles this via demand
       Logger.debug("🎭 Video will be processed when demand is available: #{path}")
+      :ok
     end
-
-    :ok
   end
 
   @doc """
