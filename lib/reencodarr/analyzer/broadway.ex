@@ -52,7 +52,14 @@ defmodule Reencodarr.Analyzer.Broadway do
   Add a video to the pipeline for processing.
   """
   def process_path(video_info) do
-    Producer.add_video(video_info)
+    case Process.whereis(__MODULE__) do
+      nil ->
+        Logger.error("Producer supervisor not found, cannot add video")
+        {:error, :producer_supervisor_not_found}
+
+      _pid ->
+        Producer.add_video(video_info)
+    end
   end
 
   @doc """
@@ -69,14 +76,20 @@ defmodule Reencodarr.Analyzer.Broadway do
   Pause the analyzer.
   """
   def pause do
-    Producer.pause()
+    case Process.whereis(__MODULE__) do
+      nil -> {:error, :producer_supervisor_not_found}
+      _pid -> Producer.pause()
+    end
   end
 
   @doc """
   Resume the analyzer.
   """
   def resume do
-    Producer.resume()
+    case Process.whereis(__MODULE__) do
+      nil -> {:error, :producer_supervisor_not_found}
+      _pid -> Producer.resume()
+    end
   end
 
   # Alias for API compatibility
