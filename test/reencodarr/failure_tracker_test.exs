@@ -85,7 +85,7 @@ defmodule Reencodarr.FailureTrackerTest do
       assert failure.failure_stage == :encoding
       assert failure.failure_category == :resource_exhaustion
       assert failure.failure_code == "EXIT_137"
-      assert failure.system_context.exit_code == 137
+      assert failure.system_context.original_exit_code == 137
       assert failure.system_context.classification == :resource_exhaustion
     end
 

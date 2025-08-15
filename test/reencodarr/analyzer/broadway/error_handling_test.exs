@@ -3,7 +3,6 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
 
   alias Reencodarr.Analyzer.Broadway
 
-  import Reencodarr.TestUtils
   import ExUnit.CaptureLog
 
   describe "Broadway pipeline error resilience" do

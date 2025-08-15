@@ -11,7 +11,7 @@ defmodule Reencodarr.Media.PropertyTest do
   use ExUnitProperties
 
   alias Reencodarr.Media
-  import Reencodarr.TestUtils
+  import StreamData
 
   @moduletag :property
 
@@ -218,6 +218,94 @@ defmodule Reencodarr.Media.PropertyTest do
         assert ratio <= 3.0
       end
     end
+  end
+
+  # === PROPERTY GENERATORS ===
+
+  defp video_attrs_generator do
+    gen all(
+          path <- string(:printable, min_length: 10, max_length: 100),
+          bitrate <- integer(1_000_000..50_000_000),
+          size <- integer(100_000_000..50_000_000_000),
+          width <- member_of([720, 1280, 1920, 3840]),
+          height <- member_of([480, 720, 1080, 2160]),
+          video_codecs <-
+            list_of(member_of(["h264", "h265", "av1"]), min_length: 1, max_length: 2),
+          audio_codecs <-
+            list_of(member_of(["aac", "ac3", "dts", "opus"]), min_length: 1, max_length: 3)
+        ) do
+      %{
+        path: "/test/#{path}.mkv",
+        bitrate: bitrate,
+        size: size,
+        width: width,
+        height: height,
+        video_codecs: video_codecs,
+        audio_codecs: audio_codecs
+      }
+    end
+  end
+
+  defp invalid_string_generator do
+    one_of([
+      constant(nil),
+      constant(""),
+      string(:ascii, max_length: 2)
+    ])
+  end
+
+  defp invalid_number_generator do
+    one_of([
+      constant(nil),
+      constant(0),
+      constant(-1),
+      integer(-1000..-1)
+    ])
+  end
+
+  defp vmaf_attrs_generator(video_id) do
+    gen all(
+          crf <- integer(15..51),
+          vmaf_score <- float(min: 0.0, max: 100.0)
+        ) do
+      %{
+        video_id: video_id,
+        crf: crf,
+        vmaf_score: vmaf_score
+      }
+    end
+  end
+
+  defp crf_generator do
+    integer(18..35)
+  end
+
+  defp vmaf_score_generator do
+    float(min: 0.0, max: 100.0)
+  end
+
+  defp video_codec_generator do
+    member_of(["h264", "hevc", "av01", "vp9", "vp8", "mpeg2", "mpeg4"])
+  end
+
+  defp audio_codecs_generator do
+    list_of(member_of(["aac", "ac3", "dts", "truehd", "flac", "opus"]),
+      min_length: 1,
+      max_length: 3
+    )
+  end
+
+  defp video_extension_generator do
+    member_of([".mkv", ".mp4", ".avi", ".mov"])
+  end
+
+  defp video_resolution_generator do
+    member_of([
+      {1280, 720},
+      {1920, 1080},
+      {2560, 1440},
+      {3840, 2160}
+    ])
   end
 
   # Helper function to create a library for tests

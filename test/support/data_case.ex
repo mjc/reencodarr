@@ -25,7 +25,6 @@ defmodule Reencodarr.DataCase do
       import Ecto.Changeset
       import Ecto.Query
       import Reencodarr.DataCase
-      import Reencodarr.Fixtures
       import Reencodarr.TestHelpers
     end
   end

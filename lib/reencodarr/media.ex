@@ -741,7 +741,13 @@ defmodule Reencodarr.Media do
       Repo.one(
         from v in Vmaf,
           join: vid in assoc(v, :video),
-          where: v.chosen == true and vid.reencoded == false and vid.failed == false,
+          # Ensure video is properly analyzed before encoding
+          where:
+            v.chosen == true and vid.reencoded == false and vid.failed == false and
+              not is_nil(vid.width) and not is_nil(vid.height) and
+              not is_nil(vid.duration) and vid.duration > 0.0 and
+              fragment("array_length(?, 1)", vid.video_codecs) > 0 and
+              fragment("array_length(?, 1)", vid.audio_codecs) > 0,
           order_by: [fragment("? DESC NULLS LAST", v.savings), asc: v.time],
           limit: 1,
           preload: [:video]

@@ -150,6 +150,7 @@ defmodule Reencodarr.Core.Parsers do
     |> Enum.reduce(%{}, fn
       {key, type}, acc ->
         Map.put(acc, key, {type, to_string(key)})
+
       {key, type, capture_key}, acc ->
         Map.put(acc, key, {type, capture_key})
     end)
@@ -188,6 +189,13 @@ defmodule Reencodarr.Core.Parsers do
 
   # Convert captured string values to appropriate types
   defp convert_value(value, :int), do: String.to_integer(value)
-  defp convert_value(value, :float), do: String.to_float(value)
+
+  defp convert_value(value, :float) do
+    case String.contains?(value, ".") do
+      true -> String.to_float(value)
+      false -> String.to_integer(value) |> Kernel.*(1.0)
+    end
+  end
+
   defp convert_value(value, :string), do: value
 end

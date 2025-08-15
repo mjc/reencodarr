@@ -1,8 +1,9 @@
 defmodule Reencodarr.RulesTest do
-  use ExUnit.Case, async: true
+  use Reencodarr.DataCase, async: true
 
   alias Reencodarr.Rules
-  import Reencodarr.TestPatterns
+  import Reencodarr.Fixtures
+  import Reencodarr.TestHelpers
 
   describe "build_args/4 - context-based argument building" do
     test "encoding context includes audio arguments for non-Opus audio" do
@@ -138,7 +139,8 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "multiple SVT and ENC flags are preserved" do
-      video = create_hdr_video()
+      # Use non-Atmos HDR video so audio rules apply
+      video = create_hdr_video(%{atmos: false})
       additional_params = ["--svt", "extra=param", "--enc", "custom=setting"]
       args = Rules.build_args(video, :encode, additional_params)
 

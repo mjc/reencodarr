@@ -30,7 +30,7 @@ defmodule Reencodarr.Guards do
   Guard for valid video dimensions (both positive numbers).
   """
   defguard are_valid_dimensions(width, height)
-    when is_positive_number(width) and is_positive_number(height)
+           when is_positive_number(width) and is_positive_number(height)
 
   @doc """
   Guard for valid duration values.
@@ -46,7 +46,7 @@ defmodule Reencodarr.Guards do
   Guard for valid percentage values (0-100).
   """
   defguard is_valid_percentage(value)
-    when is_number(value) and value >= 0 and value <= 100
+           when is_number(value) and value >= 0 and value <= 100
 
   @doc """
   Guard for valid CRF values (typically 0-51 for video encoding).

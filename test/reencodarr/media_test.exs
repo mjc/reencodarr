@@ -2,7 +2,7 @@ defmodule Reencodarr.MediaTest do
   use Reencodarr.DataCase, async: true
 
   alias Reencodarr.Media
-
+  alias Reencodarr.Fixtures
   import Reencodarr.MediaFixtures
 
   describe "videos" do
@@ -112,7 +112,7 @@ defmodule Reencodarr.MediaTest do
     @invalid_library_attrs %{monitor: nil, path: nil}
 
     test "list_libraries/0 returns all libraries" do
-      library = library_fixture()
+      library = Fixtures.library_fixture()
       libraries = Media.list_libraries()
 
       assert length(libraries) == 1
@@ -120,7 +120,7 @@ defmodule Reencodarr.MediaTest do
     end
 
     test "get_library!/1 returns the library with given id" do
-      library = library_fixture()
+      library = Fixtures.library_fixture()
 
       fetched_library = Media.get_library!(library.id)
       assert fetched_library.id == library.id
@@ -143,7 +143,7 @@ defmodule Reencodarr.MediaTest do
     end
 
     test "update_library/2 with valid data updates the library" do
-      library = library_fixture()
+      library = Fixtures.library_fixture()
       update_attrs = %{monitor: false, path: "/updated/library"}
 
       updated_library = assert_ok(Media.update_library(library, update_attrs))
@@ -152,7 +152,7 @@ defmodule Reencodarr.MediaTest do
     end
 
     test "update_library/2 with invalid data returns error changeset" do
-      library = library_fixture()
+      library = Fixtures.library_fixture()
 
       changeset = assert_error(Media.update_library(library, @invalid_library_attrs))
       assert_changeset_error(changeset, :path, "can't be blank")
@@ -163,14 +163,14 @@ defmodule Reencodarr.MediaTest do
     end
 
     test "delete_library/1 deletes the library" do
-      library = library_fixture()
+      library = Fixtures.library_fixture()
 
       assert_ok(Media.delete_library(library))
       assert_raise Ecto.NoResultsError, fn -> Media.get_library!(library.id) end
     end
 
     test "change_library/1 returns a library changeset" do
-      library = library_fixture()
+      library = Fixtures.library_fixture()
       changeset = Media.change_library(library)
 
       assert %Ecto.Changeset{} = changeset
