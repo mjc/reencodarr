@@ -54,7 +54,8 @@ defmodule Reencodarr.Fixtures do
     defaults = %{
       path: "/test/videos/sample_video_#{unique_id}.mkv",
       bitrate: 3_500_000,
-      size: 2_147_483_648, # 2GB
+      # 2GB
+      size: 2_147_483_648,
       height: 1080,
       width: 1920,
       video_codecs: ["h264"],
@@ -413,5 +414,107 @@ defmodule Reencodarr.Fixtures do
           StreamData.member_of(["HDR10", "DV", "HLG"])
         ])
     })
+  end
+
+  # === CONVENIENCE VIDEO CREATORS ===
+
+  @doc """
+  Creates a standard test video with typical properties.
+  """
+  def create_test_video(attrs \\ %{}) do
+    default_attrs = %{
+      path: "/test/sample_video.mkv",
+      bitrate: 8_000_000,
+      size: 3_000_000_000,
+      video_codecs: ["h264"],
+      audio_codecs: ["aac"],
+      reencoded: false,
+      failed: false,
+      width: 1920,
+      height: 1080,
+      fps: 23.976,
+      duration: 7200.0,
+      max_audio_channels: 6,
+      atmos: false,
+      hdr: nil
+    }
+
+    attrs = Map.merge(default_attrs, attrs)
+    video_fixture(attrs)
+  end
+
+  @doc """
+  Creates a test video that already has Opus audio (doesn't need audio transcoding).
+  """
+  def create_opus_video(attrs \\ %{}) do
+    default_attrs = %{
+      path: "/test/opus_video.mkv",
+      bitrate: 6_000_000,
+      size: 2_500_000_000,
+      video_codecs: ["h264"],
+      audio_codecs: ["A_OPUS"],
+      reencoded: false,
+      failed: false,
+      width: 1920,
+      height: 1080,
+      fps: 23.976,
+      duration: 7200.0,
+      max_audio_channels: 6,
+      atmos: false,
+      hdr: nil
+    }
+
+    attrs = Map.merge(default_attrs, attrs)
+    video_fixture(attrs)
+  end
+
+  @doc """
+  Creates an HDR test video.
+  """
+  def create_hdr_video(attrs \\ %{}) do
+    default_attrs = %{
+      path: "/test/hdr_video.mkv",
+      bitrate: 20_000_000,
+      size: 8_000_000_000,
+      video_codecs: ["h265"],
+      audio_codecs: ["truehd"],
+      reencoded: false,
+      failed: false,
+      width: 1920,
+      height: 1080,
+      fps: 23.976,
+      duration: 7200.0,
+      max_audio_channels: 8,
+      atmos: true,
+      hdr: "HDR10"
+    }
+
+    attrs = Map.merge(default_attrs, attrs)
+    video_fixture(attrs)
+  end
+
+  @doc """
+  Creates a 4K test video.
+  """
+  def create_4k_video(attrs \\ %{}) do
+    default_attrs = %{
+      path: "/test/4k_video.mkv",
+      bitrate: 25_000_000,
+      size: 12_000_000_000,
+      video_codecs: ["h265"],
+      audio_codecs: ["truehd"],
+      reencoded: false,
+      failed: false,
+      width: 3840,
+      height: 2160,
+      fps: 23.976,
+      duration: 7200.0,
+      max_audio_channels: 8,
+      atmos: true,
+      hdr: nil
+    }
+
+    attrs = Map.merge(default_attrs, attrs)
+    video_fixture(attrs)
   end
 end

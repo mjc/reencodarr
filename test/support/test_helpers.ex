@@ -31,6 +31,14 @@ defmodule Reencodarr.TestHelpers do
   end
 
   @doc """
+  Asserts that a flag with a specific value is present in an argument list.
+  """
+  def assert_flag_value_present(args, flag, expected_value) do
+    assert find_flag_value(args, flag, expected_value),
+           "Expected to find #{flag} with value #{expected_value} in #{inspect(args)}"
+  end
+
+  @doc """
   Checks if a flag has a specific value in an argument list.
 
   ## Examples
@@ -66,18 +74,6 @@ defmodule Reencodarr.TestHelpers do
   end
 
   # === CUSTOM ASSERTIONS ===
-
-  @doc """
-  Asserts that a flag has a specific value in an argument list.
-  """
-  def assert_flag_value_present(args, flag, expected_value) do
-    flag_index = Enum.find_index(args, &(&1 == flag))
-    assert flag_index, "Flag #{flag} not found in args: #{inspect(args)}"
-    actual_value = Enum.at(args, flag_index + 1)
-
-    assert actual_value == expected_value,
-           "Expected #{flag} to have value '#{expected_value}', got '#{actual_value}'"
-  end
 
   @doc """
   Asserts that a flag is present in an argument list.
@@ -252,5 +248,58 @@ defmodule Reencodarr.TestHelpers do
     |> Enum.with_index()
     |> Enum.filter(fn {arg, _idx} -> String.starts_with?(arg, "--") end)
     |> Enum.map(fn {_arg, idx} -> idx end)
+  end
+
+  # === DATABASE TESTING HELPERS ===
+
+  @doc """
+  Asserts that a database operation changes the count of records by the expected amount.
+  """
+  def assert_database_state(schema, expected_count_change, fun) do
+    initial_count = Reencodarr.Repo.aggregate(schema, :count, :id)
+
+    result = fun.()
+
+    final_count = Reencodarr.Repo.aggregate(schema, :count, :id)
+    actual_change = final_count - initial_count
+
+    assert actual_change == expected_count_change,
+           "Expected #{schema} count to change by #{expected_count_change}, but it changed by #{actual_change}"
+
+    result
+  end
+
+  # === TEMPORARY FILE HELPERS ===
+
+  @doc """
+  Creates a temporary file with the given content and extension,
+  executes the given function with the file path, then cleans up.
+  """
+  def with_temp_file(content, extension, fun) do
+    temp_dir = System.tmp_dir!()
+    unique_id = System.unique_integer([:positive])
+    temp_file = Path.join(temp_dir, "test_file_#{unique_id}#{extension}")
+
+    try do
+      File.write!(temp_file, content)
+      fun.(temp_file)
+    after
+      File.rm(temp_file)
+    end
+  end
+
+  # === BROADWAY TESTING HELPERS ===
+
+  @doc """
+  Helper for testing Broadway error handling scenarios.
+  """
+  def test_broadway_error_handling(broadway_module, message) do
+    try do
+      broadway_module.process_path(message)
+    catch
+      kind, reason ->
+        # Broadway should handle errors gracefully, so catching here indicates a problem
+        flunk("Broadway pipeline crashed: #{inspect(kind)} #{inspect(reason)}")
+    end
   end
 end
