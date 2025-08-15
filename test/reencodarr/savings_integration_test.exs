@@ -20,7 +20,13 @@ defmodule Reencodarr.SavingsIntegrationTest do
           bitrate: 8000,
           service_type: "sonarr",
           service_id: "1",
-          library_id: library.id
+          library_id: library.id,
+          # Required analysis fields
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          width: 1920,
+          height: 1080,
+          duration: 7200.0
         })
 
       # Simulate CRF search results being saved
@@ -59,7 +65,13 @@ defmodule Reencodarr.SavingsIntegrationTest do
           bitrate: 10_000,
           service_type: "sonarr",
           service_id: "2",
-          library_id: library.id
+          library_id: library.id,
+          # Required analysis fields
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          width: 1920,
+          height: 1080,
+          duration: 7200.0
         })
 
       {:ok, _vmaf3} =
@@ -104,7 +116,13 @@ defmodule Reencodarr.SavingsIntegrationTest do
           bitrate: 1000,
           service_type: "sonarr",
           service_id: "2",
-          library_id: library.id
+          library_id: library.id,
+          # Required analysis fields
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          width: 1920,
+          height: 1080,
+          duration: 7200.0
         })
 
       {:ok, small_vmaf} =
@@ -130,7 +148,13 @@ defmodule Reencodarr.SavingsIntegrationTest do
           bitrate: 5000,
           service_type: "sonarr",
           service_id: "3",
-          library_id: library.id
+          library_id: library.id,
+          # Required analysis fields
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          width: 1920,
+          height: 1080,
+          duration: 7200.0
         })
 
       {:ok, perfect_vmaf} =
@@ -166,7 +190,13 @@ defmodule Reencodarr.SavingsIntegrationTest do
           bitrate: 3000,
           service_type: "sonarr",
           service_id: "4",
-          library_id: library.id
+          library_id: library.id,
+          # Required analysis fields
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          width: 1920,
+          height: 1080,
+          duration: 7200.0
         })
 
       # Explicit savings value (different from calculated)

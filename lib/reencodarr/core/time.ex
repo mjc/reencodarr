@@ -24,7 +24,7 @@ defmodule Reencodarr.Core.Time do
       unit when unit in ["minute", "minutes"] -> time * 60
       unit when unit in ["hour", "hours"] -> time * 3600
       unit when unit in ["day", "days"] -> time * 86400
-      unit when unit in ["week", "weeks"] -> time * 604800
+      unit when unit in ["week", "weeks"] -> time * 604_800
       unit when unit in ["month", "months"] -> time * 2_629_746
       unit when unit in ["year", "years"] -> time * 31_556_952
       _ -> time

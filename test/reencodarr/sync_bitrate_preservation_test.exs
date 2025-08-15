@@ -1,12 +1,12 @@
 defmodule Reencodarr.SyncBitratePreservationTest do
   use Reencodarr.DataCase, async: true
-  import Reencodarr.MediaFixtures
+  alias Reencodarr.Fixtures
 
   alias Reencodarr.{Media, Sync}
 
   describe "sync bitrate preservation" do
     setup do
-      library = library_fixture()
+      library = Fixtures.library_fixture()
       %{library: library}
     end
 

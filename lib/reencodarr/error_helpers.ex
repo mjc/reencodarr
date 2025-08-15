@@ -37,8 +37,12 @@ defmodule Reencodarr.ErrorHelpers do
   """
   def handle_result_with_logging(result, success_fn, context \\ "") do
     case result do
-      {:ok, value} -> success_fn.(value)
-      {:error, reason} -> log_and_return_error(reason, context)
+      {:ok, value} ->
+        success_fn.(value)
+
+      {:error, reason} ->
+        log_and_return_error(reason, context)
+
       other ->
         log_and_return_error({:unexpected_result, other}, context)
     end
@@ -113,10 +117,13 @@ defmodule Reencodarr.ErrorHelpers do
       {:ok, %{status: status, body: body}} when status in 200..299 ->
         log_success("#{context} succeeded")
         {:ok, body}
+
       {:ok, %{status: status, body: body}} ->
         log_and_return_error({:http_error, status, body}, context)
+
       {:error, reason} ->
         log_and_return_error(reason, context)
+
       other ->
         log_and_return_error({:unexpected_response, other}, context)
     end

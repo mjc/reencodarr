@@ -1,8 +1,8 @@
 defmodule Reencodarr.Encoder.AudioArgsTest do
-  use ExUnit.Case, async: true
+  use Reencodarr.DataCase, async: true
 
   alias Reencodarr.Rules
-  import Reencodarr.TestPatterns
+  import Reencodarr.Fixtures
 
   describe "centralized argument building" do
     setup do

@@ -1,6 +1,7 @@
 defmodule Reencodarr.Media.VideoQueriesTest do
   use Reencodarr.DataCase, async: true
   alias Reencodarr.Media.VideoQueries
+  import Reencodarr.MediaFixtures
 
   describe "videos_for_crf_search/1" do
     test "returns videos needing CRF search" do
@@ -67,7 +68,7 @@ defmodule Reencodarr.Media.VideoQueriesTest do
       found_video = Enum.find(results, fn v -> v.path == video.path end)
 
       assert found_video != nil, "Expected video with nil bitrate to need analysis"
-      assert found_video.path == "/test/sample_analysis.mkv"
+      assert found_video.path == video.path
     end
 
     test "excludes videos that don't need analysis" do

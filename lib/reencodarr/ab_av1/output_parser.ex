@@ -69,9 +69,17 @@ defmodule Reencodarr.AbAv1.OutputParser do
         field_mapping = field_mappings()[pattern_key]
 
         if field_mapping do
-          case Parsers.parse_with_pattern(line, pattern_key, @patterns, field_mapping) do
-            nil -> nil
-            data -> {:ok, %{type: type, data: data}}
+          # Special handling for encoding_start which uses custom transformations
+          if pattern_key == :encoding_start do
+            case parse_encoding_start_pattern(line) do
+              nil -> nil
+              data -> {:ok, %{type: type, data: data}}
+            end
+          else
+            case Parsers.parse_with_pattern(line, pattern_key, @patterns, field_mapping) do
+              nil -> nil
+              data -> {:ok, %{type: type, data: data}}
+            end
           end
         else
           nil
@@ -79,6 +87,25 @@ defmodule Reencodarr.AbAv1.OutputParser do
       end)
 
     result || :ignore
+  end
+
+  # Special parser for encoding_start pattern with custom transformations
+  defp parse_encoding_start_pattern(line) do
+    pattern = @patterns[:encoding_start]
+
+    case Regex.named_captures(pattern, line) do
+      nil ->
+        nil
+
+      %{"filename" => filename} ->
+        extname = Path.extname(filename)
+        video_id = Parsers.parse_int(Path.basename(filename, extname))
+
+        %{
+          filename: filename,
+          video_id: video_id
+        }
+    end
   end
 
   @doc """

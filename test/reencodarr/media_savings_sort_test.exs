@@ -15,7 +15,13 @@ defmodule Reencodarr.MediaSavingsSortTest do
           bitrate: 5000,
           service_type: "sonarr",
           service_id: "1",
-          library_id: library.id
+          library_id: library.id,
+          # Required analysis fields
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          width: 1920,
+          height: 1080,
+          duration: 7200.0
         })
 
       {:ok, video2} =
@@ -25,7 +31,13 @@ defmodule Reencodarr.MediaSavingsSortTest do
           bitrate: 5000,
           service_type: "sonarr",
           service_id: "2",
-          library_id: library.id
+          library_id: library.id,
+          # Required analysis fields
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          width: 1920,
+          height: 1080,
+          duration: 7200.0
         })
 
       {:ok, video3} =
@@ -35,7 +47,13 @@ defmodule Reencodarr.MediaSavingsSortTest do
           bitrate: 5000,
           service_type: "sonarr",
           service_id: "3",
-          library_id: library.id
+          library_id: library.id,
+          # Required analysis fields
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          width: 1920,
+          height: 1080,
+          duration: 7200.0
         })
 
       %{video1: video1, video2: video2, video3: video3}

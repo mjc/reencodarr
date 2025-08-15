@@ -67,9 +67,9 @@ defmodule Reencodarr.Core.Progress do
   # Private helper to extract job key from measurements
   defp get_job_key(measurements) do
     Map.get(measurements, :filename) ||
-    Map.get(measurements, :job_id) ||
-    Map.get(measurements, :id) ||
-    "default"
+      Map.get(measurements, :job_id) ||
+      Map.get(measurements, :id) ||
+      "default"
   end
 
   # Private helper to update or add job progress

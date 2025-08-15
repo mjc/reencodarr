@@ -75,11 +75,15 @@ defmodule Reencodarr.Errors do
   def with_error_handling(fun, context) when is_function(fun, 0) do
     try do
       case fun.() do
-        {:ok, result} -> {:ok, result}
+        {:ok, result} ->
+          {:ok, result}
+
         {:error, reason} ->
           error_msg = "#{context}: #{inspect(reason)}"
           log_and_return_error(error_msg)
-        result -> result
+
+        result ->
+          result
       end
     rescue
       exception ->

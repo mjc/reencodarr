@@ -2,14 +2,14 @@ defmodule ReencodarrWeb.LibraryLiveTest do
   use ReencodarrWeb.ConnCase
 
   import Phoenix.LiveViewTest
-  import Reencodarr.MediaFixtures
+  alias Reencodarr.Fixtures
 
   @create_attrs %{monitor: true, path: "some path"}
   @update_attrs %{monitor: false, path: "some updated path"}
   @invalid_attrs %{monitor: false, path: nil}
 
   defp create_library(_) do
-    library = library_fixture()
+    library = Fixtures.library_fixture()
     %{library: library}
   end
 

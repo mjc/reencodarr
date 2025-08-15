@@ -2,10 +2,10 @@ defmodule Reencodarr.AbAv1.CrfSearch.ArgumentsTest do
   @moduledoc """
   Tests for CRF search argument building and command construction.
   """
-  use ExUnit.Case, async: true
+  use Reencodarr.DataCase, async: true
 
   alias Reencodarr.AbAv1.CrfSearch
-  import Reencodarr.TestPatterns
+  import Reencodarr.Fixtures
 
   describe "build_crf_search_args_with_preset_6/2" do
     setup do
