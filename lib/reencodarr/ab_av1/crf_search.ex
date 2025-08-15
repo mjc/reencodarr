@@ -106,7 +106,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   @spec crf_search(Media.Video.t(), integer()) :: :ok
-  def crf_search(%Media.Video{reencoded: true, path: _path, id: video_id}, _vmaf_percent) do
+  def crf_search(%Media.Video{reencoded: true, path: path, id: video_id}, _vmaf_percent) do
+    Logger.info("Skipping crf search for video #{path} as it is already reencoded")
+
     # Publish skipped event to PubSub
     Phoenix.PubSub.broadcast(
       Reencodarr.PubSub,
@@ -119,7 +121,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   def crf_search(%Media.Video{} = video, vmaf_percent) do
     if Media.chosen_vmaf_exists?(video) do
-      Logger.debug("Skipping crf search for video #{video.path} as a chosen VMAF already exists")
+      Logger.info("Skipping crf search for video #{video.path} as a chosen VMAF already exists")
 
       # Publish skipped event to PubSub
       Phoenix.PubSub.broadcast(
@@ -139,7 +141,17 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   def running? do
-    GenServer.call(__MODULE__, :running?) == :running
+    case GenServer.whereis(__MODULE__) do
+      nil ->
+        false
+
+      _pid ->
+        try do
+          GenServer.call(__MODULE__, :running?) == :running
+        catch
+          :exit, _ -> false
+        end
+    end
   end
 
   # Test helpers - only available in test environment
@@ -214,7 +226,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   def handle_cast({:crf_search_with_preset_6, video, vmaf_percent}, %{port: :none} = state) do
-    Logger.debug("CrfSearch: Starting retry with --preset 6 for video #{video.id}")
+    Logger.info("CrfSearch: Starting retry with --preset 6 for video #{video.id}")
     args = build_crf_search_args_with_preset_6_private(video, vmaf_percent)
 
     new_state = %{
@@ -700,7 +712,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       # Check if we should retry with --preset 6
       Logger.debug("CrfSearch: About to check retry logic for video #{video.id}")
       retry_result = should_retry_with_preset_6_private(video.id)
-      Logger.debug("CrfSearch: Retry result: #{inspect(retry_result)}")
+      Logger.info("CrfSearch: Retry result: #{inspect(retry_result)}")
 
       case retry_result do
         {:retry, existing_vmafs} ->
