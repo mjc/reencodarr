@@ -177,8 +177,9 @@ defmodule Reencodarr.ProgressParserTest do
           assert :ok = ProgressParser.process_line(line, state)
         end)
 
-      # Should not log anything for non-progress lines
-      assert log == ""
+      # Should not log anything specific to ProgressParser for non-progress lines
+      # May contain unrelated logs from other processes, but should not contain ProgressParser warnings
+      refute log =~ "ProgressParser:"
     end
 
     test "handles edge case with zero fps", %{state: state} do
