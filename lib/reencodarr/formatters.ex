@@ -25,6 +25,7 @@ defmodule Reencodarr.Formatters do
   """
   def format_file_size(nil), do: "N/A"
   def format_file_size(bytes) when is_integer(bytes) and bytes <= 0, do: "N/A"
+
   def format_file_size(bytes) when is_integer(bytes) do
     cond do
       bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776, 1)} TB"
@@ -34,6 +35,7 @@ defmodule Reencodarr.Formatters do
       true -> "#{bytes} B"
     end
   end
+
   def format_file_size(_), do: "N/A"
 
   @doc """
@@ -52,6 +54,7 @@ defmodule Reencodarr.Formatters do
     gib = bytes / 1_073_741_824
     Float.round(gib, 2)
   end
+
   def format_file_size_gib(_), do: 0.0
 
   @doc """
@@ -61,6 +64,7 @@ defmodule Reencodarr.Formatters do
     gb = size / (1024 * 1024 * 1024)
     "#{Float.round(gb, 2)} GB"
   end
+
   def format_size_gb(_), do: "N/A"
 
   @doc """
@@ -68,6 +72,7 @@ defmodule Reencodarr.Formatters do
   """
   def format_savings_gb(nil), do: "N/A"
   def format_savings_gb(gb) when is_number(gb) and gb <= 0, do: "N/A"
+
   def format_savings_gb(gb) when is_number(gb) do
     cond do
       gb >= 1000 -> "#{Float.round(gb / 1000, 1)} TB"
@@ -76,6 +81,7 @@ defmodule Reencodarr.Formatters do
       true -> "< 1 MB"
     end
   end
+
   def format_savings_gb(_), do: "N/A"
 
   @doc """
@@ -83,9 +89,11 @@ defmodule Reencodarr.Formatters do
   """
   def format_savings_bytes(nil), do: "N/A"
   def format_savings_bytes(bytes) when is_integer(bytes) and bytes <= 0, do: "N/A"
+
   def format_savings_bytes(bytes) when is_integer(bytes) do
     format_file_size(bytes)
   end
+
   def format_savings_bytes(_), do: "N/A"
 
   # === NUMERIC FORMATTING ===
@@ -102,9 +110,11 @@ defmodule Reencodarr.Formatters do
   Formats percentage values.
   """
   def format_percent(nil), do: "N/A"
+
   def format_percent(percent) when is_number(percent) do
     "#{format_number(percent)}%"
   end
+
   def format_percent(percent), do: "#{percent}%"
 
   @doc """
@@ -113,9 +123,11 @@ defmodule Reencodarr.Formatters do
   def format_count(count) when is_integer(count) and count >= 1_000_000 do
     "#{Float.round(count / 1_000_000, 1)}M"
   end
+
   def format_count(count) when is_integer(count) and count >= 1000 do
     "#{Float.round(count / 1000, 1)}K"
   end
+
   def format_count(count), do: to_string(count)
 
   # === VIDEO/AUDIO FORMATTING ===
@@ -127,6 +139,7 @@ defmodule Reencodarr.Formatters do
     mbps = bitrate / 1_000_000
     "#{Float.round(mbps, 1)} Mbps"
   end
+
   def format_bitrate_mbps(_), do: "N/A"
 
   @doc """
@@ -139,6 +152,7 @@ defmodule Reencodarr.Formatters do
       "#{Float.round(fps, 3)} fps"
     end
   end
+
   def format_fps(fps), do: to_string(fps)
 
   @doc """
@@ -153,6 +167,7 @@ defmodule Reencodarr.Formatters do
   def format_vmaf_score(score) when is_number(score) do
     "#{Float.round(score, 1)}"
   end
+
   def format_vmaf_score(score), do: to_string(score)
 
   # === TIME FORMATTING ===
@@ -161,12 +176,14 @@ defmodule Reencodarr.Formatters do
   Formats relative time (e.g., "2 hours ago").
   """
   def format_relative_time(nil), do: "Never"
+
   def format_relative_time(datetime) when is_binary(datetime) do
     case DateTime.from_iso8601(datetime) do
       {:ok, dt, _} -> format_relative_time(dt)
       _ -> "Invalid date"
     end
   end
+
   def format_relative_time(%DateTime{} = datetime) do
     now = DateTime.utc_now()
     diff_seconds = DateTime.diff(now, datetime, :second)
@@ -179,6 +196,7 @@ defmodule Reencodarr.Formatters do
       true -> "#{div(diff_seconds, 2_592_000)} months ago"
     end
   end
+
   def format_relative_time(%NaiveDateTime{} = datetime) do
     datetime
     |> DateTime.from_naive!("Etc/UTC")
@@ -190,19 +208,23 @@ defmodule Reencodarr.Formatters do
   """
   def format_duration(nil), do: "N/A"
   def format_duration(0), do: "N/A"
+
   def format_duration(seconds) when is_number(seconds) do
     cond do
       seconds >= 3600 ->
         hours = div(seconds, 3600)
         minutes = div(rem(seconds, 3600), 60)
         "#{hours}h #{minutes}m"
+
       seconds >= 60 ->
         minutes = div(seconds, 60)
         "#{minutes} minutes"
+
       true ->
         "#{round(seconds)} seconds"
     end
   end
+
   def format_duration(duration), do: to_string(duration)
 
   @doc """
@@ -232,6 +254,7 @@ defmodule Reencodarr.Formatters do
       _ -> basename <> Path.extname(path)
     end
   end
+
   def format_filename(_), do: "N/A"
 
   @doc """
