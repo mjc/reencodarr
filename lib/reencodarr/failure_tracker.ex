@@ -262,6 +262,23 @@ defmodule Reencodarr.FailureTracker do
     )
   end
 
+  def record_exception_failure(video, exception_context, opts \\ []) do
+    exception_type = Map.get(exception_context, :exception_type, "Unknown")
+    exception_message = Map.get(exception_context, :exception_message, "Unknown exception")
+
+    # Add error_type to context for compatibility
+    enhanced_context =
+      exception_context
+      |> Map.put("error_type", "exception")
+      |> Map.merge(Keyword.get(opts, :context, %{}))
+
+    Media.record_video_failure(video, :encoding, :process_failure,
+      code: "EXCEPTION",
+      message: "Exception during encoding setup: #{exception_type}: #{exception_message}",
+      context: enhanced_context
+    )
+  end
+
   @doc """
   Parse FFmpeg errors from ab-av1 output to get more specific error information.
 
@@ -357,6 +374,10 @@ defmodule Reencodarr.FailureTracker do
   # Private helper to classify encoding exit codes
   defp classify_encoding_exit_code(exit_code) do
     cond do
+      # Handle negative exit codes as setup/exception errors
+      exit_code < 0 ->
+        {:process_failure, "Exception during encoding setup (exit code: #{exit_code})"}
+
       resource_exhaustion_error?(exit_code) ->
         classify_resource_exhaustion_error(exit_code)
 
