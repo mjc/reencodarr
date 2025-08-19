@@ -9,8 +9,8 @@ defmodule Reencodarr.ProgressParser do
 
   require Logger
 
-  alias Reencodarr.{Media, Telemetry, Core.Time}
   alias Reencodarr.AbAv1.OutputParser
+  alias Reencodarr.{Core.Time, Media, Telemetry}
 
   @doc """
   Processes a single line of output from the encoding process.

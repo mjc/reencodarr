@@ -3,8 +3,8 @@ defmodule Reencodarr.Services.Radarr do
   This module is responsible for communicating with the Radarr API.
   """
   require Logger
-  alias Reencodarr.Services
   alias Reencodarr.ErrorHelpers
+  alias Reencodarr.Services
 
   use CarReq,
     pool_timeout: 100,

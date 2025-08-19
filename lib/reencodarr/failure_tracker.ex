@@ -1,4 +1,5 @@
 defmodule Reencodarr.FailureTracker do
+  alias Reencodarr.AbAv1.OutputParser
   alias Reencodarr.Media
 
   @moduledoc """
@@ -291,7 +292,7 @@ defmodule Reencodarr.FailureTracker do
     output = Map.get(context, "full_output", "")
 
     # Use centralized parser to extract FFmpeg errors
-    parsed_output = Reencodarr.AbAv1.OutputParser.parse_output(output)
+    parsed_output = OutputParser.parse_output(output)
 
     ffmpeg_errors = Enum.filter(parsed_output, &(&1.type == :ffmpeg_error))
 

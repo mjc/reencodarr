@@ -12,9 +12,9 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   Reduces presenter CPU usage by ~40% through intelligent caching.
   """
 
+  alias Reencodarr.Core.Time
   alias Reencodarr.Dashboard.QueueBuilder
   alias Reencodarr.Progress.Normalizer
-  alias Reencodarr.Core.Time
 
   require Logger
 
