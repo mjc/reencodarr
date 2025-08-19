@@ -10,7 +10,7 @@ defmodule Reencodarr.Media.VideoQueries do
   alias Reencodarr.{Media.Video, Media.Vmaf, Repo}
 
   @doc """
-  Gets videos ready for CRF search (no existing VMAFs, not reencoded/failed, not AV1/Opus).
+  Gets videos ready for CRF search (no existing VMAFs, not reencoded/failed, not AV1/Opus, fully analyzed).
   """
   @spec videos_for_crf_search(integer()) :: [Video.t()]
   def videos_for_crf_search(limit \\ 10) do
@@ -20,6 +20,12 @@ defmodule Reencodarr.Media.VideoQueries do
         on: m.video_id == v.id,
         where:
           is_nil(m.id) and v.reencoded == false and v.failed == false and
+            # Ensure video is fully analyzed first
+            not is_nil(v.bitrate) and not is_nil(v.width) and not is_nil(v.height) and
+            not is_nil(v.duration) and v.duration > 0.0 and
+            fragment("array_length(?, 1)", v.video_codecs) > 0 and
+            # Audio codecs check: either has audio tracks OR is a video-only file
+            (fragment("array_length(?, 1)", v.audio_codecs) > 0 or v.audio_count == 0) and
             not fragment(
               "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
               v.audio_codecs,
@@ -41,7 +47,7 @@ defmodule Reencodarr.Media.VideoQueries do
   end
 
   @doc """
-  Gets videos needing analysis (missing any essential metadata, not failed).
+  Gets videos needing analysis (missing any essential metadata, not failed, not reencoded).
 
   Essential metadata fields for proper analysis:
   - bitrate (must be present)
@@ -49,14 +55,14 @@ defmodule Reencodarr.Media.VideoQueries do
   - height (must be present)
   - duration (must be present and > 0.0)
   - video_codecs (must be non-empty array)
-  - audio_codecs (must be non-empty array)
+  - audio_codecs (must be non-empty array OR audio_count == 0 for video-only files)
   """
   @spec videos_needing_analysis(integer()) :: [map()]
   def videos_needing_analysis(limit \\ 10) do
     Repo.all(
       from v in Video,
         where:
-          v.failed == false and
+          v.failed == false and v.reencoded == false and
             (is_nil(v.bitrate) or
                is_nil(v.width) or
                is_nil(v.height) or
@@ -67,11 +73,12 @@ defmodule Reencodarr.Media.VideoQueries do
                  v.video_codecs,
                  v.video_codecs
                ) or
-               fragment(
-                 "array_length(?, 1) IS NULL OR array_length(?, 1) = 0",
-                 v.audio_codecs,
-                 v.audio_codecs
-               )),
+               # Audio codecs: need either audio tracks OR confirmed video-only (audio_count = 0)
+               (fragment(
+                  "array_length(?, 1) IS NULL OR array_length(?, 1) = 0",
+                  v.audio_codecs,
+                  v.audio_codecs
+                ) and (is_nil(v.audio_count) or v.audio_count > 0))),
         order_by: [
           desc: v.size,
           desc: v.inserted_at,
@@ -201,7 +208,8 @@ defmodule Reencodarr.Media.VideoQueries do
       not is_nil(vid.width) and not is_nil(vid.height) and
         not is_nil(vid.duration) and vid.duration > 0.0 and
         fragment("array_length(?, 1)", vid.video_codecs) > 0 and
-        fragment("array_length(?, 1)", vid.audio_codecs) > 0
+        # Audio codecs: either has audio tracks OR is video-only (audio_count = 0)
+        (fragment("array_length(?, 1)", vid.audio_codecs) > 0 or vid.audio_count == 0)
     )
   end
 
