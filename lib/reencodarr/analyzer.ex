@@ -10,31 +10,19 @@ defmodule Reencodarr.Analyzer do
 
   @doc """
   Process a video path. This function maintains compatibility with the old API
-  but now adds the video info to the Broadway pipeline.
+  but now triggers the Broadway pipeline to check for videos needing analysis.
   """
   @spec process_path(map()) :: :ok
-  def process_path(%{path: path} = video_info) do
+  def process_path(%{path: path} = _video_info) do
     Logger.debug("🎭 Processing video path: #{path}")
 
-    # For force_reanalyze videos, add them directly to the producer's manual queue
-    force_reanalyze = Map.get(video_info, :force_reanalyze, false)
+    case Broadway.dispatch_available() do
+      {:error, :producer_supervisor_not_found} ->
+        Logger.error("Producer supervisor not found, cannot trigger dispatch")
+        :ok
 
-    if force_reanalyze do
-      Logger.debug("🎭 Force reanalyze requested for #{path}, adding to Broadway queue")
-
-      case Broadway.process_path(video_info) do
-        {:error, :producer_supervisor_not_found} ->
-          Logger.error("Producer supervisor not found, cannot add video")
-          :ok
-
-        _ ->
-          :ok
-      end
-    else
-      # Normal videos will be picked up by the producer automatically when there's demand
-      # We don't need to trigger dispatch - Broadway handles this via demand
-      Logger.debug("🎭 Video will be processed when demand is available: #{path}")
-      :ok
+      _ ->
+        :ok
     end
   end
 
@@ -52,8 +40,7 @@ defmodule Reencodarr.Analyzer do
     process_path(%{
       path: path,
       service_id: service_id,
-      service_type: to_string(service_type),
-      force_reanalyze: true
+      service_type: to_string(service_type)
     })
   end
 

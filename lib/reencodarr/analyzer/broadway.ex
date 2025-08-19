@@ -31,12 +31,12 @@ defmodule Reencodarr.Analyzer.Broadway do
       processors: [
         default: [
           concurrency: 1,
-          max_demand: 5
+          max_demand: 1
         ]
       ],
       batchers: [
         default: [
-          batch_size: 5,
+          batch_size: 1,
           batch_timeout: 2_000,
           concurrency: 1
         ]
@@ -49,26 +49,22 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   @doc """
-  Add a video to the pipeline for processing.
-  """
-  def process_path(video_info) do
-    case Process.whereis(__MODULE__) do
-      nil ->
-        Logger.error("Producer supervisor not found, cannot add video")
-        {:error, :producer_supervisor_not_found}
-
-      _pid ->
-        Producer.add_video(video_info)
-    end
-  end
-
-  @doc """
   Check if the analyzer is running (not paused).
   """
   def running? do
     case Process.whereis(__MODULE__) do
       nil -> false
       _pid -> Producer.running?()
+    end
+  end
+
+  @doc """
+  Trigger the producer to check for videos needing analysis.
+  """
+  def dispatch_available do
+    case Process.whereis(__MODULE__) do
+      nil -> {:error, :producer_supervisor_not_found}
+      _pid -> Producer.dispatch_available()
     end
   end
 
@@ -97,6 +93,7 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   @impl Broadway
   def handle_message(_processor_name, message, _context) do
+    Logger.info("Broadway handle_message called with: #{inspect(message.data.path)}")
     # Individual messages are just passed through to be batched
     message
   end
@@ -106,7 +103,7 @@ defmodule Reencodarr.Analyzer.Broadway do
     start_time = System.monotonic_time(:millisecond)
     batch_size = length(messages)
 
-    Logger.debug("Processing batch of #{batch_size} videos with single mediainfo call")
+    Logger.info("Broadway processing batch of #{batch_size} videos with single mediainfo call")
 
     # Extract video_infos from messages
     video_infos = Enum.map(messages, & &1.data)
@@ -179,7 +176,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp process_videos_with_batch_mediainfo(video_infos, mediainfo_map) do
-    Logger.debug("Processing #{length(video_infos)} videos with batch-fetched mediainfo")
+    Logger.info("Processing #{length(video_infos)} videos with batch-fetched mediainfo")
 
     video_infos
     |> Task.async_stream(
@@ -192,7 +189,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp process_videos_individually(video_infos) do
-    Logger.debug("Processing #{length(video_infos)} videos individually")
+    Logger.info("Processing #{length(video_infos)} videos individually")
 
     video_infos
     |> Task.async_stream(
@@ -225,14 +222,16 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp process_video_with_mediainfo(video_info, mediainfo) do
+    Logger.info("Processing video with batch mediainfo: #{video_info.path}")
+
     with {:ok, _eligibility} <- check_processing_eligibility(video_info),
          {:ok, validated_mediainfo} <- validate_mediainfo(mediainfo, video_info.path),
          {:ok, _video} <- upsert_video_record(video_info, validated_mediainfo) do
-      Logger.debug("Successfully processed video: #{video_info.path}")
+      Logger.info("✅ Successfully processed video with batch mediainfo: #{video_info.path}")
       :ok
     else
       {:skip, reason} ->
-        Logger.debug("Skipping video #{video_info.path}: #{reason}")
+        Logger.info("Skipping video #{video_info.path}: #{reason}")
         :ok
 
       {:error, reason} ->
@@ -262,7 +261,7 @@ defmodule Reencodarr.Analyzer.Broadway do
          {:ok, mediainfo} <- fetch_single_mediainfo(video_info.path),
          {:ok, validated_mediainfo} <- validate_mediainfo(mediainfo, video_info.path),
          {:ok, _video} <- upsert_video_record(video_info, validated_mediainfo) do
-      Logger.debug("Successfully processed video: #{video_info.path}")
+      Logger.info("Successfully processed video: #{video_info.path}")
       :ok
     else
       {:skip, reason} ->
@@ -301,7 +300,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp decode_and_parse_single_mediainfo_json(json, path) do
-    Logger.debug("Decoding mediainfo JSON for #{path}")
+    Logger.info("Decoding mediainfo JSON for #{path}")
 
     try do
       case Jason.decode(json) do
@@ -350,7 +349,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp execute_batch_mediainfo_command(paths) when is_list(paths) and paths != [] do
-    Logger.debug("Executing batch mediainfo command for #{length(paths)} files")
+    Logger.info("Executing batch mediainfo command for #{length(paths)} files")
 
     case System.cmd("mediainfo", ["--Output=JSON" | paths]) do
       {json, 0} ->
@@ -364,7 +363,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   defp execute_batch_mediainfo_command([]), do: {:ok, %{}}
 
   defp decode_and_parse_batch_mediainfo_json(json, paths) do
-    Logger.debug("Decoding batch mediainfo JSON for #{length(paths)} files")
+    Logger.info("Decoding batch mediainfo JSON for #{length(paths)} files")
 
     try do
       case Jason.decode(json) do
@@ -384,23 +383,30 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp handle_decoded_mediainfo_data(media_info_list, _paths) when is_list(media_info_list) do
-    Logger.debug("Parsing mediainfo from list of #{length(media_info_list)} media objects")
+    Logger.info("Parsing mediainfo from list of #{length(media_info_list)} media objects")
     parse_batch_mediainfo_list(media_info_list)
   end
 
   defp handle_decoded_mediainfo_data(%{"media" => media_item}, _paths) when is_map(media_item) do
-    Logger.debug("Parsing mediainfo from single media object")
+    Logger.info("Parsing mediainfo from single media object")
     handle_single_media_object(media_item)
+  end
+
+  defp handle_decoded_mediainfo_data(data, [path]) when is_map(data) do
+    Logger.info("Handling single-file batch for: #{path}")
+    handle_single_file_batch(data, path)
   end
 
   defp handle_decoded_mediainfo_data(data, paths) when is_map(data) and length(paths) == 1 do
     handle_flat_mediainfo_structure(data, paths)
   end
 
-  defp handle_decoded_mediainfo_data(data, _paths) do
-    Logger.error(
-      "Unexpected JSON structure from batch mediainfo: #{inspect(data, pretty: true, limit: 1000)}"
+  defp handle_decoded_mediainfo_data(data, paths) do
+    Logger.warning(
+      "Unexpected JSON structure from batch mediainfo for #{length(paths)} files. Data type: #{inspect(data.__struct__ || :map)}, keys: #{inspect(Map.keys(data))}"
     )
+
+    Logger.debug("Full data: #{inspect(data, pretty: true, limit: 1000)}")
 
     {:error, "unexpected JSON structure"}
   end
@@ -418,24 +424,59 @@ defmodule Reencodarr.Analyzer.Broadway do
     end
   end
 
+  defp handle_single_file_batch(data, path) do
+    Logger.debug("Processing single file batch for: #{path}")
+    # Use the same logic as individual processing for consistency
+    case handle_decoded_single_mediainfo(data) do
+      {:ok, mediainfo} ->
+        Logger.debug("Successfully decoded MediaInfo for single file batch: #{path}")
+        {:ok, %{path => mediainfo}}
+
+      {:error, reason} ->
+        Logger.warning("Failed to decode MediaInfo for single file batch #{path}: #{reason}")
+        {:error, reason}
+    end
+  end
+
   defp handle_flat_mediainfo_structure(data, paths) do
     path = List.first(paths)
+
+    Logger.debug("Checking flat MediaInfo structure for single file: #{path}")
+    Logger.debug("Data keys: #{inspect(Map.keys(data))}")
 
     if valid_flat_mediainfo?(data) do
       Logger.debug("Detected flat MediaInfo structure for single file, wrapping in proper format")
 
       {:ok, %{path => %{"media" => data}}}
     else
+      Logger.warning(
+        "Unexpected JSON structure for single file #{path}: #{inspect(data, limit: :infinity)}"
+      )
+
       {:error, "unexpected JSON structure for single file"}
     end
   end
 
-  defp valid_flat_mediainfo?(data) do
-    Map.has_key?(data, "track") or
-      (Map.has_key?(data, "FileSize") and Map.has_key?(data, "Duration")) or
-      Map.has_key?(data, "Width") or Map.has_key?(data, "Height") or
-      Map.has_key?(data, "Format")
+  defp valid_flat_mediainfo?(data) when is_map(data) do
+    # Check for various MediaInfo JSON structures
+    has_track_key = Map.has_key?(data, "track")
+    has_media_key = Map.has_key?(data, "media")
+    has_file_props = Map.has_key?(data, "FileSize") and Map.has_key?(data, "Duration")
+    has_video_props = Map.has_key?(data, "Width") or Map.has_key?(data, "Height")
+    has_format = Map.has_key?(data, "Format")
+    has_ref = Map.has_key?(data, "@ref")
+
+    result =
+      has_track_key or has_media_key or has_file_props or has_video_props or has_format or has_ref
+
+    Logger.debug(
+      "Flat MediaInfo validation - track: #{has_track_key}, media: #{has_media_key}, file_props: #{has_file_props}, video_props: #{has_video_props}, format: #{has_format}, ref: #{has_ref} -> #{result}"
+    )
+
+    result
   end
+
+  defp valid_flat_mediainfo?(_), do: false
 
   defp parse_batch_mediainfo_list(media_info_list) do
     result_map =
@@ -499,39 +540,49 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   # Helper functions for video processing
 
-  defp extract_basic_fields_from_mediainfo(mediainfo) do
-    # Use the simple extractor to get all fields, then pick what we need
-    params = MediaInfoExtractor.extract_video_params(mediainfo, "unknown_path")
-
-    # Extract just the basic fields needed for VideoUpsert logic
-    basic_fields = %{
-      "size" => Map.get(params, :size),
-      "duration" => Map.get(params, :duration),
-      "bitrate" => Map.get(params, :bitrate)
-    }
-
-    {:ok, basic_fields}
-  rescue
-    e ->
-      {:error, "extraction failed: #{inspect(e)}"}
-  end
-
   defp check_processing_eligibility(video_info) do
     # Check if file exists
     if File.exists?(video_info.path) do
       {:ok, :eligible}
     else
-      {:skip, "file does not exist"}
+      Logger.warning("File does not exist, deleting video record: #{video_info.path}")
+      delete_missing_video_record(video_info.path)
+      {:skip, "file does not exist - record deleted"}
+    end
+  end
+
+  defp delete_missing_video_record(path) do
+    case Media.get_video_by_path(path) do
+      %Media.Video{} = video ->
+        case Media.delete_video(video) do
+          {:ok, _deleted_video} ->
+            Logger.info("Successfully deleted video record for missing file: #{path}")
+            :ok
+
+          {:error, changeset} ->
+            Logger.error(
+              "Failed to delete video record for #{path}: #{inspect(changeset.errors)}"
+            )
+
+            :error
+        end
+
+      nil ->
+        Logger.warning("Video record not found for missing file: #{path}")
+        :ok
     end
   end
 
   defp validate_mediainfo(mediainfo, path) do
+    Logger.debug("Validating mediainfo for: #{path}")
     # Basic validation that we have the expected structure
     case mediainfo do
       %{"media" => %{"track" => tracks}} when is_list(tracks) ->
+        Logger.debug("MediaInfo validation successful - has tracks: #{length(tracks)}")
         {:ok, mediainfo}
 
       %{"media" => _} ->
+        Logger.debug("MediaInfo validation successful - has media structure")
         {:ok, mediainfo}
 
       _ ->
@@ -541,29 +592,29 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp upsert_video_record(video_info, validated_mediainfo) do
-    # Pre-extract key fields from mediainfo for VideoUpsert logic
-    attrs =
-      case extract_basic_fields_from_mediainfo(validated_mediainfo) do
-        {:ok, basic_fields} ->
-          %{
+    Logger.debug("Starting upsert_video_record for: #{video_info.path}")
+    # Extract all fields from mediainfo for VideoUpsert
+    case MediaInfoExtractor.extract_video_params(validated_mediainfo, video_info.path) do
+      params when is_map(params) ->
+        Logger.debug("MediaInfo extraction successful, params keys: #{inspect(Map.keys(params))}")
+        # Convert all extracted params to string keys and add video metadata
+        attrs =
+          params
+          |> Enum.map(fn {k, v} -> {to_string(k), v} end)
+          |> Enum.into(%{})
+          |> Map.merge(%{
             "path" => video_info.path,
             "service_id" => video_info.service_id,
             "service_type" => to_string(video_info.service_type),
             "mediainfo" => validated_mediainfo
-          }
-          |> Map.merge(basic_fields)
+          })
 
-        {:error, _reason} ->
-          # Fallback to just mediainfo if extraction fails
-          %{
-            "path" => video_info.path,
-            "service_id" => video_info.service_id,
-            "service_type" => to_string(video_info.service_type),
-            "mediainfo" => validated_mediainfo
-          }
-      end
+        upsert_video_with_params(attrs, video_info)
 
-    upsert_video_with_params(attrs, video_info)
+      error ->
+        Logger.error("MediaInfo extraction failed for #{video_info.path}: #{inspect(error)}")
+        {:error, "mediainfo extraction failed"}
+    end
   end
 
   defp upsert_video_with_params(attrs, video_info) do
