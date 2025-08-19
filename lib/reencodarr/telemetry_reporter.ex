@@ -25,7 +25,7 @@ defmodule Reencodarr.TelemetryReporter do
   use GenServer
   require Logger
 
-  alias Reencodarr.{DashboardState, Core.Progress}
+  alias Reencodarr.{Core.Progress, DashboardState}
   alias Reencodarr.Statistics.{AnalyzerProgress, CrfSearchProgress, EncodingProgress}
 
   # Configuration constants

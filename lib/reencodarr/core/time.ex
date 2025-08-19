@@ -23,7 +23,7 @@ defmodule Reencodarr.Core.Time do
       unit when unit in ["second", "seconds"] -> time
       unit when unit in ["minute", "minutes"] -> time * 60
       unit when unit in ["hour", "hours"] -> time * 3600
-      unit when unit in ["day", "days"] -> time * 86400
+      unit when unit in ["day", "days"] -> time * 86_400
       unit when unit in ["week", "weeks"] -> time * 604_800
       unit when unit in ["month", "months"] -> time * 2_629_746
       unit when unit in ["year", "years"] -> time * 31_556_952
@@ -74,8 +74,8 @@ defmodule Reencodarr.Core.Time do
     cond do
       diff_seconds < 60 -> "just now"
       diff_seconds < 3600 -> "#{div(diff_seconds, 60)} minutes ago"
-      diff_seconds < 86400 -> "#{div(diff_seconds, 3600)} hours ago"
-      diff_seconds < 2_592_000 -> "#{div(diff_seconds, 86400)} days ago"
+      diff_seconds < 86_400 -> "#{div(diff_seconds, 3600)} hours ago"
+      diff_seconds < 2_592_000 -> "#{div(diff_seconds, 86_400)} days ago"
       diff_seconds < 31_556_952 -> "#{div(diff_seconds, 2_629_746)} months ago"
       true -> "#{div(diff_seconds, 31_556_952)} years ago"
     end

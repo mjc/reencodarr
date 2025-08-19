@@ -191,8 +191,8 @@ defmodule Reencodarr.Formatters do
     cond do
       diff_seconds < 60 -> "#{diff_seconds} seconds ago"
       diff_seconds < 3600 -> "#{div(diff_seconds, 60)} minutes ago"
-      diff_seconds < 86400 -> "#{div(diff_seconds, 3600)} hours ago"
-      diff_seconds < 2_592_000 -> "#{div(diff_seconds, 86400)} days ago"
+      diff_seconds < 86_400 -> "#{div(diff_seconds, 3600)} hours ago"
+      diff_seconds < 2_592_000 -> "#{div(diff_seconds, 86_400)} days ago"
       true -> "#{div(diff_seconds, 2_592_000)} months ago"
     end
   end
