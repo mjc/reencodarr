@@ -76,16 +76,21 @@ defmodule Reencodarr.Media.VideoQueriesTest do
         video_fixture(%{
           path: "/test/sample_no_analysis.mkv",
           bitrate: 5_000_000,
+          width: 1920,
+          height: 1080,
+          duration: 3600.0,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
           reencoded: false,
           failed: false
         })
 
       results = VideoQueries.videos_needing_analysis(10)
 
-      # This video should not be in the results since it has bitrate
+      # This video should not be in the results since it has all essential metadata
       found_video = Enum.find(results, fn v -> v.path == video.path end)
 
-      assert found_video == nil, "Expected video with bitrate to not need analysis"
+      assert found_video == nil, "Expected video with complete metadata to not need analysis"
     end
   end
 end

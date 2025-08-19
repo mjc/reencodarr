@@ -20,18 +20,25 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
     test "handles missing files gracefully" do
       nonexistent_file = "/nonexistent/video.mkv"
 
+      # Create a video record that doesn't exist on disk
+      {:ok, _video} =
+        Reencodarr.Media.create_video(%{
+          path: nonexistent_file,
+          size: 1000,
+          service_id: "1",
+          service_type: :sonarr
+        })
+
       log =
         capture_log(fn ->
           try do
-            Broadway.process_path(%{
-              path: nonexistent_file,
-              service_id: "1",
-              service_type: :sonarr,
-              force_reanalyze: false
-            })
+            # Start the producer and let it try to process videos
+            Broadway.resume()
 
             # Give it a moment to process
             Process.sleep(100)
+
+            Broadway.pause()
           rescue
             _ -> :ok
           end
