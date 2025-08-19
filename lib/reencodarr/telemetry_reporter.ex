@@ -168,9 +168,15 @@ defmodule Reencodarr.TelemetryReporter do
     old_state = Process.get(:last_emitted_state, DashboardState.initial())
 
     # Only emit telemetry if the change is significant to reduce LiveView update frequency
-    if DashboardState.significant_change?(old_state, new_state) do
-      Logger.debug(
-        "TelemetryReporter: Emitting state update - crf_searching: #{new_state.crf_searching}, crf_progress: #{inspect(new_state.crf_search_progress)}"
+    is_significant = DashboardState.significant_change?(old_state, new_state)
+
+    Logger.info(
+      "TelemetryReporter: significant_change? = #{is_significant}, old analyzer count: #{old_state.stats.queue_length.analyzer}, new analyzer count: #{new_state.stats.queue_length.analyzer}"
+    )
+
+    if is_significant do
+      Logger.info(
+        "TelemetryReporter: Emitting state update - analyzer queue: #{new_state.stats.queue_length.analyzer}"
       )
 
       # Emit telemetry event with minimal payload - only essential state for dashboard updates
