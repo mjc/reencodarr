@@ -1,8 +1,8 @@
 defmodule Reencodarr.MediaTest do
   use Reencodarr.DataCase, async: true
 
-  alias Reencodarr.Media
   alias Reencodarr.Fixtures
+  alias Reencodarr.Media
   import Reencodarr.MediaFixtures
 
   describe "videos" do

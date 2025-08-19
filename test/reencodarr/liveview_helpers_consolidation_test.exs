@@ -2,8 +2,8 @@ defmodule Reencodarr.LiveViewHelpersConsolidationTest do
   use ExUnit.Case, async: true
 
   alias Reencodarr.Formatters
-  alias ReencodarrWeb.Utils.TimeUtils
   alias ReencodarrWeb.DashboardLiveHelpers
+  alias ReencodarrWeb.Utils.TimeUtils
 
   describe "Formatters.format_file_size_gib/1" do
     test "converts bytes to GiB correctly" do
@@ -83,8 +83,8 @@ defmodule Reencodarr.LiveViewHelpersConsolidationTest do
 
       # Should be a float around 75xxx for 2025
       assert is_float(stardate)
-      assert stardate > 75000.0
-      assert stardate < 76000.0
+      assert stardate > 75_000.0
+      assert stardate < 76_000.0
     end
 
     test "handles edge cases gracefully" do
