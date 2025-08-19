@@ -82,11 +82,9 @@ defmodule ReencodarrWeb.LiveViewBase do
   Gets initial dashboard state with fallback for test environment.
   """
   def get_initial_dashboard_state do
-    try do
-      Reencodarr.DashboardState.initial()
-    rescue
-      _ -> %{}
-    end
+    Reencodarr.DashboardState.initial()
+  rescue
+    _ -> %{}
   end
 
   # Private helper functions

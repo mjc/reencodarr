@@ -294,12 +294,10 @@ defmodule Reencodarr.TestHelpers do
   Helper for testing Broadway error handling scenarios.
   """
   def test_broadway_error_handling(broadway_module, message) do
-    try do
-      broadway_module.process_path(message)
-    catch
-      kind, reason ->
-        # Broadway should handle errors gracefully, so catching here indicates a problem
-        flunk("Broadway pipeline crashed: #{inspect(kind)} #{inspect(reason)}")
-    end
+    broadway_module.process_path(message)
+  catch
+    kind, reason ->
+      # Broadway should handle errors gracefully, so catching here indicates a problem
+      flunk("Broadway pipeline crashed: #{inspect(kind)} #{inspect(reason)}")
   end
 end

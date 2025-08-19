@@ -75,14 +75,12 @@ defmodule Reencodarr.ErrorHelpers do
 
   """
   def with_error_logging(func, context \\ "") do
-    try do
-      func.()
-    rescue
-      e -> log_and_return_error({:exception, Exception.message(e)}, context)
-    catch
-      :exit, reason -> log_and_return_error({:exit, reason}, context)
-      :throw, value -> log_and_return_error({:throw, value}, context)
-    end
+    func.()
+  rescue
+    e -> log_and_return_error({:exception, Exception.message(e)}, context)
+  catch
+    :exit, reason -> log_and_return_error({:exit, reason}, context)
+    :throw, value -> log_and_return_error({:throw, value}, context)
   end
 
   @doc """

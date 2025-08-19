@@ -124,13 +124,11 @@ defmodule Reencodarr.Utils do
   Wraps a function call with error logging and exception handling.
   """
   def safely(func, context \\ "") do
-    try do
-      func.()
-    rescue
-      e -> log_error({:exception, Exception.message(e)}, context)
-    catch
-      :throw, value -> log_error({:throw, value}, context)
-    end
+    func.()
+  rescue
+    e -> log_error({:exception, Exception.message(e)}, context)
+  catch
+    :throw, value -> log_error({:throw, value}, context)
   end
 
   # === GUARD MACROS ===
