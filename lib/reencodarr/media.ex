@@ -24,6 +24,10 @@ defmodule Reencodarr.Media do
     VideoQueries.videos_needing_analysis(limit)
   end
 
+  def count_videos_needing_analysis do
+    VideoQueries.count_videos_needing_analysis()
+  end
+
   # Query for videos ready for encoding (chosen VMAFs with valid videos)
   defp query_videos_ready_for_encoding(limit) do
     VideoQueries.videos_ready_for_encoding(limit)
