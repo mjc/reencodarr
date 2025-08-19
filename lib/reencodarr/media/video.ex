@@ -77,6 +77,18 @@ defmodule Reencodarr.Media.Video do
     field :mediainfo, :map
     field :failed, :boolean, default: false
 
+    field :state, Ecto.Enum,
+      values: [
+        :needs_analysis,
+        :analyzed,
+        :crf_searching,
+        :crf_searched,
+        :encoding,
+        :encoded,
+        :failed
+      ],
+      default: :needs_analysis
+
     belongs_to :library, Reencodarr.Media.Library
     has_many :vmafs, Reencodarr.Media.Vmaf
     has_many :failures, Reencodarr.Media.VideoFailure
