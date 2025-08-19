@@ -41,13 +41,37 @@ defmodule Reencodarr.Media.VideoQueries do
   end
 
   @doc """
-  Gets videos needing analysis (no bitrate calculated, not failed).
+  Gets videos needing analysis (missing any essential metadata, not failed).
+
+  Essential metadata fields for proper analysis:
+  - bitrate (must be present)
+  - width (must be present)
+  - height (must be present)
+  - duration (must be present and > 0.0)
+  - video_codecs (must be non-empty array)
+  - audio_codecs (must be non-empty array)
   """
   @spec videos_needing_analysis(integer()) :: [map()]
   def videos_needing_analysis(limit \\ 10) do
     Repo.all(
       from v in Video,
-        where: is_nil(v.bitrate) and v.failed == false,
+        where:
+          v.failed == false and
+            (is_nil(v.bitrate) or
+               is_nil(v.width) or
+               is_nil(v.height) or
+               is_nil(v.duration) or
+               v.duration <= 0.0 or
+               fragment(
+                 "array_length(?, 1) IS NULL OR array_length(?, 1) = 0",
+                 v.video_codecs,
+                 v.video_codecs
+               ) or
+               fragment(
+                 "array_length(?, 1) IS NULL OR array_length(?, 1) = 0",
+                 v.audio_codecs,
+                 v.audio_codecs
+               )),
         order_by: [
           desc: v.size,
           desc: v.inserted_at,
@@ -57,8 +81,7 @@ defmodule Reencodarr.Media.VideoQueries do
         select: %{
           path: v.path,
           service_id: v.service_id,
-          service_type: v.service_type,
-          force_reanalyze: false
+          service_type: v.service_type
         }
     )
   end
@@ -124,40 +147,62 @@ defmodule Reencodarr.Media.VideoQueries do
 
   defp fetch_videos_alternating_libraries(library_ids, service_type, limit) do
     videos_per_library = max(1, div(limit, length(library_ids)) + 1)
-
-    videos_by_library =
-      library_ids
-      |> Task.async_stream(
-        fn library_id ->
-          videos =
-            Repo.all(
-              from v in Vmaf,
-                join: vid in assoc(v, :video),
-                # Ensure video is properly analyzed before encoding
-                where:
-                  v.chosen == true and vid.reencoded == false and vid.failed == false and
-                    vid.library_id == ^library_id and vid.service_type == ^service_type and
-                    not is_nil(vid.width) and not is_nil(vid.height) and
-                    not is_nil(vid.duration) and vid.duration > 0.0 and
-                    fragment("array_length(?, 1)", vid.video_codecs) > 0 and
-                    fragment("array_length(?, 1)", vid.audio_codecs) > 0,
-                order_by: [
-                  fragment("? DESC NULLS LAST", v.savings),
-                  asc: v.percent,
-                  asc: v.time
-                ],
-                limit: ^videos_per_library,
-                preload: [:video]
-            )
-
-          {library_id, videos}
-        end,
-        max_concurrency: System.schedulers_online()
-      )
-      |> Enum.map(fn {:ok, result} -> result end)
-      |> Enum.into(%{})
-
+    videos_by_library = fetch_videos_by_library(library_ids, service_type, videos_per_library)
     alternate_libraries(videos_by_library, library_ids, limit)
+  end
+
+  defp fetch_videos_by_library(library_ids, service_type, videos_per_library) do
+    library_ids
+    |> Task.async_stream(
+      fn library_id ->
+        videos = fetch_library_videos(library_id, service_type, videos_per_library)
+        {library_id, videos}
+      end,
+      max_concurrency: System.schedulers_online()
+    )
+    |> Enum.map(fn {:ok, result} -> result end)
+    |> Enum.into(%{})
+  end
+
+  defp fetch_library_videos(library_id, service_type, videos_per_library) do
+    Repo.all(
+      from v in Vmaf,
+        join: vid in assoc(v, :video),
+        # Ensure video is properly analyzed before encoding
+        where: ^build_encoding_where_clause(library_id, service_type),
+        order_by: [
+          fragment("? DESC NULLS LAST", v.savings),
+          asc: v.percent,
+          asc: v.time
+        ],
+        limit: ^videos_per_library,
+        preload: [:video]
+    )
+  end
+
+  defp build_encoding_where_clause(library_id, service_type) do
+    base_conditions = build_base_video_conditions(library_id, service_type)
+    analysis_conditions = build_analysis_conditions()
+
+    dynamic([v, vid], ^base_conditions and ^analysis_conditions)
+  end
+
+  defp build_base_video_conditions(library_id, service_type) do
+    dynamic(
+      [v, vid],
+      v.chosen == true and vid.reencoded == false and vid.failed == false and
+        vid.library_id == ^library_id and vid.service_type == ^service_type
+    )
+  end
+
+  defp build_analysis_conditions do
+    dynamic(
+      [v, vid],
+      not is_nil(vid.width) and not is_nil(vid.height) and
+        not is_nil(vid.duration) and vid.duration > 0.0 and
+        fragment("array_length(?, 1)", vid.video_codecs) > 0 and
+        fragment("array_length(?, 1)", vid.audio_codecs) > 0
+    )
   end
 
   # Alternate between Sonarr and Radarr with 9:1 ratio
