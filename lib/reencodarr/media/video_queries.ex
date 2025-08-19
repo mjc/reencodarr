@@ -10,7 +10,7 @@ defmodule Reencodarr.Media.VideoQueries do
   alias Reencodarr.{Media.Video, Media.Vmaf, Repo}
 
   @doc """
-  Gets videos ready for CRF search (no existing VMAFs, not reencoded/failed, not AV1/Opus, fully analyzed).
+  Gets videos ready for CRF search (state: analyzed, no existing VMAFs, not AV1/Opus).
   """
   @spec videos_for_crf_search(integer()) :: [Video.t()]
   def videos_for_crf_search(limit \\ 10) do
@@ -18,14 +18,10 @@ defmodule Reencodarr.Media.VideoQueries do
       from v in Video,
         left_join: m in Vmaf,
         on: m.video_id == v.id,
+        # Exclude videos that already have desired codecs (AV1/Opus)
         where:
-          is_nil(m.id) and v.reencoded == false and v.failed == false and
-            # Ensure video is fully analyzed first
-            not is_nil(v.bitrate) and not is_nil(v.width) and not is_nil(v.height) and
-            not is_nil(v.duration) and v.duration > 0.0 and
-            fragment("array_length(?, 1)", v.video_codecs) > 0 and
-            # Audio codecs check: either has audio tracks OR is a video-only file
-            (fragment("array_length(?, 1)", v.audio_codecs) > 0 or v.audio_count == 0) and
+          v.state == :analyzed and
+            is_nil(m.id) and
             not fragment(
               "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
               v.audio_codecs,
@@ -36,49 +32,22 @@ defmodule Reencodarr.Media.VideoQueries do
               v.video_codecs,
               "%av1%"
             ),
-        order_by: [
-          desc: v.bitrate,
-          desc: v.size,
-          asc: v.updated_at
-        ],
+        order_by: [desc: v.bitrate, desc: v.size, asc: v.updated_at],
         limit: ^limit,
         select: v
     )
   end
 
   @doc """
-  Gets videos needing analysis (missing any essential metadata, not failed, not reencoded).
+  Gets videos needing analysis (state: needs_analysis).
 
-  Essential metadata fields for proper analysis:
-  - bitrate (must be present)
-  - width (must be present)
-  - height (must be present)
-  - duration (must be present and > 0.0)
-  - video_codecs (must be non-empty array)
-  - audio_codecs (must be non-empty array OR audio_count == 0 for video-only files)
+  These videos lack required metadata and need MediaInfo analysis.
   """
   @spec videos_needing_analysis(integer()) :: [map()]
   def videos_needing_analysis(limit \\ 10) do
     Repo.all(
       from v in Video,
-        where:
-          v.failed == false and v.reencoded == false and
-            (is_nil(v.bitrate) or
-               is_nil(v.width) or
-               is_nil(v.height) or
-               is_nil(v.duration) or
-               v.duration <= 0.0 or
-               fragment(
-                 "array_length(?, 1) IS NULL OR array_length(?, 1) = 0",
-                 v.video_codecs,
-                 v.video_codecs
-               ) or
-               # Audio codecs: need either audio tracks OR confirmed video-only (audio_count = 0)
-               (fragment(
-                  "array_length(?, 1) IS NULL OR array_length(?, 1) = 0",
-                  v.audio_codecs,
-                  v.audio_codecs
-                ) and (is_nil(v.audio_count) or v.audio_count > 0))),
+        where: v.state == :needs_analysis,
         order_by: [
           desc: v.size,
           desc: v.inserted_at,
@@ -90,6 +59,18 @@ defmodule Reencodarr.Media.VideoQueries do
           service_id: v.service_id,
           service_type: v.service_type
         }
+    )
+  end
+
+  @doc """
+  Counts the total number of videos needing analysis.
+  """
+  @spec count_videos_needing_analysis() :: integer()
+  def count_videos_needing_analysis do
+    Repo.one(
+      from v in Video,
+        where: v.state == :needs_analysis,
+        select: count()
     )
   end
 
@@ -113,13 +94,7 @@ defmodule Reencodarr.Media.VideoQueries do
     Repo.one(
       from v in Vmaf,
         join: vid in assoc(v, :video),
-        # Ensure video is properly analyzed before encoding
-        where:
-          v.chosen == true and vid.reencoded == false and vid.failed == false and
-            not is_nil(vid.width) and not is_nil(vid.height) and
-            not is_nil(vid.duration) and vid.duration > 0.0 and
-            fragment("array_length(?, 1)", vid.video_codecs) > 0 and
-            fragment("array_length(?, 1)", vid.audio_codecs) > 0,
+        where: v.chosen == true and vid.state == :crf_searched,
         select: count(v.id)
     )
   end
@@ -188,28 +163,15 @@ defmodule Reencodarr.Media.VideoQueries do
   end
 
   defp build_encoding_where_clause(library_id, service_type) do
-    base_conditions = build_base_video_conditions(library_id, service_type)
-    analysis_conditions = build_analysis_conditions()
-
-    dynamic([v, vid], ^base_conditions and ^analysis_conditions)
+    # Only use base conditions since state already ensures proper analysis
+    build_base_video_conditions(library_id, service_type)
   end
 
   defp build_base_video_conditions(library_id, service_type) do
     dynamic(
       [v, vid],
-      v.chosen == true and vid.reencoded == false and vid.failed == false and
+      v.chosen == true and vid.state == :crf_searched and
         vid.library_id == ^library_id and vid.service_type == ^service_type
-    )
-  end
-
-  defp build_analysis_conditions do
-    dynamic(
-      [v, vid],
-      not is_nil(vid.width) and not is_nil(vid.height) and
-        not is_nil(vid.duration) and vid.duration > 0.0 and
-        fragment("array_length(?, 1)", vid.video_codecs) > 0 and
-        # Audio codecs: either has audio tracks OR is video-only (audio_count = 0)
-        (fragment("array_length(?, 1)", vid.audio_codecs) > 0 or vid.audio_count == 0)
     )
   end
 
