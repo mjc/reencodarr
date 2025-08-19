@@ -96,6 +96,10 @@ defmodule Reencodarr.TelemetryEventHandler do
   def handle_event([:reencodarr, :analyzer, :queue_changed], measurements, metadata, %{
         reporter_pid: pid
       }) do
+    Logger.info(
+      "TelemetryEventHandler: Analyzer queue_changed - measurements: #{inspect(measurements)}, metadata keys: #{inspect(Map.keys(metadata))}"
+    )
+
     GenServer.cast(pid, {:update_queue_state, :analyzer, measurements, metadata})
   end
 
