@@ -73,22 +73,20 @@ defmodule Reencodarr.Errors do
   Wraps a function call with error handling and logging.
   """
   def with_error_handling(fun, context) when is_function(fun, 0) do
-    try do
-      case fun.() do
-        {:ok, result} ->
-          {:ok, result}
+    case fun.() do
+      {:ok, result} ->
+        {:ok, result}
 
-        {:error, reason} ->
-          error_msg = "#{context}: #{inspect(reason)}"
-          log_and_return_error(error_msg)
-
-        result ->
-          result
-      end
-    rescue
-      exception ->
-        error_msg = "#{context} failed with exception: #{inspect(exception)}"
+      {:error, reason} ->
+        error_msg = "#{context}: #{inspect(reason)}"
         log_and_return_error(error_msg)
+
+      result ->
+        result
     end
+  rescue
+    exception ->
+      error_msg = "#{context} failed with exception: #{inspect(exception)}"
+      log_and_return_error(error_msg)
   end
 end

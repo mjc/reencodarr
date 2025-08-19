@@ -111,46 +111,50 @@ defmodule Reencodarr.AbAv1.Helper do
     # Copy original file to temp location
     case File.cp(file_path, cleaned_path) do
       :ok ->
-        # Remove different image attachment types
-        attachment_types = ["image/jpg", "image/jpeg", "image/png"]
-
-        success =
-          Enum.all?(attachment_types, fn mime_type ->
-            case System.cmd(
-                   "mkvpropedit",
-                   ["--delete-attachment", "mime-type:#{mime_type}", cleaned_path],
-                   stderr_to_stdout: true
-                 ) do
-              {_output, 0} ->
-                true
-
-              # Exit code 2 means "no attachments of this type found" - that's OK
-              {_output, 2} ->
-                true
-
-              {output, exit_code} ->
-                Logger.warning(
-                  "mkvpropedit failed for #{mime_type} on #{cleaned_path}: exit #{exit_code}, output: #{output}"
-                )
-
-                # Continue with other types even if one fails
-                true
-            end
-          end)
-
-        if success do
-          Logger.info("Successfully cleaned image attachments from #{file_path}")
-          {:ok, cleaned_path}
-        else
-          # If cleaning failed, fall back to original file
-          File.rm(cleaned_path)
-          Logger.warning("Failed to clean attachments, using original file: #{file_path}")
-          {:ok, file_path}
-        end
+        process_attachment_removal(file_path, cleaned_path)
 
       {:error, reason} ->
         Logger.error("Failed to copy file for cleaning: #{inspect(reason)}")
         {:error, reason}
+    end
+  end
+
+  defp process_attachment_removal(original_path, cleaned_path) do
+    attachment_types = ["image/jpg", "image/jpeg", "image/png"]
+
+    success = Enum.all?(attachment_types, &remove_attachment_type(&1, cleaned_path))
+
+    if success do
+      Logger.info("Successfully cleaned image attachments from #{original_path}")
+      {:ok, cleaned_path}
+    else
+      # If cleaning failed, fall back to original file
+      File.rm(cleaned_path)
+      Logger.warning("Failed to clean attachments, using original file: #{original_path}")
+      {:ok, original_path}
+    end
+  end
+
+  defp remove_attachment_type(mime_type, cleaned_path) do
+    case System.cmd(
+           "mkvpropedit",
+           ["--delete-attachment", "mime-type:#{mime_type}", cleaned_path],
+           stderr_to_stdout: true
+         ) do
+      {_output, 0} ->
+        true
+
+      # Exit code 2 means "no attachments of this type found" - that's OK
+      {_output, 2} ->
+        true
+
+      {output, exit_code} ->
+        Logger.warning(
+          "mkvpropedit failed for #{mime_type} on #{cleaned_path}: exit #{exit_code}, output: #{output}"
+        )
+
+        # Continue with other types even if one fails
+        true
     end
   end
 

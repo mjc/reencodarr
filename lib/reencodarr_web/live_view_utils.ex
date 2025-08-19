@@ -116,11 +116,9 @@ defmodule ReencodarrWeb.LiveViewUtils do
   Gets initial dashboard state with fallback for test environment.
   """
   def get_initial_dashboard_state do
-    try do
-      Reencodarr.DashboardState.initial()
-    rescue
-      _ -> %{}
-    end
+    Reencodarr.DashboardState.initial()
+  rescue
+    _ -> %{}
   end
 
   @doc """
@@ -152,10 +150,8 @@ defmodule ReencodarrWeb.LiveViewUtils do
   Safely handles telemetry events for LiveViews.
   """
   def handle_telemetry_event(socket, event_data) do
-    try do
-      assign(socket, :telemetry_data, event_data)
-    rescue
-      _ -> socket
-    end
+    assign(socket, :telemetry_data, event_data)
+  rescue
+    _ -> socket
   end
 end

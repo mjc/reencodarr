@@ -67,26 +67,26 @@ defmodule Reencodarr.AbAv1.OutputParser do
     result =
       Enum.find_value(pattern_attempts, fn {pattern_key, type} ->
         field_mapping = field_mappings()[pattern_key]
-
-        if field_mapping do
-          # Special handling for encoding_start which uses custom transformations
-          if pattern_key == :encoding_start do
-            case parse_encoding_start_pattern(line) do
-              nil -> nil
-              data -> {:ok, %{type: type, data: data}}
-            end
-          else
-            case Parsers.parse_with_pattern(line, pattern_key, @patterns, field_mapping) do
-              nil -> nil
-              data -> {:ok, %{type: type, data: data}}
-            end
-          end
-        else
-          nil
-        end
+        parse_pattern_with_mapping(line, pattern_key, type, field_mapping)
       end)
 
     result || :ignore
+  end
+
+  defp parse_pattern_with_mapping(_line, _pattern_key, _type, nil), do: nil
+
+  defp parse_pattern_with_mapping(line, :encoding_start, type, _field_mapping) do
+    case parse_encoding_start_pattern(line) do
+      nil -> nil
+      data -> {:ok, %{type: type, data: data}}
+    end
+  end
+
+  defp parse_pattern_with_mapping(line, pattern_key, type, field_mapping) do
+    case Parsers.parse_with_pattern(line, pattern_key, @patterns, field_mapping) do
+      nil -> nil
+      data -> {:ok, %{type: type, data: data}}
+    end
   end
 
   # Special parser for encoding_start pattern with custom transformations
