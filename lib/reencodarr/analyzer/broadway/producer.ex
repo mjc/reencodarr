@@ -1,6 +1,11 @@
 defmodule Reencodarr.Analyzer.Broadway.Producer do
   @moduledoc """
-  Broadway producer for analyzer operations.
+  Broadway produc     {:producer,
+     %State{
+       demand: 0,
+       status: :paused,
+       queue: :queue.new()
+     }}analyzer operations.
 
   This producer dispatches videos for analysis in batches of up to 5,
   managing demand and batch processing for optimal mediainfo usage.
@@ -8,7 +13,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   use GenStage
   require Logger
-  alias Reencodarr.Analyzer.QueueManager
   alias Reencodarr.{Media, Telemetry}
 
   @broadway_name Reencodarr.Analyzer.Broadway
@@ -18,8 +22,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     defstruct [
       :demand,
       :status,
-      :queue,
-      :manual_queue
+      :queue
     ]
 
     def update(state, updates) when is_struct(state, __MODULE__) do
@@ -42,7 +45,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   def pause, do: send_to_producer(:pause)
   def resume, do: send_to_producer(:resume)
   def dispatch_available, do: send_to_producer(:dispatch_available)
-  def add_video(video_info), do: send_to_producer({:add_video, video_info})
 
   # Alias for API compatibility
   def start, do: resume()
@@ -89,8 +91,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
      %State{
        demand: 0,
        status: :paused,
-       queue: :queue.new(),
-       manual_queue: []
+       queue: :queue.new()
      }}
   end
 
@@ -141,24 +142,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   end
 
   @impl GenStage
-  def handle_cast({:add_video, video_info}, state) do
-    Logger.debug("Adding video to Broadway queue: #{video_info.path}")
-
-    Logger.debug(
-      "Current state - demand: #{state.demand}, status: #{state.status}, queue size: #{length(state.manual_queue)}"
-    )
-
-    new_manual_queue = [video_info | state.manual_queue]
-    new_state = State.update(state, manual_queue: new_manual_queue)
-    Logger.debug("After adding - queue size: #{length(new_state.manual_queue)}")
-
-    # Broadcast queue state change
-    broadcast_queue_state(new_state.manual_queue)
-
-    dispatch_if_ready(new_state)
-  end
-
-  @impl GenStage
   def handle_cast(:dispatch_available, state) do
     # Trigger dispatch to check for videos that need analysis
     dispatch_if_ready(state)
@@ -166,7 +149,10 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_demand(demand, state) when demand > 0 do
-    Logger.debug("Broadway producer received demand for #{demand} items")
+    Logger.info(
+      "Broadway producer received demand for #{demand} items - current state: #{state.status}"
+    )
+
     new_state = State.update(state, demand: state.demand + demand)
     dispatch_if_ready(new_state)
   end
@@ -240,80 +226,47 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   end
 
   defp dispatch_if_ready(state) do
-    Logger.debug(
-      "dispatch_if_ready called - demand: #{state.demand}, status: #{state.status}, queue size: #{length(state.manual_queue)}"
-    )
+    Logger.debug("dispatch_if_ready called - demand: #{state.demand}, status: #{state.status}")
 
     if state.status == :running and state.demand > 0 do
       Logger.debug("Conditions met, dispatching videos")
       dispatch_videos(state)
     else
-      Logger.debug("Conditions not met for dispatch")
+      Logger.debug(
+        "Conditions not met for dispatch - status: #{state.status}, demand: #{state.demand}"
+      )
+
       {:noreply, [], state}
     end
   end
 
-  defp broadcast_queue_state(manual_queue) do
-    queue_items =
-      Enum.map(manual_queue, fn video_info ->
-        %{path: video_info.path, service_id: video_info.service_id}
-      end)
-
-    # Update the QueueManager with current queue state
-    QueueManager.broadcast_queue_update(queue_items)
-
-    # Also broadcast to analyzer topic for backward compatibility
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "analyzer",
-      {:analyzer, :queue_updated, queue_items}
-    )
-  end
-
   defp dispatch_videos(state) do
-    # First, dispatch any manually queued videos (e.g., force_reanalyze)
-    {manual_videos, remaining_manual} = Enum.split(state.manual_queue, state.demand)
+    if state.demand > 0 do
+      # Get one video from database that needs analysis
+      case Media.get_videos_needing_analysis(1) do
+        [video | _] ->
+          Logger.debug("Broadway producer dispatching video for analysis: #{video.path}")
+          new_demand = state.demand - 1
+          new_state = State.update(state, demand: new_demand)
 
-    dispatched_count = length(manual_videos)
-    remaining_demand = state.demand - dispatched_count
+          # Emit telemetry event for queue state change
+          :telemetry.execute(
+            [:reencodarr, :analyzer, :queue_changed],
+            %{dispatched_count: 1, remaining_demand: new_demand},
+            %{
+              next_video: video,
+              database_queue_available: new_demand > 0
+            }
+          )
 
-    # If we still have demand after manual videos, get videos from the database
-    database_videos =
-      if remaining_demand > 0 do
-        Media.get_videos_needing_analysis(remaining_demand)
-      else
-        []
+          {:noreply, [video], new_state}
+
+        [] ->
+          # No videos available, keep the demand for later
+          {:noreply, [], state}
       end
-
-    all_videos = manual_videos ++ database_videos
-
-    case all_videos do
-      [] ->
-        # No videos available, keep the demand for later
-        {:noreply, [], state}
-
-      videos ->
-        Logger.debug("Broadway producer dispatching #{length(videos)} videos for analysis")
-        new_demand = state.demand - length(videos)
-        new_state = State.update(state, demand: new_demand, manual_queue: remaining_manual)
-
-        # Emit telemetry event for queue state change
-        :telemetry.execute(
-          [:reencodarr, :analyzer, :queue_changed],
-          %{dispatched_count: length(videos), remaining_demand: new_demand},
-          %{
-            next_videos: Enum.take(all_videos, 5),
-            manual_queue_size: length(remaining_manual),
-            database_queue_available: remaining_demand > 0
-          }
-        )
-
-        # Broadcast queue state change if manual queue changed
-        if length(remaining_manual) != length(state.manual_queue) do
-          broadcast_queue_state(remaining_manual)
-        end
-
-        {:noreply, videos, new_state}
+    else
+      {:noreply, [], state}
     end
   end
 
@@ -367,14 +320,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   defp get_producer_state(producer_pid) do
     state = GenStage.call(producer_pid, :get_state, 1000)
 
-    IO.puts(
-      "State: demand=#{state.demand}, status=#{state.status}, queue_size=#{length(state.manual_queue)}"
-    )
-
-    if not Enum.empty?(state.manual_queue) do
-      IO.puts("Manual queue contents:")
-      Enum.each(state.manual_queue, fn video -> IO.puts("  - #{video.path}") end)
-    end
+    IO.puts("State: demand=#{state.demand}, status=#{state.status}")
 
     # Get up to 5 videos from queue or database for batching
     case get_next_videos(state, min(state.demand, 5)) do
@@ -436,8 +382,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     next_videos = get_next_videos_for_telemetry(state)
 
     measurements = %{
-      queue_size: :queue.len(state.queue),
-      manual_queue_size: length(state.manual_queue)
+      queue_size: :queue.len(state.queue)
     }
 
     metadata = %{
@@ -449,19 +394,9 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   end
 
   # Get next videos for telemetry (similar to dispatch_videos logic but without state changes)
-  defp get_next_videos_for_telemetry(state) do
-    # Take from manual queue first
-    manual_videos = Enum.take(state.manual_queue, 5)
-    remaining_needed = 5 - length(manual_videos)
-
-    # Get additional videos from database if needed
-    db_videos =
-      if remaining_needed > 0 do
-        Media.get_videos_needing_analysis(remaining_needed)
-      else
-        []
-      end
-
-    manual_videos ++ db_videos
+  defp get_next_videos_for_telemetry(_state) do
+    # Get videos from database that need analysis
+    db_videos = Media.get_videos_needing_analysis(5)
+    db_videos
   end
 end
