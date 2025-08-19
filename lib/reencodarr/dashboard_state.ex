@@ -71,7 +71,7 @@ defmodule Reencodarr.DashboardState do
     videos_by_estimated_percent = Media.list_videos_by_estimated_percent(10) || []
 
     # Count total items in queues
-    analyzer_count = count_analyzer_queue()
+    analyzer_count = Media.count_videos_needing_analysis()
     crf_search_count = count_crf_search_queue()
     encode_count = VideoQueries.encoding_queue_count()
 
@@ -86,18 +86,6 @@ defmodule Reencodarr.DashboardState do
       },
       encode_queue_length: encode_count || 0
     }
-  end
-
-  defp count_analyzer_queue do
-    alias Reencodarr.Media.Video
-    alias Reencodarr.Repo
-    import Ecto.Query
-
-    Repo.one(
-      from v in Video,
-        where: is_nil(v.bitrate) and v.failed == false,
-        select: count(v.id)
-    )
   end
 
   defp count_crf_search_queue do
@@ -226,13 +214,48 @@ defmodule Reencodarr.DashboardState do
   @doc """
   Updates queue state based on Broadway producer telemetry events.
   """
-  def update_queue_state(%__MODULE__{stats: stats} = state, queue_type, _measurements, metadata) do
+  def update_queue_state(%__MODULE__{stats: stats} = state, queue_type, measurements, metadata) do
+    Logger.info(
+      "DashboardState.update_queue_state - queue_type: #{queue_type}, measurements: #{inspect(measurements)}"
+    )
+
     new_stats =
       case queue_type do
-        :analyzer -> %{stats | next_analyzer: Map.get(metadata, :next_videos, [])}
-        :crf_searcher -> %{stats | next_crf_search: Map.get(metadata, :next_videos, [])}
-        :encoder -> %{stats | videos_by_estimated_percent: Map.get(metadata, :next_vmafs, [])}
-        _ -> stats
+        :analyzer ->
+          new_queue_length = %{
+            stats.queue_length
+            | analyzer: Map.get(measurements, :queue_size, 0)
+          }
+
+          Logger.info(
+            "DashboardState - updating analyzer queue_length to: #{new_queue_length.analyzer}"
+          )
+
+          %{
+            stats
+            | next_analyzer: Map.get(metadata, :next_videos, []),
+              queue_length: new_queue_length
+          }
+
+        :crf_searcher ->
+          %{
+            stats
+            | next_crf_search: Map.get(metadata, :next_videos, []),
+              queue_length: %{
+                stats.queue_length
+                | crf_searches: Map.get(measurements, :queue_size, 0)
+              }
+          }
+
+        :encoder ->
+          %{
+            stats
+            | videos_by_estimated_percent: Map.get(metadata, :next_vmafs, []),
+              queue_length: %{stats.queue_length | encodes: Map.get(measurements, :queue_size, 0)}
+          }
+
+        _ ->
+          stats
       end
 
     %{state | stats: new_stats}
@@ -273,7 +296,10 @@ defmodule Reencodarr.DashboardState do
     length(old_stats.next_analyzer) != length(new_stats.next_analyzer) or
       length(old_stats.next_crf_search) != length(new_stats.next_crf_search) or
       length(old_stats.videos_by_estimated_percent) !=
-        length(new_stats.videos_by_estimated_percent)
+        length(new_stats.videos_by_estimated_percent) or
+      old_stats.queue_length.analyzer != new_stats.queue_length.analyzer or
+      old_stats.queue_length.crf_searches != new_stats.queue_length.crf_searches or
+      old_stats.queue_length.encodes != new_stats.queue_length.encodes
   end
 
   # Check if progress data changed significantly (>1% change or filename change)
