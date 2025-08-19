@@ -584,8 +584,7 @@ defmodule Reencodarr.Media do
           Reencodarr.Analyzer.process_path(%{
             path: video.path,
             service_id: video.service_id,
-            service_type: video.service_type,
-            force_reanalyze: true
+            service_type: video.service_type
           })
 
           video.path
@@ -891,8 +890,7 @@ defmodule Reencodarr.Media do
           Reencodarr.Analyzer.process_path(%{
             path: path,
             service_id: service_id,
-            service_type: service_type,
-            force_reanalyze: true
+            service_type: service_type
           })
 
         result2 = Reencodarr.Analyzer.reanalyze_video(video.id)
