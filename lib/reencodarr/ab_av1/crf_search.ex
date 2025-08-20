@@ -130,10 +130,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         {:crf_search_completed, video.id, :skipped}
       )
     else
-      Logger.info(
-        "Initiating crf search for video #{video.id} (#{Path.basename(video.path)}) with target VMAF: #{vmaf_percent}"
-      )
-
       GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
     end
 
@@ -210,10 +206,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
-    Logger.info(
-      "🎬 AbAv1: Starting CRF search for video #{video.id} (#{video.title}) - target VMAF: #{vmaf_percent}%"
-    )
-
     args = build_crf_search_args(video, vmaf_percent)
 
     new_state = %{
@@ -740,9 +732,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp handle_vmaf_size_check(vmaf, video, crf) do
     case check_vmaf_size_limit(vmaf, video) do
       :ok ->
-        Logger.info(
-          "CrfSearch: Chosen VMAF CRF #{crf} is within size limits for video #{video.id}"
-        )
+        :ok
 
       {:error, :size_too_large} ->
         handle_size_limit_exceeded(video, crf)

@@ -106,13 +106,39 @@ defmodule Reencodarr.Media.VideoUpsert do
   end
 
   defp perform_upsert(final_attrs, conflict_except, original_attrs) do
+    # Debug: Log state transition attempts for analyzer infinite loop debugging
+    if Map.get(final_attrs, "state") == "analyzed" do
+      path = Map.get(final_attrs, "path")
+      Logger.debug("🔍 Attempting state transition to 'analyzed' for #{Path.basename(path)}")
+
+      Logger.debug(
+        "   Required fields present: bitrate=#{!!Map.get(final_attrs, "bitrate")}, width=#{!!Map.get(final_attrs, "width")}, height=#{!!Map.get(final_attrs, "height")}, duration=#{!!Map.get(final_attrs, "duration")}"
+      )
+
+      Logger.debug(
+        "   Codecs present: video=#{inspect(Map.get(final_attrs, "video_codecs"))}, audio=#{inspect(Map.get(final_attrs, "audio_codecs"))}"
+      )
+    end
+
     result =
       Repo.transaction(fn ->
         # Build the on_conflict query with dateAdded check
         on_conflict_query = build_on_conflict_query(final_attrs, conflict_except)
 
-        %Video{}
-        |> Video.changeset(final_attrs)
+        changeset = %Video{} |> Video.changeset(final_attrs)
+
+        # Debug: Log changeset validation errors for analyzer infinite loop debugging
+        if Map.get(final_attrs, "state") == "analyzed" and not changeset.valid? do
+          path = Map.get(final_attrs, "path")
+
+          Logger.warning(
+            "❌ Changeset validation failed for 'analyzed' state transition: #{Path.basename(path)}"
+          )
+
+          Logger.warning("   Validation errors: #{inspect(changeset.errors)}")
+        end
+
+        changeset
         |> Repo.insert(
           on_conflict: on_conflict_query,
           conflict_target: :path,
