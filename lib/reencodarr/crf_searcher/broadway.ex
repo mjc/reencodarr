@@ -15,8 +15,9 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   require Logger
 
   alias Broadway.Message
-  alias Reencodarr.AbAv1
+  alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.CrfSearcher.Broadway.Producer
+  alias Reencodarr.Media
 
   @typedoc "Video struct for CRF search processing"
   @type video :: %{id: integer(), path: binary()}
@@ -165,23 +166,20 @@ defmodule Reencodarr.CrfSearcher.Broadway do
         # Determine VMAF target based on video bitrate
         crf_quality = determine_vmaf_target(message.data)
 
-        Logger.info("Starting CRF search for video #{message.data.id} with VMAF target #{crf_quality}")
-
         case process_video_crf_search(message.data, crf_quality) do
           :ok ->
             message
 
-          {:error, reason} ->
-            Logger.warning("CRF search failed for video #{inspect(message.data)}: #{reason}")
-            Message.failed(message, reason)
+          {:error, error} ->
+            Logger.warning(
+              "⚠️ CRF Searcher: Failed to process video #{message.data.id}: #{inspect(error)}"
+            )
+
+            Message.failed(message, error)
         end
       end)
 
     # CRITICAL: Notify producer that batch processing is complete and ready for next demand
-    Logger.debug(
-      "CRF Searcher: Batch processing complete for #{length(messages)} messages - notifying producer"
-    )
-
     Producer.dispatch_available()
 
     result
@@ -220,40 +218,27 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   end
 
   @spec process_video_crf_search(video(), pos_integer()) :: :ok | {:error, term()}
-  defp process_video_crf_search(video, crf_quality) do
-    # Emit telemetry event for monitoring
-    :telemetry.execute(
-      [:reencodarr, :crf_search, :start],
-      %{},
-      %{video_id: video.id, video_path: video.path}
+  defp process_video_crf_search(video, vmaf_target) do
+    Logger.info(
+      "🎬 CRF Searcher: Starting #{video.id} (#{video.title}) - #{video.bitrate}kbps, VMAF target: #{vmaf_target}%"
     )
 
-    # AbAv1.crf_search/2 always returns :ok since it's a GenServer.cast
-    # The actual success/failure is handled by the GenServer
-    :ok = AbAv1.crf_search(video, crf_quality)
+    # CRITICAL: Update video state BEFORE starting CRF search to prevent infinite loop
+    case Media.update_video_status(video, %{"state" => "crf_searching"}) do
+      {:ok, updated_video} ->
+        case CrfSearch.crf_search(updated_video, vmaf_target) do
+          :ok ->
+            :ok
 
-    Logger.debug("CRF search queued successfully for video #{video.id}")
+          error ->
+            {:error, error}
+        end
 
-    :telemetry.execute(
-      [:reencodarr, :crf_search, :success],
-      %{},
-      %{video_id: video.id}
-    )
-
-    :ok
+      {:error, reason} ->
+        {:error, reason}
+    end
   rescue
     exception ->
-      error_message =
-        "Exception during CRF search for video #{video.id}: #{Exception.message(exception)}"
-
-      Logger.error(error_message)
-
-      :telemetry.execute(
-        [:reencodarr, :crf_search, :exception],
-        %{},
-        %{video_id: video.id, exception: exception}
-      )
-
-      {:error, error_message}
+      {:error, exception}
   end
 end

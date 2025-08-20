@@ -22,7 +22,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.GenServerTest do
 
     test "skips CRF search for already reencoded videos", %{video: video} do
       # Mark video as reencoded
-      {:ok, reencoded_video} = Media.update_video(video, %{reencoded: true})
+      {:ok, reencoded_video} = Media.update_video(video, %{state: :encoded})
 
       log =
         capture_log(fn ->
@@ -30,7 +30,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.GenServerTest do
         end)
 
       assert log =~ "Skipping crf search for video"
-      assert log =~ "already reencoded"
+      assert log =~ "already encoded"
     end
 
     test "skips CRF search when chosen VMAF already exists", %{video: video} do

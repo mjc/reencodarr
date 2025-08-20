@@ -106,8 +106,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
   @spec crf_search(Media.Video.t(), integer()) :: :ok
-  def crf_search(%Media.Video{reencoded: true, path: path, id: video_id}, _vmaf_percent) do
-    Logger.info("Skipping crf search for video #{path} as it is already reencoded")
+  def crf_search(%Media.Video{state: :encoded, path: path, id: video_id}, _vmaf_percent) do
+    Logger.info("Skipping crf search for video #{path} as it is already encoded")
 
     # Publish skipped event to PubSub
     Phoenix.PubSub.broadcast(
@@ -210,6 +210,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
+    Logger.info(
+      "🎬 AbAv1: Starting CRF search for video #{video.id} (#{video.title}) - target VMAF: #{vmaf_percent}%"
+    )
+
     args = build_crf_search_args(video, vmaf_percent)
 
     new_state = %{
@@ -308,7 +312,16 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_info({port, {:exit_status, 0}}, %{port: port, current_task: %{video: video}} = state) do
-    Logger.debug("CRF search finished successfully for video #{video.id}")
+    Logger.info("✅ AbAv1: CRF search completed for video #{video.id} (#{video.title})")
+
+    # CRITICAL: Update video state to crf_searched to prevent infinite loop
+    case Reencodarr.Media.update_video_status(video, %{"state" => "crf_searched"}) do
+      {:ok, _updated_video} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error("Failed to update video #{video.id} state: #{inspect(reason)}")
+    end
 
     # Publish completion event to PubSub
     Phoenix.PubSub.broadcast(
@@ -347,118 +360,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     full_output = output_buffer |> Enum.reverse() |> Enum.join("\n")
     command_line = "ab-av1 " <> Enum.join(args, " ")
 
-    # Check if we should retry with --preset 6 on process failure as well
-    case should_retry_with_preset_6_private(video.id) do
-      {:retry, existing_vmafs} ->
-        Logger.info(
-          "CrfSearch: Retrying video #{video.id} (#{Path.basename(video.path)}) with --preset 6 after process failure (exit code #{exit_code})"
-        )
-
-        # Record the process failure with full output before retrying
-        Reencodarr.FailureTracker.record_vmaf_calculation_failure(
-          video,
-          "Process failed with exit code #{exit_code}",
-          context: %{
-            exit_code: exit_code,
-            command: command_line,
-            full_output: full_output,
-            will_retry: true,
-            target_vmaf: target_vmaf
-          }
-        )
-
-        # Clear existing VMAF records for this video to start fresh
-        clear_vmaf_records_for_video_private(video.id, existing_vmafs)
-
-        # Publish failure event first
-        Phoenix.PubSub.broadcast(
-          Reencodarr.PubSub,
-          "crf_search_events",
-          {:crf_search_completed, video.id, {:error, exit_code}}
-        )
-
-        # Clean up current state
-        {_reply, cleanup_state} = perform_crf_search_cleanup(state)
-
-        # Requeue the video with --preset 6 parameter
-        GenServer.cast(__MODULE__, {:crf_search_with_preset_6, video, target_vmaf})
-
-        {:noreply, cleanup_state}
-
-      :already_retried ->
-        Logger.error(
-          "CrfSearch: Video #{video.id} (#{Path.basename(video.path)}) already retried with --preset 6, marking as failed"
-        )
-
-        # Record the final failure with full output
-        Reencodarr.FailureTracker.record_preset_retry_failure(video, 6, 1,
-          context: %{
-            exit_code: exit_code,
-            command: command_line,
-            full_output: full_output,
-            target_vmaf: target_vmaf,
-            final_failure: true
-          }
-        )
-
-        # Publish completion event to PubSub
-        Phoenix.PubSub.broadcast(
-          Reencodarr.PubSub,
-          "crf_search_events",
-          {:crf_search_completed, video.id, {:error, exit_code}}
-        )
-
-        Media.mark_as_failed(video)
-
-        # Check for pending preset 6 retry even in failure cases
-        case Process.get(:pending_preset_6_retry) do
-          {retry_video, retry_target_vmaf} ->
-            Process.delete(:pending_preset_6_retry)
-            {cleanup_reply, cleanup_state} = perform_crf_search_cleanup(state)
-
-            {cleanup_reply, cleanup_state,
-             {:continue, {:preset_6_retry, retry_video, retry_target_vmaf}}}
-
-          nil ->
-            perform_crf_search_cleanup(state)
-        end
-
-      :mark_failed ->
-        # Record the process failure with full output
-        Reencodarr.FailureTracker.record_vmaf_calculation_failure(
-          video,
-          "Process failed with exit code #{exit_code}",
-          context: %{
-            exit_code: exit_code,
-            command: command_line,
-            full_output: full_output,
-            target_vmaf: target_vmaf,
-            final_failure: true
-          }
-        )
-
-        # Publish completion event to PubSub
-        Phoenix.PubSub.broadcast(
-          Reencodarr.PubSub,
-          "crf_search_events",
-          {:crf_search_completed, video.id, {:error, exit_code}}
-        )
-
-        Media.mark_as_failed(video)
-
-        # Check for pending preset 6 retry even in failure cases
-        case Process.get(:pending_preset_6_retry) do
-          {retry_video, retry_target_vmaf} ->
-            Process.delete(:pending_preset_6_retry)
-            {cleanup_reply, cleanup_state} = perform_crf_search_cleanup(state)
-
-            {cleanup_reply, cleanup_state,
-             {:continue, {:preset_6_retry, retry_video, retry_target_vmaf}}}
-
-          nil ->
-            perform_crf_search_cleanup(state)
-        end
-    end
+    handle_crf_search_failure(video, target_vmaf, exit_code, command_line, full_output, state)
   end
 
   @impl true
@@ -476,6 +378,172 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
 
     {:noreply, state}
+  end
+
+  defp handle_crf_search_failure(video, target_vmaf, exit_code, command_line, full_output, state) do
+    # Check if we should retry with --preset 6 on process failure as well
+    case should_retry_with_preset_6_private(video.id) do
+      {:retry, existing_vmafs} ->
+        handle_retry_with_preset_6(
+          video,
+          target_vmaf,
+          exit_code,
+          command_line,
+          full_output,
+          existing_vmafs,
+          state
+        )
+
+      :already_retried ->
+        handle_already_retried_failure(
+          video,
+          target_vmaf,
+          exit_code,
+          command_line,
+          full_output,
+          state
+        )
+
+      :mark_failed ->
+        handle_mark_failed(video, target_vmaf, exit_code, command_line, full_output, state)
+    end
+  end
+
+  defp handle_retry_with_preset_6(
+         video,
+         target_vmaf,
+         exit_code,
+         command_line,
+         full_output,
+         existing_vmafs,
+         state
+       ) do
+    Logger.info(
+      "CrfSearch: Retrying video #{video.id} (#{Path.basename(video.path)}) with --preset 6 after process failure (exit code #{exit_code})"
+    )
+
+    # Record the process failure with full output before retrying
+    Reencodarr.FailureTracker.record_vmaf_calculation_failure(
+      video,
+      "Process failed with exit code #{exit_code}",
+      context: %{
+        exit_code: exit_code,
+        command: command_line,
+        full_output: full_output,
+        will_retry: true,
+        target_vmaf: target_vmaf
+      }
+    )
+
+    # Clear existing VMAF records for this video to start fresh
+    clear_vmaf_records_for_video_private(video.id, existing_vmafs)
+
+    # Reset video state to analyzed for retry with preset 6
+    case Reencodarr.Media.update_video_status(video, %{"state" => "analyzed"}) do
+      {:ok, _updated_video} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error("Failed to reset video #{video.id} state for retry: #{inspect(reason)}")
+    end
+
+    # Publish failure event first
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "crf_search_events",
+      {:crf_search_completed, video.id, {:error, exit_code}}
+    )
+
+    # Clean up current state
+    {_reply, cleanup_state} = perform_crf_search_cleanup(state)
+
+    # Requeue the video with --preset 6 parameter
+    GenServer.cast(__MODULE__, {:crf_search_with_preset_6, video, target_vmaf})
+
+    {:noreply, cleanup_state}
+  end
+
+  defp handle_already_retried_failure(
+         video,
+         target_vmaf,
+         exit_code,
+         command_line,
+         full_output,
+         state
+       ) do
+    Logger.error(
+      "CrfSearch: Video #{video.id} (#{Path.basename(video.path)}) already retried with --preset 6, marking as failed"
+    )
+
+    # Record the final failure with full output
+    Reencodarr.FailureTracker.record_preset_retry_failure(video, 6, 1,
+      context: %{
+        exit_code: exit_code,
+        command: command_line,
+        full_output: full_output,
+        target_vmaf: target_vmaf,
+        final_failure: true
+      }
+    )
+
+    # Publish completion event to PubSub
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "crf_search_events",
+      {:crf_search_completed, video.id, {:error, exit_code}}
+    )
+
+    Media.mark_as_failed(video)
+
+    # Check for pending preset 6 retry even in failure cases
+    case Process.get(:pending_preset_6_retry) do
+      {retry_video, retry_target_vmaf} ->
+        Process.delete(:pending_preset_6_retry)
+        {cleanup_reply, cleanup_state} = perform_crf_search_cleanup(state)
+
+        {cleanup_reply, cleanup_state,
+         {:continue, {:preset_6_retry, retry_video, retry_target_vmaf}}}
+
+      nil ->
+        perform_crf_search_cleanup(state)
+    end
+  end
+
+  defp handle_mark_failed(video, target_vmaf, exit_code, command_line, full_output, state) do
+    # Record the process failure with full output
+    Reencodarr.FailureTracker.record_vmaf_calculation_failure(
+      video,
+      "Process failed with exit code #{exit_code}",
+      context: %{
+        exit_code: exit_code,
+        command: command_line,
+        full_output: full_output,
+        target_vmaf: target_vmaf,
+        final_failure: true
+      }
+    )
+
+    # Publish completion event to PubSub
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "crf_search_events",
+      {:crf_search_completed, video.id, {:error, exit_code}}
+    )
+
+    Media.mark_as_failed(video)
+
+    # Check for pending preset 6 retry even in failure cases
+    case Process.get(:pending_preset_6_retry) do
+      {retry_video, retry_target_vmaf} ->
+        Process.delete(:pending_preset_6_retry)
+        {cleanup_reply, cleanup_state} = perform_crf_search_cleanup(state)
+
+        {cleanup_reply, cleanup_state,
+         {:continue, {:preset_6_retry, retry_video, retry_target_vmaf}}}
+
+      nil ->
+        perform_crf_search_cleanup(state)
+    end
   end
 
   @impl true

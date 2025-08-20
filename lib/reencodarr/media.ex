@@ -75,9 +75,10 @@ defmodule Reencodarr.Media do
   end
 
   def mark_as_reencoded(%Video{} = video),
-    do: update_video_status(video, %{"reencoded" => true, "failed" => false})
+    do: update_video_status(video, %{"state" => "encoded"})
 
-  def mark_as_failed(%Video{} = video), do: update_video_status(video, %{"failed" => true})
+  def mark_as_failed(%Video{} = video),
+    do: update_video_status(video, %{"state" => "failed"})
 
   # --- Video Failure Tracking Functions ---
 
@@ -146,10 +147,10 @@ defmodule Reencodarr.Media do
           videos_with_invalid_args: integer()
         }
   def count_videos_with_invalid_audio_args do
-    # Get all non-failed, non-reencoded videos for testing
+    # Get all videos that haven't been processed yet
     videos_to_test =
       from(v in Video,
-        where: v.failed == false and v.reencoded == false,
+        where: v.state not in [:encoded, :failed],
         select: v
       )
       |> Repo.all()
@@ -184,10 +185,10 @@ defmodule Reencodarr.Media do
           vmafs_deleted: integer()
         }
   def reset_videos_with_invalid_audio_args do
-    # Get all non-failed, non-reencoded videos for testing
+    # Get all videos that haven't been processed yet
     videos_to_test =
       from(v in Video,
-        where: v.failed == false and v.reencoded == false,
+        where: v.state not in [:encoded, :failed],
         select: v
       )
       |> Repo.all()
@@ -300,8 +301,7 @@ defmodule Reencodarr.Media do
       problematic_video_ids =
         from(v in Video,
           where:
-            v.failed == false and
-              v.reencoded == false and
+            v.state not in [:encoded, :failed] and
               v.atmos != true and
               (is_nil(v.max_audio_channels) or v.max_audio_channels == 0 or
                  is_nil(v.audio_codecs) or fragment("array_length(?, 1) IS NULL", v.audio_codecs)),
@@ -364,7 +364,7 @@ defmodule Reencodarr.Media do
     Repo.transaction(fn ->
       # First, get IDs and counts of videos that will be reset
       failed_video_ids =
-        from(v in Video, where: v.failed == true, select: v.id)
+        from(v in Video, where: v.state == :failed, select: v.id)
         |> Repo.all()
 
       videos_to_reset_count = length(failed_video_ids)
@@ -379,9 +379,9 @@ defmodule Reencodarr.Media do
         from(v in Vmaf, where: v.video_id in ^failed_video_ids)
         |> Repo.delete_all()
 
-      # Reset all failed videos
-      from(v in Video, where: v.failed == true)
-      |> Repo.update_all(set: [failed: false, updated_at: DateTime.utc_now()])
+      # Reset all failed videos back to needs_analysis
+      from(v in Video, where: v.state == :failed)
+      |> Repo.update_all(set: [state: :needs_analysis, updated_at: DateTime.utc_now()])
 
       # Delete all unresolved failures
       from(f in VideoFailure, where: is_nil(f.resolved_at))
@@ -615,7 +615,7 @@ defmodule Reencodarr.Media do
   defp query_chosen_vmafs do
     from v in Vmaf,
       join: vid in assoc(v, :video),
-      where: v.chosen == true and vid.reencoded == false and vid.failed == false,
+      where: v.chosen == true and vid.state == :crf_searched,
       preload: [:video],
       order_by: [asc: v.percent, asc: v.time]
   end
@@ -630,9 +630,7 @@ defmodule Reencodarr.Media do
     Repo.one(
       from v in Vmaf,
         join: vid in assoc(v, :video),
-        where:
-          v.chosen == true and v.video_id == ^video_id and vid.reencoded == false and
-            vid.failed == false,
+        where: v.chosen == true and v.video_id == ^video_id and vid.state == :crf_searched,
         preload: [:video],
         order_by: [asc: v.percent, asc: v.time]
     )
@@ -717,27 +715,29 @@ defmodule Reencodarr.Media do
 
   defp aggregated_stats_query do
     from v in Video,
-      where: v.failed == false,
+      where: v.state != :failed,
       left_join: m_all in Vmaf,
       on: m_all.video_id == v.id,
       select: %{
-        not_reencoded: fragment("COUNT(*) FILTER (WHERE ? = false)", v.reencoded),
-        reencoded: fragment("COUNT(*) FILTER (WHERE ? = true)", v.reencoded),
+        not_reencoded: fragment("COUNT(*) FILTER (WHERE ? != 'encoded')", v.state),
+        reencoded: fragment("COUNT(*) FILTER (WHERE ? = 'encoded')", v.state),
         total_videos: count(v.id),
         avg_vmaf_percentage: fragment("ROUND(AVG(?)::numeric, 2)", m_all.percent),
         total_vmafs: count(m_all.id),
         chosen_vmafs_count: fragment("COUNT(*) FILTER (WHERE ? = true)", m_all.chosen),
         encodes_count:
-          fragment("COUNT(*) FILTER (WHERE ? = false AND ? = true)", v.reencoded, m_all.chosen),
+          fragment(
+            "COUNT(*) FILTER (WHERE ? = 'crf_searched' AND ? = true)",
+            v.state,
+            m_all.chosen
+          ),
         queued_crf_searches_count:
           fragment(
-            "COUNT(*) FILTER (WHERE ? IS NULL AND ? = false AND ? = false)",
+            "COUNT(*) FILTER (WHERE ? IS NULL AND ? = 'analyzed')",
             m_all.id,
-            v.reencoded,
-            v.failed
+            v.state
           ),
-        analyzer_count:
-          fragment("COUNT(*) FILTER (WHERE ? IS NULL AND ? = false)", v.bitrate, v.failed),
+        analyzer_count: fragment("COUNT(*) FILTER (WHERE ? = 'needs_analysis')", v.state),
         most_recent_video_update: max(v.updated_at),
         most_recent_inserted_video: max(v.inserted_at)
       }
@@ -749,12 +749,7 @@ defmodule Reencodarr.Media do
         from v in Vmaf,
           join: vid in assoc(v, :video),
           # Ensure video is properly analyzed before encoding
-          where:
-            v.chosen == true and vid.reencoded == false and vid.failed == false and
-              not is_nil(vid.width) and not is_nil(vid.height) and
-              not is_nil(vid.duration) and vid.duration > 0.0 and
-              fragment("array_length(?, 1)", vid.video_codecs) > 0 and
-              fragment("array_length(?, 1)", vid.audio_codecs) > 0,
+          where: v.chosen == true and vid.state == :crf_searched,
           order_by: [fragment("? DESC NULLS LAST", v.savings), asc: v.time],
           limit: 1,
           preload: [:video]
@@ -785,7 +780,7 @@ defmodule Reencodarr.Media do
   def list_videos_awaiting_crf_search do
     from(v in Video,
       left_join: vmafs in assoc(v, :vmafs),
-      where: is_nil(vmafs.id) and not v.reencoded and v.failed == false,
+      where: is_nil(vmafs.id) and v.state == :analyzed,
       select: v
     )
     |> Repo.all()
@@ -822,7 +817,7 @@ defmodule Reencodarr.Media do
   """
   def reset_all_videos_for_reanalysis do
     from(v in Video,
-      where: v.reencoded == false and v.failed == false,
+      where: v.state not in [:encoded, :failed],
       update: [set: [bitrate: nil]]
     )
     |> Repo.update_all([])
@@ -835,7 +830,7 @@ defmodule Reencodarr.Media do
   def reset_videos_for_reanalysis_batched(batch_size \\ 1000) do
     videos_to_reset =
       from(v in Video,
-        where: v.reencoded == false and v.failed == false,
+        where: v.state not in [:encoded, :failed],
         select: %{id: v.id}
       )
       |> Repo.all()

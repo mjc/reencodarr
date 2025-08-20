@@ -53,7 +53,7 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
     end
 
     test "crf_search/2 skips already reencoded videos", %{video: video} do
-      {:ok, reencoded_video} = Media.update_video(video, %{reencoded: true})
+      {:ok, reencoded_video} = Media.update_video(video, %{state: :encoded})
 
       log =
         capture_log(fn ->
@@ -62,7 +62,7 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
         end)
 
       assert log =~ "Skipping crf search"
-      assert log =~ "already reencoded"
+      assert log =~ "already encoded"
     end
 
     test "running?/0 returns current status" do

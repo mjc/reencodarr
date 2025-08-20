@@ -126,7 +126,7 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     # CRF search completed
     case state.status do
       :pausing ->
-        Logger.info("CrfSearcher finished current job - now fully paused")
+        Logger.info("⏸️ CRF Producer: Job finished while pausing - now fully paused")
         Reencodarr.Telemetry.emit_crf_search_paused()
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :paused})
         new_state = %{state | status: :paused}
@@ -243,7 +243,10 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
           {:noreply, [], new_state}
 
         {video, new_state} ->
-          Logger.debug("Dispatching video #{video.id} for CRF search")
+          Logger.info(
+            "🚀 CRF Producer: Dispatching video #{video.id} (#{video.title}) for CRF search"
+          )
+
           # Mark as processing and decrement demand
           updated_state = %{new_state | demand: state.demand - 1, status: :processing}
 
@@ -254,7 +257,11 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
           # Emit telemetry event for queue state change
           :telemetry.execute(
             [:reencodarr, :crf_searcher, :queue_changed],
-            %{dispatched_count: 1, remaining_demand: updated_state.demand, queue_size: total_count},
+            %{
+              dispatched_count: 1,
+              remaining_demand: updated_state.demand,
+              queue_size: total_count
+            },
             %{
               next_videos: remaining_videos,
               database_queue_available: total_count > 0
