@@ -163,7 +163,24 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   @impl GenStage
   def handle_info(:initial_telemetry, state) do
     # Emit initial telemetry on startup to populate dashboard queue
+    Logger.info("🔍 CRF Searcher: Emitting initial telemetry")
     emit_initial_telemetry(state)
+
+    # Schedule periodic telemetry updates like the analyzer does
+    Process.send_after(self(), :periodic_telemetry, 5000)
+
+    {:noreply, [], state}
+  end
+
+  @impl GenStage
+  def handle_info(:periodic_telemetry, state) do
+    # Emit periodic telemetry to keep dashboard updated
+    Logger.debug("🔍 CRF Searcher: Emitting periodic telemetry")
+    emit_initial_telemetry(state)
+
+    # Schedule next update
+    Process.send_after(self(), :periodic_telemetry, 5000)
+
     {:noreply, [], state}
   end
 
@@ -294,6 +311,10 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     next_videos = get_next_videos_for_telemetry(state, 5)
     # Get total count for accurate queue size
     total_count = Media.count_videos_for_crf_search()
+
+    Logger.debug(
+      "🔍 CRF Searcher: Emitting telemetry - #{total_count} videos, #{length(next_videos)} in next batch"
+    )
 
     measurements = %{
       queue_size: total_count
