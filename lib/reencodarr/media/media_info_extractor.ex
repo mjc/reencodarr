@@ -33,10 +33,10 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
 
       # Codecs
       video_codecs: [get_string_field(video_track, "CodecID", "")],
-      audio_codecs: Enum.map(audio_tracks, &get_string_field(&1, "CodecID", "")),
+      audio_codecs: extract_audio_codecs_safely(audio_tracks, general),
 
-      # Audio info
-      audio_count: get_int_field(general, "AudioCount", 0),
+      # Audio info - use actual count of audio tracks found to ensure consistency
+      audio_count: length(audio_tracks),
       max_audio_channels: calculate_max_audio_channels(audio_tracks),
       atmos: detect_atmos(audio_tracks),
 
@@ -123,6 +123,18 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
     audio_tracks
     |> Enum.map(&get_channel_count_from_track/1)
     |> Enum.max(fn -> 0 end)
+  end
+
+  defp extract_audio_codecs_safely(audio_tracks, general) do
+    codecs = Enum.map(audio_tracks, &get_string_field(&1, "CodecID", ""))
+
+    # If no audio tracks found but General track indicates audio exists,
+    # add a placeholder to prevent validation errors
+    if Enum.empty?(codecs) and get_int_field(general, "AudioCount", 0) > 0 do
+      ["unknown"]
+    else
+      codecs
+    end
   end
 
   defp detect_atmos(audio_tracks) do
