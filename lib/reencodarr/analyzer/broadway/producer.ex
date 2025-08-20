@@ -149,10 +149,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_demand(demand, state) when demand > 0 do
-    Logger.debug(
-      "Broadway producer received demand for #{demand} items - current state: #{state.status}"
-    )
-
     new_state = State.update(state, demand: state.demand + demand)
     dispatch_if_ready(new_state)
   end
@@ -184,7 +180,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   @impl GenStage
   def handle_info(:initial_dispatch, state) do
     # Trigger initial dispatch after startup to check for videos needing analysis
-    Logger.debug("Producer: Initial dispatch triggered")
 
     # Emit initial telemetry regardless of producer status so dashboard shows queue on startup
     emit_initial_telemetry(state)
@@ -214,15 +209,12 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   # Private functions
 
   defp send_to_producer(message) do
-    Logger.debug("Producer: Sending message #{inspect(message)}")
-
     case find_producer_process() do
       nil ->
         Logger.error("Producer: Producer process not found!")
         {:error, :producer_not_found}
 
       producer_pid ->
-        Logger.debug("Producer: Found producer PID #{inspect(producer_pid)}, sending cast")
         GenStage.cast(producer_pid, message)
     end
   end
@@ -253,16 +245,9 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   end
 
   defp dispatch_if_ready(state) do
-    Logger.debug("dispatch_if_ready called - demand: #{state.demand}, status: #{state.status}")
-
-    if state.status == :running and state.demand > 0 do
-      Logger.debug("Conditions met, dispatching videos")
+    if state.demand > 0 and state.status == :running do
       dispatch_videos(state)
     else
-      Logger.debug(
-        "Conditions not met for dispatch - status: #{state.status}, demand: #{state.demand}"
-      )
-
       {:noreply, [], state}
     end
   end
@@ -272,7 +257,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       # Get one video from database that needs analysis
       case Media.get_videos_needing_analysis(1) do
         [video | _] ->
-          Logger.debug("Broadway producer dispatching video for analysis: #{video.path}")
           new_demand = state.demand - 1
           new_state = State.update(state, demand: new_demand)
 
@@ -280,10 +264,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
           remaining_videos = Media.get_videos_needing_analysis(10)
           # Get total count for accurate queue size
           total_count = get_total_analysis_queue_count()
-
-          Logger.debug(
-            "Broadway dispatch_videos - total_count: #{total_count}, remaining_videos: #{length(remaining_videos)}"
-          )
 
           # Emit telemetry event for queue state change
           :telemetry.execute(
@@ -370,18 +350,14 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     # Get up to 5 videos from queue or database for batching
     case get_next_videos(state, min(state.demand, 5)) do
       {[], new_state} ->
-        Logger.debug("No videos available, resetting processing flag")
         # No videos available, reset processing flag
         {:noreply, [], %{new_state | processing: false}}
 
       {videos, new_state} ->
         video_count = length(videos)
-        Logger.debug("Dispatching #{video_count} videos for analysis")
         # Decrement demand and mark as processing
         final_state =
           State.update(new_state, demand: state.demand - video_count, status: :processing)
-
-        Logger.debug("Final state: status: #{final_state.status}, demand: #{final_state.demand}")
 
         {:noreply, videos, final_state}
     end
@@ -448,8 +424,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   defp get_total_analysis_queue_count do
     # Efficiently count total videos needing analysis
-    count = Media.count_videos_needing_analysis()
-    Logger.debug("get_total_analysis_queue_count returning: #{count}")
-    count
+    Media.count_videos_needing_analysis()
   end
 end
