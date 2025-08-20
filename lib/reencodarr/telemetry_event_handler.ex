@@ -75,14 +75,12 @@ defmodule Reencodarr.TelemetryEventHandler do
   def handle_event([:reencodarr, :analyzer, :started], _measurements, _metadata, %{
         reporter_pid: pid
       }) do
-    Logger.debug("TelemetryEventHandler: Analyzer started event received")
     GenServer.cast(pid, {:update_analyzer, true})
   end
 
   def handle_event([:reencodarr, :analyzer, :paused], _measurements, _metadata, %{
         reporter_pid: pid
       }) do
-    Logger.debug("TelemetryEventHandler: Analyzer paused event received")
     GenServer.cast(pid, {:update_analyzer, false})
   end
 
@@ -96,10 +94,6 @@ defmodule Reencodarr.TelemetryEventHandler do
   def handle_event([:reencodarr, :analyzer, :queue_changed], measurements, metadata, %{
         reporter_pid: pid
       }) do
-    Logger.info(
-      "TelemetryEventHandler: Analyzer queue_changed - measurements: #{inspect(measurements)}, metadata keys: #{inspect(Map.keys(metadata))}"
-    )
-
     GenServer.cast(pid, {:update_queue_state, :analyzer, measurements, metadata})
   end
 
@@ -116,11 +110,7 @@ defmodule Reencodarr.TelemetryEventHandler do
   end
 
   # Catch-all for unhandled events
-  def handle_event(event, measurements, _metadata, _config) do
-    Logger.debug(
-      "TelemetryEventHandler: Unhandled event #{inspect(event)} - measurements: #{inspect(measurements)}"
-    )
-
+  def handle_event(_event, _measurements, _metadata, _config) do
     :ok
   end
 

@@ -152,6 +152,23 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   @impl GenStage
+  def handle_info({:encoding_completed, _vmaf_id, _result}, state) do
+    # Encoding completed - reset status to running if we were processing
+    new_status =
+      case state.status do
+        :processing -> :running
+        :pausing -> :paused
+        other -> other
+      end
+
+    new_state = %{state | status: new_status}
+
+    # Refresh queue telemetry and check for more work
+    emit_initial_telemetry(new_state)
+    dispatch_if_ready(new_state)
+  end
+
+  @impl GenStage
   def handle_info(:initial_telemetry, state) do
     # Emit initial telemetry on startup to populate dashboard queue
     emit_initial_telemetry(state)
@@ -271,14 +288,17 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
         # Decrement demand and keep processing status
         final_state = %{new_state | demand: state.demand - 1}
 
+        # Get remaining vmafs for queue state update
+        remaining_vmafs = Media.get_next_for_encoding(10)
+        total_count = Media.encoding_queue_count()
+
         # Emit telemetry event for queue state change
         :telemetry.execute(
           [:reencodarr, :encoder, :queue_changed],
-          %{dispatched_count: 1, remaining_demand: final_state.demand},
+          %{dispatched_count: 1, remaining_demand: final_state.demand, queue_size: total_count},
           %{
-            next_vmaf: vmaf,
-            queue_size: :queue.len(new_state.queue),
-            from_queue: new_state.queue != updated_state.queue
+            next_vmafs: remaining_vmafs,
+            database_queue_available: total_count > 0
           }
         )
 
@@ -309,9 +329,11 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   defp emit_initial_telemetry(state) do
     # Get 5 for dashboard display
     next_vmafs = get_next_vmafs_for_telemetry(state, 5)
+    # Get total count for accurate queue size
+    total_count = Media.encoding_queue_count()
 
     measurements = %{
-      queue_size: :queue.len(state.queue)
+      queue_size: total_count
     }
 
     metadata = %{

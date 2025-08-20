@@ -20,6 +20,10 @@ defmodule Reencodarr.Media do
     VideoQueries.videos_for_crf_search(limit)
   end
 
+  def count_videos_for_crf_search do
+    VideoQueries.count_videos_for_crf_search()
+  end
+
   def get_videos_needing_analysis(limit \\ 10) do
     VideoQueries.videos_needing_analysis(limit)
   end

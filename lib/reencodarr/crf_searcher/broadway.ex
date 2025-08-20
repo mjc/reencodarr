@@ -159,11 +159,14 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   end
 
   @impl Broadway
-  def handle_batch(:default, messages, _batch_info, context) do
-    crf_quality = Map.get(context, :crf_quality, 95)
-
+  def handle_batch(:default, messages, _batch_info, _context) do
     result =
       Enum.map(messages, fn message ->
+        # Determine VMAF target based on video bitrate
+        crf_quality = determine_vmaf_target(message.data)
+
+        Logger.info("Starting CRF search for video #{message.data.id} with VMAF target #{crf_quality}")
+
         case process_video_crf_search(message.data, crf_quality) do
           :ok ->
             message
@@ -200,10 +203,24 @@ defmodule Reencodarr.CrfSearcher.Broadway do
 
   # Private functions
 
+  # Determines the VMAF target based on video bitrate.
+  # Videos with bitrate > 40Mbps use VMAF target of 93.
+  # All other videos use VMAF target of 95.
+  defp determine_vmaf_target(%{bitrate: bitrate}) when is_integer(bitrate) do
+    if bitrate > 40_000_000 do
+      93
+    else
+      95
+    end
+  end
+
+  defp determine_vmaf_target(_video) do
+    # Default to 95 if bitrate is not available
+    95
+  end
+
   @spec process_video_crf_search(video(), pos_integer()) :: :ok | {:error, term()}
   defp process_video_crf_search(video, crf_quality) do
-    Logger.info("Starting CRF search for video #{video.id}: #{video.path}")
-
     # Emit telemetry event for monitoring
     :telemetry.execute(
       [:reencodarr, :crf_search, :start],

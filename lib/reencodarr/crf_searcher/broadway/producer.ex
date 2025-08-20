@@ -144,6 +144,23 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   end
 
   @impl GenStage
+  def handle_info({:crf_search_completed, _video_id, _result}, state) do
+    # CRF search completed - reset status to running if we were processing
+    new_status =
+      case state.status do
+        :processing -> :running
+        :pausing -> :paused
+        other -> other
+      end
+
+    new_state = %{state | status: new_status}
+
+    # Refresh queue telemetry and check for more work
+    emit_initial_telemetry(new_state)
+    dispatch_if_ready(new_state)
+  end
+
+  @impl GenStage
   def handle_info(:initial_telemetry, state) do
     # Emit initial telemetry on startup to populate dashboard queue
     emit_initial_telemetry(state)
@@ -230,14 +247,17 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
           # Mark as processing and decrement demand
           updated_state = %{new_state | demand: state.demand - 1, status: :processing}
 
+          # Get remaining videos for queue state update
+          remaining_videos = Media.get_videos_for_crf_search(10)
+          total_count = Media.count_videos_for_crf_search()
+
           # Emit telemetry event for queue state change
           :telemetry.execute(
             [:reencodarr, :crf_searcher, :queue_changed],
-            %{dispatched_count: 1, remaining_demand: updated_state.demand},
+            %{dispatched_count: 1, remaining_demand: updated_state.demand, queue_size: total_count},
             %{
-              next_video: video,
-              queue_size: :queue.len(new_state.queue),
-              from_queue: new_state.queue != state.queue
+              next_videos: remaining_videos,
+              database_queue_available: total_count > 0
             }
           )
 
@@ -265,9 +285,11 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   defp emit_initial_telemetry(state) do
     # Get 5 for dashboard display
     next_videos = get_next_videos_for_telemetry(state, 5)
+    # Get total count for accurate queue size
+    total_count = Media.count_videos_for_crf_search()
 
     measurements = %{
-      queue_size: :queue.len(state.queue)
+      queue_size: total_count
     }
 
     metadata = %{

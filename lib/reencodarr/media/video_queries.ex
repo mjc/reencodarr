@@ -16,25 +16,22 @@ defmodule Reencodarr.Media.VideoQueries do
   def videos_for_crf_search(limit \\ 10) do
     Repo.all(
       from v in Video,
-        left_join: m in Vmaf,
-        on: m.video_id == v.id,
-        # Exclude videos that already have desired codecs (AV1/Opus)
-        where:
-          v.state == :analyzed and
-            is_nil(m.id) and
-            not fragment(
-              "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
-              v.audio_codecs,
-              "%opus%"
-            ) and
-            not fragment(
-              "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
-              v.video_codecs,
-              "%av1%"
-            ),
+        where: v.state == :analyzed,
         order_by: [desc: v.bitrate, desc: v.size, asc: v.updated_at],
         limit: ^limit,
         select: v
+    )
+  end
+
+  @doc """
+  Counts the total number of videos ready for CRF search.
+  """
+  @spec count_videos_for_crf_search() :: integer()
+  def count_videos_for_crf_search do
+    Repo.one(
+      from v in Video,
+        where: v.state == :analyzed,
+        select: count()
     )
   end
 
@@ -80,10 +77,15 @@ defmodule Reencodarr.Media.VideoQueries do
   """
   @spec videos_ready_for_encoding(integer()) :: [Vmaf.t()]
   def videos_ready_for_encoding(limit) do
-    sonarr_videos = videos_by_service_type("sonarr", sonarr_limit(limit))
-    radarr_videos = videos_by_service_type("radarr", radarr_limit(limit))
-
-    alternate_by_service_type(sonarr_videos, radarr_videos, limit)
+    Repo.all(
+      from v in Vmaf,
+        join: vid in assoc(v, :video),
+        where: v.chosen == true and vid.state == :crf_searched,
+        order_by: [desc: v.updated_at],
+        limit: ^limit,
+        preload: [:video],
+        select: v
+    )
   end
 
   @doc """
@@ -97,125 +99,5 @@ defmodule Reencodarr.Media.VideoQueries do
         where: v.chosen == true and vid.state == :crf_searched,
         select: count(v.id)
     )
-  end
-
-  # Private functions for complex query logic
-
-  # Calculate limits with 9:1 ratio (90% Sonarr, 10% Radarr)
-  defp sonarr_limit(total_limit), do: max(1, round(total_limit * 9 / 10) + 2)
-  defp radarr_limit(total_limit), do: max(1, round(total_limit / 10) + 2)
-
-  defp videos_by_service_type(service_type, limit) do
-    library_ids = active_library_ids_for_service(service_type)
-
-    case library_ids do
-      [] -> []
-      _ -> fetch_videos_alternating_libraries(library_ids, service_type, limit)
-    end
-  end
-
-  defp active_library_ids_for_service(service_type) do
-    Repo.all(
-      from v in Vmaf,
-        join: vid in assoc(v, :video),
-        where:
-          v.chosen == true and vid.reencoded == false and vid.failed == false and
-            vid.service_type == ^service_type and not is_nil(vid.library_id),
-        distinct: vid.library_id,
-        select: vid.library_id
-    )
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp fetch_videos_alternating_libraries(library_ids, service_type, limit) do
-    videos_per_library = max(1, div(limit, length(library_ids)) + 1)
-    videos_by_library = fetch_videos_by_library(library_ids, service_type, videos_per_library)
-    alternate_libraries(videos_by_library, library_ids, limit)
-  end
-
-  defp fetch_videos_by_library(library_ids, service_type, videos_per_library) do
-    library_ids
-    |> Task.async_stream(
-      fn library_id ->
-        videos = fetch_library_videos(library_id, service_type, videos_per_library)
-        {library_id, videos}
-      end,
-      max_concurrency: System.schedulers_online()
-    )
-    |> Enum.map(fn {:ok, result} -> result end)
-    |> Enum.into(%{})
-  end
-
-  defp fetch_library_videos(library_id, service_type, videos_per_library) do
-    Repo.all(
-      from v in Vmaf,
-        join: vid in assoc(v, :video),
-        # Ensure video is properly analyzed before encoding
-        where: ^build_encoding_where_clause(library_id, service_type),
-        order_by: [
-          fragment("? DESC NULLS LAST", v.savings),
-          asc: v.percent,
-          asc: v.time
-        ],
-        limit: ^videos_per_library,
-        preload: [:video]
-    )
-  end
-
-  defp build_encoding_where_clause(library_id, service_type) do
-    # Only use base conditions since state already ensures proper analysis
-    build_base_video_conditions(library_id, service_type)
-  end
-
-  defp build_base_video_conditions(library_id, service_type) do
-    dynamic(
-      [v, vid],
-      v.chosen == true and vid.state == :crf_searched and
-        vid.library_id == ^library_id and vid.service_type == ^service_type
-    )
-  end
-
-  # Alternate between Sonarr and Radarr with 9:1 ratio
-  defp alternate_by_service_type(sonarr_videos, radarr_videos, limit) do
-    0..(limit - 1)
-    |> Enum.reduce({[], 0, 0}, fn index, {acc, s_idx, r_idx} ->
-      # Every 10th position gets a Radarr video (9:1 ratio)
-      if rem(index, 10) == 9 do
-        add_video_from_list(radarr_videos, r_idx, acc, s_idx, :radarr)
-      else
-        add_video_from_list(sonarr_videos, s_idx, acc, r_idx, :sonarr)
-      end
-    end)
-    |> elem(0)
-    |> Enum.reverse()
-  end
-
-  defp add_video_from_list(videos, current_idx, acc, other_idx, :radarr) do
-    case Enum.at(videos, current_idx) do
-      nil -> {acc, other_idx, current_idx}
-      video -> {[video | acc], other_idx, current_idx + 1}
-    end
-  end
-
-  defp add_video_from_list(videos, current_idx, acc, other_idx, :sonarr) do
-    case Enum.at(videos, current_idx) do
-      nil -> {acc, current_idx, other_idx}
-      video -> {[video | acc], current_idx + 1, other_idx}
-    end
-  end
-
-  # Alternate between libraries using efficient indexed access
-  defp alternate_libraries(videos_by_library, library_ids, limit) do
-    Stream.iterate(0, &(&1 + 1))
-    |> Stream.take(limit)
-    |> Stream.map(fn index ->
-      library_index = rem(index, length(library_ids))
-      library_id = Enum.at(library_ids, library_index)
-      video_position = div(index, length(library_ids))
-
-      videos_by_library[library_id] |> Enum.at(video_position)
-    end)
-    |> Stream.reject(&is_nil/1)
-    |> Enum.to_list()
   end
 end

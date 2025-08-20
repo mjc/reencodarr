@@ -215,10 +215,6 @@ defmodule Reencodarr.DashboardState do
   Updates queue state based on Broadway producer telemetry events.
   """
   def update_queue_state(%__MODULE__{stats: stats} = state, queue_type, measurements, metadata) do
-    Logger.info(
-      "DashboardState.update_queue_state - queue_type: #{queue_type}, measurements: #{inspect(measurements)}"
-    )
-
     new_stats =
       case queue_type do
         :analyzer ->
@@ -226,10 +222,6 @@ defmodule Reencodarr.DashboardState do
             stats.queue_length
             | analyzer: Map.get(measurements, :queue_size, 0)
           }
-
-          Logger.info(
-            "DashboardState - updating analyzer queue_length to: #{new_queue_length.analyzer}"
-          )
 
           %{
             stats

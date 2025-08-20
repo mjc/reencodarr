@@ -111,13 +111,7 @@ defmodule Reencodarr.TelemetryReporter do
 
   # Analyzer event handlers
   def handle_cast({:update_analyzer, status}, %DashboardState{} = state) do
-    Logger.debug("TelemetryReporter: Updating analyzer status to #{status}")
     new_state = DashboardState.update_analyzer(state, status)
-
-    Logger.debug(
-      "TelemetryReporter: New state - analyzing: #{new_state.analyzing}, queue count: #{new_state.stats.queue_length.analyzer}"
-    )
-
     {:noreply, emit_state_update_and_return(new_state)}
   end
 
@@ -170,15 +164,7 @@ defmodule Reencodarr.TelemetryReporter do
     # Only emit telemetry if the change is significant to reduce LiveView update frequency
     is_significant = DashboardState.significant_change?(old_state, new_state)
 
-    Logger.info(
-      "TelemetryReporter: significant_change? = #{is_significant}, old analyzer count: #{old_state.stats.queue_length.analyzer}, new analyzer count: #{new_state.stats.queue_length.analyzer}"
-    )
-
     if is_significant do
-      Logger.info(
-        "TelemetryReporter: Emitting state update - analyzer queue: #{new_state.stats.queue_length.analyzer}"
-      )
-
       # Emit telemetry event with minimal payload - only essential state for dashboard updates
       minimal_state = %{
         stats: new_state.stats,
