@@ -219,10 +219,6 @@ defmodule Reencodarr.CrfSearcher.Broadway do
 
   @spec process_video_crf_search(video(), pos_integer()) :: :ok | {:error, term()}
   defp process_video_crf_search(video, vmaf_target) do
-    Logger.info(
-      "🎬 CRF Searcher: Starting #{video.id} (#{video.title}) - #{video.bitrate}kbps, VMAF target: #{vmaf_target}%"
-    )
-
     # CRITICAL: Update video state BEFORE starting CRF search to prevent infinite loop
     case Media.update_video_status(video, %{"state" => "crf_searching"}) do
       {:ok, updated_video} ->
