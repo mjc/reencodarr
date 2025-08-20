@@ -606,7 +606,8 @@ defmodule Reencodarr.Analyzer.Broadway do
             "path" => video_info.path,
             "service_id" => video_info.service_id,
             "service_type" => to_string(video_info.service_type),
-            "mediainfo" => validated_mediainfo
+            "mediainfo" => validated_mediainfo,
+            "state" => "analyzed"
           })
 
         upsert_video_with_params(attrs, video_info)

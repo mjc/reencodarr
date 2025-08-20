@@ -149,7 +149,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_demand(demand, state) when demand > 0 do
-    Logger.info(
+    Logger.debug(
       "Broadway producer received demand for #{demand} items - current state: #{state.status}"
     )
 
@@ -166,9 +166,19 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_info({:analysis_completed, _path, _result}, state) do
-    # Analysis completed - refresh queue telemetry to update dashboard
-    emit_initial_telemetry(state)
-    {:noreply, [], state}
+    # Analysis completed - reset status to running if we were processing
+    new_status =
+      case state.status do
+        :processing -> :running
+        :pausing -> :paused
+        other -> other
+      end
+
+    new_state = State.update(state, status: new_status)
+
+    # Refresh queue telemetry and check for more work
+    emit_initial_telemetry(new_state)
+    dispatch_if_ready(new_state)
   end
 
   @impl GenStage
@@ -243,13 +253,13 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   end
 
   defp dispatch_if_ready(state) do
-    Logger.info("dispatch_if_ready called - demand: #{state.demand}, status: #{state.status}")
+    Logger.debug("dispatch_if_ready called - demand: #{state.demand}, status: #{state.status}")
 
     if state.status == :running and state.demand > 0 do
-      Logger.info("Conditions met, dispatching videos")
+      Logger.debug("Conditions met, dispatching videos")
       dispatch_videos(state)
     else
-      Logger.info(
+      Logger.debug(
         "Conditions not met for dispatch - status: #{state.status}, demand: #{state.demand}"
       )
 
@@ -271,7 +281,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
           # Get total count for accurate queue size
           total_count = get_total_analysis_queue_count()
 
-          Logger.info(
+          Logger.debug(
             "Broadway dispatch_videos - total_count: #{total_count}, remaining_videos: #{length(remaining_videos)}"
           )
 
@@ -439,7 +449,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   defp get_total_analysis_queue_count do
     # Efficiently count total videos needing analysis
     count = Media.count_videos_needing_analysis()
-    Logger.info("get_total_analysis_queue_count returning: #{count}")
+    Logger.debug("get_total_analysis_queue_count returning: #{count}")
     count
   end
 end

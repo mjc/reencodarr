@@ -47,7 +47,8 @@ defmodule Reencodarr.Media.Video do
     :max_audio_channels,
     :hdr,
     :atmos,
-    :title
+    :title,
+    :state
   ]
 
   @required [:path, :size]
