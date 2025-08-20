@@ -107,6 +107,31 @@ defmodule Reencodarr.Media.VideoUpsert do
 
   defp perform_upsert(final_attrs, conflict_except, original_attrs) do
     # Debug: Log state transition attempts for analyzer infinite loop debugging
+    log_state_transition_debug(final_attrs)
+
+    result =
+      Repo.transaction(fn ->
+        # Build the on_conflict query with dateAdded check
+        on_conflict_query = build_on_conflict_query(final_attrs, conflict_except)
+
+        changeset = %Video{} |> Video.changeset(final_attrs)
+
+        # Debug: Log changeset validation errors for analyzer infinite loop debugging
+        log_changeset_validation_debug(final_attrs, changeset)
+
+        changeset
+        |> Repo.insert(
+          on_conflict: on_conflict_query,
+          conflict_target: :path,
+          stale_error_field: :updated_at,
+          returning: true
+        )
+      end)
+
+    handle_upsert_result(result, original_attrs)
+  end
+
+  defp log_state_transition_debug(final_attrs) do
     if Map.get(final_attrs, "state") == "analyzed" do
       path = Map.get(final_attrs, "path")
       Logger.debug("🔍 Attempting state transition to 'analyzed' for #{Path.basename(path)}")
@@ -119,50 +144,28 @@ defmodule Reencodarr.Media.VideoUpsert do
         "   Codecs present: video=#{inspect(Map.get(final_attrs, "video_codecs"))}, audio=#{inspect(Map.get(final_attrs, "audio_codecs"))}"
       )
     end
+  end
 
-    result =
-      Repo.transaction(fn ->
-        # Build the on_conflict query with dateAdded check
-        on_conflict_query = build_on_conflict_query(final_attrs, conflict_except)
+  defp log_changeset_validation_debug(final_attrs, changeset) do
+    if Map.get(final_attrs, "state") == "analyzed" and not changeset.valid? do
+      path = Map.get(final_attrs, "path")
 
-        changeset = %Video{} |> Video.changeset(final_attrs)
+      Logger.warning(
+        "❌ Changeset validation failed for 'analyzed' state transition: #{Path.basename(path)}"
+      )
 
-        # Debug: Log changeset validation errors for analyzer infinite loop debugging
-        if Map.get(final_attrs, "state") == "analyzed" and not changeset.valid? do
-          path = Map.get(final_attrs, "path")
+      Logger.warning("   Validation errors: #{inspect(changeset.errors)}")
+    end
+  end
 
-          Logger.warning(
-            "❌ Changeset validation failed for 'analyzed' state transition: #{Path.basename(path)}"
-          )
-
-          Logger.warning("   Validation errors: #{inspect(changeset.errors)}")
-        end
-
-        changeset
-        |> Repo.insert(
-          on_conflict: on_conflict_query,
-          conflict_target: :path,
-          stale_error_field: :updated_at,
-          returning: true
-        )
-      end)
-
+  defp handle_upsert_result(result, original_attrs) do
     case result do
       {:ok, {:ok, video}} ->
         Reencodarr.Telemetry.emit_video_upserted(video)
         {:ok, video}
 
       {:ok, {:error, %Ecto.Changeset{errors: [updated_at: {"is stale", _}]} = changeset}} ->
-        # This is expected when dateAdded is not newer than updated_at - treat as success (skip)
-        path = Map.get(original_attrs, "path")
-        Logger.debug("Skipping update for #{path} - dateAdded not newer than updated_at")
-
-        # Return the existing video instead of an error
-        case Repo.get_by(Video, path: path) do
-          # Shouldn't happen, but handle gracefully
-          nil -> {:error, changeset}
-          existing_video -> {:ok, existing_video}
-        end
+        handle_stale_update(changeset, original_attrs)
 
       {:ok, error} ->
         log_upsert_failure(original_attrs, error)
@@ -171,6 +174,19 @@ defmodule Reencodarr.Media.VideoUpsert do
       {:error, _} = error ->
         log_upsert_failure(original_attrs, error)
         error
+    end
+  end
+
+  defp handle_stale_update(changeset, original_attrs) do
+    # This is expected when dateAdded is not newer than updated_at - treat as success (skip)
+    path = Map.get(original_attrs, "path")
+    Logger.debug("Skipping update for #{path} - dateAdded not newer than updated_at")
+
+    # Return the existing video instead of an error
+    case Repo.get_by(Video, path: path) do
+      # Shouldn't happen, but handle gracefully
+      nil -> {:error, changeset}
+      existing_video -> {:ok, existing_video}
     end
   end
 
