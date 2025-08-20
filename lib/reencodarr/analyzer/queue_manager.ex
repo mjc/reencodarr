@@ -71,12 +71,11 @@ defmodule Reencodarr.Analyzer.QueueManager do
 
   @impl GenServer
   def handle_info({:analyzer_queue_updated, queue_items}, _state) do
-    new_state = %__MODULE__{
+    new_state = %{
       queue: queue_items,
       count: length(queue_items)
     }
 
-    Logger.debug("Analyzer queue updated: #{new_state.count} items")
     {:noreply, new_state}
   end
 
