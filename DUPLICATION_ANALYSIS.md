@@ -256,6 +256,23 @@ Scattered utility functions across pipeline modules with similar functionality -
 - ✅ 150+ lines of duplicate test code eliminated
 - ✅ No more conflicting test expectations
 
+### **Core.Formatters Elimination** (August 2025)
+**Impact:** Unused dead code module removed, duration formatting improved
+
+**Files Removed:**
+- `lib/reencodarr/core/formatters.ex` (unused dead code with duplicated functions)
+
+**Functions Migrated:**
+- Enhanced `format_duration/1` with detailed "1h 1m 1s" format
+- Added `normalize_string/1` function to main Formatters module
+
+**Benefits Achieved:**
+- ✅ Eliminated unused module with duplicate functionality
+- ✅ Improved duration formatting precision ("1h 1m 1s" instead of "1h 1m")
+- ✅ Added useful string normalization utility
+- ✅ 97 lines of duplicate/dead code removed
+- ✅ No more confusion between formatting modules
+
 ---
 
 ## Estimated Impact

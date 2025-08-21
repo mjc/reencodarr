@@ -170,4 +170,39 @@ defmodule Reencodarr.FormattersTest do
       assert Formatters.format_size_gb(nil) == "N/A"
     end
   end
+
+  describe "format_duration/1" do
+    test "formats duration with hours, minutes, and seconds" do
+      assert Formatters.format_duration(3661) == "1h 1m 1s"
+      assert Formatters.format_duration(125) == "2m 5s"
+      assert Formatters.format_duration(45) == "45s"
+    end
+
+    test "handles zero and short durations" do
+      assert Formatters.format_duration(0) == "N/A"
+      assert Formatters.format_duration(1) == "1s"
+      assert Formatters.format_duration(60) == "1m"
+      assert Formatters.format_duration(3600) == "1h"
+    end
+
+    test "handles edge cases" do
+      assert Formatters.format_duration(nil) == "N/A"
+      assert Formatters.format_duration("invalid") == "invalid"
+    end
+  end
+
+  describe "normalize_string/1" do
+    test "trims whitespace and converts to lowercase" do
+      assert Formatters.normalize_string("  Hello World  ") == "hello world"
+      assert Formatters.normalize_string("UPPERCASE") == "uppercase"
+      assert Formatters.normalize_string("MixedCase") == "mixedcase"
+    end
+
+    test "handles edge cases" do
+      assert Formatters.normalize_string("") == ""
+      assert Formatters.normalize_string("   ") == ""
+      assert Formatters.normalize_string(nil) == ""
+      assert Formatters.normalize_string(123) == ""
+    end
+  end
 end
