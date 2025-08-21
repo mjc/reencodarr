@@ -1,37 +1,53 @@
 defmodule Reencodarr.Formatters do
   @moduledoc """
-  Data formatting utilities for user-facing display.
+  **UNIFIED DATA FORMATTING UTILITIES**
 
-  Provides consistent formatting across the application for:
-  - File sizes and storage amounts
-  - Numeric values and percentages
-  - Time durations and relative timestamps
-  - Video/audio metadata display
+  Central hub for all data formatting across the Reencodarr application.
+  Eliminates duplication and provides consistent, well-tested formatting.
 
-  Consolidates all formatting logic into a single, well-organized module.
+  ## Key Features:
+  - Comprehensive file size formatting (bytes, binary units, decimal units)
+  - Savings and storage amount formatting
+  - Numeric display formatting
+  - Filename and path utilities
+  - Time duration formatting
+
+  ## File Size Standards:
+  - Uses binary prefixes (1024-based): KiB, MiB, GiB, TiB
+  - Decimal prefixes (1000-based) for compatibility: KB, MB, GB, TB
+  - Consistent precision and edge case handling
   """
 
-  # === FILE SIZE FORMATTING ===
+  # === FILE SIZE FORMATTING (COMPREHENSIVE) ===
 
   @doc """
-  Formats file sizes in bytes to human-readable format.
+  Formats file sizes in bytes to human-readable format using binary prefixes.
+
+  Uses binary (1024-based) prefixes by default for accurate storage representation.
 
   ## Examples
       iex> format_file_size(1024)
-      "1.0 KB"
+      "1.0 KiB"
 
       iex> format_file_size(1_073_741_824)
-      "1.0 GB"
+      "1.0 GiB"
+
+      iex> format_file_size(nil)
+      "N/A"
+
+      iex> format_file_size(0)
+      "0 B"
   """
   def format_file_size(nil), do: "N/A"
-  def format_file_size(bytes) when is_integer(bytes) and bytes <= 0, do: "N/A"
+  def format_file_size(bytes) when is_integer(bytes) and bytes < 0, do: "N/A"
+  def format_file_size(0), do: "0 B"
 
   def format_file_size(bytes) when is_integer(bytes) do
     cond do
-      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776, 1)} TB"
-      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824, 1)} GB"
-      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576, 1)} MB"
-      bytes >= 1024 -> "#{Float.round(bytes / 1024, 1)} KB"
+      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776, 1)} TiB"
+      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824, 1)} GiB"
+      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576, 1)} MiB"
+      bytes >= 1024 -> "#{Float.round(bytes / 1024, 1)} KiB"
       true -> "#{bytes} B"
     end
   end
@@ -39,15 +55,47 @@ defmodule Reencodarr.Formatters do
   def format_file_size(_), do: "N/A"
 
   @doc """
-  Formats file size in bytes to GiB (gibibytes) with 2 decimal precision.
+  Formats file sizes using decimal prefixes (1000-based) for compatibility.
+
+  Some contexts prefer decimal prefixes for consistency with storage vendors.
 
   ## Examples
+      iex> format_file_size_decimal(1000)
+      "1.0 KB"
 
+      iex> format_file_size_decimal(1_000_000_000)
+      "1.0 GB"
+  """
+  def format_file_size_decimal(nil), do: "N/A"
+  def format_file_size_decimal(bytes) when is_integer(bytes) and bytes < 0, do: "N/A"
+  def format_file_size_decimal(0), do: "0 B"
+
+  def format_file_size_decimal(bytes) when is_integer(bytes) do
+    cond do
+      bytes >= 1_000_000_000_000 -> "#{Float.round(bytes / 1_000_000_000_000, 1)} TB"
+      bytes >= 1_000_000_000 -> "#{Float.round(bytes / 1_000_000_000, 1)} GB"
+      bytes >= 1_000_000 -> "#{Float.round(bytes / 1_000_000, 1)} MB"
+      bytes >= 1000 -> "#{Float.round(bytes / 1000, 1)} KB"
+      true -> "#{bytes} B"
+    end
+  end
+
+  def format_file_size_decimal(_), do: "N/A"
+
+  @doc """
+  Formats file size in bytes to GiB (gibibytes) as a numeric value.
+
+  Returns a float for calculations and sorting. Use format_file_size/1 for display.
+
+  ## Examples
       iex> format_file_size_gib(1_073_741_824)
       1.0
 
       iex> format_file_size_gib(nil)
       0.0
+
+      iex> format_file_size_gib(1_610_612_736)
+      1.5
   """
   def format_file_size_gib(bytes) when is_integer(bytes) and bytes > 0 do
     # 1 GiB = 1,073,741,824 bytes (2^30)
@@ -58,27 +106,52 @@ defmodule Reencodarr.Formatters do
   def format_file_size_gib(_), do: 0.0
 
   @doc """
-  Formats file size in gigabytes with decimal precision.
+  Formats file size with units for storage display.
+
+  ## Examples
+      iex> format_size_with_unit(2_147_483_648)
+      "2.0 GiB"
+  """
+  def format_size_with_unit(bytes), do: format_file_size(bytes)
+
+  # === LEGACY COMPATIBILITY FUNCTIONS ===
+  # These maintain backward compatibility with existing code
+
+  @doc """
+  LEGACY: Formats file size in gigabytes with decimal precision.
+
+  **DEPRECATED:** Use format_file_size/1 or format_file_size_gib/1 instead.
   """
   def format_size_gb(size) when is_integer(size) and size > 0 do
-    gb = size / (1024 * 1024 * 1024)
-    "#{Float.round(gb, 2)} GB"
+    gib = size / 1_073_741_824
+    "#{Float.round(gib, 2)} GiB"
   end
 
   def format_size_gb(_), do: "N/A"
 
+  # === SAVINGS FORMATTING ===
+
   @doc """
   Formats savings amounts with appropriate units (handles GB input).
+
+  For savings calculations that come as GB values.
+
+  ## Examples
+      iex> format_savings_gb(2.5)
+      "2.5 GiB"
+
+      iex> format_savings_gb(1500.0)
+      "1.5 TiB"
   """
   def format_savings_gb(nil), do: "N/A"
   def format_savings_gb(gb) when is_number(gb) and gb <= 0, do: "N/A"
 
   def format_savings_gb(gb) when is_number(gb) do
     cond do
-      gb >= 1000 -> "#{Float.round(gb / 1000, 1)} TB"
-      gb >= 1 -> "#{Float.round(gb, 2)} GB"
-      gb >= 0.001 -> "#{round(gb * 1000)} MB"
-      true -> "< 1 MB"
+      gb >= 1000 -> "#{Float.round(gb / 1000, 1)} TiB"
+      gb >= 1 -> "#{Float.round(gb, 2)} GiB"
+      gb >= 0.001 -> "#{round(gb * 1000)} MiB"
+      true -> "< 1 MiB"
     end
   end
 
@@ -86,6 +159,10 @@ defmodule Reencodarr.Formatters do
 
   @doc """
   Formats savings amounts from bytes with appropriate units.
+
+  ## Examples
+      iex> format_savings_bytes(1_073_741_824)
+      "1.0 GiB"
   """
   def format_savings_bytes(nil), do: "N/A"
   def format_savings_bytes(bytes) when is_integer(bytes) and bytes <= 0, do: "N/A"

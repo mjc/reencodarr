@@ -30,21 +30,21 @@ defmodule Reencodarr.Core.Formatters do
   @doc """
   Formats file size in bytes to human-readable format.
 
-  Delegates to ReencodarrWeb.FormatHelpers for consistency.
+  Delegates to Reencodarr.Formatters for consistency.
 
   ## Examples
 
       iex> Formatters.format_file_size(1024)
-      "1.0 KB"
+      "1.0 KiB"
 
       iex> Formatters.format_file_size(1_048_576)
-      "1.0 MB"
+      "1.0 MiB"
 
       iex> Formatters.format_file_size(1_073_741_824)
-      "1.0 GB"
+      "1.0 GiB"
   """
   @spec format_file_size(integer()) :: String.t()
-  defdelegate format_file_size(bytes), to: ReencodarrWeb.DashboardFormatters
+  defdelegate format_file_size(bytes), to: Reencodarr.Formatters
 
   @doc """
   Formats duration in seconds to human-readable format.
