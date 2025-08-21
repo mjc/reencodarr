@@ -2,6 +2,7 @@ defmodule Reencodarr.CrfSearcher.BroadwayTest do
   use ExUnit.Case, async: true
 
   alias Reencodarr.CrfSearcher.Broadway
+  alias Reencodarr.BroadwayConfig
 
   describe "transform/2" do
     test "transforms video data into Broadway message" do
@@ -29,12 +30,8 @@ defmodule Reencodarr.CrfSearcher.BroadwayTest do
           crf_quality: 90
         )
 
-        # Start Broadway with additional opts
+        # Test Broadway configuration merging logic using centralized utility
         opts = [batch_size: 2]
-
-        # This would normally start the Broadway pipeline
-        # For testing purposes, we'll verify the config merging logic
-        app_config = Application.get_env(:reencodarr, Broadway, [])
 
         default_config = [
           rate_limit_messages: 10,
@@ -44,7 +41,7 @@ defmodule Reencodarr.CrfSearcher.BroadwayTest do
           crf_quality: 95
         ]
 
-        final_config = default_config |> Keyword.merge(app_config) |> Keyword.merge(opts)
+        final_config = BroadwayConfig.merge_config(Broadway, default_config, opts)
 
         # Verify priority: opts > app_config > default_config
         # from app_config

@@ -17,6 +17,7 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   alias Broadway.Message
   alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.CrfSearcher.Broadway.Producer
+  alias Reencodarr.BroadwayConfig
   alias Reencodarr.Media
 
   @typedoc "Video struct for CRF search processing"
@@ -53,25 +54,16 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   """
   @spec start_link(config()) :: GenServer.on_start()
   def start_link(opts) do
-    app_config = Application.get_env(:reencodarr, __MODULE__, [])
-    config = @default_config |> Keyword.merge(app_config) |> Keyword.merge(opts)
+    config = BroadwayConfig.merge_config(__MODULE__, @default_config, opts)
 
     Broadway.start_link(__MODULE__,
       name: __MODULE__,
       producer: [
         module: {Producer, []},
         transformer: {__MODULE__, :transform, []},
-        rate_limiting: [
-          allowed_messages: config[:rate_limit_messages],
-          interval: config[:rate_limit_interval]
-        ]
+        rate_limiting: BroadwayConfig.rate_limiting_config(config)
       ],
-      processors: [
-        default: [
-          concurrency: 1,
-          max_demand: 1
-        ]
-      ],
+      processors: BroadwayConfig.processor_config(),
       batchers: [
         default: [
           batch_size: config[:batch_size],
