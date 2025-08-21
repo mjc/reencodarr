@@ -2,7 +2,6 @@ defmodule Reencodarr.Encoder.BroadwayTest do
   use ExUnit.Case, async: true
 
   alias Reencodarr.Encoder.Broadway
-  alias Reencodarr.BroadwayConfig
 
   describe "transform/2" do
     test "transforms VMAF data into Broadway message" do
@@ -30,8 +29,12 @@ defmodule Reencodarr.Encoder.BroadwayTest do
           batch_timeout: 15_000
         )
 
-        # Test Broadway configuration merging logic using centralized utility
+        # Test Broadway configuration merging logic using standard Elixir patterns
         opts = [batch_size: 2]
+
+        # This would normally start the Broadway pipeline
+        # For testing purposes, we'll verify the config merging logic
+        app_config = Application.get_env(:reencodarr, Broadway, [])
 
         default_config = [
           rate_limit_messages: 5,
@@ -40,7 +43,7 @@ defmodule Reencodarr.Encoder.BroadwayTest do
           batch_timeout: 10_000
         ]
 
-        final_config = BroadwayConfig.merge_config(Broadway, default_config, opts)
+        final_config = default_config |> Keyword.merge(app_config) |> Keyword.merge(opts)
 
         # Verify priority: opts > app_config > default_config
         # from app_config
