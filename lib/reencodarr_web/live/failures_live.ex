@@ -25,7 +25,6 @@ defmodule ReencodarrWeb.FailuresLive do
       filter_tag_classes: 1
     ]
 
-  alias ReencodarrWeb.LiveViewBase
   require Logger
 
   alias Reencodarr.Media
@@ -34,11 +33,23 @@ defmodule ReencodarrWeb.FailuresLive do
   import ReencodarrWeb.LcarsComponents
   import Reencodarr.Utils
 
+  alias Reencodarr.UIHelpers.Stardate
+
   @impl true
   def mount(_params, _session, socket) do
+    # Standard LiveView setup
+    timezone = get_in(socket.assigns, [:timezone]) || "UTC"
+    current_stardate = Stardate.calculate_stardate(DateTime.utc_now())
+
+    # Schedule stardate updates if connected
+    if Phoenix.LiveView.connected?(socket) do
+      Process.send_after(self(), :update_stardate, 5000)
+    end
+
     socket =
       socket
-      |> LiveViewBase.standard_mount_setup(stardate_timer: true)
+      |> assign(:timezone, timezone)
+      |> assign(:current_stardate, current_stardate)
       |> setup_failures_data()
       |> load_failures_data()
 
@@ -47,13 +58,17 @@ defmodule ReencodarrWeb.FailuresLive do
 
   @impl true
   def handle_info(:update_stardate, socket) do
-    socket = LiveViewBase.handle_stardate_update(socket)
+    # Update stardate and schedule next update
+    Process.send_after(self(), :update_stardate, 5000)
+    socket = assign(socket, :current_stardate, Stardate.calculate_stardate(DateTime.utc_now()))
     {:noreply, socket}
   end
 
   @impl true
-  def handle_event("set_timezone", %{"timezone" => tz}, socket) do
-    socket = LiveViewBase.handle_timezone_change_with_logging(socket, tz)
+  def handle_event("timezone_change", %{"tz" => tz}, socket) do
+    require Logger
+    Logger.debug("Setting timezone to #{tz}")
+    socket = assign(socket, :timezone, tz)
     {:noreply, socket}
   end
 

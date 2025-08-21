@@ -13,13 +13,19 @@ defmodule ReencodarrWeb.RulesLive do
 
   require Logger
   import ReencodarrWeb.LcarsComponents
-  alias ReencodarrWeb.LiveViewBase
+
+  alias Reencodarr.UIHelpers.Stardate
 
   @impl true
   def mount(_params, _session, socket) do
+    # Standard LiveView setup
+    timezone = get_in(socket.assigns, [:timezone]) || "UTC"
+    current_stardate = Stardate.calculate_stardate(DateTime.utc_now())
+
     socket =
       socket
-      |> LiveViewBase.standard_mount_setup()
+      |> assign(:timezone, timezone)
+      |> assign(:current_stardate, current_stardate)
       |> assign(:selected_section, :overview)
 
     {:ok, socket}

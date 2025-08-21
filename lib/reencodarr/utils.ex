@@ -67,40 +67,6 @@ defmodule Reencodarr.Utils do
     end)
   end
 
-  # === ERROR HANDLING UTILITIES ===
-
-  @doc """
-  Logs an error and returns a consistent error tuple.
-  """
-  def log_error(reason, context \\ "") do
-    require Logger
-    context_msg = if context != "", do: "#{context}: ", else: ""
-    Logger.error("#{context_msg}#{inspect(reason)}")
-    {:error, reason}
-  end
-
-  @doc """
-  Handles result tuples with automatic error logging.
-  """
-  def handle_result(result, success_fn, context \\ "") do
-    case result do
-      {:ok, data} -> success_fn.(data)
-      {:error, reason} -> log_error(reason, context)
-      other -> log_error({:unexpected_result, other}, context)
-    end
-  end
-
-  @doc """
-  Wraps a function call with error logging and exception handling.
-  """
-  def safely(func, context \\ "") do
-    func.()
-  rescue
-    e -> log_error({:exception, Exception.message(e)}, context)
-  catch
-    :throw, value -> log_error({:throw, value}, context)
-  end
-
   # === GUARD MACROS ===
 
   @doc """

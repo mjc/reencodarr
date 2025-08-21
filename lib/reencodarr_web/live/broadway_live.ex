@@ -19,17 +19,32 @@ defmodule ReencodarrWeb.BroadwayLive do
   import ReencodarrWeb.UIHelpers
   require Logger
 
-  alias ReencodarrWeb.LiveViewBase
+  alias Reencodarr.UIHelpers.Stardate
 
   @impl true
   def mount(_params, _session, socket) do
-    socket = LiveViewBase.standard_mount_setup(socket, stardate_timer: true)
+    # Standard LiveView setup
+    timezone = get_in(socket.assigns, [:timezone]) || "UTC"
+    current_stardate = Stardate.calculate_stardate(DateTime.utc_now())
+
+    # Schedule stardate updates if connected
+    if Phoenix.LiveView.connected?(socket) do
+      Process.send_after(self(), :update_stardate, 5000)
+    end
+
+    socket =
+      socket
+      |> assign(:timezone, timezone)
+      |> assign(:current_stardate, current_stardate)
+
     {:ok, socket}
   end
 
   @impl true
   def handle_info(:update_stardate, socket) do
-    socket = LiveViewBase.handle_stardate_update(socket)
+    # Update stardate and schedule next update
+    Process.send_after(self(), :update_stardate, 5000)
+    socket = assign(socket, :current_stardate, Stardate.calculate_stardate(DateTime.utc_now()))
     {:noreply, socket}
   end
 
