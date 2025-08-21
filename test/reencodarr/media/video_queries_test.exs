@@ -5,10 +5,11 @@ defmodule Reencodarr.Media.VideoQueriesTest do
 
   describe "videos_for_crf_search/1" do
     test "returns videos needing CRF search" do
-      # Create a video that should be included
       video =
         video_fixture(%{
-          path: "/test/sample_included.mkv",
+          path: "/test/sample.mkv",
+          # Video must be analyzed to be eligible for CRF search
+          state: :analyzed,
           reencoded: false,
           failed: false,
           video_codecs: ["h264"],
@@ -19,6 +20,8 @@ defmodule Reencodarr.Media.VideoQueriesTest do
       _excluded_video =
         video_fixture(%{
           path: "/test/sample_excluded.mkv",
+          # Encoded videos should be excluded
+          state: :encoded,
           reencoded: true,
           failed: false,
           video_codecs: ["h264"],

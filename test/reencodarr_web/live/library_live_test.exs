@@ -2,6 +2,7 @@ defmodule ReencodarrWeb.LibraryLiveTest do
   use ReencodarrWeb.ConnCase
 
   import Phoenix.LiveViewTest
+  import ExUnit.CaptureLog
   alias Reencodarr.Fixtures
 
   @create_attrs %{monitor: true, path: "some path"}
@@ -13,67 +14,79 @@ defmodule ReencodarrWeb.LibraryLiveTest do
     %{library: library}
   end
 
+  defp with_captured_logs(fun) do
+    capture_log(fun)
+  end
+
   describe "Index" do
     setup [:create_library]
 
     test "lists all libraries", %{conn: conn, library: library} do
-      {:ok, _index_live, html} = live(conn, ~p"/libraries")
+      with_captured_logs(fn ->
+        {:ok, _index_live, html} = live(conn, ~p"/libraries")
 
-      assert html =~ "Listing Libraries"
-      assert html =~ library.path
+        assert html =~ "Listing Libraries"
+        assert html =~ library.path
+      end)
     end
 
     test "saves new library", %{conn: conn} do
-      {:ok, index_live, _html} = live(conn, ~p"/libraries")
+      with_captured_logs(fn ->
+        {:ok, index_live, _html} = live(conn, ~p"/libraries")
 
-      assert index_live |> element("a", "New Library") |> render_click() =~
-               "New Library"
+        assert index_live |> element("a", "New Library") |> render_click() =~
+                 "New Library"
 
-      assert_patch(index_live, ~p"/libraries/new")
+        assert_patch(index_live, ~p"/libraries/new")
 
-      assert index_live
-             |> form("#library-form", library: @invalid_attrs)
-             |> render_change() =~ "can&#39;t be blank"
+        assert index_live
+               |> form("#library-form", library: @invalid_attrs)
+               |> render_change() =~ "can&#39;t be blank"
 
-      assert index_live
-             |> form("#library-form", library: @create_attrs)
-             |> render_submit()
+        assert index_live
+               |> form("#library-form", library: @create_attrs)
+               |> render_submit()
 
-      assert_patch(index_live, ~p"/libraries")
+        assert_patch(index_live, ~p"/libraries")
 
-      html = render(index_live)
-      assert html =~ "Library created successfully"
-      assert html =~ "some path"
+        html = render(index_live)
+        assert html =~ "Library created successfully"
+        assert html =~ "some path"
+      end)
     end
 
     test "updates library in listing", %{conn: conn, library: library} do
-      {:ok, index_live, _html} = live(conn, ~p"/libraries")
+      with_captured_logs(fn ->
+        {:ok, index_live, _html} = live(conn, ~p"/libraries")
 
-      assert index_live |> element("#libraries-#{library.id} a", "Edit") |> render_click() =~
-               "Edit Library"
+        assert index_live |> element("#libraries-#{library.id} a", "Edit") |> render_click() =~
+                 "Edit Library"
 
-      assert_patch(index_live, ~p"/libraries/#{library}/edit")
+        assert_patch(index_live, ~p"/libraries/#{library}/edit")
 
-      assert index_live
-             |> form("#library-form", library: @invalid_attrs)
-             |> render_change() =~ "can&#39;t be blank"
+        assert index_live
+               |> form("#library-form", library: @invalid_attrs)
+               |> render_change() =~ "can&#39;t be blank"
 
-      assert index_live
-             |> form("#library-form", library: @update_attrs)
-             |> render_submit()
+        assert index_live
+               |> form("#library-form", library: @update_attrs)
+               |> render_submit()
 
-      assert_patch(index_live, ~p"/libraries")
+        assert_patch(index_live, ~p"/libraries")
 
-      html = render(index_live)
-      assert html =~ "Library updated successfully"
-      assert html =~ "some updated path"
+        html = render(index_live)
+        assert html =~ "Library updated successfully"
+        assert html =~ "some updated path"
+      end)
     end
 
     test "deletes library in listing", %{conn: conn, library: library} do
-      {:ok, index_live, _html} = live(conn, ~p"/libraries")
+      with_captured_logs(fn ->
+        {:ok, index_live, _html} = live(conn, ~p"/libraries")
 
-      assert index_live |> element("#libraries-#{library.id} a", "Delete") |> render_click()
-      refute has_element?(index_live, "#libraries-#{library.id}")
+        assert index_live |> element("#libraries-#{library.id} a", "Delete") |> render_click()
+        refute has_element?(index_live, "#libraries-#{library.id}")
+      end)
     end
   end
 
@@ -81,33 +94,37 @@ defmodule ReencodarrWeb.LibraryLiveTest do
     setup [:create_library]
 
     test "displays library", %{conn: conn, library: library} do
-      {:ok, _show_live, html} = live(conn, ~p"/libraries/#{library}")
+      with_captured_logs(fn ->
+        {:ok, _show_live, html} = live(conn, ~p"/libraries/#{library}")
 
-      assert html =~ "Show Library"
-      assert html =~ library.path
+        assert html =~ "Show Library"
+        assert html =~ library.path
+      end)
     end
 
     test "updates library within modal", %{conn: conn, library: library} do
-      {:ok, show_live, _html} = live(conn, ~p"/libraries/#{library}")
+      with_captured_logs(fn ->
+        {:ok, show_live, _html} = live(conn, ~p"/libraries/#{library}")
 
-      assert show_live |> element("a", "Edit") |> render_click() =~
-               "Edit Library"
+        assert show_live |> element("a", "Edit") |> render_click() =~
+                 "Edit Library"
 
-      assert_patch(show_live, ~p"/libraries/#{library}/show/edit")
+        assert_patch(show_live, ~p"/libraries/#{library}/show/edit")
 
-      assert show_live
-             |> form("#library-form", library: @invalid_attrs)
-             |> render_change() =~ "can&#39;t be blank"
+        assert show_live
+               |> form("#library-form", library: @invalid_attrs)
+               |> render_change() =~ "can&#39;t be blank"
 
-      assert show_live
-             |> form("#library-form", library: @update_attrs)
-             |> render_submit()
+        assert show_live
+               |> form("#library-form", library: @update_attrs)
+               |> render_submit()
 
-      assert_patch(show_live, ~p"/libraries/#{library}")
+        assert_patch(show_live, ~p"/libraries/#{library}")
 
-      html = render(show_live)
-      assert html =~ "Library updated successfully"
-      assert html =~ "some updated path"
+        html = render(show_live)
+        assert html =~ "Library updated successfully"
+        assert html =~ "some updated path"
+      end)
     end
   end
 end

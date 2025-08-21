@@ -166,12 +166,15 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
         "Progress: 50% complete"
       ]
 
-      Enum.each(non_matching_lines, fn line ->
-        CrfSearch.process_line(line, video, [])
-      end)
+      _log =
+        capture_log(fn ->
+          Enum.each(non_matching_lines, fn line ->
+            CrfSearch.process_line(line, video, [])
+          end)
 
-      # Should not create any VMAF records
-      assert Repo.aggregate(Vmaf, :count, :id) == 0
+          # Should not create any VMAF records
+          assert Repo.aggregate(Vmaf, :count, :id) == 0
+        end)
     end
 
     test "handles target VMAF parameter in success pattern", %{
@@ -323,24 +326,27 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
     end
 
     test "fails video when chosen VMAF exceeds 10GB limit", %{video: video} do
-      # First create a large VMAF
-      large_line = "crf 20 VMAF 96.0 predicted video stream size 11.0 GB (80%) taking 3 hours"
-      CrfSearch.process_line(large_line, video, [])
-
-      # Then mark it as successful
-      success_line = "crf 20 successful"
-
-      log =
+      _log =
         capture_log(fn ->
-          CrfSearch.process_line(success_line, video, [])
+          # First create a large VMAF
+          large_line = "crf 20 VMAF 96.0 predicted video stream size 11.0 GB (80%) taking 3 hours"
+          CrfSearch.process_line(large_line, video, [])
+
+          # Then mark it as successful
+          success_line = "crf 20 successful"
+
+          log =
+            capture_log(fn ->
+              CrfSearch.process_line(success_line, video, [])
+            end)
+
+          assert log =~ "CrfSearch: Chosen VMAF CRF 20 exceeds 10GB limit"
+          assert log =~ "Marking as failed"
+
+          # Video should be marked as failed
+          updated_video = Repo.get(Media.Video, video.id)
+          assert updated_video.failed == true
         end)
-
-      assert log =~ "CrfSearch: Chosen VMAF CRF 20 exceeds 10GB limit"
-      assert log =~ "Marking as failed"
-
-      # Video should be marked as failed
-      updated_video = Repo.get(Media.Video, video.id)
-      assert updated_video.failed == true
     end
   end
 end

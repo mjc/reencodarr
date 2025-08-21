@@ -315,10 +315,10 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
 
         # Video should remain in original state due to transaction handling
         unchanged_video = Media.get_video!(video.id)
-        # The mock prevents the state change, so it should remain reencoded: true
-        # This is the expected behavior when the post-processor succeeds but DB update fails
-        # PostProcessor marks as reencoded first
-        assert unchanged_video.reencoded == true
+        # The mock prevents the state change, so the video should remain unchanged
+        # In the state machine approach, reencoded is only true when state is :encoded
+        assert unchanged_video.reencoded == false
+        assert unchanged_video.state == :needs_analysis
         assert unchanged_video.failed == false
 
         assert log =~ "Failed to mark video #{video.id} as re-encoded"

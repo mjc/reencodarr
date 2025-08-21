@@ -110,18 +110,21 @@ defmodule Reencodarr.Encoder.ExceptionHandlingTest do
         stage: "encoding_setup"
       }
 
-      {:ok, failure} = FailureTracker.record_exception_failure(video, fallback_context)
+      _log =
+        capture_log(fn ->
+          {:ok, failure} = FailureTracker.record_exception_failure(video, fallback_context)
 
-      failure = Repo.get!(VideoFailure, failure.id)
+          failure = Repo.get!(VideoFailure, failure.id)
 
-      assert failure.system_context["attempted_command"] == [
-               "encode",
-               "--crf",
-               "28.0",
-               video.path
-             ]
+          assert failure.system_context["attempted_command"] == [
+                   "encode",
+                   "--crf",
+                   "28.0",
+                   video.path
+                 ]
 
-      assert String.contains?(failure.system_context["command_line"], "ab-av1 encode")
+          assert String.contains?(failure.system_context["command_line"], "ab-av1 encode")
+        end)
     end
   end
 end
