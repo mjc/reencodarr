@@ -8,9 +8,11 @@ defmodule Reencodarr.Media.Codecs do
   - Codec classification (video/audio, HDR, lossless, etc.)
   - Commercial format detection (Atmos, etc.)
 
-  This module replaces the previous CodecMapper and CodecHelpers modules
-  to eliminate duplication and provide a single source of truth for codec operations.
+  Delegates commercial format detection to `Reencodarr.Media.CodecMapper`
+  for consistency with other modules.
   """
+
+  alias Reencodarr.Media.CodecMapper
 
   @type codec_list :: [String.t()]
   @type codec_input :: String.t() | codec_list() | nil
@@ -112,7 +114,7 @@ defmodule Reencodarr.Media.Codecs do
   """
   @spec normalize_codec(String.t()) :: String.t()
   def normalize_codec(codec) when is_binary(codec) do
-    format_commercial_if_any(codec)
+    CodecMapper.format_commercial_if_any(codec)
   end
 
   @doc """
@@ -285,28 +287,6 @@ defmodule Reencodarr.Media.Codecs do
       map_channels(channel)
     end
   end
-
-  # === Commercial Format Detection ===
-
-  @doc """
-  Detects and formats commercial audio format names (e.g., Atmos).
-  """
-  @spec format_commercial_if_any(String.t() | any) :: String.t()
-  def format_commercial_if_any(atmos) when is_binary(atmos) do
-    lower_atmos = String.downcase(atmos)
-
-    cond do
-      String.contains?(lower_atmos, "atmos") -> "Atmos"
-      String.contains?(lower_atmos, "dts-x") or String.contains?(lower_atmos, "dts:x") -> "Atmos"
-      String.contains?(lower_atmos, "truehd atmos") -> "Atmos"
-      String.contains?(lower_atmos, "eac3 atmos") -> "Atmos"
-      String.contains?(lower_atmos, "dd+ atmos") -> "Atmos"
-      true -> ""
-    end
-  end
-
-  def format_commercial_if_any(atmos) when atmos in [:eac3_atmos, :truehd_atmos], do: "Atmos"
-  def format_commercial_if_any(_), do: ""
 
   # === Private Helper Functions ===
 
