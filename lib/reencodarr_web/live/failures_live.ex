@@ -229,35 +229,35 @@ defmodule ReencodarrWeb.FailuresLive do
               <button
                 phx-click="filter_failures"
                 phx-value-filter="all"
-                class={filter_button_class(@failure_filter == "all")}
+                class={filter_button_classes(@failure_filter == "all", :orange)}
               >
                 ALL
               </button>
               <button
                 phx-click="filter_failures"
                 phx-value-filter="analysis"
-                class={filter_button_class(@failure_filter == "analysis")}
+                class={filter_button_classes(@failure_filter == "analysis", :orange)}
               >
                 ANALYSIS
               </button>
               <button
                 phx-click="filter_failures"
                 phx-value-filter="crf_search"
-                class={filter_button_class(@failure_filter == "crf_search")}
+                class={filter_button_classes(@failure_filter == "crf_search", :orange)}
               >
                 CRF SEARCH
               </button>
               <button
                 phx-click="filter_failures"
                 phx-value-filter="encoding"
-                class={filter_button_class(@failure_filter == "encoding")}
+                class={filter_button_classes(@failure_filter == "encoding", :orange)}
               >
                 ENCODING
               </button>
               <button
                 phx-click="filter_failures"
                 phx-value-filter="post_process"
-                class={filter_button_class(@failure_filter == "post_process")}
+                class={filter_button_classes(@failure_filter == "post_process", :orange)}
               >
                 POST-PROCESS
               </button>
@@ -269,35 +269,35 @@ defmodule ReencodarrWeb.FailuresLive do
               <button
                 phx-click="filter_category"
                 phx-value-category="all"
-                class={filter_button_class(@category_filter == "all", :blue)}
+                class={filter_button_classes(@category_filter == "all", :blue)}
               >
                 ALL
               </button>
               <button
                 phx-click="filter_category"
                 phx-value-category="file_access"
-                class={filter_button_class(@category_filter == "file_access", :blue)}
+                class={filter_button_classes(@category_filter == "file_access", :blue)}
               >
                 FILE ACCESS
               </button>
               <button
                 phx-click="filter_category"
                 phx-value-category="process_failure"
-                class={filter_button_class(@category_filter == "process_failure", :blue)}
+                class={filter_button_classes(@category_filter == "process_failure", :blue)}
               >
                 PROCESS
               </button>
               <button
                 phx-click="filter_category"
                 phx-value-category="timeout"
-                class={filter_button_class(@category_filter == "timeout", :blue)}
+                class={filter_button_classes(@category_filter == "timeout", :blue)}
               >
                 TIMEOUT
               </button>
               <button
                 phx-click="filter_category"
                 phx-value-category="codec_issues"
-                class={filter_button_class(@category_filter == "codec_issues", :blue)}
+                class={filter_button_classes(@category_filter == "codec_issues", :blue)}
               >
                 CODEC
               </button>
@@ -704,7 +704,7 @@ defmodule ReencodarrWeb.FailuresLive do
                   <div class="flex gap-1">
                     <!-- First Page -->
                     <%= if @page > 1 do %>
-                      <button phx-click="change_page" phx-value-page="1" class={action_button_class()}>
+                      <button phx-click="change_page" phx-value-page="1" class={action_button_classes()}>
                         ««
                       </button>
                     <% end %>
@@ -714,7 +714,7 @@ defmodule ReencodarrWeb.FailuresLive do
                       <button
                         phx-click="change_page"
                         phx-value-page={@page - 1}
-                        class={action_button_class()}
+                        class={action_button_classes()}
                       >
                         ‹
                       </button>
@@ -725,7 +725,7 @@ defmodule ReencodarrWeb.FailuresLive do
                       <button
                         phx-click="change_page"
                         phx-value-page={page_num}
-                        class={pagination_button_class(page_num == @page)}
+                        class={pagination_button_classes(page_num == @page)}
                       >
                         {page_num}
                       </button>
@@ -736,7 +736,7 @@ defmodule ReencodarrWeb.FailuresLive do
                       <button
                         phx-click="change_page"
                         phx-value-page={@page + 1}
-                        class={action_button_class()}
+                        class={action_button_classes()}
                       >
                         ›
                       </button>
@@ -747,7 +747,7 @@ defmodule ReencodarrWeb.FailuresLive do
                       <button
                         phx-click="change_page"
                         phx-value-page={@total_pages}
-                        class={action_button_class()}
+                        class={action_button_classes()}
                       >
                         »»
                       </button>
@@ -967,15 +967,10 @@ defmodule ReencodarrWeb.FailuresLive do
   end
 
   # CSS helper functions
-  defp filter_button_class(is_active, color_scheme \\ :orange) do
-    filter_button_classes(is_active, color_scheme)
-  end
-
-  defp action_button_class do
-    action_button_classes()
-  end
-
-  defp pagination_button_class(is_current) do
-    pagination_button_classes(is_current)
-  end
+  # Helper functions use UIHelpers directly
+  import ReencodarrWeb.UIHelpers, only: [
+    filter_button_classes: 2,
+    action_button_classes: 0,
+    pagination_button_classes: 1
+  ]
 end
