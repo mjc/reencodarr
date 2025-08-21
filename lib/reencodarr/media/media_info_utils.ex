@@ -260,7 +260,13 @@ defmodule Reencodarr.Media.MediaInfoUtils do
   defp parse_resolution(resolution) when is_binary(resolution) do
     case String.split(resolution, "x") do
       [width_str, height_str] ->
-        {String.to_integer(width_str), String.to_integer(height_str)}
+        # Use Integer.parse/1 to safely handle potentially invalid input
+        with {width, ""} <- Integer.parse(width_str),
+             {height, ""} <- Integer.parse(height_str) do
+          {width, height}
+        else
+          _ -> {0, 0}
+        end
 
       _ ->
         {0, 0}
