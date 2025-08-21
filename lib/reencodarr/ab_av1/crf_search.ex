@@ -273,6 +273,27 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
+  def handle_info(:test_reset, state) do
+    # Test-only handler to force reset the GenServer state
+    # This ensures clean state between tests
+    if Mix.env() == :test do
+      # Close any open port
+      if state.port != :none do
+        try do
+          Port.close(state.port)
+        rescue
+          _ -> :ok
+        end
+      end
+
+      # Reset to initial state
+      {:noreply, %{port: :none, current_task: :none, partial_line_buffer: "", output_buffer: []}}
+    else
+      {:noreply, state}
+    end
+  end
+
+  @impl true
   def handle_info(
         {port, {:data, {:eol, line}}},
         %{

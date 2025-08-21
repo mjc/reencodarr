@@ -98,7 +98,7 @@ defmodule Reencodarr.DashboardState do
         left_join: m in Reencodarr.Media.Vmaf,
         on: m.video_id == v.id,
         where:
-          is_nil(m.id) and v.reencoded == false and v.failed == false and
+          is_nil(m.id) and v.state in [:analyzed, :crf_searched] and v.failed == false and
             not fragment(
               "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
               v.audio_codecs,
