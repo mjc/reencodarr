@@ -37,8 +37,7 @@ defmodule Reencodarr.Core.TimeTest do
       assert is_binary(result)
       assert result != "N/A"
       # Could be "just now", "X seconds ago", "X minutes ago", etc.
-      assert String.contains?(result, "now") or String.contains?(result, "ago") or
-               String.contains?(result, "second")
+      assert String.contains?(result, "now") or String.contains?(result, "ago") or String.contains?(result, "second")
     end
   end
 end

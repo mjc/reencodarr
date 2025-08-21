@@ -1,7 +1,7 @@
 defmodule Reencodarr.Media.SharedQueries do
   @moduledoc """
   Shared query functions used by multiple Media context modules.
-  
+
   Eliminates duplication of complex database queries across
   the Media context while maintaining proper separation of concerns.
   """
@@ -11,7 +11,7 @@ defmodule Reencodarr.Media.SharedQueries do
 
   @doc """
   Aggregated statistics query used by both Media and Media.Statistics modules.
-  
+
   Returns comprehensive video statistics including counts, averages, and timestamps.
   This query is used identically in multiple modules, so it's consolidated here.
   """
