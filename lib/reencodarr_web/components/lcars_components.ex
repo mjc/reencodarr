@@ -8,6 +8,8 @@ defmodule ReencodarrWeb.LcarsComponents do
 
   use Phoenix.Component
 
+  import ReencodarrWeb.UIHelpers
+
   @doc """
   Renders the main LCARS page frame with header, navigation, and footer.
   """
@@ -79,14 +81,11 @@ defmodule ReencodarrWeb.LcarsComponents do
 
     ~H"""
     <%= if @active do %>
-      <span class="px-4 py-2 text-sm font-medium bg-orange-500 text-black">
+      <span class={navigation_link_classes(:active)}>
         {@label}
       </span>
     <% else %>
-      <.link
-        navigate={@path}
-        class="px-4 py-2 text-sm font-medium text-orange-400 hover:text-orange-300 transition-colors"
-      >
+      <.link navigate={@path} class={navigation_link_classes()}>
         {@label}
       </.link>
     <% end %>

@@ -16,6 +16,7 @@ defmodule ReencodarrWeb.BroadwayLive do
 
   use ReencodarrWeb, :live_view
 
+  import ReencodarrWeb.UIHelpers
   require Logger
 
   alias ReencodarrWeb.LiveViewBase
@@ -63,19 +64,13 @@ defmodule ReencodarrWeb.BroadwayLive do
     <!-- Navigation -->
       <div class="border-b-2 border-orange-500 bg-gray-900">
         <div class="flex space-x-1 p-2">
-          <.link
-            navigate="/"
-            class="px-4 py-2 text-sm font-medium text-orange-400 hover:text-orange-300 transition-colors"
-          >
+          <.link navigate="/" class={navigation_link_classes()}>
             OVERVIEW
           </.link>
-          <span class="px-4 py-2 text-sm font-medium bg-orange-500 text-black">
+          <span class={navigation_link_classes(:active)}>
             PIPELINE MONITOR
           </span>
-          <.link
-            navigate="/failures"
-            class="px-4 py-2 text-sm font-medium text-orange-400 hover:text-orange-300 transition-colors"
-          >
+          <.link navigate="/failures" class={navigation_link_classes()}>
             FAILURES
           </.link>
         </div>

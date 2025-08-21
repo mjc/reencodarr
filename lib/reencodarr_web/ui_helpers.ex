@@ -115,6 +115,38 @@ defmodule ReencodarrWeb.UIHelpers do
     "#{base} #{color_classes}#{transition}"
   end
 
+  @doc """
+  Generates CSS classes for LCARS navigation links.
+
+  ## Examples
+
+      iex> navigation_link_classes()
+      "px-4 py-2 text-sm font-medium text-orange-400 hover:text-orange-300 transition-colors"
+
+      iex> navigation_link_classes(:active)
+      "px-4 py-2 text-sm font-medium bg-orange-500 text-black"
+  """
+  def navigation_link_classes(state \\ :inactive) do
+    base = "px-4 py-2 text-sm font-medium"
+
+    case state do
+      :active -> "#{base} bg-orange-500 text-black"
+      :inactive -> "#{base} text-orange-400 hover:text-orange-300 transition-colors"
+    end
+  end
+
+  @doc """
+  Generates CSS classes for table row hover effects.
+
+  ## Examples
+
+      iex> table_row_hover_classes()
+      "hover:bg-gray-800 transition-colors duration-200"
+  """
+  def table_row_hover_classes do
+    "hover:bg-gray-800 transition-colors duration-200"
+  end
+
   # Private helper functions to reduce complexity
 
   defp filter_color_classes(:orange), do: "bg-orange-700"
