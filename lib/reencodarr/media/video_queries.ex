@@ -16,7 +16,10 @@ defmodule Reencodarr.Media.VideoQueries do
   def videos_for_crf_search(limit \\ 10) do
     Repo.all(
       from v in Video,
-        where: v.state == :analyzed,
+        left_join: m in assoc(v, :vmafs),
+        where:
+          is_nil(m.id) and v.state in [:analyzed, :crf_searched] and v.failed == false and
+            fragment("NOT ? @> ?", v.video_codecs, ^["av1"]),
         order_by: [desc: v.bitrate, desc: v.size, asc: v.updated_at],
         limit: ^limit,
         select: v
@@ -30,7 +33,10 @@ defmodule Reencodarr.Media.VideoQueries do
   def count_videos_for_crf_search do
     Repo.one(
       from v in Video,
-        where: v.state == :analyzed,
+        left_join: m in assoc(v, :vmafs),
+        where:
+          is_nil(m.id) and v.state in [:analyzed, :crf_searched] and v.failed == false and
+            fragment("NOT ? @> ?", v.video_codecs, ^["av1"]),
         select: count()
     )
   end
@@ -44,7 +50,7 @@ defmodule Reencodarr.Media.VideoQueries do
   def videos_needing_analysis(limit \\ 10) do
     Repo.all(
       from v in Video,
-        where: v.state == :needs_analysis,
+        where: is_nil(v.duration) and v.failed == false,
         order_by: [
           desc: v.size,
           desc: v.inserted_at,
@@ -66,7 +72,7 @@ defmodule Reencodarr.Media.VideoQueries do
   def count_videos_needing_analysis do
     Repo.one(
       from v in Video,
-        where: v.state == :needs_analysis,
+        where: is_nil(v.duration) and v.failed == false,
         select: count()
     )
   end
@@ -80,8 +86,10 @@ defmodule Reencodarr.Media.VideoQueries do
     Repo.all(
       from v in Vmaf,
         join: vid in assoc(v, :video),
-        where: v.chosen == true and vid.state == :crf_searched,
-        order_by: [desc: v.updated_at],
+        where:
+          v.chosen == true and vid.state == :crf_searched and vid.reencoded == false and
+            vid.failed == false,
+        order_by: [fragment("? DESC NULLS LAST", v.savings), desc: vid.updated_at],
         limit: ^limit,
         preload: [:video],
         select: v
@@ -96,7 +104,9 @@ defmodule Reencodarr.Media.VideoQueries do
     Repo.one(
       from v in Vmaf,
         join: vid in assoc(v, :video),
-        where: v.chosen == true and vid.state == :crf_searched,
+        where:
+          v.chosen == true and vid.state == :crf_searched and vid.reencoded == false and
+            vid.failed == false,
         select: count(v.id)
     )
   end
