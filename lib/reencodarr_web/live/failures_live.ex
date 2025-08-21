@@ -28,6 +28,7 @@ defmodule ReencodarrWeb.FailuresLive do
   require Logger
 
   alias Reencodarr.Media
+  alias Reencodarr.Media.VideoFailure
   alias Reencodarr.Repo
 
   import ReencodarrWeb.LcarsComponents
@@ -494,7 +495,7 @@ defmodule ReencodarrWeb.FailuresLive do
                                         </div>
                                       <% end %>
 
-                                      <%= if Map.get(failure.system_context || %{}, "full_output") && String.trim(Map.get(failure.system_context, "full_output", "")) != "" do %>
+                                      <%= if has_command_details?(failure.system_context) do %>
                                         <div class="mt-2 pt-2 border-t border-red-700">
                                           <div class="text-red-200 text-xs font-semibold mb-1">
                                             COMMAND OUTPUT:
@@ -671,7 +672,7 @@ defmodule ReencodarrWeb.FailuresLive do
                                           </div>
                                         <% end %>
 
-                                        <%= if Map.get(failure.system_context || %{}, "full_output") && String.trim(Map.get(failure.system_context, "full_output", "")) != "" do %>
+                                        <%= if has_command_details?(failure.system_context) do %>
                                           <div class="mt-3 pt-2 border-t border-red-700">
                                             <div class="text-red-200 text-xs font-semibold mb-2">
                                               FULL COMMAND OUTPUT:
@@ -973,7 +974,6 @@ defmodule ReencodarrWeb.FailuresLive do
     |> String.replace(~r/\r\n/, "\n")
     # Old Mac line endings
     |> String.replace(~r/\r/, "\n")
-    |> String.trim()
   end
 
   defp format_command_output(_), do: ""
@@ -982,7 +982,7 @@ defmodule ReencodarrWeb.FailuresLive do
     command = Map.get(system_context || %{}, "command")
     output = Map.get(system_context || %{}, "full_output", "")
 
-    !is_nil(command) or String.trim(output) != ""
+    !is_nil(command) or output != ""
   end
 
   # CSS helper functions
