@@ -81,8 +81,6 @@ defmodule Reencodarr.DataConverters do
         String.replace(acc, unit, "", global: true)
       end)
 
-    cleaned = String.trim(cleaned)
-
     case Float.parse(cleaned) do
       {number, ""} ->
         number
