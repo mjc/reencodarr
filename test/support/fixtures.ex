@@ -223,7 +223,7 @@ defmodule Reencodarr.Fixtures do
   Creates VMAF test data for a video.
   """
   def vmaf_fixture(attrs \\ %{}) do
-    video =
+    attrs =
       case Map.get(attrs, :video_id) do
         nil ->
           video = video_fixture()
@@ -234,13 +234,13 @@ defmodule Reencodarr.Fixtures do
       end
 
     defaults = %{
-      crf: 28,
-      vmaf: 95.5,
-      size_mb: 1024,
-      percent_original_size: 75.0
+      crf: 28.0,
+      score: 95.5,
+      params: ["--preset", "medium"],
+      predicted_size: 1500.0
     }
 
-    vmaf_attrs = Map.merge(defaults, video)
+    vmaf_attrs = Map.merge(defaults, attrs)
     {:ok, vmaf} = Media.create_vmaf(vmaf_attrs)
     vmaf
   end
@@ -250,13 +250,13 @@ defmodule Reencodarr.Fixtures do
   """
   def vmaf_series_fixture(video, crf_range \\ [24, 26, 28, 30, 32]) do
     Enum.map(crf_range, fn crf ->
+      # Simulate decreasing quality with higher CRF
+      score = 100.0 - (crf - 20) * 2.0
+
       vmaf_fixture(%{
         video_id: video.id,
         crf: crf,
-        # Decreasing VMAF with higher CRF
-        vmaf: 100.0 - (crf - 20) * 1.5,
-        # Decreasing size with higher CRF
-        size_mb: 2000 - (crf - 20) * 100
+        score: score
       })
     end)
   end
@@ -278,6 +278,16 @@ defmodule Reencodarr.Fixtures do
     library_attrs = Map.merge(defaults, attrs)
     {:ok, library} = Media.create_library(library_attrs)
     library
+  end
+
+  @doc """
+  Creates multiple libraries with common attributes.
+  """
+  def libraries_fixture(count, base_attrs \\ %{}) do
+    1..count
+    |> Enum.map(fn _i ->
+      library_fixture(base_attrs)
+    end)
   end
 
   # === ENCODING SCENARIOS ===
@@ -516,5 +526,84 @@ defmodule Reencodarr.Fixtures do
 
     attrs = Map.merge(default_attrs, attrs)
     video_fixture(attrs)
+  end
+
+  # === FACTORY PATTERN SUPPORT ===
+  # Migrated from MediaFixtures for builder-style test construction
+
+  @doc """
+  Starts building a video with factory pattern.
+
+  ## Examples
+
+      video = build_video(%{bitrate: 5_000_000}) 
+        |> with_high_bitrate() 
+        |> as_reencoded() 
+        |> create()
+  """
+  def build_video(attrs \\ %{}) do
+    defaults = %{
+      bitrate: 5_000_000,
+      size: 2_000_000_000,
+      reencoded: false,
+      failed: false
+    }
+
+    Map.merge(defaults, attrs)
+  end
+
+  @doc """
+  Sets high bitrate for factory building.
+  """
+  def with_high_bitrate(attrs, bitrate \\ 15_000_000) do
+    Map.put(attrs, :bitrate, bitrate)
+  end
+
+  @doc """
+  Sets path for factory building.
+  """
+  def with_path(attrs, path) do
+    Map.put(attrs, :path, path)
+  end
+
+  @doc """
+  Marks video as reencoded for factory building.
+  """
+  def as_reencoded(attrs) do
+    Map.put(attrs, :reencoded, true)
+  end
+
+  @doc """
+  Marks video as failed for factory building.
+  """
+  def as_failed(attrs) do
+    Map.put(attrs, :failed, true)
+  end
+
+  @doc """
+  Creates the video with accumulated factory attributes.
+  """
+  def create(attrs) do
+    video_fixture(attrs)
+  end
+
+  @doc """
+  Creates optimal VMAF fixture for target score testing.
+  """
+  def optimal_vmaf_fixture(video, target_score \\ 95.0) do
+    vmaf_fixture(%{
+      video_id: video.id,
+      crf: 28.0,
+      score: target_score,
+      predicted_size: video.size * 0.6
+    })
+  end
+
+  @doc """
+  Generates a unique library path.
+  """
+  def unique_library_path do
+    unique_id = System.unique_integer([:positive])
+    "/test/libraries/library_#{unique_id}"
   end
 end

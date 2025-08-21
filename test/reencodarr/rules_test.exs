@@ -2,12 +2,11 @@ defmodule Reencodarr.RulesTest do
   use Reencodarr.DataCase, async: true
 
   alias Reencodarr.Rules
-  import Reencodarr.Fixtures
   import Reencodarr.TestHelpers
 
   describe "build_args/4 - context-based argument building" do
     test "encoding context includes audio arguments for non-Opus audio" do
-      video = create_test_video()
+      video = Fixtures.create_test_video()
       args = Rules.build_args(video, :encode)
 
       # Should include audio arguments
@@ -25,7 +24,7 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "encoding context skips audio arguments for Opus audio" do
-      video = create_opus_video()
+      video = Fixtures.create_opus_video()
       args = Rules.build_args(video, :encode)
 
       # Should NOT include audio arguments (already Opus)
@@ -38,7 +37,7 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "crf_search context excludes audio arguments" do
-      video = create_test_video()
+      video = Fixtures.create_test_video()
       args = Rules.build_args(video, :crf_search)
 
       # Should NOT include audio arguments
@@ -57,7 +56,7 @@ defmodule Reencodarr.RulesTest do
 
   describe "build_args/4 - video-specific rules" do
     test "HDR video includes multiple SVT flags" do
-      video = create_hdr_video()
+      video = Fixtures.create_hdr_video()
       args = Rules.build_args(video, :encode)
 
       # Should include both SVT flags
@@ -69,7 +68,7 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "high resolution video includes scaling filter" do
-      video = create_4k_video()
+      video = Fixtures.create_4k_video()
       args = Rules.build_args(video, :encode)
 
       # Should include scaling filter
@@ -79,7 +78,7 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "3-channel audio gets upmixed to 5.1" do
-      video = create_test_video(%{max_audio_channels: 3})
+      video = Fixtures.create_test_video(%{max_audio_channels: 3})
       args = Rules.build_args(video, :encode)
 
       # Should include upmix settings
@@ -90,7 +89,7 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "Atmos audio is skipped" do
-      video = create_test_video(%{atmos: true})
+      video = Fixtures.create_test_video(%{atmos: true})
       args = Rules.build_args(video, :encode)
 
       # Should NOT include audio arguments
@@ -105,7 +104,7 @@ defmodule Reencodarr.RulesTest do
 
   describe "build_args/4 - additional parameters and precedence" do
     test "additional params are included and take precedence" do
-      video = create_test_video()
+      video = Fixtures.create_test_video()
       additional_params = ["--preset", "6", "--cpu-used", "8", "--svt", "custom=value"]
       args = Rules.build_args(video, :encode, additional_params)
 
@@ -123,7 +122,7 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "duplicate flags are removed, keeping first occurrence" do
-      video = create_test_video()
+      video = Fixtures.create_test_video()
       # Additional params that conflict with rules (different from rule's yuv420p10le)
       additional_params = ["--pix-format", "yuv420p"]
       args = Rules.build_args(video, :encode, additional_params)
@@ -140,7 +139,7 @@ defmodule Reencodarr.RulesTest do
 
     test "multiple SVT and ENC flags are preserved" do
       # Use non-Atmos HDR video so audio rules apply
-      video = create_hdr_video(%{atmos: false})
+      video = Fixtures.create_hdr_video(%{atmos: false})
       additional_params = ["--svt", "extra=param", "--enc", "custom=setting"]
       args = Rules.build_args(video, :encode, additional_params)
 
@@ -158,7 +157,7 @@ defmodule Reencodarr.RulesTest do
 
   describe "build_args/4 - context filtering" do
     test "CRF search filters out audio params from additional_params" do
-      video = create_test_video()
+      video = Fixtures.create_test_video()
 
       additional_params = [
         "--preset",
@@ -192,7 +191,7 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "encoding filters out CRF search specific params from additional_params" do
-      video = create_test_video()
+      video = Fixtures.create_test_video()
 
       additional_params = [
         "--preset",
@@ -224,7 +223,7 @@ defmodule Reencodarr.RulesTest do
 
   describe "build_args/4 - edge cases and error handling" do
     test "handles empty additional_params" do
-      video = create_test_video()
+      video = Fixtures.create_test_video()
       args = Rules.build_args(video, :encode, [])
 
       # Should include rule-based arguments
@@ -234,7 +233,7 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "handles nil additional_params" do
-      video = create_test_video()
+      video = Fixtures.create_test_video()
       args = Rules.build_args(video, :encode, nil)
 
       # Should include rule-based arguments
@@ -244,7 +243,7 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "handles malformed additional_params gracefully" do
-      video = create_test_video()
+      video = Fixtures.create_test_video()
       # Test with invalid param structure
       # Missing value for --incomplete
       malformed_params = ["--preset", "--incomplete"]
@@ -260,7 +259,7 @@ defmodule Reencodarr.RulesTest do
 
   describe "apply/1 (legacy compatibility)" do
     test "returns tuples for backward compatibility" do
-      video = create_test_video()
+      video = Fixtures.create_test_video()
       rules = Rules.apply(video)
 
       # Should return list of tuples
@@ -276,7 +275,7 @@ defmodule Reencodarr.RulesTest do
 
   describe "individual rule functions" do
     test "audio/1 with EAC3 codec" do
-      video = create_test_video()
+      video = Fixtures.create_test_video()
       rules = Rules.audio(video)
 
       assert {"--acodec", "libopus"} in rules
@@ -285,19 +284,19 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "audio/1 with Opus codec returns empty" do
-      video = create_opus_video()
+      video = Fixtures.create_opus_video()
       rules = Rules.audio(video)
       assert rules == []
     end
 
     test "audio/1 with Atmos returns empty" do
-      video = create_test_video(%{atmos: true})
+      video = Fixtures.create_test_video(%{atmos: true})
       rules = Rules.audio(video)
       assert rules == []
     end
 
     test "hdr/1 with HDR video" do
-      video = create_hdr_video()
+      video = Fixtures.create_hdr_video()
       rules = Rules.hdr(video)
 
       assert {"--svt", "tune=0"} in rules
@@ -307,14 +306,14 @@ defmodule Reencodarr.RulesTest do
 
     test "hdr/1 with non-HDR video" do
       # Default is no HDR
-      video = create_test_video()
+      video = Fixtures.create_test_video()
       rules = Rules.hdr(video)
 
       assert rules == [{"--svt", "tune=0"}]
     end
 
     test "resolution/1 with 4K video" do
-      video = create_4k_video()
+      video = Fixtures.create_4k_video()
       rules = Rules.resolution(video)
 
       assert rules == [{"--vfilter", "scale=1920:-2"}]
@@ -322,14 +321,14 @@ defmodule Reencodarr.RulesTest do
 
     test "resolution/1 with 1080p video" do
       # Default is 1080p
-      video = create_test_video()
+      video = Fixtures.create_test_video()
       rules = Rules.resolution(video)
 
       assert rules == []
     end
 
     test "video/1 always returns pixel format" do
-      video = create_test_video()
+      video = Fixtures.create_test_video()
       rules = Rules.video(video)
 
       assert rules == [{"--pix-format", "yuv420p10le"}]
@@ -366,7 +365,7 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "Rules.build_args filters audio params from additional_params for CRF search" do
-      video = create_test_video()
+      video = Fixtures.create_test_video()
       additional_params = ["--preset", "6", "--acodec", "libopus", "--enc", "ac=6"]
 
       args = Rules.build_args(video, :crf_search, additional_params)
@@ -472,7 +471,7 @@ defmodule Reencodarr.RulesTest do
 
   describe "build_args/3 edge cases" do
     test "handles nil additional_params" do
-      video = create_test_video(%{max_audio_channels: 2})
+      video = Fixtures.create_test_video(%{max_audio_channels: 2})
       result = Rules.build_args(video, :encode, nil)
 
       assert is_list(result)
@@ -480,7 +479,7 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "handles empty additional_params" do
-      video = create_test_video(%{max_audio_channels: 2})
+      video = Fixtures.create_test_video(%{max_audio_channels: 2})
       result = Rules.build_args(video, :encode, [])
 
       assert is_list(result)
@@ -488,7 +487,7 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "handles malformed additional_params gracefully" do
-      video = create_test_video(%{max_audio_channels: 2})
+      video = Fixtures.create_test_video(%{max_audio_channels: 2})
 
       # Single flag without value should be ignored
       result = Rules.build_args(video, :encode, ["--preset"])
@@ -499,7 +498,7 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "handles properly formed additional_params" do
-      video = create_test_video(%{max_audio_channels: 2})
+      video = Fixtures.create_test_video(%{max_audio_channels: 2})
 
       # Test with properly formed arguments only
       result = Rules.build_args(video, :encode, ["--preset", "6", "--cpu-used", "8"])
@@ -518,7 +517,7 @@ defmodule Reencodarr.RulesTest do
 
   describe "uncovered function coverage" do
     test "opus_bitrate handles channels > 11" do
-      video = create_test_video(%{max_audio_channels: 15, audio_codecs: ["DTS"]})
+      video = Fixtures.create_test_video(%{max_audio_channels: 15, audio_codecs: ["DTS"]})
       result = Rules.build_args(video, :encode)
 
       # Should use max bitrate of 510k for very high channel counts
@@ -528,21 +527,21 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "cuda function" do
-      video = create_test_video(%{max_audio_channels: 2})
+      video = Fixtures.create_test_video(%{max_audio_channels: 2})
       result = Rules.cuda(video)
 
       assert result == [{"--enc-input", "hwaccel=cuda"}]
     end
 
     test "grain function with non-HDR video" do
-      video = create_test_video(%{max_audio_channels: 2})
+      video = Fixtures.create_test_video(%{max_audio_channels: 2})
       result = Rules.grain(video, 25)
 
       assert result == [{"--svt", "film-grain=25:film-grain-denoise=0"}]
     end
 
     test "grain function fallback clause" do
-      hdr_video = create_hdr_video(%{max_audio_channels: 2})
+      hdr_video = Fixtures.create_hdr_video(%{max_audio_channels: 2})
 
       result = Rules.grain(hdr_video, 25)
 
@@ -552,7 +551,7 @@ defmodule Reencodarr.RulesTest do
 
   describe "duplicate flag handling" do
     test "removes duplicate flags except svt and enc" do
-      video = create_test_video(%{max_audio_channels: 2})
+      video = Fixtures.create_test_video(%{max_audio_channels: 2})
 
       # Test with duplicate --preset flags (should keep first)
       result = Rules.build_args(video, :encode, ["--preset", "6", "--preset", "8"])
@@ -565,7 +564,7 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "allows multiple svt and enc flags" do
-      video = create_test_video(%{max_audio_channels: 2})
+      video = Fixtures.create_test_video(%{max_audio_channels: 2})
 
       # SVT and ENC flags should be allowed multiple times
       result = Rules.build_args(video, :encode, ["--svt", "tune=1", "--enc", "crf=30"])

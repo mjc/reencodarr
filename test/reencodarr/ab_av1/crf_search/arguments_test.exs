@@ -5,12 +5,11 @@ defmodule Reencodarr.AbAv1.CrfSearch.ArgumentsTest do
   use Reencodarr.DataCase, async: true
 
   alias Reencodarr.AbAv1.CrfSearch
-  import Reencodarr.Fixtures
 
   describe "build_crf_search_args_with_preset_6/2" do
     setup do
       video =
-        create_test_video(%{
+        Fixtures.create_test_video(%{
           path: "/test/args_video.mkv",
           size: 2_000_000_000,
           video_codecs: ["h264"],
@@ -65,7 +64,9 @@ defmodule Reencodarr.AbAv1.CrfSearch.ArgumentsTest do
 
   describe "argument validation" do
     setup do
-      video = create_test_video(%{path: "/test/validation_video.mkv", size: 1_000_000_000})
+      video =
+        Fixtures.create_test_video(%{path: "/test/validation_video.mkv", size: 1_000_000_000})
+
       %{video: video}
     end
 

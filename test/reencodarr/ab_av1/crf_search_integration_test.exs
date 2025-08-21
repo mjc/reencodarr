@@ -12,13 +12,12 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
   alias Reencodarr.Media.Vmaf
   alias Reencodarr.Repo
 
-  import Reencodarr.MediaFixtures
   import ExUnit.CaptureLog
 
   describe "CRF search public API" do
     setup do
       video =
-        video_fixture(%{
+        Fixtures.video_fixture(%{
           path: "/test/integration_video.mkv",
           size: 2_000_000_000,
           video_codecs: ["h264"],
@@ -64,7 +63,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
   describe "workflow integration" do
     setup do
-      video = video_fixture(%{path: "/test/workflow_video.mkv", size: 1_000_000_000})
+      video = Fixtures.video_fixture(%{path: "/test/workflow_video.mkv", size: 1_000_000_000})
       %{video: video}
     end
 
@@ -119,7 +118,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
   describe "error scenarios and edge cases" do
     setup do
-      video = video_fixture(%{path: "/test/error_video.mkv"})
+      video = Fixtures.video_fixture(%{path: "/test/error_video.mkv"})
       %{video: video}
     end
 

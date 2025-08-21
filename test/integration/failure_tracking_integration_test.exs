@@ -2,15 +2,14 @@ defmodule Reencodarr.FailureTrackingIntegrationTest do
   use Reencodarr.DataCase
   import ExUnit.CaptureLog
 
-  import Reencodarr.MediaFixtures
   alias Reencodarr.{FailureReporting, FailureTracker}
 
   describe "failure tracking integration" do
     test "end-to-end failure tracking and reporting" do
       # Create some test videos
-      video1 = video_fixture(%{title: "Test Video 1", path: "/path/to/video1.mkv"})
-      video2 = video_fixture(%{title: "Test Video 2", path: "/path/to/video2.mkv"})
-      video3 = video_fixture(%{title: "Test Video 3", path: "/path/to/video3.mkv"})
+      video1 = Fixtures.video_fixture(%{title: "Test Video 1", path: "/path/to/video1.mkv"})
+      video2 = Fixtures.video_fixture(%{title: "Test Video 2", path: "/path/to/video2.mkv"})
+      video3 = Fixtures.video_fixture(%{title: "Test Video 3", path: "/path/to/video3.mkv"})
 
       # Record various types of failures and capture logs
       _log =

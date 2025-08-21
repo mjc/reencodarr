@@ -4,7 +4,6 @@ defmodule Reencodarr.FailureReportingTest do
 
   alias Reencodarr.{FailureReporting, FailureTracker}
   alias Reencodarr.Media.VideoFailure
-  import Reencodarr.MediaFixtures
 
   describe "failure summary" do
     test "generates summary with no failures" do
@@ -18,8 +17,8 @@ defmodule Reencodarr.FailureReportingTest do
     end
 
     test "generates summary with mixed resolved/unresolved failures" do
-      video1 = video_fixture()
-      video2 = video_fixture()
+      video1 = Fixtures.video_fixture()
+      video2 = Fixtures.video_fixture()
 
       # Create some failures and capture their logs to suppress warnings
       _log =
@@ -42,7 +41,7 @@ defmodule Reencodarr.FailureReportingTest do
 
   describe "failures by stage" do
     test "groups failures by processing stage" do
-      video = video_fixture()
+      video = Fixtures.video_fixture()
 
       # Create failures in different stages
       _log =
@@ -69,7 +68,7 @@ defmodule Reencodarr.FailureReportingTest do
 
   describe "failures by category" do
     test "groups failures by category across stages" do
-      video = video_fixture()
+      video = Fixtures.video_fixture()
 
       # Create failures in same category but different stages
       _log =
@@ -92,7 +91,7 @@ defmodule Reencodarr.FailureReportingTest do
 
   describe "recommendations" do
     test "generates recommendations for high failure rates" do
-      video = video_fixture()
+      video = Fixtures.video_fixture()
 
       # Create many failures in encoding stage to trigger recommendation
       _log =
@@ -117,7 +116,7 @@ defmodule Reencodarr.FailureReportingTest do
     end
 
     test "generates recommendations for resource exhaustion" do
-      video = video_fixture()
+      video = Fixtures.video_fixture()
 
       # Create multiple resource exhaustion failures
       _log =
@@ -144,7 +143,7 @@ defmodule Reencodarr.FailureReportingTest do
 
   describe "full report generation" do
     test "generates comprehensive report" do
-      video = video_fixture()
+      video = Fixtures.video_fixture()
 
       # Create various failures
       _log =
@@ -166,7 +165,7 @@ defmodule Reencodarr.FailureReportingTest do
     end
 
     test "filters critical failures correctly" do
-      video = video_fixture()
+      video = Fixtures.video_fixture()
 
       # Create some critical failures
       _log =

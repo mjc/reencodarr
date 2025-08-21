@@ -10,11 +10,9 @@ defmodule Reencodarr.AbAv1.CrfSearch.RetryLogicTest do
   alias Reencodarr.Media.Vmaf
   alias Reencodarr.Repo
 
-  import Reencodarr.MediaFixtures
-
   describe "preset 6 retry decision logic" do
     setup do
-      video = video_fixture(%{path: "/test/retry_video.mkv", size: 2_000_000_000})
+      video = Fixtures.video_fixture(%{path: "/test/retry_video.mkv", size: 2_000_000_000})
       %{video: video}
     end
 

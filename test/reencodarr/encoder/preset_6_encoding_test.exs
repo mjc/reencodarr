@@ -9,11 +9,9 @@ defmodule Reencodarr.Encoder.Preset6EncodingTest do
   alias Reencodarr.Encoder.Broadway
   alias Reencodarr.Media
 
-  import Reencodarr.MediaFixtures
-
   describe "encoder uses preset 6 from VMAF params" do
     setup do
-      video = video_fixture(%{path: "/test/video.mkv", size: 2_000_000_000})
+      video = Fixtures.video_fixture(%{path: "/test/video.mkv", size: 2_000_000_000})
       %{video: video}
     end
 

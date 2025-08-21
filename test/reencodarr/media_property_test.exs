@@ -19,7 +19,7 @@ defmodule Reencodarr.Media.PropertyTest do
     property "creates valid videos with generated attributes" do
       check all(attrs <- video_attrs_generator()) do
         # Ensure we have a valid library first
-        library = library_fixture()
+        library = Fixtures.library_fixture()
         attrs = Map.put(attrs, :library_id, library.id)
 
         case Media.create_video(attrs) do
@@ -41,7 +41,7 @@ defmodule Reencodarr.Media.PropertyTest do
 
     property "rejects videos with invalid paths" do
       check all(invalid_path <- invalid_string_generator()) do
-        library = library_fixture()
+        library = Fixtures.library_fixture()
 
         attrs = %{
           path: invalid_path,
@@ -62,7 +62,7 @@ defmodule Reencodarr.Media.PropertyTest do
 
     property "rejects videos with invalid sizes" do
       check all(invalid_size <- invalid_number_generator()) do
-        library = library_fixture()
+        library = Fixtures.library_fixture()
         unique_id = :erlang.unique_integer([:positive])
 
         attrs = %{
@@ -88,7 +88,7 @@ defmodule Reencodarr.Media.PropertyTest do
     property "creates valid VMAF records with generated attributes" do
       check all(vmaf_attrs <- vmaf_attrs_generator(nil)) do
         # Set up test data for each property run to avoid unique constraint violations
-        library = library_fixture()
+        library = Fixtures.library_fixture()
 
         video_attrs = %{
           path: "/test/video_#{:erlang.unique_integer([:positive])}.mkv",
@@ -135,7 +135,7 @@ defmodule Reencodarr.Media.PropertyTest do
     property "updates preserve video identity" do
       check all(update_attrs <- video_attrs_generator()) do
         # Set up test data first to avoid unique constraint violations
-        library = library_fixture()
+        library = Fixtures.library_fixture()
         unique_id = :erlang.unique_integer([:positive])
 
         original_attrs = %{
@@ -306,23 +306,5 @@ defmodule Reencodarr.Media.PropertyTest do
       {2560, 1440},
       {3840, 2160}
     ])
-  end
-
-  # Helper function to create a library for tests
-  defp library_fixture(attrs \\ %{}) do
-    # Generate unique path to avoid constraint violations
-    unique_id = :erlang.unique_integer([:positive])
-
-    default_attrs = %{
-      name: "Test Library #{unique_id}",
-      path: "/test/library/path_#{unique_id}"
-    }
-
-    {:ok, library} =
-      default_attrs
-      |> Map.merge(attrs)
-      |> Media.create_library()
-
-    library
   end
 end

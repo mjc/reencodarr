@@ -9,12 +9,11 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
   alias Reencodarr.Media.Vmaf
   alias Reencodarr.Repo
 
-  import Reencodarr.MediaFixtures
   import ExUnit.CaptureLog
 
   describe "process_line/3 basic functionality" do
     setup do
-      video = video_fixture(%{path: "/test/video.mkv", size: 2_000_000_000})
+      video = Fixtures.video_fixture(%{path: "/test/video.mkv", size: 2_000_000_000})
       %{video: video}
     end
 
@@ -123,7 +122,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
 
   describe "error handling in line processing" do
     setup do
-      video = video_fixture(%{path: "/test/error_video.mkv", size: 2_000_000_000})
+      video = Fixtures.video_fixture(%{path: "/test/error_video.mkv", size: 2_000_000_000})
       %{video: video}
     end
 

@@ -9,8 +9,6 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
   alias Reencodarr.Media.Vmaf
   alias Reencodarr.Repo
 
-  import Reencodarr.MediaFixtures
-
   describe "CRF search retry mechanism" do
     setup do
       # Clean up any existing mocks
@@ -20,7 +18,7 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
         _ -> :ok
       end
 
-      video = video_fixture(%{path: "/test/retry_video.mkv", size: 2_000_000_000})
+      video = Fixtures.video_fixture(%{path: "/test/retry_video.mkv", size: 2_000_000_000})
       %{video: video}
     end
 
@@ -153,7 +151,7 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
 
   describe "build_crf_search_args_with_preset_6" do
     test "includes --preset 6 parameter" do
-      video = video_fixture(%{path: "/test/preset_test.mkv"})
+      video = Fixtures.video_fixture(%{path: "/test/preset_test.mkv"})
 
       # Access the private function through process_line with a mocked GenServer
       me = self()

@@ -10,12 +10,11 @@ defmodule Reencodarr.Integration.Preset6WorkflowTest do
   alias Reencodarr.AbAv1.{CrfSearch, Encode}
   alias Reencodarr.{Media, Repo}
 
-  import Reencodarr.MediaFixtures
   import ExUnit.CaptureLog
 
   describe "preset 6 retry workflow integration" do
     setup do
-      video = video_fixture(%{path: "/test/integration.mkv", size: 2_000_000_000})
+      video = Fixtures.video_fixture(%{path: "/test/integration.mkv", size: 2_000_000_000})
       %{video: video}
     end
 
