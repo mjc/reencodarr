@@ -89,7 +89,7 @@ defmodule Reencodarr.Core.Time do
       iex> Time.format_duration(3661)
       "1h 1m 1s"
 
-      iex> Time.format_duration(125) 
+      iex> Time.format_duration(125)
       "2m 5s"
 
       iex> Time.format_duration(45)
