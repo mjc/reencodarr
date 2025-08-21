@@ -34,38 +34,48 @@ defmodule Reencodarr.Core.Parsers do
 
       _ ->
         # Fall back to time format parsing (e.g., "1:23:45")
-        case String.split(duration, ":") do
-          [hours, minutes, seconds] ->
-            with {h, ""} <- Integer.parse(hours),
-                 {m, ""} <- Integer.parse(minutes),
-                 {s, ""} <- Integer.parse(seconds) do
-              h * 3600 + m * 60 + s
-            else
-              _ -> 0
-            end
-
-          [minutes, seconds] ->
-            with {m, ""} <- Integer.parse(minutes),
-                 {s, ""} <- Integer.parse(seconds) do
-              m * 60 + s
-            else
-              _ -> 0
-            end
-
-          [seconds] ->
-            case Integer.parse(seconds) do
-              {s, ""} -> s
-              _ -> 0
-            end
-
-          _ ->
-            0
-        end
+        parse_time_format(duration)
     end
   end
 
   def parse_duration(duration) when is_number(duration), do: duration * 1.0
   def parse_duration(_), do: 0.0
+
+  # Parse time format strings like "1:23:45", "23:45", or "45"
+  defp parse_time_format(duration) do
+    case String.split(duration, ":") do
+      [hours, minutes, seconds] -> parse_hms(hours, minutes, seconds)
+      [minutes, seconds] -> parse_ms(minutes, seconds)
+      [seconds] -> parse_s(seconds)
+      _ -> 0
+    end
+  end
+
+  defp parse_hms(hours, minutes, seconds) do
+    with {h, ""} <- Integer.parse(hours),
+         {m, ""} <- Integer.parse(minutes),
+         {s, ""} <- Integer.parse(seconds) do
+      h * 3600 + m * 60 + s
+    else
+      _ -> 0
+    end
+  end
+
+  defp parse_ms(minutes, seconds) do
+    with {m, ""} <- Integer.parse(minutes),
+         {s, ""} <- Integer.parse(seconds) do
+      m * 60 + s
+    else
+      _ -> 0
+    end
+  end
+
+  defp parse_s(seconds) do
+    case Integer.parse(seconds) do
+      {s, ""} -> s
+      _ -> 0
+    end
+  end
 
   @doc """
   Safely parses an integer with fallback to default value.

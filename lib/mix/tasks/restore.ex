@@ -67,43 +67,52 @@ defmodule Mix.Tasks.Restore do
 
   defp parse_field(schema, field, value) do
     type = schema.__schema__(:type, field)
+    parse_value_by_type(type, value)
+  end
 
-    parsed =
-      case type do
-        :map -> 
-          case Jason.decode(value) do
-            {:ok, result} -> result
-            _ -> value
-          end
-        :array -> 
-          case Jason.decode(value) do
-            {:ok, result} -> result
-            _ -> value
-          end
-        :integer -> 
-          case Integer.parse(value) do
-            {int_value, ""} -> int_value
-            _ -> value
-          end
-        :float -> 
-          case Float.parse(value) do
-            {float_value, ""} -> float_value
-            _ -> value
-          end
-        :boolean -> value in ["true", "1"]
-        :naive_datetime -> 
-          case NaiveDateTime.from_iso8601(value) do
-            {:ok, result} -> result
-            _ -> value
-          end
-        :utc_datetime -> 
-          case DateTime.from_iso8601(value) do
-            {:ok, result, _} -> result
-            _ -> value
-          end
-        _ -> value
-      end
+  # Parse value according to its expected type
+  defp parse_value_by_type(:map, value), do: parse_json(value)
+  defp parse_value_by_type(:array, value), do: parse_json(value)
+  defp parse_value_by_type(:integer, value), do: parse_integer(value)
+  defp parse_value_by_type(:float, value), do: parse_float(value)
+  defp parse_value_by_type(:boolean, value), do: value in ["true", "1"]
+  defp parse_value_by_type(:naive_datetime, value), do: parse_naive_datetime(value)
+  defp parse_value_by_type(:utc_datetime, value), do: parse_utc_datetime(value)
+  defp parse_value_by_type(_, value), do: value
 
-    parsed
+  # Helper functions for specific type parsing
+  defp parse_json(value) do
+    case Jason.decode(value) do
+      {:ok, result} -> result
+      _ -> value
+    end
+  end
+
+  defp parse_integer(value) do
+    case Integer.parse(value) do
+      {int_value, ""} -> int_value
+      _ -> value
+    end
+  end
+
+  defp parse_float(value) do
+    case Float.parse(value) do
+      {float_value, ""} -> float_value
+      _ -> value
+    end
+  end
+
+  defp parse_naive_datetime(value) do
+    case NaiveDateTime.from_iso8601(value) do
+      {:ok, result} -> result
+      _ -> value
+    end
+  end
+
+  defp parse_utc_datetime(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, result, _} -> result
+      _ -> value
+    end
   end
 end
