@@ -1,5 +1,5 @@
 defmodule ReencodarrWeb.Dashboard.QueueDisplayComponent do
-  use ReencodarrWeb, :live_component
+  use Phoenix.LiveComponent
 
   @moduledoc "Displays a queue of items in the dashboard."
 

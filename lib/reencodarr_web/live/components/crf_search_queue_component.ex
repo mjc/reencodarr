@@ -1,6 +1,8 @@
 defmodule ReencodarrWeb.CrfSearchQueueComponent do
   use Phoenix.LiveComponent
 
+  import ReencodarrWeb.UIHelpers
+
   @moduledoc "Displays the CRF search queue."
 
   @impl true
@@ -20,7 +22,7 @@ defmodule ReencodarrWeb.CrfSearchQueueComponent do
         </thead>
         <tbody>
           <%= for file <- @files do %>
-            <tr class="hover:bg-gray-800 transition-colors duration-200">
+            <tr class={table_row_hover_classes()}>
               <td class="border border-gray-700 px-4 py-2 text-gray-300">
                 {format_name(file)}
               </td>

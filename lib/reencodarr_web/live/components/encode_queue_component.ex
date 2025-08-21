@@ -1,6 +1,8 @@
 defmodule ReencodarrWeb.EncodeQueueComponent do
   use Phoenix.LiveComponent
 
+  import ReencodarrWeb.UIHelpers
+
   @moduledoc "Displays the encoding queue."
 
   @impl true
@@ -21,7 +23,7 @@ defmodule ReencodarrWeb.EncodeQueueComponent do
         </thead>
         <tbody>
           <%= for file <- @files do %>
-            <tr class="hover:bg-gray-800 transition-colors duration-200">
+            <tr class={table_row_hover_classes()}>
               <td class="border border-gray-700 px-4 py-2 text-gray-300">
                 {format_name(file.video)}
               </td>
