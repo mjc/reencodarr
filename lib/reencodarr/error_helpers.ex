@@ -148,4 +148,61 @@ defmodule Reencodarr.ErrorHelpers do
       {:ok, value}
     end
   end
+
+  @doc """
+  Handles error cases by logging and returning a default value.
+
+  Common pattern: when operation fails but process should continue with fallback.
+
+  ## Examples
+
+      iex> handle_error_with_default({:ok, data}, "backup", "Operation")
+      data
+
+      iex> handle_error_with_default({:error, :timeout}, "backup", "Operation")
+      "backup"
+
+  """
+  def handle_error_with_default(result, default_value, context \\ "") do
+    case result do
+      {:ok, value} ->
+        value
+
+      {:error, reason} ->
+        log_error_with_context(reason, context)
+        default_value
+
+      other ->
+        log_error_with_context({:unexpected_result, other}, context)
+        default_value
+    end
+  end
+
+  @doc """
+  Handles error cases by logging with warning level and returning a default value.
+
+  Used when failure is expected but not critical.
+  """
+  def handle_error_with_warning(result, default_value, context \\ "") do
+    case result do
+      {:ok, value} ->
+        value
+
+      {:error, reason} ->
+        context_msg = if context != "", do: "#{context}: ", else: ""
+        Logger.warning("#{context_msg}#{inspect(reason)} (continuing anyway)")
+        default_value
+
+      other ->
+        context_msg = if context != "", do: "#{context}: ", else: ""
+        Logger.warning("#{context_msg}#{inspect(other)} (continuing anyway)")
+        default_value
+    end
+  end
+
+  # Private helper for consistent error logging
+  defp log_error_with_context(reason, context) do
+    context_msg = if context != "", do: "#{context}: ", else: ""
+    Logger.error("#{context_msg}#{inspect(reason)}")
+  end
 end

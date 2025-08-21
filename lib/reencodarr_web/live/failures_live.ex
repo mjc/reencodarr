@@ -17,7 +17,13 @@ defmodule ReencodarrWeb.FailuresLive do
   use ReencodarrWeb, :live_view
 
   import ReencodarrWeb.UIHelpers,
-    only: [filter_button_classes: 2, action_button_classes: 0, pagination_button_classes: 1]
+    only: [
+      filter_button_classes: 2,
+      action_button_classes: 0,
+      action_button_classes: 2,
+      pagination_button_classes: 1,
+      filter_tag_classes: 1
+    ]
 
   alias ReencodarrWeb.LiveViewBase
   require Logger
@@ -304,22 +310,19 @@ defmodule ReencodarrWeb.FailuresLive do
               <div class="flex flex-wrap gap-2 items-center text-xs">
                 <span class="text-orange-400 font-semibold">ACTIVE FILTERS:</span>
                 <%= if @failure_filter != "all" do %>
-                  <span class="bg-orange-700 px-2 py-1 rounded">
+                  <span class={filter_tag_classes(:orange)}>
                     Stage: {String.upcase(@failure_filter)}
                   </span>
                 <% end %>
                 <%= if @category_filter != "all" do %>
-                  <span class="bg-blue-700 px-2 py-1 rounded">
+                  <span class={filter_tag_classes(:blue)}>
                     Type: {String.upcase(@category_filter)}
                   </span>
                 <% end %>
                 <%= if @search_term != "" do %>
-                  <span class="bg-green-700 px-2 py-1 rounded">Search: "{@search_term}"</span>
+                  <span class={filter_tag_classes(:green)}>Search: "{@search_term}"</span>
                 <% end %>
-                <button
-                  phx-click="clear_filters"
-                  class="bg-red-700 px-2 py-1 rounded hover:bg-red-600 transition-colors"
-                >
+                <button phx-click="clear_filters" class={filter_tag_classes(:red)}>
                   CLEAR ALL
                 </button>
               </div>
@@ -357,14 +360,14 @@ defmodule ReencodarrWeb.FailuresLive do
                         <button
                           phx-click="retry_failed_video"
                           phx-value-video_id={video.id}
-                          class="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700"
+                          class={action_button_classes(:blue, [])}
                         >
                           RETRY
                         </button>
                         <button
                           phx-click="toggle_details"
                           phx-value-video_id={video.id}
-                          class="px-2 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700"
+                          class={action_button_classes(:gray, [])}
                         >
                           {if video.id in @expanded_details, do: "HIDE", else: "DETAILS"}
                         </button>
@@ -382,17 +385,17 @@ defmodule ReencodarrWeb.FailuresLive do
 
                     <div class="mt-2 flex flex-wrap gap-2 text-xs">
                       <%= if video.size do %>
-                        <span class="bg-gray-700 px-2 py-1 rounded">
+                        <span class={filter_tag_classes(:gray)}>
                           {Reencodarr.Formatters.format_file_size(video.size)}
                         </span>
                       <% end %>
                       <%= if video.video_codecs && length(video.video_codecs) > 0 do %>
-                        <span class="bg-blue-900 px-2 py-1 rounded">
+                        <span class={filter_tag_classes(:dark_blue)}>
                           V: {format_codecs(video.video_codecs)}
                         </span>
                       <% end %>
                       <%= if video.audio_codecs && length(video.audio_codecs) > 0 do %>
-                        <span class="bg-green-900 px-2 py-1 rounded">
+                        <span class={filter_tag_classes(:dark_green)}>
                           A: {format_codecs(video.audio_codecs)}
                         </span>
                       <% end %>
@@ -402,7 +405,7 @@ defmodule ReencodarrWeb.FailuresLive do
                       <% failures when is_list(failures) and length(failures) > 0 -> %>
                         <div class="mt-2">
                           <%= for failure <- Enum.take(failures, 1) do %>
-                            <div class="text-xs bg-red-900 px-2 py-1 rounded">
+                            <div class={filter_tag_classes(:red) <> " text-xs"}>
                               <div class="font-semibold">
                                 {failure.failure_stage}/{failure.failure_category}
                               </div>
@@ -555,7 +558,7 @@ defmodule ReencodarrWeb.FailuresLive do
                         <%= case Map.get(@video_failures, video.id) do %>
                           <% failures when is_list(failures) and length(failures) > 0 -> %>
                             <% latest_failure = List.first(failures) %>
-                            <div class="text-xs bg-red-900 px-2 py-1 rounded">
+                            <div class={filter_tag_classes(:red) <> " text-xs"}>
                               <div class="font-semibold text-red-200">
                                 {latest_failure.failure_stage}/{latest_failure.failure_category}
                               </div>
@@ -585,14 +588,14 @@ defmodule ReencodarrWeb.FailuresLive do
                           <button
                             phx-click="retry_failed_video"
                             phx-value-video_id={video.id}
-                            class="px-2 py-1 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition-colors"
+                            class={action_button_classes(:blue, [])}
                           >
                             RETRY
                           </button>
                           <button
                             phx-click="toggle_details"
                             phx-value-video_id={video.id}
-                            class="px-2 py-1 bg-gray-600 text-white text-xs rounded hover:bg-gray-700 transition-colors"
+                            class={action_button_classes(:gray, [])}
                           >
                             {if video.id in @expanded_details, do: "HIDE", else: "DETAILS"}
                           </button>

@@ -3,6 +3,7 @@ defmodule Reencodarr.Services.Sonarr do
   This module is responsible for communicating with the Sonarr API.
   """
   require Logger
+  alias Reencodarr.ErrorHelpers
   alias Reencodarr.Services
 
   use CarReq,
@@ -97,27 +98,29 @@ defmodule Reencodarr.Services.Sonarr do
   defp perform_series_refresh(series_id) do
     Logger.info("Refreshing series ID: #{series_id} before checking for renameable files")
 
-    case refresh_series(series_id) do
-      {:ok, resp} ->
-        Logger.debug("Series refresh initiated: #{inspect(resp.body)}")
-
-      {:error, reason} ->
-        Logger.warning("Failed to refresh series (continuing anyway): #{inspect(reason)}")
-    end
+    ErrorHelpers.handle_error_with_warning(
+      refresh_series(series_id),
+      :ok,
+      "Failed to refresh series"
+    )
   end
 
   # Fetch renameable files with logging
   defp get_renameable_files(series_id) do
     Logger.info("Checking renameable files for series ID: #{series_id}")
 
-    case request(url: "/api/v3/rename?seriesId=#{series_id}", method: :get) do
-      {:ok, resp} ->
+    request(url: "/api/v3/rename?seriesId=#{series_id}", method: :get)
+    |> ErrorHelpers.handle_error_with_default([], "Failed to get renameable files")
+    |> case do
+      [] ->
+        []
+
+      resp when is_map(resp) ->
         Logger.debug("Renameable files response: #{inspect(resp.body)}")
         resp.body
 
-      {:error, reason} ->
-        Logger.error("Failed to get renameable files: #{inspect(reason)}")
-        []
+      other ->
+        other
     end
   end
 

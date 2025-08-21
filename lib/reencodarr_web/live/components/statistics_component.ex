@@ -4,7 +4,7 @@ defmodule ReencodarrWeb.StatisticsComponent do
   Since this only displays static data, LiveComponent overhead is unnecessary.
   """
   use Phoenix.Component
-  alias ReencodarrWeb.Utils.TimeUtils
+  alias Reencodarr.Core.Time
 
   require Logger
 
@@ -80,6 +80,6 @@ defmodule ReencodarrWeb.StatisticsComponent do
   defp human_readable_time(nil, _timezone), do: "N/A"
 
   defp human_readable_time(datetime, timezone) do
-    TimeUtils.relative_time_with_timezone(datetime, timezone)
+    Time.relative_time_with_timezone(datetime, timezone)
   end
 end

@@ -18,6 +18,8 @@ defmodule Reencodarr.Formatters do
   - Consistent precision and edge case handling
   """
 
+  alias Reencodarr.Core.Time
+
   # === FILE SIZE FORMATTING (COMPREHENSIVE) ===
 
   @doc """
@@ -281,32 +283,14 @@ defmodule Reencodarr.Formatters do
   end
 
   @doc """
-  Formats duration values.
+  Formats duration values using centralized Core.Time functions.
   """
-  def format_duration(nil), do: "N/A"
-  def format_duration(0), do: "N/A"
-
-  def format_duration(seconds) when is_number(seconds) and seconds >= 0 do
-    hours = div(trunc(seconds), 3600)
-    minutes = div(rem(trunc(seconds), 3600), 60)
-    secs = rem(trunc(seconds), 60)
-
-    parts = []
-    parts = if hours > 0, do: ["#{hours}h" | parts], else: parts
-    parts = if minutes > 0, do: ["#{minutes}m" | parts], else: parts
-    parts = if secs > 0 or parts == [], do: ["#{secs}s" | parts], else: parts
-
-    parts |> Enum.reverse() |> Enum.join(" ")
-  end
-
-  def format_duration(duration), do: to_string(duration)
+  def format_duration(duration), do: Time.format_duration(duration)
 
   @doc """
-  Formats ETA values.
+  Formats ETA values using centralized Core.Time functions.
   """
-  def format_eta(eta) when is_binary(eta), do: eta
-  def format_eta(eta) when is_number(eta), do: format_duration(eta)
-  def format_eta(_), do: "N/A"
+  def format_eta(eta), do: Time.format_eta(eta)
 
   # === GENERAL UTILITIES ===
 

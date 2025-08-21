@@ -3,6 +3,8 @@ defmodule Reencodarr.DataConverters do
   Data conversion utilities for parsing and transforming data types.
   """
 
+  alias Reencodarr.Core.Parsers
+
   @doc """
   Parses a resolution string like "1920x1080" into {:ok, {width, height}} tuple.
   Returns {:error, reason} if parsing fails.
@@ -62,20 +64,9 @@ defmodule Reencodarr.DataConverters do
   def valid_resolution?(_), do: false
 
   @doc """
-  Parses duration from seconds into a float value.
+  Parses duration using centralized Core.Parsers functions.
   """
-  def parse_duration(duration) when is_number(duration) do
-    duration * 1.0
-  end
-
-  def parse_duration(duration_str) when is_binary(duration_str) do
-    case Float.parse(duration_str) do
-      {duration, ""} -> duration
-      _ -> 0.0
-    end
-  end
-
-  def parse_duration(_), do: 0.0
+  def parse_duration(duration), do: Parsers.parse_duration(duration)
 
   @doc """
   Parses numeric values from strings, removing specified units.

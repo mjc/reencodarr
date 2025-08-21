@@ -32,6 +32,29 @@ defmodule Reencodarr.AbAv1.OutputParser do
     file_size_progress: ~r/Encoded\s(?<size>[\d\.]+\s\w+)\s\((?<percent>\d+)%\)/,
     ffmpeg_error: ~r/Error: ffmpeg encode exit code (?<exit_code>\d+)/
   }
+  @doc """
+  Returns the centralized regex patterns for ab-av1 output parsing.
+
+  This function provides access to the regex patterns for other modules
+  that need to do pattern matching without duplicating the definitions.
+  """
+  @spec get_patterns() :: map()
+  def get_patterns, do: @patterns
+
+  @doc """
+  Matches a line against a specific pattern and returns named captures.
+
+  Returns nil if no match, or a map of captured values if matched.
+  """
+  @spec match_pattern(String.t(), atom()) :: map() | nil
+  def match_pattern(line, pattern_key) do
+    pattern = Map.get(@patterns, pattern_key)
+
+    case Regex.named_captures(pattern, line) do
+      nil -> nil
+      captures -> captures
+    end
+  end
 
   @doc """
   Parses a single line of ab-av1 output and returns structured data.
