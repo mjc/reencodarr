@@ -28,7 +28,6 @@ defmodule ReencodarrWeb.FailuresLive do
   require Logger
 
   alias Reencodarr.Media
-  alias Reencodarr.Media.VideoFailure
   alias Reencodarr.Repo
 
   import ReencodarrWeb.LcarsComponents
@@ -75,18 +74,25 @@ defmodule ReencodarrWeb.FailuresLive do
 
   @impl true
   def handle_event("retry_failed_video", %{"video_id" => video_id}, socket) do
-    video = Media.get_video!(String.to_integer(video_id))
+    case Integer.parse(video_id) do
+      {id, ""} ->
+        case Media.get_video(id) do
+          nil ->
+            {:noreply, put_flash(socket, :error, "Video not found")}
+          
+          video ->
+            # Reset the video to not failed and clear bitrate to trigger reanalysis
+            Media.update_video(video, %{failed: false, bitrate: nil})
+            Media.resolve_video_failures(video.id)
 
-    # Reset the video to not failed and clear bitrate to trigger reanalysis
-    Media.update_video(video, %{failed: false, bitrate: nil})
-    Media.resolve_video_failures(video.id)
-
-    # Reload the failures data
-    socket = load_failures_data(socket)
-    {:noreply, put_flash(socket, :info, "Video #{video.id} marked for retry")}
-  rescue
-    Ecto.NoResultsError ->
-      {:noreply, put_flash(socket, :error, "Video not found")}
+            # Reload the failures data
+            socket = load_failures_data(socket)
+            {:noreply, put_flash(socket, :info, "Video #{video.id} marked for retry")}
+        end
+      
+      _ ->
+        {:noreply, put_flash(socket, :error, "Invalid video ID")}
+    end
   end
 
   @impl true
