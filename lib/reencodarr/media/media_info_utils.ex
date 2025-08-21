@@ -15,7 +15,7 @@ defmodule Reencodarr.Media.MediaInfoUtils do
   """
 
   alias Reencodarr.Core.Parsers
-  alias Reencodarr.Media.{Codecs, VideoFileInfo}
+  alias Reencodarr.Media.{Codecs, MediaInfo, VideoFileInfo}
 
   @doc """
   Extracts all needed video parameters directly from MediaInfo JSON.
@@ -56,7 +56,7 @@ defmodule Reencodarr.Media.MediaInfoUtils do
       video_count: get_int_field(general, "VideoCount", 0),
 
       # HDR info
-      hdr: parse_hdr_from_video(video_track)
+      hdr: MediaInfo.parse_hdr_from_video(video_track)
     }
   end
 
@@ -112,39 +112,6 @@ defmodule Reencodarr.Media.MediaInfoUtils do
         ]
       }
     }
-  end
-
-  @doc """
-  Parses HDR format information from a list of format strings.
-  """
-  @spec parse_hdr([String.t() | nil]) :: String.t()
-  def parse_hdr(formats) do
-    formats
-    |> Enum.reduce([], fn format, acc ->
-      if format &&
-           (String.contains?(format, "Dolby Vision") || String.contains?(format, "HDR") ||
-              String.contains?(format, "PQ") || String.contains?(format, "SMPTE")) do
-        [format | acc]
-      else
-        acc
-      end
-    end)
-    |> Enum.uniq()
-    |> Enum.join(", ")
-  end
-
-  @doc """
-  Parses HDR information from video format data.
-  """
-  @spec parse_hdr_from_video(nil | map()) :: String.t() | nil
-  def parse_hdr_from_video(nil), do: nil
-
-  def parse_hdr_from_video(%{} = video) do
-    parse_hdr([
-      video["HDR_Format"],
-      video["HDR_Format_Compatibility"],
-      video["transfer_characteristics"]
-    ])
   end
 
   @doc """
