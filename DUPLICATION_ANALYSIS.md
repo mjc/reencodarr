@@ -45,78 +45,90 @@ After comprehensive analysis of the current codebase, significant duplication ex
 - Test support modules now use proper aliases instead of individual imports
 - Eliminated 250+ lines of duplicated fixture code
 - Unified factory pattern for consistent test data creation
-**Next Priority Target:** Pattern #3 - Validation Pattern Redundancy
-  }
-  # Same merge logic everywhere
-end
-```
 
-### 3. **Validation Pattern Redundancy** ⭐⭐⭐⭐⭐
-**Files Affected:** 10+ schemas
-**Duplication Level:** CRITICAL
+### 3. **Validation Pattern Redundancy** ✅ RESOLVED
+**Files Affected:** 12+ schemas and utilities → CONSOLIDATED  
+**Duplication Level:** CRITICAL → RESOLVED
 
-Changeset validation patterns repeated across schemas:
+~~**MASSIVE DUPLICATION**: Three separate validation modules with identical functions~~ **CONSOLIDATED**
 
-**Key Files:**
-- `lib/reencodarr/changeset_helpers.ex` - Centralized but underused
-- `lib/reencodarr/validation.ex` - Overlapping with changeset_helpers
-- Multiple MediaInfo schema modules with duplicate validation
-- Test support modules with validation assertions
+**Resolution Completed:**
+- ✅ Removed unused `lib/reencodarr/changeset_helpers.ex` (195 lines eliminated)
+- ✅ Removed duplicate validation functions from `lib/reencodarr/utils.ex` (30+ lines cleaned)
+- ✅ Fixed corrupted docstring in `lib/reencodarr/validation.ex`
+- ✅ Kept `Reencodarr.Validation` as single source of truth (actively used in 5 MediaInfo modules)
+- ✅ All 369 tests passing, no functionality lost
 
-**Repeated Patterns:**
-```elixir
-# Same validation logic in 10+ places:
-def validate_positive_number(changeset, field) do
-  value = get_field(changeset, field)
-  if is_number(value) and value <= 0 do
-    add_error(changeset, field, "must be positive")
-  else
-    changeset
-  end
-end
-```
+**Validation Functions Now Centralized:**
+- `validate_positive_number/3`, `validate_required_field/3`, `validate_not_empty/3`
+- `validate_audio_channels/1`, `validate_video_resolution/1`, `validate_track_consistency/2`
+- Plus 8+ other validation utilities in single, authoritative module
+
+**Architecture Improvement:**
+- Single source of truth for all changeset validation utilities
+- Eliminated 225+ lines of duplicate validation code
+- Domain-specific validations appropriately kept inline where contextually relevant
 
 ### 4. **Test Helper Assertion Duplication** ⭐⭐⭐⭐⭐
-**Files Affected:** 15+ test files
-**Duplication Level:** CRITICAL
+**Files Affected:** Test support modules  
+**Duplication Level:** CRITICAL → **ACTUALLY WELL-CONSOLIDATED**
 
-Inconsistent test assertion helpers across test files:
+**Current Analysis Update:** Test helpers are **well-consolidated** in centralized modules:
 
-**Key Files:**
-- `test/support/test_helpers.ex` - Comprehensive helpers
-- `test/support/data_case.ex` - Overlapping `assert_ok`, `assert_error`
-- Inline helper definitions in 15+ test files
+**Well-Organized Test Support:**
+- `test/support/test_helpers.ex` - 20+ comprehensive assertion helpers
+- `test/support/data_case.ex` - 12+ changeset and result assertion helpers  
+- **No inline duplication found** in test files (good architecture!)
 
-**Duplicated Assertions:**
+**Available Centralized Helpers:**
 ```elixir
-# Found in 15+ test files:
-def assert_video_attributes(video, expected_attrs) do
-  Enum.each(expected_attrs, fn {key, expected_value} ->
-    actual_value = Map.get(video, key)
-    assert actual_value == expected_value
-  end)
-end
+# test/support/test_helpers.ex - Video testing helpers
+def assert_flag_value_present(args, flag, expected_value)
+def assert_video_attributes(video, expected_attrs)
+def assert_args_structure(args, expected_patterns)
+def assert_no_duplicate_flags(args, allowed_duplicates)
+def assert_hdr_svt_flags(args)
+def assert_database_state(schema, expected_count_change, fun)
 
-# Repeated flag-finding logic:
-def find_flag_indices(args, flag) do
-  args
-  |> Enum.with_index()
-  |> Enum.filter(fn {arg, _} -> arg == flag end)
-  |> Enum.map(&elem(&1, 1))
-end
+# test/support/data_case.ex - Result and changeset helpers  
+def assert_changeset_error(changeset, field, expected_error)
+def assert_ok({:ok, result}) / assert_error({:error, result})
 ```
 
-### 5. **Numeric Parsing Fragmentation** ⭐⭐⭐⭐
-**Files Affected:** 8+ files
-**Duplication Level:** HIGH
+**Status:** ✅ **No duplication found** - test helpers already well-consolidated
 
-Multiple numeric parsing implementations with different edge case handling:
+### 5. **Numeric Parsing Fragmentation** ⭐⭐⭐⭐⭐
+**Files Affected:** 8+ parsing modules  
+**Duplication Level:** CRITICAL
 
-**Key Files:**
-- `lib/reencodarr/numeric_parser.ex` - Centralized but specific use
-- `lib/reencodarr/data_converters.ex` - Overlapping `parse_numeric`
-- `lib/reencodarr/core/parsers.ex` - More overlapping parsing
-- MediaInfo modules with inline parsing
+**MASSIVE OVERLAP**: Multiple parsing modules with identical numeric parsing logic:
+
+**Duplicate Parsing Modules:**
+- `lib/reencodarr/utils.ex` - `parse_int/2`, validation utilities
+- `lib/reencodarr/core/parsers.ex` - `parse_int/2`, `parse_float/2`, `parse_resolution/1`
+- `lib/reencodarr/data_converters.ex` - `parse_numeric/2`, `parse_duration/1`, `parse_resolution/1`
+- `lib/reencodarr/media/resolution_parser.ex` - `safe_parse_integer/1`, resolution parsing
+
+**Identical Function Duplication:**
+```elixir
+# SAME FUNCTION in utils.ex AND core/parsers.ex:
+def parse_int(value, default \\ 0) when is_binary(value) do
+  case Integer.parse(value) do
+    {int, _} -> int
+    :error -> default
+  end
+end
+
+# Resolution parsing in 2+ modules:
+def parse_resolution(resolution_string) # data_converters.ex
+def parse_resolution(res)               # core/parsers.ex
+```
+
+**Usage Overlap:**
+- `Parsers.parse_int/2` used in 7+ files
+- `Utils.parse_int/2` **apparently unused** 
+- `DataConverters.parse_numeric/2` used in MediaInfo processing
+- `ResolutionParser.safe_parse_integer/1` custom implementation
 
 **The Problem:**
 ```elixir
@@ -269,7 +281,79 @@ Scattered utility functions across pipeline modules with similar functionality -
 - ✅ Improved duration formatting precision ("1h 1m 1s" instead of "1h 1m")
 - ✅ Added useful string normalization utility
 - ✅ 97 lines of duplicate/dead code removed
-- ✅ No more confusion between formatting modules
+---
+
+## Estimated Impact
+
+**Lines of Code Reduction:** 1,200-1,800 lines (significantly higher than original estimate)  
+**Files Affected:** 35+ files (40% more than originally identified)  
+**Maintenance Improvement:** CRITICAL - Multiple sources of truth eliminated  
+**Bug Risk Reduction:** HIGH - Inconsistent implementations eliminated  
+**Developer Experience:** Significant improvement with unified APIs  
+
+## New Issues Not Previously Identified
+
+### Critical Findings:
+
+1. **Multiple Formatter Modules:** Three separate formatting modules (`Reencodarr.Formatters`, `Reencodarr.Core.Formatters`, web formatters) with overlapping functionality
+
+2. **Test Fixture Chaos:** Two major fixture systems (`fixtures.ex` and `fixtures/media_fixtures.ex`) with 70%+ overlap and inconsistent APIs
+
+3. **Validation Logic Spread:** Validation helpers exist in 4+ places with different patterns and inconsistent error handling
+
+4. **CSS Utility Duplication:** Button classes and LCARS styling patterns repeated across 8+ LiveView files
+
+5. **Parsing Function Explosion:** 15+ parsing functions across modules for similar data types (numeric, duration, resolution)
+
+## Recommended Consolidation Strategy
+
+### Phase 1: Critical Consolidation (Week 1)
+1. **Unify File Size Formatting:** Single module with comprehensive functions
+2. **Consolidate Test Fixtures:** Merge fixture systems into unified API
+3. **Standardize Validation:** Central validation with consistent error handling
+4. **Consolidate Test Helpers:** Single comprehensive test helper module
+
+### Phase 2: Major Cleanup (Week 2)
+1. **Regex Pattern Consolidation:** Central parsing utility with field mapping
+2. **CSS Utility Module:** Shared component classes and utility functions
+3. **Numeric Parsing Unification:** Single robust parsing module
+4. **Time/Duration Standardization:** Unified time formatting utilities
+
+### Phase 3: Final Polish (Week 3)
+1. **Database Query Patterns:** Shared query utilities
+2. **Error Handling Standardization:** Consistent error patterns
+3. **Update All References:** Point to consolidated modules
+4. **Remove Deprecated Code:** Clean up old implementations
+
+## Files Requiring Major Changes
+
+### Critical Priority
+- `lib/reencodarr/formatters.ex` - Consolidate with other formatters
+- `test/support/fixtures.ex` - Merge with media_fixtures.ex
+- `lib/reencodarr/validation.ex` - Merge with changeset_helpers.ex
+- `test/support/test_helpers.ex` - Expand and consolidate all test utilities
+
+### High Priority
+- 8+ LiveView files - Extract CSS utilities
+- 15+ test files - Standardize on unified fixtures
+- MediaInfo modules - Use central validation/parsing
+- Multiple parsing modules - Consolidate numeric/time parsing
+
+### Medium Priority
+- Context modules - Standardize query patterns
+- Error handling - Unified error response patterns
+- Web components - Extract shared UI utilities
+
+## Action Items for Implementation
+
+1. **Immediate:** Audit and catalog all file size formatting functions
+2. **Week 1:** Create unified `Reencodarr.FormatHelpers` module
+3. **Week 1:** Merge test fixture systems with migration guide
+4. **Week 2:** Create `Reencodarr.ParseHelpers` for all parsing needs
+5. **Week 2:** Extract shared CSS utilities to component module
+6. **Week 3:** Update all references and remove deprecated modules
+
+This analysis reveals the duplication problem is **significantly more extensive** than previously documented, requiring systematic refactoring across the entire codebase.
 
 ---
 
