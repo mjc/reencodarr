@@ -270,7 +270,7 @@ defmodule Reencodarr.Media.VideoUpsert do
   defp get_video_metadata_for_comparison(path) do
     Repo.one(
       from v in Video,
-        where: v.path == ^path and v.reencoded == false and v.failed == false,
+        where: v.path == ^path and v.state != :encoded and v.failed == false,
         select: %{
           id: v.id,
           size: v.size,
