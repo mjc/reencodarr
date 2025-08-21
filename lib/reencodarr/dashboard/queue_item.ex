@@ -102,7 +102,6 @@ defmodule Reencodarr.Dashboard.QueueItem do
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
     |> String.trim("-")
-    |> String.trim()
     |> shorten_common_titles()
     # Limit to 35 characters for better display
     |> truncate_title(35)
