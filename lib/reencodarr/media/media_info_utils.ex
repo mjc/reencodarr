@@ -15,7 +15,7 @@ defmodule Reencodarr.Media.MediaInfoUtils do
   """
 
   alias Reencodarr.Core.Parsers
-  alias Reencodarr.Media.{Codecs, MediaInfo, VideoFileInfo}
+  alias Reencodarr.Media.{CodecMapper, Codecs, MediaInfo, VideoFileInfo}
 
   @doc """
   Extracts all needed video parameters directly from MediaInfo JSON.
@@ -107,7 +107,7 @@ defmodule Reencodarr.Media.MediaInfoUtils do
             "@type" => "Audio",
             "CodecID" => info.audio_codec,
             "Channels" => to_string(info.audio_channels),
-            "Format_Commercial_IfAny" => Codecs.format_commercial_if_any(info.audio_codec)
+            "Format_Commercial_IfAny" => CodecMapper.format_commercial_if_any(info.audio_codec)
           }
         ]
       }
