@@ -8,6 +8,7 @@ defmodule Reencodarr.AbAv1 do
   use Supervisor
   require Logger
 
+  alias Reencodarr.AbAv1.QueueManager
   alias Reencodarr.Media
 
   ## Public API
@@ -28,10 +29,12 @@ defmodule Reencodarr.AbAv1 do
   """
   @spec queue_length() :: %{crf_searches: non_neg_integer(), encodes: non_neg_integer()}
   def queue_length do
-    %{
-      crf_searches: queue_length_for(Reencodarr.AbAv1.CrfSearch),
-      encodes: queue_length_for(Reencodarr.AbAv1.Encode)
-    }
+    servers = [
+      {:crf_searches, Reencodarr.AbAv1.CrfSearch},
+      {:encodes, Reencodarr.AbAv1.Encode}
+    ]
+
+    QueueManager.calculate_queue_lengths(servers)
   end
 
   @doc """
@@ -42,9 +45,18 @@ defmodule Reencodarr.AbAv1 do
     - `video`: a `%Media.Video{}` struct
     - `vmaf_percent`: integer (default: 95)
   """
-  @spec crf_search(Media.Video.t(), integer()) :: :ok
+  @spec crf_search(Media.Video.t(), integer()) :: :ok | {:error, atom()}
   def crf_search(video, vmaf_percent \\ 95) do
-    GenServer.cast(Reencodarr.AbAv1.CrfSearch, {:crf_search, video, vmaf_percent})
+    case QueueManager.validate_crf_search_request(video, vmaf_percent) do
+      {:ok, {validated_video, validated_percent}} ->
+        message = QueueManager.build_crf_search_message(validated_video, validated_percent)
+        GenServer.cast(Reencodarr.AbAv1.CrfSearch, message)
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Invalid CRF search request: #{reason}")
+        {:error, reason}
+    end
   end
 
   @doc """
@@ -54,9 +66,18 @@ defmodule Reencodarr.AbAv1 do
 
     - `vmaf`: a `%Media.Vmaf{}` struct
   """
-  @spec encode(Media.Vmaf.t()) :: :ok
+  @spec encode(Media.Vmaf.t()) :: :ok | {:error, atom()}
   def encode(vmaf) do
-    GenServer.cast(Reencodarr.AbAv1.Encode, {:encode, vmaf})
+    case QueueManager.validate_encode_request(vmaf) do
+      {:ok, validated_vmaf} ->
+        message = QueueManager.build_encode_message(validated_vmaf)
+        GenServer.cast(Reencodarr.AbAv1.Encode, message)
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Invalid encode request: #{reason}")
+        {:error, reason}
+    end
   end
 
   ## Supervisor Callbacks
@@ -69,21 +90,5 @@ defmodule Reencodarr.AbAv1 do
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
-  end
-
-  ## Private Helpers
-
-  @doc false
-  defp queue_length_for(server) do
-    case GenServer.whereis(server) do
-      pid when is_pid(pid) ->
-        case Process.info(pid, :message_queue_len) do
-          {:message_queue_len, len} -> len
-          _ -> 0
-        end
-
-      _ ->
-        0
-    end
   end
 end
