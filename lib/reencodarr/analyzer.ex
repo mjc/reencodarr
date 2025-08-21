@@ -49,8 +49,9 @@ defmodule Reencodarr.Analyzer do
   """
   def start do
     Logger.debug("🎭 Starting analyzer")
-    Broadway.resume()
+    result = Broadway.resume()
     Telemetry.emit_analyzer_started()
+    result
   end
 
   @doc """
@@ -58,8 +59,9 @@ defmodule Reencodarr.Analyzer do
   """
   def pause do
     Logger.debug("🎭 Pausing analyzer")
-    Broadway.pause()
+    result = Broadway.pause()
     Telemetry.emit_analyzer_paused()
+    result
   end
 
   @doc """
