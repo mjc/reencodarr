@@ -21,7 +21,8 @@ defmodule Reencodarr.MediaSavingsSortTest do
           audio_codecs: ["aac"],
           width: 1920,
           height: 1080,
-          duration: 7200.0
+          duration: 7200.0,
+          state: :analyzed
         })
 
       {:ok, video2} =
@@ -37,7 +38,8 @@ defmodule Reencodarr.MediaSavingsSortTest do
           audio_codecs: ["aac"],
           width: 1920,
           height: 1080,
-          duration: 7200.0
+          duration: 7200.0,
+          state: :analyzed
         })
 
       {:ok, video3} =
@@ -53,7 +55,8 @@ defmodule Reencodarr.MediaSavingsSortTest do
           audio_codecs: ["aac"],
           width: 1920,
           height: 1080,
-          duration: 7200.0
+          duration: 7200.0,
+          state: :analyzed
         })
 
       %{video1: video1, video2: video2, video3: video3}

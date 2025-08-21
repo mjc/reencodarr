@@ -4,20 +4,21 @@ defmodule Reencodarr.AnalyzerTest do
 
   alias Reencodarr.Analyzer
 
-  describe "analyzer GenStage pipeline" do
-    test "process_path/1 adds video to pipeline" do
-      video_info = %{
+  describe "analyzer public API (unit tests)" do
+    test "process_path/1 returns :ok for valid input when Broadway is not available" do
+      valid_input = %{
         path: "/test/video.mkv",
         service_id: "123",
         service_type: :sonarr,
         force_reanalyze: false
       }
 
-      # This should not fail and should return :ok
-      assert :ok == Analyzer.process_path(video_info)
+      capture_log(fn ->
+        assert :ok == Analyzer.process_path(valid_input)
+      end)
     end
 
-    test "process_path/1 handles force_reanalyze" do
+    test "process_path/1 handles missing Broadway gracefully" do
       video_info = %{
         path: "/test/video.mkv",
         service_id: "123",
@@ -31,21 +32,26 @@ defmodule Reencodarr.AnalyzerTest do
           assert :ok == Analyzer.process_path(video_info)
         end)
 
-      # Verify the expected error log is generated
-      assert log_output =~ "Producer supervisor not found, cannot add video"
+      # Verify the expected error log is generated when Broadway is not available
+      assert log_output =~ "Producer supervisor not found, cannot trigger dispatch"
     end
+  end
 
+  describe "analyzer backward compatibility API (integration tests)" do
+    @tag :integration
     test "analyzer provides backward compatibility functions" do
-      # These functions should exist and not crash
-      assert is_boolean(Analyzer.running?())
+      capture_log(fn ->
+        # These functions should exist and not crash
+        assert is_boolean(Analyzer.running?())
 
-      # In test environment, Broadway pipeline is not started by default
-      # So these functions should return error tuples instead of crashing
-      assert Analyzer.start() == {:error, :producer_supervisor_not_found}
-      assert Analyzer.pause() == {:error, :producer_supervisor_not_found}
+        # In test environment, Broadway pipeline is not started by default
+        # So these functions should return error tuples instead of crashing
+        assert Analyzer.start() == {:error, :producer_supervisor_not_found}
+        assert Analyzer.pause() == {:error, :producer_supervisor_not_found}
 
-      # running? should return false when pipeline is not started
-      assert Analyzer.running?() == false
+        # running? should return false when pipeline is not started
+        assert Analyzer.running?() == false
+      end)
     end
   end
 end

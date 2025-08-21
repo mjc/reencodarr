@@ -1,6 +1,8 @@
 defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
   use Reencodarr.DataCase, async: true
 
+  @moduletag :integration
+
   alias Reencodarr.Analyzer.Broadway
 
   import ExUnit.CaptureLog
@@ -61,7 +63,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
         log =
           capture_log(fn ->
             try do
-              Broadway.process_path(%{
+              Reencodarr.Analyzer.process_path(%{
                 path: invalid_path,
                 service_id: "1",
                 service_type: :sonarr,
@@ -95,7 +97,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
         log =
           capture_log(fn ->
             try do
-              Broadway.process_path(malformed_data)
+              Reencodarr.Analyzer.process_path(malformed_data)
               Process.sleep(50)
             rescue
               _ -> :ok
@@ -136,7 +138,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
         capture_log(fn ->
           Enum.each(video_infos, fn video_info ->
             try do
-              Broadway.process_path(video_info)
+              Reencodarr.Analyzer.process_path(video_info)
             rescue
               _ -> :ok
             end
@@ -208,7 +210,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
           capture_log(fn ->
             try do
               # This might fail, but should not crash the system
-              Broadway.process_path(invalid_data)
+              Reencodarr.Analyzer.process_path(invalid_data)
               Process.sleep(50)
             rescue
               _ -> :ok
@@ -233,7 +235,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
           # Send a burst of requests
           Enum.each(test_files, fn file ->
             try do
-              Broadway.process_path(%{
+              Reencodarr.Analyzer.process_path(%{
                 path: file,
                 service_id: "1",
                 service_type: :sonarr,
@@ -270,7 +272,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
           # This simulates retry scenarios
           for _i <- 1..3 do
             try do
-              Broadway.process_path(%{
+              Reencodarr.Analyzer.process_path(%{
                 path: test_file,
                 service_id: "1",
                 service_type: :sonarr,
@@ -307,7 +309,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
             Enum.map(test_files, fn file ->
               Task.async(fn ->
                 try do
-                  Broadway.process_path(%{
+                  Reencodarr.Analyzer.process_path(%{
                     path: file,
                     service_id: "1",
                     service_type: :sonarr,

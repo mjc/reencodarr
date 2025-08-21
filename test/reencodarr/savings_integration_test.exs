@@ -26,7 +26,8 @@ defmodule Reencodarr.SavingsIntegrationTest do
           audio_codecs: ["aac"],
           width: 1920,
           height: 1080,
-          duration: 7200.0
+          duration: 7200.0,
+          state: :analyzed
         })
 
       # Simulate CRF search results being saved
@@ -122,7 +123,8 @@ defmodule Reencodarr.SavingsIntegrationTest do
           audio_codecs: ["aac"],
           width: 1920,
           height: 1080,
-          duration: 7200.0
+          duration: 7200.0,
+          state: :analyzed
         })
 
       {:ok, small_vmaf} =
@@ -154,7 +156,8 @@ defmodule Reencodarr.SavingsIntegrationTest do
           audio_codecs: ["aac"],
           width: 1920,
           height: 1080,
-          duration: 7200.0
+          duration: 7200.0,
+          state: :analyzed
         })
 
       {:ok, perfect_vmaf} =
