@@ -185,27 +185,39 @@ defmodule Reencodarr.Media.MediaInfoUtils do
 
   defp get_int_field(track, field, default) when is_map(track) do
     case Map.get(track, field) do
-      value when is_integer(value) -> value
-      value when is_binary(value) -> 
+      value when is_integer(value) ->
+        value
+
+      value when is_binary(value) ->
         case Integer.parse(value) do
           {int_value, ""} -> int_value
           _ -> default
         end
-      value when is_float(value) -> round(value)
-      _ -> default
+
+      value when is_float(value) ->
+        round(value)
+
+      _ ->
+        default
     end
   end
 
   defp get_float_field(track, field, default) when is_map(track) do
     case Map.get(track, field) do
-      value when is_float(value) -> value
-      value when is_integer(value) -> value / 1.0
-      value when is_binary(value) -> 
+      value when is_float(value) ->
+        value
+
+      value when is_integer(value) ->
+        value / 1.0
+
+      value when is_binary(value) ->
         case Float.parse(value) do
           {float_value, ""} -> float_value
           _ -> default
         end
-      _ -> default
+
+      _ ->
+        default
     end
   end
 
