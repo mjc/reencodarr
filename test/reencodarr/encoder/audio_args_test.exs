@@ -2,12 +2,11 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
   use Reencodarr.DataCase, async: true
 
   alias Reencodarr.Rules
-  import Reencodarr.Fixtures
 
   describe "centralized argument building" do
     setup do
       # Create a test video struct that represents a video needing audio transcoding (not Opus)
-      video = create_test_video()
+      video = Fixtures.create_test_video()
       %{video: video}
     end
 
@@ -132,7 +131,7 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
 
     test "Rules.build_args handles multiple SVT flags correctly" do
       # Create an HDR video using struct
-      hdr_video = create_hdr_video()
+      hdr_video = Fixtures.create_hdr_video()
       args = Rules.build_args(hdr_video, :encode)
 
       # Should include multiple SVT arguments
@@ -162,7 +161,7 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
 
   describe "legacy compatibility" do
     test "Rules.apply still works for backward compatibility" do
-      video = create_test_video()
+      video = Fixtures.create_test_video()
       rules = Rules.apply(video)
 
       # Should return tuples as before

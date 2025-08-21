@@ -2,7 +2,6 @@ defmodule Reencodarr.FailureTracker.CommandOutputTest do
   use Reencodarr.DataCase
   import ExUnit.CaptureLog
 
-  import Reencodarr.MediaFixtures
   alias Reencodarr.FailureTracker
 
   describe "enhanced command output capture" do
@@ -34,7 +33,7 @@ defmodule Reencodarr.FailureTracker.CommandOutputTest do
     end
 
     test "process failure with enhanced context includes command output" do
-      video = video_fixture()
+      video = Fixtures.video_fixture()
 
       # Simulate ab-av1 command output
       args = ["encode", "-c", "25", "--preset", "4", video.path, "output.mkv"]
@@ -81,7 +80,7 @@ defmodule Reencodarr.FailureTracker.CommandOutputTest do
     end
 
     test "crf search failure with command context" do
-      video = video_fixture()
+      video = Fixtures.video_fixture()
 
       # Simulate ab-av1 crf-search output
       args = ["crf-search", "--vmaf", "95", "--min-crf", "20", "--max-crf", "30", video.path]
@@ -141,7 +140,7 @@ defmodule Reencodarr.FailureTracker.CommandOutputTest do
     end
 
     test "vmaf calculation failure with full ab-av1 output" do
-      video = video_fixture()
+      video = Fixtures.video_fixture()
 
       args = ["crf-search", "--vmaf", "95", video.path]
 
@@ -196,7 +195,7 @@ defmodule Reencodarr.FailureTracker.CommandOutputTest do
     end
 
     test "crf optimization failure with vmaf scores uses maps not tuples" do
-      video = video_fixture()
+      video = Fixtures.video_fixture()
 
       # Create some VMAF records for this video to simulate real scenario
       {:ok, _vmaf1} =

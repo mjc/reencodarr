@@ -28,6 +28,9 @@ defmodule ReencodarrWeb.ConnCase do
       import Plug.Conn
       import Phoenix.ConnTest
       import ReencodarrWeb.ConnCase
+
+      # Make fixtures available via alias
+      alias Reencodarr.Fixtures
     end
   end
 

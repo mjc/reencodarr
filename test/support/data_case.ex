@@ -20,6 +20,7 @@ defmodule Reencodarr.DataCase do
   using do
     quote do
       alias Reencodarr.Repo
+      alias Reencodarr.Fixtures
 
       import Ecto
       import Ecto.Changeset

@@ -6,20 +6,6 @@ defmodule Reencodarr.RulesIntegrationTest do
   alias Reencodarr.Encoder.Broadway
   alias Reencodarr.{Media, Repo, Rules}
 
-  # Test video fixtures
-  defp create_test_video(overrides \\ %{}) do
-    defaults = %{
-      atmos: false,
-      max_audio_channels: 6,
-      audio_codecs: ["A_EAC3"],
-      height: 1080,
-      hdr: nil,
-      path: "/test/video.mkv"
-    }
-
-    struct(Reencodarr.Media.Video, Map.merge(defaults, overrides))
-  end
-
   describe "integration with encoder modules" do
     setup do
       {:ok, video} =
@@ -147,7 +133,7 @@ defmodule Reencodarr.RulesIntegrationTest do
 
       # Create a VMAF record like the real system would have
       video =
-        create_test_video(%{
+        Fixtures.create_test_video(%{
           id: 8_443_455,
           path:
             "/mnt/tv/sci-fi/Fallout/Season 1/Fallout - S01E08 - The Beginning Bluray-2160p Remux DV HDR10 HEVC TrueHD Atmos 7.1.mkv",
@@ -185,7 +171,7 @@ defmodule Reencodarr.RulesIntegrationTest do
   describe "ab-av1 integration tests" do
     @tag :integration
     test "generated arguments are accepted by ab-av1 --help" do
-      video = create_test_video()
+      video = Fixtures.create_test_video()
 
       # Test encode args
       encode_args = Rules.build_args(video, :encode, ["--preset", "6"])
@@ -209,7 +195,7 @@ defmodule Reencodarr.RulesIntegrationTest do
 
     @tag :integration
     test "generated CRF search arguments are accepted by ab-av1 --help" do
-      video = create_test_video()
+      video = Fixtures.create_test_video()
 
       # Test CRF search args using the CrfSearch module
       crf_args = CrfSearch.build_crf_search_args_for_test(video, 95)
@@ -233,7 +219,7 @@ defmodule Reencodarr.RulesIntegrationTest do
 
     @tag :integration
     test "no duplicate input files in generated commands" do
-      video = create_test_video(%{path: "/test/input.mkv"})
+      video = Fixtures.create_test_video(%{path: "/test/input.mkv"})
 
       # Test both encode and CRF search
       encode_args = Rules.build_args(video, :encode, ["--preset", "6"])
@@ -255,7 +241,7 @@ defmodule Reencodarr.RulesIntegrationTest do
     test "ab-av1 accepts generated encode command syntax" do
       # Simulate the problematic command from the error message
       video =
-        create_test_video(%{
+        Fixtures.create_test_video(%{
           path:
             "/mnt/tv/sci-fi/Fallout/Season 1/Fallout - S01E08 - The Beginning Bluray-2160p Remux DV HDR10 HEVC TrueHD Atmos 7.1.mkv",
           atmos: true,

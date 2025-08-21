@@ -1,7 +1,6 @@
 defmodule Reencodarr.ProgressParserTest do
   use Reencodarr.DataCase, async: true
   import ExUnit.CaptureLog
-  import Reencodarr.MediaFixtures
 
   alias Reencodarr.Media
   alias Reencodarr.ProgressParser
@@ -10,7 +9,7 @@ defmodule Reencodarr.ProgressParserTest do
     setup do
       # Create a test video using the factory
       video =
-        video_fixture(%{
+        Fixtures.video_fixture(%{
           path: "/test/unique_#{System.unique_integer([:positive])}/video.mkv",
           service_id: "test",
           service_type: :sonarr,
@@ -260,7 +259,7 @@ defmodule Reencodarr.ProgressParserTest do
   describe "parse_fps/1 (private function testing via public interface)" do
     setup do
       video =
-        video_fixture(%{
+        Fixtures.video_fixture(%{
           path: "/test/fps_test.mkv",
           service_id: "test",
           service_type: :sonarr,

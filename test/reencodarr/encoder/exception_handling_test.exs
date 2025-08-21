@@ -2,13 +2,12 @@ defmodule Reencodarr.Encoder.ExceptionHandlingTest do
   use Reencodarr.DataCase
   import ExUnit.CaptureLog
 
-  import Reencodarr.MediaFixtures
   alias Reencodarr.{FailureTracker, Media}
   alias Reencodarr.Media.VideoFailure
 
   describe "exception handling in encoding" do
     test "records detailed exception failure with full context" do
-      video = video_fixture()
+      video = Fixtures.video_fixture()
 
       {:ok, vmaf} =
         Media.create_vmaf(%{
@@ -61,7 +60,7 @@ defmodule Reencodarr.Encoder.ExceptionHandlingTest do
     end
 
     test "handles -3 exit code classification" do
-      video = video_fixture()
+      video = Fixtures.video_fixture()
 
       log =
         capture_log(fn ->
@@ -86,7 +85,7 @@ defmodule Reencodarr.Encoder.ExceptionHandlingTest do
     end
 
     test "captures context when exception occurs during command building" do
-      video = video_fixture()
+      video = Fixtures.video_fixture()
 
       {:ok, vmaf} =
         Media.create_vmaf(%{
