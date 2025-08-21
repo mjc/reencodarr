@@ -186,23 +186,27 @@ defmodule Reencodarr.Media.MediaInfoUtils do
   defp get_int_field(track, field, default) when is_map(track) do
     case Map.get(track, field) do
       value when is_integer(value) -> value
-      value when is_binary(value) -> String.to_integer(value)
+      value when is_binary(value) -> 
+        case Integer.parse(value) do
+          {int_value, ""} -> int_value
+          _ -> default
+        end
       value when is_float(value) -> round(value)
       _ -> default
     end
-  rescue
-    _ -> default
   end
 
   defp get_float_field(track, field, default) when is_map(track) do
     case Map.get(track, field) do
       value when is_float(value) -> value
       value when is_integer(value) -> value / 1.0
-      value when is_binary(value) -> String.to_float(value)
+      value when is_binary(value) -> 
+        case Float.parse(value) do
+          {float_value, ""} -> float_value
+          _ -> default
+        end
       _ -> default
     end
-  rescue
-    _ -> default
   end
 
   # Extract audio codecs with fallback and normalization
@@ -271,8 +275,6 @@ defmodule Reencodarr.Media.MediaInfoUtils do
       _ ->
         {0, 0}
     end
-  rescue
-    _ -> {0, 0}
   end
 
   defp parse_resolution(_), do: {0, 0}

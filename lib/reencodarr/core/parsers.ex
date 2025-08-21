@@ -36,21 +36,32 @@ defmodule Reencodarr.Core.Parsers do
         # Fall back to time format parsing (e.g., "1:23:45")
         case String.split(duration, ":") do
           [hours, minutes, seconds] ->
-            String.to_integer(hours) * 3600 + String.to_integer(minutes) * 60 +
-              String.to_integer(seconds)
+            with {h, ""} <- Integer.parse(hours),
+                 {m, ""} <- Integer.parse(minutes),
+                 {s, ""} <- Integer.parse(seconds) do
+              h * 3600 + m * 60 + s
+            else
+              _ -> 0
+            end
 
           [minutes, seconds] ->
-            String.to_integer(minutes) * 60 + String.to_integer(seconds)
+            with {m, ""} <- Integer.parse(minutes),
+                 {s, ""} <- Integer.parse(seconds) do
+              m * 60 + s
+            else
+              _ -> 0
+            end
 
           [seconds] ->
-            String.to_integer(seconds)
+            case Integer.parse(seconds) do
+              {s, ""} -> s
+              _ -> 0
+            end
 
           _ ->
             0
         end
     end
-  rescue
-    _ -> 0
   end
 
   def parse_duration(duration) when is_number(duration), do: duration * 1.0
