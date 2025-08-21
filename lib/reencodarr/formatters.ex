@@ -286,20 +286,17 @@ defmodule Reencodarr.Formatters do
   def format_duration(nil), do: "N/A"
   def format_duration(0), do: "N/A"
 
-  def format_duration(seconds) when is_number(seconds) do
-    cond do
-      seconds >= 3600 ->
-        hours = div(seconds, 3600)
-        minutes = div(rem(seconds, 3600), 60)
-        "#{hours}h #{minutes}m"
+  def format_duration(seconds) when is_number(seconds) and seconds >= 0 do
+    hours = div(trunc(seconds), 3600)
+    minutes = div(rem(trunc(seconds), 3600), 60)
+    secs = rem(trunc(seconds), 60)
 
-      seconds >= 60 ->
-        minutes = div(seconds, 60)
-        "#{minutes} minutes"
+    parts = []
+    parts = if hours > 0, do: ["#{hours}h" | parts], else: parts
+    parts = if minutes > 0, do: ["#{minutes}m" | parts], else: parts
+    parts = if secs > 0 or parts == [], do: ["#{secs}s" | parts], else: parts
 
-      true ->
-        "#{round(seconds)} seconds"
-    end
+    parts |> Enum.reverse() |> Enum.join(" ")
   end
 
   def format_duration(duration), do: to_string(duration)
@@ -339,4 +336,21 @@ defmodule Reencodarr.Formatters do
   """
   def format_list(list) when is_list(list), do: Enum.join(list, ", ")
   def format_list(_), do: ""
+
+  @doc """
+  Normalizes a string by trimming whitespace and converting to lowercase.
+
+  ## Examples
+
+      iex> normalize_string("  Hello World  ")
+      "hello world"
+
+      iex> normalize_string("UPPERCASE")
+      "uppercase"
+  """
+  def normalize_string(str) when is_binary(str) do
+    str |> String.trim() |> String.downcase()
+  end
+
+  def normalize_string(_), do: ""
 end
