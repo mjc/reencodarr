@@ -2,29 +2,7 @@ defmodule Reencodarr.Validation do
   @moduledoc """
   Centralized validation utilities for Ecto schemas.
 
-  Provides reusable val  def validate_track_consistency(changeset, field_checks \\ []) do
-    format = get_field(changeset, :format)
-
-    if has_valid_format?(format) do
-      validate_field_checks(changeset, field_checks)
-    else
-      changeset
-    end
-  end
-
-  defp has_valid_format?(format), do: format && String.trim(format) != ""
-
-  defp validate_field_checks(changeset, field_checks) do
-    Enum.reduce(field_checks, changeset, fn {field, zero_message}, acc ->
-      value = get_field(acc, field)
-
-      if value == 0 do
-        add_error(acc, field, zero_message)
-      else
-        acc
-      end
-    end)
-  end that eliminate duplication
+  Provides reusable validation functions that eliminate duplication
   across all schemas in the application.
   """
 

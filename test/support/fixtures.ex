@@ -536,9 +536,9 @@ defmodule Reencodarr.Fixtures do
 
   ## Examples
 
-      video = build_video(%{bitrate: 5_000_000}) 
-        |> with_high_bitrate() 
-        |> as_reencoded() 
+      video = build_video(%{bitrate: 5_000_000})
+        |> with_high_bitrate()
+        |> as_reencoded()
         |> create()
   """
   def build_video(attrs \\ %{}) do

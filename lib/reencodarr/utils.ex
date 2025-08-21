@@ -163,32 +163,4 @@ defmodule Reencodarr.Utils do
   """
   defguard is_reasonable_int(value, min, max)
            when is_integer(value) and value >= min and value <= max
-
-  # === CHANGESET UTILITIES ===
-
-  @doc """
-  Validates that a required field is present in a changeset.
-  """
-  def validate_required_field(changeset, field, message \\ nil) do
-    if is_nil(Ecto.Changeset.get_field(changeset, field)) do
-      message = message || "#{field} is required"
-      Ecto.Changeset.add_error(changeset, field, message)
-    else
-      changeset
-    end
-  end
-
-  @doc """
-  Validates that a numeric field is positive in a changeset.
-  """
-  def validate_positive_field(changeset, field, message \\ nil) do
-    value = Ecto.Changeset.get_field(changeset, field)
-
-    if is_number(value) and value <= 0 do
-      message = message || "#{field} must be positive"
-      Ecto.Changeset.add_error(changeset, field, message)
-    else
-      changeset
-    end
-  end
 end
