@@ -25,7 +25,7 @@ defmodule Reencodarr.Statistics do
             next_crf_search: []
 
   use GenServer
-  alias Reencodarr.Media
+  alias Reencodarr.Media.{Statistics, VideoQueries}
   alias Reencodarr.Statistics.{CrfSearchProgress, EncodingProgress, Stats}
 
   @broadcast_interval 5_000
@@ -46,6 +46,33 @@ defmodule Reencodarr.Statistics do
           default_state()
         end
     end
+  end
+
+  # --- Private stats fetching functions ---
+
+  defp fetch_comprehensive_stats do
+    # Get base stats from Media.Statistics module
+    base_stats = Statistics.fetch_media_stats()
+
+    # Add queue-specific data
+    %{
+      base_stats
+      | next_crf_search: get_videos_for_crf_search(10),
+        videos_by_estimated_percent: list_videos_by_estimated_percent(10),
+        next_analyzer: get_videos_needing_analysis(10)
+    }
+  end
+
+  defp get_videos_for_crf_search(limit) do
+    VideoQueries.videos_for_crf_search(limit)
+  end
+
+  defp list_videos_by_estimated_percent(limit) do
+    VideoQueries.videos_ready_for_encoding(limit)
+  end
+
+  defp get_videos_needing_analysis(limit) do
+    VideoQueries.videos_needing_analysis(limit)
   end
 
   defp default_state do
@@ -92,7 +119,7 @@ defmodule Reencodarr.Statistics do
   @impl true
   def handle_continue(:fetch_initial_stats, state) do
     Task.start(fn ->
-      stats = Media.fetch_stats()
+      stats = fetch_comprehensive_stats()
 
       GenServer.cast(__MODULE__, {:update_stats, stats})
     end)
@@ -108,7 +135,7 @@ defmodule Reencodarr.Statistics do
       new_state = %{state | stats_update_in_progress: true}
 
       start_task(fn ->
-        stats = Media.fetch_stats()
+        stats = fetch_comprehensive_stats()
         GenServer.cast(__MODULE__, {:update_stats, stats})
         GenServer.cast(__MODULE__, :stats_update_complete)
       end)
@@ -144,7 +171,7 @@ defmodule Reencodarr.Statistics do
 
   def handle_info({:video_upserted, _video}, %Reencodarr.Statistics{} = state) do
     Task.start(fn ->
-      stats = Media.fetch_stats()
+      stats = fetch_comprehensive_stats()
       GenServer.cast(__MODULE__, {:update_stats, stats})
     end)
 
@@ -153,7 +180,7 @@ defmodule Reencodarr.Statistics do
 
   def handle_info({:vmaf_upserted, _vmaf}, %Reencodarr.Statistics{} = state) do
     Task.start(fn ->
-      stats = Media.fetch_stats()
+      stats = fetch_comprehensive_stats()
       GenServer.cast(__MODULE__, {:update_stats, stats})
     end)
 
