@@ -73,26 +73,28 @@ defmodule Reencodarr.Services.Radarr do
   defp perform_movie_refresh(movie_id) do
     Logger.info("Refreshing movie ID: #{movie_id} before checking for renameable files")
 
-    case refresh_movie(movie_id) do
-      {:ok, refresh_response} ->
-        Logger.debug("Movie refresh initiated: #{inspect(refresh_response.body)}")
-
-      {:error, reason} ->
-        Logger.warning("Failed to refresh movie (continuing anyway): #{inspect(reason)}")
-    end
+    ErrorHelpers.handle_error_with_warning(
+      refresh_movie(movie_id),
+      :ok,
+      "Failed to refresh movie"
+    )
   end
 
   defp get_radarr_renameable_files(movie_id) do
     Logger.info("Checking renameable files for movie ID: #{movie_id}")
 
-    case request(url: "/api/v3/rename?movieId=#{movie_id}", method: :get) do
-      {:ok, rename_response} ->
-        Logger.debug("Renameable files response: #{inspect(rename_response.body)}")
-        rename_response.body
-
-      {:error, reason} ->
-        Logger.error("Failed to get renameable files: #{inspect(reason)}")
+    request(url: "/api/v3/rename?movieId=#{movie_id}", method: :get)
+    |> ErrorHelpers.handle_error_with_default([], "Failed to get renameable files")
+    |> case do
+      [] ->
         []
+
+      resp when is_map(resp) ->
+        Logger.debug("Renameable files response: #{inspect(resp.body)}")
+        resp.body
+
+      other ->
+        other
     end
   end
 

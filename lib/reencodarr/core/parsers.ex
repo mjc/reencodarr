@@ -27,24 +27,34 @@ defmodule Reencodarr.Core.Parsers do
   """
   @spec parse_duration(String.t() | number()) :: number()
   def parse_duration(duration) when is_binary(duration) do
-    case String.split(duration, ":") do
-      [hours, minutes, seconds] ->
-        String.to_integer(hours) * 3600 + String.to_integer(minutes) * 60 +
-          String.to_integer(seconds)
-
-      [minutes, seconds] ->
-        String.to_integer(minutes) * 60 + String.to_integer(seconds)
-
-      [seconds] ->
-        String.to_integer(seconds)
+    # Try parsing as float first (e.g., "123.45")
+    case Float.parse(duration) do
+      {parsed_duration, ""} ->
+        parsed_duration
 
       _ ->
-        0
+        # Fall back to time format parsing (e.g., "1:23:45")
+        case String.split(duration, ":") do
+          [hours, minutes, seconds] ->
+            String.to_integer(hours) * 3600 + String.to_integer(minutes) * 60 +
+              String.to_integer(seconds)
+
+          [minutes, seconds] ->
+            String.to_integer(minutes) * 60 + String.to_integer(seconds)
+
+          [seconds] ->
+            String.to_integer(seconds)
+
+          _ ->
+            0
+        end
     end
+  rescue
+    _ -> 0
   end
 
-  def parse_duration(duration) when is_number(duration), do: duration
-  def parse_duration(_), do: 0
+  def parse_duration(duration) when is_number(duration), do: duration * 1.0
+  def parse_duration(_), do: 0.0
 
   @doc """
   Safely parses an integer with fallback to default value.

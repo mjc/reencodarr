@@ -9,97 +9,18 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   use GenServer
 
   alias Reencodarr.AbAv1.Helper
+  alias Reencodarr.AbAv1.OutputParser
   alias Reencodarr.Core.Time
   alias Reencodarr.CrfSearcher.Broadway.Producer
+  alias Reencodarr.ErrorHelpers
   alias Reencodarr.{Media, Repo, Telemetry}
   alias Reencodarr.Statistics.CrfSearchProgress
 
   require Logger
 
-  # Common regex fragments to reduce duplication
-  @crf_pattern "(?<crf>\\d+(?:\\.\\d+)?)"
-  @vmaf_score_pattern "(?<score>\\d+\\.\\d+)"
-  @percent_pattern "\\((?<percent>\\d+)%\\)"
-  @timestamp_pattern "\\[(?<timestamp>[^\\]]+)\\]"
-  @fps_pattern "(?<fps>\\d+(?:\\.\\d+)?)\\sfps?"
-  @eta_pattern "eta\\s(?<eta>\\d+\\s(?:second|minute|hour|day|week|month|year)s?)"
-  @time_unit_pattern "(?<time_unit>second|minute|hour|day|week|month|year)s?"
-
-  # Centralized regex patterns for different line types
-  @patterns %{
-    encoding_sample: ~r/
-      encoding\ssample\s
-      (?<sample_num>\d+)\/             # Capture sample number
-      (?<total_samples>\d+)\s          # Capture total samples
-      crf\s#{@crf_pattern}             # Capture CRF value
-    /x,
-    simple_vmaf: ~r/
-      #{@timestamp_pattern}\s
-      .*?
-      crf\s#{@crf_pattern}\s          # Capture CRF value
-      VMAF\s#{@vmaf_score_pattern}\s  # Capture VMAF score
-      #{@percent_pattern}             # Capture percentage
-    /x,
-    sample_vmaf: ~r/
-      sample\s
-      (?<sample_num>\d+)\/             # Capture sample number
-      (?<total_samples>\d+)\s          # Capture total samples
-      crf\s#{@crf_pattern}\s          # Capture CRF value
-      VMAF\s#{@vmaf_score_pattern}\s  # Capture VMAF score
-      #{@percent_pattern}             # Capture percentage
-      (?:\s\(.*\))?
-    /x,
-    dash_vmaf: ~r/
-      ^-\s                             # Lines starting with dash and space
-      crf\s#{@crf_pattern}\s          # Capture CRF value
-      VMAF\s#{@vmaf_score_pattern}\s  # Capture VMAF score
-      #{@percent_pattern}             # Capture percentage
-      (?:\s\(.*\))?                   # Optional parentheses content like (cache)
-    /x,
-    eta_vmaf: ~r/
-      crf\s#{@crf_pattern}\s          # Capture CRF value
-      VMAF\s#{@vmaf_score_pattern}\s  # Capture VMAF score
-      predicted\svideo\sstream\ssize\s
-      (?<size>\d+\.?\d*)\s             # Capture size (allow integers or decimals)
-      (?<unit>\w+)\s                   # Capture unit
-      #{@percent_pattern}\s           # Capture percentage
-      taking\s
-      (?<time>\d+\.?\d*)\s             # Capture time (allow integers or decimals)
-      #{@time_unit_pattern}           # Capture time unit with optional plural
-      (?:\s\(.*\))?
-    /x,
-    vmaf_comparison: ~r/
-      vmaf\s
-      (?<file1>.+?)\s                  # Capture first file name
-      vs\sreference\s
-      (?<file2>.+)                     # Capture second file name
-    /x,
-    progress: ~r/
-      #{@timestamp_pattern}\s
-      .*?
-      (?<progress>\d+(?:\.\d+)?)%,\s
-      #{@fps_pattern},\s              # Updated to exclude "fps" from the capture group
-      #{@eta_pattern}
-    /x,
-    success: ~r/
-      (?:\[.*\]\s)?                   # Optional timestamp prefix
-      crf\s#{@crf_pattern}\s          # Capture CRF value from this one to know which CRF was selected.
-      successful
-    /x,
-    warning: ~r/
-      ^Warning:\s                     # Lines starting with "Warning: "
-      .*                             # Followed by any text
-    /x
-  }
-
-  # Unified line matching function using pattern keys
+  # Unified line matching function using centralized patterns from OutputParser
   defp match_line(line, pattern_key) do
-    pattern = Map.get(@patterns, pattern_key)
-
-    case Regex.named_captures(pattern, line) do
-      nil -> nil
-      captures -> captures
-    end
+    OutputParser.match_pattern(line, pattern_key)
   end
 
   # Public API
@@ -329,13 +250,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     Logger.info("✅ AbAv1: CRF search completed for video #{video.id} (#{video.title})")
 
     # CRITICAL: Update video state to crf_searched to prevent infinite loop
-    case Reencodarr.Media.update_video_status(video, %{"state" => "crf_searched"}) do
-      {:ok, _updated_video} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.error("Failed to update video #{video.id} state: #{inspect(reason)}")
-    end
+    ErrorHelpers.handle_error_with_default(
+      Reencodarr.Media.update_video_status(video, %{"state" => "crf_searched"}),
+      :ok,
+      "Failed to update video #{video.id} state"
+    )
 
     # Publish completion event to PubSub
     Phoenix.PubSub.broadcast(
@@ -453,13 +372,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     clear_vmaf_records_for_video_private(video.id, existing_vmafs)
 
     # Reset video state to analyzed for retry with preset 6
-    case Reencodarr.Media.update_video_status(video, %{"state" => "analyzed"}) do
-      {:ok, _updated_video} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.error("Failed to reset video #{video.id} state for retry: #{inspect(reason)}")
-    end
+    ErrorHelpers.handle_error_with_default(
+      Reencodarr.Media.update_video_status(video, %{"state" => "analyzed"}),
+      :ok,
+      "Failed to reset video #{video.id} state for retry"
+    )
 
     # Publish failure event first
     Phoenix.PubSub.broadcast(

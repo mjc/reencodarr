@@ -81,6 +81,98 @@ defmodule Reencodarr.Core.Time do
     end
   end
 
+  @doc """
+  Formats duration from seconds to human-readable format.
+
+  ## Examples
+
+      iex> Time.format_duration(3661)
+      "1h 1m 1s"
+
+      iex> Time.format_duration(125) 
+      "2m 5s"
+
+      iex> Time.format_duration(45)
+      "45s"
+  """
+  @spec format_duration(number() | nil) :: String.t()
+  def format_duration(nil), do: "N/A"
+  def format_duration(0), do: "N/A"
+
+  def format_duration(seconds) when is_number(seconds) and seconds >= 0 do
+    hours = div(trunc(seconds), 3600)
+    minutes = div(rem(trunc(seconds), 3600), 60)
+    secs = rem(trunc(seconds), 60)
+
+    parts = []
+    parts = if hours > 0, do: ["#{hours}h" | parts], else: parts
+    parts = if minutes > 0, do: ["#{minutes}m" | parts], else: parts
+    parts = if secs > 0 or parts == [], do: ["#{secs}s" | parts], else: parts
+
+    parts |> Enum.reverse() |> Enum.join(" ")
+  end
+
+  def format_duration(duration), do: to_string(duration)
+
+  @doc """
+  Formats ETA with proper pluralization.
+
+  ## Examples
+
+      iex> Time.format_eta(1, "minute")
+      "1 minute"
+
+      iex> Time.format_eta(5, "minute")
+      "5 minutes"
+  """
+  @spec format_eta(integer(), String.t()) :: String.t()
+  def format_eta(eta, unit) when eta == 1, do: "#{eta} #{unit}"
+
+  def format_eta(eta, unit) do
+    # If unit already ends with 's', don't add another 's'
+    if String.ends_with?(unit, "s") do
+      "#{eta} #{unit}"
+    else
+      "#{eta} #{unit}s"
+    end
+  end
+
+  @doc """
+  Formats ETA from numeric seconds.
+
+  ## Examples
+
+      iex> Time.format_eta(3661)
+      "1h 1m 1s"
+  """
+  @spec format_eta(number() | String.t() | nil) :: String.t()
+  def format_eta(eta) when is_binary(eta), do: eta
+  def format_eta(eta) when is_number(eta), do: format_duration(eta)
+  def format_eta(_), do: "N/A"
+
+  @doc """
+  Formats a datetime as relative time with timezone support.
+
+  ## Examples
+
+      iex> Time.relative_time_with_timezone(nil, "UTC")
+      "N/A"
+
+      iex> Time.relative_time_with_timezone(~N[2023-01-01 12:00:00], "UTC")
+      "..." # relative time string
+  """
+  @spec relative_time_with_timezone(NaiveDateTime.t() | nil, String.t()) :: String.t()
+  def relative_time_with_timezone(nil, _timezone), do: "N/A"
+
+  def relative_time_with_timezone(datetime, timezone) do
+    tz = if is_binary(timezone) and timezone != "", do: timezone, else: "UTC"
+
+    datetime
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.shift_zone!(tz)
+    |> relative_time()
+  end
+
   # Private helper to parse time parts from captures
   defp parse_time_part(captures, key) do
     case Map.get(captures, key) do
