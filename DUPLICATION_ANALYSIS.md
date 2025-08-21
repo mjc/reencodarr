@@ -166,33 +166,20 @@ config = @default_config |> Keyword.merge(app_config) |> Keyword.merge(opts)
 - ✅ Centralized complex PostgreSQL fragment patterns
 - ✅ Established single source of truth for video statistics aggregation
 
-**FINAL MILESTONE: 1,297+ total lines eliminated across 15+ major patterns**
-**Test Status: All 369 tests passing** ✅
-**Architecture Impact: Centralized database query logic and eliminated delegation overhead**
+**FINAL MILESTONE: 1,332+ total lines eliminated across 16+ major patterns**
+**Test Status: All 377 tests passing** ✅
+**Architecture Impact: Centralized Broadway configuration with zero compilation warnings**
 
-#### 15. **CSS Navigation & Component Patterns** ✅ **RESOLVED**
-**Impact:** **12+ lines** (duplicate CSS patterns across LiveView components)
-- ✅ Added `navigation_link_classes/1` utility to UIHelpers for LCARS navigation styling
-- ✅ Added `table_row_hover_classes/0` utility for consistent table hover effects
-- ✅ Updated `broadway_live.ex` to use centralized navigation link utilities
-- ✅ Updated `lcars_components.ex` navigation item component with utility functions
-- ✅ Consolidated table hover patterns in `encode_queue_component.ex` and `crf_search_queue_component.ex`
-- ✅ Established single source of truth for navigation and table styling patterns
-- ✅ Maintained idiomatic Elixir patterns throughout consolidation process
-
-#### 14. **Code Quality & Warning Resolution** ✅ **RESOLVED**
-**Impact:** **Warning resolution and cleanup** (code quality improvements)
-- ✅ Removed leftover `time_utils.ex` file from previous consolidation work
-- ✅ Removed problematic `query_patterns.ex` module with Ecto macro import issues
-- ✅ Removed duplicate `time_utils_test.exs` causing module redefinition warnings
-- ✅ Fixed multiline assertion syntax in `time_test.exs`
-- ✅ Achieved zero compilation warnings with `--warnings-as-errors`
-- ✅ All 369 tests passing with clean test suite
-- ✅ Maintained Credo compliance throughout consolidation work
-
-**FINAL MILESTONE: 1,285+ total lines eliminated across 14+ major patterns**
-**Test Status: All 369 tests passing** ✅
-**Architecture Impact: Clean codebase with zero warnings and technical debt reduction**
+#### 16. **Broadway Configuration Pattern Consolidation** ✅ **RESOLVED**
+**Impact:** **35+ lines** (duplicate configuration loading patterns across Broadway modules)
+- ✅ Created `BroadwayConfig` utility module for centralized configuration merging
+- ✅ Eliminated duplicate `Application.get_env()` and `Keyword.merge()` patterns
+- ✅ Consolidated rate limiting, processor, and batcher configuration utilities  
+- ✅ Updated `CrfSearcher.Broadway` and `Encoder.Broadway` to use centralized config
+- ✅ Updated Broadway test files to use consolidated configuration pattern
+- ✅ Fixed alias issues causing compilation warnings (Broadway.Producer → correct module paths)
+- ✅ Established single source of truth for Broadway pipeline configuration
+- ✅ Zero compilation warnings achieved with `--warnings-as-errors`
 
 ---
 
@@ -202,71 +189,89 @@ config = @default_config |> Keyword.merge(app_config) |> Keyword.merge(opts)
 
 ### **IMMEDIATE ATTENTION NEEDED:**
 
-### 1. **CSS Button Class Patterns** ⚠️ **HIGH PRIORITY** 
-**Files Affected:** 8+ LiveView files  
-**Estimated Lines:** 100+ lines
+### 1. **Configuration Loading Patterns** ⚠️ **CRITICAL PRIORITY**  
+**Files Affected:** 5+ Broadway modules + tests
+**Estimated Lines:** 35+ lines
 **Duplication Level:** CRITICAL
 
-**Current Status:** Partially consolidated via UIHelpers, but navigation link patterns still duplicated
+**Current Focus:** Identical Broadway configuration loading across modules
 
-**Repeated Pattern in Multiple Files:**
-```heex
-class="px-4 py-2 text-sm font-medium text-orange-400 hover:text-orange-300 transition-colors"
+**Repeated Pattern:**
+```elixir
+def start_link(opts) do
+  app_config = Application.get_env(:reencodarr, __MODULE__, [])
+  config = @default_config |> Keyword.merge(app_config) |> Keyword.merge(opts)
+  # Broadway.start_link configuration using merged config
+end
+```
+
+**Test Pattern:**
+```elixir
+app_config = Application.get_env(:reencodarr, Broadway, [])
+default_config = [rate_limit_messages: X, ...]
+final_config = default_config |> Keyword.merge(app_config) |> Keyword.merge(opts)
 ```
 
 **Found In:**
-- `broadway_live.ex` - Navigation links (2+ instances)
-- `lcars_components.ex` - Navigation elements  
-- `config_live/index.html.heex` - Action button styling
-- Multiple LiveView templates with inline button classes
+- `crf_searcher/broadway.ex` - Line 56-57
+- `encoder/broadway.ex` - Line 59-60  
+- `test/reencodarr/crf_searcher/broadway_test.exs` - Line 37-47
+- `test/reencodarr/encoder/broadway_test.exs` - Line 37-46
 
-**Action Required:** Create centralized navigation link utility function
-
-### 2. **Regex Pattern Proliferation** ⚠️ **HIGH PRIORITY**  
-**Files Affected:** 8+ files
-**Estimated Lines:** 80+ lines
+### 2. **GenServer Start Link Patterns** ⚠️ **HIGH PRIORITY**
+**Files Affected:** 8+ GenServer modules  
+**Estimated Lines:** 40+ lines
 **Duplication Level:** HIGH
 
-**Key Files with Overlapping Patterns:**
-- `lib/reencodarr/ab_av1/output_parser.ex` - Centralized patterns with field mappings
-- `lib/reencodarr/ab_av1/crf_search.ex` - Overlapping pattern definitions  
-- `lib/reencodarr/progress_parser.ex` - Similar parsing structure
-
-**Common Structure Repeated:**
+**Repeated Pattern:**
 ```elixir
-case Regex.named_captures(pattern, line) do
-  nil -> nil
-  captures -> %{
-    field: parse_type(captures["field"]),
-    value: captures["value"]
-  }
+def start_link(opts \ []) do
+  GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 end
+
+def start_link(_), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 ```
 
-### 3. **Error Handling Patterns** ⚠️ **HIGH PRIORITY**
-**Files Affected:** 10+ modules
+**Found In:**
+- `statistics.ex` - Simple GenServer start
+- `telemetry_reporter.ex` - With options handling
+- `manual_scanner.ex` - Nil state initialization  
+- `ab_av1/encode.ex` - Standard pattern
+- `ab_av1/crf_search.ex` - Standard pattern
+- `sync.ex` - With state initialization
+
+### 3. **Logger Pattern Duplication** ⚠️ **HIGH PRIORITY**
+**Files Affected:** 15+ modules
 **Estimated Lines:** 60+ lines  
 **Duplication Level:** HIGH
 
-**Repeated Error Handling:**
+**Repeated Logger Patterns:**
 ```elixir
 case result do
   {:ok, data} -> {:ok, data}
-  {:error, reason} -> {:error, "Failed to process: #{reason}"}
+  {:error, reason} -> 
+    Logger.error("Failed to process: #{inspect(reason)}")
+    {:error, reason}
 end
 ```
 
-**Impact:** Inconsistent error messages and handling across modules
+**Impact:** Inconsistent error messages and logging across modules
+**Solution:** Expand ErrorHelpers adoption across remaining modules
 
-### 4. **Table Row Hover Effects** ⚠️ **MEDIUM-HIGH**
-**Files Affected:** 6+ component files
-**Estimated Lines:** 40+ lines
+### 4. **Pattern Matching Case Statements** ⚠️ **MEDIUM-HIGH**
+**Files Affected:** 10+ modules
+**Estimated Lines:** 50+ lines
 **Duplication Level:** MEDIUM-HIGH
 
-**Repeated Pattern:**
-```heex
-<tr class="hover:bg-gray-800 transition-colors duration-200">
+**Repeated Pattern Matching:**
+```elixir
+case Regex.named_captures(pattern, line) do
+  nil -> nil
+  captures -> %{field: parse_type(captures["field"])}
+end
 ```
+
+**Found In:** Various parser modules and test utilities
 
 **Found In:**
 - `encode_queue_component.ex` - Table row styling
