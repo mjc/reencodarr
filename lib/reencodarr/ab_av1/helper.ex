@@ -32,16 +32,6 @@ defmodule Reencodarr.AbAv1.Helper do
     |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
   end
 
-  @spec convert_time_to_duration(map()) :: map()
-  def convert_time_to_duration(captures) do
-    Reencodarr.Core.Time.convert_time_to_duration(captures)
-  end
-
-  @spec convert_to_seconds(integer(), String.t()) :: integer()
-  def convert_to_seconds(time, unit) do
-    Reencodarr.Core.Time.to_seconds(time, unit)
-  end
-
   @spec temp_dir() :: String.t()
   def temp_dir do
     temp_dir = Application.get_env(:reencodarr, :temp_dir)

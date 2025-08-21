@@ -9,6 +9,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   use GenServer
 
   alias Reencodarr.AbAv1.Helper
+  alias Reencodarr.Core.Time
   alias Reencodarr.CrfSearcher.Broadway.Producer
   alias Reencodarr.{Media, Repo, Telemetry}
   alias Reencodarr.Statistics.CrfSearchProgress
@@ -1102,7 +1103,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp parse_time(time, time_unit) do
     case Integer.parse(time) do
-      {time_value, _} -> Helper.convert_to_seconds(time_value, time_unit)
+      {time_value, _} -> Time.to_seconds(time_value, time_unit)
       :error -> nil
     end
   end
