@@ -70,18 +70,40 @@ defmodule Mix.Tasks.Restore do
 
     parsed =
       case type do
-        :map -> Jason.decode!(value)
-        :array -> Jason.decode!(value)
-        :integer -> String.to_integer(value)
-        :float -> String.to_float(value)
+        :map -> 
+          case Jason.decode(value) do
+            {:ok, result} -> result
+            _ -> value
+          end
+        :array -> 
+          case Jason.decode(value) do
+            {:ok, result} -> result
+            _ -> value
+          end
+        :integer -> 
+          case Integer.parse(value) do
+            {int_value, ""} -> int_value
+            _ -> value
+          end
+        :float -> 
+          case Float.parse(value) do
+            {float_value, ""} -> float_value
+            _ -> value
+          end
         :boolean -> value in ["true", "1"]
-        :naive_datetime -> NaiveDateTime.from_iso8601!(value)
-        :utc_datetime -> DateTime.from_iso8601(value) |> elem(1)
+        :naive_datetime -> 
+          case NaiveDateTime.from_iso8601(value) do
+            {:ok, result} -> result
+            _ -> value
+          end
+        :utc_datetime -> 
+          case DateTime.from_iso8601(value) do
+            {:ok, result, _} -> result
+            _ -> value
+          end
         _ -> value
       end
 
     parsed
-  rescue
-    _ -> value
   end
 end
