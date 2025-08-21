@@ -101,26 +101,6 @@ defmodule Reencodarr.Core.Parsers do
   def parse_float(_, default), do: default
 
   @doc """
-  Parses resolution string (e.g., "1920x1080") to width/height tuple.
-
-  ## Examples
-
-      iex> Parsers.parse_resolution("1920x1080")
-      {1920, 1080}
-
-      iex> Parsers.parse_resolution("invalid")
-      {0, 0}
-
-      iex> Parsers.parse_resolution(nil)
-      {0, 0}
-  """
-  @spec parse_resolution(String.t() | nil) :: {integer(), integer()}
-  def parse_resolution(res) do
-    [w, h] = (res || "0x0") |> String.split("x") |> Enum.map(&parse_int(&1, 0))
-    {w, h}
-  end
-
-  @doc """
   Gets the first non-nil value from a list.
 
   ## Examples

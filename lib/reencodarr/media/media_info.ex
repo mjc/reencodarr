@@ -7,6 +7,7 @@ defmodule Reencodarr.Media.MediaInfo do
   """
   # Only needed for converting TO MediaInfo format
   alias Reencodarr.Core.Parsers
+  alias Reencodarr.DataConverters
   alias Reencodarr.Media.{CodecMapper, VideoFileInfo}
 
   @doc """
@@ -107,7 +108,7 @@ defmodule Reencodarr.Media.MediaInfo do
   """
   def video_file_info_from_file(file, service_type) do
     media = file["mediaInfo"] || %{}
-    {width, height} = Parsers.parse_resolution(media["resolution"])
+    {width, height} = DataConverters.parse_resolution_with_fallback(media["resolution"])
 
     %VideoFileInfo{
       path: file["path"],

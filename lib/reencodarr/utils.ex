@@ -48,36 +48,6 @@ defmodule Reencodarr.Utils do
   # === PARSING UTILITIES ===
 
   @doc """
-  Safely parses a string to integer with fallback.
-  """
-  def parse_int(value, default \\ 0)
-  def parse_int(value, _) when is_integer(value), do: value
-
-  def parse_int(value, default) when is_binary(value) do
-    case Integer.parse(value) do
-      {int, _} -> int
-      :error -> default
-    end
-  end
-
-  def parse_int(_, default), do: default
-
-  @doc """
-  Safely parses a string to float with fallback.
-  """
-  def parse_float(value, default \\ 0.0)
-  def parse_float(value, _) when is_float(value), do: value
-
-  def parse_float(value, default) when is_binary(value) do
-    case Float.parse(value) do
-      {float, _} -> float
-      :error -> default
-    end
-  end
-
-  def parse_float(_, default), do: default
-
-  @doc """
   Parses a line using regex pattern and field mappings.
 
   Returns nil if no match, or a map with extracted and transformed fields.
