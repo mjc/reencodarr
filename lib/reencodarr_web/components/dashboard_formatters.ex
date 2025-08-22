@@ -16,8 +16,7 @@ defmodule ReencodarrWeb.DashboardFormatters do
   defdelegate format_crf(crf), to: Formatters
   defdelegate format_vmaf_score(score), to: Formatters
   defdelegate format_bitrate_mbps(bitrate), to: Formatters
-  defdelegate format_size_gb(size), to: Formatters
-  defdelegate format_savings_gb(gb), to: Formatters
+  defdelegate format_savings_bytes(bytes), to: Formatters
   defdelegate format_relative_time(datetime), to: Formatters
   defdelegate format_duration(duration), to: Formatters
   defdelegate format_number(number), to: Formatters

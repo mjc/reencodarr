@@ -59,7 +59,7 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
       %{
         title: "Total Saved",
         subtitle: "storage space",
-        value: Formatters.format_savings_gb(stats.total_savings_gb),
+        value: format_savings_from_gb(stats.total_savings_gb),
         icon: "💾",
         color: "text-purple-600"
       },
@@ -180,4 +180,26 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
       estimated_kb: Float.round(estimated_bytes / 1024, 2)
     }
   end
+
+  # Helper function to convert GB (Decimal or number) to bytes and format
+  defp format_savings_from_gb(nil), do: "N/A"
+  defp format_savings_from_gb(gb) when is_number(gb) and gb <= 0, do: "N/A"
+
+  defp format_savings_from_gb(%Decimal{} = gb) do
+    case Decimal.to_float(gb) do
+      gb_float when gb_float <= 0 ->
+        "N/A"
+
+      gb_float ->
+        bytes = trunc(gb_float * 1_073_741_824)
+        Formatters.format_savings_bytes(bytes)
+    end
+  end
+
+  defp format_savings_from_gb(gb) when is_number(gb) do
+    bytes = trunc(gb * 1_073_741_824)
+    Formatters.format_savings_bytes(bytes)
+  end
+
+  defp format_savings_from_gb(_), do: "N/A"
 end
