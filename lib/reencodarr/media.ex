@@ -791,6 +791,26 @@ defmodule Reencodarr.Media do
     Repo.get(Video, id)
   end
 
+  def get_video_by_service_id(service_id, service_type) when not is_nil(service_id) do
+    Repo.one(
+      from v in Video, where: v.service_id == ^service_id and v.service_type == ^service_type
+    )
+  end
+
+  def get_video_by_service_id(nil, _service_type), do: nil
+
+  def count_videos do
+    Repo.aggregate(Video, :count, :id)
+  end
+
+  def get_videos_in_library(library_id) do
+    Repo.all(from v in Video, where: v.library_id == ^library_id)
+  end
+
+  def get_vmafs_for_video(video_id) do
+    Repo.all(from v in Vmaf, where: v.video_id == ^video_id)
+  end
+
   def delete_unchosen_vmafs do
     Repo.transaction(fn ->
       # Get video_ids that have vmafs but none are chosen
