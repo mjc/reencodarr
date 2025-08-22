@@ -1,140 +1,117 @@
 # Reencodarr AI Coding Instructions
 
 ## Project Overview
-Reencodarr is an Elixir/Phoenix web application for bulk video transcoding using the `ab-av1` Rust CLI tool. It provides a web interface for analyzing, CRF searching, and encoding videos to AV1 with VMAF quality targeting. The app integrates with Sonarr/Radarr for media management.
+Reencodarr is an Elixir/Phoenix application for bulk video transcoding using the `ab-av1` CLI tool. It provides a web interface for analyzing, CRF searching, and encoding videos to AV1 with VMAF quality targeting, integrating with Sonarr/Radarr APIs for media management.
 
-## Core Architecture & Data Flow
+## Core Architecture
 
 ### Broadway Pipeline System
-The application uses Broadway for robust, fault-tolerant video processing with three main pipelines:
+Three Broadway pipelines handle video processing with fault tolerance and observability:
 
-1. **Analyzer Pipeline** (`lib/reencodarr/analyzer/broadway.ex`):
-   - Batches up to 5 videos for single `mediainfo` command execution (massive performance gain)
-   - Rate limited to 25 messages/second to prevent system overload
-   - Extracts metadata: codecs, bitrate, resolution, audio channels, HDR info
-   - Updates videos with `failed: true` flag on processing errors
-   - Emits telemetry for dashboard updates via Phoenix PubSub
+- **Analyzer** (`lib/reencodarr/analyzer/broadway.ex`): Batches videos (up to 5) for single `mediainfo` command execution, rate-limited to 25 msg/sec
+- **CRF Searcher** (`lib/reencodarr/crf_searcher/broadway.ex`): Single-concurrency pipeline that respects GenServer availability for VMAF quality targeting
+- **Encoder** (`lib/reencodarr/encoder/broadway.ex`): Executes actual encoding with progress parsing and file operations
 
-2. **CRF Searcher** (`lib/reencodarr/crf_searcher/`):
-   - Uses complex regex patterns in `lib/reencodarr/ab_av1/crf_search.ex` to parse ab-av1 output
-   - Tracks VMAF scores, encoding progress, and optimal CRF values
-   - Stores results in `vmafs` table with size predictions and quality metrics
-   - Pattern: `@patterns` map with named regex captures for different output formats
-
-3. **Encoder Pipeline** (`lib/reencodarr/encoder/`):
-   - Executes actual video encoding using ab-av1 with parsed parameters
-   - Progress parsing via `Reencodarr.ProgressParser` with FPS/ETA extraction
-   - Post-processing through `Reencodarr.PostProcessor` for file moves and DB updates
+Key pattern: Each pipeline has a Producer that checks GenServer availability before dispatching work, preventing duplicate processing.
 
 ### Critical State Management
-- **Test Environment**: Analyzer.Supervisor disabled in `application.ex` to prevent DB ownership conflicts
-- **GenServer Pattern**: Queue managers track pipeline state (`Reencodarr.Analyzer.QueueManager`)
-- **Cross-Device File Operations**: `FileOperations.move_file/4` handles EXDEV errors with copy+delete fallback
-- **Memory Optimization**: Dashboard stores only processed data, not raw state (70% memory reduction)
+- **State Machine**: Videos use enum states (`:needs_analysis`, `:analyzed`, `:crf_searching`, `:crf_searched`, `:encoding`, `:encoded`, `:failed`) via `VideoStateMachine`
+- **State Transitions**: Only valid transitions allowed via `VideoStateMachine.transition/3` - see `@valid_transitions` map
+- **Test Environment**: Analyzer supervisor disabled in `application.ex` to prevent DB ownership conflicts
+- **Pipeline Coordination**: Producers call `dispatch_available()` after completion to notify other pipelines
+- **Error Recovery**: Use `VideoStateMachine.mark_as_failed/1` instead of boolean flags
+
+## Development Workflows
+
+### Essential Commands
+```bash
+# Setup (requires PostgreSQL)
+mix setup                    # Full setup: deps, DB, assets
+make docker-compose-up       # Start PostgreSQL container
+iex -S mix phx.server       # Development with live reload
+
+# Database
+mix ecto.reset              # Drop/create/migrate/seed
+mix test                    # Uses manual sandbox mode
+
+# Debugging
+# Visit /broadway-dashboard for pipeline monitoring
+```
+
+### Key Dependencies
+- **Required Binaries**: `ab-av1`, `ffmpeg`, `mediainfo`
+- **Database**: PostgreSQL with pool_size: 50 for dev concurrency
+- **External APIs**: Sonarr/Radarr via `CarReq` with circuit breaker pattern
+
+## Project-Specific Patterns
+
+### Broadway Pipeline Development
+When adding new pipelines:
+1. Create producer that checks GenServer availability (`crf_search_available?()` pattern)
+2. Implement single concurrency to respect external tool limitations
+3. Add telemetry events for dashboard updates
+4. Update `application.ex` with test environment considerations
 
 ### Database Query Patterns
 ```elixir
-# Video filtering with PostgreSQL array operations
+# Array operations for codec filtering
 fragment("EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))", 
          v.audio_codecs, "%opus%")
 
-# CRF search candidates (see Media.get_videos_for_crf_search/1)
-where: is_nil(m.id) and v.reencoded == false and v.failed == false
+# State queries use enum states, not boolean flags
+where: v.state not in [:encoded, :failed]
+where: v.state == :needs_analysis
 ```
 
-## External Service Integration Patterns
+### Video State Management
+- **State Machine**: `VideoStateMachine` enforces valid transitions between processing states
+- **State Flow**: `needs_analysis → analyzed → crf_searching → crf_searched → encoding → encoded`
+- **State Functions**: Use `VideoStateMachine.transition_to_*()` functions instead of direct updates
+- **Error Handling**: `failed` state is terminal, use `mark_as_failed/1` for error transitions
 
-### Sonarr/Radarr API Integration
-- **HTTP Client**: Uses `CarReq` with circuit breaker pattern (5 failures/30s window, 60s reset)
-- **Retry Strategy**: `:safe_transient` with 3 max retries for transient failures
-- **Authentication**: API key via `X-Api-Key` header from config database
-- **Sync Workflow**: `Reencodarr.Sync` GenServer coordinates polling and data fetching
-- **Rate Limiting**: 1 concurrent operation for series refresh/rename operations
+## When Integrating External Services
 
-### ab-av1 Command Integration
-- **Progress Parsing**: Complex regex patterns in `@patterns` map for different output formats:
-  ```elixir
-  simple_vmaf: ~r/crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/
-  ```
-- **Error Handling**: Exit code tracking with video `failed: true` marking
-- **Parameter Generation**: `Reencodarr.Rules` applies encoding rules based on video metadata
-- **Output Parsing**: Structured extraction of CRF values, VMAF scores, file sizes
+1. **Create Service Module**: Use `Reencodarr.Services.ApiClient` pattern in `lib/reencodarr/services/`
+   ```elixir
+   use CarReq,
+     pool_timeout: 100,
+     receive_timeout: 9_000,
+     retry: :safe_transient,
+     max_retries: 3,
+     fuse_opts: {{:standard, 5, 30_000}, {:reset, 60_000}}
+   ```
 
-### MediaInfo Batch Processing
-- **Optimization**: Single command for multiple files vs individual calls (10x performance gain)
-- **Track Extraction**: Separates General/Video/Audio tracks with safe fallbacks
-- **Codec Mapping**: `CodecMapper.format_commercial_if_any/1` for normalized codec names
-- **Error Recovery**: Graceful degradation on malformed MediaInfo JSON responses
+2. **Add Config Schema**: Create config entries in `configs` table with `service_type`, `url`, `api_key`
 
-## Development Workflows & Critical Commands
+3. **Update Sync Module**: Add to `Reencodarr.Sync` with batch processing and error recovery
 
-### Environment Setup
-```bash
-mix setup                    # deps.get + ecto.setup + assets.setup + assets.build
-make docker-compose-up       # PostgreSQL via Docker (required for development)
-iex -S mix phx.server       # Interactive development with live reloading
+4. **Implement Webhooks**: Create controller in `lib/reencodarr_web/controllers/` for real-time updates
+
+5. **Add Circuit Breaker**: Use fuse pattern to prevent cascade failures during API outages
+
+#### Webhook Handling (`lib/reencodarr_web/controllers/sonarr_webhook_controller.ex`)
+- **Event Types**: `Download`, `Rename`, `SeriesAdd`, `SeriesDelete` with specific handlers
+- **File Upserts**: Automatic video creation via `Sync.upsert_video_from_file/2`
+- **MediaInfo Conversion**: Service-specific data transformed to internal schema
+- **Path Management**: Handles file moves/renames with video record updates
+
+### Testing Considerations
+- **Manual Sandbox**: Set in `test/test_helper.exs` for transaction isolation
+- **Disabled Services**: Analyzer supervisor disabled in test to prevent conflicts
+- **Mocking**: Use `meck` for external command simulation
+- **Fixtures**: Comprehensive test data generators in `test/support/fixtures.ex`
+
+### File Operations
+`FileOperations.move_file/4` handles cross-device moves with copy+delete fallback for EXDEV errors.
+
+### Progress Parsing
+Complex regex patterns in `@patterns` maps for ab-av1 output parsing:
+```elixir
+simple_vmaf: ~r/crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/
 ```
 
-### Database Operations
-```bash
-mix ecto.reset              # Drops + creates + migrates + seeds
-mix test                    # Uses :manual sandbox mode (see test_helper.exs)
-```
-
-### Debugging Broadway Pipelines
-- **Dashboard**: `/broadway-dashboard` for live pipeline monitoring
-- **Telemetry**: `Reencodarr.Telemetry` events for state tracking
-- **Queue Inspection**: `Reencodarr.AbAv1.queue_length/0` for GenServer message counts
-
-## Project-Specific Patterns & Conventions
-
-### Error Handling Strategy
-- **Videos**: `failed: true` flag prevents infinite retry loops
-- **Broadway**: Automatic retries with exponential backoff built-in
-- **File Operations**: Cross-device move detection with copy+delete fallback
-- **External APIs**: Circuit breaker pattern prevents cascade failures
-
-### Memory Management (Dashboard)
-- **Optimization**: Dashboard stores processed data only (not raw state)
-- **Telemetry Filtering**: Only emit events on >5% progress changes
-- **Component Reduction**: Inline functions vs LiveComponents (80% reduction)
-- **Timer Management**: 5-second intervals for stardate updates
-
-### Testing Environment Considerations
-- **Analyzer Disabled**: Prevents database ownership conflicts in parallel tests
-- **Sandbox Mode**: Manual mode in `test_helper.exs` for transaction isolation
-- **Mock Patterns**: Use `meck` for external command mocking
-
-### Configuration Patterns
-- **Runtime Config**: Database-driven config in `configs` table vs compile-time
-- **Pool Sizes**: PostgreSQL pool_size: 50 for development concurrency
-- **Rate Limiting**: Broadway 25 msg/sec prevents system overload during analysis
-- **Asset Pipeline**: Tailwind + ESBuild with file watching in development
-
-## Critical File Patterns & Code Structure
-
-### When Adding New Processing Pipelines:
-1. Create supervisor in `lib/reencodarr/{name}/supervisor.ex`
-2. Implement Broadway module with rate limiting configuration
-3. Add producer/consumer pattern with telemetry events
-4. Update `application.ex` worker_children (test environment considerations)
-
-### When Modifying Video Processing Logic:
-1. Update schema in `lib/reencodarr/media/video.ex` for new fields
-2. Create migration with proper indexes for query patterns
-3. Modify MediaInfo parsing in `media_info.ex` for metadata extraction
-4. Update `get_videos_for_*` queries with array fragment patterns
-
-### When Integrating External Services:
-1. Create service module in `lib/reencodarr/services/` with CarReq client
-2. Add config schema with API credentials in database
-3. Update `Reencodarr.Sync` for polling coordination
-4. Implement circuit breaker and retry patterns for reliability
-
-### LiveView Real-time Updates:
-- **PubSub Events**: Phoenix.PubSub.broadcast for cross-process communication
-- **Telemetry Integration**: `:telemetry.attach_many/4` for event streaming
-- **Memory Optimization**: Use presenters to transform data before assigns
-- **Component Structure**: Prefer function components over LiveComponents for performance
-
-Remember: App requires PostgreSQL, ab-av1, FFmpeg, and MediaInfo binaries. Test environment uses sandbox mode and disables certain supervisors to prevent database conflicts.
+## Key Directories
+- `lib/reencodarr/{analyzer,crf_searcher,encoder}/` - Broadway pipelines
+- `lib/reencodarr/services/` - External API clients
+- `lib/reencodarr/ab_av1/` - Command execution and parsing
+- `test/support/` - Shared test utilities and fixtures
