@@ -65,6 +65,9 @@ defmodule Reencodarr.DashboardState do
     alias Reencodarr.Media
     alias Reencodarr.Media.VideoQueries
 
+    # Get comprehensive stats including total videos, reencoded counts, etc.
+    base_stats = Media.fetch_stats()
+
     # Get the queue items (first 10)
     next_analyzer = Media.get_videos_needing_analysis(10)
     next_crf_search = Media.get_videos_for_crf_search(10)
@@ -75,7 +78,8 @@ defmodule Reencodarr.DashboardState do
     crf_search_count = count_crf_search_queue()
     encode_count = VideoQueries.encoding_queue_count()
 
-    %Reencodarr.Statistics.Stats{
+    # Merge the comprehensive stats with queue data
+    %{base_stats |
       next_analyzer: next_analyzer,
       next_crf_search: next_crf_search,
       videos_by_estimated_percent: videos_by_estimated_percent,
@@ -95,20 +99,7 @@ defmodule Reencodarr.DashboardState do
 
     Repo.one(
       from v in Video,
-        left_join: m in Reencodarr.Media.Vmaf,
-        on: m.video_id == v.id,
-        where:
-          is_nil(m.id) and v.state in [:analyzed, :crf_searched] and v.failed == false and
-            not fragment(
-              "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
-              v.audio_codecs,
-              "%opus%"
-            ) and
-            not fragment(
-              "EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))",
-              v.video_codecs,
-              "%av1%"
-            ),
+        where: v.state == :analyzed and v.failed == false,
         select: count(v.id)
     )
   rescue
