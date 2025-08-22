@@ -29,13 +29,13 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
   def handle_event("toggle", %{"target" => target}, socket) do
     case target do
       "encoder" ->
-        toggle_app(Reencodarr.Encoder, :encoding, socket)
+        toggle_app(Reencodarr.Encoder.Broadway, :encoding, socket)
 
       "crf_search" ->
         toggle_app(Reencodarr.CrfSearcher, :crf_searching, socket)
 
       "analyzer" ->
-        toggle_app(Reencodarr.Analyzer, :analyzing, socket)
+        toggle_app(Reencodarr.Analyzer.Broadway, :analyzing, socket)
 
       _ ->
         Logger.error("Unknown toggle target: #{inspect(target)}")

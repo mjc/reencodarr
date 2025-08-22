@@ -1,7 +1,7 @@
 defmodule Reencodarr.Analyzer do
   @moduledoc """
   Simplified compatibility layer for Broadway analyzer operations.
-  
+
   Provides a clean API that delegates directly to Broadway modules without
   complex compatibility overhead.
   """

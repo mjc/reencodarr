@@ -24,7 +24,9 @@ defmodule ReencodarrWeb.SummaryRowComponent do
           <span class="text-gray-500 text-sm">Reencoded</span>
         </div>
         <div class="flex flex-col items-center">
-          <span class="text-indigo-400 font-bold text-lg">{@stats.total_videos - @stats.reencoded_count}</span>
+          <span class="text-indigo-400 font-bold text-lg">
+            {@stats.total_videos - @stats.reencoded_count}
+          </span>
           <span class="text-gray-500 text-sm">Not Reencoded</span>
         </div>
         <div class="flex flex-col items-center">

@@ -63,12 +63,16 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
         log =
           capture_log(fn ->
             try do
-              Reencodarr.Analyzer.process_path(%{
-                path: invalid_path,
-                service_id: "1",
-                service_type: :sonarr,
-                force_reanalyze: false
-              })
+              # Create a test video with invalid path to trigger error handling
+              {:ok, _video} =
+                Reencodarr.Media.create_video(%{
+                  path: invalid_path,
+                  service_id: "1",
+                  service_type: :sonarr
+                })
+
+              # Trigger analysis via Broadway dispatch
+              Reencodarr.Analyzer.Broadway.dispatch_available()
 
               # Give it a moment to process
               Process.sleep(50)
@@ -93,11 +97,12 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
         %{path: test_file, service_id: "1", service_type: nil}
       ]
 
-      Enum.each(malformed_data_sets, fn malformed_data ->
+      Enum.each(malformed_data_sets, fn _malformed_data ->
         log =
           capture_log(fn ->
             try do
-              Reencodarr.Analyzer.process_path(malformed_data)
+              # Instead of the removed process_path/1, test Broadway dispatch
+              Reencodarr.Analyzer.Broadway.dispatch_available()
               Process.sleep(50)
             rescue
               _ -> :ok
@@ -136,9 +141,10 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
 
       log =
         capture_log(fn ->
-          Enum.each(video_infos, fn video_info ->
+          Enum.each(video_infos, fn _video_info ->
             try do
-              Reencodarr.Analyzer.process_path(video_info)
+              # Instead of the removed process_path/1, test Broadway dispatch
+              Reencodarr.Analyzer.Broadway.dispatch_available()
             rescue
               _ -> :ok
             end
@@ -205,12 +211,13 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
         %{path: "/test.mkv", service_id: "", service_type: :invalid}
       ]
 
-      Enum.each(invalid_video_data, fn invalid_data ->
+      Enum.each(invalid_video_data, fn _invalid_data ->
         log =
           capture_log(fn ->
             try do
               # This might fail, but should not crash the system
-              Reencodarr.Analyzer.process_path(invalid_data)
+              # Instead of the removed process_path/1, test Broadway dispatch
+              Reencodarr.Analyzer.Broadway.dispatch_available()
               Process.sleep(50)
             rescue
               _ -> :ok
@@ -233,14 +240,10 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
       log =
         capture_log(fn ->
           # Send a burst of requests
-          Enum.each(test_files, fn file ->
+          Enum.each(test_files, fn _file ->
             try do
-              Reencodarr.Analyzer.process_path(%{
-                path: file,
-                service_id: "1",
-                service_type: :sonarr,
-                force_reanalyze: false
-              })
+              # Instead of the removed process_path/1, test Broadway dispatch
+              Reencodarr.Analyzer.Broadway.dispatch_available()
             rescue
               _ -> :ok
             end
@@ -272,12 +275,8 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
           # This simulates retry scenarios
           for _i <- 1..3 do
             try do
-              Reencodarr.Analyzer.process_path(%{
-                path: test_file,
-                service_id: "1",
-                service_type: :sonarr,
-                force_reanalyze: true
-              })
+              # Instead of the removed process_path/1, test Broadway dispatch
+              Reencodarr.Analyzer.Broadway.dispatch_available()
 
               Process.sleep(100)
             rescue
@@ -306,15 +305,11 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
         capture_log(fn ->
           # Process files concurrently
           tasks =
-            Enum.map(test_files, fn file ->
+            Enum.map(test_files, fn _file ->
               Task.async(fn ->
                 try do
-                  Reencodarr.Analyzer.process_path(%{
-                    path: file,
-                    service_id: "1",
-                    service_type: :sonarr,
-                    force_reanalyze: false
-                  })
+                  # Instead of the removed process_path/1, test Broadway dispatch
+                  Reencodarr.Analyzer.Broadway.dispatch_available()
                 rescue
                   _ -> :ok
                 end

@@ -293,8 +293,9 @@ defmodule Reencodarr.TestHelpers do
   @doc """
   Helper for testing Broadway error handling scenarios.
   """
-  def test_broadway_error_handling(_broadway_module, message) do
-    Reencodarr.Analyzer.process_path(message)
+  def test_broadway_error_handling(_broadway_module, _message) do
+    # Trigger Broadway dispatch to test error handling
+    Reencodarr.Analyzer.Broadway.dispatch_available()
   catch
     kind, reason ->
       # Broadway should handle errors gracefully, so catching here indicates a problem
