@@ -21,6 +21,7 @@ defmodule Reencodarr.Media.SharedQueries do
       left_join: m_all in Vmaf,
       on: m_all.video_id == v.id,
       select: %{
+        # Legacy fields for backward compatibility
         not_reencoded: fragment("COUNT(*) FILTER (WHERE ? != 'encoded')", v.state),
         reencoded: fragment("COUNT(*) FILTER (WHERE ? = 'encoded')", v.state),
         total_videos: count(v.id),
@@ -36,7 +37,29 @@ defmodule Reencodarr.Media.SharedQueries do
         queued_crf_searches_count: fragment("COUNT(*) FILTER (WHERE ? = 'analyzed')", v.state),
         analyzer_count: fragment("COUNT(*) FILTER (WHERE ? = 'needs_analysis')", v.state),
         most_recent_video_update: max(v.updated_at),
-        most_recent_inserted_video: max(v.inserted_at)
+        most_recent_inserted_video: max(v.inserted_at),
+        # New state-based fields for dashboard (using correct enum atoms)
+        reencoded_count: filter(count(v.id), v.state == :encoded),
+        failed_count: filter(count(v.id), v.state == :failed),
+        analyzing_count: filter(count(v.id), v.state == :needs_analysis),
+        encoding_count: filter(count(v.id), v.state == :encoding),
+        searching_count: filter(count(v.id), v.state == :crf_searching),
+        available_count: filter(count(v.id), v.state == :crf_searched),
+        paused_count: fragment("0"), # No paused state in enum
+        skipped_count: fragment("0"), # No skipped state in enum
+        # New total savings calculation (debugging version - sum all savings regardless of state)
+        total_savings_gb:
+          coalesce(
+            sum(
+              fragment(
+                "CASE WHEN ? = true AND ? > 0 THEN ?::bigint::decimal / 1073741824 ELSE 0 END",
+                m_all.chosen,
+                m_all.savings,
+                m_all.savings
+              )
+            ),
+            0
+          )
       }
   end
 end
