@@ -739,7 +739,7 @@ defmodule Reencodarr.Media do
   defp get_manual_analyzer_items do
     QueueManager.get_queue()
   catch
-      :exit, _ -> []
+    :exit, _ -> []
   end
 
   # Build minimal stats struct when DB query fails

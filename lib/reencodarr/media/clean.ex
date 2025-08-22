@@ -16,6 +16,7 @@ defmodule Reencodarr.Media.Clean do
   import Ecto.Query, warn: false
 
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
+
   alias Reencodarr.Media.{
     Library,
     Video,
