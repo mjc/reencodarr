@@ -81,8 +81,7 @@ defmodule Reencodarr.Media.VideoQueries do
       from v in Vmaf,
         join: vid in assoc(v, :video),
         where:
-          v.chosen == true and vid.state == :crf_searched and vid.reencoded == false and
-            vid.failed == false,
+          v.chosen == true and vid.state == :crf_searched,
         order_by: [fragment("? DESC NULLS LAST", v.savings), desc: vid.updated_at],
         limit: ^limit,
         preload: [:video],
@@ -99,8 +98,7 @@ defmodule Reencodarr.Media.VideoQueries do
       from v in Vmaf,
         join: vid in assoc(v, :video),
         where:
-          v.chosen == true and vid.state == :crf_searched and vid.reencoded == false and
-            vid.failed == false,
+          v.chosen == true and vid.state == :crf_searched,
         select: count(v.id)
     )
   end

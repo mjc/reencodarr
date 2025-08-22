@@ -235,8 +235,7 @@ defmodule Reencodarr.Media.Clean do
             width: nil,
             height: nil,
             frame_rate: nil,
-            duration: nil,
-            failed: false
+            duration: nil
           })
 
           # 3. Manually trigger analysis using Broadway dispatch
@@ -342,7 +341,7 @@ defmodule Reencodarr.Media.Clean do
           video = get_video!(vmaf.video_id)
 
           video
-          |> Video.changeset(%{state: :crf_searched, failed: false})
+          |> Video.changeset(%{state: :crf_searched})
           |> Repo.update()
         end
 

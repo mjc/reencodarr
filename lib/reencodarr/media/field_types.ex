@@ -113,8 +113,6 @@ defmodule Reencodarr.Media.FieldTypes do
     max_audio_channels: {:integer, min: 0, max: 32},
     hdr: :string,
     atmos: :boolean,
-    reencoded: :boolean,
-    failed: :boolean,
     service_id: :string,
     service_type: :string
   }

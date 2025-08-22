@@ -89,8 +89,8 @@ defmodule ReencodarrWeb.FailuresLive do
             {:noreply, put_flash(socket, :error, "Video not found")}
 
           video ->
-            # Reset the video to not failed and clear bitrate to trigger reanalysis
-            Media.update_video(video, %{failed: false, bitrate: nil})
+            # Reset the video to needs_analysis state and clear bitrate to trigger reanalysis
+            Media.update_video(video, %{state: :needs_analysis, bitrate: nil})
             Media.resolve_video_failures(video.id)
 
             # Reload the failures data

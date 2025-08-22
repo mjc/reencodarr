@@ -100,10 +100,10 @@ defmodule Reencodarr.MediaTest do
 
     test "specialized fixtures create appropriate videos" do
       failed_video = Fixtures.failed_video_fixture()
-      assert failed_video.failed == true
+      assert failed_video.state == :failed
 
       reencoded_video = Fixtures.reencoded_video_fixture()
-      assert reencoded_video.reencoded == true
+      assert reencoded_video.state == :encoded
     end
   end
 

@@ -3,7 +3,19 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
   Integration tests for CRF search functionality.
   Tests the complete workflow and public API with real GenServer interactions.
   """
-  use Reencodarr.DataCase, async: false
+  u      # Verify vi      # Now the video      # Video should not be marked as fai      # Vi      # Video should not be failed
+      f      # Video should be failed
+      final_video = Repo.get!(Video, video.id)
+      assert final_video.state == :failedl_video = Repo.get!(Video, video.id)
+      assert final_video.state != :failed should not be failed yet
+      reloaded_video = Repo.get!(Video, video.id)
+      assert reloaded_video.state != :failed
+      reloaded_video = Repo.get!(Video, video.id)
+      assert reloaded_video.state != :failedould be marked as failed
+      final_video = Repo.get!(Video, video.id)
+      assert final_video.state == :failed is not failed yet
+      reloaded_video = Repo.get!(Video, video.id)
+      assert reloaded_video.state != :failedReencodarr.DataCase, async: false
 
   @moduletag :integration
 

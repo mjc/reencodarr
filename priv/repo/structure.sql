@@ -17,6 +17,21 @@ SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
+--
+-- Name: video_state; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.video_state AS ENUM (
+    'needs_analysis',
+    'analyzed',
+    'crf_searching',
+    'crf_searched',
+    'encoding',
+    'encoded',
+    'failed'
+);
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -98,6 +113,45 @@ CREATE TABLE public.schema_migrations (
 
 
 --
+-- Name: video_failures; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.video_failures (
+    id bigint NOT NULL,
+    video_id bigint NOT NULL,
+    failure_stage character varying(255) NOT NULL,
+    failure_category character varying(255) NOT NULL,
+    failure_code character varying(255),
+    failure_message text NOT NULL,
+    system_context jsonb,
+    retry_count integer DEFAULT 0,
+    resolved boolean DEFAULT false,
+    resolved_at timestamp(0) without time zone,
+    inserted_at timestamp(0) without time zone NOT NULL,
+    updated_at timestamp(0) without time zone NOT NULL
+);
+
+
+--
+-- Name: video_failures_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.video_failures_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: video_failures_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.video_failures_id_seq OWNED BY public.video_failures.id;
+
+
+--
 -- Name: videos; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -123,11 +177,10 @@ CREATE TABLE public.videos (
     text_codecs character varying(255)[],
     atmos boolean DEFAULT false,
     max_audio_channels integer DEFAULT 0,
-    reencoded boolean DEFAULT false NOT NULL,
     title character varying(255),
     service_id character varying(255),
     service_type character varying(255),
-    failed boolean DEFAULT false NOT NULL
+    state public.video_state NOT NULL
 );
 
 
@@ -165,7 +218,9 @@ CREATE TABLE public.vmafs (
     chosen boolean DEFAULT false NOT NULL,
     size text,
     percent double precision,
-    "time" integer
+    "time" integer,
+    savings bigint,
+    target integer DEFAULT 95
 );
 
 
@@ -200,6 +255,13 @@ ALTER TABLE ONLY public.configs ALTER COLUMN id SET DEFAULT nextval('public.conf
 --
 
 ALTER TABLE ONLY public.libraries ALTER COLUMN id SET DEFAULT nextval('public.libraries_id_seq'::regclass);
+
+
+--
+-- Name: video_failures id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.video_failures ALTER COLUMN id SET DEFAULT nextval('public.video_failures_id_seq'::regclass);
 
 
 --
@@ -241,6 +303,14 @@ ALTER TABLE ONLY public.schema_migrations
 
 
 --
+-- Name: video_failures video_failures_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.video_failures
+    ADD CONSTRAINT video_failures_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: videos videos_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -271,10 +341,73 @@ CREATE UNIQUE INDEX libraries_path_index ON public.libraries USING btree (path);
 
 
 --
+-- Name: video_failures_failure_category_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX video_failures_failure_category_index ON public.video_failures USING btree (failure_category);
+
+
+--
+-- Name: video_failures_failure_stage_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX video_failures_failure_stage_index ON public.video_failures USING btree (failure_stage);
+
+
+--
+-- Name: video_failures_inserted_at_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX video_failures_inserted_at_index ON public.video_failures USING btree (inserted_at);
+
+
+--
+-- Name: video_failures_resolved_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX video_failures_resolved_index ON public.video_failures USING btree (resolved);
+
+
+--
+-- Name: video_failures_video_id_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX video_failures_video_id_index ON public.video_failures USING btree (video_id);
+
+
+--
+-- Name: video_failures_video_id_resolved_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX video_failures_video_id_resolved_index ON public.video_failures USING btree (video_id, resolved);
+
+
+--
 -- Name: videos_path_index; Type: INDEX; Schema: public; Owner: -
 --
 
 CREATE UNIQUE INDEX videos_path_index ON public.videos USING btree (path);
+
+
+--
+-- Name: videos_state_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX videos_state_index ON public.videos USING btree (state);
+
+
+--
+-- Name: videos_state_size_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX videos_state_size_index ON public.videos USING btree (state, size);
+
+
+--
+-- Name: videos_state_updated_at_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX videos_state_updated_at_index ON public.videos USING btree (state, updated_at);
 
 
 --
@@ -296,6 +429,14 @@ CREATE UNIQUE INDEX vmafs_crf_video_id_index ON public.vmafs USING btree (crf, v
 --
 
 CREATE INDEX vmafs_video_id_index ON public.vmafs USING btree (video_id);
+
+
+--
+-- Name: video_failures video_failures_video_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.video_failures
+    ADD CONSTRAINT video_failures_video_id_fkey FOREIGN KEY (video_id) REFERENCES public.videos(id) ON DELETE CASCADE;
 
 
 --
@@ -345,3 +486,8 @@ INSERT INTO public."schema_migrations" (version) VALUES (20241218162131);
 INSERT INTO public."schema_migrations" (version) VALUES (20241228042138);
 INSERT INTO public."schema_migrations" (version) VALUES (20250218170919);
 INSERT INTO public."schema_migrations" (version) VALUES (20250218172000);
+INSERT INTO public."schema_migrations" (version) VALUES (20250710160042);
+INSERT INTO public."schema_migrations" (version) VALUES (20250729205447);
+INSERT INTO public."schema_migrations" (version) VALUES (20250815224041);
+INSERT INTO public."schema_migrations" (version) VALUES (20250819215136);
+INSERT INTO public."schema_migrations" (version) VALUES (20250822201804);

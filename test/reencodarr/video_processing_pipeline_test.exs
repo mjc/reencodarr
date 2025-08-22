@@ -62,8 +62,7 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
           text_count: 0
         })
 
-      assert video.reencoded == false
-      assert video.failed == false
+      assert video.state == :needs_analysis
 
       # Step 2: Create VMAF records (simulating CRF search results)
       vmaf_data = [
@@ -121,8 +120,7 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
 
       # Verify database updates
       updated_video = Media.get_video!(video.id)
-      assert updated_video.reencoded == true
-      assert updated_video.failed == false
+      assert updated_video.state == :encoded
 
       # Verify logging
       assert log =~ "Encoder output #{encoded_output} successfully placed at intermediate path"
@@ -149,8 +147,7 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
         end)
 
       failed_video = Media.get_video!(failing_video.id)
-      assert failed_video.failed == true
-      assert failed_video.reencoded == false
+      assert failed_video.state == :failed
       assert failure_log =~ "Encoding failed for video #{failing_video.id}"
       assert failure_log =~ "Marking as failed"
 
@@ -203,7 +200,7 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
 
         # Verify the process completed successfully despite cross-device operations
         updated_video = Media.get_video!(video.id)
-        assert updated_video.reencoded == true
+        assert updated_video.state == :encoded
 
         # Original encoded output should be moved (with retry for file system sync)
         file_removed =
@@ -279,8 +276,7 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
         end)
 
       Enum.each(updated_videos, fn video ->
-        assert video.reencoded == true
-        assert video.failed == false
+        assert video.state == :encoded
       end)
     end
 
@@ -316,10 +312,8 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
         # Video should remain in original state due to transaction handling
         unchanged_video = Media.get_video!(video.id)
         # The mock prevents the state change, so the video should remain unchanged
-        # In the state machine approach, reencoded is only true when state is :encoded
-        assert unchanged_video.reencoded == false
+        # In the state machine approach, video should remain in original state
         assert unchanged_video.state == :needs_analysis
-        assert unchanged_video.failed == false
 
         assert log =~ "Failed to mark video #{video.id} as re-encoded"
       after
