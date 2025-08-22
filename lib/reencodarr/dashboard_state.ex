@@ -100,7 +100,7 @@ defmodule Reencodarr.DashboardState do
 
     Repo.one(
       from v in Video,
-        where: v.state == :analyzed and v.failed == false,
+        where: v.state == :analyzed,
         select: count(v.id)
     )
   rescue
