@@ -10,12 +10,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.AbAv1.OutputParser
-  alias Reencodarr.Core.Time
+  alias Reencodarr.AbAv1.CrfSearch.RetryLogic
   alias Reencodarr.CrfSearcher.Broadway.Producer
   alias Reencodarr.DataConverters
   alias Reencodarr.ErrorHelpers
   alias Reencodarr.Formatters
-  alias Reencodarr.{Media, Repo, Telemetry}
+  alias Reencodarr.{Media, Rules, Telemetry}
   alias Reencodarr.Statistics.CrfSearchProgress
 
   require Logger
@@ -68,49 +68,18 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  # Test helpers - only available in test environment
+  # Test helpers - only available in test environment  
   if Mix.env() == :test do
-    def has_preset_6_params?(params), do: has_preset_6_params_private(params)
-    def should_retry_with_preset_6(video_id), do: should_retry_with_preset_6_private(video_id)
+    def has_preset_6_params?(params), do: Media.has_preset_6_params?(params)
+    def should_retry_with_preset_6(video_id), do: RetryLogic.should_retry_with_preset_6(video_id)
+    def clear_vmaf_records_for_video(video_id, vmaf_records), do: Media.clear_vmaf_records(video_id, vmaf_records)
+    def build_crf_search_args_with_preset_6(video, vmaf_percent), do: build_crf_search_args_with_preset_6_private(video, vmaf_percent)
+    def build_crf_search_args(video, vmaf_percent), do: build_crf_search_args_private(video, vmaf_percent)
 
-    def clear_vmaf_records_for_video(video_id, vmaf_records),
-      do: clear_vmaf_records_for_video_private(video_id, vmaf_records)
-
-    def build_crf_search_args_with_preset_6(video, vmaf_percent),
-      do: build_crf_search_args_with_preset_6_private(video, vmaf_percent)
-
-    # Legacy test function names for backward compatibility
+    # Legacy function names for backward compatibility
     def should_retry_with_preset_6_for_test(video_id), do: should_retry_with_preset_6(video_id)
-
-    def build_crf_search_args_with_preset_6_for_test(video, vmaf_percent),
-      do: build_crf_search_args_with_preset_6(video, vmaf_percent)
-
-    def build_crf_search_args_for_test(video, vmaf_percent),
-      do: build_crf_search_args(video, vmaf_percent)
-
-    # Private helper functions for tests
-    defp has_preset_6_params_private(params) when is_list(params) do
-      # Check for adjacent --preset and 6 in a flat list
-      case check_for_preset_6_in_flat_list(params) do
-        true ->
-          true
-
-        false ->
-          # Also check for tuple format
-          Enum.any?(params, fn
-            {flag, value} -> flag == "--preset" and value == "6"
-            _ -> false
-          end)
-      end
-    end
-
-    defp has_preset_6_params_private(_), do: false
-
-    # Helper to check for --preset 6 in flat list format
-    defp check_for_preset_6_in_flat_list([]), do: false
-    defp check_for_preset_6_in_flat_list([_]), do: false
-    defp check_for_preset_6_in_flat_list(["--preset", "6" | _]), do: true
-    defp check_for_preset_6_in_flat_list([_ | rest]), do: check_for_preset_6_in_flat_list(rest)
+    def build_crf_search_args_with_preset_6_for_test(video, vmaf_percent), do: build_crf_search_args_with_preset_6(video, vmaf_percent)
+    def build_crf_search_args_for_test(video, vmaf_percent), do: build_crf_search_args(video, vmaf_percent)
   end
 
   # GenServer callbacks
@@ -123,7 +92,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
-    args = build_crf_search_args(video, vmaf_percent)
+    args = build_crf_search_args_private(video, vmaf_percent)
 
     new_state = %{
       state
@@ -304,7 +273,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_crf_search_failure(video, target_vmaf, exit_code, command_line, full_output, state) do
     # Check if we should retry with --preset 6 on process failure as well
-    case should_retry_with_preset_6_private(video.id) do
+    case RetryLogic.should_retry_with_preset_6(video.id) do
       {:retry, existing_vmafs} ->
         handle_retry_with_preset_6(
           video,
@@ -358,7 +327,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     )
 
     # Clear existing VMAF records for this video to start fresh
-    clear_vmaf_records_for_video_private(video.id, existing_vmafs)
+    Media.clear_vmaf_records(video.id, existing_vmafs)
 
     # Reset video state to analyzed for retry with preset 6
     ErrorHelpers.handle_error_with_default(
@@ -499,7 +468,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       :ignore ->
         # Handle custom error patterns not in OutputParser
         if line == "Error: Failed to find a suitable crf" do
-          handle_crf_search_error(video, target_vmaf)
+          RetryLogic.handle_crf_search_error(video, target_vmaf)
         else
           Logger.debug("CrfSearch: Ignoring line: #{line}")
         end
@@ -556,7 +525,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp handle_vmaf_result(data, video, args) do
     Logger.debug("CrfSearch: CRF: #{data.crf}, VMAF: #{data.score}, Percent: #{data.percent}%")
 
-    upsert_vmaf(
+    Media.upsert_crf_search_vmaf(
       %{
         "crf" => to_string(data.crf),
         "score" => to_string(data.score),
@@ -582,7 +551,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       )
     end
 
-    upsert_vmaf(
+    Media.upsert_crf_search_vmaf(
       %{
         "crf" => to_string(data.crf),
         "score" => to_string(data.score),
@@ -618,7 +587,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     Media.mark_vmaf_as_chosen(video.id, to_string(data.crf))
 
     # Check if the chosen VMAF has a file size estimate that exceeds 10GB
-    case get_vmaf_by_crf(video.id, to_string(data.crf)) do
+    case Media.get_vmaf_by_crf(video.id, to_string(data.crf)) do
       nil ->
         Logger.warning(
           "CrfSearch: Could not find VMAF record for chosen CRF #{data.crf} for video #{video.id}"
@@ -638,46 +607,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   # Extract the complex error handling logic to a separate function
-  defp handle_crf_search_error(video, target_vmaf) do
-    Logger.debug("CrfSearch: Processing error line for video #{video.id}")
-    tested_scores = get_vmaf_scores_for_video(video.id)
-
-    error_msg = build_detailed_error_message(target_vmaf, tested_scores, video.path)
-    Logger.error(error_msg)
-
-    # Check if we should retry with --preset 6
-    retry_result = should_retry_with_preset_6_private(video.id)
-    Logger.info("CrfSearch: Retry result: #{inspect(retry_result)}")
-
-    case retry_result do
-      {:retry, existing_vmafs} ->
-        Logger.info(
-          "CrfSearch: Scheduling retry for video #{video.id} (#{Path.basename(video.path)}) with --preset 6 after CRF search failure"
-        )
-
-        clear_vmaf_records_for_video_private(video.id, existing_vmafs)
-        Process.put(:pending_preset_6_retry, {video, target_vmaf})
-
-      :already_retried ->
-        Logger.error(
-          "CrfSearch: Video #{video.id} (#{Path.basename(video.path)}) already retried with --preset 6, marking as failed"
-        )
-
-        Reencodarr.FailureTracker.record_preset_retry_failure(video, 6, 1,
-          context: %{target_vmaf: target_vmaf, tested_scores: tested_scores}
-        )
-
-      :mark_failed ->
-        Logger.info("CrfSearch: Marking video #{video.id} as failed due to no VMAF records")
-
-        Reencodarr.FailureTracker.record_crf_optimization_failure(
-          video,
-          target_vmaf,
-          tested_scores
-        )
-    end
-  end
-
   defp handle_vmaf_size_check(vmaf, video, crf) do
     case check_vmaf_size_limit(vmaf, video) do
       :ok ->
@@ -707,56 +636,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   # Helper function to get VMAF scores that were tested for this video
-  defp get_vmaf_scores_for_video(video_id) do
-    import Ecto.Query
-
-    query =
-      from v in Media.Vmaf,
-        where: v.video_id == ^video_id,
-        order_by: [desc: v.score],
-        limit: 10,
-        select: %{crf: v.crf, score: v.score}
-
-    case Repo.all(query) do
-      [] ->
-        []
-
-      vmaf_entries ->
-        vmaf_entries
-        |> Enum.map(fn %{crf: crf, score: score} -> %{crf: crf, score: score} end)
-    end
-  end
-
-  # Helper function to build a detailed error message
-  defp build_detailed_error_message(target_vmaf, tested_scores, video_path) do
-    base_msg =
-      "Failed to find a suitable CRF for #{Path.basename(video_path)} (target VMAF: #{target_vmaf})"
-
-    case tested_scores do
-      [] ->
-        "#{base_msg}. No VMAF scores were recorded - this suggests the encoding samples failed completely. Check if ffmpeg and ab-av1 are properly installed and the video file is accessible."
-
-      scores when length(scores) < 3 ->
-        max_score = scores |> Enum.map(fn %{score: score} -> score end) |> Enum.max()
-
-        "#{base_msg}. Only #{length(scores)} VMAF score(s) were tested (highest: #{Formatters.format_vmaf_score(max_score)}). The search space may be too limited - try using a wider CRF range or different encoder settings."
-
-      scores ->
-        max_score = scores |> Enum.map(fn %{score: score} -> score end) |> Enum.max()
-        min_score = scores |> Enum.map(fn %{score: score} -> score end) |> Enum.min()
-        score_count = length(scores)
-
-        if max_score < target_vmaf do
-          gap = target_vmaf - max_score
-
-          "#{base_msg}. Tested #{score_count} CRF values with VMAF scores ranging from #{Formatters.format_vmaf_score(min_score)} to #{Formatters.format_vmaf_score(max_score)}. The highest quality (#{Formatters.format_vmaf_score(max_score)}) is still #{Formatters.format_vmaf_score(gap)} points below the target. Try lowering the target VMAF or using a higher quality encoder preset."
-        else
-          "#{base_msg}. Tested #{score_count} CRF values with VMAF scores ranging from #{Formatters.format_vmaf_score(min_score)} to #{Formatters.format_vmaf_score(max_score)}. The search algorithm couldn't converge on a suitable CRF value - this may indicate an issue with the binary search algorithm or encoder settings."
-        end
-    end
-  end
-
-  defp build_crf_search_args(video, vmaf_percent) do
+  defp build_crf_search_args_private(video, vmaf_percent) do
     base_args = [
       "crf-search",
       "--input",
@@ -768,7 +648,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     ]
 
     # Use centralized Rules module to handle all argument building and deduplication
-    Reencodarr.Rules.build_args(video, :crf_search, [], base_args)
+    Rules.build_args(video, :crf_search, [], base_args)
   end
 
   # Build CRF search args with --preset 6 added
@@ -784,42 +664,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     ]
 
     # Use centralized Rules module with preset 6 additional param
-    Reencodarr.Rules.build_args(video, :crf_search, ["--preset", "6"], base_args)
-  end
-
-  defp upsert_vmaf(params, video, args) do
-    time = Time.parse_time_to_seconds(params["time"], params["time_unit"])
-
-    size_info =
-      case {params["size"], params["unit"]} do
-        {nil, _} -> nil
-        {_, nil} -> nil
-        {size, unit} -> "#{size} #{unit}"
-      end
-
-    # Calculate savings based on percent and video size
-    savings = DataConverters.calculate_savings(params["percent"], video.size)
-
-    vmaf_data =
-      Map.merge(params, %{
-        "video_id" => video.id,
-        "params" => Helper.remove_args(args, ["--min-vmaf", "crf-search"]),
-        "time" => time,
-        "size" => size_info,
-        "savings" => savings,
-        "target" => @default_vmaf_target
-      })
-
-    case Media.upsert_vmaf(vmaf_data) do
-      {:ok, created_vmaf} ->
-        Logger.debug("Upserted VMAF: #{inspect(created_vmaf)}")
-        broadcast_crf_search_progress(video.path, created_vmaf)
-        created_vmaf
-
-      {:error, changeset} ->
-        Logger.error("Failed to upsert VMAF: #{inspect(changeset)}")
-        nil
-    end
+    Rules.build_args(video, :crf_search, ["--preset", "6"], base_args)
   end
 
   defp broadcast_crf_search_progress(video_path, progress_data) do
@@ -928,23 +773,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   # Convert size with unit to bytes
   # Get VMAF record by video ID and CRF value
-  defp get_vmaf_by_crf(video_id, crf_str) do
-    case Float.parse(crf_str) do
-      {crf_float, _} ->
-        import Ecto.Query
-
-        query =
-          from v in Media.Vmaf,
-            where: v.video_id == ^video_id and v.crf == ^crf_float,
-            limit: 1
-
-        Repo.one(query)
-
-      :error ->
-        nil
-    end
-  end
-
   # Check if VMAF's estimated size exceeds 10GB limit
   defp check_vmaf_size_limit(vmaf, video) do
     case vmaf.size do
@@ -986,64 +814,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   # Determine if we should retry with preset 6 based on video ID
-  defp should_retry_with_preset_6_private(video_id) do
-    import Ecto.Query
-
-    # Get existing VMAF records for this video
-    existing_vmafs =
-      from(v in Media.Vmaf, where: v.video_id == ^video_id)
-      |> Repo.all()
-
-    case existing_vmafs do
-      [] ->
-        # No existing records, mark as failed (no point retrying with preset 6 if we haven't tried anything yet)
-        :mark_failed
-
-      vmafs ->
-        # Check if any existing record was done with --preset 6
-        has_preset_6 = Enum.any?(vmafs, &vmaf_has_preset_6?/1)
-
-        # Check if we have too many failed attempts (more than 3 VMAF records suggests multiple failures)
-        cond do
-          length(vmafs) > 3 -> :mark_failed
-          has_preset_6 -> :already_retried
-          true -> {:retry, vmafs}
-        end
-    end
-  end
-
-  defp vmaf_has_preset_6?(vmaf) do
-    case vmaf.params do
-      nil ->
-        false
-
-      params_string when is_binary(params_string) ->
-        String.contains?(params_string, "--preset 6")
-
-      params_list when is_list(params_list) ->
-        has_preset_6_in_list?(params_list)
-
-      _ ->
-        false
-    end
-  end
-
   # Clear VMAF records for a video (used for test cleanup)
-  defp clear_vmaf_records_for_video_private(video_id, vmaf_records) when is_list(vmaf_records) do
-    import Ecto.Query
-
-    vmaf_ids = Enum.map(vmaf_records, & &1.id)
-
-    from(v in Media.Vmaf, where: v.video_id == ^video_id and v.id in ^vmaf_ids)
-    |> Repo.delete_all()
-  end
-
-  # Helper to check for --preset 6 in a list of parameters
-  defp has_preset_6_in_list?([]), do: false
-  defp has_preset_6_in_list?([_]), do: false
-  defp has_preset_6_in_list?(["--preset", "6" | _]), do: true
-  defp has_preset_6_in_list?([_ | rest]), do: has_preset_6_in_list?(rest)
-
   # === Helper Functions ===
 
   # Broadcast CRF search completion event to PubSub

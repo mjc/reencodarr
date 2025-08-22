@@ -835,6 +835,173 @@ defmodule Reencodarr.Media do
     end)
   end
 
+  @doc """
+  Creates or updates a VMAF record with CRF search specific parameters.
+  """
+  @spec upsert_crf_search_vmaf(map(), Video.t(), list()) :: Vmaf.t() | nil
+  def upsert_crf_search_vmaf(params, video, args) do
+    alias Reencodarr.Core.Time
+    alias Reencodarr.DataConverters
+    alias Reencodarr.AbAv1.Helper
+    alias Reencodarr.Statistics.CrfSearchProgress
+
+    time = Time.parse_time_to_seconds(params["time"], params["time_unit"])
+
+    size_info =
+      case {params["size"], params["unit"]} do
+        {nil, _} -> nil
+        {_, nil} -> nil
+        {size, unit} -> "#{size} #{unit}"
+      end
+
+    # Calculate savings based on percent and video size
+    savings = DataConverters.calculate_savings(params["percent"], video.size)
+
+    vmaf_data =
+      Map.merge(params, %{
+        "video_id" => video.id,
+        "params" => Helper.remove_args(args, ["--min-vmaf", "crf-search"]),
+        "time" => time,
+        "size" => size_info,
+        "savings" => savings,
+        "target" => 95  # Default VMAF target
+      })
+
+    case upsert_vmaf(vmaf_data) do
+      {:ok, created_vmaf} ->
+        Logger.debug("Upserted VMAF: #{inspect(created_vmaf)}")
+        broadcast_crf_search_progress(video.path, created_vmaf)
+        created_vmaf
+
+      {:error, changeset} ->
+        Logger.error("Failed to upsert VMAF: #{inspect(changeset.errors)}")
+        nil
+    end
+  end
+
+  @doc """
+  Retrieves VMAF record by video ID and CRF value.
+  """
+  @spec get_vmaf_by_crf(integer(), String.t()) :: Vmaf.t() | nil
+  def get_vmaf_by_crf(video_id, crf) do
+    import Ecto.Query
+
+    case Float.parse(crf) do
+      {crf_float, _} ->
+        query =
+          from v in Vmaf,
+            where: v.video_id == ^video_id and v.crf == ^crf_float,
+            limit: 1
+
+        Repo.one(query)
+
+      :error ->
+        nil
+    end
+  end
+
+  @doc """
+  Gets VMAF scores for a video for error reporting.
+  """
+  @spec get_vmaf_scores_for_video(integer()) :: [%{crf: float(), score: float()}]
+  def get_vmaf_scores_for_video(video_id) do
+    import Ecto.Query
+
+    query =
+      from v in Vmaf,
+        where: v.video_id == ^video_id,
+        order_by: [desc: v.score],
+        limit: 10,
+        select: %{crf: v.crf, score: v.score}
+
+    case Repo.all(query) do
+      [] ->
+        []
+
+      vmaf_entries ->
+        vmaf_entries
+        |> Enum.map(fn %{crf: crf, score: score} -> %{crf: crf, score: score} end)
+    end
+  end
+
+  @doc """
+  Clears VMAF records for a video when retrying with preset 6.
+  """
+  @spec clear_vmaf_records(integer(), list(Vmaf.t())) :: {integer(), nil | [term()]}
+  def clear_vmaf_records(video_id, vmaf_records) when is_list(vmaf_records) do
+    import Ecto.Query
+
+    vmaf_ids = Enum.map(vmaf_records, & &1.id)
+
+    from(v in Vmaf, where: v.video_id == ^video_id and v.id in ^vmaf_ids)
+    |> Repo.delete_all()
+  end
+
+  @doc """
+  Checks if a VMAF record was created with --preset 6 parameters.
+  """
+  @spec vmaf_has_preset_6?(Vmaf.t()) :: boolean()
+  def vmaf_has_preset_6?(vmaf) do
+    case vmaf.params do
+      nil ->
+        false
+
+      params_string when is_binary(params_string) ->
+        String.contains?(params_string, "--preset 6")
+
+      params_list when is_list(params_list) ->
+        has_preset_6_params?(params_list)
+
+      _ ->
+        false
+    end
+  end
+
+  @doc """
+  Checks if a parameter list contains --preset 6.
+  """
+  @spec has_preset_6_params?(list()) :: boolean()
+  def has_preset_6_params?(params) when is_list(params) do
+    # Flatten any nested lists
+    flat_params = List.flatten(params)
+    check_for_preset_6_in_flat_list(flat_params)
+  end
+
+  def has_preset_6_params?(_), do: false
+
+  # Private helper functions for broadcast and preset 6 checking
+  defp broadcast_crf_search_progress(filename, vmaf) do
+    alias Reencodarr.Statistics.CrfSearchProgress
+
+    video_filename = Path.basename(filename)
+
+    progress = 
+      case vmaf do
+        %Vmaf{} = vmaf ->
+          # Convert VMAF record to CrfSearchProgress
+          %CrfSearchProgress{
+            filename: video_filename,
+            crf: vmaf.crf,
+            score: vmaf.score,
+            percent: vmaf.percent
+          }
+
+        _ ->
+          %CrfSearchProgress{filename: video_filename}
+      end
+
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "crf_search_events",
+      %{progress: progress}
+    )
+  end
+
+  defp check_for_preset_6_in_flat_list([]), do: false
+  defp check_for_preset_6_in_flat_list([_]), do: false
+  defp check_for_preset_6_in_flat_list(["--preset", "6" | _]), do: true
+  defp check_for_preset_6_in_flat_list([_ | rest]), do: check_for_preset_6_in_flat_list(rest)
+
   # --- Bulk operations ---
 
   @doc """
