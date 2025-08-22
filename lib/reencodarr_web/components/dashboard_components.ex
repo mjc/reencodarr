@@ -246,7 +246,7 @@ defmodule ReencodarrWeb.DashboardComponents do
             <span>Bitrate: {Formatters.format_bitrate_mbps(@file.bitrate)}</span>
           <% end %>
           <%= if @file.size do %>
-            <span>Size: {Formatters.format_size_gb(@file.size)}</span>
+            <span>Size: {Formatters.format_file_size(@file.size)}</span>
           <% end %>
         </div>
       <% @queue.title == "Encoding Queue" and (@file.estimated_savings_bytes || @file.size) -> %>
@@ -255,12 +255,12 @@ defmodule ReencodarrWeb.DashboardComponents do
             <span>Savings: {Formatters.format_savings_bytes(@file.estimated_savings_bytes)}</span>
           <% end %>
           <%= if @file.size do %>
-            <span>Size: {Formatters.format_size_gb(@file.size)}</span>
+            <span>Size: {Formatters.format_file_size(@file.size)}</span>
           <% end %>
         </div>
       <% @queue.title == "Analyzer Queue" and @file.size -> %>
         <div class="text-xs text-purple-300 mt-1">
-          Size: {Formatters.format_size_gb(@file.size)}
+          Size: {Formatters.format_file_size(@file.size)}
         </div>
       <% true -> %>
         <div></div>
