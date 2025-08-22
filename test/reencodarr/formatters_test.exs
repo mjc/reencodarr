@@ -74,56 +74,19 @@ defmodule Reencodarr.FormattersTest do
     end
   end
 
-  describe "format_savings_gb/1" do
-    test "formats gigabytes correctly" do
-      assert Formatters.format_savings_gb(0.2) == "200 MiB"
-      assert Formatters.format_savings_gb(1.0) == "1.0 GiB"
-      assert Formatters.format_savings_gb(1.5) == "1.5 GiB"
-      assert Formatters.format_savings_gb(2.75) == "2.75 GiB"
-      assert Formatters.format_savings_gb(999.99) == "999.99 GiB"
+  describe "format_savings_bytes/1" do
+    test "formats large byte values correctly" do
+      # 1 GiB = 1073741824 bytes
+      assert Formatters.format_savings_bytes(1_073_741_824) == "1.0 GiB"
+      assert Formatters.format_savings_bytes(2_147_483_648) == "2.0 GiB"
+      assert Formatters.format_savings_bytes(5_368_709_120) == "5.0 GiB"
     end
 
-    test "formats terabytes correctly" do
-      assert Formatters.format_savings_gb(1000.0) == "1.0 TiB"
-      assert Formatters.format_savings_gb(1500.0) == "1.5 TiB"
-      assert Formatters.format_savings_gb(2750.5) == "2.8 TiB"
-    end
-
-    test "formats megabytes correctly" do
-      assert Formatters.format_savings_gb(0.001) == "1 MiB"
-      assert Formatters.format_savings_gb(0.1) == "100 MiB"
-      assert Formatters.format_savings_gb(0.512) == "512 MiB"
-      assert Formatters.format_savings_gb(0.999) == "999 MiB"
-    end
-
-    test "formats very small values" do
-      assert Formatters.format_savings_gb(0.0001) == "< 1 MiB"
-      assert Formatters.format_savings_gb(0.0005) == "< 1 MiB"
-    end
-
-    test "handles invalid values" do
-      assert Formatters.format_savings_gb(nil) == "N/A"
-      assert Formatters.format_savings_gb(0) == "N/A"
-      assert Formatters.format_savings_gb(-1) == "N/A"
-      assert Formatters.format_savings_gb("invalid") == "N/A"
-    end
-
-    test "formats realistic video savings scenarios" do
-      # 4K video scenarios
-      assert Formatters.format_savings_gb(5.2) == "5.2 GiB"
-      assert Formatters.format_savings_gb(15.7) == "15.7 GiB"
-
-      # 1080p video scenarios
-      assert Formatters.format_savings_gb(1.2) == "1.2 GiB"
-      assert Formatters.format_savings_gb(2.8) == "2.8 GiB"
-
-      # TV episode scenarios
-      assert Formatters.format_savings_gb(0.5) == "500 MiB"
-      assert Formatters.format_savings_gb(0.25) == "250 MiB"
-
-      # Collection scenarios
-      assert Formatters.format_savings_gb(1250.0) == "1.3 TiB"
-      assert Formatters.format_savings_gb(3400.5) == "3.4 TiB"
+    test "handles nil and invalid values" do
+      assert Formatters.format_savings_bytes(nil) == "N/A"
+      assert Formatters.format_savings_bytes(0) == "N/A"
+      assert Formatters.format_savings_bytes(-1) == "N/A"
+      assert Formatters.format_savings_bytes("invalid") == "N/A"
     end
   end
 
@@ -158,16 +121,16 @@ defmodule Reencodarr.FormattersTest do
     end
   end
 
-  # Test backward compatibility functions
-  describe "backward compatibility" do
+  # Test file size formatting functions
+  describe "file size formatting" do
     test "format_size_with_unit/1 delegates to format_file_size/1" do
       assert Formatters.format_size_with_unit(1024) == "1.0 KiB"
       assert Formatters.format_size_with_unit(nil) == "N/A"
     end
 
-    test "format_size_gb/1 works correctly" do
-      assert Formatters.format_size_gb(1_073_741_824) == "1.0 GiB"
-      assert Formatters.format_size_gb(nil) == "N/A"
+    test "format_file_size/1 works correctly with GB values" do
+      assert Formatters.format_file_size(1_073_741_824) == "1.0 GiB"
+      assert Formatters.format_file_size(nil) == "N/A"
     end
   end
 

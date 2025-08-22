@@ -120,52 +120,24 @@ defmodule Reencodarr.Formatters do
   # These maintain backward compatibility with existing code
 
   @doc """
-  LEGACY: Formats file size in gigabytes with decimal precision.
+  Formats file sizes for displaying disk space savings in GB using GiB calculation.
 
-  **DEPRECATED:** Use format_file_size/1 or format_file_size_gib/1 instead.
+  ## Examples
+
+      iex> format_size_gb(1_073_741_824)
+      "1.0 GiB"
+
+      iex> format_size_gb(5_368_709_120)
+      "5.0 GiB"
+
   """
-  def format_size_gb(size) when is_integer(size) and size > 0 do
-    gib = size / 1_073_741_824
-    "#{Float.round(gib, 2)} GiB"
-  end
-
+  @spec format_size_gb(integer() | float() | nil) :: String.t()
+  def format_size_gb(nil), do: "N/A"
+  def format_size_gb(bytes) when is_number(bytes) and bytes <= 0, do: "0 B"
+  def format_size_gb(bytes) when is_number(bytes), do: format_file_size_gib(bytes)
   def format_size_gb(_), do: "N/A"
 
   # === SAVINGS FORMATTING ===
-
-  @doc """
-  Formats savings amounts with appropriate units (handles GB input).
-
-  For savings calculations that come as GB values.
-
-  ## Examples
-      iex> format_savings_gb(2.5)
-      "2.5 GiB"
-
-      iex> format_savings_gb(1500.0)
-      "1.5 TiB"
-  """
-  def format_savings_gb(nil), do: "N/A"
-  def format_savings_gb(gb) when is_number(gb) and gb <= 0, do: "N/A"
-
-  def format_savings_gb(%Decimal{} = gb) do
-    # Convert Decimal to float for formatting
-    case Decimal.to_float(gb) do
-      gb_float when gb_float <= 0 -> "N/A"
-      gb_float -> format_savings_gb(gb_float)
-    end
-  end
-
-  def format_savings_gb(gb) when is_number(gb) do
-    cond do
-      gb >= 1000 -> "#{Float.round(gb / 1000, 1)} TiB"
-      gb >= 1 -> "#{Float.round(gb, 2)} GiB"
-      gb >= 0.001 -> "#{round(gb * 1000)} MiB"
-      true -> "< 1 MiB"
-    end
-  end
-
-  def format_savings_gb(_), do: "N/A"
 
   @doc """
   Formats savings amounts from bytes with appropriate units.
