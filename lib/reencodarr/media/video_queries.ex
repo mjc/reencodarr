@@ -80,8 +80,7 @@ defmodule Reencodarr.Media.VideoQueries do
     Repo.all(
       from v in Vmaf,
         join: vid in assoc(v, :video),
-        where:
-          v.chosen == true and vid.state == :crf_searched,
+        where: v.chosen == true and vid.state == :crf_searched,
         order_by: [fragment("? DESC NULLS LAST", v.savings), desc: vid.updated_at],
         limit: ^limit,
         preload: [:video],
@@ -97,8 +96,7 @@ defmodule Reencodarr.Media.VideoQueries do
     Repo.one(
       from v in Vmaf,
         join: vid in assoc(v, :video),
-        where:
-          v.chosen == true and vid.state == :crf_searched,
+        where: v.chosen == true and vid.state == :crf_searched,
         select: count(v.id)
     )
   end
