@@ -17,7 +17,7 @@ defmodule Reencodarr.Media.SharedQueries do
   """
   def aggregated_stats_query do
     from v in Video,
-      where: v.failed == false,
+      where: v.state not in [:failed],
       left_join: m_all in Vmaf,
       on: m_all.video_id == v.id,
       select: %{

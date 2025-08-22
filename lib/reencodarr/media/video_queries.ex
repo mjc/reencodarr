@@ -16,7 +16,7 @@ defmodule Reencodarr.Media.VideoQueries do
   def videos_for_crf_search(limit \\ 10) do
     Repo.all(
       from v in Video,
-        where: v.state == :analyzed and v.failed == false,
+        where: v.state == :analyzed,
         order_by: [desc: v.bitrate, desc: v.size, asc: v.updated_at],
         limit: ^limit,
         select: v
@@ -30,7 +30,7 @@ defmodule Reencodarr.Media.VideoQueries do
   def count_videos_for_crf_search do
     Repo.one(
       from v in Video,
-        where: v.state == :analyzed and v.failed == false,
+        where: v.state == :analyzed,
         select: count()
     )
   end
@@ -44,7 +44,7 @@ defmodule Reencodarr.Media.VideoQueries do
   def videos_needing_analysis(limit \\ 10) do
     Repo.all(
       from v in Video,
-        where: v.state == :needs_analysis and v.failed == false,
+        where: v.state == :needs_analysis,
         order_by: [
           desc: v.size,
           desc: v.inserted_at,
@@ -66,7 +66,7 @@ defmodule Reencodarr.Media.VideoQueries do
   def count_videos_needing_analysis do
     Repo.one(
       from v in Video,
-        where: v.state == :needs_analysis and v.failed == false,
+        where: v.state == :needs_analysis,
         select: count()
     )
   end
