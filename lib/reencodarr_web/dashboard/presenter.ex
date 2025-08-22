@@ -13,8 +13,10 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   """
 
   alias Reencodarr.Core.Time
+  alias Reencodarr.Formatters
   alias Reencodarr.Dashboard.QueueBuilder
   alias Reencodarr.Progress.Normalizer
+  alias Reencodarr.Statistics.Stats
 
   require Logger
 
@@ -38,38 +40,35 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
     }
   end
 
-  defp present_metrics(stats) do
+  defp present_metrics(%Stats{} = stats) do
     [
       %{
         title: "Total Videos",
-        value: stats.total_videos,
-        icon: "📹",
-        color: "from-blue-500 to-cyan-500",
-        subtitle: "in library"
+        subtitle: "in library",
+        value: Formatters.format_count(stats.total_videos),
+        icon: "🎬",
+        color: "text-blue-600"
       },
       %{
         title: "Reencoded",
-        value: stats.reencoded,
-        icon: "✨",
-        color: "from-emerald-500 to-teal-500",
-        subtitle: "optimized",
-        progress: calculate_progress(stats.reencoded, stats.total_videos)
+        subtitle: "completed",
+        value: Formatters.format_count(stats.reencoded_count),
+        icon: "✅",
+        color: "text-green-600"
       },
       %{
-        title: "VMAF Quality",
-        value: "#{stats.avg_vmaf_percentage}%",
-        icon: "🎯",
-        color: "from-violet-500 to-purple-500",
-        subtitle: "average"
+        title: "Total Saved",
+        subtitle: "storage space",
+        value: Formatters.format_savings_gb(stats.total_savings_gb),
+        icon: "💾",
+        color: "text-purple-600"
       },
       %{
-        title: "Queue Length",
-        value:
-          stats.queue_length.crf_searches + stats.queue_length.encodes +
-            stats.queue_length.analyzer,
-        icon: "⏳",
-        color: "from-amber-500 to-orange-500",
-        subtitle: "pending jobs"
+        title: "Failed",
+        subtitle: "processing errors",
+        value: Formatters.format_count(stats.failed_count),
+        icon: "❌",
+        color: "text-red-600"
       }
     ]
   end
@@ -162,13 +161,6 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
       last_video_insert: Time.relative_time(stats.most_recent_inserted_video)
     }
   end
-
-  # Helper functions
-  defp calculate_progress(completed, total) when total > 0 do
-    (completed / total * 100) |> Float.round(1)
-  end
-
-  defp calculate_progress(_, _), do: 0
 
   @doc """
   Reports approximate memory usage of dashboard data for monitoring.
