@@ -45,8 +45,10 @@ defmodule Reencodarr.Media.SharedQueries do
         encoding_count: filter(count(v.id), v.state == :encoding),
         searching_count: filter(count(v.id), v.state == :crf_searching),
         available_count: filter(count(v.id), v.state == :crf_searched),
-        paused_count: fragment("0"), # No paused state in enum
-        skipped_count: fragment("0"), # No skipped state in enum
+        # No paused state in enum
+        paused_count: fragment("0"),
+        # No skipped state in enum
+        skipped_count: fragment("0"),
         # New total savings calculation (debugging version - sum all savings regardless of state)
         total_savings_gb:
           coalesce(
