@@ -226,8 +226,8 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
   defp normalize_bitrate(overall_bitrate) do
     case overall_bitrate do
       rate when is_integer(rate) and rate > 0 -> rate
-      # Default to 5 Mbps if missing or zero
-      _ -> 5_000_000
+      # Keep 0 for missing bitrate to trigger analysis
+      _ -> 0
     end
   end
 
