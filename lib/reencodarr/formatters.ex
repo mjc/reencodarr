@@ -148,6 +148,14 @@ defmodule Reencodarr.Formatters do
   def format_savings_gb(nil), do: "N/A"
   def format_savings_gb(gb) when is_number(gb) and gb <= 0, do: "N/A"
 
+  def format_savings_gb(%Decimal{} = gb) do
+    # Convert Decimal to float for formatting
+    case Decimal.to_float(gb) do
+      gb_float when gb_float <= 0 -> "N/A"
+      gb_float -> format_savings_gb(gb_float)
+    end
+  end
+
   def format_savings_gb(gb) when is_number(gb) do
     cond do
       gb >= 1000 -> "#{Float.round(gb / 1000, 1)} TiB"
