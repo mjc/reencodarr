@@ -182,8 +182,8 @@ defmodule Reencodarr.SyncPerformanceTest do
       assert video1.state == :needs_analysis
       assert video2.state == :needs_analysis
 
-      # Videos in needs_analysis state indicate analyzer will be triggered
-      # (dispatch_available() may not always produce visible logs in tests)
+      # Videos in needs_analysis state will be picked up by analyzer naturally
+      # No direct dispatch needed - state machine handles the workflow
     end
 
     test "concurrent batch processing handles race conditions" do
