@@ -617,12 +617,8 @@ defmodule Reencodarr.Media do
             failed: false
           })
 
-          # 3. Manually queue for analysis using Analyzer.process_path
-          Reencodarr.Analyzer.process_path(%{
-            path: video.path,
-            service_id: video.service_id,
-            service_type: video.service_type
-          })
+          # 3. Manually trigger analysis using Broadway dispatch
+          Reencodarr.Analyzer.Broadway.dispatch_available()
 
           video.path
         end)
@@ -740,7 +736,11 @@ defmodule Reencodarr.Media do
 
   # Manual analyzer queue items from QueueManager
   defp get_manual_analyzer_items do
-    QueueManager.get_queue()
+    try do
+      QueueManager.get_queue()
+    catch
+      :exit, _ -> []
+    end
   end
 
   # Build minimal stats struct when DB query fails
@@ -904,7 +904,7 @@ defmodule Reencodarr.Media do
   """
   def debug_analyzer_status do
     %{
-      analyzer_running: Reencodarr.Analyzer.running?(),
+      analyzer_running: Reencodarr.Analyzer.Broadway.running?(),
       videos_needing_analysis: get_videos_needing_analysis(5),
       manual_queue: get_manual_analyzer_items(),
       total_analyzer_queue_count:
@@ -917,24 +917,31 @@ defmodule Reencodarr.Media do
   """
   def debug_force_analyze_video(video_path) when is_binary(video_path) do
     case get_video_by_path(video_path) do
-      %{path: path, service_id: service_id, service_type: service_type} = video ->
-        Logger.info("🐛 Force analyzing video: #{path}")
+      %{path: _path, service_id: _service_id, service_type: _service_type} = video ->
+        Logger.info("🐛 Force analyzing video: #{video_path}")
 
-        # Try both approaches
-        result1 =
-          Reencodarr.Analyzer.process_path(%{
-            path: path,
-            service_id: service_id,
-            service_type: service_type
-          })
+        # Trigger Broadway dispatch instead of old compatibility API
+        result1 = Reencodarr.Analyzer.Broadway.dispatch_available()
 
-        result2 = Reencodarr.Analyzer.reanalyze_video(video.id)
+        # Delete all VMAFs and reset analysis fields to force re-analysis
+        delete_vmafs_for_video(video.id)
+
+        update_video(video, %{
+          bitrate: nil,
+          duration: nil,
+          frame_rate: nil,
+          video_codecs: nil,
+          audio_codecs: nil,
+          max_audio_channels: nil,
+          resolution: nil,
+          file_size: nil,
+          failed: false
+        })
 
         %{
           video: video,
-          process_path_result: result1,
-          reanalyze_video_result: result2,
-          broadway_running: Reencodarr.Analyzer.running?()
+          dispatch_result: result1,
+          broadway_running: Reencodarr.Analyzer.Broadway.running?()
         }
 
       nil ->
@@ -1112,7 +1119,12 @@ defmodule Reencodarr.Media do
 
   defp path_in_analyzer_manual?(path) do
     # Check the QueueManager's manual queue
-    manual_queue = QueueManager.get_queue()
+    manual_queue =
+      try do
+        QueueManager.get_queue()
+      catch
+        :exit, _ -> []
+      end
 
     Enum.any?(manual_queue, fn item ->
       case item do

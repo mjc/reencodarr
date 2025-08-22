@@ -40,8 +40,12 @@ defmodule Reencodarr.ManualScanner do
 
     Enum.each(files, fn file ->
       Logger.debug("Processing file: #{file}")
-      Analyzer.process_path(%{path: file, service_id: nil, service_type: nil})
+      # Files found by manual scan should trigger analysis dispatch
+      # The file should already exist in database from sync process
     end)
+
+    # Trigger Broadway dispatch to check for videos needing analysis
+    Analyzer.Broadway.dispatch_available()
 
     {:noreply, state}
   end

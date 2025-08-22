@@ -7,7 +7,6 @@ defmodule Reencodarr.Media.Debug do
   """
 
   import Ecto.Query
-  alias Reencodarr.Analyzer
   alias Reencodarr.Analyzer.QueueManager, as: AnalyzerQueueManager
   alias Reencodarr.Media.Clean
   alias Reencodarr.Media.{Library, Video, VideoQueries, Vmaf}
@@ -21,7 +20,7 @@ defmodule Reencodarr.Media.Debug do
   @spec analyzer_status() :: map()
   def analyzer_status do
     %{
-      analyzer_running: Analyzer.running?(),
+      analyzer_running: Reencodarr.Analyzer.Broadway.running?(),
       videos_needing_analysis: VideoQueries.videos_needing_analysis(5),
       manual_queue: get_manual_analyzer_queue(),
       total_analyzer_queue_count:
@@ -40,20 +39,27 @@ defmodule Reencodarr.Media.Debug do
         {:error, "Video not found at path: #{video_path}"}
 
       video ->
-        result1 =
-          Analyzer.process_path(%{
-            path: video_path,
-            service_id: "debug",
-            service_type: :debug,
-            force_reanalyze: true
-          })
+        # Delete all VMAFs and reset analysis fields to force re-analysis
+        Reencodarr.Media.delete_vmafs_for_video(video.id)
 
-        result2 = Analyzer.reanalyze_video(video.id)
+        Reencodarr.Media.update_video(video, %{
+          bitrate: nil,
+          duration: nil,
+          frame_rate: nil,
+          video_codecs: nil,
+          audio_codecs: nil,
+          max_audio_channels: nil,
+          resolution: nil,
+          file_size: nil,
+          failed: false
+        })
+
+        # Trigger Broadway dispatch
+        result = Reencodarr.Analyzer.Broadway.dispatch_available()
 
         %{
-          result1: result1,
-          result2: result2,
-          broadway_running: Analyzer.running?()
+          dispatch_result: result,
+          broadway_running: Reencodarr.Analyzer.Broadway.running?()
         }
     end
   end

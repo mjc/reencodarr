@@ -237,12 +237,8 @@ defmodule Reencodarr.Media.Clean do
             failed: false
           })
 
-          # 3. Manually queue for analysis using Analyzer.process_path
-          Reencodarr.Analyzer.process_path(%{
-            path: video.path,
-            service_id: video.service_id,
-            service_type: video.service_type
-          })
+          # 3. Manually trigger analysis using Broadway dispatch
+          Reencodarr.Analyzer.Broadway.dispatch_available()
 
           video.path
         end)

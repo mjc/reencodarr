@@ -1,7 +1,7 @@
 defmodule Reencodarr.Encoder do
   @moduledoc """
   Simplified compatibility layer for Broadway encoder operations.
-  
+
   Provides a clean API that delegates directly to Broadway modules without
   complex compatibility overhead.
   """
