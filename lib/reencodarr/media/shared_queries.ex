@@ -21,9 +21,6 @@ defmodule Reencodarr.Media.SharedQueries do
       left_join: m_all in Vmaf,
       on: m_all.video_id == v.id,
       select: %{
-        # Legacy fields for backward compatibility
-        not_reencoded: fragment("COUNT(*) FILTER (WHERE ? != 'encoded')", v.state),
-        reencoded: fragment("COUNT(*) FILTER (WHERE ? = 'encoded')", v.state),
         total_videos: count(v.id),
         avg_vmaf_percentage: fragment("ROUND(AVG(?)::numeric, 2)", m_all.percent),
         total_vmafs: count(m_all.id),
@@ -38,18 +35,16 @@ defmodule Reencodarr.Media.SharedQueries do
         analyzer_count: fragment("COUNT(*) FILTER (WHERE ? = 'needs_analysis')", v.state),
         most_recent_video_update: max(v.updated_at),
         most_recent_inserted_video: max(v.inserted_at),
-        # New state-based fields for dashboard (using correct enum atoms)
+        # State-based fields for dashboard (using correct enum atoms)
         reencoded_count: filter(count(v.id), v.state == :encoded),
         failed_count: filter(count(v.id), v.state == :failed),
         analyzing_count: filter(count(v.id), v.state == :needs_analysis),
         encoding_count: filter(count(v.id), v.state == :encoding),
         searching_count: filter(count(v.id), v.state == :crf_searching),
         available_count: filter(count(v.id), v.state == :crf_searched),
-        # No paused state in enum
-        paused_count: fragment("0"),
-        # No skipped state in enum
-        skipped_count: fragment("0"),
-        # New total savings calculation (debugging version - sum all savings regardless of state)
+        paused_count: fragment("0"), # No paused state in enum
+        skipped_count: fragment("0"), # No skipped state in enum
+        # Total savings calculation
         total_savings_gb:
           coalesce(
             sum(
