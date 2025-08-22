@@ -159,7 +159,7 @@ defmodule Reencodarr.Media.Debug do
         # Determine database state
         analyzed = !is_nil(video.bitrate)
         has_vmaf = length(vmafs) > 0
-        ready_for_encoding = !is_nil(chosen_vmaf) && !video.reencoded && !video.failed
+        ready_for_encoding = !is_nil(chosen_vmaf) && video.state not in [:encoded, :failed]
 
         # Check queue memberships
         queue_memberships = %{
@@ -185,8 +185,9 @@ defmodule Reencodarr.Media.Debug do
             analyzed: analyzed,
             has_vmaf: has_vmaf,
             ready_for_encoding: ready_for_encoding,
-            reencoded: video.reencoded,
-            failed: video.failed
+            reencoded: video.state == :encoded,
+            failed: video.state == :failed,
+            state: video.state
           },
           queue_memberships: queue_memberships,
           next_steps: next_steps,
@@ -288,12 +289,12 @@ defmodule Reencodarr.Media.Debug do
   end
 
   defp determine_video_status(video, _analyzed, _has_vmaf, _ready_for_encoding, _chosen_vmaf)
-       when video.failed do
+       when video.state == :failed do
     ["marked as failed - manual intervention needed"]
   end
 
   defp determine_video_status(video, _analyzed, _has_vmaf, _ready_for_encoding, _chosen_vmaf)
-       when video.reencoded do
+       when video.state == :encoded do
     ["already reencoded - processing complete"]
   end
 
