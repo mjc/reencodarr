@@ -95,30 +95,39 @@ defmodule Reencodarr.Media.VideoUpsert do
   end
 
   defp insert_or_update_video(attrs) do
-    # Build on_conflict strategy based on whether bitrate was preserved
-    conflict_except =
-      if Map.has_key?(attrs, "bitrate") do
-        [:id, :inserted_at, :reencoded, :failed]
-      else
-        [:id, :inserted_at, :reencoded, :failed, :bitrate]
-      end
+    conflict_except = determine_conflict_except_fields(attrs)
+    on_conflict_query = build_on_conflict_query(attrs, conflict_except)
 
-    # Parse dateAdded if present for on_conflict handling
-    on_conflict_query =
-      case Map.get(attrs, "dateAdded") do
-        nil ->
-          {:replace_all_except, conflict_except}
+    attrs
+    |> perform_video_upsert(on_conflict_query)
+    |> handle_upsert_result(attrs)
+  end
 
-        date_str when is_binary(date_str) ->
-          case parse_date_added(date_str) do
-            {:ok, date_added} -> build_conditional_update(attrs, conflict_except, date_added)
-            {:error, _} -> {:replace_all_except, conflict_except}
-          end
+  defp determine_conflict_except_fields(attrs) do
+    if Map.has_key?(attrs, "bitrate") do
+      [:id, :inserted_at, :reencoded, :failed]
+    else
+      [:id, :inserted_at, :reencoded, :failed, :bitrate]
+    end
+  end
 
-        _ ->
-          {:replace_all_except, conflict_except}
-      end
+  defp build_on_conflict_query(attrs, conflict_except) do
+    case Map.get(attrs, "dateAdded") do
+      nil ->
+        {:replace_all_except, conflict_except}
 
+      date_str when is_binary(date_str) ->
+        case parse_date_added(date_str) do
+          {:ok, date_added} -> build_conditional_update(attrs, conflict_except, date_added)
+          {:error, _} -> {:replace_all_except, conflict_except}
+        end
+
+      _ ->
+        {:replace_all_except, conflict_except}
+    end
+  end
+
+  defp perform_video_upsert(attrs, on_conflict_query) do
     Repo.transaction(fn ->
       %Video{}
       |> Video.changeset(attrs)
@@ -129,21 +138,16 @@ defmodule Reencodarr.Media.VideoUpsert do
         returning: true
       )
     end)
-    |> case do
+  end
+
+  defp handle_upsert_result(transaction_result, attrs) do
+    case transaction_result do
       {:ok, {:ok, video}} ->
         Logger.debug("Video upserted successfully: #{video.path}")
         {:ok, video}
 
       {:ok, {:error, %Ecto.Changeset{errors: [updated_at: {"is stale", _}]} = changeset}} ->
-        # This is expected when dateAdded is not newer than updated_at - treat as success (skip)
-        path = Map.get(attrs, "path")
-        Logger.debug("Skipping update for #{path} - dateAdded not newer than updated_at")
-
-        # Return the existing video instead of an error
-        case Repo.get_by(Video, path: path) do
-          nil -> {:error, changeset}  # Shouldn't happen, but handle gracefully
-          existing_video -> {:ok, existing_video}
-        end
+        handle_stale_update_error(changeset, attrs)
 
       {:ok, {:error, changeset}} ->
         Logger.error("Video upsert failed: #{inspect(changeset.errors)}")
@@ -152,6 +156,19 @@ defmodule Reencodarr.Media.VideoUpsert do
       {:error, error} ->
         Logger.error("Video upsert transaction failed: #{inspect(error)}")
         {:error, error}
+    end
+  end
+
+  defp handle_stale_update_error(changeset, attrs) do
+    # This is expected when dateAdded is not newer than updated_at - treat as success (skip)
+    path = Map.get(attrs, "path")
+    Logger.debug("Skipping update for #{path} - dateAdded not newer than updated_at")
+
+    # Return the existing video instead of an error
+    case Repo.get_by(Video, path: path) do
+      # Shouldn't happen, but handle gracefully
+      nil -> {:error, changeset}
+      existing_video -> {:ok, existing_video}
     end
   end
 
