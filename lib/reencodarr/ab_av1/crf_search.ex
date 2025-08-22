@@ -77,20 +77,17 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     def has_preset_6_params?(params), do: has_preset_6_params_private(params)
     def should_retry_with_preset_6(video_id), do: should_retry_with_preset_6_private(video_id)
 
-    # Legacy test function names for backward compatibility
-    def has_preset_6_params_for_test(params), do: has_preset_6_params_private(params)
-
-    def should_retry_with_preset_6_for_test(video_id),
-      do: should_retry_with_preset_6_private(video_id)
-
-    def build_crf_search_args_with_preset_6_for_test(video, vmaf_percent),
-      do: build_crf_search_args_with_preset_6(video, vmaf_percent)
-
     def clear_vmaf_records_for_video(video_id, vmaf_records),
       do: clear_vmaf_records_for_video_private(video_id, vmaf_records)
 
     def build_crf_search_args_with_preset_6(video, vmaf_percent),
       do: build_crf_search_args_with_preset_6_private(video, vmaf_percent)
+
+    # Legacy test function names for backward compatibility
+    def should_retry_with_preset_6_for_test(video_id), do: should_retry_with_preset_6(video_id)
+
+    def build_crf_search_args_with_preset_6_for_test(video, vmaf_percent),
+      do: build_crf_search_args_with_preset_6(video, vmaf_percent)
 
     def build_crf_search_args_for_test(video, vmaf_percent),
       do: build_crf_search_args(video, vmaf_percent)
