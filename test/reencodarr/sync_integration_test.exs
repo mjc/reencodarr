@@ -51,6 +51,7 @@ defmodule Reencodarr.SyncIntegrationTest do
       assert video.state == :analyzed or video.state == :needs_analysis
 
       # Should not trigger analyzer since video has complete bitrate data
+      # Videos with valid bitrate will be in analyzed state, not needs_analysis
       refute String.contains?(log, "dispatch_available")
     end
 
@@ -89,9 +90,8 @@ defmodule Reencodarr.SyncIntegrationTest do
       # Should be in needs_analysis state due to missing bitrate
       assert video.state == :needs_analysis
 
-      # Should trigger analyzer dispatch for videos with missing bitrate (zero bitrate test)
-      # Note: dispatch_available() may not always produce visible logs in tests
-      # The important thing is that the video is in needs_analysis state
+      # Videos with missing bitrate automatically get needs_analysis state
+      # The analyzer will pick them up naturally, no direct dispatch needed
       assert video.state == :needs_analysis
     end
 
@@ -169,9 +169,8 @@ defmodule Reencodarr.SyncIntegrationTest do
       # Should be in needs_analysis state due to missing bitrate
       assert video.state == :needs_analysis
 
-      # Should trigger analyzer dispatch for videos with missing bitrate (service file test)
-      # Note: dispatch_available() may not always produce visible logs in tests
-      # The important thing is that the video is in needs_analysis state
+      # Videos with missing bitrate automatically get needs_analysis state
+      # The analyzer will pick them up naturally, no direct dispatch needed
       assert video.state == :needs_analysis
     end
 
@@ -225,6 +224,7 @@ defmodule Reencodarr.SyncIntegrationTest do
       assert updated_video.size == 3_000_000_000
 
       # Should not trigger analyzer since we have valid analyzed bitrate
+      # Videos with preserved bitrate remain in analyzed state
       refute String.contains?(log, "dispatch_available")
     end
 

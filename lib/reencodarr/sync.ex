@@ -28,6 +28,9 @@ defmodule Reencodarr.Sync do
     sync_items(get_items, get_files, service_type)
     Telemetry.emit_sync_completed(service_type)
 
+    # Trigger analyzer to process any videos that need analysis after sync completion
+    AnalyzerBroadway.dispatch_available()
+
     {:noreply, state}
   end
 
@@ -116,23 +119,15 @@ defmodule Reencodarr.Sync do
       |> Enum.map(&prepare_video_attrs(&1, service_type, library_mappings))
       |> Enum.reject(&is_nil/1)
 
-    # Group files that need analysis
-    {files_needing_analysis, _} =
-      Enum.split_with(video_attrs_list, fn attrs ->
-        Map.get(attrs, "bitrate", 0) == 0
-      end)
+    Logger.info("Sync: Processing #{length(video_attrs_list)} videos in batch")
 
-    Logger.info(
-      "Sync: Processing #{length(video_attrs_list)} videos in batch (#{length(files_needing_analysis)} need analysis)"
-    )
-
-    perform_batch_transaction(video_attrs_list, files_needing_analysis)
+    perform_batch_transaction(video_attrs_list)
   end
 
-  defp perform_batch_transaction(video_attrs_list, files_needing_analysis) do
+  defp perform_batch_transaction(video_attrs_list) do
     # Perform batch upsert in a single transaction
     case Repo.transaction(
-           fn -> process_video_batch(video_attrs_list, files_needing_analysis) end,
+           fn -> process_video_batch(video_attrs_list) end,
            timeout: :infinity
          ) do
       {:ok, _} ->
@@ -145,23 +140,12 @@ defmodule Reencodarr.Sync do
     end
   end
 
-  defp process_video_batch(video_attrs_list, files_needing_analysis) do
-    # Upsert each video
+  defp process_video_batch(video_attrs_list) do
+    # Upsert each video - videos with missing bitrate will automatically
+    # be set to needs_analysis state by VideoUpsert logic
     Enum.each(video_attrs_list, &Media.VideoUpsert.upsert/1)
 
-    # Trigger analysis if needed
-    trigger_analysis_if_needed(files_needing_analysis)
-
     :ok
-  end
-
-  defp trigger_analysis_if_needed(files_needing_analysis) do
-    if length(files_needing_analysis) > 0 do
-      # Just trigger Broadway dispatch once - it will automatically find and batch process files needing analysis
-      Logger.info("Sync: Triggering analyzer for #{length(files_needing_analysis)} files")
-
-      AnalyzerBroadway.dispatch_available()
-    end
   end
 
   defp preload_library_mappings do
@@ -278,12 +262,7 @@ defmodule Reencodarr.Sync do
         })
       end)
 
-    # Send for analysis if bitrate is missing
-    if info.bitrate == 0 do
-      # Just trigger Broadway dispatch - it will automatically find and batch process files needing analysis
-      AnalyzerBroadway.dispatch_available()
-    end
-
+    # VideoUpsert will automatically set state to needs_analysis for zero bitrate
     result
   end
 
@@ -295,19 +274,6 @@ defmodule Reencodarr.Sync do
       when service_type in [:sonarr, :radarr] do
     # Convert directly to MediaInfo format
     mediainfo = MediaInfoConverter.from_service_file(file, service_type)
-
-    # Check if we need to analyze due to missing bitrate
-    needs_analysis =
-      case get_in(mediainfo, ["media", "track"]) do
-        tracks when is_list(tracks) ->
-          Enum.any?(tracks, fn track ->
-            track["@type"] == "General" and
-              (track["OverallBitRate"] == 0 or is_nil(track["OverallBitRate"]))
-          end)
-
-        _ ->
-          true
-      end
 
     # Store in database
     result =
@@ -323,12 +289,7 @@ defmodule Reencodarr.Sync do
         })
       end)
 
-    # Send for analysis if needed
-    if needs_analysis do
-      # Just trigger Broadway dispatch - it will automatically find and batch process files needing analysis
-      AnalyzerBroadway.dispatch_available()
-    end
-
+    # VideoUpsert will automatically set state to needs_analysis for missing bitrate
     result
   end
 

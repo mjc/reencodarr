@@ -65,6 +65,14 @@ defmodule ReencodarrWeb.FailuresLive do
   end
 
   @impl true
+  def handle_event("set_timezone", %{"timezone" => tz}, socket) do
+    require Logger
+    Logger.debug("Setting timezone to #{tz}")
+    socket = assign(socket, :timezone, tz)
+    {:noreply, socket}
+  end
+
+  @impl true
   def handle_event("timezone_change", %{"tz" => tz}, socket) do
     require Logger
     Logger.debug("Setting timezone to #{tz}")

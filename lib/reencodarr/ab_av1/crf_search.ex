@@ -899,13 +899,67 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           %CrfSearchProgress{filename: filename}
       end
 
-    # Always emit progress data - the reporter will handle smart merging
-    case emit_progress_safely(progress) do
-      :ok ->
-        :ok
+    # Debounce telemetry updates to avoid overwhelming the dashboard
+    if should_emit_progress?(filename, progress) do
+      case emit_progress_safely(progress) do
+        :ok ->
+          update_last_progress(filename, progress)
+          :ok
 
-      {:error, reason} ->
-        Logger.error("CrfSearch: Failed to emit progress for #{video_path}: #{inspect(reason)}")
+        {:error, reason} ->
+          Logger.error("CrfSearch: Failed to emit progress for #{video_path}: #{inspect(reason)}")
+      end
+    end
+  end
+
+  # Debouncing logic to prevent too many telemetry updates
+  defp should_emit_progress?(filename, progress) do
+    cache_key = {:crf_progress, filename}
+    now = System.monotonic_time(:millisecond)
+
+    case :persistent_term.get(cache_key, nil) do
+      nil ->
+        # First progress update for this file
+        true
+
+      {last_time, last_progress} ->
+        time_since_last = now - last_time
+
+        # Always emit if enough time has passed (5 seconds)
+        cond do
+          time_since_last > 5_000 ->
+            true
+
+          # Or if there's a significant change (>5% progress change)
+          significant_change?(last_progress, progress) ->
+            true
+
+          # Otherwise debounce
+          true ->
+            false
+        end
+    end
+  end
+
+  defp update_last_progress(filename, progress) do
+    cache_key = {:crf_progress, filename}
+    now = System.monotonic_time(:millisecond)
+    :persistent_term.put(cache_key, {now, progress})
+  end
+
+  defp significant_change?(last_progress, new_progress) do
+    case {last_progress.percent, new_progress.percent} do
+      {nil, _} ->
+        true
+
+      {_, nil} ->
+        true
+
+      {last_percent, new_percent} when is_number(last_percent) and is_number(new_percent) ->
+        abs(new_percent - last_percent) > 5.0
+
+      _ ->
+        true
     end
   end
 
