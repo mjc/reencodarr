@@ -113,9 +113,9 @@ defmodule Reencodarr.Media.VideoUpsert do
 
   defp determine_conflict_except_fields(attrs) do
     if Map.has_key?(attrs, "bitrate") do
-      [:id, :inserted_at, :state]
+      [:id, :inserted_at]
     else
-      [:id, :inserted_at, :state, :bitrate]
+      [:id, :inserted_at, :bitrate]
     end
   end
 
