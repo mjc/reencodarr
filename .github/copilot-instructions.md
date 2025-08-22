@@ -382,6 +382,71 @@ simple_vmaf: ~r/crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<perce
 encoding_progress: ~r/(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours)/
 ```
 
+### Rules-Based Argument Building
+The `Rules` module provides centralized argument construction for ab-av1 commands with context-aware filtering:
+
+#### Core Function: `Rules.build_args/4`
+```elixir
+def build_args(video, context, additional_params \\ [], base_args \\ [])
+```
+
+#### Argument Flow Architecture
+1. **Rule Application**: Video-specific rules generate argument tuples
+2. **Parameter Processing**: Convert flat lists to tuples with context filtering  
+3. **Tuple Combination**: Merge base args, additional params, and rule-based args
+4. **Deduplication**: Remove duplicate flags (keeping first occurrence)
+5. **Conversion**: Transform tuples to final command line arguments
+
+#### Context-Based Filtering
+- **`:crf_search`** - Excludes audio parameters for quality analysis
+- **`:encode`** - Includes all parameters for final encoding
+
+#### Rule Categories
+```elixir
+# Applied conditionally based on context
+rules_to_apply = [
+  &hdr/1,        # HDR/SDR detection: tune=0, dolbyvision=1
+  &resolution/1, # 4K downscaling: scale=1920:-2  
+  &video/1,      # Base video: pix-format=yuv420p10le
+  &audio/1       # Audio transcoding (encode context only)
+]
+```
+
+#### Audio Rule Logic
+```elixir
+# Opus codec detection and bitrate calculation
+cond do
+  atmos == true -> []  # Skip Atmos content
+  @opus_codec_tag in audio_codecs -> []  # Already Opus
+  channels == 3 -> upmix_to_5_1()  # 3.0 -> 5.1 conversion
+  true -> build_opus_config(channels)
+end
+```
+
+#### Parameter Merging Priority
+1. **Subcommands** (`"crf-search"`, `"encode"`) - Always first
+2. **Base arguments** - Core flags like `--input`, `--output`
+3. **Additional parameters** - From VMAF retries, user overrides
+4. **Rule-based parameters** - Generated from video characteristics
+
+#### Deduplication Strategy
+- **Single flags** - Keep first occurrence (base args override rules)
+- **Multi-value flags** - Allow multiple `--svt` and `--enc` entries
+- **Flag normalization** - Convert `-i` to `--input` for consistency
+
+#### Usage Examples
+```elixir
+# CRF search with preset 6 retry
+Rules.build_args(video, :crf_search, ["--preset", "6"], base_crf_args)
+
+# Encoding with VMAF parameters  
+Rules.build_args(video, :encode, vmaf.params, base_encode_args)
+
+# Context filtering in action
+crf_args = Rules.build_args(video, :crf_search)    # No audio args
+encode_args = Rules.build_args(video, :encode)     # Includes audio args
+```
+
 ## Key Directories
 - `lib/reencodarr/{analyzer,crf_searcher,encoder}/` - Broadway pipelines with producers/supervisors
 - `lib/reencodarr/services/` - External API clients with circuit breakers
