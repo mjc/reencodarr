@@ -45,7 +45,7 @@ defmodule Reencodarr.Integration.Preset6WorkflowTest do
         })
 
       # Step 4: Verify the VMAF has preset 6 params
-      assert CrfSearch.has_preset_6_params_for_test(preset6_vmaf.params) == true
+      assert CrfSearch.has_preset_6_params?(preset6_vmaf.params) == true
 
       # Step 5: Test that encoder will use the preset 6 parameter
       preset6_vmaf_with_video = Repo.preload(preset6_vmaf, :video)

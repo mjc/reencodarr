@@ -7,18 +7,18 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
   use ExUnit.Case, async: true
   alias Reencodarr.AbAv1.CrfSearch
 
-  describe "has_preset_6_params_for_test/1" do
+  describe "has_preset_6_params?/1" do
     test "returns true when preset 6 params are present" do
       params_with_preset_6 = ["--preset", "6", "--other", "param"]
-      assert CrfSearch.has_preset_6_params_for_test(params_with_preset_6) == true
+      assert CrfSearch.has_preset_6_params?(params_with_preset_6) == true
     end
 
     test "returns false when preset 6 params are not present" do
       params_without_preset_6 = ["--preset", "4", "--other", "param"]
-      assert CrfSearch.has_preset_6_params_for_test(params_without_preset_6) == false
+      assert CrfSearch.has_preset_6_params?(params_without_preset_6) == false
 
       params_empty = []
-      assert CrfSearch.has_preset_6_params_for_test(params_empty) == false
+      assert CrfSearch.has_preset_6_params?(params_empty) == false
     end
   end
 
