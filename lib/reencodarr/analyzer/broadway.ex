@@ -148,6 +148,7 @@ defmodule Reencodarr.Analyzer.Broadway do
     # Mark messages as successful or failed based on processing results
     Enum.map(messages, fn message ->
       video_path = message.data.path
+
       if video_path in success_videos do
         message
       else

@@ -9,7 +9,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
 
   alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.Media
-  alias Reencodarr.Media.Vmaf
+  alias Reencodarr.Media.{Video, Vmaf}
   alias Reencodarr.Repo
 
   describe "process_line/3 pattern matching" do
