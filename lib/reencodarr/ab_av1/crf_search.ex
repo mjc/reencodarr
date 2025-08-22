@@ -925,16 +925,16 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       {last_time, last_progress} ->
         time_since_last = now - last_time
 
-        # Always emit if enough time has passed (5 seconds)
+        # Balanced debouncing: 5 seconds OR major progress change (>50%)
         cond do
           time_since_last > 5_000 ->
             true
 
-          # Or if there's a significant change (>5% progress change)
+          # Only emit for major progress jumps (>50% change)
           significant_change?(last_progress, progress) ->
             true
 
-          # Otherwise debounce
+          # Otherwise debounce everything
           true ->
             false
         end
@@ -956,7 +956,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         true
 
       {last_percent, new_percent} when is_number(last_percent) and is_number(new_percent) ->
-        abs(new_percent - last_percent) > 5.0
+        abs(new_percent - last_percent) > 50.0
 
       _ ->
         true
