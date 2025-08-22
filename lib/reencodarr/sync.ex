@@ -3,6 +3,7 @@ defmodule Reencodarr.Sync do
   use GenServer
   require Logger
   import Ecto.Query
+  alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.{Media, Repo, Services, Telemetry}
   alias Reencodarr.Media.Video.MediaInfoConverter
   alias Reencodarr.Media.VideoFileInfo
@@ -56,76 +57,123 @@ defmodule Reencodarr.Sync do
   end
 
   defp process_batch({batch, batch_index}, get_files, service_type, total_items) do
+    batch_start_time = System.monotonic_time(:millisecond)
+
     # Collect all files from all items in this batch
-    all_files = 
+    all_files =
       batch
       |> Task.async_stream(&fetch_and_upsert_files(&1["id"], get_files, service_type),
-        max_concurrency: 5,
-        timeout: 60_000,
+        # Increased for better throughput
+        max_concurrency: 8,
+        # Reduced timeout for faster failure detection
+        timeout: 30_000,
         on_timeout: :kill_task
       )
       |> Enum.flat_map(fn
-        {:ok, files} when is_list(files) -> files
-        _ -> []
+        {:ok, files} when is_list(files) ->
+          files
+
+        {:error, reason} ->
+          Logger.warning("Sync: Task failed in batch #{batch_index}: #{inspect(reason)}")
+          []
+
+        _ ->
+          []
       end)
 
     # Process all files in a single batch operation
-    if length(all_files) > 0 do
-      batch_upsert_videos(all_files, service_type)
-    end
+    files_processed =
+      if length(all_files) > 0 do
+        batch_upsert_videos(all_files, service_type)
+        length(all_files)
+      else
+        0
+      end
+
+    # Log batch performance metrics
+    batch_duration = System.monotonic_time(:millisecond) - batch_start_time
+
+    Logger.info(
+      "Sync: Batch #{batch_index} processed #{files_processed} files in #{batch_duration}ms"
+    )
 
     # Update progress
     progress = div((batch_index + 1) * 50 * 100, total_items)
     Telemetry.emit_sync_progress(min(progress, 100), service_type)
   end
 
-  defp batch_upsert_videos(files, service_type) do
+  @doc """
+  Batch upserts multiple videos with library mapping cache optimization.
+  This function is exposed for testing performance optimizations.
+  """
+  def batch_upsert_videos(files, service_type) do
     # Pre-fetch all library mappings to avoid N+1 queries
     library_mappings = preload_library_mappings()
-    
+
     # Process files and prepare for batch upsert
-    video_attrs_list = 
+    video_attrs_list =
       files
       |> Enum.map(&prepare_video_attrs(&1, service_type, library_mappings))
       |> Enum.reject(&is_nil/1)
-    
+
     # Group files that need analysis
-    {files_needing_analysis, _} = 
-      Enum.split_with(video_attrs_list, fn attrs -> 
-        Map.get(attrs, "bitrate", 0) == 0 
+    {files_needing_analysis, _} =
+      Enum.split_with(video_attrs_list, fn attrs ->
+        Map.get(attrs, "bitrate", 0) == 0
       end)
-    
-    # Perform batch upsert in a single transaction
-    Repo.transaction(fn ->
-      Enum.each(video_attrs_list, fn attrs ->
-        Media.VideoUpsert.upsert(attrs)
-      end)
-      
-      # Batch send files for analysis
-      if length(files_needing_analysis) > 0 do
-        analysis_items = Enum.map(files_needing_analysis, fn attrs ->
-          %{
-            path: attrs["path"],
-            service_id: attrs["service_id"],
-            service_type: attrs["service_type"]
-          }
-        end)
-        
-        # Send batch to analyzer (assuming it can handle batches)
-        Enum.each(analysis_items, &Reencodarr.Analyzer.process_path/1)
-      end
-    end, timeout: :infinity)
+
+    Logger.info(
+      "Sync: Processing #{length(video_attrs_list)} videos in batch (#{length(files_needing_analysis)} need analysis)"
+    )
+
+    perform_batch_transaction(video_attrs_list, files_needing_analysis)
   end
-  
+
+  defp perform_batch_transaction(video_attrs_list, files_needing_analysis) do
+    # Perform batch upsert in a single transaction
+    case Repo.transaction(
+           fn -> process_video_batch(video_attrs_list, files_needing_analysis) end,
+           timeout: :infinity
+         ) do
+      {:ok, _} ->
+        Logger.info("Sync: Successfully processed #{length(video_attrs_list)} videos")
+        :ok
+
+      {:error, reason} ->
+        Logger.error("Sync: Batch upsert failed: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp process_video_batch(video_attrs_list, files_needing_analysis) do
+    # Upsert each video
+    Enum.each(video_attrs_list, &Media.VideoUpsert.upsert/1)
+
+    # Trigger analysis if needed
+    trigger_analysis_if_needed(files_needing_analysis)
+
+    :ok
+  end
+
+  defp trigger_analysis_if_needed(files_needing_analysis) do
+    if length(files_needing_analysis) > 0 do
+      # Just trigger Broadway dispatch once - it will automatically find and batch process files needing analysis
+      Logger.info("Sync: Triggering analyzer for #{length(files_needing_analysis)} files")
+
+      AnalyzerBroadway.dispatch_available()
+    end
+  end
+
   defp preload_library_mappings do
     # Pre-fetch all libraries to avoid repeated queries
+    # Sort by path length descending for proper longest-match-first behavior
     Repo.all(
       from l in Media.Library,
         select: %{id: l.id, path: l.path}
     )
-    |> Enum.sort_by(& &1.path, :desc)  # Sort by path length desc for proper matching
+    |> Enum.sort_by(&byte_size(&1.path), :desc)
   end
-  
+
   defp find_library_id_from_cache(path, library_mappings) do
     library_mappings
     |> Enum.find(fn lib -> String.starts_with?(path, lib.path) end)
@@ -134,13 +182,13 @@ defmodule Reencodarr.Sync do
       nil -> nil
     end
   end
-  
+
   defp prepare_video_attrs(file, service_type, library_mappings) do
     # Handle different file formats
     case file do
       %{"path" => path, "size" => size} = raw_file ->
         library_id = find_library_id_from_cache(path, library_mappings)
-        
+
         base_attrs = %{
           "path" => path,
           "size" => size,
@@ -149,10 +197,11 @@ defmodule Reencodarr.Sync do
           "library_id" => library_id,
           "dateAdded" => raw_file["dateAdded"]
         }
-        
+
         # Add mediainfo if present
         if raw_file["mediaInfo"] do
           mediainfo = MediaInfoConverter.from_service_file(raw_file, service_type)
+
           Map.merge(base_attrs, %{
             "mediainfo" => mediainfo,
             "bitrate" => raw_file["overallBitrate"] || 0
@@ -160,11 +209,11 @@ defmodule Reencodarr.Sync do
         else
           Map.put(base_attrs, "bitrate", 0)
         end
-        
+
       %VideoFileInfo{} = info ->
         library_id = find_library_id_from_cache(info.path, library_mappings)
         mediainfo = MediaInfoConverter.from_video_file_info(info)
-        
+
         %{
           "path" => info.path,
           "size" => info.size,
@@ -175,7 +224,7 @@ defmodule Reencodarr.Sync do
           "bitrate" => info.bitrate,
           "dateAdded" => info.date_added
         }
-        
+
       _ ->
         Logger.warning("Unknown file format: #{inspect(file)}")
         nil
@@ -212,31 +261,29 @@ defmodule Reencodarr.Sync do
     upsert_video_from_file(info, service_type)
   end
 
-  defp process_single_video_file(%VideoFileInfo{} = info, service_type) do
+  defp process_single_video_file(%VideoFileInfo{} = info, _service_type) do
     # Convert VideoFileInfo to MediaInfo format for database storage
     mediainfo = MediaInfoConverter.from_video_file_info(info)
 
-    result = Repo.transaction(fn ->
-      Media.upsert_video(%{
-        "path" => info.path,
-        "size" => info.size,
-        "service_id" => info.service_id,
-        "service_type" => to_string(info.service_type),
-        "mediainfo" => mediainfo,
-        "bitrate" => info.bitrate,
-        "dateAdded" => info.date_added
-      })
-    end)
+    result =
+      Repo.transaction(fn ->
+        Media.upsert_video(%{
+          "path" => info.path,
+          "size" => info.size,
+          "service_id" => info.service_id,
+          "service_type" => to_string(info.service_type),
+          "mediainfo" => mediainfo,
+          "bitrate" => info.bitrate,
+          "dateAdded" => info.date_added
+        })
+      end)
 
     # Send for analysis if bitrate is missing
     if info.bitrate == 0 do
-      Reencodarr.Analyzer.process_path(%{
-        path: info.path,
-        service_id: info.service_id,
-        service_type: to_string(service_type)
-      })
+      # Just trigger Broadway dispatch - it will automatically find and batch process files needing analysis
+      AnalyzerBroadway.dispatch_available()
     end
-    
+
     result
   end
 
@@ -263,26 +310,26 @@ defmodule Reencodarr.Sync do
       end
 
     # Store in database
-    Repo.checkout(fn ->
-      Media.upsert_video(%{
-        "path" => file["path"],
-        "size" => file["size"],
-        "service_id" => to_string(file["id"]),
-        "service_type" => to_string(service_type),
-        "mediainfo" => mediainfo,
-        "bitrate" => file["overallBitrate"] || 0,
-        "dateAdded" => file["dateAdded"]
-      })
-    end)
+    result =
+      Repo.transaction(fn ->
+        Media.upsert_video(%{
+          "path" => file["path"],
+          "size" => file["size"],
+          "service_id" => to_string(file["id"]),
+          "service_type" => to_string(service_type),
+          "mediainfo" => mediainfo,
+          "bitrate" => file["overallBitrate"] || 0,
+          "dateAdded" => file["dateAdded"]
+        })
+      end)
 
     # Send for analysis if needed
     if needs_analysis do
-      Reencodarr.Analyzer.process_path(%{
-        path: file["path"],
-        service_id: to_string(file["id"]),
-        service_type: to_string(service_type)
-      })
+      # Just trigger Broadway dispatch - it will automatically find and batch process files needing analysis
+      AnalyzerBroadway.dispatch_available()
     end
+
+    result
   end
 
   defp build_video_file_info(file, _media_info, service_type) do
@@ -320,7 +367,7 @@ defmodule Reencodarr.Sync do
   def rescan_and_rename_series(id), do: refresh_operations(id, :sonarr)
 
   def delete_video_and_vmafs(path) do
-    case Reencodarr.Media.delete_videos_with_path(path) do
+    case Media.delete_videos_with_path(path) do
       {:ok, _} -> :ok
       err -> err
     end
