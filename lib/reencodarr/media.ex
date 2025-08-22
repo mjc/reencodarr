@@ -688,9 +688,18 @@ defmodule Reencodarr.Media do
       lowest_vmaf_percent: next_items.next_encoding && next_items.next_encoding.percent,
       lowest_vmaf_by_time_seconds:
         next_items.next_encoding_by_time && next_items.next_encoding_by_time.time,
-      not_reencoded: stats.not_reencoded,
-      reencoded: stats.reencoded,
       total_videos: stats.total_videos,
+      # Use new state-based fields
+      reencoded_count: stats.reencoded_count,
+      failed_count: stats.failed_count,
+      analyzing_count: stats.analyzing_count,
+      encoding_count: stats.encoding_count,
+      searching_count: stats.searching_count,
+      available_count: stats.available_count,
+      paused_count: stats.paused_count,
+      skipped_count: stats.skipped_count,
+      # Add new total savings field
+      total_savings_gb: stats.total_savings_gb,
       total_vmafs: stats.total_vmafs,
       most_recent_video_update: stats.most_recent_video_update,
       most_recent_inserted_video: stats.most_recent_inserted_video,
