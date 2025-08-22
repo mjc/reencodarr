@@ -123,12 +123,6 @@ defmodule Reencodarr.TelemetryReporter do
     {:noreply, emit_state_update_and_return(new_state)}
   end
 
-  # Legacy handler for backwards compatibility
-  def handle_cast({:update_sync, event, data}, %DashboardState{} = state) do
-    new_state = DashboardState.update_sync(state, event, data)
-    {:noreply, emit_state_update_and_return(new_state)}
-  end
-
   # Queue state change handler - immediate reactive updates
   def handle_cast(
         {:update_queue_state, queue_type, measurements, metadata},

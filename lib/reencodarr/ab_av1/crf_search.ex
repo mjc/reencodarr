@@ -189,12 +189,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
-  def handle_info(:refresh_stats, state) do
-    # Legacy message from old statistics system - ignore since we now use telemetry
-    {:noreply, state}
-  end
-
-  @impl true
   def handle_info(:test_reset, state) do
     # Test-only handler to force reset the GenServer state
     # This ensures clean state between tests
