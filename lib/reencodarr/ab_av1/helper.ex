@@ -27,9 +27,21 @@ defmodule Reencodarr.AbAv1.Helper do
 
   @spec build_rules(Media.Video.t()) :: list()
   def build_rules(video) do
-    Rules.apply(video)
-    |> Enum.reject(fn {k, _v} -> k == "--acodec" end)
-    |> Enum.flat_map(fn {k, v} -> [to_string(k), to_string(v)] end)
+    Rules.build_args(video, :crf_search)
+    |> Enum.reject(&(&1 == "--acodec"))
+    |> remove_acodec_values()
+  end
+
+  # Remove acodec values that follow --acodec flags
+  defp remove_acodec_values(args) do
+    args
+    |> Enum.with_index()
+    |> Enum.reject(fn {arg, idx} ->
+      # Remove --acodec flag and its following value
+      arg == "--acodec" or
+        (idx > 0 and Enum.at(args, idx - 1) == "--acodec")
+    end)
+    |> Enum.map(&elem(&1, 0))
   end
 
   @spec temp_dir() :: String.t()
