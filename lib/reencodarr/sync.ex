@@ -2,6 +2,7 @@ defmodule Reencodarr.Sync do
   @moduledoc "Coordinates fetching items from Sonarr/Radarr and syncing them into the database."
   use GenServer
   require Logger
+  import Ecto.Query
   alias Reencodarr.{Media, Repo, Services, Telemetry}
   alias Reencodarr.Media.Video.MediaInfoConverter
   alias Reencodarr.Media.VideoFileInfo
@@ -55,43 +56,152 @@ defmodule Reencodarr.Sync do
   end
 
   defp process_batch({batch, batch_index}, get_files, service_type, total_items) do
-    batch
-    |> Task.async_stream(&fetch_and_upsert_files(&1["id"], get_files, service_type),
-      max_concurrency: 5,
-      timeout: 60_000,
-      on_timeout: :kill_task
+    # Collect all files from all items in this batch
+    all_files = 
+      batch
+      |> Task.async_stream(&fetch_and_upsert_files(&1["id"], get_files, service_type),
+        max_concurrency: 5,
+        timeout: 60_000,
+        on_timeout: :kill_task
+      )
+      |> Enum.flat_map(fn
+        {:ok, files} when is_list(files) -> files
+        _ -> []
+      end)
+
+    # Process all files in a single batch operation
+    if length(all_files) > 0 do
+      batch_upsert_videos(all_files, service_type)
+    end
+
+    # Update progress
+    progress = div((batch_index + 1) * 50 * 100, total_items)
+    Telemetry.emit_sync_progress(min(progress, 100), service_type)
+  end
+
+  defp batch_upsert_videos(files, service_type) do
+    # Pre-fetch all library mappings to avoid N+1 queries
+    library_mappings = preload_library_mappings()
+    
+    # Process files and prepare for batch upsert
+    video_attrs_list = 
+      files
+      |> Enum.map(&prepare_video_attrs(&1, service_type, library_mappings))
+      |> Enum.reject(&is_nil/1)
+    
+    # Group files that need analysis
+    {files_needing_analysis, _} = 
+      Enum.split_with(video_attrs_list, fn attrs -> 
+        Map.get(attrs, "bitrate", 0) == 0 
+      end)
+    
+    # Perform batch upsert in a single transaction
+    Repo.transaction(fn ->
+      Enum.each(video_attrs_list, fn attrs ->
+        Media.VideoUpsert.upsert(attrs)
+      end)
+      
+      # Batch send files for analysis
+      if length(files_needing_analysis) > 0 do
+        analysis_items = Enum.map(files_needing_analysis, fn attrs ->
+          %{
+            path: attrs["path"],
+            service_id: attrs["service_id"],
+            service_type: attrs["service_type"]
+          }
+        end)
+        
+        # Send batch to analyzer (assuming it can handle batches)
+        Enum.each(analysis_items, &Reencodarr.Analyzer.process_path/1)
+      end
+    end, timeout: :infinity)
+  end
+  
+  defp preload_library_mappings do
+    # Pre-fetch all libraries to avoid repeated queries
+    Repo.all(
+      from l in Media.Library,
+        select: %{id: l.id, path: l.path}
     )
-    |> Stream.with_index(batch_index * 50)
-    |> Stream.each(&handle_task_result(&1, total_items, service_type))
-    |> Stream.run()
+    |> Enum.sort_by(& &1.path, :desc)  # Sort by path length desc for proper matching
+  end
+  
+  defp find_library_id_from_cache(path, library_mappings) do
+    library_mappings
+    |> Enum.find(fn lib -> String.starts_with?(path, lib.path) end)
+    |> case do
+      %{id: id} -> id
+      nil -> nil
+    end
+  end
+  
+  defp prepare_video_attrs(file, service_type, library_mappings) do
+    # Handle different file formats
+    case file do
+      %{"path" => path, "size" => size} = raw_file ->
+        library_id = find_library_id_from_cache(path, library_mappings)
+        
+        base_attrs = %{
+          "path" => path,
+          "size" => size,
+          "service_id" => to_string(raw_file["id"]),
+          "service_type" => to_string(service_type),
+          "library_id" => library_id,
+          "dateAdded" => raw_file["dateAdded"]
+        }
+        
+        # Add mediainfo if present
+        if raw_file["mediaInfo"] do
+          mediainfo = MediaInfoConverter.from_service_file(raw_file, service_type)
+          Map.merge(base_attrs, %{
+            "mediainfo" => mediainfo,
+            "bitrate" => raw_file["overallBitrate"] || 0
+          })
+        else
+          Map.put(base_attrs, "bitrate", 0)
+        end
+        
+      %VideoFileInfo{} = info ->
+        library_id = find_library_id_from_cache(info.path, library_mappings)
+        mediainfo = MediaInfoConverter.from_video_file_info(info)
+        
+        %{
+          "path" => info.path,
+          "size" => info.size,
+          "service_id" => info.service_id,
+          "service_type" => to_string(service_type),
+          "library_id" => library_id,
+          "mediainfo" => mediainfo,
+          "bitrate" => info.bitrate,
+          "dateAdded" => info.date_added
+        }
+        
+      _ ->
+        Logger.warning("Unknown file format: #{inspect(file)}")
+        nil
+    end
   end
 
-  defp handle_task_result({res, idx}, total_items, service_type) do
-    progress = div((idx + 1) * 100, total_items)
-    Telemetry.emit_sync_progress(progress, service_type)
-
-    if not match?({:ok, :ok}, res), do: Logger.error("Sync error: #{inspect(res)}")
-  end
-
-  defp fetch_and_upsert_files(id, get_files, service_type) do
+  defp fetch_and_upsert_files(id, get_files, _service_type) do
     case get_files.(id) do
       {:ok, %Req.Response{body: files}} when is_list(files) ->
-        Enum.each(files, &upsert_video_from_file(&1, service_type))
+        # Collect all files for batch processing instead of individual upserts
+        files
 
       _ ->
         Logger.error("Fetch files error for id #{inspect(id)}")
+        []
     end
-
-    :ok
   end
 
+  # Keep these functions for individual file processing (used by webhooks)
   def upsert_video_from_file(%VideoFileInfo{size: nil} = file, service_type) do
     Logger.warning("File size is missing: #{inspect(file)}")
-    process_video_file(file, service_type)
+    process_single_video_file(file, service_type)
   end
 
   def upsert_video_from_file(%VideoFileInfo{} = file, service_type) do
-    process_video_file(file, service_type)
+    process_single_video_file(file, service_type)
   end
 
   def upsert_video_from_file(
@@ -100,6 +210,34 @@ defmodule Reencodarr.Sync do
       ) do
     info = build_video_file_info(file, media_info, service_type)
     upsert_video_from_file(info, service_type)
+  end
+
+  defp process_single_video_file(%VideoFileInfo{} = info, service_type) do
+    # Convert VideoFileInfo to MediaInfo format for database storage
+    mediainfo = MediaInfoConverter.from_video_file_info(info)
+
+    result = Repo.transaction(fn ->
+      Media.upsert_video(%{
+        "path" => info.path,
+        "size" => info.size,
+        "service_id" => info.service_id,
+        "service_type" => to_string(info.service_type),
+        "mediainfo" => mediainfo,
+        "bitrate" => info.bitrate,
+        "dateAdded" => info.date_added
+      })
+    end)
+
+    # Send for analysis if bitrate is missing
+    if info.bitrate == 0 do
+      Reencodarr.Analyzer.process_path(%{
+        path: info.path,
+        service_id: info.service_id,
+        service_type: to_string(service_type)
+      })
+    end
+    
+    result
   end
 
   @doc """
@@ -150,69 +288,6 @@ defmodule Reencodarr.Sync do
   defp build_video_file_info(file, _media_info, service_type) do
     # Use the new converter
     MediaInfoConverter.video_file_info_from_file(file, service_type)
-  end
-
-  defp process_video_file(
-         %VideoFileInfo{audio_codec: codec, bitrate: 0} = info,
-         service_type
-       )
-       when codec in ["TrueHD", "EAC3"] do
-    Repo.checkout(fn ->
-      Reencodarr.Analyzer.process_path(%{
-        path: info.path,
-        service_id: info.service_id,
-        service_type: to_string(service_type)
-      })
-    end)
-  end
-
-  defp process_video_file(
-         %VideoFileInfo{bitrate: 0} = info,
-         service_type
-       ) do
-    Logger.debug("Bitrate is zero, inserting to DB then analyzing video: #{info.path}")
-
-    # Convert VideoFileInfo to MediaInfo format for database storage
-    mediainfo = MediaInfoConverter.from_video_file_info(info)
-
-    Repo.checkout(fn ->
-      Media.upsert_video(%{
-        "path" => info.path,
-        "size" => info.size,
-        "service_id" => info.service_id,
-        "service_type" => to_string(info.service_type),
-        "mediainfo" => mediainfo,
-        "bitrate" => info.bitrate,
-        "dateAdded" => info.date_added
-      })
-    end)
-
-    # Then send to analyzer for processing
-    Reencodarr.Analyzer.process_path(%{
-      path: info.path,
-      service_id: info.service_id,
-      service_type: to_string(service_type)
-    })
-  end
-
-  defp process_video_file(
-         %VideoFileInfo{} = info,
-         _service_type
-       ) do
-    # Convert VideoFileInfo to MediaInfo format for database storage
-    mediainfo = MediaInfoConverter.from_video_file_info(info)
-
-    Repo.checkout(fn ->
-      Media.upsert_video(%{
-        "path" => info.path,
-        "size" => info.size,
-        "service_id" => info.service_id,
-        "service_type" => to_string(info.service_type),
-        "mediainfo" => mediainfo,
-        "bitrate" => info.bitrate,
-        "dateAdded" => info.date_added
-      })
-    end)
   end
 
   def refresh_operations(file_id, :sonarr) do
