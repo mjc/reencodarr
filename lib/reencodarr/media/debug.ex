@@ -7,6 +7,7 @@ defmodule Reencodarr.Media.Debug do
   """
 
   import Ecto.Query
+  alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.Analyzer.QueueManager, as: AnalyzerQueueManager
   alias Reencodarr.Media.Clean
   alias Reencodarr.Media.{Library, Video, VideoQueries, Vmaf}
@@ -20,7 +21,7 @@ defmodule Reencodarr.Media.Debug do
   @spec analyzer_status() :: map()
   def analyzer_status do
     %{
-      analyzer_running: Reencodarr.Analyzer.Broadway.running?(),
+      analyzer_running: AnalyzerBroadway.running?(),
       videos_needing_analysis: VideoQueries.videos_needing_analysis(5),
       manual_queue: get_manual_analyzer_queue(),
       total_analyzer_queue_count:
@@ -55,11 +56,11 @@ defmodule Reencodarr.Media.Debug do
         })
 
         # Trigger Broadway dispatch
-        result = Reencodarr.Analyzer.Broadway.dispatch_available()
+        result = AnalyzerBroadway.dispatch_available()
 
         %{
           dispatch_result: result,
-          broadway_running: Reencodarr.Analyzer.Broadway.running?()
+          broadway_running: AnalyzerBroadway.running?()
         }
     end
   end

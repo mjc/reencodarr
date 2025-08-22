@@ -483,7 +483,7 @@ defmodule Reencodarr.SyncIntegrationTest do
 
     test "analyzer running status can be checked safely" do
       # Test that we can check analyzer status without crashing
-      result = Reencodarr.Analyzer.Broadway.running?()
+      result = AnalyzerBroadway.running?()
       assert is_boolean(result)
 
       # Should work even if analyzer isn't running

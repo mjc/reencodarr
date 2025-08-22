@@ -72,7 +72,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
                 })
 
               # Trigger analysis via Broadway dispatch
-              Reencodarr.Analyzer.Broadway.dispatch_available()
+              Broadway.dispatch_available()
 
               # Give it a moment to process
               Process.sleep(50)
@@ -102,7 +102,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
           capture_log(fn ->
             try do
               # Instead of the removed process_path/1, test Broadway dispatch
-              Reencodarr.Analyzer.Broadway.dispatch_available()
+              Broadway.dispatch_available()
               Process.sleep(50)
             rescue
               _ -> :ok
@@ -144,7 +144,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
           Enum.each(video_infos, fn _video_info ->
             try do
               # Instead of the removed process_path/1, test Broadway dispatch
-              Reencodarr.Analyzer.Broadway.dispatch_available()
+              Broadway.dispatch_available()
             rescue
               _ -> :ok
             end
@@ -217,7 +217,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
             try do
               # This might fail, but should not crash the system
               # Instead of the removed process_path/1, test Broadway dispatch
-              Reencodarr.Analyzer.Broadway.dispatch_available()
+              Broadway.dispatch_available()
               Process.sleep(50)
             rescue
               _ -> :ok
@@ -243,7 +243,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
           Enum.each(test_files, fn _file ->
             try do
               # Instead of the removed process_path/1, test Broadway dispatch
-              Reencodarr.Analyzer.Broadway.dispatch_available()
+              Broadway.dispatch_available()
             rescue
               _ -> :ok
             end
@@ -276,7 +276,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
           for _i <- 1..3 do
             try do
               # Instead of the removed process_path/1, test Broadway dispatch
-              Reencodarr.Analyzer.Broadway.dispatch_available()
+              Broadway.dispatch_available()
 
               Process.sleep(100)
             rescue
@@ -309,7 +309,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
               Task.async(fn ->
                 try do
                   # Instead of the removed process_path/1, test Broadway dispatch
-                  Reencodarr.Analyzer.Broadway.dispatch_available()
+                  Broadway.dispatch_available()
                 rescue
                   _ -> :ok
                 end

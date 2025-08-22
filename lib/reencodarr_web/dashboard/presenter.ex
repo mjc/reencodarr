@@ -13,8 +13,8 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   """
 
   alias Reencodarr.Core.Time
-  alias Reencodarr.Formatters
   alias Reencodarr.Dashboard.QueueBuilder
+  alias Reencodarr.Formatters
   alias Reencodarr.Progress.Normalizer
   alias Reencodarr.Statistics.Stats
 
