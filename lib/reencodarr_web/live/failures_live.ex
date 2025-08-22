@@ -886,7 +886,7 @@ defmodule ReencodarrWeb.FailuresLive do
 
     base_query =
       from v in Reencodarr.Media.Video,
-        where: v.failed == true
+        where: v.state == :failed
 
     # Apply stage and category filters by joining with failures table
     filtered_query =
