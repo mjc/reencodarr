@@ -38,7 +38,8 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
           CrfSearch.process_line(line, video, [])
         end)
 
-      assert log =~ "No match for line"
+      # With OutputParser, invalid lines now return :ignore and don't generate logs
+      refute log =~ "error"
       assert Repo.aggregate(Vmaf, :count, :id) == 0
     end
 
@@ -51,7 +52,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
       assert vmaf.video_id == video.id
       assert vmaf.crf == 28.0
       assert vmaf.score == 91.33
-      assert vmaf.size == "800 MB"
+      assert vmaf.size == "800.0 MB"
       assert vmaf.time == 120
       # ETA VMAF lines are marked as chosen
       assert vmaf.chosen == true

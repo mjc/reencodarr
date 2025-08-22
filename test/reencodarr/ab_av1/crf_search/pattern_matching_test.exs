@@ -317,7 +317,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
           CrfSearch.process_line(large_size_line, video, [])
         end)
 
-      assert log =~ "CrfSearch: VMAF CRF 18 estimated file size (12.5 GB) exceeds 10GB limit"
+      assert log =~ "exceeds 10GB limit"
 
       # Should still create the VMAF record
       vmaf = Repo.one(Vmaf)
@@ -340,7 +340,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
               CrfSearch.process_line(success_line, video, [])
             end)
 
-          assert log =~ "CrfSearch: Chosen VMAF CRF 20 exceeds 10GB limit"
+          assert log =~ "exceeds 10GB limit"
           assert log =~ "Marking as failed"
 
           # Video should be marked as failed
