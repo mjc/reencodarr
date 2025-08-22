@@ -1,5 +1,6 @@
 defmodule Reencodarr.Media do
   import Ecto.Query, warn: false
+  alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.Analyzer.QueueManager
 
   alias Reencodarr.Media.{
@@ -618,7 +619,7 @@ defmodule Reencodarr.Media do
           })
 
           # 3. Manually trigger analysis using Broadway dispatch
-          Reencodarr.Analyzer.Broadway.dispatch_available()
+          AnalyzerBroadway.dispatch_available()
 
           video.path
         end)
@@ -736,11 +737,9 @@ defmodule Reencodarr.Media do
 
   # Manual analyzer queue items from QueueManager
   defp get_manual_analyzer_items do
-    try do
-      QueueManager.get_queue()
-    catch
+    QueueManager.get_queue()
+  catch
       :exit, _ -> []
-    end
   end
 
   # Build minimal stats struct when DB query fails
@@ -904,7 +903,7 @@ defmodule Reencodarr.Media do
   """
   def debug_analyzer_status do
     %{
-      analyzer_running: Reencodarr.Analyzer.Broadway.running?(),
+      analyzer_running: AnalyzerBroadway.running?(),
       videos_needing_analysis: get_videos_needing_analysis(5),
       manual_queue: get_manual_analyzer_items(),
       total_analyzer_queue_count:
@@ -921,7 +920,7 @@ defmodule Reencodarr.Media do
         Logger.info("🐛 Force analyzing video: #{video_path}")
 
         # Trigger Broadway dispatch instead of old compatibility API
-        result1 = Reencodarr.Analyzer.Broadway.dispatch_available()
+        result1 = AnalyzerBroadway.dispatch_available()
 
         # Delete all VMAFs and reset analysis fields to force re-analysis
         delete_vmafs_for_video(video.id)
@@ -941,7 +940,7 @@ defmodule Reencodarr.Media do
         %{
           video: video,
           dispatch_result: result1,
-          broadway_running: Reencodarr.Analyzer.Broadway.running?()
+          broadway_running: AnalyzerBroadway.running?()
         }
 
       nil ->

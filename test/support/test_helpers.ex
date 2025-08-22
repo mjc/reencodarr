@@ -12,6 +12,7 @@ defmodule Reencodarr.TestHelpers do
   """
 
   import ExUnit.Assertions
+  alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
 
   # === ARGUMENT PARSING HELPERS ===
 
@@ -295,7 +296,7 @@ defmodule Reencodarr.TestHelpers do
   """
   def test_broadway_error_handling(_broadway_module, _message) do
     # Trigger Broadway dispatch to test error handling
-    Reencodarr.Analyzer.Broadway.dispatch_available()
+    AnalyzerBroadway.dispatch_available()
   catch
     kind, reason ->
       # Broadway should handle errors gracefully, so catching here indicates a problem

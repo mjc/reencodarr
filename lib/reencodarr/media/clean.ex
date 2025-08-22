@@ -15,6 +15,7 @@ defmodule Reencodarr.Media.Clean do
 
   import Ecto.Query, warn: false
 
+  alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.Media.{
     Library,
     Video,
@@ -238,7 +239,7 @@ defmodule Reencodarr.Media.Clean do
           })
 
           # 3. Manually trigger analysis using Broadway dispatch
-          Reencodarr.Analyzer.Broadway.dispatch_available()
+          AnalyzerBroadway.dispatch_available()
 
           video.path
         end)
