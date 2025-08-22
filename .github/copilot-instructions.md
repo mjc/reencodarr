@@ -312,10 +312,74 @@ end
 ### File Operations
 `FileOperations.move_file/4` handles cross-device moves with copy+delete fallback for EXDEV errors.
 
+### AB-AV1 Command Execution & Output Capture
+The ab-av1 CLI tool is launched and managed through a sophisticated port-based architecture:
+
+#### Port Creation (`Helper.open_port/1`)
+```elixir
+# Command launching with preprocessing
+Port.open({:spawn_executable, path}, [
+  :binary,          # Binary mode for output
+  :exit_status,     # Capture exit codes
+  :line,            # Line-buffered output
+  :use_stdio,       # Use stdin/stdout
+  :stderr_to_stdout, # Merge stderr into stdout
+  args: cleaned_args # Preprocessed arguments
+])
+```
+
+#### Input File Preprocessing
+- **MKV Attachment Cleaning**: Removes image attachments that can cause encoding issues
+- **Argument Sanitization**: Validates and cleans command arguments
+- **Path Resolution**: Handles complex file paths and special characters
+
+#### Output Capture Pattern
+Each GenServer maintains:
+- **Port State**: Active port reference or `:none` when idle
+- **Line Buffering**: `partial_line_buffer` for incomplete lines (`:noeol` messages)
+- **Output History**: `output_buffer` array for failure analysis and debugging
+- **Progress Parsing**: Real-time parsing via `ProgressParser.process_line/2`
+
+#### Message Flow
+```elixir
+# Complete lines trigger immediate parsing
+{port, {:data, {:eol, data}}} ->
+  full_line = partial_line_buffer <> data
+  ProgressParser.process_line(full_line, state)
+  
+# Partial lines are buffered
+{port, {:data, {:noeol, message}}} ->
+  new_buffer = partial_line_buffer <> message
+  
+# Process termination with exit codes
+{port, {:exit_status, exit_code}} ->
+  handle_completion_or_failure(exit_code, output_buffer)
+```
+
+#### Centralized Output Parsing (`AbAv1.OutputParser`)
+- **Regex Patterns**: Comprehensive pattern matching for all ab-av1 output types
+- **Structured Data**: Converts raw text to typed fields (CRF, VMAF scores, progress %)
+- **Pattern Types**: Encoding progress, VMAF results, error messages, success indicators
+- **Field Mapping**: Declarative parsing with type conversion and validation
+
+#### Progress Tracking & Telemetry
+Real-time updates flow through:
+1. **Raw Output**: Port captures ab-av1 stdout/stderr
+2. **Line Parsing**: `OutputParser` converts to structured data
+3. **Progress Events**: `ProgressParser` emits telemetry with progress percentages
+4. **Dashboard Updates**: Telemetry flows to UI via PubSub for real-time feedback
+
+#### Error Handling & Failure Recovery
+- **Exit Code Classification**: Distinguishes system vs. file-specific failures
+- **Output Preservation**: Full command output saved for failure analysis
+- **Automatic Retry**: Preset 6 fallback for encoding failures
+- **Pipeline Coordination**: Proper cleanup and producer notification
+
 ### Progress Parsing
 Complex regex patterns in `@patterns` maps for ab-av1 output parsing:
 ```elixir
 simple_vmaf: ~r/crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/
+encoding_progress: ~r/(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours)/
 ```
 
 ## Key Directories
