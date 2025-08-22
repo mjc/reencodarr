@@ -18,7 +18,9 @@ defmodule Reencodarr.Fixtures do
 
   alias Reencodarr.Media
 
-  # ===  @doc """
+  # === Factory Building Helpers ===
+
+  @doc """
   Marks video as encoded for factory building.
   """
   def with_reencoded(attrs) do
@@ -30,7 +32,9 @@ defmodule Reencodarr.Fixtures do
   """
   def with_failed(attrs) do
     Map.put(attrs, :state, :failed)
-  endNSTANTS ===
+  end
+
+  # === TEST CONSTANTS ===
 
   @test_show_names [
     "Test Show Alpha",
@@ -580,7 +584,7 @@ defmodule Reencodarr.Fixtures do
   Marks video as failed for factory building.
   """
   def as_failed(attrs) do
-    Map.put(attrs, :failed, true)
+    Map.put(attrs, :state, :failed)
   end
 
   @doc """
