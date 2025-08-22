@@ -864,7 +864,8 @@ defmodule Reencodarr.Media do
         "time" => time,
         "size" => size_info,
         "savings" => savings,
-        "target" => 95  # Default VMAF target
+        # Default VMAF target
+        "target" => 95
       })
 
     case upsert_vmaf(vmaf_data) do
@@ -975,7 +976,7 @@ defmodule Reencodarr.Media do
 
     video_filename = Path.basename(filename)
 
-    progress = 
+    progress =
       case vmaf do
         %Vmaf{} = vmaf ->
           # Convert VMAF record to CrfSearchProgress
