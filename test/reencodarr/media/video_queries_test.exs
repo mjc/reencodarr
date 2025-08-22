@@ -64,6 +64,9 @@ defmodule Reencodarr.Media.VideoQueriesTest do
           failed: false
         })
 
+      # Video with missing bitrate should be in :needs_analysis state
+      assert video.state == :needs_analysis
+
       results = VideoQueries.videos_needing_analysis(10)
 
       # Find the video by path since the result is a map, not a full struct
@@ -83,9 +86,17 @@ defmodule Reencodarr.Media.VideoQueriesTest do
           duration: 3600.0,
           video_codecs: ["h264"],
           audio_codecs: ["aac"],
+          audio_count: 1,
+          video_count: 1,
           reencoded: false,
           failed: false
         })
+
+      # Update the video to analyzed state to simulate completed analysis
+      {:ok, analyzed_video} = Reencodarr.Media.update_video(video, %{state: :analyzed})
+
+      # Video with complete metadata should be in :analyzed state
+      assert analyzed_video.state == :analyzed
 
       results = VideoQueries.videos_needing_analysis(10)
 

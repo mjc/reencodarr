@@ -10,16 +10,13 @@ defmodule Reencodarr.Media.VideoQueries do
   alias Reencodarr.{Media.Video, Media.Vmaf, Repo}
 
   @doc """
-  Gets videos ready for CRF search (state: analyzed, no existing VMAFs, not AV1/Opus).
+  Gets videos ready for CRF search (state: analyzed).
   """
   @spec videos_for_crf_search(integer()) :: [Video.t()]
   def videos_for_crf_search(limit \\ 10) do
     Repo.all(
       from v in Video,
-        left_join: m in assoc(v, :vmafs),
-        where:
-          is_nil(m.id) and v.state in [:analyzed, :crf_searched] and v.failed == false and
-            fragment("NOT ? @> ?", v.video_codecs, ^["av1"]),
+        where: v.state == :analyzed and v.failed == false,
         order_by: [desc: v.bitrate, desc: v.size, asc: v.updated_at],
         limit: ^limit,
         select: v
@@ -33,10 +30,7 @@ defmodule Reencodarr.Media.VideoQueries do
   def count_videos_for_crf_search do
     Repo.one(
       from v in Video,
-        left_join: m in assoc(v, :vmafs),
-        where:
-          is_nil(m.id) and v.state in [:analyzed, :crf_searched] and v.failed == false and
-            fragment("NOT ? @> ?", v.video_codecs, ^["av1"]),
+        where: v.state == :analyzed and v.failed == false,
         select: count()
     )
   end
@@ -50,7 +44,7 @@ defmodule Reencodarr.Media.VideoQueries do
   def videos_needing_analysis(limit \\ 10) do
     Repo.all(
       from v in Video,
-        where: is_nil(v.duration) and v.failed == false,
+        where: v.state == :needs_analysis and v.failed == false,
         order_by: [
           desc: v.size,
           desc: v.inserted_at,
@@ -72,7 +66,7 @@ defmodule Reencodarr.Media.VideoQueries do
   def count_videos_needing_analysis do
     Repo.one(
       from v in Video,
-        where: is_nil(v.duration) and v.failed == false,
+        where: v.state == :needs_analysis and v.failed == false,
         select: count()
     )
   end

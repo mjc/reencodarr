@@ -231,7 +231,9 @@ defmodule Reencodarr.Media.BulkOperations do
 
       # Reset all failed videos back to needs_analysis
       from(v in Video, where: v.failed == true)
-      |> Repo.update_all(set: [failed: false, state: :needs_analysis, updated_at: DateTime.utc_now()])
+      |> Repo.update_all(
+        set: [failed: false, state: :needs_analysis, updated_at: DateTime.utc_now()]
+      )
 
       # Delete all unresolved failures
       from(f in VideoFailure, where: is_nil(f.resolved_at))

@@ -33,8 +33,7 @@ defmodule Reencodarr.Media.SharedQueries do
             v.state,
             m_all.chosen
           ),
-        queued_crf_searches_count:
-          fragment("COUNT(*) FILTER (WHERE ? = 'analyzed')", v.state),
+        queued_crf_searches_count: fragment("COUNT(*) FILTER (WHERE ? = 'analyzed')", v.state),
         analyzer_count: fragment("COUNT(*) FILTER (WHERE ? = 'needs_analysis')", v.state),
         most_recent_video_update: max(v.updated_at),
         most_recent_inserted_video: max(v.inserted_at)

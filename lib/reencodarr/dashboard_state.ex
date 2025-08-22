@@ -79,16 +79,17 @@ defmodule Reencodarr.DashboardState do
     encode_count = VideoQueries.encoding_queue_count()
 
     # Merge the comprehensive stats with queue data
-    %{base_stats |
-      next_analyzer: next_analyzer,
-      next_crf_search: next_crf_search,
-      videos_by_estimated_percent: videos_by_estimated_percent,
-      queue_length: %{
-        analyzer: analyzer_count || 0,
-        crf_searches: crf_search_count || 0,
-        encodes: encode_count || 0
-      },
-      encode_queue_length: encode_count || 0
+    %{
+      base_stats
+      | next_analyzer: next_analyzer,
+        next_crf_search: next_crf_search,
+        videos_by_estimated_percent: videos_by_estimated_percent,
+        queue_length: %{
+          analyzer: analyzer_count || 0,
+          crf_searches: crf_search_count || 0,
+          encodes: encode_count || 0
+        },
+        encode_queue_length: encode_count || 0
     }
   end
 
