@@ -167,7 +167,7 @@ defmodule Reencodarr.AbAv1.OutputParser do
         Parsers.field_mapping([
           {:timestamp, :string},
           {:crf, :float},
-          {:vmaf_score, :float, "score"},
+          {:score, :float},
           {:percent, :int}
         ]),
       sample_vmaf:
@@ -175,23 +175,23 @@ defmodule Reencodarr.AbAv1.OutputParser do
           {:sample_num, :int},
           {:total_samples, :int},
           {:crf, :float},
-          {:vmaf_score, :float, "score"},
+          {:score, :float},
           {:percent, :int}
         ]),
       dash_vmaf:
         Parsers.field_mapping([
           {:crf, :float},
-          {:vmaf_score, :float, "score"},
+          {:score, :float},
           {:percent, :int}
         ]),
       eta_vmaf:
         Parsers.field_mapping([
           {:crf, :float},
-          {:vmaf_score, :float, "score"},
-          {:predicted_size, :float, "size"},
-          {:size_unit, :string, "unit"},
+          {:score, :float},
+          {:size, :float},
+          {:unit, :string},
           {:percent, :int},
-          {:time_taken, :float, "time"},
+          {:time, :float},
           {:time_unit, :string}
         ]),
       vmaf_comparison:
