@@ -214,7 +214,7 @@ defmodule Reencodarr.Media.BulkOperations do
     Repo.transaction(fn ->
       # First, get IDs and counts of videos that will be reset
       failed_video_ids =
-        from(v in Video, where: v.failed == true, select: v.id)
+        from(v in Video, where: v.state == :failed, select: v.id)
         |> Repo.all()
 
       videos_to_reset_count = length(failed_video_ids)
@@ -230,7 +230,7 @@ defmodule Reencodarr.Media.BulkOperations do
         |> Repo.delete_all()
 
       # Reset all failed videos back to needs_analysis
-      from(v in Video, where: v.failed == true)
+      from(v in Video, where: v.state == :failed)
       |> Repo.update_all(
         set: [failed: false, state: :needs_analysis, updated_at: DateTime.utc_now()]
       )
@@ -306,7 +306,10 @@ defmodule Reencodarr.Media.BulkOperations do
   """
   @spec reset_failed_videos() :: {integer(), nil}
   def reset_failed_videos do
-    from(v in Video, where: v.failed == true, update: [set: [failed: false]])
+    from(v in Video,
+      where: v.state == :failed,
+      update: [set: [failed: false, state: :needs_analysis]]
+    )
     |> Repo.update_all([])
   end
 
