@@ -17,7 +17,7 @@ defmodule Reencodarr.Media.SharedQueries do
   """
   def aggregated_stats_query do
     from v in Video,
-      where: v.state != :failed,
+      where: v.failed == false,
       left_join: m_all in Vmaf,
       on: m_all.video_id == v.id,
       select: %{
@@ -34,11 +34,7 @@ defmodule Reencodarr.Media.SharedQueries do
             m_all.chosen
           ),
         queued_crf_searches_count:
-          fragment(
-            "COUNT(*) FILTER (WHERE ? IS NULL AND ? = 'analyzed')",
-            m_all.id,
-            v.state
-          ),
+          fragment("COUNT(*) FILTER (WHERE ? = 'analyzed')", v.state),
         analyzer_count: fragment("COUNT(*) FILTER (WHERE ? = 'needs_analysis')", v.state),
         most_recent_video_update: max(v.updated_at),
         most_recent_inserted_video: max(v.inserted_at)
