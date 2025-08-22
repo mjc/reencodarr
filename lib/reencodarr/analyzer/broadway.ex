@@ -120,7 +120,7 @@ defmodule Reencodarr.Analyzer.Broadway do
     failure_detail =
       if length(failed_videos) > 0, do: " (failed: #{Enum.join(failed_videos, ", ")})", else: ""
 
-    Logger.info(
+    Logger.debug(
       "📊 Analyzer: Completed batch #{success_count} success, #{failure_count} failed (#{batch_size} total) in #{duration}ms#{success_detail}#{failure_detail}"
     )
 
