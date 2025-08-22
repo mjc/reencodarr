@@ -1015,8 +1015,7 @@ defmodule Reencodarr.Media do
             analyzed: boolean(),
             has_vmaf: boolean(),
             ready_for_encoding: boolean(),
-            reencoded: boolean(),
-            failed: boolean()
+            reencoded: boolean()
           },
           queue_memberships: %{
             analyzer_broadway: boolean(),

@@ -9,9 +9,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
 
   alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.Media
-  a          # Video should be marked as failed
-          updated_video = Repo.get!(Video, video.id)
-          assert updated_video.state == :faileds Reencodarr.Media.Vmaf
+  alias Reencodarr.Media.Vmaf
   alias Reencodarr.Repo
 
   describe "process_line/3 pattern matching" do
@@ -347,7 +345,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
 
           # Video should be marked as failed
           updated_video = Repo.get(Media.Video, video.id)
-          assert updated_video.failed == true
+          assert updated_video.state == :failed
         end)
     end
   end

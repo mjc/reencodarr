@@ -25,7 +25,7 @@ defmodule Reencodarr.FailureTrackerTest do
 
           # Video should be marked as failed
           updated_video = Repo.get(Media.Video, video.id)
-          assert updated_video.failed == true
+          assert updated_video.state == :failed
         end)
     end
 

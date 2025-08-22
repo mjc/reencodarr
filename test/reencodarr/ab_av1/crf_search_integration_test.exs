@@ -3,19 +3,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
   Integration tests for CRF search functionality.
   Tests the complete workflow and public API with real GenServer interactions.
   """
-  u      # Verify vi      # Now the video      # Video should not be marked as fai      # Vi      # Video should not be failed
-      f      # Video should be failed
-      final_video = Repo.get!(Video, video.id)
-      assert final_video.state == :failedl_video = Repo.get!(Video, video.id)
-      assert final_video.state != :failed should not be failed yet
-      reloaded_video = Repo.get!(Video, video.id)
-      assert reloaded_video.state != :failed
-      reloaded_video = Repo.get!(Video, video.id)
-      assert reloaded_video.state != :failedould be marked as failed
-      final_video = Repo.get!(Video, video.id)
-      assert final_video.state == :failed is not failed yet
-      reloaded_video = Repo.get!(Video, video.id)
-      assert reloaded_video.state != :failedReencodarr.DataCase, async: false
+  use Reencodarr.DataCase, async: false
 
   @moduletag :integration
 
@@ -222,7 +210,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       # Verify video is not failed yet
       reloaded_video = Repo.get(Media.Video, video.id)
-      assert reloaded_video.failed == false
+      assert reloaded_video.state != :failed
 
       # Now process the success line that marks this CRF as chosen
       success_line = "crf 23 successful"
@@ -237,7 +225,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       # Now the video should be marked as failed
       final_video = Repo.get(Media.Video, video.id)
-      assert final_video.failed == true
+      assert final_video.state == :failed
 
       # Verify the VMAF is still there and marked as chosen
       vmaf = Repo.one(Vmaf)
@@ -256,7 +244,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       # Video should not be marked as failed
       reloaded_video = Repo.get(Media.Video, video.id)
-      assert reloaded_video.failed == false
+      assert reloaded_video.state != :failed
 
       # Verify VMAF record exists and is chosen
       vmaf_count = Repo.aggregate(Vmaf, :count, :id)
@@ -295,7 +283,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       # Video should not be failed yet
       reloaded_video = Repo.get(Media.Video, video.id)
-      assert reloaded_video.failed == false
+      assert reloaded_video.state != :failed
 
       # Choose the one under 10GB (CRF 24)
       success_line = "crf 24 successful"
@@ -303,7 +291,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       # Video should not be failed
       final_video = Repo.get(Media.Video, video.id)
-      assert final_video.failed == false
+      assert final_video.state != :failed
 
       # Verify the correct VMAF is chosen
       chosen_vmaf = Repo.one(from v in Vmaf, where: v.chosen == true)
@@ -343,7 +331,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       # Video should be failed
       final_video = Repo.get(Media.Video, video.id)
-      assert final_video.failed == true
+      assert final_video.state == :failed
 
       # Verify the correct VMAF is chosen
       chosen_vmaf = Repo.one(from v in Vmaf, where: v.chosen == true)

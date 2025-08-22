@@ -1,6 +1,5 @@
-defmodule Reencodarr.Encoder.ExceptionHandlingTest do          # Video should be marked as failed
-          updated_video = Repo.get!(Video, video.id)
-          assert updated_video.state == :faileduse Reencodarr.DataCase
+defmodule Reencodarr.Encoder.ExceptionHandlingTest do
+  use Reencodarr.DataCase
   import ExUnit.CaptureLog
 
   alias Reencodarr.{FailureTracker, Media}
@@ -54,7 +53,7 @@ defmodule Reencodarr.Encoder.ExceptionHandlingTest do          # Video should be
 
           # Video should be marked as failed
           updated_video = Repo.get!(Media.Video, video.id)
-          assert updated_video.failed == true
+          assert updated_video.state == :failed
         end)
 
       assert log =~ "Recorded encoding/process_failure failure for video #{video.id}"
