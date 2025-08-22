@@ -117,7 +117,7 @@ defmodule Reencodarr.DashboardState do
   end
 
   defp crf_searcher_running? do
-    Reencodarr.CrfSearcher.running?()
+    Reencodarr.CrfSearcher.Broadway.running?()
   rescue
     _ -> false
   end
