@@ -9,7 +9,9 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
 
   alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.Media
-  alias Reencodarr.Media.Vmaf
+  a          # Video should be marked as failed
+          updated_video = Repo.get!(Video, video.id)
+          assert updated_video.state == :faileds Reencodarr.Media.Vmaf
   alias Reencodarr.Repo
 
   describe "process_line/3 pattern matching" do
@@ -131,8 +133,8 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
       assert log =~ "Failed to find a suitable CRF"
 
       # Check that the video was marked as failed
-      updated_video = Media.get_video!(video.id)
-      assert updated_video.failed == true
+      updated_video = Repo.get!(Video, video.id)
+      assert updated_video.state == :failed
     end
 
     test "handles decimal CRF values", %{video: video, crf_search_lines: lines} do

@@ -1,5 +1,7 @@
 defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
-  @moduledoc """
+      # Video should not be marked as failed
+      updated_video = Repo.get!(Video, video.id)
+      assert updated_video.state != :failedmoduledoc """
   Tests for CRF search retry functionality with --preset 6.
   """
   use Reencodarr.DataCase, async: false

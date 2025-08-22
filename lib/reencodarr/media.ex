@@ -401,7 +401,7 @@ defmodule Reencodarr.Media do
       # Reset all failed videos back to needs_analysis
       from(v in Video, where: v.state == :failed)
       |> Repo.update_all(
-        set: [failed: false, state: :needs_analysis, updated_at: DateTime.utc_now()]
+        set: [state: :needs_analysis, updated_at: DateTime.utc_now()]
       )
 
       # Delete all unresolved failures
@@ -503,7 +503,7 @@ defmodule Reencodarr.Media do
           video = get_video!(vmaf.video_id)
 
           video
-          |> Video.changeset(%{state: :crf_searched, failed: false})
+          |> Video.changeset(%{state: :crf_searched})
           |> Repo.update()
         end
 
@@ -614,8 +614,7 @@ defmodule Reencodarr.Media do
             width: nil,
             height: nil,
             frame_rate: nil,
-            duration: nil,
-            failed: false
+            duration: nil
           })
 
           # 3. Manually trigger analysis using Broadway dispatch
@@ -894,7 +893,7 @@ defmodule Reencodarr.Media do
   def reset_failed_videos do
     from(v in Video,
       where: v.state == :failed,
-      update: [set: [failed: false, state: :needs_analysis]]
+      update: [set: [state: :needs_analysis]]
     )
     |> Repo.update_all([])
   end
@@ -937,7 +936,7 @@ defmodule Reencodarr.Media do
           max_audio_channels: nil,
           resolution: nil,
           file_size: nil,
-          failed: false
+          state: :needs_analysis
         })
 
         %{
@@ -989,8 +988,7 @@ defmodule Reencodarr.Media do
           analyzed: true,
           has_vmaf: true,
           ready_for_encoding: true,
-          reencoded: false,
-          failed: false
+          state: :crf_searched
         },
         queue_memberships: %{
           analyzer_broadway: false,
@@ -1041,8 +1039,6 @@ defmodule Reencodarr.Media do
             analyzed: false,
             has_vmaf: false,
             ready_for_encoding: false,
-            reencoded: false,
-            failed: false,
             state: :needs_analysis
           },
           queue_memberships: %{
@@ -1309,8 +1305,7 @@ defmodule Reencodarr.Media do
       "duration" => 3600.0,
       "video_codecs" => ["H.264"],
       "audio_codecs" => ["AAC"],
-      "reencoded" => false,
-      "failed" => false
+      "state" => :needs_analysis
     }
   end
 

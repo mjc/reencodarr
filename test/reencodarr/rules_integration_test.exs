@@ -25,8 +25,7 @@ defmodule Reencodarr.RulesIntegrationTest do
           atmos: false,
           # Default to no HDR
           hdr: nil,
-          reencoded: false,
-          failed: false
+          state: :needs_analysis
         })
 
       %{video: video}

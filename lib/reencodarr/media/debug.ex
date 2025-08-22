@@ -52,7 +52,7 @@ defmodule Reencodarr.Media.Debug do
           max_audio_channels: nil,
           resolution: nil,
           file_size: nil,
-          failed: false
+          state: :needs_analysis
         })
 
         # Trigger Broadway dispatch
@@ -104,8 +104,7 @@ defmodule Reencodarr.Media.Debug do
           analyzed: true,
           has_vmaf: true,
           ready_for_encoding: true,
-          reencoded: false,
-          failed: false
+          state: :crf_searched
         },
         queue_memberships: %{
           analyzer_broadway: false,
@@ -136,8 +135,7 @@ defmodule Reencodarr.Media.Debug do
             analyzed: false,
             has_vmaf: false,
             ready_for_encoding: false,
-            reencoded: false,
-            failed: false
+            state: :needs_analysis
           },
           queue_memberships: %{
             analyzer_broadway: false,
@@ -382,8 +380,7 @@ defmodule Reencodarr.Media.Debug do
       "duration" => 3600.0,
       "video_codecs" => ["H.264"],
       "audio_codecs" => ["AAC"],
-      "reencoded" => false,
-      "failed" => false
+      "state" => :needs_analysis
     }
   end
 

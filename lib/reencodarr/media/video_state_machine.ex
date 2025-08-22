@@ -96,7 +96,6 @@ defmodule Reencodarr.Media.VideoStateMachine do
   def transition_to_analyzed(%Video{} = video, attrs \\ %{}) do
     attrs_with_validations =
       Map.merge(attrs, %{
-        failed: false,
         # Ensure all analysis fields are present
         validate_analysis_complete: true
       })
@@ -105,34 +104,23 @@ defmodule Reencodarr.Media.VideoStateMachine do
   end
 
   def transition_to_crf_searching(%Video{} = video, attrs \\ %{}) do
-    transition(video, :crf_searching, Map.put(attrs, :failed, false))
+    transition(video, :crf_searching, attrs)
   end
 
   def transition_to_crf_searched(%Video{} = video, attrs \\ %{}) do
-    transition(video, :crf_searched, Map.put(attrs, :failed, false))
+    transition(video, :crf_searched, attrs)
   end
 
   def transition_to_encoding(%Video{} = video, attrs \\ %{}) do
-    transition(video, :encoding, Map.put(attrs, :failed, false))
+    transition(video, :encoding, attrs)
   end
 
   def transition_to_encoded(%Video{} = video, attrs \\ %{}) do
-    attrs_with_completion =
-      Map.merge(attrs, %{
-        reencoded: true,
-        failed: false
-      })
-
-    transition(video, :encoded, attrs_with_completion)
+    transition(video, :encoded, attrs)
   end
 
   def transition_to_failed(%Video{} = video, attrs \\ %{}) do
-    attrs_with_failure =
-      Map.merge(attrs, %{
-        failed: true
-      })
-
-    transition(video, :failed, attrs_with_failure)
+    transition(video, :failed, attrs)
   end
 
   @doc """
@@ -154,8 +142,8 @@ defmodule Reencodarr.Media.VideoStateMachine do
     :encoding
   end
 
-  def next_expected_state(%Video{state: :encoding} = video) do
-    if video.reencoded, do: :encoded, else: :encoding
+  def next_expected_state(%Video{state: :encoding}) do
+    :encoded
   end
 
   def next_expected_state(%Video{state: state}) when state in [:encoded, :failed] do
@@ -194,10 +182,8 @@ defmodule Reencodarr.Media.VideoStateMachine do
   end
 
   defp validate_encoding_requirements(changeset) do
+    # No additional validations needed for encoding requirements in state machine
     changeset
-    |> validate_change(:reencoded, fn :reencoded, reencoded ->
-      if reencoded, do: [], else: [reencoded: "must be true for encoded state"]
-    end)
   end
 
   defp validate_codecs_present(changeset) do

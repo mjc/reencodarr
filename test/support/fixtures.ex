@@ -18,7 +18,19 @@ defmodule Reencodarr.Fixtures do
 
   alias Reencodarr.Media
 
-  # === SAFE TEST CONSTANTS ===
+  # ===  @doc """
+  Marks video as encoded for factory building.
+  """
+  def with_reencoded(attrs) do
+    Map.put(attrs, :state, :encoded)
+  end
+
+  @doc """
+  Marks video as failed for factory building.
+  """
+  def with_failed(attrs) do
+    Map.put(attrs, :state, :failed)
+  endNSTANTS ===
 
   @test_show_names [
     "Test Show Alpha",
@@ -63,8 +75,7 @@ defmodule Reencodarr.Fixtures do
       max_audio_channels: 6,
       atmos: false,
       hdr: nil,
-      reencoded: false,
-      failed: false,
+      state: :needs_analysis,
       service_id: "#{unique_id}",
       service_type: :sonarr
     }
@@ -105,8 +116,7 @@ defmodule Reencodarr.Fixtures do
       # 5GB
       file_size: 5_368_709_120,
       height: 1080,
-      reencoded: false,
-      failed: false
+      state: :needs_analysis
     }
 
     video_fixture(Map.merge(defaults, attrs))
@@ -144,14 +154,14 @@ defmodule Reencodarr.Fixtures do
   Creates a failed video for error handling tests.
   """
   def failed_video_fixture(attrs \\ %{}) do
-    video_fixture(Map.merge(%{failed: true}, attrs))
+    video_fixture(Map.merge(%{state: :failed}, attrs))
   end
 
   @doc """
   Creates a reencoded video for completion scenarios.
   """
   def reencoded_video_fixture(attrs \\ %{}) do
-    video_fixture(Map.merge(%{reencoded: true, video_codec: "av1"}, attrs))
+    video_fixture(Map.merge(%{state: :encoded, video_codec: "av1"}, attrs))
   end
 
   # === STRUCT-BASED VIDEO CREATION ===
@@ -174,8 +184,7 @@ defmodule Reencodarr.Fixtures do
       bitrate: 5_000_000,
       duration: 3600.0,
       path: unique_video_path(),
-      reencoded: false,
-      failed: false,
+      state: :needs_analysis,
       service_type: "sonarr",
       service_id: "1",
       library_id: nil
@@ -311,8 +320,7 @@ defmodule Reencodarr.Fixtures do
           %{
             video_codec: "h264",
             bitrate: 8_000_000,
-            reencoded: false,
-            failed: false
+            state: :needs_analysis
           },
           attrs
         )
@@ -438,8 +446,7 @@ defmodule Reencodarr.Fixtures do
       size: 3_000_000_000,
       video_codecs: ["h264"],
       audio_codecs: ["aac"],
-      reencoded: false,
-      failed: false,
+      state: :needs_analysis,
       width: 1920,
       height: 1080,
       fps: 23.976,
@@ -463,8 +470,7 @@ defmodule Reencodarr.Fixtures do
       size: 2_500_000_000,
       video_codecs: ["h264"],
       audio_codecs: ["A_OPUS"],
-      reencoded: false,
-      failed: false,
+      state: :needs_analysis,
       width: 1920,
       height: 1080,
       fps: 23.976,
@@ -488,8 +494,7 @@ defmodule Reencodarr.Fixtures do
       size: 8_000_000_000,
       video_codecs: ["h265"],
       audio_codecs: ["truehd"],
-      reencoded: false,
-      failed: false,
+      state: :needs_analysis,
       width: 1920,
       height: 1080,
       fps: 23.976,
@@ -513,8 +518,7 @@ defmodule Reencodarr.Fixtures do
       size: 12_000_000_000,
       video_codecs: ["h265"],
       audio_codecs: ["truehd"],
-      reencoded: false,
-      failed: false,
+      state: :needs_analysis,
       width: 3840,
       height: 2160,
       fps: 23.976,
@@ -545,8 +549,7 @@ defmodule Reencodarr.Fixtures do
     defaults = %{
       bitrate: 5_000_000,
       size: 2_000_000_000,
-      reencoded: false,
-      failed: false
+      state: :needs_analysis
     }
 
     Map.merge(defaults, attrs)
@@ -570,7 +573,7 @@ defmodule Reencodarr.Fixtures do
   Marks video as reencoded for factory building.
   """
   def as_reencoded(attrs) do
-    Map.put(attrs, :reencoded, true)
+    Map.put(attrs, :state, :encoded)
   end
 
   @doc """

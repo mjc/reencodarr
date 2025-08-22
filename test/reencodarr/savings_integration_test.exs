@@ -92,8 +92,8 @@ defmodule Reencodarr.SavingsIntegrationTest do
       assert next_video_updated != nil
       assert next_video_updated.video.path == video2.path
 
-      # Mark video2 as reencoded and verify video1 comes next
-      Repo.update!(Ecto.Changeset.change(video2, reencoded: true))
+      # Mark video2 as encoded and verify video1 comes next
+      Repo.update!(Ecto.Changeset.change(video2, state: :encoded))
       next_after_video2 = Media.get_next_for_encoding()
       assert next_after_video2 != nil
       assert next_after_video2.video.path == video.path

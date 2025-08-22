@@ -58,10 +58,15 @@ defmodule Reencodarr.TelemetryReporter do
     Process.flag(:trap_exit, true)
     attach_telemetry_handlers()
 
-    initial_state = DashboardState.initial()
+    # Start with empty state, load data after application is fully started
+    initial_state = %DashboardState{
+      analyzing: false,
+      crf_searching: false,
+      encoding: false
+    }
 
-    # Schedule initial state emission after the GenServer is fully started
-    send(self(), :emit_initial_state)
+    # Schedule initial state load after the GenServer is fully started and database is available
+    send(self(), :load_initial_state)
 
     {:ok, initial_state}
   end
@@ -77,6 +82,13 @@ defmodule Reencodarr.TelemetryReporter do
   end
 
   @impl true
+  def handle_info(:load_initial_state, %DashboardState{} = _state) do
+    # Load the actual initial state from database now that everything is started
+    updated_state = DashboardState.initial()
+    # Emit the loaded state to sync the UI with current Broadway producer states
+    {:noreply, emit_state_update_and_return(updated_state)}
+  end
+
   def handle_info(:emit_initial_state, %DashboardState{} = state) do
     # Emit the initial state to sync the UI with current Broadway producer states
     {:noreply, emit_state_update_and_return(state)}

@@ -23,6 +23,7 @@ defmodule Reencodarr.Media.VideoUpsert do
 
     attrs
     |> normalize_keys_to_strings()
+    |> filter_deprecated_fields()
     |> ensure_library_id()
     |> handle_vmaf_deletion_and_bitrate_preservation()
     |> insert_or_update_video()
@@ -33,6 +34,13 @@ defmodule Reencodarr.Media.VideoUpsert do
       {key, value} when is_atom(key) -> {Atom.to_string(key), value}
       {key, value} -> {key, value}
     end)
+  end
+
+  defp filter_deprecated_fields(attrs) do
+    # Remove deprecated boolean fields that may still come from external services
+    attrs
+    |> Map.delete("reencoded")
+    |> Map.delete("failed")
   end
 
   defp ensure_library_id(attrs) do
@@ -62,19 +70,19 @@ defmodule Reencodarr.Media.VideoUpsert do
   defp handle_vmaf_deletion_and_bitrate_preservation(attrs) do
     path = Map.get(attrs, "path")
     new_values = VideoValidator.extract_comparison_values(attrs)
-    being_marked_reencoded = VideoValidator.get_attr_value(attrs, "reencoded") == true
+    being_marked_encoded = VideoValidator.get_attr_value(attrs, "state") == :encoded
 
     existing_video = get_video_metadata_for_comparison(path)
 
     # Handle VMAF deletion if needed
-    if not being_marked_reencoded and
+    if not being_marked_encoded and
          VideoValidator.should_delete_vmafs?(existing_video, new_values) do
       delete_vmafs_for_video(existing_video.id)
     end
 
     # Determine if we should preserve bitrate
     preserve_bitrate =
-      not being_marked_reencoded and
+      not being_marked_encoded and
         VideoValidator.should_preserve_bitrate?(existing_video, new_values)
 
     if preserve_bitrate do
@@ -105,9 +113,9 @@ defmodule Reencodarr.Media.VideoUpsert do
 
   defp determine_conflict_except_fields(attrs) do
     if Map.has_key?(attrs, "bitrate") do
-      [:id, :inserted_at, :reencoded, :failed]
+      [:id, :inserted_at, :state]
     else
-      [:id, :inserted_at, :reencoded, :failed, :bitrate]
+      [:id, :inserted_at, :state, :bitrate]
     end
   end
 
@@ -204,7 +212,7 @@ defmodule Reencodarr.Media.VideoUpsert do
   defp get_video_metadata_for_comparison(path) do
     Repo.one(
       from v in Video,
-        where: v.path == ^path and v.state != :encoded and v.failed == false,
+        where: v.path == ^path and v.state not in [:encoded, :failed],
         select: %{
           id: v.id,
           size: v.size,

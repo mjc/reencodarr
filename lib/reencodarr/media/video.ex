@@ -22,19 +22,15 @@ defmodule Reencodarr.Media.Video do
     :size,
     :hdr,
     :atmos,
-    :reencoded,
-    :title,
-    :failed
+    :title
   ]
 
   @optional [
     :bitrate,
     :library_id,
     :mediainfo,
-    :reencoded,
     :service_id,
     :service_type,
-    :failed,
     :duration,
     :width,
     :height,
@@ -71,12 +67,10 @@ defmodule Reencodarr.Media.Video do
     field :video_codecs, {:array, :string}, default: []
     field :video_count, :integer
     field :width, :integer
-    field :reencoded, :boolean, default: false
     field :title, :string
     field :service_id, :string
     field :service_type, Ecto.Enum, values: @service_types
     field :mediainfo, :map
-    field :failed, :boolean, default: false
 
     field :state, Ecto.Enum,
       values: [
