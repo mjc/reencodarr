@@ -26,14 +26,8 @@ defmodule Reencodarr.AnalyzerTest do
         force_reanalyze: true
       }
 
-      log_output =
-        capture_log(fn ->
-          # This should not fail and should return :ok
-          assert :ok == Analyzer.process_path(video_info)
-        end)
-
-      # Verify the expected error log is generated when Broadway is not available
-      assert log_output =~ "Producer supervisor not found, cannot trigger dispatch"
+      # This should not fail and should return :ok even when Broadway is not available
+      assert :ok == Analyzer.process_path(video_info)
     end
   end
 

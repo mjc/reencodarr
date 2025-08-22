@@ -1,41 +1,30 @@
 defmodule Reencodarr.Analyzer do
   @moduledoc """
-  Analyzer module that uses Broadway for processing video analysis.
-  Provides backward compatibility with the old GenServer-based analyzer.
+  Simplified compatibility layer for Broadway analyzer operations.
+  
+  Provides a clean API that delegates directly to Broadway modules without
+  complex compatibility overhead.
   """
-  require Logger
 
   alias Reencodarr.Analyzer.Broadway
-  alias Reencodarr.Telemetry
 
   @doc """
-  Process a video path. This function maintains compatibility with the old API
-  but now triggers the Broadway pipeline to check for videos needing analysis.
+  Process a video path by triggering Broadway dispatch.
   """
   @spec process_path(map()) :: :ok
-  def process_path(%{path: path} = _video_info) do
-    Logger.debug("🎭 Processing video path: #{path}")
-
+  def process_path(%{path: _path} = _video_info) do
     case Broadway.dispatch_available() do
-      {:error, :producer_supervisor_not_found} ->
-        Logger.error("Producer supervisor not found, cannot trigger dispatch")
-        :ok
-
-      _ ->
-        :ok
+      {:error, :producer_supervisor_not_found} -> :ok
+      _ -> :ok
     end
   end
 
   @doc """
-  Re-analyze a video by ID. This function maintains compatibility with the old API.
+  Re-analyze a video by ID.
   """
   def reanalyze_video(video_id) do
-    Logger.debug("🎭 Reanalyzing video with ID: #{video_id}")
-
     %{path: path, service_id: service_id, service_type: service_type} =
       Reencodarr.Media.get_video!(video_id)
-
-    Logger.debug("🎭 Found video at path: #{path}")
 
     process_path(%{
       path: path,
@@ -45,29 +34,17 @@ defmodule Reencodarr.Analyzer do
   end
 
   @doc """
-  Start the analyzer. This function maintains compatibility with the old API.
+  Start the analyzer.
   """
-  def start do
-    Logger.debug("🎭 Starting analyzer")
-    result = Broadway.resume()
-    Telemetry.emit_analyzer_started()
-    result
-  end
+  def start, do: Broadway.resume()
 
   @doc """
-  Pause the analyzer. This function maintains compatibility with the old API.
+  Pause the analyzer.
   """
-  def pause do
-    Logger.debug("🎭 Pausing analyzer")
-    result = Broadway.pause()
-    Telemetry.emit_analyzer_paused()
-    result
-  end
+  def pause, do: Broadway.pause()
 
   @doc """
   Check if the analyzer is running.
   """
-  def running? do
-    Broadway.running?()
-  end
+  def running?, do: Broadway.running?()
 end
