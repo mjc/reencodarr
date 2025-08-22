@@ -1,7 +1,7 @@
 defmodule Reencodarr.AbAv1.CrfSearch.RetryLogic do
   @moduledoc """
   Handles retry logic for CRF search operations.
-  
+
   This module determines when and how to retry failed CRF searches,
   particularly with the --preset 6 fallback strategy.
   """
@@ -13,14 +13,14 @@ defmodule Reencodarr.AbAv1.CrfSearch.RetryLogic do
 
   @doc """
   Determines if a CRF search should be retried with --preset 6.
-  
+
   Returns:
   - `:mark_failed` - Too many attempts or no records, mark video as failed
-  - `:already_retried` - Already tried with preset 6, don't retry again  
+  - `:already_retried` - Already tried with preset 6, don't retry again
   - `{:retry, vmaf_records}` - Should retry with preset 6, returns existing records to clear
   """
-  @spec should_retry_with_preset_6(integer()) :: 
-    :mark_failed | :already_retried | {:retry, list(Media.Vmaf.t())}
+  @spec should_retry_with_preset_6(integer()) ::
+          :mark_failed | :already_retried | {:retry, list(Media.Vmaf.t())}
   def should_retry_with_preset_6(video_id) do
     import Ecto.Query
 
@@ -50,17 +50,18 @@ defmodule Reencodarr.AbAv1.CrfSearch.RetryLogic do
   @doc """
   Builds detailed error message for CRF search failures.
   """
-  @spec build_detailed_error_message(integer(), list(float()), String.t()) :: String.t()
+  @spec build_detailed_error_message(integer(), [%{crf: float(), score: float()}], String.t()) ::
+          String.t()
   def build_detailed_error_message(target_vmaf, tested_scores, video_path) do
     if Enum.empty?(tested_scores) do
-      "CrfSearch: Failed to find suitable CRF for #{video_path} - no VMAF scores were tested"
+      "CrfSearch: Failed to find a suitable CRF for #{video_path} - no VMAF scores were tested"
     else
-      scores_text = 
+      scores_text =
         tested_scores
-        |> Enum.map(&Float.to_string/1)
+        |> Enum.map(fn %{crf: crf, score: score} -> "CRF #{crf}: #{score}" end)
         |> Enum.join(", ")
-      
-      "CrfSearch: Failed to find suitable CRF for #{video_path}. Target: #{target_vmaf}, tested scores: [#{scores_text}]"
+
+      "CrfSearch: Failed to find a suitable CRF for #{video_path}. Target: #{target_vmaf}, tested scores: [#{scores_text}]"
     end
   end
 
@@ -81,22 +82,26 @@ defmodule Reencodarr.AbAv1.CrfSearch.RetryLogic do
 
     case retry_result do
       :mark_failed ->
-        Logger.warning("CrfSearch: Marking video #{video.id} as failed after exhausting retry options")
+        Logger.warning(
+          "CrfSearch: Marking video #{video.id} as failed after exhausting retry options"
+        )
+
         Media.VideoStateMachine.mark_as_failed(video)
 
       :already_retried ->
         Logger.warning(
           "CrfSearch: Video #{video.id} already retried with preset 6, marking as failed"
         )
+
         Media.VideoStateMachine.mark_as_failed(video)
 
       {:retry, vmaf_records} ->
         Logger.info(
           "CrfSearch: Retrying video #{video.id} with --preset 6 (clearing #{length(vmaf_records)} existing VMAF records)"
         )
-        
+
         Media.clear_vmaf_records(video.id, vmaf_records)
-        
+
         # Trigger retry with preset 6
         GenServer.cast(
           Reencodarr.AbAv1.CrfSearch,

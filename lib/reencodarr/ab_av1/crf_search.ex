@@ -68,18 +68,28 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  # Test helpers - only available in test environment  
+  # Test helpers - only available in test environment
   if Mix.env() == :test do
     def has_preset_6_params?(params), do: Media.has_preset_6_params?(params)
     def should_retry_with_preset_6(video_id), do: RetryLogic.should_retry_with_preset_6(video_id)
-    def clear_vmaf_records_for_video(video_id, vmaf_records), do: Media.clear_vmaf_records(video_id, vmaf_records)
-    def build_crf_search_args_with_preset_6(video, vmaf_percent), do: build_crf_search_args_with_preset_6_private(video, vmaf_percent)
-    def build_crf_search_args(video, vmaf_percent), do: build_crf_search_args_private(video, vmaf_percent)
+
+    def clear_vmaf_records_for_video(video_id, vmaf_records),
+      do: Media.clear_vmaf_records(video_id, vmaf_records)
+
+    def build_crf_search_args_with_preset_6(video, vmaf_percent),
+      do: build_crf_search_args_with_preset_6_private(video, vmaf_percent)
+
+    def build_crf_search_args(video, vmaf_percent),
+      do: build_crf_search_args_private(video, vmaf_percent)
 
     # Legacy function names for backward compatibility
     def should_retry_with_preset_6_for_test(video_id), do: should_retry_with_preset_6(video_id)
-    def build_crf_search_args_with_preset_6_for_test(video, vmaf_percent), do: build_crf_search_args_with_preset_6(video, vmaf_percent)
-    def build_crf_search_args_for_test(video, vmaf_percent), do: build_crf_search_args(video, vmaf_percent)
+
+    def build_crf_search_args_with_preset_6_for_test(video, vmaf_percent),
+      do: build_crf_search_args_with_preset_6(video, vmaf_percent)
+
+    def build_crf_search_args_for_test(video, vmaf_percent),
+      do: build_crf_search_args(video, vmaf_percent)
   end
 
   # GenServer callbacks
