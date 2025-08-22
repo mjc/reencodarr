@@ -134,6 +134,17 @@ defmodule Reencodarr.Media.VideoUpsert do
         Logger.debug("Video upserted successfully: #{video.path}")
         {:ok, video}
 
+      {:ok, {:error, %Ecto.Changeset{errors: [updated_at: {"is stale", _}]} = changeset}} ->
+        # This is expected when dateAdded is not newer than updated_at - treat as success (skip)
+        path = Map.get(attrs, "path")
+        Logger.debug("Skipping update for #{path} - dateAdded not newer than updated_at")
+
+        # Return the existing video instead of an error
+        case Repo.get_by(Video, path: path) do
+          nil -> {:error, changeset}  # Shouldn't happen, but handle gracefully
+          existing_video -> {:ok, existing_video}
+        end
+
       {:ok, {:error, changeset}} ->
         Logger.error("Video upsert failed: #{inspect(changeset.errors)}")
         {:error, changeset}
