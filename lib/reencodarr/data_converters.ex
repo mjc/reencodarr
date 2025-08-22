@@ -99,4 +99,73 @@ defmodule Reencodarr.DataConverters do
 
   def parse_numeric(value, _opts) when is_number(value), do: value * 1.0
   def parse_numeric(_value, _opts), do: 0.0
+
+  @doc """
+  Converts a value to a number (integer or float).
+  Returns nil if conversion fails.
+  """
+  def convert_to_number(nil), do: nil
+  def convert_to_number(val) when is_number(val), do: val
+
+  def convert_to_number(val) when is_binary(val) do
+    case Float.parse(val) do
+      {num, _} -> num
+      :error -> nil
+    end
+  end
+
+  def convert_to_number(_), do: nil
+
+  @doc """
+  Converts size string (e.g., "12.5 GB") to bytes for comparison with size limits.
+  Uses binary prefixes (1024-based) to match Formatters module.
+  """
+  @unit_multipliers %{
+    "b" => 1,
+    # KiB
+    "kb" => 1024,
+    # MiB
+    "mb" => 1024 * 1024,
+    # GiB
+    "gb" => 1024 * 1024 * 1024,
+    # TiB
+    "tb" => 1024 * 1024 * 1024 * 1024
+  }
+
+  def convert_size_to_bytes(size_str, unit) when is_binary(size_str) and is_binary(unit) do
+    with {size_value, _} <- Float.parse(size_str),
+         multiplier when not is_nil(multiplier) <-
+           Map.get(@unit_multipliers, String.downcase(unit)) do
+      round(size_value * multiplier)
+    else
+      _ -> nil
+    end
+  end
+
+  def convert_size_to_bytes(_, _), do: nil
+
+  @doc """
+  Calculate estimated space savings in bytes based on percent and original video size.
+  Used for VMAF calculations to estimate how much space will be saved.
+  """
+  def calculate_savings(nil, _video_size), do: nil
+  def calculate_savings(_percent, nil), do: nil
+
+  def calculate_savings(percent, video_size) when is_binary(percent) do
+    case Float.parse(percent) do
+      {percent_float, _} -> calculate_savings(percent_float, video_size)
+      :error -> nil
+    end
+  end
+
+  def calculate_savings(percent, video_size) when is_number(percent) and is_number(video_size) do
+    if percent > 0 and percent <= 100 do
+      # Savings = (100 - percent) / 100 * original_size
+      round((100 - percent) / 100 * video_size)
+    else
+      nil
+    end
+  end
+
+  def calculate_savings(_, _), do: nil
 end
