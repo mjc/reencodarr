@@ -1,3 +1,10 @@
-[2024-12-12T20:25:29Z INFO  ab_av1::command::encode] encoding sample_video.mkv
-[2024-12-12T20:29:19Z INFO  ab_av1::command::encode] 99%, 146 fps, eta 3 seconds
-Encoded 322.34 MiB (5%)
+[2025-08-23T19:26:45Z INFO  ab_av1::command::encode] encoding 9706192.mkv
+[2025-08-23T19:27:01Z INFO  ab_av1::command::encode] 1%, 128 fps, eta 30 minutes
+[2025-08-23T19:27:17Z INFO  ab_av1::command::encode] 3%, 124 fps, eta 19 minutes
+[2025-08-23T19:27:49Z INFO  ab_av1::command::encode] 6%, 127 fps, eta 18 minutes
+[2025-08-23T19:28:53Z INFO  ab_av1::command::encode] 11%, 129 fps, eta 17 minutes
+[2025-08-23T19:31:01Z INFO  ab_av1::command::encode] 23%, 132 fps, eta 14 minutes
+[2025-08-23T19:35:17Z INFO  ab_av1::command::encode] 38%, 108 fps, eta 14 minutes
+[2025-08-23T19:43:49Z INFO  ab_av1::command::encode] 64%, 91 fps, eta 10 minutes
+Encoded 4.32 GiB (28%)
+[2025-08-23T19:52:52Z INFO  ab_av1::command::encode] encoding 6684421.mkv
