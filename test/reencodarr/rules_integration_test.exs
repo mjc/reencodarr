@@ -3,7 +3,7 @@ defmodule Reencodarr.RulesIntegrationTest do
   use Reencodarr.DataCase
 
   alias Reencodarr.AbAv1.{CrfSearch, Encode}
-  alias Reencodarr.Encoder.Broadway
+  alias Reencodarr.AbAv1.Encode
   alias Reencodarr.{Media, Repo, Rules}
 
   describe "integration with encoder modules" do
@@ -42,7 +42,7 @@ defmodule Reencodarr.RulesIntegrationTest do
         })
 
       vmaf = Repo.preload(vmaf, :video)
-      args = Broadway.build_encode_args_for_test(vmaf)
+      args = Encode.build_encode_args_for_test(vmaf)
 
       # Should include audio codec
       assert "--acodec" in args

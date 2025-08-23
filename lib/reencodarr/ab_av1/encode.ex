@@ -234,9 +234,21 @@ defmodule Reencodarr.AbAv1.Encode do
     Reencodarr.Rules.build_args(vmaf.video, :encode, vmaf_params, base_args)
   end
 
-  # Test helper function to expose build_encode_args for testing
-  if Mix.env() == :test do
-    def build_encode_args_for_test(vmaf), do: build_encode_args(vmaf)
+  # Test helper functions
+  def build_encode_args_for_test(vmaf), do: build_encode_args(vmaf)
+
+  def filter_input_output_args_for_test(args) do
+    # Convert args list to tuples and filter out input/output flags
+    args
+    |> Enum.chunk_every(2)
+    |> Enum.reject(fn
+      ["--input", _] -> true
+      ["-i", _] -> true
+      ["--output", _] -> true
+      ["-o", _] -> true
+      _ -> false
+    end)
+    |> List.flatten()
   end
 
   defp notify_encoder_success(video, output_file) do

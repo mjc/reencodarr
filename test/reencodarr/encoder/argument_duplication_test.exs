@@ -1,7 +1,7 @@
 defmodule Reencodarr.Encoder.ArgumentDuplicationTest do
   use ExUnit.Case, async: true
 
-  alias Reencodarr.Encoder.Broadway
+  alias Reencodarr.AbAv1.Encode
 
   describe "build_encode_args/1" do
     test "does not duplicate input/output arguments when present in vmaf params" do
@@ -19,7 +19,7 @@ defmodule Reencodarr.Encoder.ArgumentDuplicationTest do
         ]
       }
 
-      args = Broadway.build_encode_args_for_test(vmaf)
+      args = Encode.build_encode_args_for_test(vmaf)
 
       # Count occurrences of input/output flags
       input_count = Enum.count(args, &(&1 == "--input"))
@@ -60,7 +60,7 @@ defmodule Reencodarr.Encoder.ArgumentDuplicationTest do
         "4"
       ]
 
-      filtered = Broadway.filter_input_output_args_for_test(args)
+      filtered = Encode.filter_input_output_args_for_test(args)
 
       # Should not contain input/output flags or their values
       refute "--input" in filtered
@@ -89,7 +89,7 @@ defmodule Reencodarr.Encoder.ArgumentDuplicationTest do
         "/path/output.mkv"
       ]
 
-      filtered = Broadway.filter_input_output_args_for_test(args)
+      filtered = Encode.filter_input_output_args_for_test(args)
 
       # Should not contain short form input/output flags or their values
       refute "-i" in filtered
@@ -111,7 +111,7 @@ defmodule Reencodarr.Encoder.ArgumentDuplicationTest do
         params: nil
       }
 
-      args = Broadway.build_encode_args_for_test(vmaf)
+      args = Encode.build_encode_args_for_test(vmaf)
 
       # Should still have the base structure
       input_count = Enum.count(args, &(&1 == "--input"))
@@ -128,7 +128,7 @@ defmodule Reencodarr.Encoder.ArgumentDuplicationTest do
         params: []
       }
 
-      args = Broadway.build_encode_args_for_test(vmaf)
+      args = Encode.build_encode_args_for_test(vmaf)
 
       # Should still have the base structure
       input_count = Enum.count(args, &(&1 == "--input"))
