@@ -89,7 +89,7 @@ iex -S mix phx.server       # Development with live reload
 
 # Database
 mix ecto.reset              # Drop/create/migrate/seed
-mix test                    # Uses manual sandbox mode
+mix test                    # Always run full suite (only --trace option allowed)
 
 # Debugging
 # Visit /broadway-dashboard for pipeline monitoring

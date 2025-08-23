@@ -57,9 +57,9 @@ defmodule Reencodarr.AbAv1.CrfSearch.RetryLogic do
       "CrfSearch: Failed to find a suitable CRF for #{video_path} - no VMAF scores were tested"
     else
       scores_text =
-        tested_scores
-        |> Enum.map(fn %{crf: crf, score: score} -> "CRF #{crf}: #{score}" end)
-        |> Enum.join(", ")
+        Enum.map_join(tested_scores, ", ", fn %{crf: crf, score: score} ->
+          "CRF #{crf}: #{score}"
+        end)
 
       "CrfSearch: Failed to find a suitable CRF for #{video_path}. Target: #{target_vmaf}, tested scores: [#{scores_text}]"
     end
