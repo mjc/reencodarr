@@ -422,9 +422,8 @@ defmodule Reencodarr.Encoder.Broadway do
 
         # Add line to output buffer for failure tracking
         new_output_buffer = [full_line | state.output_buffer]
-        new_state = %{state | partial_line_buffer: "", output_buffer: new_output_buffer}
-
         # Yield control back to the scheduler to allow Broadway metrics to update
+        new_state = %{state | partial_line_buffer: "", output_buffer: new_output_buffer}
         Process.sleep(1)
         process_port_messages(new_state, encoding_timeout)
 
