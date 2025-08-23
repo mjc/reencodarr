@@ -7,12 +7,66 @@ defmodule Reencodarr.AbAv1.ProgressParser do
   operation context (encoding vs CRF search).
   """
 
+  import NimbleParsec
+
   alias Reencodarr.AbAv1.CrfSearch.RetryLogic
   alias Reencodarr.AbAv1.OutputParser
   alias Reencodarr.Formatters
   alias Reencodarr.{Media, Telemetry}
 
   require Logger
+
+  # NimbleParsec size parser for strings like "2.5 GB", "800 MB", etc.
+  number =
+    choice([
+      ascii_string([?0..?9], min: 1)
+      |> string(".")
+      |> ascii_string([?0..?9], min: 1)
+      |> reduce(:to_float),
+      ascii_string([?0..?9], min: 1)
+      |> reduce(:to_integer)
+    ])
+
+  unit =
+    choice([
+      string("TB") |> replace("tb"),
+      string("GB") |> replace("gb"),
+      string("MB") |> replace("mb"),
+      string("KB") |> replace("kb"),
+      string("B") |> replace("b"),
+      string("GiB") |> replace("gib"),
+      string("MiB") |> replace("mib"),
+      string("KiB") |> replace("kib"),
+      # Case insensitive handling
+      string("tb"),
+      string("gb"),
+      string("mb"),
+      string("kb"),
+      string("b"),
+      string("gib"),
+      string("mib"),
+      string("kib")
+    ])
+
+  size_parser =
+    number
+    |> optional(ascii_string([?\s], min: 1))
+    |> concat(unit)
+    |> reduce(:build_size)
+
+  defparsec(:parse_size, size_parser)
+
+  # Helper functions
+  defp to_float([int_part, ".", decimal_part]), do: String.to_float("#{int_part}.#{decimal_part}")
+  defp to_integer([int_str]), do: String.to_integer(int_str)
+
+  defp build_size([size_value, unit_str]) when is_number(size_value) do
+    %{size: size_value, unit: unit_str}
+  end
+
+  defp build_size([size_value, _whitespace, unit_str]) when is_number(size_value) do
+    %{size: size_value, unit: unit_str}
+  end
 
   @doc """
   Process a single line of ab-av1 output with operation context.
@@ -340,18 +394,18 @@ defmodule Reencodarr.AbAv1.ProgressParser do
   end
 
   defp parse_size_string(size_string) when is_binary(size_string) do
-    case Regex.run(~r/^(\d+\.?\d*)\s*(\w+)$/i, String.trim(size_string)) do
-      [_, size_value, unit] ->
-        case Float.parse(size_value) do
-          {size_float, ""} ->
-            bytes = convert_size_to_bytes(size_float, unit)
-            {:ok, bytes}
+    trimmed = String.trim(size_string)
 
-          _ ->
-            :error
-        end
+    case parse_size(trimmed) do
+      {:ok, [%{size: size_value, unit: unit}], "", %{}, {1, 0}, _column} ->
+        bytes = convert_size_to_bytes(size_value, unit)
+        {:ok, bytes}
 
-      _ ->
+      {:ok, [%{size: size_value, unit: unit}], _rest, %{}, {1, 0}, _column} ->
+        bytes = convert_size_to_bytes(size_value, unit)
+        {:ok, bytes}
+
+      {:error, _reason, _rest, _context, _line, _column} ->
         :error
     end
   end
