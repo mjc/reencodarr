@@ -468,6 +468,67 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
       assert vmaf.score == 94.50
       assert vmaf.percent == 75.0
     end
+
+    test "comprehensive fixture processing coverage", %{video: video, crf_search_lines: crf_lines, encoding_lines: enc_lines} do
+      # Test that ProgressParser can handle ALL fixture lines without errors
+      all_lines = crf_lines ++ enc_lines
+
+      # Test CRF search context with all lines
+      {processed_crf, error_crf} = 
+        Enum.reduce(crf_lines, {0, 0}, fn line, {processed, errors} ->
+          try do
+            ProgressParser.process_line(line, {video, [], 95})
+            {processed + 1, errors}
+          rescue
+            error ->
+            IO.puts "Error processing CRF line: #{line}"
+            IO.puts "Error: #{inspect(error)}"
+            {processed, errors + 1}
+          end
+        end)
+
+      # Test encoding context with encoding lines
+      encoding_state = %{
+        video: video,
+        vmaf: %{id: 1, video: video},
+        output_file: "/tmp/1.mkv",
+        port: :test_port,
+        partial_line_buffer: ""
+      }
+
+      {processed_enc, error_enc} = 
+        Enum.reduce(enc_lines, {0, 0}, fn line, {processed, errors} ->
+          try do
+            ProgressParser.process_line(line, encoding_state)
+            {processed + 1, errors}
+          rescue
+            error ->
+            IO.puts "Error processing encoding line: #{line}"
+            IO.puts "Error: #{inspect(error)}"
+            {processed, errors + 1}
+          end
+        end)
+
+      total_lines = length(all_lines)
+      total_processed = processed_crf + processed_enc
+      total_errors = error_crf + error_enc
+
+      # Log comprehensive analysis
+      IO.puts "\n=== ProgressParser Fixture Coverage Analysis ==="
+      IO.puts "Total fixture lines processed: #{total_lines}"
+      IO.puts "Successfully processed: #{total_processed}"
+      IO.puts "Errors encountered: #{total_errors}"
+      if total_lines > 0 do
+        IO.puts "Success rate: #{Float.round(total_processed / total_lines * 100, 1)}%"
+      end
+      IO.puts "CRF search lines: #{processed_crf}"
+      IO.puts "Encoding lines: #{processed_enc}"
+
+      # Verify we processed lines without major errors
+      assert total_lines > 0, "No fixture lines found"
+      assert total_errors == 0, "ProgressParser encountered #{total_errors} errors processing fixture lines"
+      assert total_processed == total_lines, "Expected to process all #{total_lines} lines, but only processed #{total_processed}"
+    end
   end
 
   # =============================================================================
@@ -573,113 +634,26 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
       vmaf = Repo.one(Vmaf)
       assert vmaf.chosen == true
     end
-
-    test "comprehensive fixture processing coverage", %{
-      video: video,
-      crf_search_lines: crf_lines,
-      encoding_lines: enc_lines
-    } do
-      # Test that ProgressParser can handle ALL fixture lines without errors
-      all_lines = crf_lines ++ enc_lines
-
-      processed_count = 0
-      error_count = 0
-      context_counts = %{crf_search: 0, encoding: 0}
-
-      # Test CRF search context with all lines
-      Enum.each(crf_lines, fn line ->
-        try do
-          ProgressParser.process_line(line, {video, [], 95})
-          processed_count = processed_count + 1
-          context_counts = Map.update!(context_counts, :crf_search, &(&1 + 1))
-        rescue
-          error ->
-            error_count = error_count + 1
-            IO.puts("Error processing CRF line: #{line}")
-            IO.puts("Error: #{inspect(error)}")
-        end
-      end)
-
-      # Test encoding context with encoding lines
-      encoding_state = %{
-        video: video,
-        vmaf: %{id: 1, video: video},
-        output_file: "/tmp/1.mkv",
-        port: :test_port,
-        partial_line_buffer: ""
-      }
-
-      Enum.each(enc_lines, fn line ->
-        try do
-          ProgressParser.process_line(line, encoding_state)
-          processed_count = processed_count + 1
-          context_counts = Map.update!(context_counts, :encoding, &(&1 + 1))
-        rescue
-          error ->
-            error_count = error_count + 1
-            IO.puts("Error processing encoding line: #{line}")
-            IO.puts("Error: #{inspect(error)}")
-        end
-      end)
-
-      total_lines = length(all_lines)
-
-      # Log comprehensive analysis
-      IO.puts("\n=== ProgressParser Fixture Coverage Analysis ===")
-      IO.puts("Total fixture lines processed: #{total_lines}")
-      IO.puts("Successfully processed: #{processed_count}")
-      IO.puts("Errors encountered: #{error_count}")
-
-      if total_lines > 0 do
-        IO.puts("Success rate: #{Float.round(processed_count / total_lines * 100, 1)}%")
-      end
-
-      IO.puts("CRF search lines: #{context_counts.crf_search}")
-      IO.puts("Encoding lines: #{context_counts.encoding}")
-
-      # Verify we processed lines without major errors
-      assert total_lines > 0, "No fixture lines found"
-
-      assert error_count == 0,
-             "ProgressParser encountered #{error_count} errors processing fixture lines"
-
-      assert processed_count == total_lines,
-             "Expected to process all #{total_lines} lines, but only processed #{processed_count}"
-    end
   end
 
   describe "NimbleParsec size parser" do
     test "parses various size formats correctly" do
       # Test decimal sizes
-      assert {:ok, [%{size: 2.5, unit: "gb"}], "", %{}, {1, 0}, _} =
-               ProgressParser.parse_size("2.5 GB")
-
-      assert {:ok, [%{size: 800.0, unit: "mb"}], "", %{}, {1, 0}, _} =
-               ProgressParser.parse_size("800.0 MB")
-
-      assert {:ok, [%{size: 1.2, unit: "tb"}], "", %{}, {1, 0}, _} =
-               ProgressParser.parse_size("1.2TB")
+      assert {:ok, [%{size: 2.5, unit: "gb"}], "", %{}, {1, 0}, _} = ProgressParser.parse_size("2.5 GB")
+      assert {:ok, [%{size: 800.0, unit: "mb"}], "", %{}, {1, 0}, _} = ProgressParser.parse_size("800.0 MB")
+      assert {:ok, [%{size: 1.2, unit: "tb"}], "", %{}, {1, 0}, _} = ProgressParser.parse_size("1.2TB")
 
       # Test integer sizes
-      assert {:ok, [%{size: 500, unit: "mb"}], "", %{}, {1, 0}, _} =
-               ProgressParser.parse_size("500 MB")
-
-      assert {:ok, [%{size: 1024, unit: "kb"}], "", %{}, {1, 0}, _} =
-               ProgressParser.parse_size("1024KB")
+      assert {:ok, [%{size: 500, unit: "mb"}], "", %{}, {1, 0}, _} = ProgressParser.parse_size("500 MB")
+      assert {:ok, [%{size: 1024, unit: "kb"}], "", %{}, {1, 0}, _} = ProgressParser.parse_size("1024KB")
 
       # Test binary units
-      assert {:ok, [%{size: 2, unit: "gib"}], "", %{}, {1, 0}, _} =
-               ProgressParser.parse_size("2 GiB")
-
-      assert {:ok, [%{size: 512, unit: "mib"}], "", %{}, {1, 0}, _} =
-               ProgressParser.parse_size("512MiB")
+      assert {:ok, [%{size: 2, unit: "gib"}], "", %{}, {1, 0}, _} = ProgressParser.parse_size("2 GiB")
+      assert {:ok, [%{size: 512, unit: "mib"}], "", %{}, {1, 0}, _} = ProgressParser.parse_size("512MiB")
 
       # Test case insensitive
-      assert {:ok, [%{size: 100, unit: "gb"}], "", %{}, {1, 0}, _} =
-               ProgressParser.parse_size("100gb")
-
-      assert {:ok, [%{size: 50, unit: "mb"}], "", %{}, {1, 0}, _} =
-               ProgressParser.parse_size("50mb")
+      assert {:ok, [%{size: 100, unit: "gb"}], "", %{}, {1, 0}, _} = ProgressParser.parse_size("100gb")
+      assert {:ok, [%{size: 50, unit: "mb"}], "", %{}, {1, 0}, _} = ProgressParser.parse_size("50mb")
     end
 
     test "handles invalid size formats" do
@@ -693,22 +667,19 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
     test "size string parsing integration" do
       # Test the public interface that uses NimbleParsec internally
       # This tests the private parse_size_string function indirectly through vmaf size checking
-      video =
-        Fixtures.video_fixture(%{
-          path: "/test/size_test_#{System.unique_integer([:positive])}/video.mkv",
-          service_id: "test_size",
-          service_type: :sonarr,
-          size: 1_000_000_000
-        })
+      video = Fixtures.video_fixture(%{
+        path: "/test/size_test_#{System.unique_integer([:positive])}/video.mkv",
+        service_id: "test_size",
+        service_type: :sonarr,
+        size: 1_000_000_000
+      })
 
       # Create vmaf record with size data
       vmaf_params = %{
         crf: 24,
         score: 95.5,
-        # This will be parsed by our NimbleParsec parser
-        size: "2.5 GB",
-        # Required field
-        params: ["--crf", "24"],
+        size: "2.5 GB",  # This will be parsed by our NimbleParsec parser
+        params: ["--crf", "24"],  # Required field
         video_id: video.id
       }
 
