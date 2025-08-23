@@ -8,6 +8,7 @@ defmodule Reencodarr.Integration.Preset6WorkflowTest do
   use Reencodarr.DataCase, async: false
 
   alias Reencodarr.AbAv1.{CrfSearch, Encode}
+  alias Reencodarr.AbAv1.ProgressParser
   alias Reencodarr.{Media, Repo}
 
   import ExUnit.CaptureLog
@@ -89,7 +90,7 @@ defmodule Reencodarr.Integration.Preset6WorkflowTest do
         capture_log(fn ->
           # Also capture any info level logs
           Logger.configure(level: :info)
-          CrfSearch.process_line(error_line, video, [], 95)
+          ProgressParser.process_line(error_line, {video, [], 95})
         end)
 
       # Should process error and indicate retry logic
