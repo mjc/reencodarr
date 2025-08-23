@@ -8,23 +8,13 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   use GenServer
 
-  alias Reencodarr.AbAv1.Helper
-  alias Reencodarr.AbAv1.OutputParser
   alias Reencodarr.AbAv1.CrfSearch.RetryLogic
+  alias Reencodarr.AbAv1.{Helper, ProgressParser}
   alias Reencodarr.CrfSearcher.Broadway.Producer
-  alias Reencodarr.DataConverters
   alias Reencodarr.ErrorHelpers
-  alias Reencodarr.Formatters
   alias Reencodarr.{Media, Rules, Telemetry}
-  alias Reencodarr.Statistics.CrfSearchProgress
 
   require Logger
-
-  # Constants
-  # 10GB
-  @max_file_size_bytes 10 * 1024 * 1024 * 1024
-  # Default VMAF quality target
-  @default_vmaf_target 95
 
   # Public API
   @spec start_link(any()) :: GenServer.on_start()
@@ -195,7 +185,22 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           state
       ) do
     full_line = buffer <> line
-    process_line(full_line, video, args, target_vmaf)
+
+    # Create state for ProgressParser with CRF search context
+    progress_state = %{
+      video: video,
+      args: args,
+      target_vmaf: target_vmaf
+    }
+
+    case ProgressParser.process_line(full_line, progress_state) do
+      :error_pattern ->
+        # Handle the specific CRF search error pattern
+        RetryLogic.handle_crf_search_error(video, target_vmaf)
+
+      _ ->
+        :ok
+    end
 
     # Add the line to our output buffer for failure tracking
     new_output_buffer = [full_line | output_buffer]
@@ -470,182 +475,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     {:noreply, new_state}
   end
 
-  def process_line(line, video, args, target_vmaf \\ @default_vmaf_target) do
-    case OutputParser.parse_line(line) do
-      {:ok, %{type: type, data: data}} ->
-        handle_parsed_line(type, data, video, args, target_vmaf)
-
-      :ignore ->
-        # Handle custom error patterns not in OutputParser
-        if line == "Error: Failed to find a suitable crf" do
-          RetryLogic.handle_crf_search_error(video, target_vmaf)
-        else
-          Logger.debug("CrfSearch: Ignoring line: #{line}")
-        end
-    end
-  end
-
-  # Structured line handler using OutputParser's clean approach
-  defp handle_parsed_line(type, data, video, args, _target_vmaf) do
-    case type do
-      :encoding_sample ->
-        handle_encoding_sample(data, video)
-
-      :vmaf_result ->
-        handle_vmaf_result(data, video, args)
-
-      :sample_vmaf ->
-        handle_vmaf_result(data, video, args)
-
-      :dash_vmaf ->
-        handle_vmaf_result(data, video, args)
-
-      :eta_vmaf ->
-        handle_eta_vmaf(data, video, args)
-
-      :progress ->
-        handle_progress(data, video)
-
-      :success ->
-        handle_success(data, video)
-
-      :warning ->
-        handle_warning(data)
-
-      :vmaf_comparison ->
-        handle_vmaf_comparison(data)
-
-      _ ->
-        Logger.debug("CrfSearch: Unhandled line type: #{type}")
-    end
-  end
-
-  # Simplified handler functions using structured data
-  defp handle_encoding_sample(data, video) do
-    Logger.debug(
-      "CrfSearch: Encoding sample #{data.sample_num}/#{data.total_samples}: #{data.crf}"
-    )
-
-    broadcast_crf_search_progress(video.path, %CrfSearchProgress{
-      filename: video.path,
-      crf: data.crf
-    })
-  end
-
-  defp handle_vmaf_result(data, video, args) do
-    Logger.debug("CrfSearch: CRF: #{data.crf}, VMAF: #{data.score}, Percent: #{data.percent}%")
-
-    Media.upsert_crf_search_vmaf(
-      %{
-        "crf" => to_string(data.crf),
-        "score" => to_string(data.score),
-        "percent" => to_string(data.percent),
-        "chosen" => "false"
-      },
-      video,
-      args
-    )
-  end
-
-  defp handle_eta_vmaf(data, video, args) do
-    Logger.debug(
-      "CrfSearch: CRF: #{data.crf}, VMAF: #{data.score}, size: #{data.size} #{data.unit}, Percent: #{data.percent}%, time: #{data.time} #{data.time_unit}"
-    )
-
-    # Check size limit
-    estimated_size_bytes = DataConverters.convert_size_to_bytes(to_string(data.size), data.unit)
-
-    if estimated_size_bytes && estimated_size_bytes > @max_file_size_bytes do
-      Logger.warning(
-        "CrfSearch: VMAF CRF #{Formatters.format_crf(data.crf)} estimated file size (#{Formatters.format_file_size(estimated_size_bytes)}) exceeds 10GB limit for video #{video.id}. Recording VMAF but may fail if chosen."
-      )
-    end
-
-    Media.upsert_crf_search_vmaf(
-      %{
-        "crf" => to_string(data.crf),
-        "score" => to_string(data.score),
-        "percent" => to_string(data.percent),
-        "chosen" => "true",
-        "size" => to_string(data.size),
-        "unit" => data.unit,
-        "time" => to_string(data.time),
-        "time_unit" => data.time_unit
-      },
-      video,
-      args
-    )
-  end
-
-  defp handle_progress(data, video) do
-    Logger.debug(
-      "CrfSearch Progress: #{data.progress}%, #{Formatters.format_fps(data.fps)}, ETA: #{data.eta}"
-    )
-
-    broadcast_crf_search_progress(video.path, %CrfSearchProgress{
-      filename: video.path,
-      percent: data.progress,
-      eta: to_string(data.eta),
-      fps: data.fps
-    })
-  end
-
-  defp handle_success(data, video) do
-    Logger.debug("CrfSearch successful for CRF: #{data.crf}")
-
-    # Mark VMAF as chosen first
-    Media.mark_vmaf_as_chosen(video.id, to_string(data.crf))
-
-    # Check if the chosen VMAF has a file size estimate that exceeds 10GB
-    case Media.get_vmaf_by_crf(video.id, to_string(data.crf)) do
-      nil ->
-        Logger.warning(
-          "CrfSearch: Could not find VMAF record for chosen CRF #{data.crf} for video #{video.id}"
-        )
-
-      vmaf ->
-        handle_vmaf_size_check(vmaf, video, to_string(data.crf))
-    end
-  end
-
-  defp handle_warning(data) do
-    Logger.info("CrfSearch: Warning: #{data.message}")
-  end
-
-  defp handle_vmaf_comparison(data) do
-    Logger.debug("VMAF comparison: #{data.file1} vs #{data.file2}")
-  end
-
-  # Extract the complex error handling logic to a separate function
-  defp handle_vmaf_size_check(vmaf, video, crf) do
-    case check_vmaf_size_limit(vmaf, video) do
-      :ok ->
-        :ok
-
-      {:error, :size_too_large} ->
-        handle_size_limit_exceeded(video, crf)
-    end
-  end
-
-  defp handle_size_limit_exceeded(video, crf) do
-    Logger.error(
-      "CrfSearch: Chosen VMAF CRF #{crf} exceeds 10GB limit for video #{video.id}. Marking as failed."
-    )
-
-    # Record size limit failure with detailed context
-    Reencodarr.FailureTracker.record_size_limit_failure(video, "Estimated > 10GB", "10GB",
-      context: %{chosen_crf: crf}
-    )
-
-    # Publish failure event to PubSub
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video.id, {:error, :file_size_too_large}}
-    )
-  end
-
-  # Helper function to get VMAF scores that were tested for this video
   defp build_crf_search_args_private(video, vmaf_percent) do
     base_args = [
       "crf-search",
@@ -676,156 +505,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     # Use centralized Rules module with preset 6 additional param
     Rules.build_args(video, :crf_search, ["--preset", "6"], base_args)
   end
-
-  defp broadcast_crf_search_progress(video_path, progress_data) do
-    filename = Path.basename(video_path)
-
-    progress =
-      case progress_data do
-        %CrfSearchProgress{} = existing_progress ->
-          # Update filename to ensure it's consistent
-          %{existing_progress | filename: filename}
-
-        vmaf when is_map(vmaf) ->
-          # Convert VMAF struct to CrfSearchProgress
-          crf_value = DataConverters.convert_to_number(vmaf.crf)
-          score_value = DataConverters.convert_to_number(vmaf.score)
-          percent_value = DataConverters.convert_to_number(vmaf.percent)
-
-          Logger.debug(
-            "CrfSearch: Converting VMAF to progress - CRF: #{inspect(crf_value)}, Score: #{inspect(score_value)}, Percent: #{inspect(percent_value)}"
-          )
-
-          # Include all fields - the telemetry reporter will handle smart merging
-          %CrfSearchProgress{
-            filename: filename,
-            percent: percent_value,
-            crf: crf_value,
-            score: score_value
-          }
-
-        invalid_data ->
-          Logger.warning("CrfSearch: Invalid progress data received: #{inspect(invalid_data)}")
-          %CrfSearchProgress{filename: filename}
-      end
-
-    # Debounce telemetry updates to avoid overwhelming the dashboard
-    if should_emit_progress?(filename, progress) do
-      case emit_progress_safely(progress) do
-        :ok ->
-          update_last_progress(filename, progress)
-          :ok
-
-        {:error, reason} ->
-          Logger.error("CrfSearch: Failed to emit progress for #{video_path}: #{inspect(reason)}")
-      end
-    end
-  end
-
-  # Debouncing logic to prevent too many telemetry updates
-  defp should_emit_progress?(filename, progress) do
-    cache_key = {:crf_progress, filename}
-    now = System.monotonic_time(:millisecond)
-
-    case :persistent_term.get(cache_key, nil) do
-      nil ->
-        # First progress update for this file
-        true
-
-      {last_time, last_progress} ->
-        time_since_last = now - last_time
-
-        # Balanced debouncing: 5 seconds OR major progress change (>50%)
-        cond do
-          time_since_last > 5_000 ->
-            true
-
-          # Only emit for major progress jumps (>50% change)
-          significant_change?(last_progress, progress) ->
-            true
-
-          # Otherwise debounce everything
-          true ->
-            false
-        end
-    end
-  end
-
-  defp update_last_progress(filename, progress) do
-    cache_key = {:crf_progress, filename}
-    now = System.monotonic_time(:millisecond)
-    :persistent_term.put(cache_key, {now, progress})
-  end
-
-  defp significant_change?(last_progress, new_progress) do
-    case {last_progress.percent, new_progress.percent} do
-      {nil, _} ->
-        true
-
-      {_, nil} ->
-        true
-
-      {last_percent, new_percent} when is_number(last_percent) and is_number(new_percent) ->
-        abs(new_percent - last_percent) > 50.0
-
-      _ ->
-        true
-    end
-  end
-
-  # Safely emit telemetry progress
-  defp emit_progress_safely(progress) do
-    Telemetry.emit_crf_search_progress(progress)
-    :ok
-  rescue
-    error -> {:error, error}
-  end
-
-  # Convert size with unit to bytes
-  # Get VMAF record by video ID and CRF value
-  # Check if VMAF's estimated size exceeds 10GB limit
-  defp check_vmaf_size_limit(vmaf, video) do
-    case vmaf.size do
-      nil ->
-        # No size info available, allow it
-        :ok
-
-      size_str when is_binary(size_str) ->
-        check_size_string_limit(size_str, video)
-
-      _ ->
-        :ok
-    end
-  end
-
-  defp check_size_string_limit(size_str, video) do
-    # Parse size string like "12.5 GB" or "8.2 MB"
-    case Regex.run(~r/^(\d+\.?\d*)\s+(\w+)$/, String.trim(size_str)) do
-      [_, size_value, unit] ->
-        validate_size_limit(size_value, unit, video)
-
-      _ ->
-        :ok
-    end
-  end
-
-  defp validate_size_limit(size_value, unit, video) do
-    estimated_size_bytes = DataConverters.convert_size_to_bytes(size_value, unit)
-
-    if estimated_size_bytes && estimated_size_bytes > @max_file_size_bytes do
-      Logger.info(
-        "CrfSearch: VMAF estimated size #{Formatters.format_file_size(estimated_size_bytes)} exceeds 10GB limit for video #{video.id}"
-      )
-
-      {:error, :size_too_large}
-    else
-      :ok
-    end
-  end
-
-  # Determine if we should retry with preset 6 based on video ID
-  # Clear VMAF records for a video (used for test cleanup)
-  # === Helper Functions ===
 
   # Broadcast CRF search completion event to PubSub
   defp broadcast_crf_search_completion(video_id, result) do

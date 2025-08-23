@@ -840,9 +840,9 @@ defmodule Reencodarr.Media do
   """
   @spec upsert_crf_search_vmaf(map(), Video.t(), list()) :: Vmaf.t() | nil
   def upsert_crf_search_vmaf(params, video, args) do
+    alias Reencodarr.AbAv1.Helper
     alias Reencodarr.Core.Time
     alias Reencodarr.DataConverters
-    alias Reencodarr.AbAv1.Helper
     alias Reencodarr.Statistics.CrfSearchProgress
 
     time = Time.parse_time_to_seconds(params["time"], params["time_unit"])
