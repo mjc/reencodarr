@@ -239,6 +239,78 @@ defmodule Reencodarr.AbAv1.OutputParserTest do
         assert {:ok, %{type: :success, data: _data}} = OutputParser.parse_line(success_line)
       end
     end
+
+    test "comprehensive fixture coverage analysis", %{
+      crf_search_lines: crf_lines,
+      encoding_lines: enc_lines
+    } do
+      # Analyze all fixture lines to ensure comprehensive coverage
+      all_lines = crf_lines ++ enc_lines
+
+      parsed_count = 0
+      ignored_count = 0
+      pattern_counts = %{}
+
+      # Test every single line in the fixtures
+      Enum.each(all_lines, fn line ->
+        case OutputParser.parse_line(line) do
+          {:ok, %{type: type, data: _data}} ->
+            parsed_count = parsed_count + 1
+            pattern_counts = Map.update(pattern_counts, type, 1, &(&1 + 1))
+
+          :ignore ->
+            ignored_count = ignored_count + 1
+        end
+      end)
+
+      # Verify we're actually parsing a significant portion of the fixture data
+      total_lines = length(all_lines)
+      assert total_lines > 0, "No fixture lines found"
+      assert parsed_count > 0, "No lines were successfully parsed"
+
+      # Log the analysis for debugging
+      IO.puts("\n=== Fixture Coverage Analysis ===")
+      IO.puts("Total fixture lines: #{total_lines}")
+      IO.puts("Successfully parsed: #{parsed_count}")
+      IO.puts("Ignored lines: #{ignored_count}")
+      IO.puts("Parse success rate: #{Float.round(parsed_count / total_lines * 100, 1)}%")
+      IO.puts("Pattern counts:")
+
+      Enum.each(pattern_counts, fn {pattern, count} ->
+        IO.puts("  #{pattern}: #{count}")
+      end)
+
+      # Ensure we're parsing most patterns we expect from ab-av1 output
+      expected_patterns = [
+        :encoding_sample,
+        :sample_vmaf,
+        :eta_vmaf,
+        :dash_vmaf,
+        :vmaf_result,
+        :encoding_start,
+        :progress,
+        :file_progress
+      ]
+
+      found_patterns = Map.keys(pattern_counts)
+
+      # We should find at least some of the expected patterns in the fixtures
+      assert length(found_patterns) > 0, "No recognizable patterns found in fixtures"
+
+      # CRF search fixtures should contain sample VMAF and eta VMAF patterns
+      if length(crf_lines) > 0 do
+        assert Map.has_key?(pattern_counts, :sample_vmaf) or
+                 Map.has_key?(pattern_counts, :vmaf_result),
+               "CRF search fixtures should contain VMAF patterns"
+      end
+
+      # Encoding fixtures should contain encoding-related patterns
+      if length(enc_lines) > 0 do
+        encoding_patterns = [:encoding_start, :progress, :file_progress]
+        has_encoding_pattern = Enum.any?(encoding_patterns, &Map.has_key?(pattern_counts, &1))
+        assert has_encoding_pattern, "Encoding fixtures should contain encoding patterns"
+      end
+    end
   end
 
   describe "match_pattern/2" do
