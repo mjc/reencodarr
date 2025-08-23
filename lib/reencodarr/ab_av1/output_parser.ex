@@ -310,9 +310,15 @@ defmodule Reencodarr.AbAv1.OutputParser do
 
   defp build_encoding_start([filename]) do
     video_id =
-      case Regex.run(~r/(\d+)\.mkv/, filename) do
-        [_, id] -> String.to_integer(id)
-        _ -> nil
+      case String.split(filename, ".") do
+        [id_str, "mkv"] ->
+          case Integer.parse(id_str) do
+            {id, ""} -> id
+            _ -> nil
+          end
+
+        _ ->
+          nil
       end
 
     %{

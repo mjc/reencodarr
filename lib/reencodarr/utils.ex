@@ -47,26 +47,6 @@ defmodule Reencodarr.Utils do
 
   # === PARSING UTILITIES ===
 
-  @doc """
-  Parses a line using regex pattern and field mappings.
-
-  Returns nil if no match, or a map with extracted and transformed fields.
-  """
-  def parse_with_regex(line, pattern, field_mapping) when is_binary(line) do
-    case Regex.named_captures(pattern, line) do
-      nil -> nil
-      captures -> extract_fields(captures, field_mapping)
-    end
-  end
-
-  defp extract_fields(captures, field_mapping) do
-    Enum.reduce(field_mapping, %{}, fn {key, {capture_key, transformer}}, acc ->
-      raw_value = Map.get(captures, capture_key)
-      transformed_value = if raw_value, do: transformer.(raw_value), else: nil
-      Map.put(acc, key, transformed_value)
-    end)
-  end
-
   # === GUARD MACROS ===
 
   @doc """
