@@ -51,6 +51,31 @@ defmodule Reencodarr.AbAv1.OutputParserTest do
       assert data.eta_unit == "minute"
     end
 
+    test "parses file progress lines with size information" do
+      line = "Encoded 2.5 GB (75%)"
+
+      assert {:ok, %{type: :file_progress, data: data}} = OutputParser.parse_line(line)
+      assert data.size == 2.5
+      assert data.unit == "GB"
+      assert data.progress == 75
+    end
+
+    test "parses file progress with different units" do
+      # Test MB format
+      line = "Encoded 800 MB (50%)"
+      assert {:ok, %{type: :file_progress, data: data}} = OutputParser.parse_line(line)
+      assert data.size == 800.0
+      assert data.unit == "MB"
+      assert data.progress == 50
+
+      # Test TB format
+      line = "Encoded 1.2 TB (90%)"
+      assert {:ok, %{type: :file_progress, data: data}} = OutputParser.parse_line(line)
+      assert data.size == 1.2
+      assert data.unit == "TB"
+      assert data.progress == 90
+    end
+
     test "parses success lines" do
       line = "crf 24 successful"
 

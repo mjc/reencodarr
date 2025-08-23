@@ -95,8 +95,27 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
     test "handles file size progress pattern", %{state: state} do
       line = "Encoded 2.5 GB (75%)"
 
-      # This pattern is currently ignored, but should not error
+      test_pid = self()
+
+      :telemetry.attach(
+        "test-file-progress",
+        [:reencodarr, :encoder, :progress],
+        fn _event, measurements, _metadata, _config ->
+          send(test_pid, {:telemetry_received, measurements})
+        end,
+        nil
+      )
+
       assert :ok = ProgressParser.process_line(line, state)
+
+      assert_receive {:telemetry_received, measurements}
+      assert measurements.percent == 75
+      assert measurements.size == 2.5
+      assert measurements.size_unit == "GB"
+      assert measurements.fps == 0.0
+      assert measurements.eta == "unknown"
+
+      :telemetry.detach("test-file-progress")
     end
 
     test "handles FPS parsing with missing decimal point", %{state: state} do

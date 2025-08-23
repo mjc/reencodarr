@@ -57,6 +57,7 @@ defmodule Reencodarr.AbAv1.ProgressParser do
     case type do
       :encoding_start -> handle_encoding_start(data, state)
       :progress -> handle_encoding_progress(data, state)
+      :file_progress -> handle_encoding_file_progress(data, state)
       :success -> handle_encoding_success(data, state)
       :warning -> handle_encoding_warning(data)
       _ -> Logger.debug("ProgressParser: Unhandled encoding line type: #{type}")
@@ -125,6 +126,20 @@ defmodule Reencodarr.AbAv1.ProgressParser do
       percent: data.progress,
       eta: format_eta(data.eta, data.eta_unit),
       fps: data.fps
+    })
+  end
+
+  defp handle_encoding_file_progress(data, state) do
+    # File progress format: "Encoded 2.5 GB (75%)"
+    # Convert to similar format as regular progress but without fps/eta
+    Telemetry.emit_encoder_progress(%{
+      filename: Path.basename(state.video.path),
+      percent: data.progress,
+      size: data.size,
+      size_unit: data.unit,
+      # Default values for compatibility with existing telemetry format
+      eta: "unknown",
+      fps: 0.0
     })
   end
 

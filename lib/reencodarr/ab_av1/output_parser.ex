@@ -14,6 +14,7 @@ defmodule Reencodarr.AbAv1.OutputParser do
     {:sample_vmaf, ~r/sample\s(\d+)\/(\d+)\scrf\s(\d+(?:\.\d+)?)\sVMAF\s(\d+\.\d+)\s\((\d+)%\)/},
     {:dash_vmaf, ~r/^-\scrf\s(\d+(?:\.\d+)?)\sVMAF\s(\d+\.\d+)\s\((\d+)%\)/},
     {:vmaf_result, ~r/crf\s(\d+(?:\.\d+)?)\sVMAF\s(\d+\.\d+)\s\((\d+)%\)/},
+    {:file_progress, ~r/Encoded\s(\d+\.?\d*)\s(\w+)\s\((\d+)%\)/},
     {:progress,
      ~r/(\d+(?:\.\d+)?)%,\s(\d+(?:\.\d+)?)\sfps?,\seta\s(\d+)\s(second|minute|hour|day|week|month|year)s?/},
     {:encoding_start, ~r/encoding\s(.+\.mkv)/},
@@ -149,6 +150,14 @@ defmodule Reencodarr.AbAv1.OutputParser do
       eta: String.to_integer(eta),
       # "minutes" → "minute"
       eta_unit: String.replace_suffix(time_unit, "s", "")
+    }
+  end
+
+  defp build_data(:file_progress, [size, unit, percent]) do
+    %{
+      size: parse_number(size),
+      unit: unit,
+      progress: String.to_integer(percent)
     }
   end
 
