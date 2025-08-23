@@ -1,142 +1,46 @@
 defmodule Reencodarr.AbAv1.OutputParser do
   @moduledoc """
-  Centralized parser for ab-av1 command output.
+  Simple parser for ab-av1 command output using regex patterns.
 
-  This module handles all parsing of ab-av1 output in one place, converting raw string output
-  to structured data immediately, avoiding repeated parsing throughout the application.
+  Converts raw ab-av1 output lines to structured data types.
   """
 
-  alias Reencodarr.Core.Parsers
-
-  # Pattern definitions
-  @patterns %{
-    encoding_sample:
-      ~r/encoding\ssample\s(?<sample_num>\d+)\/(?<total_samples>\d+)\scrf\s(?<crf>\d+(?:\.\d+)?)/,
-    simple_vmaf:
-      ~r/\[(?<timestamp>[^\]]+)\].*?crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/,
-    sample_vmaf:
-      ~r/sample\s(?<sample_num>\d+)\/(?<total_samples>\d+)\scrf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/,
-    dash_vmaf: ~r/^-\scrf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/,
-    eta_vmaf:
-      ~r/crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\spredicted\svideo\sstream\ssize\s(?<size>\d+\.?\d*)\s(?<unit>\w+)\s\((?<percent>\d+)%\)\staking\s(?<time>\d+\.?\d*)\s(?<time_unit>\w+)/,
-    vmaf_comparison: ~r/vmaf\s(?<file1>.+?)\svs\sreference\s(?<file2>.+)/,
-    progress:
-      ~r/\[(?<timestamp>[^\]]+)\].*?(?<progress>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,\seta\s(?<eta>\d+)\s(?<time_unit>second|minute|hour|day|week|month|year)s?/,
-    success: ~r/(?:\[.*\]\s)?crf\s(?<crf>\d+(?:\.\d+)?)\ssuccessful/,
-    warning: ~r/^Warning:\s(?<message>.*)/,
-    encoding_start: ~r/\[.*\] encoding (?<filename>\d+\.mkv)/,
-    encoding_progress:
-      ~r/\[.*\]\s*(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
-    encoding_progress_alt:
-      ~r/(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
-    file_size_progress: ~r/Encoded\s(?<size>[\d\.]+\s\w+)\s\((?<percent>\d+)%\)/,
-    ffmpeg_error: ~r/Error: ffmpeg encode exit code (?<exit_code>\d+)/
-  }
-  @doc """
-  Returns the centralized regex patterns for ab-av1 output parsing.
-
-  This function provides access to the regex patterns for other modules
-  that need to do pattern matching without duplicating the definitions.
-  """
-  @spec get_patterns() :: map()
-  def get_patterns, do: @patterns
+  # Simple pattern map for all ab-av1 output types
+  # Order matters - more specific patterns first
+  @patterns [
+    {:encoding_sample, ~r/encoding\ssample\s(\d+)\/(\d+)\scrf\s(\d+(?:\.\d+)?)/},
+    {:eta_vmaf,
+     ~r/crf\s(\d+(?:\.\d+)?)\sVMAF\s(\d+\.\d+)\spredicted\svideo\sstream\ssize\s(\d+\.?\d*)\s(\w+)\s\((\d+)%\)\staking\s(\d+\.?\d*)\s(\w+)/},
+    {:sample_vmaf, ~r/sample\s(\d+)\/(\d+)\scrf\s(\d+(?:\.\d+)?)\sVMAF\s(\d+\.\d+)\s\((\d+)%\)/},
+    {:dash_vmaf, ~r/^-\scrf\s(\d+(?:\.\d+)?)\sVMAF\s(\d+\.\d+)\s\((\d+)%\)/},
+    {:vmaf_result, ~r/crf\s(\d+(?:\.\d+)?)\sVMAF\s(\d+\.\d+)\s\((\d+)%\)/},
+    {:progress,
+     ~r/(\d+(?:\.\d+)?)%,\s(\d+(?:\.\d+)?)\sfps?,\seta\s(\d+)\s(second|minute|hour|day|week|month|year)s?/},
+    {:encoding_start, ~r/encoding\s(.+\.mkv)/},
+    {:ffmpeg_error, ~r/Error:\sffmpeg\sencode\sexit\scode\s(\d+)/},
+    {:success, ~r/crf\s(\d+(?:\.\d+)?)\ssuccessful/},
+    {:warning, ~r/^Warning:\s(.*)$/},
+    {:vmaf_comparison, ~r/vmaf\s(.+?)\svs\sreference\s(.+)/}
+  ]
 
   @doc """
-  Matches a line against a specific pattern and returns named captures.
+  Parse a single line of ab-av1 output.
 
-  Returns nil if no match, or a map of captured values if matched.
+  Returns `{:ok, %{type: atom, data: map}}` for recognized patterns,
+  or `:ignore` for unrecognized lines.
   """
-  @spec match_pattern(String.t(), atom()) :: map() | nil
-  def match_pattern(line, pattern_key) do
-    pattern = Map.get(@patterns, pattern_key)
-
-    case Regex.named_captures(pattern, line) do
-      nil -> nil
-      captures -> captures
-    end
-  end
-
-  @doc """
-  Parses a single line of ab-av1 output and returns structured data.
-
-  Returns `{:ok, parsed_data}` for recognized patterns, `:ignore` for irrelevant lines.
-  """
-  @spec parse_line(String.t()) :: {:ok, map()} | :ignore
   def parse_line(line) do
-    line = String.trim(line)
-
-    # Try patterns in order of likelihood/importance
-    pattern_attempts = [
-      # CRF Search Progress Patterns
-      {:encoding_sample, :encoding_sample},
-      {:simple_vmaf, :vmaf_result},
-      {:sample_vmaf, :sample_vmaf},
-      {:dash_vmaf, :dash_vmaf},
-      {:eta_vmaf, :eta_vmaf},
-      {:vmaf_comparison, :vmaf_comparison},
-      {:progress, :progress},
-      {:success, :success},
-      {:warning, :warning},
-      # Encoding Progress Patterns
-      {:encoding_start, :encoding_start},
-      {:encoding_progress, :encoding_progress},
-      # fallback for encoding progress
-      {:encoding_progress_alt, :encoding_progress},
-      {:file_size_progress, :file_size_progress},
-      # Error Patterns
-      {:ffmpeg_error, :ffmpeg_error}
-    ]
-
-    result =
-      Enum.find_value(pattern_attempts, fn {pattern_key, type} ->
-        field_mapping = field_mappings()[pattern_key]
-        parse_pattern_with_mapping(line, pattern_key, type, field_mapping)
-      end)
-
-    result || :ignore
-  end
-
-  defp parse_pattern_with_mapping(_line, _pattern_key, _type, nil), do: nil
-
-  defp parse_pattern_with_mapping(line, :encoding_start, type, _field_mapping) do
-    case parse_encoding_start_pattern(line) do
-      nil -> nil
-      data -> {:ok, %{type: type, data: data}}
-    end
-  end
-
-  defp parse_pattern_with_mapping(line, pattern_key, type, field_mapping) do
-    case Parsers.parse_with_pattern(line, pattern_key, @patterns, field_mapping) do
-      nil -> nil
-      data -> {:ok, %{type: type, data: data}}
-    end
-  end
-
-  # Special parser for encoding_start pattern with custom transformations
-  defp parse_encoding_start_pattern(line) do
-    pattern = @patterns[:encoding_start]
-
-    case Regex.named_captures(pattern, line) do
-      nil ->
-        nil
-
-      %{"filename" => filename} ->
-        extname = Path.extname(filename)
-        video_id = Parsers.parse_int(Path.basename(filename, extname))
-
-        %{
-          filename: filename,
-          video_id: video_id
-        }
+    case find_match(line, @patterns) do
+      {type, captures} -> {:ok, %{type: type, data: build_data(type, captures)}}
+      nil -> :ignore
     end
   end
 
   @doc """
-  Parses multiple lines of ab-av1 output and returns structured results.
+  Parse multiple lines of ab-av1 output.
 
-  Filters out ignored lines and returns only parsed data.
+  Returns a list of parsed results, filtering out ignored lines.
   """
-  @spec parse_output(String.t() | [String.t()]) :: [map()]
   def parse_output(output) when is_binary(output) do
     output
     |> String.split("\n")
@@ -150,103 +54,137 @@ defmodule Reencodarr.AbAv1.OutputParser do
     |> Enum.map(fn {:ok, data} -> data end)
   end
 
-  # Note: All individual parsing functions have been consolidated into ParseHelpers.
-  # Pattern matching is now handled declaratively through @patterns and field_mappings().
-  # This eliminates ~200 lines of repetitive regex parsing code.
+  @doc """
+  Test a specific pattern against a line. Used by tests.
 
-  # Field mappings for different pattern types
-  defp field_mappings do
+  Returns named captures map or nil if no match.
+  """
+  def match_pattern(line, pattern_type) do
+    case List.keyfind(@patterns, pattern_type, 0) do
+      {^pattern_type, pattern} ->
+        case Regex.run(pattern, line) do
+          nil ->
+            nil
+
+          [_ | captures] ->
+            # Convert numbered captures to named map based on pattern type
+            convert_captures_to_named(pattern_type, captures)
+        end
+
+      nil ->
+        nil
+    end
+  end
+
+  # Convert numbered captures to named map for tests
+  defp convert_captures_to_named(:sample_vmaf, [sample_num, total_samples, crf, score, percent]) do
     %{
-      encoding_sample:
-        Parsers.field_mapping([
-          {:sample_num, :int},
-          {:total_samples, :int},
-          {:crf, :float}
-        ]),
-      simple_vmaf:
-        Parsers.field_mapping([
-          {:timestamp, :string},
-          {:crf, :float},
-          {:score, :float},
-          {:percent, :int}
-        ]),
-      sample_vmaf:
-        Parsers.field_mapping([
-          {:sample_num, :int},
-          {:total_samples, :int},
-          {:crf, :float},
-          {:score, :float},
-          {:percent, :int}
-        ]),
-      dash_vmaf:
-        Parsers.field_mapping([
-          {:crf, :float},
-          {:score, :float},
-          {:percent, :int}
-        ]),
-      eta_vmaf:
-        Parsers.field_mapping([
-          {:crf, :float},
-          {:score, :float},
-          {:size, :float},
-          {:unit, :string},
-          {:percent, :int},
-          {:time, :float},
-          {:time_unit, :string}
-        ]),
-      vmaf_comparison:
-        Parsers.field_mapping([
-          {:file1, :string},
-          {:file2, :string}
-        ]),
-      progress:
-        Parsers.field_mapping([
-          {:timestamp, :string},
-          {:progress, :float},
-          {:fps, :float},
-          {:eta, :int},
-          {:eta_unit, :string, "time_unit"}
-        ]),
-      success:
-        Parsers.field_mapping([
-          {:crf, :float}
-        ]),
-      warning:
-        Parsers.field_mapping([
-          {:message, :string}
-        ]),
-      encoding_start: %{
-        filename: {"filename", &Function.identity/1},
-        video_id:
-          {"filename",
-           fn filename ->
-             extname = Path.extname(filename)
-             Parsers.parse_int(Path.basename(filename, extname))
-           end}
-      },
-      encoding_progress:
-        Parsers.field_mapping([
-          {:percent, :int},
-          {:fps, :float},
-          {:eta, :int},
-          {:eta_unit, :string, "unit"}
-        ]),
-      encoding_progress_alt:
-        Parsers.field_mapping([
-          {:percent, :int},
-          {:fps, :float},
-          {:eta, :int},
-          {:eta_unit, :string, "unit"}
-        ]),
-      file_size_progress:
-        Parsers.field_mapping([
-          {:encoded_size, :string, "size"},
-          {:percent, :int}
-        ]),
-      ffmpeg_error:
-        Parsers.field_mapping([
-          {:exit_code, :int}
-        ])
+      "sample_num" => sample_num,
+      "total_samples" => total_samples,
+      "crf" => crf,
+      "score" => score,
+      "percent" => percent
     }
+  end
+
+  defp convert_captures_to_named(:success, [crf]) do
+    %{"crf" => crf}
+  end
+
+  defp convert_captures_to_named(_pattern_type, _captures), do: nil
+
+  # Find the first matching pattern
+  defp find_match(line, [{type, pattern} | rest]) do
+    case Regex.run(pattern, line) do
+      nil -> find_match(line, rest)
+      [_ | captures] -> {type, captures}
+    end
+  end
+
+  defp find_match(_line, []), do: nil
+
+  # Build structured data from captures based on type
+  defp build_data(:encoding_sample, [sample_num, total_samples, crf]) do
+    %{
+      sample_num: String.to_integer(sample_num),
+      total_samples: String.to_integer(total_samples),
+      crf: parse_number(crf)
+    }
+  end
+
+  defp build_data(:vmaf_result, [crf, score, percent]) do
+    %{crf: parse_number(crf), score: parse_number(score), percent: String.to_integer(percent)}
+  end
+
+  defp build_data(:sample_vmaf, [sample_num, total_samples, crf, score, percent]) do
+    %{
+      sample_num: String.to_integer(sample_num),
+      total_samples: String.to_integer(total_samples),
+      crf: parse_number(crf),
+      score: parse_number(score),
+      percent: String.to_integer(percent)
+    }
+  end
+
+  defp build_data(:dash_vmaf, [crf, score, percent]) do
+    %{crf: parse_number(crf), score: parse_number(score), percent: String.to_integer(percent)}
+  end
+
+  defp build_data(:eta_vmaf, [crf, score, size, unit, percent, time, time_unit]) do
+    %{
+      crf: parse_number(crf),
+      score: parse_number(score),
+      size: parse_number(size),
+      unit: unit,
+      percent: String.to_integer(percent),
+      time: parse_number(time),
+      time_unit: time_unit
+    }
+  end
+
+  defp build_data(:progress, [progress, fps, eta, time_unit]) do
+    %{
+      progress: parse_number(progress),
+      fps: parse_number(fps),
+      eta: String.to_integer(eta),
+      # "minutes" → "minute"
+      eta_unit: String.replace_suffix(time_unit, "s", "")
+    }
+  end
+
+  defp build_data(:encoding_start, [filename]) do
+    # Extract video ID from filename like "123.mkv"
+    video_id =
+      case Regex.run(~r/(\d+)\.mkv/, filename) do
+        [_, id] -> String.to_integer(id)
+        _ -> nil
+      end
+
+    %{filename: filename, video_id: video_id}
+  end
+
+  defp build_data(:ffmpeg_error, [exit_code]) do
+    %{exit_code: String.to_integer(exit_code)}
+  end
+
+  defp build_data(:success, [crf]) do
+    %{crf: parse_number(crf)}
+  end
+
+  defp build_data(:warning, [message]) do
+    %{message: message}
+  end
+
+  defp build_data(:vmaf_comparison, [file1, file2]) do
+    %{file1: file1, file2: file2}
+  end
+
+  # Parse number as float if it contains decimal, otherwise integer
+  defp parse_number(str) do
+    if String.contains?(str, ".") do
+      String.to_float(str)
+    else
+      String.to_integer(str)
+    end
   end
 end
