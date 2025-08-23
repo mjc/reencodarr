@@ -3,6 +3,8 @@
 ## Project Overview
 Reencodarr is an Elixir/Phoenix application for bulk video transcoding using the `ab-av1` CLI tool. It provides a web interface for analyzing, CRF searching, and encoding videos to AV1 with VMAF quality targeting, integrating with Sonarr/Radarr APIs for media management.
 
+**Recent Architecture**: All ab-av1 output processing has been centralized in `Reencodarr.AbAv1.ProgressParser` with context-aware dispatching to separate encoding and CRF search handlers. This provides unified telemetry emission and simplified testing.
+
 ## Core Architecture
 
 ### Broadway Pipeline System
@@ -51,7 +53,153 @@ Each Broadway producer implements a consistent state machine:
 - **Error Recovery**: Use `VideoStateMachine.mark_as_failed/1` instead of boolean flags
 
 ### Event-Driven Telemetry Architecture
-Real-time dashboard updates without polling:
+Real-time dashboard updates without polling through a comprehensive telemetry pipeline:
+
+#### Complete Telemetry Flow Architecture
+```
+ab-av1 Process → Port → ProgressParser → Telemetry.emit_*() → :telemetry.execute()
+                                                                      ↓
+Broadway Producers → :telemetry.execute() → TelemetryEventHandler → TelemetryReporter
+                                                                           ↓
+                                           Phoenix.PubSub → LiveView Dashboard
+```
+
+#### Telemetry Data Sources
+1. **ab-av1 Output Processing** (`ProgressParser`)
+   - Encoding progress: `[:reencodarr, :encoder, :progress]`
+   - Encoding lifecycle: `[:reencodarr, :encoder, :started/:completed/:failed]`
+   - CRF search progress: `[:reencodarr, :crf_search, :progress/:started/:completed]`
+
+2. **Broadway Producer State** (Every 5 seconds)
+   - Queue changes: `[:reencodarr, :analyzer/:crf_searcher/:encoder, :queue_changed]`
+   - Pipeline status: `[:reencodarr, :analyzer/:encoder/:crf_search, :started/:paused]`
+
+3. **Media Operations**
+   - Database events: `[:reencodarr, :media, :video_upserted/:vmaf_upserted]`
+
+#### TelemetryReporter (Central State Manager) (`lib/reencodarr/telemetry_reporter.ex`)
+Acts as the central hub for telemetry processing with advanced optimizations:
+
+**Architecture**:
+- **Event-Driven**: Pure reactive updates via Broadway producer telemetry (no polling)
+- **State Filtering**: Only emits telemetry on significant changes (>1% progress deltas)
+- **Memory Optimization**: Process dictionary caching for state comparison
+- **Minimal Payloads**: Excludes inactive progress data (50-70% reduction)
+
+**State Management**:
+```elixir
+@impl true
+def init(_opts) do
+  attach_telemetry_handlers()
+  initial_state = %DashboardState{analyzing: false, crf_searching: false, encoding: false}
+  send(self(), :load_initial_state)
+  {:ok, initial_state}
+end
+```
+
+**Event Processing**: Delegates to `TelemetryEventHandler` for clean separation:
+```elixir
+def handle_event(event_name, measurements, metadata, _config) do
+  config = %{reporter_pid: __MODULE__}
+  Reencodarr.TelemetryEventHandler.handle_event(event_name, measurements, metadata, config)
+end
+```
+
+#### TelemetryEventHandler (`lib/reencodarr/telemetry_event_handler.ex`)
+Centralized routing of telemetry events to appropriate TelemetryReporter actions:
+
+**Event Categories**:
+- **Encoder Events**: `started`, `progress`, `completed`, `failed`, `paused`
+- **CRF Search Events**: `started`, `progress`, `completed`, `paused`  
+- **Analyzer Events**: `started`, `paused`
+- **Queue Events**: `queue_changed` (triggers immediate stats refresh)
+- **Sync Events**: External API synchronization status
+
+**Handler Pattern**:
+```elixir
+def handle_event([:reencodarr, :encoder, :progress], measurements, _metadata, %{reporter_pid: pid}) do
+  GenServer.cast(pid, {:update_encoding_progress, measurements})
+end
+```
+
+#### Dashboard State Updates & PubSub Bridge
+TelemetryReporter consolidates all telemetry into dashboard state and publishes to LiveView:
+
+**Significance Filtering**:
+```elixir
+defp emit_state_update_and_return(%DashboardState{} = new_state) do
+  old_state = Process.get(:last_emitted_state, DashboardState.initial())
+  is_significant = DashboardState.significant_change?(old_state, new_state)
+  
+  if is_significant do
+    minimal_state = %{
+      stats: new_state.stats,
+      encoding: new_state.encoding,
+      encoding_progress: if(new_state.encoding, do: new_state.encoding_progress, else: %EncodingProgress{}),
+      # ... other essential state
+    }
+    
+    :telemetry.execute([:reencodarr, :dashboard, :state_updated], %{}, %{state: minimal_state})
+    Process.put(:last_emitted_state, new_state)
+  end
+  
+  new_state
+end
+```
+
+#### LiveView Dashboard Integration (`lib/reencodarr_web/live/dashboard_live.ex`)
+Receives telemetry-driven state updates for real-time UI updates:
+
+**Telemetry Attachment**:
+```elixir
+defp setup_telemetry(socket) do
+  if connected?(socket) do
+    :telemetry.attach_many(
+      "dashboard-#{inspect(self())}",
+      [[:reencodarr, :dashboard, :state_updated]],
+      &__MODULE__.handle_telemetry_event/4,
+      %{live_view_pid: self()}
+    )
+  end
+  socket
+end
+```
+
+**Real-time Updates**:
+```elixir
+def handle_telemetry_event([:reencodarr, :dashboard, :state_updated], _measurements, %{state: state}, %{live_view_pid: pid}) do
+  send(pid, {:telemetry_event, state})
+end
+
+def handle_info({:telemetry_event, state}, socket) do
+  dashboard_data = Presenter.present(state, socket.assigns.timezone)
+  {:noreply, assign(socket, :dashboard_data, dashboard_data)}
+end
+```
+
+#### Performance Optimizations
+
+**Memory Management**:
+- Process dictionary for state comparison (no extra GenServer state)
+- Excludes inactive progress data from telemetry payloads
+- Direct database queries for initial state
+
+**Update Efficiency**:
+- 1% progress change threshold prevents excessive UI updates
+- Significance detection avoids unnecessary PubSub messages
+- Minimal telemetry payloads reduce message size by 50-70%
+
+**Event Deduplication**:
+- Last state caching prevents duplicate dashboard updates
+- Queue change events trigger immediate stats refresh with current data
+- Producer state changes only emit when transitioning between states
+
+#### Telemetry Events Reference
+- **Queue Changes**: `[:reencodarr, :analyzer/:crf_searcher/:encoder, :queue_changed]`
+- **Progress Updates**: `[:reencodarr, :encoder/:crf_search, :progress]`
+- **State Changes**: `[:reencodarr, :analyzer/:encoder/:crf_search, :started/:paused]`
+- **Media Events**: `[:reencodarr, :media, :video_upserted/:vmaf_upserted]`
+- **Dashboard Updates**: `[:reencodarr, :dashboard, :state_updated]`
 
 #### TelemetryReporter (Central State Manager)
 - **Event-Driven**: Pure reactive updates via Broadway producer telemetry
@@ -313,7 +461,23 @@ end
 `FileOperations.move_file/4` handles cross-device moves with copy+delete fallback for EXDEV errors.
 
 ### AB-AV1 Command Execution & Output Capture
-The ab-av1 CLI tool is launched and managed through a sophisticated port-based architecture:
+The ab-av1 CLI tool is launched and managed through a sophisticated port-based architecture with centralized output processing:
+
+#### Centralized ProgressParser Architecture (`lib/reencodarr/ab_av1/progress_parser.ex`)
+All ab-av1 output processing flows through a single entry point that provides:
+- **Context-Aware Dispatching**: Automatically detects encoding vs CRF search operations
+- **Unified Interface**: Single `process_line/2` function handles all ab-av1 output
+- **Structured Parsing**: Delegates to `OutputParser` for pattern matching, then routes to appropriate handlers
+- **Telemetry Integration**: Emits structured telemetry events for real-time dashboard updates
+
+```elixir
+# Usage in both encoding and CRF search contexts
+# Encoding context (from Encode GenServer)
+ProgressParser.process_line(line, %{video: video})
+
+# CRF search context (from CrfSearch GenServer)  
+ProgressParser.process_line(line, {video, args, target_vmaf})
+```
 
 #### Port Creation (`Helper.open_port/1`)
 ```elixir
@@ -362,12 +526,15 @@ Each GenServer maintains:
 - **Pattern Types**: Encoding progress, VMAF results, error messages, success indicators
 - **Field Mapping**: Declarative parsing with type conversion and validation
 
-#### Progress Tracking & Telemetry
-Real-time updates flow through:
-1. **Raw Output**: Port captures ab-av1 stdout/stderr
-2. **Line Parsing**: `OutputParser` converts to structured data
-3. **Progress Events**: `ProgressParser` emits telemetry with progress percentages
-4. **Dashboard Updates**: Telemetry flows to UI via PubSub for real-time feedback
+#### Progress Tracking & Telemetry Flow
+```
+ab-av1 stdout/stderr → Port → ProgressParser → OutputParser → Context Handlers → Telemetry
+                                    ↓                              ↓
+                              Context Detection              Appropriate Handler
+                            (encoding vs CRF search)      (encoding_progress vs vmaf_result)
+                                                                   ↓
+                                                           Telemetry.emit_*()
+```
 
 #### Error Handling & Failure Recovery
 - **Exit Code Classification**: Distinguishes system vs. file-specific failures
@@ -375,12 +542,32 @@ Real-time updates flow through:
 - **Automatic Retry**: Preset 6 fallback for encoding failures
 - **Pipeline Coordination**: Proper cleanup and producer notification
 
-### Progress Parsing
-Complex regex patterns in `@patterns` maps for ab-av1 output parsing:
+### Centralized ab-av1 Output Processing
+
+#### OutputParser Architecture (`lib/reencodarr/ab_av1/output_parser.ex`)
+Comprehensive regex patterns for structured ab-av1 output parsing:
+
+**Pattern Categories**:
 ```elixir
-simple_vmaf: ~r/crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/
+# Progress tracking patterns
 encoding_progress: ~r/(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours)/
+
+# VMAF quality patterns  
+simple_vmaf: ~r/crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/
+eta_vmaf: ~r/crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+),\s*estimated\s*file\s*size\s*(?<size>[\d\.]+)\s*(?<unit>\w+)/
+
+# Lifecycle patterns
+encoding_start: ~r/Starting.*encoding.*for.*(?<filename>[^,]+)/
+success: ~r/Successfully.*(?:completed|encoded)/
 ```
+
+**Pattern Specificity Ordering**: Most specific patterns first to prevent incorrect matching:
+1. **eta_vmaf** (with size estimates) 
+2. **simple_vmaf** (basic CRF/VMAF scores)
+3. **encoding_progress** (general progress)
+4. **encoding_start** (initialization)
+
+**Structured Parsing**: Converts raw ab-av1 output to typed data with proper field extraction and validation.
 
 ### Rules-Based Argument Building
 The `Rules` module provides centralized argument construction for ab-av1 commands with context-aware filtering:
@@ -450,12 +637,108 @@ encode_args = Rules.build_args(video, :encode)     # Includes audio args
 ## Key Directories
 - `lib/reencodarr/{analyzer,crf_searcher,encoder}/` - Broadway pipelines with producers/supervisors
 - `lib/reencodarr/services/` - External API clients with circuit breakers
-- `lib/reencodarr/ab_av1/` - Command execution and parsing with GenServer workers
+- `lib/reencodarr/ab_av1/` - Command execution, output parsing, and GenServer workers
 - `lib/reencodarr/media/` - Database models, state machine, and query modules
 - `lib/reencodarr_web/live/` - Phoenix LiveView modules with real-time UI
 - `lib/reencodarr_web/controllers/` - Webhook handlers for external service integration
 - `test/support/` - Shared test utilities, fixtures, and Broadway test patterns
 - `priv/repo/migrations/` - Database schema with enum types and indexes
+
+## Complete ab-av1 to Dashboard Telemetry Flow
+
+This section documents the complete flow of telemetry data from ab-av1 command execution to real-time dashboard updates:
+
+### 1. ab-av1 Process Execution
+```
+GenServer (CrfSearch/Encode) → Port.open() → ab-av1 CLI Process
+```
+- GenServer launches ab-av1 via port with cleaned arguments
+- Port configured for line-buffered binary output capture
+- Both stdout and stderr merged into single stream
+
+### 2. Output Capture & Parsing
+```
+ab-av1 stdout/stderr → Port Messages → ProgressParser.process_line/2
+```
+- Port receives `:eol` and `:noeol` messages from ab-av1 output
+- Lines buffered until complete, then passed to `ProgressParser.process_line/2`
+- Context determined automatically (encoding vs CRF search)
+
+### 3. Structured Output Processing
+```
+ProgressParser → OutputParser.parse_line/1 → Context Handlers
+```
+- `OutputParser` uses regex patterns to extract structured data
+- Pattern specificity ordering ensures correct parsing
+- Context handlers emit appropriate telemetry events
+
+### 4. Telemetry Event Emission
+```
+Context Handlers → Telemetry.emit_*() → :telemetry.execute()
+```
+Examples of emitted events:
+- `[:reencodarr, :encoder, :progress]` - Encoding progress updates
+- `[:reencodarr, :encoder, :started]` - Encoding initiation
+- `[:reencodarr, :crf_search, :progress]` - CRF search VMAF results
+
+### 5. Event Handler Routing
+```
+:telemetry.execute() → TelemetryEventHandler → TelemetryReporter GenServer
+```
+- `TelemetryEventHandler` routes events to `TelemetryReporter` via GenServer.cast
+- Events categorized by type (encoder, crf_search, analyzer, queue, sync)
+- Each event type triggers specific state updates
+
+### 6. State Consolidation & Filtering
+```
+TelemetryReporter → DashboardState Updates → Significance Detection
+```
+- All telemetry consolidated into single `DashboardState` struct
+- Progress changes filtered (>1% threshold to prevent UI spam)
+- Memory-optimized state comparison using process dictionary
+
+### 7. Dashboard State Broadcasting
+```
+TelemetryReporter → :telemetry.execute([:reencodarr, :dashboard, :state_updated])
+```
+- Only significant state changes trigger dashboard telemetry
+- Minimal payload sent (50-70% size reduction)
+- Inactive progress data excluded from payloads
+
+### 8. LiveView Integration
+```
+:telemetry.execute() → LiveView.handle_telemetry_event/4 → UI Updates
+```
+- Dashboard LiveView attaches to `[:reencodarr, :dashboard, :state_updated]` events
+- Telemetry handler sends messages to LiveView process
+- UI updates happen via `handle_info({:telemetry_event, state})`
+
+### Complete Flow Example
+```
+ab-av1: "50%, 25.5 fps, eta 5 minutes"
+  ↓
+Port message: {:data, {:eol, "50%, 25.5 fps, eta 5 minutes"}}
+  ↓
+ProgressParser.process_line("50%, 25.5 fps, eta 5 minutes", %{video: video})
+  ↓
+OutputParser.parse_line() → {:ok, %{type: :progress, data: %{progress: 50, fps: 25.5, eta: 5, eta_unit: "minutes"}}}
+  ↓
+handle_encoding_progress() → Telemetry.emit_encoder_progress(%{filename: "video.mkv", percent: 50, fps: 25.5, eta: "5 minutes"})
+  ↓
+:telemetry.execute([:reencodarr, :encoder, :progress], measurements, metadata)
+  ↓
+TelemetryEventHandler.handle_event() → GenServer.cast(TelemetryReporter, {:update_encoding_progress, measurements})
+  ↓
+TelemetryReporter updates DashboardState → emit_state_update_and_return()
+  ↓
+:telemetry.execute([:reencodarr, :dashboard, :state_updated], %{}, %{state: minimal_state})
+  ↓
+DashboardLive.handle_telemetry_event() → send(pid, {:telemetry_event, state})
+  ↓
+DashboardLive.handle_info({:telemetry_event, state}) → UI progress bar updates
+```
+
+This architecture provides real-time, efficient updates with automatic filtering and memory optimization.
 
 ## Performance & Debugging Patterns
 
