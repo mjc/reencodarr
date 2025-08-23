@@ -59,17 +59,29 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   @impl true
-  def handle_cast({:encode, %Media.Vmaf{} = vmaf}, %{port: port} = state) when port != :none do
-    Logger.info("Encoding is already in progress, skipping new encode request.")
+  def handle_cast({:encode, vmaf}, state) do
+    args = build_encode_args(vmaf)
 
-    # Publish a skipped event since this request was rejected
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "encoding_events",
-      {:encoding_completed, vmaf.id, :skipped}
-    )
+    case Helper.open_port(args) do
+      {:ok, port} ->
+        Telemetry.emit_encoder_started(vmaf.video.path)
 
-    {:noreply, state}
+        output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
+
+        new_state = %{
+          state
+          | port: port,
+            video: vmaf.video,
+            vmaf: vmaf,
+            output_file: output_file
+        }
+
+        {:noreply, new_state}
+
+      {:error, reason} ->
+        Logger.error("Failed to open port: #{inspect(reason)}")
+        {:noreply, state}
+    end
   end
 
   @impl true
