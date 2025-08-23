@@ -1,9 +1,11 @@
-defmodule Reencodarr.ProgressParserTest do
+defmodule Reencodarr.AbAv1.ProgressParserTest do
   use Reencodarr.DataCase, async: true
   import ExUnit.CaptureLog
 
+  alias Reencodarr.AbAv1.ProgressParser
   alias Reencodarr.Media
-  alias Reencodarr.ProgressParser
+  alias Reencodarr.Media.Vmaf
+  alias Reencodarr.Repo
 
   describe "process_line/2" do
     setup do
@@ -59,8 +61,7 @@ defmodule Reencodarr.ProgressParserTest do
 
       assert_receive {:telemetry_event, measurements}
       assert measurements.percent == 45
-      # parse_fps rounds 23.5 to 24.0
-      assert measurements.fps == 24.0
+      assert measurements.fps == 23.5
       assert measurements.eta == "120 minutes"
       assert measurements.filename == "video.mkv"
 
@@ -85,8 +86,7 @@ defmodule Reencodarr.ProgressParserTest do
 
       assert_receive {:telemetry_event, measurements}
       assert measurements.percent == 67
-      # parse_fps rounds to integer
-      assert measurements.fps == 15.0
+      assert measurements.fps == 15.2
       assert measurements.eta == "45 seconds"
 
       :telemetry.detach("test-alt-progress")
@@ -164,7 +164,7 @@ defmodule Reencodarr.ProgressParserTest do
           assert :ok = ProgressParser.process_line(line, state)
         end)
 
-      assert log =~ "ProgressParser: Unmatched progress-like line"
+      assert log =~ "ProgressParser: Unmatched encoding progress-like line"
       assert log =~ "Some line with 45% progress but wrong format"
     end
 
@@ -220,8 +220,7 @@ defmodule Reencodarr.ProgressParserTest do
       assert :ok = ProgressParser.process_line(line, state)
 
       assert_receive {:telemetry_event, measurements}
-      # parse_fps rounds 999.99 to 1000.0
-      assert measurements.fps == 1000.0
+      assert measurements.fps == 999.99
 
       :telemetry.detach("test-high-fps")
     end
@@ -232,6 +231,9 @@ defmodule Reencodarr.ProgressParserTest do
         Media.update_video(state.video, %{
           path: "/tv/Breaking.Bad.S01E01.Pilot.1080p.BluRay.x264-ROVERS.mkv"
         })
+
+      # Update the state to use the complex video
+      updated_state = %{state | video: complex_video}
 
       # Use the actual video ID from the created video
       line = "[2024-01-01T12:00:00Z] encoding #{complex_video.id}.mkv"
@@ -247,7 +249,7 @@ defmodule Reencodarr.ProgressParserTest do
         nil
       )
 
-      assert :ok = ProgressParser.process_line(line, state)
+      assert :ok = ProgressParser.process_line(line, updated_state)
 
       assert_receive {:telemetry_event, metadata}
       assert metadata.filename == "Breaking.Bad.S01E01.Pilot.1080p.BluRay.x264-ROVERS.mkv"
@@ -316,10 +318,241 @@ defmodule Reencodarr.ProgressParserTest do
       assert :ok = ProgressParser.process_line(line, state)
 
       assert_receive {:telemetry_event, measurements}
-      # parse_fps rounds 23.75 to 24.0
-      assert measurements.fps == 24.0
+      assert measurements.fps == 23.75
 
       :telemetry.detach("test-decimal-fps")
+    end
+  end
+
+  # =============================================================================
+  # CRF Search Pattern Matching Tests
+  # =============================================================================
+
+  describe "CRF search pattern matching" do
+    setup do
+      {:ok, video} =
+        Media.create_video(%{
+          id: 1,
+          path: "test_path.mkv",
+          size: 1_000_000_000,
+          service_id: "test",
+          service_type: :sonarr
+        })
+
+      # Read fixture files
+      crf_search_lines =
+        Path.join([__DIR__, "..", "..", "fixtures", "crf-search-output.txt"])
+        |> File.read!()
+        |> String.split("\n")
+        |> Enum.reject(&(&1 == ""))
+
+      encoding_lines =
+        Path.join([__DIR__, "..", "..", "fixtures", "encoding-output.txt"])
+        |> File.read!()
+        |> String.split("\n")
+        |> Enum.reject(&(&1 == ""))
+
+      %{video: video, crf_search_lines: crf_search_lines, encoding_lines: encoding_lines}
+    end
+
+    test "matches simple VMAF pattern", %{video: video, crf_search_lines: lines} do
+      # Use the first sample VMAF line from fixture
+      line = Enum.find(lines, &String.contains?(&1, "sample 1/5 crf 28 VMAF 91.33"))
+
+      assert Repo.aggregate(Vmaf, :count, :id) == 0
+      ProgressParser.process_line(line, {video, [], 95})
+      assert Repo.aggregate(Vmaf, :count, :id) == 1
+
+      vmaf = Repo.one(Vmaf)
+      assert vmaf.crf == 28.0
+      assert vmaf.score == 91.33
+      assert vmaf.percent == 4.0
+    end
+
+    test "matches extended VMAF pattern with file size prediction", %{
+      video: video,
+      crf_search_lines: lines
+    } do
+      # Use a line with predicted video stream size from fixture
+      line =
+        Enum.find(
+          lines,
+          &String.contains?(&1, "crf 28 VMAF 90.52 predicted video stream size 253.42 MiB")
+        )
+
+      ProgressParser.process_line(line, {video, [], 95})
+
+      vmaf = Repo.one(Vmaf)
+      assert vmaf.crf == 28.0
+      assert vmaf.score == 90.52
+      assert vmaf.percent == 3.0
+    end
+
+    test "matches simple VMAF without percentage", %{video: video, crf_search_lines: lines} do
+      # Use dash pattern line from fixture
+      line = Enum.find(lines, &String.contains?(&1, "- crf 28 VMAF 90.52"))
+
+      ProgressParser.process_line(line, {video, [], 95})
+
+      vmaf = Repo.one(Vmaf)
+      assert vmaf.crf == 28.0
+      assert vmaf.score == 90.52
+      assert vmaf.percent == 3.0
+    end
+
+    test "matches success pattern and marks chosen VMAF", %{video: video, crf_search_lines: lines} do
+      # First add a VMAF record using the crf line from fixture
+      crf_line =
+        "crf 23.1 VMAF 95.14 predicted video stream size 439.91 MiB (4%) taking 31 minutes"
+
+      ProgressParser.process_line(crf_line, {video, [], 95})
+
+      # Then process success line from fixture
+      success_line = Enum.find(lines, &String.contains?(&1, "crf 23.1 successful"))
+
+      ProgressParser.process_line(success_line, {video, [], 95})
+
+      # Should update the VMAF as chosen
+      vmaf = Repo.one(Vmaf)
+      assert vmaf.chosen == true
+      assert vmaf.crf == 23.1
+    end
+
+    test "handles warning patterns", %{video: video} do
+      warning_lines = [
+        "Warning: you may want to set a max-crf to prevent really low quality encodes",
+        "Warning: target VMAF (95) not reached for any CRF"
+      ]
+
+      Enum.each(warning_lines, fn line ->
+        log =
+          capture_log(fn ->
+            ProgressParser.process_line(line, {video, [], 95})
+          end)
+
+        # Warning lines should be handled properly and not generate "No match" errors
+        refute log =~ "No match for line"
+      end)
+    end
+
+    test "handles malformed but parseable lines", %{video: video} do
+      # Use a line that matches the simple_vmaf pattern which expects a timestamp
+      slightly_malformed_line = "[2024-12-12T00:13:08Z INFO] crf 22 VMAF 94.50 (75%)"
+
+      ProgressParser.process_line(slightly_malformed_line, {video, [], 95})
+
+      # Should create one VMAF record
+      vmafs = Repo.all(Vmaf)
+      assert length(vmafs) == 1
+      vmaf = hd(vmafs)
+      assert vmaf.crf == 22.0
+      assert vmaf.score == 94.50
+      assert vmaf.percent == 75.0
+    end
+  end
+
+  # =============================================================================
+  # CRF Search Line Processing Tests
+  # =============================================================================
+
+  describe "CRF search line processing" do
+    setup do
+      {:ok, video} =
+        Media.create_video(%{
+          path: "/test/video.mkv",
+          size: 2_000_000_000,
+          service_id: "23",
+          service_type: :sonarr
+        })
+
+      %{video: video}
+    end
+
+    test "processes simple VMAF line", %{video: video} do
+      line = "sample 1/5 crf 28 VMAF 91.33 (85%)"
+
+      _log =
+        capture_log(fn ->
+          ProgressParser.process_line(line, {video, [], 95})
+        end)
+
+      vmaf = Repo.one(Vmaf)
+      assert vmaf.video_id == video.id
+      assert vmaf.crf == 28.0
+      assert vmaf.score == 91.33
+    end
+
+    test "handles invalid lines without error", %{video: video} do
+      line = "Invalid line format"
+
+      log =
+        capture_log(fn ->
+          ProgressParser.process_line(line, {video, [], 95})
+        end)
+
+      # With OutputParser, invalid lines now return :ignore and don't generate logs
+      refute log =~ "error"
+      assert Repo.aggregate(Vmaf, :count, :id) == 0
+    end
+
+    test "processes VMAF line with size and time information", %{video: video} do
+      line = "crf 28 VMAF 91.33 predicted video stream size 800 MB (85%) taking 120 seconds"
+
+      ProgressParser.process_line(line, {video, ["--preset", "medium"], 95})
+
+      vmaf = Repo.one(Vmaf)
+      assert vmaf.video_id == video.id
+      assert vmaf.crf == 28.0
+      assert vmaf.score == 91.33
+      assert vmaf.size == "800.0 MB"
+      assert vmaf.time == 120
+      # ETA VMAF lines are marked as chosen
+      assert vmaf.chosen == true
+    end
+
+    test "processes simple VMAF line without size information", %{video: video} do
+      line =
+        "[2024-12-12T00:13:08Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 28 VMAF 91.33 (85%)"
+
+      ProgressParser.process_line(line, {video, ["--preset", "medium"], 95})
+
+      vmaf = Repo.one(Vmaf)
+      assert vmaf.video_id == video.id
+      assert vmaf.crf == 28.0
+      assert vmaf.score == 91.33
+      assert vmaf.percent == 85.0
+      refute vmaf.chosen
+    end
+
+    test "handles progress line", %{video: video} do
+      line = "[2024-12-12T00:13:08Z INFO] Progress: 45.2%, 15.3 fps, eta 2 minutes"
+
+      log =
+        capture_log(fn ->
+          ProgressParser.process_line(line, {video, [], 95})
+        end)
+
+      assert Repo.aggregate(Vmaf, :count, :id) == 0
+      # Should be processed successfully
+      refute log =~ "No match for line"
+    end
+
+    test "handles success line", %{video: video} do
+      # First create a VMAF record that can be marked as chosen
+      {:ok, _vmaf} =
+        Media.create_vmaf(%{
+          video_id: video.id,
+          crf: 28.0,
+          score: 91.33,
+          params: ["--preset", "medium"]
+        })
+
+      line = "crf 28 successful"
+
+      ProgressParser.process_line(line, {video, [], 95})
+
+      vmaf = Repo.one(Vmaf)
+      assert vmaf.chosen == true
     end
   end
 end
