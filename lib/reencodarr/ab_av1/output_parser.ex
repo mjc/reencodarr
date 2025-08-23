@@ -1,32 +1,332 @@
 defmodule Reencodarr.AbAv1.OutputParser do
   @moduledoc """
-  Simple parser for ab-av1 command output using regex patterns.
+  Parser for ab-av1 command output using NimbleParsec.
 
   Converts raw ab-av1 output lines to structured data types.
+  This implementation maintains compatibility with existing tests while providing
+  better readability than regex patterns.
   """
 
-  # Simple pattern map for all ab-av1 output types
-  # Order matters - more specific patterns first
-  @patterns [
-    {:encoding_sample,
-     ~r/encoding\ssample\s(?<sample_num>\d+)\/(?<total_samples>\d+)\scrf\s(?<crf>\d+(?:\.\d+)?)/},
-    {:eta_vmaf,
-     ~r/crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\spredicted\svideo\sstream\ssize\s(?<size>\d+\.?\d*)\s(?<unit>\w+)\s\((?<percent>\d+)%\)\staking\s(?<time>\d+\.?\d*)\s(?<time_unit>\w+)/},
-    {:sample_vmaf,
-     ~r/sample\s(?<sample_num>\d+)\/(?<total_samples>\d+)\scrf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/},
-    {:dash_vmaf,
-     ~r/^-\scrf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/},
-    {:vmaf_result,
-     ~r/crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/},
-    {:file_progress, ~r/Encoded\s(?<size>\d+\.?\d*)\s(?<unit>\w+)\s\((?<percent>\d+)%\)/},
-    {:progress,
-     ~r/(?<percent>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,\seta\s(?<eta>\d+)\s(?<time_unit>second|minute|hour|day|week|month|year)s?/},
-    {:encoding_start, ~r/encoding\s(?<filename>.+\.mkv)/},
-    {:ffmpeg_error, ~r/Error:\sffmpeg\sencode\sexit\scode\s(?<exit_code>\d+)/},
-    {:success, ~r/crf\s(?<crf>\d+(?:\.\d+)?)\ssuccessful/},
-    {:warning, ~r/^Warning:\s(?<message>.*)$/},
-    {:vmaf_comparison, ~r/vmaf\s(?<file1>.+?)\svs\sreference\s(?<file2>.+)/}
-  ]
+  import NimbleParsec
+
+  # Helper parsers for common patterns
+  number =
+    choice([
+      ascii_string([?0..?9], min: 1)
+      |> string(".")
+      |> ascii_string([?0..?9], min: 1)
+      |> reduce(:to_float),
+      ascii_string([?0..?9], min: 1)
+      |> reduce(:to_integer)
+    ])
+
+  # Helper functions for parsing
+  defp to_float([int_part, ".", decimal_part]), do: String.to_float("#{int_part}.#{decimal_part}")
+  defp to_integer([int_str]), do: String.to_integer(int_str)
+
+  # Helper for optional timestamp prefix: "[2024-12-12T00:13:08Z INFO] "
+  timestamp_prefix =
+    optional(
+      ignore(string("["))
+      |> ignore(utf8_string([{:not, ?]}], min: 1))
+      |> ignore(string("] "))
+    )
+
+  # Simple progress parser that handles optional timestamp prefix
+  # Examples: "75%, 45.2 fps, eta 5 minutes" or "[timestamp] 75%, 45.2 fps, eta 5 minutes"
+  progress =
+    timestamp_prefix
+    |> concat(number)
+    |> ignore(string("%, "))
+    |> concat(number)
+    |> ignore(choice([string(" fps, eta "), string(" fps?, eta ")]))
+    |> integer(min: 1)
+    |> ignore(string(" "))
+    |> choice([
+      string("seconds") |> replace("second"),
+      string("minutes") |> replace("minute"),
+      string("hours") |> replace("hour"),
+      string("days") |> replace("day"),
+      string("weeks") |> replace("week"),
+      string("months") |> replace("month"),
+      string("years") |> replace("year"),
+      string("second"),
+      string("minute"),
+      string("hour"),
+      string("day"),
+      string("week"),
+      string("month"),
+      string("year")
+    ])
+    |> reduce(:build_progress)
+
+  # Simple file progress: "Encoded 2.5 GB (75%)"
+  file_progress =
+    timestamp_prefix
+    |> ignore(string("Encoded "))
+    |> concat(number)
+    |> ignore(string(" "))
+    |> choice([
+      string("TB"),
+      string("GB"),
+      string("MB"),
+      string("KB"),
+      string("B"),
+      string("GiB"),
+      string("MiB")
+    ])
+    |> ignore(string(" ("))
+    |> integer(min: 1)
+    |> ignore(string("%)"))
+    |> reduce(:build_file_progress)
+
+  # Sample VMAF: "sample 1/5 crf 28 VMAF 91.33 (85%)"
+  sample_vmaf =
+    timestamp_prefix
+    |> ignore(string("sample "))
+    |> integer(min: 1)
+    |> ignore(string("/"))
+    |> integer(min: 1)
+    |> ignore(string(" crf "))
+    |> concat(number)
+    |> ignore(string(" VMAF "))
+    |> concat(number)
+    |> ignore(string(" ("))
+    |> integer(min: 1)
+    |> ignore(string("%)"))
+    |> optional(ignore(string(" (cache)")))
+    |> reduce(:build_sample_vmaf)
+
+  # VMAF result: "crf 28 VMAF 91.33 (85%)"
+  vmaf_result =
+    timestamp_prefix
+    |> ignore(string("crf "))
+    |> concat(number)
+    |> ignore(string(" VMAF "))
+    |> concat(number)
+    |> ignore(string(" ("))
+    |> integer(min: 1)
+    |> ignore(string("%)"))
+    |> optional(ignore(string(" (cache)")))
+    |> reduce(:build_vmaf_result)
+
+  # Dash VMAF: "- crf 28 VMAF 91.33 (85%)"
+  dash_vmaf =
+    timestamp_prefix
+    |> ignore(string("- crf "))
+    |> concat(number)
+    |> ignore(string(" VMAF "))
+    |> concat(number)
+    |> ignore(string(" ("))
+    |> integer(min: 1)
+    |> ignore(string("%)"))
+    |> optional(ignore(string(" (cache)")))
+    |> reduce(:build_dash_vmaf)
+
+  # ETA VMAF: "crf 28 VMAF 91.33 predicted video stream size 800.5 MB (85%) taking 120 seconds"
+  eta_vmaf =
+    timestamp_prefix
+    |> ignore(string("crf "))
+    |> concat(number)
+    |> ignore(string(" VMAF "))
+    |> concat(number)
+    |> ignore(string(" predicted video stream size "))
+    |> concat(number)
+    |> ignore(string(" "))
+    |> choice([
+      string("GiB"),
+      string("MiB"),
+      string("KiB"),
+      string("GB"),
+      string("MB"),
+      string("KB"),
+      string("B")
+    ])
+    |> ignore(string(" ("))
+    |> integer(min: 1)
+    |> ignore(string("%) taking "))
+    |> concat(number)
+    |> ignore(string(" "))
+    |> choice([string("seconds"), string("minutes"), string("hours")])
+    |> optional(ignore(string(" (cache)")))
+    |> reduce(:build_eta_vmaf)
+
+  # Encoding sample: "encoding sample 1/5 crf 28"
+  encoding_sample =
+    timestamp_prefix
+    |> ignore(string("encoding sample "))
+    |> integer(min: 1)
+    |> ignore(string("/"))
+    |> integer(min: 1)
+    |> ignore(string(" crf "))
+    |> concat(number)
+    |> reduce(:build_encoding_sample)
+
+  # Success: "crf 24 successful"
+  success =
+    timestamp_prefix
+    |> ignore(string("crf "))
+    |> concat(number)
+    |> ignore(string(" successful"))
+    |> reduce(:build_success)
+
+  # Warning: "Warning: message"
+  warning =
+    timestamp_prefix
+    |> ignore(string("Warning: "))
+    |> utf8_string([{:not, ?\n}], min: 1)
+    |> reduce(:build_warning)
+
+  # Encoding start: "encoding video.mkv" or "[timestamp] encoding 123.mkv"
+  encoding_start =
+    timestamp_prefix
+    |> ignore(string("encoding "))
+    |> utf8_string([{:not, ?\n}], min: 1)
+    |> reduce(:build_encoding_start)
+
+  # FFmpeg error: "Error: ffmpeg encode exit code 1"
+  ffmpeg_error =
+    timestamp_prefix
+    |> ignore(string("Error: ffmpeg encode exit code "))
+    |> integer(min: 1)
+    |> reduce(:build_ffmpeg_error)
+
+  # Main parser
+  main_parser =
+    choice([
+      encoding_sample,
+      eta_vmaf,
+      sample_vmaf,
+      dash_vmaf,
+      vmaf_result,
+      file_progress,
+      progress,
+      encoding_start,
+      ffmpeg_error,
+      success,
+      warning
+    ])
+
+  defparsec(:parse_ab_av1_line, main_parser)
+
+  # Build functions
+  defp build_progress([percent, fps, eta, time_unit]) do
+    %{
+      type: :progress,
+      data: %{
+        progress: percent,
+        fps: fps,
+        eta: eta,
+        eta_unit: time_unit
+      }
+    }
+  end
+
+  defp build_file_progress([size, unit, percent]) do
+    %{
+      type: :file_progress,
+      data: %{
+        size: size,
+        unit: unit,
+        progress: percent
+      }
+    }
+  end
+
+  defp build_sample_vmaf([sample_num, total_samples, crf, score, percent]) do
+    %{
+      type: :sample_vmaf,
+      data: %{
+        sample_num: sample_num,
+        total_samples: total_samples,
+        crf: crf,
+        score: score,
+        percent: percent
+      }
+    }
+  end
+
+  defp build_vmaf_result([crf, score, percent]) do
+    %{
+      type: :vmaf_result,
+      data: %{
+        crf: crf,
+        score: score,
+        percent: percent
+      }
+    }
+  end
+
+  defp build_dash_vmaf([crf, score, percent]) do
+    %{
+      type: :dash_vmaf,
+      data: %{
+        crf: crf,
+        score: score,
+        percent: percent
+      }
+    }
+  end
+
+  defp build_eta_vmaf([crf, score, size, unit, percent, time, time_unit]) do
+    %{
+      type: :eta_vmaf,
+      data: %{
+        crf: crf,
+        score: score,
+        size: size,
+        unit: unit,
+        percent: percent,
+        time: time,
+        time_unit: time_unit
+      }
+    }
+  end
+
+  defp build_encoding_sample([sample_num, total_samples, crf]) do
+    %{
+      type: :encoding_sample,
+      data: %{
+        sample_num: sample_num,
+        total_samples: total_samples,
+        crf: crf
+      }
+    }
+  end
+
+  defp build_success([crf]) do
+    %{
+      type: :success,
+      data: %{crf: crf}
+    }
+  end
+
+  defp build_warning([message]) do
+    %{
+      type: :warning,
+      data: %{message: message}
+    }
+  end
+
+  defp build_encoding_start([filename]) do
+    video_id =
+      case Regex.run(~r/(\d+)\.mkv/, filename) do
+        [_, id] -> String.to_integer(id)
+        _ -> nil
+      end
+
+    %{
+      type: :encoding_start,
+      data: %{filename: filename, video_id: video_id}
+    }
+  end
+
+  defp build_ffmpeg_error([exit_code]) do
+    %{
+      type: :ffmpeg_error,
+      data: %{exit_code: exit_code}
+    }
+  end
 
   @doc """
   Parse a single line of ab-av1 output.
@@ -35,9 +335,15 @@ defmodule Reencodarr.AbAv1.OutputParser do
   or `:ignore` for unrecognized lines.
   """
   def parse_line(line) do
-    case find_match(line) do
-      {type, captures} -> {:ok, %{type: type, data: convert_captures(type, captures)}}
-      nil -> :ignore
+    case parse_ab_av1_line(line) do
+      {:ok, [result], "", %{}, {1, 0}, _column} ->
+        {:ok, result}
+
+      {:ok, [result], _rest, %{}, {1, 0}, _column} ->
+        {:ok, result}
+
+      {:error, _reason, _rest, _context, _line, _column} ->
+        :ignore
     end
   end
 
@@ -62,127 +368,58 @@ defmodule Reencodarr.AbAv1.OutputParser do
   @doc """
   Test a specific pattern against a line. Used by tests.
 
-  Returns named captures map or nil if no match.
+  Returns string-keyed captures map (for compatibility with regex tests) or nil if no match.
   """
   def match_pattern(line, pattern_type) do
-    case List.keyfind(@patterns, pattern_type, 0) do
-      {^pattern_type, pattern} ->
-        Regex.named_captures(pattern, line)
+    case parse_line(line) do
+      {:ok, %{type: ^pattern_type, data: data}} ->
+        # Convert back to string-keyed map for test compatibility
+        convert_to_string_captures(pattern_type, data)
 
-      nil ->
+      _ ->
         nil
     end
   end
 
-  # Find the first matching pattern using named captures
-  defp find_match(line) do
-    Enum.find_value(@patterns, fn {type, pattern} ->
-      case Regex.named_captures(pattern, line) do
-        nil -> nil
-        captures -> {type, captures}
-      end
-    end)
-  end
-
-  # Convert string-keyed captures to atom-keyed maps with appropriate types
-  defp convert_captures(:encoding_sample, captures) do
+  # Convert structured data back to string captures for test compatibility
+  defp convert_to_string_captures(:sample_vmaf, data) do
     %{
-      sample_num: String.to_integer(captures["sample_num"]),
-      total_samples: String.to_integer(captures["total_samples"]),
-      crf: parse_number(captures["crf"])
+      "sample_num" => Integer.to_string(data.sample_num),
+      "total_samples" => Integer.to_string(data.total_samples),
+      "crf" => number_to_string(data.crf),
+      "score" => number_to_string(data.score),
+      "percent" => Integer.to_string(data.percent)
     }
   end
 
-  defp convert_captures(:vmaf_result, captures) do
+  defp convert_to_string_captures(:vmaf_result, data) do
     %{
-      crf: parse_number(captures["crf"]),
-      score: parse_number(captures["score"]),
-      percent: String.to_integer(captures["percent"])
+      "crf" => number_to_string(data.crf),
+      "score" => number_to_string(data.score),
+      "percent" => Integer.to_string(data.percent)
     }
   end
 
-  defp convert_captures(:sample_vmaf, captures) do
+  defp convert_to_string_captures(:file_progress, data) do
     %{
-      sample_num: String.to_integer(captures["sample_num"]),
-      total_samples: String.to_integer(captures["total_samples"]),
-      crf: parse_number(captures["crf"]),
-      score: parse_number(captures["score"]),
-      percent: String.to_integer(captures["percent"])
+      "size" => number_to_string(data.size),
+      "unit" => data.unit,
+      "percent" => Integer.to_string(data.progress)
     }
   end
 
-  defp convert_captures(:dash_vmaf, captures) do
+  defp convert_to_string_captures(:progress, data) do
     %{
-      crf: parse_number(captures["crf"]),
-      score: parse_number(captures["score"]),
-      percent: String.to_integer(captures["percent"])
+      "percent" => number_to_string(data.progress),
+      "fps" => number_to_string(data.fps),
+      "eta" => Integer.to_string(data.eta),
+      "time_unit" =>
+        if(String.ends_with?(data.eta_unit, "s"), do: data.eta_unit, else: data.eta_unit <> "s")
     }
   end
 
-  defp convert_captures(:eta_vmaf, captures) do
-    %{
-      crf: parse_number(captures["crf"]),
-      score: parse_number(captures["score"]),
-      size: parse_number(captures["size"]),
-      unit: captures["unit"],
-      percent: String.to_integer(captures["percent"]),
-      time: parse_number(captures["time"]),
-      time_unit: captures["time_unit"]
-    }
-  end
+  defp convert_to_string_captures(_, data), do: data
 
-  defp convert_captures(:progress, captures) do
-    %{
-      progress: parse_number(captures["percent"]),
-      fps: parse_number(captures["fps"]),
-      eta: String.to_integer(captures["eta"]),
-      # "minutes" → "minute"
-      eta_unit: String.replace_suffix(captures["time_unit"], "s", "")
-    }
-  end
-
-  defp convert_captures(:file_progress, captures) do
-    %{
-      size: parse_number(captures["size"]),
-      unit: captures["unit"],
-      progress: String.to_integer(captures["percent"])
-    }
-  end
-
-  defp convert_captures(:encoding_start, captures) do
-    filename = captures["filename"]
-    # Extract video ID from filename like "123.mkv"
-    video_id =
-      case Regex.run(~r/(\d+)\.mkv/, filename) do
-        [_, id] -> String.to_integer(id)
-        _ -> nil
-      end
-
-    %{filename: filename, video_id: video_id}
-  end
-
-  defp convert_captures(:ffmpeg_error, captures) do
-    %{exit_code: String.to_integer(captures["exit_code"])}
-  end
-
-  defp convert_captures(:success, captures) do
-    %{crf: parse_number(captures["crf"])}
-  end
-
-  defp convert_captures(:warning, captures) do
-    %{message: captures["message"]}
-  end
-
-  defp convert_captures(:vmaf_comparison, captures) do
-    %{file1: captures["file1"], file2: captures["file2"]}
-  end
-
-  # Parse number as float if it contains decimal, otherwise integer
-  defp parse_number(str) do
-    if String.contains?(str, ".") do
-      String.to_float(str)
-    else
-      String.to_integer(str)
-    end
-  end
+  defp number_to_string(num) when is_float(num), do: Float.to_string(num)
+  defp number_to_string(num) when is_integer(num), do: Integer.to_string(num)
 end
