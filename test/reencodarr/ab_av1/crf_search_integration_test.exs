@@ -7,7 +7,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
   @moduletag :integration
 
-  alias Reencodarr.AbAv1.CrfSearch
+  alias Reencodarr.AbAv1.{CrfSearch, ProgressParser}
   alias Reencodarr.Media
   alias Reencodarr.Media.Vmaf
   alias Reencodarr.Repo
@@ -77,7 +77,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       # Process all VMAF lines
       Enum.each(vmaf_lines, fn line ->
-        CrfSearch.process_line(line, video, ["--preset", "medium"])
+        ProgressParser.process_line(line, {video, ["--preset", "medium"], 95})
       end)
 
       # Verify VMAF records were created
@@ -89,7 +89,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
       assert crf_values == [26.0, 28.0, 30.0]
 
       # Simulate success line to mark one as chosen
-      CrfSearch.process_line("crf 28 successful", video, [])
+      ProgressParser.process_line("crf 28 successful", {video, [], 95})
 
       # Verify the correct VMAF was marked as chosen
       chosen_vmaf = Repo.get_by(Vmaf, video_id: video.id, chosen: true)
@@ -104,7 +104,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       log =
         capture_log(fn ->
-          CrfSearch.process_line(large_size_line, video, [])
+          ProgressParser.process_line(large_size_line, {video, [], 95})
         end)
 
       # Should create the VMAF record but log a warning
@@ -133,7 +133,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
       log =
         capture_log(fn ->
           Enum.each(malformed_lines, fn line ->
-            CrfSearch.process_line(line, video, [])
+            ProgressParser.process_line(line, {video, [], 95})
           end)
         end)
 
@@ -160,7 +160,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
         _log =
           capture_log(fn ->
             Enum.each(lines, fn line ->
-              CrfSearch.process_line(line, video, ["--preset", "medium"])
+              ProgressParser.process_line(line, {video, ["--preset", "medium"], 95})
             end)
           end)
 
@@ -198,7 +198,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       log_output =
         capture_log(fn ->
-          CrfSearch.process_line(eta_line, video, [], 95)
+          ProgressParser.process_line(eta_line, {video, [], 95})
         end)
 
       assert log_output =~
@@ -217,7 +217,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       log_output =
         capture_log(fn ->
-          CrfSearch.process_line(success_line, video, [], 95)
+          ProgressParser.process_line(success_line, {video, [], 95})
         end)
 
       assert log_output =~ "CrfSearch: Chosen VMAF CRF 23 exceeds 10GB limit"
@@ -236,11 +236,11 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
     test "allows video when chosen VMAF estimated size is under 10GB", %{video: video} do
       # Insert a VMAF that would be under 10GB
       eta_line = "crf 25 VMAF 95.0 predicted video stream size 8.2 GB (60%) taking 2 hours"
-      CrfSearch.process_line(eta_line, video, [], 95)
+      ProgressParser.process_line(eta_line, {video, [], 95})
 
       # Process the success line
       success_line = "crf 25 successful"
-      CrfSearch.process_line(success_line, video, [], 95)
+      ProgressParser.process_line(success_line, {video, [], 95})
 
       # Video should not be marked as failed
       reloaded_video = Repo.get(Media.Video, video.id)
@@ -265,9 +265,9 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       log_output =
         capture_log(fn ->
-          CrfSearch.process_line(eta_line1, video, [], 95)
-          CrfSearch.process_line(eta_line2, video, [], 95)
-          CrfSearch.process_line(eta_line3, video, [], 95)
+          ProgressParser.process_line(eta_line1, {video, [], 95})
+          ProgressParser.process_line(eta_line2, {video, [], 95})
+          ProgressParser.process_line(eta_line3, {video, [], 95})
         end)
 
       # Check that warnings were logged for VMAFs exceeding 10GB
@@ -287,7 +287,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       # Choose the one under 10GB (CRF 24)
       success_line = "crf 24 successful"
-      CrfSearch.process_line(success_line, video, [], 95)
+      ProgressParser.process_line(success_line, {video, [], 95})
 
       # Video should not be failed
       final_video = Repo.get(Media.Video, video.id)
@@ -306,9 +306,9 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       log_output =
         capture_log(fn ->
-          CrfSearch.process_line(eta_line1, video, [], 95)
-          CrfSearch.process_line(eta_line2, video, [], 95)
-          CrfSearch.process_line(eta_line3, video, [], 95)
+          ProgressParser.process_line(eta_line1, {video, [], 95})
+          ProgressParser.process_line(eta_line2, {video, [], 95})
+          ProgressParser.process_line(eta_line3, {video, [], 95})
         end)
 
       # Check that warnings were logged for VMAFs exceeding 10GB
@@ -323,7 +323,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       log_output =
         capture_log(fn ->
-          CrfSearch.process_line(success_line, video, [], 95)
+          ProgressParser.process_line(success_line, {video, [], 95})
         end)
 
       assert log_output =~ "CrfSearch: Chosen VMAF CRF 22 exceeds 10GB limit"
