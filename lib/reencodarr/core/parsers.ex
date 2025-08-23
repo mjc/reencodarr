@@ -167,46 +167,5 @@ defmodule Reencodarr.Core.Parsers do
     end)
   end
 
-  @doc """
-  Parses a line with a regex pattern and field mapping.
-
-  ## Examples
-
-      iex> pattern = ~r/crf (?<crf>\d+)/
-      iex> mapping = %{crf: {:float, "crf"}}
-      iex> parse_with_pattern("crf 28", :test, %{test: pattern}, mapping)
-      %{crf: 28.0}
-  """
-  @spec parse_with_pattern(String.t(), atom(), map(), map()) :: map() | nil
-  def parse_with_pattern(line, pattern_key, patterns, field_mapping) do
-    pattern = Map.get(patterns, pattern_key)
-
-    case Regex.named_captures(pattern, line) do
-      nil -> nil
-      captures -> extract_fields(captures, field_mapping)
-    end
-  end
-
-  # Extract and convert fields from regex captures
-  defp extract_fields(captures, field_mapping) do
-    field_mapping
-    |> Enum.reduce(%{}, fn {key, {type, capture_key}}, acc ->
-      case Map.get(captures, capture_key) do
-        nil -> acc
-        value -> Map.put(acc, key, convert_value(value, type))
-      end
-    end)
-  end
-
-  # Convert captured string values to appropriate types
-  defp convert_value(value, :int), do: String.to_integer(value)
-
-  defp convert_value(value, :float) do
-    case String.contains?(value, ".") do
-      true -> String.to_float(value)
-      false -> String.to_integer(value) |> Kernel.*(1.0)
-    end
-  end
-
-  defp convert_value(value, :string), do: value
+  # End of module
 end

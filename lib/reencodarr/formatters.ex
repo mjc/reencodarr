@@ -286,8 +286,8 @@ defmodule Reencodarr.Formatters do
   def format_filename(path) when is_binary(path) do
     basename = Path.basename(path, Path.extname(path))
 
-    # Try to extract series/episode pattern
-    case Regex.run(~r/(.+)\s-\s(S\d+E\d+)/, basename) do
+    # Try to extract series/episode pattern like "Show Name - S01E01"
+    case Regex.run(~r/(.+) - (S\d+E\d+)/, basename) do
       [_, series, episode] -> "#{series} - #{episode}"
       _ -> basename <> Path.extname(path)
     end
