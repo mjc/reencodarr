@@ -240,12 +240,15 @@ defmodule Reencodarr.AbAv1.OutputParserTest do
       end
     end
 
-    test "comprehensive fixture coverage analysis", %{crf_search_lines: crf_lines, encoding_lines: enc_lines} do
+    test "comprehensive fixture coverage analysis", %{
+      crf_search_lines: crf_lines,
+      encoding_lines: enc_lines
+    } do
       # Analyze all fixture lines to ensure comprehensive coverage
       all_lines = crf_lines ++ enc_lines
 
       # Test every single line in the fixtures
-      {parsed_count, ignored_count, pattern_counts} = 
+      {parsed_count, _ignored_count, pattern_counts} =
         Enum.reduce(all_lines, {0, 0, %{}}, fn line, {parsed, ignored, patterns} ->
           case OutputParser.parse_line(line) do
             {:ok, %{type: type, data: _data}} ->
@@ -261,17 +264,6 @@ defmodule Reencodarr.AbAv1.OutputParserTest do
       assert total_lines > 0, "No fixture lines found"
       assert parsed_count > 0, "No lines were successfully parsed"
 
-      # Log the analysis for debugging
-      IO.puts "\n=== Fixture Coverage Analysis ==="
-      IO.puts "Total fixture lines: #{total_lines}"
-      IO.puts "Successfully parsed: #{parsed_count}"
-      IO.puts "Ignored lines: #{ignored_count}"
-      IO.puts "Parse success rate: #{Float.round(parsed_count / total_lines * 100, 1)}%"
-      IO.puts "Pattern counts:"
-      Enum.each(pattern_counts, fn {pattern, count} ->
-        IO.puts "  #{pattern}: #{count}"
-      end)
-
       # Ensure we're parsing most patterns we expect from ab-av1 output
       found_patterns = Map.keys(pattern_counts)
 
@@ -280,7 +272,8 @@ defmodule Reencodarr.AbAv1.OutputParserTest do
 
       # CRF search fixtures should contain sample VMAF and eta VMAF patterns
       if length(crf_lines) > 0 do
-        assert Map.has_key?(pattern_counts, :sample_vmaf) or Map.has_key?(pattern_counts, :vmaf_result),
+        assert Map.has_key?(pattern_counts, :sample_vmaf) or
+                 Map.has_key?(pattern_counts, :vmaf_result),
                "CRF search fixtures should contain VMAF patterns"
       end
 
