@@ -8,9 +8,9 @@ defmodule Reencodarr.AbAv1.Encode do
 
   use GenServer
 
-  alias Reencodarr.AbAv1.Helper
+  alias Reencodarr.AbAv1.{Helper, ProgressParser}
   alias Reencodarr.Encoder.Broadway.Producer
-  alias Reencodarr.{Media, PostProcessor, ProgressParser, Telemetry, TelemetryReporter}
+  alias Reencodarr.{Media, PostProcessor, Telemetry, TelemetryReporter}
 
   require Logger
 
