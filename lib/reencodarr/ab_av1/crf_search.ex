@@ -498,13 +498,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       Integer.to_string(vmaf_percent),
       "--temp-dir",
       Helper.temp_dir(),
-      "--thorough",
-      "--cache",
-      "false"
+      "--thorough"
     ]
 
-    # Use centralized Rules module with preset 6 additional param
-    Rules.build_args(video, :crf_search, ["--preset", "6"], base_args)
+    # Use centralized Rules module with preset 6 and cache disabled for retries
+    Rules.build_args(video, :crf_search, ["--preset", "6", "--cache", "false"], base_args)
   end
 
   # Broadcast CRF search completion event to PubSub
