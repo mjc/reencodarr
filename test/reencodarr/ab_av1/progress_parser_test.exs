@@ -379,7 +379,7 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
       line = Enum.find(lines, &String.contains?(&1, "sample 1/5 crf 28 VMAF 91.33"))
 
       assert Repo.aggregate(Vmaf, :count, :id) == 0
-      ProgressParser.process_line(line, {video, [], 95})
+      ProgressParser.process_line(line, %{video: video, args: [], target_vmaf: 95})
       assert Repo.aggregate(Vmaf, :count, :id) == 1
 
       vmaf = Repo.one(Vmaf)
@@ -399,7 +399,7 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
           &String.contains?(&1, "crf 28 VMAF 90.52 predicted video stream size 253.42 MiB")
         )
 
-      ProgressParser.process_line(line, {video, [], 95})
+      ProgressParser.process_line(line, %{video: video, args: [], target_vmaf: 95})
 
       vmaf = Repo.one(Vmaf)
       assert vmaf.crf == 28.0
@@ -411,7 +411,7 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
       # Use dash pattern line from fixture
       line = Enum.find(lines, &String.contains?(&1, "- crf 28 VMAF 90.52"))
 
-      ProgressParser.process_line(line, {video, [], 95})
+      ProgressParser.process_line(line, %{video: video, args: [], target_vmaf: 95})
 
       vmaf = Repo.one(Vmaf)
       assert vmaf.crf == 28.0
@@ -424,12 +424,12 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
       crf_line =
         "crf 23.1 VMAF 95.14 predicted video stream size 439.91 MiB (4%) taking 31 minutes"
 
-      ProgressParser.process_line(crf_line, {video, [], 95})
+      ProgressParser.process_line(crf_line, %{video: video, args: [], target_vmaf: 95})
 
       # Then process success line from fixture
       success_line = Enum.find(lines, &String.contains?(&1, "crf 23.1 successful"))
 
-      ProgressParser.process_line(success_line, {video, [], 95})
+      ProgressParser.process_line(success_line, %{video: video, args: [], target_vmaf: 95})
 
       # Should update the VMAF as chosen
       vmaf = Repo.one(Vmaf)
@@ -446,7 +446,7 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
       Enum.each(warning_lines, fn line ->
         log =
           capture_log(fn ->
-            ProgressParser.process_line(line, {video, [], 95})
+            ProgressParser.process_line(line, %{video: video, args: [], target_vmaf: 95})
           end)
 
         # Warning lines should be handled properly and not generate "No match" errors
@@ -458,7 +458,11 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
       # Use a line that matches the simple_vmaf pattern which expects a timestamp
       slightly_malformed_line = "[2024-12-12T00:13:08Z INFO] crf 22 VMAF 94.50 (75%)"
 
-      ProgressParser.process_line(slightly_malformed_line, {video, [], 95})
+      ProgressParser.process_line(slightly_malformed_line, %{
+        video: video,
+        args: [],
+        target_vmaf: 95
+      })
 
       # Should create one VMAF record
       vmafs = Repo.all(Vmaf)
@@ -481,7 +485,7 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
       {processed_crf, error_crf} =
         Enum.reduce(crf_lines, {0, 0}, fn line, {processed, errors} ->
           try do
-            ProgressParser.process_line(line, {video, [], 95})
+            ProgressParser.process_line(line, %{video: video, args: [], target_vmaf: 95})
             {processed + 1, errors}
           rescue
             _error ->
@@ -546,7 +550,7 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
 
       _log =
         capture_log(fn ->
-          ProgressParser.process_line(line, {video, [], 95})
+          ProgressParser.process_line(line, %{video: video, args: [], target_vmaf: 95})
         end)
 
       vmaf = Repo.one(Vmaf)
@@ -560,7 +564,7 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
 
       log =
         capture_log(fn ->
-          ProgressParser.process_line(line, {video, [], 95})
+          ProgressParser.process_line(line, %{video: video, args: [], target_vmaf: 95})
         end)
 
       # With OutputParser, invalid lines now return :ignore and don't generate logs
@@ -571,7 +575,11 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
     test "processes VMAF line with size and time information", %{video: video} do
       line = "crf 28 VMAF 91.33 predicted video stream size 800 MB (85%) taking 120 seconds"
 
-      ProgressParser.process_line(line, {video, ["--preset", "medium"], 95})
+      ProgressParser.process_line(line, %{
+        video: video,
+        args: ["--preset", "medium"],
+        target_vmaf: 95
+      })
 
       vmaf = Repo.one(Vmaf)
       assert vmaf.video_id == video.id
@@ -587,7 +595,11 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
       line =
         "[2024-12-12T00:13:08Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 28 VMAF 91.33 (85%)"
 
-      ProgressParser.process_line(line, {video, ["--preset", "medium"], 95})
+      ProgressParser.process_line(line, %{
+        video: video,
+        args: ["--preset", "medium"],
+        target_vmaf: 95
+      })
 
       vmaf = Repo.one(Vmaf)
       assert vmaf.video_id == video.id
@@ -602,7 +614,7 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
 
       log =
         capture_log(fn ->
-          ProgressParser.process_line(line, {video, [], 95})
+          ProgressParser.process_line(line, %{video: video, args: [], target_vmaf: 95})
         end)
 
       assert Repo.aggregate(Vmaf, :count, :id) == 0
@@ -622,7 +634,7 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
 
       line = "crf 28 successful"
 
-      ProgressParser.process_line(line, {video, [], 95})
+      ProgressParser.process_line(line, %{video: video, args: [], target_vmaf: 95})
 
       vmaf = Repo.one(Vmaf)
       assert vmaf.chosen == true
@@ -699,7 +711,7 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
         |> Repo.insert!()
 
       # Simulate a line that triggers size checking
-      state = {video, [], 95}
+      state = %{video: video, args: [], target_vmaf: 95}
       line = "crf 24 VMAF 95.5 predicted video stream size 2.5 GB (90%) taking 120 seconds"
 
       # This should process without error, testing the NimbleParsec size parser indirectly

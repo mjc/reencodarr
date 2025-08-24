@@ -80,7 +80,7 @@ defmodule Reencodarr.AbAv1.ProgressParser do
       ProgressParser.process_line(line, %{video: video})
 
       # CRF search context
-      ProgressParser.process_line(line, {video, args, target_vmaf})
+      ProgressParser.process_line(line, %{video: video, args: args, target_vmaf: target_vmaf})
   """
   def process_line(line, state) do
     context = determine_context(state)
@@ -95,8 +95,10 @@ defmodule Reencodarr.AbAv1.ProgressParser do
   end
 
   # Determine operation context from state structure
+  defp determine_context(%{video: _video, args: _args, target_vmaf: _target_vmaf}),
+    do: :crf_search
+
   defp determine_context(%{video: _video}), do: :encoding
-  defp determine_context({_video, _args, _target_vmaf}), do: :crf_search
 
   # Dispatch to appropriate handlers based on type and context
   defp handle_parsed_output(type, data, state, context) do
@@ -151,7 +153,7 @@ defmodule Reencodarr.AbAv1.ProgressParser do
   defp handle_unmatched_line(line, context, state) do
     # Check for custom error patterns not in OutputParser
     if line == "Error: Failed to find a suitable crf" and context == :crf_search do
-      {video, _args, target_vmaf} = state
+      %{video: video, target_vmaf: target_vmaf} = state
       RetryLogic.handle_crf_search_error(video, target_vmaf)
     else
       # Log unmatched progress-like lines for debugging
@@ -209,20 +211,20 @@ defmodule Reencodarr.AbAv1.ProgressParser do
   # === CRF Search Handlers ===
 
   defp handle_crf_encoding_sample(data, state) do
-    {video, _args, _target_vmaf} = state
+    %{video: video} = state
 
     Logger.debug(
       "CrfSearch: Encoding sample #{data.sample_num}/#{data.total_samples}: #{data.crf}"
     )
 
     broadcast_crf_progress(video.path, %{
-      filename: video.path,
+      filename: Path.basename(video.path),
       crf: data.crf
     })
   end
 
   defp handle_crf_vmaf_result(data, state) do
-    {video, args, _target_vmaf} = state
+    %{video: video, args: args} = state
     Logger.debug("CrfSearch: CRF: #{data.crf}, VMAF: #{data.score}, Percent: #{data.percent}%")
 
     Media.upsert_crf_search_vmaf(
@@ -238,7 +240,7 @@ defmodule Reencodarr.AbAv1.ProgressParser do
   end
 
   defp handle_crf_eta_vmaf(data, state) do
-    {video, args, _target_vmaf} = state
+    %{video: video, args: args} = state
 
     Logger.debug(
       "CrfSearch: CRF: #{data.crf}, VMAF: #{data.score}, size: #{data.size} #{data.unit}, Percent: #{data.percent}%, time: #{data.time} #{data.time_unit}"
@@ -273,14 +275,14 @@ defmodule Reencodarr.AbAv1.ProgressParser do
   end
 
   defp handle_crf_progress(data, state) do
-    {video, _args, _target_vmaf} = state
+    %{video: video} = state
 
     Logger.debug(
       "CrfSearch Progress: #{data.progress}%, #{Formatters.format_fps(data.fps)}, ETA: #{data.eta}"
     )
 
     broadcast_crf_progress(video.path, %{
-      filename: video.path,
+      filename: Path.basename(video.path),
       percent: data.progress,
       eta: to_string(data.eta),
       fps: data.fps
@@ -288,7 +290,7 @@ defmodule Reencodarr.AbAv1.ProgressParser do
   end
 
   defp handle_crf_success(data, state) do
-    {video, _args, _target_vmaf} = state
+    %{video: video} = state
     Logger.debug("CrfSearch successful for CRF: #{data.crf}")
 
     Media.mark_vmaf_as_chosen(video.id, to_string(data.crf))

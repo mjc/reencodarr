@@ -1,6 +1,15 @@
 defmodule Reencodarr.AbAv1.CrfSearch do
   @moduledoc """
-  GenServer for handling CRF search operations using ab-av1.
+  GenServer for handling CR  @impl true
+  def handle_cast({:crf_search_with_preset_6, video, vmaf_percent}, %{port: :none} = state) do
+    args = build_crf_search_args_with_preset_6(video, vmaf_percent)
+
+    new_state = %{
+      state
+      | port: Helper.open_port(args),
+        current_task: %{video: video, args: args, target_vmaf: vmaf_percent},
+        output_buffer: []
+    }perations using ab-av1.
 
   This module manages the CRF search process for videos to find optimal
   encoding parameters based on VMAF quality targets.
@@ -65,12 +74,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def clear_vmaf_records_for_video(video_id, vmaf_records),
     do: Media.clear_vmaf_records(video_id, vmaf_records)
 
-  def build_crf_search_args_with_preset_6(video, vmaf_percent),
-    do: build_crf_search_args_with_preset_6_private(video, vmaf_percent)
-
-  def build_crf_search_args(video, vmaf_percent),
-    do: build_crf_search_args_private(video, vmaf_percent)
-
   # Legacy function names for backward compatibility
   def should_retry_with_preset_6_for_test(video_id), do: should_retry_with_preset_6(video_id)
 
@@ -90,7 +93,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
-    args = build_crf_search_args_private(video, vmaf_percent)
+    args = build_crf_search_args(video, vmaf_percent)
 
     new_state = %{
       state
@@ -107,7 +110,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   def handle_cast({:crf_search_with_preset_6, video, vmaf_percent}, %{port: :none} = state) do
     Logger.info("CrfSearch: Starting retry with --preset 6 for video #{video.id}")
-    args = build_crf_search_args_with_preset_6_private(video, vmaf_percent)
+    args = build_crf_search_args_with_preset_6(video, vmaf_percent)
 
     new_state = %{
       state
@@ -469,7 +472,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     {:noreply, new_state}
   end
 
-  defp build_crf_search_args_private(video, vmaf_percent) do
+  defp build_crf_search_args(video, vmaf_percent) do
     base_args = [
       "crf-search",
       "--input",
@@ -477,7 +480,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       "--min-vmaf",
       Integer.to_string(vmaf_percent),
       "--temp-dir",
-      Helper.temp_dir()
+      Helper.temp_dir(),
+      "--thorough"
     ]
 
     # Use centralized Rules module to handle all argument building and deduplication
@@ -485,7 +489,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   # Build CRF search args with --preset 6 added
-  defp build_crf_search_args_with_preset_6_private(video, vmaf_percent) do
+  defp build_crf_search_args_with_preset_6(video, vmaf_percent) do
     base_args = [
       "crf-search",
       "--input",
@@ -493,7 +497,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       "--min-vmaf",
       Integer.to_string(vmaf_percent),
       "--temp-dir",
-      Helper.temp_dir()
+      Helper.temp_dir(),
+      "--thorough",
+      "--cache",
+      "false"
     ]
 
     # Use centralized Rules module with preset 6 additional param

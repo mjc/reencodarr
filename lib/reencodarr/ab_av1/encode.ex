@@ -10,7 +10,7 @@ defmodule Reencodarr.AbAv1.Encode do
 
   alias Reencodarr.AbAv1.{Helper, ProgressParser}
   alias Reencodarr.Encoder.Broadway.Producer
-  alias Reencodarr.{Media, PostProcessor, Telemetry, TelemetryReporter}
+  alias Reencodarr.{Media, PostProcessor, Telemetry}
 
   require Logger
 
@@ -151,43 +151,6 @@ defmodule Reencodarr.AbAv1.Encode do
     {:noreply, state}
   end
 
-  # Periodic check to see if encoding is still active
-  @impl true
-  def handle_info(:periodic_check, %{port: :none} = state) do
-    # Encoding not active, don't schedule another check
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(:periodic_check, %{port: port, video: video} = state) when port != :none do
-    # Get the last known progress from the telemetry system to preserve ETA
-    last_progress =
-      case TelemetryReporter.get_progress_state() do
-        %{encoding_progress: %{eta: eta, percent: percent, fps: fps}} when eta != 0 ->
-          %{eta: eta, percent: percent, fps: fps}
-
-        _ ->
-          %{eta: "Unknown", percent: 1, fps: 0}
-      end
-
-    # Emit a minimal progress update to show the encoding is still running
-    # This preserves the last known ETA instead of always showing "Unknown"
-    filename = Path.basename(video.path)
-
-    progress = %Reencodarr.Statistics.EncodingProgress{
-      percent: last_progress.percent,
-      eta: last_progress.eta,
-      fps: last_progress.fps,
-      filename: filename
-    }
-
-    Telemetry.emit_encoder_progress(progress)
-
-    # Schedule the next check
-    Process.send_after(self(), :periodic_check, 10_000)
-    {:noreply, state}
-  end
-
   # Catch-all for any other messages
   @impl true
   def handle_info(message, state) do
@@ -201,10 +164,6 @@ defmodule Reencodarr.AbAv1.Encode do
     output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
 
     port = Helper.open_port(args)
-
-    # Set up a periodic timer to check if we're still alive and potentially emit progress
-    # Check every 10 seconds
-    Process.send_after(self(), :periodic_check, 10_000)
 
     %{
       state
