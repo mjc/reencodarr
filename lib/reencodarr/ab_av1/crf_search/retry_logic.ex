@@ -78,7 +78,6 @@ defmodule Reencodarr.AbAv1.CrfSearch.RetryLogic do
 
     # Check if we should retry with --preset 6
     retry_result = should_retry_with_preset_6(video.id)
-    Logger.info("CrfSearch: Retry result: #{inspect(retry_result)}")
 
     case retry_result do
       :mark_failed ->
@@ -96,8 +95,13 @@ defmodule Reencodarr.AbAv1.CrfSearch.RetryLogic do
         Media.VideoStateMachine.mark_as_failed(video)
 
       {:retry, vmaf_records} ->
+        vmaf_summary =
+          Enum.map_join(vmaf_records, ", ", fn vmaf ->
+            "CRF #{vmaf.crf}: #{vmaf.score} VMAF"
+          end)
+
         Logger.info(
-          "CrfSearch: Retrying video #{video.id} with --preset 6 (clearing #{length(vmaf_records)} existing VMAF records)"
+          "CrfSearch: Retrying video #{video.id} with --preset 6 (clearing #{length(vmaf_records)} existing VMAF records: #{vmaf_summary})"
         )
 
         Media.clear_vmaf_records(video.id, vmaf_records)

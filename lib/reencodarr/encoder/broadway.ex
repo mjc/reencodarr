@@ -16,6 +16,7 @@ defmodule Reencodarr.Encoder.Broadway do
   require Logger
 
   alias Broadway.Message
+  alias Reencodarr.AbAv1.Encode
   alias Reencodarr.Encoder.Broadway.Producer
 
   @typedoc "VMAF struct for encoding processing"
@@ -157,7 +158,7 @@ defmodule Reencodarr.Encoder.Broadway do
 
     # Delegate to the AbAv1.Encode GenServer - this provides proper isolation
     # The GenServer handles all port management, progress parsing, and failure handling
-    Reencodarr.AbAv1.Encode.encode(vmaf)
+    Encode.encode(vmaf)
 
     # The GenServer will handle the actual work asynchronously and notify the producer when complete
     # Broadway just needs to acknowledge the message was dispatched

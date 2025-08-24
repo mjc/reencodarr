@@ -74,14 +74,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def clear_vmaf_records_for_video(video_id, vmaf_records),
     do: Media.clear_vmaf_records(video_id, vmaf_records)
 
-  # Legacy function names for backward compatibility
-  def should_retry_with_preset_6_for_test(video_id), do: should_retry_with_preset_6(video_id)
-
-  def build_crf_search_args_with_preset_6_for_test(video, vmaf_percent),
-    do: build_crf_search_args_with_preset_6(video, vmaf_percent)
-
-  def build_crf_search_args_for_test(video, vmaf_percent),
-    do: build_crf_search_args(video, vmaf_percent)
+  # Public functions for argument building (used in tests and internally)
 
   # GenServer callbacks
   # === GenServer Callbacks ===
@@ -217,7 +210,19 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_info({port, {:exit_status, 0}}, %{port: port, current_task: %{video: video}} = state) do
-    Logger.info("✅ AbAv1: CRF search completed for video #{video.id} (#{video.title})")
+    # Get chosen VMAF for logging
+    chosen_vmaf = Reencodarr.Media.get_chosen_vmaf_for_video(video.id)
+
+    success_msg =
+      case chosen_vmaf do
+        %{crf: crf, score: score} ->
+          "✅ AbAv1: CRF search completed for video #{video.id} (#{video.title}) - Chosen CRF #{crf} with VMAF #{score}"
+
+        _ ->
+          "✅ AbAv1: CRF search completed for video #{video.id} (#{video.title})"
+      end
+
+    Logger.info(success_msg)
 
     # CRITICAL: Update video state to crf_searched to prevent infinite loop
     ErrorHelpers.handle_error_with_default(
@@ -257,11 +262,16 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         } = state
       )
       when exit_code != 0 do
-    Logger.error("CRF search failed for video #{video.id} with exit code #{exit_code}")
-
     # Capture the full command output for failure analysis
     full_output = output_buffer |> Enum.reverse() |> Enum.join("\n")
     command_line = "ab-av1 " <> Enum.join(args, " ")
+
+    # Extract meaningful error info from ab-av1 output
+    error_summary = extract_error_summary(full_output, exit_code)
+
+    Logger.error(
+      "CRF search failed for video #{video.id} (#{Path.basename(video.path)}) with exit code #{exit_code}: #{error_summary}"
+    )
 
     handle_crf_search_failure(video, target_vmaf, exit_code, command_line, full_output, state)
   end
@@ -472,7 +482,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     {:noreply, new_state}
   end
 
-  defp build_crf_search_args(video, vmaf_percent) do
+  def build_crf_search_args(video, vmaf_percent) do
     base_args = [
       "crf-search",
       "--input",
@@ -489,7 +499,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   # Build CRF search args with --preset 6 added
-  defp build_crf_search_args_with_preset_6(video, vmaf_percent) do
+  def build_crf_search_args_with_preset_6(video, vmaf_percent) do
     base_args = [
       "crf-search",
       "--input",
@@ -512,5 +522,72 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       "crf_search_events",
       {:crf_search_completed, video_id, result}
     )
+  end
+
+  # Extract meaningful error summary from ab-av1 output
+  defp extract_error_summary(output, exit_code) do
+    case categorize_error(output) do
+      nil -> extract_error_line_from_output(output, exit_code)
+      error_message -> error_message
+    end
+  end
+
+  # Categorize known error patterns
+  defp categorize_error(output) do
+    error_patterns()
+    |> Enum.find_value(&check_error_pattern(output, &1))
+  end
+
+  # Define error patterns and their corresponding messages
+  defp error_patterns do
+    [
+      {"No such file or directory", "Input file not found"},
+      {"Permission denied", "Permission denied accessing file"},
+      {"Invalid argument", "Invalid arguments provided to ab-av1"},
+      {"a value is required for", "Missing required argument value"},
+      {"unrecognized", "Unrecognized command line option"},
+      {"No space left on device", "Insufficient disk space"},
+      {"Killed", "Process killed (likely out of memory)"}
+    ] ++ compound_error_patterns()
+  end
+
+  # Define compound error patterns that require multiple checks
+  defp compound_error_patterns do
+    [
+      {["ffmpeg", "error"], "FFmpeg error during processing"},
+      {["vmaf", "error"], "VMAF calculation error"}
+    ]
+  end
+
+  # Check if an error pattern matches the output
+  defp check_error_pattern(output, {pattern, message}) when is_binary(pattern) do
+    if String.contains?(output, pattern), do: message
+  end
+
+  defp check_error_pattern(output, {patterns, message}) when is_list(patterns) do
+    if Enum.all?(patterns, &String.contains?(output, &1)), do: message
+  end
+
+  # Extract the last error line from output when no known pattern matches
+  defp extract_error_line_from_output(output, exit_code) do
+    error_lines =
+      output
+      |> String.split("\n")
+      |> Enum.filter(&contains_error_keywords?/1)
+      |> Enum.take(-1)
+
+    case error_lines do
+      [last_error | _] -> String.trim(last_error)
+      [] -> "Unknown error (exit code #{exit_code})"
+    end
+  end
+
+  # Check if a line contains error keywords
+  defp contains_error_keywords?(line) do
+    downcased = String.downcase(line)
+
+    String.contains?(downcased, "error") or
+      String.contains?(downcased, "failed") or
+      String.contains?(downcased, "fatal")
   end
 end

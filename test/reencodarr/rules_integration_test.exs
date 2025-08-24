@@ -75,7 +75,7 @@ defmodule Reencodarr.RulesIntegrationTest do
     end
 
     test "CRF search excludes audio arguments", %{video: video} do
-      args = CrfSearch.build_crf_search_args_for_test(video, 95)
+      args = CrfSearch.build_crf_search_args(video, 95)
 
       # Should NOT include audio codec
       refute "--acodec" in args
@@ -197,7 +197,7 @@ defmodule Reencodarr.RulesIntegrationTest do
       video = Fixtures.create_test_video()
 
       # Test CRF search args using the CrfSearch module
-      crf_args = CrfSearch.build_crf_search_args_for_test(video, 95)
+      crf_args = CrfSearch.build_crf_search_args(video, 95)
 
       # Run ab-av1 with --help to validate argument structure
       # Remove "crf-search" since we're adding it
@@ -222,7 +222,7 @@ defmodule Reencodarr.RulesIntegrationTest do
 
       # Test both encode and CRF search
       encode_args = Rules.build_args(video, :encode, ["--preset", "6"])
-      crf_args = CrfSearch.build_crf_search_args_for_test(video, 95)
+      crf_args = CrfSearch.build_crf_search_args(video, 95)
 
       # Count occurrences of the input file path
       input_count_encode = Enum.count(encode_args, &(&1 == video.path))

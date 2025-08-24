@@ -7,7 +7,7 @@ defmodule Reencodarr.Encoder.BroadwayTest do
     test "transforms VMAF data into Broadway message" do
       vmaf = %{id: 1, video: %{path: "/path/to/video.mp4"}}
 
-      message = Reencodarr.Encoder.Broadway.transform(vmaf, [])
+      message = Broadway.transform(vmaf, [])
 
       # Check that it's a Broadway Message struct and contains the data
       assert %{data: ^vmaf} = message

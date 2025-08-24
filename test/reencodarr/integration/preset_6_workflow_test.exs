@@ -32,7 +32,7 @@ defmodule Reencodarr.Integration.Preset6WorkflowTest do
         })
 
       # Step 2: Test that should_retry_with_preset_6 returns {:retry, vmafs}
-      retry_result = CrfSearch.should_retry_with_preset_6_for_test(video.id)
+      retry_result = CrfSearch.should_retry_with_preset_6(video.id)
       assert match?({:retry, _vmafs}, retry_result)
 
       # Step 3: Simulate the retry by creating new VMAF with --preset 6
@@ -63,7 +63,7 @@ defmodule Reencodarr.Integration.Preset6WorkflowTest do
       assert Enum.at(encode_args, threads_index + 1) == "8"
 
       # Step 6: Verify that after retry, should_retry_with_preset_6 returns :already_retried
-      retry_result_after = CrfSearch.should_retry_with_preset_6_for_test(video.id)
+      retry_result_after = CrfSearch.should_retry_with_preset_6(video.id)
       assert retry_result_after == :already_retried
     end
 
@@ -78,7 +78,7 @@ defmodule Reencodarr.Integration.Preset6WorkflowTest do
         })
 
       # First verify that retry should be triggered
-      retry_check = CrfSearch.should_retry_with_preset_6_for_test(video.id)
+      retry_check = CrfSearch.should_retry_with_preset_6(video.id)
 
       assert match?({:retry, _vmafs}, retry_check),
              "VMAF state should indicate retry is needed: #{inspect(retry_check)}"
@@ -90,19 +90,19 @@ defmodule Reencodarr.Integration.Preset6WorkflowTest do
         capture_log(fn ->
           # Also capture any info level logs
           Logger.configure(level: :info)
-          ProgressParser.process_line(error_line, {video, [], 95})
+          ProgressParser.process_line(error_line, %{video: video, args: [], target_vmaf: 95})
         end)
 
       # Should process error and indicate retry logic
       assert log =~ "Failed to find a suitable CRF"
 
-      # Should indicate retry decision
-      assert log =~ "CrfSearch: Retry result:"
+      # Should indicate retry with preset 6 (new concise logging)
+      assert log =~ "Retrying video" and log =~ "with --preset 6"
     end
 
     test "build_crf_search_args_with_preset_6 creates correct arguments", %{video: video} do
       # Test the argument building for preset 6 retry
-      args = CrfSearch.build_crf_search_args_with_preset_6_for_test(video, 95)
+      args = CrfSearch.build_crf_search_args_with_preset_6(video, 95)
 
       # Should include basic CRF search args
       assert "crf-search" in args
