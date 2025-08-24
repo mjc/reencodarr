@@ -260,8 +260,11 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
           {:noreply, [], new_state}
 
         {video, new_state} ->
+          # Calculate what VMAF target will be used based on bitrate
+          bitrate_mbps = format_bitrate_for_logging(video.bitrate)
+
           Logger.info(
-            "🚀 CRF Producer: Dispatching video #{video.id} (#{video.title}) for CRF search"
+            "🚀 CRF Producer: Dispatching video #{video.id} (#{video.title}) for CRF search [#{bitrate_mbps} Mbps]"
           )
 
           # Mark as processing and decrement demand
@@ -346,5 +349,12 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
       end
 
     queue_items ++ db_videos
+  end
+
+  # Format bitrate for logging display
+  defp format_bitrate_for_logging(nil), do: "unknown"
+
+  defp format_bitrate_for_logging(bitrate) when is_number(bitrate) do
+    round(bitrate / 1_000_000)
   end
 end

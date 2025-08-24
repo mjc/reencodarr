@@ -22,12 +22,12 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
     end
   end
 
-  describe "build_crf_search_args_for_test/2" do
+  describe "build_crf_search_args/2" do
     test "builds basic CRF search args without preset 6" do
       video = %{path: "/test/video.mkv"}
       target_vmaf = 95
 
-      args = CrfSearch.build_crf_search_args_for_test(video, target_vmaf)
+      args = CrfSearch.build_crf_search_args(video, target_vmaf)
 
       assert "crf-search" in args
       assert "--input" in args
@@ -42,7 +42,7 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       video = %{path: "/test/video.mkv"}
       target_vmaf = 90
 
-      args = CrfSearch.build_crf_search_args_for_test(video, target_vmaf)
+      args = CrfSearch.build_crf_search_args(video, target_vmaf)
 
       # Should NOT include preset 6 by default
       refute "--preset" in args || "6" in args
@@ -52,7 +52,7 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       video = %{path: "/test/video.mkv"}
       target_vmaf = 90
 
-      args = CrfSearch.build_crf_search_args_for_test(video, target_vmaf)
+      args = CrfSearch.build_crf_search_args(video, target_vmaf)
 
       assert "crf-search" in args
       assert "--input" in args
@@ -62,12 +62,12 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
     end
   end
 
-  describe "build_crf_search_args_with_preset_6_for_test/2" do
+  describe "build_crf_search_args_with_preset_6/2" do
     test "includes preset 6 params" do
       video = %{path: "/test/video.mkv"}
       target_vmaf = 95
 
-      args = CrfSearch.build_crf_search_args_with_preset_6_for_test(video, target_vmaf)
+      args = CrfSearch.build_crf_search_args_with_preset_6(video, target_vmaf)
 
       assert "--preset" in args
       assert "6" in args
