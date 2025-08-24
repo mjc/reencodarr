@@ -211,7 +211,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   @impl true
   def handle_info({port, {:exit_status, 0}}, %{port: port, current_task: %{video: video}} = state) do
     # Get chosen VMAF for logging
-    chosen_vmaf = Reencodarr.Media.get_chosen_vmaf_for_video(video.id)
+    chosen_vmaf = Reencodarr.Media.get_chosen_vmaf_for_video(video)
 
     success_msg =
       case chosen_vmaf do
