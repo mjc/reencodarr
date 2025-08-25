@@ -551,124 +551,135 @@ defmodule Reencodarr.RulesTest do
 
   describe "vintage content grain detection" do
     test "applies grain for content from before 2009 with (year) pattern" do
-      video = Fixtures.create_test_video(%{
-        path: "/movies/The Dark Knight (2008)/movie.mkv",
-        title: "The Dark Knight"
-      })
-      
+      video =
+        Fixtures.create_test_video(%{
+          path: "/movies/The Dark Knight (2008)/movie.mkv",
+          title: "The Dark Knight"
+        })
+
       result = Rules.grain_for_vintage_content(video)
-      
+
       assert result == [{"--svt", "film-grain=8:film-grain-denoise=0"}]
     end
 
     test "applies grain for content from before 2009 with [year] pattern" do
-      video = Fixtures.create_test_video(%{
-        path: "/tv/Lost [2004]/Season 1/episode.mkv",
-        title: "Lost"
-      })
-      
+      video =
+        Fixtures.create_test_video(%{
+          path: "/tv/Lost [2004]/Season 1/episode.mkv",
+          title: "Lost"
+        })
+
       result = Rules.grain_for_vintage_content(video)
-      
+
       assert result == [{"--svt", "film-grain=8:film-grain-denoise=0"}]
     end
 
     test "applies grain for content from before 2009 with .year. pattern" do
-      video = Fixtures.create_test_video(%{
-        path: "/movies/Casino.2005.BluRay.1080p.mkv",
-        title: "Casino"
-      })
-      
+      video =
+        Fixtures.create_test_video(%{
+          path: "/movies/Casino.2005.BluRay.1080p.mkv",
+          title: "Casino"
+        })
+
       result = Rules.grain_for_vintage_content(video)
-      
+
       assert result == [{"--svt", "film-grain=8:film-grain-denoise=0"}]
     end
 
     test "applies grain for vintage content from title when path has no year" do
-      video = Fixtures.create_test_video(%{
-        path: "/movies/classic_movie.mkv",
-        title: "Apocalypse Now (1979)"
-      })
-      
+      video =
+        Fixtures.create_test_video(%{
+          path: "/movies/classic_movie.mkv",
+          title: "Apocalypse Now (1979)"
+        })
+
       result = Rules.grain_for_vintage_content(video)
-      
+
       assert result == [{"--svt", "film-grain=8:film-grain-denoise=0"}]
     end
 
     test "does not apply grain for content from 2009 or later" do
-      video = Fixtures.create_test_video(%{
-        path: "/movies/Avatar (2009)/movie.mkv",
-        title: "Avatar"
-      })
-      
+      video =
+        Fixtures.create_test_video(%{
+          path: "/movies/Avatar (2009)/movie.mkv",
+          title: "Avatar"
+        })
+
       result = Rules.grain_for_vintage_content(video)
-      
+
       assert result == []
     end
 
     test "does not apply grain for recent content" do
-      video = Fixtures.create_test_video(%{
-        path: "/movies/Dune (2021)/movie.mkv",
-        title: "Dune"
-      })
-      
+      video =
+        Fixtures.create_test_video(%{
+          path: "/movies/Dune (2021)/movie.mkv",
+          title: "Dune"
+        })
+
       result = Rules.grain_for_vintage_content(video)
-      
+
       assert result == []
     end
 
     test "does not apply grain for HDR content even if vintage" do
-      video = Fixtures.create_hdr_video(%{
-        path: "/movies/Blade Runner (2007)/movie.mkv",
-        title: "Blade Runner"
-      })
-      
+      video =
+        Fixtures.create_hdr_video(%{
+          path: "/movies/Blade Runner (2007)/movie.mkv",
+          title: "Blade Runner"
+        })
+
       result = Rules.grain_for_vintage_content(video)
-      
+
       assert result == []
     end
 
     test "does not apply grain when no year pattern is found" do
-      video = Fixtures.create_test_video(%{
-        path: "/movies/unknown_movie/file.mkv",
-        title: "Unknown Movie"
-      })
-      
+      video =
+        Fixtures.create_test_video(%{
+          path: "/movies/unknown_movie/file.mkv",
+          title: "Unknown Movie"
+        })
+
       result = Rules.grain_for_vintage_content(video)
-      
+
       assert result == []
     end
 
     test "ignores false positive years outside valid range" do
-      video = Fixtures.create_test_video(%{
-        path: "/movies/High_Res_1080p/movie.mkv",
-        title: "Some Movie"
-      })
-      
+      video =
+        Fixtures.create_test_video(%{
+          path: "/movies/High_Res_1080p/movie.mkv",
+          title: "Some Movie"
+        })
+
       result = Rules.grain_for_vintage_content(video)
-      
+
       assert result == []
     end
 
     test "uses most specific year pattern when multiple years present" do
-      video = Fixtures.create_test_video(%{
-        path: "/movies/Remake (2010) of Classic (1985)/movie.mkv",
-        title: "Movie Remake"
-      })
-      
+      video =
+        Fixtures.create_test_video(%{
+          path: "/movies/Remake (2010) of Classic (1985)/movie.mkv",
+          title: "Movie Remake"
+        })
+
       # Should pick (2010) over (1985) since (year) pattern comes first in regex list
       result = Rules.grain_for_vintage_content(video)
-      
+
       assert result == []
     end
 
     test "grain detection is integrated into build_args pipeline" do
-      video = Fixtures.create_test_video(%{
-        path: "/movies/The Godfather (1972)/movie.mkv",
-        title: "The Godfather"
-      })
-      
+      video =
+        Fixtures.create_test_video(%{
+          path: "/movies/The Godfather (1972)/movie.mkv",
+          title: "The Godfather"
+        })
+
       args = Rules.build_args(video, :encode)
-      
+
       # Should include grain arguments in the final build
       assert "--svt" in args
       assert "film-grain=8:film-grain-denoise=0" in args
