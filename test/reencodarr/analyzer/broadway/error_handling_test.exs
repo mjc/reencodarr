@@ -28,7 +28,9 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
           path: nonexistent_file,
           size: 1000,
           service_id: "1",
-          service_type: :sonarr
+          service_type: :sonarr,
+          max_audio_channels: 6,
+          atmos: false
         })
 
       log =
