@@ -360,29 +360,32 @@ defmodule Reencodarr.Rules do
 
   @spec grain(Media.Video.t(), integer()) :: list()
   def grain(%Media.Video{hdr: nil}, strength) do
-    [{"--svt", "film-grain=#{strength}:film-grain-denoise=0"}]
+    [{"--svt", "film-grain=#{strength}"}]
   end
 
   def grain(_, _), do: []
 
   @doc """
   Apply film grain synthesis for vintage content (pre-2009).
-  
+
   Detects content from before 2009 based on year patterns in path/title and applies
   film grain with strength 8 to preserve the authentic film aesthetic.
-  
+
   Only applies to non-HDR content as HDR typically doesn't need grain synthesis.
   """
   @spec grain_for_vintage_content(Media.Video.t()) :: list()
-  def grain_for_vintage_content(%Media.Video{hdr: nil, path: path, title: title}) do
+  def grain_for_vintage_content(%Media.Video{hdr: nil, path: path, title: title}, strength \\ 8) do
     # Extract year from path or title (common patterns: (2008), [2008], 2008, etc.)
     full_text = "#{path} #{title || ""}"
-    
+
     case extract_year_from_text(full_text) do
       year when is_integer(year) and year < 2009 ->
-        Logger.info("Applying film grain (strength 8) for vintage content from #{year}: #{Path.basename(path)}")
-        [{"--svt", "film-grain=8:film-grain-denoise=0"}]
-      
+        Logger.info(
+          "Applying film grain (strength #{strength}) for vintage content from #{year}: #{Path.basename(path)}"
+        )
+
+        [{"--svt", "film-grain=#{strength}"}]
+
       _ ->
         []
     end
@@ -396,13 +399,18 @@ defmodule Reencodarr.Rules do
     # Match patterns like (2008), [2008], .2008., 2008, etc.
     # Focus on years 1950-2030 to avoid false positives from other numbers
     patterns = [
-      ~r/\((\d{4})\)/,           # (2008)
-      ~r/\[(\d{4})\]/,           # [2008]
-      ~r/\.(\d{4})\./,           # .2008.
-      ~r/\s(\d{4})\s/,           # space-separated 2008
-      ~r/(\d{4})/                # any 4-digit number (last resort)
+      # (2008)
+      ~r/\((\d{4})\)/,
+      # [2008]
+      ~r/\[(\d{4})\]/,
+      # .2008.
+      ~r/\.(\d{4})\./,
+      # space-separated 2008
+      ~r/\s(\d{4})\s/,
+      # any 4-digit number (last resort)
+      ~r/(\d{4})/
     ]
-    
+
     Enum.find_value(patterns, fn pattern ->
       case Regex.run(pattern, text) do
         [_, year_str] ->
@@ -410,7 +418,9 @@ defmodule Reencodarr.Rules do
             {year, ""} when year >= 1950 and year <= 2030 -> year
             _ -> nil
           end
-        _ -> nil
+
+        _ ->
+          nil
       end
     end)
   end
