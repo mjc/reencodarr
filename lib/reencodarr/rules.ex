@@ -429,16 +429,17 @@ defmodule Reencodarr.Rules do
 
     Enum.find_value(patterns, fn pattern ->
       case Regex.run(pattern, text) do
-        [_, year_str] ->
-          case Integer.parse(year_str) do
-            {year, ""} when year >= 1950 and year <= 2030 -> year
-            _ -> nil
-          end
-
-        _ ->
-          nil
+        [_, year_str] -> parse_valid_year(year_str)
+        _ -> nil
       end
     end)
+  end
+
+  defp parse_valid_year(year_str) do
+    case Integer.parse(year_str) do
+      {year, ""} when year >= 1950 and year <= 2030 -> year
+      _ -> nil
+    end
   end
 
   @spec hdr(Media.Video.t()) :: list()

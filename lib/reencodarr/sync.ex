@@ -392,15 +392,16 @@ defmodule Reencodarr.Sync do
 
     Enum.find_value(patterns, fn pattern ->
       case Regex.run(pattern, path) do
-        [_, year_str] ->
-          case Integer.parse(year_str) do
-            {year, ""} when year >= 1950 and year <= 2030 -> year
-            _ -> nil
-          end
-
-        _ ->
-          nil
+        [_, year_str] -> parse_valid_year(year_str)
+        _ -> nil
       end
     end)
+  end
+
+  defp parse_valid_year(year_str) do
+    case Integer.parse(year_str) do
+      {year, ""} when year >= 1950 and year <= 2030 -> year
+      _ -> nil
+    end
   end
 end
