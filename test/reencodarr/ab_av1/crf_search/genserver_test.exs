@@ -73,19 +73,21 @@ defmodule Reencodarr.AbAv1.CrfSearch.GenServerTest do
     end
 
     test "initiates CRF search for valid video", %{video: video} do
-      _log =
-        capture_log(fn ->
-          # Should return :ok and not crash
-          result = CrfSearch.crf_search(video, 95)
-          assert result == :ok
+      capture_log(fn ->
+        # Should return :ok and not crash
+        result = CrfSearch.crf_search(video, 95)
+        assert result == :ok
 
-          # Give it time to start processing
-          Process.sleep(100)
+        # Give it time to start processing
+        Process.sleep(100)
 
-          # Should be running (though it may fail due to missing ab-av1 binary)
-          # The important thing is that it attempted to start
-          assert is_boolean(CrfSearch.running?())
-        end)
+        # Should be running (though it may fail due to missing ab-av1 binary)
+        # The important thing is that it attempted to start
+        assert is_boolean(CrfSearch.running?())
+
+        # Wait for the process to complete to capture all logs
+        wait_for_crf_search_to_complete()
+      end)
     end
   end
 
@@ -114,6 +116,9 @@ defmodule Reencodarr.AbAv1.CrfSearch.GenServerTest do
 
         # Should attempt to start processing
         assert is_boolean(CrfSearch.running?())
+
+        # Wait for completion to capture all logs
+        wait_for_crf_search_to_complete()
       end)
     end
 
@@ -129,6 +134,9 @@ defmodule Reencodarr.AbAv1.CrfSearch.GenServerTest do
 
         # Should still be running (only one instance)
         assert is_boolean(CrfSearch.running?())
+
+        # Wait for completion to capture all logs
+        wait_for_crf_search_to_complete()
       end)
     end
 
@@ -140,6 +148,9 @@ defmodule Reencodarr.AbAv1.CrfSearch.GenServerTest do
 
         # Should attempt to start processing
         assert is_boolean(CrfSearch.running?())
+
+        # Wait for completion to capture all logs
+        wait_for_crf_search_to_complete()
       end)
     end
   end
