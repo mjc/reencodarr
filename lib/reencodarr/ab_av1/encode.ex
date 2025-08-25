@@ -8,9 +8,10 @@ defmodule Reencodarr.AbAv1.Encode do
 
   use GenServer
 
-  alias Reencodarr.AbAv1.{Helper, ProgressParser}
+  alias Reencodarr.AbAv1.Helper
+  alias Reencodarr.AbAv1.ProgressParser
   alias Reencodarr.Encoder.Broadway.Producer
-  alias Reencodarr.{Media, PostProcessor, Telemetry}
+  alias Reencodarr.{Media, PostProcessor, Telemetry, TelemetryReporter}
 
   require Logger
 
@@ -59,29 +60,17 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   @impl true
-  def handle_cast({:encode, vmaf}, state) do
-    args = build_encode_args(vmaf)
+  def handle_cast({:encode, %Media.Vmaf{} = vmaf}, %{port: port} = state) when port != :none do
+    Logger.info("Encoding is already in progress, skipping new encode request.")
 
-    case Helper.open_port(args) do
-      {:ok, port} ->
-        Telemetry.emit_encoder_started(vmaf.video.path)
+    # Publish a skipped event since this request was rejected
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "encoding_events",
+      {:encoding_completed, vmaf.id, :skipped}
+    )
 
-        output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
-
-        new_state = %{
-          state
-          | port: port,
-            video: vmaf.video,
-            vmaf: vmaf,
-            output_file: output_file
-        }
-
-        {:noreply, new_state}
-
-      {:error, reason} ->
-        Logger.error("Failed to open port: #{inspect(reason)}")
-        {:noreply, state}
-    end
+    {:noreply, state}
   end
 
   @impl true
@@ -151,6 +140,43 @@ defmodule Reencodarr.AbAv1.Encode do
     {:noreply, state}
   end
 
+  # Periodic check to see if encoding is still active
+  @impl true
+  def handle_info(:periodic_check, %{port: :none} = state) do
+    # Encoding not active, don't schedule another check
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:periodic_check, %{port: port, video: video} = state) when port != :none do
+    # Get the last known progress from the telemetry system to preserve ETA
+    last_progress =
+      case TelemetryReporter.get_progress_state() do
+        %{encoding_progress: %{eta: eta, percent: percent, fps: fps}} when eta != 0 ->
+          %{eta: eta, percent: percent, fps: fps}
+
+        _ ->
+          %{eta: "Unknown", percent: 1, fps: 0}
+      end
+
+    # Emit a minimal progress update to show the encoding is still running
+    # This preserves the last known ETA instead of always showing "Unknown"
+    filename = Path.basename(video.path)
+
+    progress = %Reencodarr.Statistics.EncodingProgress{
+      percent: last_progress.percent,
+      eta: last_progress.eta,
+      fps: last_progress.fps,
+      filename: filename
+    }
+
+    Telemetry.emit_encoder_progress(progress)
+
+    # Schedule the next check
+    Process.send_after(self(), :periodic_check, 10_000)
+    {:noreply, state}
+  end
+
   # Catch-all for any other messages
   @impl true
   def handle_info(message, state) do
@@ -164,6 +190,10 @@ defmodule Reencodarr.AbAv1.Encode do
     output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
 
     port = Helper.open_port(args)
+
+    # Set up a periodic timer to check if we're still alive and potentially emit progress
+    # Check every 10 seconds
+    Process.send_after(self(), :periodic_check, 10_000)
 
     %{
       state
@@ -193,21 +223,9 @@ defmodule Reencodarr.AbAv1.Encode do
     Reencodarr.Rules.build_args(vmaf.video, :encode, vmaf_params, base_args)
   end
 
-  # Test helper functions
-  def build_encode_args_for_test(vmaf), do: build_encode_args(vmaf)
-
-  def filter_input_output_args_for_test(args) do
-    # Convert args list to tuples and filter out input/output flags
-    args
-    |> Enum.chunk_every(2)
-    |> Enum.reject(fn
-      ["--input", _] -> true
-      ["-i", _] -> true
-      ["--output", _] -> true
-      ["-o", _] -> true
-      _ -> false
-    end)
-    |> List.flatten()
+  # Test helper function to expose build_encode_args for testing
+  if Mix.env() == :test do
+    def build_encode_args_for_test(vmaf), do: build_encode_args(vmaf)
   end
 
   defp notify_encoder_success(video, output_file) do
