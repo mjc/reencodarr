@@ -1,432 +1,133 @@
 defmodule Reencodarr.AbAv1.ProgressParser do
   @moduledoc """
-  Centralized ab-av1 output processing for both encoding and CRF search operations.
+  Centralized progress parsing for ab-av1 output.
 
-  This module handles all ab-av1 output parsing by delegating to OutputParser for
-  structured data extraction, then dispatching to appropriate handlers based on
-  operation context (encoding vs CRF search).
+  Handles parsing of various progress-related lines from ab-av1 output
+  and emits appropriate telemetry events.
   """
-
-  import NimbleParsec
-
-  alias Reencodarr.AbAv1.CrfSearch.RetryLogic
-  alias Reencodarr.AbAv1.OutputParser
-  alias Reencodarr.Formatters
-  alias Reencodarr.{Media, Telemetry}
 
   require Logger
+  alias Reencodarr.Statistics.EncodingProgress
+  alias Reencodarr.Telemetry
 
-  # NimbleParsec size parser for strings like "2.5 GB", "800 MB", etc.
-  number =
-    choice([
-      ascii_string([?0..?9], min: 1)
-      |> string(".")
-      |> ascii_string([?0..?9], min: 1)
-      |> reduce(:to_float),
-      ascii_string([?0..?9], min: 1)
-      |> reduce(:to_integer)
-    ])
-
-  unit =
-    choice([
-      string("TB") |> replace("tb"),
-      string("GB") |> replace("gb"),
-      string("MB") |> replace("mb"),
-      string("KB") |> replace("kb"),
-      string("B") |> replace("b"),
-      string("GiB") |> replace("gib"),
-      string("MiB") |> replace("mib"),
-      string("KiB") |> replace("kib"),
-      # Case insensitive handling
-      string("tb"),
-      string("gb"),
-      string("mb"),
-      string("kb"),
-      string("b"),
-      string("gib"),
-      string("mib"),
-      string("kib")
-    ])
-
-  size_parser =
-    number
-    |> optional(ascii_string([?\s], min: 1))
-    |> concat(unit)
-    |> reduce(:build_size)
-
-  defparsec(:parse_size, size_parser)
-
-  # Helper functions
-  defp to_float([int_part, ".", decimal_part]), do: String.to_float("#{int_part}.#{decimal_part}")
-  defp to_integer([int_str]), do: String.to_integer(int_str)
-
-  defp build_size([size_value, unit_str]) when is_number(size_value) do
-    %{size: size_value, unit: unit_str}
-  end
-
-  defp build_size([size_value, _whitespace, unit_str]) when is_number(size_value) do
-    %{size: size_value, unit: unit_str}
-  end
+  # Pattern definitions for parsing progress lines
+  @patterns %{
+    encoding_start: ~r/\[.*\] encoding (?<filename>\d+\.mkv)/,
+    # Main progress pattern with brackets: [timestamp] percent%, fps fps, eta time unit
+    progress:
+      ~r/\[(?<timestamp>[^\]]+)\].*?(?<percent>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,?\s?eta\s(?<eta>\d+)\s(?<time_unit>(?:second|minute|hour|day|week|month|year)s?)/,
+    # Alternative progress pattern without brackets: percent%, fps fps, eta time unit
+    progress_alt:
+      ~r/(?<percent>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,?\s?eta\s(?<eta>\d+)\s(?<time_unit>(?:second|minute|hour|day|week|month|year)s?)/,
+    # File size progress pattern: Encoded X GB (percent%)
+    file_size_progress: ~r/Encoded\s[\d.]+\s[KMGT]?B\s\((?<percent>\d+)%\)/
+  }
 
   @doc """
-  Process a single line of ab-av1 output with operation context.
+  Processes a single line of ab-av1 output and emits telemetry if applicable.
 
-  ## Parameters
-    - `line`: Raw output line from ab-av1
-    - `state`: Operation state (encoding or CRF search context)
-
-  ## Examples
-      # Encoding context
-      ProgressParser.process_line(line, %{video: video})
-
-      # CRF search context
-      ProgressParser.process_line(line, %{video: video, args: args, target_vmaf: target_vmaf})
+  Returns `:ok` regardless of whether the line matched any patterns.
   """
-  def process_line(line, state) do
-    context = determine_context(state)
+  @spec process_line(String.t(), map()) :: :ok
+  def process_line(line, state) when is_binary(line) and is_map(state) do
+    case parse_line(line, state) do
+      {:encoding_start, filename} ->
+        Telemetry.emit_encoder_started(filename)
+        :ok
 
-    case OutputParser.parse_line(line) do
-      {:ok, %{type: type, data: data}} ->
-        handle_parsed_output(type, data, state, context)
+      {:progress, progress} ->
+        Telemetry.emit_encoder_progress(progress)
+        :ok
 
-      :ignore ->
-        handle_unmatched_line(line, context, state)
-    end
-  end
+      {:ignored, _reason} ->
+        :ok
 
-  # Determine operation context from state structure
-  defp determine_context(%{video: _video, args: _args, target_vmaf: _target_vmaf}),
-    do: :crf_search
+      {:unmatched, line} ->
+        # Only log warning for lines that look like progress but don't match our patterns
+        if String.contains?(line, "%") do
+          Logger.warning("ProgressParser: Unmatched encoding progress-like line: #{line}")
+        end
 
-  defp determine_context(%{video: _video}), do: :encoding
-
-  # Dispatch to appropriate handlers based on type and context
-  defp handle_parsed_output(type, data, state, context) do
-    case context do
-      :encoding -> handle_encoding_output(type, data, state)
-      :crf_search -> handle_crf_search_output(type, data, state)
-    end
-  end
-
-  # Handle encoding-specific output types
-  defp handle_encoding_output(type, data, state) do
-    case type do
-      :encoding_start -> handle_encoding_start(data, state)
-      :progress -> handle_encoding_progress(data, state)
-      :file_progress -> handle_encoding_file_progress(data, state)
-      :success -> handle_encoding_success(data, state)
-      :warning -> handle_encoding_warning(data)
-      _ -> Logger.debug("ProgressParser: Unhandled encoding line type: #{type}")
-    end
-  end
-
-  # Handle CRF search-specific output types
-  defp handle_crf_search_output(type, data, state) do
-    case type do
-      :encoding_sample ->
-        handle_crf_encoding_sample(data, state)
-
-      :eta_vmaf ->
-        handle_crf_eta_vmaf(data, state)
-
-      :progress ->
-        handle_crf_progress(data, state)
-
-      :success ->
-        handle_crf_success(data, state)
-
-      :warning ->
-        handle_crf_warning(data)
-
-      :vmaf_comparison ->
-        handle_crf_vmaf_comparison(data)
-
-      vmaf_type when vmaf_type in [:vmaf_result, :sample_vmaf, :dash_vmaf] ->
-        handle_crf_vmaf_result(data, state)
-
-      _ ->
-        Logger.debug("ProgressParser: Unhandled crf_search line type: #{type}")
-    end
-  end
-
-  # Handle lines that didn't match OutputParser patterns
-  defp handle_unmatched_line(line, context, state) do
-    # Check for custom error patterns not in OutputParser
-    if line == "Error: Failed to find a suitable crf" and context == :crf_search do
-      %{video: video, target_vmaf: target_vmaf} = state
-      RetryLogic.handle_crf_search_error(video, target_vmaf)
-    else
-      # Log unmatched progress-like lines for debugging
-      if String.contains?(line, "%") do
-        Logger.warning(
-          "ProgressParser: Unmatched #{context} progress-like line: #{inspect(line)}"
-        )
-      else
-        Logger.debug("ProgressParser: Ignoring #{context} line: #{line}")
-      end
-    end
-  end
-
-  # === Encoding Handlers ===
-
-  defp handle_encoding_start(_data, state) do
-    # Extract original filename from video path for metadata
-    original_filename = Path.basename(state.video.path)
-
-    Telemetry.emit_encoder_started(original_filename)
-  end
-
-  defp handle_encoding_progress(data, state) do
-    Telemetry.emit_encoder_progress(%{
-      filename: Path.basename(state.video.path),
-      percent: data.progress,
-      eta: format_eta(data.eta, data.eta_unit),
-      fps: data.fps
-    })
-  end
-
-  defp handle_encoding_file_progress(data, state) do
-    # File progress format: "Encoded 2.5 GB (75%)"
-    # Convert to similar format as regular progress but without fps/eta
-    Telemetry.emit_encoder_progress(%{
-      filename: Path.basename(state.video.path),
-      percent: data.progress,
-      size: data.size,
-      size_unit: data.unit,
-      # Default values for compatibility with existing telemetry format
-      eta: "unknown",
-      fps: 0.0
-    })
-  end
-
-  defp handle_encoding_success(_data, state) do
-    Logger.info("Encoding successful for file: #{state.video.path}")
-    Telemetry.emit_encoder_completed()
-  end
-
-  defp handle_encoding_warning(data) do
-    Logger.warning("Encoding: #{data.message}")
-  end
-
-  # === CRF Search Handlers ===
-
-  defp handle_crf_encoding_sample(data, state) do
-    %{video: video} = state
-
-    Logger.debug(
-      "CrfSearch: Encoding sample #{data.sample_num}/#{data.total_samples}: #{data.crf}"
-    )
-
-    broadcast_crf_progress(video.path, %{
-      filename: Path.basename(video.path),
-      crf: data.crf
-    })
-  end
-
-  defp handle_crf_vmaf_result(data, state) do
-    %{video: video, args: args} = state
-    Logger.debug("CrfSearch: CRF: #{data.crf}, VMAF: #{data.score}, Percent: #{data.percent}%")
-
-    Media.upsert_crf_search_vmaf(
-      %{
-        "crf" => to_string(data.crf),
-        "score" => to_string(data.score),
-        "percent" => to_string(data.percent),
-        "chosen" => "false"
-      },
-      video,
-      args
-    )
-  end
-
-  defp handle_crf_eta_vmaf(data, state) do
-    %{video: video, args: args} = state
-
-    Logger.debug(
-      "CrfSearch: CRF: #{data.crf}, VMAF: #{data.score}, size: #{data.size} #{data.unit}, Percent: #{data.percent}%, time: #{data.time} #{data.time_unit}"
-    )
-
-    # Check size limits
-    max_file_size_bytes = 10 * 1024 * 1024 * 1024
-    estimated_size_bytes = convert_size_to_bytes(data.size, data.unit)
-
-    if estimated_size_bytes > max_file_size_bytes do
-      Logger.warning(
-        "CrfSearch: VMAF CRF #{Formatters.format_crf(data.crf)} estimated file size (#{Formatters.format_file_size(estimated_size_bytes)}) exceeds 10GB limit for video #{video.id}. Recording VMAF but may fail if chosen."
-      )
-    end
-
-    Media.upsert_crf_search_vmaf(
-      %{
-        "crf" => to_string(data.crf),
-        "score" => to_string(data.score),
-        "percent" => to_string(data.percent),
-        "chosen" => "true",
-        "size" => format_size_value(data.size),
-        "unit" => data.unit,
-        "time" => to_string(data.time),
-        "time_unit" => data.time_unit
-      },
-      video,
-      args
-    )
-
-    check_vmaf_size_limit(video, data)
-  end
-
-  defp handle_crf_progress(data, state) do
-    %{video: video} = state
-
-    Logger.debug(
-      "CrfSearch Progress: #{data.progress}%, #{Formatters.format_fps(data.fps)}, ETA: #{data.eta}"
-    )
-
-    broadcast_crf_progress(video.path, %{
-      filename: Path.basename(video.path),
-      percent: data.progress,
-      eta: to_string(data.eta),
-      fps: data.fps
-    })
-  end
-
-  defp handle_crf_success(data, state) do
-    %{video: video} = state
-    Logger.debug("CrfSearch successful for CRF: #{data.crf}")
-
-    Media.mark_vmaf_as_chosen(video.id, to_string(data.crf))
-
-    case Media.get_vmaf_by_crf(video.id, to_string(data.crf)) do
-      nil ->
-        Logger.warning(
-          "CrfSearch: Could not find VMAF record for chosen CRF #{data.crf} for video #{video.id}"
-        )
-
-      vmaf ->
-        check_vmaf_size_limit(video, vmaf)
-    end
-  end
-
-  defp handle_crf_warning(data) do
-    Logger.warning("CrfSearch: #{data.message}")
-  end
-
-  defp handle_crf_vmaf_comparison(data) do
-    Logger.debug("VMAF comparison: #{data.file1} vs #{data.file2}")
-  end
-
-  # === Helper Functions ===
-
-  # Helper function to format size values consistently with decimal precision
-  defp format_size_value(size) when is_integer(size), do: "#{size}.0"
-  defp format_size_value(size), do: to_string(size)
-
-  # Helper function to format ETA with time unit
-  defp format_eta(eta, unit) when is_integer(eta) and is_binary(unit) do
-    # Simply reconstruct as "#{eta} #{unit}s" to match original input format
-    "#{eta} #{unit}s"
-  end
-
-  defp broadcast_crf_progress(_video_path, progress_data) do
-    Telemetry.emit_crf_search_progress(progress_data)
-  end
-
-  defp convert_size_to_bytes(size, unit) when is_binary(size) and is_binary(unit) do
-    case Float.parse(size) do
-      {size_float, ""} ->
-        multiplier = get_size_multiplier(String.downcase(unit))
-        trunc(size_float * multiplier)
-
-      _ ->
-        0
-    end
-  end
-
-  defp convert_size_to_bytes(size, unit) when is_number(size) and is_binary(unit) do
-    convert_size_to_bytes(to_string(size), unit)
-  end
-
-  defp convert_size_to_bytes(_, _), do: 0
-
-  defp get_size_multiplier(unit_lower) do
-    case unit_lower do
-      "b" -> 1
-      "kb" -> 1024
-      "mb" -> 1024 * 1024
-      "gb" -> 1024 * 1024 * 1024
-      "tb" -> 1024 * 1024 * 1024 * 1024
-      "mib" -> 1024 * 1024
-      "gib" -> 1024 * 1024 * 1024
-      _ -> 1
-    end
-  end
-
-  defp check_vmaf_size_limit(video, vmaf) do
-    case vmaf do
-      %{size: size_string} when is_binary(size_string) ->
-        check_parsed_size(video, vmaf, size_string)
-
-      _ ->
         :ok
     end
   end
 
-  defp check_parsed_size(video, vmaf, size_string) do
-    case parse_size_string(size_string) do
-      {:ok, size_bytes} ->
-        check_size_against_limit(video, vmaf, size_bytes)
+  # Private functions
+
+  defp parse_line(line, state) do
+    cond do
+      match = Regex.named_captures(@patterns.encoding_start, line) ->
+        handle_encoding_start(match, state)
+
+      match = Regex.named_captures(@patterns.progress, line) ->
+        handle_progress(match, state)
+
+      match = Regex.named_captures(@patterns.progress_alt, line) ->
+        handle_progress(match, state)
+
+      match = Regex.named_captures(@patterns.file_size_progress, line) ->
+        handle_file_size_progress(match, state)
+
+      true ->
+        {:unmatched, line}
+    end
+  end
+
+  defp handle_encoding_start(%{"filename" => filename_with_ext}, state) do
+    # Extract video ID from filename (e.g., "123.mkv" -> get original filename)
+    video_id =
+      filename_with_ext
+      |> Path.basename(".mkv")
+      |> String.to_integer()
+
+    filename =
+      if state.video.id == video_id do
+        # Get the latest video data from database to handle updated paths
+        case Reencodarr.Repo.get(Reencodarr.Media.Video, video_id) do
+          %{path: path} when is_binary(path) -> Path.basename(path)
+          _ -> Path.basename(state.video.path)
+        end
+      else
+        filename_with_ext
+      end
+
+    {:encoding_start, filename}
+  end
+
+  defp handle_progress(match, state) do
+    %{
+      "percent" => percent_str,
+      "fps" => fps_str,
+      "eta" => eta_str,
+      "time_unit" => time_unit
+    } = match
+
+    filename = Path.basename(state.video.path)
+
+    progress = %EncodingProgress{
+      filename: filename,
+      percent: String.to_integer(percent_str),
+      fps: parse_fps(fps_str),
+      eta: "#{eta_str} #{time_unit}"
+    }
+
+    {:progress, progress}
+  end
+
+  defp handle_file_size_progress(_match, _state) do
+    # File size progress is currently ignored but handled gracefully
+    {:ignored, :file_size_progress}
+  end
+
+  # Parse FPS and round to integer for consistency with tests
+  defp parse_fps(fps_str) do
+    case Float.parse(fps_str) do
+      {fps_float, _} ->
+        # Round to nearest integer as a float (e.g., 23.5 -> 24.0)
+        Float.round(fps_float)
 
       :error ->
-        Logger.warning("CrfSearch: Could not parse size string: #{size_string}")
-        :ok
+        0.0
     end
-  end
-
-  defp check_size_against_limit(video, vmaf, size_bytes) do
-    max_file_size_bytes = 10 * 1024 * 1024 * 1024
-
-    if size_bytes > max_file_size_bytes do
-      Logger.warning(
-        "CrfSearch: Estimated size #{Formatters.format_file_size(size_bytes)} for video #{video.id} exceeds 10GB limit"
-      )
-
-      handle_size_limit_exceeded(video, vmaf.crf)
-    else
-      :ok
-    end
-  end
-
-  defp parse_size_string(size_string) when is_binary(size_string) do
-    trimmed = String.trim(size_string)
-
-    case parse_size(trimmed) do
-      {:ok, [%{size: size_value, unit: unit}], "", %{}, {1, 0}, _column} ->
-        bytes = convert_size_to_bytes(size_value, unit)
-        {:ok, bytes}
-
-      {:ok, [%{size: size_value, unit: unit}], _rest, %{}, {1, 0}, _column} ->
-        bytes = convert_size_to_bytes(size_value, unit)
-        {:ok, bytes}
-
-      {:error, _reason, _rest, _context, _line, _column} ->
-        :error
-    end
-  end
-
-  defp parse_size_string(_), do: :error
-
-  defp handle_size_limit_exceeded(video, crf) do
-    Logger.error(
-      "CrfSearch: Chosen VMAF CRF #{crf} exceeds 10GB limit for video #{video.id}. Marking as failed."
-    )
-
-    Reencodarr.FailureTracker.record_size_limit_failure(video, "Estimated > 10GB", "10GB",
-      context: %{chosen_crf: crf}
-    )
-
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video.id, {:error, :file_size_too_large}}
-    )
   end
 end

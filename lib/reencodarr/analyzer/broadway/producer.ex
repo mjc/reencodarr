@@ -261,7 +261,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       # Get one video from database that needs analysis
       case Media.get_videos_needing_analysis(1) do
         [video | _] ->
-          Logger.debug("🎭 Producer: Dispatching video #{video.path} for analysis")
+          Logger.debug("🎭 Producer: Dispatching video #{video.id} for analysis")
           new_demand = state.demand - 1
           new_state = State.update(state, demand: new_demand)
 

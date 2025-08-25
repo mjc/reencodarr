@@ -182,7 +182,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
   end
 
   defp validate_encoding_requirements(changeset) do
-    # No additional validations needed for encoding requirements in state machine
+    # No additional validation needed - state enum handles the constraint
     changeset
   end
 

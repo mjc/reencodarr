@@ -537,7 +537,7 @@ defmodule Reencodarr.RulesTest do
       video = Fixtures.create_test_video(%{max_audio_channels: 2})
       result = Rules.grain(video, 25)
 
-      assert result == [{"--svt", "film-grain=25:film-grain-denoise=0"}]
+      assert result == [{"--svt", "film-grain=25"}]
     end
 
     test "grain function fallback clause" do
@@ -559,7 +559,7 @@ defmodule Reencodarr.RulesTest do
 
       result = Rules.grain_for_vintage_content(video)
 
-      assert result == [{"--svt", "film-grain=8:film-grain-denoise=0"}]
+      assert result == [{"--svt", "film-grain=8"}]
     end
 
     test "applies grain for content from before 2009 with [year] pattern" do
@@ -571,7 +571,7 @@ defmodule Reencodarr.RulesTest do
 
       result = Rules.grain_for_vintage_content(video)
 
-      assert result == [{"--svt", "film-grain=8:film-grain-denoise=0"}]
+      assert result == [{"--svt", "film-grain=8"}]
     end
 
     test "applies grain for content from before 2009 with .year. pattern" do
@@ -583,7 +583,7 @@ defmodule Reencodarr.RulesTest do
 
       result = Rules.grain_for_vintage_content(video)
 
-      assert result == [{"--svt", "film-grain=8:film-grain-denoise=0"}]
+      assert result == [{"--svt", "film-grain=8"}]
     end
 
     test "applies grain for vintage content from title when path has no year" do
@@ -595,7 +595,7 @@ defmodule Reencodarr.RulesTest do
 
       result = Rules.grain_for_vintage_content(video)
 
-      assert result == [{"--svt", "film-grain=8:film-grain-denoise=0"}]
+      assert result == [{"--svt", "film-grain=8"}]
     end
 
     test "does not apply grain for content from 2009 or later" do
@@ -682,7 +682,63 @@ defmodule Reencodarr.RulesTest do
 
       # Should include grain arguments in the final build
       assert "--svt" in args
-      assert "film-grain=8:film-grain-denoise=0" in args
+      assert "film-grain=8" in args
+    end
+
+    # API-based grain detection tests
+    test "applies grain for vintage content using API content_year field" do
+      video =
+        Fixtures.create_test_video(%{
+          path: "/movies/some_movie.mkv",
+          title: "Classic Movie",
+          content_year: 2005
+        })
+
+      result = Rules.grain_for_vintage_content(video)
+
+      assert result == [{"--svt", "film-grain=8"}]
+    end
+
+    test "does not apply grain for modern content using API content_year field" do
+      video =
+        Fixtures.create_test_video(%{
+          path: "/movies/modern_movie.mkv",
+          title: "Modern Movie",
+          content_year: 2015
+        })
+
+      result = Rules.grain_for_vintage_content(video)
+
+      assert result == []
+    end
+
+    test "prefers API content_year over filename parsing" do
+      video =
+        Fixtures.create_test_video(%{
+          path: "/movies/Wrong Title (2020)/movie.mkv",
+          title: "Classic Movie",
+          # API says vintage, filename says modern
+          content_year: 2005
+        })
+
+      result = Rules.grain_for_vintage_content(video)
+
+      # Should use API year (2005) not filename year (2020)
+      assert result == [{"--svt", "film-grain=8"}]
+    end
+
+    test "falls back to filename parsing when API content_year is nil" do
+      video =
+        Fixtures.create_test_video(%{
+          path: "/movies/Classic Movie (2005)/movie.mkv",
+          title: "Classic Movie",
+          # No API data, should parse filename
+          content_year: nil
+        })
+
+      result = Rules.grain_for_vintage_content(video)
+
+      assert result == [{"--svt", "film-grain=8"}]
     end
   end
 

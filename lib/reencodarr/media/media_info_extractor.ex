@@ -7,7 +7,7 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
   """
 
   alias Reencodarr.Core.Parsers
-  alias Reencodarr.Media.MediaInfo
+  alias Reencodarr.Media.{CodecMapper, MediaInfo}
 
   @doc """
   Extracts all needed video parameters directly from MediaInfo JSON.
@@ -49,6 +49,9 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
 
       # HDR info
       hdr: extract_hdr_info(video_track),
+
+      # Computed flags - determine initial state based on encoding status
+      state: determine_initial_state(video_track, audio_tracks, general),
 
       # Title fallback
       title: get_string_field(general, "Title", Path.basename(path))
@@ -149,6 +152,41 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
       get_string_field(video_track, "HDR_Format_Compatibility", ""),
       get_string_field(video_track, "transfer_characteristics", "")
     ])
+  end
+
+  defp determine_initial_state(video_track, audio_tracks, general) do
+    video_codecs = [get_string_field(video_track, "CodecID", "")]
+
+    is_encoded =
+      CodecMapper.has_av1_codec?(video_codecs) or
+        has_opus_audio_tracks?(audio_tracks) or
+        low_bitrate_1080p?(video_codecs, general, video_track) or
+        has_low_resolution_hevc?(video_codecs, video_track)
+
+    if is_encoded do
+      :encoded
+    else
+      :needs_analysis
+    end
+  end
+
+  # Reuse existing helper functions from MediaInfo module
+  defp has_opus_audio_tracks?(audio_tracks) do
+    Enum.any?(audio_tracks, fn track ->
+      get_string_field(track, "Format", "") == "Opus" or
+        get_string_field(track, "CodecID", "") == "A_OPUS"
+    end)
+  end
+
+  defp low_bitrate_1080p?(video_codecs, general, video_track) do
+    "V_MPEGH/ISO/HEVC" in video_codecs and
+      get_int_field(video_track, "Width", 0) == 1920 and
+      get_int_field(general, "OverallBitRate", 0) < 20_000_000
+  end
+
+  defp has_low_resolution_hevc?(video_codecs, video_track) do
+    "V_MPEGH/ISO/HEVC" in video_codecs and
+      get_int_field(video_track, "Height", 0) < 720
   end
 
   defp get_channel_count_from_track(track) do

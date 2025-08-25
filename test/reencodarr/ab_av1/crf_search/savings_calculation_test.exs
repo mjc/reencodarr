@@ -14,7 +14,12 @@ defmodule Reencodarr.AbAv1.CrfSearch.SavingsCalculationTest do
           path: "/test/savings_test.mkv",
           # 1GB
           size: 1_000_000_000,
-          bitrate: 5000
+          bitrate: 5000,
+          state: :needs_analysis,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 6,
+          atmos: false
         })
 
       # Test with 50% reduction on 1GB file
@@ -41,7 +46,12 @@ defmodule Reencodarr.AbAv1.CrfSearch.SavingsCalculationTest do
         Media.create_video(%{
           path: "/test/string_percent.mkv",
           size: 1_000_000_000,
-          bitrate: 5000
+          bitrate: 5000,
+          state: :needs_analysis,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 6,
+          atmos: false
         })
 
       # Test with string percent
@@ -80,7 +90,12 @@ defmodule Reencodarr.AbAv1.CrfSearch.SavingsCalculationTest do
         Media.create_video(%{
           path: "/test/invalid_inputs.mkv",
           size: 1_000_000_000,
-          bitrate: 5000
+          bitrate: 5000,
+          state: :needs_analysis,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 6,
+          atmos: false
         })
 
       # Test with invalid percent values that would not calculate savings
@@ -129,7 +144,12 @@ defmodule Reencodarr.AbAv1.CrfSearch.SavingsCalculationTest do
           path: "/test/movie.mkv",
           # 1GB video
           size: 1_000_000_000,
-          bitrate: 5000
+          bitrate: 5000,
+          state: :needs_analysis,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 6,
+          atmos: false
         })
 
       %{video: video}

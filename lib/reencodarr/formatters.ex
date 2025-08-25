@@ -286,8 +286,8 @@ defmodule Reencodarr.Formatters do
   def format_filename(path) when is_binary(path) do
     basename = Path.basename(path, Path.extname(path))
 
-    # Try to extract series/episode pattern like "Show Name - S01E01"
-    case Regex.run(~r/(.+) - (S\d+E\d+)/, basename) do
+    # Try to extract series/episode pattern
+    case Regex.run(~r/(.+)\s-\s(S\d+E\d+)/, basename) do
       [_, series, episode] -> "#{series} - #{episode}"
       _ -> basename <> Path.extname(path)
     end
@@ -317,75 +317,4 @@ defmodule Reencodarr.Formatters do
   end
 
   def normalize_string(_), do: ""
-
-  # === DATA CONVERSION UTILITIES ===
-
-  @doc """
-  Converts a size string (e.g., "12.5 GB") to bytes for comparison with size limits.
-
-  Uses binary prefixes (1024-based) consistent with format_file_size functions.
-
-  ## Examples
-      iex> parse_size_to_bytes("1024", "kb")
-      1048576
-
-      iex> parse_size_to_bytes("1.5", "gb")
-      1610612736
-
-      iex> parse_size_to_bytes("invalid", "gb")
-      nil
-  """
-  def parse_size_to_bytes(size_str, unit) when is_binary(size_str) and is_binary(unit) do
-    with {size_value, _} <- Float.parse(size_str),
-         multiplier when not is_nil(multiplier) <- get_size_multiplier(unit) do
-      round(size_value * multiplier)
-    else
-      _ -> nil
-    end
-  end
-
-  def parse_size_to_bytes(_, _), do: nil
-
-  @doc """
-  Converts various data types to numeric values safely.
-
-  ## Examples
-      iex> to_number(42)
-      42
-
-      iex> to_number("3.14")
-      3.14
-
-      iex> to_number(nil)
-      nil
-  """
-  def to_number(nil), do: nil
-  def to_number(val) when is_number(val), do: val
-
-  def to_number(val) when is_binary(val) do
-    case Float.parse(val) do
-      {num, _} -> num
-      :error -> nil
-    end
-  end
-
-  def to_number(_), do: nil
-
-  # Binary unit multipliers (consistent with format_file_size functions)
-  @size_multipliers %{
-    "b" => 1,
-    # KiB
-    "kb" => 1024,
-    # MiB
-    "mb" => 1024 * 1024,
-    # GiB
-    "gb" => 1024 * 1024 * 1024,
-    # TiB
-    "tb" => 1024 * 1024 * 1024 * 1024
-  }
-
-  # Get the byte multiplier for a given unit (binary prefixes)
-  defp get_size_multiplier(unit) do
-    Map.get(@size_multipliers, String.downcase(unit))
-  end
 end

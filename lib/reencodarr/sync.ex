@@ -179,7 +179,8 @@ defmodule Reencodarr.Sync do
           "service_id" => to_string(raw_file["id"]),
           "service_type" => to_string(service_type),
           "library_id" => library_id,
-          "dateAdded" => raw_file["dateAdded"]
+          "dateAdded" => raw_file["dateAdded"],
+          "content_year" => extract_year_from_raw_file(raw_file, service_type)
         }
 
         # Add mediainfo if present
@@ -206,7 +207,8 @@ defmodule Reencodarr.Sync do
           "library_id" => library_id,
           "mediainfo" => mediainfo,
           "bitrate" => info.bitrate,
-          "dateAdded" => info.date_added
+          "dateAdded" => info.date_added,
+          "content_year" => info.content_year
         }
 
       _ ->
@@ -258,7 +260,8 @@ defmodule Reencodarr.Sync do
           "service_type" => to_string(info.service_type),
           "mediainfo" => mediainfo,
           "bitrate" => info.bitrate,
-          "dateAdded" => info.date_added
+          "dateAdded" => info.date_added,
+          "content_year" => info.content_year
         })
       end)
 
@@ -332,5 +335,72 @@ defmodule Reencodarr.Sync do
       {:ok, _} -> :ok
       err -> err
     end
+  end
+
+  # Helper functions to extract year from raw API file data
+  defp extract_year_from_raw_file(file, service_type) do
+    case service_type do
+      :sonarr ->
+        # For Sonarr, try episode air date first, then fallback to filename
+        case parse_episode_air_year(file) do
+          year when is_integer(year) -> year
+          nil -> extract_year_from_filename(file["path"])
+        end
+
+      :radarr ->
+        # For Radarr, extract from file path as fallback
+        extract_year_from_filename(file["path"])
+    end
+  end
+
+  # Extract year from episode air date
+  defp parse_episode_air_year(file) do
+    air_date_str = file["airDateUtc"] || file["airDate"]
+
+    case parse_date_string(air_date_str) do
+      %Date{year: year} when year >= 1950 and year <= 2030 -> year
+      _ -> nil
+    end
+  end
+
+  # Parse date string to Date struct
+  defp parse_date_string(nil), do: nil
+  defp parse_date_string(""), do: nil
+
+  defp parse_date_string(date_string) when is_binary(date_string) do
+    case Date.from_iso8601(String.slice(date_string, 0, 10)) do
+      {:ok, date} -> date
+      _error -> nil
+    end
+  end
+
+  defp parse_date_string(_), do: nil
+
+  # Extract year from filename as fallback
+  defp extract_year_from_filename(nil), do: nil
+  defp extract_year_from_filename(""), do: nil
+
+  defp extract_year_from_filename(path) when is_binary(path) do
+    # Same logic as in Rules module - extract year from filename
+    patterns = [
+      ~r/\((\d{4})\)/,
+      ~r/\[(\d{4})\]/,
+      ~r/\.(\d{4})\./,
+      ~r/\s(\d{4})\s/,
+      ~r/(\d{4})/
+    ]
+
+    Enum.find_value(patterns, fn pattern ->
+      case Regex.run(pattern, path) do
+        [_, year_str] ->
+          case Integer.parse(year_str) do
+            {year, ""} when year >= 1950 and year <= 2030 -> year
+            _ -> nil
+          end
+
+        _ ->
+          nil
+      end
+    end)
   end
 end

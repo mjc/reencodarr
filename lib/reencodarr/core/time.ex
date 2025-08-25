@@ -173,38 +173,6 @@ defmodule Reencodarr.Core.Time do
     |> relative_time()
   end
 
-  @doc """
-  Parses a time string value with unit and converts to seconds.
-  Returns nil if parsing fails.
-
-  ## Examples
-
-      iex> Time.parse_time_to_seconds("30", "minutes")
-      1800
-
-      iex> Time.parse_time_to_seconds("2", "hours")
-      7200
-
-      iex> Time.parse_time_to_seconds(nil, "minutes")
-      nil
-  """
-  @spec parse_time_to_seconds(String.t() | integer() | nil, String.t() | nil) :: integer() | nil
-  def parse_time_to_seconds(nil, _), do: nil
-  def parse_time_to_seconds(_, nil), do: nil
-
-  def parse_time_to_seconds(time, time_unit) when is_binary(time) do
-    case Integer.parse(time) do
-      {time_value, _} -> to_seconds(time_value, time_unit)
-      :error -> nil
-    end
-  end
-
-  def parse_time_to_seconds(time, time_unit) when is_integer(time) do
-    to_seconds(time, time_unit)
-  end
-
-  def parse_time_to_seconds(_, _), do: nil
-
   # Private helper to parse time parts from captures
   defp parse_time_part(captures, key) do
     case Map.get(captures, key) do

@@ -18,11 +18,10 @@ defmodule Reencodarr.Media.Video do
     :text_count,
     :video_codecs,
     :audio_codecs,
-    :max_audio_channels,
-    :size,
+    :text_codecs,
     :hdr,
-    :atmos,
-    :title
+    :title,
+    :content_year
   ]
 
   @optional [
@@ -38,16 +37,22 @@ defmodule Reencodarr.Media.Video do
     :video_count,
     :audio_count,
     :text_count,
+    :text_codecs,
+    :hdr,
+    :title,
+    :content_year
+  ]
+
+  @required [
+    :path,
+    :state,
     :video_codecs,
     :audio_codecs,
     :max_audio_channels,
-    :hdr,
-    :atmos,
-    :title,
-    :state
+    :size,
+    :atmos
   ]
 
-  @required [:path, :size]
   @service_types [:sonarr, :radarr]
 
   schema "videos" do
@@ -71,6 +76,10 @@ defmodule Reencodarr.Media.Video do
     field :service_id, :string
     field :service_type, Ecto.Enum, values: @service_types
     field :mediainfo, :map
+
+    # Year information from Sonarr/Radarr APIs
+    # Content year: movie release year, TV series start year, or episode air year
+    field :content_year, :integer
 
     field :state, Ecto.Enum,
       values: [

@@ -24,7 +24,8 @@ defmodule Reencodarr.Media.VideoFileInfo do
           run_time: integer() | nil,
           subtitles: [String.t()] | nil,
           title: String.t() | nil,
-          date_added: String.t() | nil
+          date_added: String.t() | nil,
+          content_year: integer() | nil
         }
 
   defstruct [
@@ -45,6 +46,7 @@ defmodule Reencodarr.Media.VideoFileInfo do
     :run_time,
     :subtitles,
     :title,
-    :date_added
+    :date_added,
+    :content_year
   ]
 end

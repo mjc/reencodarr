@@ -123,7 +123,8 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
       run_time: file["runTime"],
       subtitles: parse_list_or_binary(media_info["subtitles"]),
       title: file["sceneName"],
-      date_added: file["dateAdded"]
+      date_added: file["dateAdded"],
+      content_year: extract_year_from_file(file, service_type)
     }
   end
 
@@ -292,5 +293,73 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
       is_binary(value) -> String.split(value, "/")
       true -> []
     end
+  end
+
+  # Extract year information from API file data
+  defp extract_year_from_file(file, service_type) do
+    case service_type do
+      :sonarr ->
+        # For Sonarr, try to extract year from episode air date first, then fallback to filename
+        case parse_episode_air_year(file) do
+          year when is_integer(year) -> year
+          nil -> extract_year_from_filename(file["path"])
+        end
+
+      :radarr ->
+        # For Radarr, extract from file path as fallback
+        # In the future, we could fetch movie data to get release year
+        extract_year_from_filename(file["path"])
+    end
+  end
+
+  # Extract year from episode air date
+  defp parse_episode_air_year(file) do
+    air_date_str = file["airDateUtc"] || file["airDate"]
+
+    case parse_date_string(air_date_str) do
+      %Date{year: year} when year >= 1950 and year <= 2030 -> year
+      _ -> nil
+    end
+  end
+
+  # Parse date string to Date struct
+  defp parse_date_string(nil), do: nil
+  defp parse_date_string(""), do: nil
+
+  defp parse_date_string(date_string) when is_binary(date_string) do
+    case Date.from_iso8601(String.slice(date_string, 0, 10)) do
+      {:ok, date} -> date
+      _error -> nil
+    end
+  end
+
+  defp parse_date_string(_), do: nil
+
+  # Extract year from filename as fallback
+  defp extract_year_from_filename(nil), do: nil
+  defp extract_year_from_filename(""), do: nil
+
+  defp extract_year_from_filename(path) when is_binary(path) do
+    # Same logic as in Rules module - extract year from filename
+    patterns = [
+      ~r/\((\d{4})\)/,
+      ~r/\[(\d{4})\]/,
+      ~r/\.(\d{4})\./,
+      ~r/\s(\d{4})\s/,
+      ~r/(\d{4})/
+    ]
+
+    Enum.find_value(patterns, fn pattern ->
+      case Regex.run(pattern, path) do
+        [_, year_str] ->
+          case Integer.parse(year_str) do
+            {year, ""} when year >= 1950 and year <= 2030 -> year
+            _ -> nil
+          end
+
+        _ ->
+          nil
+      end
+    end)
   end
 end

@@ -27,7 +27,9 @@ defmodule Reencodarr.MediaTest do
       attrs = %{
         size: 2_000_000_000,
         path: "/test/video.mkv",
-        bitrate: 5_000_000
+        bitrate: 5_000_000,
+        max_audio_channels: 6,
+        atmos: false
       }
 
       video = assert_ok(Media.create_video(attrs))
@@ -102,8 +104,8 @@ defmodule Reencodarr.MediaTest do
       failed_video = Fixtures.failed_video_fixture()
       assert failed_video.state == :failed
 
-      reencoded_video = Fixtures.reencoded_video_fixture()
-      assert reencoded_video.state == :encoded
+      encoded_video = Fixtures.encoded_video_fixture()
+      assert encoded_video.state == :encoded
     end
   end
 

@@ -16,7 +16,10 @@ defmodule Reencodarr.Media.VideoQueries do
   def videos_for_crf_search(limit \\ 10) do
     Repo.all(
       from v in Video,
-        where: v.state == :analyzed,
+        where:
+          v.state == :analyzed and
+            not fragment("? = ANY(?)", "av1", v.video_codecs) and
+            not fragment("? = ANY(?)", "opus", v.audio_codecs),
         order_by: [desc: v.bitrate, desc: v.size, asc: v.updated_at],
         limit: ^limit,
         select: v
@@ -30,7 +33,10 @@ defmodule Reencodarr.Media.VideoQueries do
   def count_videos_for_crf_search do
     Repo.one(
       from v in Video,
-        where: v.state == :analyzed,
+        where:
+          v.state == :analyzed and
+            not fragment("? = ANY(?)", "av1", v.video_codecs) and
+            not fragment("? = ANY(?)", "opus", v.audio_codecs),
         select: count()
     )
   end
