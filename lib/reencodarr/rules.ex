@@ -52,7 +52,8 @@ defmodule Reencodarr.Rules do
     rules_to_apply = [
       &hdr/1,
       &resolution/1,
-      &video/1
+      &video/1,
+      &grain_for_vintage_content/1
     ]
 
     # Add audio rules only for encoding context
@@ -363,6 +364,56 @@ defmodule Reencodarr.Rules do
   end
 
   def grain(_, _), do: []
+
+  @doc """
+  Apply film grain synthesis for vintage content (pre-2009).
+  
+  Detects content from before 2009 based on year patterns in path/title and applies
+  film grain with strength 8 to preserve the authentic film aesthetic.
+  
+  Only applies to non-HDR content as HDR typically doesn't need grain synthesis.
+  """
+  @spec grain_for_vintage_content(Media.Video.t()) :: list()
+  def grain_for_vintage_content(%Media.Video{hdr: nil, path: path, title: title}) do
+    # Extract year from path or title (common patterns: (2008), [2008], 2008, etc.)
+    full_text = "#{path} #{title || ""}"
+    
+    case extract_year_from_text(full_text) do
+      year when is_integer(year) and year < 2009 ->
+        Logger.info("Applying film grain (strength 8) for vintage content from #{year}: #{Path.basename(path)}")
+        [{"--svt", "film-grain=8:film-grain-denoise=0"}]
+      
+      _ ->
+        []
+    end
+  end
+
+  # Skip grain for HDR content or when no pattern detected
+  def grain_for_vintage_content(_), do: []
+
+  # Extract year from text using common patterns
+  defp extract_year_from_text(text) do
+    # Match patterns like (2008), [2008], .2008., 2008, etc.
+    # Focus on years 1950-2030 to avoid false positives from other numbers
+    patterns = [
+      ~r/\((\d{4})\)/,           # (2008)
+      ~r/\[(\d{4})\]/,           # [2008]
+      ~r/\.(\d{4})\./,           # .2008.
+      ~r/\s(\d{4})\s/,           # space-separated 2008
+      ~r/(\d{4})/                # any 4-digit number (last resort)
+    ]
+    
+    Enum.find_value(patterns, fn pattern ->
+      case Regex.run(pattern, text) do
+        [_, year_str] ->
+          case Integer.parse(year_str) do
+            {year, ""} when year >= 1950 and year <= 2030 -> year
+            _ -> nil
+          end
+        _ -> nil
+      end
+    end)
+  end
 
   @spec hdr(Media.Video.t()) :: list()
   def hdr(%Media.Video{hdr: hdr}) when not is_nil(hdr) do
