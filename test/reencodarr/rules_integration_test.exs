@@ -3,7 +3,7 @@ defmodule Reencodarr.RulesIntegrationTest do
   use Reencodarr.DataCase
 
   alias Reencodarr.AbAv1.{CrfSearch, Encode}
-  alias Reencodarr.AbAv1.Encode
+  alias Reencodarr.Encoder.Broadway
   alias Reencodarr.{Media, Repo, Rules}
 
   describe "integration with encoder modules" do
@@ -42,7 +42,7 @@ defmodule Reencodarr.RulesIntegrationTest do
         })
 
       vmaf = Repo.preload(vmaf, :video)
-      args = Encode.build_encode_args_for_test(vmaf)
+      args = Broadway.build_encode_args_for_test(vmaf)
 
       # Should include audio codec
       assert "--acodec" in args
@@ -75,7 +75,7 @@ defmodule Reencodarr.RulesIntegrationTest do
     end
 
     test "CRF search excludes audio arguments", %{video: video} do
-      args = CrfSearch.build_crf_search_args(video, 95)
+      args = CrfSearch.build_crf_search_args_for_test(video, 95)
 
       # Should NOT include audio codec
       refute "--acodec" in args
@@ -156,9 +156,6 @@ defmodule Reencodarr.RulesIntegrationTest do
       input_path_count = Enum.count(encode_args, &(&1 == video.path))
       input_flag_count = Enum.count(encode_args, &(&1 == "--input"))
 
-      IO.puts("\nInput path appears #{input_path_count} times")
-      IO.puts("--input flag appears #{input_flag_count} times")
-
       # This should pass once we fix the deduplication
       assert input_path_count == 1, "Input path should appear only once, got #{input_path_count}"
 
@@ -197,7 +194,7 @@ defmodule Reencodarr.RulesIntegrationTest do
       video = Fixtures.create_test_video()
 
       # Test CRF search args using the CrfSearch module
-      crf_args = CrfSearch.build_crf_search_args(video, 95)
+      crf_args = CrfSearch.build_crf_search_args_for_test(video, 95)
 
       # Run ab-av1 with --help to validate argument structure
       # Remove "crf-search" since we're adding it
@@ -222,7 +219,7 @@ defmodule Reencodarr.RulesIntegrationTest do
 
       # Test both encode and CRF search
       encode_args = Rules.build_args(video, :encode, ["--preset", "6"])
-      crf_args = CrfSearch.build_crf_search_args(video, 95)
+      crf_args = CrfSearch.build_crf_search_args_for_test(video, 95)
 
       # Count occurrences of the input file path
       input_count_encode = Enum.count(encode_args, &(&1 == video.path))
