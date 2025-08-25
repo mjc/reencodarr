@@ -14,12 +14,8 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_encoder_progress(progress) do
-    # Handle both structs and maps
-    measurements =
-      case progress do
-        %{__struct__: _} -> Map.from_struct(progress)
-        %{} = map -> map
-      end
+    # Convert to map but keep all values - the reporter will handle merging
+    measurements = Map.from_struct(progress)
 
     safe_telemetry_execute(
       [:reencodarr, :encoder, :progress],
@@ -61,12 +57,8 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_crf_search_progress(progress) do
-    # Handle both structs and maps
-    measurements =
-      case progress do
-        %{__struct__: _} -> Map.from_struct(progress)
-        %{} = map -> map
-      end
+    # Convert to map but keep all values - the reporter will handle merging
+    measurements = Map.from_struct(progress)
 
     safe_telemetry_execute(
       [:reencodarr, :crf_search, :progress],

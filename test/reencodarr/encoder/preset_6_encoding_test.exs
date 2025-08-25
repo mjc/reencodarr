@@ -6,7 +6,7 @@ defmodule Reencodarr.Encoder.Preset6EncodingTest do
   use Reencodarr.DataCase, async: true
 
   alias Reencodarr.AbAv1.Encode
-  alias Reencodarr.AbAv1.Encode
+  alias Reencodarr.Encoder.Broadway
   alias Reencodarr.Media
 
   describe "encoder uses preset 6 from VMAF params" do
@@ -58,7 +58,7 @@ defmodule Reencodarr.Encoder.Preset6EncodingTest do
       vmaf = Reencodarr.Repo.preload(vmaf, :video)
 
       # Get the build args (we can't actually run encode in tests)
-      args = Encode.build_encode_args_for_test(vmaf)
+      args = Broadway.build_encode_args_for_test(vmaf)
 
       # Should include the preset 6 parameter
       assert "--preset" in args

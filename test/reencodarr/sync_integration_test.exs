@@ -184,7 +184,11 @@ defmodule Reencodarr.SyncIntegrationTest do
           bitrate: 12_000_000,
           service_id: "preserve_test",
           service_type: :sonarr,
-          library_id: library.id
+          library_id: library.id,
+          max_audio_channels: 2,
+          atmos: false,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
         })
 
       # Simulate sync update with same size (should preserve bitrate)
@@ -237,7 +241,11 @@ defmodule Reencodarr.SyncIntegrationTest do
           bitrate: 8_000_000,
           service_id: "size_change",
           service_type: :sonarr,
-          library_id: library.id
+          library_id: library.id,
+          max_audio_channels: 2,
+          atmos: false,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
         })
 
       # Simulate sync with significantly different size
@@ -322,7 +330,11 @@ defmodule Reencodarr.SyncIntegrationTest do
           bitrate: 5_000_000,
           service_id: "delete_test",
           service_type: :sonarr,
-          library_id: library.id
+          library_id: library.id,
+          max_audio_channels: 2,
+          atmos: false,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
         })
 
       # Create some VMAFs for this video
@@ -395,7 +407,11 @@ defmodule Reencodarr.SyncIntegrationTest do
           bitrate: 3_000_000,
           service_id: "refresh_sonarr",
           service_type: :sonarr,
-          library_id: library.id
+          library_id: library.id,
+          max_audio_channels: 2,
+          atmos: false,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
         })
 
       # Create Radarr video
@@ -406,7 +422,11 @@ defmodule Reencodarr.SyncIntegrationTest do
           bitrate: 6_000_000,
           service_id: "refresh_radarr",
           service_type: :radarr,
-          library_id: library.id
+          library_id: library.id,
+          max_audio_channels: 2,
+          atmos: false,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
         })
 
       log =

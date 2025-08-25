@@ -380,7 +380,8 @@ defmodule Reencodarr.Media.Debug do
       "duration" => 3600.0,
       "video_codecs" => ["H.264"],
       "audio_codecs" => ["AAC"],
-      "state" => :needs_analysis
+      "reencoded" => false,
+      "failed" => false
     }
   end
 

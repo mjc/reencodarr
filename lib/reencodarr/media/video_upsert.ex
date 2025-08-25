@@ -23,8 +23,8 @@ defmodule Reencodarr.Media.VideoUpsert do
 
     attrs
     |> normalize_keys_to_strings()
-    |> filter_deprecated_fields()
     |> ensure_library_id()
+    |> ensure_required_fields()
     |> handle_vmaf_deletion_and_bitrate_preservation()
     |> insert_or_update_video()
   end
@@ -34,13 +34,6 @@ defmodule Reencodarr.Media.VideoUpsert do
       {key, value} when is_atom(key) -> {Atom.to_string(key), value}
       {key, value} -> {key, value}
     end)
-  end
-
-  defp filter_deprecated_fields(attrs) do
-    # Remove deprecated boolean fields that may still come from external services
-    attrs
-    |> Map.delete("reencoded")
-    |> Map.delete("failed")
   end
 
   defp ensure_library_id(attrs) do
@@ -67,10 +60,18 @@ defmodule Reencodarr.Media.VideoUpsert do
 
   defp find_library_id(_), do: nil
 
+  # Ensures required fields have default values when not provided.
+  # Added to handle sync operations that may not include MediaInfo-derived fields.
+  defp ensure_required_fields(attrs) do
+    attrs
+    |> Map.put_new("max_audio_channels", 6)
+    |> Map.put_new("atmos", false)
+  end
+
   defp handle_vmaf_deletion_and_bitrate_preservation(attrs) do
     path = Map.get(attrs, "path")
     new_values = VideoValidator.extract_comparison_values(attrs)
-    being_marked_encoded = VideoValidator.get_attr_value(attrs, "state") == :encoded
+    being_marked_encoded = VideoValidator.get_attr_value(attrs, "state") == "encoded"
 
     existing_video = get_video_metadata_for_comparison(path)
 
@@ -113,9 +114,9 @@ defmodule Reencodarr.Media.VideoUpsert do
 
   defp determine_conflict_except_fields(attrs) do
     if Map.has_key?(attrs, "bitrate") do
-      [:id, :inserted_at]
+      [:id, :inserted_at, :state, :failed]
     else
-      [:id, :inserted_at, :bitrate]
+      [:id, :inserted_at, :state, :failed, :bitrate]
     end
   end
 
@@ -212,7 +213,7 @@ defmodule Reencodarr.Media.VideoUpsert do
   defp get_video_metadata_for_comparison(path) do
     Repo.one(
       from v in Video,
-        where: v.path == ^path and v.state not in [:encoded, :failed],
+        where: v.path == ^path and v.state != :encoded and v.state != :failed,
         select: %{
           id: v.id,
           size: v.size,

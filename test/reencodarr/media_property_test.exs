@@ -46,7 +46,11 @@ defmodule Reencodarr.Media.PropertyTest do
         attrs = %{
           path: invalid_path,
           size: 1_000_000,
-          library_id: library.id
+          library_id: library.id,
+          max_audio_channels: 2,
+          atmos: false,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
         }
 
         case Media.create_video(attrs) do
@@ -93,7 +97,11 @@ defmodule Reencodarr.Media.PropertyTest do
         video_attrs = %{
           path: "/test/video_#{:erlang.unique_integer([:positive])}.mkv",
           size: 1_000_000,
-          library_id: library.id
+          library_id: library.id,
+          max_audio_channels: 2,
+          atmos: false,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
         }
 
         {:ok, video} = Media.create_video(video_attrs)
@@ -141,7 +149,11 @@ defmodule Reencodarr.Media.PropertyTest do
         original_attrs = %{
           path: "/original/path_#{unique_id}.mkv",
           size: 1_000_000,
-          library_id: library.id
+          library_id: library.id,
+          max_audio_channels: 2,
+          atmos: false,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
         }
 
         {:ok, video} = Media.create_video(original_attrs)
@@ -232,7 +244,9 @@ defmodule Reencodarr.Media.PropertyTest do
           video_codecs <-
             list_of(member_of(["h264", "h265", "av1"]), min_length: 1, max_length: 2),
           audio_codecs <-
-            list_of(member_of(["aac", "ac3", "dts", "opus"]), min_length: 1, max_length: 3)
+            list_of(member_of(["aac", "ac3", "dts", "opus"]), min_length: 1, max_length: 3),
+          max_audio_channels <- member_of([2, 6, 8]),
+          atmos <- boolean()
         ) do
       %{
         path: "/test/#{path}.mkv",
@@ -241,7 +255,9 @@ defmodule Reencodarr.Media.PropertyTest do
         width: width,
         height: height,
         video_codecs: video_codecs,
-        audio_codecs: audio_codecs
+        audio_codecs: audio_codecs,
+        max_audio_channels: max_audio_channels,
+        atmos: atmos
       }
     end
   end

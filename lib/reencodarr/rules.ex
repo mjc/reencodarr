@@ -366,22 +366,38 @@ defmodule Reencodarr.Rules do
   def grain(_, _), do: []
 
   @doc """
-  Apply film grain synthesis for vintage content (pre-2009).
+  Applies film grain synthesis for vintage content (before 2009).
 
-  Detects content from before 2009 based on year patterns in path/title and applies
-  film grain with strength 8 to preserve the authentic film aesthetic.
+  Detects content from before 2009 using API-sourced year data when available,
+  falling back to year patterns in path/title. Applies film grain with strength 8
+  to preserve the authentic film aesthetic.
+
+  For movies: uses release year
+  For TV shows: uses series start year or episode air year
 
   Only applies to non-HDR content as HDR typically doesn't need grain synthesis.
   """
   @spec grain_for_vintage_content(Media.Video.t()) :: list()
-  def grain_for_vintage_content(%Media.Video{hdr: nil, path: path, title: title}, strength \\ 8) do
-    # Extract year from path or title (common patterns: (2008), [2008], 2008, etc.)
+  def grain_for_vintage_content(%Media.Video{hdr: nil, content_year: year} = video)
+      when is_integer(year) and year < 2009 do
+    strength = 8
+
+    Logger.info(
+      "Applying film grain (strength #{strength}) for vintage content from #{year} (API): #{Path.basename(video.path)}"
+    )
+
+    [{"--svt", "film-grain=#{strength}"}]
+  end
+
+  def grain_for_vintage_content(%Media.Video{hdr: nil, path: path, title: title}) do
+    strength = 8
+    # Fallback to filename parsing for non-API sourced videos
     full_text = "#{path} #{title || ""}"
 
     case extract_year_from_text(full_text) do
       year when is_integer(year) and year < 2009 ->
         Logger.info(
-          "Applying film grain (strength #{strength}) for vintage content from #{year}: #{Path.basename(path)}"
+          "Applying film grain (strength #{strength}) for vintage content from #{year} (parsed): #{Path.basename(path)}"
         )
 
         [{"--svt", "film-grain=#{strength}"}]

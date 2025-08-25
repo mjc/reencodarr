@@ -18,23 +18,7 @@ defmodule Reencodarr.Fixtures do
 
   alias Reencodarr.Media
 
-  # === Factory Building Helpers ===
-
-  @doc """
-  Marks video as encoded for factory building.
-  """
-  def with_reencoded(attrs) do
-    Map.put(attrs, :state, :encoded)
-  end
-
-  @doc """
-  Marks video as failed for factory building.
-  """
-  def with_failed(attrs) do
-    Map.put(attrs, :state, :failed)
-  end
-
-  # === TEST CONSTANTS ===
+  # === SAFE TEST CONSTANTS ===
 
   @test_show_names [
     "Test Show Alpha",
@@ -162,10 +146,10 @@ defmodule Reencodarr.Fixtures do
   end
 
   @doc """
-  Creates a reencoded video for completion scenarios.
+  Creates an encoded video for completion scenarios.
   """
-  def reencoded_video_fixture(attrs \\ %{}) do
-    video_fixture(Map.merge(%{state: :encoded, video_codec: "av1"}, attrs))
+  def encoded_video_fixture(attrs \\ %{}) do
+    video_fixture(Map.merge(%{state: :encoded, video_codecs: ["AV1"]}, attrs))
   end
 
   # === STRUCT-BASED VIDEO CREATION ===
@@ -546,7 +530,7 @@ defmodule Reencodarr.Fixtures do
 
       video = build_video(%{bitrate: 5_000_000})
         |> with_high_bitrate()
-        |> as_reencoded()
+        |> as_encoded()
         |> create()
   """
   def build_video(attrs \\ %{}) do
@@ -574,10 +558,10 @@ defmodule Reencodarr.Fixtures do
   end
 
   @doc """
-  Marks video as reencoded for factory building.
+  Marks video as encoded for factory building.
   """
-  def as_reencoded(attrs) do
-    Map.put(attrs, :state, :encoded)
+  def as_encoded(attrs) do
+    Map.merge(attrs, %{state: :encoded, video_codecs: ["AV1"]})
   end
 
   @doc """

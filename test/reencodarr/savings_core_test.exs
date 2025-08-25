@@ -14,7 +14,12 @@ defmodule Reencodarr.SavingsCoreTest do
           path: "/test/sample_savings_test.mkv",
           # 1GB
           size: 1_000_000_000,
-          bitrate: 5000
+          bitrate: 5000,
+          state: :needs_analysis,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 6,
+          atmos: false
         })
 
       # Test different compression ratios
@@ -55,7 +60,12 @@ defmodule Reencodarr.SavingsCoreTest do
           path: "/test/sample_explicit_savings.mkv",
           # 2GB
           size: 2_000_000_000,
-          bitrate: 8000
+          bitrate: 8000,
+          state: :needs_analysis,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 6,
+          atmos: false
         })
 
       # 1.5GB
@@ -85,7 +95,12 @@ defmodule Reencodarr.SavingsCoreTest do
           path: "/test/sample_persistence.mkv",
           # 3GB
           size: 3_000_000_000,
-          bitrate: 10_000
+          bitrate: 10_000,
+          state: :needs_analysis,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 6,
+          atmos: false
         })
 
       # Create initial VMAF
@@ -134,7 +149,12 @@ defmodule Reencodarr.SavingsCoreTest do
           path: "/test/sample_small_size.mkv",
           # 1 byte
           size: 1,
-          bitrate: 1000
+          bitrate: 1000,
+          state: :needs_analysis,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 6,
+          atmos: false
         })
 
       {:ok, small_vmaf} =
@@ -156,7 +176,12 @@ defmodule Reencodarr.SavingsCoreTest do
         Media.create_video(%{
           path: "/test/sample_no_percent.mkv",
           size: 1_000_000_000,
-          bitrate: 5000
+          bitrate: 5000,
+          state: :needs_analysis,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 6,
+          atmos: false
         })
 
       {:ok, no_percent_vmaf} =
@@ -179,7 +204,12 @@ defmodule Reencodarr.SavingsCoreTest do
           path: "/test/sample_string_percent.mkv",
           # 800MB
           size: 800_000_000,
-          bitrate: 4000
+          bitrate: 4000,
+          state: :needs_analysis,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 6,
+          atmos: false
         })
 
       # Test string percent

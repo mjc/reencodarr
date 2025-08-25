@@ -74,8 +74,7 @@ defmodule Reencodarr.MixProject do
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
       {:tzdata, "~> 1.1"},
-      {:nimble_csv, "~> 1.2"},
-      {:nimble_parsec, "~> 1.4"}
+      {:nimble_csv, "~> 1.2"}
     ]
   end
 

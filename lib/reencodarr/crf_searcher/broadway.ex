@@ -201,26 +201,19 @@ defmodule Reencodarr.CrfSearcher.Broadway do
 
   # Private functions
 
-  # Determines the VMAF target based on video runtime.
-  # VMAF target determination based on bitrate:
-  # - Videos with bitrate above 40mbit: VMAF 90
-  # - Videos with bitrate above 25mbit: VMAF 92
-  # - Videos with bitrate above 15mbit: VMAF 93
-  # - All other videos (below 15mbit): VMAF 95
-  defp determine_vmaf_target(%{bitrate: bitrate}) when is_number(bitrate) do
-    bitrate_mbps = bitrate / 1_000_000
-
-    cond do
-      bitrate_mbps > 40 -> 90
-      bitrate_mbps > 25 -> 92
-      bitrate_mbps > 15 -> 93
-      true -> 95
+  # Determines the VMAF target based on video bitrate.
+  # Videos with bitrate > 40Mbps use VMAF target of 93.
+  # All other videos use VMAF target of 95.
+  defp determine_vmaf_target(%{bitrate: bitrate}) when is_integer(bitrate) do
+    if bitrate > 40_000_000 do
+      93
+    else
+      95
     end
   end
 
-  # Fallback for when bitrate is not available
   defp determine_vmaf_target(_video) do
-    # Default to higher quality when bitrate unknown
+    # Default to 95 if bitrate is not available
     95
   end
 
