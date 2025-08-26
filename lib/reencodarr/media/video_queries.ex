@@ -58,6 +58,7 @@ defmodule Reencodarr.Media.VideoQueries do
         ],
         limit: ^limit,
         select: %{
+          id: v.id,
           path: v.path,
           service_id: v.service_id,
           service_type: v.service_type
