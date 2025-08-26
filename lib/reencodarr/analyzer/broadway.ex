@@ -2,7 +2,8 @@ defmodule Reencodarr.Analyzer.Broadway do
   @moduledoc """
   Broadway pipeline for video analysis operations.
 
-  This module replaces the GenStage-based analyzer with a Broadway that provides better observability, fault tolerance, and scalability.
+  This module replaces the GenStage-based analyzer with a Broadway pipeline
+  that provides better observability, fault tolerance, and scalability.
   """
 
   use Broadway
@@ -11,7 +12,6 @@ defmodule Reencodarr.Analyzer.Broadway do
   alias Broadway.Message
   alias Reencodarr.Analyzer.Broadway.Producer
   alias Reencodarr.{Media, Telemetry}
-  alias Reencodarr.Media.MediaInfoExtractor
 
   @doc """
   Start the Broadway pipeline.
@@ -30,12 +30,12 @@ defmodule Reencodarr.Analyzer.Broadway do
       processors: [
         default: [
           concurrency: 1,
-          max_demand: 1
+          max_demand: 5
         ]
       ],
       batchers: [
         default: [
-          batch_size: 1,
+          batch_size: 5,
           batch_timeout: 2_000,
           concurrency: 1
         ]
@@ -45,6 +45,13 @@ defmodule Reencodarr.Analyzer.Broadway do
         processing_timeout: :timer.minutes(5)
       }
     )
+  end
+
+  @doc """
+  Add a video to the pipeline for processing.
+  """
+  def process_path(video_info) do
+    Producer.add_video(video_info)
   end
 
   @doc """
@@ -58,33 +65,24 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   @doc """
-  Trigger the producer to check for videos needing analysis.
-  """
-  def dispatch_available do
-    case Process.whereis(__MODULE__) do
-      nil -> {:error, :producer_supervisor_not_found}
-      _pid -> Producer.dispatch_available()
-    end
-  end
-
-  @doc """
   Pause the analyzer.
   """
   def pause do
-    case Process.whereis(__MODULE__) do
-      nil -> {:error, :producer_supervisor_not_found}
-      _pid -> Producer.pause()
-    end
+    Producer.pause()
   end
 
   @doc """
   Resume the analyzer.
   """
   def resume do
-    case Process.whereis(__MODULE__) do
-      nil -> {:error, :producer_supervisor_not_found}
-      _pid -> Producer.resume()
-    end
+    Producer.resume()
+  end
+
+  @doc """
+  Trigger dispatch of available videos for analysis.
+  """
+  def dispatch_available do
+    Producer.dispatch_available()
   end
 
   # Alias for API compatibility
@@ -101,29 +99,17 @@ defmodule Reencodarr.Analyzer.Broadway do
     start_time = System.monotonic_time(:millisecond)
     batch_size = length(messages)
 
+    Logger.debug("Processing batch of #{batch_size} videos with single mediainfo call")
+
     # Extract video_infos from messages
     video_infos = Enum.map(messages, & &1.data)
 
     # Process the batch using optimized batch mediainfo fetching
-    {{success_count, failure_count}, {success_videos, failed_videos}} =
-      process_batch_with_single_mediainfo(video_infos, context)
+    process_batch_with_single_mediainfo(video_infos, context)
 
     # Log completion and emit telemetry
     duration = System.monotonic_time(:millisecond) - start_time
-
-    # Create detailed log message with video IDs
-    success_detail =
-      if length(success_videos) > 0,
-        do: " (success: #{Enum.join(success_videos, ", ")})",
-        else: ""
-
-    failure_detail =
-      if length(failed_videos) > 0, do: " (failed: #{Enum.join(failed_videos, ", ")})", else: ""
-
-    Logger.debug(
-      "📊 Analyzer: Completed batch #{success_count} success, #{failure_count} failed (#{batch_size} total) in #{duration}ms#{success_detail}#{failure_detail}"
-    )
-
+    Logger.debug("Completed batch of #{batch_size} videos in #{duration}ms")
     Telemetry.emit_analyzer_throughput(batch_size, 0)
 
     # Notify producer that batch analysis is complete
@@ -142,9 +128,6 @@ defmodule Reencodarr.Analyzer.Broadway do
       )
     end)
 
-    # CRITICAL: Notify producer that batch processing is complete and ready for next demand
-    Producer.dispatch_available()
-
     # Since process_batch always returns :ok, all messages are successful
     messages
   end
@@ -162,111 +145,95 @@ defmodule Reencodarr.Analyzer.Broadway do
   # Private functions - ported from the GenStage consumer
 
   defp process_batch_with_single_mediainfo(video_infos, _context) do
+    Logger.info("Processing batch of #{length(video_infos)} videos with single mediainfo call")
+    Logger.debug("Video paths in batch: #{inspect(Enum.map(video_infos, & &1.path))}")
+
     # Extract all paths for batch mediainfo command
     paths = Enum.map(video_infos, & &1.path)
 
     case execute_batch_mediainfo_command(paths) do
       {:ok, mediainfo_map} ->
+        Logger.info("Successfully fetched mediainfo for #{length(video_infos)} videos")
+        Logger.debug("Mediainfo keys: #{inspect(Map.keys(mediainfo_map))}")
         process_videos_with_batch_mediainfo(video_infos, mediainfo_map)
 
-      {:error, _reason} ->
+      {:error, reason} ->
+        Logger.warning(
+          "Batch mediainfo fetch failed: #{reason}, falling back to individual processing"
+        )
+
         process_videos_individually(video_infos)
     end
   end
 
   defp process_videos_with_batch_mediainfo(video_infos, mediainfo_map) do
-    results =
-      video_infos
-      |> Task.async_stream(
-        fn video_info ->
-          result =
-            process_video_with_mediainfo(
-              video_info,
-              Map.get(mediainfo_map, video_info.path, :no_mediainfo)
-            )
+    Logger.debug("Processing #{length(video_infos)} videos with batch-fetched mediainfo")
 
-          {result, video_info}
-        end,
-        max_concurrency: 5,
-        timeout: :timer.minutes(5),
-        on_timeout: :kill_task
-      )
-      |> handle_task_results()
-
-    count_results_with_video_info(results)
+    video_infos
+    |> Task.async_stream(
+      &process_video_with_mediainfo(&1, Map.get(mediainfo_map, &1.path, :no_mediainfo)),
+      max_concurrency: 5,
+      timeout: :timer.minutes(5),
+      on_timeout: :kill_task
+    )
+    |> handle_task_results()
   end
 
   defp process_videos_individually(video_infos) do
-    results =
-      video_infos
-      |> Task.async_stream(
-        fn video_info ->
-          result = process_video_individually(video_info)
-          {result, video_info}
-        end,
-        max_concurrency: 5,
-        timeout: :timer.minutes(5),
-        on_timeout: :kill_task
-      )
-      |> handle_task_results()
+    Logger.debug("Processing #{length(video_infos)} videos individually")
 
-    count_results_with_video_info(results)
+    video_infos
+    |> Task.async_stream(
+      &process_video_individually/1,
+      max_concurrency: 5,
+      timeout: :timer.minutes(5),
+      on_timeout: :kill_task
+    )
+    |> handle_task_results()
   end
 
   defp handle_task_results(stream) do
     results = Enum.to_list(stream)
 
-    results
-  end
+    success_count = Enum.count(results, &match?({:ok, :ok}, &1))
+    error_count = length(results) - success_count
 
-  defp count_results_with_video_info(results) do
-    {success_videos, failed_videos} =
-      Enum.reduce(results, {[], []}, fn
-        {:ok, {:ok, video_info}}, {success_acc, fail_acc} ->
-          {[get_video_identifier(video_info) | success_acc], fail_acc}
-
-        {:ok, {:error, video_info}}, {success_acc, fail_acc} ->
-          {success_acc, [get_video_identifier(video_info) | fail_acc]}
-
-        _, acc ->
-          acc
-      end)
-
-    success_count = length(success_videos)
-    failure_count = length(failed_videos)
-
-    {{success_count, failure_count}, {Enum.reverse(success_videos), Enum.reverse(failed_videos)}}
-  end
-
-  defp get_video_identifier(video_info) do
-    # Try to get video ID from database, fallback to path
-    case Media.get_video_by_path(video_info.path) do
-      %{id: id} -> "ID:#{id}"
-      nil -> "Path:#{Path.basename(video_info.path)}"
+    if error_count > 0 do
+      Logger.warning(
+        "Batch completed with #{error_count} errors out of #{length(results)} videos"
+      )
     end
-  rescue
-    _ -> "Path:#{Path.basename(video_info.path)}"
+
+    :ok
   end
 
   defp process_video_with_mediainfo(video_info, :no_mediainfo) do
+    Logger.warning("No mediainfo available for #{video_info.path}, processing individually")
     process_video_individually(video_info)
   end
 
   defp process_video_with_mediainfo(video_info, mediainfo) do
+    Logger.info("Processing video with mediainfo: #{video_info.path}, video_info: #{inspect(video_info)}")
+
     with {:ok, _eligibility} <- check_processing_eligibility(video_info),
          {:ok, validated_mediainfo} <- validate_mediainfo(mediainfo, video_info.path),
          {:ok, _video} <- upsert_video_record(video_info, validated_mediainfo) do
+      Logger.info("Successfully processed video: #{video_info.path}")
       :ok
     else
-      {:skip, _reason} ->
+      {:skip, reason} ->
+        Logger.info("Skipping video #{video_info.path}: #{reason}")
         :ok
 
       {:error, reason} ->
+        Logger.error("Failed to process video #{video_info.path}: #{reason}")
         mark_video_as_failed(video_info.path, reason)
         :error
     end
   rescue
     e ->
+      Logger.error("Unexpected error processing #{video_info.path}: #{inspect(e)}")
+      Logger.error("Stacktrace: #{inspect(__STACKTRACE__)}")
       mark_video_as_failed(video_info.path, "Exception: #{Exception.message(e)}")
       :error
   end
@@ -276,17 +243,21 @@ defmodule Reencodarr.Analyzer.Broadway do
          {:ok, mediainfo} <- fetch_single_mediainfo(video_info.path),
          {:ok, validated_mediainfo} <- validate_mediainfo(mediainfo, video_info.path),
          {:ok, _video} <- upsert_video_record(video_info, validated_mediainfo) do
+      Logger.debug("Successfully processed video: #{video_info.path}")
       :ok
     else
-      {:skip, _reason} ->
+      {:skip, reason} ->
+        Logger.debug("Skipping video #{video_info.path}: #{reason}")
         :ok
 
       {:error, reason} ->
+        Logger.error("Failed to process video #{video_info.path}: #{reason}")
         mark_video_as_failed(video_info.path, reason)
         :error
     end
   rescue
     e ->
+      Logger.error("Unexpected error processing #{video_info.path}: #{inspect(e)}")
       mark_video_as_failed(video_info.path, "Exception: #{Exception.message(e)}")
       :error
   end
@@ -301,30 +272,35 @@ defmodule Reencodarr.Analyzer.Broadway do
     end
   end
 
-  defp decode_and_parse_single_mediainfo_json(json, _path) do
-    case Jason.decode(json) do
-      {:ok, data} ->
-        # Use the direct extractor instead of complex type conversion + later parsing
-        handle_decoded_single_mediainfo(data)
+  defp decode_and_parse_single_mediainfo_json(json, path) do
+    Logger.debug("Decoding mediainfo JSON for #{path}")
 
-      {:error, reason} ->
-        Logger.error("JSON decode failed: #{inspect(reason)}")
-        {:error, "JSON decode failed: #{inspect(reason)}"}
+    try do
+      case Jason.decode(json) do
+        {:ok, data} ->
+          handle_decoded_single_mediainfo(data)
+
+        {:error, reason} ->
+          Logger.error("JSON decode failed: #{inspect(reason)}")
+          {:error, "JSON decode failed: #{inspect(reason)}"}
+      end
+    rescue
+      e ->
+        Logger.error("Error parsing mediainfo JSON: #{inspect(e)}")
+        Logger.error("Stacktrace: #{inspect(__STACKTRACE__)}")
+        {:error, "error parsing JSON: #{inspect(e)}"}
     end
-  rescue
-    e ->
-      Logger.error("Error parsing mediainfo JSON: #{inspect(e)}")
-      Logger.error("Stacktrace: #{inspect(__STACKTRACE__)}")
-      {:error, "error parsing JSON: #{inspect(e)}"}
   end
 
   defp handle_decoded_single_mediainfo(%{"media" => media_item}) when is_map(media_item) do
+    Logger.debug("Parsing mediainfo from single media object")
     parse_single_media_item(media_item)
   end
 
   defp handle_decoded_single_mediainfo(data) when is_map(data) do
     # Check if this looks like a flat structure
     if valid_flat_mediainfo?(data) do
+      Logger.debug("Detected flat MediaInfo structure, wrapping in proper format")
       # Return the wrapped structure directly
       {:ok, %{"media" => data}}
     else
@@ -345,6 +321,8 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp execute_batch_mediainfo_command(paths) when is_list(paths) and paths != [] do
+    Logger.debug("Executing batch mediainfo command for #{length(paths)} files")
+
     case System.cmd("mediainfo", ["--Output=JSON" | paths]) do
       {json, 0} ->
         decode_and_parse_batch_mediainfo_json(json, paths)
@@ -357,40 +335,41 @@ defmodule Reencodarr.Analyzer.Broadway do
   defp execute_batch_mediainfo_command([]), do: {:ok, %{}}
 
   defp decode_and_parse_batch_mediainfo_json(json, paths) do
-    case Jason.decode(json) do
-      {:ok, data} ->
-        # Use the direct extractor instead of complex type conversion + later parsing
-        handle_decoded_mediainfo_data(data, paths)
+    Logger.debug("Decoding batch mediainfo JSON for #{length(paths)} files")
 
-      {:error, reason} ->
-        Logger.error("JSON decode failed: #{inspect(reason)}")
-        {:error, "JSON decode failed: #{inspect(reason)}"}
+    try do
+      case Jason.decode(json) do
+        {:ok, data} ->
+          handle_decoded_mediainfo_data(data, paths)
+
+        {:error, reason} ->
+          Logger.error("JSON decode failed: #{inspect(reason)}")
+          {:error, "JSON decode failed: #{inspect(reason)}"}
+      end
+    rescue
+      e ->
+        Logger.error("Error parsing batch mediainfo JSON: #{inspect(e)}")
+        {:error, "error parsing JSON: #{inspect(e)}"}
     end
-  rescue
-    e ->
-      Logger.error("Error parsing batch mediainfo JSON: #{inspect(e)}")
-      {:error, "error parsing JSON: #{inspect(e)}"}
   end
 
   defp handle_decoded_mediainfo_data(media_info_list, _paths) when is_list(media_info_list) do
+    Logger.debug("Parsing mediainfo from list of #{length(media_info_list)} media objects")
     parse_batch_mediainfo_list(media_info_list)
   end
 
   defp handle_decoded_mediainfo_data(%{"media" => media_item}, _paths) when is_map(media_item) do
+    Logger.debug("Parsing mediainfo from single media object")
     handle_single_media_object(media_item)
-  end
-
-  defp handle_decoded_mediainfo_data(data, [path]) when is_map(data) do
-    handle_single_file_batch(data, path)
   end
 
   defp handle_decoded_mediainfo_data(data, paths) when is_map(data) and length(paths) == 1 do
     handle_flat_mediainfo_structure(data, paths)
   end
 
-  defp handle_decoded_mediainfo_data(data, paths) do
-    Logger.warning(
-      "Unexpected JSON structure from batch mediainfo for #{length(paths)} files. Data type: #{inspect(data.__struct__ || :map)}, keys: #{inspect(Map.keys(data))}"
+  defp handle_decoded_mediainfo_data(data, _paths) do
+    Logger.error(
+      "Unexpected JSON structure from batch mediainfo: #{inspect(data, pretty: true, limit: 1000)}"
     )
 
     {:error, "unexpected JSON structure"}
@@ -409,48 +388,24 @@ defmodule Reencodarr.Analyzer.Broadway do
     end
   end
 
-  defp handle_single_file_batch(data, path) do
-    # Use the same logic as individual processing for consistency
-    case handle_decoded_single_mediainfo(data) do
-      {:ok, mediainfo} ->
-        {:ok, %{path => mediainfo}}
-
-      {:error, reason} ->
-        Logger.warning("Failed to decode MediaInfo for single file batch #{path}: #{reason}")
-        {:error, reason}
-    end
-  end
-
   defp handle_flat_mediainfo_structure(data, paths) do
     path = List.first(paths)
 
     if valid_flat_mediainfo?(data) do
+      Logger.debug("Detected flat MediaInfo structure for single file, wrapping in proper format")
+
       {:ok, %{path => %{"media" => data}}}
     else
-      Logger.warning(
-        "Unexpected JSON structure for single file #{path}: #{inspect(data, limit: :infinity)}"
-      )
-
       {:error, "unexpected JSON structure for single file"}
     end
   end
 
-  defp valid_flat_mediainfo?(data) when is_map(data) do
-    # Check for various MediaInfo JSON structures
-    has_track_key = Map.has_key?(data, "track")
-    has_media_key = Map.has_key?(data, "media")
-    has_file_props = Map.has_key?(data, "FileSize") and Map.has_key?(data, "Duration")
-    has_video_props = Map.has_key?(data, "Width") or Map.has_key?(data, "Height")
-    has_format = Map.has_key?(data, "Format")
-    has_ref = Map.has_key?(data, "@ref")
-
-    result =
-      has_track_key or has_media_key or has_file_props or has_video_props or has_format or has_ref
-
-    result
+  defp valid_flat_mediainfo?(data) do
+    Map.has_key?(data, "track") or
+      (Map.has_key?(data, "FileSize") and Map.has_key?(data, "Duration")) or
+      Map.has_key?(data, "Width") or Map.has_key?(data, "Height") or
+      Map.has_key?(data, "Format")
   end
-
-  defp valid_flat_mediainfo?(_), do: false
 
   defp parse_batch_mediainfo_list(media_info_list) do
     result_map =
@@ -500,7 +455,8 @@ defmodule Reencodarr.Analyzer.Broadway do
     end
   end
 
-  defp extract_complete_name(_media_item) do
+  defp extract_complete_name(media_item) do
+    Logger.debug("Attempting to extract complete name from: #{inspect(media_item)}")
     {:error, "invalid media structure"}
   end
 
@@ -518,31 +474,7 @@ defmodule Reencodarr.Analyzer.Broadway do
     if File.exists?(video_info.path) do
       {:ok, :eligible}
     else
-      Logger.warning("File does not exist, deleting video record: #{video_info.path}")
-      delete_missing_video_record(video_info.path)
-      {:skip, "file does not exist - record deleted"}
-    end
-  end
-
-  defp delete_missing_video_record(path) do
-    case Media.get_video_by_path(path) do
-      %Media.Video{} = video ->
-        case Media.delete_video(video) do
-          {:ok, _deleted_video} ->
-            Logger.info("Successfully deleted video record for missing file: #{path}")
-            :ok
-
-          {:error, changeset} ->
-            Logger.error(
-              "Failed to delete video record for #{path}: #{inspect(changeset.errors)}"
-            )
-
-            :error
-        end
-
-      nil ->
-        Logger.warning("Video record not found for missing file: #{path}")
-        :ok
+      {:skip, "file does not exist"}
     end
   end
 
@@ -562,35 +494,52 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp upsert_video_record(video_info, validated_mediainfo) do
-    # Extract all fields from mediainfo for VideoUpsert
-    case MediaInfoExtractor.extract_video_params(validated_mediainfo, video_info.path) do
-      params when is_map(params) ->
-        # Convert all extracted params to string keys and add video metadata
-        attrs =
-          params
-          |> Enum.map(fn {k, v} -> {to_string(k), v} end)
-          |> Enum.into(%{})
-          |> Map.merge(%{
-            "path" => video_info.path,
-            "service_id" => video_info.service_id,
-            "service_type" => to_string(video_info.service_type),
-            "mediainfo" => validated_mediainfo,
-            "state" => "analyzed"
-          })
+    # Use MediaInfoExtractor to convert mediainfo JSON to video parameters
+    alias Reencodarr.Media.MediaInfoExtractor
 
-        upsert_video_with_params(attrs, video_info)
+    Logger.info("Upserting video record for: #{video_info.path}")
+    Logger.debug("Video info: #{inspect(video_info)}")
 
-      error ->
-        Logger.error("MediaInfo extraction failed for #{video_info.path}: #{inspect(error)}")
-        {:error, "mediainfo extraction failed"}
-    end
-  end
+    video_params = MediaInfoExtractor.extract_video_params(validated_mediainfo, video_info.path)
 
-  defp upsert_video_with_params(attrs, video_info) do
+    # Add service metadata
+    attrs =
+      Map.merge(video_params, %{
+        "path" => video_info.path,
+        "service_id" => video_info.service_id,
+        "service_type" => to_string(video_info.service_type),
+        "mediainfo" => validated_mediainfo
+      })
+
+    Logger.debug("Upserting video with attrs: #{inspect(Map.drop(attrs, ["mediainfo"]))}")
+
     # Upsert the video record
     case Media.upsert_video(attrs) do
       {:ok, video} ->
-        {:ok, video}
+        Logger.info("Successfully upserted video: #{video.path}, video_id: #{video.id}, state: #{video.state}")
+
+        # Only transition state if video is in needs_analysis state
+        if video.state == :needs_analysis do
+          case Reencodarr.Media.VideoStateMachine.transition_to_analyzed(video, %{}) do
+            {:ok, changeset} ->
+              case Reencodarr.Repo.update(changeset) do
+                {:ok, updated_video} ->
+                  Logger.info("Successfully transitioned video state to analyzed: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}")
+                  {:ok, updated_video}
+
+                {:error, changeset_error} ->
+                  Logger.error("Failed to save video state transition for #{video.path}: #{inspect(changeset_error.errors)}")
+                  {:ok, video}  # Return original video even if state transition fails
+              end
+
+            {:error, reason} ->
+              Logger.error("Failed to create transition changeset for #{video.path}: #{inspect(reason)}")
+              {:ok, video}  # Return original video even if state transition fails
+          end
+        else
+          Logger.info("Video #{video.path} already in state #{video.state}, skipping transition")
+          {:ok, video}
+        end
 
       {:error, changeset} ->
         Logger.error("Failed to upsert video #{video_info.path}: #{inspect(changeset.errors)}")
@@ -617,80 +566,21 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   # Private helper to categorize and record analysis failures
   defp record_analysis_failure(video, reason) do
-    failure_type = categorize_failure_reason(reason)
-    record_categorized_failure(video, failure_type, reason)
-  end
-
-  defp categorize_failure_reason({:audio_validation, _}), do: :audio_validation
-
-  defp categorize_failure_reason(reason) do
-    reason_string = to_string(reason)
-
     cond do
-      audio_related_error?(reason_string) -> :audio_metadata
-      mediainfo_related_error?(reason_string) -> :mediainfo
-      file_access_error?(reason_string) -> :file_access
-      validation_error?(reason_string) -> :validation
-      exception_error?(reason_string) -> :exception
-      true -> :unknown
+      String.contains?(reason, "MediaInfo") or String.contains?(reason, "mediainfo") ->
+        Reencodarr.FailureTracker.record_mediainfo_failure(video, reason)
+
+      String.contains?(reason, "file") or String.contains?(reason, "access") ->
+        Reencodarr.FailureTracker.record_file_access_failure(video, reason)
+
+      String.contains?(reason, "validation") or String.contains?(reason, "changeset") ->
+        Reencodarr.FailureTracker.record_validation_failure(video, [], context: %{reason: reason})
+
+      String.contains?(reason, "Exception") ->
+        Reencodarr.FailureTracker.record_unknown_failure(video, :analysis, reason)
+
+      true ->
+        Reencodarr.FailureTracker.record_unknown_failure(video, :analysis, reason)
     end
-  end
-
-  defp audio_related_error?(reason_string) do
-    String.contains?(reason_string, "Invalid audio metadata") or
-      String.contains?(reason_string, "invalid channel data") or
-      String.contains?(reason_string, "Audio validation failed")
-  end
-
-  defp mediainfo_related_error?(reason_string) do
-    String.contains?(reason_string, "MediaInfo") or
-      String.contains?(reason_string, "mediainfo")
-  end
-
-  defp file_access_error?(reason_string) do
-    String.contains?(reason_string, "file") or
-      String.contains?(reason_string, "access")
-  end
-
-  defp validation_error?(reason_string) do
-    String.contains?(reason_string, "validation") or
-      String.contains?(reason_string, "changeset")
-  end
-
-  defp exception_error?(reason_string) do
-    String.contains?(reason_string, "Exception")
-  end
-
-  defp record_categorized_failure(video, :audio_validation, {_, error_msg}) do
-    Reencodarr.FailureTracker.record_mediainfo_failure(
-      video,
-      "Audio validation failed: #{error_msg}"
-    )
-  end
-
-  defp record_categorized_failure(video, :audio_metadata, reason) do
-    Reencodarr.FailureTracker.record_mediainfo_failure(video, to_string(reason))
-  end
-
-  defp record_categorized_failure(video, :mediainfo, reason) do
-    Reencodarr.FailureTracker.record_mediainfo_failure(video, to_string(reason))
-  end
-
-  defp record_categorized_failure(video, :file_access, reason) do
-    Reencodarr.FailureTracker.record_file_access_failure(video, to_string(reason))
-  end
-
-  defp record_categorized_failure(video, :validation, reason) do
-    Reencodarr.FailureTracker.record_validation_failure(video, [],
-      context: %{reason: to_string(reason)}
-    )
-  end
-
-  defp record_categorized_failure(video, :exception, reason) do
-    Reencodarr.FailureTracker.record_unknown_failure(video, :analysis, to_string(reason))
-  end
-
-  defp record_categorized_failure(video, :unknown, reason) do
-    Reencodarr.FailureTracker.record_unknown_failure(video, :analysis, to_string(reason))
   end
 end

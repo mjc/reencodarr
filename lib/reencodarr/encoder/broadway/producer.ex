@@ -61,9 +61,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     # Subscribe to encoding events to know when processing completes
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
 
-    # Send a delayed message to trigger initial telemetry emission
-    Process.send_after(self(), :initial_telemetry, 1000)
-
     {:producer,
      %{
        demand: 0,
@@ -152,44 +149,18 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   @impl GenStage
-  def handle_info({:encoding_completed, _vmaf_id, _result}, state) do
-    # Encoding completed - reset status to running if we were processing
-    new_status =
-      case state.status do
-        :processing -> :running
-        :pausing -> :paused
-        other -> other
-      end
+  def handle_info({:encoding_completed, vmaf_id, result}, state) do
+    # Encoding completed (success or failure), transition back to running
+    Logger.info(
+      "Producer: Received encoding completion notification - VMAF: #{vmaf_id}, result: #{inspect(result)}"
+    )
 
-    new_state = %{state | status: new_status}
+    Logger.info("Producer: Current state before transition - status: #{state.status}")
 
-    # Refresh queue telemetry and check for more work
-    emit_initial_telemetry(new_state)
+    new_state = %{state | status: :running}
+    Logger.info("Producer: State after transition - status: #{new_state.status}")
+
     dispatch_if_ready(new_state)
-  end
-
-  @impl GenStage
-  def handle_info(:initial_telemetry, state) do
-    # Emit initial telemetry on startup to populate dashboard queue
-    Logger.info("⚡ Encoder: Emitting initial telemetry")
-    emit_initial_telemetry(state)
-
-    # Schedule periodic telemetry updates like the analyzer does
-    Process.send_after(self(), :periodic_telemetry, 5000)
-
-    {:noreply, [], state}
-  end
-
-  @impl GenStage
-  def handle_info(:periodic_telemetry, state) do
-    # Emit periodic telemetry to keep dashboard updated
-    Logger.debug("⚡ Encoder: Emitting periodic telemetry")
-    emit_initial_telemetry(state)
-
-    # Schedule next update
-    Process.send_after(self(), :periodic_telemetry, 5000)
-
-    {:noreply, [], state}
   end
 
   @impl GenStage
@@ -232,15 +203,15 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   defp dispatch_if_ready(state) do
-    Logger.debug(
+    Logger.info(
       "Producer: dispatch_if_ready called - status: #{state.status}, demand: #{state.demand}"
     )
 
     if should_dispatch?(state) and state.demand > 0 do
-      Logger.debug("Producer: dispatch_if_ready - conditions met, dispatching VMAFs")
+      Logger.info("Producer: dispatch_if_ready - conditions met, dispatching VMAFs")
       dispatch_vmafs(state)
     else
-      Logger.debug("Producer: dispatch_if_ready - conditions NOT met, not dispatching")
+      Logger.info("Producer: dispatch_if_ready - conditions NOT met, not dispatching")
       {:noreply, [], state}
     end
   end
@@ -250,7 +221,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     availability_check = encoding_available?()
     result = status_check and availability_check
 
-    Logger.debug(
+    Logger.info(
       "Producer: should_dispatch? - status: #{state.status}, status_check: #{status_check}, availability_check: #{availability_check}, result: #{result}"
     )
 
@@ -260,21 +231,21 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   defp encoding_available? do
     case GenServer.whereis(Reencodarr.AbAv1.Encode) do
       nil ->
-        Logger.debug("Producer: encoding_available? - Encode GenServer not found")
+        Logger.info("Producer: encoding_available? - Encode GenServer not found")
         false
 
       pid ->
         try do
           case GenServer.call(pid, :running?, 1000) do
             :not_running ->
-              Logger.debug(
+              Logger.info(
                 "Producer: encoding_available? - Encode GenServer is :not_running - AVAILABLE"
               )
 
               true
 
             status ->
-              Logger.debug(
+              Logger.info(
                 "Producer: encoding_available? - Encode GenServer status: #{inspect(status)} - NOT AVAILABLE"
               )
 
@@ -282,7 +253,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
           end
         catch
           :exit, reason ->
-            Logger.debug(
+            Logger.info(
               "Producer: encoding_available? - Encode GenServer call failed: #{inspect(reason)}"
             )
 
@@ -305,20 +276,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
         # Decrement demand and keep processing status
         final_state = %{new_state | demand: state.demand - 1}
 
-        # Get remaining vmafs for queue state update
-        remaining_vmafs = Media.get_next_for_encoding(10)
-        total_count = Media.encoding_queue_count()
-
-        # Emit telemetry event for queue state change
-        :telemetry.execute(
-          [:reencodarr, :encoder, :queue_changed],
-          %{dispatched_count: 1, remaining_demand: final_state.demand, queue_size: total_count},
-          %{
-            next_vmafs: remaining_vmafs,
-            database_queue_available: total_count > 0
-          }
-        )
-
         {:noreply, [vmaf], final_state}
     end
   end
@@ -340,52 +297,5 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
           nil -> {nil, state}
         end
     end
-  end
-
-  # Emit initial telemetry on startup to populate dashboard queues
-  defp emit_initial_telemetry(state) do
-    # Get 5 for dashboard display
-    next_vmafs = get_next_vmafs_for_telemetry(state, 5)
-    # Get total count for accurate queue size
-    total_count = Media.encoding_queue_count()
-
-    Logger.debug(
-      "⚡ Encoder: Emitting telemetry - #{total_count} videos, #{length(next_vmafs)} in next batch"
-    )
-
-    measurements = %{
-      queue_size: total_count
-    }
-
-    metadata = %{
-      producer_type: :encoder,
-      # For backward compatibility
-      next_vmaf: List.first(next_vmafs),
-      # Full list for dashboard
-      next_vmafs: next_vmafs
-    }
-
-    :telemetry.execute([:reencodarr, :encoder, :queue_changed], measurements, metadata)
-  end
-
-  # Get multiple next VMAFs for dashboard display
-  defp get_next_vmafs_for_telemetry(state, limit) do
-    # First get what's in the queue
-    queue_items = :queue.to_list(state.queue) |> Enum.take(limit)
-    remaining_needed = limit - length(queue_items)
-
-    # Then get additional from database if needed
-    db_vmafs =
-      if remaining_needed > 0 do
-        case Media.get_next_for_encoding(remaining_needed) do
-          list when is_list(list) -> list
-          single_item when not is_nil(single_item) -> [single_item]
-          nil -> []
-        end
-      else
-        []
-      end
-
-    queue_items ++ db_vmafs
   end
 end

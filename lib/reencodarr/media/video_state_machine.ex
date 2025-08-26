@@ -94,13 +94,8 @@ defmodule Reencodarr.Media.VideoStateMachine do
   Transitions a video to a new state with automatic state-specific validations.
   """
   def transition_to_analyzed(%Video{} = video, attrs \\ %{}) do
-    attrs_with_validations =
-      Map.merge(attrs, %{
-        # Ensure all analysis fields are present
-        validate_analysis_complete: true
-      })
-
-    transition(video, :analyzed, attrs_with_validations)
+    # Don't add any extra validation flags - let the changeset validation handle requirements
+    transition(video, :analyzed, attrs)
   end
 
   def transition_to_crf_searching(%Video{} = video, attrs \\ %{}) do
