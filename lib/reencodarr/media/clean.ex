@@ -339,10 +339,7 @@ defmodule Reencodarr.Media.Clean do
         # If this VMAF is chosen, update video state to crf_searched
         if vmaf.chosen do
           video = get_video!(vmaf.video_id)
-
-          video
-          |> Video.changeset(%{state: :crf_searched})
-          |> Repo.update()
+          Reencodarr.Media.mark_as_crf_searched(video)
         end
 
       {:error, _error} ->
