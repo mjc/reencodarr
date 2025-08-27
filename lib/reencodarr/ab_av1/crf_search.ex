@@ -802,6 +802,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       video.path,
       "--min-vmaf",
       Integer.to_string(vmaf_percent),
+      "--min-crf", "8",
+      "--max-crf", "40",
       "--temp-dir",
       Helper.temp_dir()
     ]
@@ -818,6 +820,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       video.path,
       "--min-vmaf",
       Integer.to_string(vmaf_percent),
+      "--min-crf", "8",
+      "--max-crf", "40",
       "--temp-dir",
       Helper.temp_dir()
     ]
