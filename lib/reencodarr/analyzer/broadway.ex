@@ -11,8 +11,7 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   alias Broadway.Message
   alias Reencodarr.Analyzer.Broadway.Producer
-  alias Reencodarr.Media.VideoStateMachine
-  alias Reencodarr.{Media, Repo, Telemetry}
+  alias Reencodarr.{Media, Telemetry}
 
   @doc """
   Start the Broadway pipeline.
@@ -531,24 +530,14 @@ defmodule Reencodarr.Analyzer.Broadway do
     end
   end
 
-  defp transition_video_to_analyzed(%{state: state, path: path} = video) when state != :needs_analysis do
+  defp transition_video_to_analyzed(%{state: state, path: path} = video)
+       when state != :needs_analysis do
     Logger.info("Video #{path} already in state #{state}, skipping transition")
     {:ok, video}
   end
 
   defp transition_video_to_analyzed(video) do
-    case VideoStateMachine.transition_to_analyzed(video, %{}) do
-      {:ok, changeset} ->
-        update_video_state(video, changeset)
-
-      {:error, reason} ->
-        Logger.error("Failed to create transition changeset for #{video.path}: #{inspect(reason)}")
-        {:ok, video}  # Return original video even if state transition fails
-    end
-  end
-
-  defp update_video_state(video, changeset) do
-    case Repo.update(changeset) do
+    case Media.mark_as_analyzed(video) do
       {:ok, updated_video} ->
         Logger.info(
           "Successfully transitioned video state to analyzed: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
@@ -558,10 +547,11 @@ defmodule Reencodarr.Analyzer.Broadway do
 
       {:error, changeset_error} ->
         Logger.error(
-          "Failed to save video state transition for #{video.path}: #{inspect(changeset_error.errors)}"
+          "Failed to transition video state for #{video.path}: #{inspect(changeset_error)}"
         )
 
-        {:ok, video}  # Return original video even if state transition fails
+        # Return original video even if state transition fails
+        {:ok, video}
     end
   end
 
