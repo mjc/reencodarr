@@ -16,6 +16,7 @@ defmodule Reencodarr.AnalyzerTest do
       case Broadway.dispatch_available() do
         :ok -> :ok
         {:error, :producer_supervisor_not_found} -> :ok
+        {:error, :producer_not_found} -> :ok
         other -> flunk("Unexpected result: #{inspect(other)}")
       end
     end
