@@ -11,7 +11,8 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   alias Broadway.Message
   alias Reencodarr.Analyzer.Broadway.Producer
-  alias Reencodarr.{Media, Telemetry}
+  alias Reencodarr.Media.VideoStateMachine
+  alias Reencodarr.{Media, Repo, Telemetry}
 
   @doc """
   Start the Broadway pipeline.
@@ -213,7 +214,9 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp process_video_with_mediainfo(video_info, mediainfo) do
-    Logger.info("Processing video with mediainfo: #{video_info.path}, video_info: #{inspect(video_info)}")
+    Logger.info(
+      "Processing video with mediainfo: #{video_info.path}, video_info: #{inspect(video_info)}"
+    )
 
     with {:ok, _eligibility} <- check_processing_eligibility(video_info),
          {:ok, validated_mediainfo} <- validate_mediainfo(mediainfo, video_info.path),
@@ -516,34 +519,49 @@ defmodule Reencodarr.Analyzer.Broadway do
     # Upsert the video record
     case Media.upsert_video(attrs) do
       {:ok, video} ->
-        Logger.info("Successfully upserted video: #{video.path}, video_id: #{video.id}, state: #{video.state}")
+        Logger.info(
+          "Successfully upserted video: #{video.path}, video_id: #{video.id}, state: #{video.state}"
+        )
 
-        # Only transition state if video is in needs_analysis state
-        if video.state == :needs_analysis do
-          case Reencodarr.Media.VideoStateMachine.transition_to_analyzed(video, %{}) do
-            {:ok, changeset} ->
-              case Reencodarr.Repo.update(changeset) do
-                {:ok, updated_video} ->
-                  Logger.info("Successfully transitioned video state to analyzed: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}")
-                  {:ok, updated_video}
-
-                {:error, changeset_error} ->
-                  Logger.error("Failed to save video state transition for #{video.path}: #{inspect(changeset_error.errors)}")
-                  {:ok, video}  # Return original video even if state transition fails
-              end
-
-            {:error, reason} ->
-              Logger.error("Failed to create transition changeset for #{video.path}: #{inspect(reason)}")
-              {:ok, video}  # Return original video even if state transition fails
-          end
-        else
-          Logger.info("Video #{video.path} already in state #{video.state}, skipping transition")
-          {:ok, video}
-        end
+        transition_video_to_analyzed(video)
 
       {:error, changeset} ->
         Logger.error("Failed to upsert video #{video_info.path}: #{inspect(changeset.errors)}")
         {:error, "failed to upsert video"}
+    end
+  end
+
+  defp transition_video_to_analyzed(%{state: state, path: path} = video) when state != :needs_analysis do
+    Logger.info("Video #{path} already in state #{state}, skipping transition")
+    {:ok, video}
+  end
+
+  defp transition_video_to_analyzed(video) do
+    case VideoStateMachine.transition_to_analyzed(video, %{}) do
+      {:ok, changeset} ->
+        update_video_state(video, changeset)
+
+      {:error, reason} ->
+        Logger.error("Failed to create transition changeset for #{video.path}: #{inspect(reason)}")
+        {:ok, video}  # Return original video even if state transition fails
+    end
+  end
+
+  defp update_video_state(video, changeset) do
+    case Repo.update(changeset) do
+      {:ok, updated_video} ->
+        Logger.info(
+          "Successfully transitioned video state to analyzed: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
+        )
+
+        {:ok, updated_video}
+
+      {:error, changeset_error} ->
+        Logger.error(
+          "Failed to save video state transition for #{video.path}: #{inspect(changeset_error.errors)}"
+        )
+
+        {:ok, video}  # Return original video even if state transition fails
     end
   end
 

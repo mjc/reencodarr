@@ -17,6 +17,7 @@ defmodule Reencodarr.Encoder.Broadway do
 
   alias Broadway.Message
   alias Reencodarr.AbAv1.Helper
+  alias Reencodarr.AbAv1.ProgressParser
   alias Reencodarr.Encoder.Broadway.Producer
   alias Reencodarr.{PostProcessor, Telemetry}
 
@@ -417,7 +418,7 @@ defmodule Reencodarr.Encoder.Broadway do
     receive do
       {port, {:data, {:eol, data}}} when port == state.port ->
         full_line = state.partial_line_buffer <> data
-        Reencodarr.AbAv1.ProgressParser.process_line(full_line, state)
+                ProgressParser.process_line(full_line, state)
 
         # Add line to output buffer for failure tracking
         new_output_buffer = [full_line | state.output_buffer]

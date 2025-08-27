@@ -289,9 +289,14 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     dispatched_count = length(manual_videos)
     remaining_demand = state.demand - dispatched_count
 
-    Logger.info("Dispatching videos - manual: #{length(manual_videos)}, remaining_demand: #{remaining_demand}")
+    Logger.info(
+      "Dispatching videos - manual: #{length(manual_videos)}, remaining_demand: #{remaining_demand}"
+    )
+
     if length(manual_videos) > 0 do
-      Logger.info("Manual videos being dispatched: #{inspect(Enum.map(manual_videos, & &1.path))}")
+      Logger.info(
+        "Manual videos being dispatched: #{inspect(Enum.map(manual_videos, & &1.path))}"
+      )
     end
 
     # If we still have demand after manual videos, get videos from the database
@@ -299,9 +304,11 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       if remaining_demand > 0 do
         videos = Media.get_videos_needing_analysis(remaining_demand)
         Logger.info("Database videos fetched: #{length(videos)} videos")
+
         if length(videos) > 0 do
           Logger.info("Database video paths: #{inspect(Enum.map(videos, & &1.path))}")
         end
+
         videos
       else
         []
