@@ -39,9 +39,6 @@ defmodule Reencodarr.AbAv1.ProgressParser do
         Telemetry.emit_encoder_progress(progress)
         :ok
 
-      {:ignored, _reason} ->
-        :ok
-
       {:unmatched, line} ->
         # Only log warning for lines that look like progress but don't match our patterns
         if String.contains?(line, "%") do
@@ -114,9 +111,17 @@ defmodule Reencodarr.AbAv1.ProgressParser do
     {:progress, progress}
   end
 
-  defp handle_file_size_progress(_match, _state) do
-    # File size progress is currently ignored but handled gracefully
-    {:ignored, :file_size_progress}
+  defp handle_file_size_progress(%{"percent" => percent_str}, state) do
+    filename = Path.basename(state.video.path)
+
+    progress = %EncodingProgress{
+      filename: filename,
+      percent: String.to_integer(percent_str),
+      fps: 0.0,  # File size progress doesn't include FPS
+      eta: "unknown"  # File size progress doesn't include ETA
+    }
+
+    {:progress, progress}
   end
 
   # Parse FPS and round to integer for consistency with tests
