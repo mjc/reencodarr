@@ -90,7 +90,8 @@ defmodule ReencodarrWeb.FailuresLive do
 
           video ->
             # Reset the video to needs_analysis state and clear bitrate to trigger reanalysis
-            Media.update_video(video, %{state: :needs_analysis, bitrate: nil})
+            Media.update_video(video, %{bitrate: nil})
+            Media.mark_as_needs_analysis(video)
             Media.resolve_video_failures(video.id)
 
             # Reload the failures data
