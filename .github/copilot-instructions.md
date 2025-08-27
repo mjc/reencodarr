@@ -17,7 +17,7 @@ Key pattern: Each pipeline has a Producer that checks GenServer availability bef
 ### Critical State Management
 - **State Machine**: Videos use enum states (`:needs_analysis`, `:analyzed`, `:crf_searching`, `:crf_searched`, `:encoding`, `:encoded`, `:failed`) via `VideoStateMachine`
 - **State Transitions**: Only valid transitions allowed via `VideoStateMachine.transition/3` - see `@valid_transitions` map
-- **Test Environment**: Analyzer supervisor disabled in `application.ex` to prevent DB ownership conflicts
+- **Test Environment**: Broadway-based workers and Analyzer supervisor disabled in `application.ex` to prevent process conflicts and DB ownership issues
 - **Pipeline Coordination**: Producers call `dispatch_available()` after completion to notify other pipelines
 - **Error Recovery**: Use `VideoStateMachine.mark_as_failed/1` instead of boolean flags
 
@@ -67,7 +67,7 @@ where: v.state == :needs_analysis
 - **State Machine**: `VideoStateMachine` enforces valid transitions between processing states
 - **State Flow**: `needs_analysis → analyzed → crf_searching → crf_searched → encoding → encoded`
 - **State Functions**: Use `VideoStateMachine.transition_to_*()` functions instead of direct updates
-- **Error Handling**: `failed` state is terminal, use `mark_as_failed/1` for error transitions
+- **Error Handling**: `failed` state is terminal, use `VideoStateMachine.mark_as_failed/1` for error transitions
 
 ## When Integrating External Services
 
@@ -96,8 +96,8 @@ where: v.state == :needs_analysis
 - **Path Management**: Handles file moves/renames with video record updates
 
 ### Testing Considerations
-- **Manual Sandbox**: Set in `test/test_helper.exs` for transaction isolation
-- **Disabled Services**: Analyzer supervisor disabled in test to prevent conflicts
+- **Manual Sandbox**: Set in `test/test_helper.exs` for transaction isolation via `Ecto.Adapters.SQL.Sandbox.mode(Reencodarr.Repo, :manual)`
+- **Disabled Services**: Broadway-based workers and Analyzer supervisor disabled in test to prevent process conflicts
 - **Mocking**: Use `meck` for external command simulation
 - **Fixtures**: Comprehensive test data generators in `test/support/fixtures.ex`
 
@@ -109,6 +109,11 @@ Complex regex patterns in `@patterns` maps for ab-av1 output parsing:
 ```elixir
 simple_vmaf: ~r/crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/
 ```
+
+### Centralized Argument Building
+`Reencodarr.Rules.build_args/4` handles command construction with context-aware filtering:
+- `:crf_search` context includes `--min-crf`, `--max-crf` for search range
+- `:encode` context filters out CRF range arguments, only uses single `--crf` value
 
 ## Key Directories
 - `lib/reencodarr/{analyzer,crf_searcher,encoder}/` - Broadway pipelines
