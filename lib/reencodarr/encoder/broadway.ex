@@ -256,6 +256,9 @@ defmodule Reencodarr.Encoder.Broadway do
         )
     end
 
+    # Notify other pipelines that work is available
+    Producer.dispatch_available()
+
     # Always return :ok for Broadway to indicate message was processed
     :ok
   end
