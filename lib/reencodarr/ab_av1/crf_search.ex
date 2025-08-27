@@ -245,7 +245,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     # CRITICAL: Update video state to crf_searched to prevent infinite loop
     ErrorHelpers.handle_error_with_default(
-      Reencodarr.Media.update_video_status(video, %{"state" => "crf_searched"}),
+      Reencodarr.Media.mark_as_crf_searched(video),
       :ok,
       "Failed to update video #{video.id} state"
     )
@@ -367,7 +367,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     # Reset video state to analyzed for retry with preset 6
     ErrorHelpers.handle_error_with_default(
-      Reencodarr.Media.update_video_status(video, %{"state" => "analyzed"}),
+      Reencodarr.Media.mark_as_analyzed(video),
       :ok,
       "Failed to reset video #{video.id} state for retry"
     )
