@@ -117,8 +117,10 @@ defmodule Reencodarr.AbAv1.ProgressParser do
     progress = %EncodingProgress{
       filename: filename,
       percent: String.to_integer(percent_str),
-      fps: 0.0,  # File size progress doesn't include FPS
-      eta: "unknown"  # File size progress doesn't include ETA
+      # File size progress doesn't include FPS
+      fps: 0.0,
+      # File size progress doesn't include ETA
+      eta: "unknown"
     }
 
     {:progress, progress}
