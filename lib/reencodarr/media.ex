@@ -82,16 +82,24 @@ defmodule Reencodarr.Media do
     Video.changeset(video, attrs)
   end
 
-  def update_video_status(%Video{} = video, attrs) do
-    video |> Video.changeset(attrs) |> Repo.update()
-  end
-
   def mark_as_reencoded(%Video{} = video) do
     VideoStateMachine.mark_as_reencoded(video)
   end
 
   def mark_as_failed(%Video{} = video) do
     VideoStateMachine.mark_as_failed(video)
+  end
+
+  def mark_as_analyzed(%Video{} = video) do
+    VideoStateMachine.mark_as_analyzed(video)
+  end
+
+  def mark_as_crf_searched(%Video{} = video) do
+    VideoStateMachine.mark_as_crf_searched(video)
+  end
+
+  def mark_as_needs_analysis(%Video{} = video) do
+    VideoStateMachine.mark_as_needs_analysis(video)
   end
 
   # --- Video Failure Tracking Functions ---
@@ -499,10 +507,7 @@ defmodule Reencodarr.Media do
         # If this VMAF is chosen, update video state to crf_searched
         if vmaf.chosen do
           video = get_video!(vmaf.video_id)
-
-          video
-          |> Video.changeset(%{state: :crf_searched})
-          |> Repo.update()
+          mark_as_crf_searched(video)
         end
 
       {:error, _error} ->
@@ -933,9 +938,11 @@ defmodule Reencodarr.Media do
           audio_codecs: nil,
           max_audio_channels: nil,
           resolution: nil,
-          file_size: nil,
-          state: :needs_analysis
+          file_size: nil
         })
+
+        # Use state machine for state transition
+        mark_as_needs_analysis(video)
 
         %{
           video: video,

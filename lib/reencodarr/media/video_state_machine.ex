@@ -93,6 +93,10 @@ defmodule Reencodarr.Media.VideoStateMachine do
   @doc """
   Transitions a video to a new state with automatic state-specific validations.
   """
+  def transition_to_needs_analysis(%Video{} = video, attrs \\ %{}) do
+    transition(video, :needs_analysis, attrs)
+  end
+
   def transition_to_analyzed(%Video{} = video, attrs \\ %{}) do
     # Don't add any extra validation flags - let the changeset validation handle requirements
     transition(video, :analyzed, attrs)
@@ -268,6 +272,18 @@ defmodule Reencodarr.Media.VideoStateMachine do
   end
 
   @doc """
+  Marks a video as analyzed by transitioning it to the :analyzed state.
+
+  Handles the appropriate state transitions for videos that have completed analysis.
+  """
+  def mark_as_analyzed(%Video{} = video) do
+    case transition_to_analyzed(video) do
+      {:ok, changeset} -> Reencodarr.Repo.update(changeset)
+      error -> error
+    end
+  end
+
+  @doc """
   Marks a video as failed by transitioning it to the :failed state.
 
   Includes special handling for test environment stale entry errors.
@@ -282,5 +298,25 @@ defmodule Reencodarr.Media.VideoStateMachine do
       # In test environment, video may be deleted by test cleanup before GenServer completes
       # This is expected behavior and not an error
       {:ok, video}
+  end
+
+  @doc """
+  Marks a video as crf_searched by transitioning it to the :crf_searched state.
+  """
+  def mark_as_crf_searched(%Video{} = video) do
+    case transition_to_crf_searched(video) do
+      {:ok, changeset} -> Reencodarr.Repo.update(changeset)
+      error -> error
+    end
+  end
+
+  @doc """
+  Marks a video as needs_analysis by transitioning it to the :needs_analysis state.
+  """
+  def mark_as_needs_analysis(%Video{} = video) do
+    case transition_to_needs_analysis(video) do
+      {:ok, changeset} -> Reencodarr.Repo.update(changeset)
+      error -> error
+    end
   end
 end
