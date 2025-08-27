@@ -221,9 +221,9 @@ defmodule Reencodarr.Rules do
   end
 
   defp filter_tuples_for_context(tuples, :encode) do
-    # Encode: exclude only crf-search specific params
+    # Encode: exclude crf-search specific params and CRF range flags
     Enum.filter(tuples, fn {flag, _value} ->
-      flag not in ["--temp-dir", "--min-vmaf", "--max-vmaf"]
+      flag not in ["--temp-dir", "--min-vmaf", "--max-vmaf", "--min-crf", "--max-crf"]
     end)
   end
 
