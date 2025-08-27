@@ -103,7 +103,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
       "Video with path #{new_path} already exists, removing old entry and updating existing video"
     )
 
-    case Reencodarr.Media.delete_video(video) do
+    case Reencodarr.Media.delete_video_with_vmafs(video) do
       {:ok, _} ->
         Logger.info("Successfully removed old video entry at #{old_path}")
         Reencodarr.Sync.upsert_video_from_file(file, source)

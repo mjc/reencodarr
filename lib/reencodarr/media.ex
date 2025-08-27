@@ -78,6 +78,10 @@ defmodule Reencodarr.Media do
 
   def delete_video(%Video{} = video), do: Repo.delete(video)
 
+  def delete_video_with_vmafs(%Video{} = video) do
+    delete_videos_by_ids([video.id])
+  end
+
   def change_video(%Video{} = video, attrs \\ %{}) do
     Video.changeset(video, attrs)
   end
