@@ -51,9 +51,11 @@ defmodule Reencodarr.Media.Debug do
           audio_codecs: nil,
           max_audio_channels: nil,
           resolution: nil,
-          file_size: nil,
-          state: :needs_analysis
+          file_size: nil
         })
+
+        # Use state machine for state transition
+        Reencodarr.Media.mark_as_needs_analysis(video)
 
         # Trigger Broadway dispatch
         result = AnalyzerBroadway.dispatch_available()
