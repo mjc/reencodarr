@@ -1048,6 +1048,35 @@ _build\prod\rel\reencodarr_client\bin\reencodarr_client.bat start
 - `libsvtav1` - For AV1 encoding support
 - Full codec support for input files (H.264, H.265, etc.)
 
+### Nix/Flake Development Environment
+
+The project includes a `flake.nix` that provides cross-platform development environments with all required dependencies:
+
+**✅ Cross-Platform Compatibility:**
+- **Linux (x86_64-linux)**: Full support with all dependencies
+- **macOS ARM64 (aarch64-darwin)**: Full support using modern Apple SDK
+- **Windows**: Not directly supported by Nix, use manual binary installation
+
+**Development Environment Features:**
+- Erlang/OTP 27 and Elixir 1.19.0-rc.0
+- FFmpeg (full build) with libvmaf and AV1 support
+- Platform-specific dependencies (inotify-tools on Linux, terminal-notifier on macOS)
+- Development tools (git, gh, alejandra, nil, cspell)
+
+**Usage:**
+```bash
+# Enter development shell with all dependencies
+nix develop
+
+# Build Docker image (Linux containers only)
+nix build .#packages.dockerImage
+```
+
+**Client Deployment Considerations:**
+- Nix flake provides consistent binary versions across development and server environments
+- For production client deployment, consider extracting binaries from Nix store for distribution
+- Windows clients must use manual binary installation as Nix doesn't support Windows
+
 ### Platform-Specific Considerations
 
 ### Platform-Specific Considerations
@@ -1430,6 +1459,7 @@ networks:
 1. Refactor existing code to separate server and client concerns
 2. Create shared modules for common data structures
 3. Add distributed configuration options
+4. ✅ **Fix cross-platform compatibility in flake.nix** - Updated Apple SDK dependencies and modernized flake structure for Linux and macOS ARM64 support
 
 ### Stage 2: Dual Mode Operation
 1. Add mode detection (`:server` or `:client` or `:monolithic`)
