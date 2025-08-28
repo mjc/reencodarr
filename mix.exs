@@ -9,7 +9,8 @@ defmodule Reencodarr.MixProject do
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
-      deps: deps()
+      deps: deps(),
+      listeners: [Phoenix.CodeReloader]
     ]
   end
 
@@ -47,7 +48,8 @@ defmodule Reencodarr.MixProject do
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
       {:finch, "~> 0.13"},
       {:floki, ">= 0.30.0", only: :test},
-      {:live_debugger, "~> 0.3.0", only: :dev},
+      {:lazy_html, ">= 0.1.0", only: :test},
+      {:live_debugger, "~> 0.4.0", only: :dev},
       {:meck, "~> 1.0", only: :test},
       {:gettext, "~> 0.20"},
       {:heroicons,
@@ -60,12 +62,12 @@ defmodule Reencodarr.MixProject do
       {:jason, "~> 1.2"},
       {:logger_backends, "~> 1.0"},
       {:logger_file_backend, "~> 0.0.13"},
-      {:phoenix, "~> 1.7.14"},
+      {:phoenix, "~> 1.8"},
       {:phoenix_ecto, "~> 4.5"},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_dashboard, "~> 0.8.3"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
-      {:phoenix_live_view, "~> 1.0.0-rc.1", override: true},
+      {:phoenix_live_view, "~> 1.1"},
       {:postgrex, ">= 0.0.0"},
       {:req, "~> 0.5"},
       {:stream_data, "~> 1.2.0", only: :test},
