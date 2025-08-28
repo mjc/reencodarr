@@ -7,6 +7,9 @@ Mix.install([
   {:jason, "~> 1.2"}
 ])
 
+# Set log level to info to reduce verbose debug output
+Logger.configure(level: :info)
+
 defmodule PostgresRepo do
   use Ecto.Repo,
     otp_app: :migration_script,
@@ -20,7 +23,6 @@ defmodule SqliteRepo do
 end
 
 defmodule MigrationScript do
-  import Ecto.Query
   require Logger
 
   def run do
@@ -79,8 +81,8 @@ defmodule MigrationScript do
     SqliteRepo.query!("""
       CREATE TABLE IF NOT EXISTS libraries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
         path TEXT NOT NULL,
+        monitor BOOLEAN DEFAULT FALSE NOT NULL,
         inserted_at DATETIME NOT NULL,
         updated_at DATETIME NOT NULL
       )
@@ -90,26 +92,28 @@ defmodule MigrationScript do
       CREATE TABLE IF NOT EXISTS videos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         path TEXT NOT NULL UNIQUE,
-        duration REAL,
         size BIGINT,
-        video_codec TEXT,
-        audio_codecs TEXT, -- JSON array as text
-        resolution TEXT,
-        bitrate REAL,
-        mediainfo TEXT, -- JSON as text
+        bitrate INTEGER,
+        duration REAL,
         width INTEGER,
         height INTEGER,
-        fps REAL,
+        frame_rate REAL,
+        video_count INTEGER,
+        audio_count INTEGER,
+        text_count INTEGER,
+        hdr TEXT,
+        video_codecs TEXT,
+        audio_codecs TEXT,
+        text_codecs TEXT,
         atmos BOOLEAN DEFAULT FALSE,
-        max_audio_channels INTEGER,
-        reencoded BOOLEAN DEFAULT FALSE,
+        max_audio_channels INTEGER DEFAULT 0,
         title TEXT,
-        service_id INTEGER,
+        service_id TEXT,
         service_type TEXT,
         library_id BIGINT,
-        state TEXT DEFAULT 'needs_analysis',
-        year INTEGER,
-        release_year INTEGER,
+        state TEXT NOT NULL,
+        content_year INTEGER,
+        mediainfo TEXT,
         inserted_at DATETIME NOT NULL,
         updated_at DATETIME NOT NULL,
         FOREIGN KEY (library_id) REFERENCES libraries(id)
@@ -119,19 +123,20 @@ defmodule MigrationScript do
     SqliteRepo.query!("""
       CREATE TABLE IF NOT EXISTS vmafs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        crf REAL NOT NULL,
-        score REAL NOT NULL,
+        score REAL,
+        crf REAL,
         video_id BIGINT NOT NULL,
-        chosen BOOLEAN DEFAULT FALSE,
-        size BIGINT,
-        time_seconds INTEGER,
-        size_pct REAL,
-        params TEXT, -- JSON array as text
-        savings REAL,
+        chosen BOOLEAN DEFAULT FALSE NOT NULL,
+        size TEXT,
+        percent REAL,
+        time INTEGER,
+        savings BIGINT,
+        target INTEGER DEFAULT 95,
+        params TEXT,
         inserted_at DATETIME NOT NULL,
         updated_at DATETIME NOT NULL,
         FOREIGN KEY (video_id) REFERENCES videos(id),
-        UNIQUE(video_id, crf)
+        UNIQUE(crf, video_id)
       )
     """)
 
@@ -139,10 +144,14 @@ defmodule MigrationScript do
       CREATE TABLE IF NOT EXISTS video_failures (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         video_id BIGINT NOT NULL,
-        stage TEXT NOT NULL,
-        error_message TEXT,
-        error_details TEXT, -- JSON as text
-        attempt_number INTEGER DEFAULT 1,
+        failure_stage TEXT NOT NULL,
+        failure_category TEXT NOT NULL,
+        failure_code TEXT,
+        failure_message TEXT NOT NULL,
+        system_context TEXT,
+        retry_count INTEGER DEFAULT 0,
+        resolved BOOLEAN DEFAULT FALSE,
+        resolved_at DATETIME,
         inserted_at DATETIME NOT NULL,
         updated_at DATETIME NOT NULL,
         FOREIGN KEY (video_id) REFERENCES videos(id)
@@ -153,10 +162,17 @@ defmodule MigrationScript do
     SqliteRepo.query!("CREATE INDEX IF NOT EXISTS idx_videos_library_id ON videos(library_id)")
     SqliteRepo.query!("CREATE INDEX IF NOT EXISTS idx_videos_state ON videos(state)")
     SqliteRepo.query!("CREATE INDEX IF NOT EXISTS idx_videos_service ON videos(service_type, service_id)")
+    SqliteRepo.query!("CREATE INDEX IF NOT EXISTS idx_videos_content_year ON videos(content_year)")
+    SqliteRepo.query!("CREATE INDEX IF NOT EXISTS idx_videos_state_size ON videos(state, size)")
+    SqliteRepo.query!("CREATE INDEX IF NOT EXISTS idx_videos_state_updated_at ON videos(state, updated_at)")
     SqliteRepo.query!("CREATE INDEX IF NOT EXISTS idx_vmafs_video_id ON vmafs(video_id)")
     SqliteRepo.query!("CREATE INDEX IF NOT EXISTS idx_vmafs_chosen ON vmafs(chosen)")
     SqliteRepo.query!("CREATE INDEX IF NOT EXISTS idx_video_failures_video_id ON video_failures(video_id)")
-    SqliteRepo.query!("CREATE INDEX IF NOT EXISTS idx_video_failures_stage ON video_failures(stage)")
+    SqliteRepo.query!("CREATE INDEX IF NOT EXISTS idx_video_failures_failure_stage ON video_failures(failure_stage)")
+    SqliteRepo.query!("CREATE INDEX IF NOT EXISTS idx_video_failures_failure_category ON video_failures(failure_category)")
+    SqliteRepo.query!("CREATE INDEX IF NOT EXISTS idx_video_failures_resolved ON video_failures(resolved)")
+    SqliteRepo.query!("CREATE INDEX IF NOT EXISTS idx_video_failures_video_id_resolved ON video_failures(video_id, resolved)")
+    SqliteRepo.query!("CREATE INDEX IF NOT EXISTS idx_video_failures_inserted_at ON video_failures(inserted_at)")
   end
 
   defp migrate_configs do
@@ -183,17 +199,17 @@ defmodule MigrationScript do
     Logger.info("Migrating libraries...")
 
     libraries = PostgresRepo.query!("""
-      SELECT id, name, path, inserted_at, updated_at
+      SELECT id, path, monitor, inserted_at, updated_at
       FROM libraries ORDER BY id
     """)
 
     for row <- libraries.rows do
-      [id, name, path, inserted_at, updated_at] = row
+      [id, path, monitor, inserted_at, updated_at] = row
 
       SqliteRepo.query!("""
-        INSERT INTO libraries (id, name, path, inserted_at, updated_at)
+        INSERT INTO libraries (id, path, monitor, inserted_at, updated_at)
         VALUES (?, ?, ?, ?, ?)
-      """, [id, name, path, inserted_at, updated_at])
+      """, [id, path, monitor, inserted_at, updated_at])
     end
 
     Logger.info("Migrated #{length(libraries.rows)} libraries")
@@ -203,34 +219,36 @@ defmodule MigrationScript do
     Logger.info("Migrating videos...")
 
     videos = PostgresRepo.query!("""
-      SELECT id, path, duration, size, video_codec, audio_codecs, resolution, bitrate,
-             mediainfo, width, height, fps, atmos, max_audio_channels, reencoded,
-             title, service_id, service_type, library_id, state, year, release_year,
-             inserted_at, updated_at
+      SELECT id, path, size, bitrate, duration, width, height, frame_rate, video_count,
+             audio_count, text_count, hdr, video_codecs, audio_codecs, text_codecs,
+             atmos, max_audio_channels, title, service_id, service_type, library_id,
+             state, content_year, mediainfo, inserted_at, updated_at
       FROM videos ORDER BY id
     """)
 
     for row <- videos.rows do
-      [id, path, duration, size, video_codec, audio_codecs, resolution, bitrate,
-       mediainfo, width, height, fps, atmos, max_audio_channels, reencoded,
-       title, service_id, service_type, library_id, state, year, release_year,
-       inserted_at, updated_at] = row
+      [id, path, size, bitrate, duration, width, height, frame_rate, video_count,
+       audio_count, text_count, hdr, video_codecs, audio_codecs, text_codecs,
+       atmos, max_audio_channels, title, service_id, service_type, library_id,
+       state, content_year, mediainfo, inserted_at, updated_at] = row
 
       # Convert arrays and JSON to text
+      video_codecs_json = if video_codecs, do: Jason.encode!(video_codecs), else: nil
       audio_codecs_json = if audio_codecs, do: Jason.encode!(audio_codecs), else: nil
+      text_codecs_json = if text_codecs, do: Jason.encode!(text_codecs), else: nil
       mediainfo_json = if mediainfo, do: Jason.encode!(mediainfo), else: nil
       state_str = if state, do: to_string(state), else: "needs_analysis"
 
       SqliteRepo.query!("""
-        INSERT INTO videos (id, path, duration, size, video_codec, audio_codecs, resolution, bitrate,
-                           mediainfo, width, height, fps, atmos, max_audio_channels, reencoded,
-                           title, service_id, service_type, library_id, state, year, release_year,
-                           inserted_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      """, [id, path, duration, size, video_codec, audio_codecs_json, resolution, bitrate,
-            mediainfo_json, width, height, fps, atmos, max_audio_channels, reencoded,
-            title, service_id, service_type, library_id, state_str, year, release_year,
-            inserted_at, updated_at])
+        INSERT INTO videos (id, path, size, bitrate, duration, width, height, frame_rate, video_count,
+                           audio_count, text_count, hdr, video_codecs, audio_codecs, text_codecs,
+                           atmos, max_audio_channels, title, service_id, service_type, library_id,
+                           state, content_year, mediainfo, inserted_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      """, [id, path, size, bitrate, duration, width, height, frame_rate, video_count,
+            audio_count, text_count, hdr, video_codecs_json, audio_codecs_json, text_codecs_json,
+            atmos, max_audio_channels, title, service_id, service_type, library_id,
+            state_str, content_year, mediainfo_json, inserted_at, updated_at])
     end
 
     Logger.info("Migrated #{length(videos.rows)} videos")
@@ -240,24 +258,24 @@ defmodule MigrationScript do
     Logger.info("Migrating vmafs...")
 
     vmafs = PostgresRepo.query!("""
-      SELECT id, crf, score, video_id, chosen, size, time_seconds, size_pct,
-             params, savings, inserted_at, updated_at
+      SELECT id, score, crf, video_id, chosen, size, percent, time, savings, target,
+             params, inserted_at, updated_at
       FROM vmafs ORDER BY id
     """)
 
     for row <- vmafs.rows do
-      [id, crf, score, video_id, chosen, size, time_seconds, size_pct,
-       params, savings, inserted_at, updated_at] = row
+      [id, score, crf, video_id, chosen, size, percent, time, savings, target,
+       params, inserted_at, updated_at] = row
 
       # Convert params array to JSON text
       params_json = if params, do: Jason.encode!(params), else: nil
 
       SqliteRepo.query!("""
-        INSERT INTO vmafs (id, crf, score, video_id, chosen, size, time_seconds, size_pct,
-                          params, savings, inserted_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      """, [id, crf, score, video_id, chosen, size, time_seconds, size_pct,
-            params_json, savings, inserted_at, updated_at])
+        INSERT INTO vmafs (id, score, crf, video_id, chosen, size, percent, time, savings, target,
+                          params, inserted_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      """, [id, score, crf, video_id, chosen, size, percent, time, savings, target,
+            params_json, inserted_at, updated_at])
     end
 
     Logger.info("Migrated #{length(vmafs.rows)} vmafs")
@@ -267,24 +285,24 @@ defmodule MigrationScript do
     Logger.info("Migrating video_failures...")
 
     video_failures = PostgresRepo.query!("""
-      SELECT id, video_id, stage, error_message, error_details, attempt_number,
-             inserted_at, updated_at
+      SELECT id, video_id, failure_stage, failure_category, failure_code, failure_message,
+             system_context, retry_count, resolved, resolved_at, inserted_at, updated_at
       FROM video_failures ORDER BY id
     """)
 
     for row <- video_failures.rows do
-      [id, video_id, stage, error_message, error_details, attempt_number,
-       inserted_at, updated_at] = row
+      [id, video_id, failure_stage, failure_category, failure_code, failure_message,
+       system_context, retry_count, resolved, resolved_at, inserted_at, updated_at] = row
 
-      # Convert error_details to JSON text if it's a map
-      error_details_json = if error_details, do: Jason.encode!(error_details), else: nil
+      # Convert system_context to JSON text if it's a map
+      system_context_json = if system_context, do: Jason.encode!(system_context), else: nil
 
       SqliteRepo.query!("""
-        INSERT INTO video_failures (id, video_id, stage, error_message, error_details, attempt_number,
-                                   inserted_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      """, [id, video_id, stage, error_message, error_details_json, attempt_number,
-            inserted_at, updated_at])
+        INSERT INTO video_failures (id, video_id, failure_stage, failure_category, failure_code, failure_message,
+                                   system_context, retry_count, resolved, resolved_at, inserted_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      """, [id, video_id, failure_stage, failure_category, failure_code, failure_message,
+            system_context_json, retry_count, resolved, resolved_at, inserted_at, updated_at])
     end
 
     Logger.info("Migrated #{length(video_failures.rows)} video_failures")
