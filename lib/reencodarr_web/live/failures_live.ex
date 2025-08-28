@@ -16,6 +16,8 @@ defmodule ReencodarrWeb.FailuresLive do
 
   use ReencodarrWeb, :live_view
 
+  import Ecto.Query
+
   import ReencodarrWeb.UIHelpers,
     only: [
       filter_button_classes: 2,
@@ -28,6 +30,7 @@ defmodule ReencodarrWeb.FailuresLive do
   require Logger
 
   alias Reencodarr.Media
+  alias Reencodarr.Media.SharedQueries
   alias Reencodarr.Repo
 
   import ReencodarrWeb.LcarsComponents
@@ -924,7 +927,11 @@ defmodule ReencodarrWeb.FailuresLive do
     searched_query =
       if search_term != "" do
         search_pattern = "%#{search_term}%"
-        from v in filtered_query, where: ilike(v.path, ^search_pattern)
+
+        case_insensitive_like_condition =
+          SharedQueries.case_insensitive_like(:path, search_pattern)
+
+        from v in filtered_query, where: ^case_insensitive_like_condition
       else
         filtered_query
       end

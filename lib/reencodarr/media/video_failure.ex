@@ -1,6 +1,8 @@
 defmodule Reencodarr.Media.VideoFailure do
   use Ecto.Schema
   import Ecto.Changeset
+  import Ecto.Query, warn: false
+  alias Reencodarr.Media.SharedQueries
   alias Reencodarr.Media.Video
 
   @moduledoc """
@@ -199,20 +201,39 @@ defmodule Reencodarr.Media.VideoFailure do
     import Ecto.Query
 
     query =
-      from(f in __MODULE__,
-        where: f.resolved == false,
-        group_by: [f.failure_stage, f.failure_category, f.failure_code],
-        select: %{
-          stage: f.failure_stage,
-          category: f.failure_category,
-          code: f.failure_code,
-          count: count(f.id),
-          latest_occurrence: max(f.inserted_at),
-          sample_message: fragment("string_agg(distinct ?, ' | ')", f.failure_message)
-        },
-        order_by: [desc: count(f.id)],
-        limit: ^limit
-      )
+      if SharedQueries.sqlite?() do
+        # SQLite version using group_concat without DISTINCT (SQLite doesn't support it in this context)
+        from(f in __MODULE__,
+          where: f.resolved == false,
+          group_by: [f.failure_stage, f.failure_category, f.failure_code],
+          select: %{
+            stage: f.failure_stage,
+            category: f.failure_category,
+            code: f.failure_code,
+            count: count(f.id),
+            latest_occurrence: max(f.inserted_at),
+            sample_message: fragment("group_concat(?, ' | ')", f.failure_message)
+          },
+          order_by: [desc: count(f.id)],
+          limit: ^limit
+        )
+      else
+        # PostgreSQL version using string_agg
+        from(f in __MODULE__,
+          where: f.resolved == false,
+          group_by: [f.failure_stage, f.failure_category, f.failure_code],
+          select: %{
+            stage: f.failure_stage,
+            category: f.failure_category,
+            code: f.failure_code,
+            count: count(f.id),
+            latest_occurrence: max(f.inserted_at),
+            sample_message: fragment("string_agg(distinct ?, ' | ')", f.failure_message)
+          },
+          order_by: [desc: count(f.id)],
+          limit: ^limit
+        )
+      end
 
     Reencodarr.Repo.all(query)
   end

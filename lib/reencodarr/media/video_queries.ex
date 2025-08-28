@@ -14,39 +14,25 @@ defmodule Reencodarr.Media.VideoQueries do
   """
   @spec videos_for_crf_search(integer()) :: [Video.t()]
   def videos_for_crf_search(limit \\ 10) do
-    case Repo.__adapter__() do
-      Ecto.Adapters.Postgres ->
-        Repo.all(
-          from v in Video,
-            where:
-              v.state == :analyzed and
-                not fragment("? = ANY(?)", "av1", v.video_codecs) and
-                not fragment("? = ANY(?)", "opus", v.audio_codecs),
-            order_by: [desc: v.bitrate, desc: v.size, asc: v.updated_at],
-            limit: ^limit,
-            select: v
-        )
-
-      Ecto.Adapters.SQLite3 ->
-        Repo.all(
-          from v in Video,
-            where:
-              v.state == :analyzed and
-                not fragment(
-                  "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
-                  v.video_codecs,
-                  "av1"
-                ) and
-                not fragment(
-                  "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
-                  v.audio_codecs,
-                  "opus"
-                ),
-            order_by: [desc: v.bitrate, desc: v.size, asc: v.updated_at],
-            limit: ^limit,
-            select: v
-        )
-    end
+    # SQLite3 implementation for video codec filtering
+    Repo.all(
+      from v in Video,
+        where:
+          v.state == :analyzed and
+            not fragment(
+              "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
+              v.video_codecs,
+              "av1"
+            ) and
+            not fragment(
+              "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
+              v.audio_codecs,
+              "opus"
+            ),
+        order_by: [desc: v.bitrate, desc: v.size, asc: v.updated_at],
+        limit: ^limit,
+        select: v
+    )
   end
 
   @doc """
@@ -54,35 +40,23 @@ defmodule Reencodarr.Media.VideoQueries do
   """
   @spec count_videos_for_crf_search() :: integer()
   def count_videos_for_crf_search do
-    case Repo.__adapter__() do
-      Ecto.Adapters.Postgres ->
-        Repo.one(
-          from v in Video,
-            where:
-              v.state == :analyzed and
-                not fragment("? = ANY(?)", "av1", v.video_codecs) and
-                not fragment("? = ANY(?)", "opus", v.audio_codecs),
-            select: count()
-        )
-
-      Ecto.Adapters.SQLite3 ->
-        Repo.one(
-          from v in Video,
-            where:
-              v.state == :analyzed and
-                not fragment(
-                  "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
-                  v.video_codecs,
-                  "av1"
-                ) and
-                not fragment(
-                  "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
-                  v.audio_codecs,
-                  "opus"
-                ),
-            select: count()
-        )
-    end
+    # SQLite3 implementation for video codec filtering
+    Repo.one(
+      from v in Video,
+        where:
+          v.state == :analyzed and
+            not fragment(
+              "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
+              v.video_codecs,
+              "av1"
+            ) and
+            not fragment(
+              "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
+              v.audio_codecs,
+              "opus"
+            ),
+        select: count()
+    )
   end
 
   @doc """
