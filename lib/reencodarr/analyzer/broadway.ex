@@ -41,7 +41,7 @@ defmodule Reencodarr.Analyzer.Broadway do
         ]
       ],
       context: %{
-        concurrent_files: 5,
+        concurrent_files: 2,
         processing_timeout: :timer.minutes(5)
       }
     )
@@ -172,7 +172,7 @@ defmodule Reencodarr.Analyzer.Broadway do
     video_infos
     |> Task.async_stream(
       &process_video_with_mediainfo(&1, Map.get(mediainfo_map, &1.path, :no_mediainfo)),
-      max_concurrency: 5,
+      max_concurrency: 2,
       timeout: :timer.minutes(5),
       on_timeout: :kill_task
     )
@@ -185,7 +185,7 @@ defmodule Reencodarr.Analyzer.Broadway do
     video_infos
     |> Task.async_stream(
       &process_video_individually/1,
-      max_concurrency: 5,
+      max_concurrency: 2,
       timeout: :timer.minutes(5),
       on_timeout: :kill_task
     )
