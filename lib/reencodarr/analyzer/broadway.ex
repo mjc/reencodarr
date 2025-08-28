@@ -537,6 +537,42 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp transition_video_to_analyzed(video) do
+    # Check if video already has target codecs and can skip CRF search
+    cond do
+      has_av1_codec?(video) ->
+        transition_to_reencoded_with_logging(video, "already has AV1 codec")
+
+      has_opus_codec?(video) ->
+        transition_to_reencoded_with_logging(video, "already has Opus audio codec")
+
+      true ->
+        # Video needs CRF search, transition to analyzed state
+        transition_to_analyzed_with_logging(video)
+    end
+  end
+
+  defp transition_to_reencoded_with_logging(video, reason) do
+    Logger.info("Video #{video.path} #{reason}, marking as reencoded (skipping CRF search)")
+
+    case Media.mark_as_reencoded(video) do
+      {:ok, updated_video} ->
+        Logger.info(
+          "Successfully transitioned video to reencoded state: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
+        )
+
+        {:ok, updated_video}
+
+      {:error, changeset_error} ->
+        Logger.error(
+          "Failed to transition video to reencoded state for #{video.path}: #{inspect(changeset_error)}"
+        )
+
+        # Return original video even if state transition fails
+        {:ok, video}
+    end
+  end
+
+  defp transition_to_analyzed_with_logging(video) do
     case Media.mark_as_analyzed(video) do
       {:ok, updated_video} ->
         Logger.info(
@@ -553,6 +589,19 @@ defmodule Reencodarr.Analyzer.Broadway do
         # Return original video even if state transition fails
         {:ok, video}
     end
+  end
+
+  # Helper functions to check for target codecs
+  defp has_av1_codec?(video) do
+    Enum.any?(video.video_codecs || [], fn codec ->
+      String.downcase(codec) |> String.contains?("av1")
+    end)
+  end
+
+  defp has_opus_codec?(video) do
+    Enum.any?(video.audio_codecs || [], fn codec ->
+      String.downcase(codec) |> String.contains?("opus")
+    end)
   end
 
   defp mark_video_as_failed(path, reason) do
