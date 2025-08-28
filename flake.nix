@@ -46,6 +46,7 @@
             curl
             bash
             coreutils
+            sqlite
           ];
 
           config = {
