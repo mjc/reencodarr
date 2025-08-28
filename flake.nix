@@ -34,7 +34,7 @@
         };
       in {
         # Docker image for the application
-        dockerImage = pkgs.dockerTools.buildLayeredImage {
+        packages.dockerImage = pkgs.dockerTools.buildLayeredImage {
           name = "reencodarr";
           tag = "latest";
 
@@ -62,7 +62,7 @@
           };
         };
 
-        devShell = pkgs.mkShell {
+        devShells.default = pkgs.mkShell {
           nativeBuildInputs =
             [
               erlang
@@ -86,7 +86,9 @@
             ++ lib.optional pkgs.stdenv.isLinux pkgs.libnotify
             ++ lib.optional pkgs.stdenv.isLinux pkgs.inotify-tools
             ++ lib.optional pkgs.stdenv.isDarwin pkgs.terminal-notifier
-            ++ lib.optionals pkgs.stdenv.isDarwin (with pkgs.darwin.apple_sdk.frameworks; [CoreFoundation CoreServices]);
+            ++ lib.optionals pkgs.stdenv.isDarwin [
+              pkgs.apple-sdk
+            ];
           shellHook = ''
             gh auth switch --user mjc
             export MIX_OS_DEPS_COMPILE_PARTITION_COUNT=$(( $(nproc) / 2 ))
