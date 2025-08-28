@@ -36,8 +36,9 @@ defmodule Reencodarr.Media.SharedQueries do
   Optimized with early pattern matching.
   """
   def videos_not_matching_exclude_patterns(video_list) when length(video_list) < 50 do
-    # TODO: Implement config service for exclude patterns
-    case [] do
+    patterns = Reencodarr.Config.exclude_patterns()
+
+    case patterns do
       [] -> video_list
       patterns -> filter_videos_by_patterns(video_list, patterns)
     end
@@ -51,21 +52,43 @@ defmodule Reencodarr.Media.SharedQueries do
   # Pattern matching for smaller video lists
   defp filter_videos_by_patterns(videos, patterns) do
     Enum.filter(videos, fn video ->
-      not Enum.any?(patterns, &matches_pattern?(video.file_path, &1))
+      not Enum.any?(patterns, &matches_pattern?(video.path, &1))
     end)
   end
 
-  # Helper for pattern matching
+  # Helper for pattern matching with basic glob support
   defp matches_pattern?(path, pattern) do
-    String.contains?(String.downcase(path), String.downcase(pattern))
+    # Convert glob pattern to regex
+    # Supports: * (any characters), ** (directory traversal), ? (single character)
+    regex_pattern =
+      pattern
+      # Temporary placeholder
+      |> String.replace("**", "__DOUBLE_STAR__")
+      |> Regex.escape()
+      # ** matches any path including /
+      |> String.replace("__DOUBLE_STAR__", ".*")
+      # * matches any characters except /
+      |> String.replace("\\*", "[^/]*")
+      # ? matches single character
+      |> String.replace("\\?", ".")
+      # Anchor to full string
+      |> then(&("^" <> &1 <> "$"))
+
+    case Regex.compile(regex_pattern, [:caseless]) do
+      {:ok, regex} ->
+        Regex.match?(regex, path)
+
+      {:error, _} ->
+        # Fallback to simple string matching if regex compilation fails
+        String.contains?(String.downcase(path), String.downcase(pattern))
+    end
   end
 
   # Database filtering for large lists (placeholder for future optimization)
   defp filter_large_video_list_by_patterns(video_list) do
     # For now, fall back to memory filtering
     # Future: implement database-side filtering with SQL patterns
-    # TODO: Implement config service for exclude patterns
-    patterns = []
+    patterns = Reencodarr.Config.exclude_patterns()
     filter_videos_by_patterns(video_list, patterns)
   end
 
