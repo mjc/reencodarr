@@ -14,6 +14,15 @@ config :reencodarr,
 
 config :reencodarr, :temp_dir, Path.join(System.tmp_dir!(), "ab-av1")
 
+# Configure file exclude patterns for video filtering
+config :reencodarr, :exclude_patterns, [
+  # Sample patterns - can be configured per environment
+  # "**/sample/**",
+  # "**/trailer/**",
+  # "**/*sample*",
+  # "**/*trailer*"
+]
+
 # Configures the endpoint
 config :reencodarr, ReencodarrWeb.Endpoint,
   url: [host: "localhost"],
