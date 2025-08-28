@@ -47,7 +47,13 @@ defmodule Reencodarr.AbAv1.Helper do
   @spec temp_dir() :: String.t()
   def temp_dir do
     temp_dir = Application.get_env(:reencodarr, :temp_dir)
-    if File.exists?(temp_dir), do: temp_dir, else: File.mkdir_p(temp_dir)
+
+    if File.exists?(temp_dir) do
+      temp_dir
+    else
+      File.mkdir_p!(temp_dir)
+      temp_dir
+    end
   end
 
   @doc """
