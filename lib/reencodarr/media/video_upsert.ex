@@ -29,6 +29,33 @@ defmodule Reencodarr.Media.VideoUpsert do
     |> insert_or_update_video()
   end
 
+  @doc """
+  Batch upsert multiple videos in a single transaction.
+  Returns a list of results, one for each video in the same order.
+  """
+  @spec batch_upsert([attrs()]) :: [upsert_result()]
+  def batch_upsert(video_attrs_list) when is_list(video_attrs_list) do
+    Logger.debug("VideoUpsert batch processing #{length(video_attrs_list)} videos")
+
+    Repo.transaction(fn ->
+      Enum.map(video_attrs_list, fn attrs ->
+        attrs
+        |> normalize_keys_to_strings()
+        |> ensure_library_id()
+        |> ensure_required_fields()
+        |> handle_vmaf_deletion_and_bitrate_preservation()
+        |> perform_single_upsert_in_batch()
+      end)
+    end)
+    |> case do
+      {:ok, results} -> results
+      {:error, reason} ->
+        Logger.error("Batch upsert transaction failed: #{inspect(reason)}")
+        # Return error for each video
+        Enum.map(video_attrs_list, fn _ -> {:error, reason} end)
+    end
+  end
+
   defp normalize_keys_to_strings(attrs) when is_map(attrs) do
     Map.new(attrs, fn
       {key, value} when is_atom(key) -> {Atom.to_string(key), value}
@@ -147,6 +174,31 @@ defmodule Reencodarr.Media.VideoUpsert do
         returning: true
       )
     end)
+  end
+
+  defp perform_single_upsert_in_batch(attrs) do
+    conflict_except = determine_conflict_except_fields(attrs)
+    on_conflict_query = build_on_conflict_query(attrs, conflict_except)
+
+    result = %Video{}
+      |> Video.changeset(attrs)
+      |> Repo.insert(
+        on_conflict: on_conflict_query,
+        conflict_target: :path,
+        stale_error_field: :updated_at,
+        returning: true
+      )
+
+    case result do
+      {:ok, video} ->
+        Logger.debug("Successfully upserted video in batch: #{video.path}")
+        {:ok, video}
+
+      {:error, changeset} ->
+        path = Map.get(attrs, "path", "unknown")
+        Logger.error("Failed to upsert video in batch #{path}: #{inspect(changeset.errors)}")
+        {:error, changeset}
+    end
   end
 
   defp handle_upsert_result(transaction_result, attrs) do

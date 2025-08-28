@@ -28,18 +28,18 @@ defmodule Reencodarr.Analyzer.Broadway do
         ]
       ],
       processors: [
-        default: [
-          concurrency: 1,
-          max_demand: 5
-        ]
-      ],
-      batchers: [
-        default: [
-          batch_size: 5,
-          batch_timeout: 2_000,
-          concurrency: 1
-        ]
-      ],
+          default: [
+            concurrency: 1,
+            max_demand: 1
+          ]
+        ],
+        batchers: [
+          default: [
+            batch_size: 10,
+            batch_timeout: 5_000,
+            concurrency: 1
+          ]
+        ],
       context: %{
         concurrent_files: 2,
         processing_timeout: :timer.minutes(5)
@@ -90,8 +90,8 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   @impl Broadway
   def handle_message(_processor_name, message, _context) do
-    # Individual messages are just passed through to be batched
-    message
+    # Route messages to the default batcher for batch processing
+    Message.put_batcher(message, :default)
   end
 
   @impl Broadway
@@ -169,99 +169,175 @@ defmodule Reencodarr.Analyzer.Broadway do
   defp process_videos_with_batch_mediainfo(video_infos, mediainfo_map) do
     Logger.debug("Processing #{length(video_infos)} videos with batch-fetched mediainfo")
 
-    video_infos
-    |> Task.async_stream(
-      &process_video_with_mediainfo(&1, Map.get(mediainfo_map, &1.path, :no_mediainfo)),
-      max_concurrency: 2,
-      timeout: :timer.minutes(5),
-      on_timeout: :kill_task
-    )
-    |> handle_task_results()
+    # Process all videos to prepare data (without database operations)
+    processed_videos =
+      video_infos
+      |> Task.async_stream(
+        &prepare_video_data_with_mediainfo(&1, Map.get(mediainfo_map, &1.path, :no_mediainfo)),
+        max_concurrency: 2,
+        timeout: :timer.minutes(5),
+        on_timeout: :kill_task
+      )
+      |> Enum.to_list()
+
+    # Separate successful and failed preparations
+    {successful_data, failed_paths} = categorize_preparation_results(processed_videos)
+
+    # Perform batch database upsert for successful preparations
+    batch_upsert_and_transition_videos(successful_data, failed_paths)
   end
 
   defp process_videos_individually(video_infos) do
     Logger.debug("Processing #{length(video_infos)} videos individually")
 
-    video_infos
-    |> Task.async_stream(
-      &process_video_individually/1,
-      max_concurrency: 2,
-      timeout: :timer.minutes(5),
-      on_timeout: :kill_task
-    )
-    |> handle_task_results()
+    # Process all videos to prepare data (without database operations)
+    processed_videos =
+      video_infos
+      |> Task.async_stream(
+        &prepare_video_data_individually/1,
+        max_concurrency: 2,
+        timeout: :timer.minutes(5),
+        on_timeout: :kill_task
+      )
+      |> Enum.to_list()
+
+    # Separate successful and failed preparations
+    {successful_data, failed_paths} = categorize_preparation_results(processed_videos)
+
+    # Perform batch database upsert for successful preparations
+    batch_upsert_and_transition_videos(successful_data, failed_paths)
   end
 
-  defp handle_task_results(stream) do
-    results = Enum.to_list(stream)
+  defp categorize_preparation_results(processed_videos) do
+    {successful_data, failed_paths} =
+      Enum.reduce(processed_videos, {[], []}, fn
+        {:ok, {:ok, video_data}}, {success_acc, fail_acc} ->
+          {[video_data | success_acc], fail_acc}
 
-    success_count = Enum.count(results, &match?({:ok, :ok}, &1))
-    error_count = length(results) - success_count
+        {:ok, {:skip, _reason}}, acc ->
+          acc
 
-    if error_count > 0 do
-      Logger.warning(
-        "Batch completed with #{error_count} errors out of #{length(results)} videos"
-      )
+        {:ok, {:error, path}}, {success_acc, fail_acc} ->
+          {success_acc, [path | fail_acc]}
+
+        {:exit, :timeout}, {success_acc, fail_acc} ->
+          {success_acc, ["timeout" | fail_acc]}
+
+        _, {success_acc, fail_acc} ->
+          {success_acc, ["unknown_error" | fail_acc]}
+      end)
+
+    {Enum.reverse(successful_data), Enum.reverse(failed_paths)}
+  end
+
+  defp batch_upsert_and_transition_videos(successful_data, failed_paths) do
+    if length(successful_data) > 0 do
+      Logger.info("Performing batch upsert for #{length(successful_data)} videos")
+
+      # Extract video attributes for batch upsert
+      video_attrs_list = Enum.map(successful_data, fn {_video_info, attrs} -> attrs end)
+
+      # Perform batch upsert
+      upsert_results = Media.batch_upsert_videos(video_attrs_list)
+
+      # Handle state transitions for successfully upserted videos
+      transition_results =
+        successful_data
+        |> Enum.zip(upsert_results)
+        |> Enum.map(fn {{video_info, _attrs}, upsert_result} ->
+          case upsert_result do
+            {:ok, video} ->
+              transition_video_to_analyzed(video)
+              :ok
+            {:error, reason} ->
+              Logger.error("Failed to upsert video #{video_info.path}: #{inspect(reason)}")
+              mark_video_as_failed(video_info.path, "upsert failed: #{inspect(reason)}")
+              :error
+          end
+        end)
+
+      success_count = Enum.count(transition_results, &(&1 == :ok))
+      error_count = length(transition_results) - success_count
+      total_errors = error_count + length(failed_paths)
+
+      if total_errors > 0 do
+        Logger.warning(
+          "Batch completed with #{total_errors} errors out of #{length(successful_data) + length(failed_paths)} videos"
+        )
+      end
+    else
+      Logger.debug("No videos to upsert in batch")
     end
 
     :ok
   end
 
-  defp process_video_with_mediainfo(video_info, :no_mediainfo) do
+  defp prepare_video_data_with_mediainfo(video_info, :no_mediainfo) do
     Logger.warning("No mediainfo available for #{video_info.path}, processing individually")
-    process_video_individually(video_info)
+    prepare_video_data_individually(video_info)
   end
 
-  defp process_video_with_mediainfo(video_info, mediainfo) do
-    Logger.info(
-      "Processing video with mediainfo: #{video_info.path}, video_info: #{inspect(video_info)}"
-    )
+  defp prepare_video_data_with_mediainfo(video_info, mediainfo) do
+    Logger.debug("Preparing video data with mediainfo: #{video_info.path}")
 
     with {:ok, _eligibility} <- check_processing_eligibility(video_info),
          {:ok, validated_mediainfo} <- validate_mediainfo(mediainfo, video_info.path),
-         {:ok, _video} <- upsert_video_record(video_info, validated_mediainfo) do
-      Logger.info("Successfully processed video: #{video_info.path}")
-      :ok
-    else
-      {:skip, reason} ->
-        Logger.info("Skipping video #{video_info.path}: #{reason}")
-        :ok
-
-      {:error, reason} ->
-        Logger.error("Failed to process video #{video_info.path}: #{reason}")
-        mark_video_as_failed(video_info.path, reason)
-        :error
-    end
-  rescue
-    e ->
-      Logger.error("Unexpected error processing #{video_info.path}: #{inspect(e)}")
-      Logger.error("Stacktrace: #{inspect(__STACKTRACE__)}")
-      mark_video_as_failed(video_info.path, "Exception: #{Exception.message(e)}")
-      :error
-  end
-
-  defp process_video_individually(video_info) do
-    with {:ok, _eligibility} <- check_processing_eligibility(video_info),
-         {:ok, mediainfo} <- fetch_single_mediainfo(video_info.path),
-         {:ok, validated_mediainfo} <- validate_mediainfo(mediainfo, video_info.path),
-         {:ok, _video} <- upsert_video_record(video_info, validated_mediainfo) do
-      Logger.debug("Successfully processed video: #{video_info.path}")
-      :ok
+         {:ok, attrs} <- prepare_video_attributes(video_info, validated_mediainfo) do
+      {:ok, {video_info, attrs}}
     else
       {:skip, reason} ->
         Logger.debug("Skipping video #{video_info.path}: #{reason}")
-        :ok
+        {:skip, reason}
 
       {:error, reason} ->
-        Logger.error("Failed to process video #{video_info.path}: #{reason}")
-        mark_video_as_failed(video_info.path, reason)
-        :error
+        Logger.error("Failed to prepare video data #{video_info.path}: #{reason}")
+        {:error, video_info.path}
     end
   rescue
     e ->
-      Logger.error("Unexpected error processing #{video_info.path}: #{inspect(e)}")
-      mark_video_as_failed(video_info.path, "Exception: #{Exception.message(e)}")
-      :error
+      Logger.error("Unexpected error preparing #{video_info.path}: #{inspect(e)}")
+      {:error, video_info.path}
+  end
+
+  defp prepare_video_data_individually(video_info) do
+    with {:ok, _eligibility} <- check_processing_eligibility(video_info),
+         {:ok, mediainfo} <- fetch_single_mediainfo(video_info.path),
+         {:ok, validated_mediainfo} <- validate_mediainfo(mediainfo, video_info.path),
+         {:ok, attrs} <- prepare_video_attributes(video_info, validated_mediainfo) do
+      {:ok, {video_info, attrs}}
+    else
+      {:skip, reason} ->
+        Logger.debug("Skipping video #{video_info.path}: #{reason}")
+        {:skip, reason}
+
+      {:error, reason} ->
+        Logger.error("Failed to prepare video data #{video_info.path}: #{reason}")
+        {:error, video_info.path}
+    end
+  rescue
+    e ->
+      Logger.error("Unexpected error preparing #{video_info.path}: #{inspect(e)}")
+      {:error, video_info.path}
+  end
+
+  defp prepare_video_attributes(video_info, validated_mediainfo) do
+    # Use MediaInfoExtractor to convert mediainfo JSON to video parameters
+    alias Reencodarr.Media.MediaInfoExtractor
+
+    Logger.debug("Preparing video attributes for: #{video_info.path}")
+
+    video_params = MediaInfoExtractor.extract_video_params(validated_mediainfo, video_info.path)
+
+    # Add service metadata
+    attrs =
+      Map.merge(video_params, %{
+        "path" => video_info.path,
+        "service_id" => video_info.service_id,
+        "service_type" => to_string(video_info.service_type),
+        "mediainfo" => validated_mediainfo
+      })
+
+    {:ok, attrs}
   end
 
   defp fetch_single_mediainfo(path) do
@@ -492,41 +568,6 @@ defmodule Reencodarr.Analyzer.Broadway do
       _ ->
         Logger.error("Invalid mediainfo structure for #{path}: #{inspect(mediainfo)}")
         {:error, "invalid mediainfo structure"}
-    end
-  end
-
-  defp upsert_video_record(video_info, validated_mediainfo) do
-    # Use MediaInfoExtractor to convert mediainfo JSON to video parameters
-    alias Reencodarr.Media.MediaInfoExtractor
-
-    Logger.info("Upserting video record for: #{video_info.path}")
-    Logger.debug("Video info: #{inspect(video_info)}")
-
-    video_params = MediaInfoExtractor.extract_video_params(validated_mediainfo, video_info.path)
-
-    # Add service metadata
-    attrs =
-      Map.merge(video_params, %{
-        "path" => video_info.path,
-        "service_id" => video_info.service_id,
-        "service_type" => to_string(video_info.service_type),
-        "mediainfo" => validated_mediainfo
-      })
-
-    Logger.debug("Upserting video with attrs: #{inspect(Map.drop(attrs, ["mediainfo"]))}")
-
-    # Upsert the video record
-    case Media.upsert_video(attrs) do
-      {:ok, video} ->
-        Logger.info(
-          "Successfully upserted video: #{video.path}, video_id: #{video.id}, state: #{video.state}"
-        )
-
-        transition_video_to_analyzed(video)
-
-      {:error, changeset} ->
-        Logger.error("Failed to upsert video #{video_info.path}: #{inspect(changeset.errors)}")
-        {:error, "failed to upsert video"}
     end
   end
 

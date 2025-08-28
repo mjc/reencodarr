@@ -188,6 +188,142 @@ defmodule Reencodarr.MediaTest do
         assert String.starts_with?(library.path, "/test/libraries/library_")
       end)
     end
+    @tag :batch_upsert
+    test "batch_upsert_videos/1 creates or updates multiple videos in one transaction" do
+      # Create a library first
+      library = Fixtures.library_fixture()
+
+      # Prepare batch video data
+      video_attrs_list = [
+        %{
+          "path" => "/test/batch_video1.mkv",
+          "size" => 1_000_000_000,
+          "bitrate" => 4_000_000,
+          "library_id" => library.id,
+          "max_audio_channels" => 6,
+          "atmos" => false
+        },
+        %{
+          "path" => "/test/batch_video2.mkv",
+          "size" => 2_000_000_000,
+          "bitrate" => 6_000_000,
+          "library_id" => library.id,
+          "max_audio_channels" => 8,
+          "atmos" => true
+        },
+        %{
+          "path" => "/test/batch_video3.mkv",
+          "size" => 3_000_000_000,
+          "bitrate" => 8_000_000,
+          "library_id" => library.id,
+          "max_audio_channels" => 2,
+          "atmos" => false
+        }
+      ]
+
+      # Perform batch upsert
+      results = Media.batch_upsert_videos(video_attrs_list)
+
+      # Verify all upserts succeeded
+      assert length(results) == 3
+      assert Enum.all?(results, &match?({:ok, _}, &1))
+
+      # Extract the videos
+      videos = Enum.map(results, fn {:ok, video} -> video end)
+
+      # Verify videos were created correctly
+      assert Enum.at(videos, 0).path == "/test/batch_video1.mkv"
+      assert Enum.at(videos, 0).size == 1_000_000_000
+      assert Enum.at(videos, 1).path == "/test/batch_video2.mkv"
+      assert Enum.at(videos, 1).size == 2_000_000_000
+      assert Enum.at(videos, 2).path == "/test/batch_video3.mkv"
+      assert Enum.at(videos, 2).size == 3_000_000_000
+
+      # Verify they exist in database
+      db_videos = Media.list_videos()
+      paths = Enum.map(db_videos, & &1.path)
+      assert "/test/batch_video1.mkv" in paths
+      assert "/test/batch_video2.mkv" in paths
+      assert "/test/batch_video3.mkv" in paths
+    end
+
+    test "batch_upsert_videos/1 handles upserts (updates existing videos)" do
+      # Create initial videos
+      library = Fixtures.library_fixture()
+      existing_video = Fixtures.video_fixture(%{path: "/test/existing.mkv", size: 1_000_000_000, library_id: library.id})
+
+      # Update data for batch upsert
+      video_attrs_list = [
+        %{
+          "path" => "/test/existing.mkv",  # Same path - should update
+          "size" => 2_000_000_000,        # Different size
+          "bitrate" => 7_000_000,
+          "library_id" => library.id,
+          "max_audio_channels" => 8,
+          "atmos" => true
+        },
+        %{
+          "path" => "/test/new_video.mkv",  # New path - should create
+          "size" => 3_000_000_000,
+          "bitrate" => 9_000_000,
+          "library_id" => library.id,
+          "max_audio_channels" => 6,
+          "atmos" => false
+        }
+      ]
+
+      # Perform batch upsert
+      results = Media.batch_upsert_videos(video_attrs_list)
+
+      # Verify results
+      assert length(results) == 2
+      assert Enum.all?(results, &match?({:ok, _}, &1))
+
+      # Check updated existing video
+      updated_video = Media.get_video!(existing_video.id)
+      assert updated_video.size == 2_000_000_000  # Updated
+      assert updated_video.path == "/test/existing.mkv"  # Same
+      assert updated_video.atmos == true  # Updated
+
+      # Check new video was created
+      all_videos = Media.list_videos()
+      new_video = Enum.find(all_videos, &(&1.path == "/test/new_video.mkv"))
+      assert new_video != nil
+      assert new_video.size == 3_000_000_000
+    end
+
+    test "batch_upsert_videos/1 handles errors gracefully" do
+      # Create a library first
+      library = Fixtures.library_fixture()
+
+      # Test with invalid data - valid path but missing required size
+      video_attrs_list = [
+        %{
+          "path" => "/test/valid.mkv",
+          "size" => 1_000_000_000,
+          "bitrate" => 4_000_000,
+          "library_id" => library.id,
+          "max_audio_channels" => 6,
+          "atmos" => false
+        },
+        %{
+          "path" => "/test/invalid.mkv",
+          # Missing required size field
+          "bitrate" => 4_000_000,
+          "library_id" => library.id,
+          "max_audio_channels" => 6,
+          "atmos" => false
+        }
+      ]
+
+      # Perform batch upsert
+      results = Media.batch_upsert_videos(video_attrs_list)
+
+      # Should have one success and one error
+      assert length(results) == 2
+      assert match?({:ok, _}, Enum.at(results, 0))
+      assert match?({:error, _}, Enum.at(results, 1))
+    end
   end
 
   describe "vmafs" do

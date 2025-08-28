@@ -77,6 +77,10 @@ defmodule Reencodarr.Media do
     VideoUpsert.upsert(attrs)
   end
 
+  def batch_upsert_videos(video_attrs_list) do
+    VideoUpsert.batch_upsert(video_attrs_list)
+  end
+
   def update_video(%Video{} = video, attrs) do
     video |> Video.changeset(attrs) |> Repo.update()
   end
