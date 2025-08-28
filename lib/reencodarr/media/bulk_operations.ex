@@ -7,6 +7,7 @@ defmodule Reencodarr.Media.BulkOperations do
   """
 
   import Ecto.Query
+  import Reencodarr.Media.SharedQueries, only: [videos_with_no_chosen_vmafs_query: 0]
   alias Reencodarr.Media.{Video, VideoFailure, Vmaf}
   alias Reencodarr.Repo
   require Logger
@@ -319,11 +320,7 @@ defmodule Reencodarr.Media.BulkOperations do
     Repo.transaction(fn ->
       # Get video_ids that have vmafs but none are chosen
       video_ids_with_no_chosen_vmafs =
-        from(v in Vmaf,
-          group_by: v.video_id,
-          having: fragment("COUNT(*) FILTER (WHERE ? = true) = 0", v.chosen),
-          select: v.video_id
-        )
+        videos_with_no_chosen_vmafs_query()
         |> Repo.all()
 
       # Delete all vmafs for those video_ids

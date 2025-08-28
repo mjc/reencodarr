@@ -68,7 +68,7 @@ defmodule Reencodarr.MixProject do
       {:phoenix_live_dashboard, "~> 0.8.3"},
       {:phoenix_live_reload, "~> 1.2", only: :dev},
       {:phoenix_live_view, "~> 1.1"},
-      {:postgrex, ">= 0.0.0"},
+      {:ecto_sqlite3, "~> 0.17"},
       {:req, "~> 0.5"},
       {:stream_data, "~> 1.2.0", only: :test},
       {:swoosh, "~> 1.5"},

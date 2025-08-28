@@ -2,9 +2,8 @@ defmodule Reencodarr.Repo.Migrations.MakePathLonger do
   use Ecto.Migration
 
   def up do
-    alter table(:videos) do
-      modify :path, :text
-    end
+    # SQLite doesn't support ALTER COLUMN - TEXT is already the default string type
+    # This migration is effectively a no-op for SQLite
   end
 
   def down do

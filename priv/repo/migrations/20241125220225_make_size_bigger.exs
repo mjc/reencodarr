@@ -2,8 +2,7 @@ defmodule Reencodarr.Repo.Migrations.MakeSizeBigger do
   use Ecto.Migration
 
   def change do
-    alter table(:videos) do
-      modify :size, :bigint
-    end
+    # SQLite doesn't support ALTER COLUMN - INTEGER can handle large values
+    # This migration is effectively a no-op for SQLite
   end
 end

@@ -2,13 +2,15 @@ import Config
 
 # Configure your database
 config :reencodarr, Reencodarr.Repo,
-  # username: "postgres",
-  # password: "postgres",
-  # hostname: "localhost",
-  database: "reencodarr_dev",
+  database: "priv/reencodarr_dev.db",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
-  pool_size: 50
+  pool_size: 5,
+  # Enable JSONB support for arrays and maps (more efficient than JSON strings)
+  # Use JSONB storage format for arrays
+  array_type: :binary,
+  # Use JSONB storage format for maps
+  map_type: :binary
 
 # For development, we disable any cache and enable
 # debugging and code reloading.

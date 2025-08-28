@@ -1,5 +1,11 @@
 defmodule Reencodarr.Media do
-  import Ecto.Query, warn: false
+  import Ecto.Changeset
+  import Ecto.Query
+
+  import __MODULE__.SharedQueries,
+    only: [aggregated_stats_query: 0, videos_with_no_chosen_vmafs_query: 0],
+    warn: false
+
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.Analyzer.QueueManager
 
@@ -756,10 +762,6 @@ defmodule Reencodarr.Media do
     }
   end
 
-  defp aggregated_stats_query do
-    SharedQueries.aggregated_stats_query()
-  end
-
   def get_next_for_encoding_by_time,
     do:
       Repo.one(
@@ -831,11 +833,7 @@ defmodule Reencodarr.Media do
     Repo.transaction(fn ->
       # Get video_ids that have vmafs but none are chosen
       video_ids_with_no_chosen_vmafs =
-        from(v in Vmaf,
-          group_by: v.video_id,
-          having: fragment("COUNT(*) FILTER (WHERE ? = true) = 0", v.chosen),
-          select: v.video_id
-        )
+        videos_with_no_chosen_vmafs_query()
         |> Repo.all()
 
       # Delete all vmafs for those video_ids
