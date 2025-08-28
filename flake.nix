@@ -14,13 +14,15 @@
       system: let
         pkgs = import nixpkgs {inherit system;};
         lib = pkgs.lib;
-        erlang = pkgs.erlang.override {
-          version = "27.3.4.1";
-          src = pkgs.fetchurl {
-            url = "https://github.com/erlang/otp/releases/download/OTP-${erlang.version}/otp_src_${erlang.version}.tar.gz";
-            sha256 = "sha256-JnLwxSuf85aVucj5nNGEbtnkfiHNWwRczdCHGaMBllI=";
-          };
-        };
+        # current is 28.0.2
+        erlang = pkgs.erlang;
+        # erlang = pkgs.erlang.override {
+        #   version = "28.0.2";
+        #   src = pkgs.fetchurl {
+        #     url = "https://github.com/erlang/otp/releases/download/OTP-${erlang.version}/otp_src_${erlang.version}.tar.gz";
+        #     sha256 = "sha256-zkPciimta8G22/yX8FPS6FC0pMKQ7KBlBY1rM85HbbU=";
+        #   };
+        # };
         beamPackages = pkgs.beam.packagesWith erlang;
         elixir = beamPackages.elixir.override {
           erlang = erlang;
