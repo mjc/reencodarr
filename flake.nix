@@ -66,7 +66,7 @@
           nativeBuildInputs =
             [
               erlang
-              elixir
+              pkgs.elixir
               beamPackages.ex_doc
               beamPackages.hex
               beamPackages.rebar
