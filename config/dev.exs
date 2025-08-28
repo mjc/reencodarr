@@ -98,7 +98,7 @@ config :swoosh, :api_client, false
 
 config :live_debugger,
   # IP on which LiveDebugger will be hosted
-  ip: {192, 168, 1, 5},
+  ip: {127, 0, 0, 1},
   # Port on which LiveDebugger will be hosted
   port: 4007,
   # Secret key used for LiveDebugger.Endpoint
@@ -108,8 +108,7 @@ config :live_debugger,
   # Adapter used in LiveDebugger.Endpoint
   adapter: Bandit.PhoenixAdapter,
   # Forces LiveDebugger to start even if project is not started with the `mix phx.server`
-  server: true,
-  external_url: "http://192.168.1.5:9007"
+  server: true
 
 # Load local overrides from dev.overrides.exs if exists
 if File.exists?("config/dev.overrides.exs"), do: import_config("dev.overrides.exs")
