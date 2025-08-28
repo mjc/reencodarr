@@ -1,37 +1,13 @@
 defmodule Reencodarr.Application do
   # See https://hexdocs.pm/elixir/Application.html
   # for more information on OTP Applications
-  @moduledoc """
-  Main application module with support for distributed architecture modes.
-  
-  This application can run in three modes:
-  - :monolithic (default) - Traditional single-node operation
-  - :server - Distributed server mode (database, web, coordination)
-  - :client - Distributed client mode (processing tasks only)
-  """
+  @moduledoc false
 
   use Application
-  require Logger
 
   @impl true
-  def start(type, args) do
-    # Route to appropriate application based on mode
-    case Reencodarr.Core.Mode.current_mode() do
-      :monolithic -> 
-        start_monolithic_mode()
-        
-      :server -> 
-        Reencodarr.Server.Application.start(type, args)
-        
-      :client -> 
-        Reencodarr.Client.Application.start(type, args)
-    end
-  end
-
-  defp start_monolithic_mode do
-    Logger.info("Starting Reencodarr in monolithic mode")
-    
-    # Original monolithic startup logic
+  def start(_type, _args) do
+    # Setup file logging
     setup_file_logging()
 
     opts = [strategy: :one_for_one, name: Reencodarr.Supervisor]
