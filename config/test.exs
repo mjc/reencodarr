@@ -6,12 +6,12 @@ import Config
 # to provide built-in test partitioning in CI environment.
 # Run `mix help test` for more information.
 config :reencodarr, Reencodarr.Repo,
-  username: "postgres",
-  password: "postgres",
-  hostname: "localhost",
-  database: "reencodarr_test#{System.get_env("MIX_TEST_PARTITION")}",
+  database: "priv/reencodarr_test#{System.get_env("MIX_TEST_PARTITION")}.db",
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2
+  pool_size: System.schedulers_online() * 2,
+  # Enable JSONB support for arrays and maps
+  array_type: :binary,
+  map_type: :binary
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.

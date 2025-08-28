@@ -131,7 +131,6 @@ defmodule MigrationScript do
         percent REAL,
         time INTEGER,
         savings BIGINT,
-        target INTEGER DEFAULT 95,
         params TEXT,
         inserted_at DATETIME NOT NULL,
         updated_at DATETIME NOT NULL,

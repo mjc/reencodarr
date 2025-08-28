@@ -2,22 +2,12 @@ defmodule Reencodarr.Repo.Migrations.AlterVmafsSizeType do
   use Ecto.Migration
 
   def up do
-    alter table(:vmafs) do
-      modify :size, :text
-    end
-
-    alter table(:videos) do
-      modify :path, :text
-    end
+    # SQLite doesn't support ALTER COLUMN - TEXT is the default string type
+    # This migration is effectively a no-op for SQLite
   end
 
   def down do
-    alter table(:vmafs) do
-      modify :size, :string
-    end
-
-    alter table(:videos) do
-      modify :path, :string
-    end
+    # SQLite doesn't support ALTER COLUMN - TEXT is the default string type
+    # This migration is effectively a no-op for SQLite
   end
 end

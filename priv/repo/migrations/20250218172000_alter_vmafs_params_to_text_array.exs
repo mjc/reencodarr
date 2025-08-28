@@ -2,14 +2,13 @@ defmodule Reencodarr.Repo.Migrations.AlterVmafsParamsToTextArray do
   use Ecto.Migration
 
   def up do
-    alter table(:vmafs) do
-      modify :params, {:array, :text}, from: {:array, :string}
-    end
+    # SQLite doesn't support ALTER COLUMN type changes
+    # With ecto_sqlite3 native array support, {:array, :string} and {:array, :text} are functionally equivalent
+    # This migration is effectively a no-op for SQLite
   end
 
   def down do
-    alter table(:vmafs) do
-      modify :params, {:array, :string}, from: {:array, :text}
-    end
+    # SQLite doesn't support ALTER COLUMN type changes
+    # This migration is effectively a no-op for SQLite
   end
 end
