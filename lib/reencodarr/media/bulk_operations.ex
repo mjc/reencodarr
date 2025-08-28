@@ -8,7 +8,7 @@ defmodule Reencodarr.Media.BulkOperations do
 
   import Ecto.Query
   import Reencodarr.Media.SharedQueries, only: [videos_with_no_chosen_vmafs_query: 0]
-  alias Reencodarr.Media.{Video, VideoFailure, Vmaf}
+  alias Reencodarr.Media.{SharedQueries, Video, VideoFailure, Vmaf}
   alias Reencodarr.Repo
   require Logger
 
@@ -334,7 +334,11 @@ defmodule Reencodarr.Media.BulkOperations do
   """
   @spec delete_videos_with_path(String.t()) :: {integer(), nil}
   def delete_videos_with_path(path) do
-    video_ids = from(v in Video, where: ilike(v.path, ^path), select: v.id) |> Repo.all()
+    case_insensitive_like_condition = SharedQueries.case_insensitive_like(:path, path)
+
+    video_ids =
+      from(v in Video, where: ^case_insensitive_like_condition, select: v.id) |> Repo.all()
+
     delete_videos_by_ids(video_ids)
   end
 

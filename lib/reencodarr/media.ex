@@ -1,5 +1,4 @@
 defmodule Reencodarr.Media do
-  import Ecto.Changeset
   import Ecto.Query
 
   import __MODULE__.SharedQueries,
@@ -449,7 +448,11 @@ defmodule Reencodarr.Media do
   end
 
   def delete_videos_with_path(path) do
-    video_ids = from(v in Video, where: ilike(v.path, ^path), select: v.id) |> Repo.all()
+    case_insensitive_like_condition = SharedQueries.case_insensitive_like(:path, path)
+
+    video_ids =
+      from(v in Video, where: ^case_insensitive_like_condition, select: v.id) |> Repo.all()
+
     delete_videos_by_ids(video_ids)
   end
 
