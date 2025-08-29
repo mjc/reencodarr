@@ -188,6 +188,7 @@ defmodule Reencodarr.MediaTest do
         assert String.starts_with?(library.path, "/test/libraries/library_")
       end)
     end
+
     @tag :batch_upsert
     test "batch_upsert_videos/1 creates or updates multiple videos in one transaction" do
       # Create a library first
@@ -250,20 +251,29 @@ defmodule Reencodarr.MediaTest do
     test "batch_upsert_videos/1 handles upserts (updates existing videos)" do
       # Create initial videos
       library = Fixtures.library_fixture()
-      existing_video = Fixtures.video_fixture(%{path: "/test/existing.mkv", size: 1_000_000_000, library_id: library.id})
+
+      existing_video =
+        Fixtures.video_fixture(%{
+          path: "/test/existing.mkv",
+          size: 1_000_000_000,
+          library_id: library.id
+        })
 
       # Update data for batch upsert
       video_attrs_list = [
         %{
-          "path" => "/test/existing.mkv",  # Same path - should update
-          "size" => 2_000_000_000,        # Different size
+          # Same path - should update
+          "path" => "/test/existing.mkv",
+          # Different size
+          "size" => 2_000_000_000,
           "bitrate" => 7_000_000,
           "library_id" => library.id,
           "max_audio_channels" => 8,
           "atmos" => true
         },
         %{
-          "path" => "/test/new_video.mkv",  # New path - should create
+          # New path - should create
+          "path" => "/test/new_video.mkv",
           "size" => 3_000_000_000,
           "bitrate" => 9_000_000,
           "library_id" => library.id,
@@ -281,9 +291,12 @@ defmodule Reencodarr.MediaTest do
 
       # Check updated existing video
       updated_video = Media.get_video!(existing_video.id)
-      assert updated_video.size == 2_000_000_000  # Updated
-      assert updated_video.path == "/test/existing.mkv"  # Same
-      assert updated_video.atmos == true  # Updated
+      # Updated
+      assert updated_video.size == 2_000_000_000
+      # Same
+      assert updated_video.path == "/test/existing.mkv"
+      # Updated
+      assert updated_video.atmos == true
 
       # Check new video was created
       all_videos = Media.list_videos()
