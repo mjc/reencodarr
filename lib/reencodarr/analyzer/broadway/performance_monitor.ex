@@ -20,7 +20,9 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
     :message_count,
     :last_adjustment,
     :throughput_history,
-    :target_throughput
+    :target_throughput,
+    :previous_rate_limit,
+    :previous_throughput
   ]
 
   def start_link(broadway_name) do
@@ -47,7 +49,9 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
       last_adjustment: System.monotonic_time(:millisecond),
       throughput_history: [],
       # Target MB/s - adjust based on your system
-      target_throughput: 200
+      target_throughput: 200,
+      previous_rate_limit: @default_rate_limit,
+      previous_throughput: 0.0
     }
 
     Logger.info(
@@ -109,23 +113,44 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
         "Performance metrics - Rate limit: #{state.rate_limit}, Avg throughput: #{Float.round(avg_throughput, 2)} msgs/min, Messages in last #{time_since_last}ms: #{messages_per_interval}"
       )
 
-      new_rate_limit =
+      # Check if current throughput is worse than previous throughput
+      throughput_decreased = state.previous_throughput > 0.0 and 
+                            avg_throughput < state.previous_throughput * 0.95  # 5% decrease threshold
+
+      new_rate_limit = if throughput_decreased do
+        Logger.info(
+          "Throughput decreased from #{Float.round(state.previous_throughput, 2)} to #{Float.round(avg_throughput, 2)} msgs/min, reverting rate limit from #{state.rate_limit} to #{state.previous_rate_limit}"
+        )
+        state.previous_rate_limit
+      else
         calculate_new_rate_limit(
           state.rate_limit,
           avg_throughput,
           messages_per_interval,
-          time_since_last
+          time_since_last,
+          state.previous_throughput
         )
+      end
 
+      # Update rate limit if it changed
       if new_rate_limit != state.rate_limit do
-        Logger.info(
-          "Adjusting Broadway rate limit from #{state.rate_limit} to #{new_rate_limit} (avg throughput: #{Float.round(avg_throughput, 2)} msgs/min)"
-        )
+        unless throughput_decreased do
+          Logger.info(
+            "Adjusting Broadway rate limit from #{state.rate_limit} to #{new_rate_limit} (avg throughput: #{Float.round(avg_throughput, 2)} msgs/min)"
+          )
+        end
 
         Broadway.update_rate_limiting(state.broadway_name, allowed_messages: new_rate_limit)
       end
 
-      %{state | rate_limit: new_rate_limit, message_count: 0, last_adjustment: current_time}
+      # Update state with new values and preserve previous values for comparison
+      %{state | 
+        rate_limit: new_rate_limit, 
+        message_count: 0, 
+        last_adjustment: current_time,
+        previous_rate_limit: state.rate_limit,
+        previous_throughput: avg_throughput
+      }
     else
       state
     end
@@ -144,17 +169,27 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
          current_rate,
          avg_throughput,
          messages_processed,
-         time_interval_ms
+         time_interval_ms,
+         previous_throughput
        ) do
     # Calculate actual message rate over the interval (messages per minute)
     actual_rate =
       if time_interval_ms > 0, do: messages_processed * 60_000 / time_interval_ms, else: 0
 
+    # Be more conservative if we have previous throughput data to compare
+    has_baseline = previous_throughput > 0.0
+    throughput_improved = has_baseline and avg_throughput > previous_throughput * 1.05  # 5% improvement
+
     cond do
       # If we're processing very fast and close to rate limit, increase it
-      # 3000 msgs/min = 50 msgs/s (high throughput for video processing)
+      # But be more conservative if we have a baseline and haven't improved significantly
       actual_rate > current_rate * 0.8 and avg_throughput > 3000 ->
-        min(@max_rate_limit, trunc(current_rate * 1.3))
+        if has_baseline and not throughput_improved do
+          # More conservative increase when we have a baseline
+          min(@max_rate_limit, trunc(current_rate * 1.1))
+        else
+          min(@max_rate_limit, trunc(current_rate * 1.3))
+        end
 
       # If we're processing slowly, decrease rate limit to reduce pressure
       # 600 msgs/min = 10 msgs/s (low throughput)
@@ -164,7 +199,12 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
       # If throughput is moderate but we're not hitting rate limit, slight increase
       # 1500 msgs/min = 25 msgs/s (moderate throughput)
       avg_throughput > 1500 and actual_rate < current_rate * 0.5 ->
-        min(@max_rate_limit, trunc(current_rate * 1.1))
+        if has_baseline and not throughput_improved do
+          # Don't increase if we haven't improved over baseline
+          current_rate
+        else
+          min(@max_rate_limit, trunc(current_rate * 1.1))
+        end
 
       # Otherwise keep current rate
       true ->
