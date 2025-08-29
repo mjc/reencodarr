@@ -11,6 +11,7 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   alias Broadway.Message
   alias Reencodarr.Analyzer.Broadway.Producer
+  alias Reencodarr.Analyzer.Broadway.PerformanceMonitor
   alias Reencodarr.{Media, Telemetry}
 
   @doc """
@@ -23,20 +24,20 @@ defmodule Reencodarr.Analyzer.Broadway do
         module: {Producer, []},
         transformer: {__MODULE__, :transform, []},
         rate_limiting: [
-          allowed_messages: 25,
+          allowed_messages: 2000,
           interval: 1000
         ]
       ],
       processors: [
         default: [
-          concurrency: 1,
-          max_demand: 1
+          concurrency: 16,
+          max_demand: 100
         ]
       ],
       batchers: [
         default: [
           batch_size: 100,
-          batch_timeout: 5_000,
+          batch_timeout: 25,
           concurrency: 1
         ]
       ],
@@ -45,6 +46,25 @@ defmodule Reencodarr.Analyzer.Broadway do
         processing_timeout: :timer.minutes(5)
       }
     )
+    |> case do
+      {:ok, _pid} = result ->
+        # Start performance monitor for self-tuning after Broadway starts successfully
+        case PerformanceMonitor.start_link(__MODULE__) do
+          {:ok, _monitor_pid} ->
+            Logger.info("Performance monitor started for self-tuning Broadway")
+
+          {:error, {:already_started, _monitor_pid}} ->
+            Logger.debug("Performance monitor already running")
+
+          {:error, reason} ->
+            Logger.warning("Failed to start performance monitor: #{inspect(reason)}")
+        end
+
+        result
+
+      error_result ->
+        error_result
+    end
   end
 
   @doc """
@@ -91,6 +111,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   @impl Broadway
   def handle_message(_processor_name, message, _context) do
     # Route messages to the default batcher for batch processing
+    Logger.debug("Broadway: Routing message to batcher for video: #{message.data.path}")
     Message.put_batcher(message, :default)
   end
 
@@ -99,17 +120,40 @@ defmodule Reencodarr.Analyzer.Broadway do
     start_time = System.monotonic_time(:millisecond)
     batch_size = length(messages)
 
-    Logger.debug("Processing batch of #{batch_size} videos with single mediainfo call")
+    Logger.debug("Broadway: Starting batch processing of #{batch_size} videos")
 
     # Extract video_infos from messages
     video_infos = Enum.map(messages, & &1.data)
 
+    Logger.debug(
+      "Broadway: Batch contains video paths: #{inspect(Enum.map(video_infos, & &1.path))}"
+    )
+
     # Process the batch using optimized batch mediainfo fetching
-    process_batch_with_single_mediainfo(video_infos, context)
+    # This does ALL the mediainfo gathering first, then database operations at the end
+    result =
+      try do
+        process_batch_with_single_mediainfo(video_infos, context)
+      rescue
+        e ->
+          Logger.error("Broadway: Exception during batch processing: #{inspect(e)}")
+          Logger.error("Broadway: Exception stacktrace: #{inspect(__STACKTRACE__)}")
+          :error
+      end
+
+    # Only log failures
+    case result do
+      :error -> Logger.error("Broadway: Batch processing failed")
+      _ -> :ok
+    end
 
     # Log completion and emit telemetry
     duration = System.monotonic_time(:millisecond) - start_time
-    Logger.debug("Completed batch of #{batch_size} videos in #{duration}ms")
+    Logger.debug("Broadway: Completed batch of #{batch_size} videos in #{duration}ms")
+
+    # Report performance metrics for self-tuning
+    PerformanceMonitor.record_batch_processed(batch_size, duration)
+
     Telemetry.emit_analyzer_throughput(batch_size, 0)
 
     # Notify producer that batch analysis is complete
@@ -119,17 +163,14 @@ defmodule Reencodarr.Analyzer.Broadway do
       {:batch_analysis_completed, batch_size}
     )
 
-    # Also notify for each individual video for any listeners that expect it
-    Enum.each(video_infos, fn video_info ->
-      Phoenix.PubSub.broadcast(
-        Reencodarr.PubSub,
-        "analyzer_events",
-        {:analysis_completed, video_info.path, :success}
-      )
+    # Transform successful results to success, all failed to failed for Broadway
+    Enum.map(messages, fn message ->
+      case result do
+        :ok -> message
+        :error -> Message.failed(message, "batch processing failed")
+        _ -> message
+      end
     end)
-
-    # Since process_batch always returns :ok, all messages are successful
-    messages
   end
 
   @doc """
@@ -145,40 +186,75 @@ defmodule Reencodarr.Analyzer.Broadway do
   # Private functions - ported from the GenStage consumer
 
   defp process_batch_with_single_mediainfo(video_infos, _context) do
-    Logger.info("Processing batch of #{length(video_infos)} videos with single mediainfo call")
+    batch_size = length(video_infos)
+
+    if batch_size > 5 do
+      Logger.info("Processing batch of #{batch_size} videos with single mediainfo call")
+    else
+      Logger.debug("Processing batch of #{batch_size} videos with single mediainfo call")
+    end
+
     Logger.debug("Video paths in batch: #{inspect(Enum.map(video_infos, & &1.path))}")
 
-    # Extract all paths for batch mediainfo command
-    paths = Enum.map(video_infos, & &1.path)
+    try do
+      # Extract all paths for batch mediainfo command
+      paths = Enum.map(video_infos, & &1.path)
+      Logger.debug("Broadway: Extracted #{length(paths)} paths for mediainfo")
 
-    case execute_batch_mediainfo_command(paths) do
-      {:ok, mediainfo_map} ->
-        Logger.info("Successfully fetched mediainfo for #{length(video_infos)} videos")
-        Logger.debug("Mediainfo keys: #{inspect(Map.keys(mediainfo_map))}")
-        process_videos_with_batch_mediainfo(video_infos, mediainfo_map)
+      case execute_batch_mediainfo_command(paths) do
+        {:ok, mediainfo_map} ->
+          Logger.debug("Successfully fetched mediainfo for #{length(video_infos)} videos")
+          Logger.debug("Mediainfo keys: #{inspect(Map.keys(mediainfo_map))}")
+          Logger.debug("Broadway: About to process videos with batch mediainfo")
+          result = process_videos_with_batch_mediainfo(video_infos, mediainfo_map)
 
-      {:error, reason} ->
-        Logger.warning(
-          "Batch mediainfo fetch failed: #{reason}, falling back to individual processing"
-        )
+          Logger.debug(
+            "Broadway: Completed process_videos_with_batch_mediainfo with result: #{inspect(result)}"
+          )
 
-        process_videos_individually(video_infos)
+          result
+
+        {:error, reason} ->
+          Logger.warning(
+            "Batch mediainfo fetch failed: #{reason}, falling back to individual processing"
+          )
+
+          Logger.debug("Broadway: About to process videos individually")
+          result = process_videos_individually(video_infos)
+
+          Logger.debug(
+            "Broadway: Completed process_videos_individually with result: #{inspect(result)}"
+          )
+
+          result
+      end
+    rescue
+      e ->
+        Logger.error("Broadway: Exception in process_batch_with_single_mediainfo: #{inspect(e)}")
+        Logger.error("Broadway: Stacktrace: #{inspect(__STACKTRACE__)}")
+        :error
     end
   end
 
   defp process_videos_with_batch_mediainfo(video_infos, mediainfo_map) do
     Logger.debug("Processing #{length(video_infos)} videos with batch-fetched mediainfo")
 
+    Logger.debug(
+      "Broadway: process_videos_with_batch_mediainfo - processing paths: #{inspect(Enum.map(video_infos, & &1.path))}"
+    )
+
     # Process all videos to prepare data (without database operations)
     processed_videos =
       video_infos
       |> Task.async_stream(
         &prepare_video_data_with_mediainfo(&1, Map.get(mediainfo_map, &1.path, :no_mediainfo)),
-        max_concurrency: 2,
+        max_concurrency: 25,
         timeout: :timer.minutes(5),
         on_timeout: :kill_task
       )
       |> Enum.to_list()
+
+    Logger.debug("Broadway: Task.async_stream completed with #{length(processed_videos)} results")
 
     # Separate successful and failed preparations
     {successful_data, failed_paths} = categorize_preparation_results(processed_videos)
@@ -195,7 +271,7 @@ defmodule Reencodarr.Analyzer.Broadway do
       video_infos
       |> Task.async_stream(
         &prepare_video_data_individually/1,
-        max_concurrency: 2,
+        max_concurrency: 9,
         timeout: :timer.minutes(5),
         on_timeout: :kill_task
       )
@@ -209,68 +285,184 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp categorize_preparation_results(processed_videos) do
+    Logger.debug(
+      "Broadway: categorize_preparation_results processing #{length(processed_videos)} results"
+    )
+
     {successful_data, failed_paths} =
       Enum.reduce(processed_videos, {[], []}, fn
         {:ok, {:ok, video_data}}, {success_acc, fail_acc} ->
+          {video_info, _attrs} = video_data
+          Logger.debug("Broadway: Video #{video_info.path} prepared successfully")
           {[video_data | success_acc], fail_acc}
 
-        {:ok, {:skip, _reason}}, acc ->
+        {:ok, {:skip, reason}}, acc ->
+          Logger.debug("Broadway: Video skipped during preparation: #{reason}")
           acc
 
         {:ok, {:error, path}}, {success_acc, fail_acc} ->
+          Logger.error("Broadway: Video preparation failed for path: #{path}")
           {success_acc, [path | fail_acc]}
 
         {:exit, :timeout}, {success_acc, fail_acc} ->
+          Logger.error("Broadway: Video preparation timed out")
           {success_acc, ["timeout" | fail_acc]}
 
-        _, {success_acc, fail_acc} ->
+        other, {success_acc, fail_acc} ->
+          Logger.error("Broadway: Unexpected preparation result: #{inspect(other)}")
           {success_acc, ["unknown_error" | fail_acc]}
       end)
+
+    Logger.info(
+      "Broadway: Categorization complete - #{length(successful_data)} successful, #{length(failed_paths)} failed"
+    )
 
     {Enum.reverse(successful_data), Enum.reverse(failed_paths)}
   end
 
   defp batch_upsert_and_transition_videos(successful_data, failed_paths) do
+    Logger.debug(
+      "Broadway: Starting batch_upsert_and_transition_videos with #{length(successful_data)} successful videos and #{length(failed_paths)} failed paths"
+    )
+
     if length(successful_data) > 0 do
-      Logger.info("Performing batch upsert for #{length(successful_data)} videos")
-
-      # Extract video attributes for batch upsert
-      video_attrs_list = Enum.map(successful_data, fn {_video_info, attrs} -> attrs end)
-
-      # Perform batch upsert
-      upsert_results = Media.batch_upsert_videos(video_attrs_list)
-
-      # Handle state transitions for successfully upserted videos
-      transition_results =
-        successful_data
-        |> Enum.zip(upsert_results)
-        |> Enum.map(fn {{video_info, _attrs}, upsert_result} ->
-          case upsert_result do
-            {:ok, video} ->
-              transition_video_to_analyzed(video)
-              :ok
-
-            {:error, reason} ->
-              Logger.error("Failed to upsert video #{video_info.path}: #{inspect(reason)}")
-              mark_video_as_failed(video_info.path, "upsert failed: #{inspect(reason)}")
-              :error
-          end
-        end)
-
-      success_count = Enum.count(transition_results, &(&1 == :ok))
-      error_count = length(transition_results) - success_count
-      total_errors = error_count + length(failed_paths)
-
-      if total_errors > 0 do
-        Logger.warning(
-          "Batch completed with #{total_errors} errors out of #{length(successful_data) + length(failed_paths)} videos"
-        )
-      end
+      handle_successful_videos(successful_data, failed_paths)
     else
       Logger.debug("No videos to upsert in batch")
     end
 
+    Logger.debug("Broadway: batch_upsert_and_transition_videos completed")
     :ok
+  end
+
+  defp handle_successful_videos(successful_data, failed_paths) do
+    batch_size = length(successful_data)
+    log_batch_operation(batch_size)
+
+    video_attrs_list = Enum.map(successful_data, fn {_video_info, attrs} -> attrs end)
+    log_video_attributes(video_attrs_list)
+
+    case perform_batch_upsert(video_attrs_list, successful_data) do
+      {:ok, upsert_results} ->
+        handle_upsert_results(successful_data, upsert_results, failed_paths)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  rescue
+    e ->
+      Logger.error("Broadway: Exception during batch upsert and transition: #{inspect(e)}")
+      Logger.error("Broadway: Exception stacktrace: #{inspect(__STACKTRACE__)}")
+      :error
+  end
+
+  defp log_batch_operation(batch_size) do
+    if batch_size > 5 do
+      Logger.info("Performing batch upsert for #{batch_size} videos")
+    else
+      Logger.debug("Performing batch upsert for #{batch_size} videos")
+    end
+  end
+
+  defp log_video_attributes(video_attrs_list) do
+    Logger.debug("Broadway: Extracted video attributes, about to call Media.batch_upsert_videos")
+
+    video_attrs_list
+    |> Enum.with_index()
+    |> Enum.each(fn {attrs, index} ->
+      path = Map.get(attrs, "path", "unknown")
+      state = Map.get(attrs, "state", "not_set")
+
+      Logger.debug(
+        "Broadway: Upsert attrs #{index + 1}/#{length(video_attrs_list)} for #{path} - state in attrs: #{state}"
+      )
+    end)
+  end
+
+  defp perform_batch_upsert(video_attrs_list, successful_data) do
+    upsert_results = retry_batch_upsert(video_attrs_list, 3)
+
+    Logger.debug(
+      "Broadway: Media.batch_upsert_videos completed with #{length(upsert_results)} results"
+    )
+
+    if Enum.empty?(upsert_results) and not Enum.empty?(successful_data) do
+      Logger.error("Broadway: Batch upsert failed after retries, marking all videos as failed")
+
+      Enum.each(successful_data, fn {video_info, _attrs} ->
+        mark_video_as_failed(video_info.path, "database busy - batch upsert failed after retries")
+      end)
+
+      {:error, "batch upsert failed after retries"}
+    else
+      {:ok, upsert_results}
+    end
+  end
+
+  defp handle_upsert_results(successful_data, upsert_results, failed_paths) do
+    log_upsert_results(upsert_results)
+
+    Logger.info("Broadway: About to handle state transitions")
+
+    transition_results = process_state_transitions(successful_data, upsert_results)
+    log_processing_summary(transition_results, failed_paths)
+  end
+
+  defp log_upsert_results(upsert_results) do
+    upsert_results
+    |> Enum.with_index()
+    |> Enum.each(fn {result, index} ->
+      case result do
+        {:ok, video} ->
+          Logger.debug(
+            "Broadway: Upsert #{index + 1}/#{length(upsert_results)} SUCCESS for #{video.path} -> video_id: #{video.id}, state: #{video.state}"
+          )
+
+        {:error, reason} ->
+          Logger.error(
+            "Broadway: Upsert #{index + 1}/#{length(upsert_results)} FAILED: #{inspect(reason)}"
+          )
+      end
+    end)
+  end
+
+  defp process_state_transitions(successful_data, upsert_results) do
+    successful_data
+    |> Enum.zip(upsert_results)
+    |> Enum.with_index()
+    |> Enum.map(fn {{{video_info, _attrs}, upsert_result}, index} ->
+      Logger.debug(
+        "Broadway: Processing transition #{index + 1}/#{length(successful_data)} for #{video_info.path}"
+      )
+
+      case upsert_result do
+        {:ok, video} ->
+          Logger.debug("Broadway: Transitioning video #{video_info.path} to analyzed state")
+          transition_video_to_analyzed(video)
+          :ok
+
+        {:error, reason} ->
+          Logger.error("Broadway: UPSERT FAILED for #{video_info.path}: #{inspect(reason)}")
+          mark_video_as_failed(video_info.path, "upsert failed: #{inspect(reason)}")
+          :error
+      end
+    end)
+  end
+
+  defp log_processing_summary(transition_results, failed_paths) do
+    success_count = Enum.count(transition_results, &(&1 == :ok))
+    error_count = length(transition_results) - success_count
+    total_errors = error_count + length(failed_paths)
+
+    Logger.info(
+      "Broadway: Batch processing completed - success: #{success_count}, errors: #{total_errors}"
+    )
+
+    if total_errors > 0 do
+      Logger.warning(
+        "Batch completed with #{total_errors} errors out of #{length(transition_results) + length(failed_paths)} videos"
+      )
+    end
   end
 
   defp prepare_video_data_with_mediainfo(video_info, :no_mediainfo) do
@@ -280,24 +472,31 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   defp prepare_video_data_with_mediainfo(video_info, mediainfo) do
     Logger.debug("Preparing video data with mediainfo: #{video_info.path}")
+    Logger.debug("Broadway: prepare_video_data_with_mediainfo starting for #{video_info.path}")
 
-    with {:ok, _eligibility} <- check_processing_eligibility(video_info),
-         {:ok, validated_mediainfo} <- validate_mediainfo(mediainfo, video_info.path),
-         {:ok, attrs} <- prepare_video_attributes(video_info, validated_mediainfo) do
-      {:ok, {video_info, attrs}}
-    else
-      {:skip, reason} ->
-        Logger.debug("Skipping video #{video_info.path}: #{reason}")
-        {:skip, reason}
+    try do
+      with {:ok, _eligibility} <- check_processing_eligibility(video_info),
+           {:ok, validated_mediainfo} <- validate_mediainfo(mediainfo, video_info.path),
+           {:ok, attrs} <- prepare_video_attributes(video_info, validated_mediainfo) do
+        Logger.debug("Broadway: Successfully prepared video data for #{video_info.path}")
+        {:ok, {video_info, attrs}}
+      else
+        {:skip, reason} ->
+          Logger.debug("Skipping video #{video_info.path}: #{reason}")
+          Logger.debug("Broadway: Skipping video #{video_info.path}: #{reason}")
+          {:skip, reason}
 
-      {:error, reason} ->
-        Logger.error("Failed to prepare video data #{video_info.path}: #{reason}")
+        {:error, reason} ->
+          Logger.error("Failed to prepare video data #{video_info.path}: #{reason}")
+          Logger.error("Broadway: Failed to prepare video data #{video_info.path}: #{reason}")
+          {:error, video_info.path}
+      end
+    rescue
+      e ->
+        Logger.error("Unexpected error preparing #{video_info.path}: #{inspect(e)}")
+        Logger.error("Broadway: Exception preparing #{video_info.path}: #{inspect(e)}")
         {:error, video_info.path}
     end
-  rescue
-    e ->
-      Logger.error("Unexpected error preparing #{video_info.path}: #{inspect(e)}")
-      {:error, video_info.path}
   end
 
   defp prepare_video_data_individually(video_info) do
@@ -401,13 +600,26 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   defp execute_batch_mediainfo_command(paths) when is_list(paths) and paths != [] do
     Logger.debug("Executing batch mediainfo command for #{length(paths)} files")
+    Logger.debug("Broadway: About to execute mediainfo command for paths: #{inspect(paths)}")
 
-    case System.cmd("mediainfo", ["--Output=JSON" | paths]) do
-      {json, 0} ->
-        decode_and_parse_batch_mediainfo_json(json, paths)
+    # Check if all files exist before running mediainfo
+    missing_files = Enum.filter(paths, fn path -> not File.exists?(path) end)
 
-      {error_msg, _code} ->
-        {:error, "mediainfo command failed: #{error_msg}"}
+    if length(missing_files) > 0 do
+      Logger.error("Broadway: Missing files detected: #{inspect(missing_files)}")
+      {:error, "Missing files: #{inspect(missing_files)}"}
+    else
+      Logger.debug("Broadway: All files exist, executing mediainfo command")
+
+      case System.cmd("mediainfo", ["--Output=JSON" | paths], stderr_to_stdout: true) do
+        {json, 0} ->
+          Logger.debug("Broadway: mediainfo command completed successfully")
+          decode_and_parse_batch_mediainfo_json(json, paths)
+
+        {error_msg, code} ->
+          Logger.error("Broadway: mediainfo command failed with code #{code}: #{error_msg}")
+          {:error, "mediainfo command failed: #{error_msg}"}
+      end
     end
   end
 
@@ -550,9 +762,13 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   defp check_processing_eligibility(video_info) do
     # Check if file exists
-    if File.exists?(video_info.path) do
+    file_exists = File.exists?(video_info.path)
+    Logger.debug("Broadway: File existence check for #{video_info.path}: #{file_exists}")
+
+    if file_exists do
       {:ok, :eligible}
     else
+      Logger.warning("Broadway: File does not exist: #{video_info.path}")
       {:skip, "file does not exist"}
     end
   end
@@ -574,7 +790,7 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   defp transition_video_to_analyzed(%{state: state, path: path} = video)
        when state != :needs_analysis do
-    Logger.info("Video #{path} already in state #{state}, skipping transition")
+    Logger.debug("Video #{path} already in state #{state}, skipping transition")
     {:ok, video}
   end
 
@@ -594,11 +810,11 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp transition_to_reencoded_with_logging(video, reason) do
-    Logger.info("Video #{video.path} #{reason}, marking as reencoded (skipping CRF search)")
+    Logger.debug("Video #{video.path} #{reason}, marking as reencoded (skipping CRF search)")
 
     case Media.mark_as_reencoded(video) do
       {:ok, updated_video} ->
-        Logger.info(
+        Logger.debug(
           "Successfully transitioned video to reencoded state: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
         )
 
@@ -617,7 +833,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   defp transition_to_analyzed_with_logging(video) do
     case Media.mark_as_analyzed(video) do
       {:ok, updated_video} ->
-        Logger.info(
+        Logger.debug(
           "Successfully transitioned video state to analyzed: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
         )
 
@@ -654,7 +870,7 @@ defmodule Reencodarr.Analyzer.Broadway do
         # Record detailed failure information based on reason
         record_analysis_failure(video, reason)
 
-        Logger.info("Successfully recorded analysis failure for video #{video.id}")
+        Logger.debug("Successfully recorded analysis failure for video #{video.id}")
         :ok
 
       nil ->
@@ -681,5 +897,46 @@ defmodule Reencodarr.Analyzer.Broadway do
       true ->
         Reencodarr.FailureTracker.record_unknown_failure(video, :analysis, reason)
     end
+  end
+
+  # Retry batch upsert with exponential backoff for database busy errors
+  defp retry_batch_upsert(video_attrs_list, max_retries) do
+    retry_batch_upsert(video_attrs_list, max_retries, 0)
+  end
+
+  defp retry_batch_upsert(video_attrs_list, max_retries, attempt) when attempt < max_retries do
+    Media.batch_upsert_videos(video_attrs_list)
+  rescue
+    error in [Exqlite.Error] ->
+      case error.message do
+        "Database busy" ->
+          wait_time = (:math.pow(2, attempt) * 100) |> round()
+
+          Logger.warning(
+            "Database busy on attempt #{attempt + 1}/#{max_retries}, retrying in #{wait_time}ms"
+          )
+
+          Process.sleep(wait_time)
+          retry_batch_upsert(video_attrs_list, max_retries, attempt + 1)
+
+        _ ->
+          Logger.error("Broadway: Exception during batch upsert: #{inspect(error)}")
+          Logger.error("Broadway: Stacktrace: #{inspect(__STACKTRACE__)}")
+          reraise error, __STACKTRACE__
+      end
+
+    other_error ->
+      Logger.error("Broadway: Exception during batch upsert: #{inspect(other_error)}")
+      Logger.error("Broadway: Stacktrace: #{inspect(__STACKTRACE__)}")
+      reraise other_error, __STACKTRACE__
+  end
+
+  defp retry_batch_upsert(_video_attrs_list, max_retries, attempt) when attempt >= max_retries do
+    Logger.error(
+      "Broadway: Failed to complete batch upsert after #{max_retries} attempts due to database busy"
+    )
+
+    # Return empty list to indicate failure - calling code should handle this
+    []
   end
 end
