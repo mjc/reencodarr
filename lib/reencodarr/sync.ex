@@ -125,25 +125,20 @@ defmodule Reencodarr.Sync do
   end
 
   defp perform_batch_transaction(video_attrs_list) do
-    # Perform batch upsert in a single transaction
-    case Repo.transaction(
-           fn -> process_video_batch(video_attrs_list) end,
-           timeout: :infinity
-         ) do
-      {:ok, _} ->
-        Logger.info("Sync: Successfully processed #{length(video_attrs_list)} videos")
-        :ok
+    # Use the new batch upsert function which handles its own transaction
+    results = Media.batch_upsert_videos(video_attrs_list)
 
-      {:error, reason} ->
-        Logger.error("Sync: Batch upsert failed: #{inspect(reason)}")
-        {:error, reason}
+    # Count successes and failures
+    success_count = Enum.count(results, &match?({:ok, _}, &1))
+    error_count = length(results) - success_count
+
+    if error_count > 0 do
+      Logger.warning(
+        "Sync: Batch completed with #{error_count} errors out of #{length(results)} videos"
+      )
+    else
+      Logger.info("Sync: Successfully processed #{success_count} videos")
     end
-  end
-
-  defp process_video_batch(video_attrs_list) do
-    # Upsert each video - videos with missing bitrate will automatically
-    # be set to needs_analysis state by VideoUpsert logic
-    Enum.each(video_attrs_list, &Media.VideoUpsert.upsert/1)
 
     :ok
   end

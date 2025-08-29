@@ -7,10 +7,12 @@ defmodule Reencodarr.Media.VideoUpsertTest do
 
   setup do
     # Create a library for testing
-    library = %Library{
-      path: "/mnt/test",
-      monitor: true
-    } |> Repo.insert!()
+    library =
+      %Library{
+        path: "/mnt/test",
+        monitor: true
+      }
+      |> Repo.insert!()
 
     {:ok, library: library}
   end
@@ -118,8 +120,10 @@ defmodule Reencodarr.Media.VideoUpsertTest do
       }
 
       assert {:ok, %Video{} = video} = VideoUpsert.upsert(attrs)
-      assert video.max_audio_channels == 6  # default value
-      assert video.atmos == false           # default value
+      # default value
+      assert video.max_audio_channels == 6
+      # default value
+      assert video.atmos == false
     end
 
     test "returns error for invalid attributes" do
@@ -218,7 +222,9 @@ defmodule Reencodarr.Media.VideoUpsertTest do
       {:ok, _video} = VideoUpsert.upsert(attrs)
 
       # Try batch update with older dateAdded
-      batch_attrs = [Map.merge(attrs, %{"dateAdded" => "2020-01-01T00:00:00Z", "size" => 2_000_000})]
+      batch_attrs = [
+        Map.merge(attrs, %{"dateAdded" => "2020-01-01T00:00:00Z", "size" => 2_000_000})
+      ]
 
       results = VideoUpsert.batch_upsert(batch_attrs)
       assert length(results) == 1
@@ -237,8 +243,10 @@ defmodule Reencodarr.Media.VideoUpsertTest do
       # Test with data that has nil path (causes query failure)
       invalid_attrs_list = [
         %{
-          "path" => "",  # Empty path instead of nil
-          "size" => "not_a_number"  # Invalid size
+          # Empty path instead of nil
+          "path" => "",
+          # Invalid size
+          "size" => "not_a_number"
         }
       ]
 
@@ -267,10 +275,12 @@ defmodule Reencodarr.Media.VideoUpsertTest do
       {:ok, original_video} = VideoUpsert.upsert(attrs)
 
       # Update with same file characteristics but different metadata
-      updated_attrs = Map.merge(attrs, %{
-        "bitrate" => 10_000_000,  # Different bitrate
-        "mediainfo" => "different metadata"
-      })
+      updated_attrs =
+        Map.merge(attrs, %{
+          # Different bitrate
+          "bitrate" => 10_000_000,
+          "mediainfo" => "different metadata"
+        })
 
       {:ok, updated_video} = VideoUpsert.upsert(updated_attrs)
 
@@ -296,10 +306,13 @@ defmodule Reencodarr.Media.VideoUpsertTest do
       {:ok, original_video} = VideoUpsert.upsert(attrs)
 
       # Update with different file characteristics
-      updated_attrs = Map.merge(attrs, %{
-        "size" => 2_000_000,     # Different size
-        "bitrate" => 10_000_000  # Different bitrate
-      })
+      updated_attrs =
+        Map.merge(attrs, %{
+          # Different size
+          "size" => 2_000_000,
+          # Different bitrate
+          "bitrate" => 10_000_000
+        })
 
       {:ok, updated_video} = VideoUpsert.upsert(updated_attrs)
 

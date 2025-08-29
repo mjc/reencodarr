@@ -38,7 +38,8 @@ defmodule ReencodarrWeb.Dashboard.PresenterTest do
         stats: %Stats{
           total_videos: 100,
           queue_length: %{analyzer: 5, crf_searches: 10, encodes: 2},
-          next_analyzer: [],  # Empty list simulates no analyzer files
+          # Empty list simulates no analyzer files
+          next_analyzer: [],
           next_crf_search: [%{id: 3}],
           videos_by_estimated_percent: [%{id: 4}]
         },
