@@ -289,7 +289,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     dispatched_count = length(manual_videos)
     remaining_demand = state.demand - dispatched_count
 
-    Logger.info(
+    Logger.debug(
       "Dispatching videos - manual: #{length(manual_videos)}, remaining_demand: #{remaining_demand}"
     )
 
@@ -303,10 +303,11 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     database_videos =
       if remaining_demand > 0 do
         videos = Media.get_videos_needing_analysis(remaining_demand)
-        Logger.info("Database videos fetched: #{length(videos)} videos")
+        Logger.debug("Database videos fetched: #{length(videos)} videos")
 
         if length(videos) > 0 do
-          Logger.info("Database video paths: #{inspect(Enum.map(videos, & &1.path))}")
+          Logger.debug("Database video paths: #{inspect(Enum.map(videos, & &1.path))}")
+          debug_video_states(videos)
         end
 
         videos
@@ -323,8 +324,8 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
         {:noreply, [], state}
 
       videos ->
-        Logger.info("Broadway producer dispatching #{length(videos)} videos for analysis")
-        Logger.info("All videos being dispatched: #{inspect(Enum.map(videos, & &1.path))}")
+        Logger.debug("Broadway producer dispatching #{length(videos)} videos for analysis")
+        Logger.debug("All videos being dispatched: #{inspect(Enum.map(videos, & &1.path))}")
         new_demand = state.demand - length(videos)
         new_state = State.update(state, demand: new_demand, manual_queue: remaining_manual)
 
@@ -449,5 +450,18 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       {:empty, _queue} ->
         {Enum.reverse(acc), queue}
     end
+  end
+
+  # Debug helper function to check video states
+  defp debug_video_states(videos) do
+    Enum.each(videos, fn video_info ->
+      case Media.get_video_by_path(video_info.path) do
+        nil ->
+          Logger.warning("DEBUG: Video not found in DB: #{video_info.path}")
+
+        video ->
+          Logger.debug("DEBUG: Video #{video_info.path} has state: #{video.state}")
+      end
+    end)
   end
 end
