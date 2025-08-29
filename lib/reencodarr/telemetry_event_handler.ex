@@ -84,6 +84,13 @@ defmodule Reencodarr.TelemetryEventHandler do
     GenServer.cast(pid, {:update_analyzer, false})
   end
 
+  def handle_event([:reencodarr, :analyzer, :throughput], _measurements, _metadata, %{
+        reporter_pid: pid
+      }) do
+    # Trigger a state update when analyzer processes videos
+    GenServer.cast(pid, :refresh_state)
+  end
+
   # Sync events
   def handle_event([:reencodarr, :sync, event], measurements, metadata, %{reporter_pid: pid}) do
     service_type = Map.get(metadata, :service_type)
@@ -132,6 +139,7 @@ defmodule Reencodarr.TelemetryEventHandler do
       [:reencodarr, :crf_searcher, :queue_changed],
       [:reencodarr, :analyzer, :started],
       [:reencodarr, :analyzer, :paused],
+      [:reencodarr, :analyzer, :throughput],
       [:reencodarr, :analyzer, :queue_changed],
       [:reencodarr, :sync, :started],
       [:reencodarr, :sync, :progress],

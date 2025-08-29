@@ -28,18 +28,18 @@ defmodule Reencodarr.Analyzer.Broadway do
         ]
       ],
       processors: [
-          default: [
-            concurrency: 1,
-            max_demand: 1
-          ]
-        ],
-        batchers: [
-          default: [
-            batch_size: 10,
-            batch_timeout: 5_000,
-            concurrency: 1
-          ]
-        ],
+        default: [
+          concurrency: 1,
+          max_demand: 1
+        ]
+      ],
+      batchers: [
+        default: [
+          batch_size: 10,
+          batch_timeout: 5_000,
+          concurrency: 1
+        ]
+      ],
       context: %{
         concurrent_files: 2,
         processing_timeout: :timer.minutes(5)
@@ -249,6 +249,7 @@ defmodule Reencodarr.Analyzer.Broadway do
             {:ok, video} ->
               transition_video_to_analyzed(video)
               :ok
+
             {:error, reason} ->
               Logger.error("Failed to upsert video #{video_info.path}: #{inspect(reason)}")
               mark_video_as_failed(video_info.path, "upsert failed: #{inspect(reason)}")

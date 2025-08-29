@@ -54,6 +54,7 @@ defmodule Reencodarr.DashboardStateTest do
           videos_by_estimated_percent: []
         }
       }
+
       {:ok, state: state}
     end
 
