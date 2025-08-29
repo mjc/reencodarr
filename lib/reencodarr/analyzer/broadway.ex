@@ -35,7 +35,7 @@ defmodule Reencodarr.Analyzer.Broadway do
       ],
       batchers: [
         default: [
-          batch_size: 10,
+          batch_size: 100,
           batch_timeout: 5_000,
           concurrency: 1
         ]
