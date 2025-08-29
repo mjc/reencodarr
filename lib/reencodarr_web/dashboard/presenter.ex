@@ -148,8 +148,13 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
 
   defp get_analyzer_files(%{stats: %{next_analyzer: files}}), do: files || []
 
-  defp get_analyzer_files(%Reencodarr.DashboardState{} = state),
-    do: state.stats.next_analyzer
+  defp get_analyzer_files(%Reencodarr.DashboardState{} = state) do
+    # Defensive handling for missing next_analyzer field
+    case Map.get(state.stats, :next_analyzer) do
+      nil -> []
+      files -> files
+    end
+  end
 
   defp get_analyzer_files(_), do: []
 
