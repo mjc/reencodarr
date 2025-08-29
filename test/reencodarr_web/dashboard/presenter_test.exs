@@ -1,8 +1,8 @@
 defmodule ReencodarrWeb.Dashboard.PresenterTest do
   use Reencodarr.DataCase
 
-  alias ReencodarrWeb.Dashboard.Presenter
-  alias Reencodarr.DashboardState
+  alias Reencodarr.{Dashboard.Presenter, DashboardState}
+
   alias Reencodarr.Statistics.Stats
 
   describe "present/1" do
