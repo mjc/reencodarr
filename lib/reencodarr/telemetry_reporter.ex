@@ -133,9 +133,26 @@ defmodule Reencodarr.TelemetryReporter do
     {:noreply, emit_state_update_and_return(new_state)}
   end
 
+  # Manual state refresh - useful for throughput events that should trigger dashboard updates
+  def handle_cast(:refresh_state, %DashboardState{} = state) do
+    # Force a state calculation with current queue data and emit update
+    # This refreshes the queue data from the current producers
+    updated_state = refresh_queue_data(state)
+    {:noreply, emit_state_update_and_return(updated_state)}
+  end
+
   @impl true
   def terminate(_reason, _state) do
     :telemetry.detach(@telemetry_handler_id)
+  end
+
+  # Private helper functions
+
+  defp refresh_queue_data(state) do
+    # Refresh the queue data by getting current stats
+    # This is similar to the periodic refresh but triggered by events
+    current_dashboard_state = ReencodarrWeb.DashboardLiveHelpers.get_initial_state()
+    %{state | stats: current_dashboard_state.stats}
   end
 
   # Telemetry event handlers (delegated to dedicated module)

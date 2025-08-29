@@ -207,6 +207,8 @@ defmodule Reencodarr.DashboardState do
   Updates queue state based on Broadway producer telemetry events.
   """
   def update_queue_state(%__MODULE__{stats: stats} = state, queue_type, measurements, metadata) do
+    alias Reencodarr.Statistics.Stats
+
     new_stats =
       case queue_type do
         :analyzer ->
@@ -215,14 +217,14 @@ defmodule Reencodarr.DashboardState do
             | analyzer: Map.get(measurements, :queue_size, 0)
           }
 
-          %{
+          %Stats{
             stats
             | next_analyzer: Map.get(metadata, :next_videos, []),
               queue_length: new_queue_length
           }
 
         :crf_searcher ->
-          %{
+          %Stats{
             stats
             | next_crf_search: Map.get(metadata, :next_videos, []),
               queue_length: %{
@@ -232,7 +234,7 @@ defmodule Reencodarr.DashboardState do
           }
 
         :encoder ->
-          %{
+          %Stats{
             stats
             | videos_by_estimated_percent: Map.get(metadata, :next_vmafs, []),
               queue_length: %{stats.queue_length | encodes: Map.get(measurements, :queue_size, 0)}
