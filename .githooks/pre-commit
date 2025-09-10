@@ -1,0 +1,39 @@
+#!/bin/sh
+
+# Save current staged changes
+git stash push --keep-index --include-untracked -m "pre-commit-stash"
+
+# Function to cleanup on exit
+cleanup() {
+    EXIT_CODE=$?
+    # Only pop stash if we created one
+    if [ -n "$(git stash list | grep "pre-commit-stash")" ]; then
+        git stash pop
+    fi
+    exit $EXIT_CODE
+}
+
+# Set up cleanup on script exit
+trap cleanup EXIT
+
+echo "Running credo strict check..."
+if ! mix credo --strict; then
+    echo "❌ Credo strict check failed. Please fix the issues and try again."
+    exit 1
+fi
+
+echo "Checking code formatting..."
+if ! mix format --check-formatted; then
+    echo "❌ Code is not properly formatted. Run 'mix format' and try again."
+    exit 1
+fi
+
+# Check if mix format --migrate would make changes
+echo "Checking for necessary format migrations..."
+if ! mix format --migrate --check-formatted; then
+    echo "❌ Code needs format migration. Run 'mix format --migrate' and try again."
+    exit 1
+fi
+
+echo "✅ All checks passed!"
+exit 0
