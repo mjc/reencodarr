@@ -900,7 +900,7 @@ defmodule ReencodarrWeb.FailuresLive do
             join: f in Reencodarr.Media.VideoFailure,
             on: f.video_id == v.id,
             where: f.resolved == false,
-            distinct: v.id
+            group_by: v.id
 
         query =
           if stage_filter != "all" do
@@ -939,8 +939,19 @@ defmodule ReencodarrWeb.FailuresLive do
     # Order by most recent first
     ordered_query = from v in searched_query, order_by: [desc: v.inserted_at]
 
-    # Get total count
-    total_count = Repo.aggregate(ordered_query, :count, :id)
+    # Get total count - for SQLite compatibility, we need to handle GROUP BY queries differently
+    total_count =
+      case has_group_by?(searched_query) do
+        true ->
+          # When we have GROUP BY, we need to count the grouped results
+          # instead of using aggregate which tries to add DISTINCT
+          subquery = from v in searched_query, select: v.id
+          Repo.all(subquery) |> length()
+
+        false ->
+          # No GROUP BY, safe to use aggregate
+          Repo.aggregate(ordered_query, :count, :id)
+      end
 
     # Get paginated results
     offset = (page - 1) * per_page
@@ -948,6 +959,10 @@ defmodule ReencodarrWeb.FailuresLive do
 
     {videos, total_count}
   end
+
+  # Helper function to check if a query has GROUP BY clause
+  defp has_group_by?(%Ecto.Query{group_bys: group_bys}), do: length(group_bys) > 0
+  defp has_group_by?(_), do: false
 
   defp get_failures_by_video(videos) do
     video_ids = Enum.map(videos, & &1.id)
