@@ -40,7 +40,9 @@ defmodule Reencodarr.Media.Video do
     :text_codecs,
     :hdr,
     :title,
-    :content_year
+    :content_year,
+    :max_audio_channels,
+    :atmos
   ]
 
   @required [
