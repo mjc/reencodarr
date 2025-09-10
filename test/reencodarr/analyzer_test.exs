@@ -27,7 +27,7 @@ defmodule Reencodarr.AnalyzerTest do
   describe "analyzer codec optimization" do
     test "videos with AV1 codec should be optimized to skip CRF search" do
       # Create a video with AV1 codec in needs_analysis state
-      video =
+      {:ok, video} =
         video_fixture(%{
           state: :needs_analysis,
           video_codecs: ["AV1"],
@@ -41,7 +41,7 @@ defmodule Reencodarr.AnalyzerTest do
 
     test "videos with Opus audio should be optimized to skip CRF search" do
       # Create a video with Opus audio in needs_analysis state
-      video =
+      {:ok, video} =
         video_fixture(%{
           state: :needs_analysis,
           video_codecs: ["h264"],
@@ -55,7 +55,7 @@ defmodule Reencodarr.AnalyzerTest do
 
     test "videos with both AV1 and Opus should be optimized" do
       # Create a video with both target codecs
-      video =
+      {:ok, video} =
         video_fixture(%{
           state: :needs_analysis,
           video_codecs: ["AV1"],
@@ -69,7 +69,7 @@ defmodule Reencodarr.AnalyzerTest do
 
     test "videos without target codecs should proceed to CRF search" do
       # Create a video without AV1 or Opus
-      video =
+      {:ok, video} =
         video_fixture(%{
           state: :needs_analysis,
           video_codecs: ["h264"],
