@@ -26,11 +26,6 @@ defmodule Reencodarr.Media.Video do
 
   @optional [
     :bitrate,
-    :library_id,
-    :mediainfo,
-    :service_id,
-    :service_type,
-    :duration,
     :width,
     :height,
     :frame_rate,
@@ -40,9 +35,7 @@ defmodule Reencodarr.Media.Video do
     :text_codecs,
     :hdr,
     :title,
-    :content_year,
-    :max_audio_channels,
-    :atmos
+    :content_year
   ]
 
   @required [
@@ -50,7 +43,9 @@ defmodule Reencodarr.Media.Video do
     :state,
     :video_codecs,
     :audio_codecs,
-    :size
+    :max_audio_channels,
+    :size,
+    :atmos
   ]
 
   @service_types [:sonarr, :radarr]
