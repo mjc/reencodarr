@@ -5,23 +5,8 @@ config :reencodarr, Reencodarr.Repo,
   database: "priv/reencodarr_dev.db",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
-  pool_size: 8,
-  # Enable JSONB support for arrays and maps (more efficient than JSON strings)
-  # Use JSONB storage format for arrays
-  array_type: :binary,
-  # Use JSONB storage format for maps
-  map_type: :binary,
-  # SQLite optimizations for concurrent operations
-  pragma: [
-    # Enable WAL mode for better concurrency
-    journal_mode: "WAL",
-    # Increase busy timeout to handle concurrent operations
-    busy_timeout: 30_000,
-    # Optimize for performance
-    synchronous: "NORMAL",
-    cache_size: -2000,
-    temp_store: "memory"
-  ]
+  # Increase pool size for better concurrency with Broadway pipelines
+  pool_size: 20
 
 # For development, we disable any cache and enable
 # debugging and code reloading.
