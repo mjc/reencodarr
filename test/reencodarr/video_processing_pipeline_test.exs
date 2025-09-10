@@ -42,7 +42,7 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
       library: library
     } do
       # Step 1: Create video record (simulating analyzer output)
-      video =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: original_video,
           service_id: "123",
@@ -175,7 +175,7 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
       encoded_output: encoded_output,
       library: library
     } do
-      video =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: original_video,
           service_id: "789",
@@ -253,7 +253,7 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
       videos =
         Enum.with_index(video_files, 1)
         |> Enum.map(fn {{video_path, _}, index} ->
-          video =
+          {:ok, video} =
             Fixtures.video_fixture(%{
               path: video_path,
               service_id: "concurrent_#{index}",
@@ -306,7 +306,7 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
       encoded_output: encoded_output,
       library: library
     } do
-      video =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: original_video,
           service_id: "consistency_test",
