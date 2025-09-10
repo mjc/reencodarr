@@ -32,12 +32,34 @@ defmodule ReencodarrWeb.RadarrWebhookController do
 
     results =
       Enum.map(movie_files, fn file ->
-        scene_name = file["sceneName"] || Path.basename(file["path"])
+        path = file["path"]
+        scene_name = file["sceneName"] || Path.basename(path)
         Logger.info("Processing file #{scene_name}...")
-        Reencodarr.Sync.upsert_video_from_file(file, :radarr)
+
+        # Create basic video record without mediainfo - analysis will handle that
+        attrs = %{
+          "path" => path,
+          "size" => file["size"],
+          # Force analysis state
+          "state" => :needs_analysis,
+          "service_id" => file["id"] || file["movieFileId"],
+          "service_type" => "radarr",
+          # Can be updated by analyzer
+          "content_year" => DateTime.utc_now().year
+        }
+
+        case Reencodarr.Media.upsert_video(attrs) do
+          {:ok, video} ->
+            # Delete any existing VMAFs for this path since we're re-analyzing
+            Reencodarr.Media.delete_vmafs_for_video(video)
+            {:ok, video}
+
+          error ->
+            error
+        end
       end)
 
-    if Enum.all?(results, fn res -> res == :ok or match?({:ok, _}, res) end) do
+    if Enum.all?(results, fn res -> match?({:ok, _}, res) end) do
       Logger.info("Successfully processed download event for Radarr")
     else
       Logger.error("Some upserts failed for download event: #{inspect(results)}")
