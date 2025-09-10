@@ -94,44 +94,73 @@ defmodule ReencodarrWeb.DashboardComponents do
           </span>
         </div>
 
-        <%= if @active and (@progress.percent > 0 or (@progress.filename && @progress.filename != :none)) do %>
-          <div class="space-y-1">
-            <%= if @progress.filename do %>
-              <div class="text-xs text-orange-300 tracking-wide truncate">
-                {String.upcase(to_string(@progress.filename))}
-              </div>
-            <% end %>
-            <div class="h-1.5 sm:h-2 bg-gray-800 rounded-full overflow-hidden">
-              <div
-                class={[
-                  "h-full transition-all duration-500",
-                  progress_color(@color)
-                ]}
-                style={"width: #{@progress.percent}%"}
-              >
-              </div>
-            </div>
-            <div class="flex justify-between text-xs text-orange-300">
-              <span>{@progress.percent}%</span>
-              <%= if Map.get(@progress, :fps) && @progress.fps > 0 do %>
-                <span>{Formatters.format_fps(@progress.fps)} FPS</span>
-              <% end %>
-            </div>
-            <%= if Map.get(@progress, :eta) && @progress.eta != 0 do %>
-              <div class="text-xs text-orange-400 text-center">
-                ETA: {Formatters.format_eta(@progress.eta)}
-              </div>
-            <% end %>
-            <%= if Map.get(@progress, :crf) && Map.get(@progress, :score) do %>
-              <div class="flex justify-between text-xs text-orange-400">
-                <span>CRF: {Formatters.format_crf(@progress.crf)}</span>
-                <span>VMAF: {Formatters.format_vmaf_score(@progress.score)}</span>
-              </div>
-            <% end %>
+        <.operation_progress title={@title} active={@active} progress={@progress} color={@color} />
+      </div>
+    </div>
+    """
+  end
+
+  defp operation_progress(%{title: "ANALYZER"} = assigns) do
+    ~H"""
+    <!-- Analyzer stats without progress bar -->
+    <div class="space-y-1">
+      <div class="text-xs text-orange-300 space-y-1">
+        <div class="flex justify-between">
+          <span>Rate Limit: {Map.get(@progress, :rate_limit, 0)}</span>
+          <span>Batch Size: {Map.get(@progress, :batch_size, 0)}</span>
+        </div>
+        <div class="text-center">
+          <span>{Map.get(@progress, :throughput, 0.0)} msg/s</span>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp operation_progress(assigns) do
+    ~H"""
+    <!-- Regular progress section for other components -->
+    <%= if should_show_progress?(@active, @progress, @title) do %>
+      <div class="space-y-1">
+        <%= if @progress.filename do %>
+          <div class="text-xs text-orange-300 tracking-wide truncate">
+            {String.upcase(to_string(@progress.filename))}
+          </div>
+        <% end %>
+        <div class="h-1.5 sm:h-2 bg-gray-800 rounded-full overflow-hidden">
+          <div
+            class={[
+              "h-full transition-all duration-500",
+              progress_color(@color)
+            ]}
+            style={"width: #{get_progress_percent(@progress)}%"}
+          >
+          </div>
+        </div>
+        <div class="flex justify-between text-xs text-orange-300">
+          <span>{get_progress_percent(@progress)}%</span>
+          <%= cond do %>
+            <% Map.get(@progress, :throughput) && @progress.throughput > 0 -> %>
+              <span>{@progress.throughput} msg/s</span>
+            <% Map.get(@progress, :fps) && @progress.fps > 0 -> %>
+              <span>{Formatters.format_fps(@progress.fps)} FPS</span>
+            <% true -> %>
+              <span></span>
+          <% end %>
+        </div>
+        <%= if Map.get(@progress, :eta) && @progress.eta != 0 do %>
+          <div class="text-xs text-orange-400 text-center">
+            ETA: {Formatters.format_eta(@progress.eta)}
+          </div>
+        <% end %>
+        <%= if Map.get(@progress, :crf) && Map.get(@progress, :score) do %>
+          <div class="flex justify-between text-xs text-orange-400">
+            <span>CRF: {Formatters.format_crf(@progress.crf)}</span>
+            <span>VMAF: {Formatters.format_vmaf_score(@progress.score)}</span>
           </div>
         <% end %>
       </div>
-    </div>
+    <% end %>
     """
   end
 
@@ -335,4 +364,21 @@ defmodule ReencodarrWeb.DashboardComponents do
   defp queue_header_color("green"), do: "bg-green-500"
   defp queue_header_color("purple"), do: "bg-purple-500"
   defp queue_header_color(_), do: "bg-orange-500"
+
+  # Progress display logic
+  defp should_show_progress?(active, progress, title) do
+    active &&
+      (get_progress_percent(progress) > 0 ||
+         has_valid_filename?(progress) ||
+         get_progress_throughput(progress) >= 0 ||
+         title == "ANALYZER")
+  end
+
+  defp get_progress_percent(progress), do: Map.get(progress, :percent, 0)
+  defp get_progress_throughput(progress), do: Map.get(progress, :throughput, 0.0)
+
+  defp has_valid_filename?(progress) do
+    filename = Map.get(progress, :filename)
+    filename && filename != :none
+  end
 end

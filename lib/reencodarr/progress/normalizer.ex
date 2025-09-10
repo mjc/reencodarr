@@ -13,29 +13,35 @@ defmodule Reencodarr.Progress.Normalizer do
   def normalize_progress(progress) when is_map(progress) do
     filename = normalize_filename(Map.get(progress, :filename))
     percent = Map.get(progress, :percent, 0)
-    # Only get these fields if they exist (encoding/CRF search have them, sync doesn't)
-    fps = Map.get(progress, :fps, 0)
-    eta = Map.get(progress, :eta, 0)
-    # CRF search specific fields
-    crf = Map.get(progress, :crf)
-    score = Map.get(progress, :score)
 
     # Show progress if we have either a meaningful percent or filename
-    if percent > 0 or filename do
-      %{
-        percent: percent,
-        filename: filename,
-        fps: fps,
-        eta: eta,
-        crf: crf,
-        score: score
-      }
-    else
-      empty_progress()
+    case {percent, filename} do
+      {p, _} when p > 0 ->
+        build_progress_map(progress)
+
+      {_, f} when is_binary(f) ->
+        build_progress_map(progress)
+
+      _ ->
+        empty_progress()
     end
   end
 
   def normalize_progress(_), do: empty_progress()
+
+  defp build_progress_map(progress) do
+    %{
+      percent: Map.get(progress, :percent, 0),
+      filename: Map.get(progress, :filename),
+      fps: Map.get(progress, :fps, 0),
+      eta: Map.get(progress, :eta, 0),
+      crf: Map.get(progress, :crf),
+      score: Map.get(progress, :score),
+      throughput: Map.get(progress, :throughput, 0.0),
+      rate_limit: Map.get(progress, :rate_limit, 0),
+      batch_size: Map.get(progress, :batch_size, 0)
+    }
+  end
 
   @doc """
   Normalizes sync progress data with service type context.
@@ -73,7 +79,8 @@ defmodule Reencodarr.Progress.Normalizer do
       fps: 0,
       eta: 0,
       crf: nil,
-      score: nil
+      score: nil,
+      throughput: 0.0
     }
   end
 

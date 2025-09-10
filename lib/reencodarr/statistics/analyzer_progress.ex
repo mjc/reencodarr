@@ -1,7 +1,13 @@
 defmodule Reencodarr.Statistics.AnalyzerProgress do
   @moduledoc "Represents the progress of an analyzer operation."
 
-  defstruct filename: :none, percent: 0, current_file: :none, total_files: 0
+  defstruct filename: :none,
+            percent: 0,
+            current_file: :none,
+            total_files: 0,
+            throughput: 0.0,
+            rate_limit: 0,
+            batch_size: 0
 
   @doc """
   Returns true if the progress has meaningful data to display.

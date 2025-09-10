@@ -25,6 +25,7 @@ defmodule Reencodarr.TelemetryReporter do
   use GenServer
   require Logger
 
+  alias Reencodarr.Analyzer.Broadway.PerformanceMonitor
   alias Reencodarr.DashboardState
   alias Reencodarr.Statistics.{AnalyzerProgress, CrfSearchProgress, EncodingProgress}
 
@@ -141,12 +142,78 @@ defmodule Reencodarr.TelemetryReporter do
     {:noreply, emit_state_update_and_return(updated_state)}
   end
 
+  # Update analyzer progress with current throughput - active analyzer
+  def handle_cast(
+        {:update_analyzer_throughput, measurements},
+        %DashboardState{analyzing: true} = state
+      ) do
+    Logger.debug(
+      "TELEMETRY CAST CALLED: measurements=#{inspect(measurements)}, analyzing=#{state.analyzing}"
+    )
+
+    # Get performance stats from the monitor
+    performance_stats =
+      try do
+        PerformanceMonitor.get_performance_stats()
+      catch
+        :exit, _ -> %{throughput: 0.0, rate_limit: 0, batch_size: 0}
+      end
+
+    Logger.debug("GOT PERFORMANCE STATS: #{inspect(performance_stats)}")
+
+    # Get queue information for progress calculation
+    queue_length = Map.get(measurements, :queue_length, 0)
+
+    # Calculate a meaningful percentage based on processing activity
+    # If we have queue data, show progress based on queue emptying
+    percent = calculate_analyzer_percentage(queue_length, state.stats.queue_length.analyzer)
+
+    Logger.debug("CALCULATED: percent=#{percent}, queue_length=#{queue_length}")
+
+    updated_progress = %{
+      state.analyzer_progress
+      | throughput: performance_stats.throughput,
+        rate_limit: performance_stats.rate_limit,
+        batch_size: performance_stats.batch_size,
+        percent: percent,
+        total_files: state.stats.queue_length.analyzer,
+        current_file: max(0, state.stats.queue_length.analyzer - queue_length)
+    }
+
+    new_state = %{state | analyzer_progress: updated_progress}
+    Logger.debug("NEW THROUGHPUT IN STATE: #{new_state.analyzer_progress.throughput}")
+    {:noreply, emit_state_update_and_return(new_state)}
+  end
+
+  # Update analyzer progress with current throughput - inactive analyzer
+  def handle_cast(
+        {:update_analyzer_throughput, _measurements},
+        %DashboardState{analyzing: false} = state
+      ) do
+    Logger.debug("ANALYZER NOT ACTIVE, SKIPPING")
+    {:noreply, state}
+  end
+
+  # Fallback for old-style calls without measurements
+  def handle_cast(:update_analyzer_throughput, %DashboardState{} = state) do
+    handle_cast({:update_analyzer_throughput, %{}}, state)
+  end
+
   @impl true
   def terminate(_reason, _state) do
     :telemetry.detach(@telemetry_handler_id)
   end
 
   # Private helper functions
+
+  defp calculate_analyzer_percentage(current_queue, initial_queue) when initial_queue > 0 do
+    # Calculate percentage based on how much of the queue has been processed
+    processed = max(0, initial_queue - current_queue)
+    percentage = (processed / initial_queue * 100) |> Float.round(1)
+    min(100.0, percentage)
+  end
+
+  defp calculate_analyzer_percentage(_current_queue, _initial_queue), do: 0.0
 
   defp refresh_queue_data(state) do
     # Refresh the queue data by getting current stats
@@ -167,7 +234,14 @@ defmodule Reencodarr.TelemetryReporter do
 
   defp attach_telemetry_handlers do
     events = Reencodarr.TelemetryEventHandler.events()
-    :telemetry.attach_many(@telemetry_handler_id, events, &__MODULE__.handle_event/4, nil)
+    config = %{reporter_pid: self()}
+
+    :telemetry.attach_many(
+      @telemetry_handler_id,
+      events,
+      &Reencodarr.TelemetryEventHandler.handle_event/4,
+      config
+    )
   end
 
   defp emit_state_update_and_return(%DashboardState{} = new_state) do
@@ -177,34 +251,39 @@ defmodule Reencodarr.TelemetryReporter do
     # Only emit telemetry if the change is significant to reduce LiveView update frequency
     is_significant = DashboardState.significant_change?(old_state, new_state)
 
-    if is_significant do
-      # Emit telemetry event with minimal payload - only essential state for dashboard updates
-      minimal_state = %{
-        stats: new_state.stats,
-        encoding: new_state.encoding,
-        crf_searching: new_state.crf_searching,
-        analyzing: new_state.analyzing,
-        syncing: new_state.syncing,
-        # Always send progress structs - use empty structs when not processing
-        encoding_progress:
-          if(new_state.encoding, do: new_state.encoding_progress, else: %EncodingProgress{}),
-        crf_search_progress:
-          if(new_state.crf_searching,
-            do: new_state.crf_search_progress,
-            else: %CrfSearchProgress{}
-          ),
-        analyzer_progress:
-          if(new_state.analyzing, do: new_state.analyzer_progress, else: %AnalyzerProgress{}),
-        sync_progress: if(new_state.syncing, do: new_state.sync_progress, else: 0),
-        service_type: new_state.service_type
-      }
-
-      :telemetry.execute([:reencodarr, :dashboard, :state_updated], %{}, %{state: minimal_state})
-
-      # Store this state for next comparison
-      Process.put(:last_emitted_state, new_state)
-    end
+    emit_telemetry_if_significant(is_significant, new_state)
 
     new_state
+  end
+
+  # Helper function to emit telemetry conditionally
+  defp emit_telemetry_if_significant(false, _new_state), do: :ok
+
+  defp emit_telemetry_if_significant(true, new_state) do
+    # Emit telemetry event with minimal payload - only essential state for dashboard updates
+    minimal_state = %{
+      stats: new_state.stats,
+      encoding: new_state.encoding,
+      crf_searching: new_state.crf_searching,
+      analyzing: new_state.analyzing,
+      syncing: new_state.syncing,
+      # Always send progress structs - use empty structs when not processing
+      encoding_progress:
+        if(new_state.encoding, do: new_state.encoding_progress, else: %EncodingProgress{}),
+      crf_search_progress:
+        if(new_state.crf_searching,
+          do: new_state.crf_search_progress,
+          else: %CrfSearchProgress{}
+        ),
+      analyzer_progress:
+        if(new_state.analyzing, do: new_state.analyzer_progress, else: %AnalyzerProgress{}),
+      sync_progress: if(new_state.syncing, do: new_state.sync_progress, else: 0),
+      service_type: new_state.service_type
+    }
+
+    :telemetry.execute([:reencodarr, :dashboard, :state_updated], %{}, %{state: minimal_state})
+
+    # Store this state for next comparison
+    Process.put(:last_emitted_state, new_state)
   end
 end
