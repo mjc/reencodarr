@@ -5,15 +5,13 @@ defmodule Reencodarr.Analyzer.CodecOptimizationTest do
   """
   use Reencodarr.DataCase
 
-  import Reencodarr.Fixtures
-
   alias Reencodarr.Media
 
   describe "codec optimization during analysis" do
     test "AV1 videos can be marked as reencoded, not analyzed" do
       # Create a video with AV1 codec and all required fields
-      video =
-        video_fixture(%{
+      {:ok, video} =
+        Fixtures.video_fixture(%{
           state: :needs_analysis,
           video_codecs: ["AV1"],
           audio_codecs: ["aac"],
@@ -33,8 +31,8 @@ defmodule Reencodarr.Analyzer.CodecOptimizationTest do
 
     test "Opus audio videos can be marked as reencoded, not analyzed" do
       # Create a video with Opus audio and all required fields
-      video =
-        video_fixture(%{
+      {:ok, video} =
+        Fixtures.video_fixture(%{
           state: :needs_analysis,
           video_codecs: ["h264"],
           audio_codecs: ["opus"],
@@ -53,9 +51,9 @@ defmodule Reencodarr.Analyzer.CodecOptimizationTest do
     end
 
     test "videos with both AV1 and Opus can be marked as reencoded" do
-      # Create a video with both target codecs and all required fields
-      video =
-        video_fixture(%{
+      # Create a video with both AV1 and Opus codecs and all required fields
+      {:ok, video} =
+        Fixtures.video_fixture(%{
           state: :needs_analysis,
           video_codecs: ["AV1"],
           audio_codecs: ["opus"],
@@ -77,22 +75,22 @@ defmodule Reencodarr.Analyzer.CodecOptimizationTest do
   describe "CRF search queue filtering verification" do
     test "AV1 and Opus videos are filtered out of CRF search queue" do
       # Create videos with different codec combinations
-      _av1_video =
-        video_fixture(%{
+      {:ok, _av1_video} =
+        Fixtures.video_fixture(%{
           state: :analyzed,
           video_codecs: ["AV1"],
           audio_codecs: ["aac"]
         })
 
-      _opus_video =
-        video_fixture(%{
+      {:ok, _opus_video} =
+        Fixtures.video_fixture(%{
           state: :analyzed,
           video_codecs: ["h264"],
           audio_codecs: ["opus"]
         })
 
-      regular_video =
-        video_fixture(%{
+      {:ok, regular_video} =
+        Fixtures.video_fixture(%{
           state: :analyzed,
           video_codecs: ["h264"],
           audio_codecs: ["aac"]
