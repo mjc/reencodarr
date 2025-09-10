@@ -21,7 +21,8 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
           path: "/test/integration_video.mkv",
           size: 2_000_000_000,
           video_codecs: ["h264"],
-          audio_codecs: ["aac"]
+          audio_codecs: ["aac"],
+          state: :analyzed
         })
 
       %{video: video}
