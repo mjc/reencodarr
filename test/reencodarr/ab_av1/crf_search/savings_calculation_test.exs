@@ -10,7 +10,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.SavingsCalculationTest do
     test "calculates savings correctly for valid inputs through VMAF upsert" do
       # Create a test video
       {:ok, video} =
-        Media.create_video(%{
+        Fixtures.video_fixture_with_result(%{
           path: "/test/savings_test.mkv",
           # 1GB
           size: 1_000_000_000,
@@ -43,7 +43,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.SavingsCalculationTest do
 
     test "handles string percent inputs through VMAF upsert" do
       {:ok, video} =
-        Media.create_video(%{
+        Fixtures.video_fixture_with_result(%{
           path: "/test/string_percent.mkv",
           size: 1_000_000_000,
           bitrate: 5000,
@@ -87,7 +87,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.SavingsCalculationTest do
 
     test "returns nil for invalid inputs through VMAF upsert" do
       {:ok, video} =
-        Media.create_video(%{
+        Fixtures.video_fixture_with_result(%{
           path: "/test/invalid_inputs.mkv",
           size: 1_000_000_000,
           bitrate: 5000,
@@ -140,7 +140,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.SavingsCalculationTest do
   describe "VMAF upsert with savings" do
     setup do
       {:ok, video} =
-        Media.create_video(%{
+        Fixtures.video_fixture_with_result(%{
           path: "/test/movie.mkv",
           # 1GB video
           size: 1_000_000_000,

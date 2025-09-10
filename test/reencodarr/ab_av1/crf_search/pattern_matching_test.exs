@@ -14,17 +14,12 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
 
   describe "process_line/3 pattern matching" do
     setup do
-      {:ok, video} =
-        Media.create_video(%{
-          id: 1,
+      video =
+        Fixtures.video_fixture(%{
           path: "test_path.mkv",
           size: 1_000_000_000,
           service_id: "test",
-          service_type: :sonarr,
-          max_audio_channels: 2,
-          atmos: false,
-          video_codecs: ["h264"],
-          audio_codecs: ["aac"]
+          service_type: :sonarr
         })
 
       # Read fixture files
@@ -298,18 +293,13 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
 
   describe "large file size warnings" do
     setup do
-      {:ok, video} =
-        Media.create_video(%{
-          id: 2,
+      video =
+        Fixtures.video_fixture(%{
           path: "large_test.mkv",
           # 20GB
           size: 20_000_000_000,
           service_id: "test",
-          service_type: :sonarr,
-          max_audio_channels: 2,
-          atmos: false,
-          video_codecs: ["h264"],
-          audio_codecs: ["aac"]
+          service_type: :sonarr
         })
 
       %{video: video}

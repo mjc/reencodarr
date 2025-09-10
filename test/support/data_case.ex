@@ -95,8 +95,8 @@ defmodule Reencodarr.DataCase do
   @doc """
   Assert that an operation returns a successful result.
 
-      assert_ok(Media.create_video(attrs))
-      assert_ok(Media.create_video(attrs), fn video ->
+      assert_ok(Media.upsert_video(attrs))
+      assert_ok(Media.upsert_video(attrs), fn video ->
         assert video.path == "test.mkv"
       end)
   """
@@ -118,8 +118,8 @@ defmodule Reencodarr.DataCase do
   @doc """
   Assert that an operation returns an error result.
 
-      assert_error(Media.create_video(%{}))
-      assert_error(Media.create_video(%{}), fn changeset ->
+      assert_error(Media.upsert_video(%{}))
+      assert_error(Media.upsert_video(%{}), fn changeset ->
         assert %{path: ["can't be blank"]} = errors_on(changeset)
       end)
   """

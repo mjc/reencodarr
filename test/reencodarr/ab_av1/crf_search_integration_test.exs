@@ -195,7 +195,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
         atmos: false
       }
 
-      {:ok, video} = Media.create_video(video)
+      {:ok, video} = Media.upsert_video(video)
       %{video: video}
     end
 

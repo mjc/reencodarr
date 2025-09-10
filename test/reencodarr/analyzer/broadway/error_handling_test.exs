@@ -24,7 +24,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
 
       # Create a video record that doesn't exist on disk
       {:ok, _video} =
-        Reencodarr.Media.create_video(%{
+        Reencodarr.Fixtures.video_fixture(%{
           path: nonexistent_file,
           size: 1000,
           service_id: "1",
@@ -67,7 +67,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
             try do
               # Create a test video with invalid path to trigger error handling
               {:ok, _video} =
-                Reencodarr.Media.create_video(%{
+                Reencodarr.Fixtures.video_fixture(%{
                   path: invalid_path,
                   service_id: "1",
                   service_type: :sonarr
