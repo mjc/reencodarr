@@ -5,8 +5,8 @@ defmodule Reencodarr.Sync do
   import Ecto.Query
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.{Media, Repo, Services, Telemetry}
+  alias Reencodarr.Media.{MediaInfoExtractor, VideoFileInfo}
   alias Reencodarr.Media.Video.MediaInfoConverter
-  alias Reencodarr.Media.VideoFileInfo
 
   # Public API
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -246,18 +246,29 @@ defmodule Reencodarr.Sync do
     # Convert VideoFileInfo to MediaInfo format for database storage
     mediainfo = MediaInfoConverter.from_video_file_info(info)
 
+    # Extract video parameters including required fields like max_audio_channels and atmos
+    video_params = MediaInfoExtractor.extract_video_params(mediainfo, info.path)
+
+    # Convert atom keys to string keys for consistency
+    string_video_params = Map.new(video_params, fn {k, v} -> {to_string(k), v} end)
+
     result =
       Repo.transaction(fn ->
-        Media.upsert_video(%{
-          "path" => info.path,
-          "size" => info.size,
-          "service_id" => info.service_id,
-          "service_type" => to_string(info.service_type),
-          "mediainfo" => mediainfo,
-          "bitrate" => info.bitrate,
-          "dateAdded" => info.date_added,
-          "content_year" => info.content_year
-        })
+        Media.upsert_video(
+          Map.merge(
+            %{
+              "path" => info.path,
+              "size" => info.size,
+              "service_id" => info.service_id,
+              "service_type" => to_string(info.service_type),
+              "mediainfo" => mediainfo,
+              "bitrate" => info.bitrate,
+              "dateAdded" => info.date_added,
+              "content_year" => info.content_year
+            },
+            string_video_params
+          )
+        )
       end)
 
     # VideoUpsert will automatically set state to needs_analysis for zero bitrate

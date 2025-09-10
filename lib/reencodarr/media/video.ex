@@ -48,9 +48,7 @@ defmodule Reencodarr.Media.Video do
     :state,
     :video_codecs,
     :audio_codecs,
-    :max_audio_channels,
-    :size,
-    :atmos
+    :size
   ]
 
   @service_types [:sonarr, :radarr]
