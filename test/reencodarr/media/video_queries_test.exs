@@ -4,7 +4,7 @@ defmodule Reencodarr.Media.VideoQueriesTest do
 
   describe "videos_for_crf_search/1" do
     test "returns videos needing CRF search" do
-      video =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/sample.mkv",
           # Video must be analyzed to be eligible for CRF search
@@ -14,7 +14,7 @@ defmodule Reencodarr.Media.VideoQueriesTest do
         })
 
       # Create a video that should be excluded (already reencoded)
-      _excluded_video =
+      {:ok, _excluded_video} =
         Fixtures.video_fixture(%{
           path: "/test/sample_excluded.mkv",
           # Encoded videos should be excluded
@@ -33,7 +33,7 @@ defmodule Reencodarr.Media.VideoQueriesTest do
 
     test "excludes videos with non-h264 codec" do
       # Create a video with av1 codec (should be excluded)
-      _excluded_video =
+      {:ok, _excluded_video} =
         Fixtures.video_fixture(%{
           video_codecs: ["av1"],
           audio_codecs: ["aac"]
@@ -50,7 +50,7 @@ defmodule Reencodarr.Media.VideoQueriesTest do
 
   describe "videos_needing_analysis/1" do
     test "returns videos with nil bitrate" do
-      video =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/sample_analysis.mkv",
           bitrate: nil
@@ -69,7 +69,7 @@ defmodule Reencodarr.Media.VideoQueriesTest do
     end
 
     test "excludes videos that don't need analysis" do
-      video =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/sample_no_analysis.mkv",
           bitrate: 5_000_000,

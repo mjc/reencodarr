@@ -176,7 +176,7 @@ defmodule Reencodarr.SyncIntegrationTest do
 
     test "sync preserves existing analyzed bitrates correctly", %{library: library} do
       # First, create a video with analyzed bitrate using fixture
-      original_video =
+      {:ok, original_video} =
         Fixtures.video_fixture(%{
           path: "/test/preserve/movie.mkv",
           size: 3_000_000_000,
@@ -230,7 +230,7 @@ defmodule Reencodarr.SyncIntegrationTest do
 
     test "sync updates bitrate when file size changes significantly", %{library: library} do
       # Create video with analyzed bitrate using fixture
-      original_video =
+      {:ok, original_video} =
         Fixtures.video_fixture(%{
           path: "/test/size_change/movie.mkv",
           size: 2_000_000_000,
@@ -315,7 +315,7 @@ defmodule Reencodarr.SyncIntegrationTest do
 
     test "delete_video_and_vmafs cleans up properly", %{library: library} do
       # Create video with associated VMAFs using fixture
-      video =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/delete/movie.mkv",
           size: 2_000_000_000,
@@ -388,7 +388,7 @@ defmodule Reencodarr.SyncIntegrationTest do
 
     test "refresh_and_rename_from_video handles both service types", %{library: library} do
       # Create Sonarr video using fixture
-      sonarr_video =
+      {:ok, sonarr_video} =
         Fixtures.video_fixture(%{
           path: "/test/refresh/episode.mkv",
           size: 1_500_000_000,
@@ -399,7 +399,7 @@ defmodule Reencodarr.SyncIntegrationTest do
         })
 
       # Create Radarr video using fixture
-      radarr_video =
+      {:ok, radarr_video} =
         Fixtures.video_fixture(%{
           path: "/test/refresh/movie.mkv",
           size: 2_500_000_000,
