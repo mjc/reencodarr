@@ -70,37 +70,6 @@ defmodule Reencodarr.Fixtures do
 
     attrs = Map.merge(defaults, attrs)
 
-    case Media.upsert_video(attrs) do
-      {:ok, video} -> video
-      {:error, changeset} -> raise "Failed to create video fixture: #{inspect(changeset.errors)}"
-    end
-  end
-
-  @doc """
-  Creates a video with VMAF data for CRF search scenarios.
-  """
-  def video_fixture_with_result(attrs \\ %{}) do
-    unique_id = System.unique_integer([:positive])
-
-    defaults = %{
-      path: "/test/sample_video#{unique_id}.mkv",
-      bitrate: 5_000_000,
-      size: 2_000_000_000,
-      width: 1920,
-      height: 1080,
-      fps: 23.976,
-      duration: 3600.0,
-      video_codecs: ["h264"],
-      audio_codecs: ["aac"],
-      max_audio_channels: 6,
-      atmos: false,
-      hdr: nil,
-      state: :needs_analysis,
-      service_id: "#{unique_id}",
-      service_type: :sonarr
-    }
-
-    attrs = Map.merge(defaults, attrs)
     Media.upsert_video(attrs)
   end
 
@@ -108,7 +77,7 @@ defmodule Reencodarr.Fixtures do
   Creates a video with VMAF data for CRF search scenarios.
   """
   def video_with_vmaf_fixture(video_attrs \\ %{}, vmaf_attrs \\ %{}) do
-    video = video_fixture(video_attrs)
+    {:ok, video} = video_fixture(video_attrs)
     vmaf = vmaf_fixture(Map.merge(%{video_id: video.id}, vmaf_attrs))
     {video, vmaf}
   end
@@ -120,7 +89,8 @@ defmodule Reencodarr.Fixtures do
     Enum.map(1..count, fn i ->
       unique_id = System.unique_integer([:positive])
       attrs = Map.put(base_attrs, :path, "/test/videos/series_video_#{i}_#{unique_id}.mkv")
-      video_fixture(attrs)
+      {:ok, video} = video_fixture(attrs)
+      video
     end)
   end
 
@@ -137,7 +107,8 @@ defmodule Reencodarr.Fixtures do
       state: :needs_analysis
     }
 
-    video_fixture(Map.merge(defaults, attrs))
+    {:ok, video} = video_fixture(Map.merge(defaults, attrs))
+    video
   end
 
   @doc """
@@ -253,7 +224,7 @@ defmodule Reencodarr.Fixtures do
     attrs =
       case Map.get(attrs, :video_id) do
         nil ->
-          video = video_fixture()
+          {:ok, video} = video_fixture()
           Map.put(attrs, :video_id, video.id)
 
         _ ->
@@ -475,7 +446,8 @@ defmodule Reencodarr.Fixtures do
     }
 
     attrs = Map.merge(default_attrs, attrs)
-    video_fixture(attrs)
+    {:ok, video} = video_fixture(attrs)
+    video
   end
 
   @doc """
@@ -499,7 +471,8 @@ defmodule Reencodarr.Fixtures do
     }
 
     attrs = Map.merge(default_attrs, attrs)
-    video_fixture(attrs)
+    {:ok, video} = video_fixture(attrs)
+    video
   end
 
   @doc """
@@ -523,7 +496,8 @@ defmodule Reencodarr.Fixtures do
     }
 
     attrs = Map.merge(default_attrs, attrs)
-    video_fixture(attrs)
+    {:ok, video} = video_fixture(attrs)
+    video
   end
 
   @doc """
@@ -547,7 +521,8 @@ defmodule Reencodarr.Fixtures do
     }
 
     attrs = Map.merge(default_attrs, attrs)
-    video_fixture(attrs)
+    {:ok, video} = video_fixture(attrs)
+    video
   end
 
   # === FACTORY PATTERN SUPPORT ===
