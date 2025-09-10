@@ -30,7 +30,9 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
     ArgumentError -> :ok
   end
 
-  def present(dashboard_state, timezone \\ "UTC") do
+  def present(dashboard_state), do: present(dashboard_state, "UTC")
+
+  def present(dashboard_state, timezone) do
     # Temporarily disable caching to debug UI issues
     %{
       metrics: present_metrics(dashboard_state.stats),

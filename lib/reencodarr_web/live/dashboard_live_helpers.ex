@@ -87,7 +87,14 @@ defmodule ReencodarrWeb.DashboardLiveHelpers do
   """
   def get_initial_state do
     # Get current state from the TelemetryReporter GenServer instead of creating fresh state
-    Reencodarr.TelemetryReporter.get_current_state()
+    case Process.whereis(Reencodarr.TelemetryReporter) do
+      nil ->
+        # Fall back to initial state in test environment or when TelemetryReporter isn't started
+        Reencodarr.DashboardState.initial()
+
+      _pid ->
+        Reencodarr.TelemetryReporter.get_current_state()
+    end
   end
 
   @doc """
