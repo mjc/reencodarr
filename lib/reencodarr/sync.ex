@@ -243,6 +243,40 @@ defmodule Reencodarr.Sync do
   end
 
   defp process_single_video_file(%VideoFileInfo{} = info, _service_type) do
+    # Check if video exists and file size hasn't changed
+    existing_video = Media.get_video_by_path(info.path)
+
+    result =
+      Repo.transaction(fn ->
+        if should_preserve_file_metadata?(existing_video, info) do
+          update_api_metadata_only(existing_video, info)
+        else
+          upsert_full_video_data(info)
+        end
+      end)
+
+    # VideoUpsert will automatically set state to needs_analysis for zero bitrate
+    result
+  end
+
+  defp should_preserve_file_metadata?(existing_video, info) do
+    existing_video && existing_video.size == info.size && info.bitrate != 0
+  end
+
+  defp update_api_metadata_only(existing_video, info) do
+    # File size unchanged AND bitrate is not 0 - only update API-sourced metadata
+    api_only_attrs = %{
+      "service_id" => info.service_id,
+      "service_type" => to_string(info.service_type),
+      "content_year" => info.content_year,
+      "dateAdded" => info.date_added
+    }
+
+    Media.update_video(existing_video, api_only_attrs)
+  end
+
+  defp upsert_full_video_data(info) do
+    # File size changed, new video, OR bitrate is 0 (needs re-analysis) - analyze everything
     # Convert VideoFileInfo to MediaInfo format for database storage
     mediainfo = MediaInfoConverter.from_video_file_info(info)
 
@@ -252,27 +286,21 @@ defmodule Reencodarr.Sync do
     # Convert atom keys to string keys for consistency
     string_video_params = Map.new(video_params, fn {k, v} -> {to_string(k), v} end)
 
-    result =
-      Repo.transaction(fn ->
-        Media.upsert_video(
-          Map.merge(
-            %{
-              "path" => info.path,
-              "size" => info.size,
-              "service_id" => info.service_id,
-              "service_type" => to_string(info.service_type),
-              "mediainfo" => mediainfo,
-              "bitrate" => info.bitrate,
-              "dateAdded" => info.date_added,
-              "content_year" => info.content_year
-            },
-            string_video_params
-          )
-        )
-      end)
-
-    # VideoUpsert will automatically set state to needs_analysis for zero bitrate
-    result
+    Media.upsert_video(
+      Map.merge(
+        %{
+          "path" => info.path,
+          "size" => info.size,
+          "service_id" => info.service_id,
+          "service_type" => to_string(info.service_type),
+          "mediainfo" => mediainfo,
+          "bitrate" => info.bitrate,
+          "dateAdded" => info.date_added,
+          "content_year" => info.content_year
+        },
+        string_video_params
+      )
+    )
   end
 
   @doc """
