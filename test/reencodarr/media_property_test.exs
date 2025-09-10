@@ -22,7 +22,7 @@ defmodule Reencodarr.Media.PropertyTest do
         library = Fixtures.library_fixture()
         attrs = Map.put(attrs, :library_id, library.id)
 
-        case Fixtures.video_fixture_with_result(attrs) do
+        case Fixtures.video_fixture(attrs) do
           {:ok, video} ->
             assert video.path == attrs.path
             assert video.size == attrs.size
@@ -53,7 +53,7 @@ defmodule Reencodarr.Media.PropertyTest do
           audio_codecs: ["aac"]
         }
 
-        case Fixtures.video_fixture_with_result(attrs) do
+        case Fixtures.video_fixture(attrs) do
           {:error, changeset} ->
             assert %{path: _} = errors_on(changeset)
 
@@ -75,7 +75,7 @@ defmodule Reencodarr.Media.PropertyTest do
           library_id: library.id
         }
 
-        case Fixtures.video_fixture_with_result(attrs) do
+        case Fixtures.video_fixture(attrs) do
           {:error, changeset} ->
             # Should have validation errors, but might be on different fields
             refute changeset.valid?
@@ -104,7 +104,7 @@ defmodule Reencodarr.Media.PropertyTest do
           audio_codecs: ["aac"]
         }
 
-        {:ok, video} = Fixtures.video_fixture_with_result(video_attrs)
+        {:ok, video} = Fixtures.video_fixture(video_attrs)
 
         # Update vmaf_attrs with the actual video_id
         vmaf_attrs = Map.put(vmaf_attrs, :video_id, video.id)
@@ -156,7 +156,7 @@ defmodule Reencodarr.Media.PropertyTest do
           audio_codecs: ["aac"]
         }
 
-        {:ok, video} = Fixtures.video_fixture_with_result(original_attrs)
+        {:ok, video} = Fixtures.video_fixture(original_attrs)
 
         # Remove library_id from updates to avoid constraint issues
         # and make the path unique

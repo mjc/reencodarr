@@ -10,7 +10,7 @@ defmodule Reencodarr.SavingsCoreTest do
     test "VMAF upsert calculates and stores savings correctly" do
       # Create test video
       {:ok, video} =
-        Fixtures.video_fixture_with_result(%{
+        Fixtures.video_fixture(%{
           path: "/test/sample_savings_test.mkv",
           # 1GB
           size: 1_000_000_000,
@@ -56,7 +56,7 @@ defmodule Reencodarr.SavingsCoreTest do
 
     test "explicit savings overrides calculation" do
       {:ok, video} =
-        Fixtures.video_fixture_with_result(%{
+        Fixtures.video_fixture(%{
           path: "/test/sample_explicit_savings.mkv",
           # 2GB
           size: 2_000_000_000,
@@ -91,7 +91,7 @@ defmodule Reencodarr.SavingsCoreTest do
 
     test "savings field persists through database operations" do
       {:ok, video} =
-        Fixtures.video_fixture_with_result(%{
+        Fixtures.video_fixture(%{
           path: "/test/sample_persistence.mkv",
           # 3GB
           size: 3_000_000_000,
@@ -145,7 +145,7 @@ defmodule Reencodarr.SavingsCoreTest do
     test "handles edge cases gracefully" do
       # Very small video
       {:ok, small_video} =
-        Fixtures.video_fixture_with_result(%{
+        Fixtures.video_fixture(%{
           path: "/test/sample_small_size.mkv",
           # 1 byte
           size: 1,
@@ -173,7 +173,7 @@ defmodule Reencodarr.SavingsCoreTest do
 
       # Missing percent
       {:ok, video} =
-        Fixtures.video_fixture_with_result(%{
+        Fixtures.video_fixture(%{
           path: "/test/sample_no_percent.mkv",
           size: 1_000_000_000,
           bitrate: 5000,
@@ -200,7 +200,7 @@ defmodule Reencodarr.SavingsCoreTest do
 
     test "string percent values are handled correctly" do
       {:ok, video} =
-        Fixtures.video_fixture_with_result(%{
+        Fixtures.video_fixture(%{
           path: "/test/sample_string_percent.mkv",
           # 800MB
           size: 800_000_000,
