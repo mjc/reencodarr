@@ -69,41 +69,13 @@ defmodule Reencodarr.Media do
     VideoQueries.encoding_queue_count()
   end
 
-  def create_video(attrs \\ %{}) do
-    %Video{} |> Video.changeset(attrs) |> Repo.insert()
-  end
-
   def upsert_video(attrs) do
-    video_id = Map.get(attrs, "video_id") || Map.get(attrs, :video_id)
-
-    if is_nil(video_id) or is_nil(get_video(video_id)) do
-      Logger.error("Attempted to upsert VMAF with missing or invalid video_id: #{inspect(attrs)}")
-      {:error, :invalid_video_id}
-    else
-      # Calculate savings if not provided but percent and video are available
-      attrs_with_savings = maybe_calculate_savings(attrs)
-
-      result =
-        %Vmaf{}
-        |> Vmaf.changeset(attrs_with_savings)
-        |> Repo.insert(
-          on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
-          conflict_target: [:crf, :video_id]
-        )
-
-      case result do
-        {:ok, vmaf} ->
-          Reencodarr.Telemetry.emit_vmaf_upserted(vmaf)
-
-          # If this VMAF is chosen, update video state to crf_searched
-          handle_chosen_vmaf(vmaf)
-
-        {:error, _error} ->
-          :ok
-      end
-
-      result
-    end
+    %Video{}
+    |> Video.changeset(attrs)
+    |> Repo.insert(
+      on_conflict: {:replace_all_except, [:id, :inserted_at, :updated_at]},
+      conflict_target: :path
+    )
   end
 
   def batch_upsert_videos(video_attrs_list) do
