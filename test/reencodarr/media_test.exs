@@ -32,14 +32,14 @@ defmodule Reencodarr.MediaTest do
         atmos: false
       }
 
-      video = assert_ok(Media.create_video(attrs))
+      video = assert_ok(Media.upsert_video(attrs))
       assert video.size == 2_000_000_000
       assert video.path == "/test/video.mkv"
       assert video.bitrate == 5_000_000
     end
 
     test "create_video/1 with invalid data returns error changeset" do
-      changeset = assert_error(Media.create_video(@invalid_video_attrs))
+      changeset = assert_error(Media.upsert_video(@invalid_video_attrs))
 
       assert_changeset_error(changeset, %{
         size: ["can't be blank"],

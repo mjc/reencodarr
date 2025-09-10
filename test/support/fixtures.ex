@@ -70,8 +70,38 @@ defmodule Reencodarr.Fixtures do
 
     attrs = Map.merge(defaults, attrs)
 
-    {:ok, video} = Media.create_video(attrs)
-    video
+    case Media.upsert_video(attrs) do
+      {:ok, video} -> video
+      {:error, changeset} -> raise "Failed to create video fixture: #{inspect(changeset.errors)}"
+    end
+  end
+
+  @doc """
+  Creates a video with VMAF data for CRF search scenarios.
+  """
+  def video_fixture_with_result(attrs \\ %{}) do
+    unique_id = System.unique_integer([:positive])
+
+    defaults = %{
+      path: "/test/sample_video#{unique_id}.mkv",
+      bitrate: 5_000_000,
+      size: 2_000_000_000,
+      width: 1920,
+      height: 1080,
+      fps: 23.976,
+      duration: 3600.0,
+      video_codecs: ["h264"],
+      audio_codecs: ["aac"],
+      max_audio_channels: 6,
+      atmos: false,
+      hdr: nil,
+      state: :needs_analysis,
+      service_id: "#{unique_id}",
+      service_type: :sonarr
+    }
+
+    attrs = Map.merge(defaults, attrs)
+    Media.upsert_video(attrs)
   end
 
   @doc """
