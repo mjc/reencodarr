@@ -34,11 +34,12 @@ Key pattern: Each pipeline has a Producer that checks GenServer availability bef
 ```bash
 # Setup (no longer requires PostgreSQL)
 mix setup                    # Full setup: deps, SQLite DB, assets
-iex -S mix phx.server       # Development with live reload
+
+# Testing (ALWAYS run full test suite)
+mix test                    # Uses manual sandbox mode - ALWAYS run complete suite, never individual tests
 
 # Database
 mix ecto.reset              # Drop/create/migrate/seed (SQLite)
-mix test                    # Uses manual sandbox mode
 
 # Code Quality (automated via git hooks)
 mix setup_precommit         # Setup git hooks for credo + formatting
