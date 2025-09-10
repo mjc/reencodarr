@@ -74,7 +74,36 @@ defmodule Reencodarr.Media do
   end
 
   def upsert_video(attrs) do
-    VideoUpsert.upsert(attrs)
+    video_id = Map.get(attrs, "video_id") || Map.get(attrs, :video_id)
+
+    if is_nil(video_id) or is_nil(get_video(video_id)) do
+      Logger.error("Attempted to upsert VMAF with missing or invalid video_id: #{inspect(attrs)}")
+      {:error, :invalid_video_id}
+    else
+      # Calculate savings if not provided but percent and video are available
+      attrs_with_savings = maybe_calculate_savings(attrs)
+
+      result =
+        %Vmaf{}
+        |> Vmaf.changeset(attrs_with_savings)
+        |> Repo.insert(
+          on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
+          conflict_target: [:crf, :video_id]
+        )
+
+      case result do
+        {:ok, vmaf} ->
+          Reencodarr.Telemetry.emit_vmaf_upserted(vmaf)
+
+          # If this VMAF is chosen, update video state to crf_searched
+          handle_chosen_vmaf(vmaf)
+
+        {:error, _error} ->
+          :ok
+      end
+
+      result
+    end
   end
 
   def batch_upsert_videos(video_attrs_list) do
@@ -241,52 +270,53 @@ defmodule Reencodarr.Media do
       |> Enum.filter(&produces_invalid_audio_args?/1)
       |> Enum.map(& &1.id)
 
+    reset_problematic_videos(problematic_video_ids, videos_tested_count)
+  end
+
+  # Helper function to reset problematic videos
+  defp reset_problematic_videos([], videos_tested_count) do
+    %{videos_tested: videos_tested_count, videos_reset: 0, vmafs_deleted: 0}
+  end
+
+  defp reset_problematic_videos(problematic_video_ids, videos_tested_count) do
     videos_reset_count = length(problematic_video_ids)
 
-    if videos_reset_count > 0 do
-      Repo.transaction(fn ->
-        # Delete VMAFs for these videos (they were generated with bad audio data)
-        {vmafs_deleted_count, _} =
-          from(v in Vmaf, where: v.video_id in ^problematic_video_ids)
-          |> Repo.delete_all()
+    Repo.transaction(fn ->
+      # Delete VMAFs for these videos (they were generated with bad audio data)
+      {vmafs_deleted_count, _} =
+        from(v in Vmaf, where: v.video_id in ^problematic_video_ids)
+        |> Repo.delete_all()
 
-        # Reset analysis fields to force re-analysis
-        from(v in Video, where: v.id in ^problematic_video_ids)
-        |> Repo.update_all(
-          set: [
-            bitrate: nil,
-            video_codecs: nil,
-            audio_codecs: nil,
-            max_audio_channels: nil,
-            atmos: nil,
-            hdr: nil,
-            width: nil,
-            height: nil,
-            frame_rate: nil,
-            duration: nil,
-            updated_at: DateTime.utc_now()
-          ]
-        )
+      # Reset analysis fields to force re-analysis
+      from(v in Video, where: v.id in ^problematic_video_ids)
+      |> Repo.update_all(
+        set: [
+          bitrate: nil,
+          video_codecs: nil,
+          audio_codecs: nil,
+          max_audio_channels: nil,
+          atmos: nil,
+          hdr: nil,
+          width: nil,
+          height: nil,
+          frame_rate: nil,
+          duration: nil,
+          updated_at: DateTime.utc_now()
+        ]
+      )
 
-        %{
-          videos_tested: videos_tested_count,
-          videos_reset: videos_reset_count,
-          vmafs_deleted: vmafs_deleted_count
-        }
-      end)
-      |> case do
-        {:ok, result} ->
-          result
-
-        {:error, _reason} ->
-          %{videos_tested: videos_tested_count, videos_reset: 0, vmafs_deleted: 0}
-      end
-    else
       %{
         videos_tested: videos_tested_count,
-        videos_reset: 0,
-        vmafs_deleted: 0
+        videos_reset: videos_reset_count,
+        vmafs_deleted: vmafs_deleted_count
       }
+    end)
+    |> case do
+      {:ok, result} ->
+        result
+
+      {:error, _reason} ->
+        %{videos_tested: videos_tested_count, videos_reset: 0, vmafs_deleted: 0}
     end
   end
 
@@ -506,33 +536,45 @@ defmodule Reencodarr.Media do
   end
 
   def upsert_vmaf(attrs) do
-    # Calculate savings if not provided but percent and video are available
-    attrs_with_savings = maybe_calculate_savings(attrs)
+    video_id = Map.get(attrs, "video_id") || Map.get(attrs, :video_id)
 
-    result =
-      %Vmaf{}
-      |> Vmaf.changeset(attrs_with_savings)
-      |> Repo.insert(
-        on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
-        conflict_target: [:crf, :video_id]
-      )
+    if is_nil(video_id) or is_nil(get_video(video_id)) do
+      Logger.error("Attempted to upsert VMAF with missing or invalid video_id: #{inspect(attrs)}")
+      {:error, :invalid_video_id}
+    else
+      # Calculate savings if not provided but percent and video are available
+      attrs_with_savings = maybe_calculate_savings(attrs)
 
-    case result do
-      {:ok, vmaf} ->
-        Reencodarr.Telemetry.emit_vmaf_upserted(vmaf)
+      result =
+        %Vmaf{}
+        |> Vmaf.changeset(attrs_with_savings)
+        |> Repo.insert(
+          on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
+          conflict_target: [:crf, :video_id]
+        )
 
-        # If this VMAF is chosen, update video state to crf_searched
-        if vmaf.chosen do
-          video = get_video!(vmaf.video_id)
-          mark_as_crf_searched(video)
-        end
+      case result do
+        {:ok, vmaf} ->
+          Reencodarr.Telemetry.emit_vmaf_upserted(vmaf)
 
-      {:error, _error} ->
-        :ok
+          # If this VMAF is chosen, update video state to crf_searched
+          handle_chosen_vmaf(vmaf)
+
+        {:error, _error} ->
+          :ok
+      end
+
+      result
     end
-
-    result
   end
+
+  # Helper function to handle chosen VMAF updates
+  defp handle_chosen_vmaf(%{chosen: true, video_id: video_id}) do
+    video = get_video!(video_id)
+    mark_as_crf_searched(video)
+  end
+
+  defp handle_chosen_vmaf(_vmaf), do: :ok
 
   # Calculate savings if not already provided and we have the necessary data
   defp maybe_calculate_savings(attrs) do
@@ -906,6 +948,17 @@ defmodule Reencodarr.Media do
     from(v in Video,
       where: v.state == :failed,
       update: [set: [state: :needs_analysis]]
+    )
+    |> Repo.update_all([])
+  end
+
+  @doc """
+  Reset all videos to needs_analysis state for complete reprocessing.
+  This will force all videos to go through analysis again.
+  """
+  def reset_all_videos_to_needs_analysis do
+    from(v in Video,
+      update: [set: [state: :needs_analysis, bitrate: nil]]
     )
     |> Repo.update_all([])
   end
@@ -1335,13 +1388,13 @@ defmodule Reencodarr.Media do
     {messages, errors}
   end
 
-  defp add_file_existence_messages(file_exists, path, messages, errors) do
-    if file_exists do
-      {["File exists on filesystem" | messages], errors}
-    else
-      {["File does not exist on filesystem" | messages],
-       ["File does not exist on filesystem: #{path}" | errors]}
-    end
+  defp add_file_existence_messages(true, _path, messages, errors) do
+    {["File exists on filesystem" | messages], errors}
+  end
+
+  defp add_file_existence_messages(false, path, messages, errors) do
+    {["File does not exist on filesystem" | messages],
+     ["File does not exist on filesystem: #{path}" | errors]}
   end
 
   defp add_existing_video_messages(existing_video, messages) do
@@ -1413,13 +1466,18 @@ defmodule Reencodarr.Media do
 
     Logger.info("🧪 Test result: #{if result.success, do: "SUCCESS", else: "FAILED"}")
 
-    if result.success do
-      Logger.info("   Video ID: #{result.video_id}, Operation: #{result.operation}")
-    else
-      Logger.warning("   Errors: #{Enum.join(result.errors, ", ")}")
-    end
+    log_test_result_details(result)
 
     final_result
+  end
+
+  # Helper function to log test result details
+  defp log_test_result_details(%{success: true, video_id: video_id, operation: operation}) do
+    Logger.info("   Video ID: #{video_id}, Operation: #{operation}")
+  end
+
+  defp log_test_result_details(%{success: false, errors: errors}) do
+    Logger.warning("   Errors: #{Enum.join(errors, ", ")}")
   end
 
   # === Missing function implementations for backward compatibility ===
