@@ -8,21 +8,10 @@ import Config
 config :reencodarr, Reencodarr.Repo,
   database: "priv/reencodarr_test#{System.get_env("MIX_TEST_PARTITION")}.db",
   pool: Ecto.Adapters.SQL.Sandbox,
-  # Reduce concurrency for SQLite
+  # Use single connection for test sandbox
   pool_size: 1,
-  # Enable JSONB support for arrays and maps
-  array_type: :binary,
-  map_type: :binary,
-  # SQLite-specific optimizations
-  # Increase timeout
-  timeout: 30_000,
-  # Enable WAL mode for better concurrency
-  pragma: [
-    {"journal_mode", "WAL"},
-    {"busy_timeout", "30000"},
-    {"temp_store", "memory"},
-    {"cache_size", "-64000"}
-  ]
+  # Test-specific timeout
+  timeout: 30_000
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
