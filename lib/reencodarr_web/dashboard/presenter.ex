@@ -101,7 +101,16 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
       },
       analyzing: %{
         active: analyzing,
-        progress: Normalizer.normalize_progress(analyzer_progress)
+        progress:
+          (
+            normalized = Normalizer.normalize_progress(analyzer_progress)
+
+            Logger.debug(
+              "PRESENTER: analyzer_progress=#{inspect(analyzer_progress)} -> normalized=#{inspect(normalized)}"
+            )
+
+            normalized
+          )
       },
       syncing: %{
         active: syncing,
