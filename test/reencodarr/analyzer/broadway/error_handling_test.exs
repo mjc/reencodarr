@@ -23,7 +23,7 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
       nonexistent_file = "/nonexistent/video.mkv"
 
       # Create a video record that doesn't exist on disk
-      {:ok, _video} =
+      _video =
         Reencodarr.Fixtures.video_fixture(%{
           path: nonexistent_file,
           size: 1000,
