@@ -19,7 +19,8 @@ defmodule Reencodarr.AbAv1.CrfSearch.GenServerTest do
       video =
         Fixtures.video_fixture(%{
           path: "/test/genserver_video_#{:rand.uniform(10000)}.mkv",
-          size: 2_000_000_000
+          size: 2_000_000_000,
+          state: :analyzed
         })
 
       %{video: video}
