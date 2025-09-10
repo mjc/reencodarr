@@ -11,7 +11,7 @@ defmodule Reencodarr.FailureTrackerTest do
 
   describe "analysis failures" do
     test "records file access failure" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
 
       _log =
         capture_log(fn ->
@@ -30,7 +30,7 @@ defmodule Reencodarr.FailureTrackerTest do
     end
 
     test "records mediainfo parsing failure" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
 
       _log =
         with_captured_logs(fn ->
@@ -46,7 +46,7 @@ defmodule Reencodarr.FailureTrackerTest do
 
   describe "crf search failures" do
     test "records crf optimization failure with tested scores" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
       tested_scores = [{20.0, 96.5}, {22.0, 94.2}]
 
       _log =
@@ -69,7 +69,7 @@ defmodule Reencodarr.FailureTrackerTest do
     end
 
     test "records size limit failure" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
 
       _log =
         with_captured_logs(fn ->
@@ -84,7 +84,7 @@ defmodule Reencodarr.FailureTrackerTest do
     end
 
     test "records preset retry failure" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
 
       _log =
         with_captured_logs(fn ->
@@ -100,7 +100,7 @@ defmodule Reencodarr.FailureTrackerTest do
 
   describe "encoding failures" do
     test "records process failure with exit code classification" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
 
       _log =
         with_captured_logs(fn ->
@@ -115,7 +115,7 @@ defmodule Reencodarr.FailureTrackerTest do
     end
 
     test "classifies different exit codes correctly" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
 
       _log =
         with_captured_logs(fn ->
@@ -134,7 +134,7 @@ defmodule Reencodarr.FailureTrackerTest do
     end
 
     test "records timeout failure" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
 
       _log =
         with_captured_logs(fn ->
@@ -149,7 +149,7 @@ defmodule Reencodarr.FailureTrackerTest do
 
   describe "post processing failures" do
     test "records file operation failure" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
 
       _log =
         with_captured_logs(fn ->
@@ -175,7 +175,7 @@ defmodule Reencodarr.FailureTrackerTest do
 
   describe "system context" do
     test "enriches context with system information" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
 
       _log =
         with_captured_logs(fn ->
@@ -193,7 +193,7 @@ defmodule Reencodarr.FailureTrackerTest do
 
   describe "failure resolution" do
     test "resolves failures for a video" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
 
       _log =
         with_captured_logs(fn ->

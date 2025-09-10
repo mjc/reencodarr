@@ -8,7 +8,7 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
   describe "process_line/2" do
     setup do
       # Create a test video using the factory
-      video =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/unique_#{System.unique_integer([:positive])}/video.mkv",
           service_id: "test",
@@ -258,7 +258,7 @@ defmodule Reencodarr.AbAv1.ProgressParserTest do
 
   describe "parse_fps/1 (private function testing via public interface)" do
     setup do
-      video =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/fps_test.mkv",
           service_id: "test",
