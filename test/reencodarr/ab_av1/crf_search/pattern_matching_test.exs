@@ -14,7 +14,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
 
   describe "process_line/3 pattern matching" do
     setup do
-      video =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: "test_path.mkv",
           size: 1_000_000_000,
@@ -293,7 +293,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
 
   describe "large file size warnings" do
     setup do
-      video =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: "large_test.mkv",
           # 20GB
