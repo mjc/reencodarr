@@ -310,4 +310,7 @@ defmodule Reencodarr.Media.VideoUpsert do
         }
     )
   end
+
+  # Fallback for invalid paths - let validation handle the error
+  defp get_video_metadata_for_comparison(_), do: nil
 end
