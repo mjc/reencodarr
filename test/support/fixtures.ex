@@ -19,6 +19,10 @@ defmodule Reencodarr.Fixtures do
   alias Reencodarr.Media
   alias Reencodarr.Media.VideoUpsert
 
+  @type video_attrs :: %{atom() => any()} | %{String.t() => any()}
+  @type vmaf_attrs :: %{atom() => any()}
+  @type library_attrs :: %{atom() => any()}
+
   # === SAFE TEST CONSTANTS ===
 
   @test_show_names [
@@ -49,6 +53,7 @@ defmodule Reencodarr.Fixtures do
       video = video_fixture()
       video = video_fixture(%{bitrate: 5_000_000, height: 1080})
   """
+  @spec video_fixture(video_attrs()) :: {:ok, Media.Video.t()} | {:error, Ecto.Changeset.t()}
   def video_fixture(attrs \\ %{}) do
     unique_id = System.unique_integer([:positive])
 
@@ -79,6 +84,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates a video with VMAF data for CRF search scenarios.
   """
+  @spec video_with_vmaf_fixture(video_attrs(), vmaf_attrs()) :: {Media.Video.t(), Media.Vmaf.t()}
   def video_with_vmaf_fixture(video_attrs \\ %{}, vmaf_attrs \\ %{}) do
     {:ok, video} = video_fixture(video_attrs)
     vmaf = vmaf_fixture(Map.merge(%{video_id: video.id}, vmaf_attrs))
@@ -88,6 +94,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates multiple videos with incrementing identifiers.
   """
+  @spec videos_fixture(non_neg_integer(), video_attrs()) :: [Media.Video.t()]
   def videos_fixture(count, base_attrs \\ %{}) do
     Enum.map(1..count, fn i ->
       unique_id = System.unique_integer([:positive])
@@ -100,6 +107,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates a video suitable for encoding tests.
   """
+  @spec encodable_video_fixture(video_attrs()) :: Media.Video.t()
   def encodable_video_fixture(attrs \\ %{}) do
     defaults = %{
       video_codec: "h264",
@@ -117,6 +125,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates a high bitrate video for savings calculations.
   """
+  @spec high_bitrate_video_fixture(video_attrs()) :: {:ok, Media.Video.t()} | {:error, Ecto.Changeset.t()}
   def high_bitrate_video_fixture(attrs \\ %{}) do
     defaults = %{
       bitrate: 15_000_000,
@@ -131,6 +140,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates an HDR video for HDR-specific tests.
   """
+  @spec hdr_video_fixture(video_attrs()) :: {:ok, Media.Video.t()} | {:error, Ecto.Changeset.t()}
   def hdr_video_fixture(attrs \\ %{}) do
     defaults = %{
       hdr: "HDR10",
@@ -249,6 +259,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates multiple VMAF entries for a video across different CRF values.
   """
+  @spec vmaf_series_fixture(Video.t(), [number()]) :: [Vmaf.t()]
   def vmaf_series_fixture(video, crf_range \\ [24, 26, 28, 30, 32]) do
     Enum.map(crf_range, fn crf ->
       # Simulate decreasing quality with higher CRF
@@ -267,6 +278,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates a library for organizing videos.
   """
+  @spec library_fixture(map()) :: Library.t()
   def library_fixture(attrs \\ %{}) do
     unique_id = System.unique_integer([:positive])
 
@@ -284,6 +296,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates multiple libraries with common attributes.
   """
+  @spec libraries_fixture(pos_integer(), map()) :: [Library.t()]
   def libraries_fixture(count, base_attrs \\ %{}) do
     1..count
     |> Enum.map(fn _i ->
@@ -296,6 +309,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates a complete encoding scenario with video and VMAF data.
   """
+  @spec encoding_scenario_fixture(map()) :: %{video: Video.t(), vmafs: [Vmaf.t()], chosen_vmaf: Vmaf.t()}
   def encoding_scenario_fixture(video_attrs \\ %{}, vmaf_attrs \\ %{}) do
     video = encodable_video_fixture(video_attrs)
     vmaf = vmaf_fixture(Map.merge(%{video_id: video.id}, vmaf_attrs))
@@ -305,6 +319,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates a scenario suitable for CRF search testing.
   """
+  @spec crf_search_scenario_fixture(map()) :: {Video.t(), [Vmaf.t()]}
   def crf_search_scenario_fixture(attrs \\ %{}) do
     video =
       video_fixture(
@@ -338,6 +353,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Generates a safe show episode filename.
   """
+  @spec sample_episode_path(String.t() | nil, pos_integer(), pos_integer()) :: String.t()
   def sample_episode_path(show_name \\ nil, season \\ 1, episode \\ 1) do
     show = show_name || Enum.random(@test_show_names)
     unique_id = System.unique_integer([:positive])
@@ -348,6 +364,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Generates a safe movie filename.
   """
+  @spec sample_movie_path(String.t() | nil) :: String.t()
   def sample_movie_path(movie_name \\ nil) do
     movie = movie_name || Enum.random(@test_movie_names)
     unique_id = System.unique_integer([:positive])
@@ -360,6 +377,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates temporary test files with automatic cleanup.
   """
+  @spec with_temp_files(pos_integer(), String.t(), String.t(), ([String.t()] -> any())) :: any()
   def with_temp_files(count, content \\ "fake video content", extension \\ ".mkv", fun) do
     files =
       Enum.map(1..count, fn i ->
@@ -380,6 +398,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates a single temporary test file with automatic cleanup.
   """
+  @spec with_temp_file(String.t(), String.t(), (String.t() -> any())) :: any()
   def with_temp_file(content \\ "fake video content", extension \\ ".mkv", fun) do
     with_temp_files(1, content, extension, fn [file] -> fun.(file) end)
   end
@@ -389,6 +408,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   StreamData generator for video paths.
   """
+  @spec video_path_generator() :: StreamData.t(String.t())
   def video_path_generator do
     StreamData.bind(
       StreamData.member_of(@test_extensions),
@@ -403,6 +423,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   StreamData generator for video attributes suitable for property-based testing.
   """
+  @spec video_attrs_generator() :: StreamData.t(map())
   def video_attrs_generator do
     StreamData.fixed_map(%{
       path: video_path_generator(),
@@ -456,6 +477,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates a test video that already has Opus audio (doesn't need audio transcoding).
   """
+  @spec create_opus_video(map()) :: Video.t()
   def create_opus_video(attrs \\ %{}) do
     default_attrs = %{
       path: "/test/opus_video.mkv",
@@ -541,6 +563,7 @@ defmodule Reencodarr.Fixtures do
         |> as_encoded()
         |> create()
   """
+  @spec build_video(map()) :: map()
   def build_video(attrs \\ %{}) do
     defaults = %{
       bitrate: 5_000_000,
@@ -568,6 +591,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Marks video as encoded for factory building.
   """
+  @spec as_encoded(map()) :: map()
   def as_encoded(attrs) do
     Map.merge(attrs, %{state: :encoded, video_codecs: ["AV1"]})
   end
@@ -575,6 +599,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Marks video as failed for factory building.
   """
+  @spec as_failed(map()) :: map()
   def as_failed(attrs) do
     Map.put(attrs, :state, :failed)
   end
@@ -582,6 +607,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates the video with accumulated factory attributes.
   """
+  @spec create(map()) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
   def create(attrs) do
     video_fixture(attrs)
   end
@@ -589,6 +615,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates optimal VMAF fixture for target score testing.
   """
+  @spec optimal_vmaf_fixture(Video.t(), float()) :: Vmaf.t()
   def optimal_vmaf_fixture(video, target_score \\ 95.0) do
     vmaf_fixture(%{
       video_id: video.id,
@@ -601,6 +628,7 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Generates a unique library path.
   """
+  @spec unique_library_path() :: String.t()
   def unique_library_path do
     unique_id = System.unique_integer([:positive])
     "/test/libraries/library_#{unique_id}"

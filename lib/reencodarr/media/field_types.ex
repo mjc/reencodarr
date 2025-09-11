@@ -213,14 +213,37 @@ defmodule Reencodarr.Media.FieldTypes do
   defp convert_value(nil, _field_type, _field), do: {:ok, nil}
 
   defp convert_value(value, :integer, field) do
-    case convert_to_integer(value) do
-      {:ok, int_value} -> {:ok, int_value}
-      {:error, reason} -> {:error, {:conversion_error, "#{field}: #{reason}"}}
+    cond do
+      is_integer(value) -> {:ok, value}
+      is_float(value) -> {:ok, trunc(value)}
+      is_binary(value) ->
+        # Use Parsers.parse_int with a sentinel integer value to detect failure
+        parsed_value = Parsers.parse_int(value, -999_999_999)
+        if parsed_value == -999_999_999 do
+          {:error, {:conversion_error, "#{field}: cannot convert '#{value}' to integer"}}
+        else
+          {:ok, parsed_value}
+        end
+      true -> {:error, {:conversion_error, "#{field}: cannot convert #{inspect(value)} to integer"}}
     end
   end
 
   defp convert_value(value, {:integer, constraints}, field) do
-    case convert_to_integer(value) do
+    converted_value = cond do
+      is_integer(value) -> {:ok, value}
+      is_float(value) -> {:ok, trunc(value)}
+      is_binary(value) ->
+        # Use Parsers.parse_int with a sentinel integer value to detect failure
+        parsed_value = Parsers.parse_int(value, -999_999_999)
+        if parsed_value == -999_999_999 do
+          {:error, "cannot convert '#{value}' to integer"}
+        else
+          {:ok, parsed_value}
+        end
+      true -> {:error, "cannot convert #{inspect(value)} to integer"}
+    end
+
+    case converted_value do
       {:ok, int_value} ->
         case validate_integer_constraints(int_value, constraints, field) do
           :ok -> {:ok, int_value}
@@ -233,14 +256,37 @@ defmodule Reencodarr.Media.FieldTypes do
   end
 
   defp convert_value(value, :float, field) do
-    case convert_to_float(value) do
-      {:ok, float_value} -> {:ok, float_value}
-      {:error, reason} -> {:error, {:conversion_error, "#{field}: #{reason}"}}
+    cond do
+      is_float(value) -> {:ok, value}
+      is_integer(value) -> {:ok, value / 1.0}
+      is_binary(value) ->
+        # Use Parsers.parse_float with a sentinel float value to detect failure
+        parsed_value = Parsers.parse_float(value, -999_999_999.0)
+        if parsed_value == -999_999_999.0 do
+          {:error, {:conversion_error, "#{field}: cannot convert '#{value}' to float"}}
+        else
+          {:ok, parsed_value}
+        end
+      true -> {:error, {:conversion_error, "#{field}: cannot convert #{inspect(value)} to float"}}
     end
   end
 
   defp convert_value(value, {:float, constraints}, field) do
-    case convert_to_float(value) do
+    converted_value = cond do
+      is_float(value) -> {:ok, value}
+      is_integer(value) -> {:ok, value / 1.0}
+      is_binary(value) ->
+        # Use Parsers.parse_float with a sentinel float value to detect failure
+        parsed_value = Parsers.parse_float(value, -999_999_999.0)
+        if parsed_value == -999_999_999.0 do
+          {:error, "cannot convert '#{value}' to float"}
+        else
+          {:ok, parsed_value}
+        end
+      true -> {:error, "cannot convert #{inspect(value)} to float"}
+    end
+
+    case converted_value do
       {:ok, float_value} ->
         case validate_float_constraints(float_value, constraints, field) do
           :ok -> {:ok, float_value}
@@ -266,7 +312,19 @@ defmodule Reencodarr.Media.FieldTypes do
   end
 
   defp convert_value(value, :boolean, _field) do
-    {:ok, convert_to_boolean(value)}
+    result = cond do
+      is_boolean(value) -> value
+      value == "true" -> true
+      value == "false" -> false
+      value == "yes" -> true
+      value == "no" -> false
+      value == "1" -> true
+      value == "0" -> false
+      value == 1 -> true
+      value == 0 -> false
+      true -> false
+    end
+    {:ok, result}
   end
 
   defp convert_value(value, {:array, :string}, _field) when is_list(value) do
@@ -276,50 +334,6 @@ defmodule Reencodarr.Media.FieldTypes do
   defp convert_value(value, {:array, :string}, _field) do
     {:ok, [to_string(value)]}
   end
-
-  # Type conversion helpers
-
-  defp convert_to_integer(value) when is_integer(value), do: {:ok, value}
-
-  defp convert_to_integer(value) when is_float(value) do
-    {:ok, trunc(value)}
-  end
-
-  defp convert_to_integer(value) when is_binary(value) do
-    case Parsers.parse_int(value, nil) do
-      nil -> {:error, "cannot convert '#{value}' to integer"}
-      int_value -> {:ok, int_value}
-    end
-  end
-
-  defp convert_to_integer(value) do
-    {:error, "cannot convert #{inspect(value)} to integer"}
-  end
-
-  defp convert_to_float(value) when is_float(value), do: {:ok, value}
-  defp convert_to_float(value) when is_integer(value), do: {:ok, value / 1.0}
-
-  defp convert_to_float(value) when is_binary(value) do
-    case Parsers.parse_float(value, nil) do
-      nil -> {:error, "cannot convert '#{value}' to float"}
-      float_value -> {:ok, float_value}
-    end
-  end
-
-  defp convert_to_float(value) do
-    {:error, "cannot convert #{inspect(value)} to float"}
-  end
-
-  defp convert_to_boolean(value) when is_boolean(value), do: value
-  defp convert_to_boolean("true"), do: true
-  defp convert_to_boolean("false"), do: false
-  defp convert_to_boolean("yes"), do: true
-  defp convert_to_boolean("no"), do: false
-  defp convert_to_boolean("1"), do: true
-  defp convert_to_boolean("0"), do: false
-  defp convert_to_boolean(1), do: true
-  defp convert_to_boolean(0), do: false
-  defp convert_to_boolean(_), do: false
 
   # Validation constraint helpers
 

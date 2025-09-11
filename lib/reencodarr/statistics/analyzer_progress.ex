@@ -1,6 +1,16 @@
 defmodule Reencodarr.Statistics.AnalyzerProgress do
   @moduledoc "Represents the progress of an analyzer operation."
 
+  @type t :: %__MODULE__{
+          filename: :none | String.t(),
+          percent: non_neg_integer(),
+          current_file: :none | String.t(),
+          total_files: non_neg_integer(),
+          throughput: float(),
+          rate_limit: non_neg_integer(),
+          batch_size: non_neg_integer()
+        }
+
   defstruct filename: :none,
             percent: 0,
             current_file: :none,

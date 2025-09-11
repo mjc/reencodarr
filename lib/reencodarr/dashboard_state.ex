@@ -72,7 +72,7 @@ defmodule Reencodarr.DashboardState do
     # Get the queue items (first 10)
     next_analyzer = Media.get_videos_needing_analysis(10)
     next_crf_search = Media.get_videos_for_crf_search(10)
-    videos_by_estimated_percent = Media.list_videos_by_estimated_percent(10) || []
+    videos_by_estimated_percent = Media.list_videos_by_estimated_percent(10)
 
     # Count total items in queues
     analyzer_count = Media.count_videos_needing_analysis()
@@ -86,11 +86,11 @@ defmodule Reencodarr.DashboardState do
         next_crf_search: next_crf_search,
         videos_by_estimated_percent: videos_by_estimated_percent,
         queue_length: %{
-          analyzer: analyzer_count || 0,
-          crf_searches: crf_search_count || 0,
-          encodes: encode_count || 0
+          analyzer: analyzer_count,
+          crf_searches: crf_search_count,
+          encodes: encode_count
         },
-        encode_queue_length: encode_count || 0
+        encode_queue_length: encode_count
     }
   end
 
