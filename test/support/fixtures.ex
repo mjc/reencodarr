@@ -17,6 +17,7 @@ defmodule Reencodarr.Fixtures do
   """
 
   alias Reencodarr.Media
+  alias Reencodarr.Media.VideoUpsert
 
   # === SAFE TEST CONSTANTS ===
 
@@ -68,9 +69,11 @@ defmodule Reencodarr.Fixtures do
       service_type: :sonarr
     }
 
+    # Convert atom keys to string keys for VideoUpsert
     attrs = Map.merge(defaults, attrs)
+    string_attrs = Map.new(attrs, fn {k, v} -> {to_string(k), v} end)
 
-    Media.upsert_video(attrs)
+    VideoUpsert.upsert(string_attrs)
   end
 
   @doc """
