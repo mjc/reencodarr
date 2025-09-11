@@ -5,7 +5,7 @@ defmodule Reencodarr.Sync do
   import Ecto.Query
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.{Media, Repo, Services, Telemetry}
-  alias Reencodarr.Media.{MediaInfoExtractor, VideoFileInfo}
+  alias Reencodarr.Media.{MediaInfoExtractor, VideoFileInfo, VideoUpsert}
   alias Reencodarr.Media.Video.MediaInfoConverter
 
   # Public API
@@ -286,7 +286,7 @@ defmodule Reencodarr.Sync do
     # Convert atom keys to string keys for consistency
     string_video_params = Map.new(video_params, fn {k, v} -> {to_string(k), v} end)
 
-    Media.upsert_video(
+    VideoUpsert.upsert(
       Map.merge(
         %{
           "path" => info.path,
@@ -315,7 +315,7 @@ defmodule Reencodarr.Sync do
     # Store in database
     result =
       Repo.transaction(fn ->
-        Media.upsert_video(%{
+        VideoUpsert.upsert(%{
           "path" => file["path"],
           "size" => file["size"],
           "service_id" => to_string(file["id"]),
