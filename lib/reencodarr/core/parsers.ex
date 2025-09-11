@@ -95,10 +95,22 @@ defmodule Reencodarr.Core.Parsers do
   def parse_int(val, default \\ 0)
   def parse_int(val, _default) when is_integer(val), do: val
 
+  def parse_int(val, _default) when is_float(val) do
+    # Handle float to integer conversion
+    round(val)
+  end
+
   def parse_int(val, default) when is_binary(val) do
     case Integer.parse(val) do
-      {i, _} -> i
-      :error -> default
+      {i, _} ->
+        i
+
+      :error ->
+        # Try parsing as float first, then convert to integer
+        case Float.parse(val) do
+          {f, _} -> round(f)
+          :error -> default
+        end
     end
   end
 
@@ -122,14 +134,65 @@ defmodule Reencodarr.Core.Parsers do
   def parse_float(val, default \\ 0.0)
   def parse_float(val, _default) when is_float(val), do: val
 
+  def parse_float(val, _default) when is_integer(val) do
+    # Handle integer to float conversion
+    val * 1.0
+  end
+
   def parse_float(val, default) when is_binary(val) do
     case Float.parse(val) do
-      {f, _} -> f
-      :error -> default
+      {f, _} ->
+        f
+
+      :error ->
+        # Try parsing as integer first, then convert to float
+        case Integer.parse(val) do
+          {i, _} -> i * 1.0
+          :error -> default
+        end
     end
   end
 
   def parse_float(_, default), do: default
+
+  @doc """
+  Safely parses a boolean value from various inputs.
+
+  Handles strings, integers, and boolean values, converting common
+  representations to true/false with fallback to default value.
+
+  ## Examples
+
+      iex> Parsers.parse_boolean("true", false)
+      true
+
+      iex> Parsers.parse_boolean(1, false)
+      true
+
+      iex> Parsers.parse_boolean("invalid", true)
+      true
+  """
+  @spec parse_boolean(any(), boolean()) :: boolean()
+  def parse_boolean(val, default \\ false)
+  def parse_boolean(true, _default), do: true
+  def parse_boolean(false, _default), do: false
+  def parse_boolean("true", _default), do: true
+  def parse_boolean("false", _default), do: false
+  def parse_boolean("True", _default), do: true
+  def parse_boolean("False", _default), do: false
+  def parse_boolean("TRUE", _default), do: true
+  def parse_boolean("FALSE", _default), do: false
+  def parse_boolean("yes", _default), do: true
+  def parse_boolean("no", _default), do: false
+  def parse_boolean("Yes", _default), do: true
+  def parse_boolean("No", _default), do: false
+  def parse_boolean("YES", _default), do: true
+  def parse_boolean("NO", _default), do: false
+  def parse_boolean("1", _default), do: true
+  def parse_boolean("0", _default), do: false
+  def parse_boolean(1, _default), do: true
+  def parse_boolean(0, _default), do: false
+  def parse_boolean(_, default), do: default
 
   @doc """
   Gets the first non-nil value from a list.
