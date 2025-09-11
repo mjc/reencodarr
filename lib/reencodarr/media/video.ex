@@ -47,10 +47,14 @@ defmodule Reencodarr.Media.Video do
   @required [
     :path,
     :state,
+    :size
+  ]
+
+  # Fields that are required after analysis but optional during initial creation
+  @required_after_analysis [
     :video_codecs,
     :audio_codecs,
     :max_audio_channels,
-    :size,
     :atmos
   ]
 
@@ -105,12 +109,29 @@ defmodule Reencodarr.Media.Video do
   @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(video \\ %__MODULE__{}, attrs) do
     video
-    |> cast(attrs, @required ++ @optional)
+    |> cast(attrs, @required ++ @required_after_analysis ++ @optional)
     |> validate_media_info()
     |> validate_audio_fields()
     |> maybe_remove_size_zero()
     |> maybe_remove_bitrate_zero()
     |> validate_required(@required)
+    |> unique_constraint(:path)
+    |> validate_inclusion(:service_type, @service_types)
+    |> validate_number(:bitrate, greater_than_or_equal_to: 1)
+  end
+
+  @doc """
+  Changeset for videos after analysis, requiring analysis fields.
+  """
+  @spec analysis_changeset(t(), map()) :: Ecto.Changeset.t()
+  def analysis_changeset(video \\ %__MODULE__{}, attrs) do
+    video
+    |> cast(attrs, @required ++ @required_after_analysis ++ @optional)
+    |> validate_media_info()
+    |> validate_audio_fields()
+    |> maybe_remove_size_zero()
+    |> maybe_remove_bitrate_zero()
+    |> validate_required(@required ++ @required_after_analysis)
     |> unique_constraint(:path)
     |> validate_inclusion(:service_type, @service_types)
     |> validate_number(:bitrate, greater_than_or_equal_to: 1)
