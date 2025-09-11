@@ -7,7 +7,7 @@ defmodule Reencodarr.SyncIntegrationTest do
 
   describe "sync integration tests" do
     setup do
-      library = Fixtures.library_fixture()
+      library = Fixtures.library_fixture(%{path: "/test"})
       %{library: library}
     end
 

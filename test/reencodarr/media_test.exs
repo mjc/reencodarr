@@ -1,5 +1,6 @@
 defmodule Reencodarr.MediaTest do
   use Reencodarr.DataCase, async: true
+  import ExUnit.CaptureLog
 
   alias Reencodarr.Fixtures
   alias Reencodarr.Media
@@ -330,12 +331,14 @@ defmodule Reencodarr.MediaTest do
       ]
 
       # Perform batch upsert
-      results = Media.batch_upsert_videos(video_attrs_list)
+      capture_log(fn ->
+        results = Media.batch_upsert_videos(video_attrs_list)
 
-      # Should have one success and one error
-      assert length(results) == 2
-      assert match?({:ok, _}, Enum.at(results, 0))
-      assert match?({:error, _}, Enum.at(results, 1))
+        # Should have one success and one error
+        assert length(results) == 2
+        assert match?({:ok, _}, Enum.at(results, 0))
+        assert match?({:error, _}, Enum.at(results, 1))
+      end)
     end
   end
 

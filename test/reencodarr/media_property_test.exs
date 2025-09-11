@@ -12,37 +12,43 @@ defmodule Reencodarr.Media.PropertyTest do
 
   alias Reencodarr.Media
   import StreamData
+  import ExUnit.CaptureLog
 
   @moduletag :property
 
   describe "create_video/1 property tests" do
-    property "creates valid videos with generated attributes" do
+    setup do
+      library = Fixtures.library_fixture(%{path: "/test"})
+      {:ok, library: library}
+    end
+
+    property "creates valid videos with generated attributes", %{library: library} do
       check all(attrs <- video_attrs_generator()) do
-        # Ensure we have a valid library first
-        library = Fixtures.library_fixture()
         attrs = Map.put(attrs, :library_id, library.id)
 
-        case Fixtures.video_fixture(attrs) do
-          {:ok, video} ->
-            assert video.path == attrs.path
-            assert video.size == attrs.size
-            assert video.bitrate == attrs.bitrate
-            assert video.library_id == attrs.library_id
+        capture_log(fn ->
+          result = Fixtures.video_fixture(attrs)
 
-          # width, height, and codec fields are populated by MediaInfo processing
+          case result do
+            {:ok, video} ->
+              assert video.path == attrs.path
+              assert video.size == attrs.size
+              assert video.bitrate == attrs.bitrate
+              assert video.library_id == attrs.library_id
 
-          {:error, changeset} ->
-            # If creation fails, ensure it's due to validation, not crashes
-            assert %Ecto.Changeset{} = changeset
-            refute changeset.valid?
-        end
+            # width, height, and codec fields are populated by MediaInfo processing
+
+            {:error, changeset} ->
+              # If creation fails, ensure it's due to validation, not crashes
+              assert %Ecto.Changeset{} = changeset
+              refute changeset.valid?
+          end
+        end)
       end
     end
 
-    property "rejects videos with invalid paths" do
+    property "rejects videos with invalid paths", %{library: library} do
       check all(invalid_path <- invalid_string_generator()) do
-        library = Fixtures.library_fixture()
-
         attrs = %{
           path: invalid_path,
           size: 1_000_000,
@@ -53,14 +59,18 @@ defmodule Reencodarr.Media.PropertyTest do
           audio_codecs: ["aac"]
         }
 
-        case Fixtures.video_fixture(attrs) do
-          {:error, changeset} ->
-            assert %{path: _} = errors_on(changeset)
+        capture_log(fn ->
+          result = Fixtures.video_fixture(attrs)
 
-          {:ok, _} ->
-            # Some invalid values might still be accepted depending on validation rules
-            :ok
-        end
+          case result do
+            {:error, changeset} ->
+              assert %{path: _} = errors_on(changeset)
+
+            {:ok, _} ->
+              # Some invalid values might still be accepted depending on validation rules
+              :ok
+          end
+        end)
       end
     end
 
@@ -75,15 +85,19 @@ defmodule Reencodarr.Media.PropertyTest do
           library_id: library.id
         }
 
-        case Fixtures.video_fixture(attrs) do
-          {:error, changeset} ->
-            # Should have validation errors, but might be on different fields
-            refute changeset.valid?
+        capture_log(fn ->
+          result = Fixtures.video_fixture(attrs)
 
-          {:ok, _} ->
-            # Some values might be coerced or accepted
-            :ok
-        end
+          case result do
+            {:error, changeset} ->
+              # Should have validation errors, but might be on different fields
+              refute changeset.valid?
+
+            {:ok, _} ->
+              # Some values might be coerced or accepted
+              :ok
+          end
+        end)
       end
     end
   end
@@ -104,7 +118,18 @@ defmodule Reencodarr.Media.PropertyTest do
           audio_codecs: ["aac"]
         }
 
-        {:ok, video} = Fixtures.video_fixture(video_attrs)
+        _logs =
+          capture_log(fn ->
+            result = Fixtures.video_fixture(video_attrs)
+            send(self(), {:video_result, result})
+          end)
+
+        video =
+          receive do
+            {:video_result, {:ok, actual_video}} -> actual_video
+          after
+            100 -> raise "Did not receive video result"
+          end
 
         # Update vmaf_attrs with the actual video_id
         vmaf_attrs = Map.put(vmaf_attrs, :video_id, video.id)
@@ -156,7 +181,18 @@ defmodule Reencodarr.Media.PropertyTest do
           audio_codecs: ["aac"]
         }
 
-        {:ok, video} = Fixtures.video_fixture(original_attrs)
+        _logs =
+          capture_log(fn ->
+            result = Fixtures.video_fixture(original_attrs)
+            send(self(), {:video_result, result})
+          end)
+
+        video =
+          receive do
+            {:video_result, {:ok, actual_video}} -> actual_video
+          after
+            100 -> raise "Did not receive video result"
+          end
 
         # Remove library_id from updates to avoid constraint issues
         # and make the path unique

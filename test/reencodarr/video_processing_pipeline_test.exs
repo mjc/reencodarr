@@ -138,7 +138,7 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
       refute video.id in video_ids, "Re-encoded video should not be in CRF search candidates"
 
       # Step 6: Test encoding failure scenario with a new video
-      failing_video =
+      {:ok, failing_video} =
         Fixtures.video_fixture(%{
           path: Path.join(Path.dirname(original_video), "failing_video.mkv"),
           service_id: "456",
