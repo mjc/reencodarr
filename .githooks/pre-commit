@@ -35,5 +35,11 @@ if ! mix format --migrate --check-formatted; then
     exit 1
 fi
 
+echo "Running Dialyzer type checking..."
+if ! mix dialyzer; then
+    echo "❌ Dialyzer type checking failed. Please fix the type errors and try again."
+    exit 1
+fi
+
 echo "✅ All checks passed!"
 exit 0
