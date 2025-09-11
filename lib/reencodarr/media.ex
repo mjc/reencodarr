@@ -1313,7 +1313,7 @@ defmodule Reencodarr.Media do
     library_id =
       Repo.one(
         from l in Library,
-          where: fragment("? LIKE CONCAT(?, '%')", ^path, l.path),
+          where: fragment("? LIKE ? || '%'", ^path, l.path),
           order_by: [desc: fragment("LENGTH(?)", l.path)],
           limit: 1,
           select: l.id

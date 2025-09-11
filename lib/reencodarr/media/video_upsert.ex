@@ -80,7 +80,7 @@ defmodule Reencodarr.Media.VideoUpsert do
   defp find_library_id(path) when is_binary(path) do
     Repo.one(
       from l in Library,
-        where: fragment("? LIKE CONCAT(?, '%')", ^path, l.path),
+        where: fragment("? LIKE ? || '%'", ^path, l.path),
         order_by: [desc: fragment("LENGTH(?)", l.path)],
         limit: 1,
         select: l.id
@@ -99,18 +99,33 @@ defmodule Reencodarr.Media.VideoUpsert do
 
   defp handle_vmaf_deletion_and_bitrate_preservation(attrs) do
     path = Map.get(attrs, "path")
+
+    # Skip metadata comparison if path is invalid - let validation handle it
+    if not is_binary(path) or String.trim(path) == "", do: attrs
+
+    process_video_metadata_changes(attrs, path)
+  end
+
+  defp process_video_metadata_changes(attrs, path) do
     new_values = VideoValidator.extract_comparison_values(attrs)
     being_marked_encoded = VideoValidator.get_attr_value(attrs, "state") == "encoded"
-
     existing_video = get_video_metadata_for_comparison(path)
 
     # Handle VMAF deletion if needed
+    maybe_delete_vmafs(existing_video, new_values, being_marked_encoded)
+
+    # Handle bitrate preservation
+    handle_bitrate_preservation(attrs, existing_video, new_values, being_marked_encoded, path)
+  end
+
+  defp maybe_delete_vmafs(existing_video, new_values, being_marked_encoded) do
     if not being_marked_encoded and
          VideoValidator.should_delete_vmafs?(existing_video, new_values) do
       delete_vmafs_for_video(existing_video.id)
     end
+  end
 
-    # Determine if we should preserve bitrate
+  defp handle_bitrate_preservation(attrs, existing_video, new_values, being_marked_encoded, path) do
     preserve_bitrate =
       not being_marked_encoded and
         VideoValidator.should_preserve_bitrate?(existing_video, new_values)
@@ -281,7 +296,7 @@ defmodule Reencodarr.Media.VideoUpsert do
     from(v in Vmaf, where: v.video_id == ^video_id) |> Repo.delete_all()
   end
 
-  defp get_video_metadata_for_comparison(path) do
+  defp get_video_metadata_for_comparison(path) when is_binary(path) do
     Repo.one(
       from v in Video,
         where: v.path == ^path and v.state != :encoded and v.state != :failed,
