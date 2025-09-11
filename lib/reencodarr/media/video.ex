@@ -35,7 +35,13 @@ defmodule Reencodarr.Media.Video do
     :text_codecs,
     :hdr,
     :title,
-    :content_year
+    :content_year,
+    :library_id,
+    :service_id,
+    :service_type,
+    :duration,
+    :mediainfo,
+    :state
   ]
 
   @required [
