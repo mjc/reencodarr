@@ -4,6 +4,16 @@ defmodule Reencodarr.Services.Config do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @type t :: %__MODULE__{
+          id: integer() | nil,
+          api_key: String.t() | nil,
+          enabled: boolean(),
+          service_type: :sonarr | :radarr | :plex,
+          url: String.t() | nil,
+          inserted_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil
+        }
+
   schema "configs" do
     field :api_key, :string, redact: true
     field :enabled, :boolean, default: false
