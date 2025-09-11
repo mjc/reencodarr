@@ -101,7 +101,9 @@ defmodule Reencodarr.Media.VideoUpsert do
     |> Map.put_new("atmos", false)
   end
 
-  @spec handle_vmaf_deletion_and_bitrate_preservation(%{String.t() => any()}) :: %{String.t() => any()}
+  @spec handle_vmaf_deletion_and_bitrate_preservation(%{String.t() => any()}) :: %{
+          String.t() => any()
+        }
   defp handle_vmaf_deletion_and_bitrate_preservation(attrs) do
     path = Map.get(attrs, "path")
 
@@ -111,7 +113,9 @@ defmodule Reencodarr.Media.VideoUpsert do
     process_video_metadata_changes(attrs, path)
   end
 
-  @spec process_video_metadata_changes(%{String.t() => any()}, String.t()) :: %{String.t() => any()}
+  @spec process_video_metadata_changes(%{String.t() => any()}, String.t()) :: %{
+          String.t() => any()
+        }
   defp process_video_metadata_changes(attrs, path) do
     new_values = VideoValidator.extract_comparison_values(attrs)
     being_marked_encoded = VideoValidator.get_attr_value(attrs, "state") == "encoded"
@@ -130,6 +134,7 @@ defmodule Reencodarr.Media.VideoUpsert do
          VideoValidator.should_delete_vmafs?(existing_video, new_values) do
       delete_vmafs_for_video(existing_video.id)
     end
+
     :ok
   end
 
@@ -162,7 +167,8 @@ defmodule Reencodarr.Media.VideoUpsert do
     end
   end
 
-  @spec insert_or_update_video(%{String.t() => any()}) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t() | any()}
+  @spec insert_or_update_video(%{String.t() => any()}) ::
+          {:ok, Video.t()} | {:error, Ecto.Changeset.t() | any()}
   defp insert_or_update_video(attrs) do
     conflict_except = determine_conflict_except_fields(attrs)
     on_conflict_query = build_on_conflict_query(attrs, conflict_except)
@@ -181,7 +187,8 @@ defmodule Reencodarr.Media.VideoUpsert do
     end
   end
 
-  @spec build_on_conflict_query(%{String.t() => any()}, [atom()]) :: {:replace_all_except, [atom()]} | Ecto.Query.t()
+  @spec build_on_conflict_query(%{String.t() => any()}, [atom()]) ::
+          {:replace_all_except, [atom()]} | Ecto.Query.t()
   defp build_on_conflict_query(attrs, conflict_except) do
     case Map.get(attrs, "dateAdded") do
       nil ->
@@ -203,22 +210,22 @@ defmodule Reencodarr.Media.VideoUpsert do
           {:replace_all_except, [atom()]} | Ecto.Query.t()
         ) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
   defp perform_video_upsert(attrs, on_conflict_query) do
-    result = %Video{}
-    |> Video.changeset(attrs)
-    |> Repo.insert(
-      on_conflict: on_conflict_query,
-      conflict_target: :path,
-      stale_error_field: :updated_at,
-      returning: true
-    )
+    result =
+      %Video{}
+      |> Video.changeset(attrs)
+      |> Repo.insert(
+        on_conflict: on_conflict_query,
+        conflict_target: :path,
+        stale_error_field: :updated_at,
+        returning: true
+      )
 
     # Return the result directly, don't wrap in transaction
     result
   end
 
-  @spec perform_single_upsert_in_batch(
-          %{String.t() => any()}
-        ) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t() | any()}
+  @spec perform_single_upsert_in_batch(%{String.t() => any()}) ::
+          {:ok, Video.t()} | {:error, Ecto.Changeset.t() | any()}
   defp perform_single_upsert_in_batch(attrs) do
     conflict_except = determine_conflict_except_fields(attrs)
     on_conflict_query = build_on_conflict_query(attrs, conflict_except)

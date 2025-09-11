@@ -213,88 +213,48 @@ defmodule Reencodarr.Media.FieldTypes do
   defp convert_value(nil, _field_type, _field), do: {:ok, nil}
 
   defp convert_value(value, :integer, field) do
-    cond do
-      is_integer(value) -> {:ok, value}
-      is_float(value) -> {:ok, trunc(value)}
-      is_binary(value) ->
-        # Use Parsers.parse_int with a sentinel integer value to detect failure
-        parsed_value = Parsers.parse_int(value, -999_999_999)
-        if parsed_value == -999_999_999 do
-          {:error, {:conversion_error, "#{field}: cannot convert '#{value}' to integer"}}
-        else
-          {:ok, parsed_value}
-        end
-      true -> {:error, {:conversion_error, "#{field}: cannot convert #{inspect(value)} to integer"}}
+    parsed_value = Parsers.parse_int(value, -999_999_999)
+
+    if parsed_value == -999_999_999 do
+      {:error, {:conversion_error, "#{field}: cannot convert #{inspect(value)} to integer"}}
+    else
+      {:ok, parsed_value}
     end
   end
 
   defp convert_value(value, {:integer, constraints}, field) do
-    converted_value = cond do
-      is_integer(value) -> {:ok, value}
-      is_float(value) -> {:ok, trunc(value)}
-      is_binary(value) ->
-        # Use Parsers.parse_int with a sentinel integer value to detect failure
-        parsed_value = Parsers.parse_int(value, -999_999_999)
-        if parsed_value == -999_999_999 do
-          {:error, "cannot convert '#{value}' to integer"}
-        else
-          {:ok, parsed_value}
-        end
-      true -> {:error, "cannot convert #{inspect(value)} to integer"}
-    end
-
-    case converted_value do
+    case convert_value(value, :integer, field) do
       {:ok, int_value} ->
         case validate_integer_constraints(int_value, constraints, field) do
           :ok -> {:ok, int_value}
           error -> error
         end
 
-      {:error, reason} ->
-        {:error, {:conversion_error, "#{field}: #{reason}"}}
+      error ->
+        error
     end
   end
 
   defp convert_value(value, :float, field) do
-    cond do
-      is_float(value) -> {:ok, value}
-      is_integer(value) -> {:ok, value / 1.0}
-      is_binary(value) ->
-        # Use Parsers.parse_float with a sentinel float value to detect failure
-        parsed_value = Parsers.parse_float(value, -999_999_999.0)
-        if parsed_value == -999_999_999.0 do
-          {:error, {:conversion_error, "#{field}: cannot convert '#{value}' to float"}}
-        else
-          {:ok, parsed_value}
-        end
-      true -> {:error, {:conversion_error, "#{field}: cannot convert #{inspect(value)} to float"}}
+    parsed_value = Parsers.parse_float(value, -999_999_999.0)
+
+    if parsed_value == -999_999_999.0 do
+      {:error, {:conversion_error, "#{field}: cannot convert #{inspect(value)} to float"}}
+    else
+      {:ok, parsed_value}
     end
   end
 
   defp convert_value(value, {:float, constraints}, field) do
-    converted_value = cond do
-      is_float(value) -> {:ok, value}
-      is_integer(value) -> {:ok, value / 1.0}
-      is_binary(value) ->
-        # Use Parsers.parse_float with a sentinel float value to detect failure
-        parsed_value = Parsers.parse_float(value, -999_999_999.0)
-        if parsed_value == -999_999_999.0 do
-          {:error, "cannot convert '#{value}' to float"}
-        else
-          {:ok, parsed_value}
-        end
-      true -> {:error, "cannot convert #{inspect(value)} to float"}
-    end
-
-    case converted_value do
+    case convert_value(value, :float, field) do
       {:ok, float_value} ->
         case validate_float_constraints(float_value, constraints, field) do
           :ok -> {:ok, float_value}
           error -> error
         end
 
-      {:error, reason} ->
-        {:error, {:conversion_error, "#{field}: #{reason}"}}
+      error ->
+        error
     end
   end
 
@@ -312,18 +272,7 @@ defmodule Reencodarr.Media.FieldTypes do
   end
 
   defp convert_value(value, :boolean, _field) do
-    result = cond do
-      is_boolean(value) -> value
-      value == "true" -> true
-      value == "false" -> false
-      value == "yes" -> true
-      value == "no" -> false
-      value == "1" -> true
-      value == "0" -> false
-      value == 1 -> true
-      value == 0 -> false
-      true -> false
-    end
+    result = Parsers.parse_boolean(value, false)
     {:ok, result}
   end
 

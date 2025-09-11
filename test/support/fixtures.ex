@@ -125,7 +125,8 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates a high bitrate video for savings calculations.
   """
-  @spec high_bitrate_video_fixture(video_attrs()) :: {:ok, Media.Video.t()} | {:error, Ecto.Changeset.t()}
+  @spec high_bitrate_video_fixture(video_attrs()) ::
+          {:ok, Media.Video.t()} | {:error, Ecto.Changeset.t()}
   def high_bitrate_video_fixture(attrs \\ %{}) do
     defaults = %{
       bitrate: 15_000_000,
@@ -309,7 +310,11 @@ defmodule Reencodarr.Fixtures do
   @doc """
   Creates a complete encoding scenario with video and VMAF data.
   """
-  @spec encoding_scenario_fixture(map()) :: %{video: Video.t(), vmafs: [Vmaf.t()], chosen_vmaf: Vmaf.t()}
+  @spec encoding_scenario_fixture(map()) :: %{
+          video: Video.t(),
+          vmafs: [Vmaf.t()],
+          chosen_vmaf: Vmaf.t()
+        }
   def encoding_scenario_fixture(video_attrs \\ %{}, vmaf_attrs \\ %{}) do
     video = encodable_video_fixture(video_attrs)
     vmaf = vmaf_fixture(Map.merge(%{video_id: video.id}, vmaf_attrs))
