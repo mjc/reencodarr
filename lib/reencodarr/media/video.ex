@@ -110,6 +110,7 @@ defmodule Reencodarr.Media.Video do
   def changeset(video \\ %__MODULE__{}, attrs) do
     video
     |> cast(attrs, @required ++ @required_after_analysis ++ @optional)
+    |> validate_path()
     |> validate_media_info()
     |> validate_audio_fields()
     |> maybe_remove_size_zero()
@@ -127,6 +128,7 @@ defmodule Reencodarr.Media.Video do
   def analysis_changeset(video \\ %__MODULE__{}, attrs) do
     video
     |> cast(attrs, @required ++ @required_after_analysis ++ @optional)
+    |> validate_path()
     |> validate_media_info()
     |> validate_audio_fields()
     |> maybe_remove_size_zero()
@@ -135,6 +137,12 @@ defmodule Reencodarr.Media.Video do
     |> unique_constraint(:path)
     |> validate_inclusion(:service_type, @service_types)
     |> validate_number(:bitrate, greater_than_or_equal_to: 1)
+  end
+
+  defp validate_path(changeset) do
+    changeset
+    |> validate_format(:path, ~r/^.+$/, message: "cannot be empty or nil")
+    |> validate_length(:path, min: 1)
   end
 
   defp maybe_remove_size_zero(changeset) do
