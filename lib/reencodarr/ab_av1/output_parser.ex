@@ -44,24 +44,24 @@ defmodule Reencodarr.AbAv1.OutputParser do
   @doc """
   Matches a line against a specific pattern and returns named captures.
 
-  Returns nil if no match, or a map of captured values if matched.
+  Returns {:error, :no_match} if no match, or {:ok, captures} if matched.
   """
-  @spec match_pattern(String.t(), atom()) :: map() | nil
+  @spec match_pattern(String.t(), atom()) :: {:ok, map()} | {:error, :no_match}
   def match_pattern(line, pattern_key) do
     pattern = Map.get(@patterns, pattern_key)
 
     case Regex.named_captures(pattern, line) do
-      nil -> nil
-      captures -> captures
+      nil -> {:error, :no_match}
+      captures -> {:ok, captures}
     end
   end
 
   @doc """
   Parses a single line of ab-av1 output and returns structured data.
 
-  Returns `{:ok, parsed_data}` for recognized patterns, `:ignore` for irrelevant lines.
+  Returns `{:ok, parsed_data}` for recognized patterns, `{:error, :no_match}` for irrelevant lines.
   """
-  @spec parse_line(String.t()) :: {:ok, map()} | :ignore
+  @spec parse_line(String.t()) :: {:ok, map()} | {:error, :no_match}
   def parse_line(line) do
     line = String.trim(line)
 
@@ -90,25 +90,30 @@ defmodule Reencodarr.AbAv1.OutputParser do
     result =
       Enum.find_value(pattern_attempts, fn {pattern_key, type} ->
         field_mapping = field_mappings()[pattern_key]
-        parse_pattern_with_mapping(line, pattern_key, type, field_mapping)
+
+        case parse_pattern_with_mapping(line, pattern_key, type, field_mapping) do
+          {:ok, data} -> {:ok, data}
+          {:error, _} -> nil
+        end
       end)
 
-    result || :ignore
+    result || {:error, :no_match}
   end
 
-  defp parse_pattern_with_mapping(_line, _pattern_key, _type, nil), do: nil
+  defp parse_pattern_with_mapping(_line, _pattern_key, _type, nil),
+    do: {:error, :no_field_mapping}
 
   defp parse_pattern_with_mapping(line, :encoding_start, type, _field_mapping) do
     case parse_encoding_start_pattern(line) do
-      nil -> nil
-      data -> {:ok, %{type: type, data: data}}
+      {:error, _} = error -> error
+      {:ok, data} -> {:ok, %{type: type, data: data}}
     end
   end
 
   defp parse_pattern_with_mapping(line, pattern_key, type, field_mapping) do
     case Parsers.parse_with_pattern(line, pattern_key, @patterns, field_mapping) do
-      nil -> nil
-      data -> {:ok, %{type: type, data: data}}
+      {:error, _} = error -> error
+      {:ok, data} -> {:ok, %{type: type, data: data}}
     end
   end
 
@@ -118,16 +123,17 @@ defmodule Reencodarr.AbAv1.OutputParser do
 
     case Regex.named_captures(pattern, line) do
       nil ->
-        nil
+        {:error, :no_match}
 
       %{"filename" => filename} ->
         extname = Path.extname(filename)
         video_id = Parsers.parse_int(Path.basename(filename, extname))
 
-        %{
-          filename: filename,
-          video_id: video_id
-        }
+        {:ok,
+         %{
+           filename: filename,
+           video_id: video_id
+         }}
     end
   end
 

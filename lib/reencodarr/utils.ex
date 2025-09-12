@@ -50,12 +50,13 @@ defmodule Reencodarr.Utils do
   @doc """
   Parses a line using regex pattern and field mappings.
 
-  Returns nil if no match, or a map with extracted and transformed fields.
+  Returns {:error, :no_match} if no match, or {:ok, map} with extracted and transformed fields.
   """
+  @spec parse_with_regex(String.t(), Regex.t(), map()) :: {:ok, map()} | {:error, :no_match}
   def parse_with_regex(line, pattern, field_mapping) when is_binary(line) do
     case Regex.named_captures(pattern, line) do
-      nil -> nil
-      captures -> extract_fields(captures, field_mapping)
+      nil -> {:error, :no_match}
+      captures -> {:ok, extract_fields(captures, field_mapping)}
     end
   end
 

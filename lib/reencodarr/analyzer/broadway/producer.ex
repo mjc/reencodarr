@@ -456,10 +456,10 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   defp debug_video_states(videos) do
     Enum.each(videos, fn video_info ->
       case Media.get_video_by_path(video_info.path) do
-        nil ->
+        {:error, :not_found} ->
           Logger.debug("video not found in database", path: video_info.path)
 
-        video ->
+        {:ok, video} ->
           Logger.debug("video state check", path: video_info.path, state: video.state)
       end
     end)
