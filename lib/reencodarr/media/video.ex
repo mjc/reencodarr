@@ -40,8 +40,7 @@ defmodule Reencodarr.Media.Video do
     :service_id,
     :service_type,
     :duration,
-    :mediainfo,
-    :state
+    :mediainfo
   ]
 
   @required [
