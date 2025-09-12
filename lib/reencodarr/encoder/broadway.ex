@@ -411,6 +411,8 @@ defmodule Reencodarr.Encoder.Broadway do
     state = %{
       port: port,
       vmaf: vmaf,
+      # Add video directly to state for ProgressParser compatibility
+      video: vmaf.video,
       output_file: output_file,
       partial_line_buffer: "",
       output_buffer: []
