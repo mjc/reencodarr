@@ -317,7 +317,7 @@ defmodule Reencodarr.Encoder.Broadway do
   end
 
   defp handle_recoverable_encoding_failure(vmaf, exit_code, reason, context) do
-    Logger.warning("Broadway: ENTERING handle_recoverable_encoding_failure")
+    Logger.debug("entering recoverable encoding failure handler")
 
     Logger.warning(
       "Broadway: Recoverable failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})"
@@ -508,21 +508,25 @@ defmodule Reencodarr.Encoder.Broadway do
     # Extract VMAF params for use in Rules.build_args
     vmaf_params = if vmaf.params && is_list(vmaf.params), do: vmaf.params, else: []
 
-    Logger.info("Broadway: build_encode_args debug - VMAF ID: #{vmaf.id}")
-    Logger.info("Broadway: build_encode_args debug - base_args: #{inspect(base_args)}")
-    Logger.info("Broadway: build_encode_args debug - vmaf_params: #{inspect(vmaf_params)}")
+    Logger.debug("build_encode_args details",
+      vmaf_id: vmaf.id,
+      base_args: base_args,
+      vmaf_params: vmaf_params
+    )
 
     # Use the 4-arity version that handles deduplication properly
     result_args = Reencodarr.Rules.build_args(vmaf.video, :encode, vmaf_params, base_args)
 
-    Logger.info("Broadway: build_encode_args debug - result_args: #{inspect(result_args)}")
+    Logger.debug("build_encode_args result", result_args: result_args)
 
     # Count duplicates for debugging
     input_count = Enum.count(result_args, &(&1 == "--input"))
     path_count = Enum.count(result_args, &(&1 == vmaf.video.path))
 
-    Logger.info("Broadway: build_encode_args debug - --input count: #{input_count}")
-    Logger.info("Broadway: build_encode_args debug - path count: #{path_count}")
+    Logger.debug("argument validation",
+      input_count: input_count,
+      path_count: path_count
+    )
 
     if path_count > 1 do
       Logger.error("Broadway: build_encode_args ERROR - Duplicate path detected!")
@@ -661,7 +665,7 @@ defmodule Reencodarr.Encoder.Broadway do
   @spec classify_failure(integer() | atom()) :: {:pause, String.t()} | {:continue, String.t()}
   @spec classify_failure(integer() | atom()) :: {:pause, binary()} | {:continue, binary()}
   defp classify_failure(exit_code) do
-    Logger.info("Broadway: classify_failure called with exit_code: #{inspect(exit_code)}")
+    Logger.debug("classifying failure", exit_code: exit_code)
 
     result =
       case {Map.get(@failure_classification.critical_failures, exit_code),
@@ -688,7 +692,7 @@ defmodule Reencodarr.Encoder.Broadway do
           {:continue, "Unknown exit code #{exit_code} - treating as recoverable failure"}
       end
 
-    Logger.info("Broadway: classify_failure(#{exit_code}) -> #{inspect(result)}")
+    Logger.debug("failure classification result", exit_code: exit_code, result: result)
     result
   end
 

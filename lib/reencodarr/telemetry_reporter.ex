@@ -159,7 +159,7 @@ defmodule Reencodarr.TelemetryReporter do
         :exit, _ -> %{throughput: 0.0, rate_limit: 0, batch_size: 0}
       end
 
-    Logger.debug("GOT PERFORMANCE STATS: #{inspect(performance_stats)}")
+    Logger.debug("performance stats received", stats: performance_stats)
 
     # Get queue information for progress calculation
     queue_length = Map.get(measurements, :queue_length, 0)
@@ -168,7 +168,7 @@ defmodule Reencodarr.TelemetryReporter do
     # If we have queue data, show progress based on queue emptying
     percent = calculate_analyzer_percentage(queue_length, state.stats.queue_length.analyzer)
 
-    Logger.debug("CALCULATED: percent=#{percent}, queue_length=#{queue_length}")
+    Logger.debug("analyzer progress calculated", percent: percent, queue_length: queue_length)
 
     updated_progress = %{
       state.analyzer_progress
@@ -181,7 +181,7 @@ defmodule Reencodarr.TelemetryReporter do
     }
 
     new_state = %{state | analyzer_progress: updated_progress}
-    Logger.debug("NEW THROUGHPUT IN STATE: #{new_state.analyzer_progress.throughput}")
+    Logger.debug("analyzer progress updated", throughput: new_state.analyzer_progress.throughput)
     {:noreply, emit_state_update_and_return(new_state)}
   end
 
@@ -190,7 +190,7 @@ defmodule Reencodarr.TelemetryReporter do
         {:update_analyzer_throughput, _measurements},
         %DashboardState{analyzing: false} = state
       ) do
-    Logger.debug("ANALYZER NOT ACTIVE, SKIPPING")
+    Logger.debug("analyzer not active, skipping throughput update")
     {:noreply, state}
   end
 

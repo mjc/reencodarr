@@ -145,7 +145,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   @impl GenStage
   def handle_cast({:add_video, video_info}, state) do
     Logger.info("Adding video to Broadway queue: #{video_info.path}")
-    Logger.info("Video info being added: #{inspect(video_info)}")
+    Logger.debug("video info details", video_info: video_info)
 
     Logger.debug(
       "Current state - demand: #{state.demand}, status: #{state.status}, queue size: #{length(state.manual_queue)}"
@@ -457,10 +457,10 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     Enum.each(videos, fn video_info ->
       case Media.get_video_by_path(video_info.path) do
         nil ->
-          Logger.warning("DEBUG: Video not found in DB: #{video_info.path}")
+          Logger.debug("video not found in database", path: video_info.path)
 
         video ->
-          Logger.debug("DEBUG: Video #{video_info.path} has state: #{video.state}")
+          Logger.debug("video state check", path: video_info.path, state: video.state)
       end
     end)
   end

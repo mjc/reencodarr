@@ -433,7 +433,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   defp handle_upsert_results(successful_data, upsert_results, failed_paths) do
     log_upsert_results(upsert_results)
 
-    Logger.info("Broadway: About to handle state transitions")
+    Logger.debug("handling state transitions")
 
     transition_results = process_state_transitions(successful_data, upsert_results)
     log_processing_summary(transition_results, failed_paths)
@@ -502,7 +502,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp prepare_video_data_with_mediainfo(video_info, :no_mediainfo) do
-    Logger.warning("No mediainfo available for #{video_info.path}, processing individually")
+    Logger.debug("no mediainfo available, processing individually", path: video_info.path)
     prepare_video_data_individually(video_info)
   end
 
