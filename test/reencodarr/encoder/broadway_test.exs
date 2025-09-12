@@ -1,5 +1,5 @@
 defmodule Reencodarr.Encoder.BroadwayTest do
-  use ExUnit.Case, async: true
+  use Reencodarr.UnitCase, async: true
 
   alias Reencodarr.Encoder.Broadway
 

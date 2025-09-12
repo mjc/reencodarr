@@ -1,5 +1,5 @@
 defmodule Reencodarr.Encoder.ArgumentDuplicationTest do
-  use ExUnit.Case, async: true
+  use Reencodarr.UnitCase, async: true
 
   alias Reencodarr.Encoder.Broadway
 

@@ -1,5 +1,5 @@
 defmodule Reencodarr.Media.VideoValidatorTest do
-  use ExUnit.Case, async: true
+  use Reencodarr.UnitCase, async: true
   alias Reencodarr.Media.VideoValidator
 
   describe "extract_comparison_values/1" do

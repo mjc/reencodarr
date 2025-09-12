@@ -1,5 +1,5 @@
 defmodule Reencodarr.Core.TimeTest do
-  use ExUnit.Case, async: true
+  use Reencodarr.UnitCase, async: true
 
   alias Reencodarr.Core.Time
 

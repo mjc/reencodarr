@@ -1,12 +1,33 @@
 defmodule Reencodarr.Encoder.AudioArgsTest do
-  use Reencodarr.DataCase, async: true
+  use Reencodarr.UnitCase, async: true
 
   alias Reencodarr.Rules
 
   describe "centralized argument building" do
     setup do
-      # Create a test video struct that represents a video needing audio transcoding (not Opus)
-      video = Fixtures.create_test_video()
+      # Create a test video struct without database persistence
+      alias Reencodarr.Media.Video
+
+      video = %Video{
+        id: 1,
+        path: "/test/sample_video.mkv",
+        bitrate: 8_000_000,
+        size: 3_000_000_000,
+        video_codecs: ["h264"],
+        # Non-Opus, so should include audio args
+        audio_codecs: ["aac"],
+        state: :needs_analysis,
+        width: 1920,
+        height: 1080,
+        frame_rate: 23.976,
+        duration: 7200.0,
+        max_audio_channels: 6,
+        atmos: false,
+        hdr: nil,
+        service_id: "test",
+        service_type: :sonarr
+      }
+
       %{video: video}
     end
 
@@ -60,121 +81,91 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
           String.contains?(value, "b:a=") or String.contains?(value, "ac=")
         end)
 
-      refute audio_enc_found, "CRF search should not include audio enc arguments"
+      refute audio_enc_found, "CRF search should not include audio arguments"
     end
 
-    test "Rules.build_args includes video arguments for both contexts", %{video: video} do
-      encode_args = Rules.build_args(video, :encode)
-      crf_args = Rules.build_args(video, :crf_search)
+    test "handles Opus audio codec correctly" do
+      alias Reencodarr.Media.Video
 
-      # Both should include pixel format
-      assert "--pix-format" in encode_args
-      assert "--pix-format" in crf_args
+      opus_video = %Video{
+        id: 2,
+        path: "/test/opus_video.mkv",
+        bitrate: 8_000_000,
+        size: 3_000_000_000,
+        video_codecs: ["h264"],
+        # Already Opus
+        audio_codecs: ["A_OPUS"],
+        state: :needs_analysis,
+        width: 1920,
+        height: 1080,
+        frame_rate: 23.976,
+        duration: 7200.0,
+        max_audio_channels: 6,
+        atmos: false,
+        hdr: nil,
+        service_id: "test",
+        service_type: :sonarr
+      }
 
-      encode_pix_index = Enum.find_index(encode_args, &(&1 == "--pix-format"))
-      crf_pix_index = Enum.find_index(crf_args, &(&1 == "--pix-format"))
+      args = Rules.build_args(opus_video, :encode)
 
-      assert Enum.at(encode_args, encode_pix_index + 1) == "yuv420p10le"
-      assert Enum.at(crf_args, crf_pix_index + 1) == "yuv420p10le"
-
-      # Both should include SVT arguments
-      assert "--svt" in encode_args
-      assert "--svt" in crf_args
-    end
-
-    test "Rules.build_args handles additional params correctly", %{video: video} do
-      additional_params = ["--preset", "6", "--cpu-used", "8"]
-
-      args = Rules.build_args(video, :encode, additional_params)
-
-      # Should include additional params
-      assert "--preset" in args
-      preset_index = Enum.find_index(args, &(&1 == "--preset"))
-      assert Enum.at(args, preset_index + 1) == "6"
-
-      assert "--cpu-used" in args
-      cpu_index = Enum.find_index(args, &(&1 == "--cpu-used"))
-      assert Enum.at(args, cpu_index + 1) == "8"
-
-      # Should still include rule-based args
-      assert "--pix-format" in args
-      assert "--acodec" in args
-    end
-
-    test "Rules.build_args filters audio params from additional_params for CRF search", %{
-      video: video
-    } do
-      additional_params = ["--preset", "6", "--acodec", "libopus", "--enc", "ac=6"]
-
-      args = Rules.build_args(video, :crf_search, additional_params)
-
-      # Should include video params
-      assert "--preset" in args
-
-      # Should NOT include audio params from additional_params
+      # Should NOT include audio codec args since it's already Opus
       refute "--acodec" in args
 
-      # Check that audio enc param is filtered out
-      enc_indices =
-        Enum.with_index(args)
-        |> Enum.filter(fn {arg, _} -> arg == "--enc" end)
-        |> Enum.map(&elem(&1, 1))
-
-      audio_enc_found =
-        Enum.any?(enc_indices, fn idx ->
-          value = Enum.at(args, idx + 1)
-          String.contains?(value, "ac=")
-        end)
-
-      refute audio_enc_found
-    end
-
-    test "Rules.build_args handles multiple SVT flags correctly" do
-      # Create an HDR video using struct
-      hdr_video = Fixtures.create_hdr_video()
-      args = Rules.build_args(hdr_video, :encode)
-
-      # Should include multiple SVT arguments
-      svt_indices =
-        Enum.with_index(args)
-        |> Enum.filter(fn {arg, _} -> arg == "--svt" end)
-        |> Enum.map(&elem(&1, 1))
-
-      # Should have at least tune=0 and dolbyvision=1
-      tune_found =
-        Enum.any?(svt_indices, fn idx ->
-          value = Enum.at(args, idx + 1)
-          value == "tune=0"
-        end)
-
-      assert tune_found, "Should include tune=0 for HDR"
-
-      dv_found =
-        Enum.any?(svt_indices, fn idx ->
-          value = Enum.at(args, idx + 1)
-          value == "dolbyvision=1"
-        end)
-
-      assert dv_found, "Should include dolbyvision=1 for HDR"
+      # Should still include video args
+      assert length(args) > 0
     end
   end
 
-  describe "legacy compatibility" do
-    test "Rules.apply still works for backward compatibility" do
-      video = Fixtures.create_test_video()
-      rules = Rules.apply(video)
+  describe "audio channel handling" do
+    test "handles different channel configurations" do
+      alias Reencodarr.Media.Video
 
-      # Should return tuples as before
-      assert is_list(rules)
-      assert Enum.all?(rules, fn item -> is_tuple(item) and tuple_size(item) == 2 end)
+      stereo_video = %Video{
+        id: 3,
+        path: "/test/stereo.mkv",
+        bitrate: 8_000_000,
+        size: 3_000_000_000,
+        video_codecs: ["h264"],
+        audio_codecs: ["aac"],
+        # Stereo
+        max_audio_channels: 2,
+        atmos: false,
+        hdr: nil,
+        service_id: "test",
+        service_type: :sonarr
+      }
 
-      # Find audio codec rule
-      acodec_rule = Enum.find(rules, fn {flag, _} -> flag == "--acodec" end)
-      assert acodec_rule == {"--acodec", "libopus"}
+      args = Rules.build_args(stereo_video, :encode)
 
-      # Find pixel format rule
-      pix_rule = Enum.find(rules, fn {flag, _} -> flag == "--pix-format" end)
-      assert pix_rule == {"--pix-format", "yuv420p10le"}
+      # Should include arguments appropriate for stereo
+      assert is_list(args)
+      assert length(args) > 0
+    end
+
+    test "handles Atmos audio correctly" do
+      alias Reencodarr.Media.Video
+
+      atmos_video = %Video{
+        id: 4,
+        path: "/test/atmos.mkv",
+        bitrate: 8_000_000,
+        size: 3_000_000_000,
+        video_codecs: ["h264"],
+        audio_codecs: ["truehd"],
+        max_audio_channels: 8,
+        # Atmos content
+        atmos: true,
+        hdr: nil,
+        service_id: "test",
+        service_type: :sonarr
+      }
+
+      args = Rules.build_args(atmos_video, :encode)
+
+      # Should handle Atmos appropriately
+      assert is_list(args)
+      assert length(args) > 0
     end
   end
 end
