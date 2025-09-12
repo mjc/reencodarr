@@ -1,8 +1,4 @@
 defmodule Mix.Tasks.Dump do
-  use Mix.Task
-
-  @shortdoc "Dump the current state of the application"
-
   @moduledoc """
   Dumps the current state of the application to a file.
 
@@ -10,6 +6,10 @@ defmodule Mix.Tasks.Dump do
 
       mix dump
   """
+
+  use Mix.Task
+
+  @shortdoc "Dump the current state of the application"
 
   alias Reencodarr.Repo
 

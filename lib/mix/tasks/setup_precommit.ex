@@ -10,6 +10,7 @@ defmodule Mix.Tasks.SetupPrecommit do
   1. Configure git to use the .githooks directory for hooks
   2. Ensure the pre-commit hook is executable
   """
+
   use Mix.Task
 
   @shortdoc "Sets up git hooks for this repository"

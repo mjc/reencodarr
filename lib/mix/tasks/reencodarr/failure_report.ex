@@ -1,6 +1,4 @@
 defmodule Mix.Tasks.Reencodarr.FailureReport do
-  use Mix.Task
-
   @moduledoc """
   Generates and displays a video processing failure report.
 
@@ -25,6 +23,8 @@ defmodule Mix.Tasks.Reencodarr.FailureReport do
       # Generate JSON report for external processing
       mix reencodarr.failure_report --format json
   """
+
+  use Mix.Task
 
   @shortdoc "Generates video processing failure report"
 
@@ -52,7 +52,7 @@ defmodule Mix.Tasks.Reencodarr.FailureReport do
         Reencodarr.FailureReporting.print_failure_report(report_opts)
 
       _ ->
-        Mix.shell().error("Invalid format. Use 'console' or 'json'.")
+        Mix.Shell.IO.error("Invalid format. Use 'console' or 'json'.")
         System.halt(1)
     end
   end
