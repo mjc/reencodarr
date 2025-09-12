@@ -337,7 +337,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     video =
       if service_id && service_type do
-        Media.get_video_by_service_id(service_id, service_type)
+        case Media.get_video_by_service_id(service_id, service_type) do
+          {:ok, video} -> video
+          {:error, _} -> nil
+        end
       else
         nil
       end
@@ -586,10 +589,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp handle_vmaf_line(line, video, args) do
     # Try simple VMAF pattern first, then sample pattern as fallback
     case try_patterns(line, [:simple_vmaf, :sample_vmaf, :dash_vmaf]) do
-      nil ->
+      {:error, :no_match} ->
         false
 
-      captures ->
+      {:ok, captures} ->
         Logger.debug(
           "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
         )
@@ -601,8 +604,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp try_patterns(line, patterns) do
     Enum.find_value(patterns, fn pattern ->
-      match_line(line, pattern)
-    end)
+      case match_line(line, pattern) do
+        {:ok, result} -> {:ok, result}
+        {:error, :no_match} -> nil
+      end
+    end) || {:error, :no_match}
   end
 
   defp handle_eta_vmaf_line(line, video, args) do

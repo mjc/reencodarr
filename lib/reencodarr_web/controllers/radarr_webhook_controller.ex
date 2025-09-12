@@ -81,11 +81,11 @@ defmodule ReencodarrWeb.RadarrWebhookController do
 
   defp update_or_upsert_video(%{"previousPath" => old_path, "path" => new_path} = file, source) do
     case Reencodarr.Media.get_video_by_path(old_path) do
-      nil ->
+      {:error, :not_found} ->
         Logger.warning("No video found for old path: #{old_path}, upserting as new")
         Reencodarr.Sync.upsert_video_from_file(file, source)
 
-      video ->
+      {:ok, video} ->
         video
         |> Reencodarr.Media.update_video(%{path: new_path})
         |> handle_update_result(video, old_path, new_path, file, source)

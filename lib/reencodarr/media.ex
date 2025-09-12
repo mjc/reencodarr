@@ -72,7 +72,7 @@ defmodule Reencodarr.Media do
   end
 
   def get_next_for_encoding(limit \\ 1) do
-    query_videos_ready_for_encoding(limit)
+    query_videos_ready_for_encoding(limit) || []
   end
 
   def encoding_queue_count do
@@ -722,12 +722,15 @@ defmodule Reencodarr.Media do
     next_items = fetch_next_items()
     queue_lengths = calculate_queue_lengths(stats, next_items.manual_items)
 
+    # Extract first items from lists (both functions now guarantee lists)
+    first_encoding = List.first(next_items.next_encoding)
+    first_encoding_by_time = List.first(next_items.next_encoding_by_time)
+
     %Reencodarr.Statistics.Stats{
       avg_vmaf_percentage: stats.avg_vmaf_percentage,
       chosen_vmafs_count: stats.chosen_vmafs_count,
-      lowest_vmaf_percent: next_items.next_encoding && next_items.next_encoding.percent,
-      lowest_vmaf_by_time_seconds:
-        next_items.next_encoding_by_time && next_items.next_encoding_by_time.time,
+      lowest_vmaf_percent: first_encoding && first_encoding.percent,
+      lowest_vmaf_by_time_seconds: first_encoding_by_time && first_encoding_by_time.time,
       total_videos: stats.total_videos,
       # Use new state-based fields
       reencoded_count: stats.reencoded_count,
@@ -793,8 +796,8 @@ defmodule Reencodarr.Media do
     }
   end
 
-  def get_next_for_encoding_by_time,
-    do:
+  def get_next_for_encoding_by_time do
+    result =
       Repo.one(
         from v in Vmaf,
           join: vid in assoc(v, :video),
@@ -804,6 +807,9 @@ defmodule Reencodarr.Media do
           limit: 1,
           preload: [:video]
       )
+
+    if result, do: [result], else: []
+  end
 
   def mark_vmaf_as_chosen(video_id, crf) do
     crf_float = parse_crf(crf)
@@ -841,12 +847,15 @@ defmodule Reencodarr.Media do
   end
 
   def get_video_by_service_id(service_id, service_type) when not is_nil(service_id) do
-    Repo.one(
-      from v in Video, where: v.service_id == ^service_id and v.service_type == ^service_type
-    )
+    case Repo.one(
+           from v in Video, where: v.service_id == ^service_id and v.service_type == ^service_type
+         ) do
+      nil -> {:error, :not_found}
+      video -> {:ok, video}
+    end
   end
 
-  def get_video_by_service_id(nil, _service_type), do: nil
+  def get_video_by_service_id(nil, _service_type), do: {:error, :invalid_service_id}
 
   def count_videos do
     Repo.aggregate(Video, :count, :id)

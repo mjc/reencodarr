@@ -248,19 +248,27 @@ defmodule Reencodarr.Sync do
 
     result =
       Repo.transaction(fn ->
-        if should_preserve_file_metadata?(existing_video, info) do
-          update_api_metadata_only(existing_video, info)
-        else
-          upsert_full_video_data(info)
-        end
+        handle_video_upsert(existing_video, info)
       end)
 
     # VideoUpsert will automatically set state to needs_analysis for zero bitrate
     result
   end
 
+  defp handle_video_upsert({:ok, video}, info) do
+    if should_preserve_file_metadata?(video, info) do
+      update_api_metadata_only(video, info)
+    else
+      upsert_full_video_data(info)
+    end
+  end
+
+  defp handle_video_upsert({:error, :not_found}, info) do
+    upsert_full_video_data(info)
+  end
+
   defp should_preserve_file_metadata?(existing_video, info) do
-    existing_video && existing_video.size == info.size && info.bitrate != 0
+    existing_video.size == info.size && info.bitrate != 0
   end
 
   defp update_api_metadata_only(existing_video, info) do
