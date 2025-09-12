@@ -179,8 +179,6 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
       String.contains?(lower_str, "surround")
   end
 
-  defp contains_lfe_or_surround?(_), do: false
-
   defp detect_surround_channel_count(channel_positions, channel_layout, channels_string) do
     combined = "#{channel_positions} #{channel_layout} #{channels_string}" |> String.downcase()
 
