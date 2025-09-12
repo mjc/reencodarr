@@ -13,10 +13,17 @@ defmodule Reencodarr.ManualScanner do
     GenServer.start_link(__MODULE__, nil, name: __MODULE__)
   end
 
-  @spec init(any()) :: {:ok, %{fd_path: String.t()}}
+  @spec init(any()) :: {:ok, %{fd_path: String.t() | nil}}
   def init(_) do
-    fd_path = find_fd_path()
-    {:ok, %{fd_path: fd_path}}
+    case find_fd_path() do
+      {:ok, fd_path} ->
+        Logger.info("ManualScanner initialized with fd executable at: #{fd_path}")
+        {:ok, %{fd_path: fd_path}}
+
+      {:error, reason} ->
+        Logger.warning("ManualScanner initialized without fd executable: #{reason}")
+        {:ok, %{fd_path: nil}}
+    end
   end
 
   @spec scan(String.t()) :: :ok
@@ -25,11 +32,16 @@ defmodule Reencodarr.ManualScanner do
     GenServer.cast(__MODULE__, {:scan, path})
   end
 
-  @spec handle_cast({:scan, String.t()}, %{fd_path: String.t()}) ::
-          {:noreply, %{fd_path: String.t()}}
-  def handle_cast({:scan, path}, state) do
+  @spec handle_cast({:scan, String.t()}, %{fd_path: String.t() | nil}) ::
+          {:noreply, %{fd_path: String.t() | nil}}
+  def handle_cast({:scan, path}, %{fd_path: nil} = state) do
+    Logger.warning("Scan requested for path #{path} but fd executable not available")
+    {:noreply, state}
+  end
+
+  def handle_cast({:scan, path}, %{fd_path: fd_path} = state) when is_binary(fd_path) do
     Logger.info("Starting scan for path: #{path}")
-    find_video_files(path, state.fd_path)
+    find_video_files(path, fd_path)
     {:noreply, state}
   end
 
@@ -64,9 +76,11 @@ defmodule Reencodarr.ManualScanner do
     Port.open({:spawn_executable, fd_path}, [:binary, :exit_status, args: args])
   end
 
-  @spec find_fd_path :: String.t()
+  @spec find_fd_path :: {:ok, String.t()} | {:error, String.t()}
   defp find_fd_path do
-    System.find_executable("fd") || System.find_executable("fd-find") ||
-      raise "fd or fd-find executable not found"
+    case System.find_executable("fd") || System.find_executable("fd-find") do
+      nil -> {:error, "fd or fd-find executable not found"}
+      path -> {:ok, path}
+    end
   end
 end

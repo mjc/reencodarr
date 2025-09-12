@@ -48,7 +48,6 @@ defmodule Reencodarr.Application do
 
   defp worker_children do
     base_workers = [
-      Reencodarr.ManualScanner,
       Reencodarr.AbAv1,
       Reencodarr.Sync
     ]
@@ -59,9 +58,10 @@ defmodule Reencodarr.Application do
       Reencodarr.Encoder.Supervisor
     ]
 
-    # Only start Analyzer GenStage in non-test environments to avoid database ownership issues
+    # Only start Analyzer GenStage and ManualScanner in non-test environments
     if Application.get_env(:reencodarr, :env) != :test do
-      [Reencodarr.Analyzer.Supervisor | base_workers] ++ broadway_workers
+      [Reencodarr.Analyzer.Supervisor, Reencodarr.ManualScanner | base_workers] ++
+        broadway_workers
     else
       base_workers
     end
