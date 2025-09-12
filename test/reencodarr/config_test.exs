@@ -1,5 +1,5 @@
 defmodule Reencodarr.ConfigTest do
-  use ExUnit.Case, async: true
+  use Reencodarr.UnitCase, async: true
 
   alias Reencodarr.Config
 

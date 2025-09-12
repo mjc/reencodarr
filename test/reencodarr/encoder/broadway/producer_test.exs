@@ -1,5 +1,5 @@
 defmodule Reencodarr.Encoder.Broadway.ProducerTest do
-  use ExUnit.Case, async: true
+  use Reencodarr.UnitCase, async: true
 
   # Helper function to test pattern matching logic
   defp match_return_value(value) do

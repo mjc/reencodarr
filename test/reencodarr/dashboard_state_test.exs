@@ -1,5 +1,5 @@
 defmodule Reencodarr.DashboardStateTest do
-  use Reencodarr.DataCase
+  use Reencodarr.DataCase, async: true
 
   alias Reencodarr.DashboardState
   alias Reencodarr.Statistics.Stats
