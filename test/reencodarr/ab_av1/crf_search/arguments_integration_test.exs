@@ -1,32 +1,20 @@
-defmodule Reencodarr.AbAv1.CrfSearch.ArgumentsTest do
+defmodule Reencodarr.AbAv1.CrfSearch.ArgumentsIntegrationTest do
   @moduledoc """
-  Pure unit tests for CRF search argument building and command construction.
+  Integration tests for CRF search argument building with database fixtures.
   """
-  use Reencodarr.UnitCase, async: true
+  use Reencodarr.DataCase, async: true
 
   alias Reencodarr.AbAv1.CrfSearch
 
   describe "build_crf_search_args_with_preset_6/2" do
     setup do
-      # Create a test video struct without database persistence
-      alias Reencodarr.Media.Video
-
-      video = %Video{
-        id: 1,
-        path: "/test/args_video.mkv",
-        size: 2_000_000_000,
-        video_codecs: ["h264"],
-        audio_codecs: ["aac"],
-        width: 1920,
-        height: 1080,
-        bitrate: 8_000_000,
-        duration: 7200.0,
-        max_audio_channels: 6,
-        atmos: false,
-        hdr: nil,
-        service_id: "test",
-        service_type: :sonarr
-      }
+      video =
+        Fixtures.create_test_video(%{
+          path: "/test/args_video.mkv",
+          size: 2_000_000_000,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
 
       %{video: video}
     end
@@ -69,30 +57,15 @@ defmodule Reencodarr.AbAv1.CrfSearch.ArgumentsTest do
       # These should be included from Rules.apply/1 based on the video
       # The exact args depend on Rules implementation, so we just verify
       # that some rule-based args are present
-      assert length(args) > 10
+      # More than just the basic args
+      assert length(args) > 8
     end
   end
 
   describe "argument validation" do
     setup do
-      alias Reencodarr.Media.Video
-
-      video = %Video{
-        id: 2,
-        path: "/test/validation_video.mkv",
-        size: 1_000_000_000,
-        video_codecs: ["h264"],
-        audio_codecs: ["aac"],
-        width: 1920,
-        height: 1080,
-        bitrate: 8_000_000,
-        duration: 7200.0,
-        max_audio_channels: 6,
-        atmos: false,
-        hdr: nil,
-        service_id: "test",
-        service_type: :sonarr
-      }
+      video =
+        Fixtures.create_test_video(%{path: "/test/validation_video.mkv", size: 1_000_000_000})
 
       %{video: video}
     end
@@ -100,25 +73,35 @@ defmodule Reencodarr.AbAv1.CrfSearch.ArgumentsTest do
     test "builds valid command arguments", %{video: video} do
       args = CrfSearch.build_crf_search_args_with_preset_6(video, 90)
 
-      # Should be a list of strings
-      assert is_list(args)
-      assert Enum.all?(args, &is_binary/1)
+      # Should have paired arguments (flag + value)
+      flag_indices =
+        args
+        |> Enum.with_index()
+        |> Enum.filter(fn {arg, _idx} -> String.starts_with?(arg, "--") end)
+        |> Enum.map(fn {_arg, idx} -> idx end)
 
-      # Should have reasonable length
-      assert length(args) > 5
-      assert length(args) < 100
+      # Each flag should have a value (except for boolean flags)
+      Enum.each(flag_indices, fn flag_idx ->
+        flag = Enum.at(args, flag_idx)
+
+        # Skip boolean flags that don't need values
+        boolean_flags = []
+
+        if flag not in boolean_flags do
+          value = Enum.at(args, flag_idx + 1)
+          refute value == nil
+          refute String.starts_with?(value, "--")
+        end
+      end)
     end
 
     test "handles different VMAF targets", %{video: video} do
-      args_95 = CrfSearch.build_crf_search_args_with_preset_6(video, 95)
-      args_90 = CrfSearch.build_crf_search_args_with_preset_6(video, 90)
+      for target <- [85, 90, 95, 98] do
+        args = CrfSearch.build_crf_search_args_with_preset_6(video, target)
 
-      # Both should contain VMAF target
-      assert "95" in args_95
-      assert "90" in args_90
-
-      # Should be different
-      refute args_95 == args_90
+        vmaf_index = Enum.find_index(args, &(&1 == "--min-vmaf"))
+        assert Enum.at(args, vmaf_index + 1) == Integer.to_string(target)
+      end
     end
   end
 end

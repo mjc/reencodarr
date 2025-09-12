@@ -41,6 +41,29 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     :ok
   end
 
+  # Only allow CRF search for videos that are analyzed and have a valid id
+  def crf_search(%Media.Video{id: nil}, _vmaf_percent), do: :error
+
+  def crf_search(%Media.Video{state: :encoded, path: path, id: video_id}, _vmaf_percent) do
+    Logger.info("Skipping crf search for video #{path} as it is already encoded")
+
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "crf_search_events",
+      {:crf_search_completed, video_id, :skipped}
+    )
+
+    :ok
+  end
+
+  def crf_search(%Media.Video{state: state} = video, _vmaf_percent) when state != :analyzed do
+    Logger.info(
+      "Skipping crf search for video #{video.path} as it is not analyzed (state: #{inspect(state)})"
+    )
+
+    :error
+  end
+
   def crf_search(%Media.Video{} = video, vmaf_percent) do
     if Media.chosen_vmaf_exists?(video) do
       Logger.info("Skipping crf search for video #{video.path} as a chosen VMAF already exists")
@@ -192,7 +215,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def handle_info(:test_reset, state) do
     # Test-only handler to force reset the GenServer state
     # This ensures clean state between tests
-    if Mix.env() == :test do
+    if Application.get_env(:reencodarr, :environment) == :test do
       # Close any open port
       if state.port != :none do
         try do
@@ -295,16 +318,37 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     case status do
       :progress ->
         Logger.debug("Received vmaf search progress")
-        Media.upsert_vmaf(data)
+        maybe_upsert_vmaf_with_video(data)
 
       :finished ->
-        Media.upsert_vmaf(data)
+        maybe_upsert_vmaf_with_video(data)
 
       :failed ->
         Logger.error("Scanning failed: #{data}")
     end
 
     {:noreply, state}
+  end
+
+  defp maybe_upsert_vmaf_with_video(data) do
+    service_id = Map.get(data, "service_id") || Map.get(data, :service_id)
+    service_type = Map.get(data, "service_type") || Map.get(data, :service_type)
+    path = Map.get(data, "path") || Map.get(data, :path)
+
+    video =
+      if service_id && service_type do
+        Media.get_video_by_service_id(service_id, service_type)
+      else
+        nil
+      end
+
+    if video do
+      Media.upsert_vmaf(Map.put(data, "video_id", video.id))
+    else
+      Logger.error(
+        "No video found for service_id=#{inspect(service_id)} service_type=#{inspect(service_type)} path=#{inspect(path)}, skipping VMAF insert"
+      )
+    end
   end
 
   defp handle_crf_search_failure(video, target_vmaf, exit_code, command_line, full_output, state) do

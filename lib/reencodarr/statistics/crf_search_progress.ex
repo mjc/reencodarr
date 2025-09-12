@@ -1,5 +1,15 @@
 defmodule Reencodarr.Statistics.CrfSearchProgress do
   @moduledoc "Holds progress data for CRF quality search operations."
+
+  @type t :: %__MODULE__{
+          filename: :none | String.t(),
+          percent: non_neg_integer(),
+          eta: non_neg_integer(),
+          fps: non_neg_integer(),
+          crf: nil | number(),
+          score: nil | number()
+        }
+
   defstruct filename: :none, percent: 0, eta: 0, fps: 0, crf: nil, score: nil
 
   @doc """

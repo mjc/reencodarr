@@ -170,9 +170,23 @@ defmodule Reencodarr.Media.VideoStateMachine do
 
   defp validate_analysis_requirements(changeset) do
     changeset
-    |> validate_required([:bitrate, :width, :height, :duration])
-    |> validate_number(:duration, greater_than: 0.0)
+    |> validate_required([:bitrate, :width, :height])
+    |> validate_optional_duration()
     |> validate_codecs_present()
+  end
+
+  defp validate_optional_duration(changeset) do
+    # Only validate duration if it's present, since some video files don't have duration metadata
+    case get_change(changeset, :duration) || get_field(changeset, :duration) do
+      nil ->
+        changeset
+
+      duration when is_number(duration) and duration > 0.0 ->
+        changeset
+
+      _invalid ->
+        add_error(changeset, :duration, "must be greater than 0 when present")
+    end
   end
 
   defp validate_vmaf_requirements(changeset) do

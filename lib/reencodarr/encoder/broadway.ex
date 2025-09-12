@@ -243,6 +243,11 @@ defmodule Reencodarr.Encoder.Broadway do
     handle_encoding_result(result, vmaf, output_file)
   end
 
+  @spec handle_encoding_result(
+          {:ok, :success} | {:error, integer()} | {:error, integer(), map()},
+          vmaf(),
+          binary()
+        ) :: :ok
   defp handle_encoding_result({:ok, :success}, vmaf, output_file) do
     case notify_encoding_success(vmaf.video, output_file) do
       {:ok, :success} ->
@@ -312,7 +317,7 @@ defmodule Reencodarr.Encoder.Broadway do
   end
 
   defp handle_recoverable_encoding_failure(vmaf, exit_code, reason, context) do
-    Logger.warning("Broadway: ENTERING handle_recoverable_encoding_failure")
+    Logger.debug("entering recoverable encoding failure handler")
 
     Logger.warning(
       "Broadway: Recoverable failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})"
@@ -402,17 +407,17 @@ defmodule Reencodarr.Encoder.Broadway do
   @spec handle_encoding_process(port(), vmaf(), String.t(), integer()) ::
           {:ok, :success} | {:error, integer()}
   defp handle_encoding_process(port, vmaf, output_file, encoding_timeout) do
-    # Initialize state for progress tracking
+    # Set up state for port message processing
     state = %{
       port: port,
-      video: vmaf.video,
       vmaf: vmaf,
+      # Add video directly to state for ProgressParser compatibility
+      video: vmaf.video,
       output_file: output_file,
       partial_line_buffer: "",
       output_buffer: []
     }
 
-    # Process port messages until completion
     process_port_messages(state, encoding_timeout)
   end
 
@@ -503,21 +508,25 @@ defmodule Reencodarr.Encoder.Broadway do
     # Extract VMAF params for use in Rules.build_args
     vmaf_params = if vmaf.params && is_list(vmaf.params), do: vmaf.params, else: []
 
-    Logger.info("Broadway: build_encode_args debug - VMAF ID: #{vmaf.id}")
-    Logger.info("Broadway: build_encode_args debug - base_args: #{inspect(base_args)}")
-    Logger.info("Broadway: build_encode_args debug - vmaf_params: #{inspect(vmaf_params)}")
+    Logger.debug("build_encode_args details",
+      vmaf_id: vmaf.id,
+      base_args: base_args,
+      vmaf_params: vmaf_params
+    )
 
     # Use the 4-arity version that handles deduplication properly
     result_args = Reencodarr.Rules.build_args(vmaf.video, :encode, vmaf_params, base_args)
 
-    Logger.info("Broadway: build_encode_args debug - result_args: #{inspect(result_args)}")
+    Logger.debug("build_encode_args result", result_args: result_args)
 
     # Count duplicates for debugging
     input_count = Enum.count(result_args, &(&1 == "--input"))
     path_count = Enum.count(result_args, &(&1 == vmaf.video.path))
 
-    Logger.info("Broadway: build_encode_args debug - --input count: #{input_count}")
-    Logger.info("Broadway: build_encode_args debug - path count: #{path_count}")
+    Logger.debug("argument validation",
+      input_count: input_count,
+      path_count: path_count
+    )
 
     if path_count > 1 do
       Logger.error("Broadway: build_encode_args ERROR - Duplicate path detected!")
@@ -594,6 +603,7 @@ defmodule Reencodarr.Encoder.Broadway do
   end
 
   @spec notify_encoding_failure(map(), integer() | atom(), map()) :: :ok
+  @spec notify_encoding_failure(map(), integer() | atom(), map()) :: :ok
   defp notify_encoding_failure(video, exit_code, context \\ %{}) do
     # Emit telemetry event for failure
     Telemetry.emit_encoder_failed(exit_code, video)
@@ -603,10 +613,9 @@ defmodule Reencodarr.Encoder.Broadway do
     db_exit_code =
       case exit_code do
         :port_error -> -1
-        :timeout -> -2
         :exception -> -3
+        # For integer exit codes, use them directly
         code when is_integer(code) -> code
-        _ -> -999
       end
 
     PostProcessor.process_encoding_failure(video, db_exit_code, context)
@@ -631,7 +640,7 @@ defmodule Reencodarr.Encoder.Broadway do
       110 => %{action: :pause, reason: "Network timeout - systemic network connectivity issue"},
       # Port/process creation failures - systemic
       :port_error => %{action: :pause, reason: "Failed to create encoding process"},
-      :timeout => %{action: :pause, reason: "Encoding timeout - system may be overloaded"}
+      :exception => %{action: :pause, reason: "Unexpected exception during encoding"}
     },
 
     # File-specific failures that should skip the file but continue processing
@@ -654,31 +663,28 @@ defmodule Reencodarr.Encoder.Broadway do
   # - `{:pause, reason}` - Pipeline should pause due to critical system issue
   # - `{:continue, reason}` - Skip this file but continue processing
   @spec classify_failure(integer() | atom()) :: {:pause, String.t()} | {:continue, String.t()}
+  @spec classify_failure(integer() | atom()) :: {:pause, binary()} | {:continue, binary()}
   defp classify_failure(exit_code) do
-    Logger.info("Broadway: classify_failure called with exit_code: #{inspect(exit_code)}")
+    Logger.debug("classifying failure", exit_code: exit_code)
 
     result =
-      cond do
-        Map.has_key?(@failure_classification.critical_failures, exit_code) ->
-          failure_info = @failure_classification.critical_failures[exit_code]
-
+      case {Map.get(@failure_classification.critical_failures, exit_code),
+            Map.get(@failure_classification.recoverable_failures, exit_code)} do
+        {failure_info, nil} when not is_nil(failure_info) ->
           Logger.info(
             "Broadway: Exit code #{exit_code} classified as CRITICAL: #{failure_info.reason}"
           )
 
           {:pause, failure_info.reason}
 
-        Map.has_key?(@failure_classification.recoverable_failures, exit_code) ->
-          failure_info = @failure_classification.recoverable_failures[exit_code]
-
+        {nil, failure_info} when not is_nil(failure_info) ->
           Logger.info(
             "Broadway: Exit code #{exit_code} classified as RECOVERABLE: #{failure_info.reason}"
           )
 
           {:continue, failure_info.reason}
 
-        # Unknown exit codes default to continue (conservative approach)
-        true ->
+        {nil, nil} ->
           Logger.info(
             "Broadway: Exit code #{exit_code} classified as UNKNOWN - treating as recoverable"
           )
@@ -686,7 +692,7 @@ defmodule Reencodarr.Encoder.Broadway do
           {:continue, "Unknown exit code #{exit_code} - treating as recoverable failure"}
       end
 
-    Logger.info("Broadway: classify_failure(#{exit_code}) -> #{inspect(result)}")
+    Logger.debug("failure classification result", exit_code: exit_code, result: result)
     result
   end
 
@@ -697,9 +703,28 @@ defmodule Reencodarr.Encoder.Broadway do
   @spec get_failure_classification() :: map()
   def get_failure_classification, do: @failure_classification
 
-  # Helper functions for testing failure classification
+  # Helper functions for testing failure classification and encoding paths
   if Mix.env() == :test do
     @doc false
     def test_classify_failure(exit_code), do: classify_failure(exit_code)
+
+    @doc false
+    def test_handle_encoding_result(result, vmaf, output_file),
+      do: handle_encoding_result(result, vmaf, output_file)
+
+    @doc false
+    def test_handle_encoding_error(vmaf, exit_code, context),
+      do: handle_encoding_error(vmaf, exit_code, context)
+
+    @doc false
+    def test_notify_encoding_success(video, output_file),
+      do: notify_encoding_success(video, output_file)
+
+    @doc false
+    def test_handle_encoding_process(port, vmaf, output_file, timeout),
+      do: handle_encoding_process(port, vmaf, output_file, timeout)
+
+    @doc false
+    def test_process_port_messages(messages, state), do: process_port_messages(messages, state)
   end
 end

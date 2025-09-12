@@ -1,9 +1,9 @@
 defmodule ReencodarrWeb.Dashboard.PresenterTest do
   use Reencodarr.DataCase
 
-  alias Reencodarr.{Dashboard.Presenter, DashboardState}
-
+  alias Reencodarr.DashboardState
   alias Reencodarr.Statistics.Stats
+  alias ReencodarrWeb.Dashboard.Presenter
 
   describe "present/1" do
     test "handles DashboardState with complete Stats struct" do

@@ -32,9 +32,16 @@ defmodule ReencodarrWeb.SonarrWebhookController do
        when is_list(episode_files) do
     results =
       Enum.map(episode_files, fn file ->
-        scene_name = file["sceneName"] || Path.basename(file["path"])
-        Logger.info("Received download event from Sonarr for #{scene_name}!")
-        Reencodarr.Sync.upsert_video_from_file(file, :sonarr)
+        case validate_episode_file(file) do
+          {:ok, validated_file} ->
+            scene_name = validated_file.scene_name
+            Logger.info("Received download event from Sonarr for #{scene_name}!")
+            Reencodarr.Sync.upsert_video_from_file(validated_file.raw_file, :sonarr)
+
+          {:error, reason} ->
+            Logger.error("Invalid episode file data from Sonarr: #{reason}")
+            {:error, reason}
+        end
       end)
 
     if Enum.all?(results, fn res -> res == :ok or match?({:ok, _}, res) end) do
@@ -48,9 +55,17 @@ defmodule ReencodarrWeb.SonarrWebhookController do
 
   defp handle_download(conn, %{"episodeFile" => episode_file} = _params)
        when is_map(episode_file) do
-    scene_name = episode_file["sceneName"] || Path.basename(episode_file["path"])
-    Logger.info("Received download event from Sonarr for #{scene_name}!")
-    Reencodarr.Sync.upsert_video_from_file(episode_file, :sonarr)
+    case validate_episode_file(episode_file) do
+      {:ok, validated_file} ->
+        scene_name = validated_file.scene_name
+        Logger.info("Received download event from Sonarr for #{scene_name}!")
+        Reencodarr.Sync.upsert_video_from_file(validated_file.raw_file, :sonarr)
+
+      {:error, reason} ->
+        Logger.error("Invalid episode file data from Sonarr: #{reason}")
+        {:error, reason}
+    end
+
     send_resp(conn, :no_content, "")
   end
 
@@ -158,4 +173,37 @@ defmodule ReencodarrWeb.SonarrWebhookController do
     Logger.info("Received unsupported event from Sonarr: #{inspect(params["eventType"])}")
     send_resp(conn, :no_content, "ignored")
   end
+
+  # Validation functions
+
+  defp validate_episode_file(file) when is_map(file) do
+    with {:ok, path} <- validate_file_path(file["path"]),
+         {:ok, size} <- validate_file_size(file["size"]),
+         {:ok, id} <- validate_file_id(file["id"]) do
+      scene_name = file["sceneName"] || Path.basename(path)
+      {:ok, %{path: path, size: size, id: id, scene_name: scene_name, raw_file: file}}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp validate_episode_file(_), do: {:error, "episode file must be a map"}
+
+  defp validate_file_path(path) when is_binary(path) and path != "" do
+    if String.trim(path) != "" do
+      {:ok, path}
+    else
+      {:error, "path cannot be empty"}
+    end
+  end
+
+  defp validate_file_path(nil), do: {:error, "path is required"}
+  defp validate_file_path(_), do: {:error, "path must be a string"}
+
+  defp validate_file_size(size) when is_integer(size) and size > 0, do: {:ok, size}
+  defp validate_file_size(nil), do: {:error, "size is required"}
+  defp validate_file_size(_), do: {:error, "size must be a positive integer"}
+
+  defp validate_file_id(id) when not is_nil(id), do: {:ok, id}
+  defp validate_file_id(_), do: {:error, "file id is required"}
 end

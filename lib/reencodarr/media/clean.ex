@@ -8,7 +8,6 @@ defmodule Reencodarr.Media.Clean do
 
   For specialized operations, see:
   - `Reencodarr.Media.Statistics` - Analytics and reporting
-  - `Reencodarr.Media.Debug` - Diagnostic and debugging utilities
   - `Reencodarr.Media.BulkOperations` - Mass data operations
   - `Reencodarr.Media.VideoQueries` - Complex query logic
   """

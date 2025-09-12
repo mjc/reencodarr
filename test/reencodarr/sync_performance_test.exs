@@ -7,7 +7,7 @@ defmodule Reencodarr.SyncPerformanceTest do
 
   describe "sync performance optimizations" do
     setup do
-      library = Fixtures.library_fixture()
+      library = Fixtures.library_fixture(%{path: "/test"})
       %{library: library}
     end
 
@@ -338,9 +338,9 @@ defmodule Reencodarr.SyncPerformanceTest do
               timeout: :infinity
             )
           rescue
-            error ->
-              # Should handle errors gracefully
-              IO.puts("Handled error: #{inspect(error)}")
+            _error ->
+              # Should handle errors gracefully (no output needed in tests)
+              :ok
           end
         end)
 

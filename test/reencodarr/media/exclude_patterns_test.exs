@@ -8,9 +8,9 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
   describe "exclude patterns functionality" do
     test "videos_not_matching_exclude_patterns/1 with no patterns configured" do
       # Create a few test videos
-      video1 = video_fixture(%{path: "/path/to/movie.mkv"})
-      video2 = video_fixture(%{path: "/path/to/sample/trailer.mkv"})
-      video3 = video_fixture(%{path: "/media/show/episode.mp4"})
+      {:ok, video1} = video_fixture(%{path: "/path/to/movie.mkv"})
+      {:ok, video2} = video_fixture(%{path: "/path/to/sample/trailer.mkv"})
+      {:ok, video3} = video_fixture(%{path: "/media/show/episode.mp4"})
 
       videos = [video1, video2, video3]
 
@@ -25,9 +25,9 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       # Since the function is private, we test through the public API
 
       # Create videos with different paths
-      sample_video = video_fixture(%{path: "/path/to/sample/movie.mkv"})
-      trailer_video = video_fixture(%{path: "/media/Movie Trailer.mp4"})
-      normal_video = video_fixture(%{path: "/media/movies/Normal Movie.mkv"})
+      {:ok, sample_video} = video_fixture(%{path: "/path/to/sample/movie.mkv"})
+      {:ok, trailer_video} = video_fixture(%{path: "/media/Movie Trailer.mp4"})
+      {:ok, normal_video} = video_fixture(%{path: "/media/movies/Normal Movie.mkv"})
 
       videos = [sample_video, trailer_video, normal_video]
 
@@ -44,7 +44,8 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       # Create a small list (< 50 videos)
       videos =
         Enum.map(1..10, fn i ->
-          video_fixture(%{path: "/media/video#{i}.mkv"})
+          {:ok, video} = video_fixture(%{path: "/media/video#{i}.mkv"})
+          video
         end)
 
       # Should use the optimized small list function
@@ -56,7 +57,8 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       # Create a larger list (>= 50 videos) to test the other code path
       videos =
         Enum.map(1..60, fn i ->
-          video_fixture(%{path: "/media/video#{i}.mkv"})
+          {:ok, video} = video_fixture(%{path: "/media/video#{i}.mkv"})
+          video
         end)
 
       # Should use the large list function (which currently falls back to memory filtering)

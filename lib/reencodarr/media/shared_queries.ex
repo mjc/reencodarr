@@ -9,25 +9,14 @@ defmodule Reencodarr.Media.SharedQueries do
   import Ecto.Query
   alias Reencodarr.Media.{Video, Vmaf}
 
-  # Helper to check database adapter
-  def sqlite? do
-    # Check the adapter via the Repo's __adapter__ function
-    Reencodarr.Repo.__adapter__() == Ecto.Adapters.SQLite3
-  end
-
   @doc """
   Database-agnostic case-insensitive LIKE operation.
-  PostgreSQL uses ilike(), SQLite uses LIKE with UPPER().
+  SQLite uses LIKE with UPPER().
   Returns a dynamic query fragment that can be used in where clauses.
   """
   def case_insensitive_like(field, pattern) do
-    if sqlite?() do
-      # SQLite: Use LIKE with UPPER() on both sides
-      dynamic([q], fragment("UPPER(?) LIKE UPPER(?)", field(q, ^field), ^pattern))
-    else
-      # PostgreSQL: Use built-in ilike
-      dynamic([q], ilike(field(q, ^field), ^pattern))
-    end
+    # SQLite: Use LIKE with UPPER() on both sides
+    dynamic([q], fragment("UPPER(?) LIKE UPPER(?)", field(q, ^field), ^pattern))
   end
 
   @doc """
@@ -254,19 +243,11 @@ defmodule Reencodarr.Media.SharedQueries do
   Used by delete_unchosen_vmafs functions.
   """
   def videos_with_no_chosen_vmafs_query do
-    if sqlite?() do
-      from(v in Vmaf,
-        group_by: v.video_id,
-        having: fragment("SUM(CASE WHEN ? = 1 THEN 1 ELSE 0 END) = 0", v.chosen),
-        select: v.video_id
-      )
-    else
-      from(v in Vmaf,
-        group_by: v.video_id,
-        having: fragment("SUM(? :: INTEGER) = 0", v.chosen),
-        select: v.video_id
-      )
-    end
+    from(v in Vmaf,
+      group_by: v.video_id,
+      having: fragment("SUM(CASE WHEN ? = 1 THEN 1 ELSE 0 END) = 0", v.chosen),
+      select: v.video_id
+    )
   end
 
   @doc """
@@ -276,71 +257,7 @@ defmodule Reencodarr.Media.SharedQueries do
   This query is used identically in multiple modules, so it's consolidated here.
   """
   def aggregated_stats_query do
-    # Check if we're using SQLite
-    if sqlite?() do
-      sqlite_aggregated_stats_query()
-    else
-      postgres_aggregated_stats_query()
-    end
-  end
-
-  # PostgreSQL version with FILTER syntax
-  defp postgres_aggregated_stats_query do
-    from v in Video,
-      where: v.state not in [:failed],
-      left_join: m_all in Vmaf,
-      on: m_all.video_id == v.id,
-      select: %{
-        total_videos: count(v.id, :distinct),
-        total_size_gb: fragment("ROUND(SUM(?::BIGINT)::FLOAT / (1024*1024*1024), 2)", v.size),
-        needs_analysis: filter(count(v.id), v.state == :needs_analysis),
-        analyzed: filter(count(v.id), v.state == :analyzed),
-        crf_searching: filter(count(v.id), v.state == :crf_searching),
-        crf_searched: filter(count(v.id), v.state == :crf_searched),
-        encoding: filter(count(v.id), v.state == :encoding),
-        encoded: filter(count(v.id), v.state == :encoded),
-        failed: filter(count(v.id), v.state == :failed),
-        avg_duration_minutes: fragment("ROUND(AVG(?::INTEGER) / 60.0, 1)", v.duration),
-        newest_video: max(v.inserted_at),
-        oldest_video: min(v.inserted_at),
-        total_vmafs: count(m_all.id, :distinct),
-        chosen_vmafs: filter(count(m_all.id), m_all.chosen == true),
-        chosen_vmafs_count: filter(count(m_all.id), m_all.chosen == true),
-        unprocessed_vmafs:
-          count(m_all.id, :distinct) - filter(count(m_all.id), m_all.chosen == true),
-        # Additional fields for dashboard compatibility
-        avg_vmaf_percentage: fragment("ROUND(AVG(?)::numeric, 2)", m_all.percent),
-        encodes_count:
-          fragment(
-            "COUNT(*) FILTER (WHERE ? = 'crf_searched' AND ? = true)",
-            v.state,
-            m_all.chosen
-          ),
-        queued_crf_searches_count: filter(count(v.id), v.state == :analyzed),
-        analyzer_count: filter(count(v.id), v.state == :needs_analysis),
-        reencoded_count: filter(count(v.id), v.state == :encoded),
-        failed_count: filter(count(v.id), v.state == :failed),
-        analyzing_count: filter(count(v.id), v.state == :needs_analysis),
-        encoding_count: filter(count(v.id), v.state == :encoding),
-        searching_count: filter(count(v.id), v.state == :crf_searching),
-        available_count: filter(count(v.id), v.state == :crf_searched),
-        paused_count: fragment("0"),
-        skipped_count: fragment("0"),
-        total_savings_gb:
-          coalesce(
-            sum(
-              fragment(
-                "CASE WHEN ? = true AND ? > 0 THEN ?::bigint::decimal / 1073741824 ELSE 0 END",
-                m_all.chosen,
-                m_all.savings,
-                m_all.savings
-              )
-            ),
-            0
-          ),
-        most_recent_video_update: max(v.updated_at),
-        most_recent_inserted_video: max(v.inserted_at)
-      }
+    sqlite_aggregated_stats_query()
   end
 
   # SQLite version without FILTER syntax and with proper type casting

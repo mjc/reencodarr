@@ -1,5 +1,6 @@
 defmodule Reencodarr.MediaTest do
   use Reencodarr.DataCase, async: true
+  import ExUnit.CaptureLog
 
   alias Reencodarr.Fixtures
   alias Reencodarr.Media
@@ -8,7 +9,7 @@ defmodule Reencodarr.MediaTest do
     @invalid_video_attrs %{size: nil, path: nil, bitrate: nil}
 
     test "list_videos/0 returns all videos" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
       videos = Media.list_videos()
 
       assert length(videos) == 1
@@ -16,7 +17,7 @@ defmodule Reencodarr.MediaTest do
     end
 
     test "get_video!/1 returns the video with given id" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
 
       fetched_video = Media.get_video!(video.id)
       assert fetched_video.id == video.id
@@ -32,14 +33,14 @@ defmodule Reencodarr.MediaTest do
         atmos: false
       }
 
-      video = assert_ok(Media.create_video(attrs))
+      video = assert_ok(Media.upsert_video(attrs))
       assert video.size == 2_000_000_000
       assert video.path == "/test/video.mkv"
       assert video.bitrate == 5_000_000
     end
 
     test "create_video/1 with invalid data returns error changeset" do
-      changeset = assert_error(Media.create_video(@invalid_video_attrs))
+      changeset = assert_error(Media.upsert_video(@invalid_video_attrs))
 
       assert_changeset_error(changeset, %{
         size: ["can't be blank"],
@@ -48,7 +49,7 @@ defmodule Reencodarr.MediaTest do
     end
 
     test "update_video/2 with valid data updates the video" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
 
       update_attrs = %{
         size: 3_000_000_000,
@@ -63,7 +64,7 @@ defmodule Reencodarr.MediaTest do
     end
 
     test "update_video/2 with invalid data returns error changeset" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
 
       changeset = assert_error(Media.update_video(video, @invalid_video_attrs))
       assert_changeset_error(changeset, :path, "can't be blank")
@@ -74,14 +75,14 @@ defmodule Reencodarr.MediaTest do
     end
 
     test "delete_video/1 deletes the video" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
 
       assert_ok(Media.delete_video(video))
       assert_raise Ecto.NoResultsError, fn -> Media.get_video!(video.id) end
     end
 
     test "change_video/1 returns a video changeset" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
       changeset = Media.change_video(video)
 
       assert %Ecto.Changeset{} = changeset
@@ -90,7 +91,7 @@ defmodule Reencodarr.MediaTest do
 
     # Test factory pattern usage
     test "factory pattern creates videos with custom attributes" do
-      video =
+      {:ok, video} =
         Fixtures.build_video()
         |> Fixtures.with_high_bitrate(20_000_000)
         |> Fixtures.with_path("/test/4k_video.mkv")
@@ -101,10 +102,10 @@ defmodule Reencodarr.MediaTest do
     end
 
     test "specialized fixtures create appropriate videos" do
-      failed_video = Fixtures.failed_video_fixture()
+      {:ok, failed_video} = Fixtures.failed_video_fixture()
       assert failed_video.state == :failed
 
-      encoded_video = Fixtures.encoded_video_fixture()
+      {:ok, encoded_video} = Fixtures.encoded_video_fixture()
       assert encoded_video.state == :encoded
     end
   end
@@ -252,7 +253,7 @@ defmodule Reencodarr.MediaTest do
       # Create initial videos
       library = Fixtures.library_fixture()
 
-      existing_video =
+      {:ok, existing_video} =
         Fixtures.video_fixture(%{
           path: "/test/existing.mkv",
           size: 1_000_000_000,
@@ -330,12 +331,14 @@ defmodule Reencodarr.MediaTest do
       ]
 
       # Perform batch upsert
-      results = Media.batch_upsert_videos(video_attrs_list)
+      capture_log(fn ->
+        results = Media.batch_upsert_videos(video_attrs_list)
 
-      # Should have one success and one error
-      assert length(results) == 2
-      assert match?({:ok, _}, Enum.at(results, 0))
-      assert match?({:error, _}, Enum.at(results, 1))
+        # Should have one success and one error
+        assert length(results) == 2
+        assert match?({:ok, _}, Enum.at(results, 0))
+        assert match?({:error, _}, Enum.at(results, 1))
+      end)
     end
   end
 
@@ -359,7 +362,7 @@ defmodule Reencodarr.MediaTest do
     end
 
     test "create_vmaf/1 with valid data creates a vmaf" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
 
       attrs = %{
         video_id: video.id,
@@ -420,7 +423,7 @@ defmodule Reencodarr.MediaTest do
     end
 
     test "vmaf series fixture creates CRF search results" do
-      video = Fixtures.video_fixture()
+      {:ok, video} = Fixtures.video_fixture()
       vmafs = Fixtures.vmaf_series_fixture(video, [24, 26, 28, 30, 32])
 
       assert length(vmafs) == 5
@@ -434,7 +437,7 @@ defmodule Reencodarr.MediaTest do
 
     test "optimal vmaf fixture creates realistic encoding results" do
       # 5GB source
-      video = Fixtures.video_fixture(%{size: 5_000_000_000})
+      {:ok, video} = Fixtures.video_fixture(%{size: 5_000_000_000})
       optimal_vmaf = Fixtures.optimal_vmaf_fixture(video, 95.0)
 
       assert optimal_vmaf.score == 95.0

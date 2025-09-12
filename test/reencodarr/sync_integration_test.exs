@@ -7,7 +7,7 @@ defmodule Reencodarr.SyncIntegrationTest do
 
   describe "sync integration tests" do
     setup do
-      library = Fixtures.library_fixture()
+      library = Fixtures.library_fixture(%{path: "/test"})
       %{library: library}
     end
 
@@ -175,20 +175,16 @@ defmodule Reencodarr.SyncIntegrationTest do
     end
 
     test "sync preserves existing analyzed bitrates correctly", %{library: library} do
-      # First, create a video with analyzed bitrate
+      # First, create a video with analyzed bitrate using fixture
       {:ok, original_video} =
-        Media.create_video(%{
+        Fixtures.video_fixture(%{
           path: "/test/preserve/movie.mkv",
           size: 3_000_000_000,
           # Previously analyzed
           bitrate: 12_000_000,
           service_id: "preserve_test",
           service_type: :sonarr,
-          library_id: library.id,
-          max_audio_channels: 2,
-          atmos: false,
-          video_codecs: ["h264"],
-          audio_codecs: ["aac"]
+          library_id: library.id
         })
 
       # Simulate sync update with same size (should preserve bitrate)
@@ -233,19 +229,15 @@ defmodule Reencodarr.SyncIntegrationTest do
     end
 
     test "sync updates bitrate when file size changes significantly", %{library: library} do
-      # Create video with analyzed bitrate
+      # Create video with analyzed bitrate using fixture
       {:ok, original_video} =
-        Media.create_video(%{
+        Fixtures.video_fixture(%{
           path: "/test/size_change/movie.mkv",
           size: 2_000_000_000,
           bitrate: 8_000_000,
           service_id: "size_change",
           service_type: :sonarr,
-          library_id: library.id,
-          max_audio_channels: 2,
-          atmos: false,
-          video_codecs: ["h264"],
-          audio_codecs: ["aac"]
+          library_id: library.id
         })
 
       # Simulate sync with significantly different size
@@ -322,19 +314,15 @@ defmodule Reencodarr.SyncIntegrationTest do
     end
 
     test "delete_video_and_vmafs cleans up properly", %{library: library} do
-      # Create video with associated VMAFs
+      # Create video with associated VMAFs using fixture
       {:ok, video} =
-        Media.create_video(%{
+        Fixtures.video_fixture(%{
           path: "/test/delete/movie.mkv",
           size: 2_000_000_000,
           bitrate: 5_000_000,
           service_id: "delete_test",
           service_type: :sonarr,
-          library_id: library.id,
-          max_audio_channels: 2,
-          atmos: false,
-          video_codecs: ["h264"],
-          audio_codecs: ["aac"]
+          library_id: library.id
         })
 
       # Create some VMAFs for this video
@@ -399,34 +387,26 @@ defmodule Reencodarr.SyncIntegrationTest do
     end
 
     test "refresh_and_rename_from_video handles both service types", %{library: library} do
-      # Create Sonarr video
+      # Create Sonarr video using fixture
       {:ok, sonarr_video} =
-        Media.create_video(%{
+        Fixtures.video_fixture(%{
           path: "/test/refresh/episode.mkv",
           size: 1_500_000_000,
           bitrate: 3_000_000,
           service_id: "refresh_sonarr",
           service_type: :sonarr,
-          library_id: library.id,
-          max_audio_channels: 2,
-          atmos: false,
-          video_codecs: ["h264"],
-          audio_codecs: ["aac"]
+          library_id: library.id
         })
 
-      # Create Radarr video
+      # Create Radarr video using fixture
       {:ok, radarr_video} =
-        Media.create_video(%{
+        Fixtures.video_fixture(%{
           path: "/test/refresh/movie.mkv",
           size: 2_500_000_000,
           bitrate: 6_000_000,
           service_id: "refresh_radarr",
           service_type: :radarr,
-          library_id: library.id,
-          max_audio_channels: 2,
-          atmos: false,
-          video_codecs: ["h264"],
-          audio_codecs: ["aac"]
+          library_id: library.id
         })
 
       log =

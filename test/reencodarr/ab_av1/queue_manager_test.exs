@@ -1,5 +1,5 @@
 defmodule Reencodarr.AbAv1.QueueManagerTest do
-  use ExUnit.Case, async: true
+  use Reencodarr.UnitCase, async: true
   doctest Reencodarr.AbAv1.QueueManager
 
   alias Reencodarr.AbAv1.QueueManager
