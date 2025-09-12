@@ -127,10 +127,9 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
 
     # If no audio tracks found but General track indicates audio exists,
     # add a placeholder to prevent validation errors
-    if Enum.empty?(codecs) and get_int_field(general, "AudioCount", 0) > 0 do
-      ["unknown"]
-    else
-      codecs
+    case {codecs, get_int_field(general, "AudioCount", 0)} do
+      {[], count} when count > 0 -> ["unknown"]
+      {codecs, _} -> codecs
     end
   end
 

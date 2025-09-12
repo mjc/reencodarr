@@ -67,7 +67,7 @@ defmodule Reencodarr.AbAv1.Helper do
   @spec clean_mkv_attachments(String.t()) :: {:ok, String.t()} | {:error, term()}
   def clean_mkv_attachments(file_path) do
     # Only process MKV files
-    if Path.extname(file_path) |> String.downcase() == ".mkv" do
+    if String.ends_with?(file_path, [".mkv", ".MKV"]) do
       case check_for_image_attachments(file_path) do
         {:ok, false} ->
           # No image attachments found, use original file
