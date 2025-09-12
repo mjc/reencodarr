@@ -962,7 +962,6 @@ defmodule ReencodarrWeb.FailuresLive do
 
   # Helper function to check if a query has GROUP BY clause
   defp has_group_by?(%Ecto.Query{group_bys: group_bys}), do: length(group_bys) > 0
-  defp has_group_by?(_), do: false
 
   defp get_failures_by_video(videos) do
     video_ids = Enum.map(videos, & &1.id)
