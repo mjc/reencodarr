@@ -225,15 +225,7 @@ defmodule Reencodarr.Media.MediaInfoUtils do
   defp extract_audio_codecs_safely(audio_tracks, general) do
     primary_codecs =
       audio_tracks
-      |> Enum.map(fn track ->
-        # Try multiple fields for codec detection
-        codec =
-          get_string_field(track, "CodecID", "") ||
-            get_string_field(track, "Format", "") ||
-            get_string_field(track, "Codec", "")
-
-        if codec != "", do: codec, else: nil
-      end)
+      |> Enum.map(&extract_codec_from_track/1)
       |> Enum.filter(&(!is_nil(&1)))
 
     # If no audio codecs found in tracks, try general track as fallback
@@ -243,6 +235,22 @@ defmodule Reencodarr.Media.MediaInfoUtils do
     else
       primary_codecs
     end
+  end
+
+  defp extract_codec_from_track(track) do
+    codec =
+      case get_string_field(track, "CodecID", "") do
+        "" ->
+          case get_string_field(track, "Format", "") do
+            "" -> get_string_field(track, "Codec", "")
+            format -> format
+          end
+
+        codec_id ->
+          codec_id
+      end
+
+    if codec != "", do: codec, else: nil
   end
 
   # Calculate the maximum audio channels across all tracks

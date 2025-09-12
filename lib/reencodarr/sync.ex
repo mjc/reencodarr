@@ -5,8 +5,8 @@ defmodule Reencodarr.Sync do
   import Ecto.Query
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.{Media, Repo, Services, Telemetry}
+  alias Reencodarr.Media.{MediaInfoExtractor, VideoFileInfo, VideoUpsert}
   alias Reencodarr.Media.Video.MediaInfoConverter
-  alias Reencodarr.Media.VideoFileInfo
 
   # Public API
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -243,12 +243,52 @@ defmodule Reencodarr.Sync do
   end
 
   defp process_single_video_file(%VideoFileInfo{} = info, _service_type) do
-    # Convert VideoFileInfo to MediaInfo format for database storage
-    mediainfo = MediaInfoConverter.from_video_file_info(info)
+    # Check if video exists and file size hasn't changed
+    existing_video = Media.get_video_by_path(info.path)
 
     result =
       Repo.transaction(fn ->
-        Media.upsert_video(%{
+        if should_preserve_file_metadata?(existing_video, info) do
+          update_api_metadata_only(existing_video, info)
+        else
+          upsert_full_video_data(info)
+        end
+      end)
+
+    # VideoUpsert will automatically set state to needs_analysis for zero bitrate
+    result
+  end
+
+  defp should_preserve_file_metadata?(existing_video, info) do
+    existing_video && existing_video.size == info.size && info.bitrate != 0
+  end
+
+  defp update_api_metadata_only(existing_video, info) do
+    # File size unchanged AND bitrate is not 0 - only update API-sourced metadata
+    api_only_attrs = %{
+      "service_id" => info.service_id,
+      "service_type" => to_string(info.service_type),
+      "content_year" => info.content_year,
+      "dateAdded" => info.date_added
+    }
+
+    Media.update_video(existing_video, api_only_attrs)
+  end
+
+  defp upsert_full_video_data(info) do
+    # File size changed, new video, OR bitrate is 0 (needs re-analysis) - analyze everything
+    # Convert VideoFileInfo to MediaInfo format for database storage
+    mediainfo = MediaInfoConverter.from_video_file_info(info)
+
+    # Extract video parameters including required fields like max_audio_channels and atmos
+    video_params = MediaInfoExtractor.extract_video_params(mediainfo, info.path)
+
+    # Convert atom keys to string keys for consistency
+    string_video_params = Map.new(video_params, fn {k, v} -> {to_string(k), v} end)
+
+    VideoUpsert.upsert(
+      Map.merge(
+        %{
           "path" => info.path,
           "size" => info.size,
           "service_id" => info.service_id,
@@ -257,11 +297,10 @@ defmodule Reencodarr.Sync do
           "bitrate" => info.bitrate,
           "dateAdded" => info.date_added,
           "content_year" => info.content_year
-        })
-      end)
-
-    # VideoUpsert will automatically set state to needs_analysis for zero bitrate
-    result
+        },
+        string_video_params
+      )
+    )
   end
 
   @doc """
@@ -276,7 +315,7 @@ defmodule Reencodarr.Sync do
     # Store in database
     result =
       Repo.transaction(fn ->
-        Media.upsert_video(%{
+        VideoUpsert.upsert(%{
           "path" => file["path"],
           "size" => file["size"],
           "service_id" => to_string(file["id"]),
@@ -300,7 +339,7 @@ defmodule Reencodarr.Sync do
     with {:ok, %Req.Response{body: episode_file}} <- Services.Sonarr.get_episode_file(file_id),
          {:ok, _} <- Services.Sonarr.refresh_series(episode_file["seriesId"]),
          {:ok, _} <-
-           Services.Sonarr.rename_files(episode_file["seriesId"], [String.to_integer(file_id)]) do
+           Services.Sonarr.rename_files(episode_file["seriesId"], [file_id]) do
       {:ok, "Refresh and rename triggered"}
     else
       {:error, reason} -> {:error, reason}

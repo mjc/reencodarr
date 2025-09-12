@@ -32,12 +32,17 @@ defmodule ReencodarrWeb.RadarrWebhookController do
 
     results =
       Enum.map(movie_files, fn file ->
-        scene_name = file["sceneName"] || Path.basename(file["path"])
-        Logger.info("Processing file #{scene_name}...")
-        Reencodarr.Sync.upsert_video_from_file(file, :radarr)
+        case validate_movie_file(file) do
+          {:ok, validated_file} ->
+            process_valid_movie_file(validated_file)
+
+          {:error, reason} ->
+            Logger.error("Invalid movie file data from Radarr: #{reason}")
+            {:error, reason}
+        end
       end)
 
-    if Enum.all?(results, fn res -> res == :ok or match?({:ok, _}, res) end) do
+    if Enum.all?(results, fn res -> match?({:ok, _}, res) end) do
       Logger.info("Successfully processed download event for Radarr")
     else
       Logger.error("Some upserts failed for download event: #{inspect(results)}")
@@ -154,5 +159,67 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   defp handle_unknown(conn, params) do
     Logger.info("Received unsupported event from Radarr: #{inspect(params["eventType"])}")
     send_resp(conn, :no_content, "ignored")
+  end
+
+  # Validation functions
+
+  defp validate_movie_file(file) when is_map(file) do
+    with {:ok, path} <- validate_file_path(file["path"]),
+         {:ok, size} <- validate_file_size(file["size"]),
+         {:ok, id} <- validate_file_id(file["id"] || file["movieFileId"]) do
+      {:ok, %{path: path, size: size, id: id, raw_file: file}}
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp validate_movie_file(_), do: {:error, "movie file must be a map"}
+
+  defp validate_file_path(path) when is_binary(path) and path != "" do
+    if String.trim(path) != "" do
+      {:ok, path}
+    else
+      {:error, "path cannot be empty"}
+    end
+  end
+
+  defp validate_file_path(nil), do: {:error, "path is required"}
+  defp validate_file_path(_), do: {:error, "path must be a string"}
+
+  defp validate_file_size(size) when is_integer(size) and size > 0, do: {:ok, size}
+  defp validate_file_size(nil), do: {:error, "size is required"}
+  defp validate_file_size(_), do: {:error, "size must be a positive integer"}
+
+  defp validate_file_id(id) when not is_nil(id), do: {:ok, id}
+  defp validate_file_id(_), do: {:error, "file id is required"}
+
+  defp process_valid_movie_file(%{path: path, size: size, id: id, raw_file: file}) do
+    scene_name = file["sceneName"] || Path.basename(path)
+    Logger.info("Processing file #{scene_name}...")
+
+    # Create basic video record without mediainfo - analysis will handle that
+    attrs = %{
+      "path" => path,
+      "size" => size,
+      # Force analysis state
+      "state" => :needs_analysis,
+      "service_id" => to_string(id),
+      "service_type" => "radarr",
+      # Can be updated by analyzer
+      "content_year" => DateTime.utc_now().year,
+      # Default values for required fields (will be updated during analysis)
+      "video_codecs" => [],
+      "audio_codecs" => []
+    }
+
+    case Reencodarr.Media.upsert_video(attrs) do
+      {:ok, video} ->
+        # Delete any existing VMAFs for this path since we're re-analyzing
+        Reencodarr.Media.delete_vmafs_for_video(video)
+        {:ok, video}
+
+      error ->
+        error
+    end
   end
 end

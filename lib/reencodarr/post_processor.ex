@@ -98,7 +98,7 @@ defmodule Reencodarr.PostProcessor do
     end
   end
 
-  @spec finalize_and_sync(any(), String.t()) :: :ok
+  @spec finalize_and_sync(any(), String.t()) :: {:ok, binary()} | {:error, any()}
 
   defp finalize_and_sync(video, intermediate_path) do
     case FileOperations.move_file(intermediate_path, video.path, "FinalRename", video) do

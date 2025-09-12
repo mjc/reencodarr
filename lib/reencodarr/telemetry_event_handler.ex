@@ -84,11 +84,11 @@ defmodule Reencodarr.TelemetryEventHandler do
     GenServer.cast(pid, {:update_analyzer, false})
   end
 
-  def handle_event([:reencodarr, :analyzer, :throughput], _measurements, _metadata, %{
+  def handle_event([:reencodarr, :analyzer, :throughput], measurements, _metadata, %{
         reporter_pid: pid
       }) do
-    # Trigger a state update when analyzer processes videos
-    GenServer.cast(pid, :refresh_state)
+    # Update analyzer progress with current throughput and queue info
+    GenServer.cast(pid, {:update_analyzer_throughput, measurements})
   end
 
   # Sync events

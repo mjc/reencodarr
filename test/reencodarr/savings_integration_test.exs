@@ -12,7 +12,7 @@ defmodule Reencodarr.SavingsIntegrationTest do
       {:ok, library} = Media.create_library(%{path: "/test/library", monitor: true})
 
       # Create a test video
-      video =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/library/integration_video_#{System.unique_integer([:positive])}.mkv",
           # 2GB
@@ -58,7 +58,7 @@ defmodule Reencodarr.SavingsIntegrationTest do
       assert queue_count == 1
 
       # Create another video with higher savings to test sorting
-      video2 =
+      {:ok, video2} =
         Fixtures.video_fixture(%{
           path: "/test/library/high_savings_video_#{System.unique_integer([:positive])}.mkv",
           # 3GB
@@ -109,7 +109,7 @@ defmodule Reencodarr.SavingsIntegrationTest do
       {:ok, library} = Media.create_library(%{path: "/test/library", monitor: true})
 
       # Test with very small file
-      small_video =
+      {:ok, small_video} =
         Fixtures.video_fixture(%{
           path: "/test/library/small_video.mp4",
           # 100KB
@@ -142,7 +142,7 @@ defmodule Reencodarr.SavingsIntegrationTest do
       assert small_vmaf.savings == 40_000
 
       # Test with near-perfect compression
-      perfect_video =
+      {:ok, perfect_video} =
         Fixtures.video_fixture(%{
           path: "/test/library/perfect_compression.mkv",
           # 1GB
@@ -186,7 +186,7 @@ defmodule Reencodarr.SavingsIntegrationTest do
       {:ok, library} = Media.create_library(%{path: "/test/library", monitor: true})
 
       # Create test video
-      video =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/library/explicit_savings_video.mp4",
           size: 500_000_000,

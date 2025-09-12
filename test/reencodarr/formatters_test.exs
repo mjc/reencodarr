@@ -1,5 +1,5 @@
 defmodule Reencodarr.FormattersTest do
-  use ExUnit.Case, async: true
+  use Reencodarr.UnitCase, async: true
 
   alias Reencodarr.Formatters
 

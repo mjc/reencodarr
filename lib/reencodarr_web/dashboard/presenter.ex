@@ -30,7 +30,9 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
     ArgumentError -> :ok
   end
 
-  def present(dashboard_state, timezone \\ "UTC") do
+  def present(dashboard_state), do: present(dashboard_state, "UTC")
+
+  def present(dashboard_state, timezone) do
     # Temporarily disable caching to debug UI issues
     %{
       metrics: present_metrics(dashboard_state.stats),
@@ -81,7 +83,10 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
     syncing = Map.get(dashboard_state, :syncing, false)
 
     Logger.debug(
-      "Presenter: Status - analyzing: #{analyzing}, encoding: #{encoding}, crf_searching: #{crf_searching}"
+      "status update",
+      analyzing: analyzing,
+      encoding: encoding,
+      crf_searching: crf_searching
     )
 
     encoding_progress = Map.get(dashboard_state, :encoding_progress)
@@ -101,7 +106,18 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
       },
       analyzing: %{
         active: analyzing,
-        progress: Normalizer.normalize_progress(analyzer_progress)
+        progress:
+          (
+            normalized = Normalizer.normalize_progress(analyzer_progress)
+
+            Logger.debug(
+              "analyzer_progress normalized",
+              analyzer_progress: analyzer_progress,
+              normalized: normalized
+            )
+
+            normalized
+          )
       },
       syncing: %{
         active: syncing,
@@ -115,7 +131,9 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
     queue_length = Map.get(dashboard_state.stats || %{}, :queue_length, %{})
 
     Logger.debug(
-      "Presenter: Queues - analyzer files: #{length(analyzer_files)}, queue_length: #{inspect(queue_length)}"
+      "queues status",
+      analyzer_files_count: length(analyzer_files),
+      queue_length: queue_length
     )
 
     %{

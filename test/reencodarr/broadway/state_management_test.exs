@@ -1,5 +1,5 @@
 defmodule Reencodarr.Broadway.StateManagementTest do
-  use ExUnit.Case, async: true
+  use Reencodarr.UnitCase, async: true
 
   describe "Analyzer Broadway Producer state management" do
     alias Reencodarr.Analyzer.Broadway.Producer.State

@@ -1,5 +1,5 @@
 defmodule Reencodarr.DataConvertersResolutionTest do
-  use ExUnit.Case, async: true
+  use Reencodarr.UnitCase, async: true
   alias Reencodarr.DataConverters
 
   describe "parse_resolution/1" do

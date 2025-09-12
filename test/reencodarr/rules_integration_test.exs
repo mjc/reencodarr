@@ -9,7 +9,7 @@ defmodule Reencodarr.RulesIntegrationTest do
   describe "integration with encoder modules" do
     setup do
       {:ok, video} =
-        Media.create_video(%{
+        Fixtures.video_fixture(%{
           path: "/test/video#{System.unique_integer([:positive])}.mkv",
           title: "Test Video",
           size: 1_000_000,

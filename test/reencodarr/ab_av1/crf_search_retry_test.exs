@@ -18,7 +18,7 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
         _ -> :ok
       end
 
-      video = Fixtures.video_fixture(%{path: "/test/retry_video.mkv", size: 2_000_000_000})
+      {:ok, video} = Fixtures.video_fixture(%{path: "/test/retry_video.mkv", size: 2_000_000_000})
       %{video: video}
     end
 
@@ -151,7 +151,7 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
 
   describe "build_crf_search_args_with_preset_6" do
     test "includes --preset 6 parameter" do
-      video = Fixtures.video_fixture(%{path: "/test/preset_test.mkv"})
+      {:ok, video} = Fixtures.video_fixture(%{path: "/test/preset_test.mkv"})
 
       # Access the private function through process_line with a mocked GenServer
       me = self()

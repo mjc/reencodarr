@@ -12,7 +12,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.RetryLogicTest do
 
   describe "preset 6 retry decision logic" do
     setup do
-      video = Fixtures.video_fixture(%{path: "/test/retry_video.mkv", size: 2_000_000_000})
+      {:ok, video} = Fixtures.video_fixture(%{path: "/test/retry_video.mkv", size: 2_000_000_000})
       %{video: video}
     end
 

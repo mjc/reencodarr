@@ -59,6 +59,11 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def handle_info({:telemetry_event, state}, socket) do
+    Logger.debug(
+      "Received telemetry event",
+      analyzer_progress: state.analyzer_progress
+    )
+
     dashboard_data = Presenter.present(state, socket.assigns.timezone)
 
     socket =

@@ -5,6 +5,13 @@ Reencodarr is an Elixir/Phoenix application for bulk video transcoding using the
 
 ## Core Architecture
 
+### Database: SQLite with Advanced Concurrency
+**Key Change**: Migrated from PostgreSQL to SQLite with WAL mode for better deployment simplicity while maintaining concurrency.
+
+- **Configuration**: All SQLite optimizations consolidated in `config/config.exs` with WAL mode, 256MB cache, 512MB memory mapping
+- **Concurrency**: WAL mode enables simultaneous read/write operations (analyzer + sync can run concurrently)
+- **Migration**: Use `scripts/migrate_to_sqlite.exs` for PostgreSQL→SQLite data migration
+
 ### Broadway Pipeline System
 Three Broadway pipelines handle video processing with fault tolerance and observability:
 
@@ -25,14 +32,19 @@ Key pattern: Each pipeline has a Producer that checks GenServer availability bef
 
 ### Essential Commands
 ```bash
-# Setup (requires PostgreSQL)
-mix setup                    # Full setup: deps, DB, assets
-make docker-compose-up       # Start PostgreSQL container
-iex -S mix phx.server       # Development with live reload
+# Setup (no longer requires PostgreSQL)
+mix setup                    # Full setup: deps, SQLite DB, assets
+
+# Testing (ALWAYS run full test suite)
+mix test                    # Uses manual sandbox mode - ALWAYS run complete suite, never individual tests
 
 # Database
-mix ecto.reset              # Drop/create/migrate/seed
-mix test                    # Uses manual sandbox mode
+mix ecto.reset              # Drop/create/migrate/seed (SQLite)
+
+# Code Quality (automated via git hooks)
+mix setup_precommit         # Setup git hooks for credo + formatting
+mix credo --strict          # Strict code analysis
+mix format                  # Code formatting
 
 # Debugging
 # Visit /broadway-dashboard for pipeline monitoring
@@ -40,10 +52,30 @@ mix test                    # Uses manual sandbox mode
 
 ### Key Dependencies
 - **Required Binaries**: `ab-av1`, `ffmpeg`, `mediainfo`
-- **Database**: PostgreSQL with pool_size: 50 for dev concurrency
+- **Database**: SQLite with WAL mode and optimized pragma settings (see `config/config.exs`)
 - **External APIs**: Sonarr/Radarr via `CarReq` with circuit breaker pattern
 
 ## Project-Specific Patterns
+
+### Database Configuration Pattern
+**Critical**: SQLite optimizations are centralized in `config/config.exs` and must not be overridden in environment configs:
+
+```elixir
+# Base config applies to all environments
+config :reencodarr, Reencodarr.Repo,
+  pragma: [
+    journal_mode: "WAL",       # Enable concurrent access
+    busy_timeout: 120_000,     # 2-minute timeout for concurrent ops
+    cache_size: -256_000,      # 256MB cache
+    mmap_size: 536_870_912     # 512MB memory mapping
+  ]
+```
+
+### Git Hooks & Code Quality
+Pre-commit hooks automatically enforce code quality:
+- **Setup**: `mix setup_precommit` configures git to use `.githooks/pre-commit`
+- **Checks**: Credo strict mode, format validation, format migration detection
+- **Stash Safety**: Unstaged changes are safely stashed during checks
 
 ### Broadway Pipeline Development
 When adding new pipelines:
@@ -54,9 +86,9 @@ When adding new pipelines:
 
 ### Database Query Patterns
 ```elixir
-# Array operations for codec filtering
-fragment("EXISTS (SELECT 1 FROM unnest(?) elem WHERE LOWER(elem) LIKE LOWER(?))", 
-         v.audio_codecs, "%opus%")
+# SQLite array operations for codec filtering (uses JSON functions)
+fragment("EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
+         v.video_codecs, "av1")
 
 # State queries use enum states, not boolean flags
 where: v.state not in [:encoded, :failed]
@@ -120,3 +152,4 @@ simple_vmaf: ~r/crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<perce
 - `lib/reencodarr/services/` - External API clients
 - `lib/reencodarr/ab_av1/` - Command execution and parsing
 - `test/support/` - Shared test utilities and fixtures
+- `scripts/` - Database migration and configuration update utilities

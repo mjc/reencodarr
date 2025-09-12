@@ -1,5 +1,6 @@
 defmodule Reencodarr.Media.VideoUpsertTest do
   use Reencodarr.DataCase
+  import ExUnit.CaptureLog
 
   alias Reencodarr.Media.VideoUpsert
   alias Reencodarr.Media.{Library, Video}
@@ -132,7 +133,10 @@ defmodule Reencodarr.Media.VideoUpsertTest do
         # Missing required fields like size
       }
 
-      assert {:error, %Ecto.Changeset{}} = VideoUpsert.upsert(attrs)
+      capture_log(fn ->
+        result = VideoUpsert.upsert(attrs)
+        assert {:error, %Ecto.Changeset{}} = result
+      end)
     end
   end
 
@@ -195,13 +199,15 @@ defmodule Reencodarr.Media.VideoUpsertTest do
         }
       ]
 
-      results = VideoUpsert.batch_upsert(video_attrs_list)
+      capture_log(fn ->
+        results = VideoUpsert.batch_upsert(video_attrs_list)
 
-      assert length(results) == 2
-      [result1, result2] = results
+        assert length(results) == 2
+        [result1, result2] = results
 
-      assert {:ok, %Video{}} = result1
-      assert {:error, %Ecto.Changeset{}} = result2
+        assert {:ok, %Video{}} = result1
+        assert {:error, %Ecto.Changeset{}} = result2
+      end)
     end
 
     test "handles stale update errors in batch processing", %{library: library} do
@@ -250,10 +256,12 @@ defmodule Reencodarr.Media.VideoUpsertTest do
         }
       ]
 
-      results = VideoUpsert.batch_upsert(invalid_attrs_list)
-      assert length(results) == 1
-      [result] = results
-      assert {:error, _} = result
+      capture_log(fn ->
+        results = VideoUpsert.batch_upsert(invalid_attrs_list)
+        assert length(results) == 1
+        [result] = results
+        assert {:error, _} = result
+      end)
     end
   end
 

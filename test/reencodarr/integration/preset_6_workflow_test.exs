@@ -14,7 +14,7 @@ defmodule Reencodarr.Integration.Preset6WorkflowTest do
 
   describe "preset 6 retry workflow integration" do
     setup do
-      video = Fixtures.video_fixture(%{path: "/test/integration.mkv", size: 2_000_000_000})
+      {:ok, video} = Fixtures.video_fixture(%{path: "/test/integration.mkv", size: 2_000_000_000})
       %{video: video}
     end
 

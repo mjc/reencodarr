@@ -12,6 +12,33 @@ config :reencodarr,
   generators: [timestamp_type: :utc_datetime],
   env: config_env()
 
+# Shared database configuration - SQLite performance tuning
+config :reencodarr, Reencodarr.Repo,
+  # Use binary format for arrays and maps (more efficient than JSON strings)
+  array_type: :binary,
+  map_type: :binary,
+  # SQLite optimizations for concurrent operations across all environments
+  pragma: [
+    # Enable WAL mode for maximum concurrency
+    journal_mode: "WAL",
+    # WAL checkpoint settings for better write performance
+    wal_autocheckpoint: 1000,
+    # Use NORMAL sync mode with WAL for good performance/safety balance
+    synchronous: "NORMAL",
+    # Store temp tables in memory for better performance
+    temp_store: "MEMORY",
+    # Enable full mutex mode for better concurrency
+    locking_mode: "NORMAL",
+    # Allow reads during page writes
+    read_uncommitted: true,
+    # Increase busy timeout for concurrent operations (2 minutes)
+    busy_timeout: 120_000,
+    # Large cache size (256MB) for better performance
+    cache_size: -256_000,
+    # Large memory mapping (512MB) for better I/O performance
+    mmap_size: 536_870_912
+  ]
+
 config :reencodarr, :temp_dir, Path.join(System.tmp_dir!(), "ab-av1")
 
 # Configure file exclude patterns for video filtering
@@ -68,7 +95,30 @@ config :tailwind,
 # Configures Elixir's Logger
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id]
+  metadata: [
+    :request_id,
+    :analyzer_progress,
+    :normalized,
+    :analyzer_files_count,
+    :queue_length,
+    :analyzing,
+    :encoding,
+    :crf_searching,
+    :throughput,
+    :percent,
+    :stats,
+    :vmaf_id,
+    :base_args,
+    :vmaf_params,
+    :result_args,
+    :input_count,
+    :path_count,
+    :path,
+    :state,
+    :exit_code,
+    :result,
+    :video_info
+  ]
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason

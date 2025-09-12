@@ -8,7 +8,7 @@ defmodule Reencodarr.MediaSavingsSortTest do
       {:ok, library} = Media.create_library(%{path: "/test/library", monitor: true})
 
       # Create test videos with same size but different savings
-      video1 =
+      {:ok, video1} =
         Fixtures.video_fixture(%{
           path: "/test/library/small_savings.mp4",
           size: 1_000_000_000,
@@ -25,7 +25,7 @@ defmodule Reencodarr.MediaSavingsSortTest do
           state: :analyzed
         })
 
-      video2 =
+      {:ok, video2} =
         Fixtures.video_fixture(%{
           path: "/test/library/large_savings.mp4",
           size: 1_000_000_000,
@@ -42,7 +42,7 @@ defmodule Reencodarr.MediaSavingsSortTest do
           state: :analyzed
         })
 
-      video3 =
+      {:ok, video3} =
         Fixtures.video_fixture(%{
           path: "/test/library/medium_savings.mp4",
           size: 1_000_000_000,

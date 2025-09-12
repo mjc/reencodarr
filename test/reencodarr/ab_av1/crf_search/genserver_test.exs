@@ -16,10 +16,11 @@ defmodule Reencodarr.AbAv1.CrfSearch.GenServerTest do
       # Wait for any running CRF search to complete and reset state
       wait_for_crf_search_to_complete()
 
-      video =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/genserver_video_#{:rand.uniform(10000)}.mkv",
-          size: 2_000_000_000
+          size: 2_000_000_000,
+          state: :analyzed
         })
 
       %{video: video}
@@ -96,7 +97,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.GenServerTest do
       # Wait for any running CRF search to complete and reset state
       wait_for_crf_search_to_complete()
 
-      video =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/cast_video_#{:rand.uniform(10000)}.mkv",
           size: 2_000_000_000

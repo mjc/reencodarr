@@ -1,0 +1,46 @@
+#!/bin/sh
+
+# Save current staged changes
+git stash push --keep-index --include-untracked -m "pre-commit-stash"
+
+# Function to cleanup on exit
+cleanup() {
+    EXIT_CODE=$?
+    # Only pop stash if we created one
+    if [ -n "$(git stash list | grep "pre-commit-stash")" ]; then
+        git stash pop
+    fi
+    exit $EXIT_CODE
+}
+
+# Set up cleanup on script exit
+trap cleanup EXIT
+
+echo "Running credo strict check..."
+if ! mix credo --strict; then
+    echo "❌ Credo strict check failed. Please fix the issues and try again."
+    exit 1
+fi
+
+echo "Checking code formatting..."
+if ! mix format --check-formatted; then
+    echo "❌ Code is not properly formatted. Run 'mix format' and try again."
+    exit 1
+fi
+
+# Check if mix format --migrate would make changes
+echo "Checking for formatting..."
+if ! mix format --migrate --check-formatted; then
+    echo "❌ Code needs formatting. Run 'mix format --migrate' and try again."
+    exit 1
+fi
+
+# TODO: Re-enable dialyzer once all ab-av1 static analysis limitations are resolved
+# echo "Running Dialyzer type checking..."
+# if ! mix dialyzer; then
+#     echo "❌ Dialyzer type checking failed. Please fix the type errors and try again."
+#     exit 1
+# fi
+
+echo "✅ All checks passed!"
+exit 0

@@ -16,12 +16,13 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
   describe "CRF search public API" do
     setup do
-      video =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/integration_video.mkv",
           size: 2_000_000_000,
           video_codecs: ["h264"],
-          audio_codecs: ["aac"]
+          audio_codecs: ["aac"],
+          state: :analyzed
         })
 
       %{video: video}
@@ -63,7 +64,9 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
   describe "workflow integration" do
     setup do
-      video = Fixtures.video_fixture(%{path: "/test/workflow_video.mkv", size: 1_000_000_000})
+      {:ok, video} =
+        Fixtures.video_fixture(%{path: "/test/workflow_video.mkv", size: 1_000_000_000})
+
       %{video: video}
     end
 
@@ -118,7 +121,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
   describe "error scenarios and edge cases" do
     setup do
-      video = Fixtures.video_fixture(%{path: "/test/error_video.mkv"})
+      {:ok, video} = Fixtures.video_fixture(%{path: "/test/error_video.mkv"})
       %{video: video}
     end
 
@@ -195,7 +198,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
         atmos: false
       }
 
-      {:ok, video} = Media.create_video(video)
+      {:ok, video} = Media.upsert_video(video)
       %{video: video}
     end
 
