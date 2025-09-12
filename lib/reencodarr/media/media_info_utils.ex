@@ -226,7 +226,7 @@ defmodule Reencodarr.Media.MediaInfoUtils do
     primary_codecs =
       audio_tracks
       |> Enum.map(&extract_codec_from_track/1)
-      |> Enum.filter(&(!is_nil(&1)))
+      |> Enum.filter(&is_binary/1)
 
     # If no audio codecs found in tracks, try general track as fallback
     if primary_codecs == [] do

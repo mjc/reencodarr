@@ -443,9 +443,11 @@ defmodule Reencodarr.Media.Clean do
   # Calculate savings if not already provided and we have the necessary data
   defp maybe_calculate_savings(attrs) do
     case {Map.get(attrs, "savings"), Map.get(attrs, "percent"), Map.get(attrs, "video_id")} do
-      {nil, percent, video_id} when not is_nil(percent) and not is_nil(video_id) ->
+      {nil, percent, video_id}
+      when (is_number(percent) or is_binary(percent)) and
+             (is_integer(video_id) or is_binary(video_id)) ->
         case get_video(video_id) do
-          %Video{size: size} when not is_nil(size) ->
+          %Video{size: size} when is_integer(size) and size > 0 ->
             savings = calculate_vmaf_savings(percent, size)
             Map.put(attrs, "savings", savings)
 

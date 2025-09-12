@@ -266,7 +266,8 @@ defmodule Reencodarr.Rules do
       atmos == true ->
         []
 
-      is_nil(channels) or is_nil(audio_codecs) ->
+      not (is_integer(channels) and channels > 0) or
+          not (is_list(audio_codecs) and length(audio_codecs) > 0) ->
         Logger.debug(
           "🔴 Invalid audio metadata for video #{video.id}: channels=#{inspect(channels)}, codecs=#{inspect(audio_codecs)}, path=#{video.path}"
         )
@@ -443,7 +444,7 @@ defmodule Reencodarr.Rules do
   end
 
   @spec hdr(Media.Video.t()) :: list()
-  def hdr(%Media.Video{hdr: hdr}) when not is_nil(hdr) do
+  def hdr(%Media.Video{hdr: hdr}) when is_binary(hdr) do
     [
       {"--svt", "tune=0"},
       {"--svt", "dolbyvision=1"}

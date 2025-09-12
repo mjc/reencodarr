@@ -154,12 +154,9 @@ defmodule Reencodarr.Sync do
   end
 
   defp find_library_id_from_cache(path, library_mappings) do
-    library_mappings
-    |> Enum.find(fn lib -> String.starts_with?(path, lib.path) end)
-    |> case do
-      %{id: id} -> id
-      nil -> nil
-    end
+    Enum.find_value(library_mappings, fn lib ->
+      if String.starts_with?(path, lib.path), do: lib.id
+    end)
   end
 
   defp prepare_video_attrs(file, service_type, library_mappings) do

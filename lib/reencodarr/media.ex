@@ -520,33 +520,39 @@ defmodule Reencodarr.Media do
   def upsert_vmaf(attrs) do
     video_id = Map.get(attrs, "video_id") || Map.get(attrs, :video_id)
 
-    if is_nil(video_id) or is_nil(get_video(video_id)) do
-      Logger.error("Attempted to upsert VMAF with missing or invalid video_id: #{inspect(attrs)}")
-      {:error, :invalid_video_id}
-    else
-      # Calculate savings if not provided but percent and video are available
-      attrs_with_savings = maybe_calculate_savings(attrs)
+    cond do
+      not (is_integer(video_id) or is_binary(video_id)) ->
+        Logger.error("Attempted to upsert VMAF with invalid video_id type: #{inspect(attrs)}")
+        {:error, :invalid_video_id}
 
-      result =
-        %Vmaf{}
-        |> Vmaf.changeset(attrs_with_savings)
-        |> Repo.insert(
-          on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
-          conflict_target: [:crf, :video_id]
-        )
+      match?(%Video{}, get_video(video_id)) ->
+        # Calculate savings if not provided but percent and video are available
+        attrs_with_savings = maybe_calculate_savings(attrs)
 
-      case result do
-        {:ok, vmaf} ->
-          Reencodarr.Telemetry.emit_vmaf_upserted(vmaf)
+        result =
+          %Vmaf{}
+          |> Vmaf.changeset(attrs_with_savings)
+          |> Repo.insert(
+            on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
+            conflict_target: [:crf, :video_id]
+          )
 
-          # If this VMAF is chosen, update video state to crf_searched
-          handle_chosen_vmaf(vmaf)
+        case result do
+          {:ok, vmaf} ->
+            Reencodarr.Telemetry.emit_vmaf_upserted(vmaf)
 
-        {:error, _error} ->
-          :ok
-      end
+            # If this VMAF is chosen, update video state to crf_searched
+            handle_chosen_vmaf(vmaf)
 
-      result
+          {:error, _error} ->
+            :ok
+        end
+
+        result
+
+      true ->
+        Logger.error("Attempted to upsert VMAF with missing video_id: #{inspect(attrs)}")
+        {:error, :invalid_video_id}
     end
   end
 
@@ -561,9 +567,11 @@ defmodule Reencodarr.Media do
   # Calculate savings if not already provided and we have the necessary data
   defp maybe_calculate_savings(attrs) do
     case {Map.get(attrs, "savings"), Map.get(attrs, "percent"), Map.get(attrs, "video_id")} do
-      {nil, percent, video_id} when not is_nil(percent) and not is_nil(video_id) ->
+      {nil, percent, video_id}
+      when (is_number(percent) or is_binary(percent)) and
+             (is_integer(video_id) or is_binary(video_id)) ->
         case get_video(video_id) do
-          %Video{size: size} when not is_nil(size) ->
+          %Video{size: size} when is_integer(size) and size > 0 ->
             savings = calculate_vmaf_savings(percent, size)
             Map.put(attrs, "savings", savings)
 
@@ -791,8 +799,8 @@ defmodule Reencodarr.Media do
   # Build minimal stats struct when DB query fails
   defp build_empty_stats do
     %Reencodarr.Statistics.Stats{
-      most_recent_video_update: most_recent_video_update() || nil,
-      most_recent_inserted_video: get_most_recent_inserted_at() || nil
+      most_recent_video_update: most_recent_video_update(),
+      most_recent_inserted_video: get_most_recent_inserted_at()
     }
   end
 
@@ -846,7 +854,8 @@ defmodule Reencodarr.Media do
     Repo.get(Video, id)
   end
 
-  def get_video_by_service_id(service_id, service_type) when not is_nil(service_id) do
+  def get_video_by_service_id(service_id, service_type)
+      when is_binary(service_id) or is_integer(service_id) do
     case Repo.one(
            from v in Video, where: v.service_id == ^service_id and v.service_type == ^service_type
          ) do
@@ -1118,9 +1127,11 @@ defmodule Reencodarr.Media do
         chosen_vmaf = Enum.find(vmafs, & &1.chosen)
 
         # Determine database state
-        analyzed = !is_nil(video.bitrate)
+        analyzed = is_integer(video.bitrate) and video.bitrate > 0
         has_vmaf = length(vmafs) > 0
-        ready_for_encoding = !is_nil(chosen_vmaf) && video.state not in [:encoded, :failed]
+
+        ready_for_encoding =
+          match?(%Vmaf{chosen: true}, chosen_vmaf) && video.state not in [:encoded, :failed]
 
         # Check queue memberships
         queue_memberships = %{
@@ -1454,7 +1465,7 @@ defmodule Reencodarr.Media do
       |> Map.put(:path, diagnostics.path)
       |> Map.put(:library_id, diagnostics.library_id)
       |> Map.put(:file_exists, diagnostics.file_exists)
-      |> Map.put(:had_existing_video, !is_nil(diagnostics.existing_video))
+      |> Map.put(:had_existing_video, match?(%Video{}, diagnostics.existing_video))
       |> Map.put(:messages, Enum.reverse(result.messages))
       |> Map.put(:errors, Enum.reverse(result.errors))
 

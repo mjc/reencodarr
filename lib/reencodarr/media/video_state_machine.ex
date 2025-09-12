@@ -216,15 +216,28 @@ defmodule Reencodarr.Media.VideoStateMachine do
   # Helper functions for state determination
 
   defp analysis_complete?(%Video{} = video) do
-    not is_nil(video.bitrate) and
-      not is_nil(video.width) and
-      not is_nil(video.height) and
-      not is_nil(video.duration) and
-      video.duration > 0.0 and
-      is_list(video.video_codecs) and
-      length(video.video_codecs) > 0 and
-      is_list(video.audio_codecs) and
-      length(video.audio_codecs) > 0
+    video_dimensions_valid?(video) and
+      video_bitrate_valid?(video) and
+      video_duration_valid?(video) and
+      video_codecs_valid?(video)
+  end
+
+  defp video_bitrate_valid?(%Video{bitrate: bitrate}) do
+    is_integer(bitrate) and bitrate > 0
+  end
+
+  defp video_dimensions_valid?(%Video{width: width, height: height}) do
+    is_integer(width) and width > 0 and
+      is_integer(height) and height > 0
+  end
+
+  defp video_duration_valid?(%Video{duration: duration}) do
+    is_number(duration) and duration > 0.0
+  end
+
+  defp video_codecs_valid?(%Video{video_codecs: video_codecs, audio_codecs: audio_codecs}) do
+    is_list(video_codecs) and length(video_codecs) > 0 and
+      is_list(audio_codecs) and length(audio_codecs) > 0
   end
 
   defp has_vmaf_data?(%Video{} = _video) do

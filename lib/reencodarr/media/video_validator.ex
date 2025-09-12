@@ -56,7 +56,7 @@ defmodule Reencodarr.Media.VideoValidator do
     # For bitrate: Only consider it changed if file size also changed or if bitrate is explicitly 0
     # This prevents sync from resetting analyzed bitrate when file content hasn't changed
     size_changed =
-      not is_nil(Map.get(new_values, :size)) and
+      is_integer(Map.get(new_values, :size)) and
         Map.get(new_values, :size) != Map.get(existing, :size)
 
     bitrate_explicitly_zero = Map.get(new_values, :bitrate) == 0
@@ -73,7 +73,7 @@ defmodule Reencodarr.Media.VideoValidator do
     ]
 
     Enum.any?(comparison_pairs, fn {new_val, old_val} ->
-      not is_nil(new_val) and new_val != old_val
+      (is_integer(new_val) or is_list(new_val) or is_number(new_val)) and new_val != old_val
     end)
   end
 
@@ -92,10 +92,11 @@ defmodule Reencodarr.Media.VideoValidator do
     # 2. We have a valid existing bitrate
     # 3. New bitrate is not explicitly 0 (which indicates need for re-analysis)
     size_unchanged =
-      is_nil(Map.get(new_values, :size)) or Map.get(new_values, :size) == Map.get(existing, :size)
+      not is_integer(Map.get(new_values, :size)) or
+        Map.get(new_values, :size) == Map.get(existing, :size)
 
     has_valid_existing_bitrate =
-      not is_nil(Map.get(existing, :bitrate)) and Map.get(existing, :bitrate) > 0
+      is_integer(Map.get(existing, :bitrate)) and Map.get(existing, :bitrate) > 0
 
     new_bitrate_not_zero = Map.get(new_values, :bitrate) != 0
 
