@@ -369,7 +369,7 @@ defmodule ReencodarrWeb.FailuresLive do
             <h3 class="text-lg text-orange-300 font-bold">FAILED VIDEOS</h3>
           </div>
 
-          <%= if length(@failed_videos) == 0 do %>
+          <%= if @failed_videos == [] do %>
             <div class="p-8 text-center text-orange-400">
               <div class="text-4xl mb-4">✅</div>
               <div class="text-lg">NO FAILURES DETECTED</div>

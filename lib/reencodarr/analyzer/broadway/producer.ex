@@ -392,9 +392,13 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       "State: demand=#{state.demand}, status=#{state.status}, queue_size=#{length(state.manual_queue)}"
     )
 
-    if not Enum.empty?(state.manual_queue) do
-      IO.puts("Manual queue contents:")
-      Enum.each(state.manual_queue, fn video -> IO.puts("  - #{video.path}") end)
+    case state.manual_queue do
+      [] ->
+        :ok
+
+      videos ->
+        IO.puts("Manual queue contents:")
+        Enum.each(videos, fn video -> IO.puts("  - #{video.path}") end)
     end
 
     # Get up to 5 videos from queue or database for batching

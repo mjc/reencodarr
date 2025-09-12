@@ -4,7 +4,7 @@ defmodule Reencodarr.Media.GlobPattern do
 
   Supports basic glob patterns:
   - `*` matches any characters except path separators
-  - `**` matches any characters including path separators 
+  - `**` matches any characters including path separators
   - `?` matches single character
   """
 

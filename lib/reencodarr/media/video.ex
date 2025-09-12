@@ -209,7 +209,7 @@ defmodule Reencodarr.Media.Video do
     audio_codecs = get_field(changeset, :audio_codecs) || []
 
     # If audio_count > 0, we should have audio_codecs
-    if audio_count > 0 and Enum.empty?(audio_codecs) do
+    if audio_count > 0 and audio_codecs == [] do
       add_error(changeset, :audio_codecs, "should not be empty when audio tracks are present")
     else
       changeset
