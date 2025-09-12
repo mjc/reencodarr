@@ -339,7 +339,7 @@ defmodule Reencodarr.Sync do
     with {:ok, %Req.Response{body: episode_file}} <- Services.Sonarr.get_episode_file(file_id),
          {:ok, _} <- Services.Sonarr.refresh_series(episode_file["seriesId"]),
          {:ok, _} <-
-           Services.Sonarr.rename_files(episode_file["seriesId"], [String.to_integer(file_id)]) do
+           Services.Sonarr.rename_files(episode_file["seriesId"], [file_id]) do
       {:ok, "Refresh and rename triggered"}
     else
       {:error, reason} -> {:error, reason}
