@@ -900,7 +900,7 @@ defmodule ReencodarrWeb.FailuresLive do
             join: f in Reencodarr.Media.VideoFailure,
             on: f.video_id == v.id,
             where: f.resolved == false,
-            group_by: v.id
+            distinct: true
 
         query =
           if stage_filter != "all" do

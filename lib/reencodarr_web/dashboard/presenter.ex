@@ -83,7 +83,10 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
     syncing = Map.get(dashboard_state, :syncing, false)
 
     Logger.debug(
-      "Presenter: Status - analyzing: #{analyzing}, encoding: #{encoding}, crf_searching: #{crf_searching}"
+      "status update",
+      analyzing: analyzing,
+      encoding: encoding,
+      crf_searching: crf_searching
     )
 
     encoding_progress = Map.get(dashboard_state, :encoding_progress)
@@ -108,7 +111,9 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
             normalized = Normalizer.normalize_progress(analyzer_progress)
 
             Logger.debug(
-              "PRESENTER: analyzer_progress=#{inspect(analyzer_progress)} -> normalized=#{inspect(normalized)}"
+              "analyzer_progress normalized",
+              analyzer_progress: analyzer_progress,
+              normalized: normalized
             )
 
             normalized
@@ -126,7 +131,9 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
     queue_length = Map.get(dashboard_state.stats || %{}, :queue_length, %{})
 
     Logger.debug(
-      "Presenter: Queues - analyzer files: #{length(analyzer_files)}, queue_length: #{inspect(queue_length)}"
+      "queues status",
+      analyzer_files_count: length(analyzer_files),
+      queue_length: queue_length
     )
 
     %{
