@@ -48,10 +48,12 @@ defmodule Reencodarr.SavingsIntegrationTest do
       assert vmaf.score == 95.2
 
       # Verify video is now in encoding queue
-      next_video = Media.get_next_for_encoding()
-      assert next_video != nil
-      assert next_video.video.id == video.id
+      next_videos = Media.get_next_for_encoding()
+      assert length(next_videos) == 1
+
+      [next_video] = next_videos
       assert next_video.id == vmaf.id
+      assert next_video.video.id == video.id
 
       # Verify queue count
       queue_count = Media.encoding_queue_count()
@@ -88,14 +90,18 @@ defmodule Reencodarr.SavingsIntegrationTest do
         })
 
       # Now the queue should prioritize video2 (higher savings)
-      next_video_updated = Media.get_next_for_encoding()
-      assert next_video_updated != nil
+      next_videos_updated = Media.get_next_for_encoding()
+      assert length(next_videos_updated) == 1
+
+      [next_video_updated] = next_videos_updated
       assert next_video_updated.video.path == video2.path
 
       # Mark video2 as encoded and verify video1 comes next
       Repo.update!(Ecto.Changeset.change(video2, state: :encoded))
-      next_after_video2 = Media.get_next_for_encoding()
-      assert next_after_video2 != nil
+      next_after_video2_list = Media.get_next_for_encoding()
+      assert length(next_after_video2_list) == 1
+
+      [next_after_video2] = next_after_video2_list
       assert next_after_video2.video.path == video.path
 
       # Verify queue count
@@ -175,9 +181,11 @@ defmodule Reencodarr.SavingsIntegrationTest do
       assert perfect_vmaf.savings == 950_000_000
 
       # Verify queue sorting prioritizes higher absolute savings
-      next_video = Media.get_next_for_encoding()
+      next_videos = Media.get_next_for_encoding()
       # 950MB > 40KB, so perfect_video should come first
-      assert next_video != nil
+      assert length(next_videos) == 1
+
+      [next_video] = next_videos
       assert next_video.video.path == perfect_video.path
     end
 

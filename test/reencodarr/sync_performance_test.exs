@@ -170,11 +170,8 @@ defmodule Reencodarr.SyncPerformanceTest do
         end)
 
       # Verify videos were created
-      video1 = Media.get_video_by_service_id("analyze1", :sonarr)
-      video2 = Media.get_video_by_service_id("analyze2", :sonarr)
-
-      assert video1 != nil
-      assert video2 != nil
+      {:ok, video1} = Media.get_video_by_service_id("analyze1", :sonarr)
+      {:ok, video2} = Media.get_video_by_service_id("analyze2", :sonarr)
 
       # Videos should have missing bitrate (stored as nil after changeset) and be in needs_analysis state
       assert video1.bitrate == nil
@@ -350,11 +347,14 @@ defmodule Reencodarr.SyncPerformanceTest do
         Media.get_video_by_service_id("valid2", :sonarr)
       ]
 
-      assert Enum.all?(valid_videos, &(&1 != nil))
+      assert Enum.all?(valid_videos, fn
+               {:ok, _video} -> true
+               {:error, _} -> false
+             end)
 
       # Invalid entries should not exist
-      assert Media.get_video_by_service_id("invalid1", :sonarr) == nil
-      assert Media.get_video_by_service_id(nil, :sonarr) == nil
+      assert Media.get_video_by_service_id("invalid1", :sonarr) == {:error, :not_found}
+      assert Media.get_video_by_service_id(nil, :sonarr) == {:error, :invalid_service_id}
 
       # Should not crash the entire batch
       # No exception traces

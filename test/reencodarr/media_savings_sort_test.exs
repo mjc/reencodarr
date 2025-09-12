@@ -148,7 +148,10 @@ defmodule Reencodarr.MediaSavingsSortTest do
         })
 
       # Should return video2 with higher savings first
-      next_encoding = Media.get_next_for_encoding()
+      next_encodings = Media.get_next_for_encoding()
+      assert length(next_encodings) == 1
+
+      [next_encoding] = next_encodings
       assert next_encoding.video.id == video2.id
       assert next_encoding.savings == 400_000_000
     end
@@ -185,7 +188,10 @@ defmodule Reencodarr.MediaSavingsSortTest do
         })
 
       # Should return video2 with higher savings despite longer time
-      next_encoding = Media.get_next_for_encoding_by_time()
+      next_encodings = Media.get_next_for_encoding_by_time()
+      assert length(next_encodings) == 1
+
+      [next_encoding] = next_encodings
       assert next_encoding.video.id == video2.id
       assert next_encoding.savings == 600_000_000
     end
