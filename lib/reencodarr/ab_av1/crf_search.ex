@@ -1038,7 +1038,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   # Convert size with unit to bytes
   defp convert_size_to_bytes(size_str, unit) when is_binary(size_str) and is_binary(unit) do
     with {size_value, _} <- Float.parse(size_str),
-         multiplier when not is_nil(multiplier) <- get_unit_multiplier(unit) do
+         {:ok, multiplier} <- get_unit_multiplier(unit) do
       round(size_value * multiplier)
     else
       _ -> nil
@@ -1050,12 +1050,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   # Get the byte multiplier for a given unit
   defp get_unit_multiplier(unit) do
     case String.downcase(unit) do
-      "b" -> 1
-      "kb" -> 1024
-      "mb" -> 1024 * 1024
-      "gb" -> 1024 * 1024 * 1024
-      "tb" -> 1024 * 1024 * 1024 * 1024
-      _ -> nil
+      "b" -> {:ok, 1}
+      "kb" -> {:ok, 1024}
+      "mb" -> {:ok, 1024 * 1024}
+      "gb" -> {:ok, 1024 * 1024 * 1024}
+      "tb" -> {:ok, 1024 * 1024 * 1024 * 1024}
+      _ -> {:error, :unknown_unit}
     end
   end
 

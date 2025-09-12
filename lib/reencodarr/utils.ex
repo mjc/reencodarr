@@ -62,9 +62,10 @@ defmodule Reencodarr.Utils do
 
   defp extract_fields(captures, field_mapping) do
     Enum.reduce(field_mapping, %{}, fn {key, {capture_key, transformer}}, acc ->
-      raw_value = Map.get(captures, capture_key)
-      transformed_value = if raw_value, do: transformer.(raw_value), else: nil
-      Map.put(acc, key, transformed_value)
+      case Map.get(captures, capture_key) do
+        nil -> Map.put(acc, key, nil)
+        raw_value -> Map.put(acc, key, transformer.(raw_value))
+      end
     end)
   end
 

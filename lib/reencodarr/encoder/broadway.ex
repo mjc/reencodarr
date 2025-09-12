@@ -670,21 +670,21 @@ defmodule Reencodarr.Encoder.Broadway do
     result =
       case {Map.get(@failure_classification.critical_failures, exit_code),
             Map.get(@failure_classification.recoverable_failures, exit_code)} do
-        {failure_info, nil} when not is_nil(failure_info) ->
+        {failure_info, _} when is_map(failure_info) ->
           Logger.info(
             "Broadway: Exit code #{exit_code} classified as CRITICAL: #{failure_info.reason}"
           )
 
           {:pause, failure_info.reason}
 
-        {nil, failure_info} when not is_nil(failure_info) ->
+        {_, failure_info} when is_map(failure_info) ->
           Logger.info(
             "Broadway: Exit code #{exit_code} classified as RECOVERABLE: #{failure_info.reason}"
           )
 
           {:continue, failure_info.reason}
 
-        {nil, nil} ->
+        {_, _} ->
           Logger.info(
             "Broadway: Exit code #{exit_code} classified as UNKNOWN - treating as recoverable"
           )

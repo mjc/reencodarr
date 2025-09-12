@@ -190,7 +190,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   defp validate_file_size(nil), do: {:error, "size is required"}
   defp validate_file_size(_), do: {:error, "size must be a positive integer"}
 
-  defp validate_file_id(id) when not is_nil(id), do: {:ok, id}
+  defp validate_file_id(id) when is_binary(id) or is_integer(id), do: {:ok, id}
   defp validate_file_id(_), do: {:error, "file id is required"}
 
   defp process_valid_movie_file(%{path: path, size: size, id: id, raw_file: file}) do
