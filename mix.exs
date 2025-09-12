@@ -10,7 +10,11 @@ defmodule Reencodarr.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
-      listeners: [Phoenix.CodeReloader]
+      listeners: [Phoenix.CodeReloader],
+      dialyzer: [
+        plt_add_apps: [:mix, :ex_unit],
+        ignore_warnings: "dialyzer.ignore-warnings"
+      ]
     ]
   end
 

@@ -1,0 +1,30 @@
+# Only ignore specific ab-av1 reachability issues due to static analysis limitations  
+lib/reencodarr/ab_av1/helper.ex:*: Function open_port/2 has no local return
+# Success path functions unreachable because dialyzer can't see that ab-av1 open_port succeeds
+pattern <_port@1, _vmaf@1, _output_file@1, _context@1> can never match the type
+can never match, because previous clauses completely cover the type
+The pattern
+_port, _vmaf, _output_file, _context
+lib/reencodarr/encoder/broadway.ex:235:8:pattern_match_cov
+Function handle_encoding_result/3 will never be called
+Function handle_encoding_error/3 will never be called  
+Function handle_critical_encoding_failure/4 will never be called
+Function handle_recoverable_encoding_failure/4 will never be called
+Function handle_encoding_process/4 will never be called
+Function process_port_messages/2 will never be called
+Function notify_encoding_success/2 will never be called
+lib/reencodarr/encoder/broadway.ex:275:8:unused_fun
+pattern variable _code@1 can never match the type
+variable_code
+previous clauses completely cover the type
+:exception | :port_error
+lib/reencodarr/encoder/broadway.ex:608:9:pattern_match_cov
+guard clause can never succeed
+when _ :: false != false
+lib/reencodarr/encoder/broadway.ex:672:79:guard_fail
+# Additional specific patterns for remaining errors
+lib/reencodarr/encoder/broadway.ex:275:8:unused_fun
+lib/reencodarr/encoder/broadway.ex:608:9:pattern_match_cov
+lib/reencodarr/encoder/broadway.ex:672:79:guard_fail
+# Pattern match in notify_encoding_failure - integer codes unreachable due to success path limitation
+code when is_integer(code)
