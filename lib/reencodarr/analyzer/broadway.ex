@@ -176,7 +176,6 @@ defmodule Reencodarr.Analyzer.Broadway do
       case result do
         :ok -> message
         :error -> Message.failed(message, "batch processing failed")
-        _ -> message
       end
     end)
   end
@@ -518,15 +517,10 @@ defmodule Reencodarr.Analyzer.Broadway do
         Logger.debug("Broadway: Successfully prepared video data for #{video_info.path}")
         {:ok, {video_info, attrs}}
       else
-        {:skip, reason} ->
+        {:error, reason} ->
           Logger.debug("Skipping video #{video_info.path}: #{reason}")
           Logger.debug("Broadway: Skipping video #{video_info.path}: #{reason}")
           {:skip, reason}
-
-        {:error, reason} ->
-          Logger.error("Failed to prepare video data #{video_info.path}: #{reason}")
-          Logger.error("Broadway: Failed to prepare video data #{video_info.path}: #{reason}")
-          {:error, video_info.path}
       end
     rescue
       e ->
@@ -543,13 +537,9 @@ defmodule Reencodarr.Analyzer.Broadway do
          {:ok, attrs} <- prepare_video_attributes(video_info, validated_mediainfo) do
       {:ok, {video_info, attrs}}
     else
-      {:skip, reason} ->
+      {:error, reason} ->
         Logger.debug("Skipping video #{video_info.path}: #{reason}")
         {:skip, reason}
-
-      {:error, reason} ->
-        Logger.error("Failed to prepare video data #{video_info.path}: #{reason}")
-        {:error, video_info.path}
     end
   rescue
     e ->

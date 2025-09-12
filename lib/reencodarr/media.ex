@@ -1055,7 +1055,8 @@ defmodule Reencodarr.Media do
             has_vmaf: boolean(),
             ready_for_encoding: boolean(),
             encoded: boolean(),
-            failed: boolean()
+            failed: boolean(),
+            state: atom()
           },
           queue_memberships: %{
             analyzer_broadway: boolean(),
@@ -1290,7 +1291,9 @@ defmodule Reencodarr.Media do
           messages: [String.t()],
           path: String.t(),
           library_id: integer() | nil,
-          errors: [String.t()]
+          errors: [String.t()],
+          file_exists: boolean(),
+          had_existing_video: boolean()
         }
   def test_insert_path(path, additional_attrs \\ %{}) when is_binary(path) do
     Logger.info("🧪 Testing path insertion: #{path}")
