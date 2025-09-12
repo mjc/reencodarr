@@ -7,7 +7,12 @@ defmodule Reencodarr.Media.SharedQueries do
   """
 
   import Ecto.Query
-  alias Reencodarr.Media.{Video, Vmaf}
+  alias Reencodarr.Media.{GlobPattern, Video, Vmaf}
+
+  # Configuration constants
+  @large_list_threshold 50
+  @max_retry_count 3
+  @default_min_file_size_mb 100
 
   @doc """
   Database-agnostic case-insensitive LIKE operation.
@@ -24,7 +29,8 @@ defmodule Reencodarr.Media.SharedQueries do
 
   Optimized with early pattern matching.
   """
-  def videos_not_matching_exclude_patterns(video_list) when length(video_list) < 50 do
+  def videos_not_matching_exclude_patterns(video_list)
+      when length(video_list) < @large_list_threshold do
     patterns = Reencodarr.Config.exclude_patterns()
 
     case patterns do
@@ -45,32 +51,9 @@ defmodule Reencodarr.Media.SharedQueries do
     end)
   end
 
-  # Helper for pattern matching with basic glob support
+  # Helper for pattern matching with structured glob support
   defp matches_pattern?(path, pattern) do
-    # Convert glob pattern to regex
-    # Supports: * (any characters), ** (directory traversal), ? (single character)
-    regex_pattern =
-      pattern
-      # Temporary placeholder
-      |> String.replace("**", "__DOUBLE_STAR__")
-      |> Regex.escape()
-      # ** matches any path including /
-      |> String.replace("__DOUBLE_STAR__", ".*")
-      # * matches any characters except /
-      |> String.replace("\\*", "[^/]*")
-      # ? matches single character
-      |> String.replace("\\?", ".")
-      # Anchor to full string
-      |> then(&("^" <> &1 <> "$"))
-
-    case Regex.compile(regex_pattern, [:caseless]) do
-      {:ok, regex} ->
-        Regex.match?(regex, path)
-
-      {:error, _} ->
-        # Fallback to simple string matching if regex compilation fails
-        String.contains?(String.downcase(path), String.downcase(pattern))
-    end
+    GlobPattern.new(pattern) |> GlobPattern.matches?(path)
   end
 
   # Database filtering for large lists (placeholder for future optimization)
@@ -106,7 +89,7 @@ defmodule Reencodarr.Media.SharedQueries do
     from(v in Video,
       where: v.state == :failed,
       # Configurable retry limit
-      where: v.retry_count < 3,
+      where: v.retry_count < @max_retry_count,
       order_by: [desc: v.updated_at],
       limit: ^limit
     )
@@ -122,7 +105,7 @@ defmodule Reencodarr.Media.SharedQueries do
   """
   def optimal_encoding_candidates(opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
-    min_file_size = Keyword.get(opts, :min_file_size_mb, 100)
+    min_file_size = Keyword.get(opts, :min_file_size_mb, @default_min_file_size_mb)
 
     # Convert MB to bytes for comparison
     min_size_bytes = min_file_size * 1024 * 1024

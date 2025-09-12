@@ -238,15 +238,15 @@ defmodule Reencodarr.Core.Parsers do
       iex> pattern = ~r/crf (?<crf>\d+)/
       iex> mapping = %{crf: {:float, "crf"}}
       iex> parse_with_pattern("crf 28", :test, %{test: pattern}, mapping)
-      %{crf: 28.0}
+      {:ok, %{crf: 28.0}}
   """
-  @spec parse_with_pattern(String.t(), atom(), map(), map()) :: map() | nil
+  @spec parse_with_pattern(String.t(), atom(), map(), map()) :: {:ok, map()} | {:error, :no_match}
   def parse_with_pattern(line, pattern_key, patterns, field_mapping) do
     pattern = Map.get(patterns, pattern_key)
 
     case Regex.named_captures(pattern, line) do
-      nil -> nil
-      captures -> extract_fields(captures, field_mapping)
+      nil -> {:error, :no_match}
+      captures -> {:ok, extract_fields(captures, field_mapping)}
     end
   end
 

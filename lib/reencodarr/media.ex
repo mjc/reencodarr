@@ -27,7 +27,20 @@ defmodule Reencodarr.Media do
   # --- Video-related functions ---
   def list_videos, do: Repo.all(from v in Video, order_by: [desc: v.updated_at])
   def get_video!(id), do: Repo.get!(Video, id)
-  def get_video_by_path(path), do: Repo.one(from v in Video, where: v.path == ^path)
+
+  @doc """
+  Gets a video by its file path.
+
+  Returns {:ok, video} if found, {:error, :not_found} otherwise.
+  """
+  @spec get_video_by_path(String.t()) :: {:ok, Video.t()} | {:error, :not_found}
+  def get_video_by_path(path) do
+    case Repo.one(from v in Video, where: v.path == ^path) do
+      nil -> {:error, :not_found}
+      video -> {:ok, video}
+    end
+  end
+
   def video_exists?(path), do: Repo.exists?(from v in Video, where: v.path == ^path)
 
   def find_videos_by_path_wildcard(pattern),
@@ -59,10 +72,7 @@ defmodule Reencodarr.Media do
   end
 
   def get_next_for_encoding(limit \\ 1) do
-    case limit do
-      1 -> query_videos_ready_for_encoding(1) |> List.first()
-      _ -> query_videos_ready_for_encoding(limit)
-    end
+    query_videos_ready_for_encoding(limit)
   end
 
   def encoding_queue_count do
@@ -955,7 +965,7 @@ defmodule Reencodarr.Media do
   """
   def debug_force_analyze_video(video_path) when is_binary(video_path) do
     case get_video_by_path(video_path) do
-      %{path: _path, service_id: _service_id, service_type: _service_type} = video ->
+      {:ok, %{path: _path, service_id: _service_id, service_type: _service_type} = video} ->
         Logger.info("🐛 Force analyzing video: #{video_path}")
 
         # Trigger Broadway dispatch instead of old compatibility API
@@ -984,7 +994,7 @@ defmodule Reencodarr.Media do
           broadway_running: AnalyzerBroadway.running?()
         }
 
-      nil ->
+      {:error, :not_found} ->
         {:error, "Video not found at path: #{video_path}"}
     end
   end
@@ -1071,7 +1081,7 @@ defmodule Reencodarr.Media do
         }
   def explain_path_location(path) when is_binary(path) do
     case get_video_by_path(path) do
-      nil ->
+      {:error, :not_found} ->
         %{
           path: path,
           exists_in_db: false,
@@ -1093,7 +1103,7 @@ defmodule Reencodarr.Media do
           details: nil
         }
 
-      video ->
+      {:ok, video} ->
         # Get associated VMAFs
         vmafs = Repo.all(from v in Vmaf, where: v.video_id == ^video.id, preload: [:video])
         chosen_vmaf = Enum.find(vmafs, & &1.chosen)

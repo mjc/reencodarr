@@ -566,10 +566,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_encoding_sample_line(line, video) do
     case match_line(line, :encoding_sample) do
-      nil ->
+      {:error, :no_match} ->
         false
 
-      captures ->
+      {:ok, captures} ->
         Logger.debug(
           "CrfSearch: Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
         )
@@ -607,10 +607,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_eta_vmaf_line(line, video, args) do
     case match_line(line, :eta_vmaf) do
-      nil ->
+      {:error, :no_match} ->
         false
 
-      captures ->
+      {:ok, captures} ->
         Logger.debug(
           "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}"
         )
@@ -635,10 +635,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_vmaf_comparison_line(line) do
     case match_line(line, :vmaf_comparison) do
-      nil ->
+      {:error, :no_match} ->
         false
 
-      captures ->
+      {:ok, captures} ->
         Logger.debug("VMAF comparison: #{captures["file1"]} vs #{captures["file2"]}")
         true
     end
@@ -646,10 +646,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_progress_line(line, video) do
     case match_line(line, :progress) do
-      nil ->
+      {:error, :no_match} ->
         false
 
-      captures ->
+      {:ok, captures} ->
         Logger.debug(
           "CrfSearch Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
         )
@@ -670,10 +670,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_success_line(line, video) do
     case match_line(line, :success) do
-      nil ->
+      {:error, :no_match} ->
         false
 
-      captures ->
+      {:ok, captures} ->
         Logger.debug("CrfSearch successful for CRF: #{captures["crf"]}")
 
         # Mark VMAF as chosen first
@@ -696,10 +696,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_warning_line(line, _video) do
     case match_line(line, :warning) do
-      nil ->
+      {:error, :no_match} ->
         false
 
-      _captures ->
+      {:ok, _captures} ->
         # Log the warning at info level so tests can capture it
         Logger.info("CrfSearch: #{line}")
         true
