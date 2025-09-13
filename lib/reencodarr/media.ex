@@ -716,7 +716,7 @@ defmodule Reencodarr.Media do
 
   # --- Stats and helpers ---
   def fetch_stats do
-    case Repo.transaction(fn -> Repo.one(aggregated_stats_query()) end) do
+    case Repo.transaction(fn -> fetch_stats_optimized() end) do
       {:ok, stats} ->
         build_stats(stats)
 
@@ -724,6 +724,94 @@ defmodule Reencodarr.Media do
         Logger.error("Failed to fetch stats")
         build_empty_stats()
     end
+  end
+
+  # Optimized stats fetching with separate queries instead of expensive LEFT JOIN
+  defp fetch_stats_optimized do
+    # Get basic video stats without JOIN (fastest)
+    video_stats =
+      Repo.one(
+        from v in Video,
+          select: %{
+            total_videos: count(v.id),
+            needs_analysis:
+              fragment(
+                "COALESCE(SUM(CASE WHEN ? = 'needs_analysis' THEN 1 ELSE 0 END), 0)",
+                v.state
+              ),
+            analyzed:
+              fragment("COALESCE(SUM(CASE WHEN ? = 'analyzed' THEN 1 ELSE 0 END), 0)", v.state),
+            crf_searching:
+              fragment(
+                "COALESCE(SUM(CASE WHEN ? = 'crf_searching' THEN 1 ELSE 0 END), 0)",
+                v.state
+              ),
+            crf_searched:
+              fragment(
+                "COALESCE(SUM(CASE WHEN ? = 'crf_searched' THEN 1 ELSE 0 END), 0)",
+                v.state
+              ),
+            encoding:
+              fragment("COALESCE(SUM(CASE WHEN ? = 'encoding' THEN 1 ELSE 0 END), 0)", v.state),
+            encoded:
+              fragment("COALESCE(SUM(CASE WHEN ? = 'encoded' THEN 1 ELSE 0 END), 0)", v.state),
+            failed:
+              fragment("COALESCE(SUM(CASE WHEN ? = 'failed' THEN 1 ELSE 0 END), 0)", v.state),
+            most_recent_video_update: max(v.updated_at),
+            most_recent_inserted_video: max(v.inserted_at)
+          }
+      )
+
+    # Get VMAF stats separately (much faster)
+    vmaf_stats =
+      Repo.one(
+        from v in Vmaf,
+          select: %{
+            total_vmafs: count(v.id),
+            chosen_vmafs_count:
+              fragment("COALESCE(SUM(CASE WHEN ? = 1 THEN 1 ELSE 0 END), 0)", v.chosen),
+            avg_vmaf_percentage: fragment("ROUND(AVG(?), 2)", v.percent),
+            total_savings_gb:
+              coalesce(
+                sum(
+                  fragment(
+                    "CASE WHEN ? = 1 AND ? > 0 THEN ? / 1073741824.0 ELSE 0 END",
+                    v.chosen,
+                    v.savings,
+                    v.savings
+                  )
+                ),
+                0
+              )
+          }
+      )
+
+    # Get encoding queue count with optimized query
+    encodes_count =
+      Repo.one(
+        from v in Vmaf,
+          join: vid in assoc(v, :video),
+          where: v.chosen == true and vid.state == :crf_searched,
+          select: count(v.id)
+      )
+
+    # Merge the results - ensure variables are explicitly used
+    result =
+      video_stats
+      |> Map.merge(vmaf_stats)
+      |> Map.put(:encodes_count, encodes_count)
+      |> Map.put(:queued_crf_searches_count, video_stats.analyzed)
+      |> Map.put(:analyzer_count, video_stats.needs_analysis)
+      |> Map.put(:reencoded_count, video_stats.encoded)
+      |> Map.put(:failed_count, video_stats.failed)
+      |> Map.put(:analyzing_count, video_stats.needs_analysis)
+      |> Map.put(:encoding_count, video_stats.encoding)
+      |> Map.put(:searching_count, video_stats.crf_searching)
+      |> Map.put(:available_count, video_stats.crf_searched)
+      |> Map.put(:paused_count, 0)
+      |> Map.put(:skipped_count, 0)
+
+    result
   end
 
   # Build full stats struct on successful DB query
