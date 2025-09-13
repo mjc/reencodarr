@@ -166,12 +166,18 @@ defmodule Reencodarr.Core.Time do
   @spec relative_time_with_timezone(NaiveDateTime.t() | nil, String.t()) :: String.t()
   def relative_time_with_timezone(nil, _timezone), do: "N/A"
 
-  def relative_time_with_timezone(datetime, timezone) do
-    tz = if is_binary(timezone) and timezone != "", do: timezone, else: "UTC"
-
+  def relative_time_with_timezone(datetime, timezone)
+      when is_binary(timezone) and timezone != "" do
     datetime
     |> DateTime.from_naive!("Etc/UTC")
-    |> DateTime.shift_zone!(tz)
+    |> DateTime.shift_zone!(timezone)
+    |> relative_time()
+  end
+
+  def relative_time_with_timezone(datetime, _timezone) do
+    datetime
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.shift_zone!("UTC")
     |> relative_time()
   end
 
