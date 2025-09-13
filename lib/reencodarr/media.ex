@@ -797,6 +797,12 @@ defmodule Reencodarr.Media do
     :exit, _ -> []
   end
 
+  defp count_manual_analyzer_items do
+    QueueManager.get_queue() |> length()
+  catch
+    :exit, _ -> 0
+  end
+
   # Build minimal stats struct when DB query fails
   defp build_empty_stats do
     %Reencodarr.Statistics.Stats{
@@ -970,8 +976,7 @@ defmodule Reencodarr.Media do
       analyzer_running: AnalyzerBroadway.running?(),
       videos_needing_analysis: get_videos_needing_analysis(5),
       manual_queue: get_manual_analyzer_items(),
-      total_analyzer_queue_count:
-        length(get_videos_needing_analysis(100)) + length(get_manual_analyzer_items())
+      total_analyzer_queue_count: count_videos_needing_analysis() + count_manual_analyzer_items()
     }
   end
 
@@ -1097,83 +1102,112 @@ defmodule Reencodarr.Media do
   def explain_path_location(path) when is_binary(path) do
     case get_video_by_path(path) do
       {:error, :not_found} ->
-        %{
-          path: path,
-          exists_in_db: false,
-          database_state: %{
-            analyzed: false,
-            has_vmaf: false,
-            ready_for_encoding: false,
-            state: :needs_analysis
-          },
-          queue_memberships: %{
-            analyzer_broadway: false,
-            analyzer_manual: false,
-            crf_searcher_broadway: false,
-            crf_searcher_genserver: false,
-            encoder_broadway: false,
-            encoder_genserver: false
-          },
-          next_steps: ["not in database - needs to be added"],
-          details: nil
-        }
+        build_not_found_response(path)
 
       {:ok, video} ->
-        # Get associated VMAFs
-        vmafs = Repo.all(from v in Vmaf, where: v.video_id == ^video.id, preload: [:video])
-        chosen_vmaf = Enum.find(vmafs, & &1.chosen)
-
-        # Determine database state
-        analyzed = is_integer(video.bitrate) and video.bitrate > 0
-        has_vmaf = length(vmafs) > 0
-
-        ready_for_encoding =
-          match?(%Vmaf{chosen: true}, chosen_vmaf) && video.state not in [:encoded, :failed]
-
-        # Check queue memberships
-        queue_memberships = %{
-          analyzer_broadway: path_in_analyzer_broadway?(path),
-          analyzer_manual: path_in_analyzer_manual?(path),
-          crf_searcher_broadway: path_in_crf_searcher_broadway?(path),
-          crf_searcher_genserver: path_in_crf_searcher_genserver?(path),
-          encoder_broadway: path_in_encoder_broadway?(path),
-          encoder_genserver: path_in_encoder_genserver?(path)
-        }
-
-        # Determine next steps
-        next_steps =
-          determine_next_steps(video, analyzed, has_vmaf, ready_for_encoding, chosen_vmaf)
-
-        # Get library name
-        library = video.library_id && Repo.get(Library, video.library_id)
-
-        %{
-          path: path,
-          exists_in_db: true,
-          database_state: %{
-            analyzed: analyzed,
-            has_vmaf: has_vmaf,
-            ready_for_encoding: ready_for_encoding,
-            encoded: video.state == :encoded,
-            failed: video.state == :failed,
-            state: video.state
-          },
-          queue_memberships: queue_memberships,
-          next_steps: next_steps,
-          details: %{
-            video_id: video.id,
-            library_name: library && library.name,
-            bitrate: video.bitrate,
-            vmaf_count: length(vmafs),
-            chosen_vmaf: chosen_vmaf && %{crf: chosen_vmaf.crf, percent: chosen_vmaf.percent},
-            video_codecs: video.video_codecs,
-            audio_codecs: video.audio_codecs,
-            size: video.size,
-            inserted_at: video.inserted_at,
-            updated_at: video.updated_at
-          }
-        }
+        build_video_response(path, video)
     end
+  end
+
+  # Helper function to build response for paths not in database
+  defp build_not_found_response(path) do
+    %{
+      path: path,
+      exists_in_db: false,
+      database_state: %{
+        analyzed: false,
+        has_vmaf: false,
+        ready_for_encoding: false,
+        state: :needs_analysis
+      },
+      queue_memberships: %{
+        analyzer_broadway: false,
+        analyzer_manual: false,
+        crf_searcher_broadway: false,
+        crf_searcher_genserver: false,
+        encoder_broadway: false,
+        encoder_genserver: false
+      },
+      next_steps: ["not in database - needs to be added"],
+      details: nil
+    }
+  end
+
+  # Helper function to build response for existing videos
+  defp build_video_response(path, video) do
+    {has_vmaf, chosen_vmaf} = get_vmaf_info(video)
+    analyzed = is_integer(video.bitrate) and video.bitrate > 0
+
+    ready_for_encoding =
+      match?(%Vmaf{chosen: true}, chosen_vmaf) && video.state not in [:encoded, :failed]
+
+    queue_memberships = build_queue_memberships(path)
+    next_steps = determine_next_steps(video, analyzed, has_vmaf, ready_for_encoding, chosen_vmaf)
+    details = build_video_details(video, chosen_vmaf)
+
+    %{
+      path: path,
+      exists_in_db: true,
+      database_state: %{
+        analyzed: analyzed,
+        has_vmaf: has_vmaf,
+        ready_for_encoding: ready_for_encoding,
+        encoded: video.state == :encoded,
+        failed: video.state == :failed,
+        state: video.state
+      },
+      queue_memberships: queue_memberships,
+      next_steps: next_steps,
+      details: details
+    }
+  end
+
+  # Helper function to get VMAF information
+  defp get_vmaf_info(video) do
+    has_vmaf = Repo.exists?(from v in Vmaf, where: v.video_id == ^video.id)
+
+    chosen_vmaf =
+      if has_vmaf do
+        Repo.one(
+          from v in Vmaf,
+            where: v.video_id == ^video.id and v.chosen == true,
+            preload: [:video]
+        )
+      else
+        nil
+      end
+
+    {has_vmaf, chosen_vmaf}
+  end
+
+  # Helper function to build queue memberships
+  defp build_queue_memberships(path) do
+    %{
+      analyzer_broadway: path_in_analyzer_broadway?(path),
+      analyzer_manual: path_in_analyzer_manual?(path),
+      crf_searcher_broadway: path_in_crf_searcher_broadway?(path),
+      crf_searcher_genserver: path_in_crf_searcher_genserver?(path),
+      encoder_broadway: path_in_encoder_broadway?(path),
+      encoder_genserver: path_in_encoder_genserver?(path)
+    }
+  end
+
+  # Helper function to build video details
+  defp build_video_details(video, chosen_vmaf) do
+    library = video.library_id && Repo.get(Library, video.library_id)
+
+    %{
+      video_id: video.id,
+      library_name: library && library.name,
+      bitrate: video.bitrate,
+      vmaf_count: Repo.aggregate(from(v in Vmaf, where: v.video_id == ^video.id), :count, :id),
+      chosen_vmaf: chosen_vmaf && %{crf: chosen_vmaf.crf, percent: chosen_vmaf.percent},
+      video_codecs: video.video_codecs,
+      audio_codecs: video.audio_codecs,
+      size: video.size,
+      inserted_at: video.inserted_at,
+      updated_at: video.updated_at
+    }
   end
 
   # Helper functions to check queue memberships
