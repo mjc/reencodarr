@@ -272,4 +272,93 @@ defmodule Reencodarr.Core.Parsers do
   end
 
   defp convert_value(value, :string), do: value
+
+  @doc """
+  Parses an integer string with exact matching (no trailing characters allowed).
+
+  Returns {:ok, integer} on success, {:error, reason} on failure.
+
+  ## Examples
+
+      iex> Parsers.parse_integer_exact("123")
+      {:ok, 123}
+
+      iex> Parsers.parse_integer_exact("123abc")
+      {:error, :invalid_format}
+
+      iex> Parsers.parse_integer_exact("")
+      {:error, :invalid_format}
+  """
+  @spec parse_integer_exact(String.t()) :: {:ok, integer()} | {:error, atom()}
+  def parse_integer_exact(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} -> {:ok, int}
+      {_int, _remainder} -> {:error, :invalid_format}
+      :error -> {:error, :invalid_format}
+    end
+  end
+
+  def parse_integer_exact(_), do: {:error, :invalid_input}
+
+  @doc """
+  Parses a float string with exact matching (no trailing characters allowed).
+
+  Returns {:ok, float} on success, {:error, reason} on failure.
+
+  ## Examples
+
+      iex> Parsers.parse_float_exact("123.45")
+      {:ok, 123.45}
+
+      iex> Parsers.parse_float_exact("123.45abc")
+      {:error, :invalid_format}
+  """
+  @spec parse_float_exact(String.t()) :: {:ok, float()} | {:error, atom()}
+  def parse_float_exact(value) when is_binary(value) do
+    case Float.parse(value) do
+      {float, ""} -> {:ok, float}
+      {_float, _remainder} -> {:error, :invalid_format}
+      :error -> {:error, :invalid_format}
+    end
+  end
+
+  def parse_float_exact(_), do: {:error, :invalid_input}
+
+  @doc """
+  Parses an integer with exact matching, raises on error.
+
+  ## Examples
+
+      iex> Parsers.parse_integer_exact!("123")
+      123
+
+      iex> Parsers.parse_integer_exact!("123abc")
+      ** (ArgumentError) Invalid integer format: "123abc"
+  """
+  @spec parse_integer_exact!(String.t()) :: integer()
+  def parse_integer_exact!(value) do
+    case parse_integer_exact(value) do
+      {:ok, int} -> int
+      {:error, _} -> raise ArgumentError, "Invalid integer format: #{inspect(value)}"
+    end
+  end
+
+  @doc """
+  Parses a float with exact matching, raises on error.
+
+  ## Examples
+
+      iex> Parsers.parse_float_exact!("123.45")
+      123.45
+
+      iex> Parsers.parse_float_exact!("invalid")
+      ** (ArgumentError) Invalid float format: "invalid"
+  """
+  @spec parse_float_exact!(String.t()) :: float()
+  def parse_float_exact!(value) do
+    case parse_float_exact(value) do
+      {:ok, float} -> float
+      {:error, _} -> raise ArgumentError, "Invalid float format: #{inspect(value)}"
+    end
+  end
 end

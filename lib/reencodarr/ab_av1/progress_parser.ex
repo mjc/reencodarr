@@ -7,6 +7,7 @@ defmodule Reencodarr.AbAv1.ProgressParser do
   """
 
   require Logger
+  alias Reencodarr.Core.Parsers
   alias Reencodarr.Statistics.EncodingProgress
   alias Reencodarr.Telemetry
 
@@ -75,7 +76,7 @@ defmodule Reencodarr.AbAv1.ProgressParser do
     video_id =
       filename_with_ext
       |> Path.basename(".mkv")
-      |> String.to_integer()
+      |> Parsers.parse_int(0)
 
     filename =
       if state.video.id == video_id do
@@ -103,7 +104,7 @@ defmodule Reencodarr.AbAv1.ProgressParser do
 
     progress = %EncodingProgress{
       filename: filename,
-      percent: String.to_integer(percent_str),
+      percent: Parsers.parse_int(percent_str, 0),
       fps: parse_fps(fps_str),
       eta: "#{eta_str} #{time_unit}"
     }
@@ -116,7 +117,7 @@ defmodule Reencodarr.AbAv1.ProgressParser do
 
     progress = %EncodingProgress{
       filename: filename,
-      percent: String.to_integer(percent_str),
+      percent: Parsers.parse_int(percent_str, 0),
       # File size progress doesn't include FPS
       fps: 0.0,
       # File size progress doesn't include ETA
@@ -128,12 +129,12 @@ defmodule Reencodarr.AbAv1.ProgressParser do
 
   # Parse FPS and round to integer for consistency with tests
   defp parse_fps(fps_str) do
-    case Float.parse(fps_str) do
-      {fps_float, _} ->
+    case Parsers.parse_float_exact(fps_str) do
+      {:ok, fps_float} ->
         # Round to nearest integer as a float (e.g., 23.5 -> 24.0)
         Float.round(fps_float)
 
-      :error ->
+      {:error, _} ->
         0.0
     end
   end
