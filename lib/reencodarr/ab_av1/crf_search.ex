@@ -10,6 +10,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.AbAv1.OutputParser
+  alias Reencodarr.Core.Parsers
   alias Reencodarr.Core.Time
   alias Reencodarr.CrfSearcher.Broadway.Producer
   alias Reencodarr.ErrorHelpers
@@ -18,9 +19,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   require Logger
 
-  # Unified line matching function using centralized patterns from OutputParser
-  defp match_line(line, pattern_key) do
-    OutputParser.match_pattern(line, pattern_key)
+  # Updated line matching function using centralized OutputParser with proper type conversion
+  defp parse_line_with_types(line) do
+    OutputParser.parse_line(line)
   end
 
   # Public API
@@ -543,17 +544,13 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     {:noreply, new_state}
   end
 
-  defp append_decimal_before_float(str) do
-    str
-    |> then(fn s -> if String.contains?(s, "."), do: s, else: s <> ".0" end)
-    |> String.to_float()
-  end
+  # Removed append_decimal_before_float - no longer needed since we parse types early
 
   def process_line(line, video, args, target_vmaf \\ 95) do
     handlers = [
       &handle_encoding_sample_line/2,
-      fn l, v -> handle_vmaf_line(l, v, args) end,
       fn l, v -> handle_eta_vmaf_line(l, v, args) end,
+      fn l, v -> handle_vmaf_line(l, v, args) end,
       fn l, _v -> handle_vmaf_comparison_line(l) end,
       &handle_progress_line/2,
       &handle_success_line/2,
@@ -568,61 +565,52 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp handle_encoding_sample_line(line, video) do
-    case match_line(line, :encoding_sample) do
-      {:error, :no_match} ->
-        false
-
-      {:ok, captures} ->
+    case parse_line_with_types(line) do
+      {:ok, %{type: :encoding_sample, data: sample_data}} ->
         Logger.debug(
-          "CrfSearch: Encoding sample #{captures["sample_num"]}/#{captures["total_samples"]}: #{captures["crf"]}"
+          "CrfSearch: Encoding sample #{sample_data.sample_num}/#{sample_data.total_samples}: #{sample_data.crf}"
         )
 
         broadcast_crf_search_progress(video.path, %CrfSearchProgress{
           filename: video.path,
-          crf: append_decimal_before_float(captures["crf"])
+          # Already numeric, no conversion needed
+          crf: sample_data.crf
         })
 
         true
+
+      _ ->
+        false
     end
   end
 
   defp handle_vmaf_line(line, video, args) do
-    # Try simple VMAF pattern first, then sample pattern as fallback
-    case try_patterns(line, [:simple_vmaf, :sample_vmaf, :dash_vmaf]) do
-      {:error, :no_match} ->
-        false
-
-      {:ok, captures} ->
+    case parse_line_with_types(line) do
+      {:ok, %{type: type, data: vmaf_data}}
+      when type in [:vmaf_result, :sample_vmaf, :dash_vmaf] ->
         Logger.debug(
-          "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, Percent: #{captures["percent"]}%"
+          "CrfSearch: CRF: #{vmaf_data.crf}, VMAF: #{vmaf_data.vmaf_score}, Percent: #{vmaf_data.percent}%"
         )
 
-        upsert_vmaf(Map.put(captures, "chosen", false), video, args)
+        upsert_vmaf_with_parsed_data(vmaf_data, false, video, args)
         true
+
+      _ ->
+        false
     end
   end
 
-  defp try_patterns(line, patterns) do
-    Enum.find_value(patterns, fn pattern ->
-      case match_line(line, pattern) do
-        {:ok, result} -> {:ok, result}
-        {:error, :no_match} -> nil
-      end
-    end) || {:error, :no_match}
-  end
+  # Remove unused try_patterns function since we're using parse_line_with_types
 
   defp handle_eta_vmaf_line(line, video, args) do
-    case match_line(line, :eta_vmaf) do
-      {:error, :no_match} ->
-        false
-
-      {:ok, captures} ->
+    case parse_line_with_types(line) do
+      {:ok, %{type: :eta_vmaf, data: eta_data}} ->
         Logger.debug(
-          "CrfSearch: CRF: #{captures["crf"]}, VMAF: #{captures["score"]}, size: #{captures["size"]} #{captures["unit"]}, Percent: #{captures["percent"]}%, time: #{captures["time"]} #{captures["time_unit"]}"
+          "CrfSearch: CRF: #{eta_data.crf}, VMAF: #{eta_data.vmaf_score}, size: #{eta_data.predicted_size} #{eta_data.size_unit}, Percent: #{eta_data.percent}%, time: #{eta_data.time_taken} #{eta_data.time_unit}"
         )
 
         # Always insert the VMAF record, but log a warning if size exceeds 10GB
-        estimated_size_bytes = convert_size_to_bytes(captures["size"], captures["unit"])
+        estimated_size_bytes = convert_size_to_bytes(eta_data.predicted_size, eta_data.size_unit)
         # 10GB in bytes
         max_size_bytes = 10 * 1024 * 1024 * 1024
 
@@ -630,85 +618,87 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           estimated_size_gb = estimated_size_bytes / (1024 * 1024 * 1024)
 
           Logger.warning(
-            "CrfSearch: VMAF CRF #{captures["crf"]} estimated file size (#{Float.round(estimated_size_gb, 2)} GB) exceeds 10GB limit for video #{video.id}. Recording VMAF but may fail if chosen."
+            "CrfSearch: VMAF CRF #{round(eta_data.crf)} estimated file size (#{Float.round(estimated_size_gb, 1)} GB) exceeds 10GB limit"
           )
         end
 
-        upsert_vmaf(Map.put(captures, "chosen", true), video, args)
+        upsert_vmaf_with_parsed_data(eta_data, true, video, args)
         true
+
+      _ ->
+        false
     end
   end
 
   defp handle_vmaf_comparison_line(line) do
-    case match_line(line, :vmaf_comparison) do
-      {:error, :no_match} ->
-        false
-
-      {:ok, captures} ->
-        Logger.debug("VMAF comparison: #{captures["file1"]} vs #{captures["file2"]}")
+    case parse_line_with_types(line) do
+      {:ok, %{type: :vmaf_comparison, data: comparison_data}} ->
+        Logger.debug("VMAF comparison: #{comparison_data.file1} vs #{comparison_data.file2}")
         true
+
+      _ ->
+        false
     end
   end
 
   defp handle_progress_line(line, video) do
-    case match_line(line, :progress) do
-      {:error, :no_match} ->
-        false
-
-      {:ok, captures} ->
+    case parse_line_with_types(line) do
+      {:ok, %{type: :progress, data: progress_data}} ->
         Logger.debug(
-          "CrfSearch Progress: #{captures["progress"]}, FPS: #{captures["fps"]}, ETA: #{captures["eta"]}"
+          "CrfSearch Progress: #{progress_data.progress}, FPS: #{progress_data.fps}, ETA: #{progress_data.eta}"
         )
-
-        percent = append_decimal_before_float(captures["progress"])
-        fps = append_decimal_before_float(captures["fps"])
 
         broadcast_crf_search_progress(video.path, %CrfSearchProgress{
           filename: video.path,
-          percent: percent,
-          eta: captures["eta"],
-          fps: fps
+          # Already numeric, no conversion needed
+          percent: progress_data.progress,
+          eta: progress_data.eta,
+          # Already numeric, no conversion needed
+          fps: progress_data.fps
         })
 
         true
+
+      _ ->
+        false
     end
   end
 
   defp handle_success_line(line, video) do
-    case match_line(line, :success) do
-      {:error, :no_match} ->
-        false
-
-      {:ok, captures} ->
-        Logger.debug("CrfSearch successful for CRF: #{captures["crf"]}")
+    case parse_line_with_types(line) do
+      {:ok, %{type: :success, data: success_data}} ->
+        Logger.debug("CrfSearch successful for CRF: #{success_data.crf}")
 
         # Mark VMAF as chosen first
-        Media.mark_vmaf_as_chosen(video.id, captures["crf"])
+        Media.mark_vmaf_as_chosen(video.id, success_data.crf)
 
         # Check if the chosen VMAF has a file size estimate that exceeds 10GB
-        case get_vmaf_by_crf(video.id, captures["crf"]) do
+        case get_vmaf_by_crf(video.id, success_data.crf) do
           nil ->
             Logger.warning(
-              "CrfSearch: Could not find VMAF record for chosen CRF #{captures["crf"]} for video #{video.id}"
+              "CrfSearch: Could not find VMAF record for chosen CRF #{success_data.crf} for video #{video.id}"
             )
 
           vmaf ->
-            handle_vmaf_size_check(vmaf, video, captures["crf"])
+            handle_vmaf_size_check(vmaf, video, success_data.crf)
         end
 
         true
+
+      _ ->
+        false
     end
   end
 
   defp handle_warning_line(line, _video) do
-    case match_line(line, :warning) do
-      {:error, :no_match} ->
-        false
-
-      {:ok, _captures} ->
+    case parse_line_with_types(line) do
+      {:ok, %{type: :warning, data: _warning_data}} ->
         # Log the warning at info level so tests can capture it
         Logger.info("CrfSearch: #{line}")
         true
+
+      _ ->
+        false
     end
   end
 
@@ -884,30 +874,55 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     Reencodarr.Rules.build_args(video, :crf_search, ["--preset", "6"], base_args)
   end
 
-  defp upsert_vmaf(params, video, args) do
-    time = parse_time(params["time"], params["time_unit"])
+  # New function that accepts pre-parsed data instead of string parameters
+  defp upsert_vmaf_with_parsed_data(vmaf_data, chosen, video, args) do
+    vmaf_params = %{
+      "crf" => vmaf_data.crf,
+      # Map vmaf_score to score field expected by schema
+      "score" => vmaf_data.vmaf_score,
+      "percent" => vmaf_data.percent,
+      "chosen" => chosen
+    }
 
-    size_info =
-      case {params["size"], params["unit"]} do
-        {nil, _} -> nil
-        {_, nil} -> nil
-        {size, unit} -> "#{size} #{unit}"
+    # Handle time data if present (from eta_vmaf patterns)
+    vmaf_params =
+      if Map.has_key?(vmaf_data, :time_taken) and Map.has_key?(vmaf_data, :time_unit) do
+        time_seconds = Time.to_seconds(vmaf_data.time_taken, vmaf_data.time_unit)
+        # Round to integer for database
+        Map.put(vmaf_params, "time", round(time_seconds))
+      else
+        Map.put(vmaf_params, "time", nil)
       end
 
-    # Calculate savings based on percent and video size
-    savings = calculate_savings(params["percent"], video.size)
+    # Handle size data if present
+    size_info =
+      if Map.has_key?(vmaf_data, :predicted_size) and Map.has_key?(vmaf_data, :size_unit) do
+        # Format size as integer if it's a whole number, otherwise as float
+        formatted_size =
+          if vmaf_data.predicted_size == Float.round(vmaf_data.predicted_size) do
+            "#{round(vmaf_data.predicted_size)} #{vmaf_data.size_unit}"
+          else
+            "#{vmaf_data.predicted_size} #{vmaf_data.size_unit}"
+          end
 
-    vmaf_data =
-      Map.merge(params, %{
+        formatted_size
+      else
+        nil
+      end
+
+    # Calculate savings based on percent and video size - no parsing needed since percent is already numeric!
+    savings = calculate_savings_from_numeric(vmaf_data.percent, video.size)
+
+    final_vmaf_data =
+      Map.merge(vmaf_params, %{
         "video_id" => video.id,
         "params" => Helper.remove_args(args, ["--min-vmaf", "crf-search"]),
-        "time" => time,
         "size" => size_info,
         "savings" => savings,
         "target" => 95
       })
 
-    case Media.upsert_vmaf(vmaf_data) do
+    case Media.upsert_vmaf(final_vmaf_data) do
       {:ok, created_vmaf} ->
         Logger.debug("Upserted VMAF: #{inspect(created_vmaf)}")
         broadcast_crf_search_progress(video.path, created_vmaf)
@@ -918,6 +933,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         nil
     end
   end
+
+  # Removed old upsert_vmaf function - replaced with upsert_vmaf_with_parsed_data
 
   defp broadcast_crf_search_progress(video_path, progress_data) do
     filename = Path.basename(video_path)
@@ -1027,20 +1044,24 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp convert_to_number(val) when is_number(val), do: val
 
   defp convert_to_number(val) when is_binary(val) do
-    case Float.parse(val) do
-      {num, _} -> num
-      :error -> nil
-    end
+    Parsers.parse_float(val)
   end
 
   defp convert_to_number(_), do: nil
 
   # Convert size with unit to bytes
   defp convert_size_to_bytes(size_str, unit) when is_binary(size_str) and is_binary(unit) do
-    with {size_value, _} <- Float.parse(size_str),
+    with {:ok, size_value} <- Parsers.parse_float_exact(size_str),
          {:ok, multiplier} <- get_unit_multiplier(unit) do
       round(size_value * multiplier)
     else
+      _ -> nil
+    end
+  end
+
+  defp convert_size_to_bytes(size_value, unit) when is_number(size_value) and is_binary(unit) do
+    case get_unit_multiplier(unit) do
+      {:ok, multiplier} -> round(size_value * multiplier)
       _ -> nil
     end
   end
@@ -1060,9 +1081,20 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   # Get VMAF record by video ID and CRF value
-  defp get_vmaf_by_crf(video_id, crf_str) do
-    case Float.parse(crf_str) do
-      {crf_float, _} ->
+  defp get_vmaf_by_crf(video_id, crf_value) when is_number(crf_value) do
+    import Ecto.Query
+
+    query =
+      from v in Media.Vmaf,
+        where: v.video_id == ^video_id and v.crf == ^crf_value,
+        limit: 1
+
+    Repo.one(query)
+  end
+
+  defp get_vmaf_by_crf(video_id, crf_str) when is_binary(crf_str) do
+    case Parsers.parse_float_exact(crf_str) do
+      {:ok, crf_float} ->
         import Ecto.Query
 
         query =
@@ -1072,7 +1104,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
         Repo.one(query)
 
-      :error ->
+      {:error, _} ->
         nil
     end
   end
@@ -1121,24 +1153,16 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  defp parse_time(nil, _), do: nil
-  defp parse_time(_, nil), do: nil
-
-  defp parse_time(time, time_unit) do
-    case Integer.parse(time) do
-      {time_value, _} -> Time.to_seconds(time_value, time_unit)
-      :error -> nil
-    end
-  end
+  # Removed old parse_time function - no longer needed since we parse time data early with proper types
 
   # Calculate estimated space savings in bytes based on percent and video size
   defp calculate_savings(nil, _video_size), do: nil
   defp calculate_savings(_percent, nil), do: nil
 
   defp calculate_savings(percent, video_size) when is_binary(percent) do
-    case Float.parse(percent) do
-      {percent_float, _} -> calculate_savings(percent_float, video_size)
-      :error -> nil
+    case Parsers.parse_float_exact(percent) do
+      {:ok, percent_float} -> calculate_savings(percent_float, video_size)
+      {:error, _} -> nil
     end
   end
 
@@ -1152,6 +1176,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp calculate_savings(_, _), do: nil
+
+  # New function for pre-parsed numeric data (no late parsing!) - just delegates to the existing function
+  defp calculate_savings_from_numeric(percent, video_size),
+    do: calculate_savings(percent, video_size)
 
   # Determine if we should retry with preset 6 based on video ID
   defp should_retry_with_preset_6_private(video_id) do
