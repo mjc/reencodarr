@@ -215,7 +215,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
     case Reencodarr.Media.upsert_video(attrs) do
       {:ok, video} ->
         # Delete any existing VMAFs for this path since we're re-analyzing
-        Reencodarr.Media.delete_vmafs_for_video(video)
+        Reencodarr.Media.delete_vmafs_for_video(video.id)
         {:ok, video}
 
       error ->
