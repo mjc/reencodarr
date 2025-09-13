@@ -104,14 +104,15 @@ defmodule Reencodarr.Media.VideoUpsert do
   @spec handle_vmaf_deletion_and_bitrate_preservation(%{String.t() => any()}) :: %{
           String.t() => any()
         }
-  defp handle_vmaf_deletion_and_bitrate_preservation(attrs) do
-    path = Map.get(attrs, "path")
-
-    # Skip metadata comparison if path is invalid - let validation handle it
-    if not is_binary(path) or String.trim(path) == "", do: attrs
-
-    process_video_metadata_changes(attrs, path)
+  defp handle_vmaf_deletion_and_bitrate_preservation(%{"path" => path} = attrs)
+       when is_binary(path) do
+    case String.trim(path) do
+      "" -> attrs
+      _valid_path -> process_video_metadata_changes(attrs, path)
+    end
   end
+
+  defp handle_vmaf_deletion_and_bitrate_preservation(attrs), do: attrs
 
   @spec process_video_metadata_changes(%{String.t() => any()}, String.t()) :: %{
           String.t() => any()
@@ -159,8 +160,9 @@ defmodule Reencodarr.Media.VideoUpsert do
       |> Map.delete("bitrate")
       |> Map.delete("mediainfo")
     else
-      if not is_nil(existing_video) do
-        Logger.debug("Allowing bitrate update for #{path}")
+      case existing_video do
+        nil -> :ok
+        _ -> Logger.debug("Allowing bitrate update for #{path}")
       end
 
       attrs

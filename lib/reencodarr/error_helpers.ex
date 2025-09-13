@@ -139,13 +139,15 @@ defmodule Reencodarr.ErrorHelpers do
   Handles common nil value scenarios with logging.
   """
   def handle_nil_value(value, field_name, context \\ "") do
-    if is_nil(value) do
-      message = "#{field_name} is null"
-      full_message = if context != "", do: "#{context}: #{message}", else: message
-      Logger.error(full_message)
-      {:error, {:nil_value, field_name}}
-    else
-      {:ok, value}
+    case value do
+      nil ->
+        message = "#{field_name} is null"
+        full_message = if context != "", do: "#{context}: #{message}", else: message
+        Logger.error(full_message)
+        {:error, {:nil_value, field_name}}
+
+      value ->
+        {:ok, value}
     end
   end
 
