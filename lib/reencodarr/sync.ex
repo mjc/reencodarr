@@ -4,9 +4,11 @@ defmodule Reencodarr.Sync do
   require Logger
   import Ecto.Query
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
-  alias Reencodarr.{Media, Repo, Services, Telemetry}
+  alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
+  alias Reencodarr.Core.Parsers
   alias Reencodarr.Media.{MediaInfoExtractor, VideoFileInfo, VideoUpsert}
   alias Reencodarr.Media.Video.MediaInfoConverter
+  alias Reencodarr.{Media, Repo, Services, Telemetry}
 
   # Public API
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -438,8 +440,8 @@ defmodule Reencodarr.Sync do
   end
 
   defp parse_valid_year(year_str) do
-    case Integer.parse(year_str) do
-      {year, ""} when year >= 1950 and year <= 2030 -> year
+    case Parsers.parse_integer_exact(year_str) do
+      {:ok, year} when year >= 1950 and year <= 2030 -> year
       _ -> nil
     end
   end
