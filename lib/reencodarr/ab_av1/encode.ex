@@ -217,11 +217,15 @@ defmodule Reencodarr.AbAv1.Encode do
 
     # Get rule-based arguments from centralized Rules module
     # Extract VMAF params for use in Rules.build_args
-    vmaf_params = if vmaf.params && is_list(vmaf.params), do: vmaf.params, else: []
+    vmaf_params = extract_vmaf_params(vmaf)
 
     # Pass base_args to Rules.build_args so it can handle deduplication properly
     Reencodarr.Rules.build_args(vmaf.video, :encode, vmaf_params, base_args)
   end
+
+  # Helper function to extract VMAF params with proper pattern matching
+  defp extract_vmaf_params(%{params: params}) when is_list(params), do: params
+  defp extract_vmaf_params(_), do: []
 
   # Test helper function to expose build_encode_args for testing
   if Mix.env() == :test do

@@ -127,24 +127,20 @@ defmodule Reencodarr.Rules do
   end
 
   # Convert parameter list from flat list to tuples, filtering based on context
-  defp convert_params_to_tuples(params, context) do
-    if params && is_list(params) do
-      params
-      |> params_list_to_tuples()
-      |> filter_tuples_for_context(context)
-    else
-      []
-    end
+  defp convert_params_to_tuples(params, context) when is_list(params) do
+    params
+    |> params_list_to_tuples()
+    |> filter_tuples_for_context(context)
   end
 
+  defp convert_params_to_tuples(_, _context), do: []
+
   # Convert base arguments to tuples (no context filtering for base args)
-  defp convert_base_args_to_tuples(base_args) do
-    if base_args && is_list(base_args) do
-      params_list_to_tuples(base_args)
-    else
-      []
-    end
+  defp convert_base_args_to_tuples(base_args) when is_list(base_args) do
+    params_list_to_tuples(base_args)
   end
+
+  defp convert_base_args_to_tuples(_), do: []
 
   # Convert flat parameter list (e.g., ["--preset", "6", "--cpu-used", "8"]) to tuples
   # Special handling for subcommands to ensure they come first
@@ -264,7 +260,7 @@ defmodule Reencodarr.Rules do
           video
       ) do
     cond do
-      atmos == true ->
+      atmos ->
         []
 
       not (is_integer(channels) and channels > 0) or
