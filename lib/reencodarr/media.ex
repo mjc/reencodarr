@@ -7,6 +7,7 @@ defmodule Reencodarr.Media do
 
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.Analyzer.QueueManager
+  alias Reencodarr.Core.Parsers
 
   alias Reencodarr.Media.{
     Library,
@@ -586,9 +587,9 @@ defmodule Reencodarr.Media do
 
   # Calculate estimated space savings in bytes based on percent and video size
   defp calculate_vmaf_savings(percent, video_size) when is_binary(percent) do
-    case Float.parse(percent) do
-      {percent_float, _} -> calculate_vmaf_savings(percent_float, video_size)
-      :error -> nil
+    case Parsers.parse_float_exact(percent) do
+      {:ok, percent_float} -> calculate_vmaf_savings(percent_float, video_size)
+      {:error, _} -> nil
     end
   end
 
@@ -834,12 +835,8 @@ defmodule Reencodarr.Media do
     end)
   end
 
-  defp parse_crf(crf) do
-    case Float.parse(crf) do
-      {value, _} -> value
-      :error -> raise ArgumentError, "Invalid CRF value: #{crf}"
-    end
-  end
+  defp parse_crf(crf) when is_number(crf), do: crf
+  defp parse_crf(crf) when is_binary(crf), do: Parsers.parse_float_exact!(crf)
 
   def list_videos_awaiting_crf_search do
     from(v in Video,
@@ -1526,11 +1523,11 @@ defmodule Reencodarr.Media do
   Get VMAF record by video ID and CRF value.
   """
   def get_vmaf_by_crf(video_id, crf_str) do
-    case Float.parse(to_string(crf_str)) do
-      {crf_float, _} ->
+    case Parsers.parse_float_exact(to_string(crf_str)) do
+      {:ok, crf_float} ->
         Repo.one(from v in Vmaf, where: v.video_id == ^video_id and v.crf == ^crf_float, limit: 1)
 
-      :error ->
+      {:error, _} ->
         nil
     end
   end
