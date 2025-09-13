@@ -63,51 +63,9 @@ defmodule Reencodarr.DashboardState do
 
   # Fetch initial queue data from database
   defp fetch_queue_data_simple do
-    alias Reencodarr.Media
-    alias Reencodarr.Media.VideoQueries
-
-    # Get comprehensive stats including total videos, reencoded counts, etc.
-    base_stats = Media.fetch_stats()
-
-    # Get the queue items (first 10)
-    next_analyzer = Media.get_videos_needing_analysis(10)
-    next_crf_search = Media.get_videos_for_crf_search(10)
-    videos_by_estimated_percent = Media.list_videos_by_estimated_percent(10)
-
-    # Count total items in queues
-    analyzer_count = Media.count_videos_needing_analysis()
-    crf_search_count = count_crf_search_queue()
-    encode_count = VideoQueries.encoding_queue_count()
-
-    # Merge the comprehensive stats with queue data
-    %{
-      base_stats
-      | next_analyzer: next_analyzer,
-        next_crf_search: next_crf_search,
-        videos_by_estimated_percent: videos_by_estimated_percent,
-        queue_length: %{
-          analyzer: analyzer_count,
-          crf_searches: crf_search_count,
-          encodes: encode_count
-        },
-        encode_queue_length: encode_count
-    }
-  end
-
-  defp count_crf_search_queue do
-    alias Reencodarr.Media.Video
-    alias Reencodarr.Repo
-    import Ecto.Query
-
-    Repo.one(
-      from v in Video,
-        where: v.state == :analyzed,
-        select: count(v.id)
-    )
-  rescue
-    error ->
-      Logger.error("Error fetching queue data: #{inspect(error)}")
-      %Reencodarr.Statistics.Stats{}
+    # Media.fetch_stats() already includes all the queue data we need
+    # including next_analyzer, next_crf_search, videos_by_estimated_percent, and queue_length
+    Reencodarr.Media.fetch_stats()
   end
 
   # Check actual status of Broadway pipelines for initial state

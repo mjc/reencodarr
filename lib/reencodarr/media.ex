@@ -763,7 +763,7 @@ defmodule Reencodarr.Media do
   end
 
   defp fetch_next_items do
-    # Simple direct database queries - no Broadway producer state complexity
+    # Run queries sequentially to avoid SQLite concurrency issues
     next_analyzer = get_videos_needing_analysis(10)
     next_crf_search = get_videos_for_crf_search(10)
     videos_by_estimated_percent = list_videos_by_estimated_percent(10)

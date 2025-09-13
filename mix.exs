@@ -53,7 +53,7 @@ defmodule Reencodarr.MixProject do
       {:finch, "~> 0.13"},
       {:floki, ">= 0.30.0", only: :test},
       {:lazy_html, ">= 0.1.0", only: :test},
-      {:live_debugger, "~> 0.4.0", only: :dev},
+      {:live_debugger, "~> 0.4.1", only: :dev},
       {:meck, "~> 1.0", only: :test},
       {:gettext, "~> 0.20"},
       {:heroicons,
