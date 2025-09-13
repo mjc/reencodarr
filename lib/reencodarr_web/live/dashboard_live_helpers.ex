@@ -84,6 +84,13 @@ defmodule ReencodarrWeb.DashboardLiveHelpers do
   Gets the initial dashboard state directly.
   """
   def get_initial_state do
+    Reencodarr.DashboardState.initial_with_queues()
+  end
+
+  @doc """
+  Gets essential dashboard state for fast initial load.
+  """
+  def get_essential_state do
     Reencodarr.DashboardState.initial()
   end
 

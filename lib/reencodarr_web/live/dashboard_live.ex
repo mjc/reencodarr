@@ -31,6 +31,7 @@ defmodule ReencodarrWeb.DashboardLive do
         s
         |> setup_telemetry()
         |> assign(:dashboard_data, nil)
+        |> assign(:loading_queues, false)
         |> setup_streams()
       end)
 
@@ -46,12 +47,31 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def handle_info(:load_initial_data, socket) do
-    initial_state = DashboardLiveHelpers.get_initial_state()
-    dashboard_data = Presenter.present(initial_state, socket.assigns.timezone)
+    # Use minimal essential stats for fast first paint
+    essential_state = DashboardLiveHelpers.get_essential_state()
+    dashboard_data = Presenter.present(essential_state, socket.assigns.timezone)
 
     socket =
       socket
       |> assign(:dashboard_data, dashboard_data)
+      |> assign(:loading_queues, true)
+
+    # Load full queue data asynchronously after a brief delay to allow render
+    Process.send_after(self(), :load_queue_data, 100)
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info(:load_queue_data, socket) do
+    # Load complete state with queue data
+    full_state = DashboardLiveHelpers.get_initial_state()
+    dashboard_data = Presenter.present(full_state, socket.assigns.timezone)
+
+    socket =
+      socket
+      |> assign(:dashboard_data, dashboard_data)
+      |> assign(:loading_queues, false)
       |> update_queue_streams(dashboard_data.queues)
 
     {:noreply, socket}
@@ -128,6 +148,13 @@ defmodule ReencodarrWeb.DashboardLive do
       <%= if @dashboard_data do %>
         <.metrics_grid metrics={@dashboard_data.metrics} />
         <.operations_panel status={@dashboard_data.status} />
+
+        <%= if @loading_queues do %>
+          <div class="text-center text-lcars-orange-300 py-4 text-sm">
+            <span class="animate-pulse">⚡ Loading queue data...</span>
+          </div>
+        <% end %>
+
         <.queues_section queues={@dashboard_data.queues} streams={@streams || %{}} />
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
