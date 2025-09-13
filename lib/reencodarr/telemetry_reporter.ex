@@ -6,12 +6,12 @@ defmodule Reencodarr.TelemetryReporter do
   1. No polling - pure event-driven via Broadway producer telemetry
   2. Initial state fetched directly from database on startup
   3. Immediate state updates from telemetry events
-  4. Significant change detection - only emit telemetry when changes affect UI
+  4. Simple telemetry emission - LiveView handles selective updates
 
   ## Performance Optimizations:
   1. Minimal telemetry payloads - exclude inactive progress data
   2. Process dictionary caching of last state for efficient comparison
-  3. Progress threshold filtering (1% change minimum for responsiveness)
+  3. Simple state broadcasting - let LiveView handle change detection
   4. Automatic inactive progress data exclusion
 
   ## Memory Optimizations:
@@ -27,13 +27,9 @@ defmodule Reencodarr.TelemetryReporter do
 
   alias Reencodarr.Analyzer.Broadway.PerformanceMonitor
   alias Reencodarr.DashboardState
-  alias Reencodarr.Statistics.{AnalyzerProgress, CrfSearchProgress, EncodingProgress}
 
   # Configuration constants
   @telemetry_handler_id "reencodarr-reporter"
-
-  # Default timeout for GenServer calls
-  @call_timeout :timer.seconds(10)
 
   # Public API
 
@@ -41,15 +37,11 @@ defmodule Reencodarr.TelemetryReporter do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  def get_current_state do
-    GenServer.call(__MODULE__, :get_state, @call_timeout)
-  end
-
   @doc """
   Get specific part of the state for performance.
   """
   def get_progress_state do
-    GenServer.call(__MODULE__, :get_progress_state, @call_timeout)
+    GenServer.call(__MODULE__, :get_progress_state)
   end
 
   # GenServer callbacks
@@ -68,10 +60,6 @@ defmodule Reencodarr.TelemetryReporter do
   end
 
   @impl true
-  def handle_call(:get_state, _from, state) do
-    {:reply, state, state}
-  end
-
   def handle_call(:get_progress_state, _from, %DashboardState{} = state) do
     progress_state = DashboardState.progress_state(state)
     {:reply, progress_state, state}
@@ -134,14 +122,6 @@ defmodule Reencodarr.TelemetryReporter do
     {:noreply, emit_state_update_and_return(new_state)}
   end
 
-  # Manual state refresh - useful for throughput events that should trigger dashboard updates
-  def handle_cast(:refresh_state, %DashboardState{} = state) do
-    # Force a state calculation with current queue data and emit update
-    # This refreshes the queue data from the current producers
-    updated_state = refresh_queue_data(state)
-    {:noreply, emit_state_update_and_return(updated_state)}
-  end
-
   # Update analyzer progress with current throughput - active analyzer
   def handle_cast(
         {:update_analyzer_throughput, measurements},
@@ -152,12 +132,7 @@ defmodule Reencodarr.TelemetryReporter do
     )
 
     # Get performance stats from the monitor
-    performance_stats =
-      try do
-        PerformanceMonitor.get_performance_stats()
-      catch
-        :exit, _ -> %{throughput: 0.0, rate_limit: 0, batch_size: 0}
-      end
+    performance_stats = PerformanceMonitor.get_performance_stats()
 
     Logger.debug("performance stats received", stats: performance_stats)
 
@@ -215,13 +190,6 @@ defmodule Reencodarr.TelemetryReporter do
 
   defp calculate_analyzer_percentage(_current_queue, _initial_queue), do: 0.0
 
-  defp refresh_queue_data(state) do
-    # Refresh the queue data by getting current stats
-    # This is similar to the periodic refresh but triggered by events
-    current_dashboard_state = ReencodarrWeb.DashboardLiveHelpers.get_initial_state()
-    %{state | stats: current_dashboard_state.stats}
-  end
-
   # Telemetry event handlers (delegated to dedicated module)
 
   def handle_event(event_name, measurements, metadata, _config) do
@@ -245,45 +213,8 @@ defmodule Reencodarr.TelemetryReporter do
   end
 
   defp emit_state_update_and_return(%DashboardState{} = new_state) do
-    # Get the previous state for comparison (stored in process dictionary for efficiency)
-    old_state = Process.get(:last_emitted_state, DashboardState.initial())
-
-    # Only emit telemetry if the change is significant to reduce LiveView update frequency
-    is_significant = DashboardState.significant_change?(old_state, new_state)
-
-    emit_telemetry_if_significant(is_significant, new_state)
-
+    # Just emit the state - let LiveView handle change detection and selective updates
+    :telemetry.execute([:reencodarr, :dashboard, :state_updated], %{}, %{state: new_state})
     new_state
-  end
-
-  # Helper function to emit telemetry conditionally
-  defp emit_telemetry_if_significant(false, _new_state), do: :ok
-
-  defp emit_telemetry_if_significant(true, new_state) do
-    # Emit telemetry event with minimal payload - only essential state for dashboard updates
-    minimal_state = %{
-      stats: new_state.stats,
-      encoding: new_state.encoding,
-      crf_searching: new_state.crf_searching,
-      analyzing: new_state.analyzing,
-      syncing: new_state.syncing,
-      # Always send progress structs - use empty structs when not processing
-      encoding_progress:
-        if(new_state.encoding, do: new_state.encoding_progress, else: %EncodingProgress{}),
-      crf_search_progress:
-        if(new_state.crf_searching,
-          do: new_state.crf_search_progress,
-          else: %CrfSearchProgress{}
-        ),
-      analyzer_progress:
-        if(new_state.analyzing, do: new_state.analyzer_progress, else: %AnalyzerProgress{}),
-      sync_progress: if(new_state.syncing, do: new_state.sync_progress, else: 0),
-      service_type: new_state.service_type
-    }
-
-    :telemetry.execute([:reencodarr, :dashboard, :state_updated], %{}, %{state: minimal_state})
-
-    # Store this state for next comparison
-    Process.put(:last_emitted_state, new_state)
   end
 end

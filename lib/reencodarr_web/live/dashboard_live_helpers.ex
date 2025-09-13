@@ -81,20 +81,10 @@ defmodule ReencodarrWeb.DashboardLiveHelpers do
   end
 
   @doc """
-  Safely gets the initial dashboard state with fallback for test environment.
-
-  Now uses TelemetryReporter to get current state for better reliability.
+  Gets the initial dashboard state directly.
   """
   def get_initial_state do
-    # Get current state from the TelemetryReporter GenServer instead of creating fresh state
-    case Process.whereis(Reencodarr.TelemetryReporter) do
-      nil ->
-        # Fall back to initial state in test environment or when TelemetryReporter isn't started
-        Reencodarr.DashboardState.initial()
-
-      _pid ->
-        Reencodarr.TelemetryReporter.get_current_state()
-    end
+    Reencodarr.DashboardState.initial()
   end
 
   @doc """

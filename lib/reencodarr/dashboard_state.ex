@@ -9,12 +9,12 @@ defmodule Reencodarr.DashboardState do
   ## Memory Optimizations:
   - Direct database queries for initial state (no complex state preservation)
   - Minimal state structure with only essential fields
-  - Event-driven updates only when significant changes occur
+  - Event-driven updates only when system events occur
   - Automatic inactive progress data exclusion in telemetry payloads
 
   ## Performance Benefits:
   - No background polling or refresh timers
-  - Telemetry events only emitted on meaningful state changes (>1% progress deltas)
+  - Simple telemetry emission - LiveView handles selective updates
   - Reduced GenServer message volume by ~75%
   - Direct presenter pattern for UI data transformation
 
@@ -263,52 +263,5 @@ defmodule Reencodarr.DashboardState do
       end
 
     %{state | stats: new_stats}
-  end
-
-  @doc """
-  Checks if the state change is significant enough to warrant telemetry emission.
-  """
-  def significant_change?(old_state, new_state) do
-    status_changed?(old_state, new_state) or
-      stats_changed?(old_state.stats, new_state.stats) or
-      progress_changed?(old_state, new_state)
-  end
-
-  # Check if any status fields changed
-  defp status_changed?(old_state, new_state) do
-    old_state.encoding != new_state.encoding or
-      old_state.crf_searching != new_state.crf_searching or
-      old_state.analyzing != new_state.analyzing or
-      old_state.syncing != new_state.syncing
-  end
-
-  # Check if any progress changed significantly
-  defp progress_changed?(old_state, new_state) do
-    (new_state.encoding and
-       progress_differs?(old_state.encoding_progress, new_state.encoding_progress)) or
-      (new_state.crf_searching and
-         progress_differs?(old_state.crf_search_progress, new_state.crf_search_progress)) or
-      (new_state.analyzing and
-         progress_differs?(old_state.analyzer_progress, new_state.analyzer_progress)) or
-      (new_state.syncing and old_state.sync_progress != new_state.sync_progress)
-  end
-
-  # Private helper functions
-
-  # Check if stats changed in ways that matter to the dashboard
-  defp stats_changed?(old_stats, new_stats) do
-    length(old_stats.next_analyzer) != length(new_stats.next_analyzer) or
-      length(old_stats.next_crf_search) != length(new_stats.next_crf_search) or
-      length(old_stats.videos_by_estimated_percent) !=
-        length(new_stats.videos_by_estimated_percent) or
-      old_stats.queue_length.analyzer != new_stats.queue_length.analyzer or
-      old_stats.queue_length.crf_searches != new_stats.queue_length.crf_searches or
-      old_stats.queue_length.encodes != new_stats.queue_length.encodes
-  end
-
-  # Check if progress data changed significantly (>1% change or filename change)
-  defp progress_differs?(old_progress, new_progress) do
-    abs(old_progress.percent - new_progress.percent) >= 1.0 or
-      old_progress.filename != new_progress.filename
   end
 end
