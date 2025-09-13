@@ -726,6 +726,22 @@ defmodule Reencodarr.Media do
     end
   end
 
+  @doc """
+  Fetches only essential dashboard stats for fast initial load.
+
+  Skips expensive queue data queries, only loads basic metrics.
+  """
+  def fetch_essential_stats do
+    case Repo.transaction(fn -> fetch_essential_stats_optimized() end) do
+      {:ok, stats} ->
+        build_essential_stats(stats)
+
+      {:error, _} ->
+        Logger.error("Failed to fetch essential stats")
+        build_empty_stats()
+    end
+  end
+
   # Optimized stats fetching with separate queries instead of expensive LEFT JOIN
   defp fetch_stats_optimized do
     # Get basic video stats without JOIN (fastest)
@@ -814,6 +830,53 @@ defmodule Reencodarr.Media do
     result
   end
 
+  # Essential stats fetching - only basic metrics, no queue data
+  defp fetch_essential_stats_optimized do
+    # Get basic video stats only - much faster
+    video_stats =
+      Repo.one(
+        from v in Video,
+          select: %{
+            total_videos: count(v.id),
+            encoded:
+              fragment("COALESCE(SUM(CASE WHEN ? = 'encoded' THEN 1 ELSE 0 END), 0)", v.state),
+            failed:
+              fragment("COALESCE(SUM(CASE WHEN ? = 'failed' THEN 1 ELSE 0 END), 0)", v.state),
+            most_recent_video_update: max(v.updated_at),
+            most_recent_inserted_video: max(v.inserted_at)
+          }
+      )
+
+    # Get only essential VMAF stats
+    vmaf_stats =
+      Repo.one(
+        from v in Vmaf,
+          select: %{
+            total_vmafs: count(v.id),
+            chosen_vmafs_count:
+              fragment("COALESCE(SUM(CASE WHEN ? = 1 THEN 1 ELSE 0 END), 0)", v.chosen),
+            total_savings_gb:
+              coalesce(
+                sum(
+                  fragment(
+                    "CASE WHEN ? = 1 AND ? > 0 THEN ? / 1073741824.0 ELSE 0 END",
+                    v.chosen,
+                    v.savings,
+                    v.savings
+                  )
+                ),
+                0
+              )
+          }
+      )
+
+    # Merge with minimal fields for fast loading
+    video_stats
+    |> Map.merge(vmaf_stats)
+    |> Map.put(:reencoded_count, video_stats.encoded)
+    |> Map.put(:failed_count, video_stats.failed)
+  end
+
   # Build full stats struct on successful DB query
   defp build_stats(stats) do
     next_items = fetch_next_items()
@@ -847,6 +910,35 @@ defmodule Reencodarr.Media do
       next_crf_search: next_items.next_crf_search,
       videos_by_estimated_percent: next_items.videos_by_estimated_percent,
       next_analyzer: next_items.combined_analyzer
+    }
+  end
+
+  # Build essential stats struct for fast initial load - no queue data
+  defp build_essential_stats(stats) do
+    %Reencodarr.Statistics.Stats{
+      total_videos: stats.total_videos,
+      reencoded_count: stats.reencoded_count,
+      failed_count: stats.failed_count,
+      chosen_vmafs_count: stats.chosen_vmafs_count,
+      total_vmafs: stats.total_vmafs,
+      total_savings_gb: stats.total_savings_gb,
+      most_recent_video_update: stats.most_recent_video_update,
+      most_recent_inserted_video: stats.most_recent_inserted_video,
+      # Empty lists for queue data - will be loaded later
+      next_analyzer: [],
+      next_crf_search: [],
+      videos_by_estimated_percent: [],
+      queue_length: %{analyzer: 0, crf_searches: 0, encodes: 0},
+      # Set remaining fields to defaults
+      avg_vmaf_percentage: 0.0,
+      lowest_vmaf_percent: nil,
+      lowest_vmaf_by_time_seconds: nil,
+      analyzing_count: 0,
+      encoding_count: 0,
+      searching_count: 0,
+      available_count: 0,
+      paused_count: 0,
+      skipped_count: 0
     }
   end
 

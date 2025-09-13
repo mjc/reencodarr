@@ -50,15 +50,36 @@ defmodule Reencodarr.DashboardState do
             service_type: nil
 
   @doc """
-  Creates a new initial dashboard state with initial queue data.
+  Creates a minimal initial dashboard state for fast first paint.
+
+  Only loads essential metrics data, deferring expensive queue operations.
   """
   def initial do
+    %__MODULE__{
+      stats: fetch_essential_stats(),
+      analyzing: false,
+      crf_searching: false,
+      encoding: false
+    }
+  end
+
+  @doc """
+  Creates a full dashboard state with all queue data loaded.
+
+  Use this for complete dashboard data after initial render.
+  """
+  def initial_with_queues do
     %__MODULE__{
       stats: fetch_queue_data_simple(),
       analyzing: analyzer_running?(),
       crf_searching: crf_searcher_running?(),
       encoding: encoder_running?()
     }
+  end
+
+  # Fetch only essential stats for fast initial load - no expensive queue queries
+  defp fetch_essential_stats do
+    Reencodarr.Media.fetch_essential_stats()
   end
 
   # Fetch initial queue data from database
