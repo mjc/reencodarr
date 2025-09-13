@@ -14,6 +14,8 @@ defmodule Reencodarr.Media.Clean do
 
   import Ecto.Query, warn: false
 
+  alias Reencodarr.Core.Parsers
+
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
 
   alias Reencodarr.Media.{
@@ -462,9 +464,9 @@ defmodule Reencodarr.Media.Clean do
 
   # Calculate estimated space savings in bytes based on percent and video size
   defp calculate_vmaf_savings(percent, video_size) when is_binary(percent) do
-    case Float.parse(percent) do
-      {percent_float, _} -> calculate_vmaf_savings(percent_float, video_size)
-      :error -> nil
+    case Parsers.parse_float_exact(percent) do
+      {:ok, percent_float} -> calculate_vmaf_savings(percent_float, video_size)
+      {:error, _} -> nil
     end
   end
 
@@ -487,9 +489,6 @@ defmodule Reencodarr.Media.Clean do
   end
 
   defp parse_crf(crf) do
-    case Float.parse(crf) do
-      {value, _} -> value
-      :error -> raise ArgumentError, "Invalid CRF value: #{crf}"
-    end
+    Parsers.parse_float_exact!(crf)
   end
 end
