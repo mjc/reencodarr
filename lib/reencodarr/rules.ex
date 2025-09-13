@@ -6,6 +6,7 @@ defmodule Reencodarr.Rules do
   """
 
   require Logger
+  alias Reencodarr.Core.Parsers
   alias Reencodarr.Media
 
   @opus_codec_tag "A_OPUS"
@@ -437,8 +438,8 @@ defmodule Reencodarr.Rules do
   end
 
   defp parse_valid_year(year_str) do
-    case Integer.parse(year_str) do
-      {year, ""} when year >= 1950 and year <= 2030 -> year
+    case Parsers.parse_integer_exact(year_str) do
+      {:ok, year} when year >= 1950 and year <= 2030 -> year
       _ -> nil
     end
   end
