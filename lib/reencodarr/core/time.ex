@@ -6,15 +6,17 @@ defmodule Reencodarr.Core.Time do
   into the Core namespace with better organization.
   """
 
+  alias Reencodarr.Core.Parsers
+
   @doc """
   Converts a time value to seconds based on the unit.
 
   ## Examples
 
-      iex> Time.to_seconds(5, "minutes")
+      iex> Reencodarr.Core.Time.to_seconds(5, "minutes")
       300
 
-      iex> Time.to_seconds(2, "hours")
+      iex> Reencodarr.Core.Time.to_seconds(2, "hours")
       7200
   """
   @spec to_seconds(integer(), String.t()) :: integer()
@@ -177,7 +179,7 @@ defmodule Reencodarr.Core.Time do
   defp parse_time_part(captures, key) do
     case Map.get(captures, key) do
       nil -> 0
-      value when is_binary(value) -> String.to_integer(value)
+      value when is_binary(value) -> Parsers.parse_int(value, 0)
       value when is_integer(value) -> value
       _ -> 0
     end
