@@ -35,6 +35,7 @@
         "Rescan",
         "Sonarr",
         "TRUEHD",
+        "trunc",
         "typeorder",
         "Tzdata",
         "Upserted",
@@ -49,6 +50,7 @@
         "whereis"
     ],
     "cSpell.ignoreWords": [
+        "KMGT",
         "Mshort",
         "dont",
         "scrf"
