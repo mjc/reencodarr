@@ -28,13 +28,13 @@ defmodule ReencodarrWeb.EncodeQueueComponent do
                 {format_name(file.video)}
               </td>
               <td class="border border-gray-700 px-4 py-2 text-gray-300">
-                {file.size}
+                {Reencodarr.Formatters.format_file_size_gib(file.video.size)} GiB
               </td>
               <td class="border border-gray-700 px-4 py-2 text-gray-300">
-                {calculate_savings(file)} GiB
+                {format_potential_savings(file.video.size, file.predicted_filesize)} GiB
               </td>
               <td class="border border-gray-700 px-4 py-2 text-gray-300">
-                {file.percent}
+                {format_savings_percentage(file.video.size, file.predicted_filesize)}%
               </td>
             </tr>
           <% end %>
@@ -44,12 +44,22 @@ defmodule ReencodarrWeb.EncodeQueueComponent do
     """
   end
 
-  defp calculate_savings(file) do
-    savings = file.video.size - file.video.size * (file.percent / 100)
-    Reencodarr.Formatters.format_file_size_gib(trunc(savings))
-  end
-
   defp format_name(%{path: path}) do
     Reencodarr.Formatters.format_filename(path)
   end
+
+  defp format_potential_savings(original_size, predicted_filesize)
+       when is_number(original_size) and is_number(predicted_filesize) do
+    savings = original_size - predicted_filesize
+    Reencodarr.Formatters.format_file_size_gib(savings)
+  end
+
+  defp format_potential_savings(_, _), do: "N/A"
+
+  defp format_savings_percentage(original_size, predicted_filesize)
+       when is_number(original_size) and is_number(predicted_filesize) and original_size > 0 do
+    Float.round((original_size - predicted_filesize) / original_size * 100, 1)
+  end
+
+  defp format_savings_percentage(_, _), do: "N/A"
 end

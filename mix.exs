@@ -55,7 +55,7 @@ defmodule Reencodarr.MixProject do
       {:lazy_html, ">= 0.1.0", only: :test},
       {:live_debugger, "~> 0.4.1", only: :dev},
       {:meck, "~> 1.0", only: :test},
-      {:gettext, "~> 0.20"},
+      {:gettext, "~> 1.0"},
       {:heroicons,
        github: "tailwindlabs/heroicons",
        tag: "v2.1.1",
