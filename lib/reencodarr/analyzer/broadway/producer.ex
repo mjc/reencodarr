@@ -186,7 +186,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   @impl GenStage
   def handle_info({:video_state_changed, video, :needs_analysis}, state) do
     # Video needs analysis - if analyzer is running, force dispatch even without demand
-    Logger.info("Analyzer producer received video needing analysis: #{video.path}")
+    Logger.info("[Analyzer Producer] Received video needing analysis: #{video.path}")
     force_dispatch_if_running(state)
   end
 
@@ -481,18 +481,21 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   end
 
   # Helper function to force dispatch when analyzer is running
-  defp force_dispatch_if_running(%State{status: :running} = state) do
+  defp force_dispatch_if_running(%State{status: :running, demand: 0} = state) do
     videos = Media.get_videos_needing_analysis(1)
 
     if length(videos) > 0 do
-      Logger.info("Force dispatching video to wake up idle Broadway pipeline")
-      {:noreply, videos, state}
+      Logger.info("[Analyzer Producer] Force dispatching video to wake up idle Broadway pipeline")
+      # Temporarily add demand to force dispatch, then call dispatch_if_ready
+      temp_state = State.update(state, demand: 1)
+      dispatch_if_ready(temp_state)
     else
       {:noreply, [], state}
     end
   end
 
   defp force_dispatch_if_running(state) do
+    # Already has demand or not running, use normal dispatch
     dispatch_if_ready(state)
   end
 end

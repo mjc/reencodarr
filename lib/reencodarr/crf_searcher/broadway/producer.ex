@@ -139,9 +139,15 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   end
 
   @impl GenStage
-  def handle_info({:video_state_changed, _video, :analyzed}, state) do
-    # Video finished analysis - check if we can CRF search it
-    dispatch_if_ready(state)
+  def handle_info({:video_state_changed, video, :analyzed}, state) do
+    # Video finished analysis - if CRF searcher is running, force dispatch even without demand
+    Logger.info("[CRF Searcher Producer] Received analyzed video: #{video.path}")
+
+    Logger.info(
+      "[CRF Searcher Producer] State: #{inspect(%{status: state.status, demand: state.demand})}"
+    )
+
+    force_dispatch_if_running(state)
   end
 
   @impl GenStage
@@ -353,5 +359,37 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
       end
 
     queue_items ++ db_videos
+  end
+
+  # Helper function to force dispatch when CRF searcher is running
+  defp force_dispatch_if_running(%{status: :running} = state) do
+    Logger.info("[CRF Searcher Producer] Force dispatch - status: running")
+
+    if crf_search_available?() do
+      Logger.info("[CRF Searcher Producer] GenServer available, getting videos...")
+      videos = Media.get_videos_for_crf_search(1)
+      Logger.info("[CRF Searcher Producer] Found #{length(videos)} videos for dispatch")
+
+      if length(videos) > 0 do
+        Logger.info(
+          "[CRF Searcher Producer] Force dispatching video to wake up idle Broadway pipeline"
+        )
+
+        {:noreply, videos, state}
+      else
+        {:noreply, [], state}
+      end
+    else
+      Logger.warning("[CRF Searcher Producer] GenServer not available")
+      {:noreply, [], state}
+    end
+  end
+
+  defp force_dispatch_if_running(state) do
+    Logger.info(
+      "[CRF Searcher Producer] Force dispatch - status: #{state.status}, falling back to dispatch_if_ready"
+    )
+
+    dispatch_if_ready(state)
   end
 end
