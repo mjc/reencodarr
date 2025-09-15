@@ -25,6 +25,7 @@ defmodule Reencodarr.Statistics do
             next_crf_search: []
 
   use GenServer
+  require Logger
   alias Reencodarr.Media.{Statistics, VideoQueries}
   alias Reencodarr.Statistics.{CrfSearchProgress, EncodingProgress, Stats}
 
@@ -175,6 +176,31 @@ defmodule Reencodarr.Statistics do
       GenServer.cast(__MODULE__, {:update_stats, stats})
     end)
 
+    {:noreply, state}
+  end
+
+  # Handle state changes that affect statistics and dashboard queue counts
+  def handle_info({:video_state_changed, video, new_state}, %Reencodarr.Statistics{} = state)
+      when new_state in [:needs_analysis, :analyzed, :crf_searched, :encoded, :failed] do
+    # These state changes affect queue counts and completion statistics
+    Logger.info("Statistics received video state change: #{video.path} -> #{new_state}")
+
+    Task.start(fn ->
+      stats = fetch_comprehensive_stats()
+      GenServer.cast(__MODULE__, {:update_stats, stats})
+    end)
+
+    {:noreply, state}
+  end
+
+  # Ignore transient processing states that don't affect queue statistics
+  def handle_info(
+        {:video_state_changed, _video, processing_state},
+        %Reencodarr.Statistics{} = state
+      )
+      when processing_state in [:crf_searching, :encoding] do
+    # These are transient states - video is being actively processed
+    # No need to refresh statistics as queue counts don't change
     {:noreply, state}
   end
 
@@ -349,7 +375,13 @@ defmodule Reencodarr.Statistics do
   defp should_ignore_field?({key, value}, defaults), do: value == Map.get(defaults, key)
 
   defp subscribe_to_topics do
-    for topic <- ["progress", "encoder", "crf_searcher", "media_events"] do
+    for topic <- [
+          "progress",
+          "encoder",
+          "crf_searcher",
+          "media_events",
+          "video_state_transitions"
+        ] do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, topic)
     end
   end

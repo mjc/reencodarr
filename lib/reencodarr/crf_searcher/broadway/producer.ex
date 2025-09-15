@@ -56,8 +56,8 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
 
   @impl GenStage
   def init(_opts) do
-    # Subscribe to media events for new videos
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "media_events")
+    # Subscribe to video state transitions for videos that finished analysis
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
 
     # Send a delayed message to trigger initial telemetry emission
     Process.send_after(self(), :initial_telemetry, 1000)
@@ -139,8 +139,15 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   end
 
   @impl GenStage
-  def handle_info({:video_upserted, _video}, state) do
+  def handle_info({:video_state_changed, _video, :analyzed}, state) do
+    # Video finished analysis - check if we can CRF search it
     dispatch_if_ready(state)
+  end
+
+  @impl GenStage
+  def handle_info({:video_state_changed, _video, _other_state}, state) do
+    # Ignore other state transitions - CRF searcher only cares about :analyzed
+    {:noreply, [], state}
   end
 
   @impl GenStage
