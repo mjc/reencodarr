@@ -56,8 +56,8 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def init(_opts) do
-    # Subscribe to media events for new VMAFs
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "media_events")
+    # Subscribe to video state transitions for videos that finished CRF search
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
     # Subscribe to encoding events to know when processing completes
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
 
@@ -144,7 +144,20 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   @impl GenStage
+  def handle_info({:video_state_changed, _video, :crf_searched}, state) do
+    # Video finished CRF search - check if it has chosen VMAFs ready for encoding
+    dispatch_if_ready(state)
+  end
+
+  @impl GenStage
+  def handle_info({:video_state_changed, _video, _other_state}, state) do
+    # Ignore other state transitions - encoder only cares about :crf_searched
+    {:noreply, [], state}
+  end
+
+  @impl GenStage
   def handle_info({:vmaf_upserted, _vmaf}, state) do
+    # VMAF was created/updated - check if it's chosen and ready for encoding
     dispatch_if_ready(state)
   end
 

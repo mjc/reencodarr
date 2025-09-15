@@ -305,8 +305,18 @@ defmodule Reencodarr.Media.VideoStateMachine do
   """
   def mark_as_analyzed(%Video{} = video) do
     case transition_to_analyzed(video) do
-      {:ok, changeset} -> Reencodarr.Repo.update(changeset)
-      error -> error
+      {:ok, changeset} ->
+        case Reencodarr.Repo.update(changeset) do
+          {:ok, updated_video} ->
+            broadcast_state_transition(updated_video, :analyzed)
+            {:ok, updated_video}
+
+          error ->
+            error
+        end
+
+      error ->
+        error
     end
   end
 
@@ -317,8 +327,18 @@ defmodule Reencodarr.Media.VideoStateMachine do
   """
   def mark_as_failed(%Video{} = video) do
     case transition_to_failed(video) do
-      {:ok, changeset} -> Reencodarr.Repo.update(changeset)
-      error -> error
+      {:ok, changeset} ->
+        case Reencodarr.Repo.update(changeset) do
+          {:ok, updated_video} ->
+            broadcast_state_transition(updated_video, :failed)
+            {:ok, updated_video}
+
+          error ->
+            error
+        end
+
+      error ->
+        error
     end
   rescue
     Ecto.StaleEntryError ->
@@ -332,8 +352,18 @@ defmodule Reencodarr.Media.VideoStateMachine do
   """
   def mark_as_crf_searched(%Video{} = video) do
     case transition_to_crf_searched(video) do
-      {:ok, changeset} -> Reencodarr.Repo.update(changeset)
-      error -> error
+      {:ok, changeset} ->
+        case Reencodarr.Repo.update(changeset) do
+          {:ok, updated_video} ->
+            broadcast_state_transition(updated_video, :crf_searched)
+            {:ok, updated_video}
+
+          error ->
+            error
+        end
+
+      error ->
+        error
     end
   end
 
@@ -342,8 +372,35 @@ defmodule Reencodarr.Media.VideoStateMachine do
   """
   def mark_as_needs_analysis(%Video{} = video) do
     case transition_to_needs_analysis(video) do
-      {:ok, changeset} -> Reencodarr.Repo.update(changeset)
-      error -> error
+      {:ok, changeset} ->
+        case Reencodarr.Repo.update(changeset) do
+          {:ok, updated_video} ->
+            broadcast_state_transition(updated_video, :needs_analysis)
+            {:ok, updated_video}
+
+          error ->
+            error
+        end
+
+      error ->
+        error
     end
   end
+
+  # Public helper functions
+
+  @doc """
+  Broadcasts a state transition event to notify interested processes.
+  This allows Broadway producers to react to specific state changes instead of
+  generic upsert events, improving efficiency and precision.
+  """
+  def broadcast_state_transition(%Video{} = video, new_state) do
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      "video_state_transitions",
+      {:video_state_changed, video, new_state}
+    )
+  end
+
+  # Private helper functions
 end
