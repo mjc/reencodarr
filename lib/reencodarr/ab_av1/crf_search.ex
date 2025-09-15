@@ -101,9 +101,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     def has_preset_6_params?(params), do: has_preset_6_params_private(params)
     def should_retry_with_preset_6(video_id), do: should_retry_with_preset_6_private(video_id)
 
-    def clear_vmaf_records_for_video(video_id, vmaf_records),
-      do: clear_vmaf_records_for_video_private(video_id, vmaf_records)
-
     def build_crf_search_args_with_preset_6(video, vmaf_percent),
       do: build_crf_search_args_with_preset_6_private(video, vmaf_percent)
 
@@ -356,129 +353,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp handle_crf_search_failure(video, target_vmaf, exit_code, command_line, full_output, state) do
-    # Check if we should retry with --preset 6 on process failure as well
+    # Preset 6 retry is disabled - go straight to marking as failed
     case should_retry_with_preset_6_private(video.id) do
-      {:retry, existing_vmafs} ->
-        handle_retry_with_preset_6(
-          video,
-          target_vmaf,
-          exit_code,
-          command_line,
-          full_output,
-          existing_vmafs,
-          state
-        )
-
-      :already_retried ->
-        handle_already_retried_failure(
-          video,
-          target_vmaf,
-          exit_code,
-          command_line,
-          full_output,
-          state
-        )
-
       :mark_failed ->
         handle_mark_failed(video, target_vmaf, exit_code, command_line, full_output, state)
-    end
-  end
-
-  defp handle_retry_with_preset_6(
-         video,
-         target_vmaf,
-         exit_code,
-         command_line,
-         full_output,
-         existing_vmafs,
-         state
-       ) do
-    Logger.info(
-      "CrfSearch: Retrying video #{video.id} (#{Path.basename(video.path)}) with --preset 6 after process failure (exit code #{exit_code})"
-    )
-
-    # Record the process failure with full output before retrying
-    Reencodarr.FailureTracker.record_vmaf_calculation_failure(
-      video,
-      "Process failed with exit code #{exit_code}",
-      context: %{
-        exit_code: exit_code,
-        command: command_line,
-        full_output: full_output,
-        will_retry: true,
-        target_vmaf: target_vmaf
-      }
-    )
-
-    # Clear existing VMAF records for this video to start fresh
-    clear_vmaf_records_for_video_private(video.id, existing_vmafs)
-
-    # Reset video state to analyzed for retry with preset 6
-    ErrorHelpers.handle_error_with_default(
-      Reencodarr.Media.mark_as_analyzed(video),
-      :ok,
-      "Failed to reset video #{video.id} state for retry"
-    )
-
-    # Publish failure event first
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video.id, {:error, exit_code}}
-    )
-
-    # Clean up current state
-    {_reply, cleanup_state} = perform_crf_search_cleanup(state)
-
-    # Requeue the video with --preset 6 parameter
-    GenServer.cast(__MODULE__, {:crf_search_with_preset_6, video, target_vmaf})
-
-    {:noreply, cleanup_state}
-  end
-
-  defp handle_already_retried_failure(
-         video,
-         target_vmaf,
-         exit_code,
-         command_line,
-         full_output,
-         state
-       ) do
-    Logger.error(
-      "CrfSearch: Video #{video.id} (#{Path.basename(video.path)}) already retried with --preset 6, marking as failed"
-    )
-
-    # Record the final failure with full output
-    Reencodarr.FailureTracker.record_preset_retry_failure(video, 6, 1,
-      context: %{
-        exit_code: exit_code,
-        command: command_line,
-        full_output: full_output,
-        target_vmaf: target_vmaf,
-        final_failure: true
-      }
-    )
-
-    # Publish completion event to PubSub
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video.id, {:error, exit_code}}
-    )
-
-    Media.mark_as_failed(video)
-
-    # Check for pending preset 6 retry even in failure cases
-    case Process.get(:pending_preset_6_retry) do
-      {retry_video, retry_target_vmaf} ->
-        Process.delete(:pending_preset_6_retry)
-        {cleanup_reply, cleanup_state} = perform_crf_search_cleanup(state)
-
-        {cleanup_reply, cleanup_state,
-         {:continue, {:preset_6_retry, retry_video, retry_target_vmaf}}}
-
-      nil ->
-        perform_crf_search_cleanup(state)
     end
   end
 
@@ -740,34 +618,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       error_msg = build_detailed_error_message(target_vmaf, tested_scores, video.path)
       Logger.error(error_msg)
 
-      # Check if we should retry with --preset 6
+      # Check if we should retry with --preset 6 (disabled - always mark as failed)
       Logger.debug("CrfSearch: About to check retry logic for video #{video.id}")
       retry_result = should_retry_with_preset_6_private(video.id)
       Logger.info("CrfSearch: Retry result: #{inspect(retry_result)}")
 
       case retry_result do
-        {:retry, existing_vmafs} ->
-          Logger.info(
-            "CrfSearch: Scheduling retry for video #{video.id} (#{Path.basename(video.path)}) with --preset 6 after CRF search failure"
-          )
-
-          # Clear existing VMAF records for this video to start fresh
-          clear_vmaf_records_for_video_private(video.id, existing_vmafs)
-
-          # Mark that we should retry when the current process exits
-          # Store retry info for later processing
-          Process.put(:pending_preset_6_retry, {video, target_vmaf})
-
-        :already_retried ->
-          Logger.error(
-            "CrfSearch: Video #{video.id} (#{Path.basename(video.path)}) already retried with --preset 6, marking as failed"
-          )
-
-          # Record preset retry failure
-          Reencodarr.FailureTracker.record_preset_retry_failure(video, 6, 1,
-            context: %{target_vmaf: target_vmaf, tested_scores: tested_scores}
-          )
-
         :mark_failed ->
           Logger.info("CrfSearch: Marking video #{video.id} as failed due to no VMAF records")
 
@@ -1196,47 +1052,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         :mark_failed
 
       vmafs ->
-        # Check if any existing record was done with --preset 6
-        has_preset_6 = Enum.any?(vmafs, &vmaf_has_preset_6?/1)
-
-        # Check if we have too many failed attempts (more than 3 VMAF records suggests multiple failures)
-        cond do
-          length(vmafs) > 3 -> :mark_failed
-          has_preset_6 -> :already_retried
-          true -> {:retry, vmafs}
-        end
+        # DISABLED: Skip preset 6 retry and go straight to film grain retry
+        # Always mark as failed to skip preset 6 and trigger film grain retry
+        :mark_failed
     end
   end
-
-  defp vmaf_has_preset_6?(vmaf) do
-    case vmaf.params do
-      nil ->
-        false
-
-      params_string when is_binary(params_string) ->
-        String.contains?(params_string, "--preset 6")
-
-      params_list when is_list(params_list) ->
-        has_preset_6_in_list?(params_list)
-
-      _ ->
-        false
-    end
-  end
-
-  # Clear VMAF records for a video (used for test cleanup)
-  defp clear_vmaf_records_for_video_private(video_id, vmaf_records) when is_list(vmaf_records) do
-    import Ecto.Query
-
-    vmaf_ids = Enum.map(vmaf_records, & &1.id)
-
-    from(v in Media.Vmaf, where: v.video_id == ^video_id and v.id in ^vmaf_ids)
-    |> Repo.delete_all()
-  end
-
-  # Helper to check for --preset 6 in a list of parameters
-  defp has_preset_6_in_list?([]), do: false
-  defp has_preset_6_in_list?([_]), do: false
-  defp has_preset_6_in_list?(["--preset", "6" | _]), do: true
-  defp has_preset_6_in_list?([_ | rest]), do: has_preset_6_in_list?(rest)
 end
