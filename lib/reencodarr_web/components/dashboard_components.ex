@@ -616,12 +616,11 @@ defmodule ReencodarrWeb.DashboardComponents do
   defp queue_header_color(color), do: Map.get(@queue_header_colors, color, "bg-orange-500")
 
   # Progress display logic - simplified for better readability
-  defp should_show_progress?(active, progress, title) do
-    active &&
-      (get_progress_percent(progress) > 0 ||
-         has_valid_filename?(progress) ||
-         get_progress_throughput(progress) > 0 ||
-         title == "ANALYZER")
+  defp should_show_progress?(_active, progress, title) do
+    get_progress_percent(progress) > 0 ||
+      has_valid_filename?(progress) ||
+      get_progress_throughput(progress) > 0 ||
+      title == "ANALYZER"
   end
 
   defp get_progress_percent(progress) when is_map(progress), do: Map.get(progress, :percent, 0)
