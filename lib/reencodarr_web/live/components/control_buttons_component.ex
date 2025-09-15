@@ -34,7 +34,11 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
 
   @impl Phoenix.LiveComponent
   def handle_event("toggle_crf_search", _params, socket) do
-    toggle_service(:crf_search)
+    case socket.assigns.crf_searching do
+      true -> Reencodarr.CrfSearcher.Broadway.pause()
+      false -> Reencodarr.CrfSearcher.Broadway.resume()
+    end
+
     {:noreply, socket}
   end
 
@@ -66,13 +70,6 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
     end
   end
 
-  defp toggle_service(:crf_search) do
-    case crf_search_running?() do
-      true -> Reencodarr.CrfSearcher.Broadway.pause()
-      false -> Reencodarr.CrfSearcher.Broadway.resume()
-    end
-  end
-
   defp toggle_service(:encoder) do
     case encoder_running?() do
       true -> Reencodarr.Encoder.Broadway.pause()
@@ -82,7 +79,6 @@ defmodule ReencodarrWeb.ControlButtonsComponent do
 
   # Service status helpers
   defp analyzer_running?, do: Reencodarr.Analyzer.Broadway.Producer.running?()
-  defp crf_search_running?, do: Reencodarr.CrfSearcher.Broadway.Producer.running?()
   defp encoder_running?, do: Reencodarr.Encoder.Broadway.Producer.running?()
 
   # Pipeline controls section
