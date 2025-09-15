@@ -230,7 +230,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
           CrfSearch.process_line(success_line, video, [], 95)
         end)
 
-      assert log_output =~ "CrfSearch: Chosen VMAF CRF 23 exceeds 10GB limit"
+      assert log_output =~ "CrfSearch: Chosen VMAF CRF 23.0 exceeds 10GB limit"
       assert log_output =~ "Marking as failed"
 
       # Now the video should be marked as failed
@@ -336,7 +336,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
           CrfSearch.process_line(success_line, video, [], 95)
         end)
 
-      assert log_output =~ "CrfSearch: Chosen VMAF CRF 22 exceeds 10GB limit"
+      assert log_output =~ "CrfSearch: Chosen VMAF CRF 22.0 exceeds 10GB limit"
       assert log_output =~ "Marking as failed"
 
       # Video should be failed

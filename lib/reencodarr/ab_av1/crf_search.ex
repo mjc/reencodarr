@@ -1051,7 +1051,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         # No existing records, mark as failed (no point retrying with preset 6 if we haven't tried anything yet)
         :mark_failed
 
-      vmafs ->
+      _vmafs ->
         # DISABLED: Skip preset 6 retry and go straight to film grain retry
         # Always mark as failed to skip preset 6 and trigger film grain retry
         :mark_failed

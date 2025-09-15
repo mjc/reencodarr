@@ -18,7 +18,7 @@ defmodule Reencodarr.Integration.Preset6WorkflowTest do
       %{video: video}
     end
 
-    test "complete workflow: CRF search failure -> preset 6 retry -> encoding with preset 6", %{
+    test "preset 6 retry disabled - workflow marks video as failed", %{
       video: video
     } do
       # Step 1: Create initial VMAF records (without preset 6)
@@ -30,24 +30,25 @@ defmodule Reencodarr.Integration.Preset6WorkflowTest do
           params: ["--preset", "medium"]
         })
 
-      # Step 2: Test that should_retry_with_preset_6 returns {:retry, vmafs}
+      # Step 2: Test that should_retry_with_preset_6 returns :mark_failed (preset 6 retry disabled)
       retry_result = CrfSearch.should_retry_with_preset_6_for_test(video.id)
-      assert match?({:retry, _vmafs}, retry_result)
+      assert retry_result == :mark_failed
 
-      # Step 3: Simulate the retry by creating new VMAF with --preset 6
+      # Since preset 6 retry is disabled, no retry would happen in practice
+      # But we can still test preset 6 detection for existing records
+      preset6_params = ["--preset", "6", "--threads", "8"]
+      assert CrfSearch.has_preset_6_params?(preset6_params) == true
+
+      # Test encoder args if preset 6 VMAF existed (hypothetically)
       {:ok, preset6_vmaf} =
         Media.create_vmaf(%{
           video_id: video.id,
           crf: 26.0,
           score: 93.5,
           chosen: true,
-          params: ["--preset", "6", "--threads", "8"]
+          params: preset6_params
         })
 
-      # Step 4: Verify the VMAF has preset 6 params
-      assert CrfSearch.has_preset_6_params?(preset6_vmaf.params) == true
-
-      # Step 5: Test that encoder will use the preset 6 parameter
       preset6_vmaf_with_video = Repo.preload(preset6_vmaf, :video)
       encode_args = Encode.build_encode_args_for_test(preset6_vmaf_with_video)
 
@@ -60,10 +61,6 @@ defmodule Reencodarr.Integration.Preset6WorkflowTest do
       assert "--threads" in encode_args
       threads_index = Enum.find_index(encode_args, &(&1 == "--threads"))
       assert Enum.at(encode_args, threads_index + 1) == "8"
-
-      # Step 6: Verify that after retry, should_retry_with_preset_6 returns :already_retried
-      retry_result_after = CrfSearch.should_retry_with_preset_6_for_test(video.id)
-      assert retry_result_after == :already_retried
     end
 
     test "handles error line processing and triggers preset 6 retry workflow", %{video: video} do

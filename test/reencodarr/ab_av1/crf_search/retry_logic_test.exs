@@ -1,14 +1,11 @@
 defmodule Reencodarr.AbAv1.CrfSearch.RetryLogicTest do
   @moduledoc """
-  Tests for CRF search retry logic with --preset 6 fallback.
+  Tests for CRF search retry logic (preset 6 retry disabled).
   """
   use Reencodarr.DataCase, async: true
-  import Ecto.Query
 
   alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.Media
-  alias Reencodarr.Media.Vmaf
-  alias Reencodarr.Repo
 
   describe "preset 6 retry decision logic" do
     setup do
@@ -53,14 +50,14 @@ defmodule Reencodarr.AbAv1.CrfSearch.RetryLogicTest do
       assert "95" in args
     end
 
-    test "should_retry_with_preset_6 returns correct decisions based on VMAF records", %{
+    test "should_retry_with_preset_6 returns :mark_failed (preset 6 retry disabled)", %{
       video: video
     } do
-      # Test case 1: No VMAF records -> mark as failed
+      # Test case 1: No VMAF records -> mark as failed (preset 6 retry disabled)
       result = CrfSearch.should_retry_with_preset_6(video.id)
       assert result == :mark_failed
 
-      # Test case 2: VMAF record without --preset 6 -> retry
+      # Test case 2: VMAF record without --preset 6 -> mark as failed (preset 6 retry disabled)
       {:ok, _vmaf} =
         Media.create_vmaf(%{
           video_id: video.id,
@@ -70,9 +67,9 @@ defmodule Reencodarr.AbAv1.CrfSearch.RetryLogicTest do
         })
 
       result = CrfSearch.should_retry_with_preset_6(video.id)
-      assert match?({:retry, _existing_vmafs}, result)
+      assert result == :mark_failed
 
-      # Test case 3: VMAF record with --preset 6 -> already retried
+      # Test case 3: VMAF record with --preset 6 -> mark as failed (preset 6 retry disabled)
       {:ok, _vmaf2} =
         Media.create_vmaf(%{
           video_id: video.id,
@@ -82,46 +79,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.RetryLogicTest do
         })
 
       result = CrfSearch.should_retry_with_preset_6(video.id)
-      assert result == :already_retried
-    end
-
-    test "clear_vmaf_records_for_video removes specified records", %{video: video} do
-      # Create some VMAF records
-      {:ok, vmaf1} =
-        Media.create_vmaf(%{
-          video_id: video.id,
-          crf: 28.0,
-          score: 91.33,
-          params: ["--preset", "medium"]
-        })
-
-      {:ok, vmaf2} =
-        Media.create_vmaf(%{
-          video_id: video.id,
-          crf: 30.0,
-          score: 89.5,
-          params: ["--preset", "fast"]
-        })
-
-      # Verify they exist (scoped to this video)
-      video_vmaf_count =
-        Vmaf
-        |> where([v], v.video_id == ^video.id)
-        |> Repo.aggregate(:count, :id)
-
-      assert video_vmaf_count == 2
-
-      # Clear them
-      vmaf_records = [%{id: vmaf1.id}, %{id: vmaf2.id}]
-      CrfSearch.clear_vmaf_records_for_video(video.id, vmaf_records)
-
-      # Verify they're gone (scoped to this video)
-      video_vmaf_count_after =
-        Vmaf
-        |> where([v], v.video_id == ^video.id)
-        |> Repo.aggregate(:count, :id)
-
-      assert video_vmaf_count_after == 0
+      assert result == :mark_failed
     end
   end
 end
