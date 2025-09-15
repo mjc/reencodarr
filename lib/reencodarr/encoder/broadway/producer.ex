@@ -144,9 +144,10 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   @impl GenStage
-  def handle_info({:video_state_changed, _video, :crf_searched}, state) do
-    # Video finished CRF search - check if it has chosen VMAFs ready for encoding
-    dispatch_if_ready(state)
+  def handle_info({:video_state_changed, video, :crf_searched}, state) do
+    # Video finished CRF search - if encoder is running, force dispatch even without demand
+    Logger.info("[Encoder Producer] Received CRF searched video: #{video.path}")
+    force_dispatch_if_running(state)
   end
 
   @impl GenStage
@@ -310,5 +311,21 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
           nil -> {nil, state}
         end
     end
+  end
+
+  # Helper function to force dispatch when encoder is running
+  defp force_dispatch_if_running(%{status: :running} = state) do
+    videos = Media.get_next_for_encoding(1)
+
+    if length(videos) > 0 do
+      Logger.info("[Encoder Producer] Force dispatching video to wake up idle Broadway pipeline")
+      {:noreply, videos, state}
+    else
+      {:noreply, [], state}
+    end
+  end
+
+  defp force_dispatch_if_running(state) do
+    dispatch_if_ready(state)
   end
 end

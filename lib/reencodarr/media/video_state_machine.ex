@@ -24,6 +24,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
 
   import Ecto.Changeset
   alias Reencodarr.Media.Video
+  require Logger
 
   @valid_states ~w(needs_analysis analyzed crf_searching crf_searched encoding encoded failed)a
 
@@ -395,6 +396,10 @@ defmodule Reencodarr.Media.VideoStateMachine do
   generic upsert events, improving efficiency and precision.
   """
   def broadcast_state_transition(%Video{} = video, new_state) do
+    Logger.info(
+      "[VideoStateMachine] Broadcasting state transition: #{video.path} -> #{new_state}"
+    )
+
     Phoenix.PubSub.broadcast(
       Reencodarr.PubSub,
       "video_state_transitions",

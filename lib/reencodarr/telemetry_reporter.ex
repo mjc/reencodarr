@@ -51,6 +51,9 @@ defmodule Reencodarr.TelemetryReporter do
     Process.flag(:trap_exit, true)
     attach_telemetry_handlers()
 
+    # Subscribe to video state transitions for dashboard updates
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
+
     initial_state = DashboardState.initial()
 
     # Schedule initial state emission after the GenServer is fully started
@@ -69,6 +72,25 @@ defmodule Reencodarr.TelemetryReporter do
   def handle_info(:emit_initial_state, %DashboardState{} = state) do
     # Emit the initial state to sync the UI with current Broadway producer states
     {:noreply, emit_state_update_and_return(state)}
+  end
+
+  @impl true
+  def handle_info({:video_state_changed, video, new_state}, %DashboardState{} = state)
+      when new_state in [:needs_analysis, :analyzed, :crf_searched, :encoded, :failed] do
+    # Video state changes affect dashboard queue counts - refresh dashboard state
+    Logger.info("TelemetryReporter received video state change: #{video.path} -> #{new_state}")
+
+    # Fetch fresh stats and update dashboard state
+    new_dashboard_state = %{state | stats: Reencodarr.Media.fetch_stats()}
+    {:noreply, emit_state_update_and_return(new_dashboard_state)}
+  end
+
+  # Ignore transient processing states that don't affect queue statistics
+  def handle_info({:video_state_changed, _video, processing_state}, %DashboardState{} = state)
+      when processing_state in [:crf_searching, :encoding] do
+    # These are transient states - video is being actively processed
+    # No need to refresh statistics as queue counts don't change
+    {:noreply, state}
   end
 
   @impl true
