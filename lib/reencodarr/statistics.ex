@@ -183,7 +183,7 @@ defmodule Reencodarr.Statistics do
   def handle_info({:video_state_changed, video, new_state}, %Reencodarr.Statistics{} = state)
       when new_state in [:needs_analysis, :analyzed, :crf_searched, :encoded, :failed] do
     # These state changes affect queue counts and completion statistics
-    Logger.info("Statistics received video state change: #{video.path} -> #{new_state}")
+    Logger.debug("Statistics received video state change: #{video.path} -> #{new_state}")
 
     Task.start(fn ->
       stats = fetch_comprehensive_stats()

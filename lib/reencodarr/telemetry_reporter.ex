@@ -78,7 +78,7 @@ defmodule Reencodarr.TelemetryReporter do
   def handle_info({:video_state_changed, video, new_state}, %DashboardState{} = state)
       when new_state in [:needs_analysis, :analyzed, :crf_searched, :encoded, :failed] do
     # Video state changes affect dashboard queue counts - refresh dashboard state
-    Logger.info("TelemetryReporter received video state change: #{video.path} -> #{new_state}")
+    Logger.debug("TelemetryReporter received video state change: #{video.path} -> #{new_state}")
 
     # Fetch fresh stats and update dashboard state
     new_dashboard_state = %{state | stats: Reencodarr.Media.fetch_stats()}

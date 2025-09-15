@@ -396,7 +396,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
   generic upsert events, improving efficiency and precision.
   """
   def broadcast_state_transition(%Video{} = video, new_state) do
-    Logger.info(
+    Logger.debug(
       "[VideoStateMachine] Broadcasting state transition: #{video.path} -> #{new_state}"
     )
 
