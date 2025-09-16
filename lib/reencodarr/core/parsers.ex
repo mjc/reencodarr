@@ -342,19 +342,4 @@ defmodule Reencodarr.Core.Parsers do
   end
 
   def parse_float_exact(_), do: {:error, :invalid_input}
-
-  # This function is deprecated - use parse_integer_exact/1 instead
-  # Kept for backward compatibility but will be removed
-  # @deprecated "Use parse_integer_exact/1 for safe parsing"
-  @spec parse_integer_exact!(String.t()) :: integer()
-  def parse_integer_exact!(value) do
-    case parse_integer_exact(value) do
-      {:ok, int} ->
-        int
-
-      {:error, reason} ->
-        raise ArgumentError,
-              "parse_integer_exact!/1 failed for #{inspect(value)}: #{inspect(reason)}"
-    end
-  end
 end
