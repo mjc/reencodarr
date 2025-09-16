@@ -85,13 +85,7 @@ defmodule ReencodarrWeb.ManualScanComponent do
     parent_pid = self()
 
     Task.start(fn ->
-      result =
-        try do
-          Reencodarr.ManualScanner.scan(path)
-          :ok
-        rescue
-          error -> {:error, error}
-        end
+      result = Reencodarr.ManualScanner.scan(path)
 
       # Send result to parent LiveView
       send(parent_pid, {:manual_scan_completed, result})

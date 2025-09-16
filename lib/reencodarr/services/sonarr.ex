@@ -132,47 +132,89 @@ defmodule Reencodarr.Services.Sonarr do
   end
 
   # Execute rename command and return result
+  @spec execute_rename_request(integer(), list(), list(map())) ::
+          {:ok, map()} | {:error, String.t()}
   defp execute_rename_request(series_id, file_ids, renameable_files) do
-    renameable_file_ids =
+    # Parse renameable file IDs from API response
+    parsed_renameable =
       renameable_files
       |> Enum.map(& &1["episodeFileId"])
       |> Enum.map(&parse_file_id/1)
 
-    files_to_rename =
-      if file_ids == [] do
-        renameable_file_ids
-      else
-        file_ids |> Enum.map(&parse_file_id/1)
+    # Check for parsing errors in renameable files
+    {renameable_successes, renameable_failures} =
+      Enum.split_with(parsed_renameable, fn
+        {:ok, _} -> true
+        {:error, _} -> false
+      end)
+
+    if Enum.empty?(renameable_failures) do
+      renameable_file_ids = Enum.map(renameable_successes, fn {:ok, id} -> id end)
+
+      # Determine final files to rename
+      files_to_rename =
+        if file_ids == [] do
+          renameable_file_ids
+        else
+          parse_explicit_file_ids(file_ids)
+        end
+
+      json_payload = %{name: "RenameFiles", seriesId: series_id, files: files_to_rename}
+
+      Logger.info(
+        "Sonarr rename_files request - Series ID: #{series_id}, File IDs: #{inspect(files_to_rename)}"
+      )
+
+      Logger.debug("Sonarr rename_files JSON payload: #{inspect(json_payload)}")
+
+      case request(
+             url: "/api/v3/command",
+             method: :post,
+             json: json_payload
+           ) do
+        {:ok, response} = result ->
+          Logger.debug("Sonarr rename_files response: #{inspect(response.body)}")
+          result
+
+        {:error, reason} = error ->
+          Logger.error("Sonarr rename_files error: #{inspect(reason)}")
+          error
       end
-
-    json_payload = %{name: "RenameFiles", seriesId: series_id, files: files_to_rename}
-
-    Logger.info(
-      "Sonarr rename_files request - Series ID: #{series_id}, File IDs: #{inspect(files_to_rename)}"
-    )
-
-    Logger.debug("Sonarr rename_files JSON payload: #{inspect(json_payload)}")
-
-    case request(
-           url: "/api/v3/command",
-           method: :post,
-           json: json_payload
-         ) do
-      {:ok, response} = result ->
-        Logger.debug("Sonarr rename_files response: #{inspect(response.body)}")
-        result
-
-      {:error, reason} = error ->
-        Logger.error("Sonarr rename_files error: #{inspect(reason)}")
-        error
+    else
+      error_msgs = Enum.map(renameable_failures, fn {:error, msg} -> msg end)
+      {:error, "Failed to parse renameable file IDs: #{Enum.join(error_msgs, ", ")}"}
     end
   end
 
   # Helper function to parse file IDs from various formats to integers
-  defp parse_file_id(value) when is_integer(value), do: value
-  defp parse_file_id(value) when is_binary(value), do: Parsers.parse_integer_exact!(value)
+  @spec parse_file_id(any()) :: {:ok, integer()} | {:error, String.t()}
+  defp parse_file_id(value) when is_integer(value), do: {:ok, value}
+
+  defp parse_file_id(value) when is_binary(value) do
+    case Parsers.parse_integer_exact(value) do
+      {:ok, int} -> {:ok, int}
+      {:error, _} -> {:error, "invalid integer format"}
+    end
+  end
 
   defp parse_file_id(value) do
-    raise ArgumentError, "Expected integer or string, got: #{inspect(value)}"
+    {:error, "expected integer or string, got: #{inspect(value)}"}
+  end
+
+  defp parse_explicit_file_ids(file_ids) do
+    parsed_explicit = file_ids |> Enum.map(&parse_file_id/1)
+
+    {explicit_successes, explicit_failures} =
+      Enum.split_with(parsed_explicit, fn
+        {:ok, _} -> true
+        {:error, _} -> false
+      end)
+
+    if Enum.empty?(explicit_failures) do
+      Enum.map(explicit_successes, fn {:ok, id} -> id end)
+    else
+      error_msgs = Enum.map(explicit_failures, fn {:error, msg} -> msg end)
+      {:error, "Failed to parse explicit file IDs: #{Enum.join(error_msgs, ", ")}"}
+    end
   end
 end

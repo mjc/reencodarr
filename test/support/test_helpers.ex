@@ -281,8 +281,9 @@ defmodule Reencodarr.TestHelpers do
     unique_id = System.unique_integer([:positive])
     temp_file = Path.join(temp_dir, "test_file_#{unique_id}#{extension}")
 
+    File.write!(temp_file, content)
+
     try do
-      File.write!(temp_file, content)
       fun.(temp_file)
     after
       File.rm(temp_file)
@@ -297,9 +298,5 @@ defmodule Reencodarr.TestHelpers do
   def test_broadway_error_handling(_broadway_module, _message) do
     # Trigger Broadway dispatch to test error handling
     AnalyzerBroadway.dispatch_available()
-  catch
-    kind, reason ->
-      # Broadway should handle errors gracefully, so catching here indicates a problem
-      flunk("Broadway pipeline crashed: #{inspect(kind)} #{inspect(reason)}")
   end
 end
