@@ -327,7 +327,17 @@ defmodule Reencodarr.Media.VideoUpsert do
         string_key = to_string(key)
         Enum.any?(conflict_except, &(to_string(&1) == string_key)) or string_key == "dateAdded"
       end)
-      |> Enum.map(fn {key, value} -> {String.to_atom(key), value} end)
+      |> Enum.map(fn {key, value} ->
+        case safe_to_existing_atom(key) do
+          {:ok, atom_key} ->
+            {atom_key, value}
+
+          :error ->
+            Logger.warning("Ignoring unknown attribute key: #{inspect(key)}")
+            nil
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
 
     from(v in Video,
       update: [set: ^update_fields],
@@ -367,4 +377,13 @@ defmodule Reencodarr.Media.VideoUpsert do
   # Fallback for invalid paths - let validation handle the error
   @spec get_video_metadata_for_comparison(any()) :: nil
   defp get_video_metadata_for_comparison(_), do: nil
+
+  @spec safe_to_existing_atom(any()) :: {:ok, atom()} | :error
+  defp safe_to_existing_atom(key) when is_binary(key) do
+    # Only convert if the atom already exists - let it crash if not
+    {:ok, String.to_existing_atom(key)}
+  end
+
+  defp safe_to_existing_atom(key) when is_atom(key), do: {:ok, key}
+  defp safe_to_existing_atom(_), do: :error
 end

@@ -132,19 +132,52 @@ defmodule Reencodarr.Services.Sonarr do
   end
 
   # Execute rename command and return result
+  @spec execute_rename_request(integer(), list(), list(map())) ::
+          {:ok, map()} | {:error, String.t()}
   defp execute_rename_request(series_id, file_ids, renameable_files) do
-    renameable_file_ids =
+    with {:ok, renameable_file_ids} <- parse_renameable_files(renameable_files),
+         {:ok, files_to_rename} <- determine_files_to_rename(file_ids, renameable_file_ids) do
+      execute_rename_api_request(series_id, files_to_rename)
+    end
+  end
+
+  @spec parse_renameable_files(list(map())) :: {:ok, list(integer())} | {:error, String.t()}
+  defp parse_renameable_files(renameable_files) do
+    # Parse renameable file IDs from API response
+    parsed_renameable =
       renameable_files
       |> Enum.map(& &1["episodeFileId"])
       |> Enum.map(&parse_file_id/1)
 
-    files_to_rename =
-      if file_ids == [] do
-        renameable_file_ids
-      else
-        file_ids |> Enum.map(&parse_file_id/1)
-      end
+    # Check for parsing errors in renameable files
+    {renameable_successes, renameable_failures} =
+      Enum.split_with(parsed_renameable, fn
+        {:ok, _} -> true
+        {:error, _} -> false
+      end)
 
+    if Enum.empty?(renameable_failures) do
+      renameable_file_ids = Enum.map(renameable_successes, fn {:ok, id} -> id end)
+      {:ok, renameable_file_ids}
+    else
+      error_msgs = Enum.map(renameable_failures, fn {:error, msg} -> msg end)
+      {:error, "Failed to parse renameable file IDs: #{Enum.join(error_msgs, ", ")}"}
+    end
+  end
+
+  @spec determine_files_to_rename(list(), list(integer())) ::
+          {:ok, list(integer())} | {:error, String.t()}
+  defp determine_files_to_rename(file_ids, renameable_file_ids) do
+    if file_ids == [] do
+      {:ok, renameable_file_ids}
+    else
+      parse_explicit_file_ids(file_ids)
+    end
+  end
+
+  @spec execute_rename_api_request(integer(), list(integer())) ::
+          {:ok, map()} | {:error, String.t()}
+  defp execute_rename_api_request(series_id, files_to_rename) do
     json_payload = %{name: "RenameFiles", seriesId: series_id, files: files_to_rename}
 
     Logger.info(
@@ -169,10 +202,36 @@ defmodule Reencodarr.Services.Sonarr do
   end
 
   # Helper function to parse file IDs from various formats to integers
-  defp parse_file_id(value) when is_integer(value), do: value
-  defp parse_file_id(value) when is_binary(value), do: Parsers.parse_integer_exact!(value)
+  @spec parse_file_id(any()) :: {:ok, integer()} | {:error, String.t()}
+  defp parse_file_id(value) when is_integer(value), do: {:ok, value}
+
+  defp parse_file_id(value) when is_binary(value) do
+    case Parsers.parse_integer_exact(value) do
+      {:ok, int} -> {:ok, int}
+      {:error, _} -> {:error, "invalid integer format"}
+    end
+  end
 
   defp parse_file_id(value) do
-    raise ArgumentError, "Expected integer or string, got: #{inspect(value)}"
+    {:error, "expected integer or string, got: #{inspect(value)}"}
+  end
+
+  @spec parse_explicit_file_ids(list()) :: {:ok, list(integer())} | {:error, String.t()}
+  defp parse_explicit_file_ids(file_ids) do
+    parsed_explicit = file_ids |> Enum.map(&parse_file_id/1)
+
+    {explicit_successes, explicit_failures} =
+      Enum.split_with(parsed_explicit, fn
+        {:ok, _} -> true
+        {:error, _} -> false
+      end)
+
+    if Enum.empty?(explicit_failures) do
+      parsed_ids = Enum.map(explicit_successes, fn {:ok, id} -> id end)
+      {:ok, parsed_ids}
+    else
+      error_msgs = Enum.map(explicit_failures, fn {:error, msg} -> msg end)
+      {:error, "Failed to parse explicit file IDs: #{Enum.join(error_msgs, ", ")}"}
+    end
   end
 end

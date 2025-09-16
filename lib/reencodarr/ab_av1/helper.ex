@@ -51,8 +51,15 @@ defmodule Reencodarr.AbAv1.Helper do
     if File.exists?(temp_dir) do
       temp_dir
     else
-      File.mkdir_p!(temp_dir)
-      temp_dir
+      case File.mkdir_p(temp_dir) do
+        :ok ->
+          temp_dir
+
+        {:error, reason} ->
+          Logger.error("Failed to create temp directory #{temp_dir}: #{inspect(reason)}")
+          # Fallback to system temp directory
+          System.tmp_dir!()
+      end
     end
   end
 
