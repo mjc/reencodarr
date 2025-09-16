@@ -380,9 +380,8 @@ defmodule Reencodarr.Media.VideoUpsert do
 
   @spec safe_to_existing_atom(any()) :: {:ok, atom()} | :error
   defp safe_to_existing_atom(key) when is_binary(key) do
+    # Only convert if the atom already exists - let it crash if not
     {:ok, String.to_existing_atom(key)}
-  rescue
-    ArgumentError -> :error
   end
 
   defp safe_to_existing_atom(key) when is_atom(key), do: {:ok, key}

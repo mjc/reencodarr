@@ -918,27 +918,41 @@ defmodule ReencodarrWeb.FailuresLive do
   defp apply_stage_filter(query, "all"), do: query
 
   defp apply_stage_filter(query, stage_filter) do
-    stage_atom = parse_stage_filter(stage_filter)
-    from [v, f] in query, where: f.failure_stage == ^stage_atom
+    case parse_stage_filter(stage_filter) do
+      {:ok, stage_atom} ->
+        from [v, f] in query, where: f.failure_stage == ^stage_atom
+
+      {:error, _reason} ->
+        # Invalid stage filter, return no results
+        from [v, f] in query, where: false
+    end
   end
 
   defp apply_category_filter(query, "all"), do: query
 
   defp apply_category_filter(query, category_filter) do
-    category_atom = parse_category_filter(category_filter)
-    from [v, f] in query, where: f.failure_category == ^category_atom
+    case parse_category_filter(category_filter) do
+      {:ok, category_atom} ->
+        from [v, f] in query, where: f.failure_category == ^category_atom
+
+      {:error, _reason} ->
+        # Invalid category filter, return no results
+        from [v, f] in query, where: false
+    end
   end
 
-  defp parse_stage_filter("analysis"), do: :analysis
-  defp parse_stage_filter("crf_search"), do: :crf_search
-  defp parse_stage_filter("encoding"), do: :encoding
-  defp parse_stage_filter(_), do: :unknown
+  defp parse_stage_filter("analysis"), do: {:ok, :analysis}
+  defp parse_stage_filter("crf_search"), do: {:ok, :crf_search}
+  defp parse_stage_filter("encoding"), do: {:ok, :encoding}
+  defp parse_stage_filter(invalid), do: {:error, "Invalid stage filter: #{inspect(invalid)}"}
 
-  defp parse_category_filter("system"), do: :system
-  defp parse_category_filter("media"), do: :media
-  defp parse_category_filter("network"), do: :network
-  defp parse_category_filter("configuration"), do: :configuration
-  defp parse_category_filter(_), do: :unknown
+  defp parse_category_filter("system"), do: {:ok, :system}
+  defp parse_category_filter("media"), do: {:ok, :media}
+  defp parse_category_filter("network"), do: {:ok, :network}
+  defp parse_category_filter("configuration"), do: {:ok, :configuration}
+
+  defp parse_category_filter(invalid),
+    do: {:error, "Invalid category filter: #{inspect(invalid)}"}
 
   defp apply_search_filter(query, ""), do: query
 
