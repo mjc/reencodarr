@@ -352,9 +352,9 @@ defmodule Reencodarr.Core.Parsers do
       {:ok, int} ->
         int
 
-      {:error, _} ->
-        Logger.warning("parse_integer_exact!/1 failed for #{inspect(value)}, returning 0")
-        0
+      {:error, reason} ->
+        raise ArgumentError,
+              "parse_integer_exact!/1 failed for #{inspect(value)}: #{inspect(reason)}"
     end
   end
 

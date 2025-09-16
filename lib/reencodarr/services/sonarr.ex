@@ -135,6 +135,14 @@ defmodule Reencodarr.Services.Sonarr do
   @spec execute_rename_request(integer(), list(), list(map())) ::
           {:ok, map()} | {:error, String.t()}
   defp execute_rename_request(series_id, file_ids, renameable_files) do
+    with {:ok, renameable_file_ids} <- parse_renameable_files(renameable_files),
+         {:ok, files_to_rename} <- determine_files_to_rename(file_ids, renameable_file_ids) do
+      execute_rename_api_request(series_id, files_to_rename)
+    end
+  end
+
+  @spec parse_renameable_files(list(map())) :: {:ok, list(integer())} | {:error, String.t()}
+  defp parse_renameable_files(renameable_files) do
     # Parse renameable file IDs from API response
     parsed_renameable =
       renameable_files
@@ -150,39 +158,46 @@ defmodule Reencodarr.Services.Sonarr do
 
     if Enum.empty?(renameable_failures) do
       renameable_file_ids = Enum.map(renameable_successes, fn {:ok, id} -> id end)
-
-      # Determine final files to rename
-      files_to_rename =
-        if file_ids == [] do
-          renameable_file_ids
-        else
-          parse_explicit_file_ids(file_ids)
-        end
-
-      json_payload = %{name: "RenameFiles", seriesId: series_id, files: files_to_rename}
-
-      Logger.info(
-        "Sonarr rename_files request - Series ID: #{series_id}, File IDs: #{inspect(files_to_rename)}"
-      )
-
-      Logger.debug("Sonarr rename_files JSON payload: #{inspect(json_payload)}")
-
-      case request(
-             url: "/api/v3/command",
-             method: :post,
-             json: json_payload
-           ) do
-        {:ok, response} = result ->
-          Logger.debug("Sonarr rename_files response: #{inspect(response.body)}")
-          result
-
-        {:error, reason} = error ->
-          Logger.error("Sonarr rename_files error: #{inspect(reason)}")
-          error
-      end
+      {:ok, renameable_file_ids}
     else
       error_msgs = Enum.map(renameable_failures, fn {:error, msg} -> msg end)
       {:error, "Failed to parse renameable file IDs: #{Enum.join(error_msgs, ", ")}"}
+    end
+  end
+
+  @spec determine_files_to_rename(list(), list(integer())) ::
+          {:ok, list(integer())} | {:error, String.t()}
+  defp determine_files_to_rename(file_ids, renameable_file_ids) do
+    if file_ids == [] do
+      {:ok, renameable_file_ids}
+    else
+      parse_explicit_file_ids(file_ids)
+    end
+  end
+
+  @spec execute_rename_api_request(integer(), list(integer())) ::
+          {:ok, map()} | {:error, String.t()}
+  defp execute_rename_api_request(series_id, files_to_rename) do
+    json_payload = %{name: "RenameFiles", seriesId: series_id, files: files_to_rename}
+
+    Logger.info(
+      "Sonarr rename_files request - Series ID: #{series_id}, File IDs: #{inspect(files_to_rename)}"
+    )
+
+    Logger.debug("Sonarr rename_files JSON payload: #{inspect(json_payload)}")
+
+    case request(
+           url: "/api/v3/command",
+           method: :post,
+           json: json_payload
+         ) do
+      {:ok, response} = result ->
+        Logger.debug("Sonarr rename_files response: #{inspect(response.body)}")
+        result
+
+      {:error, reason} = error ->
+        Logger.error("Sonarr rename_files error: #{inspect(reason)}")
+        error
     end
   end
 
@@ -201,6 +216,7 @@ defmodule Reencodarr.Services.Sonarr do
     {:error, "expected integer or string, got: #{inspect(value)}"}
   end
 
+  @spec parse_explicit_file_ids(list()) :: {:ok, list(integer())} | {:error, String.t()}
   defp parse_explicit_file_ids(file_ids) do
     parsed_explicit = file_ids |> Enum.map(&parse_file_id/1)
 
