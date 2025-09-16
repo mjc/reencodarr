@@ -3,6 +3,7 @@ defmodule Reencodarr.Services.Sonarr do
   This module is responsible for communicating with the Sonarr API.
   """
   require Logger
+  alias Reencodarr.Core.Parsers
   alias Reencodarr.ErrorHelpers
   alias Reencodarr.Services
 
@@ -132,8 +133,18 @@ defmodule Reencodarr.Services.Sonarr do
 
   # Execute rename command and return result
   defp execute_rename_request(series_id, file_ids, renameable_files) do
-    renameable_file_ids = Enum.map(renameable_files, & &1["episodeFileId"])
-    files_to_rename = if file_ids == [], do: renameable_file_ids, else: file_ids
+    renameable_file_ids =
+      renameable_files
+      |> Enum.map(& &1["episodeFileId"])
+      |> Enum.map(&parse_file_id/1)
+
+    files_to_rename =
+      if file_ids == [] do
+        renameable_file_ids
+      else
+        file_ids |> Enum.map(&parse_file_id/1)
+      end
+
     json_payload = %{name: "RenameFiles", seriesId: series_id, files: files_to_rename}
 
     Logger.info(
@@ -155,5 +166,13 @@ defmodule Reencodarr.Services.Sonarr do
         Logger.error("Sonarr rename_files error: #{inspect(reason)}")
         error
     end
+  end
+
+  # Helper function to parse file IDs from various formats to integers
+  defp parse_file_id(value) when is_integer(value), do: value
+  defp parse_file_id(value) when is_binary(value), do: Parsers.parse_integer_exact!(value)
+
+  defp parse_file_id(value) do
+    raise ArgumentError, "Expected integer or string, got: #{inspect(value)}"
   end
 end
