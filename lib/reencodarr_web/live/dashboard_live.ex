@@ -59,25 +59,6 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl Phoenix.LiveView
   def handle_info(:load_initial_data, socket) do
-    with {:ok, essential_state} <- get_safe_essential_state(),
-         {:ok, dashboard_data} <- present_state(essential_state, socket.assigns.timezone) do
-      socket =
-        socket
-        |> assign(:dashboard_data, dashboard_data)
-        |> assign(:loading_queues, true)
-
-      # Async queue loading with brief delay for better UX
-      Process.send_after(self(), :load_queue_data, 100)
-      {:noreply, socket}
-    else
-      error ->
-        Logger.warning("Failed to load initial data: #{inspect(error)}")
-        {:noreply, put_flash(socket, :error, "Failed to load dashboard data")}
-    end
-  end
-
-  @impl Phoenix.LiveView
-  def handle_info(:load_queue_data, socket) do
     with {:ok, full_state} <- get_safe_full_state(),
          {:ok, dashboard_data} <- present_state(full_state, socket.assigns.timezone) do
       socket =
@@ -89,8 +70,7 @@ defmodule ReencodarrWeb.DashboardLive do
       {:noreply, socket}
     else
       error ->
-        Logger.warning("Failed to load queue data: #{inspect(error)}")
-        {:noreply, assign(socket, :loading_queues, false)}
+        {:noreply, log_and_flash_error(socket, error, :initial_data)}
     end
   end
 
@@ -137,9 +117,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
           {:noreply, socket}
         else
-          error ->
-            Logger.warning("Failed to update timezone: #{inspect(error)}")
-            {:noreply, put_flash(socket, :error, "Failed to update timezone")}
+          error -> handle_error_with_flash(socket, error, :timezone)
         end
 
       {:error, reason} ->
@@ -149,20 +127,12 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl Phoenix.LiveView
-  def handle_event("switch_tab", %{"tab" => tab}, socket) do
-    # Modern navigation with pattern matching
-    destination =
-      case tab do
-        "broadway" -> "/broadway"
-        "failures" -> "/failures"
-        _ -> nil
-      end
-
-    case destination do
-      nil -> {:noreply, socket}
-      path -> {:noreply, push_navigate(socket, to: path)}
-    end
+  def handle_event("switch_tab", %{"tab" => tab}, socket) when tab in ["broadway", "failures"] do
+    path = "/" <> tab
+    {:noreply, push_navigate(socket, to: path)}
   end
+
+  def handle_event("switch_tab", _params, socket), do: {:noreply, socket}
 
   @impl Phoenix.LiveView
   def handle_event("manual_scan", params, socket) do
@@ -213,7 +183,18 @@ defmodule ReencodarrWeb.DashboardLive do
       <.metrics_grid metrics={@dashboard_data.metrics} />
       <.operations_panel status={@dashboard_data.status} />
 
-      <.loading_indicator :if={@loading_queues} />
+      <%= if @loading_queues do %>
+        <div class="text-center text-lcars-orange-300 py-4 text-sm">
+          <span class="animate-pulse flex items-center justify-center gap-2">
+            <span class="inline-block w-2 h-2 bg-current rounded-full animate-bounce"></span>
+            <span class="inline-block w-2 h-2 bg-current rounded-full animate-bounce [animation-delay:0.1s]">
+            </span>
+            <span class="inline-block w-2 h-2 bg-current rounded-full animate-bounce [animation-delay:0.2s]">
+            </span>
+            <span class="ml-2">Loading queue data...</span>
+          </span>
+        </div>
+      <% end %>
 
       <.queues_section queues={@dashboard_data.queues} streams={@streams || %{}} />
 
@@ -221,21 +202,6 @@ defmodule ReencodarrWeb.DashboardLive do
         <.control_panel status={@dashboard_data.status} stats={@dashboard_data.stats} />
         <.manual_scan_section />
       </div>
-    </div>
-    """
-  end
-
-  defp loading_indicator(assigns) do
-    ~H"""
-    <div class="text-center text-lcars-orange-300 py-4 text-sm">
-      <span class="animate-pulse flex items-center justify-center gap-2">
-        <span class="inline-block w-2 h-2 bg-current rounded-full animate-bounce"></span>
-        <span class="inline-block w-2 h-2 bg-current rounded-full animate-bounce [animation-delay:0.1s]">
-        </span>
-        <span class="inline-block w-2 h-2 bg-current rounded-full animate-bounce [animation-delay:0.2s]">
-        </span>
-        <span class="ml-2">Loading queue data...</span>
-      </span>
     </div>
     """
   end
@@ -300,40 +266,39 @@ defmodule ReencodarrWeb.DashboardLive do
   defp generate_stream_items(_, _), do: []
 
   # Safe state retrieval functions
-  defp get_safe_essential_state do
-    {:ok, DashboardLiveHelpers.get_essential_state()}
-  rescue
-    error -> {:error, error}
-  end
+  defp get_safe_full_state, do: safe_call(&DashboardLiveHelpers.get_initial_state/0)
+  defp present_state(state, timezone), do: safe_call(fn -> Presenter.present(state, timezone) end)
 
-  defp get_safe_full_state do
-    {:ok, DashboardLiveHelpers.get_initial_state()}
-  rescue
-    error -> {:error, error}
-  end
-
-  defp present_state(state, timezone) do
-    {:ok, Presenter.present(state, timezone)}
+  defp safe_call(func) do
+    {:ok, func.()}
   rescue
     error -> {:error, error}
   end
 
   # Parameter extraction functions with validation
-  defp extract_timezone(%{"timezone" => tz}) when is_binary(tz) and tz != "" do
-    {:ok, tz}
+  defp extract_timezone(%{"timezone" => tz}) when is_binary(tz) and tz != "", do: {:ok, tz}
+  defp extract_timezone(params), do: {:error, {:invalid_timezone, params}}
+
+  defp extract_scan_path(%{"path" => path}) when is_binary(path) and path != "",
+    do: {:ok, String.trim(path)}
+
+  defp extract_scan_path(params), do: {:error, {:invalid_path, params}}
+
+  # Error handling helpers for more idiomatic flash messages
+  defp log_and_flash_error(socket, error, context) do
+    message = error_message(error, context)
+    Logger.warning("#{context} error: #{inspect(error)}")
+    put_flash(socket, :error, message)
   end
 
-  defp extract_timezone(params) do
-    {:error, {:invalid_timezone, params}}
+  defp handle_error_with_flash(socket, error, context) do
+    {:noreply, log_and_flash_error(socket, error, context)}
   end
 
-  defp extract_scan_path(%{"path" => path}) when is_binary(path) and path != "" do
-    {:ok, String.trim(path)}
-  end
-
-  defp extract_scan_path(params) do
-    {:error, {:invalid_path, params}}
-  end
+  defp error_message(_error, :timezone), do: "Failed to update timezone"
+  defp error_message(_error, :scan_path), do: "Invalid scan path"
+  defp error_message(_error, :initial_data), do: "Failed to load dashboard data"
+  defp error_message(error, :general), do: "An error occurred: #{inspect(error)}"
 
   # Modern telemetry event handler with better structure and logging
   @doc """
@@ -349,14 +314,17 @@ defmodule ReencodarrWeb.DashboardLive do
         %{state: state} = metadata,
         %{live_view_pid: pid} = config
       ) do
+    %{syncing: syncing, analyzer_progress: analyzer_progress} =
+      Map.merge(%{syncing: false, analyzer_progress: %{}}, state)
+
     Logger.debug([
       "DashboardLive telemetry event received",
       " - event: ",
       inspect(event),
       " - syncing: ",
-      inspect(Map.get(state, :syncing, false)),
+      inspect(syncing),
       " - analyzer_progress: ",
-      inspect(Map.get(state, :analyzer_progress, %{}))
+      inspect(analyzer_progress)
     ])
 
     # Validate state structure before forwarding
@@ -408,18 +376,15 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   # Validates telemetry state structure
+  defp validate_telemetry_state(%{syncing: _, analyzing: _, encoding: _, crf_searching: _}),
+    do: :ok
+
   defp validate_telemetry_state(state) when is_map(state) do
     required_keys = [:syncing, :analyzing, :encoding, :crf_searching]
-
-    case Enum.all?(required_keys, &Map.has_key?(state, &1)) do
-      true -> :ok
-      false -> {:error, {:missing_keys, required_keys -- Map.keys(state)}}
-    end
+    {:error, {:missing_keys, required_keys -- Map.keys(state)}}
   end
 
-  defp validate_telemetry_state(state) do
-    {:error, {:invalid_type, typeof(state)}}
-  end
+  defp validate_telemetry_state(state), do: {:error, {:invalid_type, typeof(state)}}
 
   defp typeof(value) when is_map(value), do: :map
   defp typeof(value) when is_list(value), do: :list

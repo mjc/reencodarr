@@ -3,6 +3,7 @@ defmodule Reencodarr.Services.Radarr do
   This module is responsible for communicating with the Radarr API.
   """
   require Logger
+  alias Reencodarr.Core.Parsers
   alias Reencodarr.ErrorHelpers
   alias Reencodarr.Services
 
@@ -99,8 +100,11 @@ defmodule Reencodarr.Services.Radarr do
   end
 
   defp execute_movie_rename(movie_id, renameable_files) do
-    # Extract movie file IDs from the renameable files response
-    renameable_file_ids = Enum.map(renameable_files, fn file -> file["movieFileId"] end)
+    # Extract movie file IDs from the renameable files response and ensure they're integers
+    renameable_file_ids =
+      renameable_files
+      |> Enum.map(fn file -> file["movieFileId"] end)
+      |> Enum.map(&parse_file_id/1)
 
     json_payload = %{
       name: "RenameFiles",
@@ -126,5 +130,13 @@ defmodule Reencodarr.Services.Radarr do
         Logger.error("Radarr rename_movie_files error: #{inspect(reason)}")
         error
     end
+  end
+
+  # Helper function to parse file IDs from various formats to integers
+  defp parse_file_id(value) when is_integer(value), do: value
+  defp parse_file_id(value) when is_binary(value), do: Parsers.parse_integer_exact!(value)
+
+  defp parse_file_id(value) do
+    raise ArgumentError, "Expected integer or string, got: #{inspect(value)}"
   end
 end
