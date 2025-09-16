@@ -249,26 +249,17 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
         false
 
       pid ->
-        try do
-          case GenServer.call(pid, :running?, 1000) do
-            :not_running ->
-              Logger.debug(
-                "Producer: encoding_available? - Encode GenServer is :not_running - AVAILABLE"
-              )
-
-              true
-
-            status ->
-              Logger.debug(
-                "Producer: encoding_available? - Encode GenServer status: #{inspect(status)} - NOT AVAILABLE"
-              )
-
-              false
-          end
-        catch
-          :exit, reason ->
+        case GenServer.call(pid, :running?, 1000) do
+          :not_running ->
             Logger.debug(
-              "Producer: encoding_available? - Encode GenServer call failed: #{inspect(reason)}"
+              "Producer: encoding_available? - Encode GenServer is :not_running - AVAILABLE"
+            )
+
+            true
+
+          status when status != :not_running ->
+            Logger.debug(
+              "Producer: encoding_available? - Encode GenServer status: #{inspect(status)} - NOT AVAILABLE"
             )
 
             false

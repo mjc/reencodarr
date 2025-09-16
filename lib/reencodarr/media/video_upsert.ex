@@ -327,7 +327,16 @@ defmodule Reencodarr.Media.VideoUpsert do
         string_key = to_string(key)
         Enum.any?(conflict_except, &(to_string(&1) == string_key)) or string_key == "dateAdded"
       end)
-      |> Enum.map(fn {key, value} -> {String.to_atom(key), value} end)
+      |> Enum.map(fn {key, value} ->
+        try do
+          {String.to_existing_atom(key), value}
+        rescue
+          ArgumentError ->
+            Logger.warning("Ignoring unknown attribute key: #{inspect(key)}")
+            nil
+        end
+      end)
+      |> Enum.reject(&is_nil/1)
 
     from(v in Video,
       update: [set: ^update_fields],

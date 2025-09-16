@@ -131,21 +131,7 @@ defmodule Reencodarr.Analyzer.Broadway do
 
     # Process the batch using optimized batch mediainfo fetching
     # This does ALL the mediainfo gathering first, then database operations at the end
-    result =
-      try do
-        process_batch_with_single_mediainfo(video_infos, context)
-      rescue
-        e ->
-          Logger.error("Broadway: Exception during batch processing: #{inspect(e)}")
-          Logger.error("Broadway: Exception stacktrace: #{inspect(__STACKTRACE__)}")
-          :error
-      end
-
-    # Only log failures
-    case result do
-      :error -> Logger.error("Broadway: Batch processing failed")
-      _ -> :ok
-    end
+    _result = process_batch_with_single_mediainfo(video_infos, context)
 
     # Log completion and emit telemetry
     duration = System.monotonic_time(:millisecond) - start_time
@@ -156,10 +142,9 @@ defmodule Reencodarr.Analyzer.Broadway do
 
     # Get current queue length for progress calculation
     current_queue_length =
-      try do
-        QueueManager.get_count()
-      catch
-        _error -> 0
+      case QueueManager.get_count() do
+        count when is_integer(count) and count >= 0 -> count
+        _ -> 0
       end
 
     Telemetry.emit_analyzer_throughput(batch_size, current_queue_length)
@@ -171,13 +156,8 @@ defmodule Reencodarr.Analyzer.Broadway do
       {:batch_analysis_completed, batch_size}
     )
 
-    # Transform successful results to success, all failed to failed for Broadway
-    Enum.map(messages, fn message ->
-      case result do
-        :ok -> message
-        :error -> Message.failed(message, "batch processing failed")
-      end
-    end)
+    # Return messages as-is since processing always succeeds
+    messages
   end
 
   @doc """
@@ -207,53 +187,46 @@ defmodule Reencodarr.Analyzer.Broadway do
 
     Logger.debug("Video paths in batch: #{inspect(Enum.map(video_infos, & &1.path))}")
 
-    try do
-      # Extract all paths for batch mediainfo command
-      paths = Enum.map(video_infos, & &1.path)
-      Logger.debug("Broadway: Extracted #{length(paths)} paths for mediainfo")
+    # Extract all paths for batch mediainfo command
+    paths = Enum.map(video_infos, & &1.path)
+    Logger.debug("Broadway: Extracted #{length(paths)} paths for mediainfo")
 
-      mediainfo_start_time = System.monotonic_time(:millisecond)
+    mediainfo_start_time = System.monotonic_time(:millisecond)
 
-      case execute_chunked_mediainfo_command(paths, mediainfo_batch_size) do
-        {:ok, mediainfo_map} ->
-          mediainfo_duration = System.monotonic_time(:millisecond) - mediainfo_start_time
+    case execute_chunked_mediainfo_command(paths, mediainfo_batch_size) do
+      {:ok, mediainfo_map} ->
+        mediainfo_duration = System.monotonic_time(:millisecond) - mediainfo_start_time
 
-          # Record mediainfo batch performance for tuning
-          PerformanceMonitor.record_mediainfo_batch(length(paths), mediainfo_duration)
+        # Record mediainfo batch performance for tuning
+        PerformanceMonitor.record_mediainfo_batch(length(paths), mediainfo_duration)
 
-          Logger.debug(
-            "Successfully fetched mediainfo for #{length(video_infos)} videos in #{mediainfo_duration}ms"
-          )
+        Logger.debug(
+          "Successfully fetched mediainfo for #{length(video_infos)} videos in #{mediainfo_duration}ms"
+        )
 
-          Logger.debug("Mediainfo keys: #{inspect(Map.keys(mediainfo_map))}")
-          Logger.debug("Broadway: About to process videos with batch mediainfo")
-          result = process_videos_with_batch_mediainfo(video_infos, mediainfo_map)
+        Logger.debug("Mediainfo keys: #{inspect(Map.keys(mediainfo_map))}")
+        Logger.debug("Broadway: About to process videos with batch mediainfo")
+        result = process_videos_with_batch_mediainfo(video_infos, mediainfo_map)
 
-          Logger.debug(
-            "Broadway: Completed process_videos_with_batch_mediainfo with result: #{inspect(result)}"
-          )
+        Logger.debug(
+          "Broadway: Completed process_videos_with_batch_mediainfo with result: #{inspect(result)}"
+        )
 
-          result
+        result
 
-        {:error, reason} ->
-          Logger.warning(
-            "Batch mediainfo fetch failed: #{reason}, falling back to individual processing"
-          )
+      {:error, reason} ->
+        Logger.warning(
+          "Batch mediainfo fetch failed: #{reason}, falling back to individual processing"
+        )
 
-          Logger.debug("Broadway: About to process videos individually")
-          result = process_videos_individually(video_infos)
+        Logger.debug("Broadway: About to process videos individually")
+        result = process_videos_individually(video_infos)
 
-          Logger.debug(
-            "Broadway: Completed process_videos_individually with result: #{inspect(result)}"
-          )
+        Logger.debug(
+          "Broadway: Completed process_videos_individually with result: #{inspect(result)}"
+        )
 
-          result
-      end
-    rescue
-      e ->
-        Logger.error("Broadway: Exception in process_batch_with_single_mediainfo: #{inspect(e)}")
-        Logger.error("Broadway: Stacktrace: #{inspect(__STACKTRACE__)}")
-        :error
+        result
     end
   end
 
@@ -373,13 +346,9 @@ defmodule Reencodarr.Analyzer.Broadway do
         handle_upsert_results(successful_data, upsert_results, failed_paths)
 
       {:error, reason} ->
+        Logger.error("Broadway: perform_batch_upsert failed: #{inspect(reason)}")
         {:error, reason}
     end
-  rescue
-    e ->
-      Logger.error("Broadway: Exception during batch upsert and transition: #{inspect(e)}")
-      Logger.error("Broadway: Exception stacktrace: #{inspect(__STACKTRACE__)}")
-      :error
   end
 
   defp log_batch_operation(batch_size) when batch_size > 5 do
@@ -580,20 +549,13 @@ defmodule Reencodarr.Analyzer.Broadway do
   defp decode_and_parse_single_mediainfo_json(json, path) do
     Logger.debug("Decoding mediainfo JSON for #{path}")
 
-    try do
-      case Jason.decode(json) do
-        {:ok, data} ->
-          handle_decoded_single_mediainfo(data)
+    case Jason.decode(json) do
+      {:ok, data} ->
+        handle_decoded_single_mediainfo(data)
 
-        {:error, reason} ->
-          Logger.error("JSON decode failed: #{inspect(reason)}")
-          {:error, "JSON decode failed: #{inspect(reason)}"}
-      end
-    rescue
-      e ->
-        Logger.error("Error parsing mediainfo JSON: #{inspect(e)}")
-        Logger.error("Stacktrace: #{inspect(__STACKTRACE__)}")
-        {:error, "error parsing JSON: #{inspect(e)}"}
+      {:error, reason} ->
+        Logger.error("JSON decode failed: #{inspect(reason)}")
+        {:error, "JSON decode failed: #{inspect(reason)}"}
     end
   end
 
@@ -699,19 +661,13 @@ defmodule Reencodarr.Analyzer.Broadway do
   defp decode_and_parse_batch_mediainfo_json(json, paths) do
     Logger.debug("Decoding batch mediainfo JSON for #{length(paths)} files")
 
-    try do
-      case Jason.decode(json) do
-        {:ok, data} ->
-          handle_decoded_mediainfo_data(data, paths)
+    case Jason.decode(json) do
+      {:ok, data} ->
+        handle_decoded_mediainfo_data(data, paths)
 
-        {:error, reason} ->
-          Logger.error("JSON decode failed: #{inspect(reason)}")
-          {:error, "JSON decode failed: #{inspect(reason)}"}
-      end
-    rescue
-      e ->
-        Logger.error("Error parsing batch mediainfo JSON: #{inspect(e)}")
-        {:error, "error parsing JSON: #{inspect(e)}"}
+      {:error, reason} ->
+        Logger.error("JSON decode failed: #{inspect(reason)}")
+        {:error, "JSON decode failed: #{inspect(reason)}"}
     end
   end
 

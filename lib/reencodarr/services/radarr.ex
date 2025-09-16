@@ -99,44 +99,69 @@ defmodule Reencodarr.Services.Radarr do
     end
   end
 
+  @spec execute_movie_rename(integer(), list(map())) :: {:ok, map()} | {:error, String.t()}
   defp execute_movie_rename(movie_id, renameable_files) do
     # Extract movie file IDs from the renameable files response and ensure they're integers
-    renameable_file_ids =
+    file_ids =
       renameable_files
       |> Enum.map(fn file -> file["movieFileId"] end)
+
+    # Parse all file IDs, collecting successes and failures
+    {successes, failures} =
+      file_ids
       |> Enum.map(&parse_file_id/1)
+      |> Enum.split_with(fn
+        {:ok, _} -> true
+        {:error, _} -> false
+      end)
 
-    json_payload = %{
-      name: "RenameFiles",
-      files: renameable_file_ids
-    }
+    # If any parsing failed, return early with error
+    if Enum.empty?(failures) do
+      # Extract successful IDs
+      renameable_file_ids = Enum.map(successes, fn {:ok, id} -> id end)
 
-    Logger.info(
-      "Radarr rename_movie_files request - Movie ID: #{movie_id}, File IDs: #{inspect(renameable_file_ids)}"
-    )
+      json_payload = %{
+        name: "RenameFiles",
+        files: renameable_file_ids
+      }
 
-    Logger.debug("Radarr rename_movie_files JSON payload: #{inspect(json_payload)}")
+      Logger.info(
+        "Radarr rename_movie_files request - Movie ID: #{movie_id}, File IDs: #{inspect(renameable_file_ids)}"
+      )
 
-    case request(
-           url: "/api/v3/command",
-           method: :post,
-           json: json_payload
-         ) do
-      {:ok, response} = result ->
-        Logger.debug("Radarr rename_movie_files response: #{inspect(response.body)}")
-        result
+      Logger.debug("Radarr rename_movie_files JSON payload: #{inspect(json_payload)}")
 
-      {:error, reason} = error ->
-        Logger.error("Radarr rename_movie_files error: #{inspect(reason)}")
-        error
+      case request(
+             url: "/api/v3/command",
+             method: :post,
+             json: json_payload
+           ) do
+        {:ok, response} = result ->
+          Logger.debug("Radarr rename_movie_files response: #{inspect(response.body)}")
+          result
+
+        {:error, reason} = error ->
+          Logger.error("Radarr rename_movie_files error: #{inspect(reason)}")
+          error
+      end
+    else
+      error_msgs = Enum.map(failures, fn {:error, msg} -> msg end)
+      {:error, "Failed to parse movie file IDs: #{Enum.join(error_msgs, ", ")}"}
     end
   end
 
   # Helper function to parse file IDs from various formats to integers
-  defp parse_file_id(value) when is_integer(value), do: value
-  defp parse_file_id(value) when is_binary(value), do: Parsers.parse_integer_exact!(value)
+  @spec parse_file_id(any()) :: {:ok, integer()} | {:error, String.t()}
+  defp parse_file_id(value) when is_integer(value), do: {:ok, value}
+
+  defp parse_file_id(value) when is_binary(value) do
+    case Parsers.parse_integer_exact(value) do
+      {:ok, int} -> {:ok, int}
+      {:error, _} -> {:error, "invalid integer format"}
+    end
+  end
 
   defp parse_file_id(value) do
-    raise ArgumentError, "Expected integer or string, got: #{inspect(value)}"
+    {:error, "expected integer or string, got: #{inspect(value)}"}
   end
 end

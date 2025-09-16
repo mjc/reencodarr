@@ -144,12 +144,8 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
       log =
         capture_log(fn ->
           Enum.each(video_infos, fn _video_info ->
-            try do
-              # Instead of the removed process_path/1, test Broadway dispatch
-              Broadway.dispatch_available()
-            rescue
-              _ -> :ok
-            end
+            # Instead of the removed process_path/1, test Broadway dispatch
+            Broadway.dispatch_available()
           end)
 
           # Give time for processing
@@ -173,23 +169,19 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
 
       log =
         capture_log(fn ->
-          try do
-            Broadway.pause()
-            Process.sleep(100)
-            paused_running = Broadway.running?()
+          Broadway.pause()
+          Process.sleep(100)
+          paused_running = Broadway.running?()
 
-            Broadway.resume()
-            Process.sleep(100)
-            resumed_running = Broadway.running?()
+          Broadway.resume()
+          Process.sleep(100)
+          resumed_running = Broadway.running?()
 
-            # The exact values depend on whether the pipeline is actually running
-            # in the test environment, but the calls should not crash
-            assert is_boolean(initial_running)
-            assert is_boolean(paused_running)
-            assert is_boolean(resumed_running)
-          rescue
-            _ -> :ok
-          end
+          # The exact values depend on whether the pipeline is actually running
+          # in the test environment, but the calls should not crash
+          assert is_boolean(initial_running)
+          assert is_boolean(paused_running)
+          assert is_boolean(resumed_running)
         end)
 
       assert is_binary(log)

@@ -12,9 +12,8 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
   describe "CRF search retry mechanism" do
     setup do
       # Clean up any existing mocks
-      try do
-        :meck.unload()
-      catch
+      case :meck.unload() do
+        :ok -> :ok
         _ -> :ok
       end
 

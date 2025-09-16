@@ -24,10 +24,11 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   @cache_table :presenter_cache
 
   def start_cache do
-    :ets.new(@cache_table, [:set, :public, :named_table])
-  rescue
-    # Table already exists
-    ArgumentError -> :ok
+    case :ets.whereis(@cache_table) do
+      :undefined -> :ets.new(@cache_table, [:set, :public, :named_table])
+      # Table already exists
+      _ -> :ok
+    end
   end
 
   def present(dashboard_state), do: present(dashboard_state, "UTC")

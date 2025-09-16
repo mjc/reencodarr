@@ -87,12 +87,14 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       nil ->
         false
 
-      _pid ->
-        try do
-          GenServer.call(__MODULE__, :running?) == :running
-        catch
-          :exit, _ -> false
+      pid when is_pid(pid) ->
+        case GenServer.call(__MODULE__, :running?, 1000) do
+          :running -> true
+          _ -> false
         end
+
+      _ ->
+        false
     end
   end
 

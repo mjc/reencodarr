@@ -91,19 +91,25 @@ defmodule Reencodarr.DashboardState do
 
   # Check actual status of Broadway pipelines for initial state
   defp analyzer_running? do
-    Reencodarr.Analyzer.Broadway.running?()
+    case Reencodarr.Analyzer.Broadway.running?() do
+      result when is_boolean(result) -> result
+    end
   rescue
     _ -> false
   end
 
   defp crf_searcher_running? do
-    Reencodarr.CrfSearcher.Broadway.running?()
+    case Reencodarr.CrfSearcher.Broadway.running?() do
+      result when is_boolean(result) -> result
+    end
   rescue
     _ -> false
   end
 
   defp encoder_running? do
-    Reencodarr.Encoder.Broadway.running?()
+    case Reencodarr.Encoder.Broadway.running?() do
+      result when is_boolean(result) -> result
+    end
   rescue
     _ -> false
   end
