@@ -357,19 +357,4 @@ defmodule Reencodarr.Core.Parsers do
               "parse_integer_exact!/1 failed for #{inspect(value)}: #{inspect(reason)}"
     end
   end
-
-  # This function is deprecated - use parse_float_exact/1 instead
-  # Kept for backward compatibility but will be removed
-  # @deprecated "Use parse_float_exact/1 for safe parsing"
-  @spec parse_float_exact!(String.t()) :: float()
-  def parse_float_exact!(value) do
-    case parse_float_exact(value) do
-      {:ok, float} ->
-        float
-
-      {:error, _} ->
-        Logger.warning("parse_float_exact!/1 failed for #{inspect(value)}, returning 0.0")
-        0.0
-    end
-  end
 end
