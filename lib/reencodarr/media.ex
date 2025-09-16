@@ -328,11 +328,6 @@ defmodule Reencodarr.Media do
       _ ->
         false
     end)
-  catch
-    # If there's any error generating args, consider it problematic for safety
-    :error, _ -> true
-    :exit, _ -> true
-    :throw, _ -> true
   end
 
   @doc """
