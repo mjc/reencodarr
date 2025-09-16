@@ -82,6 +82,8 @@ defmodule ReencodarrWeb.ManualScanComponent do
 
   # Async scan operation
   defp start_scan_operation(path) do
+    parent_pid = self()
+
     Task.start(fn ->
       result =
         try do
@@ -92,7 +94,7 @@ defmodule ReencodarrWeb.ManualScanComponent do
         end
 
       # Send result to parent LiveView
-      send(self(), {:manual_scan_completed, result})
+      send(parent_pid, {:manual_scan_completed, result})
     end)
   end
 
