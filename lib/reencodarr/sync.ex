@@ -4,9 +4,11 @@ defmodule Reencodarr.Sync do
   require Logger
   import Ecto.Query
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
-  alias Reencodarr.{Media, Repo, Services, Telemetry}
+  alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
+  alias Reencodarr.Core.Parsers
   alias Reencodarr.Media.{MediaInfoExtractor, VideoFileInfo, VideoUpsert}
   alias Reencodarr.Media.Video.MediaInfoConverter
+  alias Reencodarr.{Media, Repo, Services, Telemetry}
 
   # Public API
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -154,12 +156,9 @@ defmodule Reencodarr.Sync do
   end
 
   defp find_library_id_from_cache(path, library_mappings) do
-    library_mappings
-    |> Enum.find(fn lib -> String.starts_with?(path, lib.path) end)
-    |> case do
-      %{id: id} -> id
-      nil -> nil
-    end
+    Enum.find_value(library_mappings, fn lib ->
+      if String.starts_with?(path, lib.path), do: lib.id
+    end)
   end
 
   defp prepare_video_attrs(file, service_type, library_mappings) do
@@ -248,19 +247,27 @@ defmodule Reencodarr.Sync do
 
     result =
       Repo.transaction(fn ->
-        if should_preserve_file_metadata?(existing_video, info) do
-          update_api_metadata_only(existing_video, info)
-        else
-          upsert_full_video_data(info)
-        end
+        handle_video_upsert(existing_video, info)
       end)
 
     # VideoUpsert will automatically set state to needs_analysis for zero bitrate
     result
   end
 
+  defp handle_video_upsert({:ok, video}, info) do
+    if should_preserve_file_metadata?(video, info) do
+      update_api_metadata_only(video, info)
+    else
+      upsert_full_video_data(info)
+    end
+  end
+
+  defp handle_video_upsert({:error, :not_found}, info) do
+    upsert_full_video_data(info)
+  end
+
   defp should_preserve_file_metadata?(existing_video, info) do
-    existing_video && existing_video.size == info.size && info.bitrate != 0
+    existing_video.size == info.size && info.bitrate != 0
   end
 
   defp update_api_metadata_only(existing_video, info) do
@@ -433,8 +440,8 @@ defmodule Reencodarr.Sync do
   end
 
   defp parse_valid_year(year_str) do
-    case Integer.parse(year_str) do
-      {year, ""} when year >= 1950 and year <= 2030 -> year
+    case Parsers.parse_integer_exact(year_str) do
+      {:ok, year} when year >= 1950 and year <= 2030 -> year
       _ -> nil
     end
   end

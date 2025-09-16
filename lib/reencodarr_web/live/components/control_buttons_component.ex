@@ -1,184 +1,203 @@
 defmodule ReencodarrWeb.ControlButtonsComponent do
-  @moduledoc "Renders the LCARS control buttons for dashboard actions."
-  use Phoenix.Component
-  use Phoenix.LiveComponent
+  @moduledoc """
+  Modern control buttons component for managing system operations.
 
+  Provides interactive controls for:
+  - Broadway pipelines (analyzer, CRF searcher, encoder)
+  - Sync services (Sonarr, Radarr)
+  - Visual feedback and state management
+  """
+
+  use Phoenix.LiveComponent
   require Logger
 
-  @doc "Handles toggle and sync events for LCARS control interface"
-
-  @impl true
-  def mount(socket) do
-    # Don't initialize state here since it's provided by the parent component
-    {:ok, socket}
-  end
-
-  @impl true
-  def update(assigns, socket) do
-    socket =
-      socket
-      |> assign(:encoding, Map.get(assigns, :encoding, false))
-      |> assign(:crf_searching, Map.get(assigns, :crf_searching, false))
-      |> assign(:analyzing, Map.get(assigns, :analyzing, false))
-      |> assign(:syncing, Map.get(assigns, :syncing, false))
-
-    {:ok, socket}
-  end
-
-  @impl true
-  def handle_event("toggle", %{"target" => target}, socket) do
-    case target do
-      "encoder" ->
-        toggle_app(Reencodarr.Encoder.Broadway, :encoding, socket)
-
-      "crf_search" ->
-        toggle_app(Reencodarr.CrfSearcher.Broadway, :crf_searching, socket)
-
-      "analyzer" ->
-        toggle_app(Reencodarr.Analyzer.Broadway, :analyzing, socket)
-
-      _ ->
-        Logger.error("Unknown toggle target: #{inspect(target)}")
-        {:noreply, socket}
-    end
-  end
-
-  @impl true
-  def handle_event("sync", %{"target" => target}, socket) do
-    case target do
-      "sonarr" ->
-        Logger.info("Starting Episodes sync")
-        Reencodarr.Sync.sync_episodes()
-
-      "radarr" ->
-        Logger.info("Starting Movies sync")
-        Reencodarr.Sync.sync_movies()
-
-      _ ->
-        Logger.error("Unknown sync target: #{inspect(target)}")
-    end
-
-    # Don't update local state - let the global telemetry system handle it
-    {:noreply, socket}
-  end
-
-  @impl true
+  @impl Phoenix.LiveComponent
   def render(assigns) do
     ~H"""
-    <div class="space-y-2">
-      <div class="h-8 bg-orange-500 lcars-corner-br flex items-center px-4">
-        <span class="text-black lcars-label text-sm">CONTROLS</span>
-      </div>
-
-      <div class="space-y-1">
-        <.lcars_control_button
-          label="ENCODER"
-          active={@encoding}
-          target="encoder"
-          type="toggle"
-          myself={@myself}
-        />
-        <.lcars_control_button
-          label="CRF SEARCH"
-          active={@crf_searching}
-          target="crf_search"
-          type="toggle"
-          myself={@myself}
-        />
-        <.lcars_control_button
-          label="ANALYZER"
-          active={@analyzing}
-          target="analyzer"
-          type="toggle"
-          myself={@myself}
-        />
-        <.lcars_control_button
-          label="SYNC EPISODES"
-          disabled={@syncing}
-          target="sonarr"
-          type="sync"
-          color="yellow"
-          myself={@myself}
-        />
-        <.lcars_control_button
-          label="SYNC MOVIES"
-          disabled={@syncing}
-          target="radarr"
-          type="sync"
-          color="green"
-          myself={@myself}
-        />
-      </div>
+    <div class="space-y-3" role="group" aria-label="System control operations">
+      <.pipeline_controls
+        encoding={@encoding}
+        crf_searching={@crf_searching}
+        analyzing={@analyzing}
+        myself={@myself}
+      />
+      <.sync_controls syncing={@syncing} myself={@myself} />
     </div>
     """
   end
 
-  # Private helper functions
-
-  defp toggle_app(app, type, socket) do
-    current_state = Map.get(socket.assigns, type)
-    Logger.info("Toggling #{type} - current state: #{current_state}")
-    new_state = not current_state
-
-    if new_state do
-      Logger.info("Starting #{type}")
-      app.start()
-    else
-      Logger.info("Pausing #{type}")
-      app.pause()
-    end
-
-    # Don't update local state - let the global telemetry system handle it
+  @impl Phoenix.LiveComponent
+  def handle_event("toggle_analyzer", _params, socket) do
+    toggle_service(:analyzer)
     {:noreply, socket}
   end
 
-  defp lcars_control_button(assigns) do
-    assigns =
-      assigns
-      |> assign_new(:active, fn -> false end)
-      |> assign_new(:disabled, fn -> false end)
-      |> assign_new(:color, fn -> "orange" end)
+  @impl Phoenix.LiveComponent
+  def handle_event("toggle_crf_search", _params, socket) do
+    case socket.assigns.crf_searching do
+      true -> Reencodarr.CrfSearcher.Broadway.pause()
+      false -> Reencodarr.CrfSearcher.Broadway.resume()
+    end
+
+    {:noreply, socket}
+  end
+
+  @impl Phoenix.LiveComponent
+  def handle_event("toggle_encoder", _params, socket) do
+    toggle_service(:encoder)
+    {:noreply, socket}
+  end
+
+  @impl Phoenix.LiveComponent
+  def handle_event("sync_episodes", _params, socket) do
+    Logger.info("Starting episode sync")
+    Reencodarr.Sync.sync_episodes()
+    {:noreply, socket}
+  end
+
+  @impl Phoenix.LiveComponent
+  def handle_event("sync_movies", _params, socket) do
+    Logger.info("Starting movie sync")
+    Reencodarr.Sync.sync_movies()
+    {:noreply, socket}
+  end
+
+  # Service toggle logic
+  defp toggle_service(:analyzer) do
+    case analyzer_running?() do
+      true -> Reencodarr.Analyzer.Broadway.pause()
+      false -> Reencodarr.Analyzer.Broadway.resume()
+    end
+  end
+
+  defp toggle_service(:encoder) do
+    case encoder_running?() do
+      true -> Reencodarr.Encoder.Broadway.pause()
+      false -> Reencodarr.Encoder.Broadway.resume()
+    end
+  end
+
+  # Service status helpers
+  defp analyzer_running?, do: Reencodarr.Analyzer.Broadway.Producer.running?()
+  defp encoder_running?, do: Reencodarr.Encoder.Broadway.Producer.running?()
+
+  # Pipeline controls section
+  defp pipeline_controls(assigns) do
+    ~H"""
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+      <.control_button
+        id="analyzer-toggle"
+        label={if @analyzing, do: "PAUSE ANALYZER", else: "RESUME ANALYZER"}
+        event="toggle_analyzer"
+        myself={@myself}
+        active={@analyzing}
+        icon={if @analyzing, do: "⏸️", else: "▶️"}
+        color={if @analyzing, do: "yellow", else: "green"}
+      />
+
+      <.control_button
+        id="crf-search-toggle"
+        label={if @crf_searching, do: "PAUSE CRF SEARCH", else: "RESUME CRF SEARCH"}
+        event="toggle_crf_search"
+        myself={@myself}
+        active={@crf_searching}
+        icon={if @crf_searching, do: "⏸️", else: "🔍"}
+        color={if @crf_searching, do: "yellow", else: "blue"}
+      />
+
+      <.control_button
+        id="encoder-toggle"
+        label={if @encoding, do: "PAUSE ENCODER", else: "RESUME ENCODER"}
+        event="toggle_encoder"
+        myself={@myself}
+        active={@encoding}
+        icon={if @encoding, do: "⏸️", else: "⚡"}
+        color={if @encoding, do: "yellow", else: "red"}
+      />
+    </div>
+    """
+  end
+
+  # Sync controls section
+  defp sync_controls(assigns) do
+    ~H"""
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <.control_button
+        id="sync-episodes"
+        label="SYNC EPISODES"
+        event="sync_episodes"
+        myself={@myself}
+        active={false}
+        disabled={@syncing}
+        icon="📺"
+        color="orange"
+      />
+
+      <.control_button
+        id="sync-movies"
+        label="SYNC MOVIES"
+        event="sync_movies"
+        myself={@myself}
+        active={false}
+        disabled={@syncing}
+        icon="🎬"
+        color="purple"
+      />
+    </div>
+    """
+  end
+
+  # Modern control button component
+  defp control_button(assigns) do
+    disabled = Map.get(assigns, :disabled, false)
+
+    assigns = assign(assigns, :disabled, disabled)
 
     ~H"""
     <button
-      phx-click={@type}
+      id={@id}
+      phx-click={@event}
       phx-target={@myself}
-      phx-value-target={@target}
       disabled={@disabled}
+      aria-label={@label}
       class={[
-        "w-full h-8 lcars-corner-br flex items-center px-3 lcars-label text-xs transition-all duration-200 lcars-button",
-        "text-black hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed",
-        lcars_button_color(@type, @active, @disabled, @color)
+        "h-10 px-3 font-bold text-xs tracking-wider rounded transition-all duration-200 flex items-center justify-center space-x-2",
+        "hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900",
+        button_color_classes(@color, @active, @disabled)
       ]}
     >
-      <div class="flex items-center space-x-2">
-        <div class={[
-          "w-2 h-2 rounded-full",
-          if(@type == "toggle" && @active,
-            do: "bg-green-300 lcars-status-online",
-            else: "bg-gray-800"
-          )
-        ]}>
-        </div>
-        <span>{@label}</span>
-      </div>
+      <span>{@icon}</span>
+      <span>{@label}</span>
     </button>
     """
   end
 
-  defp lcars_button_color("toggle", active, _disabled, _color) do
-    if active, do: "bg-red-500", else: "bg-blue-500"
+  # Color helper for buttons
+  defp button_color_classes(color, active, disabled) do
+    cond do
+      disabled -> disabled_button_classes()
+      active -> active_button_classes()
+      true -> normal_button_classes(color)
+    end
   end
 
-  defp lcars_button_color("sync", _active, disabled, color) do
-    if disabled do
-      "bg-gray-600"
-    else
-      case color do
-        "yellow" -> "bg-yellow-400"
-        "green" -> "bg-green-500"
-        _ -> "bg-orange-500"
-      end
+  defp disabled_button_classes do
+    "bg-gray-600 text-gray-400 cursor-not-allowed opacity-50"
+  end
+
+  defp active_button_classes do
+    "bg-yellow-500 text-yellow-900 focus:ring-yellow-400"
+  end
+
+  defp normal_button_classes(color) do
+    case color do
+      "green" -> "bg-green-500 hover:bg-green-400 text-black focus:ring-green-400"
+      "blue" -> "bg-blue-500 hover:bg-blue-400 text-white focus:ring-blue-400"
+      "red" -> "bg-red-500 hover:bg-red-400 text-black focus:ring-red-400"
+      "orange" -> "bg-orange-500 hover:bg-orange-400 text-black focus:ring-orange-400"
+      "purple" -> "bg-purple-500 hover:bg-purple-400 text-white focus:ring-purple-400"
+      "yellow" -> "bg-yellow-500 hover:bg-yellow-400 text-yellow-900 focus:ring-yellow-400"
+      _ -> "bg-gray-500 hover:bg-gray-400 text-white focus:ring-gray-400"
     end
   end
 end

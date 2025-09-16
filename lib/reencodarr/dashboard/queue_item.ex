@@ -13,7 +13,10 @@ defmodule Reencodarr.Dashboard.QueueItem do
           bitrate: integer() | nil,
           size: integer() | nil,
           # Encoding specific
-          estimated_savings_bytes: integer() | nil
+          estimated_savings_bytes: integer() | nil,
+          # Analyzer specific
+          duration: float() | nil,
+          codec: String.t() | nil
         }
 
   defstruct [
@@ -23,7 +26,9 @@ defmodule Reencodarr.Dashboard.QueueItem do
     :estimated_percent,
     :bitrate,
     :size,
-    :estimated_savings_bytes
+    :estimated_savings_bytes,
+    :duration,
+    :codec
   ]
 
   @doc """
@@ -54,6 +59,19 @@ defmodule Reencodarr.Dashboard.QueueItem do
       # Video struct (CRF search or analyzer queue)
       bitrate = Map.get(video, :bitrate)
       size = Map.get(video, :size)
+      duration = Map.get(video, :duration)
+
+      codec =
+        case Map.get(video, :video_codecs) do
+          [codec | _] when is_binary(codec) ->
+            String.upcase(codec)
+
+          codecs when is_list(codecs) and length(codecs) > 0 ->
+            Enum.map_join(codecs, ", ", &String.upcase/1)
+
+          _ ->
+            nil
+        end
 
       %__MODULE__{
         index: index,
@@ -61,7 +79,9 @@ defmodule Reencodarr.Dashboard.QueueItem do
         display_name: clean_display_name(Path.basename(path)),
         estimated_percent: Map.get(video, :estimated_percent),
         bitrate: bitrate,
-        size: size
+        size: size,
+        duration: duration,
+        codec: codec
       }
     end
   end

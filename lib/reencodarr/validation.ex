@@ -12,11 +12,13 @@ defmodule Reencodarr.Validation do
   Validates that a required field is present and not nil.
   """
   def validate_required_field(changeset, field, message \\ nil) do
-    if is_nil(get_field(changeset, field)) do
-      message = message || "#{field} is required"
-      add_error(changeset, field, message)
-    else
-      changeset
+    case get_field(changeset, field) do
+      nil ->
+        message = message || "#{field} is required"
+        add_error(changeset, field, message)
+
+      _ ->
+        changeset
     end
   end
 

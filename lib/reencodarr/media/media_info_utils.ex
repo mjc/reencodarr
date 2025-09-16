@@ -15,6 +15,8 @@ defmodule Reencodarr.Media.MediaInfoUtils do
   """
 
   alias Reencodarr.Core.Parsers
+
+  alias Reencodarr.Core.Parsers
   alias Reencodarr.Media.{CodecMapper, Codecs, MediaInfo, VideoFileInfo}
 
   @doc """
@@ -189,9 +191,9 @@ defmodule Reencodarr.Media.MediaInfoUtils do
         value
 
       value when is_binary(value) ->
-        case Integer.parse(value) do
-          {int_value, ""} -> int_value
-          _ -> default
+        case Parsers.parse_integer_exact(value) do
+          {:ok, int_value} -> int_value
+          {:error, _} -> default
         end
 
       value when is_float(value) ->
@@ -211,9 +213,9 @@ defmodule Reencodarr.Media.MediaInfoUtils do
         value / 1.0
 
       value when is_binary(value) ->
-        case Float.parse(value) do
-          {float_value, ""} -> float_value
-          _ -> default
+        case Parsers.parse_float_exact(value) do
+          {:ok, float_value} -> float_value
+          {:error, _} -> default
         end
 
       _ ->
@@ -226,7 +228,7 @@ defmodule Reencodarr.Media.MediaInfoUtils do
     primary_codecs =
       audio_tracks
       |> Enum.map(&extract_codec_from_track/1)
-      |> Enum.filter(&(!is_nil(&1)))
+      |> Enum.filter(&is_binary/1)
 
     # If no audio codecs found in tracks, try general track as fallback
     if primary_codecs == [] do
@@ -284,9 +286,9 @@ defmodule Reencodarr.Media.MediaInfoUtils do
   defp parse_resolution(resolution) when is_binary(resolution) do
     case String.split(resolution, "x") do
       [width_str, height_str] ->
-        # Use Integer.parse/1 to safely handle potentially invalid input
-        with {width, ""} <- Integer.parse(width_str),
-             {height, ""} <- Integer.parse(height_str) do
+        # Use exact parsing to safely handle potentially invalid input
+        with {:ok, width} <- Parsers.parse_integer_exact(width_str),
+             {:ok, height} <- Parsers.parse_integer_exact(height_str) do
           {width, height}
         else
           _ -> {0, 0}

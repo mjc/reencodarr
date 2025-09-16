@@ -56,8 +56,8 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def init(_opts) do
-    # Subscribe to media events for new VMAFs
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "media_events")
+    # Subscribe to video state transitions for videos that finished CRF search
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
     # Subscribe to encoding events to know when processing completes
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
 
@@ -144,7 +144,21 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   @impl GenStage
+  def handle_info({:video_state_changed, video, :crf_searched}, state) do
+    # Video finished CRF search - if encoder is running, force dispatch even without demand
+    Logger.debug("[Encoder Producer] Received CRF searched video: #{video.path}")
+    force_dispatch_if_running(state)
+  end
+
+  @impl GenStage
+  def handle_info({:video_state_changed, _video, _other_state}, state) do
+    # Ignore other state transitions - encoder only cares about :crf_searched
+    {:noreply, [], state}
+  end
+
+  @impl GenStage
   def handle_info({:vmaf_upserted, _vmaf}, state) do
+    # VMAF was created/updated - check if it's chosen and ready for encoding
     dispatch_if_ready(state)
   end
 
@@ -155,10 +169,10 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
       "Producer: Received encoding completion notification - VMAF: #{vmaf_id}, result: #{inspect(result)}"
     )
 
-    Logger.info("Producer: Current state before transition - status: #{state.status}")
+    Logger.debug("[Encoder Producer] Current state before transition - status: #{state.status}")
 
     new_state = %{state | status: :running}
-    Logger.info("Producer: State after transition - status: #{new_state.status}")
+    Logger.debug("[Encoder Producer] State after transition - status: #{new_state.status}")
 
     dispatch_if_ready(new_state)
   end
@@ -203,15 +217,15 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   defp dispatch_if_ready(state) do
-    Logger.info(
+    Logger.debug(
       "Producer: dispatch_if_ready called - status: #{state.status}, demand: #{state.demand}"
     )
 
     if should_dispatch?(state) and state.demand > 0 do
-      Logger.info("Producer: dispatch_if_ready - conditions met, dispatching VMAFs")
+      Logger.debug("Producer: dispatch_if_ready - conditions met, dispatching VMAFs")
       dispatch_vmafs(state)
     else
-      Logger.info("Producer: dispatch_if_ready - conditions NOT met, not dispatching")
+      Logger.debug("Producer: dispatch_if_ready - conditions NOT met, not dispatching")
       {:noreply, [], state}
     end
   end
@@ -221,8 +235,8 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     availability_check = encoding_available?()
     result = status_check and availability_check
 
-    Logger.info(
-      "Producer: should_dispatch? - status: #{state.status}, status_check: #{status_check}, availability_check: #{availability_check}, result: #{result}"
+    Logger.debug(
+      "[Encoder Producer] should_dispatch? - status: #{state.status}, status_check: #{status_check}, availability_check: #{availability_check}, result: #{result}"
     )
 
     result
@@ -231,21 +245,21 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   defp encoding_available? do
     case GenServer.whereis(Reencodarr.AbAv1.Encode) do
       nil ->
-        Logger.info("Producer: encoding_available? - Encode GenServer not found")
+        Logger.debug("Producer: encoding_available? - Encode GenServer not found")
         false
 
       pid ->
         try do
           case GenServer.call(pid, :running?, 1000) do
             :not_running ->
-              Logger.info(
+              Logger.debug(
                 "Producer: encoding_available? - Encode GenServer is :not_running - AVAILABLE"
               )
 
               true
 
             status ->
-              Logger.info(
+              Logger.debug(
                 "Producer: encoding_available? - Encode GenServer status: #{inspect(status)} - NOT AVAILABLE"
               )
 
@@ -253,7 +267,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
           end
         catch
           :exit, reason ->
-            Logger.info(
+            Logger.debug(
               "Producer: encoding_available? - Encode GenServer call failed: #{inspect(reason)}"
             )
 
@@ -297,5 +311,21 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
           nil -> {nil, state}
         end
     end
+  end
+
+  # Helper function to force dispatch when encoder is running
+  defp force_dispatch_if_running(%{status: :running} = state) do
+    videos = Media.get_next_for_encoding(1)
+
+    if length(videos) > 0 do
+      Logger.debug("[Encoder Producer] Force dispatching video to wake up idle Broadway pipeline")
+      {:noreply, videos, state}
+    else
+      {:noreply, [], state}
+    end
+  end
+
+  defp force_dispatch_if_running(state) do
+    dispatch_if_ready(state)
   end
 end

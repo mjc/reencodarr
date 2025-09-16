@@ -6,15 +6,17 @@ defmodule Reencodarr.Core.Time do
   into the Core namespace with better organization.
   """
 
+  alias Reencodarr.Core.Parsers
+
   @doc """
   Converts a time value to seconds based on the unit.
 
   ## Examples
 
-      iex> Time.to_seconds(5, "minutes")
+      iex> Reencodarr.Core.Time.to_seconds(5, "minutes")
       300
 
-      iex> Time.to_seconds(2, "hours")
+      iex> Reencodarr.Core.Time.to_seconds(2, "hours")
       7200
   """
   @spec to_seconds(integer(), String.t()) :: integer()
@@ -164,12 +166,18 @@ defmodule Reencodarr.Core.Time do
   @spec relative_time_with_timezone(NaiveDateTime.t() | nil, String.t()) :: String.t()
   def relative_time_with_timezone(nil, _timezone), do: "N/A"
 
-  def relative_time_with_timezone(datetime, timezone) do
-    tz = if is_binary(timezone) and timezone != "", do: timezone, else: "UTC"
-
+  def relative_time_with_timezone(datetime, timezone)
+      when is_binary(timezone) and timezone != "" do
     datetime
     |> DateTime.from_naive!("Etc/UTC")
-    |> DateTime.shift_zone!(tz)
+    |> DateTime.shift_zone!(timezone)
+    |> relative_time()
+  end
+
+  def relative_time_with_timezone(datetime, _timezone) do
+    datetime
+    |> DateTime.from_naive!("Etc/UTC")
+    |> DateTime.shift_zone!("UTC")
     |> relative_time()
   end
 
@@ -177,7 +185,7 @@ defmodule Reencodarr.Core.Time do
   defp parse_time_part(captures, key) do
     case Map.get(captures, key) do
       nil -> 0
-      value when is_binary(value) -> String.to_integer(value)
+      value when is_binary(value) -> Parsers.parse_int(value, 0)
       value when is_integer(value) -> value
       _ -> 0
     end

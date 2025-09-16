@@ -1,6 +1,8 @@
 defmodule Reencodarr.Media.CodecMapper do
   @moduledoc "Maps codec identifiers to standardized tags."
 
+  alias Reencodarr.Core.Parsers
+
   @codec_id_map %{
     "AV1" => "V_AV1",
     "x265" => "V_MPEGH/ISO/HEVC",
@@ -97,9 +99,9 @@ defmodule Reencodarr.Media.CodecMapper do
     case Map.get(@channel_map, channel_str) do
       nil ->
         # If not found in map, try to parse as integer
-        case Integer.parse(channel_str) do
-          {int_val, _} -> int_val
-          :error -> 0
+        case Parsers.parse_integer_exact(channel_str) do
+          {:ok, int_val} -> int_val
+          {:error, _} -> 0
         end
 
       mapped_value ->

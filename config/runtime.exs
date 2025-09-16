@@ -47,7 +47,8 @@ if config_env() == :prod do
 
   config :reencodarr, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
-  config :reencodarr, ReencodarrWeb.Endpoint,
+  # Base endpoint configuration
+  base_config = [
     url: [host: host, port: 443, scheme: "https"],
     http: [
       # Enable IPv6 and bind on all interfaces.
@@ -58,6 +59,42 @@ if config_env() == :prod do
       port: port
     ],
     secret_key_base: secret_key_base
+  ]
+
+  # Add HTTPS configuration if SSL is enabled
+  endpoint_config =
+    if System.get_env("REENCODARR_ENABLE_SSL") == "true" do
+      ssl_cert_path = System.get_env("REENCODARR_SSL_CERT_PATH") || "priv/cert/prod_cert.pem"
+      ssl_key_path = System.get_env("REENCODARR_SSL_KEY_PATH") || "priv/cert/prod_key.pem"
+
+      # Check if certificate files exist
+      if File.exists?(ssl_cert_path) and File.exists?(ssl_key_path) do
+        https_port = String.to_integer(System.get_env("HTTPS_PORT") || "4001")
+
+        base_config ++
+          [
+            https: [
+              port: https_port,
+              cipher_suite: :strong,
+              keyfile: ssl_key_path,
+              certfile: ssl_cert_path,
+              # Enable HTTP/2
+              protocol_options: [idle_timeout: 60_000]
+            ],
+            # Force SSL for WebSocket connections
+            force_ssl: [hsts: true]
+          ]
+      else
+        IO.warn("SSL enabled but certificate files not found. Falling back to HTTP only.")
+        IO.warn("Expected files: #{ssl_cert_path}, #{ssl_key_path}")
+        IO.warn("Run scripts/gen_prod_cert.sh to generate certificates for local use.")
+        base_config
+      end
+    else
+      base_config
+    end
+
+  config :reencodarr, ReencodarrWeb.Endpoint, endpoint_config
 
   # ## SSL Support
   #

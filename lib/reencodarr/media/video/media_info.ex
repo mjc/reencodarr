@@ -174,7 +174,7 @@ defmodule Reencodarr.Media.Video.MediaInfo do
     max_channels = Map.get(params, "max_audio_channels", 0)
 
     cond do
-      is_nil(audio_codecs) or Enum.empty?(audio_codecs) ->
+      is_nil(audio_codecs) or audio_codecs == [] ->
         {:error, "No audio codecs found"}
 
       is_nil(max_channels) or max_channels == 0 ->
@@ -192,7 +192,7 @@ defmodule Reencodarr.Media.Video.MediaInfo do
       required_fields
       |> Enum.filter(fn field ->
         value = Map.get(params, field)
-        is_nil(value) or (is_list(value) and Enum.empty?(value))
+        is_nil(value) or (is_list(value) and value == [])
       end)
 
     case missing_fields do
@@ -220,10 +220,12 @@ defmodule Reencodarr.Media.Video.MediaInfo do
   defp validate_video_tracks_present(changeset) do
     video_tracks = get_field(changeset, :video_tracks) || []
 
-    if Enum.empty?(video_tracks) do
-      add_error(changeset, :video_tracks, "at least one video track is required")
-    else
-      changeset
+    case video_tracks do
+      [] ->
+        add_error(changeset, :video_tracks, "at least one video track is required")
+
+      _ ->
+        changeset
     end
   end
 

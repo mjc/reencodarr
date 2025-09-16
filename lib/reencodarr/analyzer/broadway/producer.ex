@@ -21,7 +21,8 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       :queue,
       :manual_queue,
       :paused,
-      :processing
+      :processing,
+      :pending_videos
     ]
 
     def update(state, updates) when is_struct(state, __MODULE__) do
@@ -81,6 +82,8 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   def init(_opts) do
     # Subscribe to media events for new videos
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "media_events")
+    # Subscribe to video state transitions for new videos needing analysis
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
     # Subscribe to analyzer events to know when processing completes
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "analyzer_events")
 
@@ -176,7 +179,15 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_info({:video_upserted, _video}, state) do
-    dispatch_if_ready(state)
+    # New video was upserted - force dispatch to wake up idle Broadway
+    force_dispatch_if_running(state)
+  end
+
+  @impl GenStage
+  def handle_info({:video_state_changed, video, :needs_analysis}, state) do
+    # Video needs analysis - if analyzer is running, force dispatch even without demand
+    Logger.debug("[Analyzer Producer] Received video needing analysis: #{video.path}")
+    force_dispatch_if_running(state)
   end
 
   @impl GenStage
@@ -392,9 +403,13 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       "State: demand=#{state.demand}, status=#{state.status}, queue_size=#{length(state.manual_queue)}"
     )
 
-    if not Enum.empty?(state.manual_queue) do
-      IO.puts("Manual queue contents:")
-      Enum.each(state.manual_queue, fn video -> IO.puts("  - #{video.path}") end)
+    case state.manual_queue do
+      [] ->
+        :ok
+
+      videos ->
+        IO.puts("Manual queue contents:")
+        Enum.each(videos, fn video -> IO.puts("  - #{video.path}") end)
     end
 
     # Get up to 5 videos from queue or database for batching
@@ -456,12 +471,34 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   defp debug_video_states(videos) do
     Enum.each(videos, fn video_info ->
       case Media.get_video_by_path(video_info.path) do
-        nil ->
+        {:error, :not_found} ->
           Logger.debug("video not found in database", path: video_info.path)
 
-        video ->
+        {:ok, video} ->
           Logger.debug("video state check", path: video_info.path, state: video.state)
       end
     end)
+  end
+
+  # Helper function to force dispatch when analyzer is running
+  defp force_dispatch_if_running(%State{status: :running, demand: 0} = state) do
+    videos = Media.get_videos_needing_analysis(1)
+
+    if length(videos) > 0 do
+      Logger.debug(
+        "[Analyzer Producer] Force dispatching video to wake up idle Broadway pipeline"
+      )
+
+      # Temporarily add demand to force dispatch, then call dispatch_if_ready
+      temp_state = State.update(state, demand: 1)
+      dispatch_if_ready(temp_state)
+    else
+      {:noreply, [], state}
+    end
+  end
+
+  defp force_dispatch_if_running(state) do
+    # Already has demand or not running, use normal dispatch
+    dispatch_if_ready(state)
   end
 end
