@@ -191,22 +191,22 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
       # Mock FileOperations to simulate cross-device scenario with proper cleanup
       :meck.new(FileOperations, [:passthrough])
 
+      :meck.expect(FileOperations, :move_file, fn src, dest, context, _video ->
+        case context do
+          "IntermediateMove" ->
+            # Simulate cross-device move requiring copy+delete
+            File.cp!(src, dest)
+            File.rm!(src)
+            :ok
+
+          "FinalRename" ->
+            # Normal rename
+            File.rename!(src, dest)
+            :ok
+        end
+      end)
+
       try do
-        :meck.expect(FileOperations, :move_file, fn src, dest, context, _video ->
-          case context do
-            "IntermediateMove" ->
-              # Simulate cross-device move requiring copy+delete
-              File.cp!(src, dest)
-              File.rm!(src)
-              :ok
-
-            "FinalRename" ->
-              # Normal rename
-              File.rename!(src, dest)
-              :ok
-          end
-        end)
-
         capture_log(fn ->
           result = PostProcessor.process_encoding_success(video, encoded_output)
           assert {:ok, :success} = result
@@ -322,30 +322,28 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
       # Test database transaction rollback on failure with proper mock cleanup
       :meck.new(Media, [:passthrough])
 
-      try do
-        :meck.expect(Media, :mark_as_reencoded, fn _video ->
-          {:error, :database_connection_lost}
+      :meck.expect(Media, :mark_as_reencoded, fn _video ->
+        {:error, :database_connection_lost}
+      end)
+
+      log =
+        capture_log(fn ->
+          result = PostProcessor.process_encoding_success(video, encoded_output)
+          # Should still succeed overall
+          assert {:ok, :success} = result
         end)
 
-        log =
-          capture_log(fn ->
-            result = PostProcessor.process_encoding_success(video, encoded_output)
-            # Should still succeed overall
-            assert {:ok, :success} = result
-          end)
+      # Video should remain in original state due to transaction handling
+      unchanged_video = Media.get_video!(video.id)
+      # The mock prevents the state change, so the video should remain unchanged
+      # In the state machine approach, reencoded is only true when state is :encoded
+      assert unchanged_video.state != :encoded
+      assert unchanged_video.state == :needs_analysis
+      assert unchanged_video.state != :failed
 
-        # Video should remain in original state due to transaction handling
-        unchanged_video = Media.get_video!(video.id)
-        # The mock prevents the state change, so the video should remain unchanged
-        # In the state machine approach, reencoded is only true when state is :encoded
-        assert unchanged_video.state != :encoded
-        assert unchanged_video.state == :needs_analysis
-        assert unchanged_video.state != :failed
-
-        assert log =~ "Failed to mark video #{video.id} as re-encoded"
-      after
-        :meck.unload(Media)
-      end
+      assert log =~ "Failed to mark video #{video.id} as re-encoded"
+      # Ensure Media mock is cleaned up
+      :meck.unload(Media)
     end
 
     defp calculate_savings(original_size, percent) do

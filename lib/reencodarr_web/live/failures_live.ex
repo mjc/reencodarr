@@ -889,76 +889,101 @@ defmodule ReencodarrWeb.FailuresLive do
   defp get_failed_videos_paginated(page, per_page, stage_filter, category_filter, search_term) do
     import Ecto.Query
 
-    base_query =
-      from v in Reencodarr.Media.Video,
-        where: v.state == :failed
+    base_query = from(v in Reencodarr.Media.Video, where: v.state == :failed)
 
-    # Apply stage and category filters by joining with failures table
-    filtered_query =
-      if stage_filter != "all" or category_filter != "all" do
-        query =
-          from v in base_query,
-            join: f in Reencodarr.Media.VideoFailure,
-            on: f.video_id == v.id,
-            where: f.resolved == false,
-            distinct: true
+    base_query
+    |> apply_failure_filters(stage_filter, category_filter)
+    |> apply_search_filter(search_term)
+    |> apply_ordering()
+    |> get_paginated_results(page, per_page)
+  end
 
-        query =
-          if stage_filter != "all" do
-            stage_atom = String.to_atom(stage_filter)
-            from [v, f] in query, where: f.failure_stage == ^stage_atom
-          else
-            query
-          end
+  defp apply_failure_filters(base_query, stage_filter, category_filter) do
+    if stage_filter != "all" or category_filter != "all" do
+      query =
+        from v in base_query,
+          join: f in Reencodarr.Media.VideoFailure,
+          on: f.video_id == v.id,
+          where: f.resolved == false,
+          distinct: true
 
-        query =
-          if category_filter != "all" do
-            category_atom = String.to_atom(category_filter)
-            from [v, f] in query, where: f.failure_category == ^category_atom
-          else
-            query
-          end
+      query
+      |> apply_stage_filter(stage_filter)
+      |> apply_category_filter(category_filter)
+    else
+      base_query
+    end
+  end
 
-        query
-      else
-        base_query
-      end
+  defp apply_stage_filter(query, "all"), do: query
 
-    # Apply search
-    searched_query =
-      if search_term != "" do
-        search_pattern = "%#{search_term}%"
+  defp apply_stage_filter(query, stage_filter) do
+    case parse_stage_filter(stage_filter) do
+      {:ok, stage_atom} ->
+        from [v, f] in query, where: f.failure_stage == ^stage_atom
 
-        case_insensitive_like_condition =
-          SharedQueries.case_insensitive_like(:path, search_pattern)
+      {:error, _reason} ->
+        # Invalid stage filter, return no results
+        from [v, f] in query, where: false
+    end
+  end
 
-        from v in filtered_query, where: ^case_insensitive_like_condition
-      else
-        filtered_query
-      end
+  defp apply_category_filter(query, "all"), do: query
 
-    # Order by most recent first
-    ordered_query = from v in searched_query, order_by: [desc: v.inserted_at]
+  defp apply_category_filter(query, category_filter) do
+    case parse_category_filter(category_filter) do
+      {:ok, category_atom} ->
+        from [v, f] in query, where: f.failure_category == ^category_atom
 
-    # Get total count - for SQLite compatibility, we need to handle GROUP BY queries differently
-    total_count =
-      case has_group_by?(searched_query) do
-        true ->
-          # When we have GROUP BY, we need to count the grouped results
-          # instead of using aggregate which tries to add DISTINCT
-          subquery = from v in searched_query, select: v.id
-          Repo.all(subquery) |> length()
+      {:error, _reason} ->
+        # Invalid category filter, return no results
+        from [v, f] in query, where: false
+    end
+  end
 
-        false ->
-          # No GROUP BY, safe to use aggregate
-          Repo.aggregate(ordered_query, :count, :id)
-      end
+  defp parse_stage_filter("analysis"), do: {:ok, :analysis}
+  defp parse_stage_filter("crf_search"), do: {:ok, :crf_search}
+  defp parse_stage_filter("encoding"), do: {:ok, :encoding}
+  defp parse_stage_filter(invalid), do: {:error, "Invalid stage filter: #{inspect(invalid)}"}
 
-    # Get paginated results
+  defp parse_category_filter("system"), do: {:ok, :system}
+  defp parse_category_filter("media"), do: {:ok, :media}
+  defp parse_category_filter("network"), do: {:ok, :network}
+  defp parse_category_filter("configuration"), do: {:ok, :configuration}
+
+  defp parse_category_filter(invalid),
+    do: {:error, "Invalid category filter: #{inspect(invalid)}"}
+
+  defp apply_search_filter(query, ""), do: query
+
+  defp apply_search_filter(query, search_term) do
+    search_pattern = "%#{search_term}%"
+    case_insensitive_like_condition = SharedQueries.case_insensitive_like(:path, search_pattern)
+    from v in query, where: ^case_insensitive_like_condition
+  end
+
+  defp apply_ordering(query) do
+    from v in query, order_by: [desc: v.inserted_at]
+  end
+
+  defp get_paginated_results(query, page, per_page) do
+    total_count = get_total_count(query)
     offset = (page - 1) * per_page
-    videos = Repo.all(from v in ordered_query, limit: ^per_page, offset: ^offset)
-
+    videos = Repo.all(from v in query, limit: ^per_page, offset: ^offset)
     {videos, total_count}
+  end
+
+  defp get_total_count(query) do
+    case has_group_by?(query) do
+      true ->
+        # When we have GROUP BY, we need to count the grouped results
+        subquery = from v in query, select: v.id
+        Repo.all(subquery) |> length()
+
+      false ->
+        # No GROUP BY, safe to use aggregate
+        Repo.aggregate(query, :count, :id)
+    end
   end
 
   # Helper function to check if a query has GROUP BY clause

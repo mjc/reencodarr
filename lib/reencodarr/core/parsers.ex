@@ -6,6 +6,8 @@ defmodule Reencodarr.Core.Parsers do
   for common data transformations needed throughout the application.
   """
 
+  require Logger
+
   @doc """
   Parses duration string in various formats to seconds.
 
@@ -262,15 +264,32 @@ defmodule Reencodarr.Core.Parsers do
   end
 
   # Convert captured string values to appropriate types
-  defp convert_value(value, :int), do: String.to_integer(value)
-
-  defp convert_value(value, :float) do
-    case String.contains?(value, ".") do
-      true -> String.to_float(value)
-      false -> String.to_integer(value) |> Kernel.*(1.0)
+  @spec convert_value(String.t(), :int) :: integer()
+  defp convert_value(value, :int) do
+    case Integer.parse(value) do
+      {int, ""} -> int
+      _ -> 0
     end
   end
 
+  @spec convert_value(String.t(), :float) :: float()
+  defp convert_value(value, :float) do
+    case String.contains?(value, ".") do
+      true ->
+        case Float.parse(value) do
+          {float, ""} -> float
+          _ -> 0.0
+        end
+
+      false ->
+        case Integer.parse(value) do
+          {int, ""} -> int * 1.0
+          _ -> 0.0
+        end
+    end
+  end
+
+  @spec convert_value(String.t(), :string) :: String.t()
   defp convert_value(value, :string), do: value
 
   @doc """
@@ -323,42 +342,4 @@ defmodule Reencodarr.Core.Parsers do
   end
 
   def parse_float_exact(_), do: {:error, :invalid_input}
-
-  @doc """
-  Parses an integer with exact matching, raises on error.
-
-  ## Examples
-
-      iex> Parsers.parse_integer_exact!("123")
-      123
-
-      iex> Parsers.parse_integer_exact!("123abc")
-      ** (ArgumentError) Invalid integer format: "123abc"
-  """
-  @spec parse_integer_exact!(String.t()) :: integer()
-  def parse_integer_exact!(value) do
-    case parse_integer_exact(value) do
-      {:ok, int} -> int
-      {:error, _} -> raise ArgumentError, "Invalid integer format: #{inspect(value)}"
-    end
-  end
-
-  @doc """
-  Parses a float with exact matching, raises on error.
-
-  ## Examples
-
-      iex> Parsers.parse_float_exact!("123.45")
-      123.45
-
-      iex> Parsers.parse_float_exact!("invalid")
-      ** (ArgumentError) Invalid float format: "invalid"
-  """
-  @spec parse_float_exact!(String.t()) :: float()
-  def parse_float_exact!(value) do
-    case parse_float_exact(value) do
-      {:ok, float} -> float
-      {:error, _} -> raise ArgumentError, "Invalid float format: #{inspect(value)}"
-    end
-  end
 end

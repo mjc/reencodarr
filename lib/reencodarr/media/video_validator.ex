@@ -108,6 +108,6 @@ defmodule Reencodarr.Media.VideoValidator do
   """
   @spec get_attr_value(video_attrs(), String.t()) :: any()
   def get_attr_value(attrs, key) when is_binary(key) do
-    Map.get(attrs, key) || Map.get(attrs, String.to_atom(key))
+    Map.get(attrs, key) || Map.get(attrs, String.to_existing_atom(key))
   end
 end

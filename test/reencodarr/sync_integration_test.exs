@@ -272,28 +272,18 @@ defmodule Reencodarr.SyncIntegrationTest do
       log =
         capture_log(fn ->
           # Test Sonarr refresh
-          try do
-            result = Sync.refresh_operations("123", :sonarr)
-            # Should attempt the operation (may fail without actual service)
-            assert result == {:error, :econnrefused} or
-                     match?({:ok, _}, result) or
-                     match?({:error, _}, result)
-          rescue
-            # Expected in test environment
-            _ -> :ok
-          end
+          result = Sync.refresh_operations("123", :sonarr)
+          # Should attempt the operation (may fail without actual service)
+          assert result == {:error, :econnrefused} or
+                   match?({:ok, _}, result) or
+                   match?({:error, _}, result)
 
           # Test Radarr refresh
-          try do
-            result = Sync.refresh_operations("456", :radarr)
-            # Should attempt the operation (may fail without actual service)
-            assert result == {:error, :econnrefused} or
-                     match?({:ok, _}, result) or
-                     match?({:error, _}, result)
-          rescue
-            # Expected in test environment
-            _ -> :ok
-          end
+          result = Sync.refresh_operations("456", :radarr)
+          # Should attempt the operation (may fail without actual service)
+          assert result == {:error, :econnrefused} or
+                   match?({:ok, _}, result) or
+                   match?({:error, _}, result)
         end)
 
       # Should log the refresh attempts or connection errors
@@ -359,16 +349,11 @@ defmodule Reencodarr.SyncIntegrationTest do
     test "rescan_and_rename_series delegates correctly" do
       log =
         capture_log(fn ->
-          try do
-            result = Sync.rescan_and_rename_series("789")
-            # Should delegate to refresh_operations
-            assert result == {:error, :econnrefused} or
-                     match?({:ok, _}, result) or
-                     match?({:error, _}, result)
-          rescue
-            # Expected in test environment
-            _ -> :ok
-          end
+          result = Sync.rescan_and_rename_series("789")
+          # Should delegate to refresh_operations
+          assert result == {:error, :econnrefused} or
+                   match?({:ok, _}, result) or
+                   match?({:error, _}, result)
         end)
 
       # Should log the operation attempt or connection errors

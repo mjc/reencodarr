@@ -489,6 +489,7 @@ defmodule Reencodarr.Media.Clean do
   end
 
   defp parse_crf(crf) do
-    Parsers.parse_float_exact!(crf)
+    {:ok, value} = Parsers.parse_float_exact(crf)
+    value
   end
 end

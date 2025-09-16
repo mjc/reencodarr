@@ -248,10 +248,6 @@ defmodule ReencodarrWeb.DashboardLive do
     |> stream(:crf_search_queue, crf_search_items, reset: true)
     |> stream(:encoding_queue, encoding_items, reset: true)
     |> stream(:analyzer_queue, analyzer_items, reset: true)
-  rescue
-    error ->
-      Logger.warning("Failed to update queue streams: #{inspect(error)}")
-      socket
   end
 
   defp generate_stream_items(files, prefix) when is_list(files) do
@@ -265,12 +261,15 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp generate_stream_items(_, _), do: []
 
-  # Safe state retrieval functions
-  defp get_safe_full_state, do: safe_call(&DashboardLiveHelpers.get_initial_state/0)
-  defp present_state(state, timezone), do: safe_call(fn -> Presenter.present(state, timezone) end)
+  # State retrieval functions
+  defp get_safe_full_state do
+    {:ok, DashboardLiveHelpers.get_initial_state()}
+  rescue
+    error -> {:error, error}
+  end
 
-  defp safe_call(func) do
-    {:ok, func.()}
+  defp present_state(state, timezone) do
+    {:ok, Presenter.present(state, timezone)}
   rescue
     error -> {:error, error}
   end

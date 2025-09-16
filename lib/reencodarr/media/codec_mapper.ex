@@ -66,9 +66,9 @@ defmodule Reencodarr.Media.CodecMapper do
     "0" => 0
   }
 
-  @spec map_codec_id(String.t() | nil) :: String.t() | atom()
+  @spec map_codec_id(String.t() | nil) :: String.t() | integer() | atom()
   def map_codec_id(codec) do
-    Map.fetch!(@codec_id_map, codec)
+    Map.get(@codec_id_map, codec, :unknown)
   end
 
   @spec has_av1_codec?(list(String.t()) | nil) :: boolean()
