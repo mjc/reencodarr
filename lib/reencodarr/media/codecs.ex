@@ -120,9 +120,9 @@ defmodule Reencodarr.Media.Codecs do
   @doc """
   Maps codec identifiers to standardized internal format.
   """
-  @spec map_codec_id(String.t() | nil) :: String.t() | atom()
+  @spec map_codec_id(String.t() | nil) :: String.t() | integer() | atom()
   def map_codec_id(codec) do
-    Map.fetch!(@codec_id_map, codec)
+    Map.get(@codec_id_map, codec, :unknown)
   end
 
   # === Codec Detection Functions ===
