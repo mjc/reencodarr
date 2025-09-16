@@ -227,7 +227,8 @@ defmodule Reencodarr.Services.Sonarr do
       end)
 
     if Enum.empty?(explicit_failures) do
-      Enum.map(explicit_successes, fn {:ok, id} -> id end)
+      parsed_ids = Enum.map(explicit_successes, fn {:ok, id} -> id end)
+      {:ok, parsed_ids}
     else
       error_msgs = Enum.map(explicit_failures, fn {:error, msg} -> msg end)
       {:error, "Failed to parse explicit file IDs: #{Enum.join(error_msgs, ", ")}"}
