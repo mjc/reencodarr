@@ -1025,7 +1025,13 @@ defmodule Reencodarr.Media do
   end
 
   defp parse_crf(crf) when is_number(crf), do: crf
-  defp parse_crf(crf) when is_binary(crf), do: Parsers.parse_float_exact!(crf)
+
+  defp parse_crf(crf) when is_binary(crf) do
+    case Parsers.parse_float_exact(crf) do
+      {:ok, float} -> float
+      {:error, _} -> 0.0
+    end
+  end
 
   def list_videos_awaiting_crf_search do
     from(v in Video,
