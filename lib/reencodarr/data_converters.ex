@@ -5,6 +5,8 @@ defmodule Reencodarr.DataConverters do
 
   alias Reencodarr.Core.Parsers
 
+  alias Reencodarr.Core.Parsers
+
   @doc """
   Parses a resolution string like "1920x1080" into {:ok, {width, height}} tuple.
   Returns {:error, reason} if parsing fails.
@@ -12,8 +14,8 @@ defmodule Reencodarr.DataConverters do
   def parse_resolution(resolution_string) when is_binary(resolution_string) do
     case String.split(resolution_string, "x") do
       [width_str, height_str] ->
-        with {width, ""} <- Integer.parse(width_str),
-             {height, ""} <- Integer.parse(height_str) do
+        with {:ok, width} <- Parsers.parse_integer_exact(width_str),
+             {:ok, height} <- Parsers.parse_integer_exact(height_str) do
           {:ok, {width, height}}
         else
           _ -> {:error, "Invalid resolution format: #{resolution_string}"}
@@ -81,18 +83,14 @@ defmodule Reencodarr.DataConverters do
         String.replace(acc, unit, "", global: true)
       end)
 
-    case Float.parse(cleaned) do
-      {number, ""} ->
+    case Parsers.parse_float_exact(cleaned) do
+      {:ok, number} ->
         number
 
-      {number, _} ->
-        number
-
-      :error ->
-        case Integer.parse(cleaned) do
-          {number, ""} -> number * 1.0
-          {number, _} -> number * 1.0
-          :error -> 0.0
+      {:error, _} ->
+        case Parsers.parse_integer_exact(cleaned) do
+          {:ok, number} -> number * 1.0
+          {:error, _} -> 0.0
         end
     end
   end

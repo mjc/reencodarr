@@ -7,6 +7,7 @@ defmodule Reencodarr.Media do
 
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.Analyzer.QueueManager
+  alias Reencodarr.Core.Parsers
 
   alias Reencodarr.Media.{
     Library,
@@ -27,7 +28,20 @@ defmodule Reencodarr.Media do
   # --- Video-related functions ---
   def list_videos, do: Repo.all(from v in Video, order_by: [desc: v.updated_at])
   def get_video!(id), do: Repo.get!(Video, id)
-  def get_video_by_path(path), do: Repo.one(from v in Video, where: v.path == ^path)
+
+  @doc """
+  Gets a video by its file path.
+
+  Returns {:ok, video} if found, {:error, :not_found} otherwise.
+  """
+  @spec get_video_by_path(String.t()) :: {:ok, Video.t()} | {:error, :not_found}
+  def get_video_by_path(path) do
+    case Repo.one(from v in Video, where: v.path == ^path) do
+      nil -> {:error, :not_found}
+      video -> {:ok, video}
+    end
+  end
+
   def video_exists?(path), do: Repo.exists?(from v in Video, where: v.path == ^path)
 
   def find_videos_by_path_wildcard(pattern),
@@ -59,10 +73,7 @@ defmodule Reencodarr.Media do
   end
 
   def get_next_for_encoding(limit \\ 1) do
-    case limit do
-      1 -> query_videos_ready_for_encoding(1) |> List.first()
-      _ -> query_videos_ready_for_encoding(limit)
-    end
+    query_videos_ready_for_encoding(limit) || []
   end
 
   def encoding_queue_count do
@@ -510,33 +521,39 @@ defmodule Reencodarr.Media do
   def upsert_vmaf(attrs) do
     video_id = Map.get(attrs, "video_id") || Map.get(attrs, :video_id)
 
-    if is_nil(video_id) or is_nil(get_video(video_id)) do
-      Logger.error("Attempted to upsert VMAF with missing or invalid video_id: #{inspect(attrs)}")
-      {:error, :invalid_video_id}
-    else
-      # Calculate savings if not provided but percent and video are available
-      attrs_with_savings = maybe_calculate_savings(attrs)
+    cond do
+      not (is_integer(video_id) or is_binary(video_id)) ->
+        Logger.error("Attempted to upsert VMAF with invalid video_id type: #{inspect(attrs)}")
+        {:error, :invalid_video_id}
 
-      result =
-        %Vmaf{}
-        |> Vmaf.changeset(attrs_with_savings)
-        |> Repo.insert(
-          on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
-          conflict_target: [:crf, :video_id]
-        )
+      match?(%Video{}, get_video(video_id)) ->
+        # Calculate savings if not provided but percent and video are available
+        attrs_with_savings = maybe_calculate_savings(attrs)
 
-      case result do
-        {:ok, vmaf} ->
-          Reencodarr.Telemetry.emit_vmaf_upserted(vmaf)
+        result =
+          %Vmaf{}
+          |> Vmaf.changeset(attrs_with_savings)
+          |> Repo.insert(
+            on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
+            conflict_target: [:crf, :video_id]
+          )
 
-          # If this VMAF is chosen, update video state to crf_searched
-          handle_chosen_vmaf(vmaf)
+        case result do
+          {:ok, vmaf} ->
+            Reencodarr.Telemetry.emit_vmaf_upserted(vmaf)
 
-        {:error, _error} ->
-          :ok
-      end
+            # If this VMAF is chosen, update video state to crf_searched
+            handle_chosen_vmaf(vmaf)
 
-      result
+          {:error, _error} ->
+            :ok
+        end
+
+        result
+
+      true ->
+        Logger.error("Attempted to upsert VMAF with missing video_id: #{inspect(attrs)}")
+        {:error, :invalid_video_id}
     end
   end
 
@@ -551,9 +568,11 @@ defmodule Reencodarr.Media do
   # Calculate savings if not already provided and we have the necessary data
   defp maybe_calculate_savings(attrs) do
     case {Map.get(attrs, "savings"), Map.get(attrs, "percent"), Map.get(attrs, "video_id")} do
-      {nil, percent, video_id} when not is_nil(percent) and not is_nil(video_id) ->
+      {nil, percent, video_id}
+      when (is_number(percent) or is_binary(percent)) and
+             (is_integer(video_id) or is_binary(video_id)) ->
         case get_video(video_id) do
-          %Video{size: size} when not is_nil(size) ->
+          %Video{size: size} when is_integer(size) and size > 0 ->
             savings = calculate_vmaf_savings(percent, size)
             Map.put(attrs, "savings", savings)
 
@@ -568,9 +587,9 @@ defmodule Reencodarr.Media do
 
   # Calculate estimated space savings in bytes based on percent and video size
   defp calculate_vmaf_savings(percent, video_size) when is_binary(percent) do
-    case Float.parse(percent) do
-      {percent_float, _} -> calculate_vmaf_savings(percent_float, video_size)
-      :error -> nil
+    case Parsers.parse_float_exact(percent) do
+      {:ok, percent_float} -> calculate_vmaf_savings(percent_float, video_size)
+      {:error, _} -> nil
     end
   end
 
@@ -697,7 +716,7 @@ defmodule Reencodarr.Media do
 
   # --- Stats and helpers ---
   def fetch_stats do
-    case Repo.transaction(fn -> Repo.one(aggregated_stats_query()) end) do
+    case Repo.transaction(fn -> fetch_stats_optimized() end) do
       {:ok, stats} ->
         build_stats(stats)
 
@@ -707,17 +726,171 @@ defmodule Reencodarr.Media do
     end
   end
 
+  @doc """
+  Fetches only essential dashboard stats for fast initial load.
+
+  Skips expensive queue data queries, only loads basic metrics.
+  """
+  def fetch_essential_stats do
+    case Repo.transaction(fn -> fetch_essential_stats_optimized() end) do
+      {:ok, stats} ->
+        build_essential_stats(stats)
+
+      {:error, _} ->
+        Logger.error("Failed to fetch essential stats")
+        build_empty_stats()
+    end
+  end
+
+  # Optimized stats fetching with separate queries instead of expensive LEFT JOIN
+  defp fetch_stats_optimized do
+    # Get basic video stats without JOIN (fastest)
+    video_stats =
+      Repo.one(
+        from v in Video,
+          select: %{
+            total_videos: count(v.id),
+            needs_analysis:
+              fragment(
+                "COALESCE(SUM(CASE WHEN ? = 'needs_analysis' THEN 1 ELSE 0 END), 0)",
+                v.state
+              ),
+            analyzed:
+              fragment("COALESCE(SUM(CASE WHEN ? = 'analyzed' THEN 1 ELSE 0 END), 0)", v.state),
+            crf_searching:
+              fragment(
+                "COALESCE(SUM(CASE WHEN ? = 'crf_searching' THEN 1 ELSE 0 END), 0)",
+                v.state
+              ),
+            crf_searched:
+              fragment(
+                "COALESCE(SUM(CASE WHEN ? = 'crf_searched' THEN 1 ELSE 0 END), 0)",
+                v.state
+              ),
+            encoding:
+              fragment("COALESCE(SUM(CASE WHEN ? = 'encoding' THEN 1 ELSE 0 END), 0)", v.state),
+            encoded:
+              fragment("COALESCE(SUM(CASE WHEN ? = 'encoded' THEN 1 ELSE 0 END), 0)", v.state),
+            failed:
+              fragment("COALESCE(SUM(CASE WHEN ? = 'failed' THEN 1 ELSE 0 END), 0)", v.state),
+            most_recent_video_update: max(v.updated_at),
+            most_recent_inserted_video: max(v.inserted_at)
+          }
+      )
+
+    # Get VMAF stats separately (much faster)
+    vmaf_stats =
+      Repo.one(
+        from v in Vmaf,
+          select: %{
+            total_vmafs: count(v.id),
+            chosen_vmafs_count:
+              fragment("COALESCE(SUM(CASE WHEN ? = 1 THEN 1 ELSE 0 END), 0)", v.chosen),
+            avg_vmaf_percentage: fragment("ROUND(AVG(?), 2)", v.percent),
+            total_savings_gb:
+              coalesce(
+                sum(
+                  fragment(
+                    "CASE WHEN ? = 1 AND ? > 0 THEN ? / 1073741824.0 ELSE 0 END",
+                    v.chosen,
+                    v.savings,
+                    v.savings
+                  )
+                ),
+                0
+              )
+          }
+      )
+
+    # Get encoding queue count with optimized query
+    encodes_count =
+      Repo.one(
+        from v in Vmaf,
+          join: vid in assoc(v, :video),
+          where: v.chosen == true and vid.state == :crf_searched,
+          select: count(v.id)
+      )
+
+    # Merge the results - ensure variables are explicitly used
+    result =
+      video_stats
+      |> Map.merge(vmaf_stats)
+      |> Map.put(:encodes_count, encodes_count)
+      |> Map.put(:queued_crf_searches_count, video_stats.analyzed)
+      |> Map.put(:analyzer_count, video_stats.needs_analysis)
+      |> Map.put(:reencoded_count, video_stats.encoded)
+      |> Map.put(:failed_count, video_stats.failed)
+      |> Map.put(:analyzing_count, video_stats.needs_analysis)
+      |> Map.put(:encoding_count, video_stats.encoding)
+      |> Map.put(:searching_count, video_stats.crf_searching)
+      |> Map.put(:available_count, video_stats.crf_searched)
+      |> Map.put(:paused_count, 0)
+      |> Map.put(:skipped_count, 0)
+
+    result
+  end
+
+  # Essential stats fetching - only basic metrics, no queue data
+  defp fetch_essential_stats_optimized do
+    # Get basic video stats only - much faster
+    video_stats =
+      Repo.one(
+        from v in Video,
+          select: %{
+            total_videos: count(v.id),
+            encoded:
+              fragment("COALESCE(SUM(CASE WHEN ? = 'encoded' THEN 1 ELSE 0 END), 0)", v.state),
+            failed:
+              fragment("COALESCE(SUM(CASE WHEN ? = 'failed' THEN 1 ELSE 0 END), 0)", v.state),
+            most_recent_video_update: max(v.updated_at),
+            most_recent_inserted_video: max(v.inserted_at)
+          }
+      )
+
+    # Get only essential VMAF stats
+    vmaf_stats =
+      Repo.one(
+        from v in Vmaf,
+          select: %{
+            total_vmafs: count(v.id),
+            chosen_vmafs_count:
+              fragment("COALESCE(SUM(CASE WHEN ? = 1 THEN 1 ELSE 0 END), 0)", v.chosen),
+            total_savings_gb:
+              coalesce(
+                sum(
+                  fragment(
+                    "CASE WHEN ? = 1 AND ? > 0 THEN ? / 1073741824.0 ELSE 0 END",
+                    v.chosen,
+                    v.savings,
+                    v.savings
+                  )
+                ),
+                0
+              )
+          }
+      )
+
+    # Merge with minimal fields for fast loading
+    video_stats
+    |> Map.merge(vmaf_stats)
+    |> Map.put(:reencoded_count, video_stats.encoded)
+    |> Map.put(:failed_count, video_stats.failed)
+  end
+
   # Build full stats struct on successful DB query
   defp build_stats(stats) do
     next_items = fetch_next_items()
     queue_lengths = calculate_queue_lengths(stats, next_items.manual_items)
 
+    # Extract first items from lists (both functions now guarantee lists)
+    first_encoding = List.first(next_items.next_encoding)
+    first_encoding_by_time = List.first(next_items.next_encoding_by_time)
+
     %Reencodarr.Statistics.Stats{
       avg_vmaf_percentage: stats.avg_vmaf_percentage,
       chosen_vmafs_count: stats.chosen_vmafs_count,
-      lowest_vmaf_percent: next_items.next_encoding && next_items.next_encoding.percent,
-      lowest_vmaf_by_time_seconds:
-        next_items.next_encoding_by_time && next_items.next_encoding_by_time.time,
+      lowest_vmaf_percent: first_encoding && first_encoding.percent,
+      lowest_vmaf_by_time_seconds: first_encoding_by_time && first_encoding_by_time.time,
       total_videos: stats.total_videos,
       # Use new state-based fields
       reencoded_count: stats.reencoded_count,
@@ -740,11 +913,41 @@ defmodule Reencodarr.Media do
     }
   end
 
+  # Build essential stats struct for fast initial load - no queue data
+  defp build_essential_stats(stats) do
+    %Reencodarr.Statistics.Stats{
+      total_videos: stats.total_videos,
+      reencoded_count: stats.reencoded_count,
+      failed_count: stats.failed_count,
+      chosen_vmafs_count: stats.chosen_vmafs_count,
+      total_vmafs: stats.total_vmafs,
+      total_savings_gb: stats.total_savings_gb,
+      most_recent_video_update: stats.most_recent_video_update,
+      most_recent_inserted_video: stats.most_recent_inserted_video,
+      # Empty lists for queue data - will be loaded later
+      next_analyzer: [],
+      next_crf_search: [],
+      videos_by_estimated_percent: [],
+      queue_length: %{analyzer: 0, crf_searches: 0, encodes: 0},
+      # Set remaining fields to defaults
+      avg_vmaf_percentage: 0.0,
+      lowest_vmaf_percent: nil,
+      lowest_vmaf_by_time_seconds: nil,
+      analyzing_count: 0,
+      encoding_count: 0,
+      searching_count: 0,
+      available_count: 0,
+      paused_count: 0,
+      skipped_count: 0
+    }
+  end
+
   defp fetch_next_items do
-    # Simple direct database queries - no Broadway producer state complexity
-    next_analyzer = get_videos_needing_analysis(10)
-    next_crf_search = get_videos_for_crf_search(10)
-    videos_by_estimated_percent = list_videos_by_estimated_percent(10)
+    # Run queries sequentially to avoid SQLite concurrency issues
+    # Use 5 items to match telemetry updates from Broadway producers
+    next_analyzer = get_videos_needing_analysis(5)
+    next_crf_search = get_videos_for_crf_search(5)
+    videos_by_estimated_percent = list_videos_by_estimated_percent(5)
     next_encoding = get_next_for_encoding()
     next_encoding_by_time = get_next_for_encoding_by_time()
     manual_items = get_manual_analyzer_items()
@@ -775,16 +978,22 @@ defmodule Reencodarr.Media do
     :exit, _ -> []
   end
 
+  defp count_manual_analyzer_items do
+    QueueManager.get_queue() |> length()
+  catch
+    :exit, _ -> 0
+  end
+
   # Build minimal stats struct when DB query fails
   defp build_empty_stats do
     %Reencodarr.Statistics.Stats{
-      most_recent_video_update: most_recent_video_update() || nil,
-      most_recent_inserted_video: get_most_recent_inserted_at() || nil
+      most_recent_video_update: most_recent_video_update(),
+      most_recent_inserted_video: get_most_recent_inserted_at()
     }
   end
 
-  def get_next_for_encoding_by_time,
-    do:
+  def get_next_for_encoding_by_time do
+    result =
       Repo.one(
         from v in Vmaf,
           join: vid in assoc(v, :video),
@@ -794,6 +1003,9 @@ defmodule Reencodarr.Media do
           limit: 1,
           preload: [:video]
       )
+
+    if result, do: [result], else: []
+  end
 
   def mark_vmaf_as_chosen(video_id, crf) do
     crf_float = parse_crf(crf)
@@ -810,12 +1022,8 @@ defmodule Reencodarr.Media do
     end)
   end
 
-  defp parse_crf(crf) do
-    case Float.parse(crf) do
-      {value, _} -> value
-      :error -> raise ArgumentError, "Invalid CRF value: #{crf}"
-    end
-  end
+  defp parse_crf(crf) when is_number(crf), do: crf
+  defp parse_crf(crf) when is_binary(crf), do: Parsers.parse_float_exact!(crf)
 
   def list_videos_awaiting_crf_search do
     from(v in Video,
@@ -830,13 +1038,17 @@ defmodule Reencodarr.Media do
     Repo.get(Video, id)
   end
 
-  def get_video_by_service_id(service_id, service_type) when not is_nil(service_id) do
-    Repo.one(
-      from v in Video, where: v.service_id == ^service_id and v.service_type == ^service_type
-    )
+  def get_video_by_service_id(service_id, service_type)
+      when is_binary(service_id) or is_integer(service_id) do
+    case Repo.one(
+           from v in Video, where: v.service_id == ^service_id and v.service_type == ^service_type
+         ) do
+      nil -> {:error, :not_found}
+      video -> {:ok, video}
+    end
   end
 
-  def get_video_by_service_id(nil, _service_type), do: nil
+  def get_video_by_service_id(nil, _service_type), do: {:error, :invalid_service_id}
 
   def count_videos do
     Repo.aggregate(Video, :count, :id)
@@ -945,8 +1157,7 @@ defmodule Reencodarr.Media do
       analyzer_running: AnalyzerBroadway.running?(),
       videos_needing_analysis: get_videos_needing_analysis(5),
       manual_queue: get_manual_analyzer_items(),
-      total_analyzer_queue_count:
-        length(get_videos_needing_analysis(100)) + length(get_manual_analyzer_items())
+      total_analyzer_queue_count: count_videos_needing_analysis() + count_manual_analyzer_items()
     }
   end
 
@@ -955,7 +1166,7 @@ defmodule Reencodarr.Media do
   """
   def debug_force_analyze_video(video_path) when is_binary(video_path) do
     case get_video_by_path(video_path) do
-      %{path: _path, service_id: _service_id, service_type: _service_type} = video ->
+      {:ok, %{path: _path, service_id: _service_id, service_type: _service_type} = video} ->
         Logger.info("🐛 Force analyzing video: #{video_path}")
 
         # Trigger Broadway dispatch instead of old compatibility API
@@ -984,7 +1195,7 @@ defmodule Reencodarr.Media do
           broadway_running: AnalyzerBroadway.running?()
         }
 
-      nil ->
+      {:error, :not_found} ->
         {:error, "Video not found at path: #{video_path}"}
     end
   end
@@ -1071,82 +1282,113 @@ defmodule Reencodarr.Media do
         }
   def explain_path_location(path) when is_binary(path) do
     case get_video_by_path(path) do
-      nil ->
-        %{
-          path: path,
-          exists_in_db: false,
-          database_state: %{
-            analyzed: false,
-            has_vmaf: false,
-            ready_for_encoding: false,
-            state: :needs_analysis
-          },
-          queue_memberships: %{
-            analyzer_broadway: false,
-            analyzer_manual: false,
-            crf_searcher_broadway: false,
-            crf_searcher_genserver: false,
-            encoder_broadway: false,
-            encoder_genserver: false
-          },
-          next_steps: ["not in database - needs to be added"],
-          details: nil
-        }
+      {:error, :not_found} ->
+        build_not_found_response(path)
 
-      video ->
-        # Get associated VMAFs
-        vmafs = Repo.all(from v in Vmaf, where: v.video_id == ^video.id, preload: [:video])
-        chosen_vmaf = Enum.find(vmafs, & &1.chosen)
-
-        # Determine database state
-        analyzed = !is_nil(video.bitrate)
-        has_vmaf = length(vmafs) > 0
-        ready_for_encoding = !is_nil(chosen_vmaf) && video.state not in [:encoded, :failed]
-
-        # Check queue memberships
-        queue_memberships = %{
-          analyzer_broadway: path_in_analyzer_broadway?(path),
-          analyzer_manual: path_in_analyzer_manual?(path),
-          crf_searcher_broadway: path_in_crf_searcher_broadway?(path),
-          crf_searcher_genserver: path_in_crf_searcher_genserver?(path),
-          encoder_broadway: path_in_encoder_broadway?(path),
-          encoder_genserver: path_in_encoder_genserver?(path)
-        }
-
-        # Determine next steps
-        next_steps =
-          determine_next_steps(video, analyzed, has_vmaf, ready_for_encoding, chosen_vmaf)
-
-        # Get library name
-        library = video.library_id && Repo.get(Library, video.library_id)
-
-        %{
-          path: path,
-          exists_in_db: true,
-          database_state: %{
-            analyzed: analyzed,
-            has_vmaf: has_vmaf,
-            ready_for_encoding: ready_for_encoding,
-            encoded: video.state == :encoded,
-            failed: video.state == :failed,
-            state: video.state
-          },
-          queue_memberships: queue_memberships,
-          next_steps: next_steps,
-          details: %{
-            video_id: video.id,
-            library_name: library && library.name,
-            bitrate: video.bitrate,
-            vmaf_count: length(vmafs),
-            chosen_vmaf: chosen_vmaf && %{crf: chosen_vmaf.crf, percent: chosen_vmaf.percent},
-            video_codecs: video.video_codecs,
-            audio_codecs: video.audio_codecs,
-            size: video.size,
-            inserted_at: video.inserted_at,
-            updated_at: video.updated_at
-          }
-        }
+      {:ok, video} ->
+        build_video_response(path, video)
     end
+  end
+
+  # Helper function to build response for paths not in database
+  defp build_not_found_response(path) do
+    %{
+      path: path,
+      exists_in_db: false,
+      database_state: %{
+        analyzed: false,
+        has_vmaf: false,
+        ready_for_encoding: false,
+        state: :needs_analysis
+      },
+      queue_memberships: %{
+        analyzer_broadway: false,
+        analyzer_manual: false,
+        crf_searcher_broadway: false,
+        crf_searcher_genserver: false,
+        encoder_broadway: false,
+        encoder_genserver: false
+      },
+      next_steps: ["not in database - needs to be added"],
+      details: nil
+    }
+  end
+
+  # Helper function to build response for existing videos
+  defp build_video_response(path, video) do
+    {has_vmaf, chosen_vmaf} = get_vmaf_info(video)
+    analyzed = is_integer(video.bitrate) and video.bitrate > 0
+
+    ready_for_encoding =
+      match?(%Vmaf{chosen: true}, chosen_vmaf) && video.state not in [:encoded, :failed]
+
+    queue_memberships = build_queue_memberships(path)
+    next_steps = determine_next_steps(video, analyzed, has_vmaf, ready_for_encoding, chosen_vmaf)
+    details = build_video_details(video, chosen_vmaf)
+
+    %{
+      path: path,
+      exists_in_db: true,
+      database_state: %{
+        analyzed: analyzed,
+        has_vmaf: has_vmaf,
+        ready_for_encoding: ready_for_encoding,
+        encoded: video.state == :encoded,
+        failed: video.state == :failed,
+        state: video.state
+      },
+      queue_memberships: queue_memberships,
+      next_steps: next_steps,
+      details: details
+    }
+  end
+
+  # Helper function to get VMAF information
+  defp get_vmaf_info(video) do
+    has_vmaf = Repo.exists?(from v in Vmaf, where: v.video_id == ^video.id)
+
+    chosen_vmaf =
+      if has_vmaf do
+        Repo.one(
+          from v in Vmaf,
+            where: v.video_id == ^video.id and v.chosen == true,
+            preload: [:video]
+        )
+      else
+        nil
+      end
+
+    {has_vmaf, chosen_vmaf}
+  end
+
+  # Helper function to build queue memberships
+  defp build_queue_memberships(path) do
+    %{
+      analyzer_broadway: path_in_analyzer_broadway?(path),
+      analyzer_manual: path_in_analyzer_manual?(path),
+      crf_searcher_broadway: path_in_crf_searcher_broadway?(path),
+      crf_searcher_genserver: path_in_crf_searcher_genserver?(path),
+      encoder_broadway: path_in_encoder_broadway?(path),
+      encoder_genserver: path_in_encoder_genserver?(path)
+    }
+  end
+
+  # Helper function to build video details
+  defp build_video_details(video, chosen_vmaf) do
+    library = video.library_id && Repo.get(Library, video.library_id)
+
+    %{
+      video_id: video.id,
+      library_name: library && library.name,
+      bitrate: video.bitrate,
+      vmaf_count: Repo.aggregate(from(v in Vmaf, where: v.video_id == ^video.id), :count, :id),
+      chosen_vmaf: chosen_vmaf && %{crf: chosen_vmaf.crf, percent: chosen_vmaf.percent},
+      video_codecs: video.video_codecs,
+      audio_codecs: video.audio_codecs,
+      size: video.size,
+      inserted_at: video.inserted_at,
+      updated_at: video.updated_at
+    }
   end
 
   # Helper functions to check queue memberships
@@ -1435,7 +1677,7 @@ defmodule Reencodarr.Media do
       |> Map.put(:path, diagnostics.path)
       |> Map.put(:library_id, diagnostics.library_id)
       |> Map.put(:file_exists, diagnostics.file_exists)
-      |> Map.put(:had_existing_video, !is_nil(diagnostics.existing_video))
+      |> Map.put(:had_existing_video, match?(%Video{}, diagnostics.existing_video))
       |> Map.put(:messages, Enum.reverse(result.messages))
       |> Map.put(:errors, Enum.reverse(result.errors))
 
@@ -1496,11 +1738,11 @@ defmodule Reencodarr.Media do
   Get VMAF record by video ID and CRF value.
   """
   def get_vmaf_by_crf(video_id, crf_str) do
-    case Float.parse(to_string(crf_str)) do
-      {crf_float, _} ->
+    case Parsers.parse_float_exact(to_string(crf_str)) do
+      {:ok, crf_float} ->
         Repo.one(from v in Vmaf, where: v.video_id == ^video_id and v.crf == ^crf_float, limit: 1)
 
-      :error ->
+      {:error, _} ->
         nil
     end
   end

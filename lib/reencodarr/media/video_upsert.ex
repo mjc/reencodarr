@@ -10,6 +10,7 @@ defmodule Reencodarr.Media.VideoUpsert do
   require Logger
   import Ecto.Query
   alias Reencodarr.{Media.Library, Media.Video, Media.VideoValidator, Media.Vmaf, Repo}
+  alias Reencodarr.Media.VideoStateMachine
 
   @type attrs :: %{String.t() => any()} | %{atom() => any()}
   @type upsert_result :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()} | {:error, any()}
@@ -104,14 +105,15 @@ defmodule Reencodarr.Media.VideoUpsert do
   @spec handle_vmaf_deletion_and_bitrate_preservation(%{String.t() => any()}) :: %{
           String.t() => any()
         }
-  defp handle_vmaf_deletion_and_bitrate_preservation(attrs) do
-    path = Map.get(attrs, "path")
-
-    # Skip metadata comparison if path is invalid - let validation handle it
-    if not is_binary(path) or String.trim(path) == "", do: attrs
-
-    process_video_metadata_changes(attrs, path)
+  defp handle_vmaf_deletion_and_bitrate_preservation(%{"path" => path} = attrs)
+       when is_binary(path) do
+    case String.trim(path) do
+      "" -> attrs
+      _valid_path -> process_video_metadata_changes(attrs, path)
+    end
   end
+
+  defp handle_vmaf_deletion_and_bitrate_preservation(attrs), do: attrs
 
   @spec process_video_metadata_changes(%{String.t() => any()}, String.t()) :: %{
           String.t() => any()
@@ -159,8 +161,9 @@ defmodule Reencodarr.Media.VideoUpsert do
       |> Map.delete("bitrate")
       |> Map.delete("mediainfo")
     else
-      if not is_nil(existing_video) do
-        Logger.debug("Allowing bitrate update for #{path}")
+      case existing_video do
+        nil -> :ok
+        _ -> Logger.debug("Allowing bitrate update for #{path}")
       end
 
       attrs
@@ -242,8 +245,7 @@ defmodule Reencodarr.Media.VideoUpsert do
 
     case result do
       {:ok, video} ->
-        Logger.debug("Successfully upserted video in batch: #{video.path}")
-        {:ok, video}
+        handle_successful_upsert(video)
 
       {:error, %Ecto.Changeset{errors: [updated_at: {"is stale", _}]} = changeset} ->
         handle_stale_update_error_in_batch(changeset, attrs)
@@ -279,8 +281,7 @@ defmodule Reencodarr.Media.VideoUpsert do
   defp handle_upsert_result(result, attrs) do
     case result do
       {:ok, video} ->
-        Logger.debug("Video upserted successfully: #{video.path}")
-        {:ok, video}
+        handle_successful_upsert(video)
 
       {:error, %Ecto.Changeset{errors: [updated_at: {"is stale", _}]} = changeset} ->
         handle_stale_update_error(changeset, attrs)
@@ -289,6 +290,19 @@ defmodule Reencodarr.Media.VideoUpsert do
         Logger.error("Video upsert failed: #{inspect(changeset_or_reason)}")
         {:error, changeset_or_reason}
     end
+  end
+
+  # Helper function to handle successful video upserts consistently
+  @spec handle_successful_upsert(Video.t()) :: {:ok, Video.t()}
+  defp handle_successful_upsert(video) do
+    Logger.debug("Video upserted successfully: #{video.path}")
+
+    # If video is in needs_analysis state, broadcast state transition for queue processing
+    if video.state == :needs_analysis do
+      VideoStateMachine.broadcast_state_transition(video, :needs_analysis)
+    end
+
+    {:ok, video}
   end
 
   defp handle_stale_update_error(changeset, attrs) do

@@ -29,6 +29,7 @@ defmodule ReencodarrWeb.FailuresLive do
 
   require Logger
 
+  alias Reencodarr.Core.Parsers
   alias Reencodarr.Media
   alias Reencodarr.Media.SharedQueries
   alias Reencodarr.Repo
@@ -85,8 +86,8 @@ defmodule ReencodarrWeb.FailuresLive do
 
   @impl true
   def handle_event("retry_failed_video", %{"video_id" => video_id}, socket) do
-    case Integer.parse(video_id) do
-      {id, ""} ->
+    case Parsers.parse_integer_exact(video_id) do
+      {:ok, id} ->
         case Media.get_video(id) do
           nil ->
             {:noreply, put_flash(socket, :error, "Video not found")}
@@ -102,7 +103,7 @@ defmodule ReencodarrWeb.FailuresLive do
             {:noreply, put_flash(socket, :info, "Video #{video.id} marked for retry")}
         end
 
-      _ ->
+      {:error, _} ->
         {:noreply, put_flash(socket, :error, "Invalid video ID")}
     end
   end
@@ -119,7 +120,7 @@ defmodule ReencodarrWeb.FailuresLive do
 
   @impl true
   def handle_event("toggle_details", %{"video_id" => video_id}, socket) do
-    video_id = String.to_integer(video_id)
+    video_id = Parsers.parse_int(video_id)
     expanded = socket.assigns.expanded_details
 
     new_expanded =
@@ -171,7 +172,7 @@ defmodule ReencodarrWeb.FailuresLive do
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    page = String.to_integer(page)
+    page = Parsers.parse_int(page, 1)
 
     socket =
       socket
@@ -369,7 +370,7 @@ defmodule ReencodarrWeb.FailuresLive do
             <h3 class="text-lg text-orange-300 font-bold">FAILED VIDEOS</h3>
           </div>
 
-          <%= if length(@failed_videos) == 0 do %>
+          <%= if @failed_videos == [] do %>
             <div class="p-8 text-center text-orange-400">
               <div class="text-4xl mb-4">✅</div>
               <div class="text-lg">NO FAILURES DETECTED</div>

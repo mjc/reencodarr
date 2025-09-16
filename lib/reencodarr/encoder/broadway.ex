@@ -506,7 +506,7 @@ defmodule Reencodarr.Encoder.Broadway do
 
     # Get rule-based arguments from centralized Rules module
     # Extract VMAF params for use in Rules.build_args
-    vmaf_params = if vmaf.params && is_list(vmaf.params), do: vmaf.params, else: []
+    vmaf_params = extract_vmaf_params(vmaf)
 
     Logger.debug("build_encode_args details",
       vmaf_id: vmaf.id,
@@ -670,21 +670,21 @@ defmodule Reencodarr.Encoder.Broadway do
     result =
       case {Map.get(@failure_classification.critical_failures, exit_code),
             Map.get(@failure_classification.recoverable_failures, exit_code)} do
-        {failure_info, nil} when not is_nil(failure_info) ->
+        {failure_info, _} when is_map(failure_info) ->
           Logger.info(
             "Broadway: Exit code #{exit_code} classified as CRITICAL: #{failure_info.reason}"
           )
 
           {:pause, failure_info.reason}
 
-        {nil, failure_info} when not is_nil(failure_info) ->
+        {_, failure_info} when is_map(failure_info) ->
           Logger.info(
             "Broadway: Exit code #{exit_code} classified as RECOVERABLE: #{failure_info.reason}"
           )
 
           {:continue, failure_info.reason}
 
-        {nil, nil} ->
+        {_, _} ->
           Logger.info(
             "Broadway: Exit code #{exit_code} classified as UNKNOWN - treating as recoverable"
           )
@@ -702,6 +702,10 @@ defmodule Reencodarr.Encoder.Broadway do
   """
   @spec get_failure_classification() :: map()
   def get_failure_classification, do: @failure_classification
+
+  # Helper function to extract VMAF params with proper pattern matching
+  defp extract_vmaf_params(%{params: params}) when is_list(params), do: params
+  defp extract_vmaf_params(_), do: []
 
   # Helper functions for testing failure classification and encoding paths
   if Mix.env() == :test do

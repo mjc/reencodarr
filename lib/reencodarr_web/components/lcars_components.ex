@@ -1,9 +1,12 @@
 defmodule ReencodarrWeb.LcarsComponents do
   @moduledoc """
-  Shared LCARS (Library Computer Access/Retrieval System) UI components.
+  Modern LCARS (Library Computer Access/Retrieval System) UI components.
 
-  Provides reusable Star Trek-themed interface components with consistent
-  styling and behavior across all dashboard LiveViews.
+  Provides reusable Star Trek-themed interface components with:
+  - Consistent styling and behavior
+  - Proper accessibility attributes
+  - Modern Phoenix 1.8+ patterns
+  - Comprehensive documentation
   """
 
   use Phoenix.Component
@@ -12,11 +15,25 @@ defmodule ReencodarrWeb.LcarsComponents do
 
   @doc """
   Renders the main LCARS page frame with header, navigation, and footer.
+
+  Creates the overall page structure with LCARS styling and provides
+  slots for page content.
+
+  ## Attributes
+
+    * `title` (required) - Page title displayed in header
+    * `current_page` (required) - Current navigation page for highlighting
+    * `current_stardate` (required) - Stardate for footer display
+
+  ## Slots
+
+    * `inner_block` (required) - Main page content
   """
-  attr :title, :string, required: true
-  attr :current_page, :atom, required: true
-  attr :current_stardate, :float, required: true
-  slot :inner_block, required: true
+  attr :title, :string, required: true, doc: "Page title for header"
+  attr :current_page, :atom, required: true, doc: "Current page for navigation highlighting"
+  attr :current_stardate, :float, required: true, doc: "Current stardate for footer"
+
+  slot :inner_block, required: true, doc: "Main page content"
 
   def lcars_page_frame(assigns) do
     ~H"""
@@ -24,78 +41,120 @@ defmodule ReencodarrWeb.LcarsComponents do
       id="lcars-dashboard"
       class="min-h-screen bg-black text-orange-400 font-mono lcars-screen lcars-scan-lines"
       phx-hook="TimezoneHook"
+      role="main"
     >
       <.lcars_header title={@title} />
       <.lcars_navigation current_page={@current_page} />
 
-      <div class="p-3 sm:p-6 space-y-4 sm:space-y-6">
+      <main class="p-3 sm:p-6 space-y-4 sm:space-y-6" role="main" id="dashboard-main">
         {render_slot(@inner_block)}
         <.lcars_footer current_stardate={@current_stardate} />
-      </div>
+      </main>
     </div>
     """
   end
 
   @doc """
-  Renders the LCARS header frame.
+  Renders the LCARS header frame with gradient styling.
+
+  ## Attributes
+
+    * `title` (required) - Title text to display in header
   """
-  attr :title, :string, required: true
+  attr :title, :string, required: true, doc: "Header title text"
 
   def lcars_header(assigns) do
     ~H"""
-    <div class="h-12 sm:h-16 bg-gradient-to-r from-orange-500 via-yellow-400 to-red-500 relative lcars-border-gradient">
-      <div class="absolute top-0 left-0 w-16 sm:w-32 h-12 sm:h-16 bg-orange-500 lcars-corner-br">
+    <header
+      class="h-12 sm:h-16 bg-gradient-to-r from-orange-500 via-yellow-400 to-red-500 relative lcars-border-gradient"
+      role="banner"
+    >
+      <div
+        class="absolute top-0 left-0 w-16 sm:w-32 h-12 sm:h-16 bg-orange-500 lcars-corner-br"
+        aria-hidden="true"
+      >
       </div>
-      <div class="absolute top-0 right-0 w-16 sm:w-32 h-12 sm:h-16 bg-red-500 lcars-corner-bl"></div>
+      <div
+        class="absolute top-0 right-0 w-16 sm:w-32 h-12 sm:h-16 bg-red-500 lcars-corner-bl"
+        aria-hidden="true"
+      >
+      </div>
+
       <div class="flex items-center justify-center h-full px-4">
         <h1 class="text-black text-lg sm:text-2xl lcars-title text-center">
           {@title}
         </h1>
       </div>
-    </div>
+    </header>
     """
   end
 
   @doc """
-  Renders the LCARS navigation bar.
+  Renders the LCARS navigation bar with active page highlighting.
+
+  ## Attributes
+
+    * `current_page` (required) - Current page atom for highlighting active state
   """
-  attr :current_page, :atom, required: true
+  attr :current_page, :atom,
+    required: true,
+    doc: "Current page for active navigation highlighting"
 
   def lcars_navigation(assigns) do
     ~H"""
-    <div class="border-b-2 border-orange-500 bg-gray-900">
-      <div class="flex space-x-1 p-2">
-        <.nav_link page={:overview} current={@current_page} path="/" label="OVERVIEW" />
-        <.nav_link page={:broadway} current={@current_page} path="/broadway" label="PIPELINE MONITOR" />
-        <.nav_link page={:failures} current={@current_page} path="/failures" label="FAILURES" />
-        <.nav_link page={:rules} current={@current_page} path="/rules" label="ENCODING RULES" />
-      </div>
-    </div>
+    <nav
+      class="border-b-2 border-orange-500 bg-gray-900"
+      role="navigation"
+      aria-label="Main navigation"
+    >
+      <ul class="flex space-x-1 p-2" role="menubar">
+        <.nav_item page={:overview} current={@current_page} path="/" label="OVERVIEW" />
+        <.nav_item page={:broadway} current={@current_page} path="/broadway" label="PIPELINE MONITOR" />
+        <.nav_item page={:failures} current={@current_page} path="/failures" label="FAILURES" />
+        <.nav_item page={:rules} current={@current_page} path="/rules" label="ENCODING RULES" />
+      </ul>
+    </nav>
     """
   end
 
-  defp nav_link(assigns) do
-    active = assigns.page == assigns.current
+  @doc false
+  attr :page, :atom, required: true
+  attr :current, :atom, required: true
+  attr :path, :string, required: true
+  attr :label, :string, required: true
 
+  defp nav_item(assigns) do
+    active = assigns.page == assigns.current
     assigns = assign(assigns, :active, active)
 
     ~H"""
-    <%= if @active do %>
-      <span class={navigation_link_classes(:active)}>
-        {@label}
-      </span>
-    <% else %>
-      <.link navigate={@path} class={navigation_link_classes()}>
-        {@label}
-      </.link>
-    <% end %>
+    <li role="presentation">
+      <%= if @active do %>
+        <span class={navigation_link_classes(:active)} role="menuitem" aria-current="page">
+          {@label}
+        </span>
+      <% else %>
+        <.link
+          navigate={@path}
+          class={navigation_link_classes()}
+          role="menuitem"
+          aria-label={"Navigate to #{@label}"}
+        >
+          {@label}
+        </.link>
+      <% end %>
+    </li>
     """
   end
 
   @doc """
-  Renders the LCARS footer with stardate.
+  Renders the LCARS footer with stardate display.
+
+  ## Attributes
+
+    * `current_stardate` (required) - Current stardate to display
   """
-  attr :current_stardate, :float, required: true
+  attr :current_stardate, :float, required: true, doc: "Current stardate for display"
 
   def lcars_footer(assigns) do
     ~H"""

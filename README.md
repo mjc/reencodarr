@@ -1,31 +1,134 @@
 # Reencodarr
 
-This is a WIP frontend for using the Rust CLI tool `ab-av1` to do bulk conversions based on time or space efficiency. It requires PostgreSQL for now but will not need it in the future.
+An Elixir/Phoenix web application for bulk video transcoding using the `ab-av1` CLI tool. Features a web interface for analyzing, CRF searching, and encoding videos to AV1 with VMAF quality targeting, with optional integration to Sonarr/Radarr APIs for media management.
 
-It currently doesn't actually encode but that's next on the todo list.
+## Features
+
+- **Video Analysis**: Automated analysis of video files using MediaInfo
+- **CRF Search**: VMAF-based quality targeting to find optimal encoding settings
+- **Bulk Encoding**: Queue-based encoding system with progress tracking
+- **Media Server Integration**: Sonarr/Radarr webhook support for automatic processing
+- **Real-time Dashboard**: Live updates via WebSockets with queue monitoring
+- **Failure Tracking**: Comprehensive error reporting and pattern analysis
+- **SQLite Database**: Simple deployment with WAL mode for concurrent operations
+
+## Quick Start
+
+### Development Setup
+
+1. **Install Dependencies**:
+   - Elixir/Erlang (via asdf, mise, or your package manager)
+   - Required binaries: `ab-av1`, `ffmpeg`, `mediainfo`
+
+2. **Setup Application**:
+   ```bash
+   git clone <repository>
+   cd reencodarr
+   mix setup  # Installs deps, creates SQLite DB, compiles assets
+   ```
+
+3. **Start Development Server**:
+   ```bash
+   mix phx.server
+   ```
+
+4. **Access Application**:
+   - HTTP: [`localhost:4000`](http://localhost:4000)
+   - HTTPS: [`localhost:4001`](https://localhost:4001) (self-signed certificate)
+   - Accept the browser security warning for the self-signed certificate
+
+### WebSocket Support
+
+For optimal real-time updates, use HTTPS in development. The application automatically generates self-signed certificates and configures both HTTP (port 4000) and HTTPS (port 4001). Modern browsers require secure connections for WebSocket functionality.
+
+### Production Deployment
+
+#### SSL Certificate Setup (Local Network Only)
+
+**⚠️ WARNING: The generated certificate is ONLY for local network access. DO NOT use for public internet deployment!**
+
+1. **Generate Production Certificate**:
+   ```bash
+   ./scripts/gen_prod_cert.sh
+   ```
+
+2. **Enable SSL in Production**:
+   ```bash
+   export REENCODARR_ENABLE_SSL="true"
+   export REENCODARR_SSL_CERT_PATH="priv/cert/prod_cert.pem"
+   export REENCODARR_SSL_KEY_PATH="priv/cert/prod_key.pem"
+   export HTTPS_PORT="4001"
+   ```
+
+3. **For Public Internet Deployment**:
+   Use proper certificates from:
+   - [Let's Encrypt](https://letsencrypt.org) (free)
+   - Your domain provider
+   - A commercial certificate authority
+
+#### Environment Variables
+
+```bash
+# Database
+export DATABASE_PATH="priv/reencodarr_prod.db"
+export DATABASE_POOL_SIZE="20"
+
+# Phoenix
+export SECRET_KEY_BASE="<generate with: mix phx.gen.secret>"
+export PHX_HOST="your-domain.com"
+export PORT="4000"
+export PHX_SERVER="true"
+
+# SSL (optional, for local network only)
+export REENCODARR_ENABLE_SSL="true"
+export REENCODARR_SSL_CERT_PATH="priv/cert/prod_cert.pem"
+export REENCODARR_SSL_KEY_PATH="priv/cert/prod_key.pem"
+export HTTPS_PORT="4001"
+```
 
 To start your Reencodarr server for development:
 
-  * make sure you have postgres set up and running locally with unix auth.
   * Run `mix setup` to install and setup dependencies
   * Start Phoenix endpoint with `mix phx.server` or inside IEx with `iex -S mix phx.server`
 
-Now you can visit [`localhost:4000`](http://localhost:4000) from your browser.
+Now you can visit [`localhost:4000`](http://localhost:4000) or [`localhost:4001`](https://localhost:4001) from your browser.
 
-## Planned Items
+## Project Status
 
-  - [x] Encoding
-  - [ ] Docker image
-  - [ ] Clustering
-  - [ ] Remove PostgreSQL dependency
-  - [ ] Flexible format selection rules (including toggling different kinds of hwaccel. cuda decoding is always on currently)
-  - [ ] Automatic syncing
-  - [x] Syncing button for Sonarr
-  - [ ] Setup wizard
-  - [ ] Radarr integration
-  - [x] Manual syncing and scanning
-  - [ ] Authentication. Don't run this thing on the public internet. You've been warned.
-  - [ ] a UI for comparing results
+  - [x] Video Analysis Pipeline
+  - [x] CRF Search with VMAF Targeting
+  - [x] Bulk Video Encoding
+  - [x] SQLite Database (migrated from PostgreSQL)
+  - [x] Real-time Dashboard with WebSockets
+  - [x] Sonarr Integration
+  - [x] Radarr Integration
+  - [x] Manual Scanning and Queue Management
+  - [x] Comprehensive Failure Tracking
+  - [ ] Docker Container Image
+  - [ ] Application Clustering
+  - [ ] Flexible Format Selection Rules
+  - [ ] Hardware Acceleration Configuration UI
+  - [ ] Setup Wizard
+  - [ ] User Authentication (⚠️ **Do not expose to public internet without authentication**)
+  - [ ] Visual Quality Comparison UI
+
+## Architecture
+
+### Database: SQLite with WAL Mode
+- **Simple Deployment**: Single file database with no external dependencies
+- **Concurrent Operations**: WAL mode enables simultaneous read/write operations
+- **Optimized Configuration**: 256MB cache, 512MB memory mapping for performance
+- **Migration Support**: Scripts available for PostgreSQL→SQLite migration
+
+### Broadway Pipeline System
+Three fault-tolerant processing pipelines handle video operations:
+
+- **Analyzer**: Batched video analysis (up to 5 videos per MediaInfo call)
+- **CRF Searcher**: Single-concurrency pipeline for VMAF quality targeting
+- **Encoder**: Actual video encoding with progress monitoring
+
+### State Management
+Videos use a state machine with transitions: `needs_analysis → analyzed → crf_searching → crf_searched → encoding → encoded/failed`
 
 ## Failure Tracking & Monitoring
 

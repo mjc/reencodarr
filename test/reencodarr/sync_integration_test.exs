@@ -40,8 +40,7 @@ defmodule Reencodarr.SyncIntegrationTest do
         end)
 
       # Verify video was created correctly
-      video = Media.get_video_by_service_id("int1", :sonarr)
-      assert video != nil
+      {:ok, video} = Media.get_video_by_service_id("int1", :sonarr)
       assert video.path == "/test/integration/movie1.mkv"
       assert video.size == 2_500_000_000
       # Uses overall_bitrate when available
@@ -83,8 +82,7 @@ defmodule Reencodarr.SyncIntegrationTest do
         end)
 
       # Verify video was created
-      video = Media.get_video_by_service_id("need_analysis", :sonarr)
-      assert video != nil
+      {:ok, video} = Media.get_video_by_service_id("need_analysis", :sonarr)
       # Check that video needs analysis due to missing bitrate (stored as nil after changeset)
       assert video.bitrate == nil
       # Should be in needs_analysis state due to missing bitrate
@@ -124,8 +122,7 @@ defmodule Reencodarr.SyncIntegrationTest do
         end)
 
       # Verify video was created with proper MediaInfo conversion
-      video = Media.get_video_by_service_id("service_ep1", :sonarr)
-      assert video != nil
+      {:ok, video} = Media.get_video_by_service_id("service_ep1", :sonarr)
       assert video.path == "/test/service/episode1.mkv"
       assert video.size == 1_200_000_000
       assert video.bitrate == 4_140_000
@@ -161,8 +158,7 @@ defmodule Reencodarr.SyncIntegrationTest do
         end)
 
       # Verify video was created
-      video = Media.get_video_by_service_id("service_analysis", :radarr)
-      assert video != nil
+      {:ok, video} = Media.get_video_by_service_id("service_analysis", :radarr)
       assert video.service_type == :radarr
       # Should have missing bitrate that triggered analysis (stored as nil after changeset)
       assert video.bitrate == nil

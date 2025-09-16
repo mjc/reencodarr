@@ -81,11 +81,11 @@ defmodule ReencodarrWeb.RadarrWebhookController do
 
   defp update_or_upsert_video(%{"previousPath" => old_path, "path" => new_path} = file, source) do
     case Reencodarr.Media.get_video_by_path(old_path) do
-      nil ->
+      {:error, :not_found} ->
         Logger.warning("No video found for old path: #{old_path}, upserting as new")
         Reencodarr.Sync.upsert_video_from_file(file, source)
 
-      video ->
+      {:ok, video} ->
         video
         |> Reencodarr.Media.update_video(%{path: new_path})
         |> handle_update_result(video, old_path, new_path, file, source)
@@ -190,7 +190,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   defp validate_file_size(nil), do: {:error, "size is required"}
   defp validate_file_size(_), do: {:error, "size must be a positive integer"}
 
-  defp validate_file_id(id) when not is_nil(id), do: {:ok, id}
+  defp validate_file_id(id) when is_binary(id) or is_integer(id), do: {:ok, id}
   defp validate_file_id(_), do: {:error, "file id is required"}
 
   defp process_valid_movie_file(%{path: path, size: size, id: id, raw_file: file}) do
@@ -215,7 +215,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
     case Reencodarr.Media.upsert_video(attrs) do
       {:ok, video} ->
         # Delete any existing VMAFs for this path since we're re-analyzing
-        Reencodarr.Media.delete_vmafs_for_video(video)
+        Reencodarr.Media.delete_vmafs_for_video(video.id)
         {:ok, video}
 
       error ->

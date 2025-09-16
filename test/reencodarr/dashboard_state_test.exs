@@ -110,41 +110,8 @@ defmodule Reencodarr.DashboardStateTest do
       measurements = %{queue_size: 99}
       metadata = %{some_data: "test"}
 
-      new_state = DashboardState.update_queue_state(state, :unknown, measurements, metadata)
-
       # Should return unchanged state
-      assert new_state == state
-    end
-  end
-
-  describe "significant_change?/2" do
-    test "detects significant changes in queue lengths" do
-      old_state = %DashboardState{
-        stats: %Stats{
-          queue_length: %{analyzer: 0, crf_searches: 0, encodes: 0},
-          next_analyzer: []
-        }
-      }
-
-      new_state = %DashboardState{
-        stats: %Stats{
-          queue_length: %{analyzer: 5, crf_searches: 0, encodes: 0},
-          next_analyzer: [%{id: 1}]
-        }
-      }
-
-      assert DashboardState.significant_change?(old_state, new_state)
-    end
-
-    test "detects no significant change when queues are the same" do
-      state = %DashboardState{
-        stats: %Stats{
-          queue_length: %{analyzer: 5, crf_searches: 0, encodes: 0},
-          next_analyzer: [%{id: 1}]
-        }
-      }
-
-      refute DashboardState.significant_change?(state, state)
+      assert DashboardState.update_queue_state(state, :unknown, measurements, metadata) == state
     end
   end
 end

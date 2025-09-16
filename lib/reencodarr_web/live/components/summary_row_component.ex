@@ -1,12 +1,23 @@
 defmodule ReencodarrWeb.SummaryRowComponent do
-  use Phoenix.LiveComponent
+  @moduledoc """
+  Summary row component optimized as a function component.
 
-  @moduledoc "Displays a summary row with statistics."
+  Since this component only displays data without managing state,
+  it's been converted to a function component for better performance.
+  """
 
+  use Phoenix.Component
+
+  @doc """
+  Renders a summary row with statistics.
+
+  ## Attributes
+
+    * `stats` - Map containing statistical data to display
+  """
   attr :stats, :map, required: true
 
-  @impl true
-  def render(assigns) do
+  def summary_row(assigns) do
     ~H"""
     <div class="flex flex-col md:flex-row items-center justify-between bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-700">
       <div class="text-gray-300">
@@ -15,25 +26,32 @@ defmodule ReencodarrWeb.SummaryRowComponent do
       </div>
 
       <div class="flex flex-wrap gap-4">
-        <div class="flex flex-col items-center">
-          <span class="text-indigo-400 font-bold text-lg">{@stats.total_videos}</span>
-          <span class="text-gray-500 text-sm">Total Videos</span>
-        </div>
-        <div class="flex flex-col items-center">
-          <span class="text-indigo-400 font-bold text-lg">{@stats.reencoded_count}</span>
-          <span class="text-gray-500 text-sm">Reencoded</span>
-        </div>
-        <div class="flex flex-col items-center">
-          <span class="text-indigo-400 font-bold text-lg">
-            {@stats.total_videos - @stats.reencoded_count}
-          </span>
-          <span class="text-gray-500 text-sm">Not Reencoded</span>
-        </div>
-        <div class="flex flex-col items-center">
-          <span class="text-indigo-400 font-bold text-lg">{@stats.avg_vmaf_percentage}</span>
-          <span class="text-gray-500 text-sm">Avg VMAF %</span>
-        </div>
+        <.stat_item
+          value={@stats.total_videos}
+          label="Total Videos"
+        />
+        <.stat_item
+          value={@stats.reencoded_count}
+          label="Reencoded"
+        />
+        <.stat_item
+          value={@stats.total_videos - @stats.reencoded_count}
+          label="Not Reencoded"
+        />
+        <.stat_item
+          value={@stats.avg_vmaf_percentage}
+          label="Avg VMAF %"
+        />
       </div>
+    </div>
+    """
+  end
+
+  defp stat_item(assigns) do
+    ~H"""
+    <div class="flex flex-col items-center">
+      <span class="text-indigo-400 font-bold text-lg">{@value}</span>
+      <span class="text-gray-500 text-sm">{@label}</span>
     </div>
     """
   end

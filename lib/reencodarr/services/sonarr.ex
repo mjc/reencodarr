@@ -3,6 +3,7 @@ defmodule Reencodarr.Services.Sonarr do
   This module is responsible for communicating with the Sonarr API.
   """
   require Logger
+  alias Reencodarr.Core.Parsers
   alias Reencodarr.ErrorHelpers
   alias Reencodarr.Services
 
@@ -55,21 +56,27 @@ defmodule Reencodarr.Services.Sonarr do
 
   @spec rename_files(integer(), [integer()]) :: {:ok, Req.Response.t()} | {:error, any()}
   def rename_files(series_id, file_ids) when is_list(file_ids) do
-    if series_id == nil do
-      Logger.error("Series ID is null, cannot rename files")
-      {:error, :invalid_series_id}
-    else
-      perform_series_refresh(series_id)
-      Process.sleep(2000)
+    cond do
+      not is_integer(series_id) ->
+        Logger.error("Series ID must be an integer, got: #{inspect(series_id)}")
+        {:error, :invalid_series_id}
 
-      case get_renameable_files(series_id) do
-        [] ->
-          Logger.info("No files need renaming for series ID: #{series_id}")
-          {:ok, %{message: "No files need renaming"}}
+      series_id <= 0 ->
+        Logger.error("Series ID must be positive, got: #{series_id}")
+        {:error, :invalid_series_id}
 
-        renameable_files ->
-          execute_rename_request(series_id, file_ids, renameable_files)
-      end
+      true ->
+        perform_series_refresh(series_id)
+        Process.sleep(2000)
+
+        case get_renameable_files(series_id) do
+          [] ->
+            Logger.info("No files need renaming for series ID: #{series_id}")
+            {:ok, %{message: "No files need renaming"}}
+
+          renameable_files ->
+            execute_rename_request(series_id, file_ids, renameable_files)
+        end
     end
   end
 
@@ -126,8 +133,18 @@ defmodule Reencodarr.Services.Sonarr do
 
   # Execute rename command and return result
   defp execute_rename_request(series_id, file_ids, renameable_files) do
-    renameable_file_ids = Enum.map(renameable_files, & &1["episodeFileId"])
-    files_to_rename = if file_ids == [], do: renameable_file_ids, else: file_ids
+    renameable_file_ids =
+      renameable_files
+      |> Enum.map(& &1["episodeFileId"])
+      |> Enum.map(&parse_file_id/1)
+
+    files_to_rename =
+      if file_ids == [] do
+        renameable_file_ids
+      else
+        file_ids |> Enum.map(&parse_file_id/1)
+      end
+
     json_payload = %{name: "RenameFiles", seriesId: series_id, files: files_to_rename}
 
     Logger.info(
@@ -149,5 +166,13 @@ defmodule Reencodarr.Services.Sonarr do
         Logger.error("Sonarr rename_files error: #{inspect(reason)}")
         error
     end
+  end
+
+  # Helper function to parse file IDs from various formats to integers
+  defp parse_file_id(value) when is_integer(value), do: value
+  defp parse_file_id(value) when is_binary(value), do: Parsers.parse_integer_exact!(value)
+
+  defp parse_file_id(value) do
+    raise ArgumentError, "Expected integer or string, got: #{inspect(value)}"
   end
 end

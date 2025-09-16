@@ -1,53 +1,43 @@
 defmodule ReencodarrWeb.QueueInformationComponent do
   @moduledoc """
-  Optimized queue information component - converted to function component for better performance.
-  Since this only displays static data, LiveComponent overhead is unnecessary.
+  Modern queue information component using LCARS theming.
+
+  Converted to function component for better performance since this only 
+  displays static data - LiveComponent overhead is unnecessary.
   """
+
   use Phoenix.Component
+  import ReencodarrWeb.LcarsComponents
 
-  require Logger
-
-  attr :stats, :map, required: true
+  attr :stats, :map, required: true, doc: "Queue statistics including counts for each queue type"
 
   def queue_information(assigns) do
-    if is_map(assigns.stats) do
-      ~H"""
-      <div class="bg-gray-900 rounded-lg shadow-lg p-6 border border-gray-700">
-        <h2 class="text-2xl font-bold text-indigo-500 mb-4">
-          Queue Details
-        </h2>
-        <div class="flex flex-col space-y-4">
-          <div class="flex items-center justify-between">
-            <div class="text-sm leading-5 text-gray-200 dark:text-gray-300 flex items-center space-x-1">
-              <span>CRF Searches in Queue</span>
-              <span class="ml-1 text-xs text-gray-400" title="Number of CRF search jobs waiting.">
-                ?
-              </span>
-            </div>
-            <div class="text-sm leading-5 text-gray-100 dark:text-gray-200 font-mono">
-              {@stats.queue_length.crf_searches}
-            </div>
-          </div>
-          <div class="flex items-center justify-between">
-            <div class="text-sm leading-5 text-gray-200 dark:text-gray-300 flex items-center space-x-1">
-              <span>Encodes in Queue</span>
-              <span class="ml-1 text-xs text-gray-400" title="Number of encoding jobs waiting.">?</span>
-            </div>
-            <div class="text-sm leading-5 text-gray-100 dark:text-gray-200 font-mono">
-              {@stats.queue_length.encodes}
-            </div>
-          </div>
-        </div>
-      </div>
-      """
-    else
-      Logger.error("Invalid stats received for queue information: #{inspect(assigns.stats)}")
+    ~H"""
+    <.lcars_panel title="QUEUE STATUS" color="green">
+      <div class="space-y-3">
+        <.lcars_stat_row
+          label="CRF Searches in Queue"
+          value={get_queue_count(@stats, :crf_searches)}
+        />
 
-      ~H"""
-      <div class="w-full bg-gray-800/90 rounded-xl shadow-lg p-6 border border-gray-700">
-        <h2 class="text-lg font-bold mb-4 text-red-500">Error: Invalid Queue Information</h2>
+        <.lcars_stat_row
+          label="Encodes in Queue"
+          value={get_queue_count(@stats, :encodes)}
+        />
+
+        <.lcars_stat_row
+          label="Analysis Queue"
+          value={get_queue_count(@stats, :analysis)}
+        />
       </div>
-      """
-    end
+    </.lcars_panel>
+    """
   end
+
+  # Safely extract queue count with fallback
+  defp get_queue_count(%{queue_length: queue_length}, key) when is_map(queue_length) do
+    Map.get(queue_length, key, 0)
+  end
+
+  defp get_queue_count(_, _), do: "N/A"
 end

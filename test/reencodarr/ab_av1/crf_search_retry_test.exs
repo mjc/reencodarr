@@ -43,17 +43,17 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
       # Verify we have 2 VMAF records initially
       assert Repo.aggregate(Vmaf, :count, :id) == 2
 
-      # Should indicate retry is needed
+      # Should mark as failed (preset 6 retry disabled)
       retry_result = CrfSearch.should_retry_with_preset_6(video.id)
-      assert match?({:retry, _existing_vmafs}, retry_result)
+      assert retry_result == :mark_failed
 
-      # Video should not be marked as failed
+      # Video should not be marked as failed initially (test setup)
       updated_video = Repo.get(Media.Video, video.id)
       assert updated_video.state != :failed
     end
 
-    test "detects already retried when --preset 6 exists", %{video: video} do
-      # Create VMAF records with --preset 6 to simulate previous retry
+    test "returns :mark_failed when --preset 6 exists (preset 6 retry disabled)", %{video: video} do
+      # Create VMAF records with --preset 6 to simulate previous retry attempt
       {:ok, _vmaf1} =
         Media.create_vmaf(%{
           video_id: video.id,
@@ -70,9 +70,9 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
           params: ["--preset", "6"]
         })
 
-      # Should indicate already retried
+      # Should mark as failed (preset 6 retry disabled)
       retry_result = CrfSearch.should_retry_with_preset_6(video.id)
-      assert retry_result == :already_retried
+      assert retry_result == :mark_failed
 
       # VMAF records should remain
       assert Repo.aggregate(Vmaf, :count, :id) == 2
@@ -108,9 +108,9 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
             params: params
           })
 
-        # Should detect existing --preset 6
+        # Should mark as failed (preset 6 retry disabled)
         retry_result = CrfSearch.should_retry_with_preset_6(video.id)
-        assert retry_result == :already_retried
+        assert retry_result == :mark_failed
 
         # Also test the params detection directly
         assert CrfSearch.has_preset_6_params?(params) == true
@@ -139,9 +139,9 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryTest do
             params: params
           })
 
-        # Should not detect as --preset 6 (should allow retry)
+        # Should mark as failed (preset 6 retry disabled)
         retry_result = CrfSearch.should_retry_with_preset_6(video.id)
-        assert match?({:retry, _existing_vmafs}, retry_result)
+        assert retry_result == :mark_failed
 
         # Also test the params detection directly
         assert CrfSearch.has_preset_6_params?(params) == false

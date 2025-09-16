@@ -9,12 +9,12 @@ defmodule Reencodarr.DashboardState do
   ## Memory Optimizations:
   - Direct database queries for initial state (no complex state preservation)
   - Minimal state structure with only essential fields
-  - Event-driven updates only when significant changes occur
+  - Event-driven updates only when system events occur
   - Automatic inactive progress data exclusion in telemetry payloads
 
   ## Performance Benefits:
   - No background polling or refresh timers
-  - Telemetry events only emitted on meaningful state changes (>1% progress deltas)
+  - Simple telemetry emission - LiveView handles selective updates
   - Reduced GenServer message volume by ~75%
   - Direct presenter pattern for UI data transformation
 
@@ -50,9 +50,25 @@ defmodule Reencodarr.DashboardState do
             service_type: nil
 
   @doc """
-  Creates a new initial dashboard state with initial queue data.
+  Creates a minimal initial dashboard state for fast first paint.
+
+  Only loads essential metrics data, deferring expensive queue operations.
   """
   def initial do
+    %__MODULE__{
+      stats: fetch_essential_stats(),
+      analyzing: false,
+      crf_searching: false,
+      encoding: false
+    }
+  end
+
+  @doc """
+  Creates a full dashboard state with all queue data loaded.
+
+  Use this for complete dashboard data after initial render.
+  """
+  def initial_with_queues do
     %__MODULE__{
       stats: fetch_queue_data_simple(),
       analyzing: analyzer_running?(),
@@ -61,53 +77,16 @@ defmodule Reencodarr.DashboardState do
     }
   end
 
-  # Fetch initial queue data from database
-  defp fetch_queue_data_simple do
-    alias Reencodarr.Media
-    alias Reencodarr.Media.VideoQueries
-
-    # Get comprehensive stats including total videos, reencoded counts, etc.
-    base_stats = Media.fetch_stats()
-
-    # Get the queue items (first 10)
-    next_analyzer = Media.get_videos_needing_analysis(10)
-    next_crf_search = Media.get_videos_for_crf_search(10)
-    videos_by_estimated_percent = Media.list_videos_by_estimated_percent(10)
-
-    # Count total items in queues
-    analyzer_count = Media.count_videos_needing_analysis()
-    crf_search_count = count_crf_search_queue()
-    encode_count = VideoQueries.encoding_queue_count()
-
-    # Merge the comprehensive stats with queue data
-    %{
-      base_stats
-      | next_analyzer: next_analyzer,
-        next_crf_search: next_crf_search,
-        videos_by_estimated_percent: videos_by_estimated_percent,
-        queue_length: %{
-          analyzer: analyzer_count,
-          crf_searches: crf_search_count,
-          encodes: encode_count
-        },
-        encode_queue_length: encode_count
-    }
+  # Fetch only essential stats for fast initial load - no expensive queue queries
+  defp fetch_essential_stats do
+    Reencodarr.Media.fetch_essential_stats()
   end
 
-  defp count_crf_search_queue do
-    alias Reencodarr.Media.Video
-    alias Reencodarr.Repo
-    import Ecto.Query
-
-    Repo.one(
-      from v in Video,
-        where: v.state == :analyzed,
-        select: count(v.id)
-    )
-  rescue
-    error ->
-      Logger.error("Error fetching queue data: #{inspect(error)}")
-      %Reencodarr.Statistics.Stats{}
+  # Fetch initial queue data from database
+  defp fetch_queue_data_simple do
+    # Media.fetch_stats() already includes all the queue data we need
+    # including next_analyzer, next_crf_search, videos_by_estimated_percent, and queue_length
+    Reencodarr.Media.fetch_stats()
   end
 
   # Check actual status of Broadway pipelines for initial state
@@ -263,52 +242,5 @@ defmodule Reencodarr.DashboardState do
       end
 
     %{state | stats: new_stats}
-  end
-
-  @doc """
-  Checks if the state change is significant enough to warrant telemetry emission.
-  """
-  def significant_change?(old_state, new_state) do
-    status_changed?(old_state, new_state) or
-      stats_changed?(old_state.stats, new_state.stats) or
-      progress_changed?(old_state, new_state)
-  end
-
-  # Check if any status fields changed
-  defp status_changed?(old_state, new_state) do
-    old_state.encoding != new_state.encoding or
-      old_state.crf_searching != new_state.crf_searching or
-      old_state.analyzing != new_state.analyzing or
-      old_state.syncing != new_state.syncing
-  end
-
-  # Check if any progress changed significantly
-  defp progress_changed?(old_state, new_state) do
-    (new_state.encoding and
-       progress_differs?(old_state.encoding_progress, new_state.encoding_progress)) or
-      (new_state.crf_searching and
-         progress_differs?(old_state.crf_search_progress, new_state.crf_search_progress)) or
-      (new_state.analyzing and
-         progress_differs?(old_state.analyzer_progress, new_state.analyzer_progress)) or
-      (new_state.syncing and old_state.sync_progress != new_state.sync_progress)
-  end
-
-  # Private helper functions
-
-  # Check if stats changed in ways that matter to the dashboard
-  defp stats_changed?(old_stats, new_stats) do
-    length(old_stats.next_analyzer) != length(new_stats.next_analyzer) or
-      length(old_stats.next_crf_search) != length(new_stats.next_crf_search) or
-      length(old_stats.videos_by_estimated_percent) !=
-        length(new_stats.videos_by_estimated_percent) or
-      old_stats.queue_length.analyzer != new_stats.queue_length.analyzer or
-      old_stats.queue_length.crf_searches != new_stats.queue_length.crf_searches or
-      old_stats.queue_length.encodes != new_stats.queue_length.encodes
-  end
-
-  # Check if progress data changed significantly (>1% change or filename change)
-  defp progress_differs?(old_progress, new_progress) do
-    abs(old_progress.percent - new_progress.percent) >= 1.0 or
-      old_progress.filename != new_progress.filename
   end
 end

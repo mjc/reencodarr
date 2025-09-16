@@ -6,6 +6,7 @@ defmodule Reencodarr.Rules do
   """
 
   require Logger
+  alias Reencodarr.Core.Parsers
   alias Reencodarr.Media
 
   @opus_codec_tag "A_OPUS"
@@ -126,24 +127,20 @@ defmodule Reencodarr.Rules do
   end
 
   # Convert parameter list from flat list to tuples, filtering based on context
-  defp convert_params_to_tuples(params, context) do
-    if params && is_list(params) do
-      params
-      |> params_list_to_tuples()
-      |> filter_tuples_for_context(context)
-    else
-      []
-    end
+  defp convert_params_to_tuples(params, context) when is_list(params) do
+    params
+    |> params_list_to_tuples()
+    |> filter_tuples_for_context(context)
   end
 
+  defp convert_params_to_tuples(_, _context), do: []
+
   # Convert base arguments to tuples (no context filtering for base args)
-  defp convert_base_args_to_tuples(base_args) do
-    if base_args && is_list(base_args) do
-      params_list_to_tuples(base_args)
-    else
-      []
-    end
+  defp convert_base_args_to_tuples(base_args) when is_list(base_args) do
+    params_list_to_tuples(base_args)
   end
+
+  defp convert_base_args_to_tuples(_), do: []
 
   # Convert flat parameter list (e.g., ["--preset", "6", "--cpu-used", "8"]) to tuples
   # Special handling for subcommands to ensure they come first
@@ -263,10 +260,11 @@ defmodule Reencodarr.Rules do
           video
       ) do
     cond do
-      atmos == true ->
+      atmos ->
         []
 
-      is_nil(channels) or is_nil(audio_codecs) ->
+      not (is_integer(channels) and channels > 0) or
+          not (is_list(audio_codecs) and length(audio_codecs) > 0) ->
         Logger.debug(
           "🔴 Invalid audio metadata for video #{video.id}: channels=#{inspect(channels)}, codecs=#{inspect(audio_codecs)}, path=#{video.path}"
         )
@@ -436,14 +434,14 @@ defmodule Reencodarr.Rules do
   end
 
   defp parse_valid_year(year_str) do
-    case Integer.parse(year_str) do
-      {year, ""} when year >= 1950 and year <= 2030 -> year
+    case Parsers.parse_integer_exact(year_str) do
+      {:ok, year} when year >= 1950 and year <= 2030 -> year
       _ -> nil
     end
   end
 
   @spec hdr(Media.Video.t()) :: list()
-  def hdr(%Media.Video{hdr: hdr}) when not is_nil(hdr) do
+  def hdr(%Media.Video{hdr: hdr}) when is_binary(hdr) do
     [
       {"--svt", "tune=0"},
       {"--svt", "dolbyvision=1"}

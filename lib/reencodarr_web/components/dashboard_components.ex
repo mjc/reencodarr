@@ -1,116 +1,148 @@
 defmodule ReencodarrWeb.DashboardComponents do
   @moduledoc """
-  Specific components for the main dashboard overview.
+  Modern dashboard components for Reencodarr overview.
 
-  Contains the operations panel, queues section, and other components
-  specific to the overview dashboard functionality.
+  Provides optimized, reusable components with:
+  - Proper attribute documentation
+  - Slots for extensibility
+  - Modern HEEx patterns
+  - LCARS-themed styling
   """
 
   use Phoenix.Component
   import ReencodarrWeb.LcarsComponents
+  import ReencodarrWeb.UIHelpers
   alias Reencodarr.Formatters
 
   @doc """
-  Renders the metrics grid with all metric cards.
+  Renders a responsive grid of metric cards.
+
+  ## Attributes
+
+    * `metrics` (required) - List of metric maps with title, value, and color
   """
-  attr :metrics, :list, required: true
+  attr :metrics, :list, required: true, doc: "List of metric data to display"
 
   def metrics_grid(assigns) do
     ~H"""
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-      <%= for metric <- @metrics do %>
-        <.lcars_metric_card metric={metric} />
-      <% end %>
+    <div
+      class={metrics_grid_classes()}
+      role="region"
+      aria-label="System metrics"
+    >
+      <.lcars_metric_card
+        :for={metric <- @metrics}
+        metric={metric}
+      />
     </div>
     """
   end
 
   @doc """
-  Renders the operations status panel.
+  Renders the system operations status panel.
+
+  Shows real-time status of all system operations including
+  CRF search, encoding, analysis, and synchronization.
+
+  ## Attributes
+
+    * `status` (required) - Map containing operation status data
   """
-  attr :status, :map, required: true
+  attr :status, :map, required: true, doc: "System operations status data"
 
   def operations_panel(assigns) do
-    ~H"""
-    <div class="bg-gray-900 border-2 border-yellow-400 rounded-lg overflow-hidden h-64 sm:h-72 flex flex-col">
-      <div class="h-10 sm:h-12 bg-yellow-400 flex items-center px-3 sm:px-4 flex-shrink-0">
-        <span class="text-black font-bold tracking-wider text-sm sm:text-base">
-          SYSTEM OPERATIONS
-        </span>
-      </div>
+    assigns = assign(assigns, :operations, dashboard_operations())
 
-      <div class="p-3 sm:p-4 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 flex-1 overflow-hidden">
+    ~H"""
+    <section
+      class={operations_panel_classes()}
+      role="region"
+      aria-label="System operations status"
+    >
+      <header class={panel_header_classes()}>
+        <h2 class={panel_title_classes()}>
+          SYSTEM OPERATIONS
+        </h2>
+      </header>
+
+      <div class={operations_grid_classes()}>
         <.operation_status
-          title="CRF SEARCH"
-          active={@status.crf_searching.active}
-          progress={@status.crf_searching.progress}
-          color="purple"
-        />
-        <.operation_status
-          title="ENCODING"
-          active={@status.encoding.active}
-          progress={@status.encoding.progress}
-          color="blue"
-        />
-        <.operation_status
-          title="ANALYZER"
-          active={@status.analyzing.active}
-          progress={@status.analyzing.progress}
-          color="green"
-        />
-        <.operation_status
-          title="SYNC"
-          active={@status.syncing.active}
-          progress={@status.syncing.progress}
-          color="red"
+          :for={op <- @operations}
+          title={op.title}
+          active={@status[op.key].active}
+          progress={@status[op.key].progress}
+          color={op.color}
         />
       </div>
-    </div>
+    </section>
     """
   end
 
+  # Individual operation status indicator.
+  #
+  # ## Attributes
+  #
+  #   * `title` (required) - Operation name
+  #   * `active` (required) - Whether operation is currently active
+  #   * `progress` (required) - Progress data map
+  #   * `color` (required) - Color theme: purple, blue, green, or red
+  attr :title, :string, required: true
+  attr :active, :boolean, required: true
+  attr :progress, :map, required: true
+  attr :color, :string, required: true, values: ~w(purple blue green red)
+
   defp operation_status(assigns) do
     ~H"""
-    <div class="space-y-2 sm:space-y-3">
-      <div class={[
-        "h-6 sm:h-8 rounded-r-full flex items-center px-2 sm:px-3",
-        operation_color(@color)
-      ]}>
-        <span class="text-black font-bold tracking-wider text-xs sm:text-sm truncate">{@title}</span>
+    <div class={operation_status_spacing_classes()}>
+      <div class={[operation_title_classes(), operation_color(@color)]}>
+        <span class={badge_text_classes()}>{@title}</span>
       </div>
 
-      <div class="space-y-1 sm:space-y-2">
-        <div class="flex items-center space-x-2">
-          <div class={[
-            "w-2 h-2 sm:w-3 sm:h-3 rounded-full",
-            if(@active, do: "bg-green-400 animate-pulse", else: "bg-gray-600")
-          ]}>
-          </div>
-          <span class={[
-            "text-xs sm:text-sm font-bold tracking-wide",
-            if(@active, do: "text-green-400", else: "text-gray-500")
-          ]}>
-            {if @active, do: "ONLINE", else: "STANDBY"}
-          </span>
-        </div>
-
+      <div class={operation_content_spacing_classes()}>
+        <.status_indicator active={@active} />
         <.operation_progress title={@title} active={@active} progress={@progress} color={@color} />
       </div>
     </div>
     """
   end
 
+  # Status indicator component with clear boolean pattern matching
+  attr :active, :boolean, required: true
+
+  defp status_indicator(%{active: true} = assigns) do
+    classes = status_indicator_classes(:online)
+    assigns = assign(assigns, :classes, classes)
+
+    ~H"""
+    <div class={status_indicator_container_classes()}>
+      <div class={@classes.dot}></div>
+      <span class={@classes.text}>ONLINE</span>
+    </div>
+    """
+  end
+
+  defp status_indicator(assigns) do
+    classes = status_indicator_classes(:offline)
+    assigns = assign(assigns, :classes, classes)
+
+    ~H"""
+    <div class={status_indicator_container_classes()}>
+      <div class={@classes.dot}></div>
+      <span class={@classes.text}>STANDBY</span>
+    </div>
+    """
+  end
+
   defp operation_progress(%{title: "ANALYZER"} = assigns) do
     ~H"""
-    <!-- Analyzer stats without progress bar -->
-    <div class="space-y-1">
-      <div class="text-xs text-orange-300 space-y-1">
-        <div class="flex justify-between">
-          <span>Rate Limit: {Map.get(@progress, :rate_limit, 0)}</span>
-          <span>Batch Size: {Map.get(@progress, :batch_size, 0)}</span>
+    <div class={progress_display_spacing_classes()}>
+      <div class={analyzer_stats_classes()}>
+        <div class={analyzer_rate_classes()}>
+          <span>Rate Limit: {@progress[:rate_limit] || 0}</span>
+          <span>Batch Size: {@progress[:batch_size] || 0}</span>
         </div>
-        <div class="text-center">
-          <span>{Map.get(@progress, :throughput, 0.0)} msg/s</span>
+        <div class={analyzer_throughput_classes()}>
+          <span>{@progress[:throughput] || 0.0} msg/s</span>
         </div>
       </div>
     </div>
@@ -119,266 +151,506 @@ defmodule ReencodarrWeb.DashboardComponents do
 
   defp operation_progress(assigns) do
     ~H"""
-    <!-- Regular progress section for other components -->
-    <%= if should_show_progress?(@active, @progress, @title) do %>
-      <div class="space-y-1">
-        <%= if @progress.filename do %>
-          <div class="text-xs text-orange-300 tracking-wide truncate">
-            {String.upcase(to_string(@progress.filename))}
-          </div>
-        <% end %>
-        <div class="h-1.5 sm:h-2 bg-gray-800 rounded-full overflow-hidden">
-          <div
-            class={[
-              "h-full transition-all duration-500",
-              progress_color(@color)
-            ]}
-            style={"width: #{get_progress_percent(@progress)}%"}
-          >
-          </div>
-        </div>
-        <div class="flex justify-between text-xs text-orange-300">
-          <span>{get_progress_percent(@progress)}%</span>
-          <%= cond do %>
-            <% Map.get(@progress, :throughput) && @progress.throughput > 0 -> %>
-              <span>{@progress.throughput} msg/s</span>
-            <% Map.get(@progress, :fps) && @progress.fps > 0 -> %>
-              <span>{Formatters.format_fps(@progress.fps)} FPS</span>
-            <% true -> %>
-              <span></span>
-          <% end %>
-        </div>
-        <%= if Map.get(@progress, :eta) && @progress.eta != 0 do %>
-          <div class="text-xs text-orange-400 text-center">
-            ETA: {Formatters.format_eta(@progress.eta)}
-          </div>
-        <% end %>
-        <%= if Map.get(@progress, :crf) && Map.get(@progress, :score) do %>
-          <div class="flex justify-between text-xs text-orange-400">
-            <span>CRF: {Formatters.format_crf(@progress.crf)}</span>
-            <span>VMAF: {Formatters.format_vmaf_score(@progress.score)}</span>
-          </div>
-        <% end %>
+    <.progress_display :if={show_progress?(@progress)} progress={@progress} color={@color} />
+    """
+  end
+
+  # Progress display components with proper attribute validation
+  attr :progress, :map, required: true
+  attr :color, :string, required: true
+
+  defp progress_display(assigns) do
+    ~H"""
+    <div class={progress_display_spacing_classes()}>
+      <.progress_filename :if={@progress.filename} filename={@progress.filename} />
+      <.progress_bar progress={@progress} color={@color} />
+      <.progress_stats progress={@progress} />
+      <.progress_eta :if={@progress[:eta] && @progress.eta != 0} eta={@progress.eta} />
+      <.progress_crf_vmaf :if={@progress[:crf] && @progress[:score]} progress={@progress} />
+    </div>
+    """
+  end
+
+  attr :filename, :string, required: true
+
+  defp progress_filename(assigns) do
+    ~H"""
+    <div class={progress_filename_classes()}>
+      {String.upcase(to_string(@filename))}
+    </div>
+    """
+  end
+
+  attr :progress, :map, required: true
+  attr :color, :string, required: true
+
+  defp progress_bar(assigns) do
+    ~H"""
+    <div class={progress_bar_classes()}>
+      <div
+        class={[progress_bar_fill_classes(), progress_color(@color)]}
+        style={"width: #{@progress[:percent] || 0}%"}
+      >
       </div>
-    <% end %>
+    </div>
+    """
+  end
+
+  attr :progress, :map, required: true
+
+  defp progress_stats(assigns) do
+    ~H"""
+    <div class={progress_stats_classes()}>
+      <span>{@progress[:percent] || 0}%</span>
+      <.progress_throughput progress={@progress} />
+    </div>
+    """
+  end
+
+  defp progress_throughput(%{progress: %{throughput: throughput}} = assigns)
+       when throughput > 0 do
+    ~H"""
+    <span>{@progress.throughput} msg/s</span>
+    """
+  end
+
+  defp progress_throughput(%{progress: %{fps: fps}} = assigns) when fps > 0 do
+    ~H"""
+    <span>{Formatters.format_fps(@progress.fps)} FPS</span>
+    """
+  end
+
+  defp progress_throughput(assigns) do
+    ~H"""
+    <span></span>
+    """
+  end
+
+  attr :eta, :integer, required: true
+
+  defp progress_eta(assigns) do
+    ~H"""
+    <div class={eta_text_classes()}>
+      ETA: {Formatters.format_eta(@eta)}
+    </div>
+    """
+  end
+
+  attr :progress, :map, required: true
+
+  defp progress_crf_vmaf(assigns) do
+    ~H"""
+    <div class={crf_vmaf_classes()}>
+      <span>CRF: {Formatters.format_crf(@progress.crf)}</span>
+      <span>VMAF: {Formatters.format_vmaf_score(@progress.score)}</span>
+    </div>
     """
   end
 
   @doc """
-  Renders the queues section with stream-based queue panels.
+  Renders the processing queues section with live streaming updates.
+
+  Displays three main queues in a responsive grid:
+  - CRF Search Queue
+  - Encoding Queue
+  - Analyzer Queue
+
+  ## Attributes
+
+    * `queues` (required) - Map containing queue data for each operation
+    * `streams` (required) - Map of LiveView streams for real-time updates
   """
-  attr :queues, :map, required: true
-  attr :streams, :map, required: true
+  attr :queues, :map, required: true, doc: "Queue data for all operations"
+  attr :streams, :map, required: true, doc: "LiveView streams for real-time queue updates"
 
   def queues_section(assigns) do
+    assigns = assign(assigns, :queue_configs, queue_configs())
+
     ~H"""
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 sm:gap-4">
+    <section
+      class={queues_grid_classes()}
+      role="region"
+      aria-label="Processing queues"
+    >
       <.queue_panel
-        title="CRF SEARCH QUEUE"
-        queue={@queues.crf_search}
-        queue_stream={@streams.crf_search_queue}
-        color="cyan"
+        :for={config <- @queue_configs}
+        title={config.title}
+        queue={@queues[config.queue_key]}
+        queue_stream={@streams[config.stream_key]}
+        color={config.color}
+        aria_label={config.aria_label}
       />
-      <.queue_panel
-        title="ENCODING QUEUE"
-        queue={@queues.encoding}
-        queue_stream={@streams.encoding_queue}
-        color="green"
-      />
-      <.queue_panel
-        title="ANALYZER QUEUE"
-        queue={@queues.analyzer}
-        queue_stream={@streams.analyzer_queue}
-        color="purple"
-      />
-    </div>
+    </section>
     """
   end
+
+  # Individual queue panel with real-time updates.
+  #
+  # ## Attributes
+  #
+  #   * `title` (required) - Queue display title
+  #   * `queue` (required) - Queue data including count and items
+  #   * `queue_stream` (required) - LiveView stream for this queue
+  #   * `color` (required) - Theme color: cyan, green, or purple
+  #   * `aria_label` - Accessibility label for screen readers
+  attr :title, :string, required: true
+  attr :queue, :map, required: true
+  attr :queue_stream, :any, required: true
+  attr :color, :string, required: true, values: ~w(cyan green purple)
+  attr :aria_label, :string, default: nil
 
   defp queue_panel(assigns) do
     ~H"""
-    <div class="bg-gray-900 border-2 border-cyan-400 rounded-lg overflow-hidden">
-      <div class={[
-        "h-8 sm:h-10 flex items-center px-2 sm:px-3",
-        queue_header_color(@color)
-      ]}>
-        <span class="text-black font-bold tracking-wider text-xs sm:text-sm truncate flex-1">
+    <article
+      class={queue_panel_classes()}
+      role="region"
+      aria-label={@aria_label || @title}
+    >
+      <header class={[queue_header_classes(), queue_header_color(@color)]}>
+        <h3 class={queue_title_classes()}>
           {@title}
-        </span>
-        <div class="ml-2">
-          <span class="text-black font-bold text-xs sm:text-sm">
+        </h3>
+        <div class={queue_count_container_classes()} role="status" aria-label="Queue item count">
+          <span class={queue_count_text_classes()}>
             {Formatters.format_count(@queue.total_count)}
           </span>
         </div>
-      </div>
+      </header>
 
-      <div class="p-2 sm:p-3">
-        <%= if @queue.total_count == 0 do %>
-          <div class="text-center py-4 sm:py-6">
-            <div class="text-3xl sm:text-4xl mb-2">🎉</div>
-            <p class="text-orange-300 tracking-wide text-xs sm:text-sm">QUEUE EMPTY</p>
-          </div>
-        <% else %>
-          <div
-            class="space-y-1 sm:space-y-2 max-h-48 sm:max-h-64 overflow-y-auto"
-            id={"#{@color}-queue-container"}
-          >
-            <div phx-update="stream" id={"#{@color}-queue-items"}>
-              <%= for {item_id, file} <- (@queue_stream || []) do %>
-                <div id={item_id}>
-                  <.queue_file_item file={file} queue={@queue} />
-                </div>
-              <% end %>
-            </div>
-
-            <%= if @queue.total_count > 10 do %>
-              <div class="text-center py-1 sm:py-2">
-                <span class="text-xs text-orange-300 tracking-wide">
-                  SHOWING FIRST 10 OF {Formatters.format_count(@queue.total_count)} ITEMS
-                </span>
-              </div>
-            <% end %>
-          </div>
-        <% end %>
+      <div class={queue_content_padding_classes()}>
+        <.queue_content queue={@queue} queue_stream={@queue_stream} color={@color} />
       </div>
+    </article>
+    """
+  end
+
+  defp queue_content(%{queue: %{total_count: 0}} = assigns) do
+    ~H"""
+    <div class={empty_queue_classes()} role="status">
+      <div class={empty_queue_icon_classes()} aria-hidden="true">🎉</div>
+      <p class={empty_queue_text_classes()}>QUEUE EMPTY</p>
     </div>
     """
   end
+
+  defp queue_content(assigns) do
+    ~H"""
+    <div
+      class={queue_items_container_classes()}
+      id={"#{@color}-queue-container"}
+      role="list"
+      aria-label="Queue items"
+    >
+      <div phx-update="stream" id={"#{@color}-queue-items"}>
+        <.queue_file_item
+          :for={{item_id, file} <- @queue_stream || []}
+          id={item_id}
+          file={file}
+          queue={@queue}
+        />
+      </div>
+
+      <.queue_overflow_indicator
+        :if={@queue.total_count > 10}
+        total_count={@queue.total_count}
+      />
+    </div>
+    """
+  end
+
+  defp queue_overflow_indicator(assigns) do
+    ~H"""
+    <div class={queue_overflow_classes()} role="status">
+      <span class={queue_overflow_text_classes()}>
+        SHOWING FIRST 10 OF {Formatters.format_count(@total_count)} ITEMS
+      </span>
+    </div>
+    """
+  end
+
+  # Individual file item within a queue with modern patterns.
+  #
+  # ## Attributes
+  #
+  #   * `id` - DOM ID for the item (for stream updates)
+  #   * `file` (required) - File data including name, progress, metadata
+  #   * `queue` (required) - Queue context for type-specific display
+  attr :id, :string, default: nil
+  attr :file, :map, required: true
+  attr :queue, :map, required: true
 
   defp queue_file_item(assigns) do
     ~H"""
-    <div class="flex items-center space-x-2 sm:space-x-3 p-2 sm:p-3 bg-gray-800 rounded border-l-2 sm:border-l-4 border-orange-500">
-      <div class="w-6 h-6 sm:w-8 sm:h-8 bg-orange-500 rounded-full flex items-center justify-center flex-shrink-0">
-        <span class="text-black font-bold text-xs sm:text-sm">{@file.index}</span>
-      </div>
-      <div class="flex-1 min-w-0">
-        <p class="text-orange-300 text-xs sm:text-sm tracking-wide truncate font-mono">
-          {String.upcase(@file.display_name)}
-        </p>
-        <%= if @file.estimated_percent do %>
-          <p class="text-xs text-orange-400">
-            EST: ~{@file.estimated_percent}%
-          </p>
-        <% end %>
-        <.queue_specific_info file={@file} queue={@queue} />
-      </div>
+    <div
+      class={file_item_classes()}
+      role="listitem"
+      id={@id}
+    >
+      <.file_index_badge index={@file.index} />
+      <.file_details file={@file} queue={@queue} />
     </div>
     """
   end
 
-  defp queue_specific_info(assigns) do
+  attr :index, :integer, required: true
+
+  defp file_index_badge(assigns) do
     ~H"""
-    <%= cond do %>
-      <% @queue.title == "CRF Search Queue" and (@file.bitrate || @file.size) -> %>
-        <div class="flex justify-between text-xs text-cyan-300 mt-1">
-          <%= if @file.bitrate do %>
-            <span>Bitrate: {Formatters.format_bitrate_mbps(@file.bitrate)}</span>
-          <% end %>
-          <%= if @file.size do %>
-            <span>Size: {Formatters.format_file_size(@file.size)}</span>
-          <% end %>
-        </div>
-      <% @queue.title == "Encoding Queue" and (@file.estimated_savings_bytes || @file.size) -> %>
-        <div class="flex justify-between text-xs text-green-300 mt-1">
-          <%= if @file.estimated_savings_bytes do %>
-            <span>Savings: {Formatters.format_savings_bytes(@file.estimated_savings_bytes)}</span>
-          <% end %>
-          <%= if @file.size do %>
-            <span>Size: {Formatters.format_file_size(@file.size)}</span>
-          <% end %>
-        </div>
-      <% @queue.title == "Analyzer Queue" and @file.size -> %>
-        <div class="text-xs text-purple-300 mt-1">
-          Size: {Formatters.format_file_size(@file.size)}
-        </div>
-      <% true -> %>
-        <div></div>
-    <% end %>
+    <div
+      class={file_index_badge_classes()}
+      role="img"
+      aria-label={"File position #{@index}"}
+    >
+      <span class={badge_text_classes()}>{@index}</span>
+    </div>
+    """
+  end
+
+  attr :file, :map, required: true
+  attr :queue, :map, required: true
+
+  defp file_details(assigns) do
+    ~H"""
+    <div class={file_details_classes()}>
+      <.file_name_display file={@file} />
+      <.file_estimation file={@file} />
+      <.queue_metadata file={@file} queue={@queue} />
+    </div>
+    """
+  end
+
+  attr :file, :map, required: true
+
+  defp file_name_display(assigns) do
+    ~H"""
+    <p
+      class={file_name_classes()}
+      title={@file.display_name}
+    >
+      {String.upcase(@file.display_name)}
+    </p>
+    """
+  end
+
+  defp file_estimation(%{file: %{estimated_percent: percent}} = assigns)
+       when not is_nil(percent) do
+    ~H"""
+    <p
+      class={file_estimation_classes()}
+      role="status"
+      aria-label="Estimated progress"
+    >
+      <span class={estimation_indicator_classes()}></span> EST: ~{@file.estimated_percent}%
+    </p>
+    """
+  end
+
+  defp file_estimation(assigns), do: ~H""
+
+  attr :file, :map, required: true
+  attr :queue, :map, required: true
+
+  defp queue_metadata(assigns) do
+    # Map queue titles to types - more reliable than searching configs
+    queue_type =
+      case assigns.queue.title do
+        "CRF Search Queue" -> :crf_search
+        "Encoding Queue" -> :encoding
+        "Analyzer Queue" -> :analyzer
+        _ -> :unknown
+      end
+
+    assigns = assign(assigns, :queue_type, queue_type)
+
+    ~H"""
+    <div class={file_metadata_classes()} role="group" aria-label="File metadata">
+      <.metadata_display file={@file} queue_type={@queue_type} />
+    </div>
+    """
+  end
+
+  # Single unified metadata display with pattern matching
+  defp metadata_display(%{queue_type: :crf_search} = assigns) do
+    ~H"""
+    <div class={metadata_container_classes(:crf_search)}>
+      <.metadata_item
+        :if={@file.bitrate}
+        icon="📶"
+        label="Bitrate"
+        value={Formatters.format_bitrate_mbps(@file.bitrate)}
+      />
+      <.metadata_item
+        :if={@file.size}
+        icon="💾"
+        label="Size"
+        value={Formatters.format_file_size(@file.size)}
+      />
+    </div>
+    """
+  end
+
+  defp metadata_display(%{queue_type: :encoding} = assigns) do
+    ~H"""
+    <div class={metadata_container_classes(:encoding)}>
+      <.metadata_item
+        :if={@file.estimated_savings_bytes}
+        icon="💰"
+        label="Savings"
+        value={Formatters.format_savings_bytes(@file.estimated_savings_bytes)}
+      />
+      <.metadata_item
+        :if={@file.size}
+        icon="💾"
+        label="Size"
+        value={Formatters.format_file_size(@file.size)}
+      />
+    </div>
+    """
+  end
+
+  defp metadata_display(%{queue_type: :analyzer} = assigns) do
+    ~H"""
+    <div class={metadata_container_classes(:analyzer)}>
+      <.metadata_item
+        :if={@file.duration}
+        icon="⏱️"
+        label="Duration"
+        value={Formatters.format_duration(@file.duration)}
+      />
+      <.metadata_item
+        :if={@file.codec}
+        icon="🎥"
+        label="Codec"
+        value={@file.codec}
+      />
+    </div>
+    """
+  end
+
+  defp metadata_display(assigns), do: ~H""
+
+  # Reusable metadata item component
+  attr :icon, :string, required: true
+  attr :label, :string, required: true
+  attr :value, :string, required: true
+
+  defp metadata_item(assigns) do
+    ~H"""
+    <span class={metadata_item_classes()} title={"#{@label}: #{@value}"}>
+      <span aria-hidden="true">{@icon}</span>
+      <span class={metadata_label_classes()}>{@label}:</span>
+      <span class={metadata_value_classes()}>{@value}</span>
+    </span>
     """
   end
 
   @doc """
-  Renders the control panel with statistics and operations.
+  Renders the control panel with statistics and operations controls.
+
+  Displays system statistics and interactive operation controls in
+  a modern LCARS-styled panel.
+
+  ## Attributes
+
+    * `status` (required) - System operation status data
+    * `stats` (required) - Statistical information to display
   """
-  attr :status, :map, required: true
-  attr :stats, :map, required: true
+  attr :status, :map, required: true, doc: "Current system operation status"
+  attr :stats, :map, required: true, doc: "System statistics data"
 
   def control_panel(assigns) do
     ~H"""
     <.lcars_panel title="CONTROL PANEL" color="green">
-      <div class="space-y-3 sm:space-y-4">
-        <div class="space-y-2">
-          <div class="text-orange-300 text-xs sm:text-sm font-bold tracking-wide">STATISTICS</div>
-          <div class="grid grid-cols-2 gap-2 text-xs">
-            <.lcars_stat_row label="TOTAL VMAFS" value={Formatters.format_count(@stats.total_vmafs)} />
-            <.lcars_stat_row
-              label="CHOSEN VMAFS"
-              value={Formatters.format_count(@stats.chosen_vmafs_count)}
-            />
-            <.lcars_stat_row label="LAST UPDATE" value={@stats.last_video_update} small={true} />
-            <.lcars_stat_row label="LAST INSERT" value={@stats.last_video_insert} small={true} />
-          </div>
-        </div>
-
-        <div class="space-y-2">
-          <div class="text-orange-300 text-xs sm:text-sm font-bold tracking-wide">OPERATIONS</div>
-          <.live_component
-            module={ReencodarrWeb.ControlButtonsComponent}
-            id="control-buttons"
-            encoding={@status.encoding.active}
-            crf_searching={@status.crf_searching.active}
-            analyzing={@status.analyzing.active}
-            syncing={@status.syncing.active}
-          />
-        </div>
+      <div class={control_panel_content_classes()} role="region" aria-label="System control panel">
+        <.statistics_section stats={@stats} />
+        <.operations_section status={@status} />
       </div>
     </.lcars_panel>
     """
   end
 
+  attr :stats, :map, required: true
+
+  defp statistics_section(assigns) do
+    assigns = assign(assigns, :stats_config, build_stats_config(assigns.stats))
+
+    ~H"""
+    <section class={section_spacing_classes()} aria-labelledby="stats-heading">
+      <h3 id="stats-heading" class={section_heading_classes()}>
+        STATISTICS
+      </h3>
+      <div class={stats_grid_classes()}>
+        <.lcars_stat_row
+          :for={stat <- @stats_config}
+          label={stat.label}
+          value={stat.value}
+          small={Map.get(stat, :small, false)}
+        />
+      </div>
+    </section>
+    """
+  end
+
+  # Helper function to build statistics configuration
+  defp build_stats_config(stats) do
+    Enum.map(stats_config(), fn config ->
+      value = Map.get(stats, config.key)
+
+      formatted_value =
+        if formatter = Map.get(config, :formatter) do
+          formatter.(value)
+        else
+          value
+        end
+
+      config
+      |> Map.put(:value, formatted_value)
+      |> Map.drop([:key, :formatter])
+    end)
+  end
+
+  attr :status, :map, required: true
+
+  defp operations_section(assigns) do
+    ~H"""
+    <section class={operations_section_classes()} aria-labelledby="operations-heading">
+      <h3 id="operations-heading" class={operations_heading_classes()}>
+        OPERATIONS
+      </h3>
+      <.live_component
+        module={ReencodarrWeb.ControlButtonsComponent}
+        id="control-buttons"
+        encoding={@status.encoding.active}
+        crf_searching={@status.crf_searching.active}
+        analyzing={@status.analyzing.active}
+        syncing={@status.syncing.active}
+      />
+    </section>
+    """
+  end
+
   @doc """
-  Renders the manual scan section.
+  Renders the manual scan section with enhanced UX.
+
+  Provides an interface for manually triggering file scans
+  with improved styling and user feedback.
   """
   def manual_scan_section(assigns) do
     ~H"""
     <.lcars_panel title="MANUAL SCAN" color="red">
-      <.live_component module={ReencodarrWeb.ManualScanComponent} id="manual-scan" />
+      <div role="region" aria-label="Manual file scanning interface">
+        <.live_component
+          module={ReencodarrWeb.ManualScanComponent}
+          id="manual-scan"
+        />
+      </div>
     </.lcars_panel>
     """
   end
 
-  # Color helper functions
-  defp operation_color("blue"), do: "bg-blue-500"
-  defp operation_color("purple"), do: "bg-purple-500"
-  defp operation_color("green"), do: "bg-green-500"
-  defp operation_color("red"), do: "bg-red-500"
-  defp operation_color(_), do: "bg-orange-500"
-
-  defp progress_color("blue"), do: "bg-gradient-to-r from-blue-400 to-cyan-500"
-  defp progress_color("purple"), do: "bg-gradient-to-r from-purple-400 to-pink-500"
-  defp progress_color("green"), do: "bg-gradient-to-r from-green-400 to-emerald-500"
-  defp progress_color("red"), do: "bg-gradient-to-r from-red-400 to-orange-500"
-  defp progress_color(_), do: "bg-gradient-to-r from-orange-400 to-red-500"
-
-  defp queue_header_color("cyan"), do: "bg-cyan-400"
-  defp queue_header_color("green"), do: "bg-green-500"
-  defp queue_header_color("purple"), do: "bg-purple-500"
-  defp queue_header_color(_), do: "bg-orange-500"
-
-  # Progress display logic
-  defp should_show_progress?(active, progress, title) do
-    active &&
-      (get_progress_percent(progress) > 0 ||
-         has_valid_filename?(progress) ||
-         get_progress_throughput(progress) >= 0 ||
-         title == "ANALYZER")
-  end
-
-  defp get_progress_percent(progress), do: Map.get(progress, :percent, 0)
-  defp get_progress_throughput(progress), do: Map.get(progress, :throughput, 0.0)
-
-  defp has_valid_filename?(progress) do
-    filename = Map.get(progress, :filename)
-    filename && filename != :none
-  end
+  # Progress display logic - idiomatic pattern matching
+  defp show_progress?(%{percent: percent}) when percent > 0, do: true
+  defp show_progress?(%{filename: filename}) when is_binary(filename) and filename != "", do: true
+  defp show_progress?(%{throughput: throughput}) when throughput > 0, do: true
+  defp show_progress?(_), do: false
 end

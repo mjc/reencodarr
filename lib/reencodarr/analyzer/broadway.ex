@@ -939,14 +939,14 @@ defmodule Reencodarr.Analyzer.Broadway do
     Logger.warning("Marking video as failed due to analysis error: #{path} - #{reason}")
 
     case Media.get_video_by_path(path) do
-      %Media.Video{} = video ->
+      {:ok, video} ->
         # Record detailed failure information based on reason
         record_analysis_failure(video, reason)
 
         Logger.debug("Successfully recorded analysis failure for video #{video.id}")
         :ok
 
-      nil ->
+      {:error, :not_found} ->
         Logger.warning("Video not found in database, cannot mark as failed: #{path}")
         :ok
     end
