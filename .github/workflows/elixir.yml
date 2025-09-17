@@ -44,10 +44,13 @@ jobs:
         mkdir -p ~/apt-cache
         export APT_CONFIG_DIR=$(mktemp -d)
         echo 'Dir::Cache::Archives "'"$HOME/apt-cache"'";' > "$APT_CONFIG_DIR/99cache"
+        # Skip man-db triggers to speed up installation
+        sudo mkdir -p /etc/dpkg/dpkg.cfg.d
+        echo 'path-exclude=/usr/share/man/*' | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc > /dev/null
+        echo 'path-exclude=/usr/share/doc/*' | sudo tee -a /etc/dpkg/dpkg.cfg.d/01_nodoc > /dev/null
+        export DEBIAN_FRONTEND=noninteractive
         sudo APT_CONFIG="$APT_CONFIG_DIR/99cache" apt-get update
-        sudo APT_CONFIG="$APT_CONFIG_DIR/99cache" apt-get install -y fd-find ffmpeg zstd mediainfo
-        sudo apt-get update
-        sudo apt-get install -y fd-find ffmpeg zstd mediainfo
+        sudo APT_CONFIG="$APT_CONFIG_DIR/99cache" apt-get install -y --no-install-recommends fd-find ffmpeg zstd mediainfo
     
     - name: Install ab-av1
       if: steps.cache-ab-av1.outputs.cache-hit != 'true'
