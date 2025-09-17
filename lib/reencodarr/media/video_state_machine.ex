@@ -30,8 +30,8 @@ defmodule Reencodarr.Media.VideoStateMachine do
 
   # Valid state transitions - only these transitions are allowed
   @valid_transitions %{
-    needs_analysis: [:analyzed, :crf_searched, :failed],
-    analyzed: [:crf_searching, :crf_searched, :failed],
+    needs_analysis: [:analyzed, :crf_searched, :encoded, :failed],
+    analyzed: [:crf_searching, :crf_searched, :encoded, :failed],
     # Can go back to analyzed if CRF search is cancelled
     crf_searching: [:crf_searched, :failed, :analyzed],
     # Can restart CRF search if needed
@@ -99,8 +99,19 @@ defmodule Reencodarr.Media.VideoStateMachine do
   end
 
   def transition_to_analyzed(%Video{} = video, attrs \\ %{}) do
-    # Don't add any extra validation flags - let the changeset validation handle requirements
-    transition(video, :analyzed, attrs)
+    # Check if video has low bitrate and HDR content, should be marked as encoded
+    if low_bitrate?(video) do
+      bitrate_mbps = video.bitrate / 1_000_000
+
+      Logger.debug(
+        "Video #{video.path} has low bitrate (#{:erlang.float_to_binary(bitrate_mbps, decimals: 1)} Mbps) and HDR, marking as encoded"
+      )
+
+      transition(video, :encoded, attrs)
+    else
+      # Don't add any extra validation flags - let the changeset validation handle requirements
+      transition(video, :analyzed, attrs)
+    end
   end
 
   def transition_to_crf_searching(%Video{} = video, attrs \\ %{}) do
@@ -408,4 +419,12 @@ defmodule Reencodarr.Media.VideoStateMachine do
   end
 
   # Private helper functions
+
+  # Check if video has low bitrate (less than 5 Mbps = 5,000,000 bps) AND is HDR and should skip encoding
+  defp low_bitrate?(%Video{bitrate: bitrate, hdr: hdr})
+       when is_integer(bitrate) and bitrate > 0 and not is_nil(hdr) do
+    bitrate < 5_000_000
+  end
+
+  defp low_bitrate?(_video), do: false
 end
