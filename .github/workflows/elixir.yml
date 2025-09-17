@@ -14,7 +14,7 @@ jobs:
     name: Build and test
     runs-on: ubuntu-latest
     container:
-      image: alpine:3.20
+      image: alpine:3.21
     
     env:
       MIX_ENV: test
@@ -22,9 +22,8 @@ jobs:
     steps:
     - name: Install system dependencies and FFmpeg
       run: |
-        # Add community and edge repositories for latest packages
-        echo "https://dl-cdn.alpinelinux.org/alpine/v3.20/community" >> /etc/apk/repositories
-        echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
+        # Add community repository for 3.21 packages
+        echo "https://dl-cdn.alpinelinux.org/alpine/v3.21/community" >> /etc/apk/repositories
         apk update
         
         # Install basic system dependencies
@@ -38,22 +37,17 @@ jobs:
           zlib-dev \
           mediainfo
         
-        # Install FFmpeg with codec libraries (needed for ab-av1)
+        # Install FFmpeg with essential codec libraries (minimal set to avoid conflicts)
         apk add --no-cache \
           ffmpeg \
-          ffmpeg-libs \
           x264-libs \
           x265-libs \
-          libvpx \
-          opus \
-          lame \
-          svt-av1 \
-          libSvtAv1Enc
+          svt-av1
 
     - name: Install Erlang and Elixir
       run: |
-        # Install Erlang 27 and Elixir 1.19 from Alpine edge
-        apk add --no-cache --repository=https://dl-cdn.alpinelinux.org/alpine/edge/testing \
+        # Install Erlang 27 and Elixir 1.19 from Alpine 3.21 (should be available in community repo)
+        apk add --no-cache \
           erlang \
           elixir
 
