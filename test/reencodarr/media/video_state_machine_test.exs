@@ -319,6 +319,36 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
       {:ok, updated_video} = Repo.update(changeset)
       assert updated_video.state == :analyzed
     end
+
+    test "transitions zero bitrate HDR video to analyzed state (prevents division by zero)" do
+      # Create a video with zero bitrate and HDR - should not be considered low bitrate
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/zero_bitrate_hdr_video.mkv",
+          size: 1_000_000_000,
+          # Zero bitrate - should not cause division by zero
+          bitrate: 0,
+          # HDR content
+          hdr: "HDR10",
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 2,
+          atmos: false,
+          state: :needs_analysis
+        })
+
+      # Attempt to transition to analyzed state
+      {:ok, changeset} = VideoStateMachine.transition_to_analyzed(video)
+
+      # Should transition to analyzed (zero bitrate is invalid, not low bitrate)
+      assert changeset.changes.state == :analyzed
+
+      # Apply the changeset - this should fail validation due to zero bitrate
+      {:error, failed_changeset} = Repo.update(changeset)
+      assert failed_changeset.errors[:bitrate] != nil
+    end
   end
 
   describe "valid_transitions/1" do
