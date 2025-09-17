@@ -13,7 +13,9 @@ defmodule Reencodarr.AbAv1.OutputParser do
 
   This function provides access to the regex patterns for other modules
   that need to do pattern matching without duplicating the definitions.
-  Patterns are compiled fresh but only when needed for Elixir 1.19 compatibility.
+
+  Note: Patterns are compiled fresh on each call for simplicity and Elixir 1.19
+  compatibility. This trades a small performance cost for cleaner, more maintainable code.
   """
   @spec get_patterns() :: map()
   def get_patterns do

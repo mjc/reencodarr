@@ -14,6 +14,9 @@ defmodule Reencodarr.AbAv1.ProgressParser do
   @doc """
   Processes a single line of ab-av1 output and emits telemetry if applicable.
 
+  Note: Regex patterns are recompiled on every call for simplicity. This trades
+  a small performance cost for cleaner, more maintainable code.
+
   Returns `:ok` regardless of whether the line matched any patterns.
   """
   @spec process_line(String.t(), map()) :: :ok
