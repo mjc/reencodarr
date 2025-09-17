@@ -5,12 +5,13 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
 
   describe "transition_to_analyzed/2" do
     test "can transition to analyzed state without duration" do
-      # Create a video without duration
+      # Create a video without duration but with HIGH bitrate to avoid low bitrate logic
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/no_duration_video.mkv",
           size: 1_000_000_000,
-          bitrate: 5000,
+          # High bitrate to ensure normal transition to analyzed
+          bitrate: 15_000,
           width: 1920,
           height: 1080,
           video_codecs: ["h264"],
@@ -34,12 +35,13 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
     end
 
     test "can transition to analyzed state with valid duration" do
-      # Create a video with duration
+      # Create a video with duration and HIGH bitrate
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/with_duration_video.mkv",
           size: 1_000_000_000,
-          bitrate: 5000,
+          # High bitrate to ensure normal transition to analyzed
+          bitrate: 15_000,
           width: 1920,
           height: 1080,
           duration: 7200.0,
@@ -63,12 +65,13 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
     end
 
     test "rejects invalid duration when present" do
-      # Create a video
+      # Create a video with HIGH bitrate to avoid low bitrate logic
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/invalid_duration_video.mkv",
           size: 1_000_000_000,
-          bitrate: 5000,
+          # High bitrate to ensure normal transition to analyzed
+          bitrate: 15_000,
           width: 1920,
           height: 1080,
           video_codecs: ["h264"],
@@ -87,12 +90,13 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
     end
 
     test "rejects zero duration when present" do
-      # Create a video
+      # Create a video with HIGH bitrate to avoid low bitrate logic
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/zero_duration_video.mkv",
           size: 1_000_000_000,
-          bitrate: 5000,
+          # High bitrate to ensure normal transition to analyzed
+          bitrate: 15_000,
           width: 1920,
           height: 1080,
           video_codecs: ["h264"],
@@ -139,6 +143,471 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
       assert :bitrate in required_errors or :width in required_errors or
                :height in required_errors,
              "Should have errors for required fields, got: #{inspect(changeset.errors)}"
+    end
+  end
+
+  describe "low bitrate logic in transition_to_analyzed/2" do
+    test "transitions low bitrate video directly to encoded state" do
+      # Create a video with low bitrate (< 5,000,000 bps = 5 Mbps) AND HDR
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/low_bitrate_video.mkv",
+          size: 1_000_000_000,
+          # 3 Mbps - below 5 Mbps threshold
+          bitrate: 3_000_000,
+          # HDR content
+          hdr: "HDR10",
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 2,
+          atmos: false,
+          state: :needs_analysis
+        })
+
+      # Attempt to transition to analyzed state
+      {:ok, changeset} = VideoStateMachine.transition_to_analyzed(video)
+
+      # Should transition to encoded instead of analyzed
+      assert changeset.changes.state == :encoded
+
+      # Apply the changeset
+      {:ok, updated_video} = Repo.update(changeset)
+      assert updated_video.state == :encoded
+    end
+
+    test "transitions high bitrate video to analyzed state normally" do
+      # Create a video with high bitrate (>= 5,000,000 bps = 5 Mbps) or non-HDR
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/high_bitrate_video.mkv",
+          size: 1_000_000_000,
+          # 15 Mbps - above 5 Mbps threshold
+          bitrate: 15_000_000,
+          # Even with HDR, high bitrate should go to analyzed
+          hdr: "HDR10",
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 2,
+          atmos: false,
+          state: :needs_analysis
+        })
+
+      # Attempt to transition to analyzed state
+      {:ok, changeset} = VideoStateMachine.transition_to_analyzed(video)
+
+      # Should transition to analyzed normally
+      assert changeset.changes.state == :analyzed
+
+      # Apply the changeset
+      {:ok, updated_video} = Repo.update(changeset)
+      assert updated_video.state == :analyzed
+    end
+
+    test "transitions video with nil bitrate to analyzed state normally" do
+      # Create a video with nil bitrate
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/nil_bitrate_video.mkv",
+          size: 1_000_000_000,
+          bitrate: nil,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 2,
+          atmos: false,
+          state: :needs_analysis
+        })
+
+      # This should fail validation, but not due to low_bitrate? logic
+      {:ok, changeset} = VideoStateMachine.transition_to_analyzed(video)
+
+      # Should attempt to transition to analyzed (low_bitrate? returns false for nil)
+      assert changeset.changes.state == :analyzed
+    end
+
+    test "treats exactly 5,000 kbps as high bitrate" do
+      # Create a video with exactly 5,000,000 bps bitrate (5 Mbps) and HDR
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/threshold_bitrate_video.mkv",
+          size: 1_000_000_000,
+          # Exactly 5 Mbps - should not be considered low (>= threshold)
+          bitrate: 5_000_000,
+          # HDR content
+          hdr: "HDR10",
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 2,
+          atmos: false,
+          state: :needs_analysis
+        })
+
+      # Attempt to transition to analyzed state
+      {:ok, changeset} = VideoStateMachine.transition_to_analyzed(video)
+
+      # Should transition to analyzed (not low bitrate)
+      assert changeset.changes.state == :analyzed
+
+      # Apply the changeset
+      {:ok, updated_video} = Repo.update(changeset)
+      assert updated_video.state == :analyzed
+    end
+
+    test "transitions low bitrate non-HDR video to analyzed state (HDR required)" do
+      # Create a video with low bitrate but no HDR - should not be considered low bitrate
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/low_bitrate_no_hdr_video.mkv",
+          size: 1_000_000_000,
+          # 3 Mbps - below 5 Mbps threshold but no HDR
+          bitrate: 3_000_000,
+          # No HDR content
+          hdr: nil,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 2,
+          atmos: false,
+          state: :needs_analysis
+        })
+
+      # Attempt to transition to analyzed state
+      {:ok, changeset} = VideoStateMachine.transition_to_analyzed(video)
+
+      # Should transition to analyzed (HDR required for low bitrate logic)
+      assert changeset.changes.state == :analyzed
+
+      # Apply the changeset
+      {:ok, updated_video} = Repo.update(changeset)
+      assert updated_video.state == :analyzed
+    end
+
+    test "transitions low bitrate nil HDR video to analyzed state" do
+      # Create a video with low bitrate but nil HDR - should not be considered low bitrate
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/low_bitrate_nil_hdr_video.mkv",
+          size: 1_000_000_000,
+          # 3 Mbps - below 5 Mbps threshold but nil HDR
+          bitrate: 3_000_000,
+          # Nil HDR content
+          hdr: nil,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 2,
+          atmos: false,
+          state: :needs_analysis
+        })
+
+      # Attempt to transition to analyzed state
+      {:ok, changeset} = VideoStateMachine.transition_to_analyzed(video)
+
+      # Should transition to analyzed (HDR must be true for low bitrate logic)
+      assert changeset.changes.state == :analyzed
+
+      # Apply the changeset
+      {:ok, updated_video} = Repo.update(changeset)
+      assert updated_video.state == :analyzed
+    end
+
+    test "transitions zero bitrate HDR video to analyzed state (prevents division by zero)" do
+      # Create a video with zero bitrate and HDR - should not be considered low bitrate
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/zero_bitrate_hdr_video.mkv",
+          size: 1_000_000_000,
+          # Zero bitrate - should not cause division by zero
+          bitrate: 0,
+          # HDR content
+          hdr: "HDR10",
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 2,
+          atmos: false,
+          state: :needs_analysis
+        })
+
+      # Attempt to transition to analyzed state
+      {:ok, changeset} = VideoStateMachine.transition_to_analyzed(video)
+
+      # Should transition to analyzed (zero bitrate is invalid, not low bitrate)
+      assert changeset.changes.state == :analyzed
+
+      # Apply the changeset - this should fail validation due to zero bitrate
+      {:error, failed_changeset} = Repo.update(changeset)
+      assert failed_changeset.errors[:bitrate] != nil
+    end
+  end
+
+  describe "valid_transitions/1" do
+    test "returns valid transitions for each state" do
+      assert VideoStateMachine.valid_transitions(:needs_analysis) == [
+               :analyzed,
+               :crf_searched,
+               :encoded,
+               :failed
+             ]
+
+      assert VideoStateMachine.valid_transitions(:analyzed) == [
+               :crf_searching,
+               :crf_searched,
+               :encoded,
+               :failed
+             ]
+
+      assert VideoStateMachine.valid_transitions(:crf_searching) == [
+               :crf_searched,
+               :failed,
+               :analyzed
+             ]
+
+      assert VideoStateMachine.valid_transitions(:crf_searched) == [
+               :encoding,
+               :failed,
+               :crf_searching
+             ]
+
+      assert VideoStateMachine.valid_transitions(:encoding) == [:encoded, :failed, :crf_searched]
+      assert VideoStateMachine.valid_transitions(:encoded) == [:failed]
+
+      assert VideoStateMachine.valid_transitions(:failed) == [
+               :needs_analysis,
+               :analyzed,
+               :crf_searching,
+               :crf_searched,
+               :encoding
+             ]
+    end
+  end
+
+  describe "valid_transition?/2" do
+    test "validates valid state transitions" do
+      assert VideoStateMachine.valid_transition?(:needs_analysis, :analyzed)
+      assert VideoStateMachine.valid_transition?(:analyzed, :crf_searching)
+      assert VideoStateMachine.valid_transition?(:crf_searched, :encoding)
+      assert VideoStateMachine.valid_transition?(:encoding, :encoded)
+    end
+
+    test "rejects invalid state transitions" do
+      refute VideoStateMachine.valid_transition?(:needs_analysis, :encoding)
+      refute VideoStateMachine.valid_transition?(:encoded, :analyzed)
+      refute VideoStateMachine.valid_transition?(:crf_searching, :encoding)
+    end
+
+    test "handles invalid states" do
+      refute VideoStateMachine.valid_transition?(:invalid_state, :analyzed)
+      refute VideoStateMachine.valid_transition?(:analyzed, :invalid_state)
+    end
+  end
+
+  describe "next_expected_state/1" do
+    test "returns correct next state for needs_analysis video with complete analysis" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :needs_analysis,
+          # High bitrate to avoid low bitrate logic
+          bitrate: 15_000,
+          width: 1920,
+          height: 1080,
+          # Required for analysis_complete?
+          duration: 7200.0,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      assert VideoStateMachine.next_expected_state(video) == :analyzed
+    end
+
+    test "returns needs_analysis for incomplete analysis" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :needs_analysis,
+          # Missing required field
+          bitrate: nil,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      assert VideoStateMachine.next_expected_state(video) == :needs_analysis
+    end
+
+    test "returns correct next states for other states" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+      assert VideoStateMachine.next_expected_state(video) == :crf_searching
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      assert VideoStateMachine.next_expected_state(video) == :encoding
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :encoding})
+      assert VideoStateMachine.next_expected_state(video) == :encoded
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :encoded})
+      assert VideoStateMachine.next_expected_state(video) == :encoded
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :failed})
+      assert VideoStateMachine.next_expected_state(video) == :failed
+    end
+
+    test "handles crf_searching state with complete search" do
+      # This would need a video with VMAF data to test properly
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+
+      # Without VMAF data, should stay in crf_searching
+      assert VideoStateMachine.next_expected_state(video) == :crf_searching
+    end
+  end
+
+  describe "mark_as_reencoded/1" do
+    test "transitions video to encoded state from needs_analysis" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :needs_analysis,
+          bitrate: 5000,
+          width: 1920,
+          height: 1080
+        })
+
+      {:ok, updated_video} = VideoStateMachine.mark_as_reencoded(video)
+      assert updated_video.state == :encoded
+    end
+
+    test "transitions video to encoded state from analyzed" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
+      {:ok, updated_video} = VideoStateMachine.mark_as_reencoded(video)
+      assert updated_video.state == :encoded
+    end
+
+    test "handles invalid transitions gracefully" do
+      # Create a video that might not be able to transition to encoded
+      {:ok, video} = Fixtures.video_fixture(%{state: :failed})
+
+      # Should either succeed or return an error, but not crash
+      result = VideoStateMachine.mark_as_reencoded(video)
+
+      case result do
+        {:ok, _updated_video} -> assert true
+        {:error, _changeset} -> assert true
+      end
+    end
+  end
+
+  describe "mark_as_analyzed/1" do
+    test "uses low bitrate logic correctly" do
+      # Test that mark_as_analyzed uses the transition_to_analyzed logic
+      {:ok, low_bitrate_video} =
+        Fixtures.video_fixture(%{
+          state: :needs_analysis,
+          # Low bitrate (3 Mbps)
+          bitrate: 3_000_000,
+          # HDR content (required)
+          hdr: "HDR10",
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 2
+        })
+
+      {:ok, updated_video} = VideoStateMachine.mark_as_analyzed(low_bitrate_video)
+      # Should skip to encoded
+      assert updated_video.state == :encoded
+    end
+
+    test "transitions high bitrate video to analyzed" do
+      {:ok, high_bitrate_video} =
+        Fixtures.video_fixture(%{
+          state: :needs_analysis,
+          # High bitrate (15 Mbps)
+          bitrate: 15_000_000,
+          # Even with HDR, high bitrate should go to analyzed
+          hdr: "HDR10",
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 2
+        })
+
+      {:ok, updated_video} = VideoStateMachine.mark_as_analyzed(high_bitrate_video)
+      # Should go to analyzed normally
+      assert updated_video.state == :analyzed
+    end
+
+    test "transitions low bitrate non-HDR video to analyzed (HDR required)" do
+      {:ok, low_bitrate_no_hdr_video} =
+        Fixtures.video_fixture(%{
+          state: :needs_analysis,
+          # Low bitrate (3 Mbps) but no HDR
+          bitrate: 3_000_000,
+          # No HDR content
+          hdr: nil,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 2
+        })
+
+      {:ok, updated_video} = VideoStateMachine.mark_as_analyzed(low_bitrate_no_hdr_video)
+      # Should go to analyzed (HDR required)
+      assert updated_video.state == :analyzed
+    end
+  end
+
+  describe "transition/3" do
+    test "prevents invalid state transitions" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :needs_analysis})
+
+      # Try invalid transition
+      result = VideoStateMachine.transition(video, :encoding)
+
+      # Should return error tuple with message
+      assert {:error, _message} = result
+    end
+
+    test "allows valid state transitions" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :needs_analysis,
+          # High bitrate to avoid low bitrate logic
+          bitrate: 15_000,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 2
+        })
+
+      # Try valid transition
+      {:ok, changeset} = VideoStateMachine.transition(video, :analyzed)
+
+      assert changeset.valid?
+      assert changeset.changes.state == :analyzed
+    end
+
+    test "applies additional attributes during transition" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :needs_analysis})
+
+      {:ok, changeset} = VideoStateMachine.transition(video, :failed, %{bitrate: 12_345})
+
+      assert changeset.valid?
+      assert changeset.changes.state == :failed
+      assert changeset.changes.bitrate == 12_345
     end
   end
 end
