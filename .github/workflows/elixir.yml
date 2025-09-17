@@ -35,7 +35,9 @@ jobs:
           openssl-dev \
           ncurses-dev \
           zlib-dev \
-          mediainfo
+          mediainfo \
+          cmake \
+          make
         
         # Install FFmpeg with essential codec libraries (minimal set to avoid conflicts)
         apk add --no-cache \
