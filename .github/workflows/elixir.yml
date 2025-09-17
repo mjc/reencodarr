@@ -20,8 +20,14 @@ jobs:
       MIX_ENV: test
 
     steps:
-    - name: Install system dependencies
+    - name: Install system dependencies and FFmpeg
       run: |
+        # Add community and edge repositories for latest packages
+        echo "https://dl-cdn.alpinelinux.org/alpine/v3.20/community" >> /etc/apk/repositories
+        echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
+        apk update
+        
+        # Install basic system dependencies
         apk add --no-cache \
           git \
           bash \
@@ -30,8 +36,19 @@ jobs:
           openssl-dev \
           ncurses-dev \
           zlib-dev \
-          ffmpeg \
           mediainfo
+        
+        # Install FFmpeg with codec libraries (needed for ab-av1)
+        apk add --no-cache \
+          ffmpeg \
+          ffmpeg-libs \
+          x264-libs \
+          x265-libs \
+          libvpx \
+          opus \
+          lame \
+          svt-av1 \
+          libSvtAv1Enc
 
     - name: Install Erlang and Elixir
       run: |
