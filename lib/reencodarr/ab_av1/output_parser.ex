@@ -13,6 +13,7 @@ defmodule Reencodarr.AbAv1.OutputParser do
 
   This function provides access to the regex patterns for other modules
   that need to do pattern matching without duplicating the definitions.
+  Patterns are compiled fresh but only when needed for Elixir 1.19 compatibility.
   """
   @spec get_patterns() :: map()
   def get_patterns do
@@ -42,6 +43,20 @@ defmodule Reencodarr.AbAv1.OutputParser do
     }
   end
 
+  # Cache patterns in process dictionary for performance
+  # This avoids recompilation while maintaining Elixir 1.19 compatibility
+  defp cached_patterns do
+    case Process.get(:ab_av1_patterns) do
+      nil ->
+        patterns = get_patterns()
+        Process.put(:ab_av1_patterns, patterns)
+        patterns
+
+      patterns ->
+        patterns
+    end
+  end
+
   @doc """
   Matches a line against a specific pattern and returns named captures.
 
@@ -49,7 +64,7 @@ defmodule Reencodarr.AbAv1.OutputParser do
   """
   @spec match_pattern(String.t(), atom()) :: {:ok, map()} | {:error, :no_match}
   def match_pattern(line, pattern_key) do
-    patterns = get_patterns()
+    patterns = cached_patterns()
     pattern = Map.get(patterns, pattern_key)
 
     case Regex.named_captures(pattern, line) do
@@ -113,7 +128,7 @@ defmodule Reencodarr.AbAv1.OutputParser do
   end
 
   defp parse_pattern_with_mapping(line, pattern_key, type, field_mapping) do
-    patterns = get_patterns()
+    patterns = cached_patterns()
 
     case Parsers.parse_with_pattern(line, pattern_key, patterns, field_mapping) do
       {:error, _} = error -> error
@@ -123,7 +138,7 @@ defmodule Reencodarr.AbAv1.OutputParser do
 
   # Special parser for encoding_start pattern with custom transformations
   defp parse_encoding_start_pattern(line) do
-    patterns = get_patterns()
+    patterns = cached_patterns()
     pattern = patterns[:encoding_start]
 
     case Regex.named_captures(pattern, line) do
