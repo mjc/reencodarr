@@ -10,7 +10,16 @@ defmodule Reencodarr.Analyzer.Broadway do
   require Logger
 
   alias Broadway.Message
-  alias Reencodarr.Analyzer.{Broadway.PerformanceMonitor, Broadway.Producer, QueueManager}
+
+  alias Reencodarr.Analyzer.{
+    Broadway.PerformanceMonitor,
+    Broadway.Producer,
+    ConcurrencyManager,
+    FileStatCache,
+    MediaInfoCache,
+    QueueManager
+  }
+
   alias Reencodarr.{Media, Telemetry}
 
   @doc """
@@ -238,12 +247,16 @@ defmodule Reencodarr.Analyzer.Broadway do
     )
 
     # Process all videos to prepare data (without database operations)
+    # Use dynamic concurrency based on system load
+    optimal_concurrency = ConcurrencyManager.get_video_processing_concurrency()
+    processing_timeout = ConcurrencyManager.get_processing_timeout()
+
     processed_videos =
       video_infos
       |> Task.async_stream(
         &prepare_video_data_with_mediainfo(&1, Map.get(mediainfo_map, &1.path, :no_mediainfo)),
-        max_concurrency: 25,
-        timeout: :timer.minutes(5),
+        max_concurrency: optimal_concurrency,
+        timeout: processing_timeout,
         on_timeout: :kill_task
       )
       |> Enum.to_list()
@@ -261,12 +274,16 @@ defmodule Reencodarr.Analyzer.Broadway do
     Logger.debug("Processing #{length(video_infos)} videos individually")
 
     # Process all videos to prepare data (without database operations)
+    # Use reduced concurrency for individual processing (fallback path)
+    fallback_concurrency = max(2, div(ConcurrencyManager.get_video_processing_concurrency(), 2))
+    processing_timeout = ConcurrencyManager.get_processing_timeout()
+
     processed_videos =
       video_infos
       |> Task.async_stream(
         &prepare_video_data_individually/1,
-        max_concurrency: 9,
-        timeout: :timer.minutes(5),
+        max_concurrency: fallback_concurrency,
+        timeout: processing_timeout,
         on_timeout: :kill_task
       )
       |> Enum.to_list()
@@ -537,6 +554,19 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp fetch_single_mediainfo(path) do
+    # Try cache first
+    case MediaInfoCache.get_mediainfo(path) do
+      {:ok, mediainfo_data} ->
+        Logger.debug("Broadway: Using cached mediainfo for #{path}")
+        {:ok, mediainfo_data}
+
+      {:error, _reason} ->
+        Logger.debug("Broadway: Cache miss or error, executing mediainfo for #{path}")
+        execute_direct_single_mediainfo(path)
+    end
+  end
+
+  defp execute_direct_single_mediainfo(path) do
     case System.cmd("mediainfo", ["--Output=JSON", path]) do
       {json, 0} ->
         decode_and_parse_single_mediainfo_json(json, path)
@@ -594,6 +624,10 @@ defmodule Reencodarr.Analyzer.Broadway do
       "Executing chunked mediainfo for #{length(paths)} paths with batch size #{batch_size}"
     )
 
+    # Use dynamic concurrency for mediainfo operations
+    mediainfo_concurrency = ConcurrencyManager.get_mediainfo_concurrency()
+    processing_timeout = ConcurrencyManager.get_processing_timeout()
+
     paths
     |> Enum.chunk_every(batch_size)
     |> Task.async_stream(
@@ -610,10 +644,8 @@ defmodule Reencodarr.Analyzer.Broadway do
             %{}
         end
       end,
-      # 5 minutes total per chunk
-      timeout: 300_000,
-      # Limit concurrent mediainfo processes
-      max_concurrency: 2
+      timeout: processing_timeout,
+      max_concurrency: mediainfo_concurrency
     )
     |> Enum.reduce({:ok, %{}}, fn
       {:ok, chunk_map}, {:ok, acc_map} ->
@@ -629,12 +661,59 @@ defmodule Reencodarr.Analyzer.Broadway do
     end)
   end
 
+  defp execute_batch_mediainfo_command([]), do: {:ok, %{}}
+
   defp execute_batch_mediainfo_command(paths) when is_list(paths) and paths != [] do
     Logger.debug("Executing batch mediainfo command for #{length(paths)} files")
     Logger.debug("Broadway: About to execute mediainfo command for paths: #{inspect(paths)}")
 
-    # Check if all files exist before running mediainfo
-    missing_files = Enum.filter(paths, fn path -> not File.exists?(path) end)
+    # Use cached mediainfo results when possible
+    case MediaInfoCache.get_bulk_mediainfo(paths) do
+      results when map_size(results) > 0 ->
+        process_cached_mediainfo_results(results)
+
+      _empty_or_error ->
+        # Fallback to direct mediainfo execution
+        execute_direct_batch_mediainfo(paths)
+    end
+  end
+
+  defp process_cached_mediainfo_results(results) do
+    {successful_results, failed_paths} = separate_mediainfo_results(results)
+
+    if failed_paths == [] do
+      Logger.debug("Broadway: All mediainfo results from cache")
+      {:ok, successful_results}
+    else
+      Logger.debug("Broadway: Some files failed mediainfo, returning partial results")
+      {:ok, successful_results}
+    end
+  end
+
+  defp separate_mediainfo_results(results) do
+    Enum.reduce(results, {%{}, []}, fn {path, result}, {success_acc, failed_acc} ->
+      case result do
+        {:ok, mediainfo_data} ->
+          {Map.put(success_acc, path, mediainfo_data), failed_acc}
+
+        {:error, _reason} ->
+          {success_acc, [path | failed_acc]}
+      end
+    end)
+  end
+
+  defp execute_direct_batch_mediainfo(paths) do
+    # Check if all files exist before running mediainfo using cached checks
+    file_stats = FileStatCache.get_bulk_file_stats(paths)
+
+    missing_files =
+      Enum.filter(paths, fn path ->
+        case Map.get(file_stats, path) do
+          {:ok, %{exists: false}} -> true
+          {:error, _} -> true
+          _ -> false
+        end
+      end)
 
     case missing_files do
       [] ->
@@ -655,8 +734,6 @@ defmodule Reencodarr.Analyzer.Broadway do
         {:error, "Missing files: #{inspect(missing_files)}"}
     end
   end
-
-  defp execute_batch_mediainfo_command([]), do: {:ok, %{}}
 
   defp decode_and_parse_batch_mediainfo_json(json, paths) do
     Logger.debug("Decoding batch mediainfo JSON for #{length(paths)} files")
@@ -772,6 +849,9 @@ defmodule Reencodarr.Analyzer.Broadway do
       %{"CompleteName" => path} when is_binary(path) ->
         {:ok, path}
 
+      %{"Complete_name" => path} when is_binary(path) ->
+        {:ok, path}
+
       _ ->
         {:error, "no complete name found"}
     end
@@ -792,8 +872,8 @@ defmodule Reencodarr.Analyzer.Broadway do
   # Helper functions for video processing
 
   defp check_processing_eligibility(video_info) do
-    # Check if file exists
-    file_exists = File.exists?(video_info.path)
+    # Check if file exists using cached file stats
+    file_exists = FileStatCache.file_exists?(video_info.path)
     Logger.debug("Broadway: File existence check for #{video_info.path}: #{file_exists}")
 
     case file_exists do
