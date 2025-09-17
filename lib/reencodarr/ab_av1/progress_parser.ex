@@ -39,19 +39,34 @@ defmodule Reencodarr.AbAv1.ProgressParser do
 
   # Private functions
 
+  # Cache patterns in process dictionary for performance
+  # This avoids recompilation while maintaining Elixir 1.19 compatibility
+  defp cached_patterns do
+    case Process.get(:progress_parser_patterns) do
+      nil ->
+        patterns = %{
+          encoding_start: ~r/\[.*\] encoding (?<filename>\d+\.mkv)/,
+          # Main progress pattern with brackets: [timestamp] percent%, fps fps, eta time unit
+          progress:
+            ~r/\[(?<timestamp>[^\]]+)\].*?(?<percent>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,?\s?eta\s(?<eta>\d+)\s(?<time_unit>(?:second|minute|hour|day|week|month|year)s?)/,
+          # Alternative progress pattern without brackets: percent%, fps fps, eta time unit
+          progress_alt:
+            ~r/(?<percent>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,?\s?eta\s(?<eta>\d+)\s(?<time_unit>(?:second|minute|hour|day|week|month|year)s?)/,
+          # File size progress pattern: Encoded X GB (percent%)
+          file_size_progress: ~r/Encoded\s[\d.]+\s[KMGT]?B\s\((?<percent>\d+)%\)/
+        }
+
+        Process.put(:progress_parser_patterns, patterns)
+        patterns
+
+      patterns ->
+        patterns
+    end
+  end
+
   defp parse_line(line, state) do
-    # Pattern definitions moved inside the function to avoid Elixir 1.19 compilation issues
-    patterns = %{
-      encoding_start: ~r/\[.*\] encoding (?<filename>\d+\.mkv)/,
-      # Main progress pattern with brackets: [timestamp] percent%, fps fps, eta time unit
-      progress:
-        ~r/\[(?<timestamp>[^\]]+)\].*?(?<percent>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,?\s?eta\s(?<eta>\d+)\s(?<time_unit>(?:second|minute|hour|day|week|month|year)s?)/,
-      # Alternative progress pattern without brackets: percent%, fps fps, eta time unit
-      progress_alt:
-        ~r/(?<percent>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,?\s?eta\s(?<eta>\d+)\s(?<time_unit>(?:second|minute|hour|day|week|month|year)s?)/,
-      # File size progress pattern: Encoded X GB (percent%)
-      file_size_progress: ~r/Encoded\s[\d.]+\s[KMGT]?B\s\((?<percent>\d+)%\)/
-    }
+    # Access cached patterns for performance
+    patterns = cached_patterns()
 
     cond do
       match = Regex.named_captures(patterns.encoding_start, line) ->
