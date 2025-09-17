@@ -53,9 +53,13 @@ jobs:
 
     - name: Install ab-av1
       run: |
-        # Install Rust and Cargo
-        apk add --no-cache rust cargo
-        # Install stable ab-av1 from crates.io instead of bleeding edge git
+        # Install rustup to get latest stable Rust (Alpine's is too old)
+        apk add --no-cache curl
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source ~/.cargo/env
+        # Add cargo to PATH for this and future steps
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        # Install latest stable ab-av1 with newer Rust toolchain
         cargo install ab-av1
 
     - uses: actions/checkout@v4
