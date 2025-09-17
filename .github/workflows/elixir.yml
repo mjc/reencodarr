@@ -55,8 +55,8 @@ jobs:
       run: |
         # Install Rust and Cargo
         apk add --no-cache rust cargo
-        # Install ab-av1 from source
-        cargo install --git https://github.com/alexheretic/ab-av1.git ab-av1
+        # Install stable ab-av1 from crates.io instead of bleeding edge git
+        cargo install ab-av1
 
     - uses: actions/checkout@v4
     
