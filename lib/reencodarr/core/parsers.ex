@@ -342,4 +342,114 @@ defmodule Reencodarr.Core.Parsers do
   end
 
   def parse_float_exact(_), do: {:error, :invalid_input}
+
+  @doc """
+  Extracts the first valid year from text using simple string parsing.
+
+  Looks for 4-digit years (1950-2030) in common video file patterns,
+  prioritizing bracketed formats over standalone numbers.
+
+  ## Examples
+
+      iex> Parsers.extract_year_from_text("The Movie (2008) HD")
+      2008
+
+      iex> Parsers.extract_year_from_text("Show.S01E01.2008.mkv")
+      2008
+
+      iex> Parsers.extract_year_from_text("No year here")
+      nil
+
+  """
+  @spec extract_year_from_text(String.t() | nil) :: integer() | nil
+  def extract_year_from_text(nil), do: nil
+  def extract_year_from_text(""), do: nil
+
+  def extract_year_from_text(text) when is_binary(text) do
+    # Check each pattern in priority order
+    find_year_in_parentheses(text) ||
+      find_year_in_brackets(text) ||
+      find_year_with_dots(text) ||
+      find_year_with_spaces(text) ||
+      find_standalone_year(text)
+  end
+
+  # Find year like (2008)
+  defp find_year_in_parentheses(text) do
+    find_year_between_chars(text, "(", ")")
+  end
+
+  # Find year like [2008]
+  defp find_year_in_brackets(text) do
+    find_year_between_chars(text, "[", "]")
+  end
+
+  # Find year like .2008.
+  defp find_year_with_dots(text) do
+    find_year_between_chars(text, ".", ".")
+  end
+
+  # Find year like " 2008 " (with spaces)
+  defp find_year_with_spaces(text) do
+    find_year_between_chars(text, " ", " ")
+  end
+
+  # Find standalone 4-digit year anywhere in string
+  defp find_standalone_year(text) do
+    text
+    |> String.graphemes()
+    |> Enum.chunk_every(4, 1, :discard)
+    |> Enum.find_value(&check_year_candidate/1)
+  end
+
+  # Check if 4 characters form a valid year
+  defp check_year_candidate(four_chars) do
+    year_str = Enum.join(four_chars)
+
+    if all_digits?(year_str) do
+      parse_and_validate_year(year_str)
+    end
+  end
+
+  # Parse year string and validate range
+  defp parse_and_validate_year(year_str) do
+    case Integer.parse(year_str) do
+      {year, ""} when year >= 1950 and year <= 2030 -> year
+      _ -> nil
+    end
+  end
+
+  # Helper to find year between two delimiter characters
+  defp find_year_between_chars(text, open_char, close_char) do
+    case String.split(text, open_char) do
+      # No opening delimiter found
+      [_] ->
+        nil
+
+      parts ->
+        parts
+        # Skip the part before first delimiter
+        |> Enum.drop(1)
+        |> Enum.find_value(&extract_year_from_part(&1, close_char))
+    end
+  end
+
+  # Extract year from a text part after finding opening delimiter
+  defp extract_year_from_part(part, close_char) do
+    case String.split(part, close_char, parts: 2) do
+      [potential_year | _] when byte_size(potential_year) == 4 ->
+        if all_digits?(potential_year) do
+          parse_and_validate_year(potential_year)
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  # Check if a string contains only digits
+  defp all_digits?(str) do
+    String.length(str) == 4 and
+      String.to_charlist(str) |> Enum.all?(&(&1 >= ?0 and &1 <= ?9))
+  end
 end

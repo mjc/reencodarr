@@ -98,14 +98,14 @@
             export DATABASE_URL="ecto://mjc@localhost:5432/reencodarr_dev"
             export SECRET_KEY_BASE="WEWsPGIpK/OgJA2ZcwzsgZxWKSAp35IsqWPYsvSUmm5awBUGpvsVOcG2kkDteXR1"
             export COMPOSE_BAKE=true
-            
+
             # GPG Configuration
             export GPG_TTY=$(tty)
             export PINENTRY_USER_DATA="USE_CURSES=1"
-            
+
             # Ensure GPG agent is using the right pinentry
             echo "pinentry-program ${pkgs.pinentry-curses}/bin/pinentry-curses" >> ~/.gnupg/gpg-agent.conf 2>/dev/null || true
-            
+
             # Configure git to use nix-provided GPG
             git config --global gpg.program "${pkgs.gnupg}/bin/gpg"
           '';
