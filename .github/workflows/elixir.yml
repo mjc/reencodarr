@@ -11,65 +11,132 @@ permissions:
 
 jobs:
   build:
-
     name: Build and test
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
+    container:
+      image: alpine:3.21
+    
+    env:
+      MIX_ENV: test
 
     steps:
+    - name: Install system dependencies and FFmpeg
+      run: |
+        # Add community repository for 3.21 packages
+        echo "https://dl-cdn.alpinelinux.org/alpine/v3.21/community" >> /etc/apk/repositories
+        apk update
+        
+        # Install basic system dependencies
+        apk add --no-cache \
+          git \
+          bash \
+          curl \
+          build-base \
+          openssl-dev \
+          ncurses-dev \
+          zlib-dev \
+          mediainfo \
+          cmake \
+          make
+        
+        # Install FFmpeg with essential codec libraries (minimal set to avoid conflicts)
+        apk add --no-cache \
+          ffmpeg \
+          x264-libs \
+          x265-libs \
+          svt-av1
+
+    - name: Install Erlang and Elixir
+      run: |
+        # Install Erlang 27 and Elixir 1.19 from Alpine 3.21 (should be available in community repo)
+        apk add --no-cache \
+          erlang \
+          elixir
+
     - uses: actions/checkout@v4
     
-    - name: Set up Elixir
-      uses: erlef/setup-beam@61e01a43a562a89bfc54c7f9a378ff67b03e4a21 # v1.16.0
+    - name: Cache rustup and cargo installation
+      uses: actions/cache@v4
       with:
-        elixir-version: '1.18.3' # [Required] Define the Elixir version
-        otp-version: '27.3.4'      # [Required] Define the Erlang/OTP version
-    
-    - name: Install and cache apt packages
-      uses: awalsh128/cache-apt-pkgs-action@v1
-      with:
-        packages: fd-find ffmpeg zstd mediainfo
-        version: 1.0
+        path: |
+          ~/.rustup
+          ~/.cargo/registry/index
+          ~/.cargo/registry/cache
+          ~/.cargo/git
+        key: ${{ runner.os }}-alpine-rust-${{ hashFiles('**/Cargo.lock') }}-v1
+        restore-keys: |
+          ${{ runner.os }}-alpine-rust-
     
     - name: Cache ab-av1 binary
-      id: cache-ab-av1
       uses: actions/cache@v4
+      id: ab-av1-cache
       with:
-        path: /usr/local/bin/ab-av1
-        key: ab-av1-v0.10.1
-    
+        path: ~/.cargo/bin/ab-av1
+        key: ${{ runner.os }}-alpine-ab-av1-${{ hashFiles('~/.cargo/bin/ab-av1') }}-v1
+        restore-keys: |
+          ${{ runner.os }}-alpine-ab-av1-
+
     - name: Install ab-av1
-      if: steps.cache-ab-av1.outputs.cache-hit != 'true'
+      if: steps.ab-av1-cache.outputs.cache-hit != 'true'
       run: |
-        # Install ab-av1 from GitHub releases
-        wget -O /tmp/ab-av1.tar.zst https://github.com/alexheretic/ab-av1/releases/download/v0.10.1/ab-av1-v0.10.1-x86_64-unknown-linux-musl.tar.zst
-        cd /tmp && zstd -d ab-av1.tar.zst && tar -xf ab-av1.tar
-        sudo mv ab-av1 /usr/local/bin/ab-av1
-        sudo chmod +x /usr/local/bin/ab-av1
+        # Install rustup to get latest stable Rust (Alpine's is too old)
+        if [ ! -f ~/.cargo/env ]; then
+          apk add --no-cache curl
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        fi
+        source ~/.cargo/env
+        # Add cargo to PATH for this and future steps
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        # Install latest stable ab-av1 with newer Rust toolchain
+        cargo install ab-av1
+
+    - name: Setup cargo PATH
+      run: |
+        # Ensure cargo is available in PATH for subsequent steps
+        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
     
-    - name: Restore dependencies cache
+    - name: Cache Mix dependencies
       uses: actions/cache@v4
       with:
-        path: deps
-        key: ${{ runner.os }}-mix-deps-${{ hashFiles('**/mix.lock') }}
-        restore-keys: ${{ runner.os }}-mix-deps-
+        path: |
+          deps
+          _build/test/lib
+        key: ${{ runner.os }}-alpine-mix-${{ hashFiles('mix.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-alpine-mix-
     
-    - name: Restore build cache
+    - name: Cache compiled dependencies
       uses: actions/cache@v4
       with:
         path: _build
-        key: ${{ runner.os }}-mix-build-${{ hashFiles('**/mix.lock') }}-${{ hashFiles('**/*.ex') }}-${{ hashFiles('**/*.exs') }}
+        key: ${{ runner.os }}-alpine-build-${{ hashFiles('mix.lock') }}-${{ hashFiles('lib/**/*.ex', 'test/**/*.exs', 'config/**/*.exs') }}
         restore-keys: |
-          ${{ runner.os }}-mix-build-${{ hashFiles('**/mix.lock') }}-
-          ${{ runner.os }}-mix-build-
+          ${{ runner.os }}-alpine-build-${{ hashFiles('mix.lock') }}-
+          ${{ runner.os }}-alpine-build-
+    
+    - name: Cache native dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          deps/*/priv
+          deps/*/_build
+        key: ${{ runner.os }}-alpine-native-${{ hashFiles('mix.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-alpine-native-
+
+    - name: Verify environment
+      run: |
+        echo 'Elixir version:' && elixir --version
+        echo 'Erlang version:' && erl -eval 'erlang:display(erlang:system_info(otp_release)), halt().' -noshell
+        echo 'ab-av1 version:' && ab-av1 --version
+        echo 'mediainfo version:' && mediainfo --version | head -1
+        echo 'ffmpeg version:' && ffmpeg -version | head -1
     
     - name: Install dependencies
       run: mix deps.get
     
-    - name: Compile dependencies
+    - name: Compile dependencies  
       run: mix deps.compile
-    
-    - name: Set MIX_ENV to test
-      run: echo "MIX_ENV=test" >> $GITHUB_ENV
     
     - name: Compile project
       run: mix compile --warnings-as-errors

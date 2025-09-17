@@ -92,6 +92,7 @@ defmodule Reencodarr.Dashboard.QueueItem do
   defp extract_path(_), do: "Unknown"
 
   # Clean up display name to make it more readable
+  # Note: All regex patterns are recompiled on each call for simplicity
   defp clean_display_name(filename) do
     filename
     # Remove file extensions

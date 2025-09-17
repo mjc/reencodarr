@@ -11,21 +11,11 @@ defmodule Reencodarr.AbAv1.ProgressParser do
   alias Reencodarr.Statistics.EncodingProgress
   alias Reencodarr.Telemetry
 
-  # Pattern definitions for parsing progress lines
-  @patterns %{
-    encoding_start: ~r/\[.*\] encoding (?<filename>\d+\.mkv)/,
-    # Main progress pattern with brackets: [timestamp] percent%, fps fps, eta time unit
-    progress:
-      ~r/\[(?<timestamp>[^\]]+)\].*?(?<percent>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,?\s?eta\s(?<eta>\d+)\s(?<time_unit>(?:second|minute|hour|day|week|month|year)s?)/,
-    # Alternative progress pattern without brackets: percent%, fps fps, eta time unit
-    progress_alt:
-      ~r/(?<percent>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,?\s?eta\s(?<eta>\d+)\s(?<time_unit>(?:second|minute|hour|day|week|month|year)s?)/,
-    # File size progress pattern: Encoded X GB (percent%)
-    file_size_progress: ~r/Encoded\s[\d.]+\s[KMGT]?B\s\((?<percent>\d+)%\)/
-  }
-
   @doc """
   Processes a single line of ab-av1 output and emits telemetry if applicable.
+
+  Note: Regex patterns are recompiled on every call for simplicity. This trades
+  a small performance cost for cleaner, more maintainable code.
 
   Returns `:ok` regardless of whether the line matched any patterns.
   """
@@ -52,18 +42,46 @@ defmodule Reencodarr.AbAv1.ProgressParser do
 
   # Private functions
 
+  # Cache patterns in process dictionary for performance
+  # This avoids recompilation while maintaining Elixir 1.19 compatibility
+  defp cached_patterns do
+    case Process.get(:progress_parser_patterns) do
+      nil ->
+        patterns = %{
+          encoding_start: ~r/\[.*\] encoding (?<filename>\d+\.mkv)/,
+          # Main progress pattern with brackets: [timestamp] percent%, fps fps, eta time unit
+          progress:
+            ~r/\[(?<timestamp>[^\]]+)\].*?(?<percent>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,?\s?eta\s(?<eta>\d+)\s(?<time_unit>(?:second|minute|hour|day|week|month|year)s?)/,
+          # Alternative progress pattern without brackets: percent%, fps fps, eta time unit
+          progress_alt:
+            ~r/(?<percent>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,?\s?eta\s(?<eta>\d+)\s(?<time_unit>(?:second|minute|hour|day|week|month|year)s?)/,
+          # File size progress pattern: Encoded X GB (percent%)
+          file_size_progress: ~r/Encoded\s[\d.]+\s[KMGT]?B\s\((?<percent>\d+)%\)/
+        }
+
+        Process.put(:progress_parser_patterns, patterns)
+        patterns
+
+      patterns ->
+        patterns
+    end
+  end
+
   defp parse_line(line, state) do
+    # Access cached patterns for performance
+    patterns = cached_patterns()
+
     cond do
-      match = Regex.named_captures(@patterns.encoding_start, line) ->
+      match = Regex.named_captures(patterns.encoding_start, line) ->
         handle_encoding_start(match, state)
 
-      match = Regex.named_captures(@patterns.progress, line) ->
+      match = Regex.named_captures(patterns.progress, line) ->
         handle_progress(match, state)
 
-      match = Regex.named_captures(@patterns.progress_alt, line) ->
+      match = Regex.named_captures(patterns.progress_alt, line) ->
         handle_progress(match, state)
 
-      match = Regex.named_captures(@patterns.file_size_progress, line) ->
+      match = Regex.named_captures(patterns.file_size_progress, line) ->
         handle_file_size_progress(match, state)
 
       true ->

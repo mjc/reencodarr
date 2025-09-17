@@ -417,32 +417,8 @@ defmodule Reencodarr.Sync do
 
   defp parse_date_string(_), do: nil
 
-  # Extract year from filename as fallback
-  defp extract_year_from_filename(nil), do: nil
-  defp extract_year_from_filename(""), do: nil
-
-  defp extract_year_from_filename(path) when is_binary(path) do
-    # Same logic as in Rules module - extract year from filename
-    patterns = [
-      ~r/\((\d{4})\)/,
-      ~r/\[(\d{4})\]/,
-      ~r/\.(\d{4})\./,
-      ~r/\s(\d{4})\s/,
-      ~r/(\d{4})/
-    ]
-
-    Enum.find_value(patterns, fn pattern ->
-      case Regex.run(pattern, path) do
-        [_, year_str] -> parse_valid_year(year_str)
-        _ -> nil
-      end
-    end)
-  end
-
-  defp parse_valid_year(year_str) do
-    case Parsers.parse_integer_exact(year_str) do
-      {:ok, year} when year >= 1950 and year <= 2030 -> year
-      _ -> nil
-    end
+  # Extract year from filename as fallback using the centralized high-performance Parsers function
+  defp extract_year_from_filename(path) do
+    Parsers.extract_year_from_text(path)
   end
 end
