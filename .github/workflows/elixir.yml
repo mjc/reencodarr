@@ -12,26 +12,24 @@ permissions:
 jobs:
   build:
     name: Build and test
-    runs-on: nixos-latest
+    runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
     
-    - name: Cache Nix store
-      uses: actions/cache@v4
+    - name: Install Nix
+      uses: cachix/install-nix-action@v27
       with:
-        path: /nix/store
-        key: ${{ runner.os }}-nix-store-${{ hashFiles('flake.nix', 'flake.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-nix-store-
+        nix_path: nixpkgs=channel:nixos-unstable
+        extra_nix_config: |
+          experimental-features = nix-command flakes
+          access-tokens = github.com=${{ secrets.GITHUB_TOKEN }}
     
-    - name: Cache flake inputs
-      uses: actions/cache@v4
+    - name: Setup Cachix
+      uses: cachix/cachix-action@v15
       with:
-        path: ~/.cache/nix
-        key: ${{ runner.os }}-nix-cache-${{ hashFiles('flake.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-nix-cache-
+        name: nix-community
+        skipPush: true
     
     - name: Cache Mix dependencies
       uses: actions/cache@v4
@@ -39,24 +37,18 @@ jobs:
         path: |
           deps
           _build/dev/lib
-        key: ${{ runner.os }}-nixos-mix-${{ hashFiles('mix.lock') }}
+        key: ${{ runner.os }}-nix-mix-${{ hashFiles('mix.lock') }}
         restore-keys: |
-          ${{ runner.os }}-nixos-mix-
+          ${{ runner.os }}-nix-mix-
     
     - name: Cache Mix build artifacts
       uses: actions/cache@v4
       with:
         path: _build
-        key: ${{ runner.os }}-nixos-build-${{ hashFiles('mix.lock') }}-${{ hashFiles('lib/**/*.ex', 'test/**/*.exs', 'config/**/*.exs') }}
+        key: ${{ runner.os }}-nix-build-${{ hashFiles('mix.lock') }}-${{ hashFiles('lib/**/*.ex', 'test/**/*.exs', 'config/**/*.exs') }}
         restore-keys: |
-          ${{ runner.os }}-nixos-build-${{ hashFiles('mix.lock') }}-
-          ${{ runner.os }}-nixos-build-
-    
-    - name: Setup Nix Binary Cache
-      run: |
-        echo "extra-substituters = https://cache.nixos.org https://nix-community.cachix.org" | sudo tee -a /etc/nix/nix.conf
-        echo "extra-trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs=" | sudo tee -a /etc/nix/nix.conf
-        sudo systemctl reload nix-daemon || true
+          ${{ runner.os }}-nix-build-${{ hashFiles('mix.lock') }}-
+          ${{ runner.os }}-nix-build-
     
     - name: Verify environment
       run: |
@@ -64,7 +56,7 @@ jobs:
           echo 'Elixir version:' && elixir --version
           echo 'Erlang version:' && erl -eval 'erlang:display(erlang:system_info(otp_release)), halt().' -noshell
           echo 'ab-av1 version:' && ab-av1 --version
-          echo 'mediainfo version:' && mediainfo --version
+          echo 'mediainfo version:' && mediainfo --version | head -1
           echo 'ffmpeg version:' && ffmpeg -version | head -1
         "
     
