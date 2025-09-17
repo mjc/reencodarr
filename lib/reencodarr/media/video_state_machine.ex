@@ -422,7 +422,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
 
   # Check if video has low bitrate (less than 5 Mbps = 5,000,000 bps) AND is HDR and should skip encoding
   defp low_bitrate?(%Video{bitrate: bitrate, hdr: hdr})
-       when is_integer(bitrate) and not is_nil(hdr) do
+       when is_integer(bitrate) and bitrate > 0 and not is_nil(hdr) do
     bitrate < 5_000_000
   end
 
