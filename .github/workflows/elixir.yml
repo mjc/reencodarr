@@ -1,8 +1,3 @@
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
-
 name: Elixir CI
 
 on:
@@ -22,28 +17,63 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    
     - name: Set up Elixir
       uses: erlef/setup-beam@61e01a43a562a89bfc54c7f9a378ff67b03e4a21 # v1.16.0
       with:
         elixir-version: '1.18.3' # [Required] Define the Elixir version
         otp-version: '27.3.4'      # [Required] Define the Erlang/OTP version
-    - name: Restore dependencies cache
-      uses: actions/cache@v3
+    
+    - name: Cache apt packages
+      uses: actions/cache@v4
       with:
-        path: deps
-        key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-        restore-keys: ${{ runner.os }}-mix-
-    - name: Install dependencies
-      run: mix deps.get
+        path: /var/cache/apt/archives
+        key: ${{ runner.os }}-apt-${{ hashFiles('.github/workflows/elixir.yml') }}
+        restore-keys: ${{ runner.os }}-apt-
+    
+    - name: Cache ab-av1 binary
+      id: cache-ab-av1
+      uses: actions/cache@v4
+      with:
+        path: /usr/local/bin/ab-av1
+        key: ab-av1-v0.10.1
+    
     - name: Install additional tools
       run: |
         sudo apt-get update
-        sudo apt-get install -y fd-find ffmpeg zstd
+        sudo apt-get install -y fd-find ffmpeg zstd mediainfo
+    
+    - name: Install ab-av1
+      if: steps.cache-ab-av1.outputs.cache-hit != 'true'
+      run: |
         # Install ab-av1 from GitHub releases
         wget -O /tmp/ab-av1.tar.zst https://github.com/alexheretic/ab-av1/releases/download/v0.10.1/ab-av1-v0.10.1-x86_64-unknown-linux-musl.tar.zst
         cd /tmp && zstd -d ab-av1.tar.zst && tar -xf ab-av1.tar
         sudo mv ab-av1 /usr/local/bin/ab-av1
         sudo chmod +x /usr/local/bin/ab-av1
+    
+    - name: Restore dependencies cache
+      uses: actions/cache@v4
+      with:
+        path: deps
+        key: ${{ runner.os }}-mix-deps-${{ hashFiles('**/mix.lock') }}
+        restore-keys: ${{ runner.os }}-mix-deps-
+    
+    - name: Restore build cache
+      uses: actions/cache@v4
+      with:
+        path: _build
+        key: ${{ runner.os }}-mix-build-${{ hashFiles('**/mix.lock') }}-${{ hashFiles('**/*.ex') }}-${{ hashFiles('**/*.exs') }}
+        restore-keys: |
+          ${{ runner.os }}-mix-build-${{ hashFiles('**/mix.lock') }}-
+          ${{ runner.os }}-mix-build-
+    
+    - name: Install dependencies
+      run: mix deps.get
+    
+    - name: Compile dependencies
+      run: mix deps.compile
+    
     - name: Set up PostgreSQL
       uses: harmon758/postgresql-action@v1
       with:
@@ -51,13 +81,25 @@ jobs:
         postgresql db: reencodarr_test
         postgresql user: postgres
         postgresql password: postgres
+    
     - name: Wait for PostgreSQL
       run: |
         for i in {1..30}; do
           pg_isready -h localhost -p 5432 -U postgres && break
           sleep 1
         done
+    
     - name: Set MIX_ENV to test
       run: echo "MIX_ENV=test" >> $GITHUB_ENV
+    
+    - name: Compile project
+      run: mix compile --warnings-as-errors
+    
+    - name: Check formatting
+      run: mix format --check-formatted
+    
+    - name: Run Credo
+      run: mix credo --strict
+    
     - name: Run tests
       run: mix test
