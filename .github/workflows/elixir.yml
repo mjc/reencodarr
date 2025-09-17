@@ -24,12 +24,11 @@ jobs:
         elixir-version: '1.18.3' # [Required] Define the Elixir version
         otp-version: '27.3.4'      # [Required] Define the Erlang/OTP version
     
-    - name: Cache apt packages
-      uses: actions/cache@v4
+    - name: Install and cache apt packages
+      uses: awalsh128/cache-apt-pkgs-action@v1
       with:
-        path: ~/apt-cache
-        key: ${{ runner.os }}-apt-${{ hashFiles('.github/workflows/elixir.yml') }}
-        restore-keys: ${{ runner.os }}-apt-
+        packages: fd-find ffmpeg zstd mediainfo
+        version: 1.0
     
     - name: Cache ab-av1 binary
       id: cache-ab-av1
@@ -37,20 +36,6 @@ jobs:
       with:
         path: /usr/local/bin/ab-av1
         key: ab-av1-v0.10.1
-    
-    - name: Install additional tools
-      run: |
-        # Create local apt cache directory and configure apt to use it
-        mkdir -p ~/apt-cache
-        export APT_CONFIG_DIR=$(mktemp -d)
-        echo 'Dir::Cache::Archives "'"$HOME/apt-cache"'";' > "$APT_CONFIG_DIR/99cache"
-        # Skip man-db triggers to speed up installation
-        sudo mkdir -p /etc/dpkg/dpkg.cfg.d
-        echo 'path-exclude=/usr/share/man/*' | sudo tee /etc/dpkg/dpkg.cfg.d/01_nodoc > /dev/null
-        echo 'path-exclude=/usr/share/doc/*' | sudo tee -a /etc/dpkg/dpkg.cfg.d/01_nodoc > /dev/null
-        export DEBIAN_FRONTEND=noninteractive
-        sudo APT_CONFIG="$APT_CONFIG_DIR/99cache" apt-get update
-        sudo APT_CONFIG="$APT_CONFIG_DIR/99cache" apt-get install -y --no-install-recommends fd-find ffmpeg zstd mediainfo
     
     - name: Install ab-av1
       if: steps.cache-ab-av1.outputs.cache-hit != 'true'
