@@ -8,38 +8,56 @@ defmodule Reencodarr.AbAv1.OutputParser do
 
   alias Reencodarr.Core.Parsers
 
-  # Pattern definitions
-  @patterns %{
-    encoding_sample:
-      ~r/encoding\ssample\s(?<sample_num>\d+)\/(?<total_samples>\d+)\scrf\s(?<crf>\d+(?:\.\d+)?)/,
-    simple_vmaf:
-      ~r/(?:\[(?<timestamp>[^\]]+)\].*?)?crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/,
-    sample_vmaf:
-      ~r/sample\s(?<sample_num>\d+)\/(?<total_samples>\d+)\scrf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/,
-    dash_vmaf: ~r/^-\scrf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/,
-    eta_vmaf:
-      ~r/crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\spredicted\svideo\sstream\ssize\s(?<size>\d+\.?\d*)\s(?<unit>\w+)\s\((?<percent>\d+)%\)\staking\s(?<time>\d+\.?\d*)\s(?<time_unit>\w+)/,
-    vmaf_comparison: ~r/vmaf\s(?<file1>.+?)\svs\sreference\s(?<file2>.+)/,
-    progress:
-      ~r/\[(?<timestamp>[^\]]+)\].*?(?<progress>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,\seta\s(?<eta>\d+)\s(?<time_unit>second|minute|hour|day|week|month|year)s?/,
-    success: ~r/(?:\[.*\]\s)?crf\s(?<crf>\d+(?:\.\d+)?)\ssuccessful/,
-    warning: ~r/^Warning:\s(?<message>.*)/,
-    encoding_start: ~r/\[.*\] encoding (?<filename>\d+\.mkv)/,
-    encoding_progress:
-      ~r/\[.*\]\s*(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
-    encoding_progress_alt:
-      ~r/(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
-    file_size_progress: ~r/Encoded\s(?<size>[\d\.]+\s\w+)\s\((?<percent>\d+)%\)/,
-    ffmpeg_error: ~r/Error: ffmpeg encode exit code (?<exit_code>\d+)/
-  }
   @doc """
   Returns the centralized regex patterns for ab-av1 output parsing.
 
   This function provides access to the regex patterns for other modules
   that need to do pattern matching without duplicating the definitions.
+
+  Note: Patterns are compiled fresh on each call for simplicity and Elixir 1.19
+  compatibility. This trades a small performance cost for cleaner, more maintainable code.
   """
   @spec get_patterns() :: map()
-  def get_patterns, do: @patterns
+  def get_patterns do
+    %{
+      encoding_sample:
+        ~r/encoding\ssample\s(?<sample_num>\d+)\/(?<total_samples>\d+)\scrf\s(?<crf>\d+(?:\.\d+)?)/,
+      simple_vmaf:
+        ~r/(?:\[(?<timestamp>[^\]]+)\].*?)?crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/,
+      sample_vmaf:
+        ~r/sample\s(?<sample_num>\d+)\/(?<total_samples>\d+)\scrf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/,
+      dash_vmaf:
+        ~r/^-\scrf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\s\((?<percent>\d+)%\)/,
+      eta_vmaf:
+        ~r/crf\s(?<crf>\d+(?:\.\d+)?)\sVMAF\s(?<score>\d+\.\d+)\spredicted\svideo\sstream\ssize\s(?<size>\d+\.?\d*)\s(?<unit>\w+)\s\((?<percent>\d+)%\)\staking\s(?<time>\d+\.?\d*)\s(?<time_unit>\w+)/,
+      vmaf_comparison: ~r/vmaf\s(?<file1>.+?)\svs\sreference\s(?<file2>.+)/,
+      progress:
+        ~r/\[(?<timestamp>[^\]]+)\].*?(?<progress>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,\seta\s(?<eta>\d+)\s(?<time_unit>second|minute|hour|day|week|month|year)s?/,
+      success: ~r/(?:\[.*\]\s)?crf\s(?<crf>\d+(?:\.\d+)?)\ssuccessful/,
+      warning: ~r/^Warning:\s(?<message>.*)/,
+      encoding_start: ~r/\[.*\] encoding (?<filename>\d+\.mkv)/,
+      encoding_progress:
+        ~r/\[.*\]\s*(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
+      encoding_progress_alt:
+        ~r/(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
+      file_size_progress: ~r/Encoded\s(?<size>[\d\.]+\s\w+)\s\((?<percent>\d+)%\)/,
+      ffmpeg_error: ~r/Error: ffmpeg encode exit code (?<exit_code>\d+)/
+    }
+  end
+
+  # Cache patterns in process dictionary for performance
+  # This avoids recompilation while maintaining Elixir 1.19 compatibility
+  defp cached_patterns do
+    case Process.get(:ab_av1_patterns) do
+      nil ->
+        patterns = get_patterns()
+        Process.put(:ab_av1_patterns, patterns)
+        patterns
+
+      patterns ->
+        patterns
+    end
+  end
 
   @doc """
   Matches a line against a specific pattern and returns named captures.
@@ -48,7 +66,8 @@ defmodule Reencodarr.AbAv1.OutputParser do
   """
   @spec match_pattern(String.t(), atom()) :: {:ok, map()} | {:error, :no_match}
   def match_pattern(line, pattern_key) do
-    pattern = Map.get(@patterns, pattern_key)
+    patterns = cached_patterns()
+    pattern = Map.get(patterns, pattern_key)
 
     case Regex.named_captures(pattern, line) do
       nil -> {:error, :no_match}
@@ -111,7 +130,9 @@ defmodule Reencodarr.AbAv1.OutputParser do
   end
 
   defp parse_pattern_with_mapping(line, pattern_key, type, field_mapping) do
-    case Parsers.parse_with_pattern(line, pattern_key, @patterns, field_mapping) do
+    patterns = cached_patterns()
+
+    case Parsers.parse_with_pattern(line, pattern_key, patterns, field_mapping) do
       {:error, _} = error -> error
       {:ok, data} -> {:ok, %{type: type, data: data}}
     end
@@ -119,7 +140,8 @@ defmodule Reencodarr.AbAv1.OutputParser do
 
   # Special parser for encoding_start pattern with custom transformations
   defp parse_encoding_start_pattern(line) do
-    pattern = @patterns[:encoding_start]
+    patterns = cached_patterns()
+    pattern = patterns[:encoding_start]
 
     case Regex.named_captures(pattern, line) do
       nil ->

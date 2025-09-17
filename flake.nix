@@ -14,15 +14,8 @@
       system: let
         pkgs = import nixpkgs {inherit system;};
         lib = pkgs.lib;
-        # current is 28.0.2
-        erlang = pkgs.erlang;
-        # erlang = pkgs.erlang.override {
-        #   version = "28.0.2";
-        #   src = pkgs.fetchurl {
-        #     url = "https://github.com/erlang/otp/releases/download/OTP-${erlang.version}/otp_src_${erlang.version}.tar.gz";
-        #     sha256 = "sha256-zkPciimta8G22/yX8FPS6FC0pMKQ7KBlBY1rM85HbbU=";
-        #   };
-        # };
+        # Use latest OTP 28.1 with Elixir 1.19.0-rc.0 for cutting-edge features
+        erlang = pkgs.erlang_28;
         beamPackages = pkgs.beam.packagesWith erlang;
         elixir = beamPackages.elixir.override {
           erlang = erlang;
@@ -67,7 +60,7 @@
           nativeBuildInputs =
             [
               erlang
-              pkgs.elixir
+              elixir
               beamPackages.ex_doc
               beamPackages.hex
               beamPackages.rebar
@@ -86,6 +79,11 @@
               pkgs.gnupg
               pkgs.pinentry
               pkgs.pinentry-curses
+              # Video processing tools for CI/dev
+              pkgs.ab-av1
+              pkgs.mediainfo
+              # GitHub Actions local testing
+              pkgs.act
             ]
             ++ lib.optional pkgs.stdenv.isLinux pkgs.libnotify
             ++ lib.optional pkgs.stdenv.isLinux pkgs.inotify-tools
@@ -100,14 +98,14 @@
             export DATABASE_URL="ecto://mjc@localhost:5432/reencodarr_dev"
             export SECRET_KEY_BASE="WEWsPGIpK/OgJA2ZcwzsgZxWKSAp35IsqWPYsvSUmm5awBUGpvsVOcG2kkDteXR1"
             export COMPOSE_BAKE=true
-            
+
             # GPG Configuration
             export GPG_TTY=$(tty)
             export PINENTRY_USER_DATA="USE_CURSES=1"
-            
+
             # Ensure GPG agent is using the right pinentry
             echo "pinentry-program ${pkgs.pinentry-curses}/bin/pinentry-curses" >> ~/.gnupg/gpg-agent.conf 2>/dev/null || true
-            
+
             # Configure git to use nix-provided GPG
             git config --global gpg.program "${pkgs.gnupg}/bin/gpg"
           '';
