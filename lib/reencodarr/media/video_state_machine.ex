@@ -99,10 +99,12 @@ defmodule Reencodarr.Media.VideoStateMachine do
   end
 
   def transition_to_analyzed(%Video{} = video, attrs \\ %{}) do
-    # Check if video has low bitrate (less than 10 Mbps) and should be marked as encoded
+    # Check if video has low bitrate and HDR content, should be marked as encoded
     if low_bitrate?(video) do
+      bitrate_mbps = video.bitrate / 1_000_000
+
       Logger.debug(
-        "Video #{video.path} has low bitrate (#{video.bitrate} kbps), marking as encoded"
+        "Video #{video.path} has low bitrate (#{:erlang.float_to_binary(bitrate_mbps, decimals: 1)} Mbps) and HDR, marking as encoded"
       )
 
       transition(video, :encoded, attrs)
