@@ -165,12 +165,12 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
 
   defp get_encoding_files(_), do: []
 
-  defp get_analyzer_files(%{stats: %{next_analyzer: files}}), do: files || []
+  defp get_analyzer_files(%{stats: %{combined_analyzer: files}}), do: files || []
 
   defp get_analyzer_files(%Reencodarr.DashboardState{} = state) do
-    # Defensive handling for missing next_analyzer field
-    case Map.get(state.stats, :next_analyzer) do
-      nil -> []
+    # Defensive handling - try combined_analyzer first, fallback to next_analyzer
+    case Map.get(state.stats, :combined_analyzer) do
+      nil -> Map.get(state.stats, :next_analyzer, [])
       files -> files
     end
   end
