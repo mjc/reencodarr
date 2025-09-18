@@ -48,15 +48,15 @@ defmodule Reencodarr.Application do
 
   defp worker_children do
     base_workers = [
-      Reencodarr.AbAv1,
       Reencodarr.Sync,
       # Cache services for analyzer optimization
-      Reencodarr.Analyzer.FileStatCache,
+      Reencodarr.Analyzer.Core.FileStatCache,
       Reencodarr.Analyzer.MediaInfoCache
     ]
 
     # Only start Broadway-based workers in non-test environments to avoid process kill issues
     broadway_workers = [
+      Reencodarr.AbAv1,
       Reencodarr.CrfSearcher.Supervisor,
       Reencodarr.Encoder.Supervisor
     ]

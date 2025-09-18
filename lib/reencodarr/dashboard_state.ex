@@ -91,11 +91,14 @@ defmodule Reencodarr.DashboardState do
 
   # Check actual status of Broadway pipelines for initial state
   defp analyzer_running? do
-    case Reencodarr.Analyzer.Broadway.running?() do
+    result = case Reencodarr.Analyzer.Broadway.running?() do
       result when is_boolean(result) -> result
     end
+    result
   rescue
-    _ -> false
+    error ->
+      Logger.info("analyzer_running? failed: #{inspect(error)}, returning false")
+      false
   end
 
   defp crf_searcher_running? do
@@ -179,15 +182,25 @@ defmodule Reencodarr.DashboardState do
   end
 
   defp get_analyzer_progress(true, state) do
-    # Get current throughput from performance monitor when analyzer is active
-    current_throughput =
-      try do
-        PerformanceMonitor.get_current_throughput()
-      catch
-        :exit, _ -> 0.0
-      end
+    # Get current performance metrics from performance monitor when analyzer is active
+    current_throughput = get_performance_metric(:throughput)
+    current_rate_limit = get_performance_metric(:rate_limit)
+    current_batch_size = get_performance_metric(:batch_size)
 
-    %{state.analyzer_progress | throughput: current_throughput}
+    %{state.analyzer_progress |
+      throughput: current_throughput,
+      rate_limit: current_rate_limit,
+      batch_size: current_batch_size}
+  end
+
+  defp get_performance_metric(metric) do
+    case metric do
+      :throughput -> PerformanceMonitor.get_current_throughput()
+      :rate_limit -> PerformanceMonitor.get_current_rate_limit()
+      :batch_size -> PerformanceMonitor.get_current_mediainfo_batch_size()
+    end
+  catch
+    :exit, _ -> 0.0
   end
 
   @doc """

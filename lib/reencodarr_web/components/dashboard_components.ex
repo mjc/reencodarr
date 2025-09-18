@@ -142,7 +142,7 @@ defmodule ReencodarrWeb.DashboardComponents do
           <span>Batch Size: {@progress[:batch_size] || 0}</span>
         </div>
         <div class={analyzer_throughput_classes()}>
-          <span>{@progress[:throughput] || 0.0} msg/s</span>
+          <span>{:erlang.float_to_binary(@progress[:throughput] || 0.0, decimals: 2)} files/s</span>
         </div>
       </div>
     </div>
@@ -210,7 +210,7 @@ defmodule ReencodarrWeb.DashboardComponents do
   defp progress_throughput(%{progress: %{throughput: throughput}} = assigns)
        when throughput > 0 do
     ~H"""
-    <span>{@progress.throughput} msg/s</span>
+    <span>{:erlang.float_to_binary(@progress.throughput, decimals: 2)} files/s</span>
     """
   end
 

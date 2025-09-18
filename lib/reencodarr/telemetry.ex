@@ -133,10 +133,20 @@ defmodule Reencodarr.Telemetry do
     )
   end
 
-  def emit_analyzer_throughput(throughput, queue_length) do
+  def emit_analyzer_throughput(throughput, queue_length, rate_limit \\ nil, batch_size \\ nil) do
+    measurements = %{throughput: throughput, queue_length: queue_length}
+
+    # Add performance data if provided
+    measurements =
+      if rate_limit && batch_size do
+        Map.merge(measurements, %{rate_limit: rate_limit, batch_size: batch_size})
+      else
+        measurements
+      end
+
     safe_telemetry_execute(
       [:reencodarr, :analyzer, :throughput],
-      %{throughput: throughput, queue_length: queue_length},
+      measurements,
       %{}
     )
   end
