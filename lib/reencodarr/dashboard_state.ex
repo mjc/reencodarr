@@ -144,11 +144,12 @@ defmodule Reencodarr.DashboardState do
         true -> %EncodingProgress{}
       end
 
-    %{state | encoding: status, encoding_progress: progress, stats: fetch_queue_data_simple()}
+    %{state | encoding: status, encoding_progress: progress}
   end
 
   @doc """
-  Updates CRF search status and progress, and refreshes queue data.
+  Updates CRF search status and progress without refreshing queue data.
+  Queue data should be updated via telemetry events, not status changes.
   """
   def update_crf_search(%__MODULE__{} = state, status) do
     # Only reset progress when stopping, preserve when starting
@@ -157,19 +158,19 @@ defmodule Reencodarr.DashboardState do
     %{
       state
       | crf_searching: status,
-        crf_search_progress: progress,
-        stats: fetch_queue_data_simple()
+        crf_search_progress: progress
     }
   end
 
   @doc """
-  Updates analyzer status and progress, and refreshes queue data.
+  Updates analyzer status and progress without refreshing queue data.
+  Queue data should be updated via telemetry events, not status changes.
   """
   def update_analyzer(%__MODULE__{} = state, status) do
     # Only reset progress when stopping, preserve when starting
     progress = get_analyzer_progress(status, state)
 
-    %{state | analyzing: status, analyzer_progress: progress, stats: fetch_queue_data_simple()}
+    %{state | analyzing: status, analyzer_progress: progress}
   end
 
   # Helper function to get analyzer progress based on status

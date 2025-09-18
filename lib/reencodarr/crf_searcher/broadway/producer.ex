@@ -320,8 +320,8 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
 
   # Emit initial telemetry on startup to populate dashboard queues
   defp emit_initial_telemetry(state) do
-    # Get 5 for dashboard display
-    next_videos = get_next_videos_for_telemetry(state, 5)
+    # Get 10 for dashboard display
+    next_videos = get_next_videos_for_telemetry(state, 10)
     # Get total count for accurate queue size
     total_count = Media.count_videos_for_crf_search()
 

@@ -16,8 +16,7 @@ defmodule Reencodarr.Analyzer.Broadway do
     Broadway.Producer,
     ConcurrencyManager,
     FileStatCache,
-    MediaInfoCache,
-    QueueManager
+    MediaInfoCache
   }
 
   alias Reencodarr.{Media, Telemetry}
@@ -150,11 +149,7 @@ defmodule Reencodarr.Analyzer.Broadway do
     PerformanceMonitor.record_batch_processed(batch_size, duration)
 
     # Get current queue length for progress calculation
-    current_queue_length =
-      case QueueManager.get_count() do
-        count when is_integer(count) and count >= 0 -> count
-        _ -> 0
-      end
+    current_queue_length = Media.count_videos_needing_analysis()
 
     Telemetry.emit_analyzer_throughput(batch_size, current_queue_length)
 
