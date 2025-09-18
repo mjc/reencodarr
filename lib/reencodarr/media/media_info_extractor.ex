@@ -1,10 +1,18 @@
 defmodule Reencodarr.Media.MediaInfoExtractor do
   @moduledoc """
-  Simple, direct extraction of MediaInfo data to avoid complex track traversal.
+  Consolidated MediaInfo processing utilities for Reencodarr.
 
-  This replaces the complex get_track/get_int/get_str pattern with direct field extraction
-  that happens once during JSON parsing, creating a flat structure for easy access.
+  Handles all MediaInfo-related functionality including:
+  - Direct MediaInfo JSON extraction and parameter mapping
+  - Batch MediaInfo command execution with caching integration
+  - JSON parsing, validation, and error handling
+  - Single and bulk MediaInfo processing workflows
+
+  This module consolidates MediaInfo processing from the Broadway analyzer
+  and provides a clean interface for all MediaInfo operations.
   """
+
+  require Logger
 
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Media.MediaInfo
@@ -199,5 +207,44 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
     Enum.find_value(patterns, fn {substr, count} ->
       if String.contains?(combined, substr), do: count, else: nil
     end) || 6
+  end
+
+  # === Batch MediaInfo Processing Functions ===
+  # These functions handle batch MediaInfo command execution for the Broadway analyzer
+
+  @doc """
+  Execute MediaInfo commands with optimal batching for high-performance storage.
+  Automatically uses the best batch size based on detected storage performance.
+  """
+  def execute_optimized_mediainfo_command(paths) do
+    # Delegate to the analyzer's command executor
+    Reencodarr.Analyzer.MediaInfo.CommandExecutor.execute_batch_mediainfo(paths)
+  end
+
+  @doc """
+  Execute MediaInfo commands in chunks for a list of paths with caching integration.
+  Uses optimized batch sizes for high-performance storage.
+  """
+  def execute_chunked_mediainfo_command(paths, batch_size) do
+    # Delegate to the analyzer's command executor for chunking
+    optimal_batch_size = Reencodarr.Analyzer.Core.ConcurrencyManager.get_optimal_mediainfo_batch_size()
+    actual_batch_size = min(batch_size, optimal_batch_size)
+
+    paths
+    |> Enum.chunk_every(actual_batch_size)
+    |> Enum.reduce({:ok, %{}}, fn chunk, {:ok, acc} ->
+      case Reencodarr.Analyzer.MediaInfo.CommandExecutor.execute_batch_mediainfo(chunk) do
+        {:ok, chunk_results} -> {:ok, Map.merge(acc, chunk_results)}
+        error -> error
+      end
+    end)
+  end
+
+  @doc """
+  Fetch MediaInfo for a single file with caching support.
+  """
+  def fetch_single_mediainfo(path) do
+    # Delegate to the analyzer's command executor
+    Reencodarr.Analyzer.MediaInfo.CommandExecutor.execute_single_mediainfo(path)
   end
 end

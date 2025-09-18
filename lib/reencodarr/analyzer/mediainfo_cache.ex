@@ -8,7 +8,7 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
   use GenServer
   require Logger
 
-  alias Reencodarr.Analyzer.FileStatCache
+  alias Reencodarr.Analyzer.Core.FileStatCache
 
   @cache_cleanup_interval :timer.minutes(15)
   # Keep mediainfo cache for 1 hour

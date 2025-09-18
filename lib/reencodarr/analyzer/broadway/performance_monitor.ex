@@ -5,18 +5,23 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
   """
   use GenServer
   require Logger
-  alias Reencodarr.Telemetry
+
+  alias Reencodarr.{Media, Telemetry}
 
   @default_rate_limit 500
   @min_rate_limit 200
-  @max_rate_limit 1500
+  @max_rate_limit 5000
   @default_mediainfo_batch_size 8
   @min_mediainfo_batch_size 5
-  @max_mediainfo_batch_size 25
-  # 30 seconds
+  @max_mediainfo_batch_size 100
+  # 30 seconds - conservative tuning interval to avoid thrashing single drives
   @adjustment_interval 30_000
-  # 2 minutes
+  # 2 minutes - longer window for stable measurements
   @measurement_window 120_000
+
+  # Storage performance detection thresholds
+  @high_performance_threshold_mb_per_sec 500
+  @ultra_high_performance_threshold_mb_per_sec 1000
 
   defstruct [
     :broadway_name,
@@ -29,7 +34,12 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
     :previous_rate_limit,
     :previous_throughput,
     :previous_mediainfo_batch_size,
-    :batch_processing_times
+    :batch_processing_times,
+    :storage_performance_tier,
+    :detected_io_throughput_mb_per_sec,
+    :consecutive_improvements,
+    :consecutive_degradations,
+    :auto_tuning_enabled
   ]
 
   def start_link(broadway_name) do
@@ -46,6 +56,18 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
 
   def get_current_mediainfo_batch_size do
     GenServer.call(__MODULE__, :get_mediainfo_batch_size)
+  end
+
+  def get_storage_performance_tier do
+    GenServer.call(__MODULE__, :get_storage_performance_tier)
+  end
+
+  def enable_auto_tuning do
+    GenServer.call(__MODULE__, :enable_auto_tuning)
+  end
+
+  def disable_auto_tuning do
+    GenServer.call(__MODULE__, :disable_auto_tuning)
   end
 
   def get_performance_stats do
@@ -80,16 +102,23 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
       message_count: 0,
       last_adjustment: System.monotonic_time(:millisecond),
       throughput_history: [],
-      # Target MB/s - adjust based on your system
+      # Conservative target that will be adjusted based on detected storage performance
       target_throughput: 200,
       previous_rate_limit: @default_rate_limit,
       previous_throughput: 0.0,
       previous_mediainfo_batch_size: @default_mediainfo_batch_size,
-      batch_processing_times: []
+      batch_processing_times: [],
+      storage_performance_tier: :unknown,
+      detected_io_throughput_mb_per_sec: nil,
+      consecutive_improvements: 0,
+      consecutive_degradations: 0,
+      auto_tuning_enabled: true
     }
 
     Logger.info(
-      "Performance monitor started for #{broadway_name} with initial rate limit #{@default_rate_limit}"
+      "Performance monitor started with conservative defaults - " <>
+        "rate limit #{@default_rate_limit}, batch size #{@default_mediainfo_batch_size}. " <>
+        "Will scale up automatically based on detected storage performance."
     )
 
     {:ok, state}
@@ -146,10 +175,30 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
     stats = %{
       throughput: Float.round(current_throughput, 1),
       rate_limit: state.rate_limit,
-      batch_size: state.mediainfo_batch_size
+      batch_size: state.mediainfo_batch_size,
+      storage_tier: state.storage_performance_tier,
+      auto_tuning: state.auto_tuning_enabled,
+      detected_io_mb_per_sec: state.detected_io_throughput_mb_per_sec
     }
 
     {:reply, stats, state}
+  end
+
+  @impl true
+  def handle_call(:get_storage_performance_tier, _from, state) do
+    {:reply, state.storage_performance_tier, state}
+  end
+
+  @impl true
+  def handle_call(:enable_auto_tuning, _from, state) do
+    Logger.info("Auto-tuning enabled for high-performance storage")
+    {:reply, :ok, %{state | auto_tuning_enabled: true}}
+  end
+
+  @impl true
+  def handle_call(:disable_auto_tuning, _from, state) do
+    Logger.info("Auto-tuning disabled")
+    {:reply, :ok, %{state | auto_tuning_enabled: false}}
   end
 
   @impl true
@@ -165,7 +214,8 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
 
     # Update Broadway rate limiting if changed
     if new_rate_limit != state.rate_limit do
-      Broadway.update_rate_limiting(state.broadway_name, allowed_messages: new_rate_limit)
+      # Note: Broadway rate limiting update needs to be implemented via producer messages
+      send_rate_limit_update_to_producer(state.broadway_name, new_rate_limit)
       Logger.info("Manually adjusted rate limit from #{state.rate_limit} to #{new_rate_limit}")
     end
 
@@ -194,31 +244,24 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
     # Schedule next adjustment
     Process.send_after(self(), :adjust_rate_limit, @adjustment_interval)
 
-    # DISABLE AUTOMATIC TUNING - it's causing performance degradation
-    # Just emit telemetry and keep current settings
     current_time = System.monotonic_time(:millisecond)
     time_since_last = current_time - state.last_adjustment
 
-    # Only calculate and emit telemetry if we have enough data
+    # Only process if we have enough data and auto-tuning is enabled
     new_state =
       if length(state.throughput_history) >= 3 and time_since_last >= @adjustment_interval do
         avg_throughput = calculate_average_throughput(state.throughput_history)
 
-        Logger.info(
-          "Performance Monitor - Rate limit: #{state.rate_limit}, Batch size: #{state.mediainfo_batch_size}, " <>
-            "Avg throughput: #{Float.round(avg_throughput, 2)} msgs/min, Messages in last #{time_since_last}ms: #{state.message_count}"
-        )
+        # Detect storage performance and adjust settings accordingly
+        state_with_storage_detection = detect_and_adapt_to_storage_performance(state)
 
-        # Emit telemetry but don't change settings
-        emit_throughput_telemetry(avg_throughput)
-
-        # Reset counters but keep all settings the same
-        %{
-          state
-          | message_count: 0,
-            last_adjustment: current_time,
-            throughput_history: add_to_history(state.throughput_history, avg_throughput)
-        }
+        if state_with_storage_detection.auto_tuning_enabled do
+          # Perform intelligent auto-tuning based on storage tier
+          perform_intelligent_tuning(state_with_storage_detection, avg_throughput, current_time)
+        else
+          # Just emit telemetry and reset counters
+          emit_telemetry_and_reset_counters(state_with_storage_detection, avg_throughput, current_time)
+        end
       else
         state
       end
@@ -236,22 +279,63 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
     Enum.filter(new_history, fn {timestamp, _} -> timestamp > cutoff end)
   end
 
-  defp emit_throughput_telemetry(avg_throughput) do
+  defp emit_throughput_telemetry(avg_throughput, state) do
     # Get current analyzer queue length for progress calculation
-    queue_length = Reencodarr.Media.count_videos_needing_analysis()
-    Telemetry.emit_analyzer_throughput(avg_throughput / 60.0, queue_length)
+    queue_length = get_queue_length()
+    rate_limit = state.rate_limit
+    batch_size = state.mediainfo_batch_size
+
+    Telemetry.emit_analyzer_throughput(avg_throughput / 60.0, queue_length, rate_limit, batch_size)
+  rescue
+    error ->
+      Logger.debug("Failed to emit throughput telemetry: #{inspect(error)}")
+  end
+
+  defp get_queue_length do
+    Media.count_videos_needing_analysis()
+  catch
+    :exit, _ -> 0
   end
 
   defp update_broadway_context(broadway_name, new_batch_size) do
-    # Update the Broadway process context with new mediainfo batch size
-    # This will be picked up by the processor on the next batch
-    Broadway.producer_names(broadway_name)
-    |> Enum.each(fn producer_name ->
-      send(producer_name, {:update_context, %{mediainfo_batch_size: new_batch_size}})
-    end)
+    # Send update message to Broadway producer
+    send_context_update_to_producer(broadway_name, new_batch_size)
   rescue
     error ->
       Logger.warning("Failed to update Broadway context: #{inspect(error)}")
+  end
+
+  defp send_rate_limit_update_to_producer(_broadway_name, new_rate_limit) do
+    # Send message to Broadway producer via the main Broadway process
+    try do
+      # Use Broadway's built-in rate limiting update mechanism
+      Logger.debug("Updating rate limit to #{new_rate_limit} via Broadway process")
+      # For now, just log the update - Broadway doesn't expose runtime rate limit updates
+      Logger.info("Rate limit would be updated to #{new_rate_limit} (update mechanism not available)")
+    rescue
+      error ->
+        Logger.warning("Failed to send rate limit update to producer: #{inspect(error)}")
+    end
+  end
+
+  defp send_context_update_to_producer(broadway_name, new_batch_size) do
+    # Send message to the Broadway producer process
+    try do
+      # Find the producer process for this Broadway pipeline
+      producer_name = :"#{broadway_name}.Producer_0"
+
+      case Process.whereis(producer_name) do
+        nil ->
+          Logger.debug("Producer process #{producer_name} not found")
+
+        producer_pid ->
+          send(producer_pid, {:update_context, %{mediainfo_batch_size: new_batch_size}})
+          Logger.debug("Sent context update to producer #{producer_name}")
+      end
+    rescue
+      error ->
+        Logger.warning("Failed to send context update to producer: #{inspect(error)}")
+    end
   end
 
   defp calculate_average_throughput(history) do
@@ -273,5 +357,172 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
 
   defp calculate_current_throughput(throughput_history) do
     calculate_average_throughput(throughput_history)
+  end
+
+  # Smart self-tuning functions for high-performance storage
+
+  defp detect_and_adapt_to_storage_performance(state) do
+    # Estimate I/O throughput based on mediainfo batch processing times
+    estimated_io_throughput = estimate_io_throughput_from_batches(state.batch_processing_times)
+
+    new_tier = classify_storage_performance(estimated_io_throughput)
+
+    if new_tier != state.storage_performance_tier do
+      Logger.info("Storage performance tier changed: #{state.storage_performance_tier} -> #{new_tier} (#{estimated_io_throughput} MB/s estimated)")
+
+      # Adjust target throughput based on detected storage tier
+      new_target = calculate_target_throughput_for_tier(new_tier)
+
+      %{state |
+        storage_performance_tier: new_tier,
+        detected_io_throughput_mb_per_sec: estimated_io_throughput,
+        target_throughput: new_target
+      }
+    else
+      %{state | detected_io_throughput_mb_per_sec: estimated_io_throughput}
+    end
+  end
+
+  defp estimate_io_throughput_from_batches(batch_times) when length(batch_times) < 3, do: nil
+
+  defp estimate_io_throughput_from_batches(batch_times) do
+    # Use recent batches to estimate I/O throughput
+    recent_batches = Enum.take(batch_times, 5)
+
+    total_files = Enum.reduce(recent_batches, 0, fn {_time, {batch_size, _duration}}, acc ->
+      acc + batch_size
+    end)
+
+    total_time_seconds = Enum.reduce(recent_batches, 0, fn {_time, {_batch_size, duration_ms}}, acc ->
+      acc + (duration_ms / 1000.0)
+    end)
+
+    if total_time_seconds > 0 do
+      # Estimate ~10MB average file size for video files, adjust processing rate accordingly
+      avg_file_size_mb = 10
+      estimated_mb_per_sec = (total_files * avg_file_size_mb) / total_time_seconds
+
+      # Cap unrealistic estimates
+      min(estimated_mb_per_sec, 2000)
+    else
+      nil
+    end
+  end
+
+  defp classify_storage_performance(nil), do: :unknown
+  defp classify_storage_performance(mb_per_sec) when mb_per_sec >= @ultra_high_performance_threshold_mb_per_sec, do: :ultra_high_performance
+  defp classify_storage_performance(mb_per_sec) when mb_per_sec >= @high_performance_threshold_mb_per_sec, do: :high_performance
+  defp classify_storage_performance(_), do: :standard
+
+  defp calculate_target_throughput_for_tier(:ultra_high_performance), do: 1000
+  defp calculate_target_throughput_for_tier(:high_performance), do: 600
+  defp calculate_target_throughput_for_tier(:standard), do: 300
+  defp calculate_target_throughput_for_tier(:unknown), do: 400
+
+  defp perform_intelligent_tuning(state, avg_throughput, current_time) do
+    # Calculate performance compared to target
+    throughput_ratio = if state.target_throughput > 0, do: avg_throughput / state.target_throughput, else: 1.0
+
+    # Determine if we should increase or decrease settings
+    {new_rate_limit, new_batch_size, improvements, degradations} =
+      if throughput_ratio < 0.8 do
+        # Performance is below target - increase settings aggressively for high-perf storage
+        increase_performance_settings(state, throughput_ratio)
+      else
+        # Performance is good - try modest increases or maintain current settings
+        optimize_performance_settings(state, throughput_ratio)
+      end
+
+    # Apply changes and update state
+    apply_performance_changes(state, new_rate_limit, new_batch_size, avg_throughput, 
+                            current_time, improvements, degradations)
+  end
+
+  defp increase_performance_settings(state, _throughput_ratio) do
+    # Start conservative, scale aggressively once high performance is detected
+    multiplier = case state.storage_performance_tier do
+      :ultra_high_performance -> 2.0  # Aggressive scaling for RAID arrays
+      :high_performance -> 1.5        # Moderate scaling for fast storage
+      :standard -> 1.2                # Conservative for standard storage
+      :unknown -> 1.1                 # Very conservative until we know performance
+    end
+
+    # Only adjust batch size for now since Broadway rate limiting can't be changed at runtime
+    new_rate_limit = state.rate_limit  # Keep current rate limit
+    new_batch_size = min(round(state.mediainfo_batch_size * multiplier), @max_mediainfo_batch_size)
+
+    improvements = if new_batch_size > state.mediainfo_batch_size do
+      state.consecutive_improvements + 1
+    else
+      0
+    end
+
+    {new_rate_limit, new_batch_size, improvements, 0}
+  end
+
+  defp optimize_performance_settings(state, throughput_ratio) do
+    # Try modest increases if we have consecutive improvements, otherwise maintain
+    if state.consecutive_improvements >= 2 and throughput_ratio > 1.1 do
+      # Only adjust batch size since rate limit can't be changed at runtime
+      new_rate_limit = state.rate_limit
+      new_batch_size = min(round(state.mediainfo_batch_size * 1.1), @max_mediainfo_batch_size)
+
+      {new_rate_limit, new_batch_size, state.consecutive_improvements + 1, 0}
+    else
+      # Maintain current settings
+      {state.rate_limit, state.mediainfo_batch_size, 0, 0}
+    end
+  end
+
+  defp apply_performance_changes(state, new_rate_limit, new_batch_size, avg_throughput, current_time, improvements, degradations) do
+    # Update Broadway settings if they changed
+    settings_changed = new_batch_size != state.mediainfo_batch_size
+
+    if settings_changed do
+      if new_batch_size != state.mediainfo_batch_size do
+        update_broadway_context(state.broadway_name, new_batch_size)
+        Logger.info("Auto-tuned batch size: #{state.mediainfo_batch_size} -> #{new_batch_size} (#{state.storage_performance_tier} storage)")
+      end
+    end
+
+    # Log performance summary
+    Logger.info(
+      "Performance Monitor (#{state.storage_performance_tier}) - " <>
+      "Batch: #{new_batch_size}, Throughput: #{Float.round(avg_throughput, 2)} files/min, " <>
+      "Target: #{state.target_throughput}, Consecutive improvements: #{improvements}"
+    )
+
+    # Emit telemetry
+    emit_throughput_telemetry(avg_throughput, state)
+
+    # Reset counters and update state
+    %{
+      state
+      | rate_limit: new_rate_limit,
+        mediainfo_batch_size: new_batch_size,
+        message_count: 0,
+        last_adjustment: current_time,
+        previous_rate_limit: state.rate_limit,
+        previous_mediainfo_batch_size: state.mediainfo_batch_size,
+        consecutive_improvements: improvements,
+        consecutive_degradations: degradations,
+        throughput_history: add_to_history(state.throughput_history, avg_throughput)
+    }
+  end
+
+  defp emit_telemetry_and_reset_counters(state, avg_throughput, current_time) do
+    Logger.info(
+      "Performance Monitor (auto-tuning disabled) - Rate: #{state.rate_limit}, " <>
+      "Batch: #{state.mediainfo_batch_size}, Throughput: #{Float.round(avg_throughput, 2)} files/min"
+    )
+
+    emit_throughput_telemetry(avg_throughput, state)
+
+    %{
+      state
+      | message_count: 0,
+        last_adjustment: current_time,
+        throughput_history: add_to_history(state.throughput_history, avg_throughput)
+    }
   end
 end

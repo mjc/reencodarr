@@ -1,4 +1,4 @@
-defmodule Reencodarr.Analyzer.FileStatCache do
+defmodule Reencodarr.Analyzer.Core.FileStatCache do
   @moduledoc """
   Caches file stat information to avoid repeated filesystem calls.
 

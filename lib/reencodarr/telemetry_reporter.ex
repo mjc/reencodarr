@@ -25,7 +25,6 @@ defmodule Reencodarr.TelemetryReporter do
   use GenServer
   require Logger
 
-  alias Reencodarr.Analyzer.Broadway.PerformanceMonitor
   alias Reencodarr.DashboardState
 
   # Configuration constants
@@ -147,39 +146,36 @@ defmodule Reencodarr.TelemetryReporter do
   # Update analyzer progress with current throughput - active analyzer
   def handle_cast(
         {:update_analyzer_throughput, measurements},
-        %DashboardState{analyzing: true} = state
+        %DashboardState{} = state
       ) do
-    Logger.debug(
-      "TELEMETRY CAST CALLED: measurements=#{inspect(measurements)}, analyzing=#{state.analyzing}"
-    )
+    if state.analyzing do
+      # Extract performance data from telemetry measurements
+      throughput = Map.get(measurements, :throughput, 0.0)
+      rate_limit = Map.get(measurements, :rate_limit, 0)
+      batch_size = Map.get(measurements, :batch_size, 0)
+      queue_length = Map.get(measurements, :queue_length, 0)
 
-    # Get performance stats from the monitor
-    performance_stats = PerformanceMonitor.get_performance_stats()
+      # Calculate a meaningful percentage based on processing activity
+      # If we have queue data, show progress based on queue emptying
+      percent = calculate_analyzer_percentage(queue_length, state.stats.queue_length.analyzer)
 
-    Logger.debug("performance stats received", stats: performance_stats)
+      Logger.debug("analyzer progress calculated", percent: percent, queue_length: queue_length)
 
-    # Get queue information for progress calculation
-    queue_length = Map.get(measurements, :queue_length, 0)
+      updated_progress = %{
+        state.analyzer_progress
+        | throughput: throughput,
+          rate_limit: rate_limit,
+          batch_size: batch_size,
+          percent: percent,
+          total_files: state.stats.queue_length.analyzer,
+          current_file: max(0, state.stats.queue_length.analyzer - queue_length)
+      }
 
-    # Calculate a meaningful percentage based on processing activity
-    # If we have queue data, show progress based on queue emptying
-    percent = calculate_analyzer_percentage(queue_length, state.stats.queue_length.analyzer)
-
-    Logger.debug("analyzer progress calculated", percent: percent, queue_length: queue_length)
-
-    updated_progress = %{
-      state.analyzer_progress
-      | throughput: performance_stats.throughput,
-        rate_limit: performance_stats.rate_limit,
-        batch_size: performance_stats.batch_size,
-        percent: percent,
-        total_files: state.stats.queue_length.analyzer,
-        current_file: max(0, state.stats.queue_length.analyzer - queue_length)
-    }
-
-    new_state = %{state | analyzer_progress: updated_progress}
-    Logger.debug("analyzer progress updated", throughput: new_state.analyzer_progress.throughput)
-    {:noreply, emit_state_update_and_return(new_state)}
+      new_state = %{state | analyzer_progress: updated_progress}
+      {:noreply, emit_state_update_and_return(new_state)}
+    else
+      {:noreply, state}
+    end
   end
 
   # Update analyzer progress with current throughput - inactive analyzer
@@ -187,7 +183,7 @@ defmodule Reencodarr.TelemetryReporter do
         {:update_analyzer_throughput, _measurements},
         %DashboardState{analyzing: false} = state
       ) do
-    Logger.debug("analyzer not active, skipping throughput update")
+    Logger.info("analyzer not active, skipping throughput update (analyzing=#{state.analyzing})")
     {:noreply, state}
   end
 
