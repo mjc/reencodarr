@@ -11,6 +11,12 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
 
   require Logger
 
+  alias Reencodarr.Analyzer.{
+    Broadway.PerformanceMonitor,
+    Core.ConcurrencyManager,
+    Optimization.BulkFileChecker
+  }
+
   @doc """
   Execute mediainfo command with optimal settings for current storage.
 
@@ -21,12 +27,15 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
   def execute_optimized_mediainfo_command(paths) when is_list(paths) do
     batch_size = get_optimal_batch_size_for_storage(length(paths))
 
-    Logger.info("MediaInfo optimization: Processing #{length(paths)} files with batch size #{batch_size}")
+    Logger.info(
+      "MediaInfo optimization: Processing #{length(paths)} files with batch size #{batch_size}"
+    )
 
     execute_chunked_with_optimal_settings(paths, batch_size)
   end
 
-  defp execute_chunked_with_optimal_settings(paths, batch_size) when length(paths) <= batch_size do
+  defp execute_chunked_with_optimal_settings(paths, batch_size)
+       when length(paths) <= batch_size do
     # Small batch - execute directly
     execute_single_batch_optimized(paths)
   end
@@ -65,7 +74,7 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
 
   defp filter_existing_files_efficiently(paths) do
     # Use the new bulk file checker for efficient existence testing
-    existence_map = Reencodarr.Analyzer.Optimization.BulkFileChecker.check_files_exist(paths)
+    existence_map = BulkFileChecker.check_files_exist(paths)
 
     Enum.filter(paths, fn path ->
       Map.get(existence_map, path, false)
@@ -84,7 +93,10 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
         Logger.debug("MediaInfo completed #{length(paths)} files in #{duration}ms")
 
         # Record batch processing time for performance monitoring
-        Reencodarr.Analyzer.Broadway.PerformanceMonitor.record_mediainfo_batch(length(paths), duration)
+        PerformanceMonitor.record_mediainfo_batch(
+          length(paths),
+          duration
+        )
 
         parse_mediainfo_json_efficiently(json, paths)
 
@@ -125,6 +137,7 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
     case extract_path_and_parse(single_media) do
       {:ok, path, parsed_info} ->
         {:ok, %{path => parsed_info}}
+
       {:error, reason} ->
         {:error, reason}
     end
@@ -137,7 +150,9 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
           {:ok, _parsed} -> {:ok, path, media_info}
           error -> error
         end
-      error -> error
+
+      error ->
+        error
     end
   end
 
@@ -150,9 +165,11 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
     # This would delegate to existing extraction logic
     # For now, simplified implementation
     tracks = Map.get(media_item, "track", [])
-    general_track = Enum.find(tracks, fn track ->
-      Map.get(track, "@type") == "General"
-    end)
+
+    general_track =
+      Enum.find(tracks, fn track ->
+        Map.get(track, "@type") == "General"
+      end)
 
     case general_track do
       %{"CompleteName" => path} -> {:ok, path}
@@ -188,11 +205,11 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
     # Get the current optimal batch size from performance monitor
     current_batch_size =
       try do
-        Reencodarr.Analyzer.Broadway.PerformanceMonitor.get_current_mediainfo_batch_size()
+        PerformanceMonitor.get_current_mediainfo_batch_size()
       catch
         :exit, _ ->
           # Fallback to ConcurrencyManager
-          Reencodarr.Analyzer.Core.ConcurrencyManager.get_optimal_mediainfo_batch_size()
+          ConcurrencyManager.get_optimal_mediainfo_batch_size()
       end
 
     # Don't exceed the number of files we actually have
@@ -201,16 +218,22 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
 
   defp get_optimal_chunk_concurrency(total_files) when total_files < 50, do: 1
   defp get_optimal_chunk_concurrency(total_files) when total_files < 200, do: 2
+
   defp get_optimal_chunk_concurrency(_total_files) do
     # For large batches on RAIDZ3, we can run multiple concurrent mediainfo processes
-    video_concurrency = Reencodarr.Analyzer.Core.ConcurrencyManager.get_video_processing_concurrency()
+    video_concurrency =
+      ConcurrencyManager.get_video_processing_concurrency()
 
     # Scale chunk concurrency conservatively
     case video_concurrency do
-      c when c >= 32 -> 4  # Ultra-high performance: 4 concurrent mediainfo processes
-      c when c >= 16 -> 3  # High performance: 3 concurrent processes
-      c when c >= 8 -> 2   # Standard: 2 concurrent processes
-      _ -> 1               # Conservative: single process
+      # Ultra-high performance: 4 concurrent mediainfo processes
+      c when c >= 32 -> 4
+      # High performance: 3 concurrent processes
+      c when c >= 16 -> 3
+      # Standard: 2 concurrent processes
+      c when c >= 8 -> 2
+      # Conservative: single process
+      _ -> 1
     end
   end
 end

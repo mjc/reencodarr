@@ -127,6 +127,10 @@ defmodule Reencodarr.Media do
     VideoStateMachine.mark_as_needs_analysis(video)
   end
 
+  def mark_as_encoded(%Video{} = video) do
+    VideoStateMachine.mark_as_encoded(video)
+  end
+
   # --- Video Failure Tracking Functions ---
 
   @doc """

@@ -7,6 +7,7 @@ defmodule Reencodarr.Analyzer.Core.ConcurrencyManager do
   """
 
   require Logger
+  alias Reencodarr.Analyzer.Broadway.PerformanceMonitor
 
   @system_concurrency_base 4
   @memory_threshold_mb 1000
@@ -60,19 +61,20 @@ defmodule Reencodarr.Analyzer.Core.ConcurrencyManager do
 
     # For high-performance storage, mediainfo can benefit from higher concurrency
     # since sequential I/O performance scales well with RAID arrays
-    mediainfo_concurrency = case storage_tier do
-      :ultra_high_performance ->
-        # Ultra high-performance storage can handle much higher concurrency
-        min(video_concurrency, 16)
+    mediainfo_concurrency =
+      case storage_tier do
+        :ultra_high_performance ->
+          # Ultra high-performance storage can handle much higher concurrency
+          min(video_concurrency, 16)
 
-      :high_performance ->
-        # High-performance storage benefits from higher concurrency
-        min(video_concurrency, 12)
+        :high_performance ->
+          # High-performance storage benefits from higher concurrency
+          min(video_concurrency, 12)
 
-      _ ->
-        # Standard storage - conservative concurrency for I/O bound operations
-        max(2, div(video_concurrency, 2))
-    end
+        _ ->
+          # Standard storage - conservative concurrency for I/O bound operations
+          max(2, div(video_concurrency, 2))
+      end
 
     max(2, mediainfo_concurrency)
   end
@@ -125,7 +127,9 @@ defmodule Reencodarr.Analyzer.Core.ConcurrencyManager do
         # Unknown performance - very conservative until we detect capabilities
         8
     end
-  end  # Private functions
+  end
+
+  # Private functions
 
   defp get_base_concurrency do
     # Start with number of CPU cores with higher base for high-performance systems
@@ -141,7 +145,7 @@ defmodule Reencodarr.Analyzer.Core.ConcurrencyManager do
   end
 
   defp get_storage_performance_tier do
-    Reencodarr.Analyzer.Broadway.PerformanceMonitor.get_storage_performance_tier()
+    PerformanceMonitor.get_storage_performance_tier()
   end
 
   defp get_min_concurrency do

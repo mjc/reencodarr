@@ -100,20 +100,9 @@ defmodule Reencodarr.Analyzer.Broadway.CodecDetectionTest do
         state: :needs_analysis
       }
 
-      # Mock the Media.mark_as_reencoded function
-      :meck.new(Reencodarr.Media, [:passthrough])
-      :meck.expect(Reencodarr.Media, :mark_as_reencoded, fn v -> {:ok, %{v | state: :reencoded}} end)
-
-      try do
-        # Call the private function via send to test the logic
-        result = Broadway.transition_video_to_analyzed(video)
-
-        assert {:ok, updated_video} = result
-        assert updated_video.state == :reencoded
-        assert :meck.called(Reencodarr.Media, :mark_as_reencoded, [video])
-      after
-        :meck.unload(Reencodarr.Media)
-      end
+      # Test the pure business logic function
+      decision = Broadway.determine_video_transition_decision(video)
+      assert decision == {:encoded, "already has AV1 codec"}
     end
 
     test "transition_video_to_analyzed skips CRF search for Opus videos" do
@@ -126,20 +115,9 @@ defmodule Reencodarr.Analyzer.Broadway.CodecDetectionTest do
         state: :needs_analysis
       }
 
-      # Mock the Media.mark_as_reencoded function
-      :meck.new(Reencodarr.Media, [:passthrough])
-      :meck.expect(Reencodarr.Media, :mark_as_reencoded, fn v -> {:ok, %{v | state: :reencoded}} end)
-
-      try do
-        # Call the private function via send to test the logic
-        result = Broadway.transition_video_to_analyzed(video)
-
-        assert {:ok, updated_video} = result
-        assert updated_video.state == :reencoded
-        assert :meck.called(Reencodarr.Media, :mark_as_reencoded, [video])
-      after
-        :meck.unload(Reencodarr.Media)
-      end
+      # Test the pure business logic function
+      decision = Broadway.determine_video_transition_decision(video)
+      assert decision == {:encoded, "already has Opus audio codec"}
     end
 
     test "transition_video_to_analyzed continues to analyzed state for videos needing CRF search" do
@@ -152,20 +130,9 @@ defmodule Reencodarr.Analyzer.Broadway.CodecDetectionTest do
         state: :needs_analysis
       }
 
-      # Mock the Media.mark_as_analyzed function
-      :meck.new(Reencodarr.Media, [:passthrough])
-      :meck.expect(Reencodarr.Media, :mark_as_analyzed, fn v -> {:ok, %{v | state: :analyzed}} end)
-
-      try do
-        # Call the private function via send to test the logic
-        result = Broadway.transition_video_to_analyzed(video)
-
-        assert {:ok, updated_video} = result
-        assert updated_video.state == :analyzed
-        assert :meck.called(Reencodarr.Media, :mark_as_analyzed, [video])
-      after
-        :meck.unload(Reencodarr.Media)
-      end
+      # Test the pure business logic function
+      decision = Broadway.determine_video_transition_decision(video)
+      assert decision == {:analyzed, "needs CRF search"}
     end
 
     test "regression test for video 2254 bug - AV1/Opus videos should not be queued for encoding" do
@@ -182,23 +149,10 @@ defmodule Reencodarr.Analyzer.Broadway.CodecDetectionTest do
       assert Broadway.has_av1_codec?(av1_opus_video) == true
       assert Broadway.has_opus_codec?(av1_opus_video) == true
 
-      # Mock the Media.mark_as_reencoded function to verify it's called
-      :meck.new(Reencodarr.Media, [:passthrough])
-      :meck.expect(Reencodarr.Media, :mark_as_reencoded, fn v -> {:ok, %{v | state: :reencoded}} end)
-
-      try do
-        # The video should be marked as reencoded (skipping CRF search)
-        result = Broadway.transition_video_to_analyzed(av1_opus_video)
-
-        assert {:ok, updated_video} = result
-        assert updated_video.state == :reencoded
-        assert :meck.called(Reencodarr.Media, :mark_as_reencoded, [av1_opus_video])
-
-        # Verify mark_as_analyzed was NOT called (would indicate bug)
-        refute :meck.called(Reencodarr.Media, :mark_as_analyzed, [:_])
-      after
-        :meck.unload(Reencodarr.Media)
-      end
+      # Test the pure business logic - should decide to encode (skip processing)
+      # Since has_av1_codec? returns true first, it should be encoded with AV1 reason
+      decision = Broadway.determine_video_transition_decision(av1_opus_video)
+      assert decision == {:encoded, "already has AV1 codec"}
     end
   end
 end

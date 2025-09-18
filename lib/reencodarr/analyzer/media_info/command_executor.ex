@@ -14,7 +14,12 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
   """
 
   require Logger
-  alias Reencodarr.Analyzer.{Core.ConcurrencyManager, Optimization.BulkFileChecker}
+
+  alias Reencodarr.Analyzer.{
+    Broadway.PerformanceMonitor,
+    Core.ConcurrencyManager,
+    Optimization.BulkFileChecker
+  }
 
   @doc """
   Execute MediaInfo command for a batch of file paths.
@@ -76,7 +81,9 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
   defp execute_chunked_mediainfo(paths, batch_size) do
     chunk_concurrency = get_chunk_concurrency(length(paths))
 
-    Logger.debug("Processing #{length(paths)} files in chunks of #{batch_size} with concurrency #{chunk_concurrency}")
+    Logger.debug(
+      "Processing #{length(paths)} files in chunks of #{batch_size} with concurrency #{chunk_concurrency}"
+    )
 
     paths
     |> Enum.chunk_every(batch_size)
@@ -101,7 +108,10 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
         Logger.debug("MediaInfo completed #{length(paths)} files in #{duration}ms")
 
         # Record batch processing time for performance monitoring
-        Reencodarr.Analyzer.Broadway.PerformanceMonitor.record_mediainfo_batch(length(paths), duration)
+        PerformanceMonitor.record_mediainfo_batch(
+          length(paths),
+          duration
+        )
 
         parse_mediainfo_json(json, paths)
 
@@ -115,8 +125,10 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
     # Optimized MediaInfo arguments for best performance
     base_args = [
       "--Output=JSON",
-      "--LogFile=/dev/null",  # Suppress log output for cleaner execution
-      "--Full"                # Get complete information
+      # Suppress log output for cleaner execution
+      "--LogFile=/dev/null",
+      # Get complete information
+      "--Full"
     ]
 
     base_args ++ paths
@@ -149,7 +161,8 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
     case data do
       %{"media" => _media_item} ->
         Logger.debug("Processing single MediaInfo object")
-        process_single_media_object(data, %{})
+        result_map = process_single_media_object(data, %{})
+        {:ok, result_map}
 
       flat_data when is_map(flat_data) ->
         Logger.debug("Processing flat MediaInfo structure")
@@ -163,7 +176,10 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
   end
 
   defp process_mediainfo_data(data, paths) do
-    Logger.error("Unexpected MediaInfo JSON structure for #{length(paths)} paths: #{inspect(data, limit: 100)}")
+    Logger.error(
+      "Unexpected MediaInfo JSON structure for #{length(paths)} paths: #{inspect(data, limit: 100)}"
+    )
+
     {:error, "unexpected MediaInfo JSON structure"}
   end
 
@@ -226,7 +242,7 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
     # Get the current optimal batch size from performance systems
     base_batch_size =
       try do
-        Reencodarr.Analyzer.Broadway.PerformanceMonitor.get_current_mediainfo_batch_size()
+        PerformanceMonitor.get_current_mediainfo_batch_size()
       catch
         :exit, _ ->
           ConcurrencyManager.get_optimal_mediainfo_batch_size()
@@ -238,17 +254,28 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
 
   defp get_chunk_concurrency(total_files) do
     cond do
-      total_files < 50 -> 1   # Small batch - single process
-      total_files < 200 -> 2  # Medium batch - 2 processes
-      true ->                 # Large batch - scale with system capability
+      # Small batch - single process
+      total_files < 50 ->
+        1
+
+      # Medium batch - 2 processes
+      total_files < 200 ->
+        2
+
+      # Large batch - scale with system capability
+      true ->
         video_concurrency = ConcurrencyManager.get_video_processing_concurrency()
 
         # Conservative scaling for MediaInfo processes
         case video_concurrency do
-          c when c >= 32 -> 4  # Ultra-high performance: 4 concurrent processes
-          c when c >= 16 -> 3  # High performance: 3 processes
-          c when c >= 8 -> 2   # Standard: 2 processes
-          _ -> 1               # Conservative: single process
+          # Ultra-high performance: 4 concurrent processes
+          c when c >= 32 -> 4
+          # High performance: 3 processes
+          c when c >= 16 -> 3
+          # Standard: 2 processes
+          c when c >= 8 -> 2
+          # Conservative: single process
+          _ -> 1
         end
     end
   end

@@ -14,6 +14,8 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
 
   require Logger
 
+  alias Reencodarr.Analyzer.Core.ConcurrencyManager
+  alias Reencodarr.Analyzer.MediaInfo.CommandExecutor
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Media.MediaInfo
 
@@ -218,7 +220,7 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
   """
   def execute_optimized_mediainfo_command(paths) do
     # Delegate to the analyzer's command executor
-    Reencodarr.Analyzer.MediaInfo.CommandExecutor.execute_batch_mediainfo(paths)
+    CommandExecutor.execute_batch_mediainfo(paths)
   end
 
   @doc """
@@ -227,13 +229,15 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
   """
   def execute_chunked_mediainfo_command(paths, batch_size) do
     # Delegate to the analyzer's command executor for chunking
-    optimal_batch_size = Reencodarr.Analyzer.Core.ConcurrencyManager.get_optimal_mediainfo_batch_size()
+    optimal_batch_size =
+      ConcurrencyManager.get_optimal_mediainfo_batch_size()
+
     actual_batch_size = min(batch_size, optimal_batch_size)
 
     paths
     |> Enum.chunk_every(actual_batch_size)
     |> Enum.reduce({:ok, %{}}, fn chunk, {:ok, acc} ->
-      case Reencodarr.Analyzer.MediaInfo.CommandExecutor.execute_batch_mediainfo(chunk) do
+      case CommandExecutor.execute_batch_mediainfo(chunk) do
         {:ok, chunk_results} -> {:ok, Map.merge(acc, chunk_results)}
         error -> error
       end
@@ -245,6 +249,6 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
   """
   def fetch_single_mediainfo(path) do
     # Delegate to the analyzer's command executor
-    Reencodarr.Analyzer.MediaInfo.CommandExecutor.execute_single_mediainfo(path)
+    CommandExecutor.execute_single_mediainfo(path)
   end
 end
