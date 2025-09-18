@@ -13,10 +13,13 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   alias Reencodarr.Analyzer.{
     Broadway.PerformanceMonitor,
-    Broadway.Producer
+    Broadway.Producer,
+    Processing.Pipeline
   }
 
   alias Reencodarr.{Media, Telemetry}
+  alias Reencodarr.Media.{Codecs, Video}
+  alias Reencodarr.Media.Video
 
   # Constants
   @default_processor_concurrency 16
@@ -25,7 +28,8 @@ defmodule Reencodarr.Analyzer.Broadway do
   @default_batch_timeout 25
   @default_mediainfo_batch_size 5
   @default_processing_timeout :timer.minutes(5)
-  @initial_rate_limit_messages 500  # Conservative start
+  # Conservative start
+  @initial_rate_limit_messages 500
   @rate_limit_interval 1000
   @max_db_retry_attempts 3
 
@@ -163,7 +167,10 @@ defmodule Reencodarr.Analyzer.Broadway do
     video_infos
   end
 
-  defp finish_batch_processing(%{start_time: start_time, batch_size: batch_size, messages: messages}, _video_infos) do
+  defp finish_batch_processing(
+         %{start_time: start_time, batch_size: batch_size, messages: messages},
+         _video_infos
+       ) do
     # Log completion and emit telemetry
     duration = System.monotonic_time(:millisecond) - start_time
     Logger.debug("Broadway: Completed batch of #{batch_size} videos in #{duration}ms")
@@ -179,9 +186,15 @@ defmodule Reencodarr.Analyzer.Broadway do
     current_batch_size = PerformanceMonitor.get_current_mediainfo_batch_size()
 
     # Get actual throughput from PerformanceMonitor (will be 0 if no data available)
-    current_throughput = PerformanceMonitor.get_current_throughput() / 60.0  # Convert from files/min to files/s
+    # Convert from files/min to files/s
+    current_throughput = PerformanceMonitor.get_current_throughput() / 60.0
 
-    Telemetry.emit_analyzer_throughput(current_throughput, current_queue_length, current_rate_limit, current_batch_size)
+    Telemetry.emit_analyzer_throughput(
+      current_throughput,
+      current_queue_length,
+      current_rate_limit,
+      current_batch_size
+    )
 
     # Notify producer that batch analysis is complete
     Phoenix.PubSub.broadcast(
@@ -207,12 +220,128 @@ defmodule Reencodarr.Analyzer.Broadway do
   # Private functions - ported from the GenStage consumer
 
   defp process_batch_with_single_mediainfo(video_infos, context) do
-    Logger.debug("Processing batch of #{length(video_infos)} videos using consolidated Pipeline")
+    # Filter videos by their analysis needs and handle unchanged files
+    {videos_needing_analysis, videos_with_unchanged_mediainfo} =
+      Enum.split_with(video_infos, &needs_full_analysis?/1)
 
-    # Use the new consolidated processing pipeline
-    {:ok, processed_videos} = Reencodarr.Analyzer.Processing.Pipeline.process_video_batch(video_infos, context)
-    Logger.debug("Pipeline processed #{length(processed_videos)} videos successfully")
-    batch_upsert_and_transition_videos(processed_videos, [])
+    # Process videos with unchanged MediaInfo by transitioning them to analyzed state
+    process_unchanged_mediainfo_videos(videos_with_unchanged_mediainfo)
+
+    if Enum.empty?(videos_needing_analysis) do
+      Logger.debug(
+        "No videos need MediaInfo analysis in this batch, all filtered out or transitioned"
+      )
+
+      :ok
+    else
+      process_filtered_videos(videos_needing_analysis, context)
+    end
+  end
+
+  # Helper to determine if video needs full analysis (reduces nesting)
+  defp needs_full_analysis?(video_info) do
+    case Media.get_video(video_info.id) do
+      %{state: :needs_analysis, mediainfo: mediainfo} = video when not is_nil(mediainfo) ->
+        # Check if file size has changed - if not, this video can be transitioned to analyzed
+        if has_unchanged_file_size?(video, video_info) do
+          # Don't need full analysis, will transition to analyzed
+          false
+        else
+          # File size changed, needs full re-analysis
+          true
+        end
+
+      %{state: :needs_analysis} ->
+        # No existing MediaInfo, needs analysis
+        true
+
+      _ ->
+        Logger.debug("Skipping video #{video_info.path} - not in needs_analysis state")
+        false
+    end
+  end
+
+  # Helper function to check if file size has changed
+  defp has_unchanged_file_size?(video, video_info) do
+    case File.stat(video_info.path) do
+      {:ok, %File.Stat{size: current_size}} ->
+        current_size == video.size
+
+      {:error, _} ->
+        # File doesn't exist or can't be read, treat as changed
+        false
+    end
+  end
+
+  # Process videos that have MediaInfo but unchanged file size by transitioning to analyzed
+  defp process_unchanged_mediainfo_videos([]), do: :ok
+
+  defp process_unchanged_mediainfo_videos(videos_with_unchanged_mediainfo) do
+    Logger.info(
+      "Transitioning #{length(videos_with_unchanged_mediainfo)} videos with unchanged MediaInfo to analyzed state"
+    )
+
+    Enum.each(videos_with_unchanged_mediainfo, &process_single_unchanged_video/1)
+  end
+
+  # Helper to reduce nesting in unchanged video processing
+  defp process_single_unchanged_video(video_info) do
+    case Media.get_video(video_info.id) do
+      %Video{} = video ->
+        case Media.mark_as_analyzed(video) do
+          {:ok, _updated_video} ->
+            Logger.debug(
+              "Transitioned video #{video_info.path} to analyzed (unchanged file size with existing MediaInfo)"
+            )
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to transition video #{video_info.path} to analyzed state: #{inspect(reason)}"
+            )
+        end
+
+      nil ->
+        Logger.warning("Video not found for transition: #{video_info.path}")
+    end
+  end
+
+  defp process_filtered_videos(videos_needing_analysis, context) do
+    # Then filter videos needing analysis by filename patterns to skip MediaInfo
+    {encoded_filename_videos, videos_needing_mediainfo} =
+      Enum.split_with(videos_needing_analysis, fn video_info ->
+        has_av1_in_filename?(video_info) || has_opus_in_filename?(video_info)
+      end)
+
+    # Process encoded filename videos directly without MediaInfo - transition them to encoded state
+    Enum.each(encoded_filename_videos, fn video ->
+      # Debug log to see if we're processing already-encoded videos
+      current_video = Media.get_video(video.id)
+
+      Logger.debug(
+        "Processing filename-detected video: #{video.path}, current state: #{current_video.state}"
+      )
+
+      cond do
+        has_av1_in_filename?(video) ->
+          transition_video_to_analyzed(current_video)
+
+        has_opus_in_filename?(video) ->
+          transition_video_to_analyzed(current_video)
+      end
+    end)
+
+    # Process remaining videos through MediaInfo pipeline if any
+    if videos_needing_mediainfo != [] do
+      {:ok, mediainfo_processed} =
+        Pipeline.process_video_batch(
+          videos_needing_mediainfo,
+          context
+        )
+
+      batch_upsert_and_transition_videos(mediainfo_processed, [])
+    else
+      :ok
+    end
   end
 
   # Database operations and state transitions
@@ -225,7 +354,9 @@ defmodule Reencodarr.Analyzer.Broadway do
     # Separate successful video data from skipped/failed results
     {successful_videos, additional_failed_paths} = categorize_pipeline_results(processed_results)
 
-    Logger.debug("Broadway: Found #{length(successful_videos)} successful and #{length(additional_failed_paths)} failed")
+    Logger.debug(
+      "Broadway: Found #{length(successful_videos)} successful and #{length(additional_failed_paths)} failed"
+    )
 
     # Only proceed with upsert if we have successful videos
     if length(successful_videos) > 0 do
@@ -234,7 +365,11 @@ defmodule Reencodarr.Analyzer.Broadway do
 
       case perform_batch_upsert(video_attrs_list, successful_videos) do
         {:ok, upsert_results} ->
-          handle_upsert_results(successful_videos, upsert_results, failed_paths ++ additional_failed_paths)
+          handle_upsert_results(
+            successful_videos,
+            upsert_results,
+            failed_paths ++ additional_failed_paths
+          )
 
         {:error, reason} ->
           Logger.error("Broadway: perform_batch_upsert failed: #{inspect(reason)}")
@@ -254,7 +389,8 @@ defmodule Reencodarr.Analyzer.Broadway do
   defp categorize_pipeline_results(processed_results) do
     Enum.reduce(processed_results, {[], []}, fn
       # Successful video processing - has video_info and attrs
-      {video_info, attrs} = video_data, {success_acc, fail_acc} when is_map(video_info) and is_map(attrs) ->
+      {video_info, attrs} = video_data, {success_acc, fail_acc}
+      when is_map(video_info) and is_map(attrs) ->
         {[video_data | success_acc], fail_acc}
 
       # Skipped video
@@ -375,52 +511,75 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   # Video state transition functions
 
-  defp transition_video_to_analyzed(%{state: state, path: path} = video)
-       when state != :needs_analysis do
+  @doc """
+  Public function for testing - transitions a video to analyzed state with codec optimization.
+  """
+  def transition_video_to_analyzed(%{state: state, path: path} = video)
+      when state != :needs_analysis do
     Logger.debug("Video #{path} already in state #{state}, skipping transition")
     {:ok, video}
   end
 
-  defp transition_video_to_analyzed(video) do
-    # Check if video already has target codecs and can skip CRF search
+  def transition_video_to_analyzed(video) do
+    # Use pure business logic to determine what should happen, then persist
+    transition_decision = determine_video_transition_decision(video)
+    execute_transition_decision(video, transition_decision)
+  end
+
+  @doc """
+  Pure function that determines what transition should happen for a video.
+  Returns a tuple indicating the target state and reason.
+  This function has no side effects and is easily testable.
+  """
+  def determine_video_transition_decision(video) do
     cond do
       has_av1_codec?(video) ->
-        transition_to_reencoded_with_logging(video, "already has AV1 codec")
+        {:encoded, "already has AV1 codec"}
 
       has_av1_in_filename?(video) ->
-        transition_to_reencoded_with_logging(video, "filename indicates AV1 encoding")
+        {:encoded, "filename indicates AV1 encoding"}
 
       has_opus_codec?(video) ->
-        transition_to_reencoded_with_logging(video, "already has Opus audio codec")
+        {:encoded, "already has Opus audio codec"}
 
       true ->
-        # Video needs CRF search, transition to analyzed state
-        transition_to_analyzed_with_logging(video)
+        {:analyzed, "needs CRF search"}
     end
   end
 
-  defp transition_to_reencoded_with_logging(video, reason) do
-    Logger.debug("Video #{video.path} #{reason}, marking as reencoded (skipping CRF search)")
+  # Database persistence - handles the actual state transitions
+  defp execute_transition_decision(video, {target_state, reason}) do
+    case target_state do
+      :encoded ->
+        persist_encoded_state(video, reason)
 
-    case Media.mark_as_reencoded(video) do
+      :analyzed ->
+        persist_analyzed_state(video)
+    end
+  end
+
+  # Database persistence functions
+  defp persist_encoded_state(video, reason) do
+    Logger.debug("Video #{video.path} #{reason}, marking as encoded (skipping all processing)")
+
+    case Media.mark_as_encoded(video) do
       {:ok, updated_video} ->
         Logger.debug(
-          "Successfully transitioned video to reencoded state: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
+          "Successfully transitioned video to encoded state: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
         )
 
         {:ok, updated_video}
 
       {:error, changeset_error} ->
         Logger.error(
-          "Failed to transition video to reencoded state for #{video.path}: #{inspect(changeset_error)}"
+          "Failed to transition video to encoded state for #{video.path}: #{inspect(changeset_error)}"
         )
 
-        # Return original video even if state transition fails
         {:ok, video}
     end
   end
 
-  defp transition_to_analyzed_with_logging(video) do
+  defp persist_analyzed_state(video) do
     case Media.mark_as_analyzed(video) do
       {:ok, updated_video} ->
         Logger.debug(
@@ -434,31 +593,35 @@ defmodule Reencodarr.Analyzer.Broadway do
           "Failed to transition video state for #{video.path}: #{inspect(changeset_error)}"
         )
 
-        # Return original video even if state transition fails
         {:ok, video}
     end
   end
 
-  # Helper functions to check for target codecs
-  def has_av1_codec?(video) do
-    Reencodarr.Media.Codecs.has_av1_codec?(video.video_codecs)
+  # Pure helper functions to check for target codecs using Media.Codecs
+  def has_av1_codec?(%{video_codecs: video_codecs}) when not is_nil(video_codecs) do
+    Codecs.has_av1_codec?(video_codecs)
   end
 
-  def has_av1_in_filename?(video) do
+  def has_av1_codec?(_), do: false
+
+  def has_av1_in_filename?(%{path: path}) do
     # Check if filename contains AV1 indicators (case insensitive)
+    filename = Path.basename(path)
+    lowercase_filename = String.downcase(filename)
+    String.contains?(lowercase_filename, "av1")
+  end
+
+  def has_opus_codec?(%{audio_codecs: audio_codecs}) when is_list(audio_codecs) do
+    Codecs.has_opus_audio?(audio_codecs)
+  end
+
+  def has_opus_codec?(_), do: false
+
+  def has_opus_in_filename?(video) do
+    # Check if filename contains Opus indicators (case insensitive)
     filename = Path.basename(video.path)
     lowercase_filename = String.downcase(filename)
-    has_av1 = String.contains?(lowercase_filename, "av1")
-
-    if has_av1 do
-      Logger.info("AV1 filename detected: #{filename} (video ID: #{video.id})")
-    end
-
-    has_av1
-  end
-
-  def has_opus_codec?(video) do
-    Reencodarr.Media.Codecs.has_opus_audio?(video.audio_codecs)
+    String.contains?(lowercase_filename, "opus")
   end
 
   defp mark_video_as_failed(path, reason) do

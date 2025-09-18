@@ -17,13 +17,20 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
   alias Reencodarr.Analyzer.MediaInfo.CommandExecutor
   alias Reencodarr.Media.MediaInfoExtractor
 
+  # Type definitions for better type safety
+  @type video_info :: %{id: integer(), path: String.t()}
+  @type mediainfo_data :: map()
+  @type mediainfo_result_map :: %{String.t() => mediainfo_data()}
+  @type processing_context :: map()
+  @type processing_result :: {:ok, [map()]} | {:error, term()}
+
   @doc """
   Process a batch of videos with optimized MediaInfo fetching.
 
   This is the main entry point for batch video processing, consolidating
   logic from multiple places in the original codebase.
   """
-  @spec process_video_batch([map()], map()) :: {:ok, [map()]} | {:error, term()}
+  @spec process_video_batch([video_info()], processing_context()) :: processing_result()
   def process_video_batch(video_infos, context \\ %{}) when is_list(video_infos) do
     Logger.debug("Processing batch of #{length(video_infos)} videos")
 
@@ -37,7 +44,8 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
         all_results = processed_videos ++ mark_invalid_videos(invalid_videos)
         {:ok, all_results}
 
-      error -> error
+      error ->
+        error
     end
   end
 
@@ -46,7 +54,7 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
 
   Used when batch processing fails or for small batches.
   """
-  @spec process_videos_individually([map()]) :: {:ok, [map()]} | {:error, term()}
+  @spec process_videos_individually([video_info()]) :: processing_result()
   def process_videos_individually(video_infos) when is_list(video_infos) do
     Logger.debug("Processing #{length(video_infos)} videos individually")
 
@@ -77,7 +85,6 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
          {:ok, mediainfo} <- CommandExecutor.execute_single_mediainfo(video_info.path),
          {:ok, validated_mediainfo} <- validate_mediainfo(mediainfo, video_info.path),
          {:ok, video_params} <- extract_video_params(validated_mediainfo, video_info.path) do
-
       # Merge with service metadata
       complete_params = merge_service_metadata(video_params, video_info)
 
@@ -113,6 +120,7 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
 
   defp process_valid_videos([], _context), do: {:ok, []}
 
+  @spec process_valid_videos([video_info()], processing_context()) :: processing_result()
   defp process_valid_videos(valid_videos, context) do
     # Extract paths for batch MediaInfo command
     paths = Enum.map(valid_videos, & &1.path)
@@ -122,22 +130,39 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
         process_videos_with_mediainfo(valid_videos, mediainfo_map, context)
 
       {:error, reason} ->
-        Logger.warning("Batch MediaInfo failed: #{reason}, falling back to individual processing")
+        Logger.warning(
+          "Batch MediaInfo failed: #{inspect(reason)}, falling back to individual processing"
+        )
+
         process_videos_individually(valid_videos)
     end
   end
 
+  @spec process_videos_with_mediainfo(
+          [video_info()],
+          mediainfo_result_map(),
+          processing_context()
+        ) :: processing_result()
   defp process_videos_with_mediainfo(video_infos, mediainfo_map, _context) do
     concurrency = get_processing_concurrency()
     timeout = ConcurrencyManager.get_processing_timeout()
 
-    Logger.debug("Processing #{length(video_infos)} videos with batch MediaInfo (concurrency: #{concurrency})")
+    Logger.debug(
+      "Processing #{length(video_infos)} videos with batch MediaInfo (concurrency: #{concurrency})"
+    )
 
     results =
       video_infos
       |> Task.async_stream(
         fn video_info ->
-          mediainfo = Map.get(mediainfo_map, video_info.path, :no_mediainfo)
+          # Extract the "media" portion from the MediaInfo result
+          mediainfo =
+            case Map.get(mediainfo_map, video_info.path, :no_mediainfo) do
+              :no_mediainfo -> :no_mediainfo
+              result when is_map(result) -> Map.get(result, "media", :no_mediainfo)
+              _ -> :no_mediainfo
+            end
+
           process_video_with_mediainfo(video_info, mediainfo)
         end,
         max_concurrency: concurrency,
@@ -157,9 +182,16 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
   defp process_video_with_mediainfo(video_info, mediainfo) do
     Logger.debug("Processing video #{video_info.path} with batch MediaInfo")
 
-    with {:ok, validated_mediainfo} <- validate_mediainfo(mediainfo, video_info.path),
-         {:ok, video_params} <- extract_video_params(validated_mediainfo, video_info.path) do
+    # Extract the "media" portion from the full mediainfo structure
+    media_data =
+      case mediainfo do
+        %{"media" => media} -> media
+        # fallback for unexpected structure
+        other -> other
+      end
 
+    with {:ok, validated_mediainfo} <- validate_mediainfo(media_data, video_info.path),
+         {:ok, video_params} <- extract_video_params(validated_mediainfo, video_info.path) do
       complete_params = merge_service_metadata(video_params, video_info)
       {:ok, {video_info, complete_params}}
     else
@@ -207,35 +239,40 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
     # Record failures properly through the failure system if we have them
     # For now, log summary - ideally we'd have video structs to record individual failures
     if length(failed) > 0 do
-      Logger.warning("Batch processing completed with #{length(failed)} failures: #{inspect(failed)}")
+      Logger.warning(
+        "Batch processing completed with #{length(failed)} failures: #{inspect(failed)}"
+      )
     end
 
     {:ok, Enum.reverse(successful)}
   end
 
-  defp validate_mediainfo(mediainfo, path) do
-    case mediainfo do
-      %{"media" => %{"track" => tracks}} when is_list(tracks) ->
-        {:ok, mediainfo}
+  defp validate_mediainfo(media_data, path) do
+    case media_data do
+      %{"track" => tracks} when is_list(tracks) ->
+        # Wrap the media data back in the expected structure for MediaInfoExtractor
+        {:ok, %{"media" => media_data}}
 
-      %{"media" => _} ->
-        {:ok, mediainfo}
+      %{"track" => _track} ->
+        # Single track, also valid
+        {:ok, %{"media" => media_data}}
 
       _ ->
-        Logger.error("Invalid MediaInfo structure for #{path}: #{inspect(mediainfo, limit: 100)}")
-        {:error, "invalid mediainfo structure"}
+        Logger.error(
+          "Invalid MediaInfo media structure for #{path}: #{inspect(media_data, limit: 100)}"
+        )
+
+        {:error, "invalid media structure"}
     end
   end
 
   defp extract_video_params(validated_mediainfo, path) do
-    try do
-      video_params = MediaInfoExtractor.extract_video_params(validated_mediainfo, path)
-      {:ok, video_params}
-    rescue
-      e ->
-        Logger.error("Failed to extract video params for #{path}: #{inspect(e)}")
-        {:error, "video parameter extraction failed"}
-    end
+    video_params = MediaInfoExtractor.extract_video_params(validated_mediainfo, path)
+    {:ok, video_params}
+  rescue
+    e ->
+      Logger.error("Failed to extract video params for #{path}: #{inspect(e)}")
+      {:error, "video parameter extraction failed"}
   end
 
   defp merge_service_metadata(video_params, video_info) do

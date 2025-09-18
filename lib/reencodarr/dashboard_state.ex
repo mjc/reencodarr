@@ -91,9 +91,11 @@ defmodule Reencodarr.DashboardState do
 
   # Check actual status of Broadway pipelines for initial state
   defp analyzer_running? do
-    result = case Reencodarr.Analyzer.Broadway.running?() do
-      result when is_boolean(result) -> result
-    end
+    result =
+      case Reencodarr.Analyzer.Broadway.running?() do
+        result when is_boolean(result) -> result
+      end
+
     result
   rescue
     error ->
@@ -187,10 +189,12 @@ defmodule Reencodarr.DashboardState do
     current_rate_limit = get_performance_metric(:rate_limit)
     current_batch_size = get_performance_metric(:batch_size)
 
-    %{state.analyzer_progress |
-      throughput: current_throughput,
-      rate_limit: current_rate_limit,
-      batch_size: current_batch_size}
+    %{
+      state.analyzer_progress
+      | throughput: current_throughput,
+        rate_limit: current_rate_limit,
+        batch_size: current_batch_size
+    }
   end
 
   defp get_performance_metric(metric) do

@@ -81,21 +81,26 @@ defmodule Reencodarr.Analyzer.Core.FileOperations do
   @doc """
   Validate multiple files for processing efficiently.
   """
-  @spec validate_files_for_processing([String.t()]) :: %{String.t() => {:ok, map()} | {:error, term()}}
+  @spec validate_files_for_processing([String.t()]) :: %{
+          String.t() => {:ok, map()} | {:error, term()}
+        }
   def validate_files_for_processing(paths) when is_list(paths) do
     stats_map = get_bulk_file_stats(paths)
 
-    Map.new(paths, fn path ->
-      case Map.get(stats_map, path) do
-        {:ok, stats} ->
-          case validate_file_accessibility(path, stats) do
-            :ok -> {path, {:ok, stats}}
-            error -> {path, error}
-          end
-        error ->
-          {path, error}
-      end
-    end)
+    Map.new(paths, &validate_file_from_stats(&1, stats_map))
+  end
+
+  defp validate_file_from_stats(path, stats_map) do
+    case Map.get(stats_map, path) do
+      {:ok, stats} ->
+        case validate_file_accessibility(path, stats) do
+          :ok -> {path, {:ok, stats}}
+          error -> {path, error}
+        end
+
+      error ->
+        {path, error}
+    end
   end
 
   # Private functions

@@ -12,34 +12,43 @@ defmodule Reencodarr.Progress.Normalizer do
   """
   @spec normalize_progress(progress :: map() | nil) :: map()
   def normalize_progress(progress) when is_map(progress) do
-    # Check if this is an analyzer progress struct with throughput data
-    throughput = Map.get(progress, :throughput, 0)
-    rate_limit = Map.get(progress, :rate_limit, 0)
-    batch_size = Map.get(progress, :batch_size, 0)
-
-    # Show analyzer progress if we have performance data
-    if throughput > 0 or rate_limit > 0 or batch_size > 0 do
-      build_progress_map(progress)
-    else
-      filename = normalize_filename(Map.get(progress, :filename))
-      percent = Map.get(progress, :percent, 0)
-
-      # Show progress if we have either a meaningful percent or filename
-      case {percent, filename} do
-        {p, _} when p > 0 ->
-          build_progress_map(progress)
-
-        {_, f} when is_binary(f) ->
-          build_progress_map(progress)
-
-        _ ->
-          empty_progress()
-      end
+    cond do
+      has_analyzer_progress?(progress) -> build_progress_map(progress)
+      has_crf_search_progress?(progress) -> build_progress_map(progress)
+      has_basic_progress?(progress) -> build_progress_map(progress)
+      true -> empty_progress()
     end
   end
 
   def normalize_progress(_progress) do
     empty_progress()
+  end
+
+  # Helper to check for analyzer progress
+  defp has_analyzer_progress?(progress) do
+    throughput = Map.get(progress, :throughput, 0)
+    rate_limit = Map.get(progress, :rate_limit, 0)
+    batch_size = Map.get(progress, :batch_size, 0)
+    throughput > 0 or rate_limit > 0 or batch_size > 0
+  end
+
+  # Helper to check for CRF search progress
+  defp has_crf_search_progress?(progress) do
+    crf = Map.get(progress, :crf)
+    score = Map.get(progress, :score)
+    crf != nil or score != nil
+  end
+
+  # Helper to check for basic progress
+  defp has_basic_progress?(progress) do
+    filename = normalize_filename(Map.get(progress, :filename))
+    percent = Map.get(progress, :percent, 0)
+
+    case {percent, filename} do
+      {p, _} when p > 0 -> true
+      {_, f} when is_binary(f) -> true
+      _ -> false
+    end
   end
 
   defp build_progress_map(progress) do
