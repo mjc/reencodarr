@@ -10,8 +10,10 @@ defmodule Reencodarr.AbAv1.Encode do
 
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.AbAv1.ProgressParser
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Encoder.Broadway.Producer
   alias Reencodarr.{Media, PostProcessor, Telemetry, TelemetryReporter}
+  alias Reencodarr.Media.Vmaf
 
   require Logger
 
@@ -52,7 +54,7 @@ defmodule Reencodarr.AbAv1.Encode do
 
   @impl true
   def handle_cast(
-        {:encode, %Media.Vmaf{params: _params} = vmaf},
+        {:encode, %Vmaf{params: _params} = vmaf},
         %{port: :none} = state
       ) do
     new_state = prepare_encode_state(vmaf, state)
@@ -60,7 +62,7 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   @impl true
-  def handle_cast({:encode, %Media.Vmaf{} = vmaf}, %{port: port} = state) when port != :none do
+  def handle_cast({:encode, %Vmaf{} = vmaf}, %{port: port} = state) when port != :none do
     Logger.info("Encoding is already in progress, skipping new encode request.")
 
     # Publish a skipped event since this request was rejected
@@ -111,6 +113,9 @@ defmodule Reencodarr.AbAv1.Encode do
       "encoding_events",
       {:encoding_completed, vmaf.id, pubsub_result}
     )
+
+    # Broadcast encoding completion to Dashboard Events
+    Events.encoding_completed(vmaf.video.id, pubsub_result)
 
     # Notify the Broadway producer that encoding is now available
     Producer.dispatch_available()
@@ -190,6 +195,9 @@ defmodule Reencodarr.AbAv1.Encode do
     output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
 
     port = Helper.open_port(args)
+
+    # Broadcast encoding started to Dashboard Events
+    Events.encoding_started(vmaf.video.id, vmaf.video.path)
 
     # Set up a periodic timer to check if we're still alive and potentially emit progress
     # Check every 10 seconds

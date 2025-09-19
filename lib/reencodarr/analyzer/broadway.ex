@@ -17,9 +17,9 @@ defmodule Reencodarr.Analyzer.Broadway do
     Processing.Pipeline
   }
 
-  alias Reencodarr.{Media, Telemetry}
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media.{Codecs, Video}
-  alias Reencodarr.Media.Video
+  alias Reencodarr.{Media, Telemetry}
 
   # Constants
   @default_processor_concurrency 16
@@ -196,6 +196,23 @@ defmodule Reencodarr.Analyzer.Broadway do
       current_batch_size
     )
 
+    # Also send to new dashboard via Events module
+    Events.analyzer_throughput(current_throughput, current_queue_length, current_batch_size)
+
+    # Send analyzer progress to Dashboard V2 to indicate active analysis
+    # Only send progress if there's actually work remaining or active throughput
+    if current_queue_length > 0 and current_throughput > 0 do
+      # Show progress based on queue activity - indicate we're actively processing
+      Events.analyzer_progress(1, current_queue_length + 1)
+    end
+
+    # Note: Don't send progress events if queue is empty or no throughput
+    # This prevents showing "processing" when analyzer is actually idle
+
+    # Send telemetry for analyzer progress - but don't send misleading count/total data
+    # since we don't track the initial total when analysis started.
+    # The dashboard will show throughput which is accurate.
+
     # Notify producer that batch analysis is complete
     Phoenix.PubSub.broadcast(
       Reencodarr.PubSub,
@@ -241,23 +258,33 @@ defmodule Reencodarr.Analyzer.Broadway do
   # Helper to determine if video needs full analysis (reduces nesting)
   defp needs_full_analysis?(video_info) do
     case Media.get_video(video_info.id) do
-      %{state: :needs_analysis, mediainfo: mediainfo} = video when not is_nil(mediainfo) ->
-        # Check if file size has changed - if not, this video can be transitioned to analyzed
-        if has_unchanged_file_size?(video, video_info) do
-          # Don't need full analysis, will transition to analyzed
-          false
-        else
-          # File size changed, needs full re-analysis
-          true
-        end
+      %{state: :needs_analysis} = video ->
+        video_needs_analysis?(video, video_info)
 
-      %{state: :needs_analysis} ->
-        # No existing MediaInfo, needs analysis
-        true
+      %{state: state} ->
+        Logger.debug(
+          "Skipping video #{video_info.path} - already in #{state} state, not needs_analysis"
+        )
 
-      _ ->
-        Logger.debug("Skipping video #{video_info.path} - not in needs_analysis state")
         false
+
+      nil ->
+        Logger.warning("Video not found during analysis: #{video_info.path}")
+        false
+    end
+  end
+
+  # Determine analysis needs for videos in :needs_analysis state
+  defp video_needs_analysis?(%{mediainfo: nil}, _video_info), do: true
+
+  defp video_needs_analysis?(%{mediainfo: _mediainfo} = video, video_info) do
+    case {has_valid_mediainfo?(video), has_unchanged_file_size?(video, video_info)} do
+      # Valid MediaInfo + unchanged file = no analysis needed
+      {true, true} -> false
+      # Valid MediaInfo + changed file = needs re-analysis
+      {true, false} -> true
+      # Invalid MediaInfo = needs analysis regardless
+      {false, _} -> true
     end
   end
 
@@ -273,11 +300,18 @@ defmodule Reencodarr.Analyzer.Broadway do
     end
   end
 
+  # Helper function to check if MediaInfo is valid and complete
+  defp has_valid_mediainfo?(video) do
+    # Check for required fields that indicate complete MediaInfo
+    video.duration && video.duration > 0 &&
+      video.bitrate && video.bitrate > 0
+  end
+
   # Process videos that have MediaInfo but unchanged file size by transitioning to analyzed
   defp process_unchanged_mediainfo_videos([]), do: :ok
 
   defp process_unchanged_mediainfo_videos(videos_with_unchanged_mediainfo) do
-    Logger.info(
+    Logger.debug(
       "Transitioning #{length(videos_with_unchanged_mediainfo)} videos with unchanged MediaInfo to analyzed state"
     )
 
@@ -287,7 +321,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   # Helper to reduce nesting in unchanged video processing
   defp process_single_unchanged_video(video_info) do
     case Media.get_video(video_info.id) do
-      %Video{} = video ->
+      %Video{state: :needs_analysis} = video ->
         case Media.mark_as_analyzed(video) do
           {:ok, _updated_video} ->
             Logger.debug(
@@ -299,6 +333,11 @@ defmodule Reencodarr.Analyzer.Broadway do
               "Failed to transition video #{video_info.path} to analyzed state: #{inspect(reason)}"
             )
         end
+
+      %Video{state: state} ->
+        Logger.debug(
+          "Skipping video #{video_info.path} - already in #{state} state, no transition needed"
+        )
 
       nil ->
         Logger.warning("Video not found for transition: #{video_info.path}")
