@@ -126,7 +126,19 @@ defmodule ReencodarrWeb.DashboardV2Live do
   @impl true
   def handle_info({:encoding_progress, data}, socket) do
     state = socket.assigns.state
-    updated_state = %{state | encoding_progress: %{percent: data.percent}}
+
+    updated_state = %{
+      state
+      | encoding_progress: %{
+          percent: data.percent,
+          fps: data.fps,
+          eta: data.eta,
+          time_unit: data.time_unit,
+          timestamp: data.timestamp,
+          video_id: data.video_id
+        }
+    }
+
     {:noreply, assign(socket, :state, updated_state)}
   end
 
@@ -161,9 +173,23 @@ defmodule ReencodarrWeb.DashboardV2Live do
 
     updated_state = %{
       state
-      | queue_counts: get_queue_counts(),
-        service_status: get_service_status()
+      | queue_counts: get_queue_counts()
     }
+
+    # Request updated status async (don't block)
+    request_async_service_status()
+    # Request updated throughput async (don't block)
+    request_analyzer_throughput()
+
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
+  def handle_info({:status_response, service, status}, socket) do
+    state = socket.assigns.state
+
+    updated_service_status = Map.put(state.service_status, service, status)
+    updated_state = %{state | service_status: updated_service_status}
 
     {:noreply, assign(socket, :state, updated_state)}
   end
@@ -418,6 +444,12 @@ defmodule ReencodarrWeb.DashboardV2Live do
 
             <%= if @state.encoding_progress != :none do %>
               <div class="space-y-3">
+                <%= if progress_field(@state.encoding_progress, :video_id) do %>
+                  <div class="text-xs text-gray-500 truncate">
+                    Video ID: {progress_field(@state.encoding_progress, :video_id)}
+                  </div>
+                <% end %>
+
                 <div class="flex justify-between items-center">
                   <span class="text-sm font-medium text-gray-700">Progress</span>
                   <span class="text-sm font-mono text-gray-900">
@@ -432,6 +464,20 @@ defmodule ReencodarrWeb.DashboardV2Live do
                   >
                   </div>
                 </div>
+
+                <%= if progress_field(@state.encoding_progress, :fps) do %>
+                  <div class="flex justify-between text-xs text-gray-600">
+                    <span>Speed: {progress_field(@state.encoding_progress, :fps)} fps</span>
+                    <%= if progress_field(@state.encoding_progress, :eta) && progress_field(@state.encoding_progress, :time_unit) do %>
+                      <span>
+                        ETA: {progress_field(@state.encoding_progress, :eta)} {progress_field(
+                          @state.encoding_progress,
+                          :time_unit
+                        )}
+                      </span>
+                    <% end %>
+                  </div>
+                <% end %>
               </div>
             <% else %>
               <div class="text-center py-8">
@@ -469,11 +515,46 @@ defmodule ReencodarrWeb.DashboardV2Live do
   end
 
   defp get_service_status do
+    # Request async status updates - they'll arrive via PubSub
+    request_async_service_status()
+
+    # Return initial unknown states - will be updated when responses arrive
     %{
-      analyzer: get_analyzer_status(),
-      crf_searcher: get_crf_searcher_status(),
-      encoder: get_encoder_status()
+      analyzer: :checking,
+      crf_searcher: :checking,
+      encoder: :checking
     }
+  end
+
+  defp request_async_service_status do
+    # Request status from all services asynchronously
+    request_analyzer_status()
+    request_crf_searcher_status()
+    request_encoder_status()
+  end
+
+  defp request_crf_searcher_status do
+    case GenServer.whereis(Reencodarr.CrfSearcher.Broadway.Producer) do
+      # Process not running
+      nil -> :ok
+      pid -> GenServer.cast(pid, {:status_request, self()})
+    end
+  end
+
+  defp request_encoder_status do
+    case GenServer.whereis(Reencodarr.Encoder.Broadway.Producer) do
+      # Process not running
+      nil -> :ok
+      pid -> GenServer.cast(pid, {:status_request, self()})
+    end
+  end
+
+  defp request_analyzer_status do
+    case GenServer.whereis(Reencodarr.Analyzer.Broadway.Producer) do
+      # Process not running
+      nil -> :ok
+      pid -> GenServer.cast(pid, {:status_request, self()})
+    end
   end
 
   defp count_videos_needing_analysis do
@@ -500,37 +581,24 @@ defmodule ReencodarrWeb.DashboardV2Live do
     _ -> 0
   end
 
-  defp get_analyzer_status do
-    case Reencodarr.Analyzer.Broadway.running?() do
-      true -> :running
-      false -> :paused
-    end
-  rescue
-    _ -> :unknown
-  end
-
-  defp get_crf_searcher_status do
-    case Reencodarr.CrfSearcher.Broadway.running?() do
-      true -> :running
-      false -> :paused
-    end
-  rescue
-    _ -> :unknown
-  end
-
-  defp get_encoder_status do
-    case Reencodarr.Encoder.Broadway.running?() do
-      true -> :running
-      false -> :paused
-    end
-  rescue
-    _ -> :unknown
-  end
-
   defp service_status_class(:running), do: "bg-green-100 text-green-800"
   defp service_status_class(:paused), do: "bg-yellow-100 text-yellow-800"
+  defp service_status_class(:processing), do: "bg-blue-100 text-blue-800"
+  defp service_status_class(:pausing), do: "bg-orange-100 text-orange-800"
+  defp service_status_class(:idle), do: "bg-cyan-100 text-cyan-800"
+  defp service_status_class(:checking), do: "bg-gray-100 text-gray-600 animate-pulse"
   defp service_status_class(:stopped), do: "bg-red-100 text-red-800"
   defp service_status_class(:unknown), do: "bg-gray-100 text-gray-800"
+
+  # Convert status atoms to user-friendly text
+  defp service_status_text(:running), do: "Running"
+  defp service_status_text(:paused), do: "Paused"
+  defp service_status_text(:processing), do: "Processing"
+  defp service_status_text(:pausing), do: "Pausing"
+  defp service_status_text(:idle), do: "Idle"
+  defp service_status_text(:checking), do: "Checking..."
+  defp service_status_text(:stopped), do: "Stopped"
+  defp service_status_text(:unknown), do: "Unknown"
 
   defp request_analyzer_throughput do
     # Send async request to PerformanceMonitor via cast - it will respond via PubSub
