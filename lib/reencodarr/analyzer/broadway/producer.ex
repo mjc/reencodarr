@@ -119,6 +119,12 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   end
 
   @impl GenStage
+  def handle_cast({:status_request, requester_pid}, state) do
+    send(requester_pid, {:status_response, :analyzer, state.status})
+    {:noreply, [], state}
+  end
+
+  @impl GenStage
   def handle_cast(:pause, state) do
     case state.status do
       :processing ->
@@ -130,6 +136,11 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
         Telemetry.emit_analyzer_paused()
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :paused})
         :telemetry.execute([:reencodarr, :analyzer, :paused], %{}, %{})
+
+        # Send to Dashboard V2
+        alias Reencodarr.Dashboard.Events
+        Events.analyzer_stopped()
+
         {:noreply, [], State.update(state, status: :paused)}
     end
   end
@@ -140,6 +151,13 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     Telemetry.emit_analyzer_started()
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :started})
     :telemetry.execute([:reencodarr, :analyzer, :started], %{}, %{})
+
+    # Send to Dashboard V2
+    alias Reencodarr.Dashboard.Events
+    Events.analyzer_started()
+    # Start with minimal progress to indicate activity
+    Events.analyzer_progress(0, 1)
+
     new_state = State.update(state, status: :running)
     dispatch_if_ready(new_state)
   end
@@ -206,6 +224,11 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
         Telemetry.emit_analyzer_paused()
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :paused})
         :telemetry.execute([:reencodarr, :analyzer, :paused], %{}, %{})
+
+        # Send to Dashboard V2
+        alias Reencodarr.Dashboard.Events
+        Events.analyzer_stopped()
+
         new_state = State.update(state, status: :paused)
         {:noreply, [], new_state}
 
@@ -268,25 +291,91 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       "dispatch_if_ready called - demand: #{state.demand}, status: #{state.status}, queue size: #{length(state.manual_queue)}"
     )
 
+    case can_dispatch?(state) do
+      {:auto_start, state} -> handle_auto_start(state)
+      {:resume_idle, state} -> handle_resume_from_idle(state)
+      {:dispatch, state} -> dispatch_videos(state)
+      {:no_dispatch, state} -> handle_no_dispatch_conditions(state)
+    end
+  end
+
+  defp can_dispatch?(state) do
     cond do
-      # Auto-start analyzer when there are videos to process and demand > 0
-      state.status == :paused and state.demand > 0 and length(state.manual_queue) > 0 ->
-        Logger.info("Auto-starting analyzer - videos available for processing")
-        Telemetry.emit_analyzer_started()
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :started})
-        :telemetry.execute([:reencodarr, :analyzer, :started], %{}, %{})
-        new_state = State.update(state, status: :running)
-        dispatch_videos(new_state)
+      ready_for_auto_start?(state) -> {:auto_start, state}
+      ready_for_resume_from_idle?(state) -> {:resume_idle, state}
+      ready_for_dispatch?(state) -> {:dispatch, state}
+      true -> {:no_dispatch, state}
+    end
+  end
 
-      # Normal dispatch when already running
-      state.status == :running and state.demand > 0 ->
-        Logger.debug("Conditions met, dispatching videos")
-        dispatch_videos(state)
+  defp ready_for_auto_start?(state) do
+    state.status == :paused and state.demand > 0 and length(state.manual_queue) > 0
+  end
 
-      # Not ready to dispatch
-      true ->
-        Logger.debug("Conditions not met for dispatch")
-        {:noreply, [], state}
+  defp ready_for_resume_from_idle?(state) do
+    state.status == :idle and state.demand > 0 and length(state.manual_queue) > 0
+  end
+
+  defp ready_for_dispatch?(state) do
+    state.status == :running and state.demand > 0
+  end
+
+  defp handle_auto_start(state) do
+    Logger.info("Auto-starting analyzer - videos available for processing")
+    Telemetry.emit_analyzer_started()
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :started})
+    :telemetry.execute([:reencodarr, :analyzer, :started], %{}, %{})
+
+    # Send to Dashboard V2
+    alias Reencodarr.Dashboard.Events
+    Events.analyzer_started()
+    # Start with minimal progress to indicate activity
+    Events.analyzer_progress(0, 1)
+
+    new_state = State.update(state, status: :running)
+    dispatch_videos(new_state)
+  end
+
+  defp handle_resume_from_idle(state) do
+    Logger.info("Analyzer resuming from idle - videos available for processing")
+
+    # Send to Dashboard V2
+    alias Reencodarr.Dashboard.Events
+    # Start with minimal progress to indicate activity
+    Events.analyzer_progress(0, 1)
+
+    new_state = State.update(state, status: :running)
+    dispatch_videos(new_state)
+  end
+
+  defp handle_no_dispatch_conditions(state) do
+    Logger.debug(
+      "Conditions not met for dispatch - demand: #{state.demand}, queue: #{length(state.manual_queue)}"
+    )
+
+    # If analyzer is running but has no work to do, set to idle instead of paused
+    if state.status == :running and state.demand == 0 and Enum.empty?(state.manual_queue) do
+      handle_idle_transition(state)
+    else
+      {:noreply, [], state}
+    end
+  end
+
+  defp handle_idle_transition(state) do
+    # Check if there are any videos needing analysis in the database
+    database_queue_count = Reencodarr.Media.count_videos_needing_analysis()
+
+    if database_queue_count == 0 do
+      Logger.debug("Analyzer has no work - setting to idle")
+      # Set to idle - ready to work but no current tasks
+      new_state = State.update(state, status: :idle)
+      {:noreply, [], new_state}
+    else
+      Logger.debug(
+        "Analyzer has #{database_queue_count} videos to analyze but no demand - staying running"
+      )
+
+      {:noreply, [], state}
     end
   end
 
@@ -353,14 +442,11 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
     case all_videos do
       [] ->
-        # No videos available - auto-pause if currently running
+        # No videos available - go to idle if currently running
         if state.status == :running do
-          Logger.info("Auto-pausing analyzer - no videos to process")
-          Telemetry.emit_analyzer_paused()
-          Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :paused})
-          :telemetry.execute([:reencodarr, :analyzer, :paused], %{}, %{})
-          new_state = State.update(state, status: :paused)
-          # Don't broadcast queue state during auto-pause - queue hasn't actually changed
+          Logger.info("Analyzer going idle - no videos to process")
+          new_state = State.update(state, status: :idle)
+          # Don't broadcast queue state during idle transition - queue hasn't actually changed
           {:noreply, [], new_state}
         else
           Logger.debug("No videos available for dispatch, keeping demand: #{state.demand}")

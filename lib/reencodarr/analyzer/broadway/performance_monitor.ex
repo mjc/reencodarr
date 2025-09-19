@@ -6,6 +6,7 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
   use GenServer
   require Logger
 
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.{Media, Telemetry}
 
   @default_rate_limit 500
@@ -145,6 +146,25 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
     new_times = add_to_history(state.batch_processing_times, {batch_size, duration_ms})
 
     {:noreply, %{state | batch_processing_times: new_times}}
+  end
+
+  @impl true
+  def handle_cast({:throughput_request, _requester_pid}, state) do
+    # Send current throughput via PubSub instead of direct response
+    current_throughput = calculate_current_throughput(state.throughput_history)
+    throughput_per_second = current_throughput / 60.0
+    throughput = Float.round(throughput_per_second, 1)
+
+    # Get queue length (assume 0 if can't fetch)
+    queue_length =
+      try do
+        Reencodarr.Media.count_videos_needing_analysis()
+      catch
+        _ -> 0
+      end
+
+    Events.analyzer_throughput(throughput, queue_length)
+    {:noreply, state}
   end
 
   @impl true

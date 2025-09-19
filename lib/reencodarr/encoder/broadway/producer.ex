@@ -100,6 +100,12 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   @impl GenStage
+  def handle_cast({:status_request, requester_pid}, state) do
+    send(requester_pid, {:status_response, :encoder, state.status})
+    {:noreply, [], state}
+  end
+
+  @impl GenStage
   def handle_cast(:pause, state) do
     case state.status do
       :processing ->
@@ -139,6 +145,11 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :paused})
         new_state = %{state | status: :paused}
         {:noreply, [], new_state}
+
+      :idle ->
+        # Transition from idle back to running when work becomes available
+        new_state = %{state | status: :running}
+        dispatch_if_ready(new_state)
 
       _ ->
         new_state = %{state | status: :running}
@@ -236,9 +247,24 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
       dispatch_vmafs(state)
     else
       Logger.debug("Producer: dispatch_if_ready - conditions NOT met, not dispatching")
-      {:noreply, [], state}
+      handle_no_dispatch_encoder(state)
     end
   end
+
+  defp handle_no_dispatch_encoder(%{status: :running} = state) do
+    case get_next_vmaf_preview() do
+      nil ->
+        # No videos to process - set to idle
+        new_state = %{state | status: :idle}
+        {:noreply, [], new_state}
+
+      _vmaf ->
+        # VMAFs available but no demand or encoder service unavailable
+        {:noreply, [], state}
+    end
+  end
+
+  defp handle_no_dispatch_encoder(state), do: {:noreply, [], state}
 
   defp should_dispatch?(state) do
     status_check = state.status == :running
@@ -314,6 +340,20 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
           # Handle case where nil is returned
           nil -> {nil, state}
         end
+    end
+  end
+
+  # Helper to check if VMAFs are available without modifying state
+  defp get_next_vmaf_preview do
+    case Media.get_next_for_encoding(1) do
+      # Handle case where a single VMAF is returned
+      %Reencodarr.Media.Vmaf{} = vmaf -> vmaf
+      # Handle case where a list is returned
+      [vmaf | _] -> vmaf
+      # Handle case where an empty list is returned
+      [] -> nil
+      # Handle case where nil is returned
+      nil -> nil
     end
   end
 
