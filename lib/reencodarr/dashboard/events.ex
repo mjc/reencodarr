@@ -143,6 +143,56 @@ defmodule Reencodarr.Dashboard.Events do
     )
   end
 
+  @doc "Broadcast CRF searcher started event"
+  def crf_searcher_started do
+    broadcast({:crf_searcher_started, %{}})
+  end
+
+  @doc "Broadcast CRF searcher stopped/idle event"
+  def crf_searcher_stopped do
+    broadcast({:crf_searcher_stopped, %{}})
+  end
+
+  @doc "Broadcast encoder started event"
+  def encoder_started do
+    broadcast({:encoder_started, %{}})
+  end
+
+  @doc "Broadcast encoder stopped/idle event"
+  def encoder_stopped do
+    broadcast({:encoder_stopped, %{}})
+  end
+
+  @doc "Broadcast analyzer idle event (ready but no work)"
+  def analyzer_idle do
+    broadcast({:analyzer_idle, %{}})
+  end
+
+  @doc "Broadcast analyzer pausing event (finishing current job)"
+  def analyzer_pausing do
+    broadcast({:analyzer_pausing, %{}})
+  end
+
+  @doc "Broadcast CRF searcher idle event (ready but no work)"
+  def crf_searcher_idle do
+    broadcast({:crf_searcher_idle, %{}})
+  end
+
+  @doc "Broadcast CRF searcher pausing event (finishing current job)"
+  def crf_searcher_pausing do
+    broadcast({:crf_searcher_pausing, %{}})
+  end
+
+  @doc "Broadcast encoder idle event (ready but no work)"
+  def encoder_idle do
+    broadcast({:encoder_idle, %{}})
+  end
+
+  @doc "Broadcast encoder pausing event (finishing current job)"
+  def encoder_pausing do
+    broadcast({:encoder_pausing, %{}})
+  end
+
   @doc "Get the dashboard channel name for subscriptions"
   def channel, do: @dashboard_channel
 

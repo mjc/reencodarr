@@ -46,6 +46,18 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   def dispatch_available, do: send_to_producer(:dispatch_available)
   def add_video(video_info), do: send_to_producer({:add_video, video_info})
 
+  # Status API
+  def status do
+    case GenServer.call(__MODULE__, :get_state) do
+      %{status: status} -> status
+      _ -> :unknown
+    end
+  end
+
+  def request_status(requester_pid) do
+    GenServer.cast(__MODULE__, {:status_request, requester_pid})
+  end
+
   # Alias for API compatibility
   def start, do: resume()
 
@@ -129,6 +141,11 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     case state.status do
       :processing ->
         Logger.info("Analyzer pausing - will finish current batch and stop")
+
+        # Send to Dashboard V2 - immediate pausing state for UI feedback
+        alias Reencodarr.Dashboard.Events
+        Events.analyzer_pausing()
+
         {:noreply, [], State.update(state, status: :pausing)}
 
       _ ->
@@ -445,6 +462,11 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
         # No videos available - go to idle if currently running
         if state.status == :running do
           Logger.info("Analyzer going idle - no videos to process")
+
+          # Send to Dashboard V2
+          alias Reencodarr.Dashboard.Events
+          Events.analyzer_idle()
+
           new_state = State.update(state, status: :idle)
           # Don't broadcast queue state during idle transition - queue hasn't actually changed
           {:noreply, [], new_state}

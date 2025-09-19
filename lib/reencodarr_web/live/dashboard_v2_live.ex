@@ -44,6 +44,8 @@ defmodule ReencodarrWeb.DashboardV2Live do
     if socket.assigns.state.connected? do
       # Subscribe to the single clean dashboard channel
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+      # Request current status from all services
+      request_current_status()
       # Start periodic updates for queue counts and service status
       :timer.send_interval(5_000, self(), :update_dashboard_data)
     end
@@ -124,6 +126,22 @@ defmodule ReencodarrWeb.DashboardV2Live do
   end
 
   @impl true
+  def handle_info({:encoding_started, data}, socket) do
+    state = socket.assigns.state
+
+    updated_state = %{
+      state
+      | encoding_progress: %{
+          percent: 0,
+          video_id: data.video_id,
+          filename: data.filename
+        }
+    }
+
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
   def handle_info({:encoding_progress, data}, socket) do
     state = socket.assigns.state
 
@@ -168,6 +186,90 @@ defmodule ReencodarrWeb.DashboardV2Live do
   end
 
   @impl true
+  def handle_info({:analyzer_started, _data}, socket) do
+    state = socket.assigns.state
+    updated_state = %{state | service_status: %{state.service_status | analyzer: :running}}
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
+  def handle_info({:analyzer_stopped, _data}, socket) do
+    state = socket.assigns.state
+    updated_state = %{state | service_status: %{state.service_status | analyzer: :paused}}
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
+  def handle_info({:analyzer_idle, _data}, socket) do
+    state = socket.assigns.state
+    updated_state = %{state | service_status: %{state.service_status | analyzer: :idle}}
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
+  def handle_info({:analyzer_pausing, _data}, socket) do
+    state = socket.assigns.state
+    updated_state = %{state | service_status: %{state.service_status | analyzer: :pausing}}
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
+  def handle_info({:crf_searcher_started, _data}, socket) do
+    state = socket.assigns.state
+    updated_state = %{state | service_status: %{state.service_status | crf_searcher: :running}}
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
+  def handle_info({:crf_searcher_stopped, _data}, socket) do
+    state = socket.assigns.state
+    updated_state = %{state | service_status: %{state.service_status | crf_searcher: :paused}}
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
+  def handle_info({:crf_searcher_idle, _data}, socket) do
+    state = socket.assigns.state
+    updated_state = %{state | service_status: %{state.service_status | crf_searcher: :idle}}
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
+  def handle_info({:crf_searcher_pausing, _data}, socket) do
+    state = socket.assigns.state
+    updated_state = %{state | service_status: %{state.service_status | crf_searcher: :pausing}}
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
+  def handle_info({:encoder_started, _data}, socket) do
+    state = socket.assigns.state
+    updated_state = %{state | service_status: %{state.service_status | encoder: :running}}
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
+  def handle_info({:encoder_stopped, _data}, socket) do
+    state = socket.assigns.state
+    updated_state = %{state | service_status: %{state.service_status | encoder: :paused}}
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
+  def handle_info({:encoder_idle, _data}, socket) do
+    state = socket.assigns.state
+    updated_state = %{state | service_status: %{state.service_status | encoder: :idle}}
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
+  def handle_info({:encoder_pausing, _data}, socket) do
+    state = socket.assigns.state
+    updated_state = %{state | service_status: %{state.service_status | encoder: :pausing}}
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
   def handle_info(:update_dashboard_data, socket) do
     state = socket.assigns.state
 
@@ -176,20 +278,8 @@ defmodule ReencodarrWeb.DashboardV2Live do
       | queue_counts: get_queue_counts()
     }
 
-    # Request updated status async (don't block)
-    request_async_service_status()
     # Request updated throughput async (don't block)
     request_analyzer_throughput()
-
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:status_response, service, status}, socket) do
-    state = socket.assigns.state
-
-    updated_service_status = Map.put(state.service_status, service, status)
-    updated_state = %{state | service_status: updated_service_status}
 
     {:noreply, assign(socket, :state, updated_state)}
   end
@@ -254,7 +344,7 @@ defmodule ReencodarrWeb.DashboardV2Live do
             <div class="flex items-center justify-between mb-4">
               <h3 class="text-lg font-semibold text-gray-900">Analyzer</h3>
               <span class={"px-2 py-1 text-xs font-semibold rounded-full #{service_status_class(@state.service_status.analyzer)}"}>
-                {@state.service_status.analyzer}
+                {service_status_text(@state.service_status.analyzer)}
               </span>
             </div>
             <div class="text-sm text-gray-600 mb-4">
@@ -281,7 +371,7 @@ defmodule ReencodarrWeb.DashboardV2Live do
             <div class="flex items-center justify-between mb-4">
               <h3 class="text-lg font-semibold text-gray-900">CRF Searcher</h3>
               <span class={"px-2 py-1 text-xs font-semibold rounded-full #{service_status_class(@state.service_status.crf_searcher)}"}>
-                {@state.service_status.crf_searcher}
+                {service_status_text(@state.service_status.crf_searcher)}
               </span>
             </div>
             <div class="text-sm text-gray-600 mb-4">
@@ -308,7 +398,7 @@ defmodule ReencodarrWeb.DashboardV2Live do
             <div class="flex items-center justify-between mb-4">
               <h3 class="text-lg font-semibold text-gray-900">Encoder</h3>
               <span class={"px-2 py-1 text-xs font-semibold rounded-full #{service_status_class(@state.service_status.encoder)}"}>
-                {@state.service_status.encoder}
+                {service_status_text(@state.service_status.encoder)}
               </span>
             </div>
             <div class="text-sm text-gray-600 mb-4">
@@ -444,6 +534,12 @@ defmodule ReencodarrWeb.DashboardV2Live do
 
             <%= if @state.encoding_progress != :none do %>
               <div class="space-y-3">
+                <%= if progress_field(@state.encoding_progress, :filename) do %>
+                  <div class="text-xs text-gray-500 truncate">
+                    {progress_field(@state.encoding_progress, :filename)}
+                  </div>
+                <% end %>
+
                 <%= if progress_field(@state.encoding_progress, :video_id) do %>
                   <div class="text-xs text-gray-500 truncate">
                     Video ID: {progress_field(@state.encoding_progress, :video_id)}
@@ -515,46 +611,12 @@ defmodule ReencodarrWeb.DashboardV2Live do
   end
 
   defp get_service_status do
-    # Request async status updates - they'll arrive via PubSub
-    request_async_service_status()
-
-    # Return initial unknown states - will be updated when responses arrive
+    # Use shared status logic to get initial states
     %{
-      analyzer: :checking,
-      crf_searcher: :checking,
-      encoder: :checking
+      analyzer: Reencodarr.PipelineStatus.get_service_status(:analyzer),
+      crf_searcher: Reencodarr.PipelineStatus.get_service_status(:crf_searcher),
+      encoder: Reencodarr.PipelineStatus.get_service_status(:encoder)
     }
-  end
-
-  defp request_async_service_status do
-    # Request status from all services asynchronously
-    request_analyzer_status()
-    request_crf_searcher_status()
-    request_encoder_status()
-  end
-
-  defp request_crf_searcher_status do
-    case GenServer.whereis(Reencodarr.CrfSearcher.Broadway.Producer) do
-      # Process not running
-      nil -> :ok
-      pid -> GenServer.cast(pid, {:status_request, self()})
-    end
-  end
-
-  defp request_encoder_status do
-    case GenServer.whereis(Reencodarr.Encoder.Broadway.Producer) do
-      # Process not running
-      nil -> :ok
-      pid -> GenServer.cast(pid, {:status_request, self()})
-    end
-  end
-
-  defp request_analyzer_status do
-    case GenServer.whereis(Reencodarr.Analyzer.Broadway.Producer) do
-      # Process not running
-      nil -> :ok
-      pid -> GenServer.cast(pid, {:status_request, self()})
-    end
   end
 
   defp count_videos_needing_analysis do
@@ -579,6 +641,13 @@ defmodule ReencodarrWeb.DashboardV2Live do
     )
   rescue
     _ -> 0
+  end
+
+  defp request_current_status do
+    # Use shared status logic for all services
+    Reencodarr.PipelineStatus.broadcast_current_status(:analyzer)
+    Reencodarr.PipelineStatus.broadcast_current_status(:crf_searcher)
+    Reencodarr.PipelineStatus.broadcast_current_status(:encoder)
   end
 
   defp service_status_class(:running), do: "bg-green-100 text-green-800"
