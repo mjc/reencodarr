@@ -110,11 +110,9 @@ defmodule Reencodarr.Encoder.Broadway do
   """
   @spec running?() :: boolean()
   def running? do
-    with pid when is_pid(pid) <- Process.whereis(__MODULE__),
-         true <- Process.alive?(pid) do
-      Producer.running?()
-    else
-      _ -> false
+    case Process.whereis(__MODULE__) do
+      nil -> false
+      _pid -> Producer.running?()
     end
   end
 
@@ -195,6 +193,10 @@ defmodule Reencodarr.Encoder.Broadway do
   @spec process_vmaf_encoding(vmaf(), map()) :: :ok | {:error, term()}
   defp process_vmaf_encoding(vmaf, context) do
     Logger.info("Broadway: Starting encoding for VMAF #{vmaf.id}: #{vmaf.video.path}")
+
+    # Broadcast encoding started immediately
+    alias Reencodarr.Dashboard.Events
+    Events.encoding_started(vmaf.video.id, vmaf.video.path)
 
     try do
       # Build encoding arguments
@@ -730,5 +732,11 @@ defmodule Reencodarr.Encoder.Broadway do
 
     @doc false
     def test_process_port_messages(messages, state), do: process_port_messages(messages, state)
+  end
+
+  # Handle async status requests by forwarding to producer
+  def handle_info({:status_request, requester_pid}, state) do
+    Producer.request_status(requester_pid)
+    {:noreply, [], state}
   end
 end

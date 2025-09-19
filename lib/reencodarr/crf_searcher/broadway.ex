@@ -1,9 +1,7 @@
 defmodule Reencodarr.CrfSearcher.Broadway do
   @moduledoc """
-  Broadway pipeline for CRF search operations.
-
-  This module provides a Broadway pipeline that respects the single-worker
-  limitation of the CRF search GenServer, preventing duplicate work.
+  Broadway pipeline for CRF search operat  @doc \"""
+  Check if the CRF searcher is currently running (not paused).
 
   The pipeline is configured with:
   - Single concurrency to prevent resource conflicts
@@ -119,6 +117,28 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   end
 
   @doc """
+  Get the current status of the CRF searcher.
+  """
+  @spec status() :: atom()
+  def status do
+    case Process.whereis(__MODULE__) do
+      nil -> :stopped
+      _pid -> Producer.status()
+    end
+  end
+
+  @doc """
+  Request async status update to a process.
+  """
+  @spec request_status(pid()) :: :ok
+  def request_status(requester_pid) do
+    case Process.whereis(__MODULE__) do
+      nil -> send(requester_pid, {:status_response, :crf_searcher, :stopped})
+      pid -> send(pid, {:status_request, requester_pid})
+    end
+  end
+
+  @doc """
   Pause the CRF searcher pipeline.
 
   ## Examples
@@ -228,5 +248,11 @@ defmodule Reencodarr.CrfSearcher.Broadway do
       )
 
       {:error, error_message}
+  end
+
+  # Handle async status requests by forwarding to producer
+  def handle_info({:status_request, requester_pid}, state) do
+    Producer.request_status(requester_pid)
+    {:noreply, [], state}
   end
 end

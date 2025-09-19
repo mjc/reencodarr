@@ -22,6 +22,29 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   def dispatch_available, do: send_to_producer(:dispatch_available)
   def add_vmaf(vmaf), do: send_to_producer({:add_vmaf, vmaf})
 
+  # Status API
+  def status do
+    case find_producer_process() do
+      nil ->
+        :stopped
+
+      pid ->
+        try do
+          GenStage.call(pid, :get_state, 1000)
+          |> case do
+            %{status: status} -> status
+            _ -> :unknown
+          end
+        catch
+          :exit, _ -> :unknown
+        end
+    end
+  end
+
+  def request_status(requester_pid) do
+    send_to_producer({:status_request, requester_pid})
+  end
+
   # Alias for API compatibility
   def start, do: resume()
 
@@ -110,12 +133,22 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     case state.status do
       :processing ->
         Logger.info("Encoder pausing - will finish current job and stop")
+
+        # Send to Dashboard V2 - immediate pausing state for UI feedback
+        alias Reencodarr.Dashboard.Events
+        Events.encoder_pausing()
+
         {:noreply, [], %{state | status: :pausing}}
 
       _ ->
         Logger.info("Encoder paused")
         Reencodarr.Telemetry.emit_encoder_paused()
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :paused})
+
+        # Send to Dashboard V2
+        alias Reencodarr.Dashboard.Events
+        Events.encoder_stopped()
+
         {:noreply, [], %{state | status: :paused}}
     end
   end
@@ -124,6 +157,11 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   def handle_cast(:resume, state) do
     Logger.info("Encoder resumed")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :started})
+
+    # Send to Dashboard V2
+    alias Reencodarr.Dashboard.Events
+    Events.encoder_started()
+
     new_state = %{state | status: :running}
     dispatch_if_ready(new_state)
   end
@@ -143,6 +181,11 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
         Logger.info("Encoder finished current job - now fully paused")
         Reencodarr.Telemetry.emit_encoder_paused()
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :paused})
+
+        # Send to Dashboard V2
+        alias Reencodarr.Dashboard.Events
+        Events.encoder_stopped()
+
         new_state = %{state | status: :paused}
         {:noreply, [], new_state}
 
@@ -255,6 +298,12 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     case get_next_vmaf_preview() do
       nil ->
         # No videos to process - set to idle
+        Logger.info("Encoder going idle - no videos to process")
+
+        # Send to Dashboard V2
+        alias Reencodarr.Dashboard.Events
+        Events.encoder_idle()
+
         new_state = %{state | status: :idle}
         {:noreply, [], new_state}
 

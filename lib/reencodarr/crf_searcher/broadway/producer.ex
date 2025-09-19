@@ -22,6 +22,29 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   def dispatch_available, do: send_to_producer(:dispatch_available)
   def add_video(video), do: send_to_producer({:add_video, video})
 
+  # Status API
+  def status do
+    case find_producer_process() do
+      nil ->
+        :stopped
+
+      pid ->
+        try do
+          GenStage.call(pid, :get_state, 1000)
+          |> case do
+            %{status: status} -> status
+            _ -> :unknown
+          end
+        catch
+          :exit, _ -> :unknown
+        end
+    end
+  end
+
+  def request_status(requester_pid) do
+    send_to_producer({:status_request, requester_pid})
+  end
+
   # Alias for API compatibility
   def start, do: resume()
 
@@ -79,7 +102,8 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   @impl GenStage
   def handle_call(:running?, _from, state) do
     # Button should reflect user intent - not running if paused or pausing
-    running = state.status == :running
+    # Include :idle as running since it means ready to work, just no current jobs
+    running = state.status in [:running, :idle]
     {:reply, running, [], state}
   end
 
@@ -102,12 +126,22 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     case state.status do
       :processing ->
         Logger.info("CrfSearcher pausing - will finish current job and stop")
+
+        # Send to Dashboard V2
+        alias Reencodarr.Dashboard.Events
+        Events.crf_searcher_pausing()
+
         {:noreply, [], %{state | status: :pausing}}
 
       _ ->
         Logger.info("CrfSearcher paused")
         Reencodarr.Telemetry.emit_crf_search_paused()
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :paused})
+
+        # Send to Dashboard V2
+        alias Reencodarr.Dashboard.Events
+        Events.crf_searcher_stopped()
+
         {:noreply, [], %{state | status: :paused}}
     end
   end
@@ -116,6 +150,11 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   def handle_cast(:resume, state) do
     Logger.info("CrfSearcher resumed")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :started})
+
+    # Send to Dashboard V2
+    alias Reencodarr.Dashboard.Events
+    Events.crf_searcher_started()
+
     new_state = %{state | status: :running}
     dispatch_if_ready(new_state)
   end
@@ -135,6 +174,11 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
         Logger.info("⏸️ CRF Producer: Job finished while pausing - now fully paused")
         Reencodarr.Telemetry.emit_crf_search_paused()
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :paused})
+
+        # Send to Dashboard V2
+        alias Reencodarr.Dashboard.Events
+        Events.crf_searcher_stopped()
+
         new_state = %{state | status: :paused}
         {:noreply, [], new_state}
 
@@ -259,6 +303,12 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     case get_next_video_preview() do
       nil ->
         # No videos to process - set to idle
+        Logger.info("CrfSearcher going idle - no videos to process")
+
+        # Send to Dashboard V2
+        alias Reencodarr.Dashboard.Events
+        Events.crf_searcher_idle()
+
         new_state = %{state | status: :idle}
         {:noreply, [], new_state}
 

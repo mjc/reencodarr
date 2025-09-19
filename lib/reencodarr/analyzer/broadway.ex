@@ -105,6 +105,26 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   @doc """
+  Get the current status of the analyzer.
+  """
+  def status do
+    case Process.whereis(__MODULE__) do
+      nil -> :stopped
+      _pid -> Producer.status()
+    end
+  end
+
+  @doc """
+  Request async status update to a process.
+  """
+  def request_status(requester_pid) do
+    case Process.whereis(__MODULE__) do
+      nil -> send(requester_pid, {:status_response, :analyzer, :stopped})
+      pid -> send(pid, {:status_request, requester_pid})
+    end
+  end
+
+  @doc """
   Pause the analyzer.
   """
   def pause do
@@ -739,5 +759,11 @@ defmodule Reencodarr.Analyzer.Broadway do
 
     # Return empty list to indicate failure - calling code should handle this
     []
+  end
+
+  # Handle async status requests by forwarding to producer
+  def handle_info({:status_request, requester_pid}, state) do
+    Producer.request_status(requester_pid)
+    {:noreply, [], state}
   end
 end
