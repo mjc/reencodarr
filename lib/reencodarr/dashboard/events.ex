@@ -82,12 +82,16 @@ defmodule Reencodarr.Dashboard.Events do
   end
 
   @doc "Broadcast encoding progress event"
-  def encoding_progress(video_id, percent) do
+  def encoding_progress(video_id, percent, progress_data \\ %{}) do
     broadcast(
       {:encoding_progress,
        %{
          video_id: video_id,
-         percent: percent
+         percent: percent,
+         fps: Map.get(progress_data, :fps),
+         eta: Map.get(progress_data, :eta),
+         time_unit: Map.get(progress_data, :time_unit),
+         timestamp: Map.get(progress_data, :timestamp)
        }}
     )
   end
