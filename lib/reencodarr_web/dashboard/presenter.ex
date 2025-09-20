@@ -110,13 +110,6 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
         progress:
           (
             normalized = Normalizer.normalize_progress(analyzer_progress)
-
-            Logger.debug(
-              "analyzer_progress normalized",
-              analyzer_progress: analyzer_progress,
-              normalized: normalized
-            )
-
             normalized
           )
       },
@@ -168,11 +161,7 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
   defp get_analyzer_files(%{stats: %{next_analyzer: files}}), do: files || []
 
   defp get_analyzer_files(%Reencodarr.DashboardState{} = state) do
-    # Defensive handling for missing next_analyzer field
-    case Map.get(state.stats, :next_analyzer) do
-      nil -> []
-      files -> files
-    end
+    Map.get(state.stats, :next_analyzer, [])
   end
 
   defp get_analyzer_files(_), do: []

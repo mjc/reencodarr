@@ -8,6 +8,7 @@ defmodule Reencodarr.AbAv1.ProgressParser do
 
   require Logger
   alias Reencodarr.Core.Parsers
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Statistics.EncodingProgress
   alias Reencodarr.Telemetry
 
@@ -28,6 +29,19 @@ defmodule Reencodarr.AbAv1.ProgressParser do
 
       {:progress, progress} ->
         Telemetry.emit_encoder_progress(progress)
+
+        # Also broadcast to Dashboard Events system
+        percent = progress.percent || 0
+        video_id = if state.video, do: state.video.id, else: nil
+
+        Events.broadcast_event(:encoding_progress, %{
+          video_id: video_id,
+          percent: percent,
+          fps: progress.fps,
+          eta: progress.eta,
+          filename: progress.filename
+        })
+
         :ok
 
       {:unmatched, line} ->

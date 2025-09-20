@@ -127,6 +127,10 @@ defmodule Reencodarr.Media do
     VideoStateMachine.mark_as_needs_analysis(video)
   end
 
+  def mark_as_encoded(%Video{} = video) do
+    VideoStateMachine.mark_as_encoded(video)
+  end
+
   # --- Video Failure Tracking Functions ---
 
   @doc """
@@ -941,10 +945,10 @@ defmodule Reencodarr.Media do
 
   defp fetch_next_items do
     # Run queries sequentially to avoid SQLite concurrency issues
-    # Use 5 items to match telemetry updates from Broadway producers
-    next_analyzer = get_videos_needing_analysis(5)
-    next_crf_search = get_videos_for_crf_search(5)
-    videos_by_estimated_percent = list_videos_by_estimated_percent(5)
+    # Use 10 items to match telemetry updates from Broadway producers
+    next_analyzer = get_videos_needing_analysis(10)
+    next_crf_search = get_videos_for_crf_search(10)
+    videos_by_estimated_percent = list_videos_by_estimated_percent(10)
     next_encoding = get_next_for_encoding()
     next_encoding_by_time = get_next_for_encoding_by_time()
     manual_items = get_manual_analyzer_items()

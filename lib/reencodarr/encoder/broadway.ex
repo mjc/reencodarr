@@ -18,6 +18,7 @@ defmodule Reencodarr.Encoder.Broadway do
   alias Broadway.Message
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.AbAv1.ProgressParser
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Encoder.Broadway.Producer
   alias Reencodarr.{PostProcessor, Telemetry}
 
@@ -195,6 +196,12 @@ defmodule Reencodarr.Encoder.Broadway do
   @spec process_vmaf_encoding(vmaf(), map()) :: :ok | {:error, term()}
   defp process_vmaf_encoding(vmaf, context) do
     Logger.info("Broadway: Starting encoding for VMAF #{vmaf.id}: #{vmaf.video.path}")
+
+    # Broadcast initial encoding progress at 0%
+    Events.broadcast_event(:encoding_started, %{
+      video_id: vmaf.video.id,
+      filename: Path.basename(vmaf.video.path)
+    })
 
     try do
       # Build encoding arguments

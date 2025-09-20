@@ -192,7 +192,7 @@ defmodule Reencodarr.CrfSearcher.Broadway do
 
   @spec process_video_crf_search(video(), pos_integer()) :: :ok | {:error, term()}
   defp process_video_crf_search(video, crf_quality) do
-    Logger.info("Starting CRF search for video #{video.id}: #{video.path}")
+    Logger.debug("Starting CRF search for video #{video.id}: #{video.path}")
 
     # Emit telemetry event for monitoring
     :telemetry.execute(

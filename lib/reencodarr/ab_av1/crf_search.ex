@@ -8,14 +8,16 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   use GenServer
 
+  import Ecto.Query
+
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.AbAv1.OutputParser
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Core.Time
   alias Reencodarr.CrfSearcher.Broadway.Producer
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.ErrorHelpers
   alias Reencodarr.{Media, Repo, Telemetry}
-  alias Reencodarr.Statistics.CrfSearchProgress
 
   require Logger
 
@@ -28,44 +30,30 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
-  @spec crf_search(Media.Video.t(), integer()) :: :ok
-  def crf_search(%Media.Video{state: :encoded, path: path, id: video_id}, _vmaf_percent) do
-    Logger.info("Skipping crf search for video #{path} as it is already encoded")
+  @spec crf_search(map(), integer()) :: :ok | :error
+  def crf_search(video, _vmaf_percent) when is_nil(video.id), do: :error
 
-    # Publish skipped event to PubSub
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video_id, :skipped}
-    )
+  def crf_search(video, _vmaf_percent) when video.state == :encoded do
+    Logger.info("Skipping crf search for video #{video.path} as it is already encoded")
 
-    :ok
-  end
-
-  # Only allow CRF search for videos that are analyzed and have a valid id
-  def crf_search(%Media.Video{id: nil}, _vmaf_percent), do: :error
-
-  def crf_search(%Media.Video{state: :encoded, path: path, id: video_id}, _vmaf_percent) do
-    Logger.info("Skipping crf search for video #{path} as it is already encoded")
-
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video_id, :skipped}
-    )
+    # Clean dashboard event
+    Events.broadcast_event(:crf_search_completed, %{
+      video_id: video.id,
+      result: :skipped
+    })
 
     :ok
   end
 
-  def crf_search(%Media.Video{state: state} = video, _vmaf_percent) when state != :analyzed do
+  def crf_search(video, _vmaf_percent) when video.state != :analyzed do
     Logger.info(
-      "Skipping crf search for video #{video.path} as it is not analyzed (state: #{inspect(state)})"
+      "Skipping crf search for video #{video.path} as it is not analyzed (state: #{inspect(video.state)})"
     )
 
     :error
   end
 
-  def crf_search(%Media.Video{} = video, vmaf_percent) do
+  def crf_search(video, vmaf_percent) do
     if Media.chosen_vmaf_exists?(video) do
       Logger.info("Skipping crf search for video #{video.path} as a chosen VMAF already exists")
 
@@ -162,6 +150,13 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     # Emit telemetry event for CRF search start
     Telemetry.emit_crf_search_started()
+
+    # Clean dashboard event
+    Events.broadcast_event(:crf_search_started, %{
+      video_id: video.id,
+      filename: Path.basename(video.path),
+      target_vmaf: vmaf_percent
+    })
 
     {:noreply, new_state}
   end
@@ -331,9 +326,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp maybe_upsert_vmaf_with_video(data) do
-    service_id = Map.get(data, "service_id") || Map.get(data, :service_id)
-    service_type = Map.get(data, "service_type") || Map.get(data, :service_type)
-    path = Map.get(data, "path") || Map.get(data, :path)
+    service_id = data["service_id"] || data[:service_id]
+    service_type = data["service_type"] || data[:service_type]
+    path = data["path"] || data[:path]
 
     video =
       if service_id && service_type do
@@ -451,10 +446,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           "CrfSearch: Encoding sample #{sample_data.sample_num}/#{sample_data.total_samples}: #{sample_data.crf}"
         )
 
-        broadcast_crf_search_progress(video.path, %CrfSearchProgress{
+        broadcast_crf_search_encoding_sample(video.path, %{
+          video_id: video.id,
           filename: video.path,
-          # Already numeric, no conversion needed
-          crf: sample_data.crf
+          crf: sample_data.crf,
+          sample_num: sample_data.sample_num,
+          total_samples: sample_data.total_samples
         })
 
         true
@@ -528,7 +525,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           "CrfSearch Progress: #{progress_data.progress}, FPS: #{progress_data.fps}, ETA: #{progress_data.eta}"
         )
 
-        broadcast_crf_search_progress(video.path, %CrfSearchProgress{
+        broadcast_crf_search_progress(video.path, %{
+          video_id: video.id,
           filename: video.path,
           # Already numeric, no conversion needed
           percent: progress_data.progress,
@@ -783,7 +781,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     case Media.upsert_vmaf(final_vmaf_data) do
       {:ok, created_vmaf} ->
         Logger.debug("Upserted VMAF: #{inspect(created_vmaf)}")
-        broadcast_crf_search_progress(video.path, created_vmaf)
+        broadcast_crf_search_vmaf_result(video.path, created_vmaf)
         created_vmaf
 
       {:error, changeset} ->
@@ -799,8 +797,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     progress =
       case progress_data do
-        %CrfSearchProgress{} = existing_progress ->
-          # Update filename to ensure it's consistent
+        %{} = existing_progress ->
+          # Update filename to ensure it's consistent and preserve video_id
           %{existing_progress | filename: filename}
 
         vmaf when is_map(vmaf) ->
@@ -814,7 +812,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           )
 
           # Include all fields - the telemetry reporter will handle smart merging
-          %CrfSearchProgress{
+          %{
+            video_id: progress_data[:video_id],
             filename: filename,
             percent: percent_value,
             crf: crf_value,
@@ -823,20 +822,40 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
         invalid_data ->
           Logger.warning("CrfSearch: Invalid progress data received: #{inspect(invalid_data)}")
-          %CrfSearchProgress{filename: filename}
+          %{video_id: progress_data[:video_id], filename: filename}
       end
 
     # Debounce telemetry updates to avoid overwhelming the dashboard
     if should_emit_progress?(filename, progress) do
-      case emit_progress_safely(progress) do
-        :ok ->
-          update_last_progress(filename, progress)
-          :ok
+      # Clean dashboard event
+      Events.broadcast_event(:crf_search_progress, %{
+        video_id: progress[:video_id],
+        percent: progress[:percent] || 0,
+        filename: progress[:filename] && Path.basename(progress[:filename])
+      })
 
-        {:error, reason} ->
-          Logger.error("CrfSearch: Failed to emit progress for #{video_path}: #{inspect(reason)}")
-      end
+      # Update cache
+      update_last_progress(filename, progress)
     end
+  end
+
+  defp broadcast_crf_search_encoding_sample(_video_path, sample_data) do
+    Events.broadcast_event(:crf_search_encoding_sample, %{
+      video_id: sample_data[:video_id],
+      filename: sample_data[:filename] && Path.basename(sample_data[:filename]),
+      crf: sample_data[:crf],
+      sample_num: sample_data[:sample_num],
+      total_samples: sample_data[:total_samples]
+    })
+  end
+
+  defp broadcast_crf_search_vmaf_result(video_path, vmaf_data) do
+    Events.broadcast_event(:crf_search_vmaf_result, %{
+      video_id: vmaf_data.video_id,
+      filename: video_path && Path.basename(video_path),
+      crf: vmaf_data.crf,
+      score: vmaf_data.score
+    })
   end
 
   # Debouncing logic to prevent too many telemetry updates
@@ -888,14 +907,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       _ ->
         true
     end
-  end
-
-  # Safely emit telemetry progress
-  defp emit_progress_safely(progress) do
-    Telemetry.emit_crf_search_progress(progress)
-    :ok
-  rescue
-    error -> {:error, error}
   end
 
   defp convert_to_number(nil), do: nil

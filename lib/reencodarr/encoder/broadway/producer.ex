@@ -8,6 +8,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   use GenStage
   require Logger
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
 
   @broadway_name Reencodarr.Encoder.Broadway
@@ -61,6 +62,9 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     # Subscribe to encoding events to know when processing completes
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
 
+    # Send a delayed message to broadcast initial queue state
+    Process.send_after(self(), :initial_queue_broadcast, 1000)
+
     {:producer,
      %{
        demand: 0,
@@ -94,6 +98,28 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     # This allows progress to continue during pausing state
     actively_running = state.status in [:processing, :pausing]
     {:reply, actively_running, [], state}
+  end
+
+  @impl GenStage
+  def handle_cast({:status_request, requester_pid}, state) do
+    send(requester_pid, {:status_response, :encoder, state.status})
+    {:noreply, [], state}
+  end
+
+  @impl GenStage
+  def handle_cast(:broadcast_status, state) do
+    # Broadcast the appropriate status event based on current state
+    event_name =
+      case state.status do
+        :processing -> :encoder_started
+        # This maps to "paused" on dashboard
+        :paused -> :encoder_stopped
+        :pausing -> :encoder_pausing
+        _ -> :encoder_idle
+      end
+
+    Events.broadcast_event(event_name, %{})
+    {:noreply, [], state}
   end
 
   @impl GenStage
@@ -137,6 +163,11 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
         new_state = %{state | status: :paused}
         {:noreply, [], new_state}
 
+      :idle ->
+        # Transition from idle back to running when work becomes available
+        new_state = %{state | status: :running}
+        dispatch_if_ready(new_state)
+
       _ ->
         new_state = %{state | status: :running}
         dispatch_if_ready(new_state)
@@ -175,6 +206,13 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     Logger.debug("[Encoder Producer] State after transition - status: #{new_state.status}")
 
     dispatch_if_ready(new_state)
+  end
+
+  @impl GenStage
+  def handle_info(:initial_queue_broadcast, state) do
+    # Broadcast initial queue state so UI shows correct count on startup
+    broadcast_queue_state()
+    {:noreply, [], state}
   end
 
   @impl GenStage
@@ -226,9 +264,24 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
       dispatch_vmafs(state)
     else
       Logger.debug("Producer: dispatch_if_ready - conditions NOT met, not dispatching")
-      {:noreply, [], state}
+      handle_no_dispatch_encoder(state)
     end
   end
+
+  defp handle_no_dispatch_encoder(%{status: :running} = state) do
+    case get_next_vmaf_preview() do
+      nil ->
+        # No videos to process - set to idle
+        new_state = %{state | status: :idle}
+        {:noreply, [], new_state}
+
+      _vmaf ->
+        # VMAFs available but no demand or encoder service unavailable
+        {:noreply, [], state}
+    end
+  end
+
+  defp handle_no_dispatch_encoder(state), do: {:noreply, [], state}
 
   defp should_dispatch?(state) do
     status_check = state.status == :running
@@ -271,13 +324,19 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     # Mark as processing immediately to prevent duplicate dispatches
     updated_state = %{state | status: :processing}
 
+    # Broadcast status change to processing
+    Events.broadcast_event(:encoder_started, %{})
+
     # Get one VMAF from queue or database
     case get_next_vmaf(updated_state) do
       {nil, new_state} ->
-        # No VMAF available, reset to running
+        # No VMAF available, emit queue state and reset to running
+        broadcast_queue_state()
         {:noreply, [], %{new_state | status: :running}}
 
       {vmaf, new_state} ->
+        # Emit queue state update when dispatching
+        broadcast_queue_state()
         # Decrement demand and keep processing status
         final_state = %{new_state | demand: state.demand - 1}
 
@@ -304,6 +363,20 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     end
   end
 
+  # Helper to check if VMAFs are available without modifying state
+  defp get_next_vmaf_preview do
+    case Media.get_next_for_encoding(1) do
+      # Handle case where a single VMAF is returned
+      %Reencodarr.Media.Vmaf{} = vmaf -> vmaf
+      # Handle case where a list is returned
+      [vmaf | _] -> vmaf
+      # Handle case where an empty list is returned
+      [] -> nil
+      # Handle case where nil is returned
+      nil -> nil
+    end
+  end
+
   # Helper function to force dispatch when encoder is running
   defp force_dispatch_if_running(%{status: :running} = state) do
     videos = Media.get_next_for_encoding(1)
@@ -318,5 +391,34 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   defp force_dispatch_if_running(state) do
     dispatch_if_ready(state)
+  end
+
+  # Broadcast current queue state for UI updates
+  defp broadcast_queue_state do
+    # Get next VMAFs for UI display
+    next_vmafs = Media.list_videos_by_estimated_percent(10)
+
+    # Format for UI display
+    formatted_vmafs =
+      Enum.map(next_vmafs, fn vmaf ->
+        %{
+          path: vmaf.video.path,
+          crf: vmaf.crf,
+          vmaf: vmaf.score,
+          savings: vmaf.savings,
+          size: vmaf.size
+        }
+      end)
+
+    # Emit telemetry event that the UI expects
+    measurements = %{
+      queue_size: length(next_vmafs)
+    }
+
+    metadata = %{
+      next_vmafs: formatted_vmafs
+    }
+
+    :telemetry.execute([:reencodarr, :encoder, :queue_changed], measurements, metadata)
   end
 end

@@ -91,11 +91,16 @@ defmodule Reencodarr.DashboardState do
 
   # Check actual status of Broadway pipelines for initial state
   defp analyzer_running? do
-    case Reencodarr.Analyzer.Broadway.running?() do
-      result when is_boolean(result) -> result
-    end
+    result =
+      case Reencodarr.Analyzer.Broadway.running?() do
+        result when is_boolean(result) -> result
+      end
+
+    result
   rescue
-    _ -> false
+    error ->
+      Logger.info("analyzer_running? failed: #{inspect(error)}, returning false")
+      false
   end
 
   defp crf_searcher_running? do
@@ -144,11 +149,12 @@ defmodule Reencodarr.DashboardState do
         true -> %EncodingProgress{}
       end
 
-    %{state | encoding: status, encoding_progress: progress, stats: fetch_queue_data_simple()}
+    %{state | encoding: status, encoding_progress: progress}
   end
 
   @doc """
-  Updates CRF search status and progress, and refreshes queue data.
+  Updates CRF search status and progress without refreshing queue data.
+  Queue data should be updated via telemetry events, not status changes.
   """
   def update_crf_search(%__MODULE__{} = state, status) do
     # Only reset progress when stopping, preserve when starting
@@ -157,19 +163,19 @@ defmodule Reencodarr.DashboardState do
     %{
       state
       | crf_searching: status,
-        crf_search_progress: progress,
-        stats: fetch_queue_data_simple()
+        crf_search_progress: progress
     }
   end
 
   @doc """
-  Updates analyzer status and progress, and refreshes queue data.
+  Updates analyzer status and progress without refreshing queue data.
+  Queue data should be updated via telemetry events, not status changes.
   """
   def update_analyzer(%__MODULE__{} = state, status) do
     # Only reset progress when stopping, preserve when starting
     progress = get_analyzer_progress(status, state)
 
-    %{state | analyzing: status, analyzer_progress: progress, stats: fetch_queue_data_simple()}
+    %{state | analyzing: status, analyzer_progress: progress}
   end
 
   # Helper function to get analyzer progress based on status
@@ -178,15 +184,27 @@ defmodule Reencodarr.DashboardState do
   end
 
   defp get_analyzer_progress(true, state) do
-    # Get current throughput from performance monitor when analyzer is active
-    current_throughput =
-      try do
-        PerformanceMonitor.get_current_throughput()
-      catch
-        :exit, _ -> 0.0
-      end
+    # Get current performance metrics from performance monitor when analyzer is active
+    current_throughput = get_performance_metric(:throughput)
+    current_rate_limit = get_performance_metric(:rate_limit)
+    current_batch_size = get_performance_metric(:batch_size)
 
-    %{state.analyzer_progress | throughput: current_throughput}
+    %{
+      state.analyzer_progress
+      | throughput: current_throughput,
+        rate_limit: current_rate_limit,
+        batch_size: current_batch_size
+    }
+  end
+
+  defp get_performance_metric(metric) do
+    case metric do
+      :throughput -> PerformanceMonitor.get_current_throughput()
+      :rate_limit -> PerformanceMonitor.get_current_rate_limit()
+      :batch_size -> PerformanceMonitor.get_current_mediainfo_batch_size()
+    end
+  catch
+    :exit, _ -> 0.0
   end
 
   @doc """

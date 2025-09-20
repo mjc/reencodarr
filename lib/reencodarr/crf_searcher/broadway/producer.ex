@@ -8,6 +8,7 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
 
   use GenStage
   require Logger
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
 
   @broadway_name Reencodarr.CrfSearcher.Broadway
@@ -92,6 +93,28 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   end
 
   @impl GenStage
+  def handle_cast({:status_request, requester_pid}, state) do
+    send(requester_pid, {:status_response, :crf_searcher, state.status})
+    {:noreply, [], state}
+  end
+
+  @impl GenStage
+  def handle_cast(:broadcast_status, state) do
+    # Broadcast the appropriate status event based on current state
+    event_name =
+      case state.status do
+        :processing -> :crf_searcher_started
+        # This maps to "paused" on dashboard
+        :paused -> :crf_searcher_stopped
+        :pausing -> :crf_searcher_pausing
+        _ -> :crf_searcher_idle
+      end
+
+    Events.broadcast_event(event_name, %{})
+    {:noreply, [], state}
+  end
+
+  @impl GenStage
   def handle_cast(:pause, state) do
     case state.status do
       :processing ->
@@ -131,6 +154,11 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :paused})
         new_state = %{state | status: :paused}
         {:noreply, [], new_state}
+
+      :idle ->
+        # Transition from idle back to running when work becomes available
+        new_state = %{state | status: :running}
+        dispatch_if_ready(new_state)
 
       _ ->
         new_state = %{state | status: :running}
@@ -240,9 +268,24 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     if should_dispatch?(state) and state.demand > 0 do
       dispatch_videos(state)
     else
-      {:noreply, [], state}
+      handle_no_dispatch(state)
     end
   end
+
+  defp handle_no_dispatch(%{status: :running} = state) do
+    case get_next_video_preview() do
+      nil ->
+        # No videos to process - set to idle
+        new_state = %{state | status: :idle}
+        {:noreply, [], new_state}
+
+      _video ->
+        # Videos available but no demand or CRF service unavailable
+        {:noreply, [], state}
+    end
+  end
+
+  defp handle_no_dispatch(state), do: {:noreply, [], state}
 
   defp should_dispatch?(state) do
     state.status == :running and crf_search_available?()
@@ -318,10 +361,18 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     end
   end
 
+  # Helper to check if videos are available without modifying state
+  defp get_next_video_preview do
+    case Media.get_videos_for_crf_search(1) do
+      [video | _] -> video
+      [] -> nil
+    end
+  end
+
   # Emit initial telemetry on startup to populate dashboard queues
   defp emit_initial_telemetry(state) do
-    # Get 5 for dashboard display
-    next_videos = get_next_videos_for_telemetry(state, 5)
+    # Get 10 for dashboard display
+    next_videos = get_next_videos_for_telemetry(state, 10)
     # Get total count for accurate queue size
     total_count = Media.count_videos_for_crf_search()
 

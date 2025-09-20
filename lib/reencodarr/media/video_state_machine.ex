@@ -399,6 +399,23 @@ defmodule Reencodarr.Media.VideoStateMachine do
     end
   end
 
+  def mark_as_encoded(%Video{} = video) do
+    case transition_to_encoded(video) do
+      {:ok, changeset} ->
+        case Reencodarr.Repo.update(changeset) do
+          {:ok, updated_video} ->
+            broadcast_state_transition(updated_video, :encoded)
+            {:ok, updated_video}
+
+          error ->
+            error
+        end
+
+      error ->
+        error
+    end
+  end
+
   # Public helper functions
 
   @doc """
