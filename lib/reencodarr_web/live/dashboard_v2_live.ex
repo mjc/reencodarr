@@ -603,44 +603,11 @@ defmodule ReencodarrWeb.DashboardV2Live do
 
   # Helper functions for real data
   defp get_queue_counts do
-    %{
-      analyzer: count_videos_needing_analysis(),
-      crf_searcher: count_videos_needing_crf_search(),
-      encoder: count_videos_needing_encoding()
-    }
+    Reencodarr.PipelineStatus.get_all_queue_counts()
   end
 
   defp get_service_status do
-    # Use shared status logic to get initial states
-    %{
-      analyzer: Reencodarr.PipelineStatus.get_service_status(:analyzer),
-      crf_searcher: Reencodarr.PipelineStatus.get_service_status(:crf_searcher),
-      encoder: Reencodarr.PipelineStatus.get_service_status(:encoder)
-    }
-  end
-
-  defp count_videos_needing_analysis do
-    Reencodarr.Media.count_videos_needing_analysis()
-  rescue
-    _ -> 0
-  end
-
-  defp count_videos_needing_crf_search do
-    Reencodarr.Media.count_videos_for_crf_search()
-  rescue
-    _ -> 0
-  end
-
-  defp count_videos_needing_encoding do
-    # Use a query to count videos in crf_searched state
-    import Ecto.Query
-
-    Reencodarr.Repo.aggregate(
-      from(v in Reencodarr.Media.Video, where: v.state == :crf_searched),
-      :count
-    )
-  rescue
-    _ -> 0
+    Reencodarr.PipelineStatus.get_all_service_status()
   end
 
   defp request_current_status do
