@@ -217,13 +217,17 @@ defmodule Reencodarr.Analyzer.Broadway do
     )
 
     # Also send to new dashboard via Events module
-    Events.analyzer_throughput(current_throughput, current_queue_length, current_batch_size)
+    Events.broadcast_event(:analyzer_throughput, %{
+      throughput: current_throughput,
+      queue_length: current_queue_length,
+      batch_size: current_batch_size
+    })
 
     # Send analyzer progress to Dashboard V2 to indicate active analysis
     # Only send progress if there's actually work remaining or active throughput
     if current_queue_length > 0 and current_throughput > 0 do
       # Show progress based on queue activity - indicate we're actively processing
-      Events.analyzer_progress(1, current_queue_length + 1)
+      Events.broadcast_event(:analyzer_progress, %{current: 1, total: current_queue_length + 1})
     end
 
     # Note: Don't send progress events if queue is empty or no throughput
@@ -323,8 +327,8 @@ defmodule Reencodarr.Analyzer.Broadway do
   # Helper function to check if MediaInfo is valid and complete
   defp has_valid_mediainfo?(video) do
     # Check for required fields that indicate complete MediaInfo
-    video.duration && video.duration > 0 &&
-      video.bitrate && video.bitrate > 0
+    !!(video.duration && video.duration > 0 &&
+         video.bitrate && video.bitrate > 0)
   end
 
   # Process videos that have MediaInfo but unchanged file size by transitioning to analyzed

@@ -19,7 +19,10 @@ defmodule ReencodarrWeb.DashboardV2Live do
             analyzer_throughput: 0.0,
             connected?: false,
             queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
-            service_status: %{analyzer: :unknown, crf_searcher: :unknown, encoder: :unknown}
+            service_status: %{analyzer: :unknown, crf_searcher: :unknown, encoder: :unknown},
+            syncing: false,
+            sync_progress: 0,
+            service_type: nil
 
   @impl true
   def mount(_params, _session, socket) do
@@ -284,6 +287,39 @@ defmodule ReencodarrWeb.DashboardV2Live do
     {:noreply, assign(socket, :state, updated_state)}
   end
 
+  # Sync event handlers
+  @impl true
+  def handle_info({:sync_started, data}, socket) do
+    state = socket.assigns.state
+    service_type = Map.get(data, :service_type)
+    updated_state = %{state | syncing: true, sync_progress: 0, service_type: service_type}
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
+  def handle_info({:sync_progress, data}, socket) do
+    state = socket.assigns.state
+    progress = Map.get(data, :progress, 0)
+    updated_state = %{state | sync_progress: progress}
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
+  def handle_info({:sync_completed, _data}, socket) do
+    state = socket.assigns.state
+    updated_state = %{state | syncing: false, sync_progress: 0, service_type: nil}
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  @impl true
+  def handle_info({:sync_failed, data}, socket) do
+    state = socket.assigns.state
+    error = Map.get(data, :error, "Unknown error")
+    updated_state = %{state | syncing: false, sync_progress: 0, service_type: nil}
+    socket = put_flash(socket, :error, "Sync failed: #{inspect(error)}")
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
   @impl true
   def handle_info(message, socket) do
     Logger.debug("DashboardV2: Unhandled message: #{inspect(message)}")
@@ -328,6 +364,30 @@ defmodule ReencodarrWeb.DashboardV2Live do
   end
 
   @impl true
+  def handle_event("sync_sonarr", _params, socket) do
+    case socket.assigns.state.syncing do
+      true ->
+        {:noreply, put_flash(socket, :error, "Sync already in progress")}
+
+      false ->
+        Reencodarr.Sync.sync_episodes()
+        {:noreply, put_flash(socket, :info, "Sonarr sync started")}
+    end
+  end
+
+  @impl true
+  def handle_event("sync_radarr", _params, socket) do
+    case socket.assigns.state.syncing do
+      true ->
+        {:noreply, put_flash(socket, :error, "Sync already in progress")}
+
+      false ->
+        Reencodarr.Sync.sync_movies()
+        {:noreply, put_flash(socket, :info, "Radarr sync started")}
+    end
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <div class="min-h-screen bg-gray-100 p-6">
@@ -337,88 +397,44 @@ defmodule ReencodarrWeb.DashboardV2Live do
           <p class="mt-2 text-sm text-gray-600">Direct architecture - Service → PubSub → LiveView</p>
         </div>
         
-    <!-- Service Status and Controls -->
+    <!-- Processing Services Status and Controls -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-          <!-- Analyzer Status -->
-          <div class="bg-white rounded-lg shadow-lg p-6">
-            <div class="flex items-center justify-between mb-4">
-              <h3 class="text-lg font-semibold text-gray-900">Analyzer</h3>
-              <span class={"px-2 py-1 text-xs font-semibold rounded-full #{service_status_class(@state.service_status.analyzer)}"}>
-                {service_status_text(@state.service_status.analyzer)}
-              </span>
-            </div>
-            <div class="text-sm text-gray-600 mb-4">
-              Queue: {@state.queue_counts.analyzer} videos
-            </div>
-            <div class="space-x-2">
-              <button
-                phx-click="start_analyzer"
-                class="bg-green-500 hover:bg-green-700 text-white text-sm px-3 py-1 rounded"
-              >
-                Start
-              </button>
-              <button
-                phx-click="pause_analyzer"
-                class="bg-yellow-500 hover:bg-yellow-700 text-white text-sm px-3 py-1 rounded"
-              >
-                Pause
-              </button>
-            </div>
-          </div>
-          
-    <!-- CRF Searcher Status -->
-          <div class="bg-white rounded-lg shadow-lg p-6">
-            <div class="flex items-center justify-between mb-4">
-              <h3 class="text-lg font-semibold text-gray-900">CRF Searcher</h3>
-              <span class={"px-2 py-1 text-xs font-semibold rounded-full #{service_status_class(@state.service_status.crf_searcher)}"}>
-                {service_status_text(@state.service_status.crf_searcher)}
-              </span>
-            </div>
-            <div class="text-sm text-gray-600 mb-4">
-              Queue: {@state.queue_counts.crf_searcher} videos
-            </div>
-            <div class="space-x-2">
-              <button
-                phx-click="start_crf_searcher"
-                class="bg-green-500 hover:bg-green-700 text-white text-sm px-3 py-1 rounded"
-              >
-                Start
-              </button>
-              <button
-                phx-click="pause_crf_searcher"
-                class="bg-yellow-500 hover:bg-yellow-700 text-white text-sm px-3 py-1 rounded"
-              >
-                Pause
-              </button>
-            </div>
-          </div>
-          
-    <!-- Encoder Status -->
-          <div class="bg-white rounded-lg shadow-lg p-6">
-            <div class="flex items-center justify-between mb-4">
-              <h3 class="text-lg font-semibold text-gray-900">Encoder</h3>
-              <span class={"px-2 py-1 text-xs font-semibold rounded-full #{service_status_class(@state.service_status.encoder)}"}>
-                {service_status_text(@state.service_status.encoder)}
-              </span>
-            </div>
-            <div class="text-sm text-gray-600 mb-4">
-              Queue: {@state.queue_counts.encoder} videos
-            </div>
-            <div class="space-x-2">
-              <button
-                phx-click="start_encoder"
-                class="bg-green-500 hover:bg-green-700 text-white text-sm px-3 py-1 rounded"
-              >
-                Start
-              </button>
-              <button
-                phx-click="pause_encoder"
-                class="bg-yellow-500 hover:bg-yellow-700 text-white text-sm px-3 py-1 rounded"
-              >
-                Pause
-              </button>
-            </div>
-          </div>
+          <.service_card
+            name="Analyzer"
+            service={:analyzer}
+            status={@state.service_status.analyzer}
+            queue={@state.queue_counts.analyzer}
+          />
+          <.service_card
+            name="CRF Searcher"
+            service={:crf_searcher}
+            status={@state.service_status.crf_searcher}
+            queue={@state.queue_counts.crf_searcher}
+          />
+          <.service_card
+            name="Encoder"
+            service={:encoder}
+            status={@state.service_status.encoder}
+            queue={@state.queue_counts.encoder}
+          />
+        </div>
+        
+    <!-- Sync Services Status and Controls -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          <.sync_card
+            name="Sonarr"
+            service={:sonarr}
+            syncing={@state.syncing}
+            service_type={@state.service_type}
+            progress={@state.sync_progress}
+          />
+          <.sync_card
+            name="Radarr"
+            service={:radarr}
+            syncing={@state.syncing}
+            service_type={@state.service_type}
+            progress={@state.sync_progress}
+          />
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -601,6 +617,63 @@ defmodule ReencodarrWeb.DashboardV2Live do
     """
   end
 
+  # Service card component
+  defp service_card(assigns) do
+    ~H"""
+    <div class="bg-white rounded-lg shadow-lg p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-lg font-semibold text-gray-900">{@name}</h3>
+        <span class={"px-2 py-1 text-xs font-semibold rounded-full #{service_status_class(@status)}"}>
+          {service_status_text(@status)}
+        </span>
+      </div>
+      <div class="text-sm text-gray-600 mb-4">
+        Queue: {@queue} videos
+      </div>
+      <div class="space-x-2">
+        <button
+          phx-click={"start_#{@service}"}
+          class="bg-green-500 hover:bg-green-700 text-white text-sm px-3 py-1 rounded"
+        >
+          Start
+        </button>
+        <button
+          phx-click={"pause_#{@service}"}
+          class="bg-yellow-500 hover:bg-yellow-700 text-white text-sm px-3 py-1 rounded"
+        >
+          Pause
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  # Sync card component
+  defp sync_card(assigns) do
+    ~H"""
+    <div class="bg-white rounded-lg shadow-lg p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-lg font-semibold text-gray-900">{@name}</h3>
+        <span class={"px-2 py-1 text-xs font-semibold rounded-full #{sync_status_class(@syncing, @service_type, @service)}"}>
+          {sync_status_text(@syncing, @service_type, @service)}
+        </span>
+      </div>
+      <div class="text-sm text-gray-600 mb-4">
+        {sync_status_description(@syncing, @progress, @service_type, @service)}
+      </div>
+      <div class="space-x-2">
+        <button
+          phx-click={"sync_#{@service}"}
+          disabled={@syncing}
+          class={"#{if @syncing, do: "bg-gray-400 cursor-not-allowed", else: "bg-blue-500 hover:bg-blue-700"} text-white text-sm px-3 py-1 rounded"}
+        >
+          Sync
+        </button>
+      </div>
+    </div>
+    """
+  end
+
   # Helper functions for real data
   defp get_queue_counts do
     Reencodarr.PipelineStatus.get_all_queue_counts()
@@ -642,6 +715,39 @@ defmodule ReencodarrWeb.DashboardV2Live do
       # Process not running - throughput will remain nil
       nil -> :ok
       pid -> GenServer.cast(pid, {:throughput_request, self()})
+    end
+  end
+
+  # Sync status helper functions
+  defp sync_status_class(syncing, service_type, target_service) do
+    cond do
+      syncing && service_type == target_service -> "bg-blue-100 text-blue-800 animate-pulse"
+      syncing && service_type != target_service -> "bg-gray-100 text-gray-600"
+      not syncing -> "bg-gray-100 text-gray-800"
+    end
+  end
+
+  defp sync_status_text(syncing, service_type, target_service) do
+    cond do
+      syncing && service_type == target_service -> "Syncing"
+      syncing && service_type != target_service -> "Waiting"
+      not syncing -> "Ready"
+    end
+  end
+
+  defp sync_status_description(syncing, progress, service_type, target_service) do
+    cond do
+      syncing && service_type == target_service && progress > 0 ->
+        "Progress: #{progress}%"
+
+      syncing && service_type == target_service ->
+        "Starting sync..."
+
+      syncing && service_type != target_service ->
+        "Another service syncing"
+
+      not syncing ->
+        "Ready to sync"
     end
   end
 end
