@@ -105,26 +105,6 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   @doc """
-  Get the current status of the analyzer.
-  """
-  def status do
-    case Process.whereis(__MODULE__) do
-      nil -> :stopped
-      _pid -> Producer.status()
-    end
-  end
-
-  @doc """
-  Request async status update to a process.
-  """
-  def request_status(requester_pid) do
-    case Process.whereis(__MODULE__) do
-      nil -> send(requester_pid, {:status_response, :analyzer, :stopped})
-      pid -> send(pid, {:status_request, requester_pid})
-    end
-  end
-
-  @doc """
   Pause the analyzer.
   """
   def pause do
@@ -227,7 +207,14 @@ defmodule Reencodarr.Analyzer.Broadway do
     # Only send progress if there's actually work remaining or active throughput
     if current_queue_length > 0 and current_throughput > 0 do
       # Show progress based on queue activity - indicate we're actively processing
-      Events.broadcast_event(:analyzer_progress, %{current: 1, total: current_queue_length + 1})
+      percent =
+        if current_queue_length > 0, do: round(1 / (current_queue_length + 1) * 100), else: 0
+
+      Events.broadcast_event(:analyzer_progress, %{
+        count: 1,
+        total: current_queue_length + 1,
+        percent: percent
+      })
     end
 
     # Note: Don't send progress events if queue is empty or no throughput
@@ -327,8 +314,8 @@ defmodule Reencodarr.Analyzer.Broadway do
   # Helper function to check if MediaInfo is valid and complete
   defp has_valid_mediainfo?(video) do
     # Check for required fields that indicate complete MediaInfo
-    !!(video.duration && video.duration > 0 &&
-         video.bitrate && video.bitrate > 0)
+    video.duration && video.duration > 0 &&
+      video.bitrate && video.bitrate > 0
   end
 
   # Process videos that have MediaInfo but unchanged file size by transitioning to analyzed
@@ -763,11 +750,5 @@ defmodule Reencodarr.Analyzer.Broadway do
 
     # Return empty list to indicate failure - calling code should handle this
     []
-  end
-
-  # Handle async status requests by forwarding to producer
-  def handle_info({:status_request, requester_pid}, state) do
-    Producer.request_status(requester_pid)
-    {:noreply, [], state}
   end
 end

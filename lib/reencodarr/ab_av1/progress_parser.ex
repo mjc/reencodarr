@@ -31,13 +31,15 @@ defmodule Reencodarr.AbAv1.ProgressParser do
         Telemetry.emit_encoder_progress(progress)
 
         # Also broadcast to Dashboard Events system
-        percent = Map.get(progress, :percent, 0)
+        percent = progress.percent || 0
         video_id = if state.video, do: state.video.id, else: nil
 
         Events.broadcast_event(:encoding_progress, %{
           video_id: video_id,
           percent: percent,
-          progress: progress
+          fps: progress.fps,
+          eta: progress.eta,
+          filename: progress.filename
         })
 
         :ok

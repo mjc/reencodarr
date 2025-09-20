@@ -1,20 +1,21 @@
 defmodule Reencodarr.Dashboard.Events do
   @moduledoc """
-  Centralized PubSub event system for dashboard updates.
-  """
+  Dashboard event broadcasting system using Phoenix PubSub.
 
-  alias Phoenix.PubSub
+  Provides a unified interface for broadcasting dashboard events to subscribers,
+  with optional data payloads and automatic event name normalization.
+  """
 
   @dashboard_channel "dashboard"
 
-  # Single broadcast function - just pass the event name and data
-  def broadcast_event(event, data \\ %{}), do: broadcast({event, data})
+  @doc """
+  Broadcast a dashboard event with optional data.
 
-  @doc "Get the dashboard channel name for subscriptions"
-  def channel, do: @dashboard_channel
-
-  # Simple broadcast helper
-  defp broadcast(message) do
-    PubSub.broadcast(Reencodarr.PubSub, @dashboard_channel, message)
+  Event names are automatically normalized to atoms, and data defaults to an empty map.
+  """
+  def broadcast_event(event_name, data \\ %{}) when is_map(data) do
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, @dashboard_channel, {event_name, data})
   end
+
+  def channel, do: @dashboard_channel
 end

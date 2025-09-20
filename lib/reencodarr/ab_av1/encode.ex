@@ -115,7 +115,10 @@ defmodule Reencodarr.AbAv1.Encode do
     )
 
     # Broadcast encoding completion to Dashboard Events
-    Events.broadcast_event(:encoding_completed, %{video_id: vmaf.video.id, result: pubsub_result})
+    Events.broadcast_event(:encoding_completed, %{
+      video_id: vmaf.video.id,
+      result: pubsub_result
+    })
 
     # Notify the Broadway producer that encoding is now available
     Producer.dispatch_available()
@@ -197,7 +200,10 @@ defmodule Reencodarr.AbAv1.Encode do
     port = Helper.open_port(args)
 
     # Broadcast encoding started to Dashboard Events
-    Events.broadcast_event(:encoding_started, %{video_id: vmaf.video.id, path: vmaf.video.path})
+    Events.broadcast_event(:encoding_started, %{
+      video_id: vmaf.video.id,
+      filename: Path.basename(vmaf.video.path)
+    })
 
     # Set up a periodic timer to check if we're still alive and potentially emit progress
     # Check every 10 seconds
