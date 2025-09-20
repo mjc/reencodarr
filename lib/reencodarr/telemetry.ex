@@ -91,6 +91,10 @@ defmodule Reencodarr.Telemetry do
       %{},
       %{service_type: service_type}
     )
+
+    # Also broadcast to Dashboard V2
+    alias Reencodarr.Dashboard.Events
+    Events.broadcast_event(:sync_started, %{service_type: service_type})
   end
 
   def emit_sync_progress(progress, service_type \\ nil) do
@@ -99,6 +103,10 @@ defmodule Reencodarr.Telemetry do
       %{progress: progress},
       %{service_type: service_type}
     )
+
+    # Also broadcast to Dashboard V2
+    alias Reencodarr.Dashboard.Events
+    Events.broadcast_event(:sync_progress, %{progress: progress, service_type: service_type})
   end
 
   def emit_sync_completed(service_type \\ nil) do
@@ -107,6 +115,10 @@ defmodule Reencodarr.Telemetry do
       %{},
       %{service_type: service_type}
     )
+
+    # Also broadcast to Dashboard V2
+    alias Reencodarr.Dashboard.Events
+    Events.broadcast_event(:sync_completed, %{service_type: service_type})
   end
 
   def emit_sync_failed(error, service_type \\ nil) do
@@ -115,6 +127,10 @@ defmodule Reencodarr.Telemetry do
       %{},
       %{error: error, service_type: service_type}
     )
+
+    # Also broadcast to Dashboard V2
+    alias Reencodarr.Dashboard.Events
+    Events.broadcast_event(:sync_failed, %{error: error, service_type: service_type})
   end
 
   def emit_video_upserted(video) do
