@@ -35,8 +35,15 @@ defmodule ReencodarrWeb.DashboardV2Live do
       analyzer_throughput: nil
     }
 
-    # Request throughput async if connected
+    # Setup subscriptions and processes if connected
     if connected?(socket) do
+      # Subscribe to the single clean dashboard channel
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+      # Request current status from all services with a small delay to let services initialize
+      Process.send_after(self(), :request_status, 100)
+      # Start periodic updates for queue counts and service status
+      :timer.send_interval(5_000, self(), :update_dashboard_data)
+      # Request throughput async
       request_analyzer_throughput()
     end
 
@@ -45,15 +52,6 @@ defmodule ReencodarrWeb.DashboardV2Live do
 
   @impl true
   def handle_params(_params, _url, socket) do
-    if socket.assigns.state.connected? do
-      # Subscribe to the single clean dashboard channel
-      Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
-      # Request current status from all services with a small delay to let services initialize
-      Process.send_after(self(), :request_status, 100)
-      # Start periodic updates for queue counts and service status
-      :timer.send_interval(5_000, self(), :update_dashboard_data)
-    end
-
     {:noreply, socket}
   end
 
