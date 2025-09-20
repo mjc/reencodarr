@@ -8,7 +8,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   use GenStage
   require Logger
-  alias Reencodarr.Media
+  alias Reencodarr.{Dashboard.Events, Media}
 
   @broadway_name Reencodarr.Encoder.Broadway
 
@@ -135,7 +135,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
         Logger.info("Encoder pausing - will finish current job and stop")
 
         # Send to Dashboard V2 - immediate pausing state for UI feedback
-        Reencodarr.PipelineStatus.broadcast_pausing(:encoder)
+        Events.broadcast_event(:encoder_pausing)
 
         {:noreply, [], %{state | status: :pausing}}
 
@@ -146,7 +146,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
         # Send to Dashboard V2
         alias Reencodarr.Dashboard.Events
-        Events.encoder_stopped()
+        Events.broadcast_event(:encoder_stopped)
 
         {:noreply, [], %{state | status: :paused}}
     end
@@ -159,7 +159,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
     # Send to Dashboard V2
     alias Reencodarr.Dashboard.Events
-    Events.encoder_started()
+    Events.broadcast_event(:encoder_started)
 
     new_state = %{state | status: :running}
     dispatch_if_ready(new_state)
@@ -183,7 +183,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
         # Send to Dashboard V2
         alias Reencodarr.Dashboard.Events
-        Events.encoder_stopped()
+        Events.broadcast_event(:encoder_stopped)
 
         new_state = %{state | status: :paused}
         {:noreply, [], new_state}
@@ -191,7 +191,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
       :idle ->
         # Transition from idle back to running when work becomes available
         alias Reencodarr.Dashboard.Events
-        Events.encoder_started()
+        Events.broadcast_event(:encoder_started)
 
         new_state = %{state | status: :running}
         dispatch_if_ready(new_state)
@@ -199,7 +199,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
       _ ->
         # Transition to running from any other state
         alias Reencodarr.Dashboard.Events
-        Events.encoder_started()
+        Events.broadcast_event(:encoder_started)
 
         new_state = %{state | status: :running}
         dispatch_if_ready(new_state)
@@ -236,7 +236,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
     # Broadcast that encoder is now running/available
     alias Reencodarr.Dashboard.Events
-    Events.encoder_started()
+    Events.broadcast_event(:encoder_started)
 
     new_state = %{state | status: :running}
     Logger.debug("[Encoder Producer] State after transition - status: #{new_state.status}")
@@ -312,7 +312,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
         # Send to Dashboard V2
         alias Reencodarr.Dashboard.Events
-        Events.encoder_idle()
+        Events.broadcast_event(:encoder_idle)
 
         new_state = %{state | status: :idle}
         {:noreply, [], new_state}

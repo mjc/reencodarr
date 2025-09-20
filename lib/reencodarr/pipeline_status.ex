@@ -6,7 +6,9 @@ defmodule Reencodarr.PipelineStatus do
   all three services, making it easier to maintain and ensuring consistent behavior.
   """
 
+  alias GenStage
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.Media
 
   @type service :: :analyzer | :crf_searcher | :encoder
   @type broadway_module ::
@@ -23,8 +25,11 @@ defmodule Reencodarr.PipelineStatus do
     producer_module = get_producer_module(service)
 
     case Process.whereis(producer_module) do
-      nil -> broadcast_stopped_status(service)
-      _pid -> GenServer.cast(producer_module, :broadcast_status)
+      nil ->
+        broadcast_service_event(service, :stopped)
+
+      _pid ->
+        GenServer.cast(producer_module, :broadcast_status)
     end
 
     :ok
@@ -45,36 +50,58 @@ defmodule Reencodarr.PipelineStatus do
   end
 
   @doc """
-  Broadcast that a service has started.
+  Handle pause cast for a Broadway producer with consistent status management.
+  Returns the new GenStage response.
   """
-  @spec broadcast_started(service()) :: :ok
-  def broadcast_started(:analyzer), do: Events.analyzer_started()
-  def broadcast_started(:crf_searcher), do: Events.crf_searcher_started()
-  def broadcast_started(:encoder), do: Events.encoder_started()
+  @spec handle_pause_cast(service(), map()) :: {:noreply, [], map()}
+  def handle_pause_cast(service, state) do
+    case state.status do
+      :processing ->
+        broadcast_service_event(service, :pausing)
+
+        {:noreply, [], %{state | status: :pausing}}
+
+        broadcast_service_event(service, :idle)
+
+        {:noreply, [], %{state | status: :paused}}
+    end
+  end
 
   @doc """
-  Broadcast that a service is pausing.
+  Handle resume cast for a Broadway producer with consistent status management.
+  Returns the new GenStage response.
   """
-  @spec broadcast_pausing(service()) :: :ok
-  def broadcast_pausing(:analyzer), do: Events.analyzer_pausing()
-  def broadcast_pausing(:crf_searcher), do: Events.crf_searcher_pausing()
-  def broadcast_pausing(:encoder), do: Events.encoder_pausing()
+  @spec handle_resume_cast(service(), map(), function()) :: {:noreply, [], map()}
+  def handle_resume_cast(service, state, dispatch_func) do
+    broadcast_service_event(service, :started)
+
+    new_state = %{state | status: :running}
+    dispatch_func.(new_state)
+  end
 
   @doc """
-  Broadcast that a service has stopped.
+  Handle dispatch_available cast for a Broadway producer with pausing logic.
+  Returns the new GenStage response.
   """
-  @spec broadcast_stopped_status(service()) :: :ok
-  def broadcast_stopped_status(:analyzer), do: Events.analyzer_stopped()
-  def broadcast_stopped_status(:crf_searcher), do: Events.crf_searcher_stopped()
-  def broadcast_stopped_status(:encoder), do: Events.encoder_stopped()
+  @spec handle_dispatch_available_cast(service(), map(), function()) :: {:noreply, [], map()}
+  def handle_dispatch_available_cast(service, state, dispatch_func) do
+    case state.status do
+      :pausing ->
+        broadcast_service_event(service, :idle)
 
-  @doc """
-  Broadcast that a service is idle.
-  """
-  @spec broadcast_idle_status(service()) :: :ok
-  def broadcast_idle_status(:analyzer), do: Events.analyzer_idle()
-  def broadcast_idle_status(:crf_searcher), do: Events.crf_searcher_idle()
-  def broadcast_idle_status(:encoder), do: Events.encoder_idle()
+        new_state = %{state | status: :paused}
+        {:noreply, [], new_state}
+
+      _ ->
+        new_state = %{state | status: :running}
+        dispatch_func.(new_state)
+    end
+  end
+
+  # DRY helper for broadcasting service events
+  defp broadcast_service_event(service, event_type) do
+    Events.broadcast_event(:"#{service}_#{event_type}")
+  end
 
   @services [:analyzer, :crf_searcher, :encoder]
 
@@ -87,7 +114,7 @@ defmodule Reencodarr.PipelineStatus do
           encoder: non_neg_integer()
         }
   def get_all_queue_counts do
-    for_all_services(&get_queue_count/1)
+    map_all_services(&get_queue_count/1)
   end
 
   @doc """
@@ -103,17 +130,65 @@ defmodule Reencodarr.PipelineStatus do
   """
   @spec get_all_service_status() :: %{analyzer: atom(), crf_searcher: atom(), encoder: atom()}
   def get_all_service_status do
-    for_all_services(&get_service_status/1)
+    map_all_services(&get_service_status/1)
   end
 
   # Private functions
 
+  # Private functions
+
   # Helper to apply a function to all services and return a map
-  defp for_all_services(func) do
+  defp map_all_services(func) do
     @services
     |> Enum.map(&{&1, func.(&1)})
     |> Map.new()
   end
+
+  @doc """
+  Send a message to a service's Broadway producer.
+  Returns :ok on success or {:error, reason} on failure.
+  """
+  @spec send_to_producer(service(), term()) :: :ok | {:error, term()}
+  def send_to_producer(service, message) do
+    case find_producer_process(service) do
+      nil -> {:error, :producer_not_found}
+      producer_pid -> GenStage.cast(producer_pid, message)
+    end
+  end
+
+  @doc """
+  Find the actual producer process for a service.
+  """
+  @spec find_producer_process(service()) :: pid() | nil
+  def find_producer_process(service) do
+    broadway_name = get_broadway_name(service)
+    producer_supervisor_name = :"#{broadway_name}.Broadway.ProducerSupervisor"
+
+    with pid when is_pid(pid) <- Process.whereis(producer_supervisor_name),
+         children <- Supervisor.which_children(pid),
+         producer_pid when is_pid(producer_pid) <- find_actual_producer(children) do
+      producer_pid
+    else
+      _ -> nil
+    end
+  end
+
+  defp find_actual_producer(children) do
+    Enum.find_value(children, fn {_id, pid, _type, _modules} ->
+      if is_pid(pid) do
+        try do
+          GenStage.call(pid, :running?, 1000)
+          pid
+        catch
+          :exit, _ -> nil
+        end
+      end
+    end)
+  end
+
+  defp get_broadway_name(:analyzer), do: "Reencodarr.Analyzer"
+  defp get_broadway_name(:crf_searcher), do: "Reencodarr.CrfSearcher"
+  defp get_broadway_name(:encoder), do: "Reencodarr.Encoder"
 
   defp get_producer_module(service) do
     service
@@ -126,30 +201,20 @@ defmodule Reencodarr.PipelineStatus do
   defp get_broadway_module(:encoder), do: Reencodarr.Encoder.Broadway
 
   defp count_work_available(:analyzer) do
-    Reencodarr.Media.count_videos_needing_analysis()
+    Media.count_videos_needing_analysis()
   rescue
     _ -> 0
   end
 
   defp count_work_available(:crf_searcher) do
-    Reencodarr.Media.count_videos_for_crf_search()
+    Media.count_videos_for_crf_search()
   rescue
     _ -> 0
   end
 
   defp count_work_available(:encoder) do
-    count_videos_crf_searched()
+    Media.encoding_queue_count()
   rescue
     _ -> 0
-  end
-
-  # Count videos in crf_searched state (for encoder)
-  defp count_videos_crf_searched do
-    import Ecto.Query
-
-    Reencodarr.Repo.aggregate(
-      from(v in Reencodarr.Media.Video, where: v.state == :crf_searched),
-      :count
-    )
   end
 end

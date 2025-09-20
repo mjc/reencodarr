@@ -35,7 +35,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     Logger.info("Skipping crf search for video #{video.path} as it is already encoded")
 
     # Clean dashboard event
-    Events.crf_search_completed(video.id, :skipped)
+    Events.broadcast_event(:crf_search_completed, %{video_id: video.id, result: :skipped})
 
     :ok
   end
@@ -147,7 +147,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     Telemetry.emit_crf_search_started()
 
     # Clean dashboard event
-    Events.crf_search_started(video.id, video.path, vmaf_percent)
+    Events.broadcast_event(:crf_search_started, %{
+      video_id: video.id,
+      path: video.path,
+      vmaf_percent: vmaf_percent
+    })
 
     {:noreply, new_state}
   end
@@ -816,7 +820,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     # Debounce telemetry updates to avoid overwhelming the dashboard
     if should_emit_progress?(filename, progress) do
       # Clean dashboard event
-      Events.crf_search_progress(nil, progress)
+      Events.broadcast_event(:crf_search_progress, %{progress: progress})
 
       # Update cache
       update_last_progress(filename, progress)
@@ -824,11 +828,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp broadcast_crf_search_encoding_sample(_video_path, sample_data) do
-    Events.crf_search_encoding_sample(nil, sample_data)
+    Events.broadcast_event(:crf_search_encoding_sample, %{sample_data: sample_data})
   end
 
   defp broadcast_crf_search_vmaf_result(_video_path, vmaf_data) do
-    Events.crf_search_vmaf_result(nil, vmaf_data)
+    Events.broadcast_event(:crf_search_vmaf_result, %{vmaf_data: vmaf_data})
   end
 
   # Debouncing logic to prevent too many telemetry updates

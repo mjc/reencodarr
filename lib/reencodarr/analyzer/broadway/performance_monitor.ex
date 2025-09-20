@@ -163,7 +163,11 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
         _ -> 0
       end
 
-    Events.analyzer_throughput(throughput, queue_length)
+    Events.broadcast_event(:analyzer_throughput, %{
+      throughput: throughput,
+      queue_length: queue_length
+    })
+
     {:noreply, state}
   end
 

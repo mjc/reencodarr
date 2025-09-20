@@ -196,7 +196,7 @@ defmodule Reencodarr.Encoder.Broadway do
 
     # Broadcast encoding started immediately
     alias Reencodarr.Dashboard.Events
-    Events.encoding_started(vmaf.video.id, vmaf.video.path)
+    Events.broadcast_event(:encoding_started, %{video_id: vmaf.video.id, path: vmaf.video.path})
 
     try do
       # Build encoding arguments

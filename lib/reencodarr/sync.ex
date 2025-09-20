@@ -6,6 +6,7 @@ defmodule Reencodarr.Sync do
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.Core.Parsers
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media.{MediaInfoExtractor, VideoFileInfo, VideoUpsert}
   alias Reencodarr.Media.Video.MediaInfoConverter
   alias Reencodarr.{Media, Repo, Services, Telemetry}
@@ -27,8 +28,12 @@ defmodule Reencodarr.Sync do
     {get_items, get_files, service_type} = resolve_action(action)
 
     Telemetry.emit_sync_started(service_type)
+    Events.broadcast_event(:sync_started, %{service_type: service_type})
+
     sync_items(get_items, get_files, service_type)
+
     Telemetry.emit_sync_completed(service_type)
+    Events.broadcast_event(:sync_completed, %{service_type: service_type})
 
     # Trigger analyzer to process any videos that need analysis after sync completion
     AnalyzerBroadway.dispatch_available()
@@ -49,7 +54,10 @@ defmodule Reencodarr.Sync do
         process_items_in_batches(items, get_files, service_type)
 
       _ ->
-        Logger.error("Sync error: unexpected response")
+        error_msg = "Sync error: unexpected response"
+        Logger.error(error_msg)
+        Telemetry.emit_sync_failed(error_msg, service_type)
+        Events.broadcast_event(:sync_failed, %{error: error_msg, service_type: service_type})
     end
   end
 
@@ -105,6 +113,11 @@ defmodule Reencodarr.Sync do
     # Update progress
     progress = div((batch_index + 1) * 50 * 100, total_items)
     Telemetry.emit_sync_progress(min(progress, 100), service_type)
+
+    Events.broadcast_event(:sync_progress, %{
+      progress: min(progress, 100),
+      service_type: service_type
+    })
   end
 
   @doc """

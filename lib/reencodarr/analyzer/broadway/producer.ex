@@ -144,7 +144,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
         # Send to Dashboard V2 - immediate pausing state for UI feedback
         alias Reencodarr.Dashboard.Events
-        Events.analyzer_pausing()
+        Events.broadcast_event(:analyzer_pausing)
 
         {:noreply, [], State.update(state, status: :pausing)}
 
@@ -156,7 +156,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
         # Send to Dashboard V2
         alias Reencodarr.Dashboard.Events
-        Events.analyzer_stopped()
+        Events.broadcast_event(:analyzer_stopped)
 
         {:noreply, [], State.update(state, status: :paused)}
     end
@@ -171,9 +171,9 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
     # Send to Dashboard V2
     alias Reencodarr.Dashboard.Events
-    Events.analyzer_started()
+    Events.broadcast_event(:analyzer_started)
     # Start with minimal progress to indicate activity
-    Events.analyzer_progress(0, 1)
+    Events.broadcast_event(:analyzer_progress, %{current: 0, total: 1})
 
     new_state = State.update(state, status: :running)
     dispatch_if_ready(new_state)
@@ -244,7 +244,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
         # Send to Dashboard V2
         alias Reencodarr.Dashboard.Events
-        Events.analyzer_stopped()
+        Events.broadcast_event(:analyzer_stopped)
 
         new_state = State.update(state, status: :paused)
         {:noreply, [], new_state}
@@ -252,7 +252,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       _ ->
         # Transition back to running after batch completion
         alias Reencodarr.Dashboard.Events
-        Events.analyzer_started()
+        Events.broadcast_event(:analyzer_started)
 
         new_state = State.update(state, status: :running)
         dispatch_if_ready(new_state)
@@ -349,9 +349,9 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
     # Send to Dashboard V2
     alias Reencodarr.Dashboard.Events
-    Events.analyzer_started()
+    Events.broadcast_event(:analyzer_started)
     # Start with minimal progress to indicate activity
-    Events.analyzer_progress(0, 1)
+    Events.broadcast_event(:analyzer_progress, %{current: 0, total: 1})
 
     new_state = State.update(state, status: :running)
     dispatch_videos(new_state)
@@ -362,9 +362,9 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
     # Send to Dashboard V2
     alias Reencodarr.Dashboard.Events
-    Events.analyzer_started()
+    Events.broadcast_event(:analyzer_started)
     # Start with minimal progress to indicate activity
-    Events.analyzer_progress(0, 1)
+    Events.broadcast_event(:analyzer_progress, %{current: 0, total: 1})
 
     new_state = State.update(state, status: :running)
     dispatch_videos(new_state)
@@ -470,7 +470,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
           # Send to Dashboard V2
           alias Reencodarr.Dashboard.Events
-          Events.analyzer_idle()
+          Events.broadcast_event(:analyzer_idle)
 
           new_state = State.update(state, status: :idle)
           # Don't broadcast queue state during idle transition - queue hasn't actually changed
