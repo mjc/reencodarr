@@ -250,6 +250,10 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
         {:noreply, [], new_state}
 
       _ ->
+        # Transition back to running after batch completion
+        alias Reencodarr.Dashboard.Events
+        Events.analyzer_started()
+
         new_state = State.update(state, status: :running)
         dispatch_if_ready(new_state)
     end
@@ -358,6 +362,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
     # Send to Dashboard V2
     alias Reencodarr.Dashboard.Events
+    Events.analyzer_started()
     # Start with minimal progress to indicate activity
     Events.analyzer_progress(0, 1)
 
