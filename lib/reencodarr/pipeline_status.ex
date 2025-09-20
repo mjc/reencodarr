@@ -61,6 +61,7 @@ defmodule Reencodarr.PipelineStatus do
 
         {:noreply, [], %{state | status: :pausing}}
 
+      _ ->
         broadcast_service_event(service, :idle)
 
         {:noreply, [], %{state | status: :paused}}
@@ -96,11 +97,6 @@ defmodule Reencodarr.PipelineStatus do
         new_state = %{state | status: :running}
         dispatch_func.(new_state)
     end
-  end
-
-  # DRY helper for broadcasting service events
-  defp broadcast_service_event(service, event_type) do
-    Events.broadcast_event(:"#{service}_#{event_type}")
   end
 
   @services [:analyzer, :crf_searcher, :encoder]
@@ -216,5 +212,10 @@ defmodule Reencodarr.PipelineStatus do
     Media.encoding_queue_count()
   rescue
     _ -> 0
+  end
+
+  # DRY helper for broadcasting service events
+  defp broadcast_service_event(service, event_type) do
+    Events.broadcast_event(:"#{service}_#{event_type}", %{})
   end
 end

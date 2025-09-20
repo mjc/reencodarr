@@ -8,7 +8,8 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   use GenStage
   require Logger
-  alias Reencodarr.{Dashboard.Events, Media}
+  alias Reencodarr.Dashboard.Events
+  alias Reencodarr.Media
 
   @broadway_name Reencodarr.Encoder.Broadway
 
@@ -21,29 +22,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   def resume, do: send_to_producer(:resume)
   def dispatch_available, do: send_to_producer(:dispatch_available)
   def add_vmaf(vmaf), do: send_to_producer({:add_vmaf, vmaf})
-
-  # Status API
-  def status do
-    case find_producer_process() do
-      nil ->
-        :stopped
-
-      pid ->
-        try do
-          GenStage.call(pid, :get_state, 1000)
-          |> case do
-            %{status: status} -> status
-            _ -> :unknown
-          end
-        catch
-          :exit, _ -> :unknown
-        end
-    end
-  end
-
-  def request_status(requester_pid) do
-    send_to_producer({:status_request, requester_pid})
-  end
 
   # Alias for API compatibility
   def start, do: resume()
@@ -129,25 +107,32 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   @impl GenStage
+  def handle_cast(:broadcast_status, state) do
+    # Broadcast the appropriate status event based on current state
+    event_name =
+      case state.status do
+        :processing -> :encoder_started
+        # This maps to "paused" on dashboard
+        :paused -> :encoder_stopped
+        :pausing -> :encoder_pausing
+        _ -> :encoder_idle
+      end
+
+    Events.broadcast_event(event_name, %{})
+    {:noreply, [], state}
+  end
+
+  @impl GenStage
   def handle_cast(:pause, state) do
     case state.status do
       :processing ->
         Logger.info("Encoder pausing - will finish current job and stop")
-
-        # Send to Dashboard V2 - immediate pausing state for UI feedback
-        Events.broadcast_event(:encoder_pausing)
-
         {:noreply, [], %{state | status: :pausing}}
 
       _ ->
         Logger.info("Encoder paused")
         Reencodarr.Telemetry.emit_encoder_paused()
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :paused})
-
-        # Send to Dashboard V2
-        alias Reencodarr.Dashboard.Events
-        Events.broadcast_event(:encoder_stopped)
-
         {:noreply, [], %{state | status: :paused}}
     end
   end
@@ -156,11 +141,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   def handle_cast(:resume, state) do
     Logger.info("Encoder resumed")
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :started})
-
-    # Send to Dashboard V2
-    alias Reencodarr.Dashboard.Events
-    Events.broadcast_event(:encoder_started)
-
     new_state = %{state | status: :running}
     dispatch_if_ready(new_state)
   end
@@ -180,27 +160,15 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
         Logger.info("Encoder finished current job - now fully paused")
         Reencodarr.Telemetry.emit_encoder_paused()
         Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :paused})
-
-        # Send to Dashboard V2
-        alias Reencodarr.Dashboard.Events
-        Events.broadcast_event(:encoder_stopped)
-
         new_state = %{state | status: :paused}
         {:noreply, [], new_state}
 
       :idle ->
         # Transition from idle back to running when work becomes available
-        alias Reencodarr.Dashboard.Events
-        Events.broadcast_event(:encoder_started)
-
         new_state = %{state | status: :running}
         dispatch_if_ready(new_state)
 
       _ ->
-        # Transition to running from any other state
-        alias Reencodarr.Dashboard.Events
-        Events.broadcast_event(:encoder_started)
-
         new_state = %{state | status: :running}
         dispatch_if_ready(new_state)
     end
@@ -233,10 +201,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     )
 
     Logger.debug("[Encoder Producer] Current state before transition - status: #{state.status}")
-
-    # Broadcast that encoder is now running/available
-    alias Reencodarr.Dashboard.Events
-    Events.broadcast_event(:encoder_started)
 
     new_state = %{state | status: :running}
     Logger.debug("[Encoder Producer] State after transition - status: #{new_state.status}")
@@ -308,12 +272,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     case get_next_vmaf_preview() do
       nil ->
         # No videos to process - set to idle
-        Logger.info("Encoder going idle - no videos to process")
-
-        # Send to Dashboard V2
-        alias Reencodarr.Dashboard.Events
-        Events.broadcast_event(:encoder_idle)
-
         new_state = %{state | status: :idle}
         {:noreply, [], new_state}
 
@@ -365,6 +323,9 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   defp dispatch_vmafs(state) do
     # Mark as processing immediately to prevent duplicate dispatches
     updated_state = %{state | status: :processing}
+
+    # Broadcast status change to processing
+    Events.broadcast_event(:encoder_started, %{})
 
     # Get one VMAF from queue or database
     case get_next_vmaf(updated_state) do
