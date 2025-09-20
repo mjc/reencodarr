@@ -215,6 +215,9 @@ defmodule Reencodarr.Analyzer.Broadway do
         total: current_queue_length + 1,
         percent: percent
       })
+
+      # Also broadcast that analyzer is running when progress is sent
+      Events.broadcast_event(:analyzer_started, %{})
     end
 
     # Note: Don't send progress events if queue is empty or no throughput
@@ -314,8 +317,8 @@ defmodule Reencodarr.Analyzer.Broadway do
   # Helper function to check if MediaInfo is valid and complete
   defp has_valid_mediainfo?(video) do
     # Check for required fields that indicate complete MediaInfo
-    video.duration && video.duration > 0 &&
-      video.bitrate && video.bitrate > 0
+    is_number(video.duration) && video.duration > 0 &&
+      is_number(video.bitrate) && video.bitrate > 0
   end
 
   # Process videos that have MediaInfo but unchanged file size by transitioning to analyzed
