@@ -323,6 +323,9 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
           # Mark as processing and decrement demand
           updated_state = %{new_state | demand: state.demand - 1, status: :processing}
 
+          # Broadcast status change to dashboard
+          Events.broadcast_event(:crf_searcher_started, %{})
+
           # Get remaining videos for queue state update
           remaining_videos = Media.get_videos_for_crf_search(10)
           total_count = Media.count_videos_for_crf_search()
