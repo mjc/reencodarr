@@ -28,8 +28,8 @@ defmodule ReencodarrWeb.Router do
   scope "/", ReencodarrWeb do
     pipe_through :browser
 
-    live "/", DashboardLive, :index
-    live "/dashboard-v2", DashboardV2Live, :index
+    live "/", DashboardV2Live, :index
+    live "/dashboard-v1", DashboardLive, :index
     live "/broadway", BroadwayLive, :index
     live "/failures", FailuresLive, :index
     live "/rules", RulesLive, :index
