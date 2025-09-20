@@ -7,8 +7,8 @@ defmodule ReencodarrWeb.PageControllerTest do
       conn = get(conn, ~p"/")
       response = html_response(conn, 200)
 
-      # Should contain either the loading state or the actual dashboard content
-      assert response =~ "Loading dashboard data..." or response =~ "TOTAL VMAFS"
+      # Should contain the DashboardV2Live content
+      assert response =~ "Video Processing Dashboard"
     end)
   end
 end

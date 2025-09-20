@@ -8,12 +8,9 @@ defmodule ReencodarrWeb.DashboardV2StatusBroadcastTest do
   dashboard UI synchronized.
   """
   use ReencodarrWeb.ConnCase, async: true
-  use Phoenix.ChannelTest
 
   alias Phoenix.PubSub
   alias Reencodarr.Dashboard.Events
-
-  @endpoint ReencodarrWeb.Endpoint
 
   setup do
     # Subscribe to the dashboard events channel
@@ -131,9 +128,6 @@ defmodule ReencodarrWeb.DashboardV2StatusBroadcastTest do
     test "no orphaned progress events without corresponding status events" do
       # This test acts as a safeguard against regressions where
       # progress events might be sent without status events
-
-      # Subscribe to all events and track them
-      events_received = []
 
       # This would be a more complex test in a real scenario,
       # but serves as documentation for the expected behavior
