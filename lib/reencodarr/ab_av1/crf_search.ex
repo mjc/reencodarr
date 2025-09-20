@@ -834,6 +834,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         filename: progress[:filename] && Path.basename(progress[:filename])
       })
 
+      # Also broadcast that CRF searcher is running when progress is sent
+      Events.broadcast_event(:crf_searcher_started, %{})
+
       # Update cache
       update_last_progress(filename, progress)
     end

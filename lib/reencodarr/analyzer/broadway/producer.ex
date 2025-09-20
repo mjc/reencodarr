@@ -365,6 +365,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
     # Send to Dashboard V2
     alias Reencodarr.Dashboard.Events
+    Events.broadcast_event(:analyzer_started, %{})
     # Start with minimal progress to indicate activity
     Events.broadcast_event(:analyzer_progress, %{
       count: 0,
