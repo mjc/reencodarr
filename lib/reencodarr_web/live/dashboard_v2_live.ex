@@ -29,7 +29,8 @@ defmodule ReencodarrWeb.DashboardV2Live do
     initial_state = %__MODULE__{
       connected?: connected?(socket),
       queue_counts: get_queue_counts(),
-      service_status: get_service_status(),
+      # Start with running assumption for alive services, let actual events correct this
+      service_status: get_optimistic_service_status(),
       # Will be fetched async
       analyzer_throughput: nil
     }
@@ -57,14 +58,14 @@ defmodule ReencodarrWeb.DashboardV2Live do
   end
 
   # Helper function to safely get progress field values
-  defp progress_field(progress, field, default \\ 0)
+  defp progress_field(progress, field, default \\ nil)
   defp progress_field(:none, _field, default), do: default
 
   defp progress_field(progress, field, default) when is_map(progress) do
     Map.get(progress, field, default)
   end
 
-  # Handle clean dashboard events
+  # All handle_info callbacks grouped together
   @impl true
   def handle_info({:crf_search_started, _data}, socket) do
     # Don't create incomplete progress data - wait for actual progress events
@@ -75,7 +76,6 @@ defmodule ReencodarrWeb.DashboardV2Live do
   def handle_info({:crf_search_progress, data}, socket) do
     state = socket.assigns.state
 
-    # Handle different progress data formats
     percent =
       if data[:current] && data[:total] && data.total > 0 do
         round(data.current / data.total * 100)
@@ -90,46 +90,6 @@ defmodule ReencodarrWeb.DashboardV2Live do
           filename: data[:filename],
           crf: data[:crf],
           score: data[:score]
-        }
-    }
-
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:crf_search_completed, _data}, socket) do
-    state = socket.assigns.state
-    updated_state = %{state | crf_progress: :none}
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:crf_search_encoding_sample, data}, socket) do
-    state = socket.assigns.state
-
-    updated_state = %{
-      state
-      | crf_progress: %{
-          filename: data.filename,
-          crf: data.crf,
-          percent: 0
-        }
-    }
-
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:crf_search_vmaf_result, data}, socket) do
-    state = socket.assigns.state
-
-    updated_state = %{
-      state
-      | crf_progress: %{
-          filename: data.filename,
-          crf: data.crf,
-          score: data.score,
-          percent: 100
         }
     }
 
@@ -156,7 +116,6 @@ defmodule ReencodarrWeb.DashboardV2Live do
   def handle_info({:encoding_progress, data}, socket) do
     state = socket.assigns.state
 
-    # Handle different progress data formats safely
     percent =
       if data[:current] && data[:total] && data.total > 0 do
         round(data.current / data.total * 100)
@@ -168,6 +127,7 @@ defmodule ReencodarrWeb.DashboardV2Live do
       state
       | encoding_progress: %{
           percent: percent,
+          filename: data[:filename],
           fps: data[:fps],
           eta: data[:eta],
           time_unit: data[:time_unit],
@@ -183,7 +143,6 @@ defmodule ReencodarrWeb.DashboardV2Live do
   def handle_info({:analyzer_progress, data}, socket) do
     state = socket.assigns.state
 
-    # Calculate percent if we have current/total, otherwise use existing percent
     percent =
       if data[:current] && data[:total] && data.total > 0 do
         round(data.current / data.total * 100)
@@ -203,6 +162,28 @@ defmodule ReencodarrWeb.DashboardV2Live do
     {:noreply, assign(socket, :state, updated_state)}
   end
 
+  # Completion and reset handlers
+  @impl true
+  def handle_info({event, _data}, socket) when event in [:crf_search_completed] do
+    state = %{socket.assigns.state | crf_progress: :none}
+    {:noreply, assign(socket, :state, state)}
+  end
+
+  # Special CRF search event handlers
+  @impl true
+  def handle_info({:crf_search_encoding_sample, data}, socket) do
+    progress = %{filename: data.filename, crf: data.crf, percent: 0}
+    state = %{socket.assigns.state | crf_progress: progress}
+    {:noreply, assign(socket, :state, state)}
+  end
+
+  @impl true
+  def handle_info({:crf_search_vmaf_result, data}, socket) do
+    progress = %{filename: data.filename, crf: data.crf, score: data.score, percent: 100}
+    state = %{socket.assigns.state | crf_progress: progress}
+    {:noreply, assign(socket, :state, state)}
+  end
+
   @impl true
   def handle_info({:analyzer_throughput, data}, socket) do
     state = socket.assigns.state
@@ -212,6 +193,60 @@ defmodule ReencodarrWeb.DashboardV2Live do
     {:noreply, assign(socket, :state, updated_state)}
   end
 
+  @impl true
+  def handle_info(:update_dashboard_data, socket) do
+    state = socket.assigns.state
+
+    updated_state = %{
+      state
+      | queue_counts: get_queue_counts()
+    }
+
+    # Request updated throughput async (don't block)
+    request_analyzer_throughput()
+
+    {:noreply, assign(socket, :state, updated_state)}
+  end
+
+  # Sync event handlers - simplified
+  @impl true
+  def handle_info({:sync_started, data}, socket) do
+    state = %{
+      socket.assigns.state
+      | syncing: true,
+        sync_progress: 0,
+        service_type: Map.get(data, :service_type)
+    }
+
+    {:noreply, assign(socket, :state, state)}
+  end
+
+  @impl true
+  def handle_info({:sync_progress, data}, socket) do
+    progress = Map.get(data, :progress, 0)
+    state = %{socket.assigns.state | sync_progress: progress}
+    {:noreply, assign(socket, :state, state)}
+  end
+
+  @impl true
+  def handle_info({sync_event, data}, socket)
+      when sync_event in [:sync_completed, :sync_failed] do
+    state = %{socket.assigns.state | syncing: false, sync_progress: 0, service_type: nil}
+
+    socket =
+      case sync_event do
+        :sync_completed ->
+          socket
+
+        :sync_failed ->
+          error = Map.get(data, :error, "Unknown error")
+          put_flash(socket, :error, "Sync failed: #{inspect(error)}")
+      end
+
+    {:noreply, assign(socket, :state, state)}
+  end
+
+  # Service status handlers - grouped with other handle_info
   @impl true
   def handle_info({:analyzer_started, _data}, socket) do
     state = socket.assigns.state
@@ -297,54 +332,6 @@ defmodule ReencodarrWeb.DashboardV2Live do
   end
 
   @impl true
-  def handle_info(:update_dashboard_data, socket) do
-    state = socket.assigns.state
-
-    updated_state = %{
-      state
-      | queue_counts: get_queue_counts()
-    }
-
-    # Request updated throughput async (don't block)
-    request_analyzer_throughput()
-
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  # Sync event handlers
-  @impl true
-  def handle_info({:sync_started, data}, socket) do
-    state = socket.assigns.state
-    service_type = Map.get(data, :service_type)
-    updated_state = %{state | syncing: true, sync_progress: 0, service_type: service_type}
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:sync_progress, data}, socket) do
-    state = socket.assigns.state
-    progress = Map.get(data, :progress, 0)
-    updated_state = %{state | sync_progress: progress}
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:sync_completed, _data}, socket) do
-    state = socket.assigns.state
-    updated_state = %{state | syncing: false, sync_progress: 0, service_type: nil}
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:sync_failed, data}, socket) do
-    state = socket.assigns.state
-    error = Map.get(data, :error, "Unknown error")
-    updated_state = %{state | syncing: false, sync_progress: 0, service_type: nil}
-    socket = put_flash(socket, :error, "Sync failed: #{inspect(error)}")
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
   def handle_info(message, socket) do
     Logger.debug("DashboardV2: Unhandled message: #{inspect(message)}")
     {:noreply, socket}
@@ -388,28 +375,107 @@ defmodule ReencodarrWeb.DashboardV2Live do
     sync_service(service, socket)
   end
 
-  # Reusable progress card component for DRY HTML consolidation
-  defp progress_card(assigns) do
+  # Unified pipeline step component
+  defp pipeline_step(assigns) do
     ~H"""
-    <div class="bg-white rounded-lg shadow-lg p-6">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-lg font-semibold text-gray-900">{@title}</h2>
-        <div class={"w-3 h-3 rounded-full #{if @progress != :none, do: "bg-green-400 animate-pulse", else: "bg-gray-300"}"}>
+    <div class="text-center">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold text-gray-800">{@name}</h3>
+        <span class={"px-2 py-1 text-xs rounded-full #{service_status_class(@status)}"}>
+          {service_status_text(@status)}
+        </span>
+      </div>
+
+      <div class="mb-3">
+        <div class="text-2xl font-mono text-gray-600 mb-1">
+          {@queue}
         </div>
+        <div class="text-xs text-gray-500">queued</div>
       </div>
 
       <%= if @progress != :none do %>
-        <div class="space-y-3">
-          {render_slot(@inner_block)}
+        <div class="mb-3">
+          <div class="w-full bg-gray-200 rounded-full h-2 mb-2">
+            <div
+              class={"bg-#{@color}-500 h-2 rounded-full transition-all duration-300"}
+              style={"width: #{progress_field(@progress, :percent, 0)}%"}
+            >
+            </div>
+          </div>
+          <div class="text-sm text-gray-600">
+            {progress_field(@progress, :percent, 0)}%
+          </div>
+        </div>
+        <%= if progress_field(@progress, :filename) do %>
+          <div class="text-xs text-gray-500 truncate mb-2">
+            {Path.basename(progress_field(@progress, :filename))}
+          </div>
+        <% end %>
+        {render_slot(@inner_block)}
+      <% else %>
+        <div class="text-xs text-gray-400 mb-3">Idle</div>
+      <% end %>
+
+      <div class="flex gap-2">
+        <button
+          phx-click={"start_#{@service}"}
+          class="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs py-1 px-2 rounded"
+        >
+          Start
+        </button>
+        <button
+          phx-click={"pause_#{@service}"}
+          class="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white text-xs py-1 px-2 rounded"
+        >
+          Pause
+        </button>
+      </div>
+    </div>
+    """
+  end
+
+  # Simplified sync service component
+  defp sync_service(assigns) do
+    assigns =
+      assign(
+        assigns,
+        :active,
+        assigns.state.syncing && assigns.state.service_type == assigns.service
+      )
+
+    ~H"""
+    <div class="text-center">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold text-gray-800">{@name}</h3>
+        <span class={"px-2 py-1 text-xs rounded-full #{if @active, do: "bg-blue-100 text-blue-800 animate-pulse", else: "bg-gray-100 text-gray-600"}"}>
+          {if @active, do: "Syncing", else: "Ready"}
+        </span>
+      </div>
+
+      <%= if @active do %>
+        <div class="mb-3">
+          <div class="w-full bg-gray-200 rounded-full h-2 mb-2">
+            <div
+              class="bg-blue-500 h-2 rounded-full transition-all duration-300"
+              style={"width: #{@state.sync_progress}%"}
+            >
+            </div>
+          </div>
+          <div class="text-sm text-gray-600">{@state.sync_progress}%</div>
         </div>
       <% else %>
-        <div class="text-center py-8">
-          <div class="text-gray-400 text-sm">{@inactive_message}</div>
-          <%= if assigns[:extra_info] do %>
-            {render_slot(@extra_info)}
-          <% end %>
+        <div class="text-xs text-gray-400 mb-3">
+          {if @state.syncing, do: "Waiting for other service", else: "Ready to sync"}
         </div>
       <% end %>
+
+      <button
+        phx-click={"sync_#{@service}"}
+        disabled={@state.syncing}
+        class={"w-full text-xs py-2 px-3 rounded #{if @state.syncing, do: "bg-gray-300 text-gray-500 cursor-not-allowed", else: "bg-blue-500 hover:bg-blue-600 text-white"}"}
+      >
+        Sync {@name}
+      </button>
     </div>
     """
   end
@@ -418,187 +484,79 @@ defmodule ReencodarrWeb.DashboardV2Live do
   def render(assigns) do
     ~H"""
     <div class="min-h-screen bg-gray-100 p-6">
-      <div class="max-w-7xl mx-auto">
-        <div class="mb-8">
-          <h1 class="text-3xl font-bold text-gray-900">Dashboard V2</h1>
-          <p class="mt-2 text-sm text-gray-600">Direct architecture - Service → PubSub → LiveView</p>
+      <div class="max-w-7xl mx-auto space-y-6">
+        <!-- Header -->
+        <div>
+          <h1 class="text-3xl font-bold text-gray-900">Video Processing Dashboard</h1>
+          <p class="text-gray-600">Real-time status and controls for video transcoding pipeline</p>
         </div>
         
-    <!-- Processing Services Status and Controls -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-          <.service_card
-            name="Analyzer"
-            service="analyzer"
-            status={@state.service_status.analyzer}
-            queue={@state.queue_counts.analyzer}
-          />
-          <.service_card
-            name="CRF Searcher"
-            service="crf_searcher"
-            status={@state.service_status.crf_searcher}
-            queue={@state.queue_counts.crf_searcher}
-          />
-          <.service_card
-            name="Encoder"
-            service="encoder"
-            status={@state.service_status.encoder}
-            queue={@state.queue_counts.encoder}
-          />
-        </div>
-        
-    <!-- Sync Services Status and Controls -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-          <.sync_card
-            name="Sonarr"
-            service={:sonarr}
-            syncing={@state.syncing}
-            service_type={@state.service_type}
-            progress={@state.sync_progress}
-          />
-          <.sync_card
-            name="Radarr"
-            service={:radarr}
-            syncing={@state.syncing}
-            service_type={@state.service_type}
-            progress={@state.sync_progress}
-          />
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <.progress_card
-            title="Analysis"
-            progress={@state.analyzer_progress}
-            inactive_message="No active analysis"
-          >
-            <div class="flex justify-between items-center">
-              <span class="text-sm font-medium text-gray-700">Progress</span>
-              <span class="text-sm font-mono text-gray-900">
-                {progress_field(@state.analyzer_progress, :percent, 0)}%
-              </span>
-            </div>
-
-            <div class="w-full bg-gray-200 rounded-full h-2">
-              <div
-                class="bg-purple-500 h-2 rounded-full transition-all duration-300 ease-out"
-                style={"width: #{progress_field(@state.analyzer_progress, :percent, 0)}%"}
-              >
-              </div>
-            </div>
-
-            <%= if progress_field(@state.analyzer_progress, :count) && progress_field(@state.analyzer_progress, :total) do %>
-              <div class="flex justify-between text-xs text-gray-600">
-                <span>
-                  Files: {progress_field(@state.analyzer_progress, :count)}/{progress_field(
-                    @state.analyzer_progress,
-                    :total
-                  )}
-                </span>
-                <%= if @state.analyzer_throughput && @state.analyzer_throughput > 0 do %>
-                  <span>Rate: {Float.round(@state.analyzer_throughput, 1)} files/s</span>
-                <% end %>
-              </div>
-            <% end %>
-
-            <:extra_info>
+    <!-- Main Processing Pipeline -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h2 class="text-xl font-semibold mb-4">Processing Pipeline</h2>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <.pipeline_step
+              name="Analysis"
+              service="analyzer"
+              status={@state.service_status.analyzer}
+              queue={@state.queue_counts.analyzer}
+              progress={@state.analyzer_progress}
+              color="purple"
+            >
               <%= if @state.analyzer_throughput && @state.analyzer_throughput > 0 do %>
-                <div class="text-xs text-gray-500 mt-1">
-                  Last rate: {Float.round(@state.analyzer_throughput, 1)} files/s
+                <div class="text-xs text-gray-500">
+                  Rate: {Float.round(@state.analyzer_throughput, 1)} files/s
                 </div>
               <% end %>
-            </:extra_info>
-          </.progress_card>
+            </.pipeline_step>
 
-          <.progress_card
-            title="CRF Search"
-            progress={@state.crf_progress}
-            inactive_message="No CRF search"
-          >
-            <div class="flex justify-between items-center">
-              <span class="text-sm font-medium text-gray-700">Progress</span>
-              <span class="text-sm font-mono text-gray-900">
-                {progress_field(@state.crf_progress, :percent, 0)}%
-              </span>
-            </div>
+            <.pipeline_step
+              name="CRF Search"
+              service="crf_searcher"
+              status={@state.service_status.crf_searcher}
+              queue={@state.queue_counts.crf_searcher}
+              progress={@state.crf_progress}
+              color="blue"
+            >
+              <%= if progress_field(@state.crf_progress, :crf) do %>
+                <div class="text-xs text-gray-500">
+                  CRF: {progress_field(@state.crf_progress, :crf)}
+                  <%= if progress_field(@state.crf_progress, :score) do %>
+                    | VMAF: {progress_field(@state.crf_progress, :score)}
+                  <% end %>
+                </div>
+              <% end %>
+            </.pipeline_step>
 
-            <div class="w-full bg-gray-200 rounded-full h-2">
-              <div
-                class="bg-blue-500 h-2 rounded-full transition-all duration-300 ease-out"
-                style={"width: #{progress_field(@state.crf_progress, :percent, 0)}%"}
-              >
-              </div>
-            </div>
-
-            <%= if progress_field(@state.crf_progress, :filename, nil) do %>
-              <div class="text-xs text-gray-500 truncate">
-                {Path.basename(progress_field(@state.crf_progress, :filename, nil))}
-              </div>
-            <% end %>
-
-            <%= if progress_field(@state.crf_progress, :crf) do %>
-              <div class="flex justify-between text-xs">
-                <span class="text-gray-600">CRF: {progress_field(@state.crf_progress, :crf)}</span>
-                <%= if progress_field(@state.crf_progress, :score) do %>
-                  <span class="text-gray-600">
-                    VMAF: {progress_field(@state.crf_progress, :score)}
-                  </span>
-                <% end %>
-              </div>
-            <% end %>
-          </.progress_card>
-
-          <.progress_card
-            title="Encoding"
-            progress={@state.encoding_progress}
-            inactive_message="No encoding"
-          >
-            <div class="flex justify-between items-center">
-              <span class="text-sm font-medium text-gray-700">Progress</span>
-              <span class="text-sm font-mono text-gray-900">
-                {progress_field(@state.encoding_progress, :percent, 0)}%
-              </span>
-            </div>
-
-            <div class="w-full bg-gray-200 rounded-full h-2">
-              <div
-                class="bg-green-500 h-2 rounded-full transition-all duration-300 ease-out"
-                style={"width: #{progress_field(@state.encoding_progress, :percent, 0)}%"}
-              >
-              </div>
-            </div>
-
-            <%= if progress_field(@state.encoding_progress, :filename, nil) do %>
-              <div class="text-xs text-gray-500 truncate">
-                {Path.basename(progress_field(@state.encoding_progress, :filename, nil))}
-              </div>
-            <% end %>
-
-            <%= if progress_field(@state.encoding_progress, :fps) do %>
-              <div class="flex justify-between text-xs text-gray-600">
-                <span>Speed: {progress_field(@state.encoding_progress, :fps)} fps</span>
-                <%= if progress_field(@state.encoding_progress, :eta) && progress_field(@state.encoding_progress, :time_unit) do %>
-                  <span>
-                    ETA: {progress_field(@state.encoding_progress, :eta)} {progress_field(
+            <.pipeline_step
+              name="Encoding"
+              service="encoder"
+              status={@state.service_status.encoder}
+              queue={@state.queue_counts.encoder}
+              progress={@state.encoding_progress}
+              color="green"
+            >
+              <%= if progress_field(@state.encoding_progress, :fps) do %>
+                <div class="text-xs text-gray-500">
+                  {progress_field(@state.encoding_progress, :fps)} fps
+                  <%= if progress_field(@state.encoding_progress, :eta) do %>
+                    | ETA: {progress_field(@state.encoding_progress, :eta)} {progress_field(
                       @state.encoding_progress,
                       :time_unit
                     )}
-                  </span>
-                <% end %>
-              </div>
-            <% end %>
-          </.progress_card>
+                  <% end %>
+                </div>
+              <% end %>
+            </.pipeline_step>
+          </div>
         </div>
         
-    <!-- Architecture Info -->
-        <div class="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-6">
-          <h3 class="text-lg font-semibold text-blue-800 mb-2">Architecture</h3>
-          <div class="text-sm text-blue-700 space-y-1">
-            <p><strong>Layer 1:</strong> Service (CrfSearch GenServer) → Direct PubSub broadcast</p>
-            <p><strong>Layer 2:</strong> Phoenix.PubSub → LiveView subscription</p>
-            <p><strong>Layer 3:</strong> LiveView → Immediate UI update</p>
-            <p class="mt-3 font-medium">
-              ✅ 3 layers total (vs 8+ in old architecture)<br />
-              ✅ No telemetry middleware complexity<br /> ✅ Real-time updates with minimal latency
-            </p>
+    <!-- External Sync Services -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h2 class="text-xl font-semibold mb-4">Media Library Sync</h2>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <.sync_service name="Sonarr" service={:sonarr} state={@state} />
+            <.sync_service name="Radarr" service={:radarr} state={@state} />
           </div>
         </div>
       </div>
@@ -624,70 +582,24 @@ defmodule ReencodarrWeb.DashboardV2Live do
     end
   end
 
-  # Service card component
-  defp service_card(assigns) do
-    ~H"""
-    <div class="bg-white rounded-lg shadow-lg p-6">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-semibold text-gray-900">{@name}</h3>
-        <span class={"px-2 py-1 text-xs font-semibold rounded-full #{service_status_class(@status)}"}>
-          {service_status_text(@status)}
-        </span>
-      </div>
-      <div class="text-sm text-gray-600 mb-4">
-        Queue: {@queue} videos
-      </div>
-      <div class="space-x-2">
-        <button
-          phx-click={"start_#{@service}"}
-          class="bg-green-500 hover:bg-green-700 text-white text-sm px-3 py-1 rounded"
-        >
-          Start
-        </button>
-        <button
-          phx-click={"pause_#{@service}"}
-          class="bg-yellow-500 hover:bg-yellow-700 text-white text-sm px-3 py-1 rounded"
-        >
-          Pause
-        </button>
-      </div>
-    </div>
-    """
-  end
-
-  # Sync card component
-  defp sync_card(assigns) do
-    ~H"""
-    <div class="bg-white rounded-lg shadow-lg p-6">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-lg font-semibold text-gray-900">{@name}</h3>
-        <span class={"px-2 py-1 text-xs font-semibold rounded-full #{sync_status_class(@syncing, @service_type, @service)}"}>
-          {sync_status_text(@syncing, @service_type, @service)}
-        </span>
-      </div>
-      <div class="text-sm text-gray-600 mb-4">
-        {sync_status_description(@syncing, @progress, @service_type, @service)}
-      </div>
-      <div class="space-x-2">
-        <button
-          phx-click={"sync_#{@service}"}
-          disabled={@syncing}
-          class={"#{if @syncing, do: "bg-gray-400 cursor-not-allowed", else: "bg-blue-500 hover:bg-blue-700"} text-white text-sm px-3 py-1 rounded"}
-        >
-          Sync
-        </button>
-      </div>
-    </div>
-    """
-  end
-
   # Helper functions for real data
   defp get_queue_counts do
     Reencodarr.PipelineStatus.get_all_queue_counts()
   end
 
-  defp get_service_status do
-    Reencodarr.PipelineStatus.get_all_service_status()
+  # Optimistic service status - assume running if alive, let events correct it
+  defp get_optimistic_service_status do
+    %{
+      analyzer:
+        if(Process.whereis(Reencodarr.Analyzer.Broadway.Producer), do: :running, else: :stopped),
+      crf_searcher:
+        if(Process.whereis(Reencodarr.CrfSearcher.Broadway.Producer),
+          do: :running,
+          else: :stopped
+        ),
+      encoder:
+        if(Process.whereis(Reencodarr.Encoder.Broadway.Producer), do: :running, else: :stopped)
+    }
   end
 
   defp request_current_status do
@@ -727,44 +639,9 @@ defmodule ReencodarrWeb.DashboardV2Live do
     do: @service_status_labels[status] || @service_status_labels.unknown
 
   defp request_analyzer_throughput do
-    # Send async request to PerformanceMonitor via cast - it will respond via PubSub
     case GenServer.whereis(Reencodarr.Analyzer.Broadway.PerformanceMonitor) do
-      # Process not running - throughput will remain nil
       nil -> :ok
       pid -> GenServer.cast(pid, {:throughput_request, self()})
-    end
-  end
-
-  # Sync status helper functions
-  defp sync_status_class(syncing, service_type, target_service) do
-    cond do
-      syncing && service_type == target_service -> "bg-blue-100 text-blue-800 animate-pulse"
-      syncing && service_type != target_service -> "bg-gray-100 text-gray-600"
-      not syncing -> "bg-gray-100 text-gray-800"
-    end
-  end
-
-  defp sync_status_text(syncing, service_type, target_service) do
-    cond do
-      syncing && service_type == target_service -> "Syncing"
-      syncing && service_type != target_service -> "Waiting"
-      not syncing -> "Ready"
-    end
-  end
-
-  defp sync_status_description(syncing, progress, service_type, target_service) do
-    cond do
-      syncing && service_type == target_service && progress > 0 ->
-        "Progress: #{progress}%"
-
-      syncing && service_type == target_service ->
-        "Starting sync..."
-
-      syncing && service_type != target_service ->
-        "Another service syncing"
-
-      not syncing ->
-        "Ready to sync"
     end
   end
 end

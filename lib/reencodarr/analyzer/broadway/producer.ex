@@ -571,6 +571,9 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
         final_state =
           State.update(new_state, demand: state.demand - video_count, status: :processing)
 
+        # Broadcast status change to dashboard
+        Events.broadcast_event(:analyzer_started, %{})
+
         Logger.debug("Final state: status: #{final_state.status}, demand: #{final_state.demand}")
 
         {:noreply, videos, final_state}
