@@ -75,12 +75,18 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def handle_demand(demand, state) when demand > 0 do
+    Logger.info(
+      "Producer: handle_demand called - new demand: #{demand}, current demand: #{state.demand}, total: #{state.demand + demand}"
+    )
+
     new_state = %{state | demand: state.demand + demand}
     # Only dispatch if we're not already processing something
     if state.status == :processing do
       # If we're already processing, just store the demand for later
+      Logger.info("Producer: handle_demand - currently processing, storing demand for later")
       {:noreply, [], new_state}
     else
+      Logger.info("Producer: handle_demand - not processing, calling dispatch_if_ready")
       dispatch_if_ready(new_state)
     end
   end
@@ -154,7 +160,11 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:dispatch_available, state) do
-    # Encoding completed
+    # Encoding completed - ensure we transition properly and check for next work
+    Logger.info(
+      "Producer: dispatch_available called - current status: #{state.status}, demand: #{state.demand}"
+    )
+
     case state.status do
       :pausing ->
         Logger.info("Encoder finished current job - now fully paused")
@@ -165,11 +175,14 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
       :idle ->
         # Transition from idle back to running when work becomes available
+        Logger.info("Producer: Transitioning from idle to running")
         new_state = %{state | status: :running}
         dispatch_if_ready(new_state)
 
       _ ->
+        Logger.info("Producer: Transitioning from #{state.status} to running")
         new_state = %{state | status: :running}
+        # Force dispatch check - this ensures we don't get stuck if state is inconsistent
         dispatch_if_ready(new_state)
     end
   end
@@ -200,11 +213,17 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
       "Producer: Received encoding completion notification - VMAF: #{vmaf_id}, result: #{inspect(result)}"
     )
 
-    Logger.debug("[Encoder Producer] Current state before transition - status: #{state.status}")
+    Logger.info(
+      "[Encoder Producer] Current state before transition - status: #{state.status}, demand: #{state.demand}"
+    )
 
     new_state = %{state | status: :running}
-    Logger.debug("[Encoder Producer] State after transition - status: #{new_state.status}")
 
+    Logger.info(
+      "[Encoder Producer] State after transition - status: #{new_state.status}, demand: #{new_state.demand}"
+    )
+
+    # Always dispatch when encoding completes - this ensures we check for next work
     dispatch_if_ready(new_state)
   end
 
@@ -255,15 +274,18 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   defp dispatch_if_ready(state) do
-    Logger.debug(
+    Logger.info(
       "Producer: dispatch_if_ready called - status: #{state.status}, demand: #{state.demand}"
     )
 
     if should_dispatch?(state) and state.demand > 0 do
-      Logger.debug("Producer: dispatch_if_ready - conditions met, dispatching VMAFs")
+      Logger.info("Producer: dispatch_if_ready - conditions met, dispatching VMAFs")
       dispatch_vmafs(state)
     else
-      Logger.debug("Producer: dispatch_if_ready - conditions NOT met, not dispatching")
+      Logger.info(
+        "Producer: dispatch_if_ready - conditions NOT met, not dispatching (should_dispatch: #{should_dispatch?(state)}, demand: #{state.demand})"
+      )
+
       handle_no_dispatch_encoder(state)
     end
   end
@@ -288,7 +310,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     availability_check = encoding_available?()
     result = status_check and availability_check
 
-    Logger.debug(
+    Logger.info(
       "[Encoder Producer] should_dispatch? - status: #{state.status}, status_check: #{status_check}, availability_check: #{availability_check}, result: #{result}"
     )
 
@@ -337,8 +359,12 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
       {vmaf, new_state} ->
         # Emit queue state update when dispatching
         broadcast_queue_state()
-        # Decrement demand and keep processing status
-        final_state = %{new_state | demand: state.demand - 1}
+        # Let Broadway handle demand automatically - don't decrement manually
+        Logger.info(
+          "Producer: dispatch_vmafs - dispatching VMAF #{vmaf.id}, keeping demand: #{state.demand}"
+        )
+
+        final_state = %{new_state | demand: state.demand}
 
         {:noreply, [vmaf], final_state}
     end
