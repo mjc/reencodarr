@@ -433,7 +433,7 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
         {:noreply, [], state}
       end
     else
-      Logger.warning("[CRF Searcher Producer] GenServer not available")
+      Logger.debug("[CRF Searcher Producer] GenServer not available, skipping dispatch")
       {:noreply, [], state}
     end
   end

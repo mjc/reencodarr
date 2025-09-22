@@ -10,6 +10,7 @@ defmodule ReencodarrWeb.DashboardV2Live do
 
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media.VideoQueries
+  import ReencodarrWeb.Presentation.Formatters
 
   require Logger
 
@@ -56,14 +57,6 @@ defmodule ReencodarrWeb.DashboardV2Live do
   @impl true
   def handle_params(_params, _url, socket) do
     {:noreply, socket}
-  end
-
-  # Helper function to safely get progress field values
-  defp progress_field(progress, field, default \\ nil)
-  defp progress_field(:none, _field, default), do: default
-
-  defp progress_field(progress, field, default) when is_map(progress) do
-    Map.get(progress, field, default)
   end
 
   # All handle_info callbacks grouped together
@@ -264,95 +257,55 @@ defmodule ReencodarrWeb.DashboardV2Live do
     {:noreply, assign(socket, :state, state)}
   end
 
-  # Service status handlers - grouped with other handle_info
+  # Service status handlers - unified with pattern matching
   @impl true
-  def handle_info({:analyzer_started, _data}, socket) do
+  def handle_info({service_event, _data}, socket)
+      when service_event in [
+             :analyzer_started,
+             :analyzer_stopped,
+             :analyzer_idle,
+             :analyzer_pausing,
+             :crf_searcher_started,
+             :crf_searcher_stopped,
+             :crf_searcher_idle,
+             :crf_searcher_pausing,
+             :encoder_started,
+             :encoder_stopped,
+             :encoder_idle,
+             :encoder_pausing
+           ] do
+    {service, status} = parse_service_event(service_event)
     state = socket.assigns.state
-    updated_state = %{state | service_status: %{state.service_status | analyzer: :running}}
+    updated_state = %{state | service_status: %{state.service_status | service => status}}
     {:noreply, assign(socket, :state, updated_state)}
   end
 
-  @impl true
-  def handle_info({:analyzer_stopped, _data}, socket) do
-    state = socket.assigns.state
-    updated_state = %{state | service_status: %{state.service_status | analyzer: :paused}}
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:analyzer_idle, _data}, socket) do
-    state = socket.assigns.state
-    updated_state = %{state | service_status: %{state.service_status | analyzer: :idle}}
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:analyzer_pausing, _data}, socket) do
-    state = socket.assigns.state
-    updated_state = %{state | service_status: %{state.service_status | analyzer: :pausing}}
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:crf_searcher_started, _data}, socket) do
-    state = socket.assigns.state
-    updated_state = %{state | service_status: %{state.service_status | crf_searcher: :running}}
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:crf_searcher_stopped, _data}, socket) do
-    state = socket.assigns.state
-    updated_state = %{state | service_status: %{state.service_status | crf_searcher: :paused}}
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:crf_searcher_idle, _data}, socket) do
-    state = socket.assigns.state
-    updated_state = %{state | service_status: %{state.service_status | crf_searcher: :idle}}
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:crf_searcher_pausing, _data}, socket) do
-    state = socket.assigns.state
-    updated_state = %{state | service_status: %{state.service_status | crf_searcher: :pausing}}
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:encoder_started, _data}, socket) do
-    state = socket.assigns.state
-    updated_state = %{state | service_status: %{state.service_status | encoder: :running}}
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:encoder_stopped, _data}, socket) do
-    state = socket.assigns.state
-    updated_state = %{state | service_status: %{state.service_status | encoder: :paused}}
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:encoder_idle, _data}, socket) do
-    state = socket.assigns.state
-    updated_state = %{state | service_status: %{state.service_status | encoder: :idle}}
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
-  @impl true
-  def handle_info({:encoder_pausing, _data}, socket) do
-    state = socket.assigns.state
-    updated_state = %{state | service_status: %{state.service_status | encoder: :pausing}}
-    {:noreply, assign(socket, :state, updated_state)}
-  end
-
+  # Catch-all for unhandled messages
   @impl true
   def handle_info(message, socket) do
     Logger.debug("DashboardV2: Unhandled message: #{inspect(message)}")
     {:noreply, socket}
+  end
+
+  # Parse service events into {service, status} tuples
+  defp parse_service_event(event) do
+    parts = event |> Atom.to_string() |> String.split("_")
+
+    # The last part is the status, everything before is the service name
+    {status_name, service_parts} = List.pop_at(parts, -1)
+    service_name = Enum.join(service_parts, "_")
+
+    service = String.to_existing_atom(service_name)
+
+    status =
+      case status_name do
+        "started" -> :running
+        "stopped" -> :paused
+        "idle" -> :idle
+        "pausing" -> :pausing
+      end
+
+    {service, status}
   end
 
   # Real event handlers for actual system control
@@ -424,9 +377,9 @@ defmodule ReencodarrWeb.DashboardV2Live do
             {progress_field(@progress, :percent, 0)}%
           </div>
         </div>
-        <%= if progress_field(@progress, :filename) do %>
+        <%= if progress_field(@progress, :filename, nil) do %>
           <div class="text-xs text-gray-500 truncate mb-2">
-            {Path.basename(progress_field(@progress, :filename))}
+            {Path.basename(progress_field(@progress, :filename, ""))}
           </div>
         <% end %>
         {render_slot(@inner_block)}
@@ -563,11 +516,11 @@ defmodule ReencodarrWeb.DashboardV2Live do
               progress={@state.crf_progress}
               color="blue"
             >
-              <%= if progress_field(@state.crf_progress, :crf) do %>
+              <%= if progress_field(@state.crf_progress, :crf, nil) do %>
                 <div class="text-xs text-gray-500">
-                  CRF: {progress_field(@state.crf_progress, :crf)}
-                  <%= if progress_field(@state.crf_progress, :score) do %>
-                    | VMAF: {progress_field(@state.crf_progress, :score)}
+                  CRF: {progress_field(@state.crf_progress, :crf, 0)}
+                  <%= if progress_field(@state.crf_progress, :score, nil) do %>
+                    | VMAF: {progress_field(@state.crf_progress, :score, 0)}
                   <% end %>
                 </div>
               <% end %>
@@ -582,13 +535,14 @@ defmodule ReencodarrWeb.DashboardV2Live do
               progress={@state.encoding_progress}
               color="green"
             >
-              <%= if progress_field(@state.encoding_progress, :fps) do %>
+              <%= if progress_field(@state.encoding_progress, :fps, nil) do %>
                 <div class="text-xs text-gray-500">
-                  {progress_field(@state.encoding_progress, :fps)} fps
-                  <%= if progress_field(@state.encoding_progress, :eta) do %>
-                    | ETA: {progress_field(@state.encoding_progress, :eta)} {progress_field(
+                  {progress_field(@state.encoding_progress, :fps, 0)} fps
+                  <%= if progress_field(@state.encoding_progress, :eta, nil) do %>
+                    | ETA: {progress_field(@state.encoding_progress, :eta, 0)} {progress_field(
                       @state.encoding_progress,
-                      :time_unit
+                      :time_unit,
+                      ""
                     )}
                   <% end %>
                 </div>
@@ -699,52 +653,6 @@ defmodule ReencodarrWeb.DashboardV2Live do
   rescue
     _ -> []
   end
-
-  # Format helpers
-  defp format_file_size(nil), do: "Unknown"
-
-  defp format_file_size(bytes) when is_integer(bytes) do
-    cond do
-      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824, 1)} GB"
-      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576, 1)} MB"
-      bytes >= 1024 -> "#{Float.round(bytes / 1024, 1)} KB"
-      true -> "#{bytes} B"
-    end
-  end
-
-  defp format_bitrate(nil), do: "Unknown"
-
-  defp format_bitrate(bitrate) when is_integer(bitrate) do
-    cond do
-      bitrate >= 1_000_000 -> "#{Float.round(bitrate / 1_000_000, 1)} Mbps"
-      bitrate >= 1000 -> "#{Float.round(bitrate / 1000, 1)} Kbps"
-      true -> "#{bitrate} bps"
-    end
-  end
-
-  defp format_duration(nil), do: "Unknown"
-
-  defp format_duration(seconds) when is_float(seconds) do
-    total_seconds = round(seconds)
-    hours = div(total_seconds, 3600)
-    minutes = div(rem(total_seconds, 3600), 60)
-    secs = rem(total_seconds, 60)
-
-    if hours > 0 do
-      "#{hours}h #{minutes}m"
-    else
-      "#{minutes}m #{secs}s"
-    end
-  end
-
-  defp format_codec_info(video_codecs, audio_codecs)
-       when is_list(video_codecs) and is_list(audio_codecs) do
-    video = List.first(video_codecs) || "Unknown"
-    audio = List.first(audio_codecs) || "Unknown"
-    "#{video}/#{audio}"
-  end
-
-  defp format_codec_info(_, _), do: "Unknown"
 
   # Optimistic service status - assume running if alive, let events correct it
   defp get_optimistic_service_status do
