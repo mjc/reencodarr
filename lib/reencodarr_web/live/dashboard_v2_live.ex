@@ -9,6 +9,7 @@ defmodule ReencodarrWeb.DashboardV2Live do
   use ReencodarrWeb, :live_view
 
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.Media.VideoQueries
 
   require Logger
 
@@ -19,6 +20,7 @@ defmodule ReencodarrWeb.DashboardV2Live do
             analyzer_throughput: 0.0,
             connected?: false,
             queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
+            queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
             service_status: %{analyzer: :unknown, crf_searcher: :unknown, encoder: :unknown},
             syncing: false,
             sync_progress: 0,
@@ -29,6 +31,7 @@ defmodule ReencodarrWeb.DashboardV2Live do
     initial_state = %__MODULE__{
       connected?: connected?(socket),
       queue_counts: get_queue_counts(),
+      queue_items: get_queue_items(),
       # Start with running assumption for alive services, let actual events correct this
       service_status: get_optimistic_service_status(),
       # Will be fetched async
@@ -197,7 +200,8 @@ defmodule ReencodarrWeb.DashboardV2Live do
 
     updated_state = %{
       state
-      | queue_counts: get_queue_counts()
+      | queue_counts: get_queue_counts(),
+        queue_items: get_queue_items()
     }
 
     # Request updated throughput async (don't block)
@@ -429,6 +433,31 @@ defmodule ReencodarrWeb.DashboardV2Live do
       <% else %>
         <div class="text-xs text-gray-400 mb-3">Idle</div>
       <% end %>
+      
+    <!-- Queue Items Display -->
+      <%= if length(@queue_items) > 0 do %>
+        <div class="mb-3">
+          <h4 class="text-xs font-semibold text-gray-700 mb-2">Next in Queue</h4>
+          <div class="space-y-1">
+            <%= for item <- Enum.take(@queue_items, 3) do %>
+              <div class="bg-gray-50 rounded p-2 text-left">
+                <div class="text-xs font-medium text-gray-800 truncate">
+                  {item.filename}
+                </div>
+                <div class="text-xs text-gray-600 flex justify-between">
+                  <span>{item.size}</span>
+                  <span>{item.bitrate}</span>
+                </div>
+                <%= if item[:crf] do %>
+                  <div class="text-xs text-gray-500">
+                    CRF: {item.crf} | VMAF: {item.vmaf_score} | Save: {item.estimated_savings}
+                  </div>
+                <% end %>
+              </div>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
 
       <div class="flex gap-2">
         <button
@@ -514,6 +543,7 @@ defmodule ReencodarrWeb.DashboardV2Live do
               service="analyzer"
               status={@state.service_status.analyzer}
               queue={@state.queue_counts.analyzer}
+              queue_items={@state.queue_items.analyzer}
               progress={@state.analyzer_progress}
               color="purple"
             >
@@ -529,6 +559,7 @@ defmodule ReencodarrWeb.DashboardV2Live do
               service="crf_searcher"
               status={@state.service_status.crf_searcher}
               queue={@state.queue_counts.crf_searcher}
+              queue_items={@state.queue_items.crf_searcher}
               progress={@state.crf_progress}
               color="blue"
             >
@@ -547,6 +578,7 @@ defmodule ReencodarrWeb.DashboardV2Live do
               service="encoder"
               status={@state.service_status.encoder}
               queue={@state.queue_counts.encoder}
+              queue_items={@state.queue_items.encoder}
               progress={@state.encoding_progress}
               color="green"
             >
@@ -600,6 +632,119 @@ defmodule ReencodarrWeb.DashboardV2Live do
   defp get_queue_counts do
     Reencodarr.PipelineStatus.get_all_queue_counts()
   end
+
+  # Get detailed queue items for each pipeline
+  defp get_queue_items do
+    %{
+      analyzer: get_analyzer_queue_items(),
+      crf_searcher: get_crf_searcher_queue_items(),
+      encoder: get_encoder_queue_items()
+    }
+  end
+
+  defp get_analyzer_queue_items do
+    videos = VideoQueries.videos_needing_analysis(5)
+
+    Enum.map(videos, fn video ->
+      %{
+        id: video.id,
+        filename: Path.basename(video.path),
+        size: format_file_size(video.size),
+        bitrate: format_bitrate(video.bitrate),
+        duration: format_duration(video.duration),
+        codec: format_codec_info(video.video_codecs, video.audio_codecs)
+      }
+    end)
+  rescue
+    _ -> []
+  end
+
+  defp get_crf_searcher_queue_items do
+    videos = VideoQueries.videos_for_crf_search(5)
+
+    Enum.map(videos, fn video ->
+      %{
+        id: video.id,
+        filename: Path.basename(video.path),
+        size: format_file_size(video.size),
+        bitrate: format_bitrate(video.bitrate),
+        duration: format_duration(video.duration),
+        codec: format_codec_info(video.video_codecs, video.audio_codecs)
+      }
+    end)
+  rescue
+    _ -> []
+  end
+
+  defp get_encoder_queue_items do
+    vmafs = VideoQueries.videos_ready_for_encoding(5)
+
+    Enum.map(vmafs, fn vmaf ->
+      video = vmaf.video
+
+      %{
+        id: vmaf.id,
+        video_id: video.id,
+        filename: Path.basename(video.path),
+        size: format_file_size(video.size),
+        bitrate: format_bitrate(video.bitrate),
+        duration: format_duration(video.duration),
+        codec: format_codec_info(video.video_codecs, video.audio_codecs),
+        crf: vmaf.crf,
+        vmaf_score: vmaf.score,
+        estimated_savings: format_file_size(vmaf.savings),
+        estimated_percent: vmaf.percent && "#{vmaf.percent}%"
+      }
+    end)
+  rescue
+    _ -> []
+  end
+
+  # Format helpers
+  defp format_file_size(nil), do: "Unknown"
+
+  defp format_file_size(bytes) when is_integer(bytes) do
+    cond do
+      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824, 1)} GB"
+      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576, 1)} MB"
+      bytes >= 1024 -> "#{Float.round(bytes / 1024, 1)} KB"
+      true -> "#{bytes} B"
+    end
+  end
+
+  defp format_bitrate(nil), do: "Unknown"
+
+  defp format_bitrate(bitrate) when is_integer(bitrate) do
+    cond do
+      bitrate >= 1_000_000 -> "#{Float.round(bitrate / 1_000_000, 1)} Mbps"
+      bitrate >= 1000 -> "#{Float.round(bitrate / 1000, 1)} Kbps"
+      true -> "#{bitrate} bps"
+    end
+  end
+
+  defp format_duration(nil), do: "Unknown"
+
+  defp format_duration(seconds) when is_float(seconds) do
+    total_seconds = round(seconds)
+    hours = div(total_seconds, 3600)
+    minutes = div(rem(total_seconds, 3600), 60)
+    secs = rem(total_seconds, 60)
+
+    if hours > 0 do
+      "#{hours}h #{minutes}m"
+    else
+      "#{minutes}m #{secs}s"
+    end
+  end
+
+  defp format_codec_info(video_codecs, audio_codecs)
+       when is_list(video_codecs) and is_list(audio_codecs) do
+    video = List.first(video_codecs) || "Unknown"
+    audio = List.first(audio_codecs) || "Unknown"
+    "#{video}/#{audio}"
+  end
+
+  defp format_codec_info(_, _), do: "Unknown"
 
   # Optimistic service status - assume running if alive, let events correct it
   defp get_optimistic_service_status do
