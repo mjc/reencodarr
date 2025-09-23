@@ -10,7 +10,7 @@ defmodule ReencodarrWeb.DashboardV2Live do
 
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media.VideoQueries
-  import ReencodarrWeb.Presentation.Formatters
+  import Reencodarr.Formatters
 
   require Logger
 
@@ -603,10 +603,10 @@ defmodule ReencodarrWeb.DashboardV2Live do
       %{
         id: video.id,
         filename: Path.basename(video.path),
-        size: format_file_size(video.size),
-        bitrate: format_bitrate(video.bitrate),
-        duration: format_duration(video.duration),
-        codec: format_codec_info(video.video_codecs, video.audio_codecs)
+        size: file_size(video.size),
+        bitrate: bitrate(video.bitrate),
+        duration: duration(video.duration),
+        codec: codec_info(video.video_codecs, video.audio_codecs)
       }
     end)
   rescue
@@ -620,10 +620,10 @@ defmodule ReencodarrWeb.DashboardV2Live do
       %{
         id: video.id,
         filename: Path.basename(video.path),
-        size: format_file_size(video.size),
-        bitrate: format_bitrate(video.bitrate),
-        duration: format_duration(video.duration),
-        codec: format_codec_info(video.video_codecs, video.audio_codecs)
+        size: file_size(video.size),
+        bitrate: bitrate(video.bitrate),
+        duration: duration(video.duration),
+        codec: codec_info(video.video_codecs, video.audio_codecs)
       }
     end)
   rescue
@@ -640,13 +640,13 @@ defmodule ReencodarrWeb.DashboardV2Live do
         id: vmaf.id,
         video_id: video.id,
         filename: Path.basename(video.path),
-        size: format_file_size(video.size),
-        bitrate: format_bitrate(video.bitrate),
-        duration: format_duration(video.duration),
-        codec: format_codec_info(video.video_codecs, video.audio_codecs),
+        size: file_size(video.size),
+        bitrate: bitrate(video.bitrate),
+        duration: duration(video.duration),
+        codec: codec_info(video.video_codecs, video.audio_codecs),
         crf: vmaf.crf,
         vmaf_score: vmaf.score,
-        estimated_savings: format_file_size(vmaf.savings),
+        estimated_savings: file_size(vmaf.savings),
         estimated_percent: vmaf.percent && "#{vmaf.percent}%"
       }
     end)
