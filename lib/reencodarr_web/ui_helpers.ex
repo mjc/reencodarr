@@ -84,15 +84,7 @@ defmodule ReencodarrWeb.UIHelpers do
   @doc """
   Formats count values with K/M suffixes for display.
   """
-  def format_display_count(count) when is_integer(count) do
-    cond do
-      count >= 1_000_000 -> "#{Float.round(count / 1_000_000, 1)}M"
-      count >= 1_000 -> "#{Float.round(count / 1_000, 1)}K"
-      true -> to_string(count)
-    end
-  end
-
-  def format_display_count(_), do: "N/A"
+  def format_display_count(count), do: Reencodarr.Formatters.display_count(count)
 
   @doc """
   Generates CSS classes for filter tags with different color schemes.

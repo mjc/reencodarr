@@ -17,6 +17,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.CrfSearcher.Broadway.Producer
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.ErrorHelpers
+  alias Reencodarr.Formatters
   alias Reencodarr.{Media, Repo, Telemetry}
 
   require Logger
@@ -487,15 +488,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         )
 
         # Always insert the VMAF record, but log a warning if size exceeds 10GB
-        estimated_size_bytes = convert_size_to_bytes(eta_data.predicted_size, eta_data.size_unit)
+        estimated_size_bytes =
+          Formatters.size_to_bytes(eta_data.predicted_size, eta_data.size_unit)
+
         # 10GB in bytes
         max_size_bytes = 10 * 1024 * 1024 * 1024
 
         if estimated_size_bytes && estimated_size_bytes > max_size_bytes do
-          estimated_size_gb = estimated_size_bytes / (1024 * 1024 * 1024)
-
           Logger.warning(
-            "CrfSearch: VMAF CRF #{round(eta_data.crf)} estimated file size (#{Float.round(estimated_size_gb, 1)} GB) exceeds 10GB limit"
+            "CrfSearch: VMAF CRF #{round(eta_data.crf)} estimated file size (#{Reencodarr.Formatters.size_gb(estimated_size_bytes)}) exceeds 10GB limit"
           )
         end
 
@@ -674,7 +675,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       scores when length(scores) < 3 ->
         max_score = scores |> Enum.map(fn %{score: score} -> score end) |> Enum.max()
 
-        "#{base_msg}. Only #{length(scores)} VMAF score(s) were tested (highest: #{Float.round(max_score, 2)}). The search space may be too limited - try using a wider CRF range or different encoder settings."
+        "#{base_msg}. Only #{length(scores)} VMAF score(s) were tested (highest: #{Reencodarr.Formatters.vmaf_score(max_score, 2)}). The search space may be too limited - try using a wider CRF range or different encoder settings."
 
       scores ->
         max_score = scores |> Enum.map(fn %{score: score} -> score end) |> Enum.max()
@@ -684,9 +685,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         if max_score < target_vmaf do
           gap = target_vmaf - max_score
 
-          "#{base_msg}. Tested #{score_count} CRF values with VMAF scores ranging from #{Float.round(min_score, 2)} to #{Float.round(max_score, 2)}. The highest quality (#{Float.round(max_score, 2)}) is still #{Float.round(gap, 2)} points below the target. Try lowering the target VMAF or using a higher quality encoder preset."
+          "#{base_msg}. Tested #{score_count} CRF values with VMAF scores ranging from #{Reencodarr.Formatters.vmaf_score(min_score, 2)} to #{Reencodarr.Formatters.vmaf_score(max_score, 2)}. The highest quality (#{Reencodarr.Formatters.vmaf_score(max_score, 2)}) is still #{Reencodarr.Formatters.vmaf_score(gap, 2)} points below the target. Try lowering the target VMAF or using a higher quality encoder preset."
         else
-          "#{base_msg}. Tested #{score_count} CRF values with VMAF scores ranging from #{Float.round(min_score, 2)} to #{Float.round(max_score, 2)}. The search algorithm couldn't converge on a suitable CRF value - this may indicate an issue with the binary search algorithm or encoder settings."
+          "#{base_msg}. Tested #{score_count} CRF values with VMAF scores ranging from #{Reencodarr.Formatters.vmaf_score(min_score, 2)} to #{Reencodarr.Formatters.vmaf_score(max_score, 2)}. The search algorithm couldn't converge on a suitable CRF value - this may indicate an issue with the binary search algorithm or encoder settings."
         end
     end
   end
@@ -921,37 +922,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp convert_to_number(_), do: nil
 
-  # Convert size with unit to bytes
-  defp convert_size_to_bytes(size_str, unit) when is_binary(size_str) and is_binary(unit) do
-    with {:ok, size_value} <- Parsers.parse_float_exact(size_str),
-         {:ok, multiplier} <- get_unit_multiplier(unit) do
-      round(size_value * multiplier)
-    else
-      _ -> nil
-    end
-  end
-
-  defp convert_size_to_bytes(size_value, unit) when is_number(size_value) and is_binary(unit) do
-    case get_unit_multiplier(unit) do
-      {:ok, multiplier} -> round(size_value * multiplier)
-      _ -> nil
-    end
-  end
-
-  defp convert_size_to_bytes(_, _), do: nil
-
-  # Get the byte multiplier for a given unit
-  defp get_unit_multiplier(unit) do
-    case String.downcase(unit) do
-      "b" -> {:ok, 1}
-      "kb" -> {:ok, 1024}
-      "mb" -> {:ok, 1024 * 1024}
-      "gb" -> {:ok, 1024 * 1024 * 1024}
-      "tb" -> {:ok, 1024 * 1024 * 1024 * 1024}
-      _ -> {:error, :unknown_unit}
-    end
-  end
-
   # Get VMAF record by video ID and CRF value
   defp get_vmaf_by_crf(video_id, crf_value) when is_number(crf_value) do
     import Ecto.Query
@@ -1008,15 +978,13 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp validate_size_limit(size_value, unit, video) do
-    estimated_size_bytes = convert_size_to_bytes(size_value, unit)
+    estimated_size_bytes = Formatters.size_to_bytes(size_value, unit)
     # 10GB in bytes
     max_size_bytes = 10 * 1024 * 1024 * 1024
 
     if estimated_size_bytes && estimated_size_bytes > max_size_bytes do
-      estimated_size_gb = estimated_size_bytes / (1024 * 1024 * 1024)
-
       Logger.info(
-        "CrfSearch: VMAF estimated size #{Float.round(estimated_size_gb, 2)} GB exceeds 10GB limit for video #{video.id}"
+        "CrfSearch: VMAF estimated size #{Reencodarr.Formatters.size_gb(estimated_size_bytes, 2)} exceeds 10GB limit for video #{video.id}"
       )
 
       {:error, :size_too_large}

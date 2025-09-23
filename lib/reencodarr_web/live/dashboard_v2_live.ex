@@ -502,7 +502,7 @@ defmodule ReencodarrWeb.DashboardV2Live do
             >
               <%= if @state.analyzer_throughput && @state.analyzer_throughput > 0 do %>
                 <div class="text-xs text-gray-500">
-                  Rate: {Float.round(@state.analyzer_throughput, 1)} files/s
+                  Rate: {Reencodarr.Formatters.rate(@state.analyzer_throughput)} files/s
                 </div>
               <% end %>
             </.pipeline_step>

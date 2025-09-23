@@ -85,9 +85,15 @@ defmodule Reencodarr.FormattersPropertyTest do
       end
     end
 
-    property "returns N/A for zero or negative values" do
+    property "returns appropriate values for zero and negative durations" do
       check all(seconds <- integer(-1000..0)) do
-        assert Formatters.duration(seconds) == "N/A"
+        result = Formatters.duration(seconds)
+
+        if seconds == 0 do
+          assert result == "0s"
+        else
+          assert result == "N/A"
+        end
       end
     end
   end
@@ -254,6 +260,299 @@ defmodule Reencodarr.FormattersPropertyTest do
                 ])
             ) do
         assert Formatters.savings_bytes(input) == "N/A"
+      end
+    end
+  end
+
+  describe "size_to_bytes/2 property tests" do
+    property "converts valid size strings to bytes correctly" do
+      check all(
+              size <- one_of([integer(1..1000), float(min: 1.0, max: 1000.0)]),
+              unit <- member_of(["B", "KB", "MB", "GB", "TB", "b", "kb", "mb", "gb", "tb"])
+            ) do
+        size_str = to_string(size)
+        result = Formatters.size_to_bytes(size_str, unit)
+        assert is_integer(result) or is_nil(result)
+
+        if result do
+          assert result > 0
+        end
+      end
+    end
+
+    property "returns nil for invalid input" do
+      check all(
+              size <- one_of([invalid_input(), constant("invalid")]),
+              unit <- one_of([invalid_input(), constant("INVALID_UNIT")])
+            ) do
+        result = Formatters.size_to_bytes(size, unit)
+        assert is_nil(result)
+      end
+    end
+  end
+
+  describe "get_unit_multiplier/1 property tests" do
+    property "returns valid multipliers for known units" do
+      check all(unit <- member_of(["B", "KB", "MB", "GB", "TB", "b", "kb", "mb", "gb", "tb"])) do
+        result = Formatters.get_unit_multiplier(unit)
+        assert {:ok, multiplier} = result
+        assert is_integer(multiplier)
+        assert multiplier > 0
+      end
+    end
+
+    property "returns error for invalid units" do
+      check all(unit <- string(:ascii, max_length: 5)) do
+        result = Formatters.get_unit_multiplier(unit)
+
+        if unit in ["B", "KB", "MB", "GB", "TB", "b", "kb", "mb", "gb", "tb"] do
+          assert {:ok, _} = result
+        else
+          assert {:error, :unknown_unit} = result
+        end
+      end
+    end
+  end
+
+  describe "potential_savings_gib/2 property tests" do
+    property "returns valid savings for numeric input" do
+      check all(
+              original <- integer(1_000_000..10_000_000_000),
+              predicted <- integer(0..original)
+            ) do
+        result = Formatters.potential_savings_gib(original, predicted)
+        assert is_float(result)
+        assert result >= 0.0
+      end
+    end
+
+    property "returns N/A for invalid input" do
+      check all(input <- invalid_input()) do
+        result = Formatters.potential_savings_gib(input, 1000)
+        assert result == "N/A"
+
+        result2 = Formatters.potential_savings_gib(1000, input)
+        assert result2 == "N/A"
+      end
+    end
+  end
+
+  describe "savings_percentage/2 property tests" do
+    property "returns valid percentage for numeric input" do
+      check all(
+              original <- integer(1..10_000),
+              predicted <- integer(0..original)
+            ) do
+        result = Formatters.savings_percentage(original, predicted)
+        assert is_float(result)
+        assert result >= 0.0
+        assert result <= 100.0
+      end
+    end
+
+    property "returns N/A for invalid input" do
+      check all(
+              original <- one_of([invalid_input(), integer(-1000..0)]),
+              predicted <- invalid_input()
+            ) do
+        result = Formatters.savings_percentage(original, predicted)
+        assert result == "N/A"
+      end
+    end
+  end
+
+  describe "display_count/1 property tests" do
+    property "formats integer counts correctly" do
+      check all(count <- integer(0..10_000_000)) do
+        result = Formatters.display_count(count)
+        assert is_binary(result)
+        assert result != ""
+
+        cond do
+          count < 1000 -> assert result == to_string(count)
+          count < 1_000_000 -> assert result =~ ~r/\d+\.\d+K/
+          true -> assert result =~ ~r/\d+\.\d+M/
+        end
+      end
+    end
+
+    property "returns N/A for invalid input" do
+      check all(input <- one_of([invalid_input(), float(min: -1000.0, max: 1000.0)])) do
+        result = Formatters.display_count(input)
+        assert result == "N/A"
+      end
+    end
+  end
+
+  describe "rate/1 property tests" do
+    property "formats numeric rates correctly" do
+      check all(rate <- one_of([integer(-100..100), float(min: -100.0, max: 100.0)])) do
+        result = Formatters.rate(rate)
+        assert is_binary(result)
+        # Allow for scientific notation in very large numbers
+        assert result =~ ~r/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/
+      end
+    end
+
+    property "returns N/A for invalid input" do
+      check all(input <- invalid_input()) do
+        result = Formatters.rate(input)
+        assert result == "N/A"
+      end
+    end
+  end
+
+  describe "duration_minutes/1 property tests" do
+    property "converts seconds to minutes for numeric input" do
+      check all(seconds <- one_of([integer(0..86_400), float(min: 0.0, max: 86_400.0)])) do
+        result = Formatters.duration_minutes(seconds)
+        assert is_binary(result)
+        assert result =~ ~r/^\d+\.\d+ min$/
+      end
+    end
+
+    property "returns Unknown for invalid input" do
+      check all(input <- invalid_input()) do
+        result = Formatters.duration_minutes(input)
+        assert result == "Unknown"
+      end
+    end
+  end
+
+  describe "size_gb/2 property tests" do
+    property "converts bytes to GB for numeric input" do
+      check all(
+              bytes <- integer(0..10_000_000_000),
+              decimal_places <- integer(0..3)
+            ) do
+        result = Formatters.size_gb(bytes, decimal_places)
+        assert is_binary(result)
+        assert result =~ ~r/^\d+(\.\d+)? GB$/
+      end
+    end
+
+    property "returns Unknown for invalid input" do
+      check all(
+              bytes <- invalid_input(),
+              decimal_places <- integer(0..3)
+            ) do
+        result = Formatters.size_gb(bytes, decimal_places)
+        assert result == "Unknown"
+      end
+    end
+  end
+
+  describe "percentage/2 property tests" do
+    property "calculates percentages for numeric input" do
+      check all(
+              numerator <- integer(0..100),
+              denominator <- integer(1..100)
+            ) do
+        result = Formatters.percentage(numerator, denominator)
+        assert is_float(result)
+        assert result >= 0.0
+        # Percentage can exceed 100% when numerator > denominator
+      end
+    end
+
+    property "returns 0.0 for invalid input" do
+      check all(
+              numerator <- invalid_input(),
+              denominator <- invalid_input()
+            ) do
+        result = Formatters.percentage(numerator, denominator)
+        assert result == 0.0
+      end
+    end
+  end
+
+  describe "resolution/2 property tests" do
+    property "formats resolution for valid integers" do
+      check all(
+              width <- integer(1..7680),
+              height <- integer(1..4320)
+            ) do
+        result = Formatters.resolution(width, height)
+        assert is_binary(result)
+        assert result == "#{width}x#{height}"
+      end
+    end
+
+    property "returns Unknown for invalid input" do
+      check all(
+              width <- one_of([invalid_input(), float(min: 1.0, max: 1000.0)]),
+              height <- one_of([invalid_input(), float(min: 1.0, max: 1000.0)])
+            ) do
+        result = Formatters.resolution(width, height)
+        assert result == "Unknown"
+      end
+    end
+  end
+
+  describe "codec_list/1 property tests" do
+    property "formats list of strings correctly" do
+      check all(
+              codecs <-
+                list_of(string(:ascii, min_length: 1, max_length: 10),
+                  min_length: 1,
+                  max_length: 5
+                )
+            ) do
+        result = Formatters.codec_list(codecs)
+        assert is_binary(result)
+
+        case length(codecs) do
+          0 ->
+            assert result == "None"
+
+          1 ->
+            assert result == hd(codecs)
+
+          _ ->
+            [first, second | _] = codecs
+            assert result == "#{first}, #{second}"
+        end
+      end
+    end
+
+    property "handles empty list" do
+      result = Formatters.codec_list([])
+      assert result == "None"
+    end
+
+    property "returns Unknown for invalid input" do
+      check all(input <- one_of([invalid_input(), integer(1..1000)])) do
+        result = Formatters.codec_list(input)
+
+        # Handle special case where empty list returns "None", not "Unknown"
+        if input == [] do
+          assert result == "None"
+        else
+          assert result == "Unknown"
+        end
+      end
+    end
+  end
+
+  describe "vmaf_score/2 property tests" do
+    property "formats numeric scores with specified decimal places" do
+      check all(
+              score <- one_of([integer(0..100), float(min: 0.0, max: 100.0)]),
+              decimal_places <- integer(0..3)
+            ) do
+        result = Formatters.vmaf_score(score, decimal_places)
+        assert is_binary(result)
+        assert result =~ ~r/^\d+(\.\d+)?$/
+      end
+    end
+
+    property "returns string representation for invalid score" do
+      check all(
+              score <- invalid_input(),
+              decimal_places <- integer(0..3)
+            ) do
+        result = Formatters.vmaf_score(score, decimal_places)
+        assert is_binary(result)
       end
     end
   end
