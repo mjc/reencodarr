@@ -27,7 +27,7 @@ defmodule ReencodarrWeb.CrfSearchQueueComponent do
                 {format_name(file)}
               </td>
               <td class="border border-gray-700 px-4 py-2 text-gray-300">
-                {Float.round(file.bitrate / 1_000_000, 2)} Mbit/s
+                {Reencodarr.Formatters.bitrate_mbps(file.bitrate)} Mbit/s
               </td>
               <td class="border border-gray-700 px-4 py-2 text-gray-300">
                 {Reencodarr.Formatters.file_size_gib(file.size)} GiB

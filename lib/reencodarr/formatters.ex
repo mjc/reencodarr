@@ -3,6 +3,8 @@ defmodule Reencodarr.Formatters do
   Minimal, idiomatic formatting utilities for Reencodarr.
   """
 
+  alias Reencodarr.Core.{Parsers, Time}
+
   # === FILE SIZES ===
 
   @spec file_size(non_neg_integer()) :: String.t()
@@ -27,11 +29,261 @@ defmodule Reencodarr.Formatters do
   @spec file_size_gib(any()) :: float()
   def file_size_gib(_), do: 0.0
 
+  # === SIZE CONVERSION ===
+
+  @doc """
+  Converts a size value with unit to bytes.
+
+  ## Examples
+
+      iex> Formatters.size_to_bytes("1.5", "GB")
+      1610612736
+
+      iex> Formatters.size_to_bytes(100, "MB")
+      104857600
+
+      iex> Formatters.size_to_bytes("invalid", "MB")
+      nil
+  """
+  @spec size_to_bytes(String.t() | number(), String.t()) :: non_neg_integer() | nil
+  def size_to_bytes(size_str, unit) when is_binary(size_str) and is_binary(unit) do
+    with {:ok, size_value} <- Parsers.parse_float_exact(size_str),
+         {:ok, multiplier} <- get_unit_multiplier(unit) do
+      round(size_value * multiplier)
+    else
+      _ -> nil
+    end
+  end
+
+  def size_to_bytes(size_value, unit) when is_number(size_value) and is_binary(unit) do
+    case get_unit_multiplier(unit) do
+      {:ok, multiplier} -> round(size_value * multiplier)
+      _ -> nil
+    end
+  end
+
+  def size_to_bytes(_, _), do: nil
+
+  @doc """
+  Gets the byte multiplier for a given unit.
+
+  ## Examples
+
+      iex> Formatters.get_unit_multiplier("GB")
+      {:ok, 1073741824}
+
+      iex> Formatters.get_unit_multiplier("invalid")
+      {:error, :unknown_unit}
+  """
+  @spec get_unit_multiplier(String.t()) :: {:ok, pos_integer()} | {:error, :unknown_unit}
+  def get_unit_multiplier(unit) do
+    case String.downcase(unit) do
+      "b" -> {:ok, 1}
+      "kb" -> {:ok, 1024}
+      "mb" -> {:ok, 1024 * 1024}
+      "gb" -> {:ok, 1024 * 1024 * 1024}
+      "tb" -> {:ok, 1024 * 1024 * 1024 * 1024}
+      _ -> {:error, :unknown_unit}
+    end
+  end
+
   @spec savings_bytes(pos_integer()) :: String.t()
   def savings_bytes(bytes) when is_integer(bytes) and bytes > 0, do: file_size(bytes)
 
   @spec savings_bytes(any()) :: String.t()
   def savings_bytes(_), do: "N/A"
+
+  @doc """
+  Formats potential file size savings in GiB.
+
+  ## Examples
+
+      iex> Formatters.potential_savings_gib(1000000000, 500000000)
+      0.47
+
+      iex> Formatters.potential_savings_gib(nil, 500000000)
+      "N/A"
+  """
+  @spec potential_savings_gib(number(), number()) :: float()
+  def potential_savings_gib(original_size, predicted_filesize)
+      when is_number(original_size) and is_number(predicted_filesize) do
+    savings = original_size - predicted_filesize
+    file_size_gib(savings)
+  end
+
+  @spec potential_savings_gib(any(), any()) :: String.t()
+  def potential_savings_gib(_, _), do: "N/A"
+
+  @doc """
+  Calculates and formats savings percentage.
+
+  ## Examples
+
+      iex> Formatters.savings_percentage(1000, 750)
+      25.0
+
+      iex> Formatters.savings_percentage(nil, 750)
+      "N/A"
+  """
+  @spec savings_percentage(number(), number()) :: float()
+  def savings_percentage(original_size, predicted_filesize)
+      when is_number(original_size) and is_number(predicted_filesize) and original_size > 0 do
+    Float.round((original_size - predicted_filesize) / original_size * 100, 1)
+  end
+
+  @spec savings_percentage(any(), any()) :: String.t()
+  def savings_percentage(_, _), do: "N/A"
+
+  @doc """
+  Formats count values with K/M suffixes for display.
+
+  ## Examples
+
+      iex> Formatters.display_count(1500)
+      "1.5K"
+
+      iex> Formatters.display_count(2500000)
+      "2.5M"
+
+      iex> Formatters.display_count(500)
+      "500"
+  """
+  @spec display_count(integer()) :: String.t()
+  def display_count(count) when is_integer(count) do
+    cond do
+      count >= 1_000_000 -> "#{Float.round(count / 1_000_000, 1)}M"
+      count >= 1_000 -> "#{Float.round(count / 1_000, 1)}K"
+      true -> to_string(count)
+    end
+  end
+
+  @spec display_count(any()) :: String.t()
+  def display_count(_), do: "N/A"
+
+  @doc """
+  Formats a rate value to 1 decimal place.
+
+  ## Examples
+
+      iex> Formatters.rate(5.678)
+      "5.7"
+
+      iex> Formatters.rate(nil)
+      "N/A"
+  """
+  @spec rate(number()) :: String.t()
+  def rate(rate_value) when is_number(rate_value) do
+    (rate_value * 1.0) |> Float.round(1) |> to_string()
+  end
+
+  @spec rate(any()) :: String.t()
+  def rate(_), do: "N/A"
+
+  @doc """
+  Formats duration in seconds to minutes with 1 decimal place.
+
+  ## Examples
+
+      iex> Formatters.duration_minutes(150)
+      "2.5 min"
+
+      iex> Formatters.duration_minutes(nil)
+      "Unknown"
+  """
+  @spec duration_minutes(number()) :: String.t()
+  def duration_minutes(seconds) when is_number(seconds) do
+    "#{Float.round(seconds / 60, 1)} min"
+  end
+
+  @spec duration_minutes(any()) :: String.t()
+  def duration_minutes(_), do: "Unknown"
+
+  @doc """
+  Formats bytes to GB with specified decimal places.
+
+  ## Examples
+
+      iex> Formatters.size_gb(1073741824, 1)
+      "1.0 GB"
+
+      iex> Formatters.size_gb(nil, 1)
+      "Unknown"
+  """
+  @spec size_gb(number(), integer()) :: String.t()
+  def size_gb(bytes, decimal_places \\ 1)
+
+  def size_gb(bytes, decimal_places) when is_number(bytes) do
+    gb = bytes / (1024 * 1024 * 1024)
+    "#{Float.round(gb, decimal_places)} GB"
+  end
+
+  def size_gb(_, _), do: "Unknown"
+
+  @doc """
+  Calculates and formats a percentage.
+
+  ## Examples
+
+      iex> Formatters.percentage(3, 4)
+      75.0
+
+      iex> Formatters.percentage(0, 0)
+      0.0
+  """
+  @spec percentage(number(), number()) :: float()
+  def percentage(numerator, denominator) when is_number(numerator) and is_number(denominator) do
+    if denominator > 0 do
+      (numerator / denominator * 100) |> Float.round(1)
+    else
+      0.0
+    end
+  end
+
+  @spec percentage(any(), any()) :: float()
+  def percentage(_, _), do: 0.0
+
+  @doc """
+  Formats resolution as "widthxheight".
+
+  ## Examples
+
+      iex> Formatters.resolution(1920, 1080)
+      "1920x1080"
+
+      iex> Formatters.resolution(nil, 1080)
+      "Unknown"
+  """
+  @spec resolution(integer(), integer()) :: String.t()
+  def resolution(width, height) when is_integer(width) and is_integer(height) do
+    "#{width}x#{height}"
+  end
+
+  @spec resolution(any(), any()) :: String.t()
+  def resolution(_, _), do: "Unknown"
+
+  @doc """
+  Formats a list of codecs for display.
+
+  ## Examples
+
+      iex> Formatters.codec_list(["h264", "aac", "mov"])
+      "h264, aac"
+
+      iex> Formatters.codec_list([])
+      "None"
+
+      iex> Formatters.codec_list(nil)
+      "Unknown"
+  """
+  @spec codec_list(list() | nil) :: String.t()
+  def codec_list(nil), do: "Unknown"
+  def codec_list([]), do: "None"
+
+  def codec_list(codecs) when is_list(codecs) do
+    codecs |> Enum.take(2) |> Enum.join(", ")
+  end
+
+  def codec_list(_), do: "Unknown"
 
   # === COUNTS & NUMBERS ===
 
@@ -96,10 +348,29 @@ defmodule Reencodarr.Formatters do
   def crf(crf), do: to_string(crf)
 
   @spec vmaf_score(number()) :: String.t()
-  def vmaf_score(score) when is_number(score), do: "#{Float.round(score / 1, 1)}"
+  def vmaf_score(score) when is_number(score), do: vmaf_score(score, 1)
 
   @spec vmaf_score(any()) :: String.t()
   def vmaf_score(score), do: to_string(score)
+
+  @doc """
+  Formats VMAF score with specified decimal places.
+
+  ## Examples
+
+      iex> Formatters.vmaf_score(95.67, 2)
+      "95.67"
+
+      iex> Formatters.vmaf_score(95.67, 1)
+      "95.7"
+  """
+  @spec vmaf_score(number(), integer()) :: String.t()
+  def vmaf_score(score, decimal_places) when is_number(score) and is_integer(decimal_places) do
+    (score * 1.0) |> Float.round(decimal_places) |> to_string()
+  end
+
+  @spec vmaf_score(any(), integer()) :: String.t()
+  def vmaf_score(score, _), do: to_string(score)
 
   @spec codec_info([String.t()], [String.t()]) :: String.t()
   def codec_info(video_codecs, audio_codecs)
@@ -112,61 +383,11 @@ defmodule Reencodarr.Formatters do
   @spec codec_info(any(), any()) :: String.t()
   def codec_info(_, _), do: "Unknown"
 
-  # === TIME ===
+  # === TIME FORMATTING (delegated to Core.Time) ===
 
-  @spec duration(number()) :: String.t()
-  def duration(seconds) when is_number(seconds) and seconds > 0 do
-    hours = div(trunc(seconds), 3600)
-    minutes = div(rem(trunc(seconds), 3600), 60)
-    secs = rem(trunc(seconds), 60)
-
-    cond do
-      hours > 0 -> "#{hours}h #{minutes}m #{secs}s"
-      minutes > 0 -> "#{minutes}m #{secs}s"
-      true -> "#{secs}s"
-    end
-  end
-
-  @spec duration(any()) :: String.t()
-  def duration(_), do: "N/A"
-
-  @spec eta(String.t()) :: String.t()
-  def eta(eta) when is_binary(eta), do: eta
-
-  @spec eta(number()) :: String.t()
-  def eta(eta) when is_number(eta), do: duration(eta)
-
-  @spec eta(any()) :: String.t()
-  def eta(_), do: "N/A"
-
-  @spec relative_time(DateTime.t()) :: String.t()
-  def relative_time(%DateTime{} = datetime) do
-    diff_seconds = DateTime.diff(DateTime.utc_now(), datetime, :second)
-
-    cond do
-      diff_seconds < 60 -> "#{diff_seconds} seconds ago"
-      diff_seconds < 3600 -> "#{div(diff_seconds, 60)} minutes ago"
-      diff_seconds < 86_400 -> "#{div(diff_seconds, 3600)} hours ago"
-      diff_seconds < 2_592_000 -> "#{div(diff_seconds, 86_400)} days ago"
-      true -> "#{div(diff_seconds, 2_592_000)} months ago"
-    end
-  end
-
-  @spec relative_time(NaiveDateTime.t()) :: String.t()
-  def relative_time(%NaiveDateTime{} = datetime) do
-    datetime |> DateTime.from_naive!("Etc/UTC") |> relative_time()
-  end
-
-  @spec relative_time(String.t()) :: String.t()
-  def relative_time(datetime) when is_binary(datetime) do
-    case DateTime.from_iso8601(datetime) do
-      {:ok, dt, _} -> relative_time(dt)
-      _ -> "Invalid date"
-    end
-  end
-
-  @spec relative_time(any()) :: String.t()
-  def relative_time(_), do: "Never"
+  defdelegate duration(seconds), to: Time, as: :format_duration
+  defdelegate eta(eta), to: Time, as: :format_eta
+  defdelegate relative_time(datetime), to: Time
 
   # === UTILITIES ===
 

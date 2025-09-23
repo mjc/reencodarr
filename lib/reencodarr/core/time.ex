@@ -6,8 +6,6 @@ defmodule Reencodarr.Core.Time do
   into the Core namespace with better organization.
   """
 
-  alias Reencodarr.Core.Parsers
-
   @doc """
   Converts a time value to seconds based on the unit.
 
@@ -58,23 +56,14 @@ defmodule Reencodarr.Core.Time do
       iex> Time.relative_time(~U[2024-01-01 12:00:00Z])
       "about 1 year ago"
   """
-  @spec relative_time(DateTime.t() | NaiveDateTime.t() | nil) :: String.t()
-  def relative_time(nil), do: "never"
+  @spec relative_time(DateTime.t() | NaiveDateTime.t() | String.t() | nil) :: String.t()
+  def relative_time(nil), do: "N/A"
 
-  def relative_time(datetime) do
-    now = DateTime.utc_now()
-
-    # Convert NaiveDateTime to DateTime if needed
-    datetime =
-      case datetime do
-        %DateTime{} -> datetime
-        %NaiveDateTime{} -> DateTime.from_naive!(datetime, "Etc/UTC")
-      end
-
-    diff_seconds = DateTime.diff(now, datetime, :second)
+  def relative_time(%DateTime{} = datetime) do
+    diff_seconds = DateTime.diff(DateTime.utc_now(), datetime, :second)
 
     cond do
-      diff_seconds < 60 -> "just now"
+      diff_seconds < 60 -> "#{diff_seconds} seconds ago"
       diff_seconds < 3600 -> "#{div(diff_seconds, 60)} minutes ago"
       diff_seconds < 86_400 -> "#{div(diff_seconds, 3600)} hours ago"
       diff_seconds < 2_592_000 -> "#{div(diff_seconds, 86_400)} days ago"
@@ -82,6 +71,19 @@ defmodule Reencodarr.Core.Time do
       true -> "#{div(diff_seconds, 31_556_952)} years ago"
     end
   end
+
+  def relative_time(%NaiveDateTime{} = datetime) do
+    datetime |> DateTime.from_naive!("Etc/UTC") |> relative_time()
+  end
+
+  def relative_time(datetime) when is_binary(datetime) do
+    case DateTime.from_iso8601(datetime) do
+      {:ok, dt, _} -> relative_time(dt)
+      _ -> "N/A"
+    end
+  end
+
+  def relative_time(_), do: "N/A"
 
   @doc """
   Formats duration from seconds to human-readable format.
@@ -99,22 +101,21 @@ defmodule Reencodarr.Core.Time do
   """
   @spec format_duration(number() | nil) :: String.t()
   def format_duration(nil), do: "N/A"
-  def format_duration(0), do: "N/A"
+  def format_duration(0), do: "0s"
 
-  def format_duration(seconds) when is_number(seconds) and seconds >= 0 do
+  def format_duration(seconds) when is_number(seconds) and seconds > 0 do
     hours = div(trunc(seconds), 3600)
     minutes = div(rem(trunc(seconds), 3600), 60)
     secs = rem(trunc(seconds), 60)
 
-    parts = []
-    parts = if hours > 0, do: ["#{hours}h" | parts], else: parts
-    parts = if minutes > 0, do: ["#{minutes}m" | parts], else: parts
-    parts = if secs > 0 or parts == [], do: ["#{secs}s" | parts], else: parts
-
-    parts |> Enum.reverse() |> Enum.join(" ")
+    cond do
+      hours > 0 -> "#{hours}h #{minutes}m #{secs}s"
+      minutes > 0 -> "#{minutes}m #{secs}s"
+      true -> "#{secs}s"
+    end
   end
 
-  def format_duration(duration), do: to_string(duration)
+  def format_duration(_), do: "N/A"
 
   @doc """
   Formats ETA with proper pluralization.
@@ -185,9 +186,21 @@ defmodule Reencodarr.Core.Time do
   defp parse_time_part(captures, key) do
     case Map.get(captures, key) do
       nil -> 0
-      value when is_binary(value) -> Parsers.parse_int(value, 0)
+      value when is_binary(value) -> parse_int(value, 0)
       value when is_integer(value) -> value
       _ -> 0
+    end
+  end
+
+  @spec parse_int(String.t() | integer() | nil, integer()) :: integer()
+  defp parse_int(nil, default), do: default
+  defp parse_int("", default), do: default
+  defp parse_int(value, _default) when is_integer(value), do: value
+
+  defp parse_int(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, _} -> int
+      :error -> default
     end
   end
 end
