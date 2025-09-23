@@ -303,12 +303,12 @@ defmodule ReencodarrWeb.UIHelpers do
       %{
         label: "TOTAL VMAFS",
         key: :total_vmafs,
-        formatter: &Reencodarr.Formatters.format_count/1
+        formatter: &Reencodarr.Formatters.count/1
       },
       %{
         label: "CHOSEN VMAFS",
         key: :chosen_vmafs_count,
-        formatter: &Reencodarr.Formatters.format_count/1
+        formatter: &Reencodarr.Formatters.count/1
       },
       %{label: "LAST UPDATE", key: :last_video_update, small: true},
       %{label: "LAST INSERT", key: :last_video_insert, small: true}

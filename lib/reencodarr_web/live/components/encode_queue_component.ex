@@ -28,7 +28,7 @@ defmodule ReencodarrWeb.EncodeQueueComponent do
                 {format_name(file.video)}
               </td>
               <td class="border border-gray-700 px-4 py-2 text-gray-300">
-                {Reencodarr.Formatters.format_file_size_gib(file.video.size)} GiB
+                {Reencodarr.Formatters.file_size_gib(file.video.size)} GiB
               </td>
               <td class="border border-gray-700 px-4 py-2 text-gray-300">
                 {format_potential_savings(file.video.size, file.predicted_filesize)} GiB
@@ -45,13 +45,13 @@ defmodule ReencodarrWeb.EncodeQueueComponent do
   end
 
   defp format_name(%{path: path}) do
-    Reencodarr.Formatters.format_filename(path)
+    Reencodarr.Formatters.filename(path)
   end
 
   defp format_potential_savings(original_size, predicted_filesize)
        when is_number(original_size) and is_number(predicted_filesize) do
     savings = original_size - predicted_filesize
-    Reencodarr.Formatters.format_file_size_gib(savings)
+    Reencodarr.Formatters.file_size_gib(savings)
   end
 
   defp format_potential_savings(_, _), do: "N/A"

@@ -421,7 +421,7 @@ defmodule ReencodarrWeb.FailuresLive do
                     <div class="mt-2 flex flex-wrap gap-2 text-xs">
                       <%= if video.size do %>
                         <span class={filter_tag_classes(:gray)}>
-                          {Reencodarr.Formatters.format_file_size(video.size)}
+                          {Reencodarr.Formatters.file_size(video.size)}
                         </span>
                       <% end %>
                       <%= if video.video_codecs && length(video.video_codecs) > 0 do %>
@@ -574,7 +574,7 @@ defmodule ReencodarrWeb.FailuresLive do
                       </td>
                       <td class="px-3 py-3 text-sm">
                         <%= if video.size do %>
-                          {Reencodarr.Formatters.format_file_size(video.size)}
+                          {Reencodarr.Formatters.file_size(video.size)}
                         <% else %>
                           <span class="text-orange-600">Unknown</span>
                         <% end %>

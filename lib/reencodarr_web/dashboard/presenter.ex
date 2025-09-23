@@ -48,14 +48,14 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
       %{
         title: "Total Videos",
         subtitle: "in library",
-        value: Formatters.format_count(stats.total_videos),
+        value: Formatters.count(stats.total_videos),
         icon: "🎬",
         color: "text-blue-600"
       },
       %{
         title: "Reencoded",
         subtitle: "completed",
-        value: Formatters.format_count(stats.reencoded_count),
+        value: Formatters.count(stats.reencoded_count),
         icon: "✅",
         color: "text-green-600"
       },
@@ -69,7 +69,7 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
       %{
         title: "Failed",
         subtitle: "processing errors",
-        value: Formatters.format_count(stats.failed_count),
+        value: Formatters.count(stats.failed_count),
         icon: "❌",
         color: "text-red-600"
       }
@@ -205,13 +205,13 @@ defmodule ReencodarrWeb.Dashboard.Presenter do
 
       gb_float ->
         bytes = trunc(gb_float * 1_073_741_824)
-        Formatters.format_savings_bytes(bytes)
+        Formatters.savings_bytes(bytes)
     end
   end
 
   defp format_savings_from_gb(gb) when is_number(gb) do
     bytes = trunc(gb * 1_073_741_824)
-    Formatters.format_savings_bytes(bytes)
+    Formatters.savings_bytes(bytes)
   end
 
   defp format_savings_from_gb(_), do: "N/A"

@@ -216,7 +216,7 @@ defmodule ReencodarrWeb.DashboardComponents do
 
   defp progress_throughput(%{progress: %{fps: fps}} = assigns) when fps > 0 do
     ~H"""
-    <span>{Formatters.format_fps(@progress.fps)} FPS</span>
+    <span>{Formatters.fps(@progress.fps)} FPS</span>
     """
   end
 
@@ -231,7 +231,7 @@ defmodule ReencodarrWeb.DashboardComponents do
   defp progress_eta(assigns) do
     ~H"""
     <div class={eta_text_classes()}>
-      ETA: {Formatters.format_eta(@eta)}
+      ETA: {Formatters.eta(@eta)}
     </div>
     """
   end
@@ -241,8 +241,8 @@ defmodule ReencodarrWeb.DashboardComponents do
   defp progress_crf_vmaf(assigns) do
     ~H"""
     <div class={crf_vmaf_classes()}>
-      <span>CRF: {Formatters.format_crf(@progress.crf)}</span>
-      <span>VMAF: {Formatters.format_vmaf_score(@progress.score)}</span>
+      <span>CRF: {Formatters.crf(@progress.crf)}</span>
+      <span>VMAF: {Formatters.vmaf_score(@progress.score)}</span>
     </div>
     """
   end
@@ -312,7 +312,7 @@ defmodule ReencodarrWeb.DashboardComponents do
         </h3>
         <div class={queue_count_container_classes()} role="status" aria-label="Queue item count">
           <span class={queue_count_text_classes()}>
-            {Formatters.format_count(@queue.total_count)}
+            {Formatters.count(@queue.total_count)}
           </span>
         </div>
       </header>
@@ -362,7 +362,7 @@ defmodule ReencodarrWeb.DashboardComponents do
     ~H"""
     <div class={queue_overflow_classes()} role="status">
       <span class={queue_overflow_text_classes()}>
-        SHOWING FIRST 10 OF {Formatters.format_count(@total_count)} ITEMS
+        SHOWING FIRST 10 OF {Formatters.count(@total_count)} ITEMS
       </span>
     </div>
     """
@@ -477,13 +477,13 @@ defmodule ReencodarrWeb.DashboardComponents do
         :if={@file.bitrate}
         icon="📶"
         label="Bitrate"
-        value={Formatters.format_bitrate_mbps(@file.bitrate)}
+        value={Formatters.bitrate_mbps(@file.bitrate)}
       />
       <.metadata_item
         :if={@file.size}
         icon="💾"
         label="Size"
-        value={Formatters.format_file_size(@file.size)}
+        value={Formatters.file_size(@file.size)}
       />
     </div>
     """
@@ -496,13 +496,13 @@ defmodule ReencodarrWeb.DashboardComponents do
         :if={@file.estimated_savings_bytes}
         icon="💰"
         label="Savings"
-        value={Formatters.format_savings_bytes(@file.estimated_savings_bytes)}
+        value={Formatters.savings_bytes(@file.estimated_savings_bytes)}
       />
       <.metadata_item
         :if={@file.size}
         icon="💾"
         label="Size"
-        value={Formatters.format_file_size(@file.size)}
+        value={Formatters.file_size(@file.size)}
       />
     </div>
     """
@@ -515,7 +515,7 @@ defmodule ReencodarrWeb.DashboardComponents do
         :if={@file.duration}
         icon="⏱️"
         label="Duration"
-        value={Formatters.format_duration(@file.duration)}
+        value={Formatters.duration(@file.duration)}
       />
       <.metadata_item
         :if={@file.codec}
