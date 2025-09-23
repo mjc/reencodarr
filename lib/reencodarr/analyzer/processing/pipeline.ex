@@ -98,10 +98,6 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
         Logger.error("Failed to process video #{video_info.path}: #{inspect(error)}")
         {:error, video_info.path}
     end
-  rescue
-    e ->
-      Logger.error("Exception processing video #{video_info.path}: #{inspect(e)}")
-      {:error, video_info.path}
   end
 
   # Private functions
@@ -199,9 +195,9 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
         Logger.debug("Skipping video #{video_info.path}: #{reason}")
         {:skip, reason}
     end
-  rescue
-    e ->
-      Logger.error("Exception processing video #{video_info.path}: #{inspect(e)}")
+  catch
+    :error, reason ->
+      Logger.error("Exception processing video #{video_info.path}: #{inspect(reason)}")
       {:error, video_info.path}
   end
 
@@ -267,12 +263,10 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
   end
 
   defp extract_video_params(validated_mediainfo, path) do
-    video_params = MediaInfoExtractor.extract_video_params(validated_mediainfo, path)
-    {:ok, video_params}
-  rescue
-    e ->
-      Logger.error("Failed to extract video params for #{path}: #{inspect(e)}")
-      {:error, "video parameter extraction failed"}
+    case MediaInfoExtractor.extract_video_params(validated_mediainfo, path) do
+      video_params when is_map(video_params) -> {:ok, video_params}
+      error -> {:error, "video parameter extraction failed: #{inspect(error)}"}
+    end
   end
 
   defp merge_service_metadata(video_params, video_info) do

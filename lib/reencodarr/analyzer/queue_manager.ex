@@ -27,7 +27,20 @@ defmodule Reencodarr.Analyzer.QueueManager do
   Get the current analyzer queue for dashboard display.
   """
   def get_queue do
-    GenServer.call(__MODULE__, :get_queue)
+    case GenServer.whereis(__MODULE__) do
+      nil ->
+        {:error, :not_started}
+
+      pid when is_pid(pid) ->
+        if Process.alive?(pid) do
+          {:ok, GenServer.call(__MODULE__, :get_queue, 1000)}
+        else
+          {:error, :not_alive}
+        end
+
+      _ ->
+        {:error, :invalid_process}
+    end
   end
 
   @doc """

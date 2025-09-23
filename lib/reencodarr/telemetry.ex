@@ -6,7 +6,7 @@ defmodule Reencodarr.Telemetry do
   require Logger
 
   def emit_encoder_started(filename) do
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :encoder, :started],
       %{},
       %{filename: filename}
@@ -17,7 +17,7 @@ defmodule Reencodarr.Telemetry do
     # Convert to map but keep all values - the reporter will handle merging
     measurements = Map.from_struct(progress)
 
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :encoder, :progress],
       measurements,
       %{}
@@ -25,7 +25,7 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_encoder_completed do
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :encoder, :completed],
       %{},
       %{}
@@ -33,7 +33,7 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_encoder_paused do
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :encoder, :paused],
       %{},
       %{}
@@ -41,7 +41,7 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_encoder_failed(exit_code, video) do
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :encoder, :failed],
       %{exit_code: exit_code},
       %{video: video}
@@ -49,7 +49,7 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_crf_search_started do
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :crf_search, :started],
       %{},
       %{}
@@ -60,7 +60,7 @@ defmodule Reencodarr.Telemetry do
     # Convert to map but keep all values - the reporter will handle merging
     measurements = Map.from_struct(progress)
 
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :crf_search, :progress],
       measurements,
       %{}
@@ -68,7 +68,7 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_crf_search_completed do
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :crf_search, :completed],
       %{},
       %{}
@@ -76,7 +76,7 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_crf_search_paused do
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :crf_search, :paused],
       %{},
       %{}
@@ -86,7 +86,7 @@ defmodule Reencodarr.Telemetry do
   def emit_sync_started(service_type \\ nil) do
     Logger.info("Telemetry: Emitting sync started event - service_type: #{service_type}")
 
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :sync, :started],
       %{},
       %{service_type: service_type}
@@ -98,7 +98,7 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_sync_progress(progress, service_type \\ nil) do
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :sync, :progress],
       %{progress: progress},
       %{service_type: service_type}
@@ -110,7 +110,7 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_sync_completed(service_type \\ nil) do
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :sync, :completed],
       %{},
       %{service_type: service_type}
@@ -122,7 +122,7 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_sync_failed(error, service_type \\ nil) do
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :sync, :failed],
       %{},
       %{error: error, service_type: service_type}
@@ -134,7 +134,7 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_video_upserted(video) do
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :media, :video_upserted],
       %{},
       %{video: video}
@@ -142,7 +142,7 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_vmaf_upserted(vmaf) do
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :media, :vmaf_upserted],
       %{},
       %{vmaf: vmaf}
@@ -160,7 +160,7 @@ defmodule Reencodarr.Telemetry do
         measurements
       end
 
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :analyzer, :throughput],
       measurements,
       %{}
@@ -168,7 +168,7 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_crf_search_throughput(success_count, error_count) do
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :crf_search, :throughput],
       %{success_count: success_count, error_count: error_count},
       %{}
@@ -176,7 +176,7 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_analyzer_started do
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :analyzer, :started],
       %{},
       %{}
@@ -184,21 +184,22 @@ defmodule Reencodarr.Telemetry do
   end
 
   def emit_analyzer_paused do
-    safe_telemetry_execute(
+    execute_telemetry(
       [:reencodarr, :analyzer, :paused],
       %{},
       %{}
     )
   end
 
-  # Helper function to safely execute telemetry events
-  defp safe_telemetry_execute(event, measurements, metadata) do
+  # Helper function to execute telemetry events with readiness check
+  defp execute_telemetry(event, measurements, metadata) do
     if telemetry_ready?() do
       :telemetry.execute(event, measurements, metadata)
     else
       Logger.debug("Telemetry not ready for event: #{inspect(event)}")
-      :ok
     end
+
+    :ok
   end
 
   # Check if telemetry system is ready by verifying the telemetry table exists

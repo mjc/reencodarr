@@ -56,11 +56,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
         false
 
       producer_pid ->
-        try do
-          GenStage.call(producer_pid, :running?, 1000)
-        catch
-          :exit, _ -> false
-        end
+        GenStage.call(producer_pid, :running?, 1000)
     end
   end
 
@@ -70,11 +66,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
         false
 
       producer_pid ->
-        try do
-          GenStage.call(producer_pid, :actively_running?, 1000)
-        catch
-          :exit, _ -> false
-        end
+        GenStage.call(producer_pid, :actively_running?, 1000)
     end
   end
 
@@ -294,17 +286,19 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   end
 
   defp find_actual_producer(children) do
-    Enum.find_value(children, fn {_id, pid, _type, _modules} ->
-      if is_pid(pid) do
-        try do
-          GenStage.call(pid, :running?, 1000)
-          pid
-        catch
-          :exit, _ -> nil
-        end
-      end
-    end)
+    Enum.find_value(children, &find_running_producer/1)
   end
+
+  defp find_running_producer({_id, pid, _type, _modules}) when is_pid(pid) do
+    if Process.alive?(pid) do
+      GenStage.call(pid, :running?, 1000)
+      pid
+    else
+      nil
+    end
+  end
+
+  defp find_running_producer(_), do: nil
 
   defp dispatch_if_ready(state) do
     Logger.debug(

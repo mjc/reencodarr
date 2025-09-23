@@ -32,11 +32,7 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
         false
 
       producer_pid ->
-        try do
-          GenStage.call(producer_pid, :running?, 1000)
-        catch
-          :exit, _ -> false
-        end
+        GenStage.call(producer_pid, :running?, 1000)
     end
   end
 
@@ -47,11 +43,7 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
         false
 
       producer_pid ->
-        try do
-          GenStage.call(producer_pid, :actively_running?, 1000)
-        catch
-          :exit, _ -> false
-        end
+        GenStage.call(producer_pid, :actively_running?, 1000)
     end
   end
 
@@ -253,13 +245,9 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
 
   defp find_actual_producer(children) do
     Enum.find_value(children, fn {_id, pid, _type, _modules} ->
-      if is_pid(pid) do
-        try do
-          GenStage.call(pid, :running?, 1000)
-          pid
-        catch
-          :exit, _ -> nil
-        end
+      if is_pid(pid) and Process.alive?(pid) do
+        GenStage.call(pid, :running?, 1000)
+        pid
       end
     end)
   end
@@ -297,13 +285,9 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
         false
 
       pid ->
-        try do
-          case GenServer.call(pid, :running?, 1000) do
-            :not_running -> true
-            _ -> false
-          end
-        catch
-          :exit, _ -> false
+        case GenServer.call(pid, :running?, 1000) do
+          :not_running -> true
+          _ -> false
         end
     end
   end
