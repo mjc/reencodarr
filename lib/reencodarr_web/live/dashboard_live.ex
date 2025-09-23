@@ -59,7 +59,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl Phoenix.LiveView
   def handle_info(:load_initial_data, socket) do
-    with {:ok, full_state} <- get_safe_full_state(),
+    with {:ok, full_state} <- get_dashboard_state(),
          {:ok, dashboard_data} <- present_state(full_state, socket.assigns.timezone) do
       socket =
         socket
@@ -108,7 +108,7 @@ defmodule ReencodarrWeb.DashboardLive do
       {:ok, timezone} ->
         Logger.debug("Setting timezone to #{timezone}")
 
-        with {:ok, current_state} <- get_safe_full_state(),
+        with {:ok, current_state} <- get_dashboard_state(),
              {:ok, dashboard_data} <- present_state(current_state, timezone) do
           socket =
             socket
@@ -262,16 +262,18 @@ defmodule ReencodarrWeb.DashboardLive do
   defp generate_stream_items(_, _), do: []
 
   # State retrieval functions
-  defp get_safe_full_state do
-    {:ok, Reencodarr.DashboardState.initial_with_queues()}
-  rescue
-    error -> {:error, error}
+  defp get_dashboard_state do
+    case Reencodarr.DashboardState.initial_with_queues() do
+      result when is_struct(result) -> {:ok, result}
+      error -> {:error, {:dashboard_state_error, error}}
+    end
   end
 
   defp present_state(state, timezone) do
-    {:ok, Presenter.present(state, timezone)}
-  rescue
-    error -> {:error, error}
+    case Presenter.present(state, timezone) do
+      result when is_map(result) -> {:ok, result}
+      error -> {:error, {:presenter_error, error}}
+    end
   end
 
   # Parameter extraction functions with validation
@@ -313,49 +315,16 @@ defmodule ReencodarrWeb.DashboardLive do
         %{state: state} = metadata,
         %{live_view_pid: pid} = config
       ) do
-    %{syncing: syncing, analyzer_progress: analyzer_progress} =
-      Map.merge(%{syncing: false, analyzer_progress: %{}}, state)
-
-    Logger.debug([
-      "DashboardLive telemetry event received",
-      " - event: ",
-      inspect(event),
-      " - syncing: ",
-      inspect(syncing),
-      " - analyzer_progress: ",
-      inspect(analyzer_progress)
-    ])
-
-    # Validate state structure before forwarding
-    case validate_telemetry_state(state) do
-      :ok ->
-        send(pid, {:telemetry_event, state})
-
-      {:error, reason} ->
-        Logger.warning([
-          "Invalid telemetry state received, skipping update",
-          " - reason: ",
-          inspect(reason),
-          " - state keys: ",
-          inspect(Map.keys(state))
-        ])
-    end
-
-    :ok
-  rescue
-    error ->
-      Logger.error([
-        "Failed to handle telemetry event: ",
-        inspect(error),
-        " - event: ",
-        inspect(event),
-        " - metadata: ",
-        inspect(metadata),
-        " - config: ",
-        inspect(config)
-      ])
-
+    with {:ok, merged_state} <- merge_default_state(state),
+         {:ok, _} <- validate_telemetry_state(merged_state),
+         :ok <- send_telemetry_update(pid, merged_state) do
+      log_telemetry_success(event, merged_state)
       :ok
+    else
+      {:error, reason} ->
+        log_telemetry_error(event, reason, metadata, config)
+        :ok
+    end
   end
 
   # Fallback for other telemetry events
@@ -372,6 +341,45 @@ defmodule ReencodarrWeb.DashboardLive do
     ])
 
     :ok
+  end
+
+  # Helper functions for telemetry handling
+  defp merge_default_state(state) do
+    merged = Map.merge(%{syncing: false, analyzer_progress: %{}}, state)
+    {:ok, merged}
+  end
+
+  defp send_telemetry_update(pid, state) when is_pid(pid) do
+    send(pid, {:telemetry_event, state})
+    :ok
+  end
+
+  defp send_telemetry_update(_invalid_pid, _state), do: {:error, :invalid_pid}
+
+  defp log_telemetry_success(event, %{syncing: syncing, analyzer_progress: analyzer_progress}) do
+    Logger.debug([
+      "DashboardLive telemetry event received",
+      " - event: ",
+      inspect(event),
+      " - syncing: ",
+      inspect(syncing),
+      " - analyzer_progress: ",
+      inspect(analyzer_progress)
+    ])
+  end
+
+  defp log_telemetry_error(event, reason, metadata, config) do
+    Logger.warning([
+      "Invalid telemetry state received, skipping update",
+      " - reason: ",
+      inspect(reason),
+      " - event: ",
+      inspect(event),
+      " - metadata: ",
+      inspect(metadata),
+      " - config: ",
+      inspect(config)
+    ])
   end
 
   # Validates telemetry state structure

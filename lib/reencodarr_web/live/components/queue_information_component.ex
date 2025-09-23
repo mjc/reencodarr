@@ -34,7 +34,7 @@ defmodule ReencodarrWeb.QueueInformationComponent do
     """
   end
 
-  # Safely extract queue count with fallback
+  # Extract queue count with proper error handling - returns N/A when data unavailable
   defp get_queue_count(%{queue_length: queue_length}, key) when is_map(queue_length) do
     Map.get(queue_length, key, 0)
   end

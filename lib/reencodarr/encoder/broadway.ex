@@ -203,21 +203,16 @@ defmodule Reencodarr.Encoder.Broadway do
       filename: Path.basename(vmaf.video.path)
     })
 
-    try do
-      # Build encoding arguments
-      args = build_encode_args(vmaf)
-      output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
+    # Build encoding arguments
+    args = build_encode_args(vmaf)
+    output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
 
-      Logger.debug("Broadway: Starting encode with args: #{inspect(args)}")
-      Logger.debug("Broadway: Output file: #{output_file}")
+    Logger.debug("Broadway: Starting encode with args: #{inspect(args)}")
+    Logger.debug("Broadway: Output file: #{output_file}")
 
-      # Open port and handle encoding
-      port = Helper.open_port(args)
-      handle_encoding_port(port, vmaf, output_file, context)
-    rescue
-      exception ->
-        handle_encoding_exception(exception, vmaf)
-    end
+    # Open port and handle encoding
+    port = Helper.open_port(args)
+    handle_encoding_port(port, vmaf, output_file, context)
   end
 
   defp handle_encoding_port(:error, vmaf, _output_file, _context) do
@@ -348,66 +343,6 @@ defmodule Reencodarr.Encoder.Broadway do
       "Broadway: EXITING handle_recoverable_encoding_failure - returning :ok (no pause)"
     )
 
-    :ok
-  end
-
-  defp handle_encoding_exception(exception, vmaf) do
-    error_message = Exception.message(exception)
-    Logger.error("Broadway: Exception during encoding for VMAF #{vmaf.id}: #{error_message}")
-
-    # Classify exception based on type
-    action = classify_exception_action(error_message)
-
-    case action do
-      {:pause, reason} ->
-        handle_critical_exception(vmaf, reason)
-
-      {:continue, reason} ->
-        handle_recoverable_exception(vmaf, reason)
-    end
-  end
-
-  defp classify_exception_action(error_message) do
-    cond do
-      # System.no_memory or similar memory issues
-      String.contains?(error_message, "memory") or String.contains?(error_message, "enomem") ->
-        {:pause, "Memory allocation failure - system may be out of memory"}
-
-      # File system issues
-      String.contains?(error_message, "enospc") ->
-        {:pause, "No space left on device"}
-
-      # Port/process issues
-      String.contains?(error_message, "port") or String.contains?(error_message, "process") ->
-        {:pause, "Process management failure"}
-
-      # Default to recoverable
-      true ->
-        {:continue, "Exception: #{error_message}"}
-    end
-  end
-
-  defp handle_critical_exception(vmaf, reason) do
-    Logger.error("Broadway: Critical exception for VMAF #{vmaf.id}: #{reason}")
-    Logger.error("Broadway: Pausing pipeline due to critical system issue")
-
-    # Notify about the failure
-    notify_encoding_failure(vmaf.video, :exception)
-
-    # Pause the pipeline
-    Producer.pause()
-
-    # Return :ok to Broadway since we're handling the pause manually
-    :ok
-  end
-
-  defp handle_recoverable_exception(vmaf, reason) do
-    Logger.warning("Broadway: Recoverable exception for VMAF #{vmaf.id}: #{reason}")
-
-    # Notify about the failure
-    notify_encoding_failure(vmaf.video, :exception)
-
-    # Continue processing
     :ok
   end
 

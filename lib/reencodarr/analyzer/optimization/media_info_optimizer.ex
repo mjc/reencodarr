@@ -3,7 +3,18 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
   Advanced MediaInfo execution optimizations for high-performance storage.
 
   Provides intelligent command execution with:
-  - Dynamic batch sizing based on storage performance
+  - Dynamic     # Get the current optimal batch size from performance monitor
+    current_batch_size =
+      case Process.whereis(PerformanceMonitor) do
+        nil -> ConcurrencyManager.get_optimal_mediainfo_batch_size()
+        pid when is_pid(pid) ->
+          PerformanceMonitor.get_current_mediainfo_batch_size()
+        _ -> ConcurrencyManager.get_optimal_mediainfo_batch_size()
+      end
+
+    # Don't exceed the number of files we actually have
+    min(current_batch_size, file_count)
+  endbased on storage performance
   - Concurrent chunk processing for large batches
   - Memory-efficient JSON parsing
   - Error recovery and fallback strategies

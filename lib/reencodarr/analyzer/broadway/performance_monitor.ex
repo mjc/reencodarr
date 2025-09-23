@@ -320,23 +320,15 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
       rate_limit,
       batch_size
     )
-  rescue
-    error ->
-      Logger.debug("Failed to emit throughput telemetry: #{inspect(error)}")
   end
 
   defp get_queue_length do
     Media.count_videos_needing_analysis()
-  catch
-    :exit, _ -> 0
   end
 
   defp update_broadway_context(broadway_name, new_batch_size) do
     # Send update message to Broadway producer
     send_context_update_to_producer(broadway_name, new_batch_size)
-  rescue
-    error ->
-      Logger.warning("Failed to update Broadway context: #{inspect(error)}")
   end
 
   defp send_rate_limit_update_to_producer(_broadway_name, new_rate_limit) do

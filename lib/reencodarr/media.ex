@@ -974,15 +974,17 @@ defmodule Reencodarr.Media do
 
   # Manual analyzer queue items from QueueManager
   defp get_manual_analyzer_items do
-    QueueManager.get_queue()
-  catch
-    :exit, _ -> []
+    case QueueManager.get_queue() do
+      {:ok, queue} -> queue
+      {:error, _} -> []
+    end
   end
 
   defp count_manual_analyzer_items do
-    QueueManager.get_queue() |> length()
-  catch
-    :exit, _ -> 0
+    case QueueManager.get_queue() do
+      {:ok, queue} -> length(queue)
+      {:error, _} -> 0
+    end
   end
 
   # Build minimal stats struct when DB query fails
@@ -1408,13 +1410,13 @@ defmodule Reencodarr.Media do
 
   defp path_in_analyzer_manual?(path) do
     # Check the QueueManager's manual queue
-    manual_queue =
-      try do
-        QueueManager.get_queue()
-      catch
-        :exit, _ -> []
-      end
+    case QueueManager.get_queue() do
+      {:ok, manual_queue} -> queue_contains_path?(manual_queue, path)
+      {:error, _} -> false
+    end
+  end
 
+  defp queue_contains_path?(manual_queue, path) do
     Enum.any?(manual_queue, fn item ->
       case item do
         %{path: item_path} -> String.downcase(item_path) == String.downcase(path)

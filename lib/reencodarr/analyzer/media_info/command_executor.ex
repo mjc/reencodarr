@@ -241,10 +241,18 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
   defp get_optimal_batch_size(file_count) do
     # Get the current optimal batch size from performance systems
     base_batch_size =
-      try do
-        PerformanceMonitor.get_current_mediainfo_batch_size()
-      catch
-        :exit, _ ->
+      case Process.whereis(PerformanceMonitor) do
+        nil ->
+          ConcurrencyManager.get_optimal_mediainfo_batch_size()
+
+        pid when is_pid(pid) ->
+          if Process.alive?(pid) do
+            PerformanceMonitor.get_current_mediainfo_batch_size()
+          else
+            ConcurrencyManager.get_optimal_mediainfo_batch_size()
+          end
+
+        _ ->
           ConcurrencyManager.get_optimal_mediainfo_batch_size()
       end
 
