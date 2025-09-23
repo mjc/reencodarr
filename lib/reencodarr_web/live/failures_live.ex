@@ -37,13 +37,13 @@ defmodule ReencodarrWeb.FailuresLive do
   import ReencodarrWeb.LcarsComponents
   import Reencodarr.Utils
 
-  alias Reencodarr.UIHelpers.Stardate
+  alias ReencodarrWeb.DashboardLiveHelpers
 
   @impl true
   def mount(_params, _session, socket) do
     # Standard LiveView setup
     timezone = get_in(socket.assigns, [:timezone]) || "UTC"
-    current_stardate = Stardate.calculate_stardate(DateTime.utc_now())
+    current_stardate = DashboardLiveHelpers.calculate_stardate(DateTime.utc_now())
 
     # Schedule stardate updates if connected
     if Phoenix.LiveView.connected?(socket) do
@@ -64,7 +64,14 @@ defmodule ReencodarrWeb.FailuresLive do
   def handle_info(:update_stardate, socket) do
     # Update stardate and schedule next update
     Process.send_after(self(), :update_stardate, 5000)
-    socket = assign(socket, :current_stardate, Stardate.calculate_stardate(DateTime.utc_now()))
+
+    socket =
+      assign(
+        socket,
+        :current_stardate,
+        DashboardLiveHelpers.calculate_stardate(DateTime.utc_now())
+      )
+
     {:noreply, socket}
   end
 

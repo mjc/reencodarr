@@ -263,7 +263,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   # State retrieval functions
   defp get_safe_full_state do
-    {:ok, DashboardLiveHelpers.get_initial_state()}
+    {:ok, Reencodarr.DashboardState.initial_with_queues()}
   rescue
     error -> {:error, error}
   end
