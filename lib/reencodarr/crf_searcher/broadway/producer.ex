@@ -8,8 +8,8 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
 
   use GenStage
   require Logger
-  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
+  alias Reencodarr.PipelineStateMachine
 
   @broadway_name Reencodarr.CrfSearcher.Broadway
 
@@ -52,14 +52,17 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     # Subscribe to video state transitions for videos that finished analysis
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
 
+    # Initialize pipeline state machine
+    pipeline = PipelineStateMachine.new(:crf_searcher)
+
     # Send a delayed message to trigger initial telemetry emission
     Process.send_after(self(), :initial_telemetry, 1000)
 
     {:producer,
      %{
        demand: 0,
-       status: :paused,
-       queue: :queue.new()
+       queue: :queue.new(),
+       pipeline: pipeline
      }}
   end
 
@@ -72,61 +75,39 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   @impl GenStage
   def handle_call(:running?, _from, state) do
     # Button should reflect user intent - not running if paused or pausing
-    running = state.status == :running
+    running = PipelineStateMachine.running?(state.pipeline)
     {:reply, running, [], state}
   end
 
   @impl GenStage
   def handle_call(:actively_running?, _from, state) do
-    # For telemetry/progress - actively running if processing or pausing
-    # This allows progress to continue during pausing state
-    actively_running = state.status in [:processing, :pausing]
+    # Check if actively processing (for telemetry/progress updates)
+    actively_running = PipelineStateMachine.actively_working?(state.pipeline)
     {:reply, actively_running, [], state}
   end
 
   @impl GenStage
   def handle_cast({:status_request, requester_pid}, state) do
-    send(requester_pid, {:status_response, :crf_searcher, state.status})
+    current_state = PipelineStateMachine.get_state(state.pipeline)
+    send(requester_pid, {:status_response, :crf_searcher, current_state})
     {:noreply, [], state}
   end
 
   @impl GenStage
   def handle_cast(:broadcast_status, state) do
-    # Broadcast the appropriate status event based on current state
-    event_name =
-      case state.status do
-        :processing -> :crf_searcher_started
-        # This maps to "paused" on dashboard
-        :paused -> :crf_searcher_stopped
-        :pausing -> :crf_searcher_pausing
-        _ -> :crf_searcher_idle
-      end
-
-    Events.broadcast_event(event_name, %{})
-    {:noreply, [], state}
+    PipelineStateMachine.handle_broadcast_status_cast(state)
   end
 
   @impl GenStage
   def handle_cast(:pause, state) do
-    case state.status do
-      :processing ->
-        Logger.info("CrfSearcher pausing - will finish current job and stop")
-        {:noreply, [], %{state | status: :pausing}}
-
-      _ ->
-        Logger.info("CrfSearcher paused")
-        Reencodarr.Telemetry.emit_crf_search_paused()
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :paused})
-        {:noreply, [], %{state | status: :paused}}
-    end
+    PipelineStateMachine.handle_pause_cast(state)
   end
 
   @impl GenStage
   def handle_cast(:resume, state) do
-    Logger.info("CrfSearcher resumed")
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :started})
-    new_state = %{state | status: :running}
-    dispatch_if_ready(new_state)
+    PipelineStateMachine.handle_resume_cast(state, fn new_state ->
+      dispatch_if_ready(new_state)
+    end)
   end
 
   @impl GenStage
@@ -138,24 +119,9 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:dispatch_available, state) do
-    # CRF search completed
-    case state.status do
-      :pausing ->
-        Logger.info("⏸️ CRF Producer: Job finished while pausing - now fully paused")
-        Reencodarr.Telemetry.emit_crf_search_paused()
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "crf_searcher", {:crf_searcher, :paused})
-        new_state = %{state | status: :paused}
-        {:noreply, [], new_state}
-
-      :idle ->
-        # Transition from idle back to running when work becomes available
-        new_state = %{state | status: :running}
-        dispatch_if_ready(new_state)
-
-      _ ->
-        new_state = %{state | status: :running}
-        dispatch_if_ready(new_state)
-    end
+    PipelineStateMachine.handle_dispatch_available_cast(state, fn new_state ->
+      dispatch_if_ready(new_state)
+    end)
   end
 
   @impl GenStage
@@ -163,8 +129,10 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     # Video finished analysis - if CRF searcher is running, force dispatch even without demand
     Logger.debug("[CRF Searcher Producer] Received analyzed video: #{video.path}")
 
+    current_state = PipelineStateMachine.get_state(state.pipeline)
+
     Logger.debug(
-      "[CRF Searcher Producer] State: #{inspect(%{status: state.status, demand: state.demand})}"
+      "[CRF Searcher Producer] State: #{inspect(%{status: current_state, demand: state.demand})}"
     )
 
     force_dispatch_if_running(state)
@@ -178,19 +146,29 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
 
   @impl GenStage
   def handle_info({:crf_search_completed, _video_id, _result}, state) do
-    # CRF search completed - reset status to running if we were processing
-    new_status =
-      case state.status do
-        :processing -> :running
-        :pausing -> :paused
-        other -> other
+    # CRF search completed - transition state appropriately
+    current_state = PipelineStateMachine.get_state(state.pipeline)
+
+    updated_state =
+      case current_state do
+        :processing ->
+          new_pipeline =
+            PipelineStateMachine.work_completed(state.pipeline, crf_search_available?())
+
+          %{state | pipeline: new_pipeline}
+
+        :pausing ->
+          new_pipeline = PipelineStateMachine.work_completed(state.pipeline, false)
+          %{state | pipeline: new_pipeline}
+
+        _ ->
+          state
       end
 
-    new_state = %{state | status: new_status}
-
     # Refresh queue telemetry and check for more work
-    emit_initial_telemetry(new_state)
-    dispatch_if_ready(new_state)
+    emit_initial_telemetry(updated_state)
+    dispatch_if_ready(updated_state)
+    {:noreply, [], updated_state}
   end
 
   @impl GenStage
@@ -260,23 +238,30 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     end
   end
 
-  defp handle_no_dispatch(%{status: :running} = state) do
-    case get_next_video_preview() do
-      nil ->
-        # No videos to process - set to idle
-        new_state = %{state | status: :idle}
-        {:noreply, [], new_state}
+  defp handle_no_dispatch(state) do
+    current_state = PipelineStateMachine.get_state(state.pipeline)
 
-      _video ->
-        # Videos available but no demand or CRF service unavailable
+    case current_state do
+      :running ->
+        case get_next_video_preview() do
+          nil ->
+            # No videos to process - set to idle
+            new_pipeline = PipelineStateMachine.work_available(state.pipeline)
+            new_state = %{state | pipeline: new_pipeline}
+            {:noreply, [], new_state}
+
+          _video ->
+            # Videos available but no demand or CRF service unavailable
+            {:noreply, [], state}
+        end
+
+      _ ->
         {:noreply, [], state}
     end
   end
 
-  defp handle_no_dispatch(state), do: {:noreply, [], state}
-
   defp should_dispatch?(state) do
-    state.status == :running and crf_search_available?()
+    PipelineStateMachine.running?(state.pipeline) and crf_search_available?()
   end
 
   defp crf_search_available? do
@@ -305,10 +290,8 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
           )
 
           # Mark as processing and decrement demand
-          updated_state = %{new_state | demand: state.demand - 1, status: :processing}
-
-          # Broadcast status change to dashboard
-          Events.broadcast_event(:crf_searcher_started, %{})
+          new_pipeline = PipelineStateMachine.start_processing(new_state.pipeline)
+          updated_state = %{new_state | demand: state.demand - 1, pipeline: new_pipeline}
 
           # Get remaining videos for queue state update
           remaining_videos = Media.get_videos_for_crf_search(10)
@@ -423,8 +406,10 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   end
 
   defp force_dispatch_if_running(state) do
+    current_state = PipelineStateMachine.get_state(state.pipeline)
+
     Logger.debug(
-      "[CRF Searcher Producer] Force dispatch - status: #{state.status}, falling back to dispatch_if_ready"
+      "[CRF Searcher Producer] Force dispatch - status: #{current_state}, falling back to dispatch_if_ready"
     )
 
     dispatch_if_ready(state)
