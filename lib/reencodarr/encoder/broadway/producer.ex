@@ -8,6 +8,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   use GenStage
   require Logger
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
   alias Reencodarr.PipelineStateMachine
 
@@ -51,8 +52,8 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   def init(_opts) do
     # Subscribe to video state transitions for videos that finished CRF search
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
-    # Subscribe to encoding events to know when processing completes
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
+    # Subscribe to dashboard events to know when encoding completes
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
 
     # Send a delayed message to broadcast initial queue state
     Process.send_after(self(), :initial_queue_broadcast, 1000)
@@ -60,14 +61,13 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     {:producer,
      %{
        demand: 0,
-       pipeline: PipelineStateMachine.new(:encoder),
-       queue: :queue.new()
+       pipeline: PipelineStateMachine.new(:encoder)
      }}
   end
 
   @impl GenStage
   def handle_demand(demand, state) when demand > 0 do
-    Logger.info(
+    Logger.debug(
       "Producer: handle_demand called - new demand: #{demand}, current demand: #{state.demand}, total: #{state.demand + demand}"
     )
 
@@ -77,10 +77,10 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
     if current_status == :processing do
       # If we're already processing, just store the demand for later
-      Logger.info("Producer: handle_demand - currently processing, storing demand for later")
+      Logger.debug("Producer: handle_demand - currently processing, storing demand for later")
       {:noreply, [], new_state}
     else
-      Logger.info("Producer: handle_demand - not processing, calling dispatch_if_ready")
+      Logger.debug("Producer: handle_demand - not processing, calling dispatch_if_ready")
       dispatch_if_ready(new_state)
     end
   end
@@ -129,9 +129,10 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def handle_cast({:add_vmaf, vmaf}, state) do
-    new_queue = :queue.in(vmaf, state.queue)
-    new_state = %{state | queue: new_queue}
-    dispatch_if_ready(new_state)
+    Logger.info("Adding VMAF to encoder: #{vmaf.id}")
+    # No manual queue management - just trigger dispatch to check database
+    # The VMAF should already be in the database with chosen=true state
+    dispatch_if_ready(state)
   end
 
   @impl GenStage
@@ -159,15 +160,15 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   @impl GenStage
-  def handle_info({:encoding_completed, vmaf_id, result}, state) do
+  def handle_info({:encoding_completed, %{vmaf_id: vmaf_id, result: result} = event_data}, state) do
     # Encoding completed (success or failure), transition back to running
     Logger.info(
-      "Producer: Received encoding completion notification - VMAF: #{vmaf_id}, result: #{inspect(result)}"
+      "[Encoder Producer] *** RECEIVED ENCODING COMPLETION *** - VMAF: #{vmaf_id}, result: #{inspect(result)}, event: #{inspect(event_data)}"
     )
 
     current_status = PipelineStateMachine.get_state(state.pipeline)
 
-    Logger.info(
+    Logger.debug(
       "[Encoder Producer] Current state before transition - status: #{current_status}, demand: #{state.demand}"
     )
 
@@ -179,7 +180,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
     new_status = PipelineStateMachine.get_state(updated_pipeline)
 
-    Logger.info(
+    Logger.debug(
       "[Encoder Producer] State after transition - status: #{new_status}, demand: #{new_state.demand}"
     )
 
@@ -232,15 +233,15 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   defp dispatch_if_ready(state) do
     current_status = PipelineStateMachine.get_state(state.pipeline)
 
-    Logger.info(
+    Logger.debug(
       "Producer: dispatch_if_ready called - status: #{current_status}, demand: #{state.demand}"
     )
 
     if should_dispatch?(state) and state.demand > 0 do
-      Logger.info("Producer: dispatch_if_ready - conditions met, dispatching VMAFs")
+      Logger.debug("Producer: dispatch_if_ready - conditions met, dispatching VMAFs")
       dispatch_vmafs(state)
     else
-      Logger.info(
+      Logger.debug(
         "Producer: dispatch_if_ready - conditions NOT met, not dispatching (should_dispatch: #{should_dispatch?(state)}, demand: #{state.demand})"
       )
 
@@ -274,7 +275,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     availability_check = encoding_available?()
     result = status_check and availability_check
 
-    Logger.info(
+    Logger.debug(
       "[Encoder Producer] should_dispatch? - status: #{current_status}, status_check: #{status_check}, availability_check: #{availability_check}, result: #{result}"
     )
 
@@ -307,49 +308,53 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   defp dispatch_vmafs(state) do
-    # Mark as processing immediately to prevent duplicate dispatches
-    updated_pipeline = PipelineStateMachine.start_processing(state.pipeline)
+    # Only transition to processing if not already processing
+    current_status = PipelineStateMachine.get_state(state.pipeline)
+
+    updated_pipeline =
+      if current_status != :processing do
+        Logger.info("[Encoder Producer] Transitioning to processing state from #{current_status}")
+        PipelineStateMachine.start_processing(state.pipeline)
+      else
+        Logger.info("[Encoder Producer] Already in processing state, skipping state transition")
+        state.pipeline
+      end
+
     updated_state = %{state | pipeline: updated_pipeline}
 
-    # Get one VMAF from queue or database
-    case get_next_vmaf(updated_state) do
-      {nil, new_state} ->
-        # No VMAF available, emit queue state and transition to appropriate state
-        broadcast_queue_state()
-        final_pipeline = PipelineStateMachine.transition_to(new_state.pipeline, :idle)
-        final_state = %{new_state | pipeline: final_pipeline}
-        {:noreply, [], final_state}
-
-      {vmaf, new_state} ->
+    # Get VMAF directly from database
+    case Media.get_next_for_encoding(1) do
+      # Handle case where a single VMAF is returned
+      %Reencodarr.Media.Vmaf{} = vmaf ->
         # Emit queue state update when dispatching
         broadcast_queue_state()
-        # Let Broadway handle demand automatically - don't decrement manually
-        Logger.info(
+
+        Logger.debug(
           "Producer: dispatch_vmafs - dispatching VMAF #{vmaf.id}, keeping demand: #{state.demand}"
         )
 
-        final_state = %{new_state | demand: state.demand}
-
+        final_state = %{updated_state | demand: state.demand}
         {:noreply, [vmaf], final_state}
-    end
-  end
 
-  defp get_next_vmaf(state) do
-    case :queue.out(state.queue) do
-      {{:value, vmaf}, remaining_queue} ->
-        {vmaf, %{state | queue: remaining_queue}}
+      # Handle case where a list is returned
+      [vmaf | _] ->
+        # Emit queue state update when dispatching
+        broadcast_queue_state()
 
-      {:empty, _queue} ->
-        case Media.get_next_for_encoding(1) do
-          # Handle case where a single VMAF is returned
-          %Reencodarr.Media.Vmaf{} = vmaf -> {vmaf, state}
-          # Handle case where a list is returned
-          [vmaf | _] -> {vmaf, state}
-          # Handle case where an empty list is returned
-          [] -> {nil, state}
-          # Handle case where nil is returned
-          nil -> {nil, state}
-        end
+        Logger.debug(
+          "Producer: dispatch_vmafs - dispatching VMAF #{vmaf.id}, keeping demand: #{state.demand}"
+        )
+
+        final_state = %{updated_state | demand: state.demand}
+        {:noreply, [vmaf], final_state}
+
+      # Handle case where empty list or nil is returned
+      _ ->
+        # No VMAF available, emit queue state and transition to appropriate state
+        broadcast_queue_state()
+        final_pipeline = PipelineStateMachine.transition_to(updated_state.pipeline, :idle)
+        final_state = %{updated_state | pipeline: final_pipeline}
+        {:noreply, [], final_state}
     end
   end
 

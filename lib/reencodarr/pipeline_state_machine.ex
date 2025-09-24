@@ -144,14 +144,14 @@ defmodule Reencodarr.PipelineStateMachine do
   """
   @spec resume(t()) :: t()
   def resume(%__MODULE__{current_state: current_state} = state_machine) do
-    new_state =
-      case current_state do
-        state when state in [:paused, :stopped] -> :running
-        # Already running in some form
-        state -> state
-      end
+    case current_state do
+      state when state in [:paused, :stopped] ->
+        transition_to(state_machine, :running)
 
-    transition_to(state_machine, new_state)
+      # Already running in some form - no transition needed
+      _active_state ->
+        state_machine
+    end
   end
 
   @doc """

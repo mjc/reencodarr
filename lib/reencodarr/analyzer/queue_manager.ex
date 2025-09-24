@@ -13,6 +13,8 @@ defmodule Reencodarr.Analyzer.QueueManager do
   use GenServer
   require Logger
 
+  alias Reencodarr.Dashboard.Events
+
   @queue_topic "analyzer_queue"
 
   defstruct queue: [], count: 0
@@ -54,10 +56,9 @@ defmodule Reencodarr.Analyzer.QueueManager do
   Broadcast a queue update (called by Broadway producer).
   """
   def broadcast_queue_update(queue_items) do
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      @queue_topic,
-      {:analyzer_queue_updated, queue_items}
+    Events.broadcast_event(
+      :analyzer_queue_updated,
+      %{queue_items: queue_items}
     )
   end
 
