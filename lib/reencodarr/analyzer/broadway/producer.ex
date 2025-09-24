@@ -19,8 +19,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     defstruct [
       :demand,
       :pipeline,
-      :queue,
-      :manual_queue,
       :paused,
       :processing,
       :pending_videos
@@ -86,9 +84,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     {:producer,
      %State{
        demand: 0,
-       pipeline: PipelineStateMachine.new(:analyzer),
-       queue: :queue.new(),
-       manual_queue: []
+       pipeline: PipelineStateMachine.new(:analyzer)
      }}
   end
 
@@ -140,18 +136,11 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
     current_state = PipelineStateMachine.get_state(state.pipeline)
 
-    Logger.debug(
-      "Current state - demand: #{state.demand}, status: #{current_state}, queue size: #{length(state.manual_queue)}"
-    )
+    Logger.debug("Current state - demand: #{state.demand}, status: #{current_state}")
 
-    new_manual_queue = [video_info | state.manual_queue]
-    new_state = State.update(state, manual_queue: new_manual_queue)
-    Logger.debug("After adding - queue size: #{length(new_state.manual_queue)}")
-
-    # Broadcast queue state change
-    broadcast_queue_state(new_state.manual_queue)
-
-    dispatch_if_ready(new_state)
+    # No manual queue management - just trigger dispatch to check database
+    # The video should already be in the database with :needs_analysis state
+    dispatch_if_ready(state)
   end
 
   @impl GenStage
@@ -200,7 +189,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     # Trigger initial dispatch after startup to check for videos needing analysis
     Logger.debug("Producer: Initial dispatch triggered")
     # Broadcast initial queue state so UI shows correct count on startup
-    broadcast_queue_state(state.manual_queue)
+    broadcast_queue_state()
     dispatch_if_ready(state)
   end
 
@@ -248,9 +237,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   defp dispatch_if_ready(state) do
     current_state = PipelineStateMachine.get_state(state.pipeline)
 
-    Logger.debug(
-      "dispatch_if_ready called - demand: #{state.demand}, status: #{current_state}, queue size: #{length(state.manual_queue)}"
-    )
+    Logger.debug("dispatch_if_ready called - demand: #{state.demand}, status: #{current_state}")
 
     case can_dispatch?(state) do
       {:auto_start, state} -> handle_auto_start(state)
@@ -271,12 +258,12 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   defp ready_for_auto_start?(state) do
     PipelineStateMachine.get_state(state.pipeline) == :paused and state.demand > 0 and
-      length(state.manual_queue) > 0
+      Media.count_videos_needing_analysis() > 0
   end
 
   defp ready_for_resume_from_idle?(state) do
     PipelineStateMachine.get_state(state.pipeline) == :idle and state.demand > 0 and
-      length(state.manual_queue) > 0
+      Media.count_videos_needing_analysis() > 0
   end
 
   defp ready_for_dispatch?(state) do
@@ -286,11 +273,9 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   defp handle_auto_start(state) do
     Logger.info("Auto-starting analyzer - videos available for processing")
     Telemetry.emit_analyzer_started()
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :started})
     :telemetry.execute([:reencodarr, :analyzer, :started], %{}, %{})
 
-    # Send to Dashboard V2
-    alias Reencodarr.Dashboard.Events
+    # Send to Dashboard using Events system
     Events.broadcast_event(:analyzer_started, %{})
     # Start with minimal progress to indicate activity
     Events.broadcast_event(:analyzer_progress, %{
@@ -321,13 +306,11 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   end
 
   defp handle_no_dispatch_conditions(state) do
-    Logger.debug(
-      "Conditions not met for dispatch - demand: #{state.demand}, queue: #{length(state.manual_queue)}"
-    )
+    Logger.debug("Conditions not met for dispatch - demand: #{state.demand}")
 
     # If analyzer is running but has no work to do, set to idle instead of paused
     if PipelineStateMachine.get_state(state.pipeline) == :running and state.demand == 0 and
-         Enum.empty?(state.manual_queue) do
+         Media.count_videos_needing_analysis() == 0 do
       handle_idle_transition(state)
     else
       {:noreply, [], state}
@@ -352,14 +335,13 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     end
   end
 
-  defp broadcast_queue_state(manual_queue) do
-    # Get next videos for UI display (combine manual + database queued)
-    database_videos = Media.get_videos_needing_analysis(10)
-    all_next_videos = (manual_queue ++ database_videos) |> Enum.take(10)
+  defp broadcast_queue_state do
+    # Get next videos for UI display from database
+    next_videos = Media.get_videos_needing_analysis(10)
 
     # Format for UI display
-    next_videos =
-      Enum.map(all_next_videos, fn video ->
+    formatted_videos =
+      Enum.map(next_videos, fn video ->
         %{
           path: video.path,
           service_id: video.service_id || "unknown"
@@ -368,52 +350,29 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
     # Emit telemetry event that the UI expects
     measurements = %{
-      queue_size: length(manual_queue) + Media.count_videos_needing_analysis()
+      queue_size: Media.count_videos_needing_analysis()
     }
 
     metadata = %{
-      next_videos: next_videos
+      next_videos: formatted_videos
     }
 
     :telemetry.execute([:reencodarr, :analyzer, :queue_changed], measurements, metadata)
   end
 
   defp dispatch_videos(state) do
-    # First, dispatch any manually queued videos (e.g., force_reanalyze)
-    {manual_videos, remaining_manual} = Enum.split(state.manual_queue, state.demand)
+    # Get videos from the database up to demand
+    videos = Media.get_videos_needing_analysis(state.demand)
 
-    dispatched_count = length(manual_videos)
-    remaining_demand = state.demand - dispatched_count
+    Logger.debug("Dispatching videos - demand: #{state.demand}, found: #{length(videos)}")
 
-    Logger.debug(
-      "Dispatching videos - manual: #{length(manual_videos)}, remaining_demand: #{remaining_demand}"
-    )
+    if length(videos) > 0 do
+      Logger.debug("Videos being dispatched: #{inspect(Enum.map(videos, & &1.path))}")
 
-    if length(manual_videos) > 0 do
-      Logger.info(
-        "Manual videos being dispatched: #{inspect(Enum.map(manual_videos, & &1.path))}"
-      )
+      debug_video_states(videos)
     end
 
-    # If we still have demand after manual videos, get videos from the database
-    database_videos =
-      if remaining_demand > 0 do
-        videos = Media.get_videos_needing_analysis(remaining_demand)
-        Logger.debug("Database videos fetched: #{length(videos)} videos")
-
-        if length(videos) > 0 do
-          Logger.debug("Database video paths: #{inspect(Enum.map(videos, & &1.path))}")
-          debug_video_states(videos)
-        end
-
-        videos
-      else
-        []
-      end
-
-    all_videos = manual_videos ++ database_videos
-
-    case all_videos do
+    case videos do
       [] ->
         # No videos available - go to idle if currently running
         if PipelineStateMachine.get_state(state.pipeline) == :running do
@@ -424,7 +383,8 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
             | pipeline: PipelineStateMachine.transition_to(state.pipeline, :idle)
           }
 
-          # Don't broadcast queue state during idle transition - queue hasn't actually changed
+          # Broadcast queue state when going idle
+          broadcast_queue_state()
           {:noreply, [], new_state}
         else
           Logger.debug("No videos available for dispatch, keeping demand: #{state.demand}")
@@ -435,10 +395,10 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
         Logger.debug("Broadway producer dispatching #{length(videos)} videos for analysis")
         Logger.debug("All videos being dispatched: #{inspect(Enum.map(videos, & &1.path))}")
         new_demand = state.demand - length(videos)
-        new_state = State.update(state, demand: new_demand, manual_queue: remaining_manual)
+        new_state = State.update(state, demand: new_demand)
 
         # Always broadcast queue state when dispatching videos
-        broadcast_queue_state(remaining_manual)
+        broadcast_queue_state()
 
         {:noreply, videos, new_state}
     end

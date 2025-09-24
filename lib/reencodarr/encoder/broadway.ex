@@ -393,13 +393,15 @@ defmodule Reencodarr.Encoder.Broadway do
         # Publish completion event to PubSub
         # Only consider it success if exit code is 0 AND the output file exists
         success = exit_code == 0 and output_exists
-        pubsub_result = if success, do: :success, else: {:error, exit_code}
+        result = if success, do: :success, else: {:error, exit_code}
 
-        Phoenix.PubSub.broadcast(
-          Reencodarr.PubSub,
-          "encoding_events",
-          {:encoding_completed, state.vmaf.id, pubsub_result}
-        )
+        # Broadcast encoding completion using centralized Events system
+        Events.broadcast_event(:encoding_completed, %{
+          vmaf_id: state.vmaf.id,
+          result: result,
+          success: success,
+          exit_code: exit_code
+        })
 
         # Return result based on exit code AND file existence
         if success do
@@ -421,12 +423,13 @@ defmodule Reencodarr.Encoder.Broadway do
 
         Port.close(state.port)
 
-        # Publish timeout event to PubSub
-        Phoenix.PubSub.broadcast(
-          Reencodarr.PubSub,
-          "encoding_events",
-          {:encoding_completed, state.vmaf.id, {:error, :timeout}}
-        )
+        # Broadcast encoding timeout using centralized Events system
+        Events.broadcast_event(:encoding_completed, %{
+          vmaf_id: state.vmaf.id,
+          result: {:error, :timeout},
+          success: false,
+          timeout: true
+        })
 
         # Include output buffer for timeout failures
         full_output = state.output_buffer |> Enum.reverse() |> Enum.join("\n")

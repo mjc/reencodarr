@@ -228,10 +228,9 @@ defmodule Reencodarr.Analyzer.Broadway do
     # The dashboard will show throughput which is accurate.
 
     # Notify producer that batch analysis is complete
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "analyzer_events",
-      {:batch_analysis_completed, batch_size}
+    Events.broadcast_event(
+      :batch_analysis_completed,
+      %{batch_size: batch_size}
     )
 
     # Return messages as-is since processing always succeeds
