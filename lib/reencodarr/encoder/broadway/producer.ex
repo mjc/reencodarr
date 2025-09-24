@@ -389,7 +389,11 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
         {:noreply, [], state}
       end
     else
-      dispatch_if_ready(state)
+      Logger.debug(
+        "[Encoder Producer] Force dispatch - status: #{current_status}, not available for work, skipping dispatch"
+      )
+
+      {:noreply, [], state}
     end
   end
 
