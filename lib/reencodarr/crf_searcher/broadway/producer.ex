@@ -355,10 +355,10 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     case {PipelineStateMachine.available_for_work?(current_state), crf_search_available?()} do
       {false, _} ->
         Logger.debug(
-          "[CRF Searcher Producer] Force dispatch - status: #{current_state}, falling back to dispatch_if_ready"
+          "[CRF Searcher Producer] Force dispatch - status: #{current_state}, not available for work, skipping dispatch"
         )
 
-        dispatch_if_ready(state)
+        {:noreply, [], state}
 
       {true, false} ->
         Logger.debug("[CRF Searcher Producer] Force dispatch - status: #{current_state}")

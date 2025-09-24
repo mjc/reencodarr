@@ -284,7 +284,15 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       percent: 0
     })
 
-    new_state = %{state | pipeline: PipelineStateMachine.transition_to(state.pipeline, :running)}
+    # Only transition if not already running
+    new_pipeline =
+      if PipelineStateMachine.get_state(state.pipeline) != :running do
+        PipelineStateMachine.transition_to(state.pipeline, :running)
+      else
+        state.pipeline
+      end
+
+    new_state = %{state | pipeline: new_pipeline}
     dispatch_videos(new_state)
   end
 
@@ -301,7 +309,15 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       percent: 0
     })
 
-    new_state = %{state | pipeline: PipelineStateMachine.transition_to(state.pipeline, :running)}
+    # Only transition if not already running
+    new_pipeline =
+      if PipelineStateMachine.get_state(state.pipeline) != :running do
+        PipelineStateMachine.transition_to(state.pipeline, :running)
+      else
+        state.pipeline
+      end
+
+    new_state = %{state | pipeline: new_pipeline}
     dispatch_videos(new_state)
   end
 
