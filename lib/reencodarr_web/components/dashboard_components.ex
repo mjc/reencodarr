@@ -21,7 +21,7 @@ defmodule ReencodarrWeb.DashboardComponents do
 
     * `metrics` (required) - List of metric maps with title, value, and color
   """
-  attr :metrics, :list, required: true, doc: "List of metric data to display"
+  attr :metrics, :list, required: true, doc: "List of metr"
 
   def metrics_grid(assigns) do
     ~H"""
@@ -626,25 +626,6 @@ defmodule ReencodarrWeb.DashboardComponents do
         syncing={@status.syncing.active}
       />
     </section>
-    """
-  end
-
-  @doc """
-  Renders the manual scan section with enhanced UX.
-
-  Provides an interface for manually triggering file scans
-  with improved styling and user feedback.
-  """
-  def manual_scan_section(assigns) do
-    ~H"""
-    <.lcars_panel title="MANUAL SCAN" color="red">
-      <div role="region" aria-label="Manual file scanning interface">
-        <.live_component
-          module={ReencodarrWeb.ManualScanComponent}
-          id="manual-scan"
-        />
-      </div>
-    </.lcars_panel>
     """
   end
 
