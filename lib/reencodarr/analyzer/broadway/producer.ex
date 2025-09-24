@@ -9,6 +9,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   use GenStage
   require Logger
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.PipelineStateMachine
   alias Reencodarr.{Media, Telemetry}
 
   @broadway_name Reencodarr.Analyzer.Broadway
@@ -17,7 +18,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     @moduledoc false
     defstruct [
       :demand,
-      :status,
+      :pipeline,
       :queue,
       :manual_queue,
       :paused,
@@ -85,7 +86,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     {:producer,
      %State{
        demand: 0,
-       status: :paused,
+       pipeline: PipelineStateMachine.new(:analyzer),
        queue: :queue.new(),
        manual_queue: []
      }}
@@ -93,16 +94,15 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_call(:running?, _from, state) do
-    # Button should reflect user intent - not running if paused or pausing
-    running = state.status == :running
+    # Button should reflect user intent - use centralized state machine
+    running = PipelineStateMachine.running?(state.pipeline)
     {:reply, running, [], state}
   end
 
   @impl GenStage
   def handle_call(:actively_running?, _from, state) do
     # For telemetry/progress - actively running if processing or pausing
-    # This allows progress to continue during pausing state
-    actively_running = state.status in [:processing, :pausing]
+    actively_running = PipelineStateMachine.actively_working?(state.pipeline)
     {:reply, actively_running, [], state}
   end
 
@@ -113,65 +113,24 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_cast({:status_request, requester_pid}, state) do
-    send(requester_pid, {:status_response, :analyzer, state.status})
+    current_state = PipelineStateMachine.get_state(state.pipeline)
+    send(requester_pid, {:status_response, :analyzer, current_state})
     {:noreply, [], state}
   end
 
   @impl GenStage
   def handle_cast(:broadcast_status, state) do
-    event_name =
-      case state.status do
-        :processing -> :analyzer_started
-        :idle -> :analyzer_idle
-        :paused -> :analyzer_stopped
-        :pausing -> :analyzer_pausing
-        _ -> :analyzer_idle
-      end
-
-    Events.broadcast_event(event_name, %{})
-    {:noreply, [], state}
+    PipelineStateMachine.handle_broadcast_status_cast(state)
   end
 
   @impl GenStage
   def handle_cast(:pause, state) do
-    case state.status do
-      :processing ->
-        Logger.info("Analyzer pausing - will finish current batch and stop")
-        {:noreply, [], State.update(state, status: :pausing)}
-
-      _ ->
-        Logger.info("Analyzer paused")
-        Telemetry.emit_analyzer_paused()
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :paused})
-        :telemetry.execute([:reencodarr, :analyzer, :paused], %{}, %{})
-
-        # Send to Dashboard V2
-        alias Reencodarr.Dashboard.Events
-        Events.broadcast_event(:analyzer_stopped, %{})
-
-        {:noreply, [], State.update(state, status: :paused)}
-    end
+    PipelineStateMachine.handle_pause_cast(state)
   end
 
   @impl GenStage
   def handle_cast(:resume, state) do
-    Logger.info("Analyzer resumed")
-    Telemetry.emit_analyzer_started()
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :started})
-    :telemetry.execute([:reencodarr, :analyzer, :started], %{}, %{})
-
-    # Send to Dashboard V2
-    alias Reencodarr.Dashboard.Events
-    Events.broadcast_event(:analyzer_started, %{})
-    # Start with minimal progress to indicate activity
-    Events.broadcast_event(:analyzer_progress, %{
-      count: 0,
-      total: 1,
-      percent: 0
-    })
-
-    new_state = State.update(state, status: :running)
-    dispatch_if_ready(new_state)
+    PipelineStateMachine.handle_resume_cast(state, &dispatch_if_ready/1)
   end
 
   @impl GenStage
@@ -179,8 +138,10 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     Logger.info("Adding video to Broadway queue: #{video_info.path}")
     Logger.debug("video info details", video_info: video_info)
 
+    current_state = PipelineStateMachine.get_state(state.pipeline)
+
     Logger.debug(
-      "Current state - demand: #{state.demand}, status: #{state.status}, queue size: #{length(state.manual_queue)}"
+      "Current state - demand: #{state.demand}, status: #{current_state}, queue size: #{length(state.manual_queue)}"
     )
 
     new_manual_queue = [video_info | state.manual_queue]
@@ -195,8 +156,8 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:dispatch_available, state) do
-    # Trigger dispatch to check for videos that need analysis
-    dispatch_if_ready(state)
+    # Use state machine to handle work completion and determine next steps
+    PipelineStateMachine.handle_dispatch_available_cast(state, &dispatch_if_ready/1)
   end
 
   @impl GenStage
@@ -227,27 +188,11 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_info({:batch_analysis_completed, _batch_size}, state) do
-    # Batch analysis completed
+    # Batch analysis completed - use state machine to determine next state
     Logger.debug("Producer: Received batch analysis completion notification")
 
-    case state.status do
-      :pausing ->
-        Logger.info("Analyzer finished current batch - now fully paused")
-        Telemetry.emit_analyzer_paused()
-        Phoenix.PubSub.broadcast(Reencodarr.PubSub, "analyzer", {:analyzer, :paused})
-        :telemetry.execute([:reencodarr, :analyzer, :paused], %{}, %{})
-
-        # Send to Dashboard V2
-        alias Reencodarr.Dashboard.Events
-        Events.broadcast_event(:analyzer_stopped, %{})
-
-        new_state = State.update(state, status: :paused)
-        {:noreply, [], new_state}
-
-      _ ->
-        new_state = State.update(state, status: :running)
-        dispatch_if_ready(new_state)
-    end
+    has_more_work = Media.count_videos_needing_analysis() > 0
+    PipelineStateMachine.handle_work_completion_cast(state, has_more_work, &dispatch_if_ready/1)
   end
 
   @impl GenStage
@@ -301,8 +246,10 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   defp find_running_producer(_), do: nil
 
   defp dispatch_if_ready(state) do
+    current_state = PipelineStateMachine.get_state(state.pipeline)
+
     Logger.debug(
-      "dispatch_if_ready called - demand: #{state.demand}, status: #{state.status}, queue size: #{length(state.manual_queue)}"
+      "dispatch_if_ready called - demand: #{state.demand}, status: #{current_state}, queue size: #{length(state.manual_queue)}"
     )
 
     case can_dispatch?(state) do
@@ -323,15 +270,17 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   end
 
   defp ready_for_auto_start?(state) do
-    state.status == :paused and state.demand > 0 and length(state.manual_queue) > 0
+    PipelineStateMachine.get_state(state.pipeline) == :paused and state.demand > 0 and
+      length(state.manual_queue) > 0
   end
 
   defp ready_for_resume_from_idle?(state) do
-    state.status == :idle and state.demand > 0 and length(state.manual_queue) > 0
+    PipelineStateMachine.get_state(state.pipeline) == :idle and state.demand > 0 and
+      length(state.manual_queue) > 0
   end
 
   defp ready_for_dispatch?(state) do
-    state.status == :running and state.demand > 0
+    PipelineStateMachine.get_state(state.pipeline) == :running and state.demand > 0
   end
 
   defp handle_auto_start(state) do
@@ -350,7 +299,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       percent: 0
     })
 
-    new_state = State.update(state, status: :running)
+    new_state = %{state | pipeline: PipelineStateMachine.transition_to(state.pipeline, :running)}
     dispatch_videos(new_state)
   end
 
@@ -367,7 +316,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
       percent: 0
     })
 
-    new_state = State.update(state, status: :running)
+    new_state = %{state | pipeline: PipelineStateMachine.transition_to(state.pipeline, :running)}
     dispatch_videos(new_state)
   end
 
@@ -377,7 +326,8 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     )
 
     # If analyzer is running but has no work to do, set to idle instead of paused
-    if state.status == :running and state.demand == 0 and Enum.empty?(state.manual_queue) do
+    if PipelineStateMachine.get_state(state.pipeline) == :running and state.demand == 0 and
+         Enum.empty?(state.manual_queue) do
       handle_idle_transition(state)
     else
       {:noreply, [], state}
@@ -391,7 +341,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     if database_queue_count == 0 do
       Logger.debug("Analyzer has no work - setting to idle")
       # Set to idle - ready to work but no current tasks
-      new_state = State.update(state, status: :idle)
+      new_state = %{state | pipeline: PipelineStateMachine.transition_to(state.pipeline, :idle)}
       {:noreply, [], new_state}
     else
       Logger.debug(
@@ -466,9 +416,14 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     case all_videos do
       [] ->
         # No videos available - go to idle if currently running
-        if state.status == :running do
+        if PipelineStateMachine.get_state(state.pipeline) == :running do
           Logger.info("Analyzer going idle - no videos to process")
-          new_state = State.update(state, status: :idle)
+
+          new_state = %{
+            state
+            | pipeline: PipelineStateMachine.transition_to(state.pipeline, :idle)
+          }
+
           # Don't broadcast queue state during idle transition - queue hasn't actually changed
           {:noreply, [], new_state}
         else
@@ -540,7 +495,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     state = GenStage.call(producer_pid, :get_state, 1000)
 
     IO.puts(
-      "State: demand=#{state.demand}, status=#{state.status}, queue_size=#{length(state.manual_queue)}"
+      "State: demand=#{state.demand}, status=#{PipelineStateMachine.get_state(state.pipeline)}, queue_size=#{length(state.manual_queue)}"
     )
 
     case state.manual_queue do
@@ -563,13 +518,18 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
         video_count = length(videos)
         Logger.debug("Dispatching #{video_count} videos for analysis")
         # Decrement demand and mark as processing
-        final_state =
-          State.update(new_state, demand: state.demand - video_count, status: :processing)
+        final_state = %{
+          new_state
+          | demand: state.demand - video_count,
+            pipeline: PipelineStateMachine.transition_to(new_state.pipeline, :processing)
+        }
 
         # Broadcast status change to dashboard
         Events.broadcast_event(:analyzer_started, %{})
 
-        Logger.debug("Final state: status: #{final_state.status}, demand: #{final_state.demand}")
+        Logger.debug(
+          "Final state: status: #{PipelineStateMachine.get_state(final_state.pipeline)}, demand: #{final_state.demand}"
+        )
 
         {:noreply, videos, final_state}
     end
@@ -624,17 +584,21 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   end
 
   # Helper function to force dispatch when analyzer is running
-  defp force_dispatch_if_running(%State{status: :running, demand: 0} = state) do
-    videos = Media.get_videos_needing_analysis(1)
+  defp force_dispatch_if_running(%State{pipeline: pipeline, demand: 0} = state) do
+    if PipelineStateMachine.get_state(pipeline) == :running do
+      videos = Media.get_videos_needing_analysis(1)
 
-    if length(videos) > 0 do
-      Logger.debug(
-        "[Analyzer Producer] Force dispatching video to wake up idle Broadway pipeline"
-      )
+      if length(videos) > 0 do
+        Logger.debug(
+          "[Analyzer Producer] Force dispatching video to wake up idle Broadway pipeline"
+        )
 
-      # Temporarily add demand to force dispatch, then call dispatch_if_ready
-      temp_state = State.update(state, demand: 1)
-      dispatch_if_ready(temp_state)
+        # Temporarily add demand to force dispatch, then call dispatch_if_ready
+        temp_state = State.update(state, demand: 1)
+        dispatch_if_ready(temp_state)
+      else
+        {:noreply, [], state}
+      end
     else
       {:noreply, [], state}
     end
