@@ -61,9 +61,9 @@ defmodule Reencodarr.Application do
       Reencodarr.Encoder.Supervisor
     ]
 
-    # Only start Analyzer GenStage and ManualScanner in non-test environments
+    # Only start Analyzer GenStage in non-test environments
     if Application.get_env(:reencodarr, :env) != :test do
-      [Reencodarr.Analyzer.Supervisor, Reencodarr.ManualScanner | base_workers] ++
+      [Reencodarr.Analyzer.Supervisor | base_workers] ++
         broadway_workers
     else
       base_workers

@@ -134,20 +134,6 @@ defmodule ReencodarrWeb.DashboardLive do
 
   def handle_event("switch_tab", _params, socket), do: {:noreply, socket}
 
-  @impl Phoenix.LiveView
-  def handle_event("manual_scan", params, socket) do
-    case extract_scan_path(params) do
-      {:ok, path} ->
-        Logger.info("Starting manual scan for path: #{path}")
-        Reencodarr.ManualScanner.scan(path)
-        {:noreply, put_flash(socket, :info, "Manual scan started for #{path}")}
-
-      {:error, reason} ->
-        Logger.warning("Invalid scan path: #{inspect(reason)}")
-        {:noreply, put_flash(socket, :error, "Invalid scan path")}
-    end
-  end
-
   # Modern render function with better organization
   @impl Phoenix.LiveView
   def render(assigns) do
@@ -198,9 +184,8 @@ defmodule ReencodarrWeb.DashboardLive do
 
       <.queues_section queues={@dashboard_data.queues} streams={@streams || %{}} />
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
+      <div class="grid grid-cols-1 lg:grid-cols-1 gap-4 sm:gap-6">
         <.control_panel status={@dashboard_data.status} stats={@dashboard_data.stats} />
-        <.manual_scan_section />
       </div>
     </div>
     """
@@ -279,11 +264,6 @@ defmodule ReencodarrWeb.DashboardLive do
   # Parameter extraction functions with validation
   defp extract_timezone(%{"timezone" => tz}) when is_binary(tz) and tz != "", do: {:ok, tz}
   defp extract_timezone(params), do: {:error, {:invalid_timezone, params}}
-
-  defp extract_scan_path(%{"path" => path}) when is_binary(path) and path != "",
-    do: {:ok, String.trim(path)}
-
-  defp extract_scan_path(params), do: {:error, {:invalid_path, params}}
 
   # Error handling helpers for more idiomatic flash messages
   defp log_and_flash_error(socket, error, context) do
