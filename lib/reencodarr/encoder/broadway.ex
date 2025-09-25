@@ -20,7 +20,7 @@ defmodule Reencodarr.Encoder.Broadway do
   alias Reencodarr.AbAv1.ProgressParser
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Encoder.Broadway.Producer
-  alias Reencodarr.{PostProcessor, Telemetry}
+  alias Reencodarr.PostProcessor
 
   @typedoc "VMAF struct for encoding processing"
   @type vmaf :: %{id: integer(), video: map()}
@@ -540,19 +540,12 @@ defmodule Reencodarr.Encoder.Broadway do
 
   @spec notify_encoding_success(map(), String.t()) :: {:ok, :success} | {:error, atom()}
   defp notify_encoding_success(video, output_file) do
-    # Emit telemetry event for completion
-    Telemetry.emit_encoder_completed()
-
     # Use PostProcessor for cleanup work and return its result
     PostProcessor.process_encoding_success(video, output_file)
   end
 
   @spec notify_encoding_failure(map(), integer() | atom(), map()) :: :ok
-  @spec notify_encoding_failure(map(), integer() | atom(), map()) :: :ok
   defp notify_encoding_failure(video, exit_code, context \\ %{}) do
-    # Emit telemetry event for failure
-    Telemetry.emit_encoder_failed(exit_code, video)
-
     # Mark the video as failed and handle cleanup
     # Convert atom exit codes to integers for database storage
     db_exit_code =

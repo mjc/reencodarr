@@ -7,7 +7,6 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
   require Logger
 
   alias Reencodarr.Dashboard.Events
-  alias Reencodarr.{Media, Telemetry}
 
   @default_rate_limit 500
   @min_rate_limit 200
@@ -308,22 +307,8 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
     Enum.filter(new_history, fn {timestamp, _} -> timestamp > cutoff end)
   end
 
-  defp emit_throughput_telemetry(avg_throughput, state) do
-    # Get current analyzer queue length for progress calculation
-    queue_length = get_queue_length()
-    rate_limit = state.rate_limit
-    batch_size = state.mediainfo_batch_size
-
-    Telemetry.emit_analyzer_throughput(
-      avg_throughput / 60.0,
-      queue_length,
-      rate_limit,
-      batch_size
-    )
-  end
-
-  defp get_queue_length do
-    Media.count_videos_needing_analysis()
+  defp emit_throughput_telemetry(_avg_throughput, _state) do
+    # Telemetry emission removed - no production consumers
   end
 
   defp update_broadway_context(broadway_name, new_batch_size) do

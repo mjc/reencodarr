@@ -12,7 +12,7 @@ defmodule Reencodarr.AbAv1.Encode do
   alias Reencodarr.AbAv1.ProgressParser
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Encoder.Broadway.Producer
-  alias Reencodarr.{Media, PostProcessor, Telemetry, TelemetryReporter}
+  alias Reencodarr.{Media, PostProcessor}
   alias Reencodarr.Media.Vmaf
 
   require Logger
@@ -42,7 +42,8 @@ defmodule Reencodarr.AbAv1.Encode do
        video: :none,
        vmaf: :none,
        output_file: :none,
-       partial_line_buffer: ""
+       partial_line_buffer: "",
+       last_progress: nil
      }}
   end
 
@@ -62,15 +63,8 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   @impl true
-  def handle_cast({:encode, %Vmaf{} = vmaf}, %{port: port} = state) when port != :none do
+  def handle_cast({:encode, %Vmaf{} = _vmaf}, %{port: port} = state) when port != :none do
     Logger.info("Encoding is already in progress, skipping new encode request.")
-
-    # Publish a skipped event since this request was rejected
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "encoding_events",
-      {:encoding_completed, vmaf.id, :skipped}
-    )
 
     {:noreply, state}
   end
@@ -82,7 +76,11 @@ defmodule Reencodarr.AbAv1.Encode do
       ) do
     full_line = buffer <> data
     ProgressParser.process_line(full_line, state)
-    {:noreply, %{state | partial_line_buffer: ""}}
+
+    # Try to extract progress data from the line to store as last_progress
+    updated_state = extract_and_store_progress(full_line, state)
+
+    {:noreply, %{updated_state | partial_line_buffer: ""}}
   end
 
   @impl true
@@ -105,16 +103,9 @@ defmodule Reencodarr.AbAv1.Encode do
         _ -> {:error, exit_code}
       end
 
-    # Publish completion event to PubSub
+    # Broadcast encoding completion to Dashboard Events
     pubsub_result = if result == {:ok, :success}, do: :success, else: {:error, exit_code}
 
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "encoding_events",
-      {:encoding_completed, vmaf.id, pubsub_result}
-    )
-
-    # Broadcast encoding completion to Dashboard Events
     Events.broadcast_event(:encoding_completed, %{
       video_id: vmaf.video.id,
       result: pubsub_result
@@ -135,7 +126,8 @@ defmodule Reencodarr.AbAv1.Encode do
         video: :none,
         vmaf: :none,
         output_file: nil,
-        partial_line_buffer: ""
+        partial_line_buffer: "",
+        last_progress: nil
     }
 
     {:noreply, new_state}
@@ -156,29 +148,25 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   @impl true
-  def handle_info(:periodic_check, %{port: port, video: video} = state) when port != :none do
-    # Get the last known progress from the telemetry system to preserve ETA
-    last_progress =
-      case TelemetryReporter.get_progress_state() do
-        %{encoding_progress: %{eta: eta, percent: percent, fps: fps}} when eta != 0 ->
-          %{eta: eta, percent: percent, fps: fps}
+  def handle_info(
+        :periodic_check,
+        %{port: port, video: video, last_progress: last_progress} = state
+      )
+      when port != :none do
+    # Broadcast the last known progress to keep dashboard alive during long encodings
+    # Only broadcast if we have real progress data, otherwise let the dashboard handle the silence
+    if last_progress do
+      Events.broadcast_event(:encoding_progress, %{
+        video_id: video.id,
+        percent: last_progress.percent,
+        fps: last_progress.fps,
+        eta: last_progress.eta,
+        filename: Path.basename(video.path)
+      })
 
-        _ ->
-          %{eta: "Unknown", percent: 1, fps: 0}
-      end
-
-    # Emit a minimal progress update to show the encoding is still running
-    # This preserves the last known ETA instead of always showing "Unknown"
-    filename = Path.basename(video.path)
-
-    progress = %Reencodarr.Statistics.EncodingProgress{
-      percent: last_progress.percent,
-      eta: last_progress.eta,
-      fps: last_progress.fps,
-      filename: filename
-    }
-
-    Telemetry.emit_encoder_progress(progress)
+      # Also ensure encoder status shows as active
+      Events.broadcast_event(:encoder_started, %{})
+    end
 
     # Schedule the next check
     Process.send_after(self(), :periodic_check, 10_000)
@@ -247,15 +235,36 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   defp notify_encoder_success(video, output_file) do
-    # Emit telemetry event for completion
-    Telemetry.emit_encoder_completed()
-
     # Use PostProcessor for cleanup work
     PostProcessor.process_encoding_success(video, output_file)
   end
 
-  defp notify_encoder_failure(video, exit_code) do
-    # Emit telemetry event for failure
-    Telemetry.emit_encoder_failed(exit_code, video)
+  defp notify_encoder_failure(_video, _exit_code) do
+    # Failure handling complete - no additional work needed
+  end
+
+  # Extract progress data from a line and store it for periodic updates
+  defp extract_and_store_progress(line, state) do
+    # Simple regex to match progress lines: "X%, Y fps, eta Z"
+    progress_regex =
+      ~r/(?<percent>\d+(?:\.\d+)?)%,\s+(?<fps>\d+(?:\.\d+)?)\s+fps.*?eta\s+(?<eta>[^,\n]+)/
+
+    case Regex.named_captures(progress_regex, line) do
+      %{"percent" => percent_str, "fps" => fps_str, "eta" => eta_str} ->
+        progress_data = %{
+          percent: String.to_float(percent_str),
+          fps: String.to_float(fps_str),
+          eta: String.trim(eta_str)
+        }
+
+        %{state | last_progress: progress_data}
+
+      nil ->
+        # No progress found in this line, keep existing state
+        state
+    end
+  rescue
+    # If parsing fails, just return the original state
+    _ -> state
   end
 end

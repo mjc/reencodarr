@@ -18,8 +18,8 @@ defmodule Reencodarr.Analyzer.Broadway do
   }
 
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.Media
   alias Reencodarr.Media.{Codecs, Video}
-  alias Reencodarr.{Media, Telemetry}
 
   # Constants
   @default_processor_concurrency 16
@@ -182,21 +182,13 @@ defmodule Reencodarr.Analyzer.Broadway do
     current_queue_length = Media.count_videos_needing_analysis()
 
     # Get current performance settings for UI display
-    current_rate_limit = PerformanceMonitor.get_current_rate_limit()
     current_batch_size = PerformanceMonitor.get_current_mediainfo_batch_size()
 
     # Get actual throughput from PerformanceMonitor (will be 0 if no data available)
     # Convert from files/min to files/s
     current_throughput = PerformanceMonitor.get_current_throughput() / 60.0
 
-    Telemetry.emit_analyzer_throughput(
-      current_throughput,
-      current_queue_length,
-      current_rate_limit,
-      current_batch_size
-    )
-
-    # Also send to new dashboard via Events module
+    # Send to new dashboard via Events module
     Events.broadcast_event(:analyzer_throughput, %{
       throughput: current_throughput,
       queue_length: current_queue_length,

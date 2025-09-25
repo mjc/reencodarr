@@ -1,9 +1,9 @@
-defmodule ReencodarrWeb.DashboardLiveHelpers do
+defmodule ReencodarrWeb.LiveViewHelpers do
   @moduledoc """
-  Shared utilities and helper functions for dashboard LiveViews.
+  Shared helper functions for LiveView modules.
 
-  Provides common functionality like stardate calculation, telemetry handling,
-  and state management across all dashboard LiveViews.
+  Provides common functionality used across multiple LiveViews including
+  stardate calculations, timezone handling, and UI utilities.
   """
 
   import Phoenix.Component, only: [assign: 2, assign: 3]
@@ -43,21 +43,16 @@ defmodule ReencodarrWeb.DashboardLiveHelpers do
   def calculate_stardate(_), do: 75_212.8
 
   @doc """
-  Standard mount setup for all dashboard LiveViews.
-
-  Provides consistent initialization with optional additional setup function.
+  Handles timezone change events for LiveViews that need timezone support.
   """
-  def standard_mount_setup(socket, additional_setup \\ fn s -> s end) do
-    socket
-    |> setup_dashboard_assigns()
-    |> start_stardate_timer()
-    |> additional_setup.()
+  def handle_timezone_change(socket, timezone) do
+    assign(socket, timezone: timezone)
   end
 
   @doc """
-  Sets up common assigns for dashboard LiveViews.
+  Sets up stardate-related assigns for LiveViews.
   """
-  def setup_dashboard_assigns(socket, timezone \\ "UTC") do
+  def setup_stardate_assigns(socket, timezone \\ "UTC") do
     assign(socket,
       timezone: timezone,
       current_stardate: calculate_stardate(DateTime.utc_now())
@@ -65,7 +60,7 @@ defmodule ReencodarrWeb.DashboardLiveHelpers do
   end
 
   @doc """
-  Starts the stardate update timer if connected.
+  Starts the stardate update timer if the socket is connected.
   """
   def start_stardate_timer(socket) do
     if Phoenix.LiveView.connected?(socket) do
@@ -76,18 +71,11 @@ defmodule ReencodarrWeb.DashboardLiveHelpers do
   end
 
   @doc """
-  Handles the stardate update message.
+  Handles the stardate update message for LiveViews that update stardate periodically.
   """
   def handle_stardate_update(socket) do
     # Update the stardate and schedule the next update
     Process.send_after(self(), :update_stardate, 5000)
     assign(socket, :current_stardate, calculate_stardate(DateTime.utc_now()))
-  end
-
-  @doc """
-  Handles timezone change events.
-  """
-  def handle_timezone_change(socket, timezone) do
-    assign(socket, timezone: timezone)
   end
 end

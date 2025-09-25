@@ -18,7 +18,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.ErrorHelpers
   alias Reencodarr.Formatters
-  alias Reencodarr.{Media, Repo, Telemetry}
+  alias Reencodarr.{Media, Repo}
 
   require Logger
 
@@ -57,13 +57,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def crf_search(video, vmaf_percent) do
     if Media.chosen_vmaf_exists?(video) do
       Logger.info("Skipping crf search for video #{video.path} as a chosen VMAF already exists")
-
-      # Publish skipped event to PubSub
-      Phoenix.PubSub.broadcast(
-        Reencodarr.PubSub,
-        "crf_search_events",
-        {:crf_search_completed, video.id, :skipped}
-      )
     else
       GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
     end
@@ -149,10 +142,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         output_buffer: []
     }
 
-    # Emit telemetry event for CRF search start
-    Telemetry.emit_crf_search_started()
-
-    # Clean dashboard event
+    # Dashboard event
     Events.broadcast_event(:crf_search_started, %{
       video_id: video.id,
       filename: Path.basename(video.path),
@@ -173,9 +163,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         output_buffer: []
     }
 
-    # Emit telemetry event for CRF search start
-    Telemetry.emit_crf_search_started()
-
     {:noreply, new_state}
   end
 
@@ -184,25 +171,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       "CRF search already in progress, cannot retry with preset 6 for video #{video.id}"
     )
 
-    # Publish a skipped event since this request was rejected
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video.id, :skipped}
-    )
-
     {:noreply, state}
   end
 
   def handle_cast({:crf_search, video, _vmaf_percent}, state) do
     Logger.error("CRF search already in progress for video #{video.id}")
-
-    # Publish a skipped event since this request was rejected
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video.id, :skipped}
-    )
 
     {:noreply, state}
   end
@@ -267,13 +240,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       Reencodarr.Media.mark_as_crf_searched(video),
       :ok,
       "Failed to update video #{video.id} state"
-    )
-
-    # Publish completion event to PubSub
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video.id, :success}
     )
 
     # Check for pending preset 6 retry
@@ -372,13 +338,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       }
     )
 
-    # Publish completion event to PubSub
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video.id, {:error, exit_code}}
-    )
-
     Media.mark_as_failed(video)
 
     # Check for pending preset 6 retry even in failure cases
@@ -410,9 +369,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   # Private helper functions
   defp perform_crf_search_cleanup(state) do
-    # Emit telemetry event for CRF search completion
-    Telemetry.emit_crf_search_completed()
-
     # Notify the Broadway producer that CRF search is now available
     Producer.dispatch_available()
 
@@ -599,13 +555,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     # Record size limit failure with detailed context
     Reencodarr.FailureTracker.record_size_limit_failure(video, "Estimated > 10GB", "10GB",
       context: %{chosen_crf: crf}
-    )
-
-    # Publish failure event to PubSub
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video.id, {:error, :file_size_too_large}}
     )
   end
 
