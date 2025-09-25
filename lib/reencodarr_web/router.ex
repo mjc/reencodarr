@@ -29,7 +29,6 @@ defmodule ReencodarrWeb.Router do
     pipe_through :browser
 
     live "/", DashboardV2Live, :index
-    live "/dashboard-v1", DashboardLive, :index
     live "/broadway", BroadwayLive, :index
     live "/failures", FailuresLive, :index
     live "/rules", RulesLive, :index

@@ -107,7 +107,7 @@ IO.puts("""
 
 Quick commands:
   pipelines_status()  - Check all Broadway pipeline status
-  queue_counts()      - Get queue counts for all pipelines  
+  queue_counts()      - Get queue counts for all pipelines
   next_items()        - See next items in each queue
   start_all() / pause_all() - Control all pipelines
   video_states()      - Summary of video states

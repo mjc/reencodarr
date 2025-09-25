@@ -4,11 +4,11 @@ defmodule Reencodarr.Sync do
   require Logger
   import Ecto.Query
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
-  alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.Core.Parsers
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media.{MediaInfoExtractor, VideoFileInfo, VideoUpsert}
   alias Reencodarr.Media.Video.MediaInfoConverter
-  alias Reencodarr.{Media, Repo, Services, Telemetry}
+  alias Reencodarr.{Media, Repo, Services}
 
   # Public API
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -26,9 +26,9 @@ defmodule Reencodarr.Sync do
   def handle_cast(action, state) when action in [:sync_episodes, :sync_movies] do
     {get_items, get_files, service_type} = resolve_action(action)
 
-    Telemetry.emit_sync_started(service_type)
+    Events.broadcast_event(:sync_started, %{service_type: service_type})
     sync_items(get_items, get_files, service_type)
-    Telemetry.emit_sync_completed(service_type)
+    Events.broadcast_event(:sync_completed, %{service_type: service_type})
 
     # Trigger analyzer to process any videos that need analysis after sync completion
     AnalyzerBroadway.dispatch_available()
@@ -104,7 +104,11 @@ defmodule Reencodarr.Sync do
 
     # Update progress
     progress = div((batch_index + 1) * 50 * 100, total_items)
-    Telemetry.emit_sync_progress(min(progress, 100), service_type)
+
+    Events.broadcast_event(:sync_progress, %{
+      progress: min(progress, 100),
+      service_type: service_type
+    })
   end
 
   @doc """

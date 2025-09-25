@@ -9,8 +9,8 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   use GenStage
   require Logger
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.Media
   alias Reencodarr.PipelineStateMachine
-  alias Reencodarr.{Media, Telemetry}
 
   @broadway_name Reencodarr.Analyzer.Broadway
 
@@ -272,7 +272,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   defp handle_auto_start(state) do
     Logger.info("Auto-starting analyzer - videos available for processing")
-    Telemetry.emit_analyzer_started()
     :telemetry.execute([:reencodarr, :analyzer, :started], %{}, %{})
 
     # Send to Dashboard using Events system

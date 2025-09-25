@@ -14,13 +14,13 @@ defmodule ReencodarrWeb.RulesLive do
   require Logger
   import ReencodarrWeb.LcarsComponents
 
-  alias ReencodarrWeb.DashboardLiveHelpers
+  alias ReencodarrWeb.LiveViewHelpers
 
   @impl true
   def mount(_params, _session, socket) do
     # Standard LiveView setup
     timezone = get_in(socket.assigns, [:timezone]) || "UTC"
-    current_stardate = DashboardLiveHelpers.calculate_stardate(DateTime.utc_now())
+    current_stardate = LiveViewHelpers.calculate_stardate(DateTime.utc_now())
 
     socket =
       socket

@@ -38,12 +38,7 @@ defmodule Reencodarr.Application do
       {Task.Supervisor, name: Reencodarr.TaskSupervisor}
     ]
 
-    # Only start Statistics in non-test environments
-    if Application.get_env(:reencodarr, :env) != :test do
-      base_children ++ [Reencodarr.TelemetryReporter]
-    else
-      base_children
-    end
+    base_children
   end
 
   defp worker_children do

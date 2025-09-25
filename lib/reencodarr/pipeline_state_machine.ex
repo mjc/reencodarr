@@ -19,11 +19,10 @@ defmodule Reencodarr.PipelineStateMachine do
   The state machine handles all event broadcasting automatically:
   - Dashboard events via Events.broadcast_event()
   - PubSub notifications via Phoenix.PubSub.broadcast()
-  - Telemetry events via both Telemetry.emit_*() and :telemetry.execute()
+  - Telemetry events via :telemetry.execute() for test consumption
   """
 
   alias Reencodarr.Dashboard.Events
-  alias Reencodarr.Telemetry
 
   @type pipeline_state :: :stopped | :idle | :running | :processing | :pausing | :paused
   @type service :: :analyzer | :crf_searcher | :encoder
@@ -542,21 +541,13 @@ defmodule Reencodarr.PipelineStateMachine do
 
   # Emits appropriate telemetry events for state transitions
   defp emit_telemetry_for_transition(service, from_state, to_state) do
-    # Emit service-specific telemetry events
+    # Emit telemetry events for test telemetry attachments
     case {service, to_state} do
       {:analyzer, :running} ->
-        Telemetry.emit_analyzer_started()
         :telemetry.execute([:reencodarr, :analyzer, :started], %{}, %{})
 
       {:analyzer, :paused} ->
-        Telemetry.emit_analyzer_paused()
         :telemetry.execute([:reencodarr, :analyzer, :paused], %{}, %{})
-
-      {:crf_searcher, :paused} ->
-        Telemetry.emit_crf_search_paused()
-
-      {:encoder, :paused} ->
-        Telemetry.emit_encoder_paused()
 
       _ ->
         # Generic telemetry event for all other transitions

@@ -19,13 +19,13 @@ defmodule ReencodarrWeb.BroadwayLive do
   import ReencodarrWeb.UIHelpers
   require Logger
 
-  alias ReencodarrWeb.DashboardLiveHelpers
+  alias ReencodarrWeb.LiveViewHelpers
 
   @impl true
   def mount(_params, _session, socket) do
     # Standard LiveView setup
     timezone = get_in(socket.assigns, [:timezone]) || "UTC"
-    current_stardate = DashboardLiveHelpers.calculate_stardate(DateTime.utc_now())
+    current_stardate = LiveViewHelpers.calculate_stardate(DateTime.utc_now())
 
     # Schedule stardate updates if connected
     if Phoenix.LiveView.connected?(socket) do
@@ -49,7 +49,7 @@ defmodule ReencodarrWeb.BroadwayLive do
       assign(
         socket,
         :current_stardate,
-        DashboardLiveHelpers.calculate_stardate(DateTime.utc_now())
+        LiveViewHelpers.calculate_stardate(DateTime.utc_now())
       )
 
     {:noreply, socket}
@@ -58,7 +58,7 @@ defmodule ReencodarrWeb.BroadwayLive do
   @impl true
   def handle_event("set_timezone", %{"timezone" => tz}, socket) do
     Logger.debug("Setting timezone to #{tz}")
-    socket = ReencodarrWeb.DashboardLiveHelpers.handle_timezone_change(socket, tz)
+    socket = LiveViewHelpers.handle_timezone_change(socket, tz)
     {:noreply, socket}
   end
 
