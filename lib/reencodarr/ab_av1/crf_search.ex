@@ -761,7 +761,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
             "CrfSearch: Converting VMAF to progress - CRF: #{inspect(crf_value)}, Score: #{inspect(score_value)}, Percent: #{inspect(percent_value)}"
           )
 
-          # Include all fields - the telemetry reporter will handle smart merging
+          # Include all fields for progress tracking
           %{
             video_id: progress_data[:video_id],
             filename: filename,
