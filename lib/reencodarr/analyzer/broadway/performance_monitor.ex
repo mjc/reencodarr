@@ -283,8 +283,8 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
           # Perform intelligent auto-tuning based on storage tier
           perform_intelligent_tuning(state_with_storage_detection, avg_throughput, current_time)
         else
-          # Just emit telemetry and reset counters
-          emit_telemetry_and_reset_counters(
+          # Just log performance and reset counters
+          log_performance_and_reset_counters(
             state_with_storage_detection,
             avg_throughput,
             current_time
@@ -305,10 +305,6 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
     # Keep only measurements from the last 2 minutes
     cutoff = now - @measurement_window
     Enum.filter(new_history, fn {timestamp, _} -> timestamp > cutoff end)
-  end
-
-  defp emit_throughput_telemetry(_avg_throughput, _state) do
-    # Telemetry emission removed - no production consumers
   end
 
   defp update_broadway_context(broadway_name, new_batch_size) do
@@ -430,7 +426,8 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
        do: :ultra_high_performance
 
   defp classify_storage_performance(mb_per_sec)
-       when mb_per_sec >= @high_performance_threshold_mb_per_sec, do: :high_performance
+       when mb_per_sec >= @high_performance_threshold_mb_per_sec,
+       do: :high_performance
 
   defp classify_storage_performance(_), do: :standard
 
@@ -540,9 +537,6 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
         "Target: #{state.target_throughput}, Consecutive improvements: #{improvements}"
     )
 
-    # Emit telemetry
-    emit_throughput_telemetry(avg_throughput, state)
-
     # Reset counters and update state
     %{
       state
@@ -558,13 +552,11 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
     }
   end
 
-  defp emit_telemetry_and_reset_counters(state, avg_throughput, current_time) do
+  defp log_performance_and_reset_counters(state, avg_throughput, current_time) do
     Logger.info(
       "Performance Monitor (auto-tuning disabled) - Rate: #{state.rate_limit}, " <>
         "Batch: #{state.mediainfo_batch_size}, Throughput: #{Float.round(avg_throughput, 2)} files/min"
     )
-
-    emit_throughput_telemetry(avg_throughput, state)
 
     %{
       state
