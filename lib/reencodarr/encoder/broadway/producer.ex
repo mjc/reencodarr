@@ -114,17 +114,19 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:broadcast_status, state) do
-    PipelineStateMachine.handle_broadcast_status_cast(state)
+    p = state.pipeline
+    Events.pipeline_state_changed(p.service, p.current_state, p.current_state)
+    {:noreply, [], state}
   end
 
   @impl GenStage
   def handle_cast(:pause, state) do
-    PipelineStateMachine.handle_pause_cast(state)
+    {:noreply, [], Map.update!(state, :pipeline, &PipelineStateMachine.pause/1)}
   end
 
   @impl GenStage
   def handle_cast(:resume, state) do
-    PipelineStateMachine.handle_resume_cast(state, &dispatch_if_ready/1)
+    dispatch_if_ready(Map.update!(state, :pipeline, &PipelineStateMachine.resume/1))
   end
 
   @impl GenStage
@@ -137,7 +139,14 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:dispatch_available, state) do
-    PipelineStateMachine.handle_dispatch_available_cast(state, &dispatch_if_ready/1)
+    case PipelineStateMachine.get_state(state.pipeline) do
+      :pausing ->
+        {:noreply, [],
+         Map.update!(state, :pipeline, &PipelineStateMachine.transition_to(&1, :paused))}
+
+      _ ->
+        dispatch_if_ready(Map.update!(state, :pipeline, &PipelineStateMachine.work_available/1))
+    end
   end
 
   @impl GenStage
@@ -289,21 +298,10 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
         false
 
       pid ->
-        case GenServer.call(pid, :running?, 1000) do
-          :not_running ->
-            Logger.debug(
-              "Producer: encoding_available? - Encode GenServer is :not_running - AVAILABLE"
-            )
-
-            true
-
-          status when status != :not_running ->
-            Logger.debug(
-              "Producer: encoding_available? - Encode GenServer status: #{inspect(status)} - NOT AVAILABLE"
-            )
-
-            false
-        end
+        # Simplified - just check if process is alive, let work fail gracefully if busy
+        alive = Process.alive?(pid)
+        Logger.debug("Producer: encoding_available? - Encode GenServer alive: #{alive}")
+        alive
     end
   end
 

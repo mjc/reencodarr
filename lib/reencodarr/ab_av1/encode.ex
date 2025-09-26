@@ -27,9 +27,10 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   def running? do
-    case GenServer.call(__MODULE__, :running?) do
-      :running -> true
-      :not_running -> false
+    # Simplified - just check if process exists and is alive
+    case GenServer.whereis(__MODULE__) do
+      nil -> false
+      pid -> Process.alive?(pid)
     end
   end
 

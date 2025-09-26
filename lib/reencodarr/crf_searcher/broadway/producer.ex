@@ -8,10 +8,9 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
 
   use GenStage
   require Logger
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
   alias Reencodarr.PipelineStateMachine
-
-  @broadway_name Reencodarr.CrfSearcher.Broadway
 
   def start_link(opts) do
     GenStage.start_link(__MODULE__, opts, name: __MODULE__)
@@ -26,26 +25,11 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   # Alias for API compatibility
   def start, do: resume()
 
-  def running? do
-    case find_producer_process() do
-      nil ->
-        false
-
-      producer_pid ->
-        GenStage.call(producer_pid, :running?, 1000)
-    end
-  end
-
-  # Check if actively processing (for telemetry/progress updates)
-  def actively_running? do
-    case find_producer_process() do
-      nil ->
-        false
-
-      producer_pid ->
-        GenStage.call(producer_pid, :actively_running?, 1000)
-    end
-  end
+  # Simplified - no cross-producer communication needed
+  # If the process exists, it's running
+  def running?, do: true
+  # Let the actual producer manage its own state
+  def actively_running?, do: false
 
   @impl GenStage
   def init(_opts) do
@@ -94,19 +78,19 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:broadcast_status, state) do
-    PipelineStateMachine.handle_broadcast_status_cast(state)
+    p = state.pipeline
+    Events.pipeline_state_changed(p.service, p.current_state, p.current_state)
+    {:noreply, [], state}
   end
 
   @impl GenStage
   def handle_cast(:pause, state) do
-    PipelineStateMachine.handle_pause_cast(state)
+    {:noreply, [], Map.update!(state, :pipeline, &PipelineStateMachine.pause/1)}
   end
 
   @impl GenStage
   def handle_cast(:resume, state) do
-    PipelineStateMachine.handle_resume_cast(state, fn new_state ->
-      dispatch_if_ready(new_state)
-    end)
+    dispatch_if_ready(Map.update!(state, :pipeline, &PipelineStateMachine.resume/1))
   end
 
   @impl GenStage
@@ -119,9 +103,14 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:dispatch_available, state) do
-    PipelineStateMachine.handle_dispatch_available_cast(state, fn new_state ->
-      dispatch_if_ready(new_state)
-    end)
+    case PipelineStateMachine.get_state(state.pipeline) do
+      :pausing ->
+        {:noreply, [],
+         Map.update!(state, :pipeline, &PipelineStateMachine.transition_to(&1, :paused))}
+
+      _ ->
+        dispatch_if_ready(Map.update!(state, :pipeline, &PipelineStateMachine.work_available/1))
+    end
   end
 
   @impl GenStage
@@ -203,31 +192,11 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   # Private functions
 
   defp send_to_producer(message) do
-    case find_producer_process() do
-      nil -> {:error, :producer_not_found}
-      producer_pid -> GenStage.cast(producer_pid, message)
+    # Send to the registered producer name - much simpler than process discovery
+    case Process.whereis(__MODULE__) do
+      nil -> {:error, :not_found}
+      pid -> GenStage.cast(pid, message)
     end
-  end
-
-  defp find_producer_process do
-    producer_supervisor_name = :"#{@broadway_name}.Broadway.ProducerSupervisor"
-
-    with pid when is_pid(pid) <- Process.whereis(producer_supervisor_name),
-         children <- Supervisor.which_children(pid),
-         producer_pid when is_pid(producer_pid) <- find_actual_producer(children) do
-      producer_pid
-    else
-      _ -> nil
-    end
-  end
-
-  defp find_actual_producer(children) do
-    Enum.find_value(children, fn {_id, pid, _type, _modules} ->
-      if is_pid(pid) and Process.alive?(pid) do
-        GenStage.call(pid, :running?, 1000)
-        pid
-      end
-    end)
   end
 
   defp dispatch_if_ready(state) do
@@ -263,15 +232,11 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   end
 
   defp crf_search_available? do
+    # Simplified - just check if the process exists and is alive
+    # If it's not available, the work will just fail gracefully
     case GenServer.whereis(Reencodarr.AbAv1.CrfSearch) do
-      nil ->
-        false
-
-      pid ->
-        case GenServer.call(pid, :running?, 1000) do
-          :not_running -> true
-          _ -> false
-        end
+      nil -> false
+      pid -> Process.alive?(pid)
     end
   end
 

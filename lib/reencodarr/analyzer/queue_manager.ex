@@ -35,13 +35,13 @@ defmodule Reencodarr.Analyzer.QueueManager do
 
       pid when is_pid(pid) ->
         if Process.alive?(pid) do
-          {:ok, GenServer.call(__MODULE__, :get_queue, 1000)}
+          {:ok, GenServer.call(__MODULE__, :get_queue)}
         else
           {:error, :not_alive}
         end
 
       _ ->
-        {:error, :invalid_process}
+        {:error, :not_available}
     end
   end
 
