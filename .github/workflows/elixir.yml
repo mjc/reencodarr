@@ -26,7 +26,7 @@ jobs:
         echo "https://dl-cdn.alpinelinux.org/alpine/v3.21/community" >> /etc/apk/repositories
         apk update
         
-        # Install basic system dependencies
+        # Install basic system dependencies including GNU tar for GitHub Actions caching
         apk add --no-cache \
           git \
           bash \
@@ -37,7 +37,13 @@ jobs:
           zlib-dev \
           mediainfo \
           cmake \
-          make
+          make \
+          gzip \
+          tar
+        
+        # Verify tar installation for GitHub Actions caching compatibility
+        # GitHub Actions cache requires POSIX-compliant tar
+        which tar && tar --version | head -1
         
         # Install FFmpeg with essential codec libraries (minimal set to avoid conflicts)
         apk add --no-cache \
