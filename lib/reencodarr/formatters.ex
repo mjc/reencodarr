@@ -192,7 +192,10 @@ defmodule Reencodarr.Formatters do
   """
   @spec duration_minutes(number()) :: String.t()
   def duration_minutes(seconds) when is_number(seconds) do
-    "#{Float.round(seconds / 60, 1)} min"
+    minutes = Float.round(seconds / 60, 1)
+    # Format without scientific notation to match test expectations
+    formatted = :erlang.float_to_binary(minutes, [{:decimals, 1}, :compact])
+    "#{formatted} min"
   end
 
   @spec duration_minutes(any()) :: String.t()
