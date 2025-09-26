@@ -65,18 +65,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   def running? do
+    # Simplified - just check if process exists and is alive
     case GenServer.whereis(__MODULE__) do
-      nil ->
-        false
-
-      pid when is_pid(pid) ->
-        case GenServer.call(__MODULE__, :running?, 1000) do
-          :running -> true
-          _ -> false
-        end
-
-      _ ->
-        false
+      nil -> false
+      pid -> Process.alive?(pid)
     end
   end
 

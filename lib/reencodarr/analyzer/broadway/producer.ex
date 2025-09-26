@@ -116,17 +116,19 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:broadcast_status, state) do
-    PipelineStateMachine.handle_broadcast_status_cast(state)
+    p = state.pipeline
+    Events.pipeline_state_changed(p.service, p.current_state, p.current_state)
+    {:noreply, [], state}
   end
 
   @impl GenStage
   def handle_cast(:pause, state) do
-    PipelineStateMachine.handle_pause_cast(state)
+    {:noreply, [], Map.update!(state, :pipeline, &PipelineStateMachine.pause/1)}
   end
 
   @impl GenStage
   def handle_cast(:resume, state) do
-    PipelineStateMachine.handle_resume_cast(state, &dispatch_if_ready/1)
+    dispatch_if_ready(Map.update!(state, :pipeline, &PipelineStateMachine.resume/1))
   end
 
   @impl GenStage
@@ -145,8 +147,15 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:dispatch_available, state) do
-    # Use state machine to handle work completion and determine next steps
-    PipelineStateMachine.handle_dispatch_available_cast(state, &dispatch_if_ready/1)
+    # Handle work availability and determine next steps
+    case PipelineStateMachine.get_state(state.pipeline) do
+      :pausing ->
+        {:noreply, [],
+         Map.update!(state, :pipeline, &PipelineStateMachine.transition_to(&1, :paused))}
+
+      _ ->
+        dispatch_if_ready(Map.update!(state, :pipeline, &PipelineStateMachine.work_available/1))
+    end
   end
 
   @impl GenStage
@@ -181,7 +190,15 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     Logger.debug("Producer: Received batch analysis completion notification")
 
     has_more_work = Media.count_videos_needing_analysis() > 0
-    PipelineStateMachine.handle_work_completion_cast(state, has_more_work, &dispatch_if_ready/1)
+
+    new_state =
+      Map.update!(state, :pipeline, &PipelineStateMachine.work_completed(&1, has_more_work))
+
+    if has_more_work and PipelineStateMachine.available_for_work?(new_state.pipeline) do
+      dispatch_if_ready(new_state)
+    else
+      {:noreply, [], new_state}
+    end
   end
 
   @impl GenStage
