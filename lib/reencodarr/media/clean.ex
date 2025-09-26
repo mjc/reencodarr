@@ -335,8 +335,6 @@ defmodule Reencodarr.Media.Clean do
 
     case result do
       {:ok, vmaf} ->
-        Reencodarr.Telemetry.emit_vmaf_upserted(vmaf)
-
         # If this VMAF is chosen, update video state to crf_searched
         if vmaf.chosen do
           video = get_video!(vmaf.video_id)

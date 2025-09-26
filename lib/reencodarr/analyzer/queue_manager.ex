@@ -13,6 +13,8 @@ defmodule Reencodarr.Analyzer.QueueManager do
   use GenServer
   require Logger
 
+  alias Reencodarr.Dashboard.Events
+
   @queue_topic "analyzer_queue"
 
   defstruct queue: [], count: 0
@@ -27,7 +29,20 @@ defmodule Reencodarr.Analyzer.QueueManager do
   Get the current analyzer queue for dashboard display.
   """
   def get_queue do
-    GenServer.call(__MODULE__, :get_queue)
+    case GenServer.whereis(__MODULE__) do
+      nil ->
+        {:error, :not_started}
+
+      pid when is_pid(pid) ->
+        if Process.alive?(pid) do
+          {:ok, GenServer.call(__MODULE__, :get_queue)}
+        else
+          {:error, :not_alive}
+        end
+
+      _ ->
+        {:error, :not_available}
+    end
   end
 
   @doc """
@@ -41,10 +56,9 @@ defmodule Reencodarr.Analyzer.QueueManager do
   Broadcast a queue update (called by Broadway producer).
   """
   def broadcast_queue_update(queue_items) do
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      @queue_topic,
-      {:analyzer_queue_updated, queue_items}
+    Events.broadcast_event(
+      :analyzer_queue_updated,
+      %{queue_items: queue_items}
     )
   end
 

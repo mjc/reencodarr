@@ -58,12 +58,7 @@ defmodule Reencodarr.FailureReporting do
     resolved = stats.resolved || 0
     unresolved = stats.unresolved || 0
 
-    resolution_rate =
-      if total > 0 do
-        (resolved / total * 100) |> Float.round(1)
-      else
-        0.0
-      end
+    resolution_rate = Reencodarr.Formatters.percentage(resolved, total)
 
     %{
       total_failures: total,

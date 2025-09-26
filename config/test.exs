@@ -10,8 +10,11 @@ config :reencodarr, Reencodarr.Repo,
   pool: Ecto.Adapters.SQL.Sandbox,
   # Use single connection for test sandbox
   pool_size: 1,
-  # Test-specific timeout
-  timeout: 30_000
+  # Test-specific timeout for query execution
+  timeout: 30_000,
+  # Pool checkout timeout settings for handling concurrent test access
+  queue_target: 5_000,
+  queue_interval: 10_000
 
 # We don't run a server during test. If one is required,
 # you can enable the server option below.

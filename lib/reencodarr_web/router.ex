@@ -28,7 +28,7 @@ defmodule ReencodarrWeb.Router do
   scope "/", ReencodarrWeb do
     pipe_through :browser
 
-    live "/", DashboardLive, :index
+    live "/", DashboardV2Live, :index
     live "/broadway", BroadwayLive, :index
     live "/failures", FailuresLive, :index
     live "/rules", RulesLive, :index

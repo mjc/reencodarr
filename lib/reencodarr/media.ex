@@ -127,6 +127,10 @@ defmodule Reencodarr.Media do
     VideoStateMachine.mark_as_needs_analysis(video)
   end
 
+  def mark_as_encoded(%Video{} = video) do
+    VideoStateMachine.mark_as_encoded(video)
+  end
+
   # --- Video Failure Tracking Functions ---
 
   @doc """
@@ -537,8 +541,6 @@ defmodule Reencodarr.Media do
 
         case result do
           {:ok, vmaf} ->
-            Reencodarr.Telemetry.emit_vmaf_upserted(vmaf)
-
             # If this VMAF is chosen, update video state to crf_searched
             handle_chosen_vmaf(vmaf)
 
@@ -711,282 +713,21 @@ defmodule Reencodarr.Media do
     )
   end
 
-  # --- Stats and helpers ---
-  def fetch_stats do
-    case Repo.transaction(fn -> fetch_stats_optimized() end) do
-      {:ok, stats} ->
-        build_stats(stats)
-
-      {:error, _} ->
-        Logger.error("Failed to fetch stats")
-        build_empty_stats()
-    end
-  end
-
-  @doc """
-  Fetches only essential dashboard stats for fast initial load.
-
-  Skips expensive queue data queries, only loads basic metrics.
-  """
-  def fetch_essential_stats do
-    case Repo.transaction(fn -> fetch_essential_stats_optimized() end) do
-      {:ok, stats} ->
-        build_essential_stats(stats)
-
-      {:error, _} ->
-        Logger.error("Failed to fetch essential stats")
-        build_empty_stats()
-    end
-  end
-
-  # Optimized stats fetching with separate queries instead of expensive LEFT JOIN
-  defp fetch_stats_optimized do
-    # Get basic video stats without JOIN (fastest)
-    video_stats =
-      Repo.one(
-        from v in Video,
-          select: %{
-            total_videos: count(v.id),
-            needs_analysis:
-              fragment(
-                "COALESCE(SUM(CASE WHEN ? = 'needs_analysis' THEN 1 ELSE 0 END), 0)",
-                v.state
-              ),
-            analyzed:
-              fragment("COALESCE(SUM(CASE WHEN ? = 'analyzed' THEN 1 ELSE 0 END), 0)", v.state),
-            crf_searching:
-              fragment(
-                "COALESCE(SUM(CASE WHEN ? = 'crf_searching' THEN 1 ELSE 0 END), 0)",
-                v.state
-              ),
-            crf_searched:
-              fragment(
-                "COALESCE(SUM(CASE WHEN ? = 'crf_searched' THEN 1 ELSE 0 END), 0)",
-                v.state
-              ),
-            encoding:
-              fragment("COALESCE(SUM(CASE WHEN ? = 'encoding' THEN 1 ELSE 0 END), 0)", v.state),
-            encoded:
-              fragment("COALESCE(SUM(CASE WHEN ? = 'encoded' THEN 1 ELSE 0 END), 0)", v.state),
-            failed:
-              fragment("COALESCE(SUM(CASE WHEN ? = 'failed' THEN 1 ELSE 0 END), 0)", v.state),
-            most_recent_video_update: max(v.updated_at),
-            most_recent_inserted_video: max(v.inserted_at)
-          }
-      )
-
-    # Get VMAF stats separately (much faster)
-    vmaf_stats =
-      Repo.one(
-        from v in Vmaf,
-          select: %{
-            total_vmafs: count(v.id),
-            chosen_vmafs_count:
-              fragment("COALESCE(SUM(CASE WHEN ? = 1 THEN 1 ELSE 0 END), 0)", v.chosen),
-            avg_vmaf_percentage: fragment("ROUND(AVG(?), 2)", v.percent),
-            total_savings_gb:
-              coalesce(
-                sum(
-                  fragment(
-                    "CASE WHEN ? = 1 AND ? > 0 THEN ? / 1073741824.0 ELSE 0 END",
-                    v.chosen,
-                    v.savings,
-                    v.savings
-                  )
-                ),
-                0
-              )
-          }
-      )
-
-    # Get encoding queue count with optimized query
-    encodes_count =
-      Repo.one(
-        from v in Vmaf,
-          join: vid in assoc(v, :video),
-          where: v.chosen == true and vid.state == :crf_searched,
-          select: count(v.id)
-      )
-
-    # Merge the results - ensure variables are explicitly used
-    result =
-      video_stats
-      |> Map.merge(vmaf_stats)
-      |> Map.put(:encodes_count, encodes_count)
-      |> Map.put(:queued_crf_searches_count, video_stats.analyzed)
-      |> Map.put(:analyzer_count, video_stats.needs_analysis)
-      |> Map.put(:reencoded_count, video_stats.encoded)
-      |> Map.put(:failed_count, video_stats.failed)
-      |> Map.put(:analyzing_count, video_stats.needs_analysis)
-      |> Map.put(:encoding_count, video_stats.encoding)
-      |> Map.put(:searching_count, video_stats.crf_searching)
-      |> Map.put(:available_count, video_stats.crf_searched)
-      |> Map.put(:paused_count, 0)
-      |> Map.put(:skipped_count, 0)
-
-    result
-  end
-
-  # Essential stats fetching - only basic metrics, no queue data
-  defp fetch_essential_stats_optimized do
-    # Get basic video stats only - much faster
-    video_stats =
-      Repo.one(
-        from v in Video,
-          select: %{
-            total_videos: count(v.id),
-            encoded:
-              fragment("COALESCE(SUM(CASE WHEN ? = 'encoded' THEN 1 ELSE 0 END), 0)", v.state),
-            failed:
-              fragment("COALESCE(SUM(CASE WHEN ? = 'failed' THEN 1 ELSE 0 END), 0)", v.state),
-            most_recent_video_update: max(v.updated_at),
-            most_recent_inserted_video: max(v.inserted_at)
-          }
-      )
-
-    # Get only essential VMAF stats
-    vmaf_stats =
-      Repo.one(
-        from v in Vmaf,
-          select: %{
-            total_vmafs: count(v.id),
-            chosen_vmafs_count:
-              fragment("COALESCE(SUM(CASE WHEN ? = 1 THEN 1 ELSE 0 END), 0)", v.chosen),
-            total_savings_gb:
-              coalesce(
-                sum(
-                  fragment(
-                    "CASE WHEN ? = 1 AND ? > 0 THEN ? / 1073741824.0 ELSE 0 END",
-                    v.chosen,
-                    v.savings,
-                    v.savings
-                  )
-                ),
-                0
-              )
-          }
-      )
-
-    # Merge with minimal fields for fast loading
-    video_stats
-    |> Map.merge(vmaf_stats)
-    |> Map.put(:reencoded_count, video_stats.encoded)
-    |> Map.put(:failed_count, video_stats.failed)
-  end
-
-  # Build full stats struct on successful DB query
-  defp build_stats(stats) do
-    next_items = fetch_next_items()
-    queue_lengths = calculate_queue_lengths(stats, next_items.manual_items)
-
-    # Extract first items from lists (both functions now guarantee lists)
-    first_encoding = List.first(next_items.next_encoding)
-    first_encoding_by_time = List.first(next_items.next_encoding_by_time)
-
-    %Reencodarr.Statistics.Stats{
-      avg_vmaf_percentage: stats.avg_vmaf_percentage,
-      chosen_vmafs_count: stats.chosen_vmafs_count,
-      lowest_vmaf_percent: first_encoding && first_encoding.percent,
-      lowest_vmaf_by_time_seconds: first_encoding_by_time && first_encoding_by_time.time,
-      total_videos: stats.total_videos,
-      # Use new state-based fields
-      reencoded_count: stats.reencoded_count,
-      failed_count: stats.failed_count,
-      analyzing_count: stats.analyzing_count,
-      encoding_count: stats.encoding_count,
-      searching_count: stats.searching_count,
-      available_count: stats.available_count,
-      paused_count: stats.paused_count,
-      skipped_count: stats.skipped_count,
-      # Add new total savings field
-      total_savings_gb: stats.total_savings_gb,
-      total_vmafs: stats.total_vmafs,
-      most_recent_video_update: stats.most_recent_video_update,
-      most_recent_inserted_video: stats.most_recent_inserted_video,
-      queue_length: queue_lengths,
-      next_crf_search: next_items.next_crf_search,
-      videos_by_estimated_percent: next_items.videos_by_estimated_percent,
-      next_analyzer: next_items.combined_analyzer
-    }
-  end
-
-  # Build essential stats struct for fast initial load - no queue data
-  defp build_essential_stats(stats) do
-    %Reencodarr.Statistics.Stats{
-      total_videos: stats.total_videos,
-      reencoded_count: stats.reencoded_count,
-      failed_count: stats.failed_count,
-      chosen_vmafs_count: stats.chosen_vmafs_count,
-      total_vmafs: stats.total_vmafs,
-      total_savings_gb: stats.total_savings_gb,
-      most_recent_video_update: stats.most_recent_video_update,
-      most_recent_inserted_video: stats.most_recent_inserted_video,
-      # Empty lists for queue data - will be loaded later
-      next_analyzer: [],
-      next_crf_search: [],
-      videos_by_estimated_percent: [],
-      queue_length: %{analyzer: 0, crf_searches: 0, encodes: 0},
-      # Set remaining fields to defaults
-      avg_vmaf_percentage: 0.0,
-      lowest_vmaf_percent: nil,
-      lowest_vmaf_by_time_seconds: nil,
-      analyzing_count: 0,
-      encoding_count: 0,
-      searching_count: 0,
-      available_count: 0,
-      paused_count: 0,
-      skipped_count: 0
-    }
-  end
-
-  defp fetch_next_items do
-    # Run queries sequentially to avoid SQLite concurrency issues
-    # Use 5 items to match telemetry updates from Broadway producers
-    next_analyzer = get_videos_needing_analysis(5)
-    next_crf_search = get_videos_for_crf_search(5)
-    videos_by_estimated_percent = list_videos_by_estimated_percent(5)
-    next_encoding = get_next_for_encoding()
-    next_encoding_by_time = get_next_for_encoding_by_time()
-    manual_items = get_manual_analyzer_items()
-
-    %{
-      next_crf_search: next_crf_search,
-      videos_by_estimated_percent: videos_by_estimated_percent,
-      next_analyzer: next_analyzer,
-      manual_items: manual_items,
-      combined_analyzer: manual_items ++ next_analyzer,
-      next_encoding: next_encoding,
-      next_encoding_by_time: next_encoding_by_time
-    }
-  end
-
-  defp calculate_queue_lengths(stats, manual_items) do
-    %{
-      encodes: stats.encodes_count,
-      crf_searches: stats.queued_crf_searches_count,
-      analyzer: stats.analyzer_count + length(manual_items)
-    }
-  end
+  # --- Queue helpers ---
 
   # Manual analyzer queue items from QueueManager
   defp get_manual_analyzer_items do
-    QueueManager.get_queue()
-  catch
-    :exit, _ -> []
+    case QueueManager.get_queue() do
+      {:ok, queue} -> queue
+      {:error, _} -> []
+    end
   end
 
   defp count_manual_analyzer_items do
-    QueueManager.get_queue() |> length()
-  catch
-    :exit, _ -> 0
-  end
-
-  # Build minimal stats struct when DB query fails
-  defp build_empty_stats do
-    %Reencodarr.Statistics.Stats{
-      most_recent_video_update: most_recent_video_update(),
-      most_recent_inserted_video: get_most_recent_inserted_at()
-    }
+    case QueueManager.get_queue() do
+      {:ok, queue} -> length(queue)
+      {:error, _} -> 0
+    end
   end
 
   def get_next_for_encoding_by_time do
@@ -1404,13 +1145,13 @@ defmodule Reencodarr.Media do
 
   defp path_in_analyzer_manual?(path) do
     # Check the QueueManager's manual queue
-    manual_queue =
-      try do
-        QueueManager.get_queue()
-      catch
-        :exit, _ -> []
-      end
+    case QueueManager.get_queue() do
+      {:ok, manual_queue} -> queue_contains_path?(manual_queue, path)
+      {:error, _} -> false
+    end
+  end
 
+  defp queue_contains_path?(manual_queue, path) do
     Enum.any?(manual_queue, fn item ->
       case item do
         %{path: item_path} -> String.downcase(item_path) == String.downcase(path)

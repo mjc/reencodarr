@@ -8,14 +8,17 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   use GenServer
 
+  import Ecto.Query
+
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.AbAv1.OutputParser
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Core.Time
   alias Reencodarr.CrfSearcher.Broadway.Producer
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.ErrorHelpers
-  alias Reencodarr.{Media, Repo, Telemetry}
-  alias Reencodarr.Statistics.CrfSearchProgress
+  alias Reencodarr.Formatters
+  alias Reencodarr.{Media, Repo}
 
   require Logger
 
@@ -28,53 +31,32 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
-  @spec crf_search(Media.Video.t(), integer()) :: :ok
-  def crf_search(%Media.Video{state: :encoded, path: path, id: video_id}, _vmaf_percent) do
-    Logger.info("Skipping crf search for video #{path} as it is already encoded")
+  @spec crf_search(map(), integer()) :: :ok | :error
+  def crf_search(video, _vmaf_percent) when is_nil(video.id), do: :error
 
-    # Publish skipped event to PubSub
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video_id, :skipped}
-    )
+  def crf_search(video, _vmaf_percent) when video.state == :encoded do
+    Logger.info("Skipping crf search for video #{video.path} as it is already encoded")
 
-    :ok
-  end
-
-  # Only allow CRF search for videos that are analyzed and have a valid id
-  def crf_search(%Media.Video{id: nil}, _vmaf_percent), do: :error
-
-  def crf_search(%Media.Video{state: :encoded, path: path, id: video_id}, _vmaf_percent) do
-    Logger.info("Skipping crf search for video #{path} as it is already encoded")
-
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video_id, :skipped}
-    )
+    # Clean dashboard event
+    Events.broadcast_event(:crf_search_completed, %{
+      video_id: video.id,
+      result: :skipped
+    })
 
     :ok
   end
 
-  def crf_search(%Media.Video{state: state} = video, _vmaf_percent) when state != :analyzed do
+  def crf_search(video, _vmaf_percent) when video.state != :analyzed do
     Logger.info(
-      "Skipping crf search for video #{video.path} as it is not analyzed (state: #{inspect(state)})"
+      "Skipping crf search for video #{video.path} as it is not analyzed (state: #{inspect(video.state)})"
     )
 
     :error
   end
 
-  def crf_search(%Media.Video{} = video, vmaf_percent) do
+  def crf_search(video, vmaf_percent) do
     if Media.chosen_vmaf_exists?(video) do
       Logger.info("Skipping crf search for video #{video.path} as a chosen VMAF already exists")
-
-      # Publish skipped event to PubSub
-      Phoenix.PubSub.broadcast(
-        Reencodarr.PubSub,
-        "crf_search_events",
-        {:crf_search_completed, video.id, :skipped}
-      )
     else
       GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
     end
@@ -83,18 +65,55 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   def running? do
+    # Simplified - just check if process exists and is alive
+    case GenServer.whereis(__MODULE__) do
+      nil -> false
+      pid -> Process.alive?(pid)
+    end
+  end
+
+  def available? do
+    # Check if the process exists and is not busy (port is :none)
     case GenServer.whereis(__MODULE__) do
       nil ->
         false
 
       pid when is_pid(pid) ->
-        case GenServer.call(__MODULE__, :running?, 1000) do
-          :running -> true
-          _ -> false
+        try do
+          GenServer.call(pid, :available?, 1000)
+        catch
+          :exit, _ -> false
         end
+    end
+  end
 
-      _ ->
-        false
+  def get_state do
+    # Get the current state for debugging
+    case GenServer.whereis(__MODULE__) do
+      nil ->
+        {:error, :not_running}
+
+      pid when is_pid(pid) ->
+        try do
+          GenServer.call(pid, :get_state, 1000)
+        catch
+          :exit, _ -> {:error, :timeout}
+        end
+    end
+  end
+
+  def reset_if_stuck do
+    # Force reset the GenServer if it's stuck
+    case GenServer.whereis(__MODULE__) do
+      nil ->
+        {:error, :not_running}
+
+      pid when is_pid(pid) ->
+        try do
+          GenServer.call(pid, :reset_if_stuck, 1000)
+        catch
+          :exit, _ -> {:error, :timeout}
+        end
     end
   end
 
@@ -160,8 +179,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         output_buffer: []
     }
 
-    # Emit telemetry event for CRF search start
-    Telemetry.emit_crf_search_started()
+    # Dashboard event
+    Events.broadcast_event(:crf_search_started, %{
+      video_id: video.id,
+      filename: Path.basename(video.path),
+      target_vmaf: vmaf_percent
+    })
 
     {:noreply, new_state}
   end
@@ -177,9 +200,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         output_buffer: []
     }
 
-    # Emit telemetry event for CRF search start
-    Telemetry.emit_crf_search_started()
-
     {:noreply, new_state}
   end
 
@@ -188,25 +208,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       "CRF search already in progress, cannot retry with preset 6 for video #{video.id}"
     )
 
-    # Publish a skipped event since this request was rejected
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video.id, :skipped}
-    )
-
     {:noreply, state}
   end
 
   def handle_cast({:crf_search, video, _vmaf_percent}, state) do
     Logger.error("CRF search already in progress for video #{video.id}")
-
-    # Publish a skipped event since this request was rejected
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video.id, :skipped}
-    )
 
     {:noreply, state}
   end
@@ -273,13 +279,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       "Failed to update video #{video.id} state"
     )
 
-    # Publish completion event to PubSub
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video.id, :success}
-    )
-
     # Check for pending preset 6 retry
     case Process.get(:pending_preset_6_retry) do
       {retry_video, retry_target_vmaf} ->
@@ -331,9 +330,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp maybe_upsert_vmaf_with_video(data) do
-    service_id = Map.get(data, "service_id") || Map.get(data, :service_id)
-    service_type = Map.get(data, "service_type") || Map.get(data, :service_type)
-    path = Map.get(data, "path") || Map.get(data, :path)
+    service_id = data["service_id"] || data[:service_id]
+    service_type = data["service_type"] || data[:service_type]
+    path = data["path"] || data[:path]
 
     video =
       if service_id && service_type do
@@ -376,13 +375,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       }
     )
 
-    # Publish completion event to PubSub
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video.id, {:error, exit_code}}
-    )
-
     Media.mark_as_failed(video)
 
     # Check for pending preset 6 retry even in failure cases
@@ -412,11 +404,48 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     {:reply, status, state}
   end
 
+  @impl true
+  def handle_call(:available?, _from, %{port: port} = state) do
+    available = port == :none
+    {:reply, available, state}
+  end
+
+  @impl true
+  def handle_call(:get_state, _from, state) do
+    debug_state = %{
+      port_status: if(state.port == :none, do: :available, else: :busy),
+      has_current_task: state.current_task != :none,
+      current_task_video_id:
+        if(state.current_task != :none, do: state.current_task.video.id, else: nil)
+    }
+
+    {:reply, debug_state, state}
+  end
+
+  @impl true
+  def handle_call(:reset_if_stuck, _from, state) do
+    Logger.warning("Force resetting CRF searcher state - was stuck")
+
+    # Close any open port
+    if state.port != :none do
+      try do
+        Port.close(state.port)
+      rescue
+        _ -> :ok
+      end
+    end
+
+    # Reset to clean state
+    clean_state = %{port: :none, current_task: :none, partial_line_buffer: "", output_buffer: []}
+
+    # Notify producer that we're available again
+    Producer.dispatch_available()
+
+    {:reply, :ok, clean_state}
+  end
+
   # Private helper functions
   defp perform_crf_search_cleanup(state) do
-    # Emit telemetry event for CRF search completion
-    Telemetry.emit_crf_search_completed()
-
     # Notify the Broadway producer that CRF search is now available
     Producer.dispatch_available()
 
@@ -451,10 +480,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           "CrfSearch: Encoding sample #{sample_data.sample_num}/#{sample_data.total_samples}: #{sample_data.crf}"
         )
 
-        broadcast_crf_search_progress(video.path, %CrfSearchProgress{
+        broadcast_crf_search_encoding_sample(video.path, %{
+          video_id: video.id,
           filename: video.path,
-          # Already numeric, no conversion needed
-          crf: sample_data.crf
+          crf: sample_data.crf,
+          sample_num: sample_data.sample_num,
+          total_samples: sample_data.total_samples
         })
 
         true
@@ -490,15 +521,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         )
 
         # Always insert the VMAF record, but log a warning if size exceeds 10GB
-        estimated_size_bytes = convert_size_to_bytes(eta_data.predicted_size, eta_data.size_unit)
+        estimated_size_bytes =
+          Formatters.size_to_bytes(eta_data.predicted_size, eta_data.size_unit)
+
         # 10GB in bytes
         max_size_bytes = 10 * 1024 * 1024 * 1024
 
         if estimated_size_bytes && estimated_size_bytes > max_size_bytes do
-          estimated_size_gb = estimated_size_bytes / (1024 * 1024 * 1024)
-
           Logger.warning(
-            "CrfSearch: VMAF CRF #{round(eta_data.crf)} estimated file size (#{Float.round(estimated_size_gb, 1)} GB) exceeds 10GB limit"
+            "CrfSearch: VMAF CRF #{round(eta_data.crf)} estimated file size (#{Reencodarr.Formatters.size_gb(estimated_size_bytes)}) exceeds 10GB limit"
           )
         end
 
@@ -528,7 +559,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           "CrfSearch Progress: #{progress_data.progress}, FPS: #{progress_data.fps}, ETA: #{progress_data.eta}"
         )
 
-        broadcast_crf_search_progress(video.path, %CrfSearchProgress{
+        broadcast_crf_search_progress(video.path, %{
+          video_id: video.id,
           filename: video.path,
           # Already numeric, no conversion needed
           percent: progress_data.progress,
@@ -601,13 +633,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     Reencodarr.FailureTracker.record_size_limit_failure(video, "Estimated > 10GB", "10GB",
       context: %{chosen_crf: crf}
     )
-
-    # Publish failure event to PubSub
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      "crf_search_events",
-      {:crf_search_completed, video.id, {:error, :file_size_too_large}}
-    )
   end
 
   defp handle_error_line(line, video, target_vmaf) do
@@ -676,7 +701,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       scores when length(scores) < 3 ->
         max_score = scores |> Enum.map(fn %{score: score} -> score end) |> Enum.max()
 
-        "#{base_msg}. Only #{length(scores)} VMAF score(s) were tested (highest: #{Float.round(max_score, 2)}). The search space may be too limited - try using a wider CRF range or different encoder settings."
+        "#{base_msg}. Only #{length(scores)} VMAF score(s) were tested (highest: #{Reencodarr.Formatters.vmaf_score(max_score, 2)}). The search space may be too limited - try using a wider CRF range or different encoder settings."
 
       scores ->
         max_score = scores |> Enum.map(fn %{score: score} -> score end) |> Enum.max()
@@ -686,9 +711,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         if max_score < target_vmaf do
           gap = target_vmaf - max_score
 
-          "#{base_msg}. Tested #{score_count} CRF values with VMAF scores ranging from #{Float.round(min_score, 2)} to #{Float.round(max_score, 2)}. The highest quality (#{Float.round(max_score, 2)}) is still #{Float.round(gap, 2)} points below the target. Try lowering the target VMAF or using a higher quality encoder preset."
+          "#{base_msg}. Tested #{score_count} CRF values with VMAF scores ranging from #{Reencodarr.Formatters.vmaf_score(min_score, 2)} to #{Reencodarr.Formatters.vmaf_score(max_score, 2)}. The highest quality (#{Reencodarr.Formatters.vmaf_score(max_score, 2)}) is still #{Reencodarr.Formatters.vmaf_score(gap, 2)} points below the target. Try lowering the target VMAF or using a higher quality encoder preset."
         else
-          "#{base_msg}. Tested #{score_count} CRF values with VMAF scores ranging from #{Float.round(min_score, 2)} to #{Float.round(max_score, 2)}. The search algorithm couldn't converge on a suitable CRF value - this may indicate an issue with the binary search algorithm or encoder settings."
+          "#{base_msg}. Tested #{score_count} CRF values with VMAF scores ranging from #{Reencodarr.Formatters.vmaf_score(min_score, 2)} to #{Reencodarr.Formatters.vmaf_score(max_score, 2)}. The search algorithm couldn't converge on a suitable CRF value - this may indicate an issue with the binary search algorithm or encoder settings."
         end
     end
   end
@@ -783,7 +808,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     case Media.upsert_vmaf(final_vmaf_data) do
       {:ok, created_vmaf} ->
         Logger.debug("Upserted VMAF: #{inspect(created_vmaf)}")
-        broadcast_crf_search_progress(video.path, created_vmaf)
+        broadcast_crf_search_vmaf_result(video.path, created_vmaf)
         created_vmaf
 
       {:error, changeset} ->
@@ -799,8 +824,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     progress =
       case progress_data do
-        %CrfSearchProgress{} = existing_progress ->
-          # Update filename to ensure it's consistent
+        %{} = existing_progress ->
+          # Update filename to ensure it's consistent and preserve video_id
           %{existing_progress | filename: filename}
 
         vmaf when is_map(vmaf) ->
@@ -813,8 +838,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
             "CrfSearch: Converting VMAF to progress - CRF: #{inspect(crf_value)}, Score: #{inspect(score_value)}, Percent: #{inspect(percent_value)}"
           )
 
-          # Include all fields - the telemetry reporter will handle smart merging
-          %CrfSearchProgress{
+          # Include all fields for progress tracking
+          %{
+            video_id: progress_data[:video_id],
             filename: filename,
             percent: percent_value,
             crf: crf_value,
@@ -823,20 +849,43 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
         invalid_data ->
           Logger.warning("CrfSearch: Invalid progress data received: #{inspect(invalid_data)}")
-          %CrfSearchProgress{filename: filename}
+          %{video_id: progress_data[:video_id], filename: filename}
       end
 
     # Debounce telemetry updates to avoid overwhelming the dashboard
     if should_emit_progress?(filename, progress) do
-      case emit_progress_safely(progress) do
-        :ok ->
-          update_last_progress(filename, progress)
-          :ok
+      # Clean dashboard event
+      Events.broadcast_event(:crf_search_progress, %{
+        video_id: progress[:video_id],
+        percent: progress[:percent] || 0,
+        filename: progress[:filename] && Path.basename(progress[:filename])
+      })
 
-        {:error, reason} ->
-          Logger.error("CrfSearch: Failed to emit progress for #{video_path}: #{inspect(reason)}")
-      end
+      # Also broadcast that CRF searcher is running when progress is sent
+      Events.broadcast_event(:crf_searcher_started, %{})
+
+      # Update cache
+      update_last_progress(filename, progress)
     end
+  end
+
+  defp broadcast_crf_search_encoding_sample(_video_path, sample_data) do
+    Events.broadcast_event(:crf_search_encoding_sample, %{
+      video_id: sample_data[:video_id],
+      filename: sample_data[:filename] && Path.basename(sample_data[:filename]),
+      crf: sample_data[:crf],
+      sample_num: sample_data[:sample_num],
+      total_samples: sample_data[:total_samples]
+    })
+  end
+
+  defp broadcast_crf_search_vmaf_result(video_path, vmaf_data) do
+    Events.broadcast_event(:crf_search_vmaf_result, %{
+      video_id: vmaf_data.video_id,
+      filename: video_path && Path.basename(video_path),
+      crf: vmaf_data.crf,
+      score: vmaf_data.score
+    })
   end
 
   # Debouncing logic to prevent too many telemetry updates
@@ -890,14 +939,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  # Safely emit telemetry progress
-  defp emit_progress_safely(progress) do
-    Telemetry.emit_crf_search_progress(progress)
-    :ok
-  rescue
-    error -> {:error, error}
-  end
-
   defp convert_to_number(nil), do: nil
   defp convert_to_number(val) when is_number(val), do: val
 
@@ -906,37 +947,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp convert_to_number(_), do: nil
-
-  # Convert size with unit to bytes
-  defp convert_size_to_bytes(size_str, unit) when is_binary(size_str) and is_binary(unit) do
-    with {:ok, size_value} <- Parsers.parse_float_exact(size_str),
-         {:ok, multiplier} <- get_unit_multiplier(unit) do
-      round(size_value * multiplier)
-    else
-      _ -> nil
-    end
-  end
-
-  defp convert_size_to_bytes(size_value, unit) when is_number(size_value) and is_binary(unit) do
-    case get_unit_multiplier(unit) do
-      {:ok, multiplier} -> round(size_value * multiplier)
-      _ -> nil
-    end
-  end
-
-  defp convert_size_to_bytes(_, _), do: nil
-
-  # Get the byte multiplier for a given unit
-  defp get_unit_multiplier(unit) do
-    case String.downcase(unit) do
-      "b" -> {:ok, 1}
-      "kb" -> {:ok, 1024}
-      "mb" -> {:ok, 1024 * 1024}
-      "gb" -> {:ok, 1024 * 1024 * 1024}
-      "tb" -> {:ok, 1024 * 1024 * 1024 * 1024}
-      _ -> {:error, :unknown_unit}
-    end
-  end
 
   # Get VMAF record by video ID and CRF value
   defp get_vmaf_by_crf(video_id, crf_value) when is_number(crf_value) do
@@ -994,15 +1004,13 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp validate_size_limit(size_value, unit, video) do
-    estimated_size_bytes = convert_size_to_bytes(size_value, unit)
+    estimated_size_bytes = Formatters.size_to_bytes(size_value, unit)
     # 10GB in bytes
     max_size_bytes = 10 * 1024 * 1024 * 1024
 
     if estimated_size_bytes && estimated_size_bytes > max_size_bytes do
-      estimated_size_gb = estimated_size_bytes / (1024 * 1024 * 1024)
-
       Logger.info(
-        "CrfSearch: VMAF estimated size #{Float.round(estimated_size_gb, 2)} GB exceeds 10GB limit for video #{video.id}"
+        "CrfSearch: VMAF estimated size #{Reencodarr.Formatters.size_gb(estimated_size_bytes, 2)} exceeds 10GB limit for video #{video.id}"
       )
 
       {:error, :size_too_large}
