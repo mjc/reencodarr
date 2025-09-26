@@ -8,6 +8,7 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
 
   use GenStage
   require Logger
+  alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
   alias Reencodarr.PipelineStateMachine
@@ -28,8 +29,24 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   # Simplified - no cross-producer communication needed
   # If the process exists, it's running
   def running?, do: true
-  # Let the actual producer manage its own state
-  def actively_running?, do: false
+
+  # Check if actively processing by seeing if CRF searcher is busy
+  def actively_running? do
+    case CrfSearch.available?() do
+      # Available means not actively running
+      true -> false
+      # Not available means actively processing
+      false -> true
+    end
+  end
+
+  def get_producer_state do
+    # Get the current producer state for debugging
+    case Broadway.producer_names(Reencodarr.CrfSearcher.Broadway) do
+      [producer_name | _] -> GenServer.call(producer_name, :get_debug_state, 5000)
+      [] -> {:error, :not_running}
+    end
+  end
 
   @impl GenStage
   def init(_opts) do
@@ -67,6 +84,20 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     # Check if actively processing (for telemetry/progress updates)
     actively_running = PipelineStateMachine.actively_working?(state.pipeline)
     {:reply, actively_running, [], state}
+  end
+
+  @impl GenStage
+  def handle_call(:get_debug_state, _from, state) do
+    debug_info = %{
+      demand: state.demand,
+      pipeline_state: PipelineStateMachine.get_state(state.pipeline),
+      pipeline_running: PipelineStateMachine.running?(state.pipeline),
+      crf_search_available: crf_search_available?(),
+      should_dispatch: should_dispatch?(state),
+      queue_count: length(Media.get_videos_for_crf_search(10))
+    }
+
+    {:reply, debug_info, [], state}
   end
 
   @impl GenStage
@@ -192,10 +223,10 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   # Private functions
 
   defp send_to_producer(message) do
-    # Send to the registered producer name - much simpler than process discovery
-    case Process.whereis(__MODULE__) do
-      nil -> {:error, :not_found}
-      pid -> GenStage.cast(pid, message)
+    # Broadway manages producer names internally, so we need to get the actual name
+    case Broadway.producer_names(Reencodarr.CrfSearcher.Broadway) do
+      [producer_name | _] -> GenStage.cast(producer_name, message)
+      [] -> {:error, :not_found}
     end
   end
 
@@ -232,12 +263,8 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   end
 
   defp crf_search_available? do
-    # Simplified - just check if the process exists and is alive
-    # If it's not available, the work will just fail gracefully
-    case GenServer.whereis(Reencodarr.AbAv1.CrfSearch) do
-      nil -> false
-      pid -> Process.alive?(pid)
-    end
+    # Check if the CRF searcher is available (not busy with another video)
+    CrfSearch.available?()
   end
 
   defp dispatch_videos(state) do
