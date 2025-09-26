@@ -249,12 +249,44 @@ defmodule ReencodarrWeb.DashboardV2Live do
   # Unified event handlers using pattern matching
   @impl true
   def handle_event("start_" <> service, _params, socket) do
-    handle_service_control(service, :start, socket)
+    service_atom = String.to_existing_atom(service)
+    broadway_module = get_broadway_module(service)
+
+    if broadway_running?(broadway_module) do
+      case Map.get(@producer_modules, service_atom) do
+        nil ->
+          {:noreply, put_flash(socket, :error, "Unknown service: #{service}")}
+
+        module ->
+          module.start()
+          service_name = format_service_name(service)
+          {:noreply, put_flash(socket, :info, "#{service_name} started")}
+      end
+    else
+      service_name = format_service_name(service)
+      {:noreply, put_flash(socket, :info, "#{service_name} service not available")}
+    end
   end
 
   @impl true
   def handle_event("pause_" <> service, _params, socket) do
-    handle_service_control(service, :pause, socket)
+    service_atom = String.to_existing_atom(service)
+    broadway_module = get_broadway_module(service)
+
+    if broadway_running?(broadway_module) do
+      case Map.get(@producer_modules, service_atom) do
+        nil ->
+          {:noreply, put_flash(socket, :error, "Unknown service: #{service}")}
+
+        module ->
+          module.pause()
+          service_name = format_service_name(service)
+          {:noreply, put_flash(socket, :info, "#{service_name} paused")}
+      end
+    else
+      service_name = format_service_name(service)
+      {:noreply, put_flash(socket, :info, "#{service_name} service not available")}
+    end
   end
 
   @impl true
@@ -603,32 +635,6 @@ defmodule ReencodarrWeb.DashboardV2Live do
     service |> String.replace("_", " ") |> String.capitalize()
   end
 
-  defp handle_service_control(service, action, socket) do
-    service_atom = String.to_existing_atom(service)
-
-    case Map.get(@producer_modules, service_atom) do
-      nil ->
-        {:noreply, put_flash(socket, :error, "Unknown service: #{service}")}
-
-      module ->
-        execute_service_action(module, action, service, socket)
-    end
-  end
-
-  defp execute_service_action(module, action, service, socket) do
-    case Process.whereis(module) do
-      nil ->
-        service_name = format_service_name(service)
-        {:noreply, put_flash(socket, :info, "#{service_name} service not available")}
-
-      _pid ->
-        apply(module, action, [])
-        service_name = format_service_name(service)
-        action_name = if action == :start, do: "started", else: "paused"
-        {:noreply, put_flash(socket, :info, "#{service_name} #{action_name}")}
-    end
-  end
-
   # Queue item data helpers - handle both video and non-video items
   defp get_item_path(item) do
     if Map.has_key?(item, :video), do: item.video.path, else: item.path
@@ -657,5 +663,28 @@ defmodule ReencodarrWeb.DashboardV2Live do
     if syncing,
       do: "bg-gray-300 text-gray-500 cursor-not-allowed",
       else: "bg-blue-500 hover:bg-blue-600 text-white"
+  end
+
+  # Map service names to their Broadway modules
+  defp get_broadway_module(service) do
+    case service do
+      "analyzer" -> Reencodarr.Analyzer.Broadway
+      "crf_searcher" -> Reencodarr.CrfSearcher.Broadway
+      "encoder" -> Reencodarr.Encoder.Broadway
+      _ -> nil
+    end
+  end
+
+  # Check if a Broadway pipeline is actually running
+  defp broadway_running?(nil), do: false
+
+  defp broadway_running?(broadway_module) do
+    # Check if the Broadway supervisor process exists and is running
+    case Process.whereis(broadway_module) do
+      nil -> false
+      pid when is_pid(pid) -> Process.alive?(pid)
+    end
+  rescue
+    _ -> false
   end
 end
