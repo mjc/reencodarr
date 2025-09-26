@@ -64,7 +64,7 @@ defmodule Reencodarr.Media.VideoQueries do
 
   These videos lack required metadata and need MediaInfo analysis.
   """
-  @spec videos_needing_analysis(integer()) :: [map()]
+  @spec videos_needing_analysis(integer()) :: [Video.t()]
   def videos_needing_analysis(limit \\ 10) do
     Repo.all(
       from v in Video,
@@ -75,12 +75,7 @@ defmodule Reencodarr.Media.VideoQueries do
           desc: v.updated_at
         ],
         limit: ^limit,
-        select: %{
-          id: v.id,
-          path: v.path,
-          service_id: v.service_id,
-          service_type: v.service_type
-        }
+        select: v
     )
   end
 
