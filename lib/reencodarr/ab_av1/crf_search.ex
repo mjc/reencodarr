@@ -72,6 +72,51 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
+  def available? do
+    # Check if the process exists and is not busy (port is :none)
+    case GenServer.whereis(__MODULE__) do
+      nil ->
+        false
+
+      pid when is_pid(pid) ->
+        try do
+          GenServer.call(pid, :available?, 1000)
+        catch
+          :exit, _ -> false
+        end
+    end
+  end
+
+  def get_state do
+    # Get the current state for debugging
+    case GenServer.whereis(__MODULE__) do
+      nil ->
+        {:error, :not_running}
+
+      pid when is_pid(pid) ->
+        try do
+          GenServer.call(pid, :get_state, 1000)
+        catch
+          :exit, _ -> {:error, :timeout}
+        end
+    end
+  end
+
+  def reset_if_stuck do
+    # Force reset the GenServer if it's stuck
+    case GenServer.whereis(__MODULE__) do
+      nil ->
+        {:error, :not_running}
+
+      pid when is_pid(pid) ->
+        try do
+          GenServer.call(pid, :reset_if_stuck, 1000)
+        catch
+          :exit, _ -> {:error, :timeout}
+        end
+    end
+  end
+
   # Test helpers - only available in test environment
   if Mix.env() == :test do
     def has_preset_6_params?(params), do: has_preset_6_params_private(params)
@@ -357,6 +402,46 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def handle_call(:running?, _from, %{port: port} = state) do
     status = if port == :none, do: :not_running, else: :running
     {:reply, status, state}
+  end
+
+  @impl true
+  def handle_call(:available?, _from, %{port: port} = state) do
+    available = port == :none
+    {:reply, available, state}
+  end
+
+  @impl true
+  def handle_call(:get_state, _from, state) do
+    debug_state = %{
+      port_status: if(state.port == :none, do: :available, else: :busy),
+      has_current_task: state.current_task != :none,
+      current_task_video_id:
+        if(state.current_task != :none, do: state.current_task.video.id, else: nil)
+    }
+
+    {:reply, debug_state, state}
+  end
+
+  @impl true
+  def handle_call(:reset_if_stuck, _from, state) do
+    Logger.warning("Force resetting CRF searcher state - was stuck")
+
+    # Close any open port
+    if state.port != :none do
+      try do
+        Port.close(state.port)
+      rescue
+        _ -> :ok
+      end
+    end
+
+    # Reset to clean state
+    clean_state = %{port: :none, current_task: :none, partial_line_buffer: "", output_buffer: []}
+
+    # Notify producer that we're available again
+    Producer.dispatch_available()
+
+    {:reply, :ok, clean_state}
   end
 
   # Private helper functions

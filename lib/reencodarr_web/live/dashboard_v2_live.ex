@@ -24,17 +24,18 @@ defmodule ReencodarrWeb.DashboardV2Live do
   @impl true
   def mount(_params, _session, socket) do
     socket =
-      socket
-      |> assign(:crf_progress, :none)
-      |> assign(:encoding_progress, :none)
-      |> assign(:analyzer_progress, :none)
-      |> assign(:analyzer_throughput, nil)
-      |> assign(:queue_counts, get_queue_counts())
-      |> assign(:queue_items, get_queue_items())
-      |> assign(:service_status, get_optimistic_service_status())
-      |> assign(:syncing, false)
-      |> assign(:sync_progress, 0)
-      |> assign(:service_type, nil)
+      assign(socket, %{
+        crf_progress: :none,
+        encoding_progress: :none,
+        analyzer_progress: :none,
+        analyzer_throughput: nil,
+        queue_counts: get_queue_counts(),
+        queue_items: get_queue_items(),
+        service_status: get_optimistic_service_status(),
+        syncing: false,
+        sync_progress: 0,
+        service_type: nil
+      })
 
     # Setup subscriptions and processes if connected
     if connected?(socket) do
@@ -169,11 +170,8 @@ defmodule ReencodarrWeb.DashboardV2Live do
   # Sync event handlers - simplified
   @impl true
   def handle_info({:sync_started, data}, socket) do
-    socket
-    |> assign(:syncing, true)
-    |> assign(:sync_progress, 0)
-    |> assign(:service_type, Map.get(data, :service_type))
-    |> then(&{:noreply, &1})
+    socket = assign(socket, syncing: true, sync_progress: 0, service_type: data[:service_type])
+    {:noreply, socket}
   end
 
   @impl true
@@ -185,20 +183,13 @@ defmodule ReencodarrWeb.DashboardV2Live do
   @impl true
   def handle_info({sync_event, data}, socket)
       when sync_event in [:sync_completed, :sync_failed] do
-    socket =
-      socket
-      |> assign(:syncing, false)
-      |> assign(:sync_progress, 0)
-      |> assign(:service_type, nil)
+    socket = assign(socket, syncing: false, sync_progress: 0, service_type: nil)
 
     socket =
-      case sync_event do
-        :sync_completed ->
-          socket
-
-        :sync_failed ->
-          error = Map.get(data, :error, "Unknown error")
-          put_flash(socket, :error, "Sync failed: #{inspect(error)}")
+      if sync_event == :sync_failed do
+        put_flash(socket, :error, "Sync failed: #{inspect(data[:error] || "Unknown error")}")
+      else
+        socket
       end
 
     {:noreply, socket}
