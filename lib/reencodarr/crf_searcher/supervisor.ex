@@ -10,6 +10,7 @@ defmodule Reencodarr.CrfSearcher.Supervisor do
   @impl true
   def init(:ok) do
     children = [
+      {Reencodarr.AbAv1.CrfSearch, []},
       {Reencodarr.CrfSearcher.Broadway, []}
     ]
 

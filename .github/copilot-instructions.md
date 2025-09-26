@@ -30,6 +30,8 @@ Key pattern: Each pipeline has a Producer that checks GenServer availability bef
 
 ## Development Workflows
 
+**Command Execution Note**: All commands should be executed directly without prefixing with `cd` to the project root. The working directory is always assumed to be the project root directory.
+
 ### Essential Commands
 ```bash
 # Setup (no longer requires PostgreSQL)

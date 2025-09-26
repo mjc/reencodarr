@@ -52,9 +52,7 @@ defmodule Reencodarr.DataConverters do
   @doc """
   Formats a resolution tuple to a string like "1920x1080".
   """
-  def format_resolution({width, height}) do
-    "#{width}x#{height}"
-  end
+  def format_resolution({width, height}), do: Reencodarr.Formatters.resolution(width, height)
 
   @doc """
   Validates if a resolution tuple represents a reasonable video resolution.

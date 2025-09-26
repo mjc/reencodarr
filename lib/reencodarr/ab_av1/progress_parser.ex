@@ -3,13 +3,12 @@ defmodule Reencodarr.AbAv1.ProgressParser do
   Centralized progress parsing for ab-av1 output.
 
   Handles parsing of various progress-related lines from ab-av1 output
-  and emits appropriate telemetry events.
+  and broadcasts dashboard events for UI updates.
   """
 
   require Logger
   alias Reencodarr.Core.Parsers
-  alias Reencodarr.Statistics.EncodingProgress
-  alias Reencodarr.Telemetry
+  alias Reencodarr.Dashboard.Events
 
   @doc """
   Processes a single line of ab-av1 output and emits telemetry if applicable.
@@ -22,12 +21,25 @@ defmodule Reencodarr.AbAv1.ProgressParser do
   @spec process_line(String.t(), map()) :: :ok
   def process_line(line, state) when is_binary(line) and is_map(state) do
     case parse_line(line, state) do
-      {:encoding_start, filename} ->
-        Telemetry.emit_encoder_started(filename)
+      {:encoding_start, _filename} ->
         :ok
 
       {:progress, progress} ->
-        Telemetry.emit_encoder_progress(progress)
+        # Broadcast to Dashboard Events system
+        percent = progress.percent || 0
+        video_id = if state.video, do: state.video.id, else: nil
+
+        Events.broadcast_event(:encoding_progress, %{
+          video_id: video_id,
+          percent: percent,
+          fps: progress.fps,
+          eta: progress.eta,
+          filename: progress.filename
+        })
+
+        # Also broadcast that encoder is running when progress is sent
+        Events.broadcast_event(:encoder_started, %{})
+
         :ok
 
       {:unmatched, line} ->
@@ -52,9 +64,9 @@ defmodule Reencodarr.AbAv1.ProgressParser do
           # Main progress pattern with brackets: [timestamp] percent%, fps fps, eta time unit
           progress:
             ~r/\[(?<timestamp>[^\]]+)\].*?(?<percent>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,?\s?eta\s(?<eta>\d+)\s(?<time_unit>(?:second|minute|hour|day|week|month|year)s?)/,
-          # Alternative progress pattern without brackets: percent%, fps fps, eta time unit
+          # Alternative progress pattern without brackets: percent%, fps fps, eta time unit or eta Unknown/N/A
           progress_alt:
-            ~r/(?<percent>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,?\s?eta\s(?<eta>\d+)\s(?<time_unit>(?:second|minute|hour|day|week|month|year)s?)/,
+            ~r/(?<percent>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,?\s?eta\s(?:(?<eta>\d+)\s(?<time_unit>(?:second|minute|hour|day|week|month|year)s?)|(?<eta_unknown>Unknown|N\/A|unknown))/,
           # File size progress pattern: Encoded X GB (percent%)
           file_size_progress: ~r/Encoded\s[\d.]+\s[KMGT]?B\s\((?<percent>\d+)%\)/
         }
@@ -96,44 +108,44 @@ defmodule Reencodarr.AbAv1.ProgressParser do
       |> Path.basename(".mkv")
       |> Parsers.parse_int(0)
 
-    filename =
-      if state.video.id == video_id do
-        # Get the latest video data from database to handle updated paths
-        case Reencodarr.Repo.get(Reencodarr.Media.Video, video_id) do
-          %{path: path} when is_binary(path) -> Path.basename(path)
-          _ -> Path.basename(state.video.path)
-        end
-      else
-        filename_with_ext
-      end
+    filename = get_filename_for_encoding_start(state, video_id, filename_with_ext)
 
     {:encoding_start, filename}
   end
 
   defp handle_progress(match, state) do
-    %{
-      "percent" => percent_str,
-      "fps" => fps_str,
-      "eta" => eta_str,
-      "time_unit" => time_unit
-    } = match
+    percent_str = match["percent"]
+    fps_str = match["fps"]
 
-    filename = Path.basename(state.video.path)
+    filename = if state.video, do: Path.basename(state.video.path), else: "unknown"
 
-    progress = %EncodingProgress{
+    # Handle both normal eta (number + time unit) and unknown eta
+    eta =
+      case {match["eta"], match["time_unit"], match["eta_unknown"]} do
+        {eta_str, time_unit, nil} when eta_str != nil and time_unit != nil ->
+          "#{eta_str} #{time_unit}"
+
+        {nil, nil, eta_unknown} when eta_unknown != nil ->
+          eta_unknown
+
+        _ ->
+          "unknown"
+      end
+
+    progress = %{
       filename: filename,
       percent: Parsers.parse_int(percent_str, 0),
       fps: parse_fps(fps_str),
-      eta: "#{eta_str} #{time_unit}"
+      eta: eta
     }
 
     {:progress, progress}
   end
 
   defp handle_file_size_progress(%{"percent" => percent_str}, state) do
-    filename = Path.basename(state.video.path)
+    filename = if state.video, do: Path.basename(state.video.path), else: "unknown"
 
-    progress = %EncodingProgress{
+    progress = %{
       filename: filename,
       percent: Parsers.parse_int(percent_str, 0),
       # File size progress doesn't include FPS
@@ -155,5 +167,21 @@ defmodule Reencodarr.AbAv1.ProgressParser do
       {:error, _} ->
         0.0
     end
+  end
+
+  defp get_filename_for_encoding_start(state, video_id, filename_with_ext) do
+    if state.video && state.video.id == video_id do
+      # Get the latest video data from database to handle updated paths
+      case Reencodarr.Repo.get(Reencodarr.Media.Video, video_id) do
+        %{path: path} when is_binary(path) -> Path.basename(path)
+        _ -> get_fallback_filename(state)
+      end
+    else
+      filename_with_ext
+    end
+  end
+
+  defp get_fallback_filename(state) do
+    if state.video, do: Path.basename(state.video.path), else: "unknown"
   end
 end

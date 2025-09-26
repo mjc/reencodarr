@@ -85,7 +85,6 @@ defmodule Reencodarr.AbAv1 do
   @doc false
   def init(:ok) do
     children = [
-      Reencodarr.AbAv1.CrfSearch,
       Reencodarr.AbAv1.Encode
     ]
 

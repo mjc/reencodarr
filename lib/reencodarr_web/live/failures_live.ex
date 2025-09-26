@@ -37,13 +37,13 @@ defmodule ReencodarrWeb.FailuresLive do
   import ReencodarrWeb.LcarsComponents
   import Reencodarr.Utils
 
-  alias Reencodarr.UIHelpers.Stardate
+  alias ReencodarrWeb.LiveViewHelpers
 
   @impl true
   def mount(_params, _session, socket) do
     # Standard LiveView setup
     timezone = get_in(socket.assigns, [:timezone]) || "UTC"
-    current_stardate = Stardate.calculate_stardate(DateTime.utc_now())
+    current_stardate = LiveViewHelpers.calculate_stardate(DateTime.utc_now())
 
     # Schedule stardate updates if connected
     if Phoenix.LiveView.connected?(socket) do
@@ -64,7 +64,14 @@ defmodule ReencodarrWeb.FailuresLive do
   def handle_info(:update_stardate, socket) do
     # Update stardate and schedule next update
     Process.send_after(self(), :update_stardate, 5000)
-    socket = assign(socket, :current_stardate, Stardate.calculate_stardate(DateTime.utc_now()))
+
+    socket =
+      assign(
+        socket,
+        :current_stardate,
+        LiveViewHelpers.calculate_stardate(DateTime.utc_now())
+      )
+
     {:noreply, socket}
   end
 
@@ -421,7 +428,7 @@ defmodule ReencodarrWeb.FailuresLive do
                     <div class="mt-2 flex flex-wrap gap-2 text-xs">
                       <%= if video.size do %>
                         <span class={filter_tag_classes(:gray)}>
-                          {Reencodarr.Formatters.format_file_size(video.size)}
+                          {Reencodarr.Formatters.file_size(video.size)}
                         </span>
                       <% end %>
                       <%= if video.video_codecs && length(video.video_codecs) > 0 do %>
@@ -475,14 +482,15 @@ defmodule ReencodarrWeb.FailuresLive do
                                   else: "Unknown"}
                               </div>
                               <div>
-                                <strong>Duration:</strong> {if video.duration,
-                                  do: "#{Float.round(video.duration / 60, 1)} min",
-                                  else: "Unknown"}
+                                <strong>Duration:</strong> {Reencodarr.Formatters.duration_minutes(
+                                  video.duration
+                                )}
                               </div>
                               <div>
-                                <strong>Resolution:</strong> {if video.width && video.height,
-                                  do: "#{video.width}x#{video.height}",
-                                  else: "Unknown"}
+                                <strong>Resolution:</strong> {Reencodarr.Formatters.resolution(
+                                  video.width,
+                                  video.height
+                                )}
                               </div>
                               <div><strong>Service:</strong> {video.service_type}</div>
                             </div>
@@ -574,7 +582,7 @@ defmodule ReencodarrWeb.FailuresLive do
                       </td>
                       <td class="px-3 py-3 text-sm">
                         <%= if video.size do %>
-                          {Reencodarr.Formatters.format_file_size(video.size)}
+                          {Reencodarr.Formatters.file_size(video.size)}
                         <% else %>
                           <span class="text-orange-600">Unknown</span>
                         <% end %>
@@ -647,19 +655,20 @@ defmodule ReencodarrWeb.FailuresLive do
                               </h5>
                               <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                                 <div>
-                                  <strong>Bitrate:</strong> {if video.bitrate,
-                                    do: "#{video.bitrate} bps",
-                                    else: "Unknown"}
+                                  <strong>Bitrate:</strong> {Reencodarr.Formatters.bitrate(
+                                    video.bitrate
+                                  )}
                                 </div>
                                 <div>
-                                  <strong>Duration:</strong> {if video.duration,
-                                    do: "#{Float.round(video.duration / 60, 1)} min",
-                                    else: "Unknown"}
+                                  <strong>Duration:</strong> {Reencodarr.Formatters.duration_minutes(
+                                    video.duration
+                                  )}
                                 </div>
                                 <div>
-                                  <strong>Resolution:</strong> {if video.width && video.height,
-                                    do: "#{video.width}x#{video.height}",
-                                    else: "Unknown"}
+                                  <strong>Resolution:</strong> {Reencodarr.Formatters.resolution(
+                                    video.width,
+                                    video.height
+                                  )}
                                 </div>
                                 <div><strong>Service:</strong> {video.service_type}</div>
                               </div>
@@ -1014,14 +1023,7 @@ defmodule ReencodarrWeb.FailuresLive do
     %{recent_count: recent_count}
   end
 
-  defp format_codecs(nil), do: "Unknown"
-  defp format_codecs([]), do: "None"
-
-  defp format_codecs(codecs) when is_non_empty_list(codecs) do
-    codecs |> Enum.take(2) |> Enum.join(", ")
-  end
-
-  defp format_codecs(_), do: "Unknown"
+  defp format_codecs(codecs), do: Reencodarr.Formatters.codec_list(codecs)
 
   defp pagination_range(current_page, total_pages) do
     start_page = max(1, current_page - 2)

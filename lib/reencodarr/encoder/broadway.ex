@@ -18,8 +18,9 @@ defmodule Reencodarr.Encoder.Broadway do
   alias Broadway.Message
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.AbAv1.ProgressParser
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Encoder.Broadway.Producer
-  alias Reencodarr.{PostProcessor, Telemetry}
+  alias Reencodarr.PostProcessor
 
   @typedoc "VMAF struct for encoding processing"
   @type vmaf :: %{id: integer(), video: map()}
@@ -196,21 +197,22 @@ defmodule Reencodarr.Encoder.Broadway do
   defp process_vmaf_encoding(vmaf, context) do
     Logger.info("Broadway: Starting encoding for VMAF #{vmaf.id}: #{vmaf.video.path}")
 
-    try do
-      # Build encoding arguments
-      args = build_encode_args(vmaf)
-      output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
+    # Broadcast initial encoding progress at 0%
+    Events.broadcast_event(:encoding_started, %{
+      video_id: vmaf.video.id,
+      filename: Path.basename(vmaf.video.path)
+    })
 
-      Logger.debug("Broadway: Starting encode with args: #{inspect(args)}")
-      Logger.debug("Broadway: Output file: #{output_file}")
+    # Build encoding arguments
+    args = build_encode_args(vmaf)
+    output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
 
-      # Open port and handle encoding
-      port = Helper.open_port(args)
-      handle_encoding_port(port, vmaf, output_file, context)
-    rescue
-      exception ->
-        handle_encoding_exception(exception, vmaf)
-    end
+    Logger.debug("Broadway: Starting encode with args: #{inspect(args)}")
+    Logger.debug("Broadway: Output file: #{output_file}")
+
+    # Open port and handle encoding
+    port = Helper.open_port(args)
+    handle_encoding_port(port, vmaf, output_file, context)
   end
 
   defp handle_encoding_port(:error, vmaf, _output_file, _context) do
@@ -344,66 +346,6 @@ defmodule Reencodarr.Encoder.Broadway do
     :ok
   end
 
-  defp handle_encoding_exception(exception, vmaf) do
-    error_message = Exception.message(exception)
-    Logger.error("Broadway: Exception during encoding for VMAF #{vmaf.id}: #{error_message}")
-
-    # Classify exception based on type
-    action = classify_exception_action(error_message)
-
-    case action do
-      {:pause, reason} ->
-        handle_critical_exception(vmaf, reason)
-
-      {:continue, reason} ->
-        handle_recoverable_exception(vmaf, reason)
-    end
-  end
-
-  defp classify_exception_action(error_message) do
-    cond do
-      # System.no_memory or similar memory issues
-      String.contains?(error_message, "memory") or String.contains?(error_message, "enomem") ->
-        {:pause, "Memory allocation failure - system may be out of memory"}
-
-      # File system issues
-      String.contains?(error_message, "enospc") ->
-        {:pause, "No space left on device"}
-
-      # Port/process issues
-      String.contains?(error_message, "port") or String.contains?(error_message, "process") ->
-        {:pause, "Process management failure"}
-
-      # Default to recoverable
-      true ->
-        {:continue, "Exception: #{error_message}"}
-    end
-  end
-
-  defp handle_critical_exception(vmaf, reason) do
-    Logger.error("Broadway: Critical exception for VMAF #{vmaf.id}: #{reason}")
-    Logger.error("Broadway: Pausing pipeline due to critical system issue")
-
-    # Notify about the failure
-    notify_encoding_failure(vmaf.video, :exception)
-
-    # Pause the pipeline
-    Producer.pause()
-
-    # Return :ok to Broadway since we're handling the pause manually
-    :ok
-  end
-
-  defp handle_recoverable_exception(vmaf, reason) do
-    Logger.warning("Broadway: Recoverable exception for VMAF #{vmaf.id}: #{reason}")
-
-    # Notify about the failure
-    notify_encoding_failure(vmaf.video, :exception)
-
-    # Continue processing
-    :ok
-  end
-
   @spec handle_encoding_process(port(), vmaf(), String.t(), integer()) ::
           {:ok, :success} | {:error, integer()}
   defp handle_encoding_process(port, vmaf, output_file, encoding_timeout) do
@@ -451,13 +393,15 @@ defmodule Reencodarr.Encoder.Broadway do
         # Publish completion event to PubSub
         # Only consider it success if exit code is 0 AND the output file exists
         success = exit_code == 0 and output_exists
-        pubsub_result = if success, do: :success, else: {:error, exit_code}
+        result = if success, do: :success, else: {:error, exit_code}
 
-        Phoenix.PubSub.broadcast(
-          Reencodarr.PubSub,
-          "encoding_events",
-          {:encoding_completed, state.vmaf.id, pubsub_result}
-        )
+        # Broadcast encoding completion using centralized Events system
+        Events.broadcast_event(:encoding_completed, %{
+          vmaf_id: state.vmaf.id,
+          result: result,
+          success: success,
+          exit_code: exit_code
+        })
 
         # Return result based on exit code AND file existence
         if success do
@@ -479,12 +423,13 @@ defmodule Reencodarr.Encoder.Broadway do
 
         Port.close(state.port)
 
-        # Publish timeout event to PubSub
-        Phoenix.PubSub.broadcast(
-          Reencodarr.PubSub,
-          "encoding_events",
-          {:encoding_completed, state.vmaf.id, {:error, :timeout}}
-        )
+        # Broadcast encoding timeout using centralized Events system
+        Events.broadcast_event(:encoding_completed, %{
+          vmaf_id: state.vmaf.id,
+          result: {:error, :timeout},
+          success: false,
+          timeout: true
+        })
 
         # Include output buffer for timeout failures
         full_output = state.output_buffer |> Enum.reverse() |> Enum.join("\n")
@@ -595,19 +540,12 @@ defmodule Reencodarr.Encoder.Broadway do
 
   @spec notify_encoding_success(map(), String.t()) :: {:ok, :success} | {:error, atom()}
   defp notify_encoding_success(video, output_file) do
-    # Emit telemetry event for completion
-    Telemetry.emit_encoder_completed()
-
     # Use PostProcessor for cleanup work and return its result
     PostProcessor.process_encoding_success(video, output_file)
   end
 
   @spec notify_encoding_failure(map(), integer() | atom(), map()) :: :ok
-  @spec notify_encoding_failure(map(), integer() | atom(), map()) :: :ok
   defp notify_encoding_failure(video, exit_code, context \\ %{}) do
-    # Emit telemetry event for failure
-    Telemetry.emit_encoder_failed(exit_code, video)
-
     # Mark the video as failed and handle cleanup
     # Convert atom exit codes to integers for database storage
     db_exit_code =

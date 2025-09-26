@@ -27,16 +27,4 @@ defmodule Reencodarr.Repo.Migrations.ConvertTimeToSeconds do
       END
     """
   end
-
-  defp convert_duration_to_time do
-    execute """
-    UPDATE vmafs
-    SET time =
-      CASE
-        WHEN duration % 3600 = 0 THEN (duration / 3600) || ' hours'
-        WHEN duration % 60 = 0 THEN (duration / 60) || ' minutes'
-        ELSE duration || ' seconds'
-      END
-    """
-  end
 end
