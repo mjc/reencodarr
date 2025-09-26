@@ -584,7 +584,13 @@ defmodule ReencodarrWeb.DashboardV2Live do
 
   # Helper functions for real data
   defp get_queue_counts do
-    Reencodarr.PipelineStatus.get_all_queue_counts()
+    %{
+      analyzer: Reencodarr.Media.count_videos_needing_analysis(),
+      crf_searcher: Reencodarr.Media.count_videos_for_crf_search(),
+      encoder: Reencodarr.Media.encoding_queue_count()
+    }
+  rescue
+    _ -> %{analyzer: 0, crf_searcher: 0, encoder: 0}
   end
 
   # Get detailed queue items for each pipeline
@@ -670,11 +676,27 @@ defmodule ReencodarrWeb.DashboardV2Live do
   end
 
   defp request_current_status do
-    # Use shared status logic for all services
-    Reencodarr.PipelineStatus.broadcast_current_status(:analyzer)
-    Reencodarr.PipelineStatus.broadcast_current_status(:crf_searcher)
-    Reencodarr.PipelineStatus.broadcast_current_status(:encoder)
+    # Send cast to each producer to broadcast their current status
+    services = [:analyzer, :crf_searcher, :encoder]
+
+    Enum.each(services, fn service ->
+      producer_module = get_producer_module(service)
+
+      case Process.whereis(producer_module) do
+        nil ->
+          # If process doesn't exist, broadcast stopped event
+          event_name = :"#{service}_stopped"
+          Events.broadcast_event(event_name, %{})
+
+        _pid ->
+          GenServer.cast(producer_module, :broadcast_status)
+      end
+    end)
   end
+
+  defp get_producer_module(:analyzer), do: Reencodarr.Analyzer.Broadway.Producer
+  defp get_producer_module(:crf_searcher), do: Reencodarr.CrfSearcher.Broadway.Producer
+  defp get_producer_module(:encoder), do: Reencodarr.Encoder.Broadway.Producer
 
   # DRY status mappings using maps instead of multiple function clauses
   @service_status_styles %{
