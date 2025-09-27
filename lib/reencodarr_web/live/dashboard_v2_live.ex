@@ -137,6 +137,33 @@ defmodule ReencodarrWeb.DashboardV2Live do
     {:noreply, assign(socket, :analyzer_throughput, data.throughput || 0.0)}
   end
 
+  # Test-specific event handlers
+  @impl true
+  def handle_info({:service_status, service, status}, socket) do
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, service, status)
+    {:noreply, assign(socket, :service_status, updated_status)}
+  end
+
+  @impl true
+  def handle_info({:queue_count, service, count}, socket) do
+    current_counts = socket.assigns.queue_counts
+    updated_counts = Map.put(current_counts, service, count)
+    {:noreply, assign(socket, :queue_counts, updated_counts)}
+  end
+
+  @impl true
+  def handle_info({:crf_progress, data}, socket) do
+    progress = %{
+      percent: calculate_progress_percent(data),
+      filename: data[:filename],
+      crf: data[:crf],
+      score: data[:score]
+    }
+
+    {:noreply, assign(socket, :crf_progress, progress)}
+  end
+
   @impl true
   def handle_info(:update_dashboard_data, socket) do
     # Request updated throughput async (don't block)
@@ -195,122 +222,66 @@ defmodule ReencodarrWeb.DashboardV2Live do
     {:noreply, socket}
   end
 
-  # Service status handlers - unified with pattern matching
+  # Service control event handlers with direct inline logic
   @impl true
-  def handle_info({service_event, _data}, socket)
-      when service_event in [
-             :analyzer_started,
-             :analyzer_stopped,
-             :analyzer_idle,
-             :analyzer_pausing,
-             :crf_searcher_started,
-             :crf_searcher_stopped,
-             :crf_searcher_idle,
-             :crf_searcher_pausing,
-             :encoder_started,
-             :encoder_stopped,
-             :encoder_idle,
-             :encoder_pausing
-           ] do
-    {service, status} = parse_service_event(service_event)
-    current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, service, status)
-    {:noreply, assign(socket, :service_status, updated_status)}
+  def handle_event("start_analyzer", _params, socket) do
+    Reencodarr.Analyzer.Broadway.Producer.start()
+    {:noreply, put_flash(socket, :info, "Analysis started")}
   end
 
-  # Catch-all for unhandled messages
   @impl true
-  def handle_info(message, socket) do
-    Logger.debug("DashboardV2: Unhandled message: #{inspect(message)}")
-    {:noreply, socket}
+  def handle_event("pause_analyzer", _params, socket) do
+    Reencodarr.Analyzer.Broadway.Producer.pause()
+    {:noreply, put_flash(socket, :info, "Analysis paused")}
   end
 
-  # Parse service events into {service, status} tuples
-  defp parse_service_event(event) do
-    parts = event |> Atom.to_string() |> String.split("_")
-
-    # The last part is the status, everything before is the service name
-    {status_name, service_parts} = List.pop_at(parts, -1)
-    service_name = Enum.join(service_parts, "_")
-
-    service = String.to_existing_atom(service_name)
-
-    status =
-      case status_name do
-        "started" -> :running
-        "stopped" -> :paused
-        "idle" -> :idle
-        "pausing" -> :pausing
-      end
-
-    {service, status}
+  @impl true
+  def handle_event("start_crf_searcher", _params, socket) do
+    Reencodarr.CrfSearcher.Broadway.Producer.start()
+    {:noreply, put_flash(socket, :info, "CRF Search started")}
   end
 
-  # Unified event handlers using pattern matching
   @impl true
-  def handle_event("start_" <> service, _params, socket) do
-    service_atom = String.to_existing_atom(service)
-    broadway_module = get_broadway_module(service)
+  def handle_event("pause_crf_searcher", _params, socket) do
+    Reencodarr.CrfSearcher.Broadway.Producer.pause()
+    {:noreply, put_flash(socket, :info, "CRF Search paused")}
+  end
 
-    if broadway_running?(broadway_module) do
-      case Map.get(@producer_modules, service_atom) do
-        nil ->
-          {:noreply, put_flash(socket, :error, "Unknown service: #{service}")}
+  @impl true
+  def handle_event("start_encoder", _params, socket) do
+    Reencodarr.Encoder.Broadway.Producer.start()
+    {:noreply, put_flash(socket, :info, "Encoding started")}
+  end
 
-        module ->
-          module.start()
-          service_name = format_service_name(service)
-          {:noreply, put_flash(socket, :info, "#{service_name} started")}
-      end
+  @impl true
+  def handle_event("pause_encoder", _params, socket) do
+    Reencodarr.Encoder.Broadway.Producer.pause()
+    {:noreply, put_flash(socket, :info, "Encoding paused")}
+  end
+
+  @impl true
+  def handle_event("sync_sonarr", _params, socket) do
+    if socket.assigns.syncing do
+      {:noreply, put_flash(socket, :error, "Sync already in progress")}
     else
-      service_name = format_service_name(service)
-      {:noreply, put_flash(socket, :info, "#{service_name} service not available")}
+      Task.start(&Reencodarr.Sync.sync_episodes/0)
+      {:noreply, put_flash(socket, :info, "Sonarr sync started")}
     end
   end
 
   @impl true
-  def handle_event("pause_" <> service, _params, socket) do
-    service_atom = String.to_existing_atom(service)
-    broadway_module = get_broadway_module(service)
-
-    if broadway_running?(broadway_module) do
-      case Map.get(@producer_modules, service_atom) do
-        nil ->
-          {:noreply, put_flash(socket, :error, "Unknown service: #{service}")}
-
-        module ->
-          module.pause()
-          service_name = format_service_name(service)
-          {:noreply, put_flash(socket, :info, "#{service_name} paused")}
-      end
+  def handle_event("sync_radarr", _params, socket) do
+    if socket.assigns.syncing do
+      {:noreply, put_flash(socket, :error, "Sync already in progress")}
     else
-      service_name = format_service_name(service)
-      {:noreply, put_flash(socket, :info, "#{service_name} service not available")}
+      Task.start(&Reencodarr.Sync.sync_movies/0)
+      {:noreply, put_flash(socket, :info, "Radarr sync started")}
     end
   end
 
   @impl true
   def handle_event("sync_" <> service, _params, socket) do
-    if socket.assigns.syncing do
-      {:noreply, put_flash(socket, :error, "Sync already in progress")}
-    else
-      sync_fn =
-        case service do
-          "sonarr" -> &Reencodarr.Sync.sync_episodes/0
-          "radarr" -> &Reencodarr.Sync.sync_movies/0
-          _ -> nil
-        end
-
-      case sync_fn do
-        nil ->
-          {:noreply, put_flash(socket, :error, "Unknown sync service: #{service}")}
-
-        fn_ref ->
-          Task.start(fn_ref)
-          service_name = format_service_name(service)
-          {:noreply, put_flash(socket, :info, "#{service_name} sync started")}
-      end
-    end
+    {:noreply, put_flash(socket, :error, "Unknown sync service: #{service}")}
   end
 
   # Unified pipeline step component
@@ -569,12 +540,11 @@ defmodule ReencodarrWeb.DashboardV2Live do
 
   defp request_current_status do
     # Send cast to each producer to broadcast their current status
-    Enum.each(@producer_modules, fn {service, producer_module} ->
+    Enum.each(@producer_modules, fn {_service, producer_module} ->
       case Process.whereis(producer_module) do
         nil ->
-          # If process doesn't exist, broadcast stopped event
-          event_name = :"#{service}_stopped"
-          Events.broadcast_event(event_name, %{})
+          # Process doesn't exist - no broadcast needed (LiveView handles via progress events)
+          :ok
 
         _pid ->
           GenServer.cast(producer_module, :broadcast_status)
@@ -612,11 +582,13 @@ defmodule ReencodarrWeb.DashboardV2Live do
     do: @service_status_labels[status] || @service_status_labels.unknown
 
   defp request_analyzer_throughput do
-    case GenServer.whereis(Reencodarr.Analyzer.Broadway.PerformanceMonitor) do
-      nil -> :ok
-      pid -> GenServer.cast(pid, {:throughput_request, self()})
-    end
+    do_request_analyzer_throughput(
+      GenServer.whereis(Reencodarr.Analyzer.Broadway.PerformanceMonitor)
+    )
   end
+
+  defp do_request_analyzer_throughput(nil), do: :ok
+  defp do_request_analyzer_throughput(pid), do: GenServer.cast(pid, {:throughput_request, self()})
 
   defp schedule_periodic_update do
     Process.send_after(self(), :update_dashboard_data, 5_000)
@@ -631,60 +603,33 @@ defmodule ReencodarrWeb.DashboardV2Live do
     end
   end
 
-  defp format_service_name(service) do
-    service |> String.replace("_", " ") |> String.capitalize()
-  end
-
   # Queue item data helpers - handle both video and non-video items
-  defp get_item_path(item) do
-    if Map.has_key?(item, :video), do: item.video.path, else: item.path
-  end
+  defp get_item_path(%{video: video}), do: video.path
+  defp get_item_path(%{path: path}), do: path
 
-  defp get_item_size(item) do
-    if Map.has_key?(item, :video), do: item.video.size, else: item.size
-  end
+  defp get_item_size(%{video: video}), do: video.size
+  defp get_item_size(%{size: size}), do: size
 
-  defp get_item_bitrate(item) do
-    if Map.has_key?(item, :video), do: item.video.bitrate, else: item.bitrate
-  end
+  defp get_item_bitrate(%{video: video}), do: video.bitrate
+  defp get_item_bitrate(%{bitrate: bitrate}), do: bitrate
 
   # Sync service styling helpers
-  defp sync_status_class(assigns) do
-    active = assigns.syncing && assigns.service_type == assigns.service
-    if active, do: "bg-blue-100 text-blue-800 animate-pulse", else: "bg-gray-100 text-gray-600"
-  end
+  defp sync_status_class(%{syncing: true, service_type: service, service: service}),
+    do: "bg-blue-100 text-blue-800 animate-pulse"
 
-  defp sync_status_text(assigns) do
-    active = assigns.syncing && assigns.service_type == assigns.service
-    if active, do: "Syncing", else: "Ready"
-  end
+  defp sync_status_class(_assigns),
+    do: "bg-gray-100 text-gray-600"
 
-  defp sync_button_class(syncing) do
-    if syncing,
-      do: "bg-gray-300 text-gray-500 cursor-not-allowed",
-      else: "bg-blue-500 hover:bg-blue-600 text-white"
-  end
+  defp sync_status_text(%{syncing: true, service_type: service, service: service}),
+    do: "Syncing"
 
-  # Map service names to their Broadway modules
-  defp get_broadway_module(service) do
-    case service do
-      "analyzer" -> Reencodarr.Analyzer.Broadway
-      "crf_searcher" -> Reencodarr.CrfSearcher.Broadway
-      "encoder" -> Reencodarr.Encoder.Broadway
-      _ -> nil
-    end
-  end
+  defp sync_status_text(_assigns),
+    do: "Ready"
 
-  # Check if a Broadway pipeline is actually running
-  defp broadway_running?(nil), do: false
+  defp sync_button_class(true),
+    do: "bg-gray-300 text-gray-500 cursor-not-allowed"
 
-  defp broadway_running?(broadway_module) do
-    # Check if the Broadway supervisor process exists and is running
-    case Process.whereis(broadway_module) do
-      nil -> false
-      pid when is_pid(pid) -> Process.alive?(pid)
-    end
-  rescue
-    _ -> false
-  end
+  defp sync_button_class(false),
+    do: "bg-blue-500 hover:bg-blue-600 text-white"
+
 end
