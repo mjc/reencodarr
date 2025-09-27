@@ -207,7 +207,6 @@ defmodule Reencodarr.Analyzer.Broadway do
         total: current_queue_length + 1,
         percent: percent
       })
-
     end
 
     # Note: Don't send progress events if queue is empty or no throughput

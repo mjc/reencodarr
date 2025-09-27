@@ -175,6 +175,7 @@ defmodule ReencodarrWeb.DashboardV2Live do
     socket
     |> assign(:queue_counts, get_queue_counts())
     |> assign(:queue_items, get_queue_items())
+    |> assign(:service_status, get_optimistic_service_status())
     |> then(&{:noreply, &1})
   end
 
@@ -631,5 +632,4 @@ defmodule ReencodarrWeb.DashboardV2Live do
 
   defp sync_button_class(false),
     do: "bg-blue-500 hover:bg-blue-600 text-white"
-
 end
