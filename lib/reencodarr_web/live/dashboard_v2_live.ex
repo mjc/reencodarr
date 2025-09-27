@@ -59,6 +59,27 @@ defmodule ReencodarrWeb.DashboardV2Live do
 
   # All handle_info callbacks grouped together
   @impl true
+  def handle_info({:analyzer_started, _data}, socket) do
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :analyzer, :running)
+    {:noreply, assign(socket, :service_status, updated_status)}
+  end
+
+  @impl true
+  def handle_info({:crf_searcher_started, _data}, socket) do
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :crf_searcher, :running)
+    {:noreply, assign(socket, :service_status, updated_status)}
+  end
+
+  @impl true
+  def handle_info({:encoder_started, _data}, socket) do
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :encoder, :running)
+    {:noreply, assign(socket, :service_status, updated_status)}
+  end
+
+  @impl true
   def handle_info({:crf_search_started, _data}, socket) do
     # Don't create incomplete progress data - wait for actual progress events
     {:noreply, socket}
