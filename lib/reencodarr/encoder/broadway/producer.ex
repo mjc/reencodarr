@@ -55,9 +55,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     # Subscribe to dashboard events to know when encoding completes
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
 
-    # Send a delayed message to broadcast initial queue state
-    Process.send_after(self(), :initial_queue_broadcast, 1000)
-
     {:producer,
      %{
        demand: 0,
@@ -198,13 +195,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   @impl GenStage
-  def handle_info(:initial_queue_broadcast, state) do
-    # Broadcast initial queue state so UI shows correct count on startup
-    broadcast_queue_state()
-    {:noreply, [], state}
-  end
-
-  @impl GenStage
   def handle_info(_msg, state) do
     {:noreply, [], state}
   end
@@ -324,9 +314,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     case Media.get_next_for_encoding(1) do
       # Handle case where a single VMAF is returned
       %Reencodarr.Media.Vmaf{} = vmaf ->
-        # Emit queue state update when dispatching
-        broadcast_queue_state()
-
         Logger.debug(
           "Producer: dispatch_vmafs - dispatching VMAF #{vmaf.id}, keeping demand: #{state.demand}"
         )
@@ -336,9 +323,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
       # Handle case where a list is returned
       [vmaf | _] ->
-        # Emit queue state update when dispatching
-        broadcast_queue_state()
-
         Logger.debug(
           "Producer: dispatch_vmafs - dispatching VMAF #{vmaf.id}, keeping demand: #{state.demand}"
         )
@@ -348,8 +332,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
       # Handle case where empty list or nil is returned
       _ ->
-        # No VMAF available, emit queue state and transition to appropriate state
-        broadcast_queue_state()
+        # No VMAF available, transition to appropriate state
         final_pipeline = PipelineStateMachine.transition_to(updated_state.pipeline, :idle)
         final_state = %{updated_state | pipeline: final_pipeline}
         {:noreply, [], final_state}
@@ -393,34 +376,5 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
       {:noreply, [], state}
     end
-  end
-
-  # Broadcast current queue state for UI updates
-  defp broadcast_queue_state do
-    # Get next VMAFs for UI display
-    next_vmafs = Media.list_videos_by_estimated_percent(10)
-
-    # Format for UI display
-    formatted_vmafs =
-      Enum.map(next_vmafs, fn vmaf ->
-        %{
-          path: vmaf.video.path,
-          crf: vmaf.crf,
-          vmaf: vmaf.score,
-          savings: vmaf.savings,
-          size: vmaf.size
-        }
-      end)
-
-    # Emit telemetry event that the UI expects
-    measurements = %{
-      queue_size: length(next_vmafs)
-    }
-
-    metadata = %{
-      next_vmafs: formatted_vmafs
-    }
-
-    :telemetry.execute([:reencodarr, :encoder, :queue_changed], measurements, metadata)
   end
 end

@@ -56,9 +56,6 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     # Initialize pipeline state machine
     pipeline = PipelineStateMachine.new(:crf_searcher)
 
-    # Send a delayed message to trigger initial telemetry emission
-    Process.send_after(self(), :initial_telemetry, 1000)
-
     {:producer,
      %{
        demand: 0,
@@ -185,34 +182,9 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
           state
       end
 
-    # Refresh queue telemetry and check for more work
-    emit_initial_telemetry(updated_state)
+    # Check for more work
     dispatch_if_ready(updated_state)
     {:noreply, [], updated_state}
-  end
-
-  @impl GenStage
-  def handle_info(:initial_telemetry, state) do
-    # Emit initial telemetry on startup to populate dashboard queue
-    Logger.debug("🔍 CRF Searcher: Emitting initial telemetry")
-    emit_initial_telemetry(state)
-
-    # Schedule periodic telemetry updates like the analyzer does
-    Process.send_after(self(), :periodic_telemetry, 5000)
-
-    {:noreply, [], state}
-  end
-
-  @impl GenStage
-  def handle_info(:periodic_telemetry, state) do
-    # Emit periodic telemetry to keep dashboard updated
-    Logger.debug("🔍 CRF Searcher: Emitting periodic telemetry")
-    emit_initial_telemetry(state)
-
-    # Schedule next update
-    Process.send_after(self(), :periodic_telemetry, 5000)
-
-    {:noreply, [], state}
   end
 
   @impl GenStage
@@ -306,38 +278,6 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     else
       {:noreply, [], state}
     end
-  end
-
-  # Emit initial telemetry on startup to populate dashboard queues
-  defp emit_initial_telemetry(_state) do
-    # Get 10 for dashboard display
-    next_videos = get_next_videos_for_telemetry(10)
-    # Get total count for accurate queue size
-    total_count = Media.count_videos_for_crf_search()
-
-    Logger.debug(
-      "🔍 CRF Searcher: Emitting telemetry - #{total_count} videos, #{length(next_videos)} in next batch"
-    )
-
-    measurements = %{
-      queue_size: total_count
-    }
-
-    metadata = %{
-      producer_type: :crf_searcher,
-      # For backward compatibility
-      next_video: List.first(next_videos),
-      # Full list for dashboard
-      next_videos: next_videos
-    }
-
-    :telemetry.execute([:reencodarr, :crf_searcher, :queue_changed], measurements, metadata)
-  end
-
-  # Get multiple next videos for dashboard display
-  defp get_next_videos_for_telemetry(limit) do
-    # Get videos from database for dashboard display
-    Media.get_videos_for_crf_search(limit)
   end
 
   # Helper function to force dispatch when CRF searcher is running

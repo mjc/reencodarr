@@ -205,8 +205,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   def handle_info(:initial_dispatch, state) do
     # Trigger initial dispatch after startup to check for videos needing analysis
     Logger.debug("Producer: Initial dispatch triggered")
-    # Broadcast initial queue state so UI shows correct count on startup
-    broadcast_queue_state()
     dispatch_if_ready(state)
   end
 
@@ -367,31 +365,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     end
   end
 
-  defp broadcast_queue_state do
-    # Get next videos for UI display from database
-    next_videos = Media.get_videos_needing_analysis(10)
-
-    # Format for UI display
-    formatted_videos =
-      Enum.map(next_videos, fn video ->
-        %{
-          path: video.path,
-          service_id: video.service_id || "unknown"
-        }
-      end)
-
-    # Emit telemetry event that the UI expects
-    measurements = %{
-      queue_size: Media.count_videos_needing_analysis()
-    }
-
-    metadata = %{
-      next_videos: formatted_videos
-    }
-
-    :telemetry.execute([:reencodarr, :analyzer, :queue_changed], measurements, metadata)
-  end
-
   defp dispatch_videos(state) do
     # Get videos from the database up to demand
     videos = Media.get_videos_needing_analysis(state.demand)
@@ -415,8 +388,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
             | pipeline: PipelineStateMachine.transition_to(state.pipeline, :idle)
           }
 
-          # Broadcast queue state when going idle
-          broadcast_queue_state()
           {:noreply, [], new_state}
         else
           Logger.debug("No videos available for dispatch, keeping demand: #{state.demand}")
@@ -428,9 +399,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
         Logger.debug("All videos being dispatched: #{inspect(Enum.map(videos, & &1.path))}")
         new_demand = state.demand - length(videos)
         new_state = State.update(state, demand: new_demand)
-
-        # Always broadcast queue state when dispatching videos
-        broadcast_queue_state()
 
         {:noreply, videos, new_state}
     end
