@@ -35,7 +35,6 @@ defmodule ReencodarrWeb.FailuresLive do
   alias Reencodarr.Repo
 
   import ReencodarrWeb.LcarsComponents
-  import Reencodarr.Utils
 
   alias ReencodarrWeb.LiveViewHelpers
 
@@ -1031,7 +1030,7 @@ defmodule ReencodarrWeb.FailuresLive do
     Enum.to_list(start_page..end_page)
   end
 
-  defp format_command_output(output) when is_non_empty_binary(output) do
+  defp format_command_output(output) when is_binary(output) and output != "" do
     # Clean up common command output formatting issues
     output
     # Windows line endings
