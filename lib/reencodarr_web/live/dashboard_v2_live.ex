@@ -128,8 +128,24 @@ defmodule ReencodarrWeb.DashboardV2Live do
     progress = %{
       percent: calculate_progress_percent(data),
       count: data[:current] || data[:count],
-      total: data[:total]
+      total: data[:total],
+      batch_size: data[:batch_size]
     }
+
+    {:noreply, assign(socket, :analyzer_progress, progress)}
+  end
+
+  @impl true
+  def handle_info({:batch_analysis_completed, data}, socket) do
+    # Update analyzer progress to show completed batch info
+    current_progress = socket.assigns.analyzer_progress
+
+    progress =
+      if current_progress != :none do
+        Map.put(current_progress, :last_batch_size, data[:batch_size])
+      else
+        %{last_batch_size: data[:batch_size]}
+      end
 
     {:noreply, assign(socket, :analyzer_progress, progress)}
   end
@@ -462,6 +478,16 @@ defmodule ReencodarrWeb.DashboardV2Live do
               <%= if @analyzer_throughput && @analyzer_throughput > 0 do %>
                 <div class="text-xs text-gray-500">
                   Rate: {Reencodarr.Formatters.rate(@analyzer_throughput)} files/s
+                </div>
+              <% end %>
+              <%= if @analyzer_progress != :none && Map.get(@analyzer_progress, :batch_size) do %>
+                <div class="text-xs text-gray-500">
+                  Batch: {Map.get(@analyzer_progress, :batch_size)} files
+                </div>
+              <% end %>
+              <%= if @analyzer_progress != :none && Map.get(@analyzer_progress, :last_batch_size) do %>
+                <div class="text-xs text-gray-400">
+                  Last batch: {Map.get(@analyzer_progress, :last_batch_size)} files
                 </div>
               <% end %>
             </.pipeline_step>
