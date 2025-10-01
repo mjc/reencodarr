@@ -40,14 +40,6 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     end
   end
 
-  def get_producer_state do
-    # Get the current producer state for debugging
-    case Broadway.producer_names(Reencodarr.CrfSearcher.Broadway) do
-      [producer_name | _] -> GenServer.call(producer_name, :get_debug_state, 5000)
-      [] -> {:error, :not_running}
-    end
-  end
-
   @impl GenStage
   def init(_opts) do
     # Subscribe to video state transitions for videos that finished analysis
@@ -81,20 +73,6 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     # Check if actively processing (for telemetry/progress updates)
     actively_running = PipelineStateMachine.actively_working?(state.pipeline)
     {:reply, actively_running, [], state}
-  end
-
-  @impl GenStage
-  def handle_call(:get_debug_state, _from, state) do
-    debug_info = %{
-      demand: state.demand,
-      pipeline_state: PipelineStateMachine.get_state(state.pipeline),
-      pipeline_running: PipelineStateMachine.running?(state.pipeline),
-      crf_search_available: crf_search_available?(),
-      should_dispatch: should_dispatch?(state),
-      queue_count: length(Media.get_videos_for_crf_search(10))
-    }
-
-    {:reply, debug_info, [], state}
   end
 
   @impl GenStage

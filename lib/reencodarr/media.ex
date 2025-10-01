@@ -452,10 +452,6 @@ defmodule Reencodarr.Media do
     end
   end
 
-  def most_recent_video_update, do: Repo.one(from v in Video, select: max(v.updated_at))
-  def get_most_recent_inserted_at, do: Repo.one(from v in Video, select: max(v.inserted_at))
-  def video_has_vmafs?(%Video{id: id}), do: Repo.exists?(from v in Vmaf, where: v.video_id == ^id)
-
   # Consolidated shared logic for video deletion
   defp delete_videos_by_ids(video_ids) do
     Repo.transaction(fn ->
@@ -875,19 +871,6 @@ defmodule Reencodarr.Media do
     |> Repo.update_all([])
   end
 
-  # --- Debug helpers ---
-
-  @doc """
-  Debug function to check the analyzer state and queue status.
-  """
-  def debug_analyzer_status do
-    %{
-      analyzer_running: AnalyzerBroadway.running?(),
-      videos_needing_analysis: get_videos_needing_analysis(5),
-      total_analyzer_queue_count: count_videos_needing_analysis()
-    }
-  end
-
   @doc """
   Force trigger analysis of a specific video for debugging.
   """
@@ -1147,85 +1130,4 @@ defmodule Reencodarr.Media do
   defp log_test_result_details(%{success: false, errors: errors}) do
     Logger.warning("   Errors: #{Enum.join(errors, ", ")}")
   end
-
-  # === Missing function implementations for backward compatibility ===
-
-  @doc """
-  Check if parameters contain preset 6 settings.
-  """
-  def has_preset_6_params?(params) do
-    case params do
-      params_list when is_list(params_list) ->
-        # Check for adjacent --preset and 6 in the list
-        check_for_preset_6_in_list(params_list)
-
-      _ ->
-        false
-    end
-  end
-
-  # Helper function to check for --preset 6 in parameter list
-  defp check_for_preset_6_in_list([]), do: false
-  defp check_for_preset_6_in_list([_]), do: false
-  defp check_for_preset_6_in_list(["--preset", "6" | _]), do: true
-  defp check_for_preset_6_in_list([_ | rest]), do: check_for_preset_6_in_list(rest)
-
-  @doc """
-  Upserts a VMAF record for CRF search operations.
-  Delegates to standard upsert_vmaf with additional context.
-  """
-  def upsert_crf_search_vmaf(params, video, args) do
-    # Add context information for CRF search
-    enhanced_params =
-      Map.merge(params, %{
-        "video_id" => video.id,
-        "params" => args
-      })
-
-    upsert_vmaf(enhanced_params)
-  end
-
-  @doc """
-  Get VMAF record by video ID and CRF value.
-  """
-  def get_vmaf_by_crf(video_id, crf_str) do
-    case Parsers.parse_float_exact(to_string(crf_str)) do
-      {:ok, crf_float} ->
-        Repo.one(from v in Vmaf, where: v.video_id == ^video_id and v.crf == ^crf_float, limit: 1)
-
-      {:error, _} ->
-        nil
-    end
-  end
-
-  @doc """
-  Clear/delete VMAF records for a video.
-  """
-  def clear_vmaf_records(video_id, vmaf_records) when is_list(vmaf_records) do
-    vmaf_ids = Enum.map(vmaf_records, & &1.id)
-
-    from(v in Vmaf, where: v.video_id == ^video_id and v.id in ^vmaf_ids)
-    |> Repo.delete_all()
-  end
-
-  def clear_vmaf_records(video_id, _) do
-    # If not a list, clear all VMAFs for the video
-    delete_vmafs_for_video(video_id)
-  end
-
-  @doc """
-  Get VMAF scores for a video as a list of score values.
-  """
-  def get_vmaf_scores_for_video(video_id) do
-    Repo.all(from v in Vmaf, where: v.video_id == ^video_id, select: v.score)
-  end
-
-  @doc """
-  Check if a VMAF record has preset 6 parameters.
-  """
-  def vmaf_has_preset_6?(%Vmaf{params: params}) do
-    has_preset_6_params?(params)
-  end
-
-  def vmaf_has_preset_6?(_), do: false
 end

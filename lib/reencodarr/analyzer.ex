@@ -50,15 +50,4 @@ defmodule Reencodarr.Analyzer do
 
   @doc "Get next videos in the analysis queue"
   def next_videos(limit \\ 10), do: Media.get_videos_needing_analysis(limit)
-
-  # Debug functions
-
-  @doc "Get detailed analyzer debug information"
-  def debug_info do
-    %{
-      status: status(),
-      next_videos: next_videos(5),
-      pipeline_state: Producer.debug_status()
-    }
-  end
 end
