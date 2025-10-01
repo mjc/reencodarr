@@ -287,7 +287,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   defp handle_auto_start(state) do
     Logger.info("Auto-starting analyzer - videos available for processing")
-    :telemetry.execute([:reencodarr, :analyzer, :started], %{}, %{})
 
     # Send to Dashboard using Events system
     Events.broadcast_event(:analyzer_started, %{})
