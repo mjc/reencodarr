@@ -83,7 +83,7 @@ Pre-commit hooks automatically enforce code quality:
 When adding new pipelines:
 1. Create producer that checks GenServer availability (`crf_search_available?()` pattern)
 2. Implement single concurrency to respect external tool limitations
-3. Add telemetry events for dashboard updates
+3. Use `Reencodarr.Dashboard.Events` to broadcast state changes to Dashboard V2
 4. Update `application.ex` with test environment considerations
 
 ### Database Query Patterns
