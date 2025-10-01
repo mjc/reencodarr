@@ -117,50 +117,29 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  # Test helpers - only available in test environment
-  if Mix.env() == :test do
-    def has_preset_6_params?(params), do: has_preset_6_params_private(params)
-    def should_retry_with_preset_6(video_id), do: should_retry_with_preset_6_private(video_id)
+  # Public test helpers - no wrappers, just make functions public
+  def has_preset_6_params?(params) when is_list(params) do
+    # Check for adjacent --preset and 6 in a flat list
+    case check_for_preset_6_in_flat_list(params) do
+      true ->
+        true
 
-    def build_crf_search_args_with_preset_6(video, vmaf_percent),
-      do: build_crf_search_args_with_preset_6_private(video, vmaf_percent)
-
-    def build_crf_search_args(video, vmaf_percent),
-      do: build_crf_search_args_private(video, vmaf_percent)
-
-    # Legacy test function names for backward compatibility
-    def should_retry_with_preset_6_for_test(video_id), do: should_retry_with_preset_6(video_id)
-
-    def build_crf_search_args_with_preset_6_for_test(video, vmaf_percent),
-      do: build_crf_search_args_with_preset_6(video, vmaf_percent)
-
-    def build_crf_search_args_for_test(video, vmaf_percent),
-      do: build_crf_search_args(video, vmaf_percent)
-
-    # Private helper functions for tests
-    defp has_preset_6_params_private(params) when is_list(params) do
-      # Check for adjacent --preset and 6 in a flat list
-      case check_for_preset_6_in_flat_list(params) do
-        true ->
-          true
-
-        false ->
-          # Also check for tuple format
-          Enum.any?(params, fn
-            {flag, value} -> flag == "--preset" and value == "6"
-            _ -> false
-          end)
-      end
+      false ->
+        # Also check for tuple format
+        Enum.any?(params, fn
+          {flag, value} -> flag == "--preset" and value == "6"
+          _ -> false
+        end)
     end
-
-    defp has_preset_6_params_private(_), do: false
-
-    # Helper to check for --preset 6 in flat list format
-    defp check_for_preset_6_in_flat_list([]), do: false
-    defp check_for_preset_6_in_flat_list([_]), do: false
-    defp check_for_preset_6_in_flat_list(["--preset", "6" | _]), do: true
-    defp check_for_preset_6_in_flat_list([_ | rest]), do: check_for_preset_6_in_flat_list(rest)
   end
+
+  def has_preset_6_params?(_), do: false
+
+  # Helper to check for --preset 6 in flat list format
+  defp check_for_preset_6_in_flat_list([]), do: false
+  defp check_for_preset_6_in_flat_list([_]), do: false
+  defp check_for_preset_6_in_flat_list(["--preset", "6" | _]), do: true
+  defp check_for_preset_6_in_flat_list([_ | rest]), do: check_for_preset_6_in_flat_list(rest)
 
   # GenServer callbacks
   @impl true
@@ -170,7 +149,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
-    args = build_crf_search_args_private(video, vmaf_percent)
+    args = build_crf_search_args(video, vmaf_percent)
 
     new_state = %{
       state
@@ -191,7 +170,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   def handle_cast({:crf_search_with_preset_6, video, vmaf_percent}, %{port: :none} = state) do
     Logger.info("CrfSearch: Starting retry with --preset 6 for video #{video.id}")
-    args = build_crf_search_args_with_preset_6_private(video, vmaf_percent)
+    args = build_crf_search_args_with_preset_6(video, vmaf_percent)
 
     new_state = %{
       state
@@ -355,7 +334,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_crf_search_failure(video, target_vmaf, exit_code, command_line, full_output, state) do
     # Preset 6 retry is disabled - go straight to marking as failed
-    case should_retry_with_preset_6_private(video.id) do
+    case should_retry_with_preset_6(video.id) do
       :mark_failed ->
         handle_mark_failed(video, target_vmaf, exit_code, command_line, full_output, state)
     end
@@ -452,8 +431,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     new_state = %{state | port: :none, current_task: :none, partial_line_buffer: ""}
     {:noreply, new_state}
   end
-
-  # Removed append_decimal_before_float - no longer needed since we parse types early
 
   def process_line(line, video, args, target_vmaf \\ 95) do
     handlers = [
@@ -647,7 +624,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
       # Check if we should retry with --preset 6 (disabled - always mark as failed)
       Logger.debug("CrfSearch: About to check retry logic for video #{video.id}")
-      retry_result = should_retry_with_preset_6_private(video.id)
+      retry_result = should_retry_with_preset_6(video.id)
       Logger.info("CrfSearch: Retry result: #{inspect(retry_result)}")
 
       case retry_result do
@@ -718,7 +695,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  defp build_crf_search_args_private(video, vmaf_percent) do
+  def build_crf_search_args(video, vmaf_percent) do
     base_args = [
       "crf-search",
       "--input",
@@ -738,7 +715,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   # Build CRF search args with --preset 6 added
-  defp build_crf_search_args_with_preset_6_private(video, vmaf_percent) do
+  def build_crf_search_args_with_preset_6(video, vmaf_percent) do
     base_args = [
       "crf-search",
       "--input",
@@ -1045,7 +1022,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     do: calculate_savings(percent, video_size)
 
   # Determine if we should retry with preset 6 based on video ID
-  defp should_retry_with_preset_6_private(video_id) do
+  def should_retry_with_preset_6(video_id) do
     import Ecto.Query
 
     # Get existing VMAF records for this video

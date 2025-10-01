@@ -27,7 +27,7 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       video = %{path: "/test/video.mkv"}
       target_vmaf = 95
 
-      args = CrfSearch.build_crf_search_args_for_test(video, target_vmaf)
+      args = CrfSearch.build_crf_search_args(video, target_vmaf)
 
       assert "crf-search" in args
       assert "--input" in args
