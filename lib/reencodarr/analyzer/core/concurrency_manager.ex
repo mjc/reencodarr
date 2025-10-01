@@ -145,7 +145,10 @@ defmodule Reencodarr.Analyzer.Core.ConcurrencyManager do
   end
 
   defp get_storage_performance_tier do
-    PerformanceMonitor.get_storage_performance_tier()
+    case Process.whereis(PerformanceMonitor) do
+      nil -> :unknown
+      _pid -> PerformanceMonitor.get_storage_performance_tier()
+    end
   end
 
   defp get_min_concurrency do
