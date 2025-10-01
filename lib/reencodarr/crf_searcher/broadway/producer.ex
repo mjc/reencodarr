@@ -255,13 +255,6 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
           new_pipeline = PipelineStateMachine.start_processing(state.pipeline)
           updated_state = %{state | demand: state.demand - 1, pipeline: new_pipeline}
 
-          # Get queue size for state update
-          total_count = Media.count_videos_for_crf_search()
-
-          Events.broadcast_event(:crf_search_queue_changed, %{
-            queue_size: total_count
-          })
-
           {:noreply, [video], updated_state}
       end
     else
