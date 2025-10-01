@@ -6,28 +6,15 @@ services:
     ports:
       - "4000:4000"
     environment:
-      - DATABASE_URL=ecto://postgres:postgres@db:5432/reencodarr_prod
+      # SQLite database - file stored in mounted volume
+      - DATABASE_PATH=/app/data/reencodarr_prod.db
       - SECRET_KEY_BASE=your-secret-key-base-here-change-this-in-production
       - PHX_SERVER=true
       - PORT=4000
-    depends_on:
-      - db
     volumes:
       - ./media:/app/media  # Mount for media files processing
-    restart: unless-stopped
-
-  db:
-    image: postgres:15
-    environment:
-      - POSTGRES_DB=reencodarr_prod
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./priv/repo/structure.sql:/docker-entrypoint-initdb.d/structure.sql
-    ports:
-      - "5432:5432"
+      - ./data:/app/data    # SQLite database storage
     restart: unless-stopped
 
 volumes:
-  postgres_data:
+  # No database service needed - SQLite is embedded
