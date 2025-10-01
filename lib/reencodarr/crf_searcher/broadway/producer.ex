@@ -255,23 +255,12 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
           new_pipeline = PipelineStateMachine.start_processing(state.pipeline)
           updated_state = %{state | demand: state.demand - 1, pipeline: new_pipeline}
 
-          # Get remaining videos for queue state update
-          remaining_videos = Media.get_videos_for_crf_search(10)
+          # Get queue size for state update
           total_count = Media.count_videos_for_crf_search()
 
-          # Emit telemetry event for queue state change
-          :telemetry.execute(
-            [:reencodarr, :crf_searcher, :queue_changed],
-            %{
-              dispatched_count: 1,
-              remaining_demand: updated_state.demand,
-              queue_size: total_count
-            },
-            %{
-              next_videos: remaining_videos,
-              database_queue_available: total_count > 0
-            }
-          )
+          Events.broadcast_event(:crf_search_queue_changed, %{
+            queue_size: total_count
+          })
 
           {:noreply, [video], updated_state}
       end
