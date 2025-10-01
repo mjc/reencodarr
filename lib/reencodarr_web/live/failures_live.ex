@@ -30,63 +30,56 @@ defmodule ReencodarrWeb.FailuresLive do
   require Logger
 
   alias Reencodarr.Core.Parsers
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
   alias Reencodarr.Media.SharedQueries
   alias Reencodarr.Repo
 
   import ReencodarrWeb.LcarsComponents
 
-  alias ReencodarrWeb.LiveViewHelpers
-
   @impl true
   def mount(_params, _session, socket) do
-    # Standard LiveView setup
-    timezone = get_in(socket.assigns, [:timezone]) || "UTC"
-    current_stardate = LiveViewHelpers.calculate_stardate(DateTime.utc_now())
-
-    # Schedule stardate updates if connected
-    if Phoenix.LiveView.connected?(socket) do
-      Process.send_after(self(), :update_stardate, 5000)
-    end
-
     socket =
       socket
-      |> assign(:timezone, timezone)
-      |> assign(:current_stardate, current_stardate)
       |> setup_failures_data()
       |> load_failures_data()
+
+    # Setup subscriptions and periodic updates if connected
+    if connected?(socket) do
+      # Subscribe to dashboard events for real-time updates
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+      # Start periodic data refresh
+      schedule_periodic_update()
+    end
 
     {:ok, socket}
   end
 
   @impl true
-  def handle_info(:update_stardate, socket) do
-    # Update stardate and schedule next update
-    Process.send_after(self(), :update_stardate, 5000)
-
-    socket =
-      assign(
-        socket,
-        :current_stardate,
-        LiveViewHelpers.calculate_stardate(DateTime.utc_now())
-      )
-
+  def handle_info(:update_failures_data, socket) do
+    # Reload failures data periodically
+    schedule_periodic_update()
+    socket = load_failures_data(socket)
     {:noreply, socket}
   end
 
+  # Handle events that might affect failures (video state changes, encoding completion, etc.)
   @impl true
-  def handle_event("set_timezone", %{"timezone" => tz}, socket) do
-    require Logger
-    Logger.debug("Setting timezone to #{tz}")
-    socket = assign(socket, :timezone, tz)
+  def handle_info({event, _data}, socket)
+      when event in [
+             :encoding_completed,
+             :crf_search_completed,
+             :analyzer_completed,
+             :video_failed
+           ] do
+    # Reload failures when pipeline events occur that might change failure state
+    socket = load_failures_data(socket)
     {:noreply, socket}
   end
 
+  # Catch-all for other Events we don't need to handle
   @impl true
-  def handle_event("timezone_change", %{"tz" => tz}, socket) do
-    require Logger
-    Logger.debug("Setting timezone to #{tz}")
-    socket = assign(socket, :timezone, tz)
+  def handle_info({_event, _data}, socket) do
     {:noreply, socket}
   end
 
@@ -842,7 +835,7 @@ defmodule ReencodarrWeb.FailuresLive do
         <div class="h-6 sm:h-8 bg-gradient-to-r from-red-500 via-yellow-400 to-orange-500 rounded">
           <div class="flex items-center justify-center h-full">
             <span class="text-black lcars-label text-xs sm:text-sm">
-              STARDATE {@current_stardate}
+              FAILURE ANALYSIS CONSOLE
             </span>
           </div>
         </div>
@@ -1046,6 +1039,11 @@ defmodule ReencodarrWeb.FailuresLive do
     output = Map.get(system_context || %{}, "full_output", "")
 
     !is_nil(command) or output != ""
+  end
+
+  # Private helper to schedule periodic data updates
+  defp schedule_periodic_update do
+    Process.send_after(self(), :update_failures_data, 5_000)
   end
 
   # CSS helper functions
