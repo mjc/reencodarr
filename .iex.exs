@@ -6,7 +6,7 @@ alias Reencodarr.Media.{Video, Library, Vmaf}
 
 # Broadway pipelines and workers
 alias Reencodarr.{Analyzer, CrfSearcher, Encoder}
-alias Reencodarr.Analyzer.{Broadway, QueueManager}
+alias Reencodarr.Analyzer.Broadway
 alias Reencodarr.AbAv1.{CrfSearch, Encode}
 
 # State management

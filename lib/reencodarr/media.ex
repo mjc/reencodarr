@@ -6,7 +6,6 @@ defmodule Reencodarr.Media do
     warn: false
 
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
-  alias Reencodarr.Analyzer.QueueManager
   alias Reencodarr.Core.Parsers
 
   alias Reencodarr.Media.{
@@ -715,21 +714,6 @@ defmodule Reencodarr.Media do
 
   # --- Queue helpers ---
 
-  # Manual analyzer queue items from QueueManager
-  defp get_manual_analyzer_items do
-    case QueueManager.get_queue() do
-      {:ok, queue} -> queue
-      {:error, _} -> []
-    end
-  end
-
-  defp count_manual_analyzer_items do
-    case QueueManager.get_queue() do
-      {:ok, queue} -> length(queue)
-      {:error, _} -> 0
-    end
-  end
-
   def get_next_for_encoding_by_time do
     result =
       Repo.one(
@@ -900,8 +884,7 @@ defmodule Reencodarr.Media do
     %{
       analyzer_running: AnalyzerBroadway.running?(),
       videos_needing_analysis: get_videos_needing_analysis(5),
-      manual_queue: get_manual_analyzer_items(),
-      total_analyzer_queue_count: count_videos_needing_analysis() + count_manual_analyzer_items()
+      total_analyzer_queue_count: count_videos_needing_analysis()
     }
   end
 
@@ -1109,7 +1092,6 @@ defmodule Reencodarr.Media do
   defp build_queue_memberships(path) do
     %{
       analyzer_broadway: path_in_analyzer_broadway?(path),
-      analyzer_manual: path_in_analyzer_manual?(path),
       crf_searcher_broadway: path_in_crf_searcher_broadway?(path),
       crf_searcher_genserver: path_in_crf_searcher_genserver?(path),
       encoder_broadway: path_in_encoder_broadway?(path),
@@ -1141,23 +1123,6 @@ defmodule Reencodarr.Media do
     # We can't easily check this without accessing its internal state
     # For now, return false as this would require more complex introspection
     false
-  end
-
-  defp path_in_analyzer_manual?(path) do
-    # Check the QueueManager's manual queue
-    case QueueManager.get_queue() do
-      {:ok, manual_queue} -> queue_contains_path?(manual_queue, path)
-      {:error, _} -> false
-    end
-  end
-
-  defp queue_contains_path?(manual_queue, path) do
-    Enum.any?(manual_queue, fn item ->
-      case item do
-        %{path: item_path} -> String.downcase(item_path) == String.downcase(path)
-        _ -> false
-      end
-    end)
   end
 
   defp path_in_crf_searcher_broadway?(_path) do
