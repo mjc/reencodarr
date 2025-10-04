@@ -2,9 +2,6 @@
 @import "tailwindcss/components";
 @import "tailwindcss/utilities";
 
-/* LCARS Interface Styling */
-@import "./lcars.css";
-
 /* This file is for your main application CSS */
 
 /* Text shadow utility for better button text readability */

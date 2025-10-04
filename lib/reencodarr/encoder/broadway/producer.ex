@@ -55,9 +55,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     # Subscribe to dashboard events to know when encoding completes
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
 
-    # Send a delayed message to broadcast initial queue state
-    Process.send_after(self(), :initial_queue_broadcast, 1000)
-
     {:producer,
      %{
        demand: 0,
@@ -114,18 +111,36 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:broadcast_status, state) do
-    p = state.pipeline
-    Events.pipeline_state_changed(p.service, p.current_state, p.current_state)
+    # Broadcast actual current status to dashboard
+    current_state = PipelineStateMachine.get_state(state.pipeline)
+
+    # Map pipeline state to dashboard status
+    status =
+      case current_state do
+        :processing -> :processing
+        :paused -> :paused
+        :running -> :running
+        _ -> :stopped
+      end
+
+    # Broadcast as service_status event with the actual state
+    Events.broadcast_event(:service_status, %{service: :encoder, status: status})
+
     {:noreply, [], state}
   end
 
   @impl GenStage
   def handle_cast(:pause, state) do
-    {:noreply, [], Map.update!(state, :pipeline, &PipelineStateMachine.pause/1)}
+    new_state = Map.update!(state, :pipeline, &PipelineStateMachine.pause/1)
+    # Broadcast the pause event to dashboard
+    Events.broadcast_event(:encoder_paused, %{})
+    {:noreply, [], new_state}
   end
 
   @impl GenStage
   def handle_cast(:resume, state) do
+    # Broadcast the resume event to dashboard
+    Events.broadcast_event(:encoder_started, %{})
     dispatch_if_ready(Map.update!(state, :pipeline, &PipelineStateMachine.resume/1))
   end
 
@@ -195,13 +210,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
     # Always dispatch when encoding completes - this ensures we check for next work
     dispatch_if_ready(new_state)
-  end
-
-  @impl GenStage
-  def handle_info(:initial_queue_broadcast, state) do
-    # Broadcast initial queue state so UI shows correct count on startup
-    broadcast_queue_state()
-    {:noreply, [], state}
   end
 
   @impl GenStage
@@ -324,9 +332,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     case Media.get_next_for_encoding(1) do
       # Handle case where a single VMAF is returned
       %Reencodarr.Media.Vmaf{} = vmaf ->
-        # Emit queue state update when dispatching
-        broadcast_queue_state()
-
         Logger.debug(
           "Producer: dispatch_vmafs - dispatching VMAF #{vmaf.id}, keeping demand: #{state.demand}"
         )
@@ -336,9 +341,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
       # Handle case where a list is returned
       [vmaf | _] ->
-        # Emit queue state update when dispatching
-        broadcast_queue_state()
-
         Logger.debug(
           "Producer: dispatch_vmafs - dispatching VMAF #{vmaf.id}, keeping demand: #{state.demand}"
         )
@@ -348,8 +350,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
       # Handle case where empty list or nil is returned
       _ ->
-        # No VMAF available, emit queue state and transition to appropriate state
-        broadcast_queue_state()
+        # No VMAF available, transition to appropriate state
         final_pipeline = PipelineStateMachine.transition_to(updated_state.pipeline, :idle)
         final_state = %{updated_state | pipeline: final_pipeline}
         {:noreply, [], final_state}
@@ -393,34 +394,5 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
       {:noreply, [], state}
     end
-  end
-
-  # Broadcast current queue state for UI updates
-  defp broadcast_queue_state do
-    # Get next VMAFs for UI display
-    next_vmafs = Media.list_videos_by_estimated_percent(10)
-
-    # Format for UI display
-    formatted_vmafs =
-      Enum.map(next_vmafs, fn vmaf ->
-        %{
-          path: vmaf.video.path,
-          crf: vmaf.crf,
-          vmaf: vmaf.score,
-          savings: vmaf.savings,
-          size: vmaf.size
-        }
-      end)
-
-    # Emit telemetry event that the UI expects
-    measurements = %{
-      queue_size: length(next_vmafs)
-    }
-
-    metadata = %{
-      next_vmafs: formatted_vmafs
-    }
-
-    :telemetry.execute([:reencodarr, :encoder, :queue_changed], measurements, metadata)
   end
 end

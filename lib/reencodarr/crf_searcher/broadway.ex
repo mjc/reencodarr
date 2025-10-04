@@ -194,24 +194,11 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   defp process_video_crf_search(video, crf_quality) do
     Logger.debug("Starting CRF search for video #{video.id}: #{video.path}")
 
-    # Emit telemetry event for monitoring
-    :telemetry.execute(
-      [:reencodarr, :crf_search, :start],
-      %{},
-      %{video_id: video.id, video_path: video.path}
-    )
-
     # AbAv1.crf_search/2 always returns :ok since it's a GenServer.cast
     # The actual success/failure is handled by the GenServer
     :ok = AbAv1.crf_search(video, crf_quality)
 
     Logger.debug("CRF search queued successfully for video #{video.id}")
-
-    :telemetry.execute(
-      [:reencodarr, :crf_search, :success],
-      %{},
-      %{video_id: video.id}
-    )
 
     :ok
   rescue
@@ -220,12 +207,6 @@ defmodule Reencodarr.CrfSearcher.Broadway do
         "Exception during CRF search for video #{video.id}: #{Exception.message(exception)}"
 
       Logger.error(error_message)
-
-      :telemetry.execute(
-        [:reencodarr, :crf_search, :exception],
-        %{},
-        %{video_id: video.id, exception: exception}
-      )
 
       {:error, error_message}
   end

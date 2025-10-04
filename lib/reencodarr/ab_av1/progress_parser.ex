@@ -37,9 +37,6 @@ defmodule Reencodarr.AbAv1.ProgressParser do
           filename: progress.filename
         })
 
-        # Also broadcast that encoder is running when progress is sent
-        Events.broadcast_event(:encoder_started, %{})
-
         :ok
 
       {:unmatched, line} ->
