@@ -244,8 +244,7 @@ defmodule ReencodarrWeb.RulesLive do
             <ol class="space-y-2 text-sm text-gray-700">
               <li>
                 <span class="text-blue-700 font-bold">1. HDR Rule:</span>
-                <code class="bg-gray-100 px-1 rounded">hdr/1</code>
-                - HDR and SDR tuning parameters
+                <code class="bg-gray-100 px-1 rounded">hdr/1</code> - HDR and SDR tuning parameters
               </li>
               <li>
                 <span class="text-blue-700 font-bold">2. Resolution Rule:</span>
@@ -253,8 +252,7 @@ defmodule ReencodarrWeb.RulesLive do
               </li>
               <li>
                 <span class="text-blue-700 font-bold">3. Video Rule:</span>
-                <code class="bg-gray-100 px-1 rounded">video/1</code>
-                - Pixel format standardization
+                <code class="bg-gray-100 px-1 rounded">video/1</code> - Pixel format standardization
               </li>
             </ol>
           </div>

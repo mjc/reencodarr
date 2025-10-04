@@ -66,6 +66,13 @@ defmodule ReencodarrWeb.DashboardV2Live do
   end
 
   @impl true
+  def handle_info({:analyzer_paused, _data}, socket) do
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :analyzer, :paused)
+    {:noreply, assign(socket, :service_status, updated_status)}
+  end
+
+  @impl true
   def handle_info({:crf_searcher_started, _data}, socket) do
     current_status = socket.assigns.service_status
     updated_status = Map.put(current_status, :crf_searcher, :running)
@@ -73,9 +80,23 @@ defmodule ReencodarrWeb.DashboardV2Live do
   end
 
   @impl true
+  def handle_info({:crf_searcher_paused, _data}, socket) do
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :crf_searcher, :paused)
+    {:noreply, assign(socket, :service_status, updated_status)}
+  end
+
+  @impl true
   def handle_info({:encoder_started, _data}, socket) do
     current_status = socket.assigns.service_status
     updated_status = Map.put(current_status, :encoder, :running)
+    {:noreply, assign(socket, :service_status, updated_status)}
+  end
+
+  @impl true
+  def handle_info({:encoder_paused, _data}, socket) do
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :encoder, :paused)
     {:noreply, assign(socket, :service_status, updated_status)}
   end
 
@@ -94,7 +115,14 @@ defmodule ReencodarrWeb.DashboardV2Live do
       score: data[:score]
     }
 
-    {:noreply, assign(socket, :crf_progress, progress)}
+    # Update status to processing since we're receiving active progress
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :crf_searcher, :processing)
+
+    socket
+    |> assign(:crf_progress, progress)
+    |> assign(:service_status, updated_status)
+    |> then(&{:noreply, &1})
   end
 
   @impl true
@@ -105,7 +133,14 @@ defmodule ReencodarrWeb.DashboardV2Live do
       filename: data.filename
     }
 
-    {:noreply, assign(socket, :encoding_progress, progress)}
+    # Update status to processing since encoding is actually running
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :encoder, :processing)
+
+    socket
+    |> assign(:encoding_progress, progress)
+    |> assign(:service_status, updated_status)
+    |> then(&{:noreply, &1})
   end
 
   @impl true
@@ -120,7 +155,14 @@ defmodule ReencodarrWeb.DashboardV2Live do
       video_id: data[:video_id]
     }
 
-    {:noreply, assign(socket, :encoding_progress, progress)}
+    # Update status to processing since we're receiving active progress
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :encoder, :processing)
+
+    socket
+    |> assign(:encoding_progress, progress)
+    |> assign(:service_status, updated_status)
+    |> then(&{:noreply, &1})
   end
 
   @impl true
@@ -132,7 +174,14 @@ defmodule ReencodarrWeb.DashboardV2Live do
       batch_size: data[:batch_size]
     }
 
-    {:noreply, assign(socket, :analyzer_progress, progress)}
+    # Update status to processing since we're receiving active progress
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :analyzer, :processing)
+
+    socket
+    |> assign(:analyzer_progress, progress)
+    |> assign(:service_status, updated_status)
+    |> then(&{:noreply, &1})
   end
 
   @impl true
@@ -151,6 +200,12 @@ defmodule ReencodarrWeb.DashboardV2Live do
   end
 
   # Completion and reset handlers
+  @impl true
+  def handle_info({:encoding_completed, _data}, socket) do
+    # Reset progress - keep current status (paused/running) to preserve user's last action
+    {:noreply, assign(socket, :encoding_progress, :none)}
+  end
+
   @impl true
   def handle_info({event, _data}, socket) when event in [:crf_search_completed] do
     {:noreply, assign(socket, :crf_progress, :none)}
@@ -176,7 +231,7 @@ defmodule ReencodarrWeb.DashboardV2Live do
 
   # Test-specific event handlers
   @impl true
-  def handle_info({:service_status, service, status}, socket) do
+  def handle_info({:service_status, %{service: service, status: status}}, socket) do
     current_status = socket.assigns.service_status
     updated_status = Map.put(current_status, service, status)
     {:noreply, assign(socket, :service_status, updated_status)}
@@ -206,13 +261,15 @@ defmodule ReencodarrWeb.DashboardV2Live do
     # Request updated throughput async (don't block)
     request_analyzer_throughput()
 
+    # Request fresh status from all pipelines
+    request_current_status()
+
     # Schedule next update (recursive scheduling)
     schedule_periodic_update()
 
     socket
     |> assign(:queue_counts, get_queue_counts())
     |> assign(:queue_items, get_queue_items())
-    |> assign(:service_status, get_optimistic_service_status())
     |> then(&{:noreply, &1})
   end
 

@@ -84,18 +84,36 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:broadcast_status, state) do
-    p = state.pipeline
-    Events.pipeline_state_changed(p.service, p.current_state, p.current_state)
+    # Broadcast actual current status to dashboard
+    current_state = PipelineStateMachine.get_state(state.pipeline)
+
+    # Map pipeline state to dashboard status
+    status =
+      case current_state do
+        :processing -> :processing
+        :paused -> :paused
+        :running -> :running
+        _ -> :stopped
+      end
+
+    # Broadcast as service_status event with the actual state
+    Events.broadcast_event(:service_status, %{service: :crf_searcher, status: status})
+
     {:noreply, [], state}
   end
 
   @impl GenStage
   def handle_cast(:pause, state) do
-    {:noreply, [], Map.update!(state, :pipeline, &PipelineStateMachine.pause/1)}
+    new_state = Map.update!(state, :pipeline, &PipelineStateMachine.pause/1)
+    # Broadcast the pause event to dashboard
+    Events.broadcast_event(:crf_searcher_paused, %{})
+    {:noreply, [], new_state}
   end
 
   @impl GenStage
   def handle_cast(:resume, state) do
+    # Broadcast the resume event to dashboard
+    Events.broadcast_event(:crf_searcher_started, %{})
     dispatch_if_ready(Map.update!(state, :pipeline, &PipelineStateMachine.resume/1))
   end
 
