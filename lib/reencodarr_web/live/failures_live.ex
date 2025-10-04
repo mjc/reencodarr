@@ -203,9 +203,7 @@ defmodule ReencodarrWeb.FailuresLive do
               viewBox="0 0 20 20"
               fill="currentColor"
             >
-              <path
-                d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"
-              />
+              <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
             </svg>
             Back to Dashboard
           </.link>
@@ -236,8 +234,8 @@ defmodule ReencodarrWeb.FailuresLive do
     <!-- Filters and Search -->
         <div class="bg-white rounded-lg shadow-lg p-6">
           <h2 class="text-xl font-semibold text-gray-900 mb-4">Filters & Search</h2>
-
-          <!-- Search Bar -->
+          
+    <!-- Search Bar -->
           <div class="mb-4">
             <form phx-change="search">
               <input
@@ -412,7 +410,7 @@ defmodule ReencodarrWeb.FailuresLive do
                         {Path.dirname(video.path)}
                       </p>
                     </div>
-                    
+
                     <div class="flex gap-2 flex-shrink-0">
                       <button
                         phx-click="retry_failed_video"
@@ -431,7 +429,7 @@ defmodule ReencodarrWeb.FailuresLive do
                     </div>
                   </div>
                   
-                  <!-- Video Info -->
+    <!-- Video Info -->
                   <div class="flex flex-wrap gap-2 text-xs mb-3">
                     <%= if video.size do %>
                       <span class="px-2 py-1 bg-gray-100 text-gray-700 rounded">
@@ -460,7 +458,7 @@ defmodule ReencodarrWeb.FailuresLive do
                     <% end %>
                   </div>
                   
-                  <!-- Latest Failure -->
+    <!-- Latest Failure -->
                   <%= case Map.get(@video_failures, video.id) do %>
                     <% failures when is_list(failures) and length(failures) > 0 -> %>
                       <% latest_failure = List.first(failures) %>
@@ -481,7 +479,9 @@ defmodule ReencodarrWeb.FailuresLive do
                         <p class="text-xs text-red-700">{latest_failure.failure_message}</p>
                         <%= if length(failures) > 1 do %>
                           <p class="text-xs text-red-600 mt-2">
-                            +{length(failures) - 1} additional {if length(failures) == 2, do: "failure", else: "failures"}
+                            +{length(failures) - 1} additional {if length(failures) == 2,
+                              do: "failure",
+                              else: "failures"}
                           </p>
                         <% end %>
                       </div>
@@ -491,7 +491,7 @@ defmodule ReencodarrWeb.FailuresLive do
                       </div>
                   <% end %>
                   
-                  <!-- Expanded Details -->
+    <!-- Expanded Details -->
                   <%= if video.id in @expanded_details do %>
                     <div class="border-t pt-3 mt-3 space-y-3">
                       <!-- Video Technical Details -->
@@ -523,7 +523,7 @@ defmodule ReencodarrWeb.FailuresLive do
                         </div>
                       </div>
                       
-                      <!-- All Failures -->
+    <!-- All Failures -->
                       <%= case Map.get(@video_failures, video.id) do %>
                         <% failures when is_list(failures) and length(failures) > 0 -> %>
                           <div>
@@ -545,7 +545,7 @@ defmodule ReencodarrWeb.FailuresLive do
                                     </time>
                                   </div>
                                   <p class="text-xs text-red-700 mb-2">{failure.failure_message}</p>
-                                  
+
                                   <%= if Map.get(failure.system_context || %{}, "command") do %>
                                     <div class="mt-2 pt-2 border-t border-red-200">
                                       <div class="text-xs font-semibold text-red-700 mb-1">
@@ -556,7 +556,7 @@ defmodule ReencodarrWeb.FailuresLive do
                                       </div>
                                     </div>
                                   <% end %>
-                                  
+
                                   <%= if has_command_details?(failure.system_context) do %>
                                     <div class="mt-2 pt-2 border-t border-red-200">
                                       <div class="text-xs font-semibold text-red-700 mb-1">
@@ -589,7 +589,8 @@ defmodule ReencodarrWeb.FailuresLive do
               <div class="bg-white rounded-lg shadow-lg p-4 mt-4">
                 <div class="flex flex-col sm:flex-row items-center justify-between gap-3">
                   <div class="text-sm text-gray-600">
-                    Page <span class="font-medium text-gray-900">{@page}</span> of <span class="font-medium text-gray-900">{@total_pages}</span>
+                    Page <span class="font-medium text-gray-900">{@page}</span>
+                    of <span class="font-medium text-gray-900">{@total_pages}</span>
                   </div>
 
                   <div class="flex gap-1">
@@ -611,7 +612,7 @@ defmodule ReencodarrWeb.FailuresLive do
                         ‹
                       </button>
                     <% end %>
-                    
+
                     <%= for page_num <- pagination_range(@page, @total_pages) do %>
                       <button
                         phx-click="change_page"
@@ -627,7 +628,7 @@ defmodule ReencodarrWeb.FailuresLive do
                         {page_num}
                       </button>
                     <% end %>
-                    
+
                     <%= if @page < @total_pages do %>
                       <button
                         phx-click="change_page"
