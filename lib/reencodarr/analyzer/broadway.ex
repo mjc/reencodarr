@@ -465,7 +465,7 @@ defmodule Reencodarr.Analyzer.Broadway do
       {[], [_ | _]} ->
         Logger.warning(
           "Broadway: Batch upsert failed after #{@max_db_retry_attempts} retries due to database busy. " <>
-          "Broadway will retry the batch automatically."
+            "Broadway will retry the batch automatically."
         )
 
         # Return error to trigger Broadway retry - don't mark as failed for DB busy
