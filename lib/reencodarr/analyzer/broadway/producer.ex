@@ -136,16 +136,12 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:pause, state) do
-    new_state = Map.update!(state, :pipeline, &PipelineStateMachine.pause/1)
-    # Broadcast the pause event to dashboard
-    Events.broadcast_event(:analyzer_paused, %{})
+    new_state = Map.update!(state, :pipeline, &PipelineStateMachine.handle_pause_request/1)
     {:noreply, [], new_state}
   end
 
   @impl GenStage
   def handle_cast(:resume, state) do
-    # Broadcast the resume event to dashboard
-    Events.broadcast_event(:analyzer_started, %{})
     dispatch_if_ready(Map.update!(state, :pipeline, &PipelineStateMachine.resume/1))
   end
 
@@ -330,9 +326,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   defp handle_resume_from_idle(state) do
     Logger.info("Analyzer resuming from idle - videos available for processing")
 
-    # Send to Dashboard V2
-    alias Reencodarr.Dashboard.Events
-    Events.broadcast_event(:analyzer_started, %{})
+    # Send to Dashboard V2 using Events system
     # Start with minimal progress to indicate activity
     Events.broadcast_event(:analyzer_progress, %{
       count: 0,
