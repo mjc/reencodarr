@@ -187,10 +187,10 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   @impl GenStage
-  def handle_info({:encoding_completed, %{vmaf_id: vmaf_id, result: result} = event_data}, state) do
+  def handle_info({:encoding_completed, event_data}, state) do
     # Encoding completed (success or failure), transition back to running
     Logger.info(
-      "[Encoder Producer] *** RECEIVED ENCODING COMPLETION *** - VMAF: #{vmaf_id}, result: #{inspect(result)}, event: #{inspect(event_data)}"
+      "[Encoder Producer] *** RECEIVED ENCODING COMPLETION *** - VMAF: #{event_data.vmaf_id}, result: #{inspect(event_data.result)}, event: #{inspect(event_data)}"
     )
 
     current_status = PipelineStateMachine.get_state(state.pipeline)
@@ -350,19 +350,19 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
       # Handle case where a single VMAF is returned
       %Reencodarr.Media.Vmaf{} = vmaf ->
         Logger.debug(
-          "Producer: dispatch_vmafs - dispatching VMAF #{vmaf.id}, keeping demand: #{state.demand}"
+          "Producer: dispatch_vmafs - dispatching VMAF #{vmaf.id}, decrementing demand from #{state.demand} to #{state.demand - 1}"
         )
 
-        final_state = %{updated_state | demand: state.demand}
+        final_state = %{updated_state | demand: state.demand - 1}
         {:noreply, [vmaf], final_state}
 
       # Handle case where a list is returned
       [vmaf | _] ->
         Logger.debug(
-          "Producer: dispatch_vmafs - dispatching VMAF #{vmaf.id}, keeping demand: #{state.demand}"
+          "Producer: dispatch_vmafs - dispatching VMAF #{vmaf.id}, decrementing demand from #{state.demand} to #{state.demand - 1}"
         )
 
-        final_state = %{updated_state | demand: state.demand}
+        final_state = %{updated_state | demand: state.demand - 1}
         {:noreply, [vmaf], final_state}
 
       # Handle case where empty list or nil is returned

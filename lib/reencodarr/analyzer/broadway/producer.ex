@@ -199,7 +199,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   end
 
   @impl GenStage
-  def handle_info({:batch_analysis_completed, _batch_size}, state) do
+  def handle_info({:batch_analysis_completed, _data}, state) do
     # Batch analysis completed - use state machine to determine next state
     Logger.debug("Producer: Received batch analysis completion notification")
 
