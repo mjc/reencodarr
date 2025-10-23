@@ -61,6 +61,7 @@ defmodule Reencodarr.CrfSearcher.Broadway do
         module: {Producer, []},
         transformer: {__MODULE__, :transform, []},
         rate_limiting: [
+          # Use normal rate limiting - pause/resume controlled by producer state
           allowed_messages: config[:rate_limit_messages],
           interval: config[:rate_limit_interval]
         ]
@@ -78,7 +79,11 @@ defmodule Reencodarr.CrfSearcher.Broadway do
           concurrency: 1
         ]
       ],
-      context: %{crf_quality: config[:crf_quality]}
+      context: %{
+        crf_quality: config[:crf_quality],
+        rate_limit_messages: config[:rate_limit_messages],
+        rate_limit_interval: config[:rate_limit_interval]
+      }
     )
   end
 
@@ -121,6 +126,8 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   @doc """
   Pause the CRF searcher pipeline.
 
+  Pauses processing by updating the producer's state machine.
+
   ## Examples
       iex> Reencodarr.CrfSearcher.Broadway.pause()
       :ok
@@ -132,6 +139,8 @@ defmodule Reencodarr.CrfSearcher.Broadway do
 
   @doc """
   Resume the CRF searcher pipeline.
+
+  Resumes processing by updating the producer's state machine.
 
   ## Examples
       iex> Reencodarr.CrfSearcher.Broadway.resume()
@@ -194,24 +203,11 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   defp process_video_crf_search(video, crf_quality) do
     Logger.debug("Starting CRF search for video #{video.id}: #{video.path}")
 
-    # Emit telemetry event for monitoring
-    :telemetry.execute(
-      [:reencodarr, :crf_search, :start],
-      %{},
-      %{video_id: video.id, video_path: video.path}
-    )
-
     # AbAv1.crf_search/2 always returns :ok since it's a GenServer.cast
     # The actual success/failure is handled by the GenServer
     :ok = AbAv1.crf_search(video, crf_quality)
 
     Logger.debug("CRF search queued successfully for video #{video.id}")
-
-    :telemetry.execute(
-      [:reencodarr, :crf_search, :success],
-      %{},
-      %{video_id: video.id}
-    )
 
     :ok
   rescue
@@ -220,12 +216,6 @@ defmodule Reencodarr.CrfSearcher.Broadway do
         "Exception during CRF search for video #{video.id}: #{Exception.message(exception)}"
 
       Logger.error(error_message)
-
-      :telemetry.execute(
-        [:reencodarr, :crf_search, :exception],
-        %{},
-        %{video_id: video.id, exception: exception}
-      )
 
       {:error, error_message}
   end

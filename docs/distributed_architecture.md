@@ -1,4 +1,14 @@
-# Reencodarr Distributed Architecture
+# Reencodarr Distributed Architecture (Future Design)
+
+> **⚠️ NOTE**: This document describes a **future architectural vision** for Reencodarr, not the current implementation.
+>
+> **Current Architecture (as of October 2025)**:
+> - Single monolithic application
+> - SQLite database with WAL mode for concurrency
+> - Broadway pipelines for processing coordination
+> - All services run on a single node
+>
+> **This Document**: Outlines a proposed distributed client-server architecture for future scalability.
 
 ## Overview
 
@@ -13,7 +23,7 @@ Currently, Reencodarr runs as a single application with three main pipelines:
 3. **Encoder** - Re-encodes videos with chosen parameters
 
 All components share:
-- Database (PostgreSQL with video metadata, VMAF results)
+- Database (SQLite with video metadata, VMAF results)
 - File system (original videos, temporary files)
 - Web interface (Phoenix LiveView dashboard)
 - Service integrations (Sonarr/Radarr APIs)

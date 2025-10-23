@@ -22,18 +22,14 @@ defmodule Reencodarr.Dashboard.Events do
   end
 
   @doc """
-  Broadcast a pipeline state change to all interested parties.
-
-  Notifies the dashboard UI and other services about the state change.
+  Pipeline state change tracking with internal service broadcasts only.
+  Dashboard UI broadcasts removed - LiveView handles state via direct progress events.
   """
   @spec pipeline_state_changed(service(), pipeline_state(), pipeline_state()) ::
           {:ok, pipeline_state()}
   def pipeline_state_changed(service, _from_state, to_state)
       when service in [:analyzer, :crf_searcher, :encoder] do
-    # Dashboard UI events - let the dashboard handle the mapping
-    broadcast_event({service, to_state}, %{})
-
-    # Internal service PubSub (for service-to-service communication)
+    # Only internal service PubSub (for service-to-service communication and tests)
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, Atom.to_string(service), {service, to_state})
 
     {:ok, to_state}

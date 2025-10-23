@@ -116,14 +116,28 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:broadcast_status, state) do
-    p = state.pipeline
-    Events.pipeline_state_changed(p.service, p.current_state, p.current_state)
+    # Broadcast actual current status to dashboard
+    current_state = PipelineStateMachine.get_state(state.pipeline)
+
+    # Map pipeline state to dashboard status
+    status =
+      case current_state do
+        :processing -> :processing
+        :paused -> :paused
+        :running -> :running
+        _ -> :stopped
+      end
+
+    # Broadcast as service_status event with the actual state
+    Events.broadcast_event(:service_status, %{service: :analyzer, status: status})
+
     {:noreply, [], state}
   end
 
   @impl GenStage
   def handle_cast(:pause, state) do
-    {:noreply, [], Map.update!(state, :pipeline, &PipelineStateMachine.pause/1)}
+    new_state = Map.update!(state, :pipeline, &PipelineStateMachine.handle_pause_request/1)
+    {:noreply, [], new_state}
   end
 
   @impl GenStage
@@ -205,8 +219,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   def handle_info(:initial_dispatch, state) do
     # Trigger initial dispatch after startup to check for videos needing analysis
     Logger.debug("Producer: Initial dispatch triggered")
-    # Broadcast initial queue state so UI shows correct count on startup
-    broadcast_queue_state()
     dispatch_if_ready(state)
   end
 
@@ -289,7 +301,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   defp handle_auto_start(state) do
     Logger.info("Auto-starting analyzer - videos available for processing")
-    :telemetry.execute([:reencodarr, :analyzer, :started], %{}, %{})
 
     # Send to Dashboard using Events system
     Events.broadcast_event(:analyzer_started, %{})
@@ -315,9 +326,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   defp handle_resume_from_idle(state) do
     Logger.info("Analyzer resuming from idle - videos available for processing")
 
-    # Send to Dashboard V2
-    alias Reencodarr.Dashboard.Events
-    Events.broadcast_event(:analyzer_started, %{})
+    # Send to Dashboard V2 using Events system
     # Start with minimal progress to indicate activity
     Events.broadcast_event(:analyzer_progress, %{
       count: 0,
@@ -367,31 +376,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
     end
   end
 
-  defp broadcast_queue_state do
-    # Get next videos for UI display from database
-    next_videos = Media.get_videos_needing_analysis(10)
-
-    # Format for UI display
-    formatted_videos =
-      Enum.map(next_videos, fn video ->
-        %{
-          path: video.path,
-          service_id: video.service_id || "unknown"
-        }
-      end)
-
-    # Emit telemetry event that the UI expects
-    measurements = %{
-      queue_size: Media.count_videos_needing_analysis()
-    }
-
-    metadata = %{
-      next_videos: formatted_videos
-    }
-
-    :telemetry.execute([:reencodarr, :analyzer, :queue_changed], measurements, metadata)
-  end
-
   defp dispatch_videos(state) do
     # Get videos from the database up to demand
     videos = Media.get_videos_needing_analysis(state.demand)
@@ -415,8 +399,6 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
             | pipeline: PipelineStateMachine.transition_to(state.pipeline, :idle)
           }
 
-          # Broadcast queue state when going idle
-          broadcast_queue_state()
           {:noreply, [], new_state}
         else
           Logger.debug("No videos available for dispatch, keeping demand: #{state.demand}")
@@ -429,136 +411,7 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
         new_demand = state.demand - length(videos)
         new_state = State.update(state, demand: new_demand)
 
-        # Always broadcast queue state when dispatching videos
-        broadcast_queue_state()
-
         {:noreply, videos, new_state}
-    end
-  end
-
-  @doc """
-  Debug function to check Broadway pipeline and producer status
-  """
-  def debug_status do
-    broadway_name = Reencodarr.Analyzer.Broadway
-
-    case Process.whereis(broadway_name) do
-      nil ->
-        IO.puts("❌ Broadway pipeline not found")
-        {:error, :broadway_not_found}
-
-      broadway_pid ->
-        IO.puts("✅ Broadway pipeline found: #{inspect(broadway_pid)}")
-        debug_producer_supervisor(broadway_name)
-    end
-  end
-
-  defp debug_producer_supervisor(broadway_name) do
-    producer_supervisor_name = :"#{broadway_name}.Broadway.ProducerSupervisor"
-
-    case Process.whereis(producer_supervisor_name) do
-      nil ->
-        IO.puts("❌ Producer supervisor not found")
-        {:error, :producer_supervisor_not_found}
-
-      producer_supervisor_pid ->
-        IO.puts("✅ Producer supervisor found: #{inspect(producer_supervisor_pid)}")
-        debug_producer_children(producer_supervisor_pid)
-    end
-  end
-
-  defp debug_producer_children(producer_supervisor_pid) do
-    children = Supervisor.which_children(producer_supervisor_pid)
-    IO.puts("Producer supervisor children: #{inspect(children)}")
-
-    case find_actual_producer(children) do
-      nil ->
-        IO.puts("❌ Producer process not found in supervision tree")
-        {:error, :producer_process_not_found}
-
-      producer_pid ->
-        IO.puts("✅ Producer process found: #{inspect(producer_pid)}")
-        get_producer_state(producer_pid)
-    end
-  end
-
-  # Helper to get and display producer state
-  defp get_producer_state(producer_pid) do
-    state = GenStage.call(producer_pid, :get_state, 1000)
-
-    IO.puts(
-      "State: demand=#{state.demand}, status=#{PipelineStateMachine.get_state(state.pipeline)}, queue_size=#{length(state.manual_queue)}"
-    )
-
-    case state.manual_queue do
-      [] ->
-        :ok
-
-      videos ->
-        IO.puts("Manual queue contents:")
-        Enum.each(videos, fn video -> IO.puts("  - #{video.path}") end)
-    end
-
-    # Get up to 5 videos from queue or database for batching
-    case get_next_videos(state, min(state.demand, 5)) do
-      {[], new_state} ->
-        Logger.debug("No videos available, resetting processing flag")
-        # No videos available, reset processing flag
-        {:noreply, [], %{new_state | processing: false}}
-
-      {videos, new_state} ->
-        video_count = length(videos)
-        Logger.debug("Dispatching #{video_count} videos for analysis")
-        # Decrement demand and mark as processing
-        final_state = %{
-          new_state
-          | demand: state.demand - video_count,
-            pipeline: PipelineStateMachine.transition_to(new_state.pipeline, :processing)
-        }
-
-        # Broadcast status change to dashboard
-        Events.broadcast_event(:analyzer_started, %{})
-
-        Logger.debug(
-          "Final state: status: #{PipelineStateMachine.get_state(final_state.pipeline)}, demand: #{final_state.demand}"
-        )
-
-        {:noreply, videos, final_state}
-    end
-  end
-
-  defp get_next_videos(state, max_count) do
-    # First, get videos from the manual queue
-    {queue_videos, remaining_queue} = take_from_queue(state.queue, max_count)
-    new_state = %{state | queue: remaining_queue}
-
-    remaining_needed = max_count - length(queue_videos)
-
-    if remaining_needed > 0 do
-      # Get additional videos from database
-      db_videos = Media.get_videos_needing_analysis(remaining_needed)
-      all_videos = queue_videos ++ db_videos
-      {all_videos, new_state}
-    else
-      {queue_videos, new_state}
-    end
-  end
-
-  defp take_from_queue(queue, max_count) do
-    take_from_queue(queue, max_count, [])
-  end
-
-  defp take_from_queue(queue, 0, acc) do
-    {Enum.reverse(acc), queue}
-  end
-
-  defp take_from_queue(queue, count, acc) when count > 0 do
-    case :queue.out(queue) do
-      {{:value, video}, remaining_queue} ->
-        take_from_queue(remaining_queue, count - 1, [video | acc])
-
-      {:empty, _queue} ->
-        {Enum.reverse(acc), queue}
     end
   end
 
