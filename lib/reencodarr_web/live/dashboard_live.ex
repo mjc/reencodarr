@@ -1,6 +1,6 @@
-defmodule ReencodarrWeb.DashboardV2Live do
+defmodule ReencodarrWeb.DashboardLive do
   @moduledoc """
-  New dashboard with simplified 3-layer architecture.
+  Dashboard with simplified 3-layer architecture.
 
   Service Layer -> PubSub -> LiveView
 
