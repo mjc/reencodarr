@@ -1,45 +1,12 @@
-defmodule Reencodarr.Encoder.Broadway.ProducerTest do
-  use Reencodarr.UnitCase, async: true
+defmodule Reencodarr.Analyzer.Broadway.ProducerTest do
+  use ExUnit.Case, async: true
 
   alias Reencodarr.PipelineStateMachine
 
-  # Helper function to test pattern matching logic
-  defp match_return_value(value) do
-    case value do
-      %Reencodarr.Media.Vmaf{} -> :single_vmaf
-      [%Reencodarr.Media.Vmaf{} | _] -> :list_with_vmaf
-      [] -> :empty_list
-      nil -> :nil_value
-    end
-  end
-
-  describe "get_next_vmaf/1" do
-    test "handles different return types from Media.get_next_for_encoding/1" do
-      # Test the pattern matching logic without calling the actual Media function
-      # This tests our case clause logic
-
-      # Test the pattern matching logic without calling the actual Media function
-      # This tests our case clause logic
-
-      # Case 1: Single VMAF struct (when limit = 1)
-      vmaf = %Reencodarr.Media.Vmaf{id: 1, video: %{path: "/test.mkv"}}
-      assert match_return_value(vmaf) == :single_vmaf
-
-      # Case 2: List with one VMAF
-      assert match_return_value([vmaf]) == :list_with_vmaf
-
-      # Case 3: Empty list
-      assert match_return_value([]) == :empty_list
-
-      # Case 4: nil
-      assert match_return_value(nil) == :nil_value
-    end
-  end
-
-  describe "pause handler" do
+  describe "pause handler - state machine behavior" do
     test "pause from :processing transitions to :pausing" do
       pipeline =
-        PipelineStateMachine.new(:encoder)
+        PipelineStateMachine.new(:analyzer)
         |> PipelineStateMachine.resume()
         |> PipelineStateMachine.start_processing()
 
@@ -49,7 +16,7 @@ defmodule Reencodarr.Encoder.Broadway.ProducerTest do
 
     test "pause when already :pausing stays in :pausing" do
       pipeline =
-        PipelineStateMachine.new(:encoder)
+        PipelineStateMachine.new(:analyzer)
         |> PipelineStateMachine.resume()
         |> PipelineStateMachine.start_processing()
         |> PipelineStateMachine.pause()
@@ -62,7 +29,7 @@ defmodule Reencodarr.Encoder.Broadway.ProducerTest do
     end
 
     test "pause from :running goes straight to :paused" do
-      pipeline = PipelineStateMachine.new(:encoder) |> PipelineStateMachine.resume()
+      pipeline = PipelineStateMachine.new(:analyzer) |> PipelineStateMachine.resume()
 
       paused = PipelineStateMachine.handle_pause_request(pipeline)
       assert PipelineStateMachine.get_state(paused) == :paused
@@ -70,7 +37,7 @@ defmodule Reencodarr.Encoder.Broadway.ProducerTest do
 
     test "pause from :idle goes straight to :paused" do
       pipeline =
-        PipelineStateMachine.new(:encoder)
+        PipelineStateMachine.new(:analyzer)
         |> PipelineStateMachine.resume()
         |> PipelineStateMachine.transition_to(:idle)
 
@@ -79,7 +46,7 @@ defmodule Reencodarr.Encoder.Broadway.ProducerTest do
     end
 
     test "pause from :paused stays :paused" do
-      pipeline = PipelineStateMachine.new(:encoder)
+      pipeline = PipelineStateMachine.new(:analyzer)
 
       paused = PipelineStateMachine.handle_pause_request(pipeline)
       assert PipelineStateMachine.get_state(paused) == :paused
@@ -89,7 +56,7 @@ defmodule Reencodarr.Encoder.Broadway.ProducerTest do
   describe "state transition flow" do
     test "full pause flow: processing -> pausing -> paused" do
       pipeline =
-        PipelineStateMachine.new(:encoder)
+        PipelineStateMachine.new(:analyzer)
         |> PipelineStateMachine.resume()
         |> PipelineStateMachine.start_processing()
 
@@ -108,7 +75,7 @@ defmodule Reencodarr.Encoder.Broadway.ProducerTest do
 
     test "pause while no work: running -> paused directly" do
       pipeline =
-        PipelineStateMachine.new(:encoder)
+        PipelineStateMachine.new(:analyzer)
         |> PipelineStateMachine.resume()
 
       paused = PipelineStateMachine.handle_pause_request(pipeline)
@@ -117,7 +84,7 @@ defmodule Reencodarr.Encoder.Broadway.ProducerTest do
 
     test "work completion transitions based on availability" do
       pipeline =
-        PipelineStateMachine.new(:encoder)
+        PipelineStateMachine.new(:analyzer)
         |> PipelineStateMachine.resume()
         |> PipelineStateMachine.start_processing()
 
@@ -132,7 +99,7 @@ defmodule Reencodarr.Encoder.Broadway.ProducerTest do
 
     test "work completion during pausing finalizes pause" do
       pipeline =
-        PipelineStateMachine.new(:encoder)
+        PipelineStateMachine.new(:analyzer)
         |> PipelineStateMachine.resume()
         |> PipelineStateMachine.start_processing()
         |> PipelineStateMachine.pause()

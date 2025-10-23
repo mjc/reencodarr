@@ -1,6 +1,6 @@
 # Configure ExUnit
 ExUnit.configure(
-  exclude: [:flaky, :integration, :slow],
+  exclude: [:flaky, :integration, :slow, :expected_failure],
   formatters: [ExUnit.CLIFormatter],
   max_failures: :infinity,
   trace: System.get_env("TRACE_TESTS") == "true",

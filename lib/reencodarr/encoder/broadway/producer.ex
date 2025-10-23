@@ -55,9 +55,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     # Subscribe to dashboard events to know when encoding completes
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
 
-    # Send a delayed message to broadcast initial queue state
-    Process.send_after(self(), :initial_queue_broadcast, 1000)
-
     {:producer,
      %{
        demand: 0,
@@ -71,15 +68,16 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
       "Producer: handle_demand called - new demand: #{demand}, current demand: #{state.demand}, total: #{state.demand + demand}"
     )
 
-    new_state = %{state | demand: state.demand + demand}
-    # Only dispatch if we're not already processing something
+    # Only accumulate demand if not currently processing
+    # Encoder is single-concurrency, so we shouldn't accept more demand while busy
     current_status = PipelineStateMachine.get_state(state.pipeline)
 
     if current_status == :processing do
-      # If we're already processing, just store the demand for later
-      Logger.debug("Producer: handle_demand - currently processing, storing demand for later")
-      {:noreply, [], new_state}
+      # If we're already processing, ignore the demand
+      Logger.debug("Producer: handle_demand - currently processing, ignoring demand")
+      {:noreply, [], state}
     else
+      new_state = %{state | demand: state.demand + demand}
       Logger.debug("Producer: handle_demand - not processing, calling dispatch_if_ready")
       dispatch_if_ready(new_state)
     end
@@ -114,14 +112,28 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:broadcast_status, state) do
-    p = state.pipeline
-    Events.pipeline_state_changed(p.service, p.current_state, p.current_state)
+    # Broadcast actual current status to dashboard
+    current_state = PipelineStateMachine.get_state(state.pipeline)
+
+    # Map pipeline state to dashboard status
+    status =
+      case current_state do
+        :processing -> :processing
+        :paused -> :paused
+        :running -> :running
+        _ -> :stopped
+      end
+
+    # Broadcast as service_status event with the actual state
+    Events.broadcast_event(:service_status, %{service: :encoder, status: status})
+
     {:noreply, [], state}
   end
 
   @impl GenStage
   def handle_cast(:pause, state) do
-    {:noreply, [], Map.update!(state, :pipeline, &PipelineStateMachine.pause/1)}
+    new_state = Map.update!(state, :pipeline, &PipelineStateMachine.handle_pause_request/1)
+    {:noreply, [], new_state}
   end
 
   @impl GenStage
@@ -169,6 +181,12 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   end
 
   @impl GenStage
+  def handle_info({:crf_search_vmaf_result, _data}, state) do
+    # CRF search results don't affect encoder - ignore
+    {:noreply, [], state}
+  end
+
+  @impl GenStage
   def handle_info({:encoding_completed, %{vmaf_id: vmaf_id, result: result} = event_data}, state) do
     # Encoding completed (success or failure), transition back to running
     Logger.info(
@@ -181,27 +199,34 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
       "[Encoder Producer] Current state before transition - status: #{current_status}, demand: #{state.demand}"
     )
 
-    # Use struct API to handle work completion - it will transition to appropriate state
-    updated_pipeline =
-      PipelineStateMachine.work_completed(state.pipeline, Media.encoding_queue_count() > 0)
+    case current_status do
+      :processing ->
+        # Work completed while running - check for more work
+        updated_pipeline =
+          PipelineStateMachine.work_completed(state.pipeline, Media.encoding_queue_count() > 0)
 
-    new_state = %{state | pipeline: updated_pipeline}
+        new_state = %{state | pipeline: updated_pipeline}
+        new_status = PipelineStateMachine.get_state(updated_pipeline)
 
-    new_status = PipelineStateMachine.get_state(updated_pipeline)
+        Logger.debug(
+          "[Encoder Producer] State after transition - status: #{new_status}, demand: #{new_state.demand}"
+        )
 
-    Logger.debug(
-      "[Encoder Producer] State after transition - status: #{new_status}, demand: #{new_state.demand}"
-    )
+        dispatch_if_ready(new_state)
 
-    # Always dispatch when encoding completes - this ensures we check for next work
-    dispatch_if_ready(new_state)
-  end
+      :pausing ->
+        # Work completed while pausing - transition to paused and stop
+        updated_pipeline = PipelineStateMachine.work_completed(state.pipeline, false)
+        new_state = %{state | pipeline: updated_pipeline}
 
-  @impl GenStage
-  def handle_info(:initial_queue_broadcast, state) do
-    # Broadcast initial queue state so UI shows correct count on startup
-    broadcast_queue_state()
-    {:noreply, [], state}
+        Logger.debug("[Encoder Producer] Pausing complete, now paused")
+        {:noreply, [], new_state}
+
+      _ ->
+        # Already paused or other state - just acknowledge completion
+        Logger.debug("[Encoder Producer] Encoding completed in state #{current_status}, ignoring")
+        {:noreply, [], state}
+    end
   end
 
   @impl GenStage
@@ -324,9 +349,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     case Media.get_next_for_encoding(1) do
       # Handle case where a single VMAF is returned
       %Reencodarr.Media.Vmaf{} = vmaf ->
-        # Emit queue state update when dispatching
-        broadcast_queue_state()
-
         Logger.debug(
           "Producer: dispatch_vmafs - dispatching VMAF #{vmaf.id}, keeping demand: #{state.demand}"
         )
@@ -336,9 +358,6 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
       # Handle case where a list is returned
       [vmaf | _] ->
-        # Emit queue state update when dispatching
-        broadcast_queue_state()
-
         Logger.debug(
           "Producer: dispatch_vmafs - dispatching VMAF #{vmaf.id}, keeping demand: #{state.demand}"
         )
@@ -348,8 +367,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
       # Handle case where empty list or nil is returned
       _ ->
-        # No VMAF available, emit queue state and transition to appropriate state
-        broadcast_queue_state()
+        # No VMAF available, transition to appropriate state
         final_pipeline = PipelineStateMachine.transition_to(updated_state.pipeline, :idle)
         final_state = %{updated_state | pipeline: final_pipeline}
         {:noreply, [], final_state}
@@ -374,53 +392,12 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   defp force_dispatch_if_running(state) do
     current_status = PipelineStateMachine.get_state(state.pipeline)
 
-    if PipelineStateMachine.available_for_work?(current_status) do
-      videos = Media.get_next_for_encoding(1)
+    if PipelineStateMachine.available_for_work?(current_status) and get_next_vmaf_preview() != nil do
+      Logger.debug("[Encoder Producer] Force dispatching VMAF to wake up idle Broadway pipeline")
 
-      if length(videos) > 0 do
-        Logger.debug(
-          "[Encoder Producer] Force dispatching video to wake up idle Broadway pipeline"
-        )
-
-        {:noreply, videos, state}
-      else
-        {:noreply, [], state}
-      end
+      dispatch_if_ready(state)
     else
-      Logger.debug(
-        "[Encoder Producer] Force dispatch - status: #{current_status}, not available for work, skipping dispatch"
-      )
-
       {:noreply, [], state}
     end
-  end
-
-  # Broadcast current queue state for UI updates
-  defp broadcast_queue_state do
-    # Get next VMAFs for UI display
-    next_vmafs = Media.list_videos_by_estimated_percent(10)
-
-    # Format for UI display
-    formatted_vmafs =
-      Enum.map(next_vmafs, fn vmaf ->
-        %{
-          path: vmaf.video.path,
-          crf: vmaf.crf,
-          vmaf: vmaf.score,
-          savings: vmaf.savings,
-          size: vmaf.size
-        }
-      end)
-
-    # Emit telemetry event that the UI expects
-    measurements = %{
-      queue_size: length(next_vmafs)
-    }
-
-    metadata = %{
-      next_vmafs: formatted_vmafs
-    }
-
-    :telemetry.execute([:reencodarr, :encoder, :queue_changed], measurements, metadata)
   end
 end

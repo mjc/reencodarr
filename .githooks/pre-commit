@@ -1,15 +1,15 @@
 #!/bin/sh
 
 # Save current staged changes
-git stash push --keep-index --include-untracked -m "pre-commit-stash"
+#git stash push --keep-index --include-untracked -m "pre-commit-stash"
 
 # Function to cleanup on exit
 cleanup() {
     EXIT_CODE=$?
     # Only pop stash if we created one
-    if [ -n "$(git stash list | grep "pre-commit-stash")" ]; then
-        git stash pop
-    fi
+    #if [ -n "$(git stash list | grep "pre-commit-stash")" ]; then
+    #    git stash pop
+    #fi
     exit $EXIT_CODE
 }
 

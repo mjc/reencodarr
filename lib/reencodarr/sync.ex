@@ -348,9 +348,10 @@ defmodule Reencodarr.Sync do
 
   def refresh_operations(file_id, :sonarr) do
     with {:ok, %Req.Response{body: episode_file}} <- Services.Sonarr.get_episode_file(file_id),
-         {:ok, _} <- Services.Sonarr.refresh_series(episode_file["seriesId"]),
+         {:ok, series_id} <- validate_series_id(episode_file["seriesId"]),
+         {:ok, _} <- Services.Sonarr.refresh_series(series_id),
          {:ok, _} <-
-           Services.Sonarr.rename_files(episode_file["seriesId"], [file_id]) do
+           Services.Sonarr.rename_files(series_id, [file_id]) do
       {:ok, "Refresh and rename triggered"}
     else
       {:error, reason} -> {:error, reason}
@@ -359,8 +360,9 @@ defmodule Reencodarr.Sync do
 
   def refresh_operations(file_id, :radarr) do
     with {:ok, %Req.Response{body: movie_file}} <- Services.Radarr.get_movie_file(file_id),
-         {:ok, _} <- Services.Radarr.refresh_movie(movie_file["movieId"]),
-         {:ok, _} <- Services.Radarr.rename_movie_files(movie_file["movieId"]) do
+         {:ok, movie_id} <- validate_movie_id(movie_file["movieId"]),
+         {:ok, _} <- Services.Radarr.refresh_movie(movie_id),
+         {:ok, _} <- Services.Radarr.rename_movie_files(movie_id) do
       {:ok, "Refresh triggered for Radarr"}
     else
       {:error, reason} -> {:error, reason}
@@ -374,6 +376,36 @@ defmodule Reencodarr.Sync do
     do: refresh_operations(id, :radarr)
 
   def rescan_and_rename_series(id), do: refresh_operations(id, :sonarr)
+
+  # Helper function to validate series ID from episode file response
+  defp validate_series_id(nil) do
+    Logger.error("Series ID is null - episode file may be orphaned or invalid")
+    {:error, "Series ID is null"}
+  end
+
+  defp validate_series_id(series_id) when is_integer(series_id) and series_id > 0 do
+    {:ok, series_id}
+  end
+
+  defp validate_series_id(series_id) do
+    Logger.error("Invalid series ID: #{inspect(series_id)} - expected positive integer")
+    {:error, "Invalid series ID"}
+  end
+
+  # Helper function to validate movie ID from movie file response
+  defp validate_movie_id(nil) do
+    Logger.error("Movie ID is null - movie file may be orphaned or invalid")
+    {:error, "Movie ID is null"}
+  end
+
+  defp validate_movie_id(movie_id) when is_integer(movie_id) and movie_id > 0 do
+    {:ok, movie_id}
+  end
+
+  defp validate_movie_id(movie_id) do
+    Logger.error("Invalid movie ID: #{inspect(movie_id)} - expected positive integer")
+    {:error, "Invalid movie ID"}
+  end
 
   def delete_video_and_vmafs(path) do
     case Media.delete_videos_with_path(path) do

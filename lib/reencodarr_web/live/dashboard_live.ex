@@ -1,6 +1,6 @@
-defmodule ReencodarrWeb.DashboardV2Live do
+defmodule ReencodarrWeb.DashboardLive do
   @moduledoc """
-  New dashboard with simplified 3-layer architecture.
+  Dashboard with simplified 3-layer architecture.
 
   Service Layer -> PubSub -> LiveView
 
@@ -41,6 +41,10 @@ defmodule ReencodarrWeb.DashboardV2Live do
     if connected?(socket) do
       # Subscribe to the single clean dashboard channel
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+      # Subscribe to pipeline state changes
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "analyzer")
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
       # Request current status from all services with a small delay to let services initialize
       Process.send_after(self(), :request_status, 100)
       # Start periodic updates for queue counts and service status
@@ -59,6 +63,35 @@ defmodule ReencodarrWeb.DashboardV2Live do
 
   # All handle_info callbacks grouped together
   @impl true
+  def handle_info({:analyzer_started, _data}, socket) do
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :analyzer, :running)
+    {:noreply, assign(socket, :service_status, updated_status)}
+  end
+
+  # Pipeline state change events - use actual states from PipelineStateMachine
+  @impl true
+  def handle_info({:analyzer, state}, socket) when is_atom(state) do
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :analyzer, state)
+    {:noreply, assign(socket, :service_status, updated_status)}
+  end
+
+  @impl true
+  def handle_info({:crf_searcher, state}, socket) when is_atom(state) do
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :crf_searcher, state)
+    {:noreply, assign(socket, :service_status, updated_status)}
+  end
+
+  @impl true
+  def handle_info({:encoder, state}, socket) when is_atom(state) do
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :encoder, state)
+    {:noreply, assign(socket, :service_status, updated_status)}
+  end
+
+  @impl true
   def handle_info({:crf_search_started, _data}, socket) do
     # Don't create incomplete progress data - wait for actual progress events
     {:noreply, socket}
@@ -73,7 +106,14 @@ defmodule ReencodarrWeb.DashboardV2Live do
       score: data[:score]
     }
 
-    {:noreply, assign(socket, :crf_progress, progress)}
+    # Update status to processing since we're receiving active progress
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :crf_searcher, :processing)
+
+    socket
+    |> assign(:crf_progress, progress)
+    |> assign(:service_status, updated_status)
+    |> then(&{:noreply, &1})
   end
 
   @impl true
@@ -84,7 +124,14 @@ defmodule ReencodarrWeb.DashboardV2Live do
       filename: data.filename
     }
 
-    {:noreply, assign(socket, :encoding_progress, progress)}
+    # Update status to processing since encoding is actually running
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :encoder, :processing)
+
+    socket
+    |> assign(:encoding_progress, progress)
+    |> assign(:service_status, updated_status)
+    |> then(&{:noreply, &1})
   end
 
   @impl true
@@ -99,7 +146,14 @@ defmodule ReencodarrWeb.DashboardV2Live do
       video_id: data[:video_id]
     }
 
-    {:noreply, assign(socket, :encoding_progress, progress)}
+    # Update status to processing since we're receiving active progress
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :encoder, :processing)
+
+    socket
+    |> assign(:encoding_progress, progress)
+    |> assign(:service_status, updated_status)
+    |> then(&{:noreply, &1})
   end
 
   @impl true
@@ -107,13 +161,42 @@ defmodule ReencodarrWeb.DashboardV2Live do
     progress = %{
       percent: calculate_progress_percent(data),
       count: data[:current] || data[:count],
-      total: data[:total]
+      total: data[:total],
+      batch_size: data[:batch_size]
     }
+
+    # Update status to processing since we're receiving active progress
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :analyzer, :processing)
+
+    socket
+    |> assign(:analyzer_progress, progress)
+    |> assign(:service_status, updated_status)
+    |> then(&{:noreply, &1})
+  end
+
+  @impl true
+  def handle_info({:batch_analysis_completed, data}, socket) do
+    # Update analyzer progress to show completed batch info
+    current_progress = socket.assigns.analyzer_progress
+
+    progress =
+      if current_progress != :none do
+        Map.put(current_progress, :last_batch_size, data[:batch_size])
+      else
+        %{last_batch_size: data[:batch_size]}
+      end
 
     {:noreply, assign(socket, :analyzer_progress, progress)}
   end
 
   # Completion and reset handlers
+  @impl true
+  def handle_info({:encoding_completed, _data}, socket) do
+    # Reset progress - keep current status (paused/running) to preserve user's last action
+    {:noreply, assign(socket, :encoding_progress, :none)}
+  end
+
   @impl true
   def handle_info({event, _data}, socket) when event in [:crf_search_completed] do
     {:noreply, assign(socket, :crf_progress, :none)}
@@ -137,10 +220,48 @@ defmodule ReencodarrWeb.DashboardV2Live do
     {:noreply, assign(socket, :analyzer_throughput, data.throughput || 0.0)}
   end
 
+  # Test-specific event handlers
+  @impl true
+  def handle_info({:service_status, %{service: service, status: status}}, socket) do
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, service, status)
+    {:noreply, assign(socket, :service_status, updated_status)}
+  end
+
+  @impl true
+  def handle_info({:service_status, service, status}, socket)
+      when is_atom(service) and is_atom(status) do
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, service, status)
+    {:noreply, assign(socket, :service_status, updated_status)}
+  end
+
+  @impl true
+  def handle_info({:queue_count, service, count}, socket) do
+    current_counts = socket.assigns.queue_counts
+    updated_counts = Map.put(current_counts, service, count)
+    {:noreply, assign(socket, :queue_counts, updated_counts)}
+  end
+
+  @impl true
+  def handle_info({:crf_progress, data}, socket) do
+    progress = %{
+      percent: calculate_progress_percent(data),
+      filename: data[:filename],
+      crf: data[:crf],
+      score: data[:score]
+    }
+
+    {:noreply, assign(socket, :crf_progress, progress)}
+  end
+
   @impl true
   def handle_info(:update_dashboard_data, socket) do
     # Request updated throughput async (don't block)
     request_analyzer_throughput()
+
+    # Request fresh status from all pipelines
+    request_current_status()
 
     # Schedule next update (recursive scheduling)
     schedule_periodic_update()
@@ -195,90 +316,66 @@ defmodule ReencodarrWeb.DashboardV2Live do
     {:noreply, socket}
   end
 
-  # Service status handlers - unified with pattern matching
+  # Service control event handlers with direct inline logic
   @impl true
-  def handle_info({service_event, _data}, socket)
-      when service_event in [
-             :analyzer_started,
-             :analyzer_stopped,
-             :analyzer_idle,
-             :analyzer_pausing,
-             :crf_searcher_started,
-             :crf_searcher_stopped,
-             :crf_searcher_idle,
-             :crf_searcher_pausing,
-             :encoder_started,
-             :encoder_stopped,
-             :encoder_idle,
-             :encoder_pausing
-           ] do
-    {service, status} = parse_service_event(service_event)
-    current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, service, status)
-    {:noreply, assign(socket, :service_status, updated_status)}
-  end
-
-  # Catch-all for unhandled messages
-  @impl true
-  def handle_info(message, socket) do
-    Logger.debug("DashboardV2: Unhandled message: #{inspect(message)}")
-    {:noreply, socket}
-  end
-
-  # Parse service events into {service, status} tuples
-  defp parse_service_event(event) do
-    parts = event |> Atom.to_string() |> String.split("_")
-
-    # The last part is the status, everything before is the service name
-    {status_name, service_parts} = List.pop_at(parts, -1)
-    service_name = Enum.join(service_parts, "_")
-
-    service = String.to_existing_atom(service_name)
-
-    status =
-      case status_name do
-        "started" -> :running
-        "stopped" -> :paused
-        "idle" -> :idle
-        "pausing" -> :pausing
-      end
-
-    {service, status}
-  end
-
-  # Unified event handlers using pattern matching
-  @impl true
-  def handle_event("start_" <> service, _params, socket) do
-    handle_service_control(service, :start, socket)
+  def handle_event("start_analyzer", _params, socket) do
+    Reencodarr.Analyzer.Broadway.Producer.start()
+    {:noreply, put_flash(socket, :info, "Analysis started")}
   end
 
   @impl true
-  def handle_event("pause_" <> service, _params, socket) do
-    handle_service_control(service, :pause, socket)
+  def handle_event("pause_analyzer", _params, socket) do
+    Reencodarr.Analyzer.Broadway.Producer.pause()
+    {:noreply, put_flash(socket, :info, "Analysis paused")}
+  end
+
+  @impl true
+  def handle_event("start_crf_searcher", _params, socket) do
+    Reencodarr.CrfSearcher.Broadway.Producer.start()
+    {:noreply, put_flash(socket, :info, "CRF Search started")}
+  end
+
+  @impl true
+  def handle_event("pause_crf_searcher", _params, socket) do
+    Reencodarr.CrfSearcher.Broadway.Producer.pause()
+    {:noreply, put_flash(socket, :info, "CRF Search paused")}
+  end
+
+  @impl true
+  def handle_event("start_encoder", _params, socket) do
+    Reencodarr.Encoder.Broadway.Producer.start()
+    {:noreply, put_flash(socket, :info, "Encoding started")}
+  end
+
+  @impl true
+  def handle_event("pause_encoder", _params, socket) do
+    Reencodarr.Encoder.Broadway.Producer.pause()
+    {:noreply, put_flash(socket, :info, "Encoding paused")}
+  end
+
+  @impl true
+  def handle_event("sync_sonarr", _params, socket) do
+    if socket.assigns.syncing do
+      {:noreply, put_flash(socket, :error, "Sync already in progress")}
+    else
+      Task.start(&Reencodarr.Sync.sync_episodes/0)
+      {:noreply, put_flash(socket, :info, "Sonarr sync started")}
+    end
+  end
+
+  @impl true
+  def handle_event("sync_radarr", _params, socket) do
+    if socket.assigns.syncing do
+      {:noreply, put_flash(socket, :error, "Sync already in progress")}
+    else
+      Task.start(&Reencodarr.Sync.sync_movies/0)
+      {:noreply, put_flash(socket, :info, "Radarr sync started")}
+    end
   end
 
   @impl true
   def handle_event("sync_" <> service, _params, socket) do
-    if socket.assigns.syncing do
-      {:noreply, put_flash(socket, :error, "Sync already in progress")}
-    else
-      sync_fn =
-        case service do
-          "sonarr" -> &Reencodarr.Sync.sync_episodes/0
-          "radarr" -> &Reencodarr.Sync.sync_movies/0
-          _ -> nil
-        end
-
-      case sync_fn do
-        nil ->
-          {:noreply, put_flash(socket, :error, "Unknown sync service: #{service}")}
-
-        fn_ref ->
-          Task.start(fn_ref)
-          service_name = format_service_name(service)
-          {:noreply, put_flash(socket, :info, "#{service_name} sync started")}
-      end
-    end
+    {:noreply, put_flash(socket, :error, "Unknown sync service: #{service}")}
   end
 
   # Unified pipeline step component
@@ -416,9 +513,29 @@ defmodule ReencodarrWeb.DashboardV2Live do
     <div class="min-h-screen bg-gray-100 p-6">
       <div class="max-w-7xl mx-auto space-y-6">
         <!-- Header -->
-        <div>
-          <h1 class="text-3xl font-bold text-gray-900">Video Processing Dashboard</h1>
-          <p class="text-gray-600">Real-time status and controls for video transcoding pipeline</p>
+        <div class="flex justify-between items-start">
+          <div>
+            <h1 class="text-3xl font-bold text-gray-900">Video Processing Dashboard</h1>
+            <p class="text-gray-600">Real-time status and controls for video transcoding pipeline</p>
+          </div>
+          <.link
+            navigate={~p"/failures"}
+            class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition-colors flex items-center gap-2"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-5 w-5"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path
+                fill-rule="evenodd"
+                d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                clip-rule="evenodd"
+              />
+            </svg>
+            View Failures
+          </.link>
         </div>
         
     <!-- Main Processing Pipeline -->
@@ -437,6 +554,16 @@ defmodule ReencodarrWeb.DashboardV2Live do
               <%= if @analyzer_throughput && @analyzer_throughput > 0 do %>
                 <div class="text-xs text-gray-500">
                   Rate: {Reencodarr.Formatters.rate(@analyzer_throughput)} files/s
+                </div>
+              <% end %>
+              <%= if @analyzer_progress != :none && Map.get(@analyzer_progress, :batch_size) do %>
+                <div class="text-xs text-gray-500">
+                  Batch: {Map.get(@analyzer_progress, :batch_size)} files
+                </div>
+              <% end %>
+              <%= if @analyzer_progress != :none && Map.get(@analyzer_progress, :last_batch_size) do %>
+                <div class="text-xs text-gray-400">
+                  Last batch: {Map.get(@analyzer_progress, :last_batch_size)} files
                 </div>
               <% end %>
             </.pipeline_step>
@@ -537,12 +664,11 @@ defmodule ReencodarrWeb.DashboardV2Live do
 
   defp request_current_status do
     # Send cast to each producer to broadcast their current status
-    Enum.each(@producer_modules, fn {service, producer_module} ->
+    Enum.each(@producer_modules, fn {_service, producer_module} ->
       case Process.whereis(producer_module) do
         nil ->
-          # If process doesn't exist, broadcast stopped event
-          event_name = :"#{service}_stopped"
-          Events.broadcast_event(event_name, %{})
+          # Process doesn't exist - no broadcast needed (LiveView handles via progress events)
+          :ok
 
         _pid ->
           GenServer.cast(producer_module, :broadcast_status)
@@ -580,11 +706,13 @@ defmodule ReencodarrWeb.DashboardV2Live do
     do: @service_status_labels[status] || @service_status_labels.unknown
 
   defp request_analyzer_throughput do
-    case GenServer.whereis(Reencodarr.Analyzer.Broadway.PerformanceMonitor) do
-      nil -> :ok
-      pid -> GenServer.cast(pid, {:throughput_request, self()})
-    end
+    do_request_analyzer_throughput(
+      GenServer.whereis(Reencodarr.Analyzer.Broadway.PerformanceMonitor)
+    )
   end
+
+  defp do_request_analyzer_throughput(nil), do: :ok
+  defp do_request_analyzer_throughput(pid), do: GenServer.cast(pid, {:throughput_request, self()})
 
   defp schedule_periodic_update do
     Process.send_after(self(), :update_dashboard_data, 5_000)
@@ -599,63 +727,32 @@ defmodule ReencodarrWeb.DashboardV2Live do
     end
   end
 
-  defp format_service_name(service) do
-    service |> String.replace("_", " ") |> String.capitalize()
-  end
-
-  defp handle_service_control(service, action, socket) do
-    service_atom = String.to_existing_atom(service)
-
-    case Map.get(@producer_modules, service_atom) do
-      nil ->
-        {:noreply, put_flash(socket, :error, "Unknown service: #{service}")}
-
-      module ->
-        execute_service_action(module, action, service, socket)
-    end
-  end
-
-  defp execute_service_action(module, action, service, socket) do
-    case Process.whereis(module) do
-      nil ->
-        service_name = format_service_name(service)
-        {:noreply, put_flash(socket, :info, "#{service_name} service not available")}
-
-      _pid ->
-        apply(module, action, [])
-        service_name = format_service_name(service)
-        action_name = if action == :start, do: "started", else: "paused"
-        {:noreply, put_flash(socket, :info, "#{service_name} #{action_name}")}
-    end
-  end
-
   # Queue item data helpers - handle both video and non-video items
-  defp get_item_path(item) do
-    if Map.has_key?(item, :video), do: item.video.path, else: item.path
-  end
+  defp get_item_path(%{video: video}), do: video.path
+  defp get_item_path(%{path: path}), do: path
 
-  defp get_item_size(item) do
-    if Map.has_key?(item, :video), do: item.video.size, else: item.size
-  end
+  defp get_item_size(%{video: video}), do: video.size
+  defp get_item_size(%{size: size}), do: size
 
-  defp get_item_bitrate(item) do
-    if Map.has_key?(item, :video), do: item.video.bitrate, else: item.bitrate
-  end
+  defp get_item_bitrate(%{video: video}), do: video.bitrate
+  defp get_item_bitrate(%{bitrate: bitrate}), do: bitrate
 
   # Sync service styling helpers
-  defp sync_status_class(assigns) do
-    active = assigns.syncing && assigns.service_type == assigns.service
-    if active, do: "bg-blue-100 text-blue-800 animate-pulse", else: "bg-gray-100 text-gray-600"
-  end
+  defp sync_status_class(%{syncing: true, service_type: service, service: service}),
+    do: "bg-blue-100 text-blue-800 animate-pulse"
 
-  defp sync_status_text(assigns) do
-    active = assigns.syncing && assigns.service_type == assigns.service
-    if active, do: "Syncing", else: "Ready"
-  end
+  defp sync_status_class(_assigns),
+    do: "bg-gray-100 text-gray-600"
 
-  defp sync_button_class(syncing) do
-    if syncing,
-      do: "bg-gray-300 text-gray-500 cursor-not-allowed",
-      else: "bg-blue-500 hover:bg-blue-600 text-white"
-  end
+  defp sync_status_text(%{syncing: true, service_type: service, service: service}),
+    do: "Syncing"
+
+  defp sync_status_text(_assigns),
+    do: "Ready"
+
+  defp sync_button_class(true),
+    do: "bg-gray-300 text-gray-500 cursor-not-allowed"
+
+  defp sync_button_class(false),
+    do: "bg-blue-500 hover:bg-blue-600 text-white"
 end

@@ -9,85 +9,66 @@ defmodule ReencodarrWeb.FailuresLive do
   - Sorting and searching capabilities
 
   ## Architecture Notes:
-  - Uses shared LCARS components for consistent UI
+  - Modern Dashboard V2 UI with card-based layout
   - Memory optimized with efficient queries
-  - Real-time updates for failure state changes
+  - Real-time updates via Events PubSub for failure state changes
   """
 
   use ReencodarrWeb, :live_view
 
   import Ecto.Query
 
-  import ReencodarrWeb.UIHelpers,
-    only: [
-      filter_button_classes: 2,
-      action_button_classes: 0,
-      action_button_classes: 2,
-      pagination_button_classes: 1,
-      filter_tag_classes: 1
-    ]
-
   require Logger
 
   alias Reencodarr.Core.Parsers
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
   alias Reencodarr.Media.SharedQueries
   alias Reencodarr.Repo
 
-  import ReencodarrWeb.LcarsComponents
-  import Reencodarr.Utils
-
-  alias ReencodarrWeb.LiveViewHelpers
-
   @impl true
   def mount(_params, _session, socket) do
-    # Standard LiveView setup
-    timezone = get_in(socket.assigns, [:timezone]) || "UTC"
-    current_stardate = LiveViewHelpers.calculate_stardate(DateTime.utc_now())
-
-    # Schedule stardate updates if connected
-    if Phoenix.LiveView.connected?(socket) do
-      Process.send_after(self(), :update_stardate, 5000)
-    end
-
     socket =
       socket
-      |> assign(:timezone, timezone)
-      |> assign(:current_stardate, current_stardate)
       |> setup_failures_data()
       |> load_failures_data()
+
+    # Setup subscriptions and periodic updates if connected
+    if connected?(socket) do
+      # Subscribe to dashboard events for real-time updates
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+      # Start periodic data refresh
+      schedule_periodic_update()
+    end
 
     {:ok, socket}
   end
 
   @impl true
-  def handle_info(:update_stardate, socket) do
-    # Update stardate and schedule next update
-    Process.send_after(self(), :update_stardate, 5000)
-
-    socket =
-      assign(
-        socket,
-        :current_stardate,
-        LiveViewHelpers.calculate_stardate(DateTime.utc_now())
-      )
-
+  def handle_info(:update_failures_data, socket) do
+    # Reload failures data periodically
+    schedule_periodic_update()
+    socket = load_failures_data(socket)
     {:noreply, socket}
   end
 
+  # Handle events that might affect failures (video state changes, encoding completion, etc.)
   @impl true
-  def handle_event("set_timezone", %{"timezone" => tz}, socket) do
-    require Logger
-    Logger.debug("Setting timezone to #{tz}")
-    socket = assign(socket, :timezone, tz)
+  def handle_info({event, _data}, socket)
+      when event in [
+             :encoding_completed,
+             :crf_search_completed,
+             :analyzer_completed,
+             :video_failed
+           ] do
+    # Reload failures when pipeline events occur that might change failure state
+    socket = load_failures_data(socket)
     {:noreply, socket}
   end
 
+  # Catch-all for other Events we don't need to handle
   @impl true
-  def handle_event("timezone_change", %{"tz" => tz}, socket) do
-    require Logger
-    Logger.debug("Setting timezone to #{tz}")
-    socket = assign(socket, :timezone, tz)
+  def handle_info({_event, _data}, socket) do
     {:noreply, socket}
   end
 
@@ -204,598 +185,464 @@ defmodule ReencodarrWeb.FailuresLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div
-      id="failures-live"
-      class="min-h-screen bg-black text-orange-400 font-mono lcars-screen lcars-scan-lines"
-      phx-hook="TimezoneHook"
-    >
-      <!-- LCARS Top Frame -->
-      <div class="h-12 sm:h-16 bg-gradient-to-r from-orange-500 via-yellow-400 to-red-500 relative lcars-border-gradient">
-        <div class="absolute top-0 left-0 w-16 sm:w-32 h-12 sm:h-16 bg-orange-500 lcars-corner-br">
+    <div class="min-h-screen bg-gray-100 p-6">
+      <div class="max-w-7xl mx-auto space-y-6">
+        <!-- Header -->
+        <div class="flex justify-between items-start">
+          <div>
+            <h1 class="text-3xl font-bold text-gray-900">Failure Analysis Dashboard</h1>
+            <p class="text-gray-600">Monitor and manage failed video processing operations</p>
+          </div>
+          <.link
+            navigate={~p"/"}
+            class="bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition-colors flex items-center gap-2"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-5 w-5"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
+            </svg>
+            Back to Dashboard
+          </.link>
         </div>
-        <div class="absolute top-0 right-0 w-16 sm:w-32 h-12 sm:h-16 bg-red-500 lcars-corner-bl">
-        </div>
-        <div class="flex items-center justify-center h-full px-4">
-          <h1 class="text-black text-lg sm:text-2xl lcars-title text-center">
-            REENCODARR OPERATIONS - FAILURES ANALYSIS
-          </h1>
-        </div>
-      </div>
-      
-    <!-- Navigation -->
-      <.lcars_navigation current_page={:failures} />
-      
-    <!-- Failures Content -->
-      <div class="p-3 sm:p-6 space-y-4 sm:space-y-6">
-        <!-- Failures Summary -->
-        <div class="bg-gray-900 border border-orange-500 p-4 rounded">
-          <h2 class="text-xl text-orange-300 font-bold mb-4">FAILURES SUMMARY</h2>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-            <div class="bg-red-900 p-3 rounded">
-              <div class="text-red-300 font-semibold">FAILED VIDEOS</div>
-              <div class="text-2xl text-red-200">{length(@failed_videos)}</div>
+        
+    <!-- Failures Summary -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h2 class="text-xl font-semibold text-gray-900 mb-4">Failure Summary</h2>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="text-center">
+              <div class="text-red-600 text-sm font-semibold mb-2">Failed Videos</div>
+              <div class="text-4xl font-bold text-gray-900">{length(@failed_videos)}</div>
+              <div class="text-xs text-gray-500 mt-1">Total failures</div>
             </div>
-            <div class="bg-orange-900 p-3 rounded">
-              <div class="text-orange-300 font-semibold">FAILURE PATTERNS</div>
-              <div class="text-2xl text-orange-200">{length(@failure_patterns)}</div>
+            <div class="text-center">
+              <div class="text-orange-600 text-sm font-semibold mb-2">Failure Patterns</div>
+              <div class="text-4xl font-bold text-gray-900">{length(@failure_patterns)}</div>
+              <div class="text-xs text-gray-500 mt-1">Unique patterns</div>
             </div>
-            <div class="bg-yellow-900 p-3 rounded">
-              <div class="text-yellow-300 font-semibold">RECENT FAILURES</div>
-              <div class="text-2xl text-yellow-200">{@failure_stats.recent_count || 0}</div>
+            <div class="text-center">
+              <div class="text-yellow-600 text-sm font-semibold mb-2">Recent Failures</div>
+              <div class="text-4xl font-bold text-gray-900">{@failure_stats.recent_count || 0}</div>
+              <div class="text-xs text-gray-500 mt-1">Last 7 days</div>
             </div>
           </div>
         </div>
         
-    <!-- Failure Controls -->
-        <!-- Failure Controls -->
-        <div class="bg-gray-900 border border-orange-500 rounded p-4 mb-6">
-          <h3 class="text-lg text-orange-300 font-bold mb-4">FAILURE ANALYSIS CONTROLS</h3>
-
-          <div class="flex flex-col lg:flex-row gap-4">
-            <!-- Search -->
-            <div class="flex-grow">
-              <form phx-change="search" class="flex gap-2">
-                <input
-                  type="text"
-                  name="search"
-                  value={@search_term}
-                  placeholder="Search by file path..."
-                  class="flex-grow px-3 py-2 bg-gray-800 border border-orange-700 rounded text-orange-200 placeholder-orange-600 focus:border-orange-500 focus:outline-none"
-                />
-              </form>
-            </div>
-            
-    <!-- Stage Filter -->
-            <div class="flex flex-wrap gap-2">
-              <span class="text-orange-400 text-sm font-semibold self-center">STAGE:</span>
-              <button
-                phx-click="filter_failures"
-                phx-value-filter="all"
-                class={filter_button_classes(@failure_filter == "all", :orange)}
-              >
-                ALL
-              </button>
-              <button
-                phx-click="filter_failures"
-                phx-value-filter="analysis"
-                class={filter_button_classes(@failure_filter == "analysis", :orange)}
-              >
-                ANALYSIS
-              </button>
-              <button
-                phx-click="filter_failures"
-                phx-value-filter="crf_search"
-                class={filter_button_classes(@failure_filter == "crf_search", :orange)}
-              >
-                CRF SEARCH
-              </button>
-              <button
-                phx-click="filter_failures"
-                phx-value-filter="encoding"
-                class={filter_button_classes(@failure_filter == "encoding", :orange)}
-              >
-                ENCODING
-              </button>
-              <button
-                phx-click="filter_failures"
-                phx-value-filter="post_process"
-                class={filter_button_classes(@failure_filter == "post_process", :orange)}
-              >
-                POST-PROCESS
-              </button>
+    <!-- Filters and Search -->
+        <div class="bg-white rounded-lg shadow-lg p-6">
+          <h2 class="text-xl font-semibold text-gray-900 mb-4">Filters & Search</h2>
+          
+    <!-- Search Bar -->
+          <div class="mb-4">
+            <form phx-change="search">
+              <input
+                type="text"
+                name="search"
+                value={@search_term}
+                placeholder="Search by file path..."
+                class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-gray-900 placeholder-gray-500"
+              />
+            </form>
+          </div>
+          
+    <!-- Filter Buttons -->
+          <div class="space-y-3">
+            <!-- Stage Filter -->
+            <div>
+              <span class="text-sm font-medium text-gray-700 mr-2">Stage:</span>
+              <div class="inline-flex flex-wrap gap-2">
+                <button
+                  phx-click="filter_failures"
+                  phx-value-filter="all"
+                  class={"px-3 py-1.5 text-sm rounded-lg transition-colors #{if @failure_filter == "all", do: "bg-red-500 text-white", else: "bg-gray-200 text-gray-700 hover:bg-gray-300"}"}
+                >
+                  All
+                </button>
+                <button
+                  phx-click="filter_failures"
+                  phx-value-filter="analysis"
+                  class={"px-3 py-1.5 text-sm rounded-lg transition-colors #{if @failure_filter == "analysis", do: "bg-red-500 text-white", else: "bg-gray-200 text-gray-700 hover:bg-gray-300"}"}
+                >
+                  Analysis
+                </button>
+                <button
+                  phx-click="filter_failures"
+                  phx-value-filter="crf_search"
+                  class={"px-3 py-1.5 text-sm rounded-lg transition-colors #{if @failure_filter == "crf_search", do: "bg-red-500 text-white", else: "bg-gray-200 text-gray-700 hover:bg-gray-300"}"}
+                >
+                  CRF Search
+                </button>
+                <button
+                  phx-click="filter_failures"
+                  phx-value-filter="encoding"
+                  class={"px-3 py-1.5 text-sm rounded-lg transition-colors #{if @failure_filter == "encoding", do: "bg-red-500 text-white", else: "bg-gray-200 text-gray-700 hover:bg-gray-300"}"}
+                >
+                  Encoding
+                </button>
+                <button
+                  phx-click="filter_failures"
+                  phx-value-filter="post_process"
+                  class={"px-3 py-1.5 text-sm rounded-lg transition-colors #{if @failure_filter == "post_process", do: "bg-red-500 text-white", else: "bg-gray-200 text-gray-700 hover:bg-gray-300"}"}
+                >
+                  Post-Process
+                </button>
+              </div>
             </div>
             
     <!-- Category Filter -->
-            <div class="flex flex-wrap gap-2">
-              <span class="text-orange-400 text-sm font-semibold self-center">TYPE:</span>
-              <button
-                phx-click="filter_category"
-                phx-value-category="all"
-                class={filter_button_classes(@category_filter == "all", :blue)}
-              >
-                ALL
-              </button>
-              <button
-                phx-click="filter_category"
-                phx-value-category="file_access"
-                class={filter_button_classes(@category_filter == "file_access", :blue)}
-              >
-                FILE ACCESS
-              </button>
-              <button
-                phx-click="filter_category"
-                phx-value-category="process_failure"
-                class={filter_button_classes(@category_filter == "process_failure", :blue)}
-              >
-                PROCESS
-              </button>
-              <button
-                phx-click="filter_category"
-                phx-value-category="timeout"
-                class={filter_button_classes(@category_filter == "timeout", :blue)}
-              >
-                TIMEOUT
-              </button>
-              <button
-                phx-click="filter_category"
-                phx-value-category="codec_issues"
-                class={filter_button_classes(@category_filter == "codec_issues", :blue)}
-              >
-                CODEC
-              </button>
+            <div>
+              <span class="text-sm font-medium text-gray-700 mr-2">Type:</span>
+              <div class="inline-flex flex-wrap gap-2">
+                <button
+                  phx-click="filter_category"
+                  phx-value-category="all"
+                  class={"px-3 py-1.5 text-sm rounded-lg transition-colors #{if @category_filter == "all", do: "bg-blue-500 text-white", else: "bg-gray-200 text-gray-700 hover:bg-gray-300"}"}
+                >
+                  All
+                </button>
+                <button
+                  phx-click="filter_category"
+                  phx-value-category="file_access"
+                  class={"px-3 py-1.5 text-sm rounded-lg transition-colors #{if @category_filter == "file_access", do: "bg-blue-500 text-white", else: "bg-gray-200 text-gray-700 hover:bg-gray-300"}"}
+                >
+                  File Access
+                </button>
+                <button
+                  phx-click="filter_category"
+                  phx-value-category="process_failure"
+                  class={"px-3 py-1.5 text-sm rounded-lg transition-colors #{if @category_filter == "process_failure", do: "bg-blue-500 text-white", else: "bg-gray-200 text-gray-700 hover:bg-gray-300"}"}
+                >
+                  Process
+                </button>
+                <button
+                  phx-click="filter_category"
+                  phx-value-category="timeout"
+                  class={"px-3 py-1.5 text-sm rounded-lg transition-colors #{if @category_filter == "timeout", do: "bg-blue-500 text-white", else: "bg-gray-200 text-gray-700 hover:bg-gray-300"}"}
+                >
+                  Timeout
+                </button>
+                <button
+                  phx-click="filter_category"
+                  phx-value-category="codec_issues"
+                  class={"px-3 py-1.5 text-sm rounded-lg transition-colors #{if @category_filter == "codec_issues", do: "bg-blue-500 text-white", else: "bg-gray-200 text-gray-700 hover:bg-gray-300"}"}
+                >
+                  Codec
+                </button>
+              </div>
             </div>
           </div>
           
     <!-- Active Filters Display -->
           <%= if @failure_filter != "all" or @category_filter != "all" or @search_term != "" do %>
-            <div class="mt-3 pt-3 border-t border-orange-700">
-              <div class="flex flex-wrap gap-2 items-center text-xs">
-                <span class="text-orange-400 font-semibold">ACTIVE FILTERS:</span>
+            <div class="mt-4 pt-4 border-t border-gray-200">
+              <div class="flex flex-wrap gap-2 items-center">
+                <span class="text-sm font-medium text-gray-700">Active filters:</span>
                 <%= if @failure_filter != "all" do %>
-                  <span class={filter_tag_classes(:orange)}>
-                    Stage: {String.upcase(@failure_filter)}
+                  <span class="px-2 py-1 bg-red-100 text-red-800 text-xs rounded-full">
+                    Stage: {@failure_filter}
                   </span>
                 <% end %>
                 <%= if @category_filter != "all" do %>
-                  <span class={filter_tag_classes(:blue)}>
-                    Type: {String.upcase(@category_filter)}
+                  <span class="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">
+                    Type: {@category_filter}
                   </span>
                 <% end %>
                 <%= if @search_term != "" do %>
-                  <span class={filter_tag_classes(:green)}>Search: "{@search_term}"</span>
+                  <span class="px-2 py-1 bg-green-100 text-green-800 text-xs rounded-full">
+                    Search: "{@search_term}"
+                  </span>
                 <% end %>
-                <button phx-click="clear_filters" class={filter_tag_classes(:red)}>
-                  CLEAR ALL
+                <button
+                  phx-click="clear_filters"
+                  class="px-3 py-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs rounded-lg transition-colors"
+                >
+                  Clear All
                 </button>
               </div>
             </div>
           <% end %>
         </div>
-        <!-- Failed Videos Table -->
-        <div class="bg-gray-900 border border-orange-500 rounded overflow-hidden">
-          <div class="p-4 border-b border-orange-500">
-            <h3 class="text-lg text-orange-300 font-bold">FAILED VIDEOS</h3>
+        
+    <!-- Failed Videos List -->
+        <div class="bg-white rounded-lg shadow-lg overflow-hidden">
+          <div class="p-6 border-b border-gray-200 flex justify-between items-center">
+            <h2 class="text-xl font-semibold text-gray-900">Failed Videos</h2>
+            <span class="text-sm text-gray-600">
+              Showing {@total_count} {if @total_count == 1, do: "failure", else: "failures"}
+            </span>
           </div>
 
           <%= if @failed_videos == [] do %>
-            <div class="p-8 text-center text-orange-400">
-              <div class="text-4xl mb-4">✅</div>
-              <div class="text-lg">NO FAILURES DETECTED</div>
-              <div class="text-sm text-orange-600 mt-2">
+            <div class="p-12 text-center">
+              <div class="text-6xl mb-4">✅</div>
+              <h3 class="text-xl font-semibold text-gray-900 mb-2">No Failures Found</h3>
+              <p class="text-gray-600">
                 <%= if @search_term != "" do %>
                   No failed videos match your search criteria
                 <% else %>
                   All videos are processing successfully
                 <% end %>
-              </div>
+              </p>
             </div>
           <% else %>
-            <!-- Mobile-first responsive table -->
-            <div class="block lg:hidden">
-              <!-- Mobile Card Layout -->
-              <div class="space-y-2 p-4">
-                <%= for video <- @failed_videos do %>
-                  <div class="bg-gray-800 border border-orange-700 rounded p-3">
-                    <div class="flex justify-between items-start mb-2">
-                      <div class="font-mono text-sm text-orange-300">#{video.id}</div>
-                      <div class="flex gap-1">
-                        <button
-                          phx-click="retry_failed_video"
-                          phx-value-video_id={video.id}
-                          class={action_button_classes(:blue, [])}
-                        >
-                          RETRY
-                        </button>
-                        <button
-                          phx-click="toggle_details"
-                          phx-value-video_id={video.id}
-                          class={action_button_classes(:gray, [])}
-                        >
-                          {if video.id in @expanded_details, do: "HIDE", else: "DETAILS"}
-                        </button>
+            <!-- Video Cards -->
+            <div class="p-4 space-y-4">
+              <%= for video <- @failed_videos do %>
+                <div class="bg-white rounded-lg shadow-lg p-4 border-l-4 border-red-500">
+                  <!-- Card Header -->
+                  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center gap-2 mb-1">
+                        <span class="text-xs font-mono text-gray-500">ID: {video.id}</span>
+                        <%= if video.service_type do %>
+                          <span class="text-xs px-2 py-0.5 bg-blue-100 text-blue-700 rounded">
+                            {video.service_type}
+                          </span>
+                        <% end %>
                       </div>
-                    </div>
-
-                    <div class="text-sm">
-                      <div class="font-semibold text-orange-200 truncate" title={video.path}>
+                      <h4 class="text-sm font-semibold text-gray-900 truncate" title={video.path}>
                         {Path.basename(video.path)}
-                      </div>
-                      <div class="text-xs text-orange-600 truncate">
+                      </h4>
+                      <p class="text-xs text-gray-500 truncate" title={video.path}>
                         {Path.dirname(video.path)}
-                      </div>
+                      </p>
                     </div>
 
-                    <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                      <%= if video.size do %>
-                        <span class={filter_tag_classes(:gray)}>
-                          {Reencodarr.Formatters.file_size(video.size)}
-                        </span>
-                      <% end %>
-                      <%= if video.video_codecs && length(video.video_codecs) > 0 do %>
-                        <span class={filter_tag_classes(:dark_blue)}>
-                          V: {format_codecs(video.video_codecs)}
-                        </span>
-                      <% end %>
-                      <%= if video.audio_codecs && length(video.audio_codecs) > 0 do %>
-                        <span class={filter_tag_classes(:dark_green)}>
-                          A: {format_codecs(video.audio_codecs)}
-                        </span>
-                      <% end %>
+                    <div class="flex gap-2 flex-shrink-0">
+                      <button
+                        phx-click="retry_failed_video"
+                        phx-value-video_id={video.id}
+                        class="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors"
+                      >
+                        Retry
+                      </button>
+                      <button
+                        phx-click="toggle_details"
+                        phx-value-video_id={video.id}
+                        class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-gray-200 rounded hover:bg-gray-300 transition-colors"
+                      >
+                        {if video.id in @expanded_details, do: "Hide", else: "Details"}
+                      </button>
                     </div>
-
-                    <%= case Map.get(@video_failures, video.id) do %>
-                      <% failures when is_list(failures) and length(failures) > 0 -> %>
-                        <div class="mt-2">
-                          <%= for failure <- Enum.take(failures, 1) do %>
-                            <div class={filter_tag_classes(:red) <> " text-xs"}>
-                              <div class="font-semibold">
-                                {failure.failure_stage}/{failure.failure_category}
-                              </div>
-                              <div class="text-red-300 truncate">{failure.failure_message}</div>
-                              <%= if has_command_details?(failure.system_context) do %>
-                                <div class="text-red-400 text-xs mt-1">
-                                  💻 Command details available
-                                </div>
-                              <% end %>
-                            </div>
-                          <% end %>
-                          <%= if length(failures) > 1 do %>
-                            <div class="text-xs text-orange-600 mt-1">
-                              +{length(failures) - 1} more failures
-                            </div>
+                  </div>
+                  
+    <!-- Video Info -->
+                  <div class="flex flex-wrap gap-2 text-xs mb-3">
+                    <%= if video.size do %>
+                      <span class="px-2 py-1 bg-gray-100 text-gray-700 rounded">
+                        {Reencodarr.Formatters.file_size(video.size)}
+                      </span>
+                    <% end %>
+                    <%= if video.duration do %>
+                      <span class="px-2 py-1 bg-gray-100 text-gray-700 rounded">
+                        {Reencodarr.Formatters.duration_minutes(video.duration)}
+                      </span>
+                    <% end %>
+                    <%= if video.width && video.height do %>
+                      <span class="px-2 py-1 bg-gray-100 text-gray-700 rounded">
+                        {Reencodarr.Formatters.resolution(video.width, video.height)}
+                      </span>
+                    <% end %>
+                    <%= if video.video_codecs && length(video.video_codecs) > 0 do %>
+                      <span class="px-2 py-1 bg-blue-100 text-blue-700 rounded">
+                        V: {format_codecs(video.video_codecs)}
+                      </span>
+                    <% end %>
+                    <%= if video.audio_codecs && length(video.audio_codecs) > 0 do %>
+                      <span class="px-2 py-1 bg-green-100 text-green-700 rounded">
+                        A: {format_codecs(video.audio_codecs)}
+                      </span>
+                    <% end %>
+                  </div>
+                  
+    <!-- Latest Failure -->
+                  <%= case Map.get(@video_failures, video.id) do %>
+                    <% failures when is_list(failures) and length(failures) > 0 -> %>
+                      <% latest_failure = List.first(failures) %>
+                      <div class="bg-red-50 border border-red-200 rounded p-3 mb-3">
+                        <div class="flex items-start justify-between gap-2 mb-1">
+                          <div class="text-xs font-semibold text-red-800">
+                            {latest_failure.failure_stage} / {latest_failure.failure_category}
+                            <%= if latest_failure.failure_code do %>
+                              <span class="font-mono ml-1">({latest_failure.failure_code})</span>
+                            <% end %>
+                          </div>
+                          <%= if has_command_details?(latest_failure.system_context) do %>
+                            <span class="text-xs text-red-600" title="Command details available">
+                              💻
+                            </span>
                           <% end %>
                         </div>
-                      <% _ -> %>
-                        <div class="mt-2 text-xs text-orange-600">No specific failures recorded</div>
-                    <% end %>
-                    
-    <!-- Mobile expanded details -->
-                    <%= if video.id in @expanded_details do %>
-                      <div class="mt-3 pt-3 border-t border-orange-700">
-                        <div class="space-y-2">
+                        <p class="text-xs text-red-700">{latest_failure.failure_message}</p>
+                        <%= if length(failures) > 1 do %>
+                          <p class="text-xs text-red-600 mt-2">
+                            +{length(failures) - 1} additional {if length(failures) == 2,
+                              do: "failure",
+                              else: "failures"}
+                          </p>
+                        <% end %>
+                      </div>
+                    <% _ -> %>
+                      <div class="bg-gray-50 border border-gray-200 rounded p-3 mb-3">
+                        <p class="text-xs text-gray-600">No specific failure information recorded</p>
+                      </div>
+                  <% end %>
+                  
+    <!-- Expanded Details -->
+                  <%= if video.id in @expanded_details do %>
+                    <div class="border-t pt-3 mt-3 space-y-3">
+                      <!-- Video Technical Details -->
+                      <div>
+                        <h5 class="text-xs font-semibold text-gray-700 mb-2">Technical Details</h5>
+                        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                           <div>
-                            <h5 class="text-xs font-semibold text-orange-300 mb-1">VIDEO DETAILS</h5>
-                            <div class="grid grid-cols-2 gap-2 text-xs">
-                              <div>
-                                <strong>Bitrate:</strong> {if video.bitrate,
-                                  do: "#{video.bitrate} bps",
-                                  else: "Unknown"}
-                              </div>
-                              <div>
-                                <strong>Duration:</strong> {Reencodarr.Formatters.duration_minutes(
-                                  video.duration
-                                )}
-                              </div>
-                              <div>
-                                <strong>Resolution:</strong> {Reencodarr.Formatters.resolution(
-                                  video.width,
-                                  video.height
-                                )}
-                              </div>
-                              <div><strong>Service:</strong> {video.service_type}</div>
-                            </div>
+                            <span class="text-gray-500">Bitrate:</span>
+                            <span class="ml-1 text-gray-900">
+                              {Reencodarr.Formatters.bitrate(video.bitrate)}
+                            </span>
                           </div>
-                          <%= case Map.get(@video_failures, video.id) do %>
-                            <% failures when is_list(failures) and length(failures) > 0 -> %>
-                              <div>
-                                <h5 class="text-xs font-semibold text-orange-300 mb-1">
-                                  ALL FAILURES
-                                </h5>
-                                <div class="space-y-1">
-                                  <%= for failure <- failures do %>
-                                    <div class="bg-red-900 p-2 rounded text-xs">
-                                      <div class="font-semibold text-red-200">
-                                        {failure.failure_stage} / {failure.failure_category}
-                                        {if failure.failure_code, do: " (#{failure.failure_code})"}
+                          <div>
+                            <span class="text-gray-500">Duration:</span>
+                            <span class="ml-1 text-gray-900">
+                              {Reencodarr.Formatters.duration_minutes(video.duration)}
+                            </span>
+                          </div>
+                          <div>
+                            <span class="text-gray-500">Resolution:</span>
+                            <span class="ml-1 text-gray-900">
+                              {Reencodarr.Formatters.resolution(video.width, video.height)}
+                            </span>
+                          </div>
+                          <div>
+                            <span class="text-gray-500">Service:</span>
+                            <span class="ml-1 text-gray-900">{video.service_type || "Unknown"}</span>
+                          </div>
+                        </div>
+                      </div>
+                      
+    <!-- All Failures -->
+                      <%= case Map.get(@video_failures, video.id) do %>
+                        <% failures when is_list(failures) and length(failures) > 0 -> %>
+                          <div>
+                            <h5 class="text-xs font-semibold text-gray-700 mb-2">
+                              All Failures ({length(failures)})
+                            </h5>
+                            <div class="space-y-2">
+                              <%= for failure <- failures do %>
+                                <div class="bg-red-50 border border-red-200 rounded p-3">
+                                  <div class="flex items-start justify-between gap-2 mb-2">
+                                    <div class="text-xs font-semibold text-red-800">
+                                      {failure.failure_stage} / {failure.failure_category}
+                                      <%= if failure.failure_code do %>
+                                        <span class="font-mono ml-1">({failure.failure_code})</span>
+                                      <% end %>
+                                    </div>
+                                    <time class="text-xs text-red-600">
+                                      {Calendar.strftime(failure.inserted_at, "%m/%d %H:%M")}
+                                    </time>
+                                  </div>
+                                  <p class="text-xs text-red-700 mb-2">{failure.failure_message}</p>
+
+                                  <%= if Map.get(failure.system_context || %{}, "command") do %>
+                                    <div class="mt-2 pt-2 border-t border-red-200">
+                                      <div class="text-xs font-semibold text-red-700 mb-1">
+                                        Command:
                                       </div>
-                                      <div class="text-red-300">{failure.failure_message}</div>
-                                      
-    <!-- Command and Output Details -->
-                                      <%= if Map.get(failure.system_context || %{}, "command") do %>
-                                        <div class="mt-2 pt-2 border-t border-red-700">
-                                          <div class="text-red-200 text-xs font-semibold mb-1">
-                                            COMMAND:
-                                          </div>
-                                          <div class="bg-black p-2 rounded font-mono text-xs text-green-400 overflow-x-auto">
-                                            {Map.get(failure.system_context, "command")}
-                                          </div>
-                                        </div>
-                                      <% end %>
+                                      <div class="bg-gray-900 p-2 rounded font-mono text-xs text-green-400 overflow-x-auto">
+                                        {Map.get(failure.system_context, "command")}
+                                      </div>
+                                    </div>
+                                  <% end %>
 
-                                      <%= if has_command_details?(failure.system_context) do %>
-                                        <div class="mt-2 pt-2 border-t border-red-700">
-                                          <div class="text-red-200 text-xs font-semibold mb-1">
-                                            COMMAND OUTPUT:
-                                          </div>
-                                          <div class="bg-black p-2 rounded font-mono text-xs text-orange-300 overflow-x-auto max-h-40 overflow-y-auto whitespace-pre-wrap">
-                                            {format_command_output(
-                                              Map.get(failure.system_context, "full_output")
-                                            )}
-                                          </div>
-                                        </div>
-                                      <% end %>
-
-                                      <div class="text-red-400 text-xs mt-2">
-                                        {Calendar.strftime(failure.inserted_at, "%m/%d %H:%M")}
+                                  <%= if has_command_details?(failure.system_context) do %>
+                                    <div class="mt-2 pt-2 border-t border-red-200">
+                                      <div class="text-xs font-semibold text-red-700 mb-1">
+                                        Output:
+                                      </div>
+                                      <div class="bg-gray-900 p-2 rounded font-mono text-xs text-orange-300 overflow-x-auto max-h-60 overflow-y-auto">
+                                        <pre class="whitespace-pre-wrap">{format_command_output(
+                                          Map.get(failure.system_context, "full_output")
+                                        )}</pre>
                                       </div>
                                     </div>
                                   <% end %>
                                 </div>
-                              </div>
-                            <% _ -> %>
-                              <div class="text-orange-600 text-xs">
-                                No detailed failure information available
-                              </div>
-                          <% end %>
-                        </div>
-                      </div>
-                    <% end %>
-                  </div>
-                <% end %>
-              </div>
-            </div>
-            
-    <!-- Desktop Table Layout -->
-            <div class="hidden lg:block overflow-x-auto">
-              <table class="w-full">
-                <thead class="bg-orange-500 text-black">
-                  <tr>
-                    <th class="px-3 py-2 text-left text-xs font-semibold">ID</th>
-                    <th class="px-3 py-2 text-left text-xs font-semibold">FILE</th>
-                    <th class="px-3 py-2 text-left text-xs font-semibold">SIZE</th>
-                    <th class="px-3 py-2 text-left text-xs font-semibold">CODECS</th>
-                    <th class="px-3 py-2 text-left text-xs font-semibold">LATEST FAILURE</th>
-                    <th class="px-3 py-2 text-left text-xs font-semibold">ACTIONS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <%= for video <- @failed_videos do %>
-                    <tr class="border-b border-orange-700 hover:bg-gray-800">
-                      <td class="px-3 py-3 text-sm font-mono text-orange-300">{video.id}</td>
-                      <td class="px-3 py-3 text-sm max-w-xs">
-                        <div class="font-semibold truncate" title={video.path}>
-                          {Path.basename(video.path)}
-                        </div>
-                        <div class="text-xs text-orange-600 truncate">
-                          .../{video.path |> String.split("/") |> Enum.take(-2) |> Enum.join("/")}
-                        </div>
-                      </td>
-                      <td class="px-3 py-3 text-sm">
-                        <%= if video.size do %>
-                          {Reencodarr.Formatters.file_size(video.size)}
-                        <% else %>
-                          <span class="text-orange-600">Unknown</span>
-                        <% end %>
-                      </td>
-                      <td class="px-3 py-3 text-sm">
-                        <div class="text-xs space-y-1">
-                          <div>
-                            <span class="text-blue-400">V:</span> {format_codecs(video.video_codecs)}
-                          </div>
-                          <div>
-                            <span class="text-green-400">A:</span> {format_codecs(video.audio_codecs)}
-                          </div>
-                        </div>
-                      </td>
-                      <td class="px-3 py-3 text-sm max-w-xs">
-                        <%= case Map.get(@video_failures, video.id) do %>
-                          <% failures when is_list(failures) and length(failures) > 0 -> %>
-                            <% latest_failure = List.first(failures) %>
-                            <div class={filter_tag_classes(:red) <> " text-xs"}>
-                              <div class="font-semibold text-red-200">
-                                {latest_failure.failure_stage}/{latest_failure.failure_category}
-                              </div>
-                              <div
-                                class="text-red-300 truncate"
-                                title={latest_failure.failure_message}
-                              >
-                                {latest_failure.failure_message}
-                              </div>
-                              <%= if has_command_details?(latest_failure.system_context) do %>
-                                <div class="text-red-400 text-xs mt-1">
-                                  💻 Command details available
-                                </div>
                               <% end %>
                             </div>
-                            <%= if length(failures) > 1 do %>
-                              <div class="text-xs text-orange-600 mt-1">
-                                +{length(failures) - 1} more
-                              </div>
-                            <% end %>
-                          <% _ -> %>
-                            <span class="text-orange-600 text-xs">No specific failures recorded</span>
-                        <% end %>
-                      </td>
-                      <td class="px-3 py-3 text-sm">
-                        <div class="flex gap-1">
-                          <button
-                            phx-click="retry_failed_video"
-                            phx-value-video_id={video.id}
-                            class={action_button_classes(:blue, [])}
-                          >
-                            RETRY
-                          </button>
-                          <button
-                            phx-click="toggle_details"
-                            phx-value-video_id={video.id}
-                            class={action_button_classes(:gray, [])}
-                          >
-                            {if video.id in @expanded_details, do: "HIDE", else: "DETAILS"}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                    <%= if video.id in @expanded_details do %>
-                      <tr class="bg-gray-800">
-                        <td colspan="6" class="px-3 py-4">
-                          <div class="space-y-3">
-                            <div>
-                              <h5 class="text-sm font-semibold text-orange-300 mb-2">
-                                VIDEO DETAILS
-                              </h5>
-                              <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                                <div>
-                                  <strong>Bitrate:</strong> {Reencodarr.Formatters.bitrate(
-                                    video.bitrate
-                                  )}
-                                </div>
-                                <div>
-                                  <strong>Duration:</strong> {Reencodarr.Formatters.duration_minutes(
-                                    video.duration
-                                  )}
-                                </div>
-                                <div>
-                                  <strong>Resolution:</strong> {Reencodarr.Formatters.resolution(
-                                    video.width,
-                                    video.height
-                                  )}
-                                </div>
-                                <div><strong>Service:</strong> {video.service_type}</div>
-                              </div>
-                            </div>
-                            <%= case Map.get(@video_failures, video.id) do %>
-                              <% failures when is_list(failures) and length(failures) > 0 -> %>
-                                <div>
-                                  <h5 class="text-sm font-semibold text-orange-300 mb-2">
-                                    FAILURE DETAILS
-                                  </h5>
-                                  <div class="space-y-2">
-                                    <%= for failure <- failures do %>
-                                      <div class="bg-red-900 p-3 rounded text-xs">
-                                        <div class="font-semibold text-red-200">
-                                          {failure.failure_stage} / {failure.failure_category}
-                                          {if failure.failure_code, do: " (#{failure.failure_code})"}
-                                        </div>
-                                        <div class="text-red-300 mt-1">{failure.failure_message}</div>
-                                        
-    <!-- Command and Output Details -->
-                                        <%= if Map.get(failure.system_context || %{}, "command") do %>
-                                          <div class="mt-3 pt-2 border-t border-red-700">
-                                            <div class="text-red-200 text-xs font-semibold mb-2">
-                                              EXECUTED COMMAND:
-                                            </div>
-                                            <div class="bg-black p-3 rounded font-mono text-xs text-green-400 overflow-x-auto">
-                                              {Map.get(failure.system_context, "command")}
-                                            </div>
-                                          </div>
-                                        <% end %>
-
-                                        <%= if has_command_details?(failure.system_context) do %>
-                                          <div class="mt-3 pt-2 border-t border-red-700">
-                                            <div class="text-red-200 text-xs font-semibold mb-2">
-                                              FULL COMMAND OUTPUT:
-                                            </div>
-                                            <div class="bg-black p-3 rounded font-mono text-xs text-orange-300 overflow-x-auto max-h-60 overflow-y-auto whitespace-pre-wrap">
-                                              {format_command_output(
-                                                Map.get(failure.system_context, "full_output")
-                                              )}
-                                            </div>
-                                          </div>
-                                        <% end %>
-
-                                        <div class="text-red-400 mt-3">
-                                          {Calendar.strftime(
-                                            failure.inserted_at,
-                                            "%Y-%m-%d %H:%M:%S UTC"
-                                          )}
-                                        </div>
-                                      </div>
-                                    <% end %>
-                                  </div>
-                                </div>
-                              <% _ -> %>
-                                <div class="text-orange-600 text-sm">
-                                  No detailed failure information available
-                                </div>
-                            <% end %>
                           </div>
-                        </td>
-                      </tr>
-                    <% end %>
+                        <% _ -> %>
+                          <div class="text-xs text-gray-600">
+                            No detailed failure information available
+                          </div>
+                      <% end %>
+                    </div>
                   <% end %>
-                </tbody>
-              </table>
+                </div>
+              <% end %>
             </div>
             
     <!-- Pagination -->
             <%= if @total_pages > 1 do %>
-              <div class="p-4 border-t border-orange-500 bg-gray-800">
-                <div class="flex flex-col sm:flex-row items-center justify-between gap-2">
-                  <div class="text-xs text-orange-600">
-                    Page {@page} of {@total_pages}
+              <div class="bg-white rounded-lg shadow-lg p-4 mt-4">
+                <div class="flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div class="text-sm text-gray-600">
+                    Page <span class="font-medium text-gray-900">{@page}</span>
+                    of <span class="font-medium text-gray-900">{@total_pages}</span>
                   </div>
 
                   <div class="flex gap-1">
-                    <!-- First Page -->
                     <%= if @page > 1 do %>
                       <button
                         phx-click="change_page"
                         phx-value-page="1"
-                        class={action_button_classes()}
+                        class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+                        title="First page"
                       >
                         ««
                       </button>
-                    <% end %>
-                    
-    <!-- Previous Page -->
-                    <%= if @page > 1 do %>
                       <button
                         phx-click="change_page"
                         phx-value-page={@page - 1}
-                        class={action_button_classes()}
+                        class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+                        title="Previous page"
                       >
                         ‹
                       </button>
                     <% end %>
-                    
-    <!-- Page Numbers -->
+
                     <%= for page_num <- pagination_range(@page, @total_pages) do %>
                       <button
                         phx-click="change_page"
                         phx-value-page={page_num}
-                        class={pagination_button_classes(page_num == @page)}
+                        class={
+                          if page_num == @page do
+                            "px-3 py-1.5 text-sm font-medium text-white bg-blue-600 border border-blue-600 rounded"
+                          else
+                            "px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+                          end
+                        }
                       >
                         {page_num}
                       </button>
                     <% end %>
-                    
-    <!-- Next Page -->
+
                     <%= if @page < @total_pages do %>
                       <button
                         phx-click="change_page"
                         phx-value-page={@page + 1}
-                        class={action_button_classes()}
+                        class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+                        title="Next page"
                       >
                         ›
                       </button>
-                    <% end %>
-                    
-    <!-- Last Page -->
-                    <%= if @page < @total_pages do %>
                       <button
                         phx-click="change_page"
                         phx-value-page={@total_pages}
-                        class={action_button_classes()}
+                        class="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 transition-colors"
+                        title="Last page"
                       >
                         »»
                       </button>
@@ -809,44 +656,32 @@ defmodule ReencodarrWeb.FailuresLive do
         
     <!-- Common Failure Patterns -->
         <%= if length(@failure_patterns) > 0 do %>
-          <div class="bg-gray-900 border border-orange-500 rounded">
-            <div class="p-4 border-b border-orange-500">
-              <h3 class="text-lg text-orange-300 font-bold">COMMON FAILURE PATTERNS</h3>
-            </div>
-            <div class="p-4">
-              <div class="space-y-3">
-                <%= for pattern <- @failure_patterns do %>
-                  <div class="bg-yellow-900 p-3 rounded">
-                    <div class="flex justify-between items-start">
-                      <div>
-                        <div class="font-semibold text-yellow-200">
-                          {pattern.stage}/{pattern.category}
-                          {if pattern.code, do: "(#{pattern.code})"}
-                        </div>
-                        <div class="text-yellow-300 text-sm mt-1">{pattern.sample_message}</div>
+          <div class="bg-white rounded-lg shadow-lg p-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4">Common Failure Patterns</h2>
+            <div class="space-y-3">
+              <%= for pattern <- @failure_patterns do %>
+                <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <div class="flex justify-between items-start">
+                    <div class="flex-1">
+                      <div class="font-semibold text-gray-900">
+                        {pattern.stage}/{pattern.category}
+                        {if pattern.code, do: " (#{pattern.code})"}
                       </div>
-                      <div class="text-right text-yellow-200">
-                        <div class="font-bold">{pattern.count} occurrences</div>
-                        <div class="text-xs">
-                          Latest: {Calendar.strftime(pattern.latest_occurrence, "%m/%d %H:%M")}
-                        </div>
+                      <p class="text-sm text-gray-700 mt-1">{pattern.sample_message}</p>
+                    </div>
+                    <div class="text-right ml-4">
+                      <div class="text-lg font-bold text-yellow-600">{pattern.count}</div>
+                      <div class="text-xs text-gray-500">occurrences</div>
+                      <div class="text-xs text-gray-500 mt-1">
+                        Latest: {Calendar.strftime(pattern.latest_occurrence, "%m/%d %H:%M")}
                       </div>
                     </div>
                   </div>
-                <% end %>
-              </div>
+                </div>
+              <% end %>
             </div>
           </div>
         <% end %>
-        
-    <!-- LCARS Bottom Frame -->
-        <div class="h-6 sm:h-8 bg-gradient-to-r from-red-500 via-yellow-400 to-orange-500 rounded">
-          <div class="flex items-center justify-center h-full">
-            <span class="text-black lcars-label text-xs sm:text-sm">
-              STARDATE {@current_stardate}
-            </span>
-          </div>
-        </div>
       </div>
     </div>
     """
@@ -1031,7 +866,7 @@ defmodule ReencodarrWeb.FailuresLive do
     Enum.to_list(start_page..end_page)
   end
 
-  defp format_command_output(output) when is_non_empty_binary(output) do
+  defp format_command_output(output) when is_binary(output) and output != "" do
     # Clean up common command output formatting issues
     output
     # Windows line endings
@@ -1049,12 +884,8 @@ defmodule ReencodarrWeb.FailuresLive do
     !is_nil(command) or output != ""
   end
 
-  # CSS helper functions
-  # Helper functions use UIHelpers directly
-  import ReencodarrWeb.UIHelpers,
-    only: [
-      filter_button_classes: 2,
-      action_button_classes: 0,
-      pagination_button_classes: 1
-    ]
+  # Private helper to schedule periodic data updates
+  defp schedule_periodic_update do
+    Process.send_after(self(), :update_failures_data, 5_000)
+  end
 end

@@ -28,10 +28,12 @@ defmodule Reencodarr.Analyzer.Broadway do
   @default_batch_timeout 25
   @default_mediainfo_batch_size 5
   @default_processing_timeout :timer.minutes(5)
-  # Conservative start
-  @initial_rate_limit_messages 500
   @rate_limit_interval 1000
-  @max_db_retry_attempts 3
+  # Retry many times for database busy - SQLite WAL mode handles concurrency well
+  @max_db_retry_attempts 50
+
+  # Rate limiting values
+  @running_rate_limit 500
 
   @doc """
   Start the Broadway pipeline.
@@ -43,7 +45,8 @@ defmodule Reencodarr.Analyzer.Broadway do
         module: {Producer, []},
         transformer: {__MODULE__, :transform, []},
         rate_limiting: [
-          allowed_messages: @initial_rate_limit_messages,
+          # Use normal rate limiting - pause/resume controlled by producer state
+          allowed_messages: @running_rate_limit,
           interval: @rate_limit_interval
         ]
       ],
@@ -106,6 +109,8 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   @doc """
   Pause the analyzer.
+
+  Pauses processing by updating the producer's state machine.
   """
   def pause do
     Producer.pause()
@@ -113,6 +118,8 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   @doc """
   Resume the analyzer.
+
+  Resumes processing by updating the producer's state machine.
   """
   def resume do
     Producer.resume()
@@ -207,9 +214,6 @@ defmodule Reencodarr.Analyzer.Broadway do
         total: current_queue_length + 1,
         percent: percent
       })
-
-      # Also broadcast that analyzer is running when progress is sent
-      Events.broadcast_event(:analyzer_started, %{})
     end
 
     # Note: Don't send progress events if queue is empty or no throughput
@@ -465,16 +469,13 @@ defmodule Reencodarr.Analyzer.Broadway do
 
     case {upsert_results, successful_data} do
       {[], [_ | _]} ->
-        Logger.error("Broadway: Batch upsert failed after retries, marking all videos as failed")
+        Logger.warning(
+          "Broadway: Batch upsert failed after #{@max_db_retry_attempts} retries due to database busy. " <>
+            "Broadway will retry the batch automatically."
+        )
 
-        Enum.each(successful_data, fn {video_info, _attrs} ->
-          mark_video_as_failed(
-            video_info.path,
-            "database busy - batch upsert failed after retries"
-          )
-        end)
-
-        {:error, "batch upsert failed after retries"}
+        # Return error to trigger Broadway retry - don't mark as failed for DB busy
+        {:error, :database_busy_retry_later}
 
       _ ->
         {:ok, upsert_results}
@@ -716,7 +717,9 @@ defmodule Reencodarr.Analyzer.Broadway do
     error in [Exqlite.Error] ->
       case error.message do
         "Database busy" ->
-          wait_time = (:math.pow(2, attempt) * 100) |> round()
+          # Exponential backoff with max cap at 10 seconds
+          base_wait = (:math.pow(2, attempt) * 100) |> round()
+          wait_time = min(base_wait, 10_000)
 
           Logger.warning(
             "Database busy on attempt #{attempt + 1}/#{max_retries}, retrying in #{wait_time}ms"

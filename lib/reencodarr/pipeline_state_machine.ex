@@ -78,6 +78,14 @@ defmodule Reencodarr.PipelineStateMachine do
   def pause(%{current_state: :processing} = m), do: transition_to(m, :pausing)
   def pause(m), do: transition_to(m, :paused)
 
+  @doc """
+  Handle pause request with proper state checking to avoid duplicate transitions.
+  Returns the updated pipeline state machine.
+  """
+  def handle_pause_request(%{current_state: :processing} = m), do: pause(m)
+  def handle_pause_request(%{current_state: :pausing} = m), do: m
+  def handle_pause_request(m), do: transition_to(m, :paused)
+
   def resume(%{current_state: c} = m) when c in [:paused, :stopped],
     do: transition_to(m, :running)
 

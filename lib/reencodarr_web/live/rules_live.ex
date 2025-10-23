@@ -7,25 +7,21 @@ defmodule ReencodarrWeb.RulesLive do
   - Example configurations
   - Parameter descriptions
   - Video format guidelines
+
+  ## Architecture Notes:
+  - Modern Dashboard V2 UI with card-based layout
+  - Section-based navigation for easy browsing
+  - Real-time content switching without page reload
   """
 
   use ReencodarrWeb, :live_view
 
   require Logger
-  import ReencodarrWeb.LcarsComponents
-
-  alias ReencodarrWeb.LiveViewHelpers
 
   @impl true
   def mount(_params, _session, socket) do
-    # Standard LiveView setup
-    timezone = get_in(socket.assigns, [:timezone]) || "UTC"
-    current_stardate = LiveViewHelpers.calculate_stardate(DateTime.utc_now())
-
     socket =
       socket
-      |> assign(:timezone, timezone)
-      |> assign(:current_stardate, current_stardate)
       |> assign(:selected_section, :overview)
 
     {:ok, socket}
@@ -38,104 +34,130 @@ defmodule ReencodarrWeb.RulesLive do
   end
 
   @impl true
-  def handle_event("set_timezone", %{"timezone" => _tz}, socket) do
-    # For the rules page, we don't need to handle timezone changes
-    # but we need to handle the event to prevent crashes
-    {:noreply, socket}
-  end
-
-  @impl true
   def render(assigns) do
     ~H"""
-    <.lcars_page_frame
-      title="REENCODARR OPERATIONS - ENCODING RULES"
-      current_page={:rules}
-      current_stardate={@current_stardate}
-    >
-      <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <!-- Sidebar Navigation -->
-        <div class="lg:col-span-1">
-          <.rules_navigation selected_section={@selected_section} />
+    <div class="min-h-screen bg-gray-100 p-6">
+      <div class="max-w-7xl mx-auto space-y-6">
+        <!-- Header -->
+        <div class="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-4">
+          <div>
+            <h1 class="text-3xl font-bold text-gray-900">Encoding Rules Documentation</h1>
+            <p class="text-gray-600">
+              Learn how Reencodarr automatically optimizes video encoding
+            </p>
+          </div>
+          <.link
+            navigate={~p"/"}
+            class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg shadow transition-colors flex items-center gap-2 self-start"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-5 w-5"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+            >
+              <path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z" />
+            </svg>
+            Back to Dashboard
+          </.link>
         </div>
-        
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          <!-- Sidebar Navigation -->
+          <div class="lg:col-span-1">
+            <.rules_navigation selected_section={@selected_section} />
+          </div>
+          
     <!-- Main Content -->
-        <div class="lg:col-span-3">
-          <%= case @selected_section do %>
-            <% :overview -> %>
-              <.rules_overview />
-            <% :video_rules -> %>
-              <.video_rules_section />
-            <% :audio_rules -> %>
-              <.audio_rules_section />
-            <% :hdr_support -> %>
-              <.hdr_rules_section />
-            <% :resolution_scaling -> %>
-              <.resolution_rules_section />
-            <% :helper_rules -> %>
-              <.helper_rules_section />
-            <% :crf_search -> %>
-              <.crf_search_section />
-            <% :command_examples -> %>
-              <.command_examples_section />
-          <% end %>
+          <div class="lg:col-span-3">
+            <%= case @selected_section do %>
+              <% :overview -> %>
+                <.rules_overview />
+              <% :video_rules -> %>
+                <.video_rules_section />
+              <% :audio_rules -> %>
+                <.audio_rules_section />
+              <% :hdr_support -> %>
+                <.hdr_rules_section />
+              <% :resolution_scaling -> %>
+                <.resolution_rules_section />
+              <% :helper_rules -> %>
+                <.helper_rules_section />
+              <% :crf_search -> %>
+                <.crf_search_section />
+              <% :command_examples -> %>
+                <.command_examples_section />
+            <% end %>
+          </div>
         </div>
       </div>
-    </.lcars_page_frame>
+    </div>
     """
   end
 
   # Navigation Component
   defp rules_navigation(assigns) do
     ~H"""
-    <div class="space-y-2">
-      <.section_nav_button
-        section={:overview}
-        selected={@selected_section}
-        label="OVERVIEW"
-        description="How rules work"
-      />
-      <.section_nav_button
-        section={:video_rules}
-        selected={@selected_section}
-        label="VIDEO ENCODING"
-        description="AV1 parameters"
-      />
-      <.section_nav_button
-        section={:audio_rules}
-        selected={@selected_section}
-        label="AUDIO ENCODING"
-        description="Opus transcoding"
-      />
-      <.section_nav_button
-        section={:hdr_support}
-        selected={@selected_section}
-        label="HDR SUPPORT"
-        description="High Dynamic Range"
-      />
-      <.section_nav_button
-        section={:resolution_scaling}
-        selected={@selected_section}
-        label="RESOLUTION"
-        description="4K+ handling"
-      />
-      <.section_nav_button
-        section={:helper_rules}
-        selected={@selected_section}
-        label="HELPER RULES"
-        description="CUDA & Grain"
-      />
-      <.section_nav_button
-        section={:crf_search}
-        selected={@selected_section}
-        label="CRF SEARCH"
-        description="Quality testing"
-      />
-      <.section_nav_button
-        section={:command_examples}
-        selected={@selected_section}
-        label="EXAMPLES"
-        description="Real commands"
-      />
+    <div class="bg-white rounded-lg shadow-lg p-4 sticky top-6">
+      <h2 class="text-lg font-semibold text-gray-900 mb-4">Navigation</h2>
+      <div class="space-y-1">
+        <.section_nav_button
+          section={:overview}
+          selected={@selected_section}
+          label="Overview"
+          description="How rules work"
+          icon="📚"
+        />
+        <.section_nav_button
+          section={:video_rules}
+          selected={@selected_section}
+          label="Video Encoding"
+          description="AV1 parameters"
+          icon="🎬"
+        />
+        <.section_nav_button
+          section={:audio_rules}
+          selected={@selected_section}
+          label="Audio Encoding"
+          description="Opus transcoding"
+          icon="🔊"
+        />
+        <.section_nav_button
+          section={:hdr_support}
+          selected={@selected_section}
+          label="HDR Support"
+          description="High Dynamic Range"
+          icon="🌈"
+        />
+        <.section_nav_button
+          section={:resolution_scaling}
+          selected={@selected_section}
+          label="Resolution"
+          description="4K+ handling"
+          icon="📏"
+        />
+        <.section_nav_button
+          section={:helper_rules}
+          selected={@selected_section}
+          label="Helper Rules"
+          description="CUDA & Grain"
+          icon="⚙️"
+        />
+        <.section_nav_button
+          section={:crf_search}
+          selected={@selected_section}
+          label="CRF Search"
+          description="Quality testing"
+          icon="🔍"
+        />
+        <.section_nav_button
+          section={:command_examples}
+          selected={@selected_section}
+          label="Examples"
+          description="Real commands"
+          icon="💻"
+        />
+      </div>
     </div>
     """
   end
@@ -150,15 +172,22 @@ defmodule ReencodarrWeb.RulesLive do
       phx-click="select_section"
       phx-value-section={@section}
       class={[
-        "w-full text-left p-3 rounded border transition-colors",
+        "w-full text-left p-3 rounded-lg border transition-colors",
         if(@active,
-          do: "bg-orange-600 border-orange-500 text-white",
-          else: "bg-gray-800 border-gray-600 text-orange-300 hover:bg-gray-700"
+          do: "bg-blue-600 border-blue-600 text-white shadow-md",
+          else: "bg-white border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400"
         )
       ]}
     >
-      <div class="font-bold">{@label}</div>
-      <div class="text-sm opacity-75">{@description}</div>
+      <div class="flex items-center gap-2">
+        <span class="text-lg">{@icon}</span>
+        <div class="flex-1">
+          <div class="font-semibold text-sm">{@label}</div>
+          <div class={["text-xs", if(@active, do: "text-blue-100", else: "text-gray-500")]}>
+            {@description}
+          </div>
+        </div>
+      </div>
     </button>
     """
   end
@@ -168,8 +197,11 @@ defmodule ReencodarrWeb.RulesLive do
   defp rules_overview(assigns) do
     ~H"""
     <div class="space-y-6">
-      <.lcars_panel title="ENCODING RULES OVERVIEW" color="orange">
-        <div class="space-y-4 text-orange-100">
+      <div class="bg-white rounded-lg shadow-lg p-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <span class="text-orange-500">📚</span> Encoding Rules Overview
+        </h2>
+        <div class="space-y-4 text-gray-700">
           <p class="text-lg leading-relaxed">
             Reencodarr uses a sophisticated rule system to determine optimal encoding parameters
             for each video file. The rules analyze media properties and apply appropriate settings
@@ -177,9 +209,9 @@ defmodule ReencodarrWeb.RulesLive do
           </p>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-            <div class="bg-gray-800 p-4 rounded border border-orange-500">
-              <h3 class="text-orange-400 font-bold mb-2">🎬 VIDEO ANALYSIS</h3>
-              <ul class="space-y-1 text-sm">
+            <div class="bg-orange-50 p-4 rounded-lg border border-orange-200">
+              <h3 class="text-orange-700 font-bold mb-2">🎬 VIDEO ANALYSIS</h3>
+              <ul class="space-y-1 text-sm text-gray-700">
                 <li>• Resolution detection (4K, 1080p, etc.)</li>
                 <li>• HDR format identification</li>
                 <li>• Dynamic range optimization</li>
@@ -187,9 +219,9 @@ defmodule ReencodarrWeb.RulesLive do
               </ul>
             </div>
 
-            <div class="bg-gray-800 p-4 rounded border border-orange-500">
-              <h3 class="text-orange-400 font-bold mb-2">🔊 AUDIO PROCESSING</h3>
-              <ul class="space-y-1 text-sm">
+            <div class="bg-orange-50 p-4 rounded-lg border border-orange-200">
+              <h3 class="text-orange-700 font-bold mb-2">🔊 AUDIO PROCESSING</h3>
+              <ul class="space-y-1 text-sm text-gray-700">
                 <li>• Channel configuration analysis</li>
                 <li>• Opus bitrate optimization</li>
                 <li>• Atmos preservation rules</li>
@@ -198,52 +230,62 @@ defmodule ReencodarrWeb.RulesLive do
             </div>
           </div>
         </div>
-      </.lcars_panel>
+      </div>
 
-      <.lcars_panel title="RULE PRIORITY SYSTEM" color="blue">
-        <div class="space-y-3 text-blue-100">
+      <div class="bg-white rounded-lg shadow-lg p-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <span class="text-blue-500">🎯</span> Rule Priority System
+        </h2>
+        <div class="space-y-3 text-gray-700">
           <p>Rules are applied in a specific order with different rules for different contexts:</p>
 
-          <div class="bg-gray-800 p-4 rounded border border-blue-400">
-            <h4 class="text-blue-400 font-bold mb-2">CRF Search Context</h4>
-            <ol class="space-y-2 text-sm">
+          <div class="bg-blue-50 p-4 rounded-lg border border-blue-200">
+            <h4 class="text-blue-700 font-bold mb-2">CRF Search Context</h4>
+            <ol class="space-y-2 text-sm text-gray-700">
               <li>
-                <span class="text-blue-400 font-bold">1. HDR Rule:</span> <code>hdr/1</code>
-                - HDR and SDR tuning parameters
+                <span class="text-blue-700 font-bold">1. HDR Rule:</span>
+                <code class="bg-gray-100 px-1 rounded">hdr/1</code> - HDR and SDR tuning parameters
               </li>
               <li>
-                <span class="text-blue-400 font-bold">2. Resolution Rule:</span>
-                <code>resolution/1</code> - 4K+ downscaling to 1080p
+                <span class="text-blue-700 font-bold">2. Resolution Rule:</span>
+                <code class="bg-gray-100 px-1 rounded">resolution/1</code> - 4K+ downscaling to 1080p
               </li>
               <li>
-                <span class="text-blue-400 font-bold">3. Video Rule:</span> <code>video/1</code>
-                - Pixel format standardization
+                <span class="text-blue-700 font-bold">3. Video Rule:</span>
+                <code class="bg-gray-100 px-1 rounded">video/1</code> - Pixel format standardization
               </li>
             </ol>
           </div>
 
-          <div class="bg-gray-800 p-4 rounded border border-blue-400 mt-4">
-            <h4 class="text-blue-400 font-bold mb-2">
+          <div class="bg-blue-50 p-4 rounded-lg border border-blue-200 mt-4">
+            <h4 class="text-blue-700 font-bold mb-2">
               Encoding Context (includes all CRF rules plus)
             </h4>
-            <ol class="space-y-2 text-sm">
+            <ol class="space-y-2 text-sm text-gray-700">
               <li>
-                <span class="text-blue-400 font-bold">0. Audio Rule:</span> <code>audio/1</code>
+                <span class="text-blue-700 font-bold">0. Audio Rule:</span>
+                <code class="bg-gray-100 px-1 rounded">audio/1</code>
                 - Opus transcoding (encoding only)
               </li>
               <li class="text-gray-400">1-3. Same as CRF Search...</li>
             </ol>
           </div>
 
-          <div class="bg-gray-700 p-3 rounded mt-4">
-            <h4 class="text-blue-300 font-semibold mb-1">Additional Helper Rules</h4>
-            <ul class="space-y-1 text-sm">
-              <li><code>cuda/1</code> - Hardware acceleration (manual application)</li>
-              <li><code>grain/2</code> - Film grain synthesis for SDR content</li>
+          <div class="bg-gray-100 p-3 rounded-lg mt-4">
+            <h4 class="text-gray-700 font-semibold mb-1">Additional Helper Rules</h4>
+            <ul class="space-y-1 text-sm text-gray-700">
+              <li>
+                <code class="bg-white px-1 rounded">cuda/1</code>
+                - Hardware acceleration (manual application)
+              </li>
+              <li>
+                <code class="bg-white px-1 rounded">grain/2</code>
+                - Film grain synthesis for SDR content
+              </li>
             </ul>
           </div>
         </div>
-      </.lcars_panel>
+      </div>
     </div>
     """
   end
@@ -251,27 +293,30 @@ defmodule ReencodarrWeb.RulesLive do
   defp video_rules_section(assigns) do
     ~H"""
     <div class="space-y-6">
-      <.lcars_panel title="VIDEO ENCODING STANDARDS" color="orange">
-        <div class="space-y-4 text-orange-100">
+      <div class="bg-white rounded-lg shadow-lg p-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <span class="text-orange-500">🎬</span> VIDEO ENCODING STANDARDS
+        </h2>
+        <div class="space-y-4 text-gray-700">
           <p class="text-lg">
             Reencodarr enforces consistent video quality standards across all your media by automatically
             applying the best pixel format for modern AV1 encoding.
           </p>
 
-          <div class="bg-gray-800 p-4 rounded border border-orange-500">
-            <h3 class="text-orange-400 font-bold mb-3">🎯 What Happens to Your Videos</h3>
+          <div class="bg-orange-50 p-4 rounded-lg border border-orange-200">
+            <h3 class="text-orange-700 font-bold mb-3">🎯 What Happens to Your Videos</h3>
             <div class="space-y-3">
-              <div class="bg-gray-700 p-3 rounded">
-                <h4 class="text-orange-300 font-semibold mb-2">Pixel Format Standardization</h4>
+              <div class="bg-white p-3 rounded-lg border border-orange-100">
+                <h4 class="text-gray-800 font-semibold mb-2">Pixel Format Standardization</h4>
                 <p class="text-sm">
                   Every video gets converted to <strong>10-bit YUV 4:2:0</strong>
                   format, regardless of its original format.
                 </p>
               </div>
 
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-gray-700">
                 <div>
-                  <h5 class="text-orange-300 font-semibold">Benefits:</h5>
+                  <h5 class="text-gray-800 font-semibold">Benefits:</h5>
                   <ul class="space-y-1 mt-1">
                     <li>• Smoother color gradients</li>
                     <li>• Reduced color banding</li>
@@ -281,7 +326,7 @@ defmodule ReencodarrWeb.RulesLive do
                 </div>
 
                 <div>
-                  <h5 class="text-orange-300 font-semibold">Compatibility:</h5>
+                  <h5 class="text-gray-800 font-semibold">Compatibility:</h5>
                   <ul class="space-y-1 mt-1">
                     <li>• Works on all modern devices</li>
                     <li>• Supported by streaming platforms</li>
@@ -293,25 +338,25 @@ defmodule ReencodarrWeb.RulesLive do
             </div>
           </div>
 
-          <div class="bg-gray-700 p-4 rounded">
-            <h3 class="text-orange-400 font-bold mb-2">🔧 Technical Deep Dive</h3>
-            <div class="space-y-3 text-sm">
+          <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+            <h3 class="text-gray-800 font-bold mb-2">🔧 Technical Deep Dive</h3>
+            <div class="space-y-3 text-sm text-gray-700">
               <div>
-                <h4 class="text-orange-300 font-semibold">Why 10-bit over 8-bit?</h4>
+                <h4 class="text-gray-800 font-semibold">Why 10-bit over 8-bit?</h4>
                 <p>
                   10-bit provides 1,024 shades per color channel instead of 256, resulting in smoother transitions and more accurate colors, especially noticeable in dark scenes and gradients.
                 </p>
               </div>
 
               <div>
-                <h4 class="text-orange-300 font-semibold">YUV 4:2:0 Explained</h4>
+                <h4 class="text-gray-800 font-semibold">YUV 4:2:0 Explained</h4>
                 <p>
                   This is the standard way video is stored - full resolution for brightness (luma) but reduced resolution for color information (chroma). Your eyes are more sensitive to brightness than color, so this saves space without visible quality loss.
                 </p>
               </div>
 
               <div>
-                <h4 class="text-orange-300 font-semibold">Universal Application</h4>
+                <h4 class="text-gray-800 font-semibold">Universal Application</h4>
                 <p>
                   This rule applies to ALL videos, whether they're 720p, 1080p, 4K, HDR, or SDR. It ensures your entire library has consistent, high-quality encoding.
                 </p>
@@ -319,11 +364,11 @@ defmodule ReencodarrWeb.RulesLive do
             </div>
           </div>
 
-          <div class="bg-orange-900 p-4 rounded border border-orange-400">
-            <h3 class="text-orange-200 font-bold mb-3">📋 Real-World Examples</h3>
+          <div class="bg-orange-100 p-4 rounded-lg border border-orange-300">
+            <h3 class="text-orange-800 font-bold mb-3">📋 Real-World Examples</h3>
             <div class="space-y-3 text-sm">
-              <div class="bg-gray-800 p-3 rounded">
-                <h4 class="text-orange-300 font-semibold mb-2">Example 1: Old DVD Rip</h4>
+              <div class="bg-white p-3 rounded-lg border border-orange-100">
+                <h4 class="text-gray-800 font-semibold mb-2">Example 1: Old DVD Rip</h4>
                 <div class="grid grid-cols-2 gap-4">
                   <div>
                     <strong>Input:</strong> 8-bit YUV 4:2:0 (standard DVD)
@@ -332,13 +377,13 @@ defmodule ReencodarrWeb.RulesLive do
                     <strong>Output:</strong> 10-bit YUV 4:2:0 (upgraded for AV1)
                   </div>
                 </div>
-                <p class="mt-2 text-orange-200">
+                <p class="mt-2 text-gray-600">
                   Even old content gets the modern pixel format treatment for better compression and future compatibility.
                 </p>
               </div>
 
-              <div class="bg-gray-800 p-3 rounded">
-                <h4 class="text-orange-300 font-semibold mb-2">Example 2: High-End 4K Blu-ray</h4>
+              <div class="bg-white p-3 rounded-lg border border-orange-100">
+                <h4 class="text-gray-800 font-semibold mb-2">Example 2: High-End 4K Blu-ray</h4>
                 <div class="grid grid-cols-2 gap-4">
                   <div>
                     <strong>Input:</strong> 10-bit YUV 4:2:0 (already optimal)
@@ -347,13 +392,13 @@ defmodule ReencodarrWeb.RulesLive do
                     <strong>Output:</strong> 10-bit YUV 4:2:0 (maintained)
                   </div>
                 </div>
-                <p class="mt-2 text-orange-200">
+                <p class="mt-2 text-gray-600">
                   Already-optimal content stays optimal, ensuring no degradation during re-encoding.
                 </p>
               </div>
 
-              <div class="bg-gray-800 p-3 rounded">
-                <h4 class="text-orange-300 font-semibold mb-2">Example 3: Web/Streaming Source</h4>
+              <div class="bg-white p-3 rounded-lg border border-orange-100">
+                <h4 class="text-gray-800 font-semibold mb-2">Example 3: Web/Streaming Source</h4>
                 <div class="grid grid-cols-2 gap-4">
                   <div>
                     <strong>Input:</strong> 8-bit YUV 4:2:0 (typical streaming)
@@ -362,14 +407,14 @@ defmodule ReencodarrWeb.RulesLive do
                     <strong>Output:</strong> 10-bit YUV 4:2:0 (enhanced)
                   </div>
                 </div>
-                <p class="mt-2 text-orange-200">
+                <p class="mt-2 text-gray-600">
                   Streaming content gets upgraded to broadcast/disc quality standards for your personal library.
                 </p>
               </div>
             </div>
           </div>
         </div>
-      </.lcars_panel>
+      </div>
     </div>
     """
   end
@@ -377,57 +422,60 @@ defmodule ReencodarrWeb.RulesLive do
   defp audio_rules_section(assigns) do
     ~H"""
     <div class="space-y-6">
-      <.lcars_panel title="SMART AUDIO TRANSCODING" color="purple">
-        <div class="space-y-4 text-purple-100">
+      <div class="bg-white rounded-lg shadow-lg p-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <span class="text-purple-500">🔊</span> SMART AUDIO TRANSCODING
+        </h2>
+        <div class="space-y-4 text-gray-700">
           <p class="text-lg">
             Reencodarr intelligently decides when and how to convert your audio to the modern Opus codec,
             which provides excellent quality at smaller file sizes.
           </p>
 
-          <div class="bg-gray-800 p-4 rounded border border-purple-500">
-            <h3 class="text-purple-400 font-bold mb-3">🧠 Smart Decision Making</h3>
+          <div class="bg-purple-50 p-4 rounded-lg border border-purple-200">
+            <h3 class="text-purple-700 font-bold mb-3">🧠 Smart Decision Making</h3>
             <div class="space-y-3">
-              <div class="bg-purple-900 p-3 rounded border border-purple-400">
-                <h4 class="text-purple-200 font-semibold mb-2">When Audio is LEFT ALONE:</h4>
-                <ul class="space-y-1 text-sm">
+              <div class="bg-purple-100 p-3 rounded-lg border border-purple-300">
+                <h4 class="text-purple-800 font-semibold mb-2">When Audio is LEFT ALONE:</h4>
+                <ul class="space-y-1 text-sm text-gray-700">
                   <li>🎭 <strong>Dolby Atmos content</strong> - Preserves object-based 3D audio</li>
                   <li>🎵 <strong>Already Opus</strong> - No need to re-encode optimal format</li>
                   <li>❓ <strong>Missing metadata</strong> - Safety check when info is unavailable</li>
                 </ul>
               </div>
 
-              <div class="bg-gray-700 p-3 rounded">
-                <h4 class="text-purple-200 font-semibold mb-2">When Audio Gets CONVERTED:</h4>
-                <p class="text-sm">
+              <div class="bg-white p-3 rounded-lg border border-purple-100">
+                <h4 class="text-purple-800 font-semibold mb-2">When Audio Gets CONVERTED:</h4>
+                <p class="text-sm text-gray-700">
                   Everything else gets transcoded to Opus with channel-specific bitrates for optimal quality and file size.
                 </p>
               </div>
             </div>
           </div>
 
-          <div class="bg-gray-800 p-4 rounded border border-purple-500">
-            <h3 class="text-purple-400 font-bold mb-3">🔊 Opus Bitrate Guide</h3>
+          <div class="bg-purple-50 p-4 rounded-lg border border-purple-200">
+            <h3 class="text-purple-700 font-bold mb-3">🔊 Opus Bitrate Guide</h3>
             <div class="overflow-x-auto">
               <table class="w-full text-sm">
                 <thead>
-                  <tr class="border-b border-purple-400">
-                    <th class="text-left p-2 text-purple-300">Audio Layout</th>
-                    <th class="text-left p-2 text-purple-300">Channels</th>
-                    <th class="text-left p-2 text-purple-300">Bitrate</th>
-                    <th class="text-left p-2 text-purple-300">Notes</th>
+                  <tr class="border-b border-purple-300">
+                    <th class="text-left p-2 text-purple-700 font-semibold">Audio Layout</th>
+                    <th class="text-left p-2 text-purple-700 font-semibold">Channels</th>
+                    <th class="text-left p-2 text-purple-700 font-semibold">Bitrate</th>
+                    <th class="text-left p-2 text-purple-700 font-semibold">Notes</th>
                   </tr>
                 </thead>
-                <tbody class="space-y-1">
-                  <tr class="border-b border-gray-600">
+                <tbody class="space-y-1 text-gray-700">
+                  <tr class="border-b border-gray-200">
                     <td class="p-2">Mono</td>
                     <td class="p-2">1</td>
-                    <td class="p-2 text-purple-300">64 kbps</td>
+                    <td class="p-2 text-purple-600 font-medium">64 kbps</td>
                     <td class="p-2">Perfect for speech</td>
                   </tr>
-                  <tr class="border-b border-gray-600">
+                  <tr class="border-b border-gray-200">
                     <td class="p-2">Stereo</td>
                     <td class="p-2">2</td>
-                    <td class="p-2 text-purple-300">96 kbps</td>
+                    <td class="p-2 text-purple-600 font-medium">96 kbps</td>
                     <td class="p-2">Excellent for music</td>
                   </tr>
                   <tr class="border-b border-gray-600 bg-purple-900">
@@ -436,22 +484,22 @@ defmodule ReencodarrWeb.RulesLive do
                     <td class="p-2 text-purple-300 font-bold">128 kbps</td>
                     <td class="p-2 font-bold">⭐ Upmixed to 5.1!</td>
                   </tr>
-                  <tr class="border-b border-gray-600">
+                  <tr class="border-b border-gray-200">
                     <td class="p-2">5.1 Surround</td>
                     <td class="p-2">6</td>
-                    <td class="p-2 text-purple-300">384 kbps</td>
+                    <td class="p-2 text-purple-600 font-medium">384 kbps</td>
                     <td class="p-2">Theater experience</td>
                   </tr>
-                  <tr class="border-b border-gray-600">
+                  <tr class="border-b border-gray-200">
                     <td class="p-2">7.1 Surround</td>
                     <td class="p-2">8</td>
-                    <td class="p-2 text-purple-300">510 kbps</td>
+                    <td class="p-2 text-purple-600 font-medium">510 kbps</td>
                     <td class="p-2">Premium surround</td>
                   </tr>
-                  <tr class="border-b border-gray-600">
+                  <tr class="border-b border-gray-200">
                     <td class="p-2">High Channel Count</td>
                     <td class="p-2">9+</td>
-                    <td class="p-2 text-purple-300">510 kbps</td>
+                    <td class="p-2 text-purple-600 font-medium">510 kbps</td>
                     <td class="p-2">Capped maximum</td>
                   </tr>
                 </tbody>
@@ -459,11 +507,11 @@ defmodule ReencodarrWeb.RulesLive do
             </div>
           </div>
 
-          <div class="bg-gray-700 p-4 rounded">
-            <h3 class="text-purple-400 font-bold mb-2">🎯 Special Features</h3>
-            <div class="space-y-3 text-sm">
+          <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+            <h3 class="text-gray-800 font-bold mb-2">🎯 Special Features</h3>
+            <div class="space-y-3 text-sm text-gray-700">
               <div>
-                <h4 class="text-purple-300 font-semibold">⭐ 3-Channel Upmix (Opus Fix)</h4>
+                <h4 class="text-purple-700 font-semibold">⭐ 3-Channel Upmix (Opus Fix)</h4>
                 <p>
                   When Reencodarr finds 3-channel audio (like 2.1 or 3.0), it automatically upgrades it to 6-channel 5.1 surround sound. This is necessary because Opus has encoding issues with 3-channel audio that can cause distortion or playback problems. The upmix creates a proper 6-channel layout with correct channel mapping rather than trying to preserve the problematic 3-channel configuration.
                 </p>
@@ -577,7 +625,7 @@ defmodule ReencodarrWeb.RulesLive do
             </div>
           </div>
         </div>
-      </.lcars_panel>
+      </div>
     </div>
     """
   end
@@ -585,8 +633,11 @@ defmodule ReencodarrWeb.RulesLive do
   defp hdr_rules_section(assigns) do
     ~H"""
     <div class="space-y-6">
-      <.lcars_panel title="HDR & SDR OPTIMIZATION" color="cyan">
-        <div class="space-y-4 text-cyan-100">
+      <div class="bg-white rounded-lg shadow-lg p-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <span class="text-cyan-500">🌈</span> HDR & SDR OPTIMIZATION
+        </h2>
+        <div class="space-y-4 text-gray-700">
           <p class="text-lg">
             Reencodarr automatically detects and applies the best encoding settings for both High Dynamic Range (HDR)
             and Standard Dynamic Range (SDR) content to preserve their unique characteristics.
@@ -772,7 +823,7 @@ defmodule ReencodarrWeb.RulesLive do
             </div>
           </div>
         </div>
-      </.lcars_panel>
+      </div>
     </div>
     """
   end
@@ -780,8 +831,11 @@ defmodule ReencodarrWeb.RulesLive do
   defp resolution_rules_section(assigns) do
     ~H"""
     <div class="space-y-6">
-      <.lcars_panel title="4K+ DOWNSCALING" color="green">
-        <div class="space-y-4 text-green-100">
+      <div class="bg-white rounded-lg shadow-lg p-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <span class="text-green-500">📏</span> 4K+ DOWNSCALING
+        </h2>
+        <div class="space-y-4 text-gray-700">
           <p class="text-lg">
             Reencodarr automatically downscales 4K and higher resolution content to 1080p for optimal
             balance of quality, file size, and encoding speed.
@@ -968,7 +1022,7 @@ defmodule ReencodarrWeb.RulesLive do
             </div>
           </div>
         </div>
-      </.lcars_panel>
+      </div>
     </div>
     """
   end
@@ -976,8 +1030,11 @@ defmodule ReencodarrWeb.RulesLive do
   defp helper_rules_section(assigns) do
     ~H"""
     <div class="space-y-6">
-      <.lcars_panel title="OPTIONAL ENHANCEMENT FEATURES" color="indigo">
-        <div class="space-y-4 text-indigo-100">
+      <div class="bg-white rounded-lg shadow-lg p-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <span class="text-indigo-500">⚙️</span> OPTIONAL ENHANCEMENT FEATURES
+        </h2>
+        <div class="space-y-4 text-gray-700">
           <p class="text-lg">
             These optional features can be manually enabled for specific hardware configurations
             or content enhancement needs.
@@ -1099,7 +1156,7 @@ defmodule ReencodarrWeb.RulesLive do
             </div>
           </div>
         </div>
-      </.lcars_panel>
+      </div>
     </div>
     """
   end
@@ -1107,8 +1164,11 @@ defmodule ReencodarrWeb.RulesLive do
   defp crf_search_section(assigns) do
     ~H"""
     <div class="space-y-6">
-      <.lcars_panel title="CRF SEARCH EXPLAINED" color="teal">
-        <div class="space-y-4 text-teal-100">
+      <div class="bg-white rounded-lg shadow-lg p-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <span class="text-teal-500">🔍</span> CRF SEARCH EXPLAINED
+        </h2>
+        <div class="space-y-4 text-gray-700">
           <p class="text-lg">
             Before encoding your videos, Reencodarr uses CRF (Constant Rate Factor) Search to find the perfect quality setting.
             This ensures optimal file sizes while maintaining excellent visual quality.
@@ -1366,7 +1426,7 @@ defmodule ReencodarrWeb.RulesLive do
             </div>
           </div>
         </div>
-      </.lcars_panel>
+      </div>
     </div>
     """
   end
@@ -1374,8 +1434,11 @@ defmodule ReencodarrWeb.RulesLive do
   defp command_examples_section(assigns) do
     ~H"""
     <div class="space-y-6">
-      <.lcars_panel title="REAL COMMAND EXAMPLES" color="yellow">
-        <div class="space-y-4 text-yellow-100">
+      <div class="bg-white rounded-lg shadow-lg p-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <span class="text-yellow-500">💻</span> REAL COMMAND EXAMPLES
+        </h2>
+        <div class="space-y-4 text-gray-700">
           <p class="text-lg">
             See how the rules translate into actual ab-av1 encoding commands for different video types.
             These examples show the final commands after CRF search has determined the optimal quality setting.
@@ -1511,9 +1574,12 @@ defmodule ReencodarrWeb.RulesLive do
             </div>
           </div>
         </div>
-      </.lcars_panel>
+      </div>
 
-      <.lcars_panel title="PARAMETER REFERENCE" color="blue">
+      <div class="bg-white rounded-lg shadow-lg p-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <span class="text-blue-500">📚</span> PARAMETER REFERENCE
+        </h2>
         <div class="space-y-3 text-blue-100">
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
             <div>
@@ -1536,7 +1602,7 @@ defmodule ReencodarrWeb.RulesLive do
             </div>
           </div>
         </div>
-      </.lcars_panel>
+      </div>
     </div>
     """
   end

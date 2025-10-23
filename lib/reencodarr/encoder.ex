@@ -56,15 +56,4 @@ defmodule Reencodarr.Encoder do
 
   @doc "Get next videos in the encoding queue"
   def next_videos(limit \\ 10), do: Media.get_next_for_encoding(limit)
-
-  # Debug functions
-
-  @doc "Get detailed encoder debug information"
-  def debug_info do
-    %{
-      status: status(),
-      next_videos: next_videos(5),
-      genserver_available: available?()
-    }
-  end
 end

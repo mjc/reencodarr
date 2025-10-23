@@ -59,15 +59,4 @@ defmodule Reencodarr.CrfSearcher do
 
   @doc "Get next videos in the CRF search queue"
   def next_videos(limit \\ 10), do: Media.get_videos_for_crf_search(limit)
-
-  # Debug functions
-
-  @doc "Get detailed CRF searcher debug information"
-  def debug_info do
-    %{
-      status: status(),
-      next_videos: next_videos(5),
-      genserver_available: available?()
-    }
-  end
 end
