@@ -164,7 +164,7 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   end
 
   @impl GenStage
-  def handle_info({:crf_search_completed, _video_id, _result}, state) do
+  def handle_info({:crf_search_completed, _data}, state) do
     # CRF search completed - transition state appropriately
     current_state = PipelineStateMachine.get_state(state.pipeline)
 
