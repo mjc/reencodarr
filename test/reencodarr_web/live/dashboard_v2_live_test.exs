@@ -1,6 +1,6 @@
-defmodule ReencodarrWeb.DashboardV2LiveTest do
+defmodule ReencodarrWeb.DashboardLiveTest do
   @moduledoc """
-  Basic tests for DashboardV2Live component functionality.
+  Basic tests for DashboardLive component functionality.
 
   Tests cover:
   - Component mounting and basic UI rendering
