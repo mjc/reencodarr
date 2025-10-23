@@ -327,4 +327,88 @@ defmodule Reencodarr.PipelineStateMachineTest do
       assert PipelineStateMachine.get_state(completed2) == :paused
     end
   end
+
+  describe "handle_pause_request/1 - pause with duplicate handling" do
+    test "pauses from :processing to :pausing" do
+      analyzer = PipelineStateMachine.new(:analyzer)
+      running = PipelineStateMachine.transition_to(analyzer, :running)
+      processing = PipelineStateMachine.transition_to(running, :processing)
+
+      paused = PipelineStateMachine.handle_pause_request(processing)
+      assert PipelineStateMachine.get_state(paused) == :pausing
+    end
+
+    test "ignores duplicate pause when already :pausing" do
+      analyzer = PipelineStateMachine.new(:analyzer)
+      running = PipelineStateMachine.transition_to(analyzer, :running)
+      processing = PipelineStateMachine.transition_to(running, :processing)
+      pausing = PipelineStateMachine.transition_to(processing, :pausing)
+
+      # Send pause again while already pausing
+      result = PipelineStateMachine.handle_pause_request(pausing)
+
+      # Should remain in :pausing, not transition to :paused
+      assert PipelineStateMachine.get_state(result) == :pausing
+      # Should be the same struct (no transition)
+      assert result == pausing
+    end
+
+    test "transitions to :paused from :idle" do
+      analyzer = PipelineStateMachine.new(:analyzer)
+      running = PipelineStateMachine.transition_to(analyzer, :running)
+      idle = PipelineStateMachine.transition_to(running, :idle)
+
+      paused = PipelineStateMachine.handle_pause_request(idle)
+      assert PipelineStateMachine.get_state(paused) == :paused
+    end
+
+    test "transitions to :paused from :running" do
+      analyzer = PipelineStateMachine.new(:analyzer)
+      running = PipelineStateMachine.transition_to(analyzer, :running)
+
+      paused = PipelineStateMachine.handle_pause_request(running)
+      assert PipelineStateMachine.get_state(paused) == :paused
+    end
+
+    test "transitions to :paused from :stopped" do
+      analyzer = PipelineStateMachine.new(:analyzer)
+      stopped = PipelineStateMachine.transition_to(analyzer, :stopped)
+
+      paused = PipelineStateMachine.handle_pause_request(stopped)
+      assert PipelineStateMachine.get_state(paused) == :paused
+    end
+
+    test "transitions to :paused from :paused (no-op)" do
+      analyzer = PipelineStateMachine.new(:analyzer)
+
+      paused = PipelineStateMachine.handle_pause_request(analyzer)
+      assert PipelineStateMachine.get_state(paused) == :paused
+    end
+
+    test "handles full pause flow: processing -> pausing -> paused" do
+      analyzer = PipelineStateMachine.new(:analyzer)
+      running = PipelineStateMachine.transition_to(analyzer, :running)
+      processing = PipelineStateMachine.transition_to(running, :processing)
+
+      # First pause request: processing -> pausing
+      pausing = PipelineStateMachine.handle_pause_request(processing)
+      assert PipelineStateMachine.get_state(pausing) == :pausing
+
+      # Second pause request (duplicate): should stay pausing
+      still_pausing = PipelineStateMachine.handle_pause_request(pausing)
+      assert PipelineStateMachine.get_state(still_pausing) == :pausing
+
+      # Work completes: pausing -> paused
+      paused = PipelineStateMachine.work_completed(still_pausing, false)
+      assert PipelineStateMachine.get_state(paused) == :paused
+    end
+
+    test "handles pause while no work: running -> paused directly" do
+      analyzer = PipelineStateMachine.new(:analyzer)
+      running = PipelineStateMachine.transition_to(analyzer, :running)
+
+      paused = PipelineStateMachine.handle_pause_request(running)
+      assert PipelineStateMachine.get_state(paused) == :paused
+    end
+  end
 end
