@@ -61,6 +61,7 @@ defmodule Reencodarr.CrfSearcher.Broadway do
         module: {Producer, []},
         transformer: {__MODULE__, :transform, []},
         rate_limiting: [
+          # Use normal rate limiting - pause/resume controlled by producer state
           allowed_messages: config[:rate_limit_messages],
           interval: config[:rate_limit_interval]
         ]
@@ -78,7 +79,11 @@ defmodule Reencodarr.CrfSearcher.Broadway do
           concurrency: 1
         ]
       ],
-      context: %{crf_quality: config[:crf_quality]}
+      context: %{
+        crf_quality: config[:crf_quality],
+        rate_limit_messages: config[:rate_limit_messages],
+        rate_limit_interval: config[:rate_limit_interval]
+      }
     )
   end
 
@@ -121,6 +126,8 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   @doc """
   Pause the CRF searcher pipeline.
 
+  Pauses processing by updating the producer's state machine.
+
   ## Examples
       iex> Reencodarr.CrfSearcher.Broadway.pause()
       :ok
@@ -132,6 +139,8 @@ defmodule Reencodarr.CrfSearcher.Broadway do
 
   @doc """
   Resume the CRF searcher pipeline.
+
+  Resumes processing by updating the producer's state machine.
 
   ## Examples
       iex> Reencodarr.CrfSearcher.Broadway.resume()

@@ -28,11 +28,12 @@ defmodule Reencodarr.Analyzer.Broadway do
   @default_batch_timeout 25
   @default_mediainfo_batch_size 5
   @default_processing_timeout :timer.minutes(5)
-  # Conservative start
-  @initial_rate_limit_messages 500
   @rate_limit_interval 1000
   # Retry many times for database busy - SQLite WAL mode handles concurrency well
   @max_db_retry_attempts 50
+
+  # Rate limiting values
+  @running_rate_limit 500
 
   @doc """
   Start the Broadway pipeline.
@@ -44,7 +45,8 @@ defmodule Reencodarr.Analyzer.Broadway do
         module: {Producer, []},
         transformer: {__MODULE__, :transform, []},
         rate_limiting: [
-          allowed_messages: @initial_rate_limit_messages,
+          # Use normal rate limiting - pause/resume controlled by producer state
+          allowed_messages: @running_rate_limit,
           interval: @rate_limit_interval
         ]
       ],
@@ -107,6 +109,8 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   @doc """
   Pause the analyzer.
+
+  Pauses processing by updating the producer's state machine.
   """
   def pause do
     Producer.pause()
@@ -114,6 +118,8 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   @doc """
   Resume the analyzer.
+
+  Resumes processing by updating the producer's state machine.
   """
   def resume do
     Producer.resume()

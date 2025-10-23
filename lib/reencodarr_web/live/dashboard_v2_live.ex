@@ -41,6 +41,10 @@ defmodule ReencodarrWeb.DashboardV2Live do
     if connected?(socket) do
       # Subscribe to the single clean dashboard channel
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+      # Subscribe to pipeline state changes
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "analyzer")
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
       # Request current status from all services with a small delay to let services initialize
       Process.send_after(self(), :request_status, 100)
       # Start periodic updates for queue counts and service status
@@ -65,38 +69,25 @@ defmodule ReencodarrWeb.DashboardV2Live do
     {:noreply, assign(socket, :service_status, updated_status)}
   end
 
+  # Pipeline state change events - use actual states from PipelineStateMachine
   @impl true
-  def handle_info({:analyzer_paused, _data}, socket) do
+  def handle_info({:analyzer, state}, socket) when is_atom(state) do
     current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, :analyzer, :paused)
+    updated_status = Map.put(current_status, :analyzer, state)
     {:noreply, assign(socket, :service_status, updated_status)}
   end
 
   @impl true
-  def handle_info({:crf_searcher_started, _data}, socket) do
+  def handle_info({:crf_searcher, state}, socket) when is_atom(state) do
     current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, :crf_searcher, :running)
+    updated_status = Map.put(current_status, :crf_searcher, state)
     {:noreply, assign(socket, :service_status, updated_status)}
   end
 
   @impl true
-  def handle_info({:crf_searcher_paused, _data}, socket) do
+  def handle_info({:encoder, state}, socket) when is_atom(state) do
     current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, :crf_searcher, :paused)
-    {:noreply, assign(socket, :service_status, updated_status)}
-  end
-
-  @impl true
-  def handle_info({:encoder_started, _data}, socket) do
-    current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, :encoder, :running)
-    {:noreply, assign(socket, :service_status, updated_status)}
-  end
-
-  @impl true
-  def handle_info({:encoder_paused, _data}, socket) do
-    current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, :encoder, :paused)
+    updated_status = Map.put(current_status, :encoder, state)
     {:noreply, assign(socket, :service_status, updated_status)}
   end
 
@@ -232,6 +223,14 @@ defmodule ReencodarrWeb.DashboardV2Live do
   # Test-specific event handlers
   @impl true
   def handle_info({:service_status, %{service: service, status: status}}, socket) do
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, service, status)
+    {:noreply, assign(socket, :service_status, updated_status)}
+  end
+
+  @impl true
+  def handle_info({:service_status, service, status}, socket)
+      when is_atom(service) and is_atom(status) do
     current_status = socket.assigns.service_status
     updated_status = Map.put(current_status, service, status)
     {:noreply, assign(socket, :service_status, updated_status)}

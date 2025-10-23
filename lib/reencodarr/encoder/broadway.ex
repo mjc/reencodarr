@@ -67,6 +67,7 @@ defmodule Reencodarr.Encoder.Broadway do
         module: {Producer, []},
         transformer: {__MODULE__, :transform, []},
         rate_limiting: [
+          # Use normal rate limiting - pause/resume controlled by producer state
           allowed_messages: config[:rate_limit_messages],
           interval: config[:rate_limit_interval]
         ]
@@ -78,7 +79,9 @@ defmodule Reencodarr.Encoder.Broadway do
         ]
       ],
       context: %{
-        encoding_timeout: config[:encoding_timeout]
+        encoding_timeout: config[:encoding_timeout],
+        rate_limit_messages: config[:rate_limit_messages],
+        rate_limit_interval: config[:rate_limit_interval]
       }
     )
   end
@@ -122,6 +125,8 @@ defmodule Reencodarr.Encoder.Broadway do
   @doc """
   Pause the encoder pipeline.
 
+  Pauses processing by updating the producer's state machine.
+
   ## Examples
       iex> Reencodarr.Encoder.Broadway.pause()
       :ok
@@ -133,6 +138,8 @@ defmodule Reencodarr.Encoder.Broadway do
 
   @doc """
   Resume the encoder pipeline.
+
+  Resumes processing by updating the producer's state machine.
 
   ## Examples
       iex> Reencodarr.Encoder.Broadway.resume()
