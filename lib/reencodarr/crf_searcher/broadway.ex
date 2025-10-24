@@ -120,7 +120,6 @@ defmodule Reencodarr.CrfSearcher.Broadway do
       {:ok, _pid} -> :ok
       {:error, :already_started} -> :ok
       {:error, {:already_started, _pid}} -> :ok
-      error -> error
     end
   end
 
