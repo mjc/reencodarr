@@ -331,13 +331,13 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def handle_event("start_crf_searcher", _params, socket) do
-    Reencodarr.CrfSearcher.Broadway.Producer.start()
+    Reencodarr.CrfSearcher.Broadway.resume()
     {:noreply, put_flash(socket, :info, "CRF Search started")}
   end
 
   @impl true
   def handle_event("pause_crf_searcher", _params, socket) do
-    Reencodarr.CrfSearcher.Broadway.Producer.pause()
+    Reencodarr.CrfSearcher.Broadway.pause()
     {:noreply, put_flash(socket, :info, "CRF Search paused")}
   end
 

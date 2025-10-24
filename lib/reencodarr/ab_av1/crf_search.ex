@@ -14,7 +14,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.AbAv1.OutputParser
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Core.Time
-  alias Reencodarr.CrfSearcher.Broadway.Producer
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.ErrorHelpers
   alias Reencodarr.Formatters
@@ -417,16 +416,14 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     # Reset to clean state
     clean_state = %{port: :none, current_task: :none, partial_line_buffer: "", output_buffer: []}
 
-    # Notify producer that we're available again
-    Producer.dispatch_available()
+    # With new simple Broadway design, no need to notify - it polls automatically
 
     {:reply, :ok, clean_state}
   end
 
   # Private helper functions
   defp perform_crf_search_cleanup(state) do
-    # Notify the Broadway producer that CRF search is now available
-    Producer.dispatch_available()
+    # With new simple Broadway design, no need to notify - it polls automatically
 
     new_state = %{state | port: :none, current_task: :none, partial_line_buffer: ""}
     {:noreply, new_state}
