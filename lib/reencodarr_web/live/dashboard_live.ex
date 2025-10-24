@@ -8,6 +8,7 @@ defmodule ReencodarrWeb.DashboardLive do
   """
   use ReencodarrWeb, :live_view
 
+  alias Reencodarr.CrfSearcher.Broadway, as: CrfSearcherBroadway
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Formatters
   alias Reencodarr.Media.VideoQueries
@@ -193,13 +194,26 @@ defmodule ReencodarrWeb.DashboardLive do
   # Completion and reset handlers
   @impl true
   def handle_info({:encoding_completed, _data}, socket) do
-    # Reset progress - keep current status (paused/running) to preserve user's last action
-    {:noreply, assign(socket, :encoding_progress, :none)}
+    # Reset status back to idle when encoding completes
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :encoder, :idle)
+
+    socket
+    |> assign(:encoding_progress, :none)
+    |> assign(:service_status, updated_status)
+    |> then(&{:noreply, &1})
   end
 
   @impl true
   def handle_info({event, _data}, socket) when event in [:crf_search_completed] do
-    {:noreply, assign(socket, :crf_progress, :none)}
+    # Reset status back to idle when CRF search completes
+    current_status = socket.assigns.service_status
+    updated_status = Map.put(current_status, :crf_searcher, :idle)
+
+    socket
+    |> assign(:crf_progress, :none)
+    |> assign(:service_status, updated_status)
+    |> then(&{:noreply, &1})
   end
 
   # Special CRF search event handlers
@@ -331,13 +345,13 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def handle_event("start_crf_searcher", _params, socket) do
-    Reencodarr.CrfSearcher.Broadway.resume()
+    CrfSearcherBroadway.resume()
     {:noreply, put_flash(socket, :info, "CRF Search started")}
   end
 
   @impl true
   def handle_event("pause_crf_searcher", _params, socket) do
-    Reencodarr.CrfSearcher.Broadway.pause()
+    CrfSearcherBroadway.pause()
     {:noreply, put_flash(socket, :info, "CRF Search paused")}
   end
 
@@ -655,11 +669,13 @@ defmodule ReencodarrWeb.DashboardLive do
     }
   end
 
-  # Optimistic service status - assume running if alive, let events correct it
+  # Simple service status - just check if processes are alive
   defp get_optimistic_service_status do
-    Map.new(@producer_modules, fn {service, module} ->
-      {service, if(Process.whereis(module), do: :running, else: :stopped)}
-    end)
+    %{
+      analyzer: if(Process.whereis(@producer_modules.analyzer), do: :idle, else: :stopped),
+      crf_searcher: if(CrfSearcherBroadway.running?(), do: :idle, else: :stopped),
+      encoder: if(Process.whereis(@producer_modules.encoder), do: :idle, else: :stopped)
+    }
   end
 
   defp request_current_status do
