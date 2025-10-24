@@ -20,12 +20,6 @@ defmodule Reencodarr.CrfSearcher do
   @doc "Resume the CRF searcher pipeline (alias for start)"
   def resume, do: Broadway.resume()
 
-  @doc "Force dispatch of available work (no-op with new simple design)"
-  def dispatch_available, do: :ok
-
-  @doc "Queue a video for CRF search (no-op - videos pulled from DB automatically)"
-  def queue_video(_video), do: :ok
-
   # Status functions
 
   @doc "Check if the CRF searcher is running"
