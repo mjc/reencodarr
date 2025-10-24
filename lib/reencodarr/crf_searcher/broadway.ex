@@ -17,6 +17,7 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   alias Broadway.Message
   alias Reencodarr.AbAv1
   alias Reencodarr.CrfSearcher.Broadway.Producer
+  alias Reencodarr.Media.VideoStateMachine
 
   @typedoc "Video struct for CRF search processing"
   @type video :: %{id: integer(), path: binary()}
@@ -171,13 +172,21 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   defp process_video_crf_search(video, crf_quality) do
     Logger.debug("Starting CRF search for video #{video.id}: #{video.path}")
 
-    # AbAv1.crf_search/2 always returns :ok since it's a GenServer.cast
-    # The actual success/failure is handled by the GenServer
-    :ok = AbAv1.crf_search(video, crf_quality)
+    # Mark as crf_searching BEFORE sending to CrfSearch
+    # This prevents the producer from returning the same video again
+    case VideoStateMachine.transition_to_crf_searching(video) do
+      {:ok, _updated_video} ->
+        # Now send to CrfSearch - it's fire-and-forget via cast
+        :ok = AbAv1.crf_search(video, crf_quality)
 
-    Logger.debug("CRF search queued successfully for video #{video.id}")
+        Logger.debug("CRF search queued successfully for video #{video.id}")
 
-    :ok
+        :ok
+
+      {:error, reason} ->
+        Logger.error("Failed to mark video #{video.id} as crf_searching: #{inspect(reason)}")
+        {:error, reason}
+    end
   rescue
     exception ->
       error_message =
