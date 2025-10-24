@@ -88,75 +88,43 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   end
 
   @doc """
-  Add a video to the pipeline for CRF search processing.
-
-  ## Parameters
-    * `video` - Video struct containing id and path
-
-  ## Examples
-      iex> video = %{id: 1, path: "/path/to/video.mp4"}
-      iex> Reencodarr.CrfSearcher.Broadway.process_video(video)
-      :ok
-  """
-  @spec process_video(video()) :: :ok | {:error, term()}
-  def process_video(video) do
-    case Producer.add_video(video) do
-      :ok -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  @doc """
-  Check if the CRF searcher pipeline is running (not paused).
-
-  ## Examples
-      iex> Reencodarr.CrfSearcher.Broadway.running?()
-      true
+  Check if the CRF searcher pipeline is running.
   """
   @spec running?() :: boolean()
   def running? do
-    with pid when is_pid(pid) <- Process.whereis(__MODULE__),
-         true <- Process.alive?(pid) do
-      Producer.running?()
-    else
-      _ -> false
+    case Process.whereis(__MODULE__) do
+      nil -> false
+      pid -> Process.alive?(pid)
     end
   end
 
   @doc """
-  Pause the CRF searcher pipeline.
-
-  Pauses processing by updating the producer's state machine.
-
-  ## Examples
-      iex> Reencodarr.CrfSearcher.Broadway.pause()
-      :ok
+  Pause by stopping the Broadway pipeline.
   """
-  @spec pause() :: :ok | {:error, term()}
+  @spec pause() :: :ok
   def pause do
-    Producer.pause()
+    Logger.info("[CRF Searcher] Stopping Broadway pipeline")
+    Reencodarr.CrfSearcher.Supervisor.stop_broadway()
+    :ok
   end
 
   @doc """
-  Resume the CRF searcher pipeline.
-
-  Resumes processing by updating the producer's state machine.
-
-  ## Examples
-      iex> Reencodarr.CrfSearcher.Broadway.resume()
-      :ok
+  Resume by starting the Broadway pipeline.
   """
-  @spec resume() :: :ok | {:error, term()}
+  @spec resume() :: :ok
   def resume do
-    Producer.resume()
+    Logger.info("[CRF Searcher] Starting Broadway pipeline")
+
+    case Reencodarr.CrfSearcher.Supervisor.start_broadway() do
+      {:ok, _pid} -> :ok
+      {:error, :already_started} -> :ok
+      {:error, {:already_started, _pid}} -> :ok
+      error -> error
+    end
   end
 
-  @doc """
-  Start the CRF searcher pipeline.
-
-  Alias for `resume/0` to maintain API compatibility.
-  """
-  @spec start() :: :ok | {:error, term()}
+  @doc "Alias for resume"
+  @spec start() :: :ok
   def start, do: resume()
 
   # Broadway callbacks

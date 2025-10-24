@@ -6,33 +6,33 @@ defmodule Reencodarr.CrfSearcher do
   Broadway pipeline that performs VMAF quality targeting searches on analyzed videos.
   """
 
-  alias Reencodarr.CrfSearcher.Broadway.Producer
+  alias Reencodarr.CrfSearcher.Broadway
   alias Reencodarr.Media
 
   # Control functions
 
   @doc "Start/resume the CRF searcher pipeline"
-  def start, do: Producer.resume()
+  def start, do: Broadway.resume()
 
   @doc "Pause the CRF searcher pipeline"
-  def pause, do: Producer.pause()
+  def pause, do: Broadway.pause()
 
   @doc "Resume the CRF searcher pipeline (alias for start)"
-  def resume, do: Producer.resume()
+  def resume, do: Broadway.resume()
 
-  @doc "Force dispatch of available work"
-  def dispatch_available, do: Producer.dispatch_available()
+  @doc "Force dispatch of available work (no-op with new simple design)"
+  def dispatch_available, do: :ok
 
-  @doc "Queue a video for CRF search (typically called after analysis completes)"
-  def queue_video(video), do: Producer.add_video(video)
+  @doc "Queue a video for CRF search (no-op - videos pulled from DB automatically)"
+  def queue_video(_video), do: :ok
 
   # Status functions
 
-  @doc "Check if the CRF searcher is running (user intent)"
-  def running?, do: Producer.running?()
+  @doc "Check if the CRF searcher is running"
+  def running?, do: Broadway.running?()
 
   @doc "Check if the CRF searcher is actively processing work"
-  def actively_running?, do: Producer.actively_running?()
+  def actively_running?, do: Broadway.running?()
 
   @doc "Check if the CRF search GenServer is available"
   def available? do
