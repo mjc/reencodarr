@@ -71,12 +71,8 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def init(_opts) do
-    # Subscribe to media events for new videos
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "media_events")
-    # Subscribe to video state transitions for new videos needing analysis
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
-    # Subscribe to analyzer events to know when processing completes
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "analyzer_events")
+    # Subscribe ONLY to unified Events channel for all completion events
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
 
     # Send a delayed message to trigger initial dispatch
     Process.send_after(self(), :initial_dispatch, 1000)
@@ -97,8 +93,8 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_call(:actively_running?, _from, state) do
-    # For telemetry/progress - actively running if processing or pausing
-    actively_running = PipelineStateMachine.actively_working?(state.pipeline)
+    # Simple: if we're processing videos, we're actively running
+    actively_running = state.processing > 0
     {:reply, actively_running, [], state}
   end
 
@@ -116,19 +112,9 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:broadcast_status, state) do
-    # Broadcast actual current status to dashboard
-    current_state = PipelineStateMachine.get_state(state.pipeline)
+    # Simple: if processing videos, show processing, otherwise idle
+    status = if state.processing > 0, do: :processing, else: :idle
 
-    # Map pipeline state to dashboard status
-    status =
-      case current_state do
-        :processing -> :processing
-        :paused -> :paused
-        :running -> :running
-        _ -> :stopped
-      end
-
-    # Broadcast as service_status event with the actual state
     Events.broadcast_event(:service_status, %{service: :analyzer, status: status})
 
     {:noreply, [], state}

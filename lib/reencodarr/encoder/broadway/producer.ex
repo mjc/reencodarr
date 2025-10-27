@@ -50,9 +50,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def init(_opts) do
-    # Subscribe to video state transitions for videos that finished CRF search
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
-    # Subscribe to dashboard events to know when encoding completes
+    # Subscribe ONLY to unified Events channel for all completion events
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
 
     {:producer,
@@ -68,16 +66,15 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
       "Producer: handle_demand called - new demand: #{demand}, current demand: #{state.demand}, total: #{state.demand + demand}"
     )
 
-    # Only accumulate demand if not currently processing
-    # Encoder is single-concurrency, so we shouldn't accept more demand while busy
-    current_status = PipelineStateMachine.get_state(state.pipeline)
+    # Always accumulate demand - we'll handle it when encoder becomes available
+    new_state = %{state | demand: state.demand + demand}
+    current_status = PipelineStateMachine.get_state(new_state.pipeline)
 
     if current_status == :processing do
-      # If we're already processing, ignore the demand
-      Logger.debug("Producer: handle_demand - currently processing, ignoring demand")
-      {:noreply, [], state}
+      # Already processing - keep demand for later
+      Logger.debug("Producer: handle_demand - currently processing, storing demand for later")
+      {:noreply, [], new_state}
     else
-      new_state = %{state | demand: state.demand + demand}
       Logger.debug("Producer: handle_demand - not processing, calling dispatch_if_ready")
       dispatch_if_ready(new_state)
     end
@@ -112,19 +109,14 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def handle_cast(:broadcast_status, state) do
-    # Broadcast actual current status to dashboard
-    current_state = PipelineStateMachine.get_state(state.pipeline)
-
-    # Map pipeline state to dashboard status
+    # Simple: check if encoder is actually processing
     status =
-      case current_state do
-        :processing -> :processing
-        :paused -> :paused
-        :running -> :running
-        _ -> :stopped
+      if Reencodarr.Encoder.available?() do
+        :idle
+      else
+        :processing
       end
 
-    # Broadcast as service_status event with the actual state
     Events.broadcast_event(:service_status, %{service: :encoder, status: status})
 
     {:noreply, [], state}

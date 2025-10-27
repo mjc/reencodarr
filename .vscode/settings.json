@@ -56,10 +56,5 @@
         "Mshort",
         "dont",
         "scrf"
-    ],
-    "workbench.colorCustomizations": {
-        "activityBar.background": "#1D322B",
-        "titleBar.activeBackground": "#29463D",
-        "titleBar.activeForeground": "#F7FBF9"
-    }
+    ]
 }

@@ -17,7 +17,6 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   alias Broadway.Message
   alias Reencodarr.AbAv1
   alias Reencodarr.CrfSearcher.Broadway.Producer
-  alias Reencodarr.Media.VideoStateMachine
 
   @typedoc "Video struct for CRF search processing"
   @type video :: %{id: integer(), path: binary()}
@@ -136,12 +135,18 @@ defmodule Reencodarr.CrfSearcher.Broadway do
   end
 
   @impl Broadway
-  def handle_batch(:default, messages, _batch_info, context) do
-    crf_quality = Map.get(context, :crf_quality, 95)
+  def handle_batch(_batcher, messages, _batch_info, _context) do
+    crf_quality = Application.get_env(:reencodarr, :crf_search_quality, 95)
+    Logger.info("[CRF Broadway] Processing batch of #{length(messages)} videos")
 
     Enum.map(messages, fn message ->
+      Logger.info(
+        "[CRF Broadway] Processing video #{message.data.id}: #{Path.basename(message.data.path)}"
+      )
+
       case process_video_crf_search(message.data, crf_quality) do
         :ok ->
+          Logger.info("[CRF Broadway] Successfully queued video #{message.data.id}")
           message
 
         {:error, reason} ->
@@ -169,23 +174,19 @@ defmodule Reencodarr.CrfSearcher.Broadway do
 
   @spec process_video_crf_search(video(), pos_integer()) :: :ok | {:error, term()}
   defp process_video_crf_search(video, crf_quality) do
-    Logger.debug("Starting CRF search for video #{video.id}: #{video.path}")
+    Logger.info(
+      "[CRF Broadway] Starting CRF search for video #{video.id}: #{Path.basename(video.path)}"
+    )
 
-    # Mark as crf_searching BEFORE sending to CrfSearch
-    # This prevents the producer from returning the same video again
-    case VideoStateMachine.transition_to_crf_searching(video) do
-      {:ok, _updated_video} ->
-        # Now send to CrfSearch - it's fire-and-forget via cast
-        :ok = AbAv1.crf_search(video, crf_quality)
+    # Just send to CrfSearch - it's fire-and-forget via cast
+    # CrfSearch will handle state transitions when it actually starts processing
+    result = AbAv1.crf_search(video, crf_quality)
 
-        Logger.debug("CRF search queued successfully for video #{video.id}")
+    Logger.info(
+      "[CRF Broadway] CRF search queued for video #{video.id}, result: #{inspect(result)}"
+    )
 
-        :ok
-
-      {:error, reason} ->
-        Logger.error("Failed to mark video #{video.id} as crf_searching: #{inspect(reason)}")
-        {:error, reason}
-    end
+    :ok
   rescue
     exception ->
       error_message =

@@ -6,6 +6,7 @@ defmodule Reencodarr.Encoder do
   Broadway pipeline that performs the final video encoding after CRF searches.
   """
 
+  alias Reencodarr.AbAv1.Encode
   alias Reencodarr.Encoder.Broadway.Producer
   alias Reencodarr.Media
 
@@ -29,15 +30,13 @@ defmodule Reencodarr.Encoder do
   def running?, do: Producer.running?()
 
   @doc "Check if the encoder is actively processing work"
-  def actively_running?, do: Producer.actively_running?()
+  def actively_running? do
+    # Simple: encoder is NOT available means it's busy encoding
+    not available?()
+  end
 
   @doc "Check if the encode GenServer is available"
-  def available? do
-    case GenServer.whereis(Reencodarr.AbAv1.Encode) do
-      nil -> false
-      pid when is_pid(pid) -> Process.alive?(pid)
-    end
-  end
+  def available?, do: Encode.available?()
 
   @doc "Get the current state of the encoder pipeline"
   def status do

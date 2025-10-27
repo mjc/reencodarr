@@ -34,6 +34,22 @@ defmodule Reencodarr.AbAv1.Encode do
     end
   end
 
+  @spec available?() :: boolean()
+  def available? do
+    # Check if encoder is available (not currently encoding)
+    case GenServer.whereis(__MODULE__) do
+      nil ->
+        false
+
+      pid ->
+        try do
+          GenServer.call(pid, :available?, 100)
+        catch
+          :exit, _ -> false
+        end
+    end
+  end
+
   # GenServer Callbacks
   @impl true
   def init(:ok) do
@@ -52,6 +68,12 @@ defmodule Reencodarr.AbAv1.Encode do
   def handle_call(:running?, _from, %{port: port} = state) do
     status = if port == :none, do: :not_running, else: :running
     {:reply, status, state}
+  end
+
+  @impl true
+  def handle_call(:available?, _from, %{port: port} = state) do
+    available = port == :none
+    {:reply, available, state}
   end
 
   @impl true
