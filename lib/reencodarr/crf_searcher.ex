@@ -6,6 +6,7 @@ defmodule Reencodarr.CrfSearcher do
   Broadway pipeline that performs VMAF quality targeting searches on analyzed videos.
   """
 
+  alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.CrfSearcher.Broadway
   alias Reencodarr.Media
 
@@ -26,15 +27,13 @@ defmodule Reencodarr.CrfSearcher do
   def running?, do: Broadway.running?()
 
   @doc "Check if the CRF searcher is actively processing work"
-  def actively_running?, do: Broadway.running?()
+  def actively_running? do
+    # Simple: if CrfSearch GenServer is busy, we're actively running
+    not available?()
+  end
 
   @doc "Check if the CRF search GenServer is available"
-  def available? do
-    case GenServer.whereis(Reencodarr.AbAv1.CrfSearch) do
-      nil -> false
-      pid when is_pid(pid) -> Process.alive?(pid)
-    end
-  end
+  def available?, do: CrfSearch.available?()
 
   @doc "Get the current state of the CRF searcher pipeline"
   def status do

@@ -17,7 +17,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.ErrorHelpers
   alias Reencodarr.Formatters
-  alias Reencodarr.{Media, Repo}
+  alias Reencodarr.Media
+  alias Reencodarr.Media.Video
+  alias Reencodarr.Media.VideoStateMachine
+  alias Reencodarr.Repo
 
   require Logger
 
@@ -148,6 +151,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
+    # Mark video as crf_searching NOW that we're actually starting
+    case VideoStateMachine.transition_to_crf_searching(video) do
+      {:ok, _updated_video} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to mark video #{video.id} as crf_searching: #{inspect(reason)}")
+    end
+
     args = build_crf_search_args(video, vmaf_percent)
 
     new_state = %{
@@ -422,9 +434,19 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   # Private helper functions
-  defp perform_crf_search_cleanup(state) do
-    # With new simple Broadway design, no need to notify - it polls automatically
+  defp perform_crf_search_cleanup(%{current_task: %{video: video}} = state) do
+    # Broadcast completion event via unified Events system
+    Events.broadcast_event(:crf_search_completed, %{
+      video_id: video.id,
+      result: :ok
+    })
 
+    new_state = %{state | port: :none, current_task: :none, partial_line_buffer: ""}
+    {:noreply, new_state}
+  end
+
+  defp perform_crf_search_cleanup(state) do
+    # No current task, just reset state
     new_state = %{state | port: :none, current_task: :none, partial_line_buffer: ""}
     {:noreply, new_state}
   end
