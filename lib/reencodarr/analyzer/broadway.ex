@@ -91,39 +91,24 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   @doc """
-  Add a video to the pipeline for processing.
+  Add a video to the pipeline for processing - no-op, Broadway polls automatically.
   """
-  def process_path(video_info) do
-    Producer.add_video(video_info)
-  end
+  def process_path(_video_info), do: :ok
 
   @doc """
-  Check if the analyzer is running (not paused).
+  Check if the analyzer is running (always true now).
   """
-  def running? do
-    case Process.whereis(__MODULE__) do
-      nil -> false
-      _pid -> Producer.running?()
-    end
-  end
+  def running?, do: true
 
   @doc """
-  Pause the analyzer.
-
-  Pauses processing by updating the producer's state machine.
+  Pause the analyzer - no-op, always runs now.
   """
-  def pause do
-    Producer.pause()
-  end
+  def pause, do: :ok
 
   @doc """
-  Resume the analyzer.
-
-  Resumes processing by updating the producer's state machine.
+  Resume the analyzer - no-op, always runs now.
   """
-  def resume do
-    Producer.resume()
-  end
+  def resume, do: :ok
 
   @doc """
   Trigger dispatch of available videos for analysis.
@@ -133,7 +118,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   # Alias for API compatibility
-  def start, do: resume()
+  def start, do: :ok
 
   @impl Broadway
   def handle_message(_processor_name, message, _context) do
@@ -681,7 +666,16 @@ defmodule Reencodarr.Analyzer.Broadway do
         :ok
 
       {:error, :not_found} ->
-        Logger.warning("Video not found in database, cannot mark as failed: #{path}")
+        Logger.warning("Video not found in database, deleting orphan file: #{path}")
+
+        case File.rm(path) do
+          :ok ->
+            Logger.info("Successfully deleted orphan file: #{path}")
+
+          {:error, reason} ->
+            Logger.error("Failed to delete orphan file #{path}: #{inspect(reason)}")
+        end
+
         :ok
     end
   end

@@ -330,41 +330,35 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, socket}
   end
 
-  # Service control event handlers with direct inline logic
+  # Service control event handlers - pipelines always run, no start/pause
   @impl true
   def handle_event("start_analyzer", _params, socket) do
-    Reencodarr.Analyzer.Broadway.Producer.start()
-    {:noreply, put_flash(socket, :info, "Analysis started")}
+    {:noreply, put_flash(socket, :info, "Analyzer runs automatically")}
   end
 
   @impl true
   def handle_event("pause_analyzer", _params, socket) do
-    Reencodarr.Analyzer.Broadway.Producer.pause()
-    {:noreply, put_flash(socket, :info, "Analysis paused")}
+    {:noreply, put_flash(socket, :info, "Analyzer runs automatically")}
   end
 
   @impl true
   def handle_event("start_crf_searcher", _params, socket) do
-    CrfSearcherBroadway.resume()
-    {:noreply, put_flash(socket, :info, "CRF Search started")}
+    {:noreply, put_flash(socket, :info, "CRF Search runs automatically")}
   end
 
   @impl true
   def handle_event("pause_crf_searcher", _params, socket) do
-    CrfSearcherBroadway.pause()
-    {:noreply, put_flash(socket, :info, "CRF Search paused")}
+    {:noreply, put_flash(socket, :info, "CRF Search runs automatically")}
   end
 
   @impl true
   def handle_event("start_encoder", _params, socket) do
-    Reencodarr.Encoder.Broadway.Producer.start()
-    {:noreply, put_flash(socket, :info, "Encoding started")}
+    {:noreply, put_flash(socket, :info, "Encoder runs automatically")}
   end
 
   @impl true
   def handle_event("pause_encoder", _params, socket) do
-    Reencodarr.Encoder.Broadway.Producer.pause()
-    {:noreply, put_flash(socket, :info, "Encoding paused")}
+    {:noreply, put_flash(socket, :info, "Encoder runs automatically")}
   end
 
   @impl true

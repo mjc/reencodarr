@@ -1,39 +1,17 @@
 defmodule Reencodarr.Encoder do
   @moduledoc """
   Public API for the Encoder pipeline.
-
-  Provides convenient functions for controlling and monitoring the Encoder
-  Broadway pipeline that performs the final video encoding after CRF searches.
   """
 
   alias Reencodarr.AbAv1.Encode
   alias Reencodarr.Encoder.Broadway.Producer
   alias Reencodarr.Media
 
-  # Control functions
-
-  @doc "Start/resume the encoder pipeline"
-  def start, do: Producer.resume()
-
-  @doc "Pause the encoder pipeline"
-  def pause, do: Producer.pause()
-
-  @doc "Resume the encoder pipeline (alias for start)"
-  def resume, do: Producer.resume()
-
   @doc "Force dispatch of available work"
   def dispatch_available, do: Producer.dispatch_available()
 
-  # Status functions
-
-  @doc "Check if the encoder is running (user intent)"
-  def running?, do: Producer.running?()
-
   @doc "Check if the encoder is actively processing work"
-  def actively_running? do
-    # Simple: encoder is NOT available means it's busy encoding
-    not available?()
-  end
+  def actively_running?, do: not available?()
 
   @doc "Check if the encode GenServer is available"
   def available?, do: Encode.available?()
@@ -41,7 +19,7 @@ defmodule Reencodarr.Encoder do
   @doc "Get the current state of the encoder pipeline"
   def status do
     %{
-      running: running?(),
+      running: true,
       actively_running: actively_running?(),
       available: available?(),
       queue_count: Media.encoding_queue_count()
