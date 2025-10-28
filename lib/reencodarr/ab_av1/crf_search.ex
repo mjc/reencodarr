@@ -18,7 +18,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.ErrorHelpers
   alias Reencodarr.Formatters
   alias Reencodarr.Media
-  alias Reencodarr.Media.Video
   alias Reencodarr.Media.VideoStateMachine
   alias Reencodarr.Repo
 

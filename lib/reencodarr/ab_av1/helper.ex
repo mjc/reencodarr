@@ -78,10 +78,12 @@ defmodule Reencodarr.AbAv1.Helper do
       case check_for_image_attachments(file_path) do
         {:ok, false} ->
           # No image attachments found, use original file
+          Logger.debug("No image attachments found in #{file_path}")
           {:ok, file_path}
 
         {:ok, true} ->
           # Image attachments found, clean them
+          Logger.info("Image attachments found in #{file_path}, cleaning...")
           remove_image_attachments(file_path)
 
         {:error, reason} ->
@@ -207,13 +209,7 @@ defmodule Reencodarr.AbAv1.Helper do
   defp parse_image_tracks_from_json(output) do
     case Jason.decode(output) do
       {:ok, %{"tracks" => tracks}} ->
-        image_uids =
-          tracks
-          |> Enum.filter(&image_video_track?/1)
-          |> Enum.map(& &1["properties"]["uid"])
-          |> Enum.reject(&is_nil/1)
-          |> Enum.map(&to_string/1)
-
+        image_uids = extract_image_track_uids(tracks)
         {:ok, image_uids}
 
       _ ->
@@ -221,27 +217,53 @@ defmodule Reencodarr.AbAv1.Helper do
     end
   end
 
+  defp extract_image_track_uids(tracks) do
+    tracks
+    |> Enum.filter(&filter_and_log_video_track/1)
+    |> Enum.map(& &1["properties"]["uid"])
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&to_string/1)
+  end
+
+  defp filter_and_log_video_track(track) do
+    is_image = image_video_track?(track)
+
+    if track["type"] == "video" do
+      Logger.debug(
+        "Video track: codec=#{inspect(track["codec"])}, codec_id=#{inspect(track["properties"]["codec_id"])}, uid=#{inspect(track["properties"]["uid"])}, is_image=#{is_image}"
+      )
+    end
+
+    is_image
+  end
+
   defp image_video_track?(track) do
     track["type"] == "video" and
-      (track["codec"] in ["MJPEG", "PNG"] or
+      (String.upcase(track["codec"] || "") in ["MJPEG", "PNG"] or
          String.contains?(track["properties"]["codec_id"] || "", ["V_MS/VFW", "PNG"]))
   end
 
   defp delete_image_attachments(cleaned_path) do
     attachment_types = ["image/jpg", "image/jpeg", "image/png"]
 
+    Logger.info("Attempting to delete image attachments from #{cleaned_path}")
+
     result =
       Enum.reduce_while(attachment_types, :ok, fn mime_type, _acc ->
+        Logger.debug("Deleting attachments with mime-type: #{mime_type}")
+
         case System.cmd(
                "mkvpropedit",
-               ["--delete-attachment", "mime-type:#{mime_type}", cleaned_path],
+               [cleaned_path, "--delete-attachment", "mime-type:#{mime_type}"],
                stderr_to_stdout: true
              ) do
-          {_output, 0} ->
+          {output, 0} ->
+            Logger.info("Successfully deleted #{mime_type} attachments: #{output}")
             {:cont, :ok}
 
           # Exit code 2 means "no attachments of this type found" - that's OK
-          {_output, 2} ->
+          {output, 2} ->
+            Logger.debug("No #{mime_type} attachments found: #{output}")
             {:cont, :ok}
 
           {output, exit_code} ->

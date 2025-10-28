@@ -9,10 +9,9 @@ defmodule Reencodarr.CrfSearcher.Supervisor do
 
   @impl true
   def init(:ok) do
-    # Only start the CrfSearch GenServer automatically
-    # The Broadway pipeline will be started/stopped dynamically via pause/resume
     children = [
-      {Reencodarr.AbAv1.CrfSearch, []}
+      {Reencodarr.AbAv1.CrfSearch, []},
+      {Reencodarr.CrfSearcher.Broadway, []}
     ]
 
     Supervisor.init(children, strategy: :one_for_one)
