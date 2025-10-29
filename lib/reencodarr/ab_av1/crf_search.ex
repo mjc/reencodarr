@@ -14,11 +14,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.AbAv1.OutputParser
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Core.Time
-  alias Reencodarr.CrfSearcher.Broadway.Producer
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.ErrorHelpers
   alias Reencodarr.Formatters
-  alias Reencodarr.{Media, Repo}
+  alias Reencodarr.Media
+  alias Reencodarr.Media.VideoStateMachine
+  alias Reencodarr.Repo
 
   require Logger
 
@@ -149,6 +150,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
+    # Mark video as crf_searching NOW that we're actually starting
+    case VideoStateMachine.transition_to_crf_searching(video) do
+      {:ok, _updated_video} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to mark video #{video.id} as crf_searching: #{inspect(reason)}")
+    end
+
     args = build_crf_search_args(video, vmaf_percent)
 
     new_state = %{
@@ -229,12 +239,35 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           state
       ) do
     full_line = buffer <> line
-    process_line(full_line, video, args, target_vmaf)
 
-    # Add the line to our output buffer for failure tracking
-    new_output_buffer = [full_line | output_buffer]
+    try do
+      process_line(full_line, video, args, target_vmaf)
 
-    {:noreply, %{state | partial_line_buffer: "", output_buffer: new_output_buffer}}
+      # Add the line to our output buffer for failure tracking
+      new_output_buffer = [full_line | output_buffer]
+
+      {:noreply, %{state | partial_line_buffer: "", output_buffer: new_output_buffer}}
+    rescue
+      e in Exqlite.Error ->
+        # Database is busy — don't crash. Requeue the same port message with a short delay.
+        Logger.warning(
+          "CrfSearch: Database busy while upserting VMAF, requeuing line: #{inspect(e)}"
+        )
+
+        # Re-send the exact same message after a short backoff to retry
+        Process.send_after(self(), {port, {:data, {:eol, line}}}, 200)
+
+        # Keep state intact — we'll retry later
+        {:noreply, state}
+
+      e in DBConnection.ConnectionError ->
+        Logger.warning(
+          "CrfSearch: DB connection error while upserting VMAF, requeuing line: #{inspect(e)}"
+        )
+
+        Process.send_after(self(), {port, {:data, {:eol, line}}}, 200)
+        {:noreply, state}
+    end
   end
 
   @impl true
@@ -417,17 +450,28 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     # Reset to clean state
     clean_state = %{port: :none, current_task: :none, partial_line_buffer: "", output_buffer: []}
 
-    # Notify producer that we're available again
-    Producer.dispatch_available()
+    # With new simple Broadway design, no need to notify - it polls automatically
 
     {:reply, :ok, clean_state}
   end
 
   # Private helper functions
-  defp perform_crf_search_cleanup(state) do
-    # Notify the Broadway producer that CRF search is now available
-    Producer.dispatch_available()
 
+  # Cleanup after CRF search when a video task was active - broadcasts completion event
+  defp perform_crf_search_cleanup(%{current_task: %{video: video}} = state) do
+    # Broadcast completion event via unified Events system
+    Events.broadcast_event(:crf_search_completed, %{
+      video_id: video.id,
+      result: :ok
+    })
+
+    new_state = %{state | port: :none, current_task: :none, partial_line_buffer: ""}
+    {:noreply, new_state}
+  end
+
+  # Cleanup after CRF search when no video task was active - just reset state
+  defp perform_crf_search_cleanup(state) do
+    # No current task, just reset state
     new_state = %{state | port: :none, current_task: :none, partial_line_buffer: ""}
     {:noreply, new_state}
   end
