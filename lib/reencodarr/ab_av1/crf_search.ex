@@ -456,6 +456,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   # Private helper functions
+
+  # Cleanup after CRF search when a video task was active - broadcasts completion event
   defp perform_crf_search_cleanup(%{current_task: %{video: video}} = state) do
     # Broadcast completion event via unified Events system
     Events.broadcast_event(:crf_search_completed, %{
@@ -467,6 +469,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     {:noreply, new_state}
   end
 
+  # Cleanup after CRF search when no video task was active - just reset state
   defp perform_crf_search_cleanup(state) do
     # No current task, just reset state
     new_state = %{state | port: :none, current_task: :none, partial_line_buffer: ""}
