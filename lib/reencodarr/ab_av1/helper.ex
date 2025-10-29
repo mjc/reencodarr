@@ -230,7 +230,7 @@ defmodule Reencodarr.AbAv1.Helper do
 
     if track["type"] == "video" do
       Logger.debug(
-        "Video track: codec=#{inspect(track["codec"])}, codec_id=#{inspect(track["properties"]["codec_id"])}, uid=#{inspect(track["properties"]["uid"])}, is_image=#{is_image}"
+        "Video track: codec=#{inspect(track["codec"])}, codec_id=#{inspect(get_in(track, ["properties", "codec_id"]))}, uid=#{inspect(get_in(track, ["properties", "uid"]))}, is_image=#{is_image}"
       )
     end
 
@@ -240,7 +240,7 @@ defmodule Reencodarr.AbAv1.Helper do
   defp image_video_track?(track) do
     track["type"] == "video" and
       (String.upcase(track["codec"] || "") in ["MJPEG", "PNG"] or
-         String.contains?(track["properties"]["codec_id"] || "", ["V_MS/VFW", "PNG"]))
+         String.contains?(get_in(track, ["properties", "codec_id"]) || "", ["V_MS/VFW", "PNG"]))
   end
 
   defp delete_image_attachments(cleaned_path) do
