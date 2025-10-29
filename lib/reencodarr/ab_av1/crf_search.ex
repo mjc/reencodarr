@@ -239,12 +239,35 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           state
       ) do
     full_line = buffer <> line
-    process_line(full_line, video, args, target_vmaf)
 
-    # Add the line to our output buffer for failure tracking
-    new_output_buffer = [full_line | output_buffer]
+    try do
+      process_line(full_line, video, args, target_vmaf)
 
-    {:noreply, %{state | partial_line_buffer: "", output_buffer: new_output_buffer}}
+      # Add the line to our output buffer for failure tracking
+      new_output_buffer = [full_line | output_buffer]
+
+      {:noreply, %{state | partial_line_buffer: "", output_buffer: new_output_buffer}}
+    rescue
+      e in Exqlite.Error ->
+        # Database is busy — don't crash. Requeue the same port message with a short delay.
+        Logger.warning(
+          "CrfSearch: Database busy while upserting VMAF, requeuing line: #{inspect(e)}"
+        )
+
+        # Re-send the exact same message after a short backoff to retry
+        Process.send_after(self(), {port, {:data, {:eol, line}}}, 200)
+
+        # Keep state intact — we'll retry later
+        {:noreply, state}
+
+      e in DBConnection.ConnectionError ->
+        Logger.warning(
+          "CrfSearch: DB connection error while upserting VMAF, requeuing line: #{inspect(e)}"
+        )
+
+        Process.send_after(self(), {port, {:data, {:eol, line}}}, 200)
+        {:noreply, state}
+    end
   end
 
   @impl true
