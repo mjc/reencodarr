@@ -34,6 +34,22 @@ defmodule Reencodarr.AbAv1.Encode do
     end
   end
 
+  @spec available?() :: boolean()
+  def available? do
+    # Check if encoder is available (not currently encoding)
+    case GenServer.whereis(__MODULE__) do
+      nil ->
+        false
+
+      pid ->
+        try do
+          GenServer.call(pid, :available?, 100)
+        catch
+          :exit, _ -> false
+        end
+    end
+  end
+
   # GenServer Callbacks
   @impl true
   def init(:ok) do
@@ -52,6 +68,12 @@ defmodule Reencodarr.AbAv1.Encode do
   def handle_call(:running?, _from, %{port: port} = state) do
     status = if port == :none, do: :not_running, else: :running
     {:reply, status, state}
+  end
+
+  @impl true
+  def handle_call(:available?, _from, %{port: port} = state) do
+    available = port == :none
+    {:reply, available, state}
   end
 
   @impl true
@@ -115,23 +137,91 @@ defmodule Reencodarr.AbAv1.Encode do
     # Notify the Broadway producer that encoding is now available
     Producer.dispatch_available()
 
-    if result == {:ok, :success} do
-      notify_encoder_success(vmaf.video, output_file)
-    else
-      notify_encoder_failure(vmaf.video, exit_code)
+    # Attempt to notify success/failure, but don't crash if DB is busy — retry later
+    notify_result =
+      try do
+        if result == {:ok, :success} do
+          notify_encoder_success(vmaf.video, output_file)
+        else
+          notify_encoder_failure(vmaf.video, exit_code)
+        end
+
+        :ok
+      rescue
+        e in Exqlite.Error ->
+          Logger.warning(
+            "Encode: Database busy while handling exit_status, scheduling retry: #{inspect(e)}"
+          )
+
+          # Retry after short backoff. Keep current state until retry completes.
+          Process.send_after(self(), {:encoding_exit_retry, exit_code, vmaf, output_file}, 200)
+          :retry_scheduled
+      end
+
+    case notify_result do
+      :ok ->
+        new_state = %{
+          state
+          | port: :none,
+            video: :none,
+            vmaf: :none,
+            output_file: nil,
+            partial_line_buffer: "",
+            last_progress: nil
+        }
+
+        {:noreply, new_state}
+
+      :retry_scheduled ->
+        # Keep state intact so retry handler has data available
+        {:noreply, state}
     end
+  end
 
-    new_state = %{
-      state
-      | port: :none,
-        video: :none,
-        vmaf: :none,
-        output_file: nil,
-        partial_line_buffer: "",
-        last_progress: nil
-    }
+  @impl true
+  def handle_info({:encoding_exit_retry, exit_code, vmaf, output_file}, state) do
+    Logger.info("Encode: retrying exit_status handling for VMAF #{vmaf.id}")
 
-    {:noreply, new_state}
+    retry_result =
+      try do
+        if exit_code == 0 do
+          notify_encoder_success(vmaf.video, output_file)
+        else
+          notify_encoder_failure(vmaf.video, exit_code)
+        end
+
+        :ok
+      rescue
+        e in Exqlite.Error ->
+          Logger.warning(
+            "Encode: retry failed due to DB busy: #{inspect(e)}, scheduling another retry"
+          )
+
+          Process.send_after(self(), {:encoding_exit_retry, exit_code, vmaf, output_file}, 500)
+          :retry_scheduled
+      end
+
+    case retry_result do
+      :ok ->
+        # Clean up state now that notification succeeded
+        cleared_state = %{
+          state
+          | port: :none,
+            video: :none,
+            vmaf: :none,
+            output_file: nil,
+            partial_line_buffer: "",
+            last_progress: nil
+        }
+
+        # Ensure Broadway knows encoder is available
+        Producer.dispatch_available()
+
+        {:noreply, cleared_state}
+
+      :retry_scheduled ->
+        {:noreply, state}
+    end
   end
 
   # Catch-all for any other port messages

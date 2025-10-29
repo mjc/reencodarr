@@ -92,71 +92,36 @@ defmodule Reencodarr.Encoder.Broadway do
   ## Parameters
     * `vmaf` - VMAF struct containing id and video data
 
-  ## Examples
-      iex> vmaf = %{id: 1, video: %{path: "/path/to/video.mp4"}}
-      iex> Reencodarr.Encoder.Broadway.process_vmaf(vmaf)
-      :ok
+  @doc \"""
+  Process a VMAF - now handled automatically by Broadway polling.
+  This function is a no-op for backwards compatibility.
   """
-  @spec process_vmaf(vmaf()) :: :ok | {:error, term()}
-  def process_vmaf(vmaf) do
-    case Producer.add_vmaf(vmaf) do
-      :ok -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
+  @spec process_vmaf(vmaf()) :: :ok
+  def process_vmaf(_vmaf), do: :ok
 
   @doc """
-  Check if the encoder pipeline is running (not paused).
-
-  ## Examples
-      iex> Reencodarr.Encoder.Broadway.running?()
-      true
+  Check if the encoder pipeline is running (always true now).
   """
   @spec running?() :: boolean()
-  def running? do
-    with pid when is_pid(pid) <- Process.whereis(__MODULE__),
-         true <- Process.alive?(pid) do
-      Producer.running?()
-    else
-      _ -> false
-    end
-  end
+  def running?, do: true
 
   @doc """
-  Pause the encoder pipeline.
-
-  Pauses processing by updating the producer's state machine.
-
-  ## Examples
-      iex> Reencodarr.Encoder.Broadway.pause()
-      :ok
+  Pause the encoder pipeline - no-op, pipelines always run now.
   """
-  @spec pause() :: :ok | {:error, term()}
-  def pause do
-    Producer.pause()
-  end
+  @spec pause() :: :ok
+  def pause, do: :ok
 
   @doc """
-  Resume the encoder pipeline.
-
-  Resumes processing by updating the producer's state machine.
-
-  ## Examples
-      iex> Reencodarr.Encoder.Broadway.resume()
-      :ok
+  Resume the encoder pipeline - no-op, pipelines always run now.
   """
-  @spec resume() :: :ok | {:error, term()}
-  def resume do
-    Producer.resume()
-  end
+  @spec resume() :: :ok
+  def resume, do: :ok
 
   @doc """
-  Start the encoder pipeline.
-
-  Alias for `resume/0` to maintain API compatibility.
+  Start the encoder pipeline - alias for resume, no-op now.
   """
-  @spec start() :: :ok | {:error, term()}
-  def start, do: resume()
+  @spec start() :: :ok
+  def start, do: :ok
 
   # Broadway callbacks
 
@@ -227,16 +192,13 @@ defmodule Reencodarr.Encoder.Broadway do
     case classify_failure(:port_error) do
       {:pause, reason} ->
         Logger.error("Broadway: Critical failure for VMAF #{vmaf.id}: #{reason}")
-        Logger.error("Broadway: Pausing pipeline due to critical system issue")
+        Logger.error("Broadway: Critical system issue, but continuing (pipelines always run)")
         Logger.error("Broadway: Video path: #{vmaf.video.path}")
 
         # Notify about the failure
         notify_encoding_failure(vmaf.video, :port_error)
 
-        # Pause the pipeline
-        Producer.pause()
-
-        # Return :ok to Broadway since we're handling the pause manually
+        # Return :ok to Broadway - we continue processing
         :ok
     end
   end
@@ -303,7 +265,10 @@ defmodule Reencodarr.Encoder.Broadway do
       "Broadway: Critical failure for VMAF #{vmaf.id}: #{reason} (exit code: #{exit_code})"
     )
 
-    Logger.error("Broadway: Pausing pipeline due to critical system issue - #{reason}")
+    Logger.error(
+      "Broadway: Critical system issue - #{reason}, but continuing (pipelines always run)"
+    )
+
     Logger.error("Broadway: Video path: #{vmaf.video.path}")
 
     # Build enhanced context for failure tracking
@@ -317,11 +282,7 @@ defmodule Reencodarr.Encoder.Broadway do
     # Notify about the failure with enhanced context
     notify_encoding_failure(vmaf.video, exit_code, enhanced_context)
 
-    # Pause the pipeline
-    Logger.error("Broadway: PAUSING ENCODER - Critical failure with exit code #{exit_code}")
-    Producer.pause()
-
-    # Still return :ok to Broadway since we're handling the pause manually
+    # Return :ok to Broadway - we continue processing
     :ok
   end
 

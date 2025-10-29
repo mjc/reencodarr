@@ -6,41 +6,34 @@ defmodule Reencodarr.CrfSearcher do
   Broadway pipeline that performs VMAF quality targeting searches on analyzed videos.
   """
 
-  alias Reencodarr.CrfSearcher.Broadway.Producer
+  alias Reencodarr.AbAv1.CrfSearch
+  alias Reencodarr.CrfSearcher.Broadway
   alias Reencodarr.Media
 
   # Control functions
 
   @doc "Start/resume the CRF searcher pipeline"
-  def start, do: Producer.resume()
+  def start, do: Broadway.resume()
 
   @doc "Pause the CRF searcher pipeline"
-  def pause, do: Producer.pause()
+  def pause, do: Broadway.pause()
 
   @doc "Resume the CRF searcher pipeline (alias for start)"
-  def resume, do: Producer.resume()
-
-  @doc "Force dispatch of available work"
-  def dispatch_available, do: Producer.dispatch_available()
-
-  @doc "Queue a video for CRF search (typically called after analysis completes)"
-  def queue_video(video), do: Producer.add_video(video)
+  def resume, do: Broadway.resume()
 
   # Status functions
 
-  @doc "Check if the CRF searcher is running (user intent)"
-  def running?, do: Producer.running?()
+  @doc "Check if the CRF searcher is running"
+  def running?, do: Broadway.running?()
 
   @doc "Check if the CRF searcher is actively processing work"
-  def actively_running?, do: Producer.actively_running?()
+  def actively_running? do
+    # Simple: if CrfSearch GenServer is busy, we're actively running
+    not available?()
+  end
 
   @doc "Check if the CRF search GenServer is available"
-  def available? do
-    case GenServer.whereis(Reencodarr.AbAv1.CrfSearch) do
-      nil -> false
-      pid when is_pid(pid) -> Process.alive?(pid)
-    end
-  end
+  def available?, do: CrfSearch.available?()
 
   @doc "Get the current state of the CRF searcher pipeline"
   def status do

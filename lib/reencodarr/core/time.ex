@@ -17,17 +17,17 @@ defmodule Reencodarr.Core.Time do
       iex> Reencodarr.Core.Time.to_seconds(2, "hours")
       7200
   """
-  @spec to_seconds(integer(), String.t()) :: integer()
+  @spec to_seconds(integer() | float(), String.t()) :: integer()
   def to_seconds(time, unit) do
     case String.downcase(unit) do
-      unit when unit in ["second", "seconds"] -> time
-      unit when unit in ["minute", "minutes"] -> time * 60
-      unit when unit in ["hour", "hours"] -> time * 3600
-      unit when unit in ["day", "days"] -> time * 86_400
-      unit when unit in ["week", "weeks"] -> time * 604_800
-      unit when unit in ["month", "months"] -> time * 2_629_746
-      unit when unit in ["year", "years"] -> time * 31_556_952
-      _ -> time
+      unit when unit in ["second", "seconds"] -> trunc(time)
+      unit when unit in ["minute", "minutes"] -> trunc(time * 60)
+      unit when unit in ["hour", "hours"] -> trunc(time * 3600)
+      unit when unit in ["day", "days"] -> trunc(time * 86_400)
+      unit when unit in ["week", "weeks"] -> trunc(time * 604_800)
+      unit when unit in ["month", "months"] -> trunc(time * 2_629_746)
+      unit when unit in ["year", "years"] -> trunc(time * 31_556_952)
+      _ -> trunc(time)
     end
   end
 

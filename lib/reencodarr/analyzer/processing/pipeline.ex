@@ -203,7 +203,7 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
 
   defp mark_invalid_videos(invalid_videos) do
     Enum.map(invalid_videos, fn video_info ->
-      {:skip, "file validation failed: #{video_info.path}"}
+      {:error, video_info.path}
     end)
   end
 
