@@ -29,15 +29,9 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   @impl GenStage
   def handle_info(:poll, state) do
     schedule_poll()
-    # Check if there's work and CrfSearch is available, wake up Broadway if so
-    if CrfSearch.available?() do
-      case Media.get_videos_for_crf_search(1) do
-        [] -> {:noreply, [], state}
-        videos -> {:noreply, videos, state}
-      end
-    else
-      {:noreply, [], state}
-    end
+    # Just schedule the next poll - don't push events without demand
+    # Events are only emitted in response to demand via handle_demand
+    {:noreply, [], state}
   end
 
   @impl GenStage

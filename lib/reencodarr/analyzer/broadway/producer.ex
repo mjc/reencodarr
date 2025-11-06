@@ -40,17 +40,10 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   @impl GenStage
   def handle_info(:poll, state) do
     schedule_poll()
-    # Check if there's work and manually ask Broadway to pull
-    case Media.count_videos_needing_analysis() do
-      0 ->
-        {:noreply, [], state}
-
-      _count ->
-        # There's work available - return one video to wake up Broadway
-        videos = Media.get_videos_needing_analysis(1)
-        Logger.debug("Analyzer: poll wakeup -> #{length(videos)} videos")
-        {:noreply, videos, state}
-    end
+    # Just schedule the next poll - don't push events without demand
+    # Events are only emitted in response to demand via handle_demand
+    # This prevents buffer overflow warnings from GenStage
+    {:noreply, [], state}
   end
 
   @impl GenStage
