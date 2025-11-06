@@ -2,8 +2,7 @@ defmodule Reencodarr.Media.VideoUpsertTest do
   use Reencodarr.DataCase
   import ExUnit.CaptureLog
 
-  alias Reencodarr.Media.VideoUpsert
-  alias Reencodarr.Media.{Library, Video}
+  alias Reencodarr.Media.{Library, Video, VideoUpsert}
   alias Reencodarr.Repo
 
   setup do
