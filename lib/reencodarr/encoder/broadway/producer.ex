@@ -35,16 +35,9 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   @impl GenStage
   def handle_info(:poll, state) do
     schedule_poll()
-    # Check if there's work and Encode is available, wake up Broadway if so
-    if Encode.available?() do
-      case Media.get_next_for_encoding(1) do
-        %Reencodarr.Media.Vmaf{} = vmaf -> {:noreply, [vmaf], state}
-        [%Reencodarr.Media.Vmaf{} = vmaf] -> {:noreply, [vmaf], state}
-        _ -> {:noreply, [], state}
-      end
-    else
-      {:noreply, [], state}
-    end
+    # Just schedule the next poll - don't push events without demand
+    # Events are only emitted in response to demand via handle_demand
+    {:noreply, [], state}
   end
 
   @impl GenStage
