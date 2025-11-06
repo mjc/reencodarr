@@ -122,6 +122,7 @@ defmodule Reencodarr.Services.Radarr do
 
       json_payload = %{
         name: "RenameFiles",
+        movieId: movie_id,
         files: renameable_file_ids
       }
 
