@@ -20,7 +20,9 @@ defmodule Reencodarr.Encoder.Broadway do
   alias Reencodarr.AbAv1.ProgressParser
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Encoder.Broadway.Producer
+  alias Reencodarr.Media.VideoStateMachine
   alias Reencodarr.PostProcessor
+  alias Reencodarr.Repo
 
   @typedoc "VMAF struct for encoding processing"
   @type vmaf :: %{id: integer(), video: map()}
@@ -168,6 +170,25 @@ defmodule Reencodarr.Encoder.Broadway do
   @spec process_vmaf_encoding(vmaf(), map()) :: :ok | {:error, term()}
   defp process_vmaf_encoding(vmaf, context) do
     Logger.info("Broadway: Starting encoding for VMAF #{vmaf.id}: #{vmaf.video.path}")
+
+    # Mark video as encoding NOW that we're actually starting
+    case VideoStateMachine.transition_to_encoding(vmaf.video) do
+      {:ok, changeset} ->
+        case Repo.update(changeset) do
+          {:ok, _updated_video} ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to mark video #{vmaf.video.id} as encoding: #{inspect(reason)}"
+            )
+        end
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to transition video #{vmaf.video.id} to encoding: #{inspect(reason)}"
+        )
+    end
 
     # Broadcast initial encoding progress at 0%
     Events.broadcast_event(:encoding_started, %{
