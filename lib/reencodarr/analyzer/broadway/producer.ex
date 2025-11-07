@@ -23,15 +23,14 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   def init(_opts) do
     # Poll every 2 seconds to check for new work
     schedule_poll()
-    {:producer, %{}}
+    {:producer, %{pending_demand: 0}}
   end
 
   @impl GenStage
   def handle_demand(demand, state) when demand > 0 do
-    # Fetch up to 5 videos for batch processing
-    videos = Media.get_videos_needing_analysis(min(demand, 5))
-    Logger.debug("Analyzer: handle_demand(#{demand}) -> #{length(videos)} videos")
-    {:noreply, videos, state}
+    # Accumulate demand and fetch videos
+    new_demand = state.pending_demand + demand
+    dispatch(new_demand, state)
   end
 
   @impl GenStage
@@ -40,21 +39,27 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
   @impl GenStage
   def handle_info(:poll, state) do
     schedule_poll()
-    # Check if there's work and manually ask Broadway to pull
-    case Media.count_videos_needing_analysis() do
-      0 ->
-        {:noreply, [], state}
-
-      _count ->
-        # There's work available - return one video to wake up Broadway
-        videos = Media.get_videos_needing_analysis(1)
-        Logger.debug("Analyzer: poll wakeup -> #{length(videos)} videos")
-        {:noreply, videos, state}
-    end
+    # If there's pending demand, try to fulfill it
+    # This wakes up Broadway when new work appears
+    dispatch(state.pending_demand, state)
   end
 
   @impl GenStage
   def handle_info(_msg, state), do: {:noreply, [], state}
+
+  defp dispatch(demand, state) when demand > 0 do
+    # Fetch up to 5 videos for batch processing
+    videos = Media.get_videos_needing_analysis(min(demand, 5))
+    remaining_demand = demand - length(videos)
+
+    Logger.debug(
+      "Analyzer: dispatch(#{demand}) -> #{length(videos)} videos, #{remaining_demand} remaining"
+    )
+
+    {:noreply, videos, %{state | pending_demand: remaining_demand}}
+  end
+
+  defp dispatch(_demand, state), do: {:noreply, [], state}
 
   defp schedule_poll do
     Process.send_after(self(), :poll, 2000)

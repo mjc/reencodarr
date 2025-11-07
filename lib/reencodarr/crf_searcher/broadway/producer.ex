@@ -18,39 +18,38 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   def init(_opts) do
     # Poll every 2 seconds to check for new work
     schedule_poll()
-    {:producer, %{}}
+    {:producer, %{pending_demand: 0}}
   end
 
   @impl GenStage
-  def handle_demand(_demand, state) do
-    dispatch(state)
+  def handle_demand(demand, state) do
+    new_demand = state.pending_demand + demand
+    dispatch(new_demand, state)
   end
 
   @impl GenStage
   def handle_info(:poll, state) do
     schedule_poll()
-    # Check if there's work and CrfSearch is available, wake up Broadway if so
-    if CrfSearch.available?() do
-      case Media.get_videos_for_crf_search(1) do
-        [] -> {:noreply, [], state}
-        videos -> {:noreply, videos, state}
-      end
-    else
-      {:noreply, [], state}
-    end
+    # If there's pending demand, try to fulfill it
+    dispatch(state.pending_demand, state)
   end
 
   @impl GenStage
   def handle_info(_msg, state), do: {:noreply, [], state}
 
-  defp dispatch(state) do
-    if CrfSearch.available?() do
-      videos = Media.get_videos_for_crf_search(1)
-      {:noreply, videos, state}
-    else
-      {:noreply, [], state}
-    end
+  defp dispatch(demand, state) when demand > 0 do
+    videos =
+      if CrfSearch.available?() do
+        Media.get_videos_for_crf_search(1)
+      else
+        []
+      end
+
+    remaining_demand = demand - length(videos)
+    {:noreply, videos, %{state | pending_demand: remaining_demand}}
   end
+
+  defp dispatch(_demand, state), do: {:noreply, [], state}
 
   defp schedule_poll do
     Process.send_after(self(), :poll, 2000)

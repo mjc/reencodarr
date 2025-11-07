@@ -13,122 +13,88 @@ jobs:
   build:
     name: Build and test
     runs-on: ubuntu-latest
-    container:
-      image: alpine:3.21
     
     env:
       MIX_ENV: test
 
     steps:
-    - name: Install system dependencies and FFmpeg
-      run: |
-        # Add community repository for 3.21 packages
-        echo "https://dl-cdn.alpinelinux.org/alpine/v3.21/community" >> /etc/apk/repositories
-        apk update
-        
-        # Install basic system dependencies including GNU tar for GitHub Actions caching
-        apk add --no-cache \
-          git \
-          bash \
-          curl \
-          build-base \
-          openssl-dev \
-          ncurses-dev \
-          zlib-dev \
-          mediainfo \
-          cmake \
-          make \
-          gzip \
-          tar
-        
-        # Verify tar installation for GitHub Actions caching compatibility
-        # GitHub Actions cache requires POSIX-compliant tar
-        which tar && tar --version | head -1
-        
-        # Install FFmpeg with essential codec libraries (minimal set to avoid conflicts)
-        apk add --no-cache \
-          ffmpeg \
-          x264-libs \
-          x265-libs \
-          svt-av1
-
-    - name: Install Erlang and Elixir
-      run: |
-        # Install Erlang 27 and Elixir 1.19 from Alpine 3.21 (should be available in community repo)
-        apk add --no-cache \
-          erlang \
-          elixir
-
     - uses: actions/checkout@v4
     
-    - name: Cache rustup and cargo installation
+    - name: Set up Elixir
+      uses: erlef/setup-beam@v1
+      with:
+        elixir-version: '1.19.2'
+        otp-version: '28.0'
+        version-type: 'strict'
+      id: beam
+    
+    - name: Restore PLT cache
       uses: actions/cache@v4
+      id: plt-cache
+      with:
+        path: priv/plts
+        key: ${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-plt-${{ hashFiles('**/mix.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-plt-
+    
+    - name: Install system dependencies and FFmpeg
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          mediainfo \
+          ffmpeg \
+          build-essential
+    
+    - name: Cache Rust toolchain
+      uses: actions/cache@v4
+      id: rust-toolchain-cache
       with:
         path: |
           ~/.rustup
           ~/.cargo/registry/index
           ~/.cargo/registry/cache
-          ~/.cargo/git
-        key: ${{ runner.os }}-alpine-rust-${{ hashFiles('**/Cargo.lock') }}-v1
+          ~/.cargo/git/db
+        key: ${{ runner.os }}-rust-toolchain-v3
         restore-keys: |
-          ${{ runner.os }}-alpine-rust-
+          ${{ runner.os }}-rust-toolchain-
     
     - name: Cache ab-av1 binary
       uses: actions/cache@v4
       id: ab-av1-cache
       with:
         path: ~/.cargo/bin/ab-av1
-        key: ${{ runner.os }}-alpine-ab-av1-${{ hashFiles('~/.cargo/bin/ab-av1') }}-v1
+        key: ${{ runner.os }}-ab-av1-binary-v3
         restore-keys: |
-          ${{ runner.os }}-alpine-ab-av1-
+          ${{ runner.os }}-ab-av1-binary-
+
+    - name: Install Rust toolchain
+      if: steps.rust-toolchain-cache.outputs.cache-hit != 'true'
+      run: |
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
 
     - name: Install ab-av1
       if: steps.ab-av1-cache.outputs.cache-hit != 'true'
       run: |
-        # Install rustup to get latest stable Rust (Alpine's is too old)
-        if [ ! -f ~/.cargo/env ]; then
-          apk add --no-cache curl
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        fi
         source ~/.cargo/env
-        # Add cargo to PATH for this and future steps
-        echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-        # Install latest stable ab-av1 with newer Rust toolchain
-        cargo install ab-av1
+        cargo install ab-av1 --locked
 
     - name: Setup cargo PATH
       run: |
         # Ensure cargo is available in PATH for subsequent steps
         echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        source ~/.cargo/env || true
     
-    - name: Cache Mix dependencies
+    - name: Cache Mix dependencies and build
       uses: actions/cache@v4
+      id: mix-cache
       with:
         path: |
           deps
-          _build/test/lib
-        key: ${{ runner.os }}-alpine-mix-${{ hashFiles('mix.lock') }}
+          _build
+        key: ${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-mix-${{ hashFiles('**/mix.lock') }}-${{ hashFiles('lib/**/*.ex', 'config/**/*.exs') }}
         restore-keys: |
-          ${{ runner.os }}-alpine-mix-
-    
-    - name: Cache compiled dependencies
-      uses: actions/cache@v4
-      with:
-        path: _build
-        key: ${{ runner.os }}-alpine-build-${{ hashFiles('mix.lock') }}-${{ hashFiles('lib/**/*.ex', 'test/**/*.exs', 'config/**/*.exs') }}
-        restore-keys: |
-          ${{ runner.os }}-alpine-build-${{ hashFiles('mix.lock') }}-
-          ${{ runner.os }}-alpine-build-
-    
-    - name: Cache native dependencies
-      uses: actions/cache@v4
-      with:
-        path: |
-          deps/*/priv
-          deps/*/_build
-        key: ${{ runner.os }}-alpine-native-${{ hashFiles('mix.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-alpine-native-
+          ${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-mix-${{ hashFiles('**/mix.lock') }}-
+          ${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-mix-
 
     - name: Verify environment
       run: |
@@ -139,9 +105,11 @@ jobs:
         echo 'ffmpeg version:' && ffmpeg -version | head -1
     
     - name: Install dependencies
+      if: steps.mix-cache.outputs.cache-hit != 'true'
       run: mix deps.get
     
     - name: Compile dependencies  
+      if: steps.mix-cache.outputs.cache-hit != 'true'
       run: mix deps.compile
     
     - name: Compile project

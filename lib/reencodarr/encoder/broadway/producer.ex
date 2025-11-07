@@ -24,44 +24,43 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   def init(_opts) do
     # Poll every 2 seconds to check for new work
     schedule_poll()
-    {:producer, %{}}
+    {:producer, %{pending_demand: 0}}
   end
 
   @impl GenStage
-  def handle_demand(_demand, state) do
-    dispatch(state)
+  def handle_demand(demand, state) do
+    new_demand = state.pending_demand + demand
+    dispatch(new_demand, state)
   end
 
   @impl GenStage
   def handle_info(:poll, state) do
     schedule_poll()
-    # Check if there's work and Encode is available, wake up Broadway if so
-    if Encode.available?() do
-      case Media.get_next_for_encoding(1) do
-        %Reencodarr.Media.Vmaf{} = vmaf -> {:noreply, [vmaf], state}
-        [%Reencodarr.Media.Vmaf{} = vmaf] -> {:noreply, [vmaf], state}
-        _ -> {:noreply, [], state}
-      end
-    else
-      {:noreply, [], state}
-    end
+    # If there's pending demand, try to fulfill it
+    dispatch(state.pending_demand, state)
   end
 
   @impl GenStage
   def handle_info(_msg, state), do: {:noreply, [], state}
 
-  defp dispatch(state) do
-    if Encode.available?() do
-      case Media.get_next_for_encoding(1) do
-        %Reencodarr.Media.Vmaf{} = vmaf -> {:noreply, [vmaf], state}
-        [%Reencodarr.Media.Vmaf{} = vmaf] -> {:noreply, [vmaf], state}
-        [] -> {:noreply, [], state}
-        nil -> {:noreply, [], state}
+  defp dispatch(demand, state) when demand > 0 do
+    vmaf_list =
+      if Encode.available?() do
+        case Media.get_next_for_encoding(1) do
+          %Reencodarr.Media.Vmaf{} = vmaf -> [vmaf]
+          [%Reencodarr.Media.Vmaf{} = vmaf] -> [vmaf]
+          [] -> []
+          nil -> []
+        end
+      else
+        []
       end
-    else
-      {:noreply, [], state}
-    end
+
+    remaining_demand = demand - length(vmaf_list)
+    {:noreply, vmaf_list, %{state | pending_demand: remaining_demand}}
   end
+
+  defp dispatch(_demand, state), do: {:noreply, [], state}
 
   defp schedule_poll do
     Process.send_after(self(), :poll, 2000)

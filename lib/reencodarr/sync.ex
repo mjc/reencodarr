@@ -6,9 +6,10 @@ defmodule Reencodarr.Sync do
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.{Media, Repo, Services}
+
   alias Reencodarr.Media.{MediaInfoExtractor, VideoFileInfo, VideoUpsert}
   alias Reencodarr.Media.Video.MediaInfoConverter
-  alias Reencodarr.{Media, Repo, Services}
 
   # Public API
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
