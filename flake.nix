@@ -14,17 +14,10 @@
       system: let
         pkgs = import nixpkgs {inherit system;};
         lib = pkgs.lib;
-        # Use latest OTP 28.1 with Elixir 1.19.0-rc.0 for cutting-edge features
+        # Use latest stable OTP 28 with Elixir 1.19
         erlang = pkgs.erlang_28;
         beamPackages = pkgs.beam.packagesWith erlang;
-        elixir = beamPackages.elixir.override {
-          erlang = erlang;
-          version = "1.19.0-rc.0";
-          src = pkgs.fetchurl {
-            url = "https://github.com/elixir-lang/elixir/archive/refs/tags/v${elixir.version}.tar.gz";
-            sha256 = "sha256-YvkDCI578h4SmtEA5XP2XQNjixDGIHdwIEuOa50Uh5E=";
-          };
-        };
+        elixir = beamPackages.elixir_1_19;
       in {
         # Docker image for the application
         packages.dockerImage = pkgs.dockerTools.buildLayeredImage {
@@ -77,7 +70,6 @@
               pkgs.curl
               pkgs.docker-compose
               pkgs.gnupg
-              pkgs.pinentry
               pkgs.pinentry-curses
               # Video processing tools for CI/dev
               pkgs.ab-av1
