@@ -11,6 +11,7 @@ defmodule Reencodarr.Media.VideoQueries do
 
   @doc """
   Gets videos ready for CRF search (state: analyzed).
+  Excludes videos already in crf_searching state to avoid showing currently processing videos.
   """
   @spec videos_for_crf_search(integer()) :: [Video.t()]
   def videos_for_crf_search(limit \\ 10) do
@@ -37,6 +38,7 @@ defmodule Reencodarr.Media.VideoQueries do
 
   @doc """
   Counts the total number of videos ready for CRF search.
+  Excludes videos already in crf_searching state.
   """
   @spec count_videos_for_crf_search() :: integer()
   def count_videos_for_crf_search do
