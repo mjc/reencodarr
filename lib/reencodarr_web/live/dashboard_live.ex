@@ -11,7 +11,8 @@ defmodule ReencodarrWeb.DashboardLive do
   alias Reencodarr.CrfSearcher.Broadway, as: CrfSearcherBroadway
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Formatters
-  alias Reencodarr.Media.VideoQueries
+  alias Reencodarr.Media.{Video, VideoQueries, Vmaf}
+  alias Reencodarr.Repo
 
   require Logger
 
@@ -30,8 +31,9 @@ defmodule ReencodarrWeb.DashboardLive do
         encoding_progress: :none,
         analyzer_progress: :none,
         analyzer_throughput: nil,
-        queue_counts: get_queue_counts(),
-        queue_items: get_queue_items(),
+        # Start with empty placeholders and fetch async to avoid blocking LiveView
+        queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
+        queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
         service_status: get_optimistic_service_status(),
         syncing: false,
         sync_progress: 0,
@@ -50,6 +52,8 @@ defmodule ReencodarrWeb.DashboardLive do
       Process.send_after(self(), :request_status, 100)
       # Start periodic updates for queue counts and service status
       schedule_periodic_update()
+      # Fetch the initial queue counts/items asynchronously so mount returns quickly
+      request_dashboard_queue_async()
       # Request throughput async
       request_analyzer_throughput()
     end
@@ -280,10 +284,16 @@ defmodule ReencodarrWeb.DashboardLive do
     # Schedule next update (recursive scheduling)
     schedule_periodic_update()
 
-    socket
-    |> assign(:queue_counts, get_queue_counts())
-    |> assign(:queue_items, get_queue_items())
-    |> then(&{:noreply, &1})
+    # Fetch queue data asynchronously to avoid DB checkout blocking the LiveView process
+    request_dashboard_queue_async()
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  # Receive asynchronous dashboard queue data and assign it
+  def handle_info({:dashboard_queue_update, queue_counts, queue_items}, socket) do
+    {:noreply, assign(socket, queue_counts: queue_counts, queue_items: queue_items)}
   end
 
   @impl true
@@ -646,20 +656,62 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   # Helper functions for real data
+  # Dashboard polls regularly, so use a short timeout (2s) to avoid blocking
+  # If SQLite is busy, we'll skip this update and get data on next poll
+  @dashboard_query_timeout 2_000
+
   defp get_queue_counts do
+    import Ecto.Query
+
     %{
-      analyzer: Reencodarr.Media.count_videos_needing_analysis(),
-      crf_searcher: Reencodarr.Media.count_videos_for_crf_search(),
-      encoder: Reencodarr.Media.encoding_queue_count()
+      analyzer:
+        Repo.one(
+          from(v in Video, where: v.state == :needs_analysis, select: count()),
+          timeout: @dashboard_query_timeout
+        ),
+      crf_searcher: count_videos_for_crf_search_with_timeout(),
+      encoder:
+        Repo.one(
+          from(v in Vmaf,
+            join: vid in assoc(v, :video),
+            where: v.chosen == true and vid.state == :crf_searched,
+            select: count(v.id)
+          ),
+          timeout: @dashboard_query_timeout
+        )
     }
+  end
+
+  # Inline CRF search count to apply timeout
+  defp count_videos_for_crf_search_with_timeout do
+    import Ecto.Query
+
+    Repo.one(
+      from(v in Video,
+        where:
+          v.state == :analyzed and
+            not fragment(
+              "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
+              v.video_codecs,
+              "av1"
+            ) and
+            not fragment(
+              "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
+              v.audio_codecs,
+              "opus"
+            ),
+        select: count()
+      ),
+      timeout: @dashboard_query_timeout
+    )
   end
 
   # Get detailed queue items for each pipeline
   defp get_queue_items do
     %{
-      analyzer: VideoQueries.videos_needing_analysis(5),
-      crf_searcher: VideoQueries.videos_for_crf_search(5),
-      encoder: VideoQueries.videos_ready_for_encoding(5)
+      analyzer: VideoQueries.videos_needing_analysis(5, timeout: @dashboard_query_timeout),
+      crf_searcher: VideoQueries.videos_for_crf_search(5, timeout: @dashboard_query_timeout),
+      encoder: VideoQueries.videos_ready_for_encoding(5, timeout: @dashboard_query_timeout)
     }
   end
 
@@ -726,6 +778,25 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp schedule_periodic_update do
     Process.send_after(self(), :update_dashboard_data, 5_000)
+  end
+
+  # Fetch queue counts and items in a background task and send results back to the LiveView
+  defp request_dashboard_queue_async do
+    caller = self()
+
+    Task.start(fn ->
+      # Use short timeout for dashboard queries since it polls regularly
+      # If DB is busy, we'll just skip this update and get data on next poll
+      try do
+        counts = get_queue_counts()
+        items = get_queue_items()
+        send(caller, {:dashboard_queue_update, counts, items})
+      catch
+        :exit, {:timeout, _} ->
+          # Silently ignore timeout - next poll will retry
+          :ok
+      end
+    end)
   end
 
   # Helper functions to reduce duplication
