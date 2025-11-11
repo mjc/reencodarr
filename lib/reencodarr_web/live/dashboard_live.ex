@@ -665,54 +665,87 @@ defmodule ReencodarrWeb.DashboardLive do
 
     %{
       analyzer:
-        Repo.one(
-          from(v in Video, where: v.state == :needs_analysis, select: count()),
-          timeout: @dashboard_query_timeout
-        ),
+        safe_query(fn ->
+          Repo.one(
+            from(v in Video, where: v.state == :needs_analysis, select: count()),
+            timeout: @dashboard_query_timeout
+          )
+        end),
       crf_searcher: count_videos_for_crf_search_with_timeout(),
       encoder:
-        Repo.one(
-          from(v in Vmaf,
-            join: vid in assoc(v, :video),
-            where: v.chosen == true and vid.state == :crf_searched,
-            select: count(v.id)
-          ),
-          timeout: @dashboard_query_timeout
-        )
+        safe_query(fn ->
+          Repo.one(
+            from(v in Vmaf,
+              join: vid in assoc(v, :video),
+              where: v.chosen == true and vid.state == :crf_searched,
+              select: count(v.id)
+            ),
+            timeout: @dashboard_query_timeout
+          )
+        end)
     }
+  end
+
+  # Wrapper to safely execute queries and return 0 on timeout
+  defp safe_query(fun) do
+    fun.()
+  rescue
+    DBConnection.ConnectionError -> 0
+  catch
+    :exit, {:timeout, _} -> 0
   end
 
   # Inline CRF search count to apply timeout
   defp count_videos_for_crf_search_with_timeout do
     import Ecto.Query
 
-    Repo.one(
-      from(v in Video,
-        where:
-          v.state == :analyzed and
-            not fragment(
-              "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
-              v.video_codecs,
-              "av1"
-            ) and
-            not fragment(
-              "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
-              v.audio_codecs,
-              "opus"
-            ),
-        select: count()
-      ),
-      timeout: @dashboard_query_timeout
-    )
+    safe_query(fn ->
+      Repo.one(
+        from(v in Video,
+          where:
+            v.state == :analyzed and
+              not fragment(
+                "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
+                v.video_codecs,
+                "av1"
+              ) and
+              not fragment(
+                "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
+                v.audio_codecs,
+                "opus"
+              ),
+          select: count()
+        ),
+        timeout: @dashboard_query_timeout
+      )
+    end)
   end
 
   # Get detailed queue items for each pipeline
   defp get_queue_items do
     %{
-      analyzer: VideoQueries.videos_needing_analysis(5, timeout: @dashboard_query_timeout),
-      crf_searcher: VideoQueries.videos_for_crf_search(5, timeout: @dashboard_query_timeout),
-      encoder: VideoQueries.videos_ready_for_encoding(5, timeout: @dashboard_query_timeout)
+      analyzer:
+        safe_query_list(fn ->
+          VideoQueries.videos_needing_analysis(5, timeout: @dashboard_query_timeout)
+        end),
+      crf_searcher:
+        safe_query_list(fn ->
+          VideoQueries.videos_for_crf_search(5, timeout: @dashboard_query_timeout)
+        end),
+      encoder:
+        safe_query_list(fn ->
+          VideoQueries.videos_ready_for_encoding(5, timeout: @dashboard_query_timeout)
+        end)
     }
+  end
+
+  # Wrapper for list queries - return empty list on timeout
+  defp safe_query_list(fun) do
+    fun.()
+  rescue
+    DBConnection.ConnectionError -> []
+  catch
+    :exit, {:timeout, _} -> []
   end
 
   # Simple service status - just check if processes are alive
@@ -786,16 +819,10 @@ defmodule ReencodarrWeb.DashboardLive do
 
     Task.start(fn ->
       # Use short timeout for dashboard queries since it polls regularly
-      # If DB is busy, we'll just skip this update and get data on next poll
-      try do
-        counts = get_queue_counts()
-        items = get_queue_items()
-        send(caller, {:dashboard_queue_update, counts, items})
-      catch
-        :exit, {:timeout, _} ->
-          # Silently ignore timeout - next poll will retry
-          :ok
-      end
+      # If DB is busy, safe_query/safe_query_list will return defaults (0 or [])
+      counts = get_queue_counts()
+      items = get_queue_items()
+      send(caller, {:dashboard_queue_update, counts, items})
     end)
   end
 

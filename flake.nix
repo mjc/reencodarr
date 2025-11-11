@@ -14,8 +14,8 @@
       system: let
         pkgs = import nixpkgs {inherit system;};
         lib = pkgs.lib;
-        # Use latest stable OTP 28 with Elixir 1.19
-        erlang = pkgs.erlang_28;
+        # Use OTP 27 with Elixir 1.19 (OTP 28 has segfault issues)
+        erlang = pkgs.erlang_27;
         beamPackages = pkgs.beam.packagesWith erlang;
         elixir = beamPackages.elixir_1_19;
       in {
