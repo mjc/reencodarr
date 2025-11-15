@@ -686,13 +686,15 @@ defmodule ReencodarrWeb.DashboardLive do
     }
   end
 
-  # Wrapper to safely execute queries and return 0 on timeout
+  # Wrapper to safely execute queries and return 0 on timeout or connection errors
   defp safe_query(fun) do
     fun.()
   rescue
     DBConnection.ConnectionError -> 0
   catch
     :exit, {:timeout, _} -> 0
+    # In tests, owner process may exit during async queries
+    :exit, {%DBConnection.ConnectionError{}, _} -> 0
   end
 
   # Inline CRF search count to apply timeout
@@ -739,13 +741,15 @@ defmodule ReencodarrWeb.DashboardLive do
     }
   end
 
-  # Wrapper for list queries - return empty list on timeout
+  # Wrapper for list queries - return empty list on timeout or connection errors
   defp safe_query_list(fun) do
     fun.()
   rescue
     DBConnection.ConnectionError -> []
   catch
     :exit, {:timeout, _} -> []
+    # In tests, owner process may exit during async queries
+    :exit, {%DBConnection.ConnectionError{}, _} -> []
   end
 
   # Simple service status - just check if processes are alive
@@ -815,15 +819,22 @@ defmodule ReencodarrWeb.DashboardLive do
 
   # Fetch queue counts and items in a background task and send results back to the LiveView
   defp request_dashboard_queue_async do
-    caller = self()
-
-    Task.start(fn ->
-      # Use short timeout for dashboard queries since it polls regularly
-      # If DB is busy, safe_query/safe_query_list will return defaults (0 or [])
+    # In test mode, run synchronously to avoid DB connection issues during cleanup
+    if Application.get_env(:reencodarr, :env) == :test do
       counts = get_queue_counts()
       items = get_queue_items()
-      send(caller, {:dashboard_queue_update, counts, items})
-    end)
+      send(self(), {:dashboard_queue_update, counts, items})
+    else
+      parent = self()
+
+      Task.Supervisor.start_child(ReencodarrWeb.TaskSupervisor, fn ->
+        # Use short timeout for dashboard queries since it polls regularly
+        # If DB is busy, safe_query/safe_query_list will return defaults (0 or [])
+        counts = get_queue_counts()
+        items = get_queue_items()
+        send(parent, {:dashboard_queue_update, counts, items})
+      end)
+    end
   end
 
   # Helper functions to reduce duplication

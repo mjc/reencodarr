@@ -34,8 +34,10 @@ defmodule Reencodarr.Application do
         id: :worker_supervisor,
         start: {Supervisor, :start_link, [worker_children(), [strategy: :one_for_one]]}
       },
-      # Start the TaskSupervisor
-      {Task.Supervisor, name: Reencodarr.TaskSupervisor}
+      # Start the TaskSupervisor for general background tasks
+      {Task.Supervisor, name: Reencodarr.TaskSupervisor},
+      # Start the TaskSupervisor for web-related background tasks
+      {Task.Supervisor, name: ReencodarrWeb.TaskSupervisor}
     ]
 
     base_children

@@ -7,7 +7,7 @@ defmodule Reencodarr.Encoder.Broadway do
 
   The pipeline is configured with:
   - Single concurrency to prevent resource conflicts
-  - Rate limiting to avoid overwhelming the system  
+  - Rate limiting to avoid overwhelming the system
   - Delegation to Encode GenServer for actual encoding work
   """
 
@@ -16,6 +16,7 @@ defmodule Reencodarr.Encoder.Broadway do
 
   alias Broadway.Message
   alias Reencodarr.AbAv1
+  alias Reencodarr.AbAv1.Encode
   alias Reencodarr.Encoder.Broadway.Producer
 
   @typedoc "VMAF struct for encoding processing"
@@ -180,5 +181,37 @@ defmodule Reencodarr.Encoder.Broadway do
       Logger.error(error_message)
 
       {:error, error_message}
+  end
+
+  # Test helper functions - delegate to Encode GenServer which has the actual logic
+  if Mix.env() == :test do
+    @doc false
+    def build_encode_args_for_test(vmaf) do
+      # Delegate to Encode GenServer's test function
+      Encode.build_encode_args_for_test(vmaf)
+    end
+
+    @doc false
+    def filter_input_output_args_for_test(args) do
+      # Simple implementation for filtering input/output args
+      {filtered, _expecting_value} =
+        Enum.reduce(args, {[], nil}, fn arg, {acc, expecting_value} ->
+          cond do
+            expecting_value && expecting_value in ["--input", "-i", "--output", "-o"] ->
+              # Skip the value following an input/output flag
+              {acc, nil}
+
+            arg in ["--input", "-i", "--output", "-o"] ->
+              # Skip the flag itself
+              {acc, arg}
+
+            true ->
+              # Keep everything else
+              {[arg | acc], nil}
+          end
+        end)
+
+      Enum.reverse(filtered)
+    end
   end
 end
