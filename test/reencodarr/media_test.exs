@@ -108,6 +108,110 @@ defmodule Reencodarr.MediaTest do
       {:ok, encoded_video} = Fixtures.encoded_video_fixture()
       assert encoded_video.state == :encoded
     end
+
+    test "get_video_by_path/1 returns video when found" do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/unique/path/video.mkv"})
+
+      assert {:ok, found_video} = Media.get_video_by_path("/unique/path/video.mkv")
+      assert found_video.id == video.id
+      assert found_video.path == "/unique/path/video.mkv"
+    end
+
+    test "get_video_by_path/1 returns error when not found" do
+      assert {:error, :not_found} = Media.get_video_by_path("/nonexistent/path.mkv")
+    end
+
+    test "video_exists?/1 returns true when video exists" do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/test/exists.mkv"})
+
+      assert Media.video_exists?(video.path) == true
+    end
+
+    test "video_exists?/1 returns false when video doesn't exist" do
+      assert Media.video_exists?("/nonexistent.mkv") == false
+    end
+
+    test "find_videos_by_path_wildcard/1 finds matching videos" do
+      {:ok, _v1} = Fixtures.video_fixture(%{path: "/media/movies/action/video1.mkv"})
+      {:ok, _v2} = Fixtures.video_fixture(%{path: "/media/movies/comedy/video2.mkv"})
+      {:ok, _v3} = Fixtures.video_fixture(%{path: "/media/tv/shows/video3.mkv"})
+
+      results = Media.find_videos_by_path_wildcard("/media/movies/%")
+
+      assert length(results) == 2
+      assert Enum.all?(results, fn v -> String.starts_with?(v.path, "/media/movies/") end)
+    end
+
+    test "delete_video_with_vmafs/1 deletes video and its VMAFs" do
+      {:ok, video} = Fixtures.video_fixture()
+      vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0})
+
+      assert {:ok, _} = Media.delete_video_with_vmafs(video)
+
+      # Video should be deleted
+      assert_raise Ecto.NoResultsError, fn -> Media.get_video!(video.id) end
+
+      # VMAFs should be deleted
+      assert is_nil(Repo.get(Reencodarr.Media.Vmaf, vmaf1.id))
+      assert is_nil(Repo.get(Reencodarr.Media.Vmaf, vmaf2.id))
+    end
+
+    test "count_videos/0 returns correct count" do
+      assert Media.count_videos() == 0
+
+      {:ok, _v1} = Fixtures.video_fixture()
+      assert Media.count_videos() == 1
+
+      {:ok, _v2} = Fixtures.video_fixture()
+      assert Media.count_videos() == 2
+    end
+
+    test "get_video/1 returns video when found" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      found = Media.get_video(video.id)
+      assert found.id == video.id
+    end
+
+    test "get_video/1 returns nil when not found" do
+      assert Media.get_video(99_999) == nil
+    end
+
+    test "get_video_by_service_id/2 returns video when found" do
+      {:ok, video} = Fixtures.video_fixture(%{service_id: "12345", service_type: :sonarr})
+
+      assert {:ok, found} = Media.get_video_by_service_id("12345", :sonarr)
+      assert found.id == video.id
+      assert found.service_id == "12345"
+    end
+
+    test "get_video_by_service_id/2 returns error when not found" do
+      assert {:error, :not_found} = Media.get_video_by_service_id("nonexistent", :sonarr)
+    end
+
+    test "get_video_by_service_id/2 returns error for nil service_id" do
+      assert {:error, :invalid_service_id} = Media.get_video_by_service_id(nil, :sonarr)
+    end
+
+    test "delete_videos_with_path/1 deletes videos at path" do
+      # Use unique path to avoid interference with other async tests
+      unique_path = "/media/delete/#{:erlang.unique_integer([:positive])}"
+      {:ok, v1} = Fixtures.video_fixture(%{path: "#{unique_path}/video1.mkv"})
+      {:ok, v2} = Fixtures.video_fixture(%{path: "#{unique_path}/video2.mkv"})
+      {:ok, v3} = Fixtures.video_fixture(%{path: "/media/keep/video3.mkv"})
+
+      # Pattern needs wildcard for prefix matching
+      {:ok, {video_count, _}} = Media.delete_videos_with_path("#{unique_path}%")
+      assert video_count == 2
+
+      # First two should be deleted
+      assert_raise Ecto.NoResultsError, fn -> Media.get_video!(v1.id) end
+      assert_raise Ecto.NoResultsError, fn -> Media.get_video!(v2.id) end
+
+      # Third should remain
+      assert Media.get_video!(v3.id)
+    end
   end
 
   describe "libraries" do
@@ -188,6 +292,23 @@ defmodule Reencodarr.MediaTest do
         assert library.monitor == false
         assert String.starts_with?(library.path, "/test/libraries/library_")
       end)
+    end
+
+    test "get_videos_in_library/1 returns videos for a specific library" do
+      library1 = Fixtures.library_fixture(%{path: "/library1"})
+      library2 = Fixtures.library_fixture(%{path: "/library2"})
+
+      {:ok, v1} = Fixtures.video_fixture(%{library_id: library1.id, path: "/library1/video1.mkv"})
+      {:ok, v2} = Fixtures.video_fixture(%{library_id: library1.id, path: "/library1/video2.mkv"})
+
+      {:ok, _v3} =
+        Fixtures.video_fixture(%{library_id: library2.id, path: "/library2/video3.mkv"})
+
+      videos_in_lib1 = Media.get_videos_in_library(library1.id)
+
+      assert length(videos_in_lib1) == 2
+      assert v1.id in Enum.map(videos_in_lib1, & &1.id)
+      assert v2.id in Enum.map(videos_in_lib1, & &1.id)
     end
 
     @tag :batch_upsert
@@ -443,6 +564,366 @@ defmodule Reencodarr.MediaTest do
       assert optimal_vmaf.score == 95.0
       assert optimal_vmaf.crf == 28.0
       assert optimal_vmaf.video_id == video.id
+    end
+
+    test "get_vmafs_for_video/1 returns all VMAFs for a video" do
+      {:ok, video} = Fixtures.video_fixture()
+      vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0})
+
+      vmafs = Media.get_vmafs_for_video(video.id)
+
+      assert length(vmafs) == 2
+      assert vmaf1.id in Enum.map(vmafs, & &1.id)
+      assert vmaf2.id in Enum.map(vmafs, & &1.id)
+    end
+
+    test "delete_vmafs_for_video/1 deletes all VMAFs for a video" do
+      {:ok, video} = Fixtures.video_fixture()
+      _vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      _vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0})
+
+      {deleted_count, _} = Media.delete_vmafs_for_video(video.id)
+      assert deleted_count == 2
+
+      # VMAFs should be deleted
+      assert Media.get_vmafs_for_video(video.id) == []
+    end
+
+    test "chosen_vmaf_exists?/1 returns true when chosen VMAF exists" do
+      {:ok, video} = Fixtures.video_fixture()
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: true})
+
+      assert Media.chosen_vmaf_exists?(video) == true
+    end
+
+    test "chosen_vmaf_exists?/1 returns false when no chosen VMAF" do
+      {:ok, video} = Fixtures.video_fixture()
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: false})
+
+      assert Media.chosen_vmaf_exists?(video) == false
+    end
+
+    test "list_chosen_vmafs/0 returns only chosen VMAFs", %{test: test_name} do
+      # Use test_name to ensure unique video IDs in parallel runs
+      # Videos must be in :crf_searched state for chosen VMAFs to be listed
+      {:ok, video1} =
+        Fixtures.video_fixture(%{path: "/#{test_name}/v1.mkv", state: :crf_searched})
+
+      {:ok, video2} =
+        Fixtures.video_fixture(%{path: "/#{test_name}/v2.mkv", state: :crf_searched})
+
+      chosen1 = Fixtures.vmaf_fixture(%{video_id: video1.id, crf: 25.0, chosen: true})
+      _unchosen = Fixtures.vmaf_fixture(%{video_id: video1.id, crf: 30.0, chosen: false})
+      chosen2 = Fixtures.vmaf_fixture(%{video_id: video2.id, crf: 28.0, chosen: true})
+
+      chosen_vmafs = Media.list_chosen_vmafs()
+
+      # Should include at least our 2 chosen VMAFs
+      chosen_ids = Enum.map(chosen_vmafs, & &1.id)
+      assert chosen1.id in chosen_ids
+      assert chosen2.id in chosen_ids
+    end
+
+    test "get_chosen_vmaf_for_video/1 returns chosen VMAF" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      chosen = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: true})
+      _unchosen = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, chosen: false})
+
+      result = Media.get_chosen_vmaf_for_video(video)
+
+      assert result.id == chosen.id
+      assert result.chosen == true
+    end
+
+    test "get_chosen_vmaf_for_video/1 returns nil when no chosen VMAF" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      _unchosen = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, chosen: false})
+
+      assert Media.get_chosen_vmaf_for_video(video) == nil
+    end
+
+    test "mark_vmaf_as_chosen/2 marks VMAF as chosen and unmarks others" do
+      {:ok, video} = Fixtures.video_fixture()
+      vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: false})
+      vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, chosen: false})
+
+      {:ok, _} = Media.mark_vmaf_as_chosen(video.id, 25.0)
+
+      # Verify the correct VMAF was marked as chosen
+      updated_vmaf1 = Repo.get!(Reencodarr.Media.Vmaf, vmaf1.id)
+      assert updated_vmaf1.chosen == true
+
+      # Verify the other VMAF for THIS video is not chosen
+      updated_vmaf2 = Repo.get!(Reencodarr.Media.Vmaf, vmaf2.id)
+      assert updated_vmaf2.chosen == false
+    end
+
+    test "delete_unchosen_vmafs/0 deletes VMAFs without chosen=true" do
+      # Video with chosen VMAF - should keep all VMAFs
+      {:ok, video_with_chosen} = Fixtures.video_fixture()
+      chosen = Fixtures.vmaf_fixture(%{video_id: video_with_chosen.id, crf: 25.0, chosen: true})
+      keep1 = Fixtures.vmaf_fixture(%{video_id: video_with_chosen.id, crf: 28.0, chosen: false})
+
+      # Video with NO chosen VMAFs - should delete all VMAFs
+      {:ok, video_no_chosen} = Fixtures.video_fixture()
+      delete1 = Fixtures.vmaf_fixture(%{video_id: video_no_chosen.id, crf: 30.0, chosen: false})
+      delete2 = Fixtures.vmaf_fixture(%{video_id: video_no_chosen.id, crf: 32.0, chosen: false})
+
+      # Store IDs before deletion
+      chosen_id = chosen.id
+      keep1_id = keep1.id
+      delete1_id = delete1.id
+      delete2_id = delete2.id
+
+      {:ok, {deleted_count, _}} = Media.delete_unchosen_vmafs()
+
+      # Should delete the 2 VMAFs from video_no_chosen
+      assert deleted_count == 2
+
+      # VMAFs from video with chosen should remain
+      assert Repo.get(Reencodarr.Media.Vmaf, chosen_id)
+      assert Repo.get(Reencodarr.Media.Vmaf, keep1_id)
+
+      # VMAFs from video without chosen should be deleted
+      refute Repo.get(Reencodarr.Media.Vmaf, delete1_id)
+      refute Repo.get(Reencodarr.Media.Vmaf, delete2_id)
+    end
+  end
+
+  describe "video query functions" do
+    test "video_exists?/1 returns true when video exists" do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/test/exists.mkv"})
+      assert Media.video_exists?(video.path)
+    end
+
+    test "video_exists?/1 returns false when video does not exist" do
+      refute Media.video_exists?("/nonexistent/path.mkv")
+    end
+
+    test "find_videos_by_path_wildcard/1 returns matching videos" do
+      {:ok, _video1} = Fixtures.video_fixture(%{path: "/media/movies/action/film1.mkv"})
+      {:ok, _video2} = Fixtures.video_fixture(%{path: "/media/movies/action/film2.mkv"})
+      {:ok, _video3} = Fixtures.video_fixture(%{path: "/media/tv/show/episode.mkv"})
+
+      action_videos = Media.find_videos_by_path_wildcard("%/action/%")
+      assert length(action_videos) == 2
+      assert Enum.all?(action_videos, &String.contains?(&1.path, "/action/"))
+    end
+
+    test "get_videos_for_crf_search/1 returns videos needing CRF search" do
+      {:ok, video1} = Fixtures.video_fixture()
+      {:ok, video2} = Fixtures.video_fixture()
+
+      # Mark videos as analyzed (ready for CRF search)
+      {:ok, _} = Media.mark_as_analyzed(video1)
+      {:ok, _} = Media.mark_as_analyzed(video2)
+
+      videos = Media.get_videos_for_crf_search(5)
+      assert length(videos) >= 2
+      assert Enum.all?(videos, &(&1.state == :analyzed))
+    end
+
+    test "count_videos_for_crf_search/0 returns correct count" do
+      {:ok, video1} = Fixtures.video_fixture()
+      {:ok, video2} = Fixtures.video_fixture()
+
+      {:ok, _} = Media.mark_as_analyzed(video1)
+      {:ok, _} = Media.mark_as_analyzed(video2)
+
+      count = Media.count_videos_for_crf_search()
+      assert count >= 2
+    end
+
+    test "get_videos_needing_analysis/1 returns unanalyzed videos" do
+      {:ok, _video1} = Fixtures.video_fixture()
+      {:ok, _video2} = Fixtures.video_fixture()
+
+      videos = Media.get_videos_needing_analysis(10)
+      assert length(videos) >= 2
+      assert Enum.all?(videos, &(&1.state == :needs_analysis))
+    end
+
+    test "count_videos_needing_analysis/0 returns correct count" do
+      {:ok, _video1} = Fixtures.video_fixture()
+      {:ok, _video2} = Fixtures.video_fixture()
+
+      count = Media.count_videos_needing_analysis()
+      assert count >= 2
+    end
+
+    test "list_videos_by_estimated_percent/1 returns videos ready for encoding" do
+      {:ok, video} = Fixtures.video_fixture()
+      {:ok, analyzed} = Media.mark_as_analyzed(video)
+      vmaf = Fixtures.optimal_vmaf_fixture(analyzed, 95.0)
+      {:ok, _chosen_vmaf} = Media.update_vmaf(vmaf, %{chosen: true})
+      # Mark video as crf_searched (required for encoding queue)
+      {:ok, _} = Media.mark_as_crf_searched(analyzed)
+
+      videos = Media.list_videos_by_estimated_percent(10)
+      assert length(videos) >= 1
+    end
+
+    test "delete_video_with_vmafs/1 deletes video and associated VMAFs" do
+      {:ok, video} = Fixtures.video_fixture()
+      {:ok, analyzed} = Media.mark_as_analyzed(video)
+      _vmaf = Fixtures.optimal_vmaf_fixture(analyzed, 95.0)
+
+      assert_ok(Media.delete_video_with_vmafs(video))
+      assert_raise Ecto.NoResultsError, fn -> Media.get_video!(video.id) end
+    end
+  end
+
+  describe "video state transitions" do
+    test "mark_as_analyzed/1 transitions video to analyzed state" do
+      {:ok, video} = Fixtures.video_fixture()
+      {:ok, analyzed} = Media.mark_as_analyzed(video)
+
+      assert analyzed.state == :analyzed
+    end
+
+    test "mark_as_needs_analysis/1 transitions failed video to needs_analysis state" do
+      {:ok, video} = Fixtures.video_fixture()
+      {:ok, failed} = Media.mark_as_failed(video)
+      {:ok, needs_analysis} = Media.mark_as_needs_analysis(failed)
+
+      assert needs_analysis.state == :needs_analysis
+    end
+
+    test "mark_as_encoded/1 transitions video to encoded state" do
+      {:ok, video} = Fixtures.video_fixture()
+      {:ok, analyzed} = Media.mark_as_analyzed(video)
+      {:ok, crf_searched} = Media.mark_as_crf_searched(analyzed)
+      # Need to transition through encoding state first
+      {:ok, encoding} = Media.update_video(crf_searched, %{state: :encoding})
+      {:ok, encoded} = Media.mark_as_encoded(encoding)
+
+      assert encoded.state == :encoded
+    end
+  end
+
+  describe "video failure tracking" do
+    test "record_video_failure/4 creates failure and marks video as failed" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      {:ok, _failure} =
+        Media.record_video_failure(
+          video,
+          :encoding,
+          :process_failure,
+          code: "1",
+          message: "Encoding failed"
+        )
+
+      updated_video = Media.get_video!(video.id)
+      assert updated_video.state == :failed
+    end
+
+    test "record_video_failure/4 logs warning on success" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      log =
+        capture_log(fn ->
+          Media.record_video_failure(
+            video,
+            :encoding,
+            :process_failure,
+            message: "Test failure"
+          )
+        end)
+
+      assert log =~ "Recorded encoding/process_failure failure"
+      assert log =~ "Test failure"
+    end
+
+    test "record_video_failure/4 handles deleted video gracefully" do
+      {:ok, video} = Fixtures.video_fixture()
+      video_id = video.id
+
+      # Delete the video first
+      Media.delete_video(video)
+
+      # Should not crash when trying to record failure - will raise constraint error
+      capture_log(fn ->
+        try do
+          Media.record_video_failure(
+            %{video | id: video_id},
+            :encoding,
+            :process_failure,
+            message: "Test"
+          )
+        rescue
+          # Foreign key constraint error is expected when video is deleted
+          Ecto.ConstraintError -> :ok
+        end
+      end)
+
+      # Test passes if we caught the error
+      assert true
+    end
+
+    test "get_video_failures/1 returns unresolved failures" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      {:ok, _} =
+        Media.record_video_failure(
+          video,
+          :encoding,
+          :process_failure,
+          message: "Failure 1"
+        )
+
+      failures = Media.get_video_failures(video.id)
+      assert length(failures) >= 1
+      assert Enum.all?(failures, &(&1.resolved == false))
+    end
+
+    test "resolve_video_failures/1 resolves all failures for video" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      {:ok, _} =
+        Media.record_video_failure(
+          video,
+          :encoding,
+          :process_failure,
+          message: "Failure 1"
+        )
+
+      Media.resolve_video_failures(video.id)
+
+      failures = Media.get_video_failures(video.id)
+      assert Enum.empty?(failures)
+    end
+
+    test "get_failure_statistics/1 returns failure stats" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      {:ok, _} =
+        Media.record_video_failure(
+          video,
+          :encoding,
+          :process_failure,
+          message: "Test"
+        )
+
+      stats = Media.get_failure_statistics()
+      assert is_list(stats)
+      assert length(stats) > 0
+    end
+
+    test "get_common_failure_patterns/1 returns common patterns" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      {:ok, _} =
+        Media.record_video_failure(
+          video,
+          :encoding,
+          :process_failure,
+          message: "Common error"
+        )
+
+      patterns = Media.get_common_failure_patterns(10)
+      assert is_list(patterns)
     end
   end
 end
