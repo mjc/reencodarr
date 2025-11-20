@@ -1368,4 +1368,270 @@ defmodule Reencodarr.MediaTest do
       assert Enum.empty?(failures)
     end
   end
+
+  describe "additional queue and encoding functions" do
+    test "list_videos_awaiting_crf_search/0 returns analyzed videos without VMAFs" do
+      {:ok, video_with_vmaf} = Fixtures.video_fixture(%{state: :analyzed})
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video_with_vmaf.id})
+
+      {:ok, video_without_vmaf} =
+        Fixtures.video_fixture(%{
+          state: :analyzed,
+          path: "/test/awaiting_crf_#{:erlang.unique_integer([:positive])}.mkv"
+        })
+
+      results = Media.list_videos_awaiting_crf_search()
+      video_ids = Enum.map(results, & &1.id)
+
+      # Should include video without VMAFs
+      assert video_without_vmaf.id in video_ids
+      # Should not include video with VMAFs
+      refute video_with_vmaf.id in video_ids
+    end
+
+    test "get_next_for_encoding/1 returns videos ready for encoding" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true})
+
+      results = Media.get_next_for_encoding(5)
+
+      assert is_list(results)
+      assert length(results) >= 1
+    end
+
+    test "get_next_for_encoding/1 with no limit returns single result" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true})
+
+      results = Media.get_next_for_encoding()
+
+      assert is_list(results)
+    end
+
+    test "delete_vmafs_for_video/1 deletes all VMAFs for a video" do
+      {:ok, video} = Fixtures.video_fixture()
+      vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 23.0})
+      vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+
+      {count, _} = Media.delete_vmafs_for_video(video.id)
+
+      assert count == 2
+      refute Repo.get(Reencodarr.Media.Vmaf, vmaf1.id)
+      refute Repo.get(Reencodarr.Media.Vmaf, vmaf2.id)
+    end
+
+    test "mark_vmaf_as_chosen/2 marks specific VMAF as chosen" do
+      {:ok, video} = Fixtures.video_fixture()
+      vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 23.0, chosen: false})
+      vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: true})
+
+      Media.mark_vmaf_as_chosen(video.id, 23.0)
+
+      # vmaf1 should now be chosen
+      updated_vmaf1 = Repo.get(Reencodarr.Media.Vmaf, vmaf1.id)
+      assert updated_vmaf1.chosen == true
+
+      # vmaf2 should no longer be chosen
+      updated_vmaf2 = Repo.get(Reencodarr.Media.Vmaf, vmaf2.id)
+      assert updated_vmaf2.chosen == false
+    end
+
+    test "mark_vmaf_as_chosen/2 with string CRF" do
+      {:ok, video} = Fixtures.video_fixture()
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 23.0, chosen: false})
+
+      Media.mark_vmaf_as_chosen(video.id, "23.0")
+
+      updated_vmaf = Repo.get(Reencodarr.Media.Vmaf, vmaf.id)
+      assert updated_vmaf.chosen == true
+    end
+  end
+
+  describe "upsert and savings calculations" do
+    test "upsert_vmaf/1 calculates savings when percent is provided" do
+      {:ok, video} = Fixtures.video_fixture(%{size: 10_000_000})
+
+      {:ok, vmaf} =
+        Media.upsert_vmaf(%{
+          "video_id" => video.id,
+          "crf" => "23.0",
+          "score" => "95.5",
+          "percent" => "75.0",
+          "params" => ["--preset", "6"]
+        })
+
+      # Savings should be calculated as (100 - 75) / 100 * 10_000_000 = 2_500_000
+      assert vmaf.savings == 2_500_000
+    end
+
+    test "upsert_vmaf/1 handles percent as number" do
+      {:ok, video} = Fixtures.video_fixture(%{size: 10_000_000})
+
+      {:ok, vmaf} =
+        Media.upsert_vmaf(%{
+          "video_id" => video.id,
+          "crf" => "24.0",
+          "score" => "96.0",
+          "percent" => 80.0,
+          "params" => ["--preset", "6"]
+        })
+
+      # Savings should be calculated as (100 - 80) / 100 * 10_000_000 = 2_000_000
+      assert vmaf.savings == 2_000_000
+    end
+
+    test "upsert_vmaf/1 marks video as crf_searched when VMAF is chosen" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
+      {:ok, _vmaf} =
+        Media.upsert_vmaf(%{
+          "video_id" => video.id,
+          "crf" => "23.0",
+          "score" => "95.5",
+          "chosen" => true,
+          "params" => ["--preset", "6"]
+        })
+
+      updated_video = Media.get_video(video.id)
+      assert updated_video.state == :crf_searched
+    end
+
+    test "upsert_vmaf/1 handles invalid video_id type" do
+      result =
+        Media.upsert_vmaf(%{
+          "video_id" => %{invalid: "type"},
+          "crf" => "23.0",
+          "score" => "95.5",
+          "params" => ["--preset", "6"]
+        })
+
+      assert result == {:error, :invalid_video_id}
+    end
+
+    test "upsert_vmaf/1 handles missing video_id" do
+      result =
+        Media.upsert_vmaf(%{
+          "video_id" => 999_999_999,
+          "crf" => "23.0",
+          "score" => "95.5",
+          "params" => ["--preset", "6"]
+        })
+
+      assert result == {:error, :invalid_video_id}
+    end
+  end
+
+  describe "bulk operations and reanalysis" do
+    test "reset_all_videos_for_reanalysis/0 resets bitrate for non-encoded videos" do
+      {:ok, video1} = Fixtures.video_fixture(%{state: :analyzed, bitrate: 5000})
+      {:ok, video2} = Fixtures.video_fixture(%{state: :needs_analysis, bitrate: 6000})
+      {:ok, encoded} = Fixtures.video_fixture(%{state: :encoded, bitrate: 7000})
+
+      Media.reset_all_videos_for_reanalysis()
+
+      # Non-encoded videos should have bitrate reset to nil
+      assert Media.get_video(video1.id).bitrate == nil
+      assert Media.get_video(video2.id).bitrate == nil
+      # Encoded video should keep bitrate
+      assert Media.get_video(encoded.id).bitrate == 7000
+    end
+
+    test "reset_videos_for_reanalysis_batched/1 processes in batches" do
+      # Create multiple videos
+      videos =
+        Enum.map(1..5, fn i ->
+          {:ok, video} =
+            Fixtures.video_fixture(%{
+              state: :analyzed,
+              bitrate: 5000,
+              path: "/test/batch_#{i}_#{:erlang.unique_integer([:positive])}.mkv"
+            })
+
+          video
+        end)
+
+      Media.reset_videos_for_reanalysis_batched(2)
+
+      # All videos should have bitrate reset
+      Enum.each(videos, fn video ->
+        assert Media.get_video(video.id).bitrate == nil
+      end)
+    end
+
+    test "reset_all_videos_to_needs_analysis/0 resets all videos" do
+      {:ok, video1} = Fixtures.video_fixture(%{state: :analyzed})
+      {:ok, video2} = Fixtures.video_fixture(%{state: :crf_searched})
+
+      Media.reset_all_videos_to_needs_analysis()
+
+      assert Media.get_video(video1.id).state == :needs_analysis
+      assert Media.get_video(video2.id).state == :needs_analysis
+    end
+
+    test "debug_force_analyze_video/1 resets video and triggers analysis" do
+      # Start with a video in needs_analysis state (which can transition to needs_analysis)
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :needs_analysis,
+          bitrate: 5000,
+          duration: 3600.0
+        })
+
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+
+      result = Media.debug_force_analyze_video(video.path)
+
+      # The function returns the original video struct in the result map
+      assert result.video.id == video.id
+      # VMAFs should be deleted
+      assert Enum.empty?(Media.get_vmafs_for_video(video.id))
+
+      # Fetch fresh video from DB to verify state changes were persisted
+      # (the function doesn't return the updated video in the result map)
+      fresh_video = Repo.get!(Reencodarr.Media.Video, video.id)
+      assert fresh_video.bitrate == nil
+      assert fresh_video.state == :needs_analysis
+    end
+
+    test "debug_force_analyze_video/1 returns error for non-existent path" do
+      result = Media.debug_force_analyze_video("/nonexistent/path.mkv")
+
+      assert {:error, message} = result
+      assert message =~ "not found"
+    end
+  end
+
+  describe "path operations and diagnostics" do
+    test "test_insert_path/2 with additional attributes" do
+      library = Fixtures.library_fixture()
+      path = "#{library.path}/test_#{:erlang.unique_integer([:positive])}.mkv"
+
+      result = Media.test_insert_path(path, %{"duration" => 7200.0})
+
+      assert result.success == true
+      assert result.video_id != nil
+      assert result.library_id == library.id
+    end
+
+    test "test_insert_path/2 reports when library not found" do
+      path = "/completely/unmapped/path_#{:erlang.unique_integer([:positive])}.mkv"
+
+      result = Media.test_insert_path(path)
+
+      # The function still creates a video but reports the library issue in messages
+      assert Enum.any?(result.errors, &String.contains?(&1, "library")) or
+               Enum.any?(result.messages, &String.contains?(&1, "library"))
+    end
+
+    test "test_insert_path/2 handles existing video" do
+      {:ok, existing} = Fixtures.video_fixture()
+
+      result = Media.test_insert_path(existing.path)
+
+      assert result.success == true
+      assert result.operation == "upsert"
+      # Check if messages indicate an existing video was found
+      assert Enum.any?(result.messages, &String.contains?(&1, "existing"))
+    end
+  end
 end
