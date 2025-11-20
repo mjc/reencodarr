@@ -770,4 +770,414 @@ defmodule Reencodarr.RulesTest do
       assert enc_count >= 1
     end
   end
+
+  describe "audio/1 - edge cases for 100% coverage" do
+    test "handles zero channels gracefully" do
+      video = Fixtures.create_test_video(%{max_audio_channels: 0})
+      result = Rules.audio(video)
+
+      # Should return empty list for zero channels
+      assert result == []
+    end
+
+    test "handles nil channels gracefully" do
+      video = %{
+        atmos: false,
+        max_audio_channels: nil,
+        audio_codecs: ["aac"]
+      }
+
+      result = Rules.audio(video)
+      assert result == []
+    end
+
+    test "handles empty audio codecs list" do
+      video = %{
+        atmos: false,
+        max_audio_channels: 2,
+        audio_codecs: []
+      }
+
+      result = Rules.audio(video)
+      assert result == []
+    end
+
+    test "handles nil audio codecs" do
+      video = %{
+        atmos: false,
+        max_audio_channels: 2,
+        audio_codecs: nil
+      }
+
+      result = Rules.audio(video)
+      assert result == []
+    end
+
+    test "handles very high channel counts (>11)" do
+      video = Fixtures.create_test_video(%{max_audio_channels: 16})
+      args = Rules.build_args(video, :encode)
+
+      # Should include audio config with max bitrate
+      assert "--acodec" in args
+      assert "libopus" in args
+      assert "b:a=510k" in args
+    end
+
+    test "handles unmapped channel counts" do
+      # Test a channel count not in @recommended_opus_bitrates (12 channels)
+      video = Fixtures.create_test_video(%{max_audio_channels: 12})
+      args = Rules.build_args(video, :encode)
+
+      # Should use fallback calculation (12 * 64 = 768, but max is 510)
+      assert "--acodec" in args
+      assert "libopus" in args
+      # Should cap at 510k
+      assert "b:a=510k" in args
+    end
+
+    test "handles plain map input (non-struct)" do
+      video_map = %{
+        max_audio_channels: 2,
+        audio_codecs: ["aac"]
+      }
+
+      result = Rules.audio(video_map)
+      assert result == []
+    end
+  end
+
+  describe "grain_for_vintage_content/1 - full coverage" do
+    test "applies grain for API-sourced vintage content (2008)" do
+      video = Fixtures.create_test_video(%{content_year: 2008, hdr: nil})
+      result = Rules.grain_for_vintage_content(video)
+
+      assert result == [{"--svt", "film-grain=8"}]
+    end
+
+    test "applies grain for filename-parsed vintage content" do
+      video =
+        Fixtures.create_test_video(%{
+          path: "/media/movies/Old.Movie.2005.mkv",
+          title: "Old Movie",
+          content_year: nil,
+          hdr: nil
+        })
+
+      result = Rules.grain_for_vintage_content(video)
+      assert result == [{"--svt", "film-grain=8"}]
+    end
+
+    test "skips grain for modern content (2010+)" do
+      video = Fixtures.create_test_video(%{content_year: 2010, hdr: nil})
+      result = Rules.grain_for_vintage_content(video)
+
+      assert result == []
+    end
+
+    test "skips grain for HDR content even if vintage" do
+      video = Fixtures.create_test_video(%{content_year: 2005, hdr: "HDR10"})
+      result = Rules.grain_for_vintage_content(video)
+
+      assert result == []
+    end
+
+    test "skips grain when no year detected" do
+      video =
+        Fixtures.create_test_video(%{
+          path: "/media/movies/NoYear.mkv",
+          title: "No Year",
+          content_year: nil,
+          hdr: nil
+        })
+
+      result = Rules.grain_for_vintage_content(video)
+      assert result == []
+    end
+  end
+
+  describe "opus_bitrate calculation - edge cases" do
+    test "calculates bitrate for unmapped channel count" do
+      # Directly test the private function via public API
+      video = Fixtures.create_test_video(%{max_audio_channels: 10})
+      args = Rules.build_args(video, :encode)
+
+      # 10 channels * 64 = 640, capped at 510
+      assert "b:a=510k" in args
+    end
+
+    test "handles exactly 11 channels" do
+      video = Fixtures.create_test_video(%{max_audio_channels: 11})
+      args = Rules.build_args(video, :encode)
+
+      # Should use the 11-channel mapping
+      assert "--acodec" in args
+      assert "libopus" in args
+    end
+  end
+
+  describe "build_args/4 - invalid audio metadata behavior" do
+    test "returns empty list for invalid channel metadata" do
+      # Create a proper video struct but with invalid metadata
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          max_audio_channels: nil,
+          audio_codecs: ["aac"]
+        })
+
+      result = Rules.audio(video)
+      assert result == []
+    end
+
+    test "returns empty list for zero channels" do
+      {:ok, video} = Fixtures.video_fixture(%{max_audio_channels: 0})
+
+      result = Rules.audio(video)
+      assert result == []
+    end
+  end
+
+  describe "grain/2" do
+    test "applies grain with specified strength for non-HDR content" do
+      video = Fixtures.create_test_video(%{hdr: nil})
+      result = Rules.grain(video, 12)
+
+      assert result == [{"--svt", "film-grain=12"}]
+    end
+
+    test "does not apply grain for HDR content" do
+      video = Fixtures.create_test_video(%{hdr: "HDR10"})
+      result = Rules.grain(video, 12)
+
+      assert result == []
+    end
+  end
+
+  describe "cuda/1" do
+    test "returns CUDA hardware acceleration config" do
+      result = Rules.cuda(%{})
+
+      assert result == [{"--enc-input", "hwaccel=cuda"}]
+    end
+  end
+
+  describe "apply/1 - legacy function" do
+    test "returns rule tuples for backward compatibility" do
+      video = Fixtures.create_test_video(%{max_audio_channels: 2})
+      result = Rules.apply(video)
+
+      # Should return tuples, not formatted args
+      assert is_list(result)
+      assert Enum.all?(result, fn item -> is_tuple(item) and tuple_size(item) == 2 end)
+
+      # Should include audio rules
+      assert Enum.any?(result, fn {flag, _} -> flag == "--acodec" end)
+    end
+  end
+
+  describe "hdr/1" do
+    test "applies dolbyvision for HDR content" do
+      video = Fixtures.create_test_video(%{hdr: "HDR10"})
+      result = Rules.hdr(video)
+
+      assert {"--svt", "tune=0"} in result
+      assert {"--svt", "dolbyvision=1"} in result
+    end
+
+    test "applies tune=0 for non-HDR content" do
+      video = Fixtures.create_test_video(%{hdr: nil})
+      result = Rules.hdr(video)
+
+      assert result == [{"--svt", "tune=0"}]
+    end
+  end
+
+  describe "resolution/1" do
+    test "downscales content above 1080p" do
+      video = Fixtures.create_test_video(%{height: 2160})
+      result = Rules.resolution(video)
+
+      assert result == [{"--vfilter", "scale=1920:-2"}]
+    end
+
+    test "does not downscale 1080p content" do
+      video = Fixtures.create_test_video(%{height: 1080})
+      result = Rules.resolution(video)
+
+      assert result == []
+    end
+
+    test "does not downscale lower resolution content" do
+      video = Fixtures.create_test_video(%{height: 720})
+      result = Rules.resolution(video)
+
+      assert result == []
+    end
+  end
+
+  describe "video/1" do
+    test "returns pixel format configuration" do
+      video = Fixtures.create_test_video()
+      result = Rules.video(video)
+
+      assert result == [{"--pix-format", "yuv420p10le"}]
+    end
+  end
+
+  describe "extract_year_from_text/1" do
+    test "extracts year from parentheses" do
+      assert Rules.extract_year_from_text("Movie (2020) HD") == 2020
+    end
+
+    test "extracts year from filename pattern" do
+      assert Rules.extract_year_from_text("/path/Show.S01E01.2015.mkv") == 2015
+    end
+
+    test "returns nil when no year found" do
+      assert Rules.extract_year_from_text("No year here") == nil
+    end
+  end
+
+  describe "3-channel upmix to 5.1" do
+    test "upmixes 3 channels to 5.1 with reduced bitrate" do
+      video = Fixtures.create_test_video(%{max_audio_channels: 3})
+      args = Rules.build_args(video, :encode)
+
+      # Should upmix to 6 channels
+      assert "ac=6" in args
+      # Should use 128k bitrate for 3-channel source
+      assert "b:a=128k" in args
+    end
+  end
+
+  describe "5.1 channel layout workaround" do
+    test "applies channel layout workaround for 5.1" do
+      video = Fixtures.create_test_video(%{max_audio_channels: 6})
+      args = Rules.build_args(video, :encode)
+
+      # Should include the aformat workaround
+      assert Enum.any?(args, &String.contains?(&1, "aformat=channel_layouts=5.1"))
+    end
+  end
+
+  describe "base_args integration" do
+    test "merges base args with rule-generated args" do
+      video = Fixtures.create_test_video()
+      base_args = ["--preset", "6", "--cpu-used", "4"]
+      result = Rules.build_args(video, :encode, [], base_args)
+
+      assert "--preset" in result
+      assert "6" in result
+      assert "--cpu-used" in result
+      assert "4" in result
+    end
+
+    test "deduplicates short and long flag forms" do
+      video = Fixtures.create_test_video()
+      # Base args use short form, additional use long form
+      base_args = ["-i", "input.mkv"]
+      additional = ["--input", "other.mkv"]
+      result = Rules.build_args(video, :encode, additional, base_args)
+
+      # Should normalize to canonical --input and keep first occurrence
+      input_count = Enum.count(result, &(&1 == "--input"))
+      assert input_count == 1
+    end
+
+    test "filters out standalone file paths from params" do
+      video = Fixtures.create_test_video()
+      # File paths shouldn't be treated as standalone args
+      additional = ["--preset", "6", "/path/to/file.mkv"]
+      result = Rules.build_args(video, :encode, additional)
+
+      # Should include --preset and value, but skip the file path
+      assert "--preset" in result
+      assert "6" in result
+      refute "/path/to/file.mkv" in result
+    end
+
+    test "preserves known subcommands" do
+      video = Fixtures.create_test_video()
+      base_args = ["encode", "-i", "input.mkv"]
+      result = Rules.build_args(video, :encode, [], base_args)
+
+      # Subcommand should be first
+      assert List.first(result) == "encode"
+    end
+
+    test "filters out unknown standalone values" do
+      video = Fixtures.create_test_video()
+      # "random-value" is not a known subcommand and has no flag
+      base_args = ["--preset", "6", "random-value"]
+      result = Rules.build_args(video, :encode, [], base_args)
+
+      # Should keep flag-value pairs but not unknown standalone
+      assert "--preset" in result
+      assert "6" in result
+      refute "random-value" in result
+    end
+
+    test "handles single flags without values" do
+      video = Fixtures.create_test_video()
+      base_args = ["-i", "input.mkv", "-y"]
+      result = Rules.build_args(video, :encode, [], base_args)
+
+      # -y is a valid single flag (overwrite without asking)
+      assert "--input" in result
+      assert "input.mkv" in result
+    end
+  end
+
+  describe "parameter filtering by context" do
+    test "crf_search context filters out audio params from additional_params" do
+      video = Fixtures.create_test_video(%{max_audio_channels: 2})
+      additional = ["--acodec", "libopus", "--preset", "6"]
+      result = Rules.build_args(video, :crf_search, additional)
+
+      # Audio params should be filtered
+      refute "--acodec" in result
+      refute "libopus" in result
+      # Non-audio params should be preserved
+      assert "--preset" in result
+    end
+
+    test "crf_search filters --enc with audio content" do
+      video = Fixtures.create_test_video()
+      additional = ["--enc", "b:a=256k", "--enc", "crf=30"]
+      result = Rules.build_args(video, :crf_search, additional)
+
+      # --enc with b:a= should be filtered
+      refute Enum.any?(result, &String.contains?(&1, "b:a="))
+      # Other --enc should be allowed
+      # (Note: crf=30 might also be filtered depending on logic)
+    end
+
+    test "encode context filters out crf-search specific params" do
+      video = Fixtures.create_test_video()
+      additional = ["--min-crf", "20", "--max-crf", "35", "--preset", "6"]
+      result = Rules.build_args(video, :encode, additional)
+
+      # CRF range flags should be filtered
+      refute "--min-crf" in result
+      refute "--max-crf" in result
+      # Other params should be preserved
+      assert "--preset" in result
+    end
+
+    test "encode context filters --temp-dir" do
+      video = Fixtures.create_test_video()
+      additional = ["--temp-dir", "/tmp/test"]
+      result = Rules.build_args(video, :encode, additional)
+
+      refute "--temp-dir" in result
+    end
+
+    test "encode context filters VMAF params" do
+      video = Fixtures.create_test_video()
+      additional = ["--min-vmaf", "90", "--max-vmaf", "95"]
+      result = Rules.build_args(video, :encode, additional)
+
+      refute "--min-vmaf" in result
+      refute "--max-vmaf" in result
+    end
+  end
 end

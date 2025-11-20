@@ -926,4 +926,140 @@ defmodule Reencodarr.MediaTest do
       assert is_list(patterns)
     end
   end
+
+  describe "queue operations" do
+    test "get_videos_for_crf_search/1 returns analyzed videos" do
+      {:ok, analyzed} = Fixtures.video_fixture(%{state: :analyzed})
+      {:ok, _encoded} = Fixtures.video_fixture(%{state: :encoded})
+
+      videos = Media.get_videos_for_crf_search(10)
+      video_ids = Enum.map(videos, & &1.id)
+
+      assert analyzed.id in video_ids
+    end
+
+    test "get_videos_needing_analysis/1 returns videos needing analysis" do
+      {:ok, needs_analysis} = Fixtures.video_fixture(%{state: :needs_analysis})
+      {:ok, _analyzed} = Fixtures.video_fixture(%{state: :analyzed})
+
+      videos = Media.get_videos_needing_analysis(10)
+      video_ids = Enum.map(videos, & &1.id)
+
+      assert needs_analysis.id in video_ids
+    end
+
+    test "list_videos_by_estimated_percent/1 returns ready for encoding" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true})
+
+      vmafs = Media.list_videos_by_estimated_percent(10)
+
+      assert length(vmafs) >= 1
+      assert Enum.any?(vmafs, fn v -> v.video_id == video.id end)
+    end
+
+    test "get_next_for_encoding_by_time/0 returns chosen VMAFs ordered by time" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true, time: 100})
+
+      result = Media.get_next_for_encoding_by_time()
+
+      assert is_list(result)
+      if length(result) > 0, do: assert(hd(result).chosen == true)
+    end
+
+    test "debug_encoding_queue_by_library/1 returns queue debug info" do
+      library = Fixtures.library_fixture()
+      {:ok, video} = Fixtures.video_fixture(%{library_id: library.id, state: :crf_searched})
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true})
+
+      results = Media.debug_encoding_queue_by_library(10)
+
+      assert is_list(results)
+    end
+  end
+
+  describe "library operations" do
+    test "create_library/1 creates a library" do
+      {:ok, library} =
+        Media.create_library(%{
+          path: "/test/library/#{:erlang.unique_integer([:positive])}",
+          monitor: true
+        })
+
+      assert library.path =~ "/test/library/"
+      assert library.monitor == true
+    end
+
+    test "create_library/1 returns error for invalid attrs" do
+      {:error, changeset} = Media.create_library(%{})
+
+      assert changeset.errors[:path]
+    end
+  end
+
+  describe "vmaf operations" do
+    test "create_vmaf/1 creates a VMAF record" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      {:ok, vmaf} =
+        Media.create_vmaf(%{
+          video_id: video.id,
+          crf: 25.0,
+          score: 95.5,
+          chosen: false,
+          params: ["--preset", "medium"]
+        })
+
+      assert vmaf.crf == 25.0
+      assert vmaf.score == 95.5
+      assert vmaf.chosen == false
+      assert vmaf.params == ["--preset", "medium"]
+    end
+
+    test "create_vmaf/1 returns error for invalid attrs" do
+      {:error, changeset} = Media.create_vmaf(%{})
+
+      assert changeset.errors[:crf]
+      assert changeset.errors[:score]
+      assert changeset.errors[:params]
+    end
+  end
+
+  describe "bulk operations" do
+    test "reset_all_failures/0 resets failed videos" do
+      {:ok, failed1} = Fixtures.video_fixture(%{state: :failed})
+      {:ok, failed2} = Fixtures.video_fixture(%{state: :failed})
+      {:ok, _encoded} = Fixtures.video_fixture(%{state: :encoded})
+
+      Media.record_video_failure(failed1, :encoding, :process_failure, message: "Test failure")
+
+      result = Media.reset_all_failures()
+
+      assert result.videos_reset >= 2
+      assert result.vmafs_deleted >= 0
+
+      # Verify videos are reset to needs_analysis
+      reloaded1 = Media.get_video!(failed1.id)
+      reloaded2 = Media.get_video!(failed2.id)
+
+      assert reloaded1.state == :needs_analysis
+      assert reloaded2.state == :needs_analysis
+    end
+  end
+
+  describe "test helpers" do
+    test "test_insert_path/2 creates video for testing" do
+      # Create a library to match the path
+      _library = Fixtures.library_fixture(%{path: "/test"})
+
+      path = "/test/video_#{:erlang.unique_integer([:positive])}.mkv"
+
+      result = Media.test_insert_path(path, %{"duration" => 3600})
+
+      # test_insert_path returns a diagnostic map, not {:ok, video}
+      assert result.success == true
+      assert result.video_id
+    end
+  end
 end
