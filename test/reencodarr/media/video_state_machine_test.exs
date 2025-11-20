@@ -492,17 +492,40 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
       assert updated_video.state == :encoded
     end
 
-    test "handles invalid transitions gracefully" do
-      # Create a video that might not be able to transition to encoded
+    test "transitions video from crf_searching to encoded" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+
+      {:ok, updated_video} = VideoStateMachine.mark_as_reencoded(video)
+      assert updated_video.state == :encoded
+    end
+
+    test "transitions video from crf_searched to encoded" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+
+      {:ok, updated_video} = VideoStateMachine.mark_as_reencoded(video)
+      assert updated_video.state == :encoded
+    end
+
+    test "transitions video from encoding to encoded" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :encoding})
+
+      {:ok, updated_video} = VideoStateMachine.mark_as_reencoded(video)
+      assert updated_video.state == :encoded
+    end
+
+    test "returns unchanged video if already encoded" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :encoded})
+
+      {:ok, updated_video} = VideoStateMachine.mark_as_reencoded(video)
+      assert updated_video.state == :encoded
+      assert updated_video.id == video.id
+    end
+
+    test "transitions video from failed to encoded" do
       {:ok, video} = Fixtures.video_fixture(%{state: :failed})
 
-      # Should either succeed or return an error, but not crash
-      result = VideoStateMachine.mark_as_reencoded(video)
-
-      case result do
-        {:ok, _updated_video} -> assert true
-        {:error, _changeset} -> assert true
-      end
+      {:ok, updated_video} = VideoStateMachine.mark_as_reencoded(video)
+      assert updated_video.state == :encoded
     end
   end
 
@@ -608,6 +631,165 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
       assert changeset.valid?
       assert changeset.changes.state == :failed
       assert changeset.changes.bitrate == 12_345
+    end
+
+    test "rejects invalid state names" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :needs_analysis})
+
+      result = VideoStateMachine.transition(video, :invalid_state)
+
+      assert {:error, message} = result
+      assert message =~ "Invalid state"
+    end
+  end
+
+  describe "mark_as_* functions" do
+    test "mark_as_crf_searched updates and broadcasts" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+
+      {:ok, updated} = VideoStateMachine.mark_as_crf_searched(video)
+
+      assert updated.state == :crf_searched
+      assert updated.id == video.id
+    end
+
+    test "mark_as_needs_analysis updates and broadcasts" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :failed})
+
+      {:ok, updated} = VideoStateMachine.mark_as_needs_analysis(video)
+
+      assert updated.state == :needs_analysis
+      assert updated.id == video.id
+    end
+
+    test "mark_as_encoded updates and broadcasts" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :encoding})
+
+      {:ok, updated} = VideoStateMachine.mark_as_encoded(video)
+
+      assert updated.state == :encoded
+      assert updated.id == video.id
+    end
+  end
+
+  describe "validation functions" do
+    test "validates video codecs must be non-empty list" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :needs_analysis,
+          bitrate: 15_000,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      # Try transition with empty video codecs
+      {:ok, changeset} = VideoStateMachine.transition(video, :analyzed, %{video_codecs: []})
+
+      refute changeset.valid?
+      assert changeset.errors[:video_codecs]
+    end
+
+    test "validates audio codecs must be non-empty list" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :needs_analysis,
+          bitrate: 15_000,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      # Try transition with empty audio codecs
+      {:ok, changeset} = VideoStateMachine.transition(video, :analyzed, %{audio_codecs: []})
+
+      refute changeset.valid?
+      assert changeset.errors[:audio_codecs]
+    end
+
+    test "validates bitrate is required for analyzed state" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :needs_analysis,
+          bitrate: 15_000,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      # Try transition without bitrate
+      {:ok, changeset} = VideoStateMachine.transition(video, :analyzed, %{bitrate: nil})
+
+      refute changeset.valid?
+      assert changeset.errors[:bitrate]
+    end
+
+    test "validates dimensions are required for analyzed state" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :needs_analysis,
+          bitrate: 15_000,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      # Try transition without width/height
+      {:ok, changeset} = VideoStateMachine.transition(video, :analyzed, %{width: nil})
+
+      refute changeset.valid?
+      assert changeset.errors[:width]
+    end
+  end
+
+  describe "transition_to_* helper functions" do
+    test "transition_to_crf_searching" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
+      {:ok, changeset} = VideoStateMachine.transition_to_crf_searching(video)
+
+      assert changeset.valid?
+      assert changeset.changes.state == :crf_searching
+    end
+
+    test "transition_to_encoding" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+
+      {:ok, changeset} = VideoStateMachine.transition_to_encoding(video)
+
+      assert changeset.valid?
+      assert changeset.changes.state == :encoding
+    end
+
+    test "transition_to_needs_analysis" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :failed})
+
+      {:ok, changeset} = VideoStateMachine.transition_to_needs_analysis(video)
+
+      assert changeset.valid?
+      assert changeset.changes.state == :needs_analysis
+    end
+
+    test "transition_to_crf_searched" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+
+      {:ok, changeset} = VideoStateMachine.transition_to_crf_searched(video)
+
+      assert changeset.valid?
+      assert changeset.changes.state == :crf_searched
+    end
+
+    test "transition_to_failed" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :encoding})
+
+      {:ok, changeset} = VideoStateMachine.transition_to_failed(video)
+
+      assert changeset.valid?
+      assert changeset.changes.state == :failed
     end
   end
 end
