@@ -2235,5 +2235,283 @@ defmodule Reencodarr.MediaTest do
 
       assert new_count == initial_count + 2
     end
+
+    test "mark_vmaf_as_chosen/2 accepts string CRF" do
+      {:ok, video} = Fixtures.video_fixture()
+      _vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: false})
+      _vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, chosen: false})
+
+      # Use string CRF
+      {:ok, _result} = Media.mark_vmaf_as_chosen(video.id, "25.0")
+
+      vmafs = Media.get_vmafs_for_video(video.id)
+      chosen = Enum.find(vmafs, & &1.chosen)
+      assert chosen.crf == 25.0
+    end
+
+    test "mark_vmaf_as_chosen/2 handles invalid string CRF" do
+      {:ok, video} = Fixtures.video_fixture()
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: true})
+
+      # Invalid CRF string should fall back to 0.0, which won't match any VMAF
+      {:ok, _result} = Media.mark_vmaf_as_chosen(video.id, "invalid")
+
+      # Original should be unchosen since 0.0 doesn't match
+      updated = Repo.get(Reencodarr.Media.Vmaf, vmaf.id)
+      assert updated.chosen == false
+    end
+
+    test "get_chosen_vmaf_for_video/1 returns nil when video state is not crf_searched" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true})
+
+      # Should return nil because video.state != :crf_searched
+      assert Media.get_chosen_vmaf_for_video(video) == nil
+    end
+
+    test "reset_videos_with_invalid_audio_metadata/0 handles empty audio_codecs" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          audio_codecs: [],
+          max_audio_channels: 2,
+          state: :analyzed
+        })
+
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+
+      result = Media.reset_videos_with_invalid_audio_metadata()
+
+      assert result.videos_reset >= 1
+      assert result.vmafs_deleted >= 1
+
+      # Video should be reset
+      updated = Repo.get(Reencodarr.Media.Video, video.id)
+      assert is_nil(updated.audio_codecs)
+      assert is_nil(updated.max_audio_channels)
+    end
+
+    test "reset_videos_with_invalid_audio_metadata/0 handles zero max_audio_channels" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          audio_codecs: ["AAC"],
+          max_audio_channels: 0,
+          state: :analyzed
+        })
+
+      result = Media.reset_videos_with_invalid_audio_metadata()
+
+      assert result.videos_reset >= 1
+
+      # Video should be reset
+      updated = Repo.get(Reencodarr.Media.Video, video.id)
+      assert is_nil(updated.max_audio_channels)
+    end
+
+    test "reset_videos_with_invalid_audio_metadata/0 skips Atmos videos" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          audio_codecs: [],
+          max_audio_channels: 0,
+          atmos: true,
+          state: :analyzed
+        })
+
+      result = Media.reset_videos_with_invalid_audio_metadata()
+
+      # Atmos video should NOT be reset (atmos: true condition prevents it)
+      updated = Repo.get(Reencodarr.Media.Video, video.id)
+      # Should still have empty audio_codecs since it was skipped
+      assert updated.audio_codecs == []
+      assert updated.max_audio_channels == 0
+    end
+
+    test "delete_unchosen_vmafs/0 deletes all VMAFs when none are chosen" do
+      {:ok, video} = Fixtures.video_fixture()
+      _vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: false})
+      _vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, chosen: false})
+
+      {deleted_count, _} = Media.delete_unchosen_vmafs()
+
+      assert deleted_count >= 2
+
+      # All VMAFs should be deleted
+      vmafs = Media.get_vmafs_for_video(video.id)
+      assert Enum.empty?(vmafs)
+    end
+
+    test "delete_unchosen_vmafs/0 preserves VMAFs when at least one is chosen" do
+      {:ok, video} = Fixtures.video_fixture()
+      vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: true})
+      vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, chosen: false})
+
+      Media.delete_unchosen_vmafs()
+
+      # Both VMAFs should remain (because one is chosen)
+      vmafs = Media.get_vmafs_for_video(video.id)
+      vmaf_ids = Enum.map(vmafs, & &1.id)
+      assert vmaf1.id in vmaf_ids
+      assert vmaf2.id in vmaf_ids
+    end
+
+    test "delete_unchosen_vmafs/0 handles multiple videos correctly" do
+      # Video 1: has chosen VMAF
+      {:ok, video1} = Fixtures.video_fixture()
+      vmaf1 = Fixtures.vmaf_fixture(%{video_id: video1.id, crf: 25.0, chosen: true})
+      vmaf2 = Fixtures.vmaf_fixture(%{video_id: video1.id, crf: 30.0, chosen: false})
+
+      # Video 2: no chosen VMAFs
+      {:ok, video2} = Fixtures.video_fixture()
+      _vmaf3 = Fixtures.vmaf_fixture(%{video_id: video2.id, crf: 25.0, chosen: false})
+      _vmaf4 = Fixtures.vmaf_fixture(%{video_id: video2.id, crf: 30.0, chosen: false})
+
+      {deleted_count, _} = Media.delete_unchosen_vmafs()
+
+      assert deleted_count >= 2
+
+      # Video 1 should keep all VMAFs
+      vmafs1 = Media.get_vmafs_for_video(video1.id)
+      assert length(vmafs1) == 2
+      assert vmaf1.id in Enum.map(vmafs1, & &1.id)
+      assert vmaf2.id in Enum.map(vmafs1, & &1.id)
+
+      # Video 2 should have no VMAFs
+      vmafs2 = Media.get_vmafs_for_video(video2.id)
+      assert Enum.empty?(vmafs2)
+    end
+
+    test "reset_videos_with_invalid_audio_metadata/0 handles transaction failure gracefully" do
+      # This test ensures the function returns default values on transaction error
+      # We can't easily force a transaction error in tests, but the code path exists
+      result = Media.reset_videos_with_invalid_audio_metadata()
+
+      # Should return a valid result structure
+      assert is_map(result)
+      assert Map.has_key?(result, :videos_reset)
+      assert Map.has_key?(result, :vmafs_deleted)
+    end
+
+    test "upsert_vmaf/1 handles chosen VMAF updating video state" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+
+      attrs = %{
+        "video_id" => video.id,
+        "crf" => 25.0,
+        "score" => 95.0,
+        "percent" => 75.0,
+        "params" => ["--preset", "medium"],
+        "chosen" => true
+      }
+
+      {:ok, _vmaf} = Media.upsert_vmaf(attrs)
+
+      # Video should now be in crf_searched state
+      updated = Repo.get(Reencodarr.Media.Video, video.id)
+      assert updated.state == :crf_searched
+    end
+
+    test "upsert_vmaf/1 does not update state when chosen is false" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
+      attrs = %{
+        "video_id" => video.id,
+        "crf" => 25.0,
+        "score" => 95.0,
+        "percent" => 75.0,
+        "params" => ["--preset", "medium"],
+        "chosen" => false
+      }
+
+      {:ok, _vmaf} = Media.upsert_vmaf(attrs)
+
+      # Video state should remain unchanged
+      updated = Repo.get(Reencodarr.Media.Video, video.id)
+      assert updated.state == :analyzed
+    end
+
+    test "calculate_vmaf_savings/2 handles string percent correctly" do
+      {:ok, video} = Fixtures.video_fixture(%{size: 1_000_000})
+
+      attrs = %{
+        "video_id" => video.id,
+        "crf" => 25.0,
+        "score" => 95.0,
+        "percent" => "75.5",
+        "params" => ["--preset", "medium"]
+      }
+
+      {:ok, vmaf} = Media.upsert_vmaf(attrs)
+
+      # Savings should be calculated: (100 - 75.5) / 100 * 1_000_000 = 245_000
+      assert vmaf.savings == 245_000
+    end
+
+    test "calculate_vmaf_savings/2 handles invalid string percent" do
+      {:ok, video} = Fixtures.video_fixture(%{size: 1_000_000})
+
+      attrs = %{
+        "video_id" => video.id,
+        "crf" => 25.0,
+        "score" => 95.0,
+        "percent" => "invalid",
+        "params" => ["--preset", "medium"]
+      }
+
+      # Should get an error because percent is invalid and required
+      {:error, changeset} = Media.upsert_vmaf(attrs)
+
+      # Check that we got a validation error
+      assert changeset.valid? == false
+    end
+
+    test "calculate_vmaf_savings/2 returns nil for zero video size" do
+      {:ok, video} = Fixtures.video_fixture(%{size: 0})
+
+      attrs = %{
+        "video_id" => video.id,
+        "crf" => 25.0,
+        "score" => 95.0,
+        "percent" => 75.0,
+        "params" => ["--preset", "medium"]
+      }
+
+      {:ok, vmaf} = Media.upsert_vmaf(attrs)
+
+      # Savings should be nil for zero size
+      assert is_nil(vmaf.savings)
+    end
+
+    test "calculate_vmaf_savings/2 returns nil for percent > 100" do
+      {:ok, video} = Fixtures.video_fixture(%{size: 1_000_000})
+
+      attrs = %{
+        "video_id" => video.id,
+        "crf" => 25.0,
+        "score" => 95.0,
+        "percent" => 150.0,
+        "params" => ["--preset", "medium"]
+      }
+
+      {:ok, vmaf} = Media.upsert_vmaf(attrs)
+
+      # Savings should be nil for invalid percent
+      assert is_nil(vmaf.savings)
+    end
+
+    test "calculate_vmaf_savings/2 returns nil for percent <= 0" do
+      {:ok, video} = Fixtures.video_fixture(%{size: 1_000_000})
+
+      attrs = %{
+        "video_id" => video.id,
+        "crf" => 25.0,
+        "score" => 95.0,
+        "percent" => 0,
+        "params" => ["--preset", "medium"]
+      }
+
+      {:ok, vmaf} = Media.upsert_vmaf(attrs)
+
+      # Savings should be nil for zero or negative percent
+      assert is_nil(vmaf.savings)
+    end
   end
 end
