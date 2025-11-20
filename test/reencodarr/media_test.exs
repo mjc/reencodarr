@@ -1634,4 +1634,51 @@ defmodule Reencodarr.MediaTest do
       assert Enum.any?(result.messages, &String.contains?(&1, "existing"))
     end
   end
+
+  describe "upsert_video/1" do
+    test "upsert_video/1 creates new video with valid attrs" do
+      library = Fixtures.library_fixture()
+
+      attrs = %{
+        "path" => "#{library.path}/new_video_#{:erlang.unique_integer([:positive])}.mkv",
+        "library_id" => library.id,
+        "service_type" => "sonarr",
+        "service_id" => "test123",
+        "size" => 1_000_000,
+        "duration" => 3600.0
+      }
+
+      {:ok, video} = Media.upsert_video(attrs)
+
+      assert video.path == attrs["path"]
+      assert video.library_id == library.id
+      assert video.service_id == "test123"
+    end
+
+    test "upsert_video/1 updates existing video on conflict" do
+      {:ok, existing} = Fixtures.video_fixture(%{duration: 1800.0})
+
+      # Include all required fields for the upsert
+      attrs = %{
+        "path" => existing.path,
+        "duration" => 3600.0,
+        "library_id" => existing.library_id,
+        "service_type" => existing.service_type,
+        "service_id" => "updated",
+        "size" => existing.size
+      }
+
+      {:ok, updated} = Media.upsert_video(attrs)
+
+      assert updated.id == existing.id
+      assert updated.duration == 3600.0
+      assert updated.service_id == "updated"
+    end
+
+    test "upsert_video/1 returns error for invalid attrs" do
+      {:error, changeset} = Media.upsert_video(%{})
+
+      assert changeset.errors[:path]
+    end
+  end
 end
