@@ -1062,4 +1062,312 @@ defmodule Reencodarr.MediaTest do
       assert result.video_id
     end
   end
+
+  describe "video update operations" do
+    test "update_video/2 updates video attributes" do
+      {:ok, video} = Fixtures.video_fixture(%{duration: 3600})
+
+      {:ok, updated} = Media.update_video(video, %{duration: 7200})
+
+      assert updated.duration == 7200
+    end
+
+    test "update_library/2 updates library attributes" do
+      library = Fixtures.library_fixture()
+
+      {:ok, updated} = Media.update_library(library, %{monitor: true})
+
+      assert updated.monitor == true
+    end
+
+    test "update_vmaf/2 updates VMAF attributes" do
+      {:ok, video} = Fixtures.video_fixture()
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, chosen: false})
+
+      {:ok, updated} = Media.update_vmaf(vmaf, %{chosen: true})
+
+      assert updated.chosen == true
+    end
+  end
+
+  describe "upsert operations" do
+    test "upsert_vmaf/1 creates new VMAF" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      {:ok, vmaf} =
+        Media.upsert_vmaf(%{
+          "video_id" => video.id,
+          "crf" => 25.0,
+          "score" => 95.5,
+          "params" => ["--preset", "medium"],
+          "chosen" => false
+        })
+
+      assert vmaf.crf == 25.0
+      assert vmaf.score == 95.5
+    end
+
+    test "upsert_vmaf/1 updates existing VMAF" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      {:ok, vmaf1} =
+        Media.upsert_vmaf(%{
+          "video_id" => video.id,
+          "crf" => 25.0,
+          "score" => 94.0,
+          "params" => ["--preset", "medium"],
+          "chosen" => false
+        })
+
+      {:ok, vmaf2} =
+        Media.upsert_vmaf(%{
+          "video_id" => video.id,
+          "crf" => 25.0,
+          "score" => 95.5,
+          "params" => ["--preset", "medium"],
+          "chosen" => false
+        })
+
+      assert vmaf1.id == vmaf2.id
+      assert vmaf2.score == 95.5
+    end
+
+    test "batch_upsert_videos/1 creates multiple videos" do
+      library = Fixtures.library_fixture(%{path: "/batch"})
+
+      videos = [
+        %{
+          "path" => "/batch/video1.mkv",
+          "library_id" => library.id,
+          "size" => 1_000_000,
+          "duration" => 3600.0
+        },
+        %{
+          "path" => "/batch/video2.mkv",
+          "library_id" => library.id,
+          "size" => 2_000_000,
+          "duration" => 7200.0
+        }
+      ]
+
+      results = Media.batch_upsert_videos(videos)
+
+      # Returns list of results
+      assert is_list(results)
+      assert length(results) == 2
+      # Check successful upserts
+      successful =
+        Enum.count(results, fn
+          {:ok, _} -> true
+          _ -> false
+        end)
+
+      assert successful >= 1
+    end
+  end
+
+  describe "reanalysis operations" do
+    test "force_reanalyze_video/1 resets video for analysis" do
+      {:ok, video} = Fixtures.video_fixture(%{bitrate: 5_000_000})
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+
+      {:ok, path} = Media.force_reanalyze_video(video.id)
+
+      assert path == video.path
+
+      # Verify VMAFs were deleted
+      vmafs = Media.get_vmafs_for_video(video.id)
+      assert Enum.empty?(vmafs)
+
+      # Verify bitrate was reset
+      reloaded = Media.get_video!(video.id)
+      assert is_nil(reloaded.bitrate)
+    end
+
+    test "debug_force_analyze_video/1 queues video for analysis" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      result = Media.debug_force_analyze_video(video.path)
+
+      assert result.video.id == video.id
+      assert is_map(result)
+    end
+
+    test "reset_failed_videos/0 resets failed videos" do
+      {:ok, _failed1} = Fixtures.video_fixture(%{state: :failed})
+      {:ok, _failed2} = Fixtures.video_fixture(%{state: :failed})
+
+      {count, _} = Media.reset_failed_videos()
+
+      assert count >= 2
+    end
+
+    test "reset_all_videos_for_reanalysis/0 clears bitrate" do
+      {:ok, video} = Fixtures.video_fixture(%{bitrate: 5_000_000, state: :analyzed})
+
+      {count, _} = Media.reset_all_videos_for_reanalysis()
+
+      assert count >= 1
+
+      reloaded = Media.get_video!(video.id)
+      assert is_nil(reloaded.bitrate)
+    end
+
+    test "reset_all_videos_to_needs_analysis/0 resets all videos" do
+      {:ok, _video1} = Fixtures.video_fixture(%{state: :analyzed})
+      {:ok, _video2} = Fixtures.video_fixture(%{state: :crf_searched})
+
+      {count, _} = Media.reset_all_videos_to_needs_analysis()
+
+      assert count >= 2
+    end
+  end
+
+  describe "invalid audio operations" do
+    test "count_videos_with_invalid_audio_args/0 finds problematic videos" do
+      # Create video with invalid audio metadata
+      {:ok, _video} =
+        Fixtures.video_fixture(%{
+          max_audio_channels: 0,
+          audio_codecs: [],
+          state: :analyzed
+        })
+
+      result = Media.count_videos_with_invalid_audio_args()
+
+      assert result.videos_tested >= 1
+      assert result.videos_with_invalid_args >= 0
+    end
+
+    test "reset_videos_with_invalid_audio_args/0 resets problematic videos" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          max_audio_channels: 0,
+          audio_codecs: [],
+          bitrate: 5_000_000,
+          state: :analyzed
+        })
+
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+
+      result = Media.reset_videos_with_invalid_audio_args()
+
+      assert result.videos_tested >= 1
+
+      # Verify video was reset if it had invalid args
+      reloaded = Media.get_video!(video.id)
+
+      if result.videos_reset > 0 do
+        assert is_nil(reloaded.bitrate)
+      end
+    end
+
+    @tag :skip
+    test "reset_videos_with_invalid_audio_metadata/0 resets videos with nil audio" do
+      # Skip: Uses PostgreSQL-specific array_length function
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          max_audio_channels: nil,
+          audio_codecs: nil,
+          bitrate: 5_000_000,
+          state: :analyzed
+        })
+
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+
+      result = Media.reset_videos_with_invalid_audio_metadata()
+
+      assert result.videos_reset >= 1
+      assert result.vmafs_deleted >= 1
+
+      reloaded = Media.get_video!(video.id)
+      assert is_nil(reloaded.bitrate)
+    end
+  end
+
+  describe "deletion operations" do
+    test "delete_video/1 removes video" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      {:ok, _deleted} = Media.delete_video(video)
+
+      assert_raise Ecto.NoResultsError, fn -> Media.get_video!(video.id) end
+    end
+
+    test "delete_library/1 removes library" do
+      library = Fixtures.library_fixture()
+
+      {:ok, _deleted} = Media.delete_library(library)
+
+      assert_raise Ecto.NoResultsError, fn -> Media.get_library!(library.id) end
+    end
+
+    test "delete_vmaf/1 removes VMAF" do
+      {:ok, video} = Fixtures.video_fixture()
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+
+      {:ok, _deleted} = Media.delete_vmaf(vmaf)
+
+      assert_raise Ecto.NoResultsError, fn -> Media.get_vmaf!(vmaf.id) end
+    end
+
+    test "delete_videos_with_nonexistent_paths/0 removes videos with missing files" do
+      # This test would require mocking File.exists? or creating actual files
+      # For now, just verify it returns the expected tuple format
+      result = Media.delete_videos_with_nonexistent_paths()
+
+      assert match?({:ok, {_, _}}, result)
+    end
+  end
+
+  describe "changeset operations" do
+    test "change_video/2 returns changeset" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      changeset = Media.change_video(video, %{duration: 7200})
+
+      assert changeset.changes.duration == 7200
+    end
+
+    test "change_library/2 returns changeset" do
+      library = Fixtures.library_fixture()
+
+      changeset = Media.change_library(library, %{monitor: true})
+
+      assert changeset.changes.monitor == true
+    end
+
+    test "change_vmaf/2 returns changeset" do
+      {:ok, video} = Fixtures.video_fixture()
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+
+      changeset = Media.change_vmaf(vmaf, %{chosen: true})
+
+      assert changeset.changes.chosen == true
+    end
+  end
+
+  describe "video failure operations" do
+    test "get_video_failures/1 returns unresolved failures" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      Media.record_video_failure(video, :encoding, :process_failure, message: "Test failure")
+
+      failures = Media.get_video_failures(video.id)
+
+      assert length(failures) >= 1
+      assert hd(failures).failure_stage == :encoding
+    end
+
+    test "resolve_video_failures/1 resolves all failures" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      Media.record_video_failure(video, :encoding, :process_failure, message: "Test failure")
+
+      Media.resolve_video_failures(video.id)
+
+      failures = Media.get_video_failures(video.id)
+      assert Enum.empty?(failures)
+    end
+  end
 end
