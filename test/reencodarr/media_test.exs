@@ -1367,6 +1367,20 @@ defmodule Reencodarr.MediaTest do
       failures = Media.get_video_failures(video.id)
       assert Enum.empty?(failures)
     end
+
+    test "record_video_failure/4 with multiple failures" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      Media.record_video_failure(video, :encoding, :process_failure, message: "Failure 1")
+      Media.record_video_failure(video, :crf_search, :timeout, message: "Failure 2")
+
+      failures = Media.get_video_failures(video.id)
+
+      assert length(failures) == 2
+      stages = Enum.map(failures, & &1.failure_stage)
+      assert :encoding in stages
+      assert :crf_search in stages
+    end
   end
 
   describe "additional queue and encoding functions" do
@@ -1519,6 +1533,115 @@ defmodule Reencodarr.MediaTest do
 
       assert result == {:error, :invalid_video_id}
     end
+
+    test "upsert_vmaf/1 does not calculate savings when already provided" do
+      {:ok, video} = Fixtures.video_fixture(%{size: 10_000_000})
+
+      {:ok, vmaf} =
+        Media.upsert_vmaf(%{
+          "video_id" => video.id,
+          "crf" => "23.0",
+          "score" => "95.5",
+          "percent" => "75.0",
+          "savings" => 5_000_000,
+          "params" => ["--preset", "6"]
+        })
+
+      # Should use provided savings, not calculate
+      assert vmaf.savings == 5_000_000
+    end
+
+    test "upsert_vmaf/1 handles video with zero size" do
+      {:ok, video} = Fixtures.video_fixture(%{size: 0})
+
+      {:ok, vmaf} =
+        Media.upsert_vmaf(%{
+          "video_id" => video.id,
+          "crf" => "23.0",
+          "score" => "95.5",
+          "percent" => "75.0",
+          "params" => ["--preset", "6"]
+        })
+
+      # Should not calculate savings for zero-size video
+      assert vmaf.savings == nil
+    end
+
+    test "upsert_vmaf/1 handles invalid percent string" do
+      {:ok, video} = Fixtures.video_fixture(%{size: 10_000_000})
+
+      # Invalid percent should cause changeset error
+      result =
+        Media.upsert_vmaf(%{
+          "video_id" => video.id,
+          "crf" => "23.0",
+          "score" => "95.5",
+          "percent" => "invalid",
+          "params" => ["--preset", "6"]
+        })
+
+      # Should return error changeset
+      assert {:error, changeset} = result
+      assert changeset.errors[:percent]
+    end
+
+    test "upsert_vmaf/1 handles percent over 100" do
+      {:ok, video} = Fixtures.video_fixture(%{size: 10_000_000})
+
+      {:ok, vmaf} =
+        Media.upsert_vmaf(%{
+          "video_id" => video.id,
+          "crf" => "23.0",
+          "score" => "95.5",
+          "percent" => 150.0,
+          "params" => ["--preset", "6"]
+        })
+
+      # Should not calculate savings for invalid percent
+      assert vmaf.savings == nil
+    end
+
+    test "upsert_vmaf/1 handles percent of 0" do
+      {:ok, video} = Fixtures.video_fixture(%{size: 10_000_000})
+
+      {:ok, vmaf} =
+        Media.upsert_vmaf(%{
+          "video_id" => video.id,
+          "crf" => "23.0",
+          "score" => "95.5",
+          "percent" => 0.0,
+          "params" => ["--preset", "6"]
+        })
+
+      # Should not calculate savings for 0 percent
+      assert vmaf.savings == nil
+    end
+
+    test "upsert_vmaf/1 updates existing VMAF on conflict" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      # Create initial VMAF
+      {:ok, vmaf1} =
+        Media.upsert_vmaf(%{
+          "video_id" => video.id,
+          "crf" => "23.0",
+          "score" => "95.0",
+          "params" => ["--preset", "6"]
+        })
+
+      # Upsert with same video_id and crf should update
+      {:ok, vmaf2} =
+        Media.upsert_vmaf(%{
+          "video_id" => video.id,
+          "crf" => "23.0",
+          "score" => "96.0",
+          "params" => ["--preset", "6"]
+        })
+
+      # Should be same ID (updated, not inserted)
+      assert vmaf1.id == vmaf2.id
+      assert vmaf2.score == 96.0
+    end
   end
 
   describe "bulk operations and reanalysis" do
@@ -1534,6 +1657,15 @@ defmodule Reencodarr.MediaTest do
       assert Media.get_video(video2.id).bitrate == nil
       # Encoded video should keep bitrate
       assert Media.get_video(encoded.id).bitrate == 7000
+    end
+
+    test "reset_all_videos_for_reanalysis/0 skips failed videos" do
+      {:ok, failed} = Fixtures.video_fixture(%{state: :failed, bitrate: 5000})
+
+      Media.reset_all_videos_for_reanalysis()
+
+      # Failed video should keep bitrate
+      assert Media.get_video(failed.id).bitrate == 5000
     end
 
     test "reset_videos_for_reanalysis_batched/1 processes in batches" do
@@ -1568,6 +1700,16 @@ defmodule Reencodarr.MediaTest do
       assert Media.get_video(video2.id).state == :needs_analysis
     end
 
+    test "reset_all_videos_to_needs_analysis/0 also resets bitrate" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed, bitrate: 5000})
+
+      Media.reset_all_videos_to_needs_analysis()
+
+      updated = Media.get_video(video.id)
+      assert updated.state == :needs_analysis
+      assert updated.bitrate == nil
+    end
+
     test "debug_force_analyze_video/1 resets video and triggers analysis" do
       # Start with a video in needs_analysis state (which can transition to needs_analysis)
       {:ok, video} =
@@ -1598,6 +1740,31 @@ defmodule Reencodarr.MediaTest do
 
       assert {:error, message} = result
       assert message =~ "not found"
+    end
+
+    test "debug_force_analyze_video/1 resets all analysis fields" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :needs_analysis,
+          bitrate: 5000,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 6,
+          duration: 3600.0,
+          frame_rate: 24.0,
+          width: 1920,
+          height: 1080
+        })
+
+      Media.debug_force_analyze_video(video.path)
+
+      fresh = Repo.get!(Reencodarr.Media.Video, video.id)
+      assert fresh.bitrate == nil
+      assert fresh.video_codecs == nil
+      assert fresh.audio_codecs == nil
+      assert fresh.max_audio_channels == nil
+      assert fresh.duration == nil
+      assert fresh.frame_rate == nil
     end
   end
 
@@ -1679,6 +1846,30 @@ defmodule Reencodarr.MediaTest do
       {:error, changeset} = Media.upsert_video(%{})
 
       assert changeset.errors[:path]
+    end
+
+    test "upsert_video/1 preserves timestamps on upsert" do
+      {:ok, existing} = Fixtures.video_fixture()
+      original_inserted_at = existing.inserted_at
+
+      # Sleep to ensure timestamp would change if it were being updated
+      Process.sleep(10)
+
+      attrs = %{
+        "path" => existing.path,
+        "library_id" => existing.library_id,
+        "service_type" => existing.service_type,
+        "service_id" => existing.service_id,
+        "size" => 2_000_000
+      }
+
+      {:ok, updated} = Media.upsert_video(attrs)
+
+      # inserted_at should be preserved (not updated)
+      assert updated.inserted_at == original_inserted_at
+
+      # updated_at should change (but we're using on_conflict replace_all_except which preserves it)
+      # So this depends on implementation - current impl preserves updated_at too
     end
   end
 end
