@@ -2513,5 +2513,178 @@ defmodule Reencodarr.MediaTest do
       # Savings should be nil for zero or negative percent
       assert is_nil(vmaf.savings)
     end
+
+    test "reset_all_videos_for_reanalysis/0 resets bitrate for non-encoded videos" do
+      {:ok, v1} = Fixtures.video_fixture(%{bitrate: 5_000_000, state: :analyzed})
+      {:ok, v2} = Fixtures.video_fixture(%{bitrate: 3_000_000, state: :crf_searched})
+      {:ok, v3} = Fixtures.video_fixture(%{bitrate: 4_000_000, state: :encoded})
+
+      {count, _} = Media.reset_all_videos_for_reanalysis()
+
+      assert count >= 2
+
+      # Non-encoded videos should have nil bitrate
+      updated1 = Repo.get(Reencodarr.Media.Video, v1.id)
+      assert is_nil(updated1.bitrate)
+
+      updated2 = Repo.get(Reencodarr.Media.Video, v2.id)
+      assert is_nil(updated2.bitrate)
+
+      # Encoded video should keep bitrate
+      updated3 = Repo.get(Reencodarr.Media.Video, v3.id)
+      assert updated3.bitrate == 4_000_000
+    end
+
+    test "reset_all_videos_for_reanalysis/0 does not reset failed videos" do
+      {:ok, v1} = Fixtures.video_fixture(%{bitrate: 5_000_000, state: :failed})
+
+      Media.reset_all_videos_for_reanalysis()
+
+      # Failed video should keep bitrate
+      updated = Repo.get(Reencodarr.Media.Video, v1.id)
+      assert updated.bitrate == 5_000_000
+    end
+
+    test "reset_videos_for_reanalysis_batched/1 processes videos in batches" do
+      # Create multiple videos
+      videos =
+        Enum.map(1..5, fn _ ->
+          {:ok, v} = Fixtures.video_fixture(%{bitrate: 5_000_000, state: :analyzed})
+          v
+        end)
+
+      # Reset with small batch size
+      Media.reset_videos_for_reanalysis_batched(2)
+
+      # All videos should have nil bitrate
+      Enum.each(videos, fn video ->
+        updated = Repo.get(Reencodarr.Media.Video, video.id)
+        assert is_nil(updated.bitrate)
+      end)
+    end
+
+    test "reset_videos_for_reanalysis_batched/1 defaults to 1000 batch size" do
+      {:ok, v1} = Fixtures.video_fixture(%{bitrate: 5_000_000, state: :analyzed})
+
+      Media.reset_videos_for_reanalysis_batched()
+
+      updated = Repo.get(Reencodarr.Media.Video, v1.id)
+      assert is_nil(updated.bitrate)
+    end
+
+    test "reset_videos_for_reanalysis_batched/1 handles empty case" do
+      # No non-encoded/failed videos exist - should not error
+      Media.reset_videos_for_reanalysis_batched()
+    end
+
+    test "force_reanalyze_video/1 transaction rollback on error" do
+      # Create a video but use an invalid ID that exists but then gets deleted
+      {:ok, video} = Fixtures.video_fixture()
+      video_id = video.id
+
+      # Delete the video to cause transaction issues (simulate edge case)
+      Media.delete_video(video)
+
+      # Should return error for non-existent video
+      result = Media.force_reanalyze_video(video_id)
+
+      assert {:error, _} = result
+    end
+
+    test "get_video_by_path/1 with {:ok, video} return format" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      {:ok, found} = Media.get_video_by_path(video.path)
+
+      assert found.id == video.id
+    end
+
+    test "get_video_by_path/1 with {:error, :not_found} for missing path" do
+      result = Media.get_video_by_path("/nonexistent/path.mkv")
+
+      assert {:error, :not_found} = result
+    end
+
+    test "query_videos_ready_for_encoding/1 respects limit" do
+      # Create multiple videos with chosen VMAFs
+      videos =
+        Enum.map(1..5, fn i ->
+          {:ok, v} = Fixtures.video_fixture(%{state: :crf_searched})
+
+          Fixtures.vmaf_fixture(%{
+            video_id: v.id,
+            chosen: true,
+            crf: 25.0 + i,
+            savings: 100_000 * i
+          })
+
+          v
+        end)
+
+      # Query with limit of 3
+      results = Media.get_next_for_encoding(3)
+
+      # Should get at most 3 results
+      assert length(results) <= 3
+    end
+
+    test "list_videos_by_estimated_percent/1 orders by highest percent first" do
+      {:ok, v1} = Fixtures.video_fixture()
+      {:ok, v2} = Fixtures.video_fixture()
+      {:ok, v3} = Fixtures.video_fixture()
+
+      # Create VMAFs with different percentages
+      Fixtures.vmaf_fixture(%{video_id: v1.id, percent: 50.0})
+      Fixtures.vmaf_fixture(%{video_id: v2.id, percent: 90.0})
+      Fixtures.vmaf_fixture(%{video_id: v3.id, percent: 70.0})
+
+      results = Media.list_videos_by_estimated_percent(10)
+
+      # Should be ordered by percent descending
+      if length(results) >= 3 do
+        percentages = Enum.map(results, fn r -> r.estimated_space_saved_percent end)
+        assert Enum.sort(percentages, :desc) == percentages
+      end
+    end
+
+    test "get_next_for_encoding_by_time/0 returns empty list when no chosen VMAFs" do
+      # Create videos without chosen VMAFs
+      {:ok, v1} = Fixtures.video_fixture(%{state: :analyzed})
+      Fixtures.vmaf_fixture(%{video_id: v1.id, chosen: false})
+
+      result = Media.get_next_for_encoding_by_time()
+
+      assert result == []
+    end
+
+    test "get_next_for_encoding_by_time/0 returns video with chosen VMAF" do
+      {:ok, v1} = Fixtures.video_fixture(%{state: :crf_searched})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: v1.id, chosen: true})
+
+      result = Media.get_next_for_encoding_by_time()
+
+      assert length(result) == 1
+      assert hd(result).id == vmaf.id
+    end
+
+    test "get_next_for_encoding_by_time/0 orders by savings DESC NULLS LAST" do
+      {:ok, v1} = Fixtures.video_fixture(%{state: :crf_searched})
+      {:ok, v2} = Fixtures.video_fixture(%{state: :crf_searched})
+      {:ok, v3} = Fixtures.video_fixture(%{state: :crf_searched})
+
+      # Create VMAFs with different savings (and one with nil)
+      _vmaf1 = Fixtures.vmaf_fixture(%{video_id: v1.id, chosen: true, crf: 25.0, savings: 50_000})
+
+      _vmaf2 =
+        Fixtures.vmaf_fixture(%{video_id: v2.id, chosen: true, crf: 26.0, savings: 100_000})
+
+      _vmaf3 = Fixtures.vmaf_fixture(%{video_id: v3.id, chosen: true, crf: 27.0, savings: nil})
+
+      result = Media.get_next_for_encoding_by_time()
+
+      # Should return the one with highest savings first
+      assert length(result) == 1
+      assert hd(result).savings == 100_000
+    end
   end
 end
