@@ -351,13 +351,15 @@ defmodule Reencodarr.Media do
     Repo.transaction(fn ->
       # Find videos with problematic audio metadata that would cause Rules.audio/1 to return []
       # This happens when max_audio_channels is nil/0 OR audio_codecs is nil/empty
+      # SQLite: audio_codecs is stored as JSON, check if empty with json_array_length
       problematic_video_ids =
         from(v in Video,
           where:
             v.state not in [:encoded, :failed] and
               v.atmos != true and
               (is_nil(v.max_audio_channels) or v.max_audio_channels == 0 or
-                 is_nil(v.audio_codecs) or fragment("array_length(?, 1) IS NULL", v.audio_codecs)),
+                 is_nil(v.audio_codecs) or
+                 fragment("json_array_length(?) = 0", v.audio_codecs)),
           select: v.id
         )
         |> Repo.all()

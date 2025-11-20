@@ -1262,9 +1262,7 @@ defmodule Reencodarr.MediaTest do
       end
     end
 
-    @tag :skip
     test "reset_videos_with_invalid_audio_metadata/0 resets videos with nil audio" do
-      # Skip: Uses PostgreSQL-specific array_length function
       {:ok, video} =
         Fixtures.video_fixture(%{
           max_audio_channels: nil,
