@@ -1900,4 +1900,178 @@ defmodule Reencodarr.MediaTest do
       # So this depends on implementation - current impl preserves updated_at too
     end
   end
+
+  describe "helper functions and transaction error paths" do
+    test "delete_videos_with_path/1 with wildcard pattern" do
+      base_path = "/test/wildcard_#{:erlang.unique_integer([:positive])}"
+      {:ok, v1} = Fixtures.video_fixture(%{path: "#{base_path}/video1.mkv"})
+      {:ok, v2} = Fixtures.video_fixture(%{path: "#{base_path}/video2.mkv"})
+      {:ok, other} = Fixtures.video_fixture(%{path: "/other/path.mkv"})
+
+      {:ok, {deleted_count, _}} = Media.delete_videos_with_path("#{base_path}%")
+
+      assert deleted_count >= 2
+      # Should delete v1 and v2
+      refute Repo.get(Reencodarr.Media.Video, v1.id)
+      refute Repo.get(Reencodarr.Media.Video, v2.id)
+      # Should not delete other
+      assert Repo.get(Reencodarr.Media.Video, other.id)
+    end
+
+    test "delete_videos_with_path/1 handles empty matches" do
+      result = Media.delete_videos_with_path("/nonexistent/path%")
+
+      assert {:ok, {0, _}} = result
+    end
+
+    test "reset_videos_with_invalid_audio_args/0 with no problematic videos" do
+      # Create a video with valid audio metadata
+      {:ok, _video} =
+        Fixtures.video_fixture(%{
+          audio_codecs: ["aac"],
+          max_audio_channels: 2,
+          state: :analyzed
+        })
+
+      result = Media.reset_videos_with_invalid_audio_args()
+
+      assert result.videos_reset == 0
+      assert result.vmafs_deleted == 0
+    end
+
+    test "count_videos_with_invalid_audio_args/0 with all valid videos" do
+      {:ok, _video} =
+        Fixtures.video_fixture(%{
+          audio_codecs: ["aac"],
+          max_audio_channels: 2,
+          state: :analyzed
+        })
+
+      result = Media.count_videos_with_invalid_audio_args()
+
+      assert result.videos_with_invalid_args == 0
+      assert result.videos_tested >= 1
+    end
+
+    test "reset_all_failures/0 with no failures" do
+      {:ok, _video} = Fixtures.video_fixture(%{state: :analyzed})
+
+      result = Media.reset_all_failures()
+
+      assert result.videos_reset == 0
+      assert result.failures_deleted == 0
+      assert result.vmafs_deleted == 0
+    end
+
+    test "reset_all_failures/0 resets multiple failed videos" do
+      {:ok, failed1} = Fixtures.video_fixture(%{state: :failed})
+      {:ok, failed2} = Fixtures.video_fixture(%{state: :failed})
+      _vmaf1 = Fixtures.vmaf_fixture(%{video_id: failed1.id})
+      _vmaf2 = Fixtures.vmaf_fixture(%{video_id: failed2.id})
+
+      Media.record_video_failure(failed1, :encoding, :process_failure, message: "Test")
+
+      result = Media.reset_all_failures()
+
+      assert result.videos_reset >= 2
+      assert result.vmafs_deleted >= 2
+      assert result.failures_deleted >= 1
+
+      # Videos should be reset to needs_analysis
+      assert Media.get_video(failed1.id).state == :needs_analysis
+      assert Media.get_video(failed2.id).state == :needs_analysis
+    end
+
+    test "get_next_for_encoding_by_time/0 with no videos" do
+      result = Media.get_next_for_encoding_by_time()
+
+      assert result == []
+    end
+
+    test "get_next_for_encoding_by_time/0 sorts by savings and time" do
+      {:ok, video1} = Fixtures.video_fixture(%{state: :crf_searched})
+      {:ok, video2} = Fixtures.video_fixture(%{state: :crf_searched})
+
+      # video1 has higher savings
+      _vmaf1 =
+        Fixtures.vmaf_fixture(%{
+          video_id: video1.id,
+          chosen: true,
+          savings: 5_000_000,
+          time: 200
+        })
+
+      # video2 has lower savings
+      _vmaf2 =
+        Fixtures.vmaf_fixture(%{
+          video_id: video2.id,
+          chosen: true,
+          savings: 1_000_000,
+          time: 100
+        })
+
+      result = Media.get_next_for_encoding_by_time()
+
+      assert length(result) == 1
+      # Should return the one with higher savings
+      assert hd(result).savings == 5_000_000
+    end
+
+    test "list_videos_awaiting_crf_search/0 filters correctly" do
+      # Video with VMAF - should not be returned
+      {:ok, video_with_vmaf} = Fixtures.video_fixture(%{state: :analyzed})
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video_with_vmaf.id})
+
+      # Video without VMAF and state :analyzed - should be returned
+      {:ok, video_awaiting} = Fixtures.video_fixture(%{state: :analyzed})
+
+      # Video without VMAF but wrong state - should not be returned
+      {:ok, _video_wrong_state} = Fixtures.video_fixture(%{state: :needs_analysis})
+
+      result = Media.list_videos_awaiting_crf_search()
+
+      video_ids = Enum.map(result, & &1.id)
+      assert video_awaiting.id in video_ids
+      refute video_with_vmaf.id in video_ids
+    end
+
+    test "mark_vmaf_as_chosen/2 with non-existent CRF does nothing" do
+      {:ok, video} = Fixtures.video_fixture()
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: true})
+
+      # Try to mark a CRF that doesn't exist
+      {:ok, _result} = Media.mark_vmaf_as_chosen(video.id, 99.0)
+
+      # Original VMAF should now be unchosen
+      updated = Repo.get(Reencodarr.Media.Vmaf, vmaf.id)
+      assert updated.chosen == false
+    end
+
+    test "get_videos_in_library/1 returns only videos from that library" do
+      library1 = Fixtures.library_fixture()
+      library2 = Fixtures.library_fixture()
+
+      {:ok, v1} = Fixtures.video_fixture(%{library_id: library1.id})
+      {:ok, v2} = Fixtures.video_fixture(%{library_id: library1.id})
+      {:ok, _v3} = Fixtures.video_fixture(%{library_id: library2.id})
+
+      result = Media.get_videos_in_library(library1.id)
+
+      video_ids = Enum.map(result, & &1.id)
+      assert v1.id in video_ids
+      assert v2.id in video_ids
+      assert length(result) >= 2
+    end
+
+    test "count_videos/0 returns accurate count" do
+      initial_count = Media.count_videos()
+
+      {:ok, _v1} = Fixtures.video_fixture()
+      {:ok, _v2} = Fixtures.video_fixture()
+
+      new_count = Media.count_videos()
+
+      assert new_count == initial_count + 2
+    end
+  end
 end
