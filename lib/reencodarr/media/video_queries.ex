@@ -18,21 +18,10 @@ defmodule Reencodarr.Media.VideoQueries do
   """
   @spec videos_for_crf_search(integer(), keyword()) :: [Video.t()]
   def videos_for_crf_search(limit \\ 10, opts \\ []) do
-    # SQLite3 implementation for video codec filtering
+    # Simplified query - just check state, let Rules filter codecs at encode time
     Repo.all(
       from(v in Video,
-        where:
-          v.state == :analyzed and
-            not fragment(
-              "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
-              v.video_codecs,
-              "av1"
-            ) and
-            not fragment(
-              "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
-              v.audio_codecs,
-              "opus"
-            ),
+        where: v.state == :analyzed,
         order_by: [desc: v.bitrate, desc: v.size, asc: v.updated_at],
         limit: ^limit,
         select: v
@@ -47,21 +36,10 @@ defmodule Reencodarr.Media.VideoQueries do
   """
   @spec count_videos_for_crf_search() :: integer()
   def count_videos_for_crf_search do
-    # SQLite3 implementation for video codec filtering
+    # Simplified query - just check state, codec filtering happens at encode time
     Repo.one(
       from v in Video,
-        where:
-          v.state == :analyzed and
-            not fragment(
-              "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
-              v.video_codecs,
-              "av1"
-            ) and
-            not fragment(
-              "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
-              v.audio_codecs,
-              "opus"
-            ),
+        where: v.state == :analyzed,
         select: count()
     )
   end

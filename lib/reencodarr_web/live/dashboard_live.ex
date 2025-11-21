@@ -700,25 +700,14 @@ defmodule ReencodarrWeb.DashboardLive do
     :exit, {%DBConnection.ConnectionError{}, _} -> 0
   end
 
-  # Inline CRF search count to apply timeout
+  # Inline CRF search count to apply timeout - simplified without codec checks
   defp count_videos_for_crf_search_with_timeout do
     import Ecto.Query
 
     safe_query(fn ->
       Repo.one(
         from(v in Video,
-          where:
-            v.state == :analyzed and
-              not fragment(
-                "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
-                v.video_codecs,
-                "av1"
-              ) and
-              not fragment(
-                "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
-                v.audio_codecs,
-                "opus"
-              ),
+          where: v.state == :analyzed,
           select: count()
         ),
         timeout: @dashboard_query_timeout

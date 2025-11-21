@@ -106,6 +106,14 @@ defmodule Reencodarr.Media do
     Video.changeset(video, attrs)
   end
 
+  def mark_as_crf_searching(%Video{} = video) do
+    VideoStateMachine.mark_as_crf_searching(video)
+  end
+
+  def mark_as_encoding(%Video{} = video) do
+    VideoStateMachine.mark_as_encoding(video)
+  end
+
   def mark_as_reencoded(%Video{} = video) do
     VideoStateMachine.mark_as_reencoded(video)
   end
