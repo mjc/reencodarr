@@ -267,6 +267,20 @@ defmodule Reencodarr.Media.VideoStateMachine do
 
   Handles the appropriate state transitions regardless of current state.
   """
+  def mark_as_crf_searching(%Video{} = video) do
+    case transition_to_crf_searching(video) do
+      {:ok, changeset} -> Reencodarr.Repo.update(changeset)
+      error -> error
+    end
+  end
+
+  def mark_as_encoding(%Video{} = video) do
+    case transition_to_encoding(video) do
+      {:ok, changeset} -> Reencodarr.Repo.update(changeset)
+      error -> error
+    end
+  end
+
   def mark_as_reencoded(%Video{} = video) do
     # Ensure video is in the correct state for encoding completion
     # If not in :encoding state, transition through the minimum required states

@@ -16,7 +16,6 @@ defmodule Reencodarr.Encoder.Broadway do
 
   alias Broadway.Message
   alias Reencodarr.AbAv1
-  alias Reencodarr.AbAv1.Encode
   alias Reencodarr.Encoder.Broadway.Producer
 
   @typedoc "VMAF struct for encoding processing"
@@ -185,6 +184,8 @@ defmodule Reencodarr.Encoder.Broadway do
 
   # Test helper functions - delegate to Encode GenServer which has the actual logic
   if Mix.env() == :test do
+    alias Reencodarr.AbAv1.Encode
+
     @doc false
     def build_encode_args_for_test(vmaf) do
       # Delegate to Encode GenServer's test function

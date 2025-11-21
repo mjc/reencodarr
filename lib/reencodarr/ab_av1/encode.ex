@@ -273,28 +273,39 @@ defmodule Reencodarr.AbAv1.Encode do
 
   # Private Helper Functions
   defp prepare_encode_state(vmaf, state) do
-    args = build_encode_args(vmaf)
-    output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
+    # Mark video as encoding BEFORE starting the port to prevent duplicate dispatches
+    case Media.mark_as_encoding(vmaf.video) do
+      {:ok, _updated_video} ->
+        args = build_encode_args(vmaf)
+        output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
 
-    port = Helper.open_port(args)
+        port = Helper.open_port(args)
 
-    # Broadcast encoding started to Dashboard Events
-    Events.broadcast_event(:encoding_started, %{
-      video_id: vmaf.video.id,
-      filename: Path.basename(vmaf.video.path)
-    })
+        # Broadcast encoding started to Dashboard Events
+        Events.broadcast_event(:encoding_started, %{
+          video_id: vmaf.video.id,
+          filename: Path.basename(vmaf.video.path)
+        })
 
-    # Set up a periodic timer to check if we're still alive and potentially emit progress
-    # Check every 10 seconds
-    Process.send_after(self(), :periodic_check, 10_000)
+        # Set up a periodic timer to check if we're still alive and potentially emit progress
+        # Check every 10 seconds
+        Process.send_after(self(), :periodic_check, 10_000)
 
-    %{
-      state
-      | port: port,
-        video: vmaf.video,
-        vmaf: vmaf,
-        output_file: output_file
-    }
+        %{
+          state
+          | port: port,
+            video: vmaf.video,
+            vmaf: vmaf,
+            output_file: output_file
+        }
+
+      {:error, reason} ->
+        Logger.error(
+          "Failed to mark video #{vmaf.video.id} as encoding: #{inspect(reason)}. Skipping encode."
+        )
+
+        state
+    end
   end
 
   defp build_encode_args(vmaf) do

@@ -18,7 +18,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.ErrorHelpers
   alias Reencodarr.Formatters
   alias Reencodarr.Media
-  alias Reencodarr.Media.VideoStateMachine
   alias Reencodarr.Repo
 
   require Logger
@@ -151,7 +150,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
     # Mark video as crf_searching NOW that we're actually starting
-    case VideoStateMachine.transition_to_crf_searching(video) do
+    case Media.mark_as_crf_searching(video) do
       {:ok, _updated_video} ->
         :ok
 
