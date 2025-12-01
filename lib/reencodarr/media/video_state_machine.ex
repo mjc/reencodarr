@@ -23,6 +23,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
   """
 
   import Ecto.Changeset
+  alias Reencodarr.Core.Retry
   alias Reencodarr.Media.Video
   require Logger
 
@@ -332,7 +333,12 @@ defmodule Reencodarr.Media.VideoStateMachine do
   def mark_as_analyzed(%Video{} = video) do
     case transition_to_analyzed(video) do
       {:ok, changeset} ->
-        case Reencodarr.Repo.update(changeset) do
+        result =
+          Retry.retry_on_db_busy(fn ->
+            Reencodarr.Repo.update(changeset)
+          end)
+
+        case result do
           {:ok, updated_video} ->
             broadcast_state_transition(updated_video, :analyzed)
             {:ok, updated_video}
