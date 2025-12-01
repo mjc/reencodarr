@@ -693,11 +693,14 @@ defmodule ReencodarrWeb.DashboardLive do
   defp safe_query(fun) do
     fun.()
   rescue
+    # Catch all DB connection errors (busy, timeout, disconnect, etc)
     DBConnection.ConnectionError -> 0
   catch
     :exit, {:timeout, _} -> 0
-    # In tests, owner process may exit during async queries
+    # Catch connection errors wrapped in exit tuples
     :exit, {%DBConnection.ConnectionError{}, _} -> 0
+    # Catch checkout timeouts
+    :exit, {{%DBConnection.ConnectionError{}, _}, _} -> 0
   end
 
   # Inline CRF search count to apply timeout - simplified without codec checks
@@ -737,11 +740,14 @@ defmodule ReencodarrWeb.DashboardLive do
   defp safe_query_list(fun) do
     fun.()
   rescue
+    # Catch all DB connection errors (busy, timeout, disconnect, etc)
     DBConnection.ConnectionError -> []
   catch
     :exit, {:timeout, _} -> []
-    # In tests, owner process may exit during async queries
+    # Catch connection errors wrapped in exit tuples
     :exit, {%DBConnection.ConnectionError{}, _} -> []
+    # Catch checkout timeouts
+    :exit, {{%DBConnection.ConnectionError{}, _}, _} -> []
   end
 
   # Simple service status - just check if processes are alive
