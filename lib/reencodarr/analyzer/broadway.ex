@@ -431,15 +431,20 @@ defmodule Reencodarr.Analyzer.Broadway do
         Logger.debug("Broadway: Video skipped during pipeline processing: #{reason}")
         {success_acc, [reason | fail_acc]}
 
-      # Failed video processing
-      {:error, path}, {success_acc, fail_acc} ->
+      # Failed video processing - now includes error reason
+      {:error, {path, reason}}, {success_acc, fail_acc} ->
+        Logger.debug("Broadway: Video failed during pipeline processing: #{path} - #{reason}")
+        {success_acc, [{path, reason} | fail_acc]}
+
+      # Legacy format without reason
+      {:error, path}, {success_acc, fail_acc} when is_binary(path) ->
         Logger.debug("Broadway: Video failed during pipeline processing: #{path}")
-        {success_acc, [path | fail_acc]}
+        {success_acc, [{path, "unknown error"} | fail_acc]}
 
       # Unexpected format
       other, {success_acc, fail_acc} ->
         Logger.warning("Broadway: Unexpected pipeline result format: #{inspect(other)}")
-        {success_acc, ["unknown_error" | fail_acc]}
+        {success_acc, [{"unknown_path", "unexpected format"} | fail_acc]}
     end)
   end
 
@@ -522,9 +527,10 @@ defmodule Reencodarr.Analyzer.Broadway do
     error_count = length(transition_results) - success_count
     total_errors = error_count + length(failed_paths)
 
-    # Mark failed paths as failed in the database
-    Enum.each(failed_paths, fn path ->
-      mark_video_as_failed(path, "processing failed")
+    # Mark failed paths as failed in the database with error reasons
+    Enum.each(failed_paths, fn
+      {path, reason} -> mark_video_as_failed(path, reason)
+      path when is_binary(path) -> mark_video_as_failed(path, "processing failed")
     end)
 
     log_errors_if_any(total_errors, transition_results, failed_paths)
