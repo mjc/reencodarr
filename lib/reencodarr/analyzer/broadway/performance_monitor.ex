@@ -268,33 +268,45 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
     # Schedule next adjustment
     Process.send_after(self(), :adjust_rate_limit, @adjustment_interval)
 
+    new_state = maybe_adjust_performance(state)
+    {:noreply, new_state}
+  end
+
+  defp maybe_adjust_performance(state) do
     current_time = System.monotonic_time(:millisecond)
     time_since_last = current_time - state.last_adjustment
 
     # Only process if we have enough data and auto-tuning is enabled
-    new_state =
-      if length(state.throughput_history) >= 3 and time_since_last >= @adjustment_interval do
-        avg_throughput = calculate_average_throughput(state.throughput_history)
+    if length(state.throughput_history) >= 3 and time_since_last >= @adjustment_interval do
+      avg_throughput = calculate_average_throughput(state.throughput_history)
 
-        # Detect storage performance and adjust settings accordingly
-        state_with_storage_detection = detect_and_adapt_to_storage_performance(state)
-
-        if state_with_storage_detection.auto_tuning_enabled do
-          # Perform intelligent auto-tuning based on storage tier
-          perform_intelligent_tuning(state_with_storage_detection, avg_throughput, current_time)
-        else
-          # Just log performance and reset counters
-          log_performance_and_reset_counters(
-            state_with_storage_detection,
-            avg_throughput,
-            current_time
-          )
-        end
+      # Only log and adjust if there's been recent activity (throughput > 0)
+      if avg_throughput > 0 do
+        adjust_based_on_throughput(state, avg_throughput, current_time)
       else
-        state
+        # No recent activity, just reset the timer
+        %{state | last_adjustment: current_time}
       end
+    else
+      state
+    end
+  end
 
-    {:noreply, new_state}
+  defp adjust_based_on_throughput(state, avg_throughput, current_time) do
+    # Detect storage performance and adjust settings accordingly
+    state_with_storage_detection = detect_and_adapt_to_storage_performance(state)
+
+    if state_with_storage_detection.auto_tuning_enabled do
+      # Perform intelligent auto-tuning based on storage tier
+      perform_intelligent_tuning(state_with_storage_detection, avg_throughput, current_time)
+    else
+      # Just log performance and reset counters
+      log_performance_and_reset_counters(
+        state_with_storage_detection,
+        avg_throughput,
+        current_time
+      )
+    end
   end
 
   defp add_to_history(history, throughput) do
