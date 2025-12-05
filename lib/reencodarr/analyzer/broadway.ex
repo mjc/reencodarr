@@ -316,17 +316,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   defp process_single_unchanged_video(video_info) do
     case Media.get_video(video_info.id) do
       %Video{state: :needs_analysis} = video ->
-        case Media.mark_as_analyzed(video) do
-          {:ok, _updated_video} ->
-            Logger.debug(
-              "Transitioned video #{video_info.path} to analyzed (unchanged file size with existing MediaInfo)"
-            )
-
-          {:error, reason} ->
-            Logger.warning(
-              "Failed to transition video #{video_info.path} to analyzed state: #{inspect(reason)}"
-            )
-        end
+        try_mark_video_as_analyzed(video, video_info.path)
 
       %Video{state: state} ->
         Logger.debug(
@@ -336,6 +326,34 @@ defmodule Reencodarr.Analyzer.Broadway do
       nil ->
         Logger.warning("Video not found for transition: #{video_info.path}")
     end
+  end
+
+  defp try_mark_video_as_analyzed(video, path) do
+    # Check if video has required fields for analyzed state
+    if has_required_mediainfo_fields?(video) do
+      case Media.mark_as_analyzed(video) do
+        {:ok, _updated_video} ->
+          Logger.debug(
+            "Transitioned video #{path} to analyzed (unchanged file size with existing MediaInfo)"
+          )
+
+        {:error, reason} ->
+          Logger.warning(
+            "Failed to transition video #{path} to analyzed state: #{inspect(reason)}"
+          )
+      end
+    else
+      Logger.debug(
+        "Skipping transition for #{path} - missing required mediainfo fields (bitrate: #{video.bitrate}, width: #{video.width}, height: #{video.height})"
+      )
+    end
+  end
+
+  # Check if video has the required fields to transition to analyzed state
+  defp has_required_mediainfo_fields?(%Video{} = video) do
+    is_integer(video.bitrate) and video.bitrate > 0 and
+      is_integer(video.width) and video.width > 0 and
+      is_integer(video.height) and video.height > 0
   end
 
   defp process_filtered_videos(videos_needing_analysis, context) do
