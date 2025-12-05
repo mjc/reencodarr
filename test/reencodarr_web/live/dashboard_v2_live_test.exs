@@ -16,7 +16,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       {:ok, _view, html} = live(conn, ~p"/")
 
       # Check page loaded successfully
-      assert html =~ "Video Processing Dashboard"
+      assert html =~ "Reencodarr"
       assert html =~ "Processing Pipeline"
       assert html =~ "Analysis"
       assert html =~ "CRF Search"
@@ -67,7 +67,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
       # Re-render to ensure events were processed
       html = render(view)
-      assert html =~ "Video Processing Dashboard"
+      assert html =~ "Processing Pipeline"
     end
 
     test "handles queue count events without crashing", %{conn: conn} do
@@ -83,7 +83,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
       # Re-render to ensure events were processed
       html = render(view)
-      assert html =~ "Video Processing Dashboard"
+      assert html =~ "Processing Pipeline"
     end
 
     test "handles progress events without crashing", %{conn: conn} do
@@ -103,7 +103,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
       # Re-render to ensure events were processed
       html = render(view)
-      assert html =~ "Video Processing Dashboard"
+      assert html =~ "Processing Pipeline"
     end
 
     test "handles sync events without crashing", %{conn: conn} do
@@ -119,7 +119,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
       # Re-render to ensure events were processed
       html = render(view)
-      assert html =~ "Video Processing Dashboard"
+      assert html =~ "Processing Pipeline"
     end
 
     test "handles throughput events without crashing", %{conn: conn} do
@@ -133,7 +133,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
       # Re-render to ensure events were processed
       html = render(view)
-      assert html =~ "Video Processing Dashboard"
+      assert html =~ "Processing Pipeline"
     end
   end
 
@@ -172,7 +172,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
       # Just verify page still renders after throughput event
       html = render(view)
-      assert html =~ "Video Processing Dashboard"
+      assert html =~ "Processing Pipeline"
     end
 
     test "handles sync already in progress gracefully", %{conn: conn} do
@@ -184,7 +184,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
       # Check that the page still renders correctly with sync in progress
       html = render(view)
-      assert html =~ "Video Processing Dashboard"
+      assert html =~ "Processing Pipeline"
 
       # Note: We can't test button clicking when disabled,
       # so we'll just verify the page handles the sync state

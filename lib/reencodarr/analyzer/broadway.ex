@@ -316,7 +316,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   defp process_single_unchanged_video(video_info) do
     case Media.get_video(video_info.id) do
       %Video{state: :needs_analysis} = video ->
-        try_mark_video_as_analyzed(video, video_info.path)
+        decide_video_processing_path(video)
 
       %Video{state: state} ->
         Logger.debug(
@@ -325,27 +325,6 @@ defmodule Reencodarr.Analyzer.Broadway do
 
       nil ->
         Logger.warning("Video not found for transition: #{video_info.path}")
-    end
-  end
-
-  defp try_mark_video_as_analyzed(video, path) do
-    # Check if video has required fields for analyzed state
-    if has_required_mediainfo_fields?(video) do
-      case Media.mark_as_analyzed(video) do
-        {:ok, _updated_video} ->
-          Logger.debug(
-            "Transitioned video #{path} to analyzed (unchanged file size with existing MediaInfo)"
-          )
-
-        {:error, reason} ->
-          Logger.warning(
-            "Failed to transition video #{path} to analyzed state: #{inspect(reason)}"
-          )
-      end
-    else
-      Logger.debug(
-        "Skipping transition for #{path} - missing required mediainfo fields (bitrate: #{video.bitrate}, width: #{video.width}, height: #{video.height})"
-      )
     end
   end
 
@@ -363,7 +342,7 @@ defmodule Reencodarr.Analyzer.Broadway do
         has_av1_in_filename?(video_info) || has_opus_in_filename?(video_info)
       end)
 
-    # Process encoded filename videos directly without MediaInfo - transition them to encoded state
+    # Process encoded filename videos directly without MediaInfo - mark them as encoded
     Enum.each(encoded_filename_videos, fn video ->
       # Debug log to see if we're processing already-encoded videos
       current_video = Media.get_video(video.id)
@@ -374,10 +353,10 @@ defmodule Reencodarr.Analyzer.Broadway do
 
       cond do
         has_av1_in_filename?(video) ->
-          persist_encoded_state(current_video, "AV1 detected in filename")
+          apply_processing_decision(current_video, {:skip_encoding, "AV1 detected in filename"})
 
         has_opus_in_filename?(video) ->
-          persist_encoded_state(current_video, "Opus detected in filename")
+          apply_processing_decision(current_video, {:skip_encoding, "Opus detected in filename"})
       end
     end)
 
@@ -528,8 +507,8 @@ defmodule Reencodarr.Analyzer.Broadway do
 
       case upsert_result do
         {:ok, video} ->
-          Logger.debug("Broadway: Transitioning video #{video_info.path} to analyzed state")
-          transition_video_to_analyzed(video)
+          Logger.debug("Broadway: Deciding processing path for #{video_info.path}")
+          decide_video_processing_path(video)
           :ok
 
         {:error, reason} ->
@@ -566,94 +545,87 @@ defmodule Reencodarr.Analyzer.Broadway do
   # Video state transition functions
 
   @doc """
-  Public function for testing - transitions a video to analyzed state with codec optimization.
+  Decides the processing path for a video based on its codecs and filename.
+
+  Returns {:ok, video} after transitioning to either :analyzed or :encoded state.
+  Videos already have AV1/Opus codecs or filenames indicating such are marked :encoded.
+  All other videos are marked :analyzed and queued for CRF search.
   """
-  def transition_video_to_analyzed(%{state: state, path: path} = video)
+  def decide_video_processing_path(%{state: state, path: path} = video)
       when state != :needs_analysis do
     Logger.debug("Video #{path} already in state #{state}, skipping transition")
     {:ok, video}
   end
 
-  def transition_video_to_analyzed(video) do
-    # Use pure business logic to determine what should happen, then persist
-    transition_decision = determine_video_transition_decision(video)
-    execute_transition_decision(video, transition_decision)
+  def decide_video_processing_path(video) do
+    encoding_requirement = check_encoding_requirements(video)
+    apply_processing_decision(video, encoding_requirement)
   end
 
   @doc """
-  Pure function that determines what transition should happen for a video.
-  Returns a tuple indicating the target state and reason.
-  This function has no side effects and is easily testable.
+  Checks whether a video needs encoding based on its codecs and filename.
+
+  Returns {:skip_encoding, reason} if video already has target codecs (AV1/Opus).
+  Returns {:needs_encoding, reason} if video should be queued for CRF search.
+
+  This is a pure function with no side effects.
   """
-  def determine_video_transition_decision(video) do
-    decision =
+  def check_encoding_requirements(video) do
+    requirement =
       cond do
         has_av1_codec?(video) ->
-          {:encoded, "already has AV1 codec"}
+          {:skip_encoding, "already has AV1 codec"}
 
         has_av1_in_filename?(video) ->
-          {:encoded, "filename indicates AV1 encoding"}
+          {:skip_encoding, "filename indicates AV1 encoding"}
 
         has_opus_codec?(video) ->
-          {:encoded, "already has Opus audio codec"}
+          {:skip_encoding, "already has Opus audio codec"}
 
         has_opus_in_filename?(video) ->
-          {:encoded, "filename indicates Opus audio"}
+          {:skip_encoding, "filename indicates Opus audio"}
 
         true ->
-          {:analyzed, "needs CRF search"}
+          {:needs_encoding, "requires CRF search"}
       end
 
-    Logger.debug("Video #{video.path} transition decision: #{inspect(decision)}")
-    decision
+    Logger.debug("Video #{video.path} encoding requirement: #{inspect(requirement)}")
+    requirement
   end
 
-  # Database persistence - handles the actual state transitions
-  defp execute_transition_decision(video, {target_state, reason}) do
-    case target_state do
-      :encoded ->
-        persist_encoded_state(video, reason)
-
-      :analyzed ->
-        persist_analyzed_state(video)
-    end
-  end
-
-  # Database persistence functions
-  defp persist_encoded_state(video, reason) do
+  # Applies the processing decision by updating video state in the database
+  defp apply_processing_decision(video, {:skip_encoding, reason}) do
     Logger.debug("Video #{video.path} #{reason}, marking as encoded (skipping all processing)")
 
     case Media.mark_as_encoded(video) do
       {:ok, updated_video} ->
         Logger.debug(
-          "Successfully transitioned video to encoded state: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
+          "Successfully marked as encoded: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
         )
 
         {:ok, updated_video}
 
       {:error, changeset_error} ->
-        Logger.error(
-          "Failed to transition video to encoded state for #{video.path}: #{inspect(changeset_error)}"
-        )
+        Logger.error("Failed to mark as encoded for #{video.path}: #{inspect(changeset_error)}")
 
         {:ok, video}
     end
   end
 
-  defp persist_analyzed_state(video) do
-    # Validate video has required fields before attempting transition
+  defp apply_processing_decision(video, {:needs_encoding, _reason}) do
+    # Validate video has required fields before marking as analyzed
     if has_required_mediainfo_fields?(video) do
       case Media.mark_as_analyzed(video) do
         {:ok, updated_video} ->
           Logger.debug(
-            "Successfully transitioned video state to analyzed: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
+            "Successfully marked as analyzed: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
           )
 
           {:ok, updated_video}
 
         {:error, changeset_error} ->
           Logger.error(
-            "Failed to transition video state for #{video.path}: #{inspect(changeset_error)}"
+            "Failed to mark as analyzed for #{video.path}: #{inspect(changeset_error)}"
           )
 
           {:ok, video}
