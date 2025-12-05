@@ -374,10 +374,10 @@ defmodule Reencodarr.Analyzer.Broadway do
 
       cond do
         has_av1_in_filename?(video) ->
-          transition_video_to_analyzed(current_video)
+          persist_encoded_state(current_video, "AV1 detected in filename")
 
         has_opus_in_filename?(video) ->
-          transition_video_to_analyzed(current_video)
+          persist_encoded_state(current_video, "Opus detected in filename")
       end
     end)
 
@@ -586,19 +586,26 @@ defmodule Reencodarr.Analyzer.Broadway do
   This function has no side effects and is easily testable.
   """
   def determine_video_transition_decision(video) do
-    cond do
-      has_av1_codec?(video) ->
-        {:encoded, "already has AV1 codec"}
+    decision =
+      cond do
+        has_av1_codec?(video) ->
+          {:encoded, "already has AV1 codec"}
 
-      has_av1_in_filename?(video) ->
-        {:encoded, "filename indicates AV1 encoding"}
+        has_av1_in_filename?(video) ->
+          {:encoded, "filename indicates AV1 encoding"}
 
-      has_opus_codec?(video) ->
-        {:encoded, "already has Opus audio codec"}
+        has_opus_codec?(video) ->
+          {:encoded, "already has Opus audio codec"}
 
-      true ->
-        {:analyzed, "needs CRF search"}
-    end
+        has_opus_in_filename?(video) ->
+          {:encoded, "filename indicates Opus audio"}
+
+        true ->
+          {:analyzed, "needs CRF search"}
+      end
+
+    Logger.debug("Video #{video.path} transition decision: #{inspect(decision)}")
+    decision
   end
 
   # Database persistence - handles the actual state transitions
@@ -634,20 +641,29 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp persist_analyzed_state(video) do
-    case Media.mark_as_analyzed(video) do
-      {:ok, updated_video} ->
-        Logger.debug(
-          "Successfully transitioned video state to analyzed: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
-        )
+    # Validate video has required fields before attempting transition
+    if has_required_mediainfo_fields?(video) do
+      case Media.mark_as_analyzed(video) do
+        {:ok, updated_video} ->
+          Logger.debug(
+            "Successfully transitioned video state to analyzed: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
+          )
 
-        {:ok, updated_video}
+          {:ok, updated_video}
 
-      {:error, changeset_error} ->
-        Logger.error(
-          "Failed to transition video state for #{video.path}: #{inspect(changeset_error)}"
-        )
+        {:error, changeset_error} ->
+          Logger.error(
+            "Failed to transition video state for #{video.path}: #{inspect(changeset_error)}"
+          )
 
-        {:ok, video}
+          {:ok, video}
+      end
+    else
+      Logger.error(
+        "Cannot mark video #{video.path} as analyzed - missing required fields (bitrate: #{video.bitrate}, width: #{video.width}, height: #{video.height})"
+      )
+
+      {:ok, video}
     end
   end
 
