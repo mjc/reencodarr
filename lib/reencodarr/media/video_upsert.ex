@@ -9,6 +9,7 @@ defmodule Reencodarr.Media.VideoUpsert do
 
   require Logger
   import Ecto.Query
+  alias Reencodarr.Core.Retry
   alias Reencodarr.{Media.Library, Media.Video, Media.VideoValidator, Media.Vmaf, Repo}
   alias Reencodarr.Media.VideoStateMachine
 
@@ -38,7 +39,7 @@ defmodule Reencodarr.Media.VideoUpsert do
   def batch_upsert(video_attrs_list) when is_list(video_attrs_list) do
     Logger.debug("VideoUpsert batch processing #{length(video_attrs_list)} videos")
 
-    Repo.transaction(fn ->
+    retry_transaction(fn ->
       Enum.map(video_attrs_list, fn attrs ->
         attrs
         |> normalize_keys_to_strings()
@@ -53,10 +54,15 @@ defmodule Reencodarr.Media.VideoUpsert do
         results
 
       {:error, reason} ->
-        Logger.error("Batch upsert transaction failed: #{inspect(reason)}")
+        Logger.error("Batch upsert transaction failed after retries: #{inspect(reason)}")
         # Return error for each video
         Enum.map(video_attrs_list, fn _ -> {:error, reason} end)
     end
+  end
+
+  # Retry transaction with exponential backoff for "Database busy" errors
+  defp retry_transaction(fun) do
+    Retry.retry_on_db_busy(fn -> Repo.transaction(fun) end)
   end
 
   @spec normalize_keys_to_strings(attrs()) :: %{String.t() => any()}

@@ -13,12 +13,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.AbAv1.OutputParser
   alias Reencodarr.Core.Parsers
+  alias Reencodarr.Core.Retry
   alias Reencodarr.Core.Time
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.ErrorHelpers
   alias Reencodarr.Formatters
   alias Reencodarr.Media
-  alias Reencodarr.Media.VideoStateMachine
   alias Reencodarr.Repo
 
   require Logger
@@ -151,7 +151,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
     # Mark video as crf_searching NOW that we're actually starting
-    case VideoStateMachine.transition_to_crf_searching(video) do
+    case Media.mark_as_crf_searching(video) do
       {:ok, _updated_video} ->
         :ok
 
@@ -241,32 +241,26 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     full_line = buffer <> line
 
     try do
-      process_line(full_line, video, args, target_vmaf)
+      # Use retry logic for database operations
+      Retry.retry_on_db_busy(fn ->
+        process_line(full_line, video, args, target_vmaf)
+      end)
 
       # Add the line to our output buffer for failure tracking
       new_output_buffer = [full_line | output_buffer]
 
       {:noreply, %{state | partial_line_buffer: "", output_buffer: new_output_buffer}}
     rescue
+      # If retries are exhausted, log and continue
       e in Exqlite.Error ->
-        # Database is busy — don't crash. Requeue the same port message with a short delay.
-        Logger.warning(
-          "CrfSearch: Database busy while upserting VMAF, requeuing line: #{inspect(e)}"
-        )
+        Logger.error("CrfSearch: Database error after retries, skipping line: #{inspect(e)}")
 
-        # Re-send the exact same message after a short backoff to retry
-        Process.send_after(self(), {port, {:data, {:eol, line}}}, 200)
-
-        # Keep state intact — we'll retry later
-        {:noreply, state}
+        {:noreply, %{state | partial_line_buffer: ""}}
 
       e in DBConnection.ConnectionError ->
-        Logger.warning(
-          "CrfSearch: DB connection error while upserting VMAF, requeuing line: #{inspect(e)}"
-        )
+        Logger.error("CrfSearch: DB connection error after retries, skipping line: #{inspect(e)}")
 
-        Process.send_after(self(), {port, {:data, {:eol, line}}}, 200)
-        {:noreply, state}
+        {:noreply, %{state | partial_line_buffer: ""}}
     end
   end
 

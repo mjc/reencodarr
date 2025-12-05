@@ -11,7 +11,8 @@ defmodule ReencodarrWeb.DashboardLive do
   alias Reencodarr.CrfSearcher.Broadway, as: CrfSearcherBroadway
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Formatters
-  alias Reencodarr.Media.VideoQueries
+  alias Reencodarr.Media.{Video, VideoQueries, Vmaf}
+  alias Reencodarr.Repo
 
   require Logger
 
@@ -30,8 +31,9 @@ defmodule ReencodarrWeb.DashboardLive do
         encoding_progress: :none,
         analyzer_progress: :none,
         analyzer_throughput: nil,
-        queue_counts: get_queue_counts(),
-        queue_items: get_queue_items(),
+        # Start with empty placeholders and fetch async to avoid blocking LiveView
+        queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
+        queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
         service_status: get_optimistic_service_status(),
         syncing: false,
         sync_progress: 0,
@@ -50,6 +52,8 @@ defmodule ReencodarrWeb.DashboardLive do
       Process.send_after(self(), :request_status, 100)
       # Start periodic updates for queue counts and service status
       schedule_periodic_update()
+      # Fetch the initial queue counts/items asynchronously so mount returns quickly
+      request_dashboard_queue_async()
       # Request throughput async
       request_analyzer_throughput()
     end
@@ -280,10 +284,16 @@ defmodule ReencodarrWeb.DashboardLive do
     # Schedule next update (recursive scheduling)
     schedule_periodic_update()
 
-    socket
-    |> assign(:queue_counts, get_queue_counts())
-    |> assign(:queue_items, get_queue_items())
-    |> then(&{:noreply, &1})
+    # Fetch queue data asynchronously to avoid DB checkout blocking the LiveView process
+    request_dashboard_queue_async()
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  # Receive asynchronous dashboard queue data and assign it
+  def handle_info({:dashboard_queue_update, queue_counts, queue_items}, socket) do
+    {:noreply, assign(socket, queue_counts: queue_counts, queue_items: queue_items)}
   end
 
   @impl true
@@ -389,60 +399,60 @@ defmodule ReencodarrWeb.DashboardLive do
   # Unified pipeline step component
   defp pipeline_step(assigns) do
     ~H"""
-    <div class="text-center">
+    <div class="text-center bg-white/5 backdrop-blur-sm rounded-lg p-4 border border-white/10">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold text-gray-800">{@name}</h3>
+        <h3 class="font-semibold text-white">{@name}</h3>
         <span class={"px-2 py-1 text-xs rounded-full #{service_status_class(@status)}"}>
           {service_status_text(@status)}
         </span>
       </div>
 
       <div class="mb-3">
-        <div class="text-2xl font-mono text-gray-600 mb-1">
+        <div class="text-2xl font-mono text-purple-100 mb-1">
           {@queue}
         </div>
-        <div class="text-xs text-gray-500">queued</div>
+        <div class="text-xs text-purple-300">queued</div>
       </div>
 
       <%= if @progress != :none do %>
         <div class="mb-3">
-          <div class="w-full bg-gray-200 rounded-full h-2 mb-2">
+          <div class="w-full bg-purple-900/50 rounded-full h-2 mb-2 border border-purple-500/30">
             <div
-              class={"bg-#{@color}-500 h-2 rounded-full transition-all duration-300"}
+              class={"bg-gradient-to-r from-#{@color}-400 to-#{@color}-500 h-2 rounded-full transition-all duration-300 shadow-lg shadow-#{@color}-500/50"}
               style={"width: #{Map.get(@progress, :percent, 0)}%"}
             >
             </div>
           </div>
-          <div class="text-sm text-gray-600">
+          <div class="text-sm text-purple-100">
             {Map.get(@progress, :percent, 0)}%
           </div>
         </div>
         <%= if Map.get(@progress, :filename) do %>
-          <div class="text-xs text-gray-500 truncate mb-2">
+          <div class="text-xs text-purple-200 truncate mb-2">
             {Path.basename(Map.get(@progress, :filename, ""))}
           </div>
         <% end %>
         {render_slot(@inner_block)}
       <% else %>
-        <div class="text-xs text-gray-400 mb-3">Idle</div>
+        <div class="text-xs text-purple-400 mb-3">Idle</div>
       <% end %>
       
     <!-- Queue Items Display -->
       <%= if length(@queue_items) > 0 do %>
         <div class="mb-3">
-          <h4 class="text-xs font-semibold text-gray-700 mb-2">Next in Queue</h4>
+          <h4 class="text-xs font-semibold text-purple-200 mb-2">Next in Queue</h4>
           <div class="space-y-1">
             <%= for item <- Enum.take(@queue_items, 3) do %>
-              <div class="bg-gray-50 rounded p-2 text-left">
-                <div class="text-xs font-medium text-gray-800 truncate">
+              <div class="bg-purple-900/30 rounded p-2 text-left border border-purple-500/20">
+                <div class="text-xs font-medium text-purple-100 truncate">
                   {Path.basename(get_item_path(item))}
                 </div>
-                <div class="text-xs text-gray-600 flex justify-between">
+                <div class="text-xs text-purple-300 flex justify-between">
                   <span>{Formatters.file_size(get_item_size(item))}</span>
                   <span>{Formatters.bitrate(get_item_bitrate(item))}</span>
                 </div>
                 <%= if Map.has_key?(item, :crf) do %>
-                  <div class="text-xs text-gray-500">
+                  <div class="text-xs text-purple-400">
                     CRF: {item.crf}
                   </div>
                 <% end %>
@@ -455,13 +465,13 @@ defmodule ReencodarrWeb.DashboardLive do
       <div class="flex gap-2">
         <button
           phx-click={"start_#{@service}"}
-          class="flex-1 bg-green-500 hover:bg-green-600 text-white text-xs py-1 px-2 rounded"
+          class="flex-1 bg-green-600 hover:bg-green-500 text-white text-xs py-1 px-2 rounded shadow-lg"
         >
           Start
         </button>
         <button
           phx-click={"pause_#{@service}"}
-          class="flex-1 bg-yellow-500 hover:bg-yellow-600 text-white text-xs py-1 px-2 rounded"
+          class="flex-1 bg-amber-600 hover:bg-amber-500 text-white text-xs py-1 px-2 rounded shadow-lg"
         >
           Pause
         </button>
@@ -479,9 +489,9 @@ defmodule ReencodarrWeb.DashboardLive do
       |> assign(:status_text, sync_status_text(assigns))
 
     ~H"""
-    <div class="text-center">
+    <div class="text-center bg-white/5 backdrop-blur-sm rounded-lg p-4 border border-white/10">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="font-semibold text-gray-800">{@name}</h3>
+        <h3 class="font-semibold text-white">{@name}</h3>
         <span class={"px-2 py-1 text-xs rounded-full #{@status_class}"}>
           {@status_text}
         </span>
@@ -489,17 +499,17 @@ defmodule ReencodarrWeb.DashboardLive do
 
       <%= if @active do %>
         <div class="mb-3">
-          <div class="w-full bg-gray-200 rounded-full h-2 mb-2">
+          <div class="w-full bg-purple-900/50 rounded-full h-2 mb-2 border border-purple-500/30">
             <div
-              class="bg-blue-500 h-2 rounded-full transition-all duration-300"
+              class="bg-gradient-to-r from-blue-400 to-blue-500 h-2 rounded-full transition-all duration-300 shadow-lg shadow-blue-500/50"
               style={"width: #{@sync_progress}%"}
             >
             </div>
           </div>
-          <div class="text-sm text-gray-600">{@sync_progress}%</div>
+          <div class="text-sm text-purple-100">{@sync_progress}%</div>
         </div>
       <% else %>
-        <div class="text-xs text-gray-400 mb-3">
+        <div class="text-xs text-purple-400 mb-3">
           {if @syncing, do: "Waiting for other service", else: "Ready to sync"}
         </div>
       <% end %>
@@ -507,7 +517,7 @@ defmodule ReencodarrWeb.DashboardLive do
       <button
         phx-click={"sync_#{@service}"}
         disabled={@syncing}
-        class={"w-full text-xs py-2 px-3 rounded #{sync_button_class(@syncing)}"}
+        class={"w-full text-xs py-2 px-3 rounded shadow-lg #{sync_button_class(@syncing)}"}
       >
         Sync {@name}
       </button>
@@ -518,17 +528,20 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="min-h-screen bg-gray-100 p-6">
+    <div class="min-h-screen bg-gradient-to-br from-purple-900 via-violet-900 to-purple-800 p-6">
       <div class="max-w-7xl mx-auto space-y-6">
         <!-- Header -->
         <div class="flex justify-between items-start">
-          <div>
-            <h1 class="text-3xl font-bold text-gray-900">Video Processing Dashboard</h1>
-            <p class="text-gray-600">Real-time status and controls for video transcoding pipeline</p>
+          <div class="flex items-center gap-4">
+            <img src="/images/favicon.svg" alt="Reencodarr" class="w-16 h-16 drop-shadow-lg" />
+            <div>
+              <h1 class="text-4xl font-bold text-white">Reencodarr</h1>
+              <p class="text-purple-200">AV1/Opus Video Transcoding Pipeline</p>
+            </div>
           </div>
           <.link
             navigate={~p"/failures"}
-            class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow transition-colors flex items-center gap-2"
+            class="bg-red-500 hover:bg-red-600 text-white font-semibold py-2 px-4 rounded-lg shadow-lg transition-colors flex items-center gap-2"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -547,8 +560,8 @@ defmodule ReencodarrWeb.DashboardLive do
         </div>
         
     <!-- Main Processing Pipeline -->
-        <div class="bg-white rounded-lg shadow-lg p-6">
-          <h2 class="text-xl font-semibold mb-4">Processing Pipeline</h2>
+        <div class="bg-white/10 backdrop-blur-sm rounded-lg shadow-lg p-6 border border-white/20">
+          <h2 class="text-xl font-semibold mb-4 text-white">Processing Pipeline</h2>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
             <.pipeline_step
               name="Analysis"
@@ -560,17 +573,17 @@ defmodule ReencodarrWeb.DashboardLive do
               color="purple"
             >
               <%= if @analyzer_throughput && @analyzer_throughput > 0 do %>
-                <div class="text-xs text-gray-500">
+                <div class="text-xs text-purple-200">
                   Rate: {Reencodarr.Formatters.rate(@analyzer_throughput)} files/s
                 </div>
               <% end %>
               <%= if @analyzer_progress != :none && Map.get(@analyzer_progress, :batch_size) do %>
-                <div class="text-xs text-gray-500">
+                <div class="text-xs text-purple-200">
                   Batch: {Map.get(@analyzer_progress, :batch_size)} files
                 </div>
               <% end %>
               <%= if @analyzer_progress != :none && Map.get(@analyzer_progress, :last_batch_size) do %>
-                <div class="text-xs text-gray-400">
+                <div class="text-xs text-purple-300">
                   Last batch: {Map.get(@analyzer_progress, :last_batch_size)} files
                 </div>
               <% end %>
@@ -586,7 +599,7 @@ defmodule ReencodarrWeb.DashboardLive do
               color="blue"
             >
               <%= if Map.get(@crf_progress, :crf) do %>
-                <div class="text-xs text-gray-500">
+                <div class="text-xs text-purple-200">
                   CRF: {Map.get(@crf_progress, :crf, 0)}
                   <%= if Map.get(@crf_progress, :score) do %>
                     | VMAF: {Map.get(@crf_progress, :score, 0)}
@@ -602,10 +615,10 @@ defmodule ReencodarrWeb.DashboardLive do
               queue={@queue_counts.encoder}
               queue_items={@queue_items.encoder}
               progress={@encoding_progress}
-              color="green"
+              color="amber"
             >
               <%= if Map.get(@encoding_progress, :fps) do %>
-                <div class="text-xs text-gray-500">
+                <div class="text-xs text-purple-200">
                   {Map.get(@encoding_progress, :fps, 0)} fps
                   <%= if Map.get(@encoding_progress, :eta) do %>
                     | ETA: {Map.get(@encoding_progress, :eta, 0)} {Map.get(
@@ -621,8 +634,8 @@ defmodule ReencodarrWeb.DashboardLive do
         </div>
         
     <!-- External Sync Services -->
-        <div class="bg-white rounded-lg shadow-lg p-6">
-          <h2 class="text-xl font-semibold mb-4">Media Library Sync</h2>
+        <div class="bg-white/10 backdrop-blur-sm rounded-lg shadow-lg p-6 border border-white/20">
+          <h2 class="text-xl font-semibold mb-4 text-white">Media Library Sync</h2>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             <.sync_service
               name="Sonarr"
@@ -646,21 +659,95 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   # Helper functions for real data
+  # Dashboard polls regularly, so use a short timeout (2s) to avoid blocking
+  # If SQLite is busy, we'll skip this update and get data on next poll
+  @dashboard_query_timeout 2_000
+
   defp get_queue_counts do
+    import Ecto.Query
+
     %{
-      analyzer: Reencodarr.Media.count_videos_needing_analysis(),
-      crf_searcher: Reencodarr.Media.count_videos_for_crf_search(),
-      encoder: Reencodarr.Media.encoding_queue_count()
+      analyzer:
+        safe_query(fn ->
+          Repo.one(
+            from(v in Video, where: v.state == :needs_analysis, select: count()),
+            timeout: @dashboard_query_timeout
+          )
+        end),
+      crf_searcher: count_videos_for_crf_search_with_timeout(),
+      encoder:
+        safe_query(fn ->
+          Repo.one(
+            from(v in Vmaf,
+              join: vid in assoc(v, :video),
+              where: v.chosen == true and vid.state == :crf_searched,
+              select: count(v.id)
+            ),
+            timeout: @dashboard_query_timeout
+          )
+        end)
     }
+  end
+
+  # Wrapper to safely execute queries and return 0 on timeout or connection errors
+  defp safe_query(fun) do
+    fun.()
+  rescue
+    # Catch all DB connection errors (busy, timeout, disconnect, etc)
+    DBConnection.ConnectionError -> 0
+  catch
+    :exit, {:timeout, _} -> 0
+    # Catch connection errors wrapped in exit tuples
+    :exit, {%DBConnection.ConnectionError{}, _} -> 0
+    # Catch checkout timeouts
+    :exit, {{%DBConnection.ConnectionError{}, _}, _} -> 0
+  end
+
+  # Inline CRF search count to apply timeout - simplified without codec checks
+  defp count_videos_for_crf_search_with_timeout do
+    import Ecto.Query
+
+    safe_query(fn ->
+      Repo.one(
+        from(v in Video,
+          where: v.state == :analyzed,
+          select: count()
+        ),
+        timeout: @dashboard_query_timeout
+      )
+    end)
   end
 
   # Get detailed queue items for each pipeline
   defp get_queue_items do
     %{
-      analyzer: VideoQueries.videos_needing_analysis(5),
-      crf_searcher: VideoQueries.videos_for_crf_search(5),
-      encoder: VideoQueries.videos_ready_for_encoding(5)
+      analyzer:
+        safe_query_list(fn ->
+          VideoQueries.videos_needing_analysis(5, timeout: @dashboard_query_timeout)
+        end),
+      crf_searcher:
+        safe_query_list(fn ->
+          VideoQueries.videos_for_crf_search(5, timeout: @dashboard_query_timeout)
+        end),
+      encoder:
+        safe_query_list(fn ->
+          VideoQueries.videos_ready_for_encoding(5, timeout: @dashboard_query_timeout)
+        end)
     }
+  end
+
+  # Wrapper for list queries - return empty list on timeout or connection errors
+  defp safe_query_list(fun) do
+    fun.()
+  rescue
+    # Catch all DB connection errors (busy, timeout, disconnect, etc)
+    DBConnection.ConnectionError -> []
+  catch
+    :exit, {:timeout, _} -> []
+    # Catch connection errors wrapped in exit tuples
+    :exit, {%DBConnection.ConnectionError{}, _} -> []
+    # Catch checkout timeouts
+    :exit, {{%DBConnection.ConnectionError{}, _}, _} -> []
   end
 
   # Simple service status - just check if processes are alive
@@ -726,6 +813,26 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp schedule_periodic_update do
     Process.send_after(self(), :update_dashboard_data, 5_000)
+  end
+
+  # Fetch queue counts and items in a background task and send results back to the LiveView
+  defp request_dashboard_queue_async do
+    # In test mode, run synchronously to avoid DB connection issues during cleanup
+    if Application.get_env(:reencodarr, :env) == :test do
+      counts = get_queue_counts()
+      items = get_queue_items()
+      send(self(), {:dashboard_queue_update, counts, items})
+    else
+      parent = self()
+
+      Task.Supervisor.start_child(ReencodarrWeb.TaskSupervisor, fn ->
+        # Use short timeout for dashboard queries since it polls regularly
+        # If DB is busy, safe_query/safe_query_list will return defaults (0 or [])
+        counts = get_queue_counts()
+        items = get_queue_items()
+        send(parent, {:dashboard_queue_update, counts, items})
+      end)
+    end
   end
 
   # Helper functions to reduce duplication
