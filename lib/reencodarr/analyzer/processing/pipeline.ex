@@ -95,8 +95,9 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
         {:skip, reason}
 
       error ->
-        Logger.error("Failed to process video #{video_info.path}: #{inspect(error)}")
-        {:error, video_info.path}
+        error_msg = inspect(error)
+        Logger.error("Failed to process video #{video_info.path}: #{error_msg}")
+        {:error, {video_info.path, error_msg}}
     end
   end
 
@@ -197,13 +198,14 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
     end
   catch
     :error, reason ->
-      Logger.error("Exception processing video #{video_info.path}: #{inspect(reason)}")
-      {:error, video_info.path}
+      error_msg = inspect(reason)
+      Logger.error("Exception processing video #{video_info.path}: #{error_msg}")
+      {:error, {video_info.path, error_msg}}
   end
 
   defp mark_invalid_videos(invalid_videos) do
     Enum.map(invalid_videos, fn video_info ->
-      {:error, video_info.path}
+      {:error, {video_info.path, "invalid video info"}}
     end)
   end
 

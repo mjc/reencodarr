@@ -23,6 +23,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
   """
 
   import Ecto.Changeset
+  alias Reencodarr.Core.Retry
   alias Reencodarr.Media.Video
   require Logger
 
@@ -267,6 +268,20 @@ defmodule Reencodarr.Media.VideoStateMachine do
 
   Handles the appropriate state transitions regardless of current state.
   """
+  def mark_as_crf_searching(%Video{} = video) do
+    case transition_to_crf_searching(video) do
+      {:ok, changeset} -> Reencodarr.Repo.update(changeset)
+      error -> error
+    end
+  end
+
+  def mark_as_encoding(%Video{} = video) do
+    case transition_to_encoding(video) do
+      {:ok, changeset} -> Reencodarr.Repo.update(changeset)
+      error -> error
+    end
+  end
+
   def mark_as_reencoded(%Video{} = video) do
     # Ensure video is in the correct state for encoding completion
     # If not in :encoding state, transition through the minimum required states
@@ -318,7 +333,12 @@ defmodule Reencodarr.Media.VideoStateMachine do
   def mark_as_analyzed(%Video{} = video) do
     case transition_to_analyzed(video) do
       {:ok, changeset} ->
-        case Reencodarr.Repo.update(changeset) do
+        result =
+          Retry.retry_on_db_busy(fn ->
+            Reencodarr.Repo.update(changeset)
+          end)
+
+        case result do
           {:ok, updated_video} ->
             broadcast_state_transition(updated_video, :analyzed)
             {:ok, updated_video}

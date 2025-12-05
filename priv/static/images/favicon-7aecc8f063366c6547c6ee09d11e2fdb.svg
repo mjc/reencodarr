@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#5b21b6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7c3aed;stop-opacity:1" />
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" style="stop-color:#a78bfa;stop-opacity:0.3" />
+      <stop offset="100%" style="stop-color:#5b21b6;stop-opacity:0" />
+    </radialGradient>
+  </defs>
+  
+  <!-- Background circle with gradient -->
+  <circle cx="32" cy="32" r="30" fill="url(#bg)"/>
+  <circle cx="32" cy="32" r="28" fill="url(#glow)"/>
+  
+  <!-- Radar rings (like Sonarr/Radarr) -->
+  <circle cx="32" cy="32" r="24" fill="none" stroke="#a78bfa" stroke-width="1.5" opacity="0.4"/>
+  <circle cx="32" cy="32" r="18" fill="none" stroke="#c4b5fd" stroke-width="1.5" opacity="0.5"/>
+  <circle cx="32" cy="32" r="12" fill="none" stroke="#e9d5ff" stroke-width="1.5" opacity="0.6"/>
+  
+  <!-- Scanning arc sweep (signature element) -->
+  <path d="M 32 32 L 32 8 A 24 24 0 0 1 50.63 16.37 Z" fill="#fbbf24" opacity="0.3"/>
+  <path d="M 32 32 L 32 14 A 18 18 0 0 1 44.73 21.27 Z" fill="#fbbf24" opacity="0.4"/>
+  
+  <!-- Center focal point -->
+  <circle cx="32" cy="32" r="3" fill="#fbbf24" opacity="0.8"/>
+  <circle cx="32" cy="32" r="1.5" fill="#fff" opacity="0.9"/>
+  
+  <!-- AV1 triangle (top) - integrated -->
+  <g transform="translate(32, 22)">
+    <path d="M -4 2 L 0 -6 L 4 2 L 2.5 2 L 0 -3 L -2.5 2 Z" fill="#e0e7ff" opacity="0.85"/>
+  </g>
+  
+  <!-- OPUS arc (bottom) - integrated as sound wave -->
+  <g transform="translate(32, 43)">
+    <path d="M -5 0 Q -4 -2, -2.5 -1 Q -1 0, 0 0 Q 1 0, 2.5 -1 Q 4 -2, 5 0" 
+          fill="none" stroke="#fbbf24" stroke-width="1.2" opacity="0.75" stroke-linecap="round"/>
+  </g>
+  
+  <!-- Directional indicators (subtle, at edges) -->
+  <circle cx="8" cy="32" r="1" fill="#fbbf24" opacity="0.5"/>
+  <circle cx="56" cy="32" r="1" fill="#fbbf24" opacity="0.5"/>
+  <circle cx="32" cy="8" r="1" fill="#fbbf24" opacity="0.5"/>
+  <circle cx="32" cy="56" r="1" fill="#fbbf24" opacity="0.5"/>
+</svg>

@@ -12,27 +12,21 @@ defmodule Reencodarr.Media.VideoQueries do
   @doc """
   Gets videos ready for CRF search (state: analyzed).
   Excludes videos already in crf_searching state to avoid showing currently processing videos.
+
+  ## Options
+  - `:timeout` - Query timeout in milliseconds (default: 15000)
   """
-  @spec videos_for_crf_search(integer()) :: [Video.t()]
-  def videos_for_crf_search(limit \\ 10) do
-    # SQLite3 implementation for video codec filtering
+  @spec videos_for_crf_search(integer(), keyword()) :: [Video.t()]
+  def videos_for_crf_search(limit \\ 10, opts \\ []) do
+    # Simplified query - just check state, let Rules filter codecs at encode time
     Repo.all(
-      from v in Video,
-        where:
-          v.state == :analyzed and
-            not fragment(
-              "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
-              v.video_codecs,
-              "av1"
-            ) and
-            not fragment(
-              "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
-              v.audio_codecs,
-              "opus"
-            ),
+      from(v in Video,
+        where: v.state == :analyzed,
         order_by: [desc: v.bitrate, desc: v.size, asc: v.updated_at],
         limit: ^limit,
         select: v
+      ),
+      opts
     )
   end
 
@@ -42,21 +36,10 @@ defmodule Reencodarr.Media.VideoQueries do
   """
   @spec count_videos_for_crf_search() :: integer()
   def count_videos_for_crf_search do
-    # SQLite3 implementation for video codec filtering
+    # Simplified query - just check state, codec filtering happens at encode time
     Repo.one(
       from v in Video,
-        where:
-          v.state == :analyzed and
-            not fragment(
-              "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
-              v.video_codecs,
-              "av1"
-            ) and
-            not fragment(
-              "EXISTS (SELECT 1 FROM json_each(?) WHERE json_each.value = ?)",
-              v.audio_codecs,
-              "opus"
-            ),
+        where: v.state == :analyzed,
         select: count()
     )
   end
@@ -65,11 +48,14 @@ defmodule Reencodarr.Media.VideoQueries do
   Gets videos needing analysis (state: needs_analysis).
 
   These videos lack required metadata and need MediaInfo analysis.
+
+  ## Options
+  - `:timeout` - Query timeout in milliseconds (default: 15000)
   """
-  @spec videos_needing_analysis(integer()) :: [Video.t()]
-  def videos_needing_analysis(limit \\ 10) do
+  @spec videos_needing_analysis(integer(), keyword()) :: [Video.t()]
+  def videos_needing_analysis(limit \\ 10, opts \\ []) do
     Repo.all(
-      from v in Video,
+      from(v in Video,
         where: v.state == :needs_analysis,
         order_by: [
           desc: v.size,
@@ -78,6 +64,8 @@ defmodule Reencodarr.Media.VideoQueries do
         ],
         limit: ^limit,
         select: v
+      ),
+      opts
     )
   end
 
@@ -96,17 +84,22 @@ defmodule Reencodarr.Media.VideoQueries do
   @doc """
   Gets videos ready for encoding with complex alternation logic between services and libraries.
   Uses 9:1 Sonarr:Radarr ratio and alternates between libraries within each service.
+
+  ## Options
+  - `:timeout` - Query timeout in milliseconds (default: 15000)
   """
-  @spec videos_ready_for_encoding(integer()) :: [Vmaf.t()]
-  def videos_ready_for_encoding(limit) do
+  @spec videos_ready_for_encoding(integer(), keyword()) :: [Vmaf.t()]
+  def videos_ready_for_encoding(limit, opts \\ []) do
     Repo.all(
-      from v in Vmaf,
+      from(v in Vmaf,
         join: vid in assoc(v, :video),
         where: v.chosen == true and vid.state == :crf_searched,
         order_by: [fragment("? DESC NULLS LAST", v.savings), desc: vid.updated_at],
         limit: ^limit,
         preload: [:video],
         select: v
+      ),
+      opts
     )
   end
 

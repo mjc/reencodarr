@@ -8,7 +8,7 @@ defmodule ReencodarrWeb.PageControllerTest do
       response = html_response(conn, 200)
 
       # Should contain the DashboardLive content
-      assert response =~ "Video Processing Dashboard"
+      assert response =~ "Processing Pipeline"
     end)
   end
 end
