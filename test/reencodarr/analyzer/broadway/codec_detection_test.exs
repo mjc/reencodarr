@@ -90,7 +90,7 @@ defmodule Reencodarr.Analyzer.Broadway.CodecDetectionTest do
       assert Broadway.has_opus_codec?(video_empty) == false
     end
 
-    test "transition_video_to_analyzed skips CRF search for AV1 videos" do
+    test "decide_video_processing_path skips CRF search for AV1 videos" do
       # Create a video with AV1 codec
       video = %Reencodarr.Media.Video{
         id: 1,
@@ -101,11 +101,11 @@ defmodule Reencodarr.Analyzer.Broadway.CodecDetectionTest do
       }
 
       # Test the pure business logic function
-      decision = Broadway.determine_video_transition_decision(video)
-      assert decision == {:encoded, "already has AV1 codec"}
+      decision = Broadway.check_encoding_requirements(video)
+      assert decision == {:skip_encoding, "already has AV1 codec"}
     end
 
-    test "transition_video_to_analyzed skips CRF search for Opus videos" do
+    test "decide_video_processing_path skips CRF search for Opus videos" do
       # Create a video with Opus audio
       video = %Reencodarr.Media.Video{
         id: 2,
@@ -116,11 +116,11 @@ defmodule Reencodarr.Analyzer.Broadway.CodecDetectionTest do
       }
 
       # Test the pure business logic function
-      decision = Broadway.determine_video_transition_decision(video)
-      assert decision == {:encoded, "already has Opus audio codec"}
+      decision = Broadway.check_encoding_requirements(video)
+      assert decision == {:skip_encoding, "already has Opus audio codec"}
     end
 
-    test "transition_video_to_analyzed continues to analyzed state for videos needing CRF search" do
+    test "decide_video_processing_path continues to analyzed state for videos needing CRF search" do
       # Create a video that needs CRF search (H.264 + AAC)
       video = %Reencodarr.Media.Video{
         id: 3,
@@ -131,8 +131,8 @@ defmodule Reencodarr.Analyzer.Broadway.CodecDetectionTest do
       }
 
       # Test the pure business logic function
-      decision = Broadway.determine_video_transition_decision(video)
-      assert decision == {:analyzed, "needs CRF search"}
+      decision = Broadway.check_encoding_requirements(video)
+      assert decision == {:needs_encoding, "requires CRF search"}
     end
 
     test "regression test for video 2254 bug - AV1/Opus videos should not be queued for encoding" do
@@ -149,10 +149,10 @@ defmodule Reencodarr.Analyzer.Broadway.CodecDetectionTest do
       assert Broadway.has_av1_codec?(av1_opus_video) == true
       assert Broadway.has_opus_codec?(av1_opus_video) == true
 
-      # Test the pure business logic - should decide to encode (skip processing)
-      # Since has_av1_codec? returns true first, it should be encoded with AV1 reason
-      decision = Broadway.determine_video_transition_decision(av1_opus_video)
-      assert decision == {:encoded, "already has AV1 codec"}
+      # Test the pure business logic - should decide to skip encoding
+      # Since has_av1_codec? returns true first, it should be skipped with AV1 reason
+      decision = Broadway.check_encoding_requirements(av1_opus_video)
+      assert decision == {:skip_encoding, "already has AV1 codec"}
     end
   end
 end
