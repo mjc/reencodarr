@@ -595,47 +595,79 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   # Applies the processing decision by updating video state in the database
   defp apply_processing_decision(video, {:skip_encoding, reason}) do
-    Logger.debug("Video #{video.path} #{reason}, marking as encoded (skipping all processing)")
+    # Check if video is already encoded - if so, no need to transition
+    if video.state == :encoded do
+      Logger.debug(
+        "Video #{video.path} already in encoded state, skipping transition (reason: #{reason})"
+      )
 
-    case Media.mark_as_encoded(video) do
-      {:ok, updated_video} ->
-        Logger.debug(
-          "Successfully marked as encoded: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
+      {:ok, video}
+    else
+      Logger.debug("Video #{video.path} #{reason}, marking as encoded (skipping all processing)")
+
+      result =
+        retry_state_transition(
+          fn -> Media.mark_as_encoded(video) end,
+          video.path
         )
 
-        {:ok, updated_video}
-
-      {:error, changeset_error} ->
-        Logger.error("Failed to mark as encoded for #{video.path}: #{inspect(changeset_error)}")
-
-        {:ok, video}
-    end
-  end
-
-  defp apply_processing_decision(video, {:needs_encoding, _reason}) do
-    # Validate video has required fields before marking as analyzed
-    if has_required_mediainfo_fields?(video) do
-      case Media.mark_as_analyzed(video) do
+      case result do
         {:ok, updated_video} ->
           Logger.debug(
-            "Successfully marked as analyzed: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
+            "Successfully marked as encoded: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
           )
 
           {:ok, updated_video}
 
-        {:error, changeset_error} ->
+        {:error, error} ->
           Logger.error(
-            "Failed to mark as analyzed for #{video.path}: #{inspect(changeset_error)}"
+            "Failed to mark as encoded for #{video.path}: #{inspect(error)}"
           )
 
           {:ok, video}
       end
-    else
-      Logger.error(
-        "Cannot mark video #{video.path} as analyzed - missing required fields (bitrate: #{video.bitrate}, width: #{video.width}, height: #{video.height})"
+    end
+  end
+
+  defp apply_processing_decision(video, {:needs_encoding, _reason}) do
+    # Skip if video is already past analysis stage
+    if video.state in [:analyzed, :crf_searching, :crf_searched, :encoding, :encoded] do
+      Logger.debug(
+        "Video #{video.path} already in state #{video.state}, skipping analysis transition"
       )
 
       {:ok, video}
+    else
+      # Validate video has required fields before marking as analyzed
+      if has_required_mediainfo_fields?(video) do
+        result =
+          retry_state_transition(
+            fn -> Media.mark_as_analyzed(video) end,
+            video.path
+          )
+
+        case result do
+          {:ok, updated_video} ->
+            Logger.debug(
+              "Successfully marked as analyzed: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
+            )
+
+            {:ok, updated_video}
+
+          {:error, error} ->
+            Logger.error(
+              "Failed to mark as analyzed for #{video.path}: #{inspect(error)}"
+            )
+
+            {:ok, video}
+        end
+      else
+        Logger.error(
+          "Cannot mark video #{video.path} as analyzed - missing required fields (bitrate: #{video.bitrate}, width: #{video.width}, height: #{video.height})"
+        )
+
+        {:ok, video}
+      end
     end
   end
 
@@ -753,5 +785,45 @@ defmodule Reencodarr.Analyzer.Broadway do
 
     # Return empty list to indicate failure - calling code should handle this
     []
+  end
+
+  # Retry state transition with exponential backoff for database busy errors
+  defp retry_state_transition(fun, video_path, max_retries \\ 10) do
+    retry_state_transition(fun, video_path, max_retries, 0)
+  end
+
+  defp retry_state_transition(fun, video_path, max_retries, attempt)
+       when attempt < max_retries do
+    fun.()
+  rescue
+    error in [Exqlite.Error] ->
+      case error.message do
+        "Database busy" ->
+          # Exponential backoff with max cap at 5 seconds
+          base_wait = (:math.pow(2, attempt) * 50) |> round()
+          wait_time = min(base_wait, 5_000)
+
+          Logger.debug(
+            "Database busy updating #{video_path} on attempt #{attempt + 1}/#{max_retries}, retrying in #{wait_time}ms"
+          )
+
+          Process.sleep(wait_time)
+          retry_state_transition(fun, video_path, max_retries, attempt + 1)
+
+        _ ->
+          {:error, error}
+      end
+
+    other_error ->
+      {:error, other_error}
+  end
+
+  defp retry_state_transition(_fun, video_path, max_retries, attempt)
+       when attempt >= max_retries do
+    Logger.error(
+      "Failed to update state for #{video_path} after #{max_retries} attempts due to database busy"
+    )
+
+    {:error, :database_busy}
   end
 end
