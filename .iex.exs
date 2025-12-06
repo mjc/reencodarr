@@ -49,17 +49,13 @@ defmodule IExHelpers do
 
   @doc "Start all pipelines"
   def start_all do
-    Analyzer.start()
     CrfSearcher.start()
-    Encoder.start()
     pipelines_status()
   end
 
   @doc "Pause all pipelines"
   def pause_all do
-    Analyzer.pause()
     CrfSearcher.pause()
-    Encoder.pause()
     pipelines_status()
   end
 
@@ -71,7 +67,7 @@ defmodule IExHelpers do
 
   @doc "Get service configs"
   def configs do
-    Services.list_services()
+    Services.list_configs()
   end
 
   @doc "Quick video state summary"
@@ -91,8 +87,7 @@ defmodule IExHelpers do
     %{
       video: video,
       vmaf_count: length(video.vmafs),
-      chosen_vmaf: Enum.find(video.vmafs, & &1.chosen),
-      service: Services.get_service_by_id(video.service_id)
+      chosen_vmaf: Enum.find(video.vmafs, & &1.chosen)
     }
   end
 end
