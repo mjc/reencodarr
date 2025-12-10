@@ -152,13 +152,8 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
       video_infos
       |> Task.async_stream(
         fn video_info ->
-          # Extract the "media" portion from the MediaInfo result
-          mediainfo =
-            case Map.get(mediainfo_map, video_info.path, :no_mediainfo) do
-              :no_mediainfo -> :no_mediainfo
-              result when is_map(result) -> Map.get(result, "media", :no_mediainfo)
-              _ -> :no_mediainfo
-            end
+          # Get the full MediaInfo result (already includes "media" key)
+          mediainfo = Map.get(mediainfo_map, video_info.path, :no_mediainfo)
 
           process_video_with_mediainfo(video_info, mediainfo)
         end,
