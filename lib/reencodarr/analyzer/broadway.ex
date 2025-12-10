@@ -705,21 +705,11 @@ defmodule Reencodarr.Analyzer.Broadway do
       {:ok, video} ->
         # Record detailed failure information based on reason
         record_analysis_failure(video, reason)
-
         Logger.debug("Successfully recorded analysis failure for video #{video.id}")
         :ok
 
       {:error, :not_found} ->
-        Logger.warning("Video not found in database, deleting orphan file: #{path}")
-
-        case File.rm(path) do
-          :ok ->
-            Logger.info("Successfully deleted orphan file: #{path}")
-
-          {:error, reason} ->
-            Logger.error("Failed to delete orphan file #{path}: #{inspect(reason)}")
-        end
-
+        Logger.warning("Video not found in database for path: #{path}")
         :ok
     end
   end
