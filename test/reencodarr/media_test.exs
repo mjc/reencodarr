@@ -2316,7 +2316,7 @@ defmodule Reencodarr.MediaTest do
           state: :analyzed
         })
 
-      result = Media.reset_videos_with_invalid_audio_metadata()
+      _result = Media.reset_videos_with_invalid_audio_metadata()
 
       # Atmos video should NOT be reset (atmos: true condition prevents it)
       updated = Repo.get(Reencodarr.Media.Video, video.id)
@@ -2607,7 +2607,7 @@ defmodule Reencodarr.MediaTest do
 
     test "query_videos_ready_for_encoding/1 respects limit" do
       # Create multiple videos with chosen VMAFs
-      videos =
+      _videos =
         Enum.map(1..5, fn i ->
           {:ok, v} = Fixtures.video_fixture(%{state: :crf_searched})
 

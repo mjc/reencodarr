@@ -35,13 +35,13 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
     Logger.debug("Processing batch of #{length(video_infos)} videos")
 
     # Pre-filter valid files for better performance
-    {valid_videos, invalid_videos} = filter_valid_videos(video_infos)
+    {valid_videos, invalid_videos_with_errors} = filter_valid_videos(video_infos)
 
     # Process valid videos with batch MediaInfo fetching
     case process_valid_videos(valid_videos, context) do
       {:ok, processed_videos} ->
-        # Combine results
-        all_results = processed_videos ++ mark_invalid_videos(invalid_videos)
+        # Combine results - invalid videos now include their actual error reasons
+        all_results = processed_videos ++ mark_invalid_videos(invalid_videos_with_errors)
         {:ok, all_results}
 
       error ->
@@ -107,12 +107,22 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
     paths = Enum.map(video_infos, & &1.path)
     validation_results = FileOperations.validate_files_for_processing(paths)
 
-    Enum.split_with(video_infos, fn video_info ->
-      case Map.get(validation_results, video_info.path) do
-        {:ok, _stats} -> true
-        _ -> false
-      end
-    end)
+    # Split into valid videos and invalid videos with their error reasons
+    {valid, invalid_with_errors} =
+      Enum.reduce(video_infos, {[], []}, fn video_info, {valid_acc, invalid_acc} ->
+        case Map.get(validation_results, video_info.path) do
+          {:ok, _stats} ->
+            {[video_info | valid_acc], invalid_acc}
+
+          {:error, reason} ->
+            {valid_acc, [{video_info, reason} | invalid_acc]}
+
+          nil ->
+            {valid_acc, [{video_info, "validation result not found"} | invalid_acc]}
+        end
+      end)
+
+    {Enum.reverse(valid), Enum.reverse(invalid_with_errors)}
   end
 
   defp process_valid_videos([], _context), do: {:ok, []}
@@ -198,9 +208,9 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
       {:error, {video_info.path, error_msg}}
   end
 
-  defp mark_invalid_videos(invalid_videos) do
-    Enum.map(invalid_videos, fn video_info ->
-      {:error, {video_info.path, "invalid video info"}}
+  defp mark_invalid_videos(invalid_videos_with_errors) do
+    Enum.map(invalid_videos_with_errors, fn {video_info, reason} ->
+      {:error, {video_info.path, reason}}
     end)
   end
 
