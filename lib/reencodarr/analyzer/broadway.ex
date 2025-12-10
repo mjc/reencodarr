@@ -620,9 +620,7 @@ defmodule Reencodarr.Analyzer.Broadway do
           {:ok, updated_video}
 
         {:error, error} ->
-          Logger.error(
-            "Failed to mark as encoded for #{video.path}: #{inspect(error)}"
-          )
+          Logger.error("Failed to mark as encoded for #{video.path}: #{inspect(error)}")
 
           {:ok, video}
       end
@@ -638,36 +636,38 @@ defmodule Reencodarr.Analyzer.Broadway do
 
       {:ok, video}
     else
-      # Validate video has required fields before marking as analyzed
-      if has_required_mediainfo_fields?(video) do
-        result =
-          retry_state_transition(
-            fn -> Media.mark_as_analyzed(video) end,
-            video.path
-          )
+      mark_video_as_analyzed(video)
+    end
+  end
 
-        case result do
-          {:ok, updated_video} ->
-            Logger.debug(
-              "Successfully marked as analyzed: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
-            )
-
-            {:ok, updated_video}
-
-          {:error, error} ->
-            Logger.error(
-              "Failed to mark as analyzed for #{video.path}: #{inspect(error)}"
-            )
-
-            {:ok, video}
-        end
-      else
-        Logger.error(
-          "Cannot mark video #{video.path} as analyzed - missing required fields (bitrate: #{video.bitrate}, width: #{video.width}, height: #{video.height})"
+  defp mark_video_as_analyzed(video) do
+    # Validate video has required fields before marking as analyzed
+    if has_required_mediainfo_fields?(video) do
+      result =
+        retry_state_transition(
+          fn -> Media.mark_as_analyzed(video) end,
+          video.path
         )
 
-        {:ok, video}
+      case result do
+        {:ok, updated_video} ->
+          Logger.debug(
+            "Successfully marked as analyzed: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
+          )
+
+          {:ok, updated_video}
+
+        {:error, error} ->
+          Logger.error("Failed to mark as analyzed for #{video.path}: #{inspect(error)}")
+
+          {:ok, video}
       end
+    else
+      Logger.error(
+        "Cannot mark video #{video.path} as analyzed - missing required fields (bitrate: #{video.bitrate}, width: #{video.width}, height: #{video.height})"
+      )
+
+      {:ok, video}
     end
   end
 

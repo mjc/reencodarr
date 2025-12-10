@@ -272,12 +272,23 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   # Private Helper Functions
+
+  # Determine output extension based on input file
+  # MP4 files output as MP4, everything else outputs as MKV
+  defp output_extension(video_path) do
+    case Path.extname(video_path) |> String.downcase() do
+      ".mp4" -> ".mp4"
+      _ -> ".mkv"
+    end
+  end
+
   defp prepare_encode_state(vmaf, state) do
     # Mark video as encoding BEFORE starting the port to prevent duplicate dispatches
     case Media.mark_as_encoding(vmaf.video) do
       {:ok, _updated_video} ->
         args = build_encode_args(vmaf)
-        output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv")
+        ext = output_extension(vmaf.video.path)
+        output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}#{ext}")
 
         port = Helper.open_port(args)
 
@@ -309,12 +320,14 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   defp build_encode_args(vmaf) do
+    ext = output_extension(vmaf.video.path)
+
     base_args = [
       "encode",
       "--crf",
       to_string(vmaf.crf),
       "--output",
-      Path.join(Helper.temp_dir(), "#{vmaf.video.id}.mkv"),
+      Path.join(Helper.temp_dir(), "#{vmaf.video.id}#{ext}"),
       "--input",
       vmaf.video.path
     ]
