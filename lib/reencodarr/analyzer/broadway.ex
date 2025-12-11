@@ -17,6 +17,7 @@ defmodule Reencodarr.Analyzer.Broadway do
     Processing.Pipeline
   }
 
+  alias Reencodarr.Core.Retry
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
   alias Reencodarr.Media.{Codecs, Video}
@@ -606,9 +607,10 @@ defmodule Reencodarr.Analyzer.Broadway do
       Logger.debug("Video #{video.path} #{reason}, marking as encoded (skipping all processing)")
 
       result =
-        retry_state_transition(
+        Retry.retry_on_db_busy(
           fn -> Media.mark_as_encoded(video) end,
-          video.path
+          max_attempts: 10,
+          base_backoff_ms: 50
         )
 
       case result do
@@ -644,9 +646,10 @@ defmodule Reencodarr.Analyzer.Broadway do
     # Validate video has required fields before marking as analyzed
     if has_required_mediainfo_fields?(video) do
       result =
-        retry_state_transition(
+        Retry.retry_on_db_busy(
           fn -> Media.mark_as_analyzed(video) end,
-          video.path
+          max_attempts: 10,
+          base_backoff_ms: 50
         )
 
       case result do
@@ -775,45 +778,5 @@ defmodule Reencodarr.Analyzer.Broadway do
 
     # Return empty list to indicate failure - calling code should handle this
     []
-  end
-
-  # Retry state transition with exponential backoff for database busy errors
-  defp retry_state_transition(fun, video_path, max_retries \\ 10) do
-    retry_state_transition(fun, video_path, max_retries, 0)
-  end
-
-  defp retry_state_transition(fun, video_path, max_retries, attempt)
-       when attempt < max_retries do
-    fun.()
-  rescue
-    error in [Exqlite.Error] ->
-      case error.message do
-        "Database busy" ->
-          # Exponential backoff with max cap at 5 seconds
-          base_wait = (:math.pow(2, attempt) * 50) |> round()
-          wait_time = min(base_wait, 5_000)
-
-          Logger.debug(
-            "Database busy updating #{video_path} on attempt #{attempt + 1}/#{max_retries}, retrying in #{wait_time}ms"
-          )
-
-          Process.sleep(wait_time)
-          retry_state_transition(fun, video_path, max_retries, attempt + 1)
-
-        _ ->
-          {:error, error}
-      end
-
-    other_error ->
-      {:error, other_error}
-  end
-
-  defp retry_state_transition(_fun, video_path, max_retries, attempt)
-       when attempt >= max_retries do
-    Logger.error(
-      "Failed to update state for #{video_path} after #{max_retries} attempts due to database busy"
-    )
-
-    {:error, :database_busy}
   end
 end
