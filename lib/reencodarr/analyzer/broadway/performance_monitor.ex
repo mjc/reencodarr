@@ -277,18 +277,32 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
     time_since_last = current_time - state.last_adjustment
 
     # Only process if we have enough data and auto-tuning is enabled
-    if length(state.throughput_history) >= 3 and time_since_last >= @adjustment_interval do
-      avg_throughput = calculate_average_throughput(state.throughput_history)
+    cond do
+      length(state.throughput_history) < 3 or time_since_last < @adjustment_interval ->
+        state
 
-      # Only log and adjust if there's been recent activity (throughput > 0)
-      if avg_throughput > 0 do
-        adjust_based_on_throughput(state, avg_throughput, current_time)
-      else
-        # No recent activity, just reset the timer
-        %{state | last_adjustment: current_time}
-      end
+      not has_recent_activity?(state.throughput_history, current_time) ->
+        # No recent activity, clear stale history and reset timer silently
+        %{state | last_adjustment: current_time, throughput_history: []}
+
+      true ->
+        maybe_adjust_with_throughput(state, current_time)
+    end
+  end
+
+  defp has_recent_activity?(throughput_history, current_time) do
+    recent_cutoff = current_time - @adjustment_interval
+    Enum.any?(throughput_history, fn {timestamp, _} -> timestamp > recent_cutoff end)
+  end
+
+  defp maybe_adjust_with_throughput(state, current_time) do
+    avg_throughput = calculate_average_throughput(state.throughput_history)
+
+    if avg_throughput > 0 do
+      adjust_based_on_throughput(state, avg_throughput, current_time)
     else
-      state
+      # No meaningful throughput, just reset the timer
+      %{state | last_adjustment: current_time}
     end
   end
 
