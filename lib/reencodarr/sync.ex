@@ -370,11 +370,33 @@ defmodule Reencodarr.Sync do
     end
   end
 
-  def refresh_and_rename_from_video(%{service_type: :sonarr, service_id: id}),
+  def refresh_and_rename_from_video(%{service_type: :sonarr, service_id: id})
+      when is_binary(id) do
+    case Integer.parse(id) do
+      {int_id, ""} -> refresh_operations(int_id, :sonarr)
+      _ -> {:error, "Invalid service_id: #{id}"}
+    end
+  end
+
+  def refresh_and_rename_from_video(%{service_type: :sonarr, service_id: id}) when is_integer(id),
     do: refresh_operations(id, :sonarr)
 
-  def refresh_and_rename_from_video(%{service_type: :radarr, service_id: id}),
+  def refresh_and_rename_from_video(%{service_type: :radarr, service_id: id})
+      when is_binary(id) do
+    case Integer.parse(id) do
+      {int_id, ""} -> refresh_operations(int_id, :radarr)
+      _ -> {:error, "Invalid service_id: #{id}"}
+    end
+  end
+
+  def refresh_and_rename_from_video(%{service_type: :radarr, service_id: id}) when is_integer(id),
     do: refresh_operations(id, :radarr)
+
+  def refresh_and_rename_from_video(%{service_type: nil}),
+    do: {:error, "No service type for video"}
+
+  def refresh_and_rename_from_video(%{service_id: nil}),
+    do: {:error, "No service_id for video"}
 
   def rescan_and_rename_series(id), do: refresh_operations(id, :sonarr)
 
