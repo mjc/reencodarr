@@ -228,7 +228,7 @@ defmodule Reencodarr.FailureTracker.CommandOutputTest do
           # Verify the tested_scores are stored as maps, not tuples
           assert is_list(failure.system_context["tested_scores"])
 
-          if length(failure.system_context["tested_scores"]) > 0 do
+          if not Enum.empty?(failure.system_context["tested_scores"]) do
             first_score = List.first(failure.system_context["tested_scores"])
             assert is_map(first_score)
             assert Map.has_key?(first_score, "crf")

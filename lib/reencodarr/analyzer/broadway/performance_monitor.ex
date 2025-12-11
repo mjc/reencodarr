@@ -369,13 +369,11 @@ defmodule Reencodarr.Analyzer.Broadway.PerformanceMonitor do
       Logger.warning("Failed to send context update to producer: #{inspect(error)}")
   end
 
+  defp calculate_average_throughput([]), do: 0
+
   defp calculate_average_throughput(history) do
-    if length(history) > 0 do
-      total = Enum.reduce(history, 0, fn {_time, throughput}, acc -> acc + throughput end)
-      total / length(history)
-    else
-      0
-    end
+    total = Enum.reduce(history, 0, fn {_time, throughput}, acc -> acc + throughput end)
+    total / length(history)
   end
 
   defp calculate_throughput(batch_size, duration_ms) when duration_ms > 0,

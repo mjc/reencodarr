@@ -264,7 +264,7 @@ defmodule Reencodarr.Rules do
         []
 
       not (is_integer(channels) and channels > 0) or
-          not (is_list(audio_codecs) and length(audio_codecs) > 0) ->
+          not (is_list(audio_codecs) and not Enum.empty?(audio_codecs)) ->
         Logger.debug(
           "🔴 Invalid audio metadata for video #{video.id}: channels=#{inspect(channels)}, codecs=#{inspect(audio_codecs)}, path=#{video.path}"
         )

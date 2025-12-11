@@ -89,11 +89,11 @@ defmodule Reencodarr.Sync do
 
     # Process all files in a single batch operation
     files_processed =
-      if length(all_files) > 0 do
+      if Enum.empty?(all_files) do
+        0
+      else
         batch_upsert_videos(all_files, service_type)
         length(all_files)
-      else
-        0
       end
 
     # Log batch performance metrics

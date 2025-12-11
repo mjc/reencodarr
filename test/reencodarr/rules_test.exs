@@ -475,7 +475,7 @@ defmodule Reencodarr.RulesTest do
       result = Rules.build_args(video, :encode, nil)
 
       assert is_list(result)
-      assert length(result) > 0
+      assert not Enum.empty?(result)
     end
 
     test "handles empty additional_params" do
@@ -483,7 +483,7 @@ defmodule Reencodarr.RulesTest do
       result = Rules.build_args(video, :encode, [])
 
       assert is_list(result)
-      assert length(result) > 0
+      assert not Enum.empty?(result)
     end
 
     test "handles malformed additional_params gracefully" do

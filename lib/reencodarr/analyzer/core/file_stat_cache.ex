@@ -153,9 +153,10 @@ defmodule Reencodarr.Analyzer.Core.FileStatCache do
     end)
 
     new_timers = Map.drop(state.cache_timers, expired_keys)
+    expired_count = length(expired_keys)
 
-    if length(expired_keys) > 0 do
-      Logger.debug("FileStatCache: Cleaned up #{length(expired_keys)} expired entries")
+    if expired_count > 0 do
+      Logger.debug("FileStatCache: Cleaned up #{expired_count} expired entries")
     end
 
     {:noreply, %{state | cache: active_cache, cache_timers: new_timers}}

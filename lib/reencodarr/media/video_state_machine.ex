@@ -215,12 +215,12 @@ defmodule Reencodarr.Media.VideoStateMachine do
   defp validate_codecs_present(changeset) do
     changeset
     |> validate_change(:video_codecs, fn :video_codecs, codecs ->
-      if is_list(codecs) and length(codecs) > 0,
+      if is_list(codecs) and not Enum.empty?(codecs),
         do: [],
         else: [video_codecs: "must have at least one codec"]
     end)
     |> validate_change(:audio_codecs, fn :audio_codecs, codecs ->
-      if is_list(codecs) and length(codecs) > 0,
+      if is_list(codecs) and not Enum.empty?(codecs),
         do: [],
         else: [audio_codecs: "must have at least one codec"]
     end)
@@ -249,8 +249,8 @@ defmodule Reencodarr.Media.VideoStateMachine do
   end
 
   defp video_codecs_valid?(%Video{video_codecs: video_codecs, audio_codecs: audio_codecs}) do
-    is_list(video_codecs) and length(video_codecs) > 0 and
-      is_list(audio_codecs) and length(audio_codecs) > 0
+    is_list(video_codecs) and not Enum.empty?(video_codecs) and
+      is_list(audio_codecs) and not Enum.empty?(audio_codecs)
   end
 
   defp has_vmaf_data?(%Video{} = _video) do
