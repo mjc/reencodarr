@@ -88,9 +88,9 @@ defmodule Reencodarr.PostProcessor do
 
   defp process_reloaded_video(video, actual_path) do
     case Media.mark_as_reencoded(video) do
-      {:ok, _} ->
+      {:ok, updated_video} ->
         Logger.info("Successfully marked video #{video.id} as re-encoded")
-        finalize_and_sync(video, actual_path)
+        finalize_and_sync(updated_video, actual_path)
 
       {:error, reason} ->
         Logger.error("Failed to mark video #{video.id} as re-encoded: #{inspect(reason)}")
@@ -119,6 +119,27 @@ defmodule Reencodarr.PostProcessor do
       "Calling Sync.refresh_and_rename_from_video for video #{video.id} (path: #{video.path}) after finalization attempt."
     )
 
-    Sync.refresh_and_rename_from_video(video)
+    case Sync.refresh_and_rename_from_video(video) do
+      {:ok, result} ->
+        Logger.info(
+          "Sync.refresh_and_rename_from_video succeeded for video #{video.id}: #{inspect(result)}"
+        )
+
+        {:ok, result}
+
+      {:error, reason} ->
+        Logger.error(
+          "Sync.refresh_and_rename_from_video failed for video #{video.id}: #{inspect(reason)}"
+        )
+
+        {:error, reason}
+
+      other ->
+        Logger.warning(
+          "Sync.refresh_and_rename_from_video returned unexpected result for video #{video.id}: #{inspect(other)}"
+        )
+
+        {:ok, other}
+    end
   end
 end
