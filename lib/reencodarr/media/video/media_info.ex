@@ -238,10 +238,10 @@ defmodule Reencodarr.Media.Video.MediaInfo do
         is_nil(track.channels) or track.channels == 0
       end)
 
-    if length(invalid_audio_tracks) > 0 do
-      add_error(changeset, :audio_tracks, "audio tracks must have valid channel information")
-    else
+    if Enum.empty?(invalid_audio_tracks) do
       changeset
+    else
+      add_error(changeset, :audio_tracks, "audio tracks must have valid channel information")
     end
   end
 

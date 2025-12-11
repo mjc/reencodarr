@@ -114,15 +114,10 @@ defmodule Reencodarr.Analyzer.Core.FileOperations do
   end
 
   defp validate_file_accessibility(path, %{exists: true}) do
-    # Skip MP4 files - compatibility issues to be resolved later
-    if String.ends_with?(path, ".mp4") do
-      {:error, "MP4 files skipped (compatibility issues)"}
-    else
-      # Additional checks can be added here (permissions, file type, etc.)
-      case File.stat(path, [:read]) do
-        {:ok, _file_stat} -> :ok
-        {:error, reason} -> {:error, "file not accessible: #{path} (#{reason})"}
-      end
+    # Additional checks can be added here (permissions, file type, etc.)
+    case File.stat(path, [:read]) do
+      {:ok, _file_stat} -> :ok
+      {:error, reason} -> {:error, "file not accessible: #{path} (#{reason})"}
     end
   end
 

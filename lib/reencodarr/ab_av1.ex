@@ -68,35 +68,6 @@ defmodule Reencodarr.AbAv1 do
   """
   @spec encode(Media.Vmaf.t()) :: :ok | {:error, atom()}
   def encode(vmaf) do
-    # Skip MP4 files - compatibility issues to be resolved later
-    video_id = Map.get(vmaf, :video_id) || Map.get(vmaf, "video_id")
-
-    if is_integer(video_id) do
-      try do
-        video = Media.get_video!(video_id)
-
-        if is_binary(video.path) and String.ends_with?(video.path, ".mp4") do
-          # Skip MP4 files - compatibility issues
-          Logger.info("Skipping encode for MP4 file (compatibility issues): #{video.path}")
-          # Mark as failed to skip future encoding attempts
-          case Media.mark_as_failed(video) do
-            {:ok, _updated} -> :ok
-            error -> error
-          end
-        else
-          do_queue_encode(vmaf)
-        end
-      rescue
-        Ecto.NoResultsError ->
-          # Video doesn't exist - fall back to normal validation/queuing
-          do_queue_encode(vmaf)
-      end
-    else
-      do_queue_encode(vmaf)
-    end
-  end
-
-  defp do_queue_encode(vmaf) do
     case QueueManager.validate_encode_request(vmaf) do
       {:ok, validated_vmaf} ->
         message = QueueManager.build_encode_message(validated_vmaf)

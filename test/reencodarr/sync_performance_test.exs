@@ -164,7 +164,7 @@ defmodule Reencodarr.SyncPerformanceTest do
           end)
 
           # Simulate analyzer dispatch (our optimization)
-          if length(files_needing_analysis) > 0 do
+          if not Enum.empty?(files_needing_analysis) do
             AnalyzerBroadway.dispatch_available()
           end
         end)

@@ -17,6 +17,7 @@ defmodule Reencodarr.Analyzer.Broadway do
     Processing.Pipeline
   }
 
+  alias Reencodarr.Core.Retry
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
   alias Reencodarr.Media.{Codecs, Video}
@@ -389,7 +390,11 @@ defmodule Reencodarr.Analyzer.Broadway do
     )
 
     # Only proceed with upsert if we have successful videos
-    if length(successful_videos) > 0 do
+    if Enum.empty?(successful_videos) do
+      Logger.debug("Broadway: No successful videos to upsert")
+      # Still handle any failed paths
+      log_processing_summary([], failed_paths ++ additional_failed_paths)
+    else
       # Extract video attributes from successful videos
       video_attrs_list = Enum.map(successful_videos, fn {_video_info, attrs} -> attrs end)
 
@@ -405,10 +410,6 @@ defmodule Reencodarr.Analyzer.Broadway do
           Logger.error("Broadway: perform_batch_upsert failed: #{inspect(reason)}")
           {:error, reason}
       end
-    else
-      Logger.debug("Broadway: No successful videos to upsert")
-      # Still handle any failed paths
-      log_processing_summary([], failed_paths ++ additional_failed_paths)
     end
 
     Logger.debug("Broadway: batch_upsert_and_transition_videos completed")
@@ -595,27 +596,63 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   # Applies the processing decision by updating video state in the database
   defp apply_processing_decision(video, {:skip_encoding, reason}) do
-    Logger.debug("Video #{video.path} #{reason}, marking as encoded (skipping all processing)")
+    # Check if video is already encoded - if so, no need to transition
+    if video.state == :encoded do
+      Logger.debug(
+        "Video #{video.path} already in encoded state, skipping transition (reason: #{reason})"
+      )
 
-    case Media.mark_as_encoded(video) do
-      {:ok, updated_video} ->
-        Logger.debug(
-          "Successfully marked as encoded: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
+      {:ok, video}
+    else
+      Logger.debug("Video #{video.path} #{reason}, marking as encoded (skipping all processing)")
+
+      result =
+        Retry.retry_on_db_busy(
+          fn -> Media.mark_as_encoded(video) end,
+          max_attempts: 10,
+          base_backoff_ms: 50
         )
 
-        {:ok, updated_video}
+      case result do
+        {:ok, updated_video} ->
+          Logger.debug(
+            "Successfully marked as encoded: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
+          )
 
-      {:error, changeset_error} ->
-        Logger.error("Failed to mark as encoded for #{video.path}: #{inspect(changeset_error)}")
+          {:ok, updated_video}
 
-        {:ok, video}
+        {:error, error} ->
+          Logger.error("Failed to mark as encoded for #{video.path}: #{inspect(error)}")
+
+          {:ok, video}
+      end
     end
   end
 
   defp apply_processing_decision(video, {:needs_encoding, _reason}) do
+    # Skip if video is already past analysis stage
+    if video.state in [:analyzed, :crf_searching, :crf_searched, :encoding, :encoded] do
+      Logger.debug(
+        "Video #{video.path} already in state #{video.state}, skipping analysis transition"
+      )
+
+      {:ok, video}
+    else
+      mark_video_as_analyzed(video)
+    end
+  end
+
+  defp mark_video_as_analyzed(video) do
     # Validate video has required fields before marking as analyzed
     if has_required_mediainfo_fields?(video) do
-      case Media.mark_as_analyzed(video) do
+      result =
+        Retry.retry_on_db_busy(
+          fn -> Media.mark_as_analyzed(video) end,
+          max_attempts: 10,
+          base_backoff_ms: 50
+        )
+
+      case result do
         {:ok, updated_video} ->
           Logger.debug(
             "Successfully marked as analyzed: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
@@ -623,10 +660,8 @@ defmodule Reencodarr.Analyzer.Broadway do
 
           {:ok, updated_video}
 
-        {:error, changeset_error} ->
-          Logger.error(
-            "Failed to mark as analyzed for #{video.path}: #{inspect(changeset_error)}"
-          )
+        {:error, error} ->
+          Logger.error("Failed to mark as analyzed for #{video.path}: #{inspect(error)}")
 
           {:ok, video}
       end
@@ -673,21 +708,11 @@ defmodule Reencodarr.Analyzer.Broadway do
       {:ok, video} ->
         # Record detailed failure information based on reason
         record_analysis_failure(video, reason)
-
         Logger.debug("Successfully recorded analysis failure for video #{video.id}")
         :ok
 
       {:error, :not_found} ->
-        Logger.warning("Video not found in database, deleting orphan file: #{path}")
-
-        case File.rm(path) do
-          :ok ->
-            Logger.info("Successfully deleted orphan file: #{path}")
-
-          {:error, reason} ->
-            Logger.error("Failed to delete orphan file #{path}: #{inspect(reason)}")
-        end
-
+        Logger.warning("Video not found in database for path: #{path}")
         :ok
     end
   end

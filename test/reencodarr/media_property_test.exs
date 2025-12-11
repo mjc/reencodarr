@@ -237,7 +237,7 @@ defmodule Reencodarr.Media.PropertyTest do
     property "audio codec lists are non-empty" do
       check all(codecs <- audio_codecs_generator()) do
         assert is_list(codecs)
-        assert length(codecs) > 0
+        assert not Enum.empty?(codecs)
         assert length(codecs) <= 3
 
         Enum.each(codecs, fn codec ->

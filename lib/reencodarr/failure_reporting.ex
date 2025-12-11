@@ -289,7 +289,7 @@ defmodule Reencodarr.FailureReporting do
     IO.puts("")
 
     # By Stage
-    if length(report.by_stage) > 0 do
+    if not Enum.empty?(report.by_stage) do
       IO.puts(IO.ANSI.bright() <> "Failures by Stage:" <> IO.ANSI.reset())
 
       Enum.each(report.by_stage, fn stage ->
