@@ -27,7 +27,7 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
   Automatically optimizes batch size and concurrency based on system capabilities.
   """
   @spec execute_batch_mediainfo([String.t()]) :: {:ok, map()} | {:error, term()}
-  def execute_batch_mediainfo(paths) when is_list(paths) and length(paths) > 0 do
+  def execute_batch_mediainfo([_ | _] = paths) do
     Logger.debug("Executing MediaInfo for #{length(paths)} files")
 
     # Pre-filter existing files to avoid command errors

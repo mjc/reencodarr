@@ -475,7 +475,7 @@ defmodule Reencodarr.RulesTest do
       result = Rules.build_args(video, :encode, nil)
 
       assert is_list(result)
-      assert length(result) > 0
+      assert not Enum.empty?(result)
     end
 
     test "handles empty additional_params" do
@@ -483,7 +483,7 @@ defmodule Reencodarr.RulesTest do
       result = Rules.build_args(video, :encode, [])
 
       assert is_list(result)
-      assert length(result) > 0
+      assert not Enum.empty?(result)
     end
 
     test "handles malformed additional_params gracefully" do
@@ -622,7 +622,7 @@ defmodule Reencodarr.RulesTest do
       assert result == []
     end
 
-    test "does not apply grain for HDR content even if vintage" do
+    test "applies grain for HDR content if vintage" do
       video =
         Fixtures.create_hdr_video(%{
           path: "/movies/Blade Runner (2007)/movie.mkv",
@@ -631,7 +631,7 @@ defmodule Reencodarr.RulesTest do
 
       result = Rules.grain_for_vintage_content(video)
 
-      assert result == []
+      assert result == [{"--svt", "film-grain=8"}]
     end
 
     test "does not apply grain when no year pattern is found" do
@@ -874,11 +874,11 @@ defmodule Reencodarr.RulesTest do
       assert result == []
     end
 
-    test "skips grain for HDR content even if vintage" do
+    test "applies grain for HDR vintage content" do
       video = Fixtures.create_test_video(%{content_year: 2005, hdr: "HDR10"})
       result = Rules.grain_for_vintage_content(video)
 
-      assert result == []
+      assert result == [{"--svt", "film-grain=8"}]
     end
 
     test "skips grain when no year detected" do

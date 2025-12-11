@@ -113,7 +113,7 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
       refute "--acodec" in args
 
       # Should still include video args
-      assert length(args) > 0
+      assert not Enum.empty?(args)
     end
   end
 
@@ -140,7 +140,7 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
 
       # Should include arguments appropriate for stereo
       assert is_list(args)
-      assert length(args) > 0
+      assert not Enum.empty?(args)
     end
 
     test "handles Atmos audio correctly" do
@@ -165,7 +165,7 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
 
       # Should handle Atmos appropriately
       assert is_list(args)
-      assert length(args) > 0
+      assert not Enum.empty?(args)
     end
   end
 end

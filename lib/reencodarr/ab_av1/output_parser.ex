@@ -35,7 +35,7 @@ defmodule Reencodarr.AbAv1.OutputParser do
         ~r/\[(?<timestamp>[^\]]+)\].*?(?<progress>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,\seta\s(?<eta>\d+)\s(?<time_unit>second|minute|hour|day|week|month|year)s?/,
       success: ~r/(?:\[.*\]\s)?crf\s(?<crf>\d+(?:\.\d+)?)\ssuccessful/,
       warning: ~r/^Warning:\s(?<message>.*)/,
-      encoding_start: ~r/\[.*\] encoding (?<filename>\d+\.mkv)/,
+      encoding_start: ~r/\[.*\] encoding (?<filename>\d+\.(?:mkv|mp4))/,
       encoding_progress:
         ~r/\[.*\]\s*(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
       encoding_progress_alt:

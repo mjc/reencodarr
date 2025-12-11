@@ -264,7 +264,7 @@ defmodule Reencodarr.Rules do
         []
 
       not (is_integer(channels) and channels > 0) or
-          not (is_list(audio_codecs) and length(audio_codecs) > 0) ->
+          not (is_list(audio_codecs) and not Enum.empty?(audio_codecs)) ->
         Logger.debug(
           "🔴 Invalid audio metadata for video #{video.id}: channels=#{inspect(channels)}, codecs=#{inspect(audio_codecs)}, path=#{video.path}"
         )
@@ -373,10 +373,11 @@ defmodule Reencodarr.Rules do
   For movies: uses release year
   For TV shows: uses series start year or episode air year
 
-  Only applies to non-HDR content as HDR typically doesn't need grain synthesis.
+  Applies to both SDR and HDR content - vintage films that have been remastered
+  to HDR still benefit from film grain synthesis to preserve the original look.
   """
   @spec grain_for_vintage_content(Media.Video.t()) :: list()
-  def grain_for_vintage_content(%Media.Video{hdr: nil, content_year: year} = video)
+  def grain_for_vintage_content(%Media.Video{content_year: year} = video)
       when is_integer(year) and year < 2009 do
     strength = 8
 
@@ -387,7 +388,7 @@ defmodule Reencodarr.Rules do
     [{"--svt", "film-grain=#{strength}"}]
   end
 
-  def grain_for_vintage_content(%Media.Video{hdr: nil, path: path, title: title}) do
+  def grain_for_vintage_content(%Media.Video{path: path, title: title}) do
     strength = 8
     # Fallback to filename parsing for non-API sourced videos
     full_text = "#{path} #{title || ""}"
@@ -405,7 +406,7 @@ defmodule Reencodarr.Rules do
     end
   end
 
-  # Skip grain for HDR content or when no pattern detected
+  # Fallback when no year info available
   def grain_for_vintage_content(_), do: []
 
   @doc """

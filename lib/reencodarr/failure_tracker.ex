@@ -316,11 +316,11 @@ defmodule Reencodarr.FailureTracker do
   defp enhance_message_with_ffmpeg_details(output, base_message, ffmpeg_exit_code) do
     specific_errors = extract_specific_ffmpeg_errors(output)
 
-    if length(specific_errors) > 0 do
+    if Enum.empty?(specific_errors) do
+      "#{base_message} (FFmpeg exit #{ffmpeg_exit_code})"
+    else
       error_details = Enum.join(specific_errors, "; ")
       "#{base_message} (FFmpeg exit #{ffmpeg_exit_code}): #{error_details}"
-    else
-      "#{base_message} (FFmpeg exit #{ffmpeg_exit_code})"
     end
   end
 

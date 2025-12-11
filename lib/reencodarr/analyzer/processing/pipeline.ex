@@ -10,11 +10,13 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
   - MediaInfo integration and validation
   - Error handling and recovery strategies
   - Performance monitoring integration
+  - Automatic cleanup of missing/empty files
   """
 
   require Logger
   alias Reencodarr.Analyzer.{Core.ConcurrencyManager, Core.FileOperations}
   alias Reencodarr.Analyzer.MediaInfo.CommandExecutor
+  alias Reencodarr.{Media, Services}
   alias Reencodarr.Media.MediaInfoExtractor
 
   # Type definitions for better type safety
@@ -35,13 +37,13 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
     Logger.debug("Processing batch of #{length(video_infos)} videos")
 
     # Pre-filter valid files for better performance
-    {valid_videos, invalid_videos} = filter_valid_videos(video_infos)
+    {valid_videos, invalid_videos_with_errors} = filter_valid_videos(video_infos)
 
     # Process valid videos with batch MediaInfo fetching
     case process_valid_videos(valid_videos, context) do
       {:ok, processed_videos} ->
-        # Combine results
-        all_results = processed_videos ++ mark_invalid_videos(invalid_videos)
+        # Combine results - invalid videos now include their actual error reasons
+        all_results = processed_videos ++ mark_invalid_videos(invalid_videos_with_errors)
         {:ok, all_results}
 
       error ->
@@ -107,12 +109,186 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
     paths = Enum.map(video_infos, & &1.path)
     validation_results = FileOperations.validate_files_for_processing(paths)
 
-    Enum.split_with(video_infos, fn video_info ->
-      case Map.get(validation_results, video_info.path) do
-        {:ok, _stats} -> true
-        _ -> false
-      end
-    end)
+    # Split into valid videos and handle invalid ones immediately
+    {valid, invalid_with_errors} =
+      Enum.reduce(video_infos, {[], []}, fn video_info, {valid_acc, invalid_acc} ->
+        case Map.get(validation_results, video_info.path) do
+          {:ok, _stats} ->
+            {[video_info | valid_acc], invalid_acc}
+
+          {:error, reason} ->
+            # Handle cleanup immediately for missing/empty files
+            handle_invalid_file(video_info, reason)
+            {valid_acc, [{video_info, reason} | invalid_acc]}
+
+          nil ->
+            {valid_acc, [{video_info, "validation result not found"} | invalid_acc]}
+        end
+      end)
+
+    {Enum.reverse(valid), Enum.reverse(invalid_with_errors)}
+  end
+
+  defp handle_invalid_file(video_info, reason) do
+    cond do
+      String.contains?(reason, "does not exist") ->
+        handle_missing_file(video_info)
+
+      String.contains?(reason, "is empty") ->
+        handle_empty_file(video_info)
+
+      true ->
+        # Other errors don't need special handling here
+        :ok
+    end
+  end
+
+  defp handle_missing_file(video_info) do
+    Logger.info("File does not exist, deleting video record: #{video_info.path}")
+
+    case Media.get_video(video_info.id) do
+      nil ->
+        Logger.debug("Video #{video_info.id} already deleted")
+
+      video ->
+        case Media.delete_video_with_vmafs(video) do
+          {:ok, _} ->
+            Logger.info("Successfully deleted video record for missing file: #{video_info.path}")
+
+          {:error, reason} ->
+            Logger.error(
+              "Failed to delete video record for #{video_info.path}: #{inspect(reason)}"
+            )
+        end
+    end
+  end
+
+  defp handle_empty_file(video_info) do
+    Logger.warning("File is empty, cleaning up: #{video_info.path}")
+
+    # Delete the empty file
+    case File.rm(video_info.path) do
+      :ok ->
+        Logger.info("Successfully deleted empty file: #{video_info.path}")
+
+      {:error, reason} ->
+        Logger.error("Failed to delete empty file #{video_info.path}: #{inspect(reason)}")
+    end
+
+    # Get video record and trigger rescan before deleting
+    case Media.get_video(video_info.id) do
+      nil ->
+        Logger.debug("Video #{video_info.id} already deleted")
+
+      video ->
+        # Trigger rescan in Sonarr/Radarr before deleting the record
+        trigger_service_rescan(video)
+
+        # Delete the video record
+        case Media.delete_video_with_vmafs(video) do
+          {:ok, _} ->
+            Logger.info("Successfully deleted video record for empty file: #{video_info.path}")
+
+          {:error, reason} ->
+            Logger.error(
+              "Failed to delete video record for #{video_info.path}: #{inspect(reason)}"
+            )
+        end
+    end
+  end
+
+  defp trigger_service_rescan(video) do
+    case video.service_type do
+      :sonarr ->
+        trigger_sonarr_rescan(video)
+
+      :radarr ->
+        trigger_radarr_rescan(video)
+
+      nil ->
+        Logger.debug("No service type for video #{video.id}, skipping rescan")
+
+      other ->
+        Logger.warning("Unknown service type #{inspect(other)} for video #{video.id}")
+    end
+  end
+
+  defp trigger_sonarr_rescan(video) do
+    case video.service_id do
+      nil ->
+        Logger.warning("No service_id for Sonarr video #{video.id}, cannot trigger rescan")
+
+      service_id ->
+        case Integer.parse(service_id) do
+          {episode_file_id, ""} ->
+            do_sonarr_rescan(episode_file_id)
+
+          _ ->
+            Logger.warning("Invalid service_id for Sonarr video: #{service_id}")
+        end
+    end
+  end
+
+  defp do_sonarr_rescan(episode_file_id) do
+    case Services.Sonarr.get_episode_file(episode_file_id) do
+      {:ok, %{body: %{"seriesId" => series_id}}} when is_integer(series_id) ->
+        Logger.info("Triggering Sonarr rescan for series #{series_id}")
+
+        case Services.Sonarr.refresh_series(series_id) do
+          {:ok, _} ->
+            Logger.info("Successfully triggered Sonarr rescan for series #{series_id}")
+
+          {:error, reason} ->
+            Logger.error("Failed to trigger Sonarr rescan: #{inspect(reason)}")
+        end
+
+      {:ok, response} ->
+        Logger.warning(
+          "Could not extract series ID from episode file response: #{inspect(response)}"
+        )
+
+      {:error, reason} ->
+        Logger.error("Failed to get episode file info from Sonarr: #{inspect(reason)}")
+    end
+  end
+
+  defp trigger_radarr_rescan(video) do
+    case video.service_id do
+      nil ->
+        Logger.warning("No service_id for Radarr video #{video.id}, cannot trigger rescan")
+
+      service_id ->
+        case Integer.parse(service_id) do
+          {movie_file_id, ""} ->
+            do_radarr_rescan(movie_file_id)
+
+          _ ->
+            Logger.warning("Invalid service_id for Radarr video: #{service_id}")
+        end
+    end
+  end
+
+  defp do_radarr_rescan(movie_file_id) do
+    case Services.Radarr.get_movie_file(movie_file_id) do
+      {:ok, %{body: %{"movieId" => movie_id}}} when is_integer(movie_id) ->
+        Logger.info("Triggering Radarr rescan for movie #{movie_id}")
+
+        case Services.Radarr.refresh_movie(movie_id) do
+          {:ok, _} ->
+            Logger.info("Successfully triggered Radarr rescan for movie #{movie_id}")
+
+          {:error, reason} ->
+            Logger.error("Failed to trigger Radarr rescan: #{inspect(reason)}")
+        end
+
+      {:ok, response} ->
+        Logger.warning(
+          "Could not extract movie ID from movie file response: #{inspect(response)}"
+        )
+
+      {:error, reason} ->
+        Logger.error("Failed to get movie file info from Radarr: #{inspect(reason)}")
+    end
   end
 
   defp process_valid_videos([], _context), do: {:ok, []}
@@ -152,13 +328,8 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
       video_infos
       |> Task.async_stream(
         fn video_info ->
-          # Extract the "media" portion from the MediaInfo result
-          mediainfo =
-            case Map.get(mediainfo_map, video_info.path, :no_mediainfo) do
-              :no_mediainfo -> :no_mediainfo
-              result when is_map(result) -> Map.get(result, "media", :no_mediainfo)
-              _ -> :no_mediainfo
-            end
+          # Get the full MediaInfo result (already includes "media" key)
+          mediainfo = Map.get(mediainfo_map, video_info.path, :no_mediainfo)
 
           process_video_with_mediainfo(video_info, mediainfo)
         end,
@@ -203,9 +374,9 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
       {:error, {video_info.path, error_msg}}
   end
 
-  defp mark_invalid_videos(invalid_videos) do
-    Enum.map(invalid_videos, fn video_info ->
-      {:error, {video_info.path, "invalid video info"}}
+  defp mark_invalid_videos(invalid_videos_with_errors) do
+    Enum.map(invalid_videos_with_errors, fn {video_info, reason} ->
+      {:error, {video_info.path, reason}}
     end)
   end
 
@@ -236,7 +407,7 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
 
     # Record failures properly through the failure system if we have them
     # For now, log summary - ideally we'd have video structs to record individual failures
-    if length(failed) > 0 do
+    if not Enum.empty?(failed) do
       Logger.warning(
         "Batch processing completed with #{length(failed)} failures: #{inspect(failed)}"
       )

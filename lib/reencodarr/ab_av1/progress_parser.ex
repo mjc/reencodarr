@@ -57,7 +57,7 @@ defmodule Reencodarr.AbAv1.ProgressParser do
     case Process.get(:progress_parser_patterns) do
       nil ->
         patterns = %{
-          encoding_start: ~r/\[.*\] encoding (?<filename>\d+\.mkv)/,
+          encoding_start: ~r/\[.*\] encoding (?<filename>\d+\.(?:mkv|mp4))/,
           # Main progress pattern with brackets: [timestamp] percent%, fps fps, eta time unit
           progress:
             ~r/\[(?<timestamp>[^\]]+)\].*?(?<percent>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,?\s?eta\s(?<eta>\d+)\s(?<time_unit>(?:second|minute|hour|day|week|month|year)s?)/,
@@ -99,10 +99,10 @@ defmodule Reencodarr.AbAv1.ProgressParser do
   end
 
   defp handle_encoding_start(%{"filename" => filename_with_ext}, state) do
-    # Extract video ID from filename (e.g., "123.mkv" -> get original filename)
+    # Extract video ID from filename (e.g., "123.mkv" or "123.mp4" -> get original filename)
     video_id =
       filename_with_ext
-      |> Path.basename(".mkv")
+      |> Path.basename(Path.extname(filename_with_ext))
       |> Parsers.parse_int(0)
 
     filename = get_filename_for_encoding_start(state, video_id, filename_with_ext)
