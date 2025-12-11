@@ -407,7 +407,7 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
 
     # Record failures properly through the failure system if we have them
     # For now, log summary - ideally we'd have video structs to record individual failures
-    if length(failed) > 0 do
+    if not Enum.empty?(failed) do
       Logger.warning(
         "Batch processing completed with #{length(failed)} failures: #{inspect(failed)}"
       )

@@ -460,7 +460,7 @@ defmodule ReencodarrWeb.FailuresLive do
                   
     <!-- Latest Failure -->
                   <%= case Map.get(@video_failures, video.id) do %>
-                    <% failures when is_list(failures) and length(failures) > 0 -> %>
+                    <% failures when is_list(failures) and failures != [] -> %>
                       <% latest_failure = List.first(failures) %>
                       <div class="bg-red-50 border border-red-200 rounded p-3 mb-3">
                         <div class="flex items-start justify-between gap-2 mb-1">
@@ -525,7 +525,7 @@ defmodule ReencodarrWeb.FailuresLive do
                       
     <!-- All Failures -->
                       <%= case Map.get(@video_failures, video.id) do %>
-                        <% failures when is_list(failures) and length(failures) > 0 -> %>
+                        <% failures when is_list(failures) and failures != [] -> %>
                           <div>
                             <h5 class="text-xs font-semibold text-gray-700 mb-2">
                               All Failures ({length(failures)})
@@ -831,7 +831,7 @@ defmodule ReencodarrWeb.FailuresLive do
   end
 
   # Helper function to check if a query has GROUP BY clause
-  defp has_group_by?(%Ecto.Query{group_bys: group_bys}), do: length(group_bys) > 0
+  defp has_group_by?(%Ecto.Query{group_bys: group_bys}), do: not Enum.empty?(group_bys)
 
   defp get_failures_by_video(videos) do
     video_ids = Enum.map(videos, & &1.id)

@@ -389,7 +389,11 @@ defmodule Reencodarr.Analyzer.Broadway do
     )
 
     # Only proceed with upsert if we have successful videos
-    if length(successful_videos) > 0 do
+    if Enum.empty?(successful_videos) do
+      Logger.debug("Broadway: No successful videos to upsert")
+      # Still handle any failed paths
+      log_processing_summary([], failed_paths ++ additional_failed_paths)
+    else
       # Extract video attributes from successful videos
       video_attrs_list = Enum.map(successful_videos, fn {_video_info, attrs} -> attrs end)
 
@@ -405,10 +409,6 @@ defmodule Reencodarr.Analyzer.Broadway do
           Logger.error("Broadway: perform_batch_upsert failed: #{inspect(reason)}")
           {:error, reason}
       end
-    else
-      Logger.debug("Broadway: No successful videos to upsert")
-      # Still handle any failed paths
-      log_processing_summary([], failed_paths ++ additional_failed_paths)
     end
 
     Logger.debug("Broadway: batch_upsert_and_transition_videos completed")

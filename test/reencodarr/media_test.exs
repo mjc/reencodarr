@@ -782,7 +782,7 @@ defmodule Reencodarr.MediaTest do
       {:ok, _} = Media.mark_as_crf_searched(analyzed)
 
       videos = Media.list_videos_by_estimated_percent(10)
-      assert length(videos) >= 1
+      assert not Enum.empty?(videos)
     end
 
     test "delete_video_with_vmafs/1 deletes video and associated VMAFs" do
@@ -895,7 +895,7 @@ defmodule Reencodarr.MediaTest do
         )
 
       failures = Media.get_video_failures(video.id)
-      assert length(failures) >= 1
+      assert not Enum.empty?(failures)
       assert Enum.all?(failures, &(&1.resolved == false))
     end
 
@@ -929,7 +929,7 @@ defmodule Reencodarr.MediaTest do
 
       stats = Media.get_failure_statistics()
       assert is_list(stats)
-      assert length(stats) > 0
+      assert not Enum.empty?(stats)
     end
 
     test "get_common_failure_patterns/1 returns common patterns" do
@@ -975,7 +975,7 @@ defmodule Reencodarr.MediaTest do
 
       vmafs = Media.list_videos_by_estimated_percent(10)
 
-      assert length(vmafs) >= 1
+      assert not Enum.empty?(vmafs)
       assert Enum.any?(vmafs, fn v -> v.video_id == video.id end)
     end
 
@@ -986,7 +986,7 @@ defmodule Reencodarr.MediaTest do
       result = Media.get_next_for_encoding_by_time()
 
       assert is_list(result)
-      if length(result) > 0, do: assert(hd(result).chosen == true)
+      if not Enum.empty?(result), do: assert(hd(result).chosen == true)
     end
 
     test "debug_encoding_queue_by_library/1 returns queue debug info" do
@@ -1381,7 +1381,7 @@ defmodule Reencodarr.MediaTest do
 
       failures = Media.get_video_failures(video.id)
 
-      assert length(failures) >= 1
+      assert not Enum.empty?(failures)
       assert hd(failures).failure_stage == :encoding
     end
 
@@ -1438,7 +1438,7 @@ defmodule Reencodarr.MediaTest do
       results = Media.get_next_for_encoding(5)
 
       assert is_list(results)
-      assert length(results) >= 1
+      assert not Enum.empty?(results)
     end
 
     test "get_next_for_encoding/1 with no limit returns single result" do
@@ -1900,7 +1900,7 @@ defmodule Reencodarr.MediaTest do
       {:error, changeset} = Media.create_vmaf(%{})
 
       # Should have at least one required field error
-      assert length(changeset.errors) > 0
+      assert not Enum.empty?(changeset.errors)
 
       assert Keyword.has_key?(changeset.errors, :score) or
                Keyword.has_key?(changeset.errors, :crf) or

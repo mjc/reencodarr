@@ -492,10 +492,11 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
 
     # Remove expired entries from cache
     active_cache = Map.drop(state.cache, expired_paths)
-    new_cache_size = state.cache_size - length(expired_paths)
+    expired_count = length(expired_paths)
+    new_cache_size = state.cache_size - expired_count
 
-    if length(expired_paths) > 0 do
-      Logger.debug("MediaInfoCache: Cleaned up #{length(expired_paths)} expired entries")
+    if expired_count > 0 do
+      Logger.debug("MediaInfoCache: Cleaned up #{expired_count} expired entries")
     end
 
     # Enforce size limits by evicting LRU entries if needed
