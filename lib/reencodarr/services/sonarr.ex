@@ -170,7 +170,10 @@ defmodule Reencodarr.Services.Sonarr do
   end
 
   # Retry getting renameable files with exponential backoff
-  defp retry_get_renameable_files(series_id, retries_left) when retries_left > 0 do
+  defp retry_get_renameable_files(series_id, retries_left, attempt \\ 1)
+
+  defp retry_get_renameable_files(series_id, retries_left, attempt)
+       when retries_left > 0 do
     files = get_renameable_files(series_id)
 
     if Enum.empty?(files) do
@@ -178,14 +181,17 @@ defmodule Reencodarr.Services.Sonarr do
         "No renameable files yet for series #{series_id}, retries left: #{retries_left}"
       )
 
-      Process.sleep(3000)
-      retry_get_renameable_files(series_id, retries_left - 1)
+      # Exponential backoff: 1s, 2s, 4s, etc.
+      base_delay_ms = 1000
+      delay_ms = round(:math.pow(2, attempt - 1) * base_delay_ms)
+      Process.sleep(delay_ms)
+      retry_get_renameable_files(series_id, retries_left - 1, attempt + 1)
     else
       files
     end
   end
 
-  defp retry_get_renameable_files(_series_id, 0), do: []
+  defp retry_get_renameable_files(_series_id, 0, _attempt), do: []
 
   # Fetch renameable files with logging
   defp get_renameable_files(series_id) do
