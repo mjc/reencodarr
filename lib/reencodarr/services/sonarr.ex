@@ -123,26 +123,25 @@ defmodule Reencodarr.Services.Sonarr do
   end
 
   @spec rename_files(integer(), [integer()]) :: {:ok, Req.Response.t()} | {:error, any()}
-  def rename_files(series_id, file_ids) when is_list(file_ids) do
-    cond do
-      not is_integer(series_id) ->
-        Logger.error("Series ID must be an integer, got: #{inspect(series_id)}")
-        {:error, :invalid_series_id}
+  def rename_files(series_id, _file_ids) when not is_integer(series_id) do
+    Logger.error("Series ID must be an integer, got: #{inspect(series_id)}")
+    {:error, :invalid_series_id}
+  end
 
-      series_id <= 0 ->
-        Logger.error("Series ID must be positive, got: #{series_id}")
-        {:error, :invalid_series_id}
+  def rename_files(series_id, _file_ids) when series_id <= 0 do
+    Logger.error("Series ID must be positive, got: #{series_id}")
+    {:error, :invalid_series_id}
+  end
 
-      true ->
-        # Retry up to 3 times if no renameable files found
-        case retry_get_renameable_files(series_id, 3) do
-          [] ->
-            Logger.warning("No files need renaming for series ID: #{series_id} after retries")
-            {:ok, %{message: "No files need renaming"}}
+  def rename_files(series_id, _file_ids) when is_integer(series_id) do
+    # Retry up to 3 times if no renameable files found
+    case retry_get_renameable_files(series_id, 3) do
+      [] ->
+        Logger.warning("No files need renaming for series ID: #{series_id} after retries")
+        {:ok, %{message: "No files need renaming"}}
 
-          renameable_files ->
-            execute_rename_request(series_id, renameable_files)
-        end
+      renameable_files ->
+        execute_rename_request(series_id, renameable_files)
     end
   end
 
@@ -211,40 +210,28 @@ defmodule Reencodarr.Services.Sonarr do
   @spec execute_rename_request(integer(), list(map())) ::
           {:ok, map()} | {:error, String.t()}
   defp execute_rename_request(series_id, renameable_files) do
-    with {:ok, renameable_file_ids} <- parse_renameable_files(renameable_files),
-         {:ok, files_to_rename} <- determine_files_to_rename(renameable_file_ids) do
-      execute_rename_api_request(series_id, files_to_rename)
+    with {:ok, file_ids} <- parse_renameable_file_ids(renameable_files) do
+      execute_rename_api_request(series_id, file_ids)
     end
   end
 
-  @spec parse_renameable_files(list(map())) :: {:ok, list(integer())} | {:error, String.t()}
-  defp parse_renameable_files(renameable_files) do
-    # Parse renameable file IDs from API response
-    parsed_renameable =
-      renameable_files
-      |> Enum.map(& &1["episodeFileId"])
-      |> Enum.map(&parse_file_id/1)
-
-    # Check for parsing errors in renameable files
-    {renameable_successes, renameable_failures} =
-      Enum.split_with(parsed_renameable, fn
-        {:ok, _} -> true
-        {:error, _} -> false
-      end)
-
-    if Enum.empty?(renameable_failures) do
-      renameable_file_ids = Enum.map(renameable_successes, fn {:ok, id} -> id end)
-      {:ok, renameable_file_ids}
-    else
-      error_msgs = Enum.map(renameable_failures, fn {:error, msg} -> msg end)
-      {:error, "Failed to parse renameable file IDs: #{Enum.join(error_msgs, ", ")}"}
-    end
+  @spec parse_renameable_file_ids(list(map())) :: {:ok, list(integer())} | {:error, String.t()}
+  defp parse_renameable_file_ids(renameable_files) do
+    renameable_files
+    |> Enum.map(& &1["episodeFileId"])
+    |> Enum.map(&parse_file_id/1)
+    |> collect_results()
   end
 
-  # Just pass all renameable file IDs to rename
-  @spec determine_files_to_rename(list(integer())) :: {:ok, list(integer())}
-  defp determine_files_to_rename(renameable_file_ids) do
-    {:ok, renameable_file_ids}
+  defp collect_results(results) do
+    case Enum.split_with(results, &match?({:ok, _}, &1)) do
+      {successes, []} ->
+        {:ok, Enum.map(successes, fn {:ok, id} -> id end)}
+
+      {_successes, failures} ->
+        error_msgs = Enum.map(failures, fn {:error, msg} -> msg end)
+        {:error, "Failed to parse renameable file IDs: #{Enum.join(error_msgs, ", ")}"}
+    end
   end
 
   @spec execute_rename_api_request(integer(), list(integer())) ::

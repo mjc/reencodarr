@@ -119,16 +119,15 @@ defmodule Reencodarr.Services.Radarr do
 
   @spec rename_movie_files(integer() | nil, [integer()]) ::
           {:ok, Req.Response.t()} | {:error, any()}
-  def rename_movie_files(movie_id, file_ids \\ [])
+  def rename_movie_files(movie_id, _file_ids \\ [])
 
   def rename_movie_files(nil, _file_ids) do
     ErrorHelpers.handle_nil_value(nil, "Movie ID", "Cannot rename files")
   end
 
-  def rename_movie_files(movie_id, file_ids) when is_list(file_ids) do
+  def rename_movie_files(movie_id, _file_ids) when is_integer(movie_id) do
     # Retry up to 3 times if no renameable files found
-    retry_get_radarr_renameable_files(movie_id, 3)
-    |> case do
+    case retry_get_radarr_renameable_files(movie_id, 3) do
       [] ->
         Logger.warning("No files need renaming for movie ID: #{movie_id} after retries")
         {:ok, %{message: "No files need renaming"}}
@@ -174,39 +173,28 @@ defmodule Reencodarr.Services.Radarr do
   @spec execute_movie_rename(integer(), list(map())) ::
           {:ok, map()} | {:error, String.t()}
   defp execute_movie_rename(movie_id, renameable_files) do
-    # Parse renameable file IDs from API response and pass them to rename
-    with {:ok, renameable_file_ids} <- parse_renameable_files(renameable_files),
-         {:ok, files_to_rename} <- determine_files_to_rename(renameable_file_ids) do
-      execute_rename_api_request(movie_id, files_to_rename)
+    with {:ok, file_ids} <- parse_renameable_file_ids(renameable_files) do
+      execute_rename_api_request(movie_id, file_ids)
     end
   end
 
-  @spec parse_renameable_files(list(map())) :: {:ok, list(integer())} | {:error, String.t()}
-  defp parse_renameable_files(renameable_files) do
-    parsed_renameable =
-      renameable_files
-      |> Enum.map(& &1["movieFileId"])
-      |> Enum.map(&parse_file_id/1)
-
-    {renameable_successes, renameable_failures} =
-      Enum.split_with(parsed_renameable, fn
-        {:ok, _} -> true
-        {:error, _} -> false
-      end)
-
-    if Enum.empty?(renameable_failures) do
-      renameable_file_ids = Enum.map(renameable_successes, fn {:ok, id} -> id end)
-      {:ok, renameable_file_ids}
-    else
-      error_msgs = Enum.map(renameable_failures, fn {:error, msg} -> msg end)
-      {:error, "Failed to parse renameable file IDs: #{Enum.join(error_msgs, ", ")}"}
-    end
+  @spec parse_renameable_file_ids(list(map())) :: {:ok, list(integer())} | {:error, String.t()}
+  defp parse_renameable_file_ids(renameable_files) do
+    renameable_files
+    |> Enum.map(& &1["movieFileId"])
+    |> Enum.map(&parse_file_id/1)
+    |> collect_results()
   end
 
-  # Just pass all renameable file IDs to rename
-  @spec determine_files_to_rename(list(integer())) :: {:ok, list(integer())}
-  defp determine_files_to_rename(renameable_file_ids) do
-    {:ok, renameable_file_ids}
+  defp collect_results(results) do
+    case Enum.split_with(results, &match?({:ok, _}, &1)) do
+      {successes, []} ->
+        {:ok, Enum.map(successes, fn {:ok, id} -> id end)}
+
+      {_successes, failures} ->
+        error_msgs = Enum.map(failures, fn {:error, msg} -> msg end)
+        {:error, "Failed to parse renameable file IDs: #{Enum.join(error_msgs, ", ")}"}
+    end
   end
 
   @spec execute_rename_api_request(integer(), list(integer())) ::
