@@ -365,55 +365,42 @@ defmodule Reencodarr.Sync do
   def refresh_operations(file_id, :sonarr) do
     with {:ok, %Req.Response{body: episode_file}} <- Services.Sonarr.get_episode_file(file_id),
          {:ok, series_id} <- validate_series_id(episode_file["seriesId"]),
-         # Wait for refresh to complete before checking for renameable files
          {:ok, _} <- Services.Sonarr.refresh_series_and_wait(series_id),
-         # Rename all renameable files for this series
          {:ok, _} <- Services.Sonarr.rename_files(series_id, []) do
       {:ok, "Refresh and rename triggered"}
-    else
-      {:error, reason} -> {:error, reason}
     end
   end
 
   def refresh_operations(file_id, :radarr) do
     with {:ok, %Req.Response{body: movie_file}} <- Services.Radarr.get_movie_file(file_id),
          {:ok, movie_id} <- validate_movie_id(movie_file["movieId"]),
-         # Wait for refresh to complete before checking for renameable files
          {:ok, _} <- Services.Radarr.refresh_movie_and_wait(movie_id),
          {:ok, _} <- Services.Radarr.rename_movie_files(movie_id, []) do
       {:ok, "Refresh and rename triggered for Radarr"}
-    else
-      {:error, reason} -> {:error, reason}
     end
   end
 
-  def refresh_and_rename_from_video(%{service_type: :sonarr, service_id: id})
-      when is_binary(id) do
-    case Integer.parse(id) do
-      {int_id, ""} -> refresh_operations(int_id, :sonarr)
-      _ -> {:error, "Invalid service_id: #{id}"}
+  def refresh_and_rename_from_video(%{service_type: service_type, service_id: id})
+      when service_type in [:sonarr, :radarr] and not is_nil(id) do
+    with {:ok, int_id} <- coerce_to_integer(id) do
+      refresh_operations(int_id, service_type)
     end
   end
-
-  def refresh_and_rename_from_video(%{service_type: :sonarr, service_id: id}) when is_integer(id),
-    do: refresh_operations(id, :sonarr)
-
-  def refresh_and_rename_from_video(%{service_type: :radarr, service_id: id})
-      when is_binary(id) do
-    case Integer.parse(id) do
-      {int_id, ""} -> refresh_operations(int_id, :radarr)
-      _ -> {:error, "Invalid service_id: #{id}"}
-    end
-  end
-
-  def refresh_and_rename_from_video(%{service_type: :radarr, service_id: id}) when is_integer(id),
-    do: refresh_operations(id, :radarr)
 
   def refresh_and_rename_from_video(%{service_type: nil}),
     do: {:error, "No service type for video"}
 
   def refresh_and_rename_from_video(%{service_id: nil}),
     do: {:error, "No service_id for video"}
+
+  defp coerce_to_integer(id) when is_integer(id), do: {:ok, id}
+
+  defp coerce_to_integer(id) when is_binary(id) do
+    case Integer.parse(id) do
+      {int_id, ""} -> {:ok, int_id}
+      _ -> {:error, "Invalid service_id: #{id}"}
+    end
+  end
 
   def rescan_and_rename_series(id), do: refresh_operations(id, :sonarr)
 
