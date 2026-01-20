@@ -114,32 +114,30 @@ defmodule Reencodarr.PostProcessor do
         )
     end
 
-    # Always call Sync as per original logic
+    # Run refresh and rename async - don't block the encoding pipeline
     Logger.info(
-      "Calling Sync.refresh_and_rename_from_video for video #{video.id} (path: #{video.path}) after finalization attempt."
+      "Spawning async Sync.refresh_and_rename_from_video for video #{video.id} (path: #{video.path})"
     )
 
-    case Sync.refresh_and_rename_from_video(video) do
-      {:ok, result} ->
-        Logger.info(
-          "Sync.refresh_and_rename_from_video succeeded for video #{video.id}: #{inspect(result)}"
-        )
+    Task.Supervisor.start_child(Reencodarr.TaskSupervisor, fn ->
+      case Sync.refresh_and_rename_from_video(video) do
+        {:ok, result} ->
+          Logger.info(
+            "Sync.refresh_and_rename_from_video succeeded for video #{video.id}: #{inspect(result)}"
+          )
 
-        {:ok, result}
+        {:error, reason} ->
+          Logger.error(
+            "Sync.refresh_and_rename_from_video failed for video #{video.id}: #{inspect(reason)}"
+          )
 
-      {:error, reason} ->
-        Logger.error(
-          "Sync.refresh_and_rename_from_video failed for video #{video.id}: #{inspect(reason)}"
-        )
+        other ->
+          Logger.warning(
+            "Sync.refresh_and_rename_from_video returned unexpected result for video #{video.id}: #{inspect(other)}"
+          )
+      end
+    end)
 
-        {:error, reason}
-
-      other ->
-        Logger.warning(
-          "Sync.refresh_and_rename_from_video returned unexpected result for video #{video.id}: #{inspect(other)}"
-        )
-
-        {:ok, other}
-    end
+    {:ok, "refresh_and_rename started async"}
   end
 end
