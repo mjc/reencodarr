@@ -66,16 +66,14 @@ defmodule Reencodarr.Services.Sonarr do
         {:error, :invalid_series_id}
 
       true ->
-        perform_series_refresh(series_id)
-        Process.sleep(2000)
-
-        case get_renameable_files(series_id) do
+        # Retry up to 3 times if no renameable files found
+        case retry_get_renameable_files(series_id, 3) do
           [] ->
-            Logger.info("No files need renaming for series ID: #{series_id}")
+            Logger.warning("No files need renaming for series ID: #{series_id} after retries")
             {:ok, %{message: "No files need renaming"}}
 
           renameable_files ->
-            execute_rename_request(series_id, file_ids, renameable_files)
+            execute_rename_request(series_id, renameable_files)
         end
     end
   end
@@ -89,7 +87,9 @@ defmodule Reencodarr.Services.Sonarr do
         |> Enum.take(10)
         |> Task.async_stream(
           fn %{"id" => series_id} ->
-            # Pass empty list to rename all renameable files for this series
+            # Refresh series first, wait for scan, then rename
+            refresh_series(series_id)
+            Process.sleep(5000)
             rename_files(series_id, [])
           end,
           max_concurrency: 1
@@ -101,16 +101,23 @@ defmodule Reencodarr.Services.Sonarr do
     end
   end
 
-  # Performs series refresh and logs results
-  defp perform_series_refresh(series_id) do
-    Logger.info("Refreshing series ID: #{series_id} before checking for renameable files")
+  # Retry getting renameable files with exponential backoff
+  defp retry_get_renameable_files(series_id, retries_left) when retries_left > 0 do
+    files = get_renameable_files(series_id)
 
-    ErrorHelpers.handle_error_with_warning(
-      refresh_series(series_id),
-      :ok,
-      "Failed to refresh series"
-    )
+    if Enum.empty?(files) do
+      Logger.debug(
+        "No renameable files yet for series #{series_id}, retries left: #{retries_left}"
+      )
+
+      Process.sleep(3000)
+      retry_get_renameable_files(series_id, retries_left - 1)
+    else
+      files
+    end
   end
+
+  defp retry_get_renameable_files(_series_id, 0), do: []
 
   # Fetch renameable files with logging
   defp get_renameable_files(series_id) do
@@ -132,11 +139,11 @@ defmodule Reencodarr.Services.Sonarr do
   end
 
   # Execute rename command and return result
-  @spec execute_rename_request(integer(), list(), list(map())) ::
+  @spec execute_rename_request(integer(), list(map())) ::
           {:ok, map()} | {:error, String.t()}
-  defp execute_rename_request(series_id, file_ids, renameable_files) do
+  defp execute_rename_request(series_id, renameable_files) do
     with {:ok, renameable_file_ids} <- parse_renameable_files(renameable_files),
-         {:ok, files_to_rename} <- determine_files_to_rename(file_ids, renameable_file_ids) do
+         {:ok, files_to_rename} <- determine_files_to_rename(renameable_file_ids) do
       execute_rename_api_request(series_id, files_to_rename)
     end
   end
@@ -165,20 +172,20 @@ defmodule Reencodarr.Services.Sonarr do
     end
   end
 
-  @spec determine_files_to_rename(list(), list(integer())) ::
-          {:ok, list(integer())} | {:error, String.t()}
-  defp determine_files_to_rename(file_ids, renameable_file_ids) do
-    if file_ids == [] do
-      {:ok, renameable_file_ids}
-    else
-      parse_explicit_file_ids(file_ids)
-    end
+  # Just pass all renameable file IDs to rename
+  @spec determine_files_to_rename(list(integer())) :: {:ok, list(integer())}
+  defp determine_files_to_rename(renameable_file_ids) do
+    {:ok, renameable_file_ids}
   end
 
   @spec execute_rename_api_request(integer(), list(integer())) ::
           {:ok, map()} | {:error, String.t()}
   defp execute_rename_api_request(series_id, files_to_rename) do
-    json_payload = %{name: "RenameFiles", seriesId: series_id, files: files_to_rename}
+    json_payload = %{
+      name: "RenameFiles",
+      seriesId: series_id,
+      files: files_to_rename
+    }
 
     Logger.info(
       "Sonarr rename_files request - Series ID: #{series_id}, File IDs: #{inspect(files_to_rename)}"
@@ -214,24 +221,5 @@ defmodule Reencodarr.Services.Sonarr do
 
   defp parse_file_id(value) do
     {:error, "expected integer or string, got: #{inspect(value)}"}
-  end
-
-  @spec parse_explicit_file_ids(list()) :: {:ok, list(integer())} | {:error, String.t()}
-  defp parse_explicit_file_ids(file_ids) do
-    parsed_explicit = file_ids |> Enum.map(&parse_file_id/1)
-
-    {explicit_successes, explicit_failures} =
-      Enum.split_with(parsed_explicit, fn
-        {:ok, _} -> true
-        {:error, _} -> false
-      end)
-
-    if Enum.empty?(explicit_failures) do
-      parsed_ids = Enum.map(explicit_successes, fn {:ok, id} -> id end)
-      {:ok, parsed_ids}
-    else
-      error_msgs = Enum.map(explicit_failures, fn {:error, msg} -> msg end)
-      {:error, "Failed to parse explicit file IDs: #{Enum.join(error_msgs, ", ")}"}
-    end
   end
 end
