@@ -54,6 +54,74 @@ defmodule Reencodarr.Services.Sonarr do
     )
   end
 
+  @doc """
+  Refresh a series and wait for the command to complete.
+  Returns {:ok, response} when complete, {:error, reason} on failure or timeout.
+  """
+  @spec refresh_series_and_wait(integer(), keyword()) :: {:ok, map()} | {:error, any()}
+  def refresh_series_and_wait(series_id, opts \\ []) do
+    max_attempts = Keyword.get(opts, :max_attempts, 60)
+    poll_interval = Keyword.get(opts, :poll_interval, 1000)
+
+    case refresh_series(series_id) do
+      {:ok, %{body: %{"id" => command_id}}} ->
+        Logger.info("Waiting for RefreshSeries command #{command_id} to complete...")
+        wait_for_command(command_id, max_attempts, poll_interval)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Get the status of a command by ID.
+  """
+  @spec get_command_status(integer()) :: {:ok, map()} | {:error, any()}
+  def get_command_status(command_id) do
+    case request(url: "/api/v3/command/#{command_id}", method: :get) do
+      {:ok, %{body: body}} -> {:ok, body}
+      error -> error
+    end
+  end
+
+  @doc """
+  Wait for a command to complete, polling until done or timeout.
+  """
+  @spec wait_for_command(integer(), integer(), integer()) :: {:ok, map()} | {:error, any()}
+  def wait_for_command(command_id, max_attempts \\ 60, poll_interval \\ 1000) do
+    do_wait_for_command(command_id, max_attempts, poll_interval, 0)
+  end
+
+  defp do_wait_for_command(_command_id, max_attempts, _poll_interval, attempts)
+       when attempts >= max_attempts do
+    Logger.warning("Timeout waiting for command to complete after #{max_attempts} attempts")
+    {:error, :timeout}
+  end
+
+  defp do_wait_for_command(command_id, max_attempts, poll_interval, attempts) do
+    case get_command_status(command_id) do
+      {:ok, %{"status" => "completed"} = response} ->
+        Logger.info("Command #{command_id} completed successfully")
+        {:ok, response}
+
+      {:ok, %{"status" => "failed", "message" => message}} ->
+        Logger.error("Command #{command_id} failed: #{message}")
+        {:error, {:command_failed, message}}
+
+      {:ok, %{"status" => status}} ->
+        Logger.debug(
+          "Command #{command_id} status: #{status} (attempt #{attempts + 1}/#{max_attempts})"
+        )
+
+        Process.sleep(poll_interval)
+        do_wait_for_command(command_id, max_attempts, poll_interval, attempts + 1)
+
+      {:error, reason} ->
+        Logger.error("Failed to get command status: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
   @spec rename_files(integer(), [integer()]) :: {:ok, Req.Response.t()} | {:error, any()}
   def rename_files(series_id, file_ids) when is_list(file_ids) do
     cond do
@@ -80,24 +148,25 @@ defmodule Reencodarr.Services.Sonarr do
 
   @spec refresh_and_rename_all_series :: :ok
   def refresh_and_rename_all_series do
-    get_shows()
-    |> case do
+    case get_shows() do
       {:ok, %Req.Response{body: shows}} ->
         shows
         |> Enum.take(10)
-        |> Task.async_stream(
-          fn %{"id" => series_id} ->
-            # Refresh series first, wait for scan, then rename
-            refresh_series(series_id)
-            Process.sleep(5000)
-            rename_files(series_id, [])
-          end,
-          max_concurrency: 1
-        )
+        |> Task.async_stream(&refresh_and_rename_series/1, max_concurrency: 1)
         |> Stream.run()
 
       {:error, err} ->
         Logger.error("Failed to get shows: #{inspect(err)}")
+    end
+  end
+
+  defp refresh_and_rename_series(%{"id" => series_id}) do
+    case refresh_series_and_wait(series_id) do
+      {:ok, _} ->
+        rename_files(series_id, [])
+
+      {:error, reason} ->
+        Logger.error("Failed to refresh series #{series_id}: #{inspect(reason)}")
     end
   end
 
@@ -198,9 +267,18 @@ defmodule Reencodarr.Services.Sonarr do
            method: :post,
            json: json_payload
          ) do
-      {:ok, response} = result ->
+      {:ok, %{body: %{"id" => command_id}} = response} ->
         Logger.debug("Sonarr rename_files response: #{inspect(response.body)}")
-        result
+        # Wait for the rename command to complete
+        Logger.info("Waiting for RenameFiles command #{command_id} to complete...")
+        wait_for_command(command_id)
+
+      {:ok, response} ->
+        Logger.warning(
+          "Sonarr rename_files response missing command ID: #{inspect(response.body)}"
+        )
+
+        {:ok, response}
 
       {:error, reason} = error ->
         Logger.error("Sonarr rename_files error: #{inspect(reason)}")

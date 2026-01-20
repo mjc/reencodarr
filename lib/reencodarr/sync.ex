@@ -365,9 +365,8 @@ defmodule Reencodarr.Sync do
   def refresh_operations(file_id, :sonarr) do
     with {:ok, %Req.Response{body: episode_file}} <- Services.Sonarr.get_episode_file(file_id),
          {:ok, series_id} <- validate_series_id(episode_file["seriesId"]),
-         {:ok, _} <- Services.Sonarr.refresh_series(series_id),
-         # Wait for Sonarr to scan the file after refresh
-         :ok <- Process.sleep(5000) && :ok,
+         # Wait for refresh to complete before checking for renameable files
+         {:ok, _} <- Services.Sonarr.refresh_series_and_wait(series_id),
          # Rename all renameable files for this series
          {:ok, _} <- Services.Sonarr.rename_files(series_id, []) do
       {:ok, "Refresh and rename triggered"}
@@ -379,10 +378,9 @@ defmodule Reencodarr.Sync do
   def refresh_operations(file_id, :radarr) do
     with {:ok, %Req.Response{body: movie_file}} <- Services.Radarr.get_movie_file(file_id),
          {:ok, movie_id} <- validate_movie_id(movie_file["movieId"]),
-         {:ok, _} <- Services.Radarr.refresh_movie(movie_id),
-         # Wait for Radarr to scan the file after refresh
-         :ok <- Process.sleep(5000) && :ok,
-         {:ok, _} <- Services.Radarr.rename_movie_files(movie_id, [file_id]) do
+         # Wait for refresh to complete before checking for renameable files
+         {:ok, _} <- Services.Radarr.refresh_movie_and_wait(movie_id),
+         {:ok, _} <- Services.Radarr.rename_movie_files(movie_id, []) do
       {:ok, "Refresh and rename triggered for Radarr"}
     else
       {:error, reason} -> {:error, reason}
