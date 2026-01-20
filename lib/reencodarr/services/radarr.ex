@@ -156,19 +156,26 @@ defmodule Reencodarr.Services.Radarr do
   end
 
   # Retry getting renameable files with exponential backoff
-  defp retry_get_radarr_renameable_files(movie_id, retries_left) when retries_left > 0 do
+  defp retry_get_radarr_renameable_files(movie_id, retries_left, attempt \\ 1)
+
+  defp retry_get_radarr_renameable_files(movie_id, retries_left, attempt)
+       when retries_left > 0 do
     files = get_radarr_renameable_files(movie_id)
 
     if Enum.empty?(files) do
       Logger.debug("No renameable files yet for movie #{movie_id}, retries left: #{retries_left}")
-      Process.sleep(3000)
-      retry_get_radarr_renameable_files(movie_id, retries_left - 1)
+
+      # Exponential backoff: 1s, 2s, 4s, etc.
+      base_delay_ms = 1000
+      delay_ms = round(:math.pow(2, attempt - 1) * base_delay_ms)
+      Process.sleep(delay_ms)
+      retry_get_radarr_renameable_files(movie_id, retries_left - 1, attempt + 1)
     else
       files
     end
   end
 
-  defp retry_get_radarr_renameable_files(_movie_id, 0), do: []
+  defp retry_get_radarr_renameable_files(_movie_id, 0, _attempt), do: []
 
   @spec execute_movie_rename(integer(), list(map())) ::
           {:ok, map()} | {:error, String.t()}

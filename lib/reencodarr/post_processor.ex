@@ -114,30 +114,52 @@ defmodule Reencodarr.PostProcessor do
         )
     end
 
-    # Run refresh and rename async - don't block the encoding pipeline
+    spawn_refresh_and_rename_task(video)
+  end
+
+  defp spawn_refresh_and_rename_task(video) do
     Logger.info(
       "Spawning async Sync.refresh_and_rename_from_video for video #{video.id} (path: #{video.path})"
     )
 
-    Task.Supervisor.start_child(Reencodarr.TaskSupervisor, fn ->
-      case Sync.refresh_and_rename_from_video(video) do
-        {:ok, result} ->
-          Logger.info(
-            "Sync.refresh_and_rename_from_video succeeded for video #{video.id}: #{inspect(result)}"
-          )
+    case Task.Supervisor.start_child(Reencodarr.TaskSupervisor, fn ->
+           handle_refresh_and_rename_result(video, Sync.refresh_and_rename_from_video(video))
+         end) do
+      {:ok, _pid} ->
+        {:ok, "refresh_and_rename started async"}
 
-        {:error, reason} ->
-          Logger.error(
-            "Sync.refresh_and_rename_from_video failed for video #{video.id}: #{inspect(reason)}"
-          )
+      :ignore ->
+        Logger.warning(
+          "Task.Supervisor.start_child ignored starting Sync.refresh_and_rename_from_video for video #{video.id}"
+        )
 
-        other ->
-          Logger.warning(
-            "Sync.refresh_and_rename_from_video returned unexpected result for video #{video.id}: #{inspect(other)}"
-          )
-      end
-    end)
+        {:ok, "refresh_and_rename task ignored"}
 
-    {:ok, "refresh_and_rename started async"}
+      {:error, reason} ->
+        Logger.error(
+          "Failed to start async Sync.refresh_and_rename_from_video task for video #{video.id}: #{inspect(reason)}"
+        )
+
+        {:error, reason}
+    end
+  end
+
+  defp handle_refresh_and_rename_result(video, result) do
+    case result do
+      {:ok, outcome} ->
+        Logger.info(
+          "Sync.refresh_and_rename_from_video succeeded for video #{video.id}: #{inspect(outcome)}"
+        )
+
+      {:error, reason} ->
+        Logger.error(
+          "Sync.refresh_and_rename_from_video failed for video #{video.id}: #{inspect(reason)}"
+        )
+
+      other ->
+        Logger.warning(
+          "Sync.refresh_and_rename_from_video returned unexpected result for video #{video.id}: #{inspect(other)}"
+        )
+    end
   end
 end
