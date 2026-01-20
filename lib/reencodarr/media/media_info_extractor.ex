@@ -23,8 +23,9 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
   Extracts all needed video parameters directly from MediaInfo JSON.
 
   Returns a flat map with all the fields we need, avoiding repeated track traversal.
+  Validates that required fields (width, height, bitrate) are present and valid.
   """
-  @spec extract_video_params(map(), String.t()) :: map()
+  @spec extract_video_params(map(), String.t()) :: map() | {:error, String.t()}
   def extract_video_params(mediainfo, path) do
     tracks = extract_tracks_safely(mediainfo, path)
 
@@ -32,37 +33,52 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
     video_track = find_track(tracks, "Video")
     audio_tracks = filter_tracks(tracks, "Audio")
 
-    %{
-      # Core video info
-      width: get_int_field(video_track, "Width", 0),
-      height: get_int_field(video_track, "Height", 0),
-      frame_rate: get_float_field(video_track, "FrameRate", 0.0),
-      duration: get_float_field(general, "Duration", 0.0),
-      size: get_int_field(general, "FileSize", 0),
-      bitrate: get_int_field(general, "OverallBitRate", 0),
+    width = get_int_field(video_track, "Width", 0)
+    height = get_int_field(video_track, "Height", 0)
+    bitrate = get_int_field(general, "OverallBitRate", 0)
 
-      # Codecs
-      video_codecs: [get_string_field(video_track, "CodecID", "")],
-      audio_codecs: extract_audio_codecs_safely(audio_tracks, general),
+    # Validate that we have required fields with valid values
+    case {width, height, bitrate} do
+      {w, h, _b} when w == 0 or h == 0 ->
+        Logger.warning(
+          "Invalid video dimensions for #{path}: width=#{w}, height=#{h}. MediaInfo may not have found video track."
+        )
 
-      # Audio info - use actual count of audio tracks found to ensure consistency
-      audio_count: length(audio_tracks),
-      max_audio_channels: calculate_max_audio_channels(audio_tracks),
-      atmos: detect_atmos(audio_tracks),
+        {:error, "invalid video dimensions"}
 
-      # Text/subtitle info
-      text_count: get_int_field(general, "TextCount", 0),
-      text_codecs: [],
+      _ ->
+        %{
+          # Core video info
+          width: width,
+          height: height,
+          frame_rate: get_float_field(video_track, "FrameRate", 0.0),
+          duration: get_float_field(general, "Duration", 0.0),
+          size: get_int_field(general, "FileSize", 0),
+          bitrate: bitrate,
 
-      # Video counts
-      video_count: get_int_field(general, "VideoCount", 0),
+          # Codecs
+          video_codecs: [get_string_field(video_track, "CodecID", "")],
+          audio_codecs: extract_audio_codecs_safely(audio_tracks, general),
 
-      # HDR info
-      hdr: extract_hdr_info(video_track),
+          # Audio info - use actual count of audio tracks found to ensure consistency
+          audio_count: length(audio_tracks),
+          max_audio_channels: calculate_max_audio_channels(audio_tracks),
+          atmos: detect_atmos(audio_tracks),
 
-      # Title fallback
-      title: get_string_field(general, "Title", Path.basename(path))
-    }
+          # Text/subtitle info
+          text_count: get_int_field(general, "TextCount", 0),
+          text_codecs: [],
+
+          # Video counts
+          video_count: get_int_field(general, "VideoCount", 0),
+
+          # HDR info
+          hdr: extract_hdr_info(video_track),
+
+          # Title fallback
+          title: get_string_field(general, "Title", Path.basename(path))
+        }
+    end
   end
 
   # === Private Helper Functions ===

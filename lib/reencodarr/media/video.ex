@@ -188,12 +188,16 @@ defmodule Reencodarr.Media.Video do
 
       mediainfo ->
         # Use the simpler extractor that avoids complex track traversal
-        params = MediaInfoExtractor.extract_video_params(mediainfo, get_field(changeset, :path))
+        case MediaInfoExtractor.extract_video_params(mediainfo, get_field(changeset, :path)) do
+          params when is_map(params) ->
+            changeset
+            |> cast(params, @mediainfo_params)
+            |> maybe_remove_size_zero()
+            |> maybe_remove_bitrate_zero()
 
-        changeset
-        |> cast(params, @mediainfo_params)
-        |> maybe_remove_size_zero()
-        |> maybe_remove_bitrate_zero()
+          {:error, reason} ->
+            add_error(changeset, :mediainfo, "invalid mediainfo structure: #{reason}")
+        end
     end
   end
 

@@ -49,36 +49,25 @@ defmodule Reencodarr.Services.Radarr do
     )
   end
 
-  @spec rename_movie_files(integer() | nil) :: {:ok, Req.Response.t()} | {:error, any()}
-  def rename_movie_files(nil) do
+  @spec rename_movie_files(integer() | nil, [integer()]) ::
+          {:ok, Req.Response.t()} | {:error, any()}
+  def rename_movie_files(movie_id, file_ids \\ [])
+
+  def rename_movie_files(nil, _file_ids) do
     ErrorHelpers.handle_nil_value(nil, "Movie ID", "Cannot rename files")
   end
 
-  def rename_movie_files(movie_id) do
-    perform_movie_refresh(movie_id)
-
-    # Give Radarr a moment to process the refresh
-    Process.sleep(2000)
-
-    get_radarr_renameable_files(movie_id)
+  def rename_movie_files(movie_id, file_ids) when is_list(file_ids) do
+    # Retry up to 3 times if no renameable files found
+    retry_get_radarr_renameable_files(movie_id, 3)
     |> case do
       [] ->
-        Logger.info("No files need renaming for movie ID: #{movie_id}")
+        Logger.warning("No files need renaming for movie ID: #{movie_id} after retries")
         {:ok, %{message: "No files need renaming"}}
 
-      files ->
-        execute_movie_rename(movie_id, files)
+      renameable_files ->
+        execute_movie_rename(movie_id, renameable_files)
     end
-  end
-
-  defp perform_movie_refresh(movie_id) do
-    Logger.info("Refreshing movie ID: #{movie_id} before checking for renameable files")
-
-    ErrorHelpers.handle_error_with_warning(
-      refresh_movie(movie_id),
-      :ok,
-      "Failed to refresh movie"
-    )
   end
 
   defp get_radarr_renameable_files(movie_id) do
@@ -99,55 +88,86 @@ defmodule Reencodarr.Services.Radarr do
     end
   end
 
-  @spec execute_movie_rename(integer(), list(map())) :: {:ok, map()} | {:error, String.t()}
-  defp execute_movie_rename(movie_id, renameable_files) do
-    # Extract movie file IDs from the renameable files response and ensure they're integers
-    file_ids =
-      renameable_files
-      |> Enum.map(fn file -> file["movieFileId"] end)
+  # Retry getting renameable files with exponential backoff
+  defp retry_get_radarr_renameable_files(movie_id, retries_left) when retries_left > 0 do
+    files = get_radarr_renameable_files(movie_id)
 
-    # Parse all file IDs, collecting successes and failures
-    {successes, failures} =
-      file_ids
+    if Enum.empty?(files) do
+      Logger.debug("No renameable files yet for movie #{movie_id}, retries left: #{retries_left}")
+      Process.sleep(3000)
+      retry_get_radarr_renameable_files(movie_id, retries_left - 1)
+    else
+      files
+    end
+  end
+
+  defp retry_get_radarr_renameable_files(_movie_id, 0), do: []
+
+  @spec execute_movie_rename(integer(), list(map())) ::
+          {:ok, map()} | {:error, String.t()}
+  defp execute_movie_rename(movie_id, renameable_files) do
+    # Parse renameable file IDs from API response and pass them to rename
+    with {:ok, renameable_file_ids} <- parse_renameable_files(renameable_files),
+         {:ok, files_to_rename} <- determine_files_to_rename(renameable_file_ids) do
+      execute_rename_api_request(movie_id, files_to_rename)
+    end
+  end
+
+  @spec parse_renameable_files(list(map())) :: {:ok, list(integer())} | {:error, String.t()}
+  defp parse_renameable_files(renameable_files) do
+    parsed_renameable =
+      renameable_files
+      |> Enum.map(& &1["movieFileId"])
       |> Enum.map(&parse_file_id/1)
-      |> Enum.split_with(fn
+
+    {renameable_successes, renameable_failures} =
+      Enum.split_with(parsed_renameable, fn
         {:ok, _} -> true
         {:error, _} -> false
       end)
 
-    # If any parsing failed, return early with error
-    if Enum.empty?(failures) do
-      # Extract successful IDs
-      renameable_file_ids = Enum.map(successes, fn {:ok, id} -> id end)
-
-      json_payload = %{
-        name: "RenameFiles",
-        movieId: movie_id,
-        files: renameable_file_ids
-      }
-
-      Logger.info(
-        "Radarr rename_movie_files request - Movie ID: #{movie_id}, File IDs: #{inspect(renameable_file_ids)}"
-      )
-
-      Logger.debug("Radarr rename_movie_files JSON payload: #{inspect(json_payload)}")
-
-      case request(
-             url: "/api/v3/command",
-             method: :post,
-             json: json_payload
-           ) do
-        {:ok, response} = result ->
-          Logger.debug("Radarr rename_movie_files response: #{inspect(response.body)}")
-          result
-
-        {:error, reason} = error ->
-          Logger.error("Radarr rename_movie_files error: #{inspect(reason)}")
-          error
-      end
+    if Enum.empty?(renameable_failures) do
+      renameable_file_ids = Enum.map(renameable_successes, fn {:ok, id} -> id end)
+      {:ok, renameable_file_ids}
     else
-      error_msgs = Enum.map(failures, fn {:error, msg} -> msg end)
-      {:error, "Failed to parse movie file IDs: #{Enum.join(error_msgs, ", ")}"}
+      error_msgs = Enum.map(renameable_failures, fn {:error, msg} -> msg end)
+      {:error, "Failed to parse renameable file IDs: #{Enum.join(error_msgs, ", ")}"}
+    end
+  end
+
+  # Just pass all renameable file IDs to rename
+  @spec determine_files_to_rename(list(integer())) :: {:ok, list(integer())}
+  defp determine_files_to_rename(renameable_file_ids) do
+    {:ok, renameable_file_ids}
+  end
+
+  @spec execute_rename_api_request(integer(), list(integer())) ::
+          {:ok, map()} | {:error, String.t()}
+  defp execute_rename_api_request(movie_id, files_to_rename) do
+    json_payload = %{
+      name: "RenameFiles",
+      movieId: movie_id,
+      files: files_to_rename
+    }
+
+    Logger.info(
+      "Radarr rename_movie_files request - Movie ID: #{movie_id}, File IDs: #{inspect(files_to_rename)}"
+    )
+
+    Logger.debug("Radarr rename_movie_files JSON payload: #{inspect(json_payload)}")
+
+    case request(
+           url: "/api/v3/command",
+           method: :post,
+           json: json_payload
+         ) do
+      {:ok, response} = result ->
+        Logger.debug("Radarr rename_movie_files response: #{inspect(response.body)}")
+        result
+
+      {:error, reason} = error ->
+        Logger.error("Radarr rename_movie_files error: #{inspect(reason)}")
+        error
     end
   end
 

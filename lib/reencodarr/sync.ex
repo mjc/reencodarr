@@ -293,26 +293,41 @@ defmodule Reencodarr.Sync do
     mediainfo = MediaInfoConverter.from_video_file_info(info)
 
     # Extract video parameters including required fields like max_audio_channels and atmos
-    video_params = MediaInfoExtractor.extract_video_params(mediainfo, info.path)
+    case MediaInfoExtractor.extract_video_params(mediainfo, info.path) do
+      video_params when is_map(video_params) ->
+        # Convert atom keys to string keys for consistency
+        string_video_params = Map.new(video_params, fn {k, v} -> {to_string(k), v} end)
 
-    # Convert atom keys to string keys for consistency
-    string_video_params = Map.new(video_params, fn {k, v} -> {to_string(k), v} end)
+        VideoUpsert.upsert(
+          Map.merge(
+            %{
+              "path" => info.path,
+              "size" => info.size,
+              "service_id" => info.service_id,
+              "service_type" => to_string(info.service_type),
+              "mediainfo" => mediainfo,
+              "bitrate" => info.bitrate,
+              "dateAdded" => info.date_added,
+              "content_year" => info.content_year
+            },
+            string_video_params
+          )
+        )
 
-    VideoUpsert.upsert(
-      Map.merge(
-        %{
+      {:error, reason} ->
+        Logger.warning("Could not extract video parameters for #{info.path}: #{reason}")
+
+        # Fallback: upsert without extracted params, video will need analysis
+        VideoUpsert.upsert(%{
           "path" => info.path,
           "size" => info.size,
           "service_id" => info.service_id,
           "service_type" => to_string(info.service_type),
           "mediainfo" => mediainfo,
-          "bitrate" => info.bitrate,
           "dateAdded" => info.date_added,
           "content_year" => info.content_year
-        },
-        string_video_params
-      )
-    )
+        })
+    end
   end
 
   @doc """
@@ -351,8 +366,10 @@ defmodule Reencodarr.Sync do
     with {:ok, %Req.Response{body: episode_file}} <- Services.Sonarr.get_episode_file(file_id),
          {:ok, series_id} <- validate_series_id(episode_file["seriesId"]),
          {:ok, _} <- Services.Sonarr.refresh_series(series_id),
-         {:ok, _} <-
-           Services.Sonarr.rename_files(series_id, [file_id]) do
+         # Wait for Sonarr to scan the file after refresh
+         :ok <- Process.sleep(5000) && :ok,
+         # Rename all renameable files for this series
+         {:ok, _} <- Services.Sonarr.rename_files(series_id, []) do
       {:ok, "Refresh and rename triggered"}
     else
       {:error, reason} -> {:error, reason}
@@ -363,8 +380,10 @@ defmodule Reencodarr.Sync do
     with {:ok, %Req.Response{body: movie_file}} <- Services.Radarr.get_movie_file(file_id),
          {:ok, movie_id} <- validate_movie_id(movie_file["movieId"]),
          {:ok, _} <- Services.Radarr.refresh_movie(movie_id),
-         {:ok, _} <- Services.Radarr.rename_movie_files(movie_id) do
-      {:ok, "Refresh triggered for Radarr"}
+         # Wait for Radarr to scan the file after refresh
+         :ok <- Process.sleep(5000) && :ok,
+         {:ok, _} <- Services.Radarr.rename_movie_files(movie_id, [file_id]) do
+      {:ok, "Refresh and rename triggered for Radarr"}
     else
       {:error, reason} -> {:error, reason}
     end
