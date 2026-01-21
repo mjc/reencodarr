@@ -64,8 +64,8 @@ defmodule Reencodarr.AbAv1.ProgressParser do
           # Alternative progress pattern without brackets: percent%, fps fps, eta time unit or eta Unknown/N/A
           progress_alt:
             ~r/(?<percent>\d+(?:\.\d+)?)%,\s(?<fps>\d+(?:\.\d+)?)\sfps?,?\s?eta\s(?:(?<eta>\d+)\s(?<time_unit>(?:second|minute|hour|day|week|month|year)s?)|(?<eta_unknown>Unknown|N\/A|unknown))/,
-          # File size progress pattern: Encoded X GB (percent%)
-          file_size_progress: ~r/Encoded\s[\d.]+\s[KMGT]?B\s\((?<percent>\d+)%\)/
+          # File size progress pattern: Encoded X GB/GiB/MB/MiB etc (percent%)
+          file_size_progress: ~r/Encoded\s[\d.]+\s[KMGT]?i?B\s\((?<percent>\d+)%\)/
         }
 
         Process.put(:progress_parser_patterns, patterns)

@@ -54,46 +54,104 @@ defmodule Reencodarr.Services.Sonarr do
     )
   end
 
-  @spec rename_files(integer(), [integer()]) :: {:ok, Req.Response.t()} | {:error, any()}
-  def rename_files(series_id, file_ids) when is_list(file_ids) do
-    cond do
-      not is_integer(series_id) ->
-        Logger.error("Series ID must be an integer, got: #{inspect(series_id)}")
-        {:error, :invalid_series_id}
+  @doc """
+  Refresh a series and wait for the command to complete.
+  Returns {:ok, response} when complete, {:error, reason} on failure or timeout.
+  """
+  @spec refresh_series_and_wait(integer(), keyword()) :: {:ok, map()} | {:error, any()}
+  def refresh_series_and_wait(series_id, opts \\ []) do
+    max_attempts = Keyword.get(opts, :max_attempts, 60)
+    poll_interval = Keyword.get(opts, :poll_interval, 1000)
 
-      series_id <= 0 ->
-        Logger.error("Series ID must be positive, got: #{series_id}")
-        {:error, :invalid_series_id}
+    case refresh_series(series_id) do
+      {:ok, %{body: %{"id" => command_id}}} ->
+        Logger.info("Waiting for RefreshSeries command #{command_id} to complete...")
+        wait_for_command(command_id, max_attempts, poll_interval)
 
-      true ->
-        perform_series_refresh(series_id)
-        Process.sleep(2000)
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
-        case get_renameable_files(series_id) do
-          [] ->
-            Logger.info("No files need renaming for series ID: #{series_id}")
-            {:ok, %{message: "No files need renaming"}}
+  @doc """
+  Get the status of a command by ID.
+  """
+  @spec get_command_status(integer()) :: {:ok, map()} | {:error, any()}
+  def get_command_status(command_id) do
+    case request(url: "/api/v3/command/#{command_id}", method: :get) do
+      {:ok, %{body: body}} -> {:ok, body}
+      error -> error
+    end
+  end
 
-          renameable_files ->
-            execute_rename_request(series_id, file_ids, renameable_files)
-        end
+  @doc """
+  Wait for a command to complete, polling until done or timeout.
+  """
+  @spec wait_for_command(integer(), integer(), integer()) :: {:ok, map()} | {:error, any()}
+  def wait_for_command(command_id, max_attempts \\ 60, poll_interval \\ 1000) do
+    do_wait_for_command(command_id, max_attempts, poll_interval, 0)
+  end
+
+  defp do_wait_for_command(_command_id, max_attempts, _poll_interval, attempts)
+       when attempts >= max_attempts do
+    Logger.warning("Timeout waiting for command to complete after #{max_attempts} attempts")
+    {:error, :timeout}
+  end
+
+  defp do_wait_for_command(command_id, max_attempts, poll_interval, attempts) do
+    case get_command_status(command_id) do
+      {:ok, %{"status" => "completed"} = response} ->
+        Logger.info("Command #{command_id} completed successfully")
+        {:ok, response}
+
+      {:ok, %{"status" => "failed", "message" => message}} ->
+        Logger.error("Command #{command_id} failed: #{message}")
+        {:error, {:command_failed, message}}
+
+      {:ok, %{"status" => status}} ->
+        Logger.debug(
+          "Command #{command_id} status: #{status} (attempt #{attempts + 1}/#{max_attempts})"
+        )
+
+        Process.sleep(poll_interval)
+        do_wait_for_command(command_id, max_attempts, poll_interval, attempts + 1)
+
+      {:error, reason} ->
+        Logger.error("Failed to get command status: #{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  @spec rename_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
+  def rename_files(series_id) when not is_integer(series_id) do
+    Logger.error("Series ID must be an integer, got: #{inspect(series_id)}")
+    {:error, :invalid_series_id}
+  end
+
+  def rename_files(series_id) when series_id <= 0 do
+    Logger.error("Series ID must be positive, got: #{series_id}")
+    {:error, :invalid_series_id}
+  end
+
+  def rename_files(series_id) when is_integer(series_id) do
+    # Retry up to 3 times if no renameable files found
+    case retry_get_renameable_files(series_id, 3) do
+      [] ->
+        Logger.warning("No files need renaming for series ID: #{series_id} after retries")
+        {:ok, %{message: "No files need renaming"}}
+
+      renameable_files ->
+        execute_rename_request(series_id, renameable_files)
     end
   end
 
   @spec refresh_and_rename_all_series :: :ok
   def refresh_and_rename_all_series do
-    get_shows()
-    |> case do
+    case get_shows() do
       {:ok, %Req.Response{body: shows}} ->
         shows
         |> Enum.take(10)
-        |> Task.async_stream(
-          fn %{"id" => series_id} ->
-            # Pass empty list to rename all renameable files for this series
-            rename_files(series_id, [])
-          end,
-          max_concurrency: 1
-        )
+        |> Task.async_stream(&refresh_and_rename_series/1, max_concurrency: 1)
         |> Stream.run()
 
       {:error, err} ->
@@ -101,16 +159,43 @@ defmodule Reencodarr.Services.Sonarr do
     end
   end
 
-  # Performs series refresh and logs results
-  defp perform_series_refresh(series_id) do
-    Logger.info("Refreshing series ID: #{series_id} before checking for renameable files")
+  defp refresh_and_rename_series(%{"id" => series_id}) do
+    case refresh_series_and_wait(series_id) do
+      {:ok, _} ->
+        rename_files(series_id)
 
-    ErrorHelpers.handle_error_with_warning(
-      refresh_series(series_id),
-      :ok,
-      "Failed to refresh series"
-    )
+      {:error, reason} ->
+        Logger.error("Failed to refresh series #{series_id}: #{inspect(reason)}")
+    end
   end
+
+  # Retry getting renameable files with exponential backoff.
+  # Implements exponential backoff with the formula: base_delay * 2^(attempt-1)
+  # This results in delays of: 1s, 2s, 4s, 8s, etc.
+  # This allows Sonarr time to index the renamed file while minimizing polling overhead.
+  defp retry_get_renameable_files(series_id, retries_left, attempt \\ 1)
+
+  defp retry_get_renameable_files(series_id, retries_left, attempt)
+       when retries_left > 0 do
+    files = get_renameable_files(series_id)
+
+    if Enum.empty?(files) do
+      Logger.debug(
+        "No renameable files yet for series #{series_id}, retries left: #{retries_left}"
+      )
+
+      # Exponential backoff: base_delay * 2^(attempt-1)
+      # Attempt 1: 1s, Attempt 2: 2s, Attempt 3: 4s, etc.
+      base_delay_ms = 1000
+      delay_ms = round(:math.pow(2, attempt - 1) * base_delay_ms)
+      Process.sleep(delay_ms)
+      retry_get_renameable_files(series_id, retries_left - 1, attempt + 1)
+    else
+      files
+    end
+  end
+
+  defp retry_get_renameable_files(_series_id, 0, _attempt), do: []
 
   # Fetch renameable files with logging
   defp get_renameable_files(series_id) do
@@ -132,53 +217,41 @@ defmodule Reencodarr.Services.Sonarr do
   end
 
   # Execute rename command and return result
-  @spec execute_rename_request(integer(), list(), list(map())) ::
+  @spec execute_rename_request(integer(), list(map())) ::
           {:ok, map()} | {:error, String.t()}
-  defp execute_rename_request(series_id, file_ids, renameable_files) do
-    with {:ok, renameable_file_ids} <- parse_renameable_files(renameable_files),
-         {:ok, files_to_rename} <- determine_files_to_rename(file_ids, renameable_file_ids) do
-      execute_rename_api_request(series_id, files_to_rename)
+  defp execute_rename_request(series_id, renameable_files) do
+    with {:ok, file_ids} <- parse_renameable_file_ids(renameable_files) do
+      execute_rename_api_request(series_id, file_ids)
     end
   end
 
-  @spec parse_renameable_files(list(map())) :: {:ok, list(integer())} | {:error, String.t()}
-  defp parse_renameable_files(renameable_files) do
-    # Parse renameable file IDs from API response
-    parsed_renameable =
-      renameable_files
-      |> Enum.map(& &1["episodeFileId"])
-      |> Enum.map(&parse_file_id/1)
-
-    # Check for parsing errors in renameable files
-    {renameable_successes, renameable_failures} =
-      Enum.split_with(parsed_renameable, fn
-        {:ok, _} -> true
-        {:error, _} -> false
-      end)
-
-    if Enum.empty?(renameable_failures) do
-      renameable_file_ids = Enum.map(renameable_successes, fn {:ok, id} -> id end)
-      {:ok, renameable_file_ids}
-    else
-      error_msgs = Enum.map(renameable_failures, fn {:error, msg} -> msg end)
-      {:error, "Failed to parse renameable file IDs: #{Enum.join(error_msgs, ", ")}"}
-    end
+  @spec parse_renameable_file_ids(list(map())) :: {:ok, list(integer())} | {:error, String.t()}
+  defp parse_renameable_file_ids(renameable_files) do
+    renameable_files
+    |> Enum.map(& &1["episodeFileId"])
+    |> Enum.map(&parse_file_id/1)
+    |> collect_results()
   end
 
-  @spec determine_files_to_rename(list(), list(integer())) ::
-          {:ok, list(integer())} | {:error, String.t()}
-  defp determine_files_to_rename(file_ids, renameable_file_ids) do
-    if file_ids == [] do
-      {:ok, renameable_file_ids}
-    else
-      parse_explicit_file_ids(file_ids)
+  defp collect_results(results) do
+    case Enum.split_with(results, &match?({:ok, _}, &1)) do
+      {successes, []} ->
+        {:ok, Enum.map(successes, fn {:ok, id} -> id end)}
+
+      {_successes, failures} ->
+        error_msgs = Enum.map(failures, fn {:error, msg} -> msg end)
+        {:error, "Failed to parse renameable file IDs: #{Enum.join(error_msgs, ", ")}"}
     end
   end
 
   @spec execute_rename_api_request(integer(), list(integer())) ::
           {:ok, map()} | {:error, String.t()}
   defp execute_rename_api_request(series_id, files_to_rename) do
-    json_payload = %{name: "RenameFiles", seriesId: series_id, files: files_to_rename}
+    json_payload = %{
+      name: "RenameFiles",
+      seriesId: series_id,
+      files: files_to_rename
+    }
 
     Logger.info(
       "Sonarr rename_files request - Series ID: #{series_id}, File IDs: #{inspect(files_to_rename)}"
@@ -191,9 +264,18 @@ defmodule Reencodarr.Services.Sonarr do
            method: :post,
            json: json_payload
          ) do
-      {:ok, response} = result ->
+      {:ok, %{body: %{"id" => command_id}} = response} ->
         Logger.debug("Sonarr rename_files response: #{inspect(response.body)}")
-        result
+        # Wait for the rename command to complete
+        Logger.info("Waiting for RenameFiles command #{command_id} to complete...")
+        wait_for_command(command_id)
+
+      {:ok, response} ->
+        Logger.warning(
+          "Sonarr rename_files response missing command ID: #{inspect(response.body)}"
+        )
+
+        {:ok, response}
 
       {:error, reason} = error ->
         Logger.error("Sonarr rename_files error: #{inspect(reason)}")
@@ -214,24 +296,5 @@ defmodule Reencodarr.Services.Sonarr do
 
   defp parse_file_id(value) do
     {:error, "expected integer or string, got: #{inspect(value)}"}
-  end
-
-  @spec parse_explicit_file_ids(list()) :: {:ok, list(integer())} | {:error, String.t()}
-  defp parse_explicit_file_ids(file_ids) do
-    parsed_explicit = file_ids |> Enum.map(&parse_file_id/1)
-
-    {explicit_successes, explicit_failures} =
-      Enum.split_with(parsed_explicit, fn
-        {:ok, _} -> true
-        {:error, _} -> false
-      end)
-
-    if Enum.empty?(explicit_failures) do
-      parsed_ids = Enum.map(explicit_successes, fn {:ok, id} -> id end)
-      {:ok, parsed_ids}
-    else
-      error_msgs = Enum.map(explicit_failures, fn {:error, msg} -> msg end)
-      {:error, "Failed to parse explicit file IDs: #{Enum.join(error_msgs, ", ")}"}
-    end
   end
 end
