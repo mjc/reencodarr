@@ -79,7 +79,7 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
   @doc """
   Process a single video with MediaInfo extraction.
   """
-  @spec process_single_video(map()) :: {:ok, map()} | {:skip, term()} | {:error, term()}
+  @spec process_single_video(map()) :: {:ok, map()} | {:error, term()}
   def process_single_video(video_info) when is_map(video_info) do
     Logger.debug("Processing single video: #{video_info.path}")
 
@@ -93,8 +93,11 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
       {:ok, {video_info, complete_params}}
     else
       {:error, reason} ->
-        Logger.debug("Skipping video #{video_info.path}: #{reason}")
-        {:skip, reason}
+        Logger.warning(
+          "Cannot analyze video #{video_info.path}: #{reason}. Will be marked as failed."
+        )
+
+        {:error, {video_info.path, reason}}
 
       error ->
         error_msg = inspect(error)
@@ -364,8 +367,11 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
       {:ok, {video_info, complete_params}}
     else
       {:error, reason} ->
-        Logger.debug("Skipping video #{video_info.path}: #{reason}")
-        {:skip, reason}
+        Logger.warning(
+          "Cannot analyze video #{video_info.path}: #{reason}. Will be marked as failed."
+        )
+
+        {:error, {video_info.path, reason}}
     end
   catch
     :error, reason ->
@@ -438,6 +444,7 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
   defp extract_video_params(validated_mediainfo, path) do
     case MediaInfoExtractor.extract_video_params(validated_mediainfo, path) do
       video_params when is_map(video_params) -> {:ok, video_params}
+      {:error, reason} -> {:error, reason}
       error -> {:error, "video parameter extraction failed: #{inspect(error)}"}
     end
   end
