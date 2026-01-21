@@ -117,15 +117,15 @@ defmodule Reencodarr.Services.Radarr do
     end
   end
 
-  @spec rename_movie_files(integer() | nil, [integer()]) ::
+  @spec rename_movie_files(integer() | nil) ::
           {:ok, Req.Response.t()} | {:error, any()}
-  def rename_movie_files(movie_id, _file_ids \\ [])
+  def rename_movie_files(movie_id)
 
-  def rename_movie_files(nil, _file_ids) do
+  def rename_movie_files(nil) do
     ErrorHelpers.handle_nil_value(nil, "Movie ID", "Cannot rename files")
   end
 
-  def rename_movie_files(movie_id, _file_ids) when is_integer(movie_id) do
+  def rename_movie_files(movie_id) when is_integer(movie_id) do
     # Retry up to 3 times if no renameable files found
     case retry_get_radarr_renameable_files(movie_id, 3) do
       [] ->
@@ -155,7 +155,10 @@ defmodule Reencodarr.Services.Radarr do
     end
   end
 
-  # Retry getting renameable files with exponential backoff
+  # Retry getting renameable files with exponential backoff.
+  # Implements exponential backoff with the formula: base_delay * 2^(attempt-1)
+  # This results in delays of: 1s, 2s, 4s, 8s, etc.
+  # This allows Radarr time to index the renamed file while minimizing polling overhead.
   defp retry_get_radarr_renameable_files(movie_id, retries_left, attempt \\ 1)
 
   defp retry_get_radarr_renameable_files(movie_id, retries_left, attempt)
@@ -165,7 +168,8 @@ defmodule Reencodarr.Services.Radarr do
     if Enum.empty?(files) do
       Logger.debug("No renameable files yet for movie #{movie_id}, retries left: #{retries_left}")
 
-      # Exponential backoff: 1s, 2s, 4s, etc.
+      # Exponential backoff: base_delay * 2^(attempt-1)
+      # Attempt 1: 1s, Attempt 2: 2s, Attempt 3: 4s, etc.
       base_delay_ms = 1000
       delay_ms = round(:math.pow(2, attempt - 1) * base_delay_ms)
       Process.sleep(delay_ms)

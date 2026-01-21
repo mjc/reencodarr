@@ -39,7 +39,7 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
 
     # Validate that we have required fields with valid values
     case {width, height, bitrate} do
-      {w, h, _b} when w == 0 or h == 0 ->
+      {w, h, _b} when w <= 0 or h <= 0 ->
         Logger.warning(
           "Invalid video dimensions for #{path}: width=#{w}, height=#{h}. MediaInfo may not have found video track."
         )
