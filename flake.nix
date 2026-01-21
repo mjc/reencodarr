@@ -14,16 +14,8 @@
       system: let
         pkgs = import nixpkgs {inherit system;};
         lib = pkgs.lib;
-        # Build Erlang 28.1.1 from source
-        erlang = pkgs.beam.interpreters.erlang_28.overrideAttrs (oldAttrs: rec {
-          version = "28.1.1";
-          src = pkgs.fetchFromGitHub {
-            owner = "erlang";
-            repo = "otp";
-            rev = "OTP-${version}";
-            hash = "sha256-2Yop9zpx3dY549NFsjBRghb5vw+SnUSEmv6VIA0m5yQ=";
-          };
-        });
+        # Use latest available Erlang 28.x version
+        erlang = pkgs.beam.interpreters.erlang_28;
         beamPackages = pkgs.beam.packagesWith erlang;
         elixir = beamPackages.elixir_1_19;
       in {
