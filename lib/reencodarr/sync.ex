@@ -366,7 +366,7 @@ defmodule Reencodarr.Sync do
     with {:ok, %Req.Response{body: episode_file}} <- Services.Sonarr.get_episode_file(file_id),
          {:ok, series_id} <- validate_series_id(episode_file["seriesId"]),
          {:ok, _} <- Services.Sonarr.refresh_series_and_wait(series_id),
-         {:ok, _} <- Services.Sonarr.rename_files(series_id, []) do
+         {:ok, _} <- Services.Sonarr.rename_files(series_id) do
       {:ok, "Refresh and rename triggered"}
     end
   end
@@ -375,7 +375,7 @@ defmodule Reencodarr.Sync do
     with {:ok, %Req.Response{body: movie_file}} <- Services.Radarr.get_movie_file(file_id),
          {:ok, movie_id} <- validate_movie_id(movie_file["movieId"]),
          {:ok, _} <- Services.Radarr.refresh_movie_and_wait(movie_id),
-         {:ok, _} <- Services.Radarr.rename_movie_files(movie_id, []) do
+         {:ok, _} <- Services.Radarr.rename_movie_files(movie_id) do
       {:ok, "Refresh and rename triggered for Radarr"}
     end
   end

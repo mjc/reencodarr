@@ -122,18 +122,18 @@ defmodule Reencodarr.Services.Sonarr do
     end
   end
 
-  @spec rename_files(integer(), [integer()]) :: {:ok, Req.Response.t()} | {:error, any()}
-  def rename_files(series_id, _file_ids) when not is_integer(series_id) do
+  @spec rename_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
+  def rename_files(series_id) when not is_integer(series_id) do
     Logger.error("Series ID must be an integer, got: #{inspect(series_id)}")
     {:error, :invalid_series_id}
   end
 
-  def rename_files(series_id, _file_ids) when series_id <= 0 do
+  def rename_files(series_id) when series_id <= 0 do
     Logger.error("Series ID must be positive, got: #{series_id}")
     {:error, :invalid_series_id}
   end
 
-  def rename_files(series_id, _file_ids) when is_integer(series_id) do
+  def rename_files(series_id) when is_integer(series_id) do
     # Retry up to 3 times if no renameable files found
     case retry_get_renameable_files(series_id, 3) do
       [] ->
@@ -162,14 +162,17 @@ defmodule Reencodarr.Services.Sonarr do
   defp refresh_and_rename_series(%{"id" => series_id}) do
     case refresh_series_and_wait(series_id) do
       {:ok, _} ->
-        rename_files(series_id, [])
+        rename_files(series_id)
 
       {:error, reason} ->
         Logger.error("Failed to refresh series #{series_id}: #{inspect(reason)}")
     end
   end
 
-  # Retry getting renameable files with exponential backoff
+  # Retry getting renameable files with exponential backoff.
+  # Implements exponential backoff with the formula: base_delay * 2^(attempt-1)
+  # This results in delays of: 1s, 2s, 4s, 8s, etc.
+  # This allows Sonarr time to index the renamed file while minimizing polling overhead.
   defp retry_get_renameable_files(series_id, retries_left, attempt \\ 1)
 
   defp retry_get_renameable_files(series_id, retries_left, attempt)
@@ -181,7 +184,8 @@ defmodule Reencodarr.Services.Sonarr do
         "No renameable files yet for series #{series_id}, retries left: #{retries_left}"
       )
 
-      # Exponential backoff: 1s, 2s, 4s, etc.
+      # Exponential backoff: base_delay * 2^(attempt-1)
+      # Attempt 1: 1s, Attempt 2: 2s, Attempt 3: 4s, etc.
       base_delay_ms = 1000
       delay_ms = round(:math.pow(2, attempt - 1) * base_delay_ms)
       Process.sleep(delay_ms)

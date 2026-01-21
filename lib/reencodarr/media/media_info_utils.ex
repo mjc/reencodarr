@@ -39,7 +39,7 @@ defmodule Reencodarr.Media.MediaInfoUtils do
 
     # Validate that we have required fields with valid values
     case {width, height, bitrate} do
-      {w, h, _b} when w == 0 or h == 0 ->
+      {w, h, _b} when w <= 0 or h <= 0 ->
         {:error, "invalid video dimensions"}
 
       _ ->
