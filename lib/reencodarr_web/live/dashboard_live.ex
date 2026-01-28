@@ -195,6 +195,26 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, assign(socket, :analyzer_progress, progress)}
   end
 
+  # Encoder health alert handler
+  @impl true
+  def handle_info({:encoder_health_alert, data}, socket) do
+    filename = if data.video_path, do: Path.basename(data.video_path), else: "unknown"
+
+    message =
+      case data.reason do
+        :stalled_30_min ->
+          "Encoder may be stuck - no progress for 30+ minutes (#{filename})"
+
+        :killed_stuck_process ->
+          "Killed stuck encoder after 1 hour (#{filename})"
+
+        _ ->
+          "Encoder health alert: #{inspect(data.reason)}"
+      end
+
+    {:noreply, put_flash(socket, :error, message)}
+  end
+
   # Completion and reset handlers
   @impl true
   def handle_info({:encoding_completed, _data}, socket) do
