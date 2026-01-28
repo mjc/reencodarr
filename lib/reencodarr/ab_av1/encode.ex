@@ -213,10 +213,18 @@ defmodule Reencodarr.AbAv1.Encode do
 
         port = Helper.open_port(args)
 
-        # Broadcast encoding started to Dashboard Events
+        # Get OS PID from port for health monitoring
+        os_pid =
+          case Port.info(port, :os_pid) do
+            {:os_pid, pid} -> pid
+            _ -> nil
+          end
+
+        # Broadcast encoding started to Dashboard Events (includes OS PID for health check)
         Events.broadcast_event(:encoding_started, %{
           video_id: vmaf.video.id,
-          filename: Path.basename(vmaf.video.path)
+          filename: Path.basename(vmaf.video.path),
+          os_pid: os_pid
         })
 
         # Set up a periodic timer to check if we're still alive and potentially emit progress
