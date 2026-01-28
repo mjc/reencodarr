@@ -36,6 +36,8 @@ defmodule Reencodarr.PostProcessor do
     )
 
     # Record detailed failure information with enhanced context
+    # Note: We don't notify Sonarr/Radarr on failure since the original file is unchanged.
+    # Sync notification is only needed when the file has been successfully replaced.
     Reencodarr.FailureTracker.record_process_failure(video, exit_code, context: context)
 
     :ok

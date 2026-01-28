@@ -34,7 +34,8 @@ defmodule Reencodarr.Encoder.HealthCheck do
        video_path: nil,
        last_progress_time: nil,
        last_progress_percent: nil,
-       warned: false
+       warned: false,
+       os_pid: nil
      }}
   end
 
@@ -51,7 +52,8 @@ defmodule Reencodarr.Encoder.HealthCheck do
          video_path: data[:filename],
          last_progress_time: now,
          last_progress_percent: nil,
-         warned: false
+         warned: false,
+         os_pid: data[:os_pid]
      }}
   end
 
@@ -79,7 +81,8 @@ defmodule Reencodarr.Encoder.HealthCheck do
          video_path: nil,
          last_progress_time: nil,
          last_progress_percent: nil,
-         warned: false
+         warned: false,
+         os_pid: nil
      }}
   end
 
@@ -110,7 +113,17 @@ defmodule Reencodarr.Encoder.HealthCheck do
       # Stuck for 1 hour - kill the process
       elapsed > @kill_threshold ->
         kill_stuck_encoder(state)
-        %{state | encoding: false, last_progress_time: nil, warned: false}
+
+        %{
+          state
+          | encoding: false,
+            video_id: nil,
+            video_path: nil,
+            last_progress_time: nil,
+            last_progress_percent: nil,
+            warned: false,
+            os_pid: nil
+        }
 
       # Stuck for 30 min - warn
       elapsed > @warn_threshold and not state.warned ->
@@ -135,48 +148,28 @@ defmodule Reencodarr.Encoder.HealthCheck do
     })
   end
 
-  defp kill_stuck_encoder(state) do
-    # Only place we need to access encoder state - to get the port for killing
-    case get_encoder_port() do
-      {:ok, port} ->
-        case Port.info(port, :os_pid) do
-          {:os_pid, pid} ->
-            Logger.error(
-              "Killing stuck encoder process (PID: #{pid}) after 1 hour of no progress. " <>
-                "Video ID: #{state.video_id}, Path: #{state.video_path}"
-            )
-
-            System.cmd("kill", [to_string(pid)])
-
-            Events.broadcast_event(:encoder_health_alert, %{
-              reason: :killed_stuck_process,
-              video_id: state.video_id,
-              video_path: state.video_path,
-              os_pid: pid
-            })
-
-          _ ->
-            Logger.error("Could not get OS PID for stuck encoder port")
-        end
-
-      :error ->
-        Logger.error("Could not access encoder state to kill stuck process")
-    end
+  defp kill_stuck_encoder(%{os_pid: nil} = state) do
+    Logger.error(
+      "Could not kill stuck encoder - no OS PID available. " <>
+        "Video ID: #{state.video_id}, Path: #{state.video_path}"
+    )
   end
 
-  defp get_encoder_port do
-    case GenServer.whereis(Reencodarr.AbAv1.Encode) do
-      nil ->
-        :error
+  defp kill_stuck_encoder(%{os_pid: os_pid} = state) do
+    Logger.error(
+      "Killing stuck encoder process (PID: #{os_pid}) after 1 hour of no progress. " <>
+        "Video ID: #{state.video_id}, Path: #{state.video_path}"
+    )
 
-      pid ->
-        try do
-          state = :sys.get_state(pid)
-          if state.port != :none, do: {:ok, state.port}, else: :error
-        catch
-          :exit, _ -> :error
-        end
-    end
+    # Run the kill command asynchronously so the HealthCheck GenServer is not blocked
+    Task.start(fn -> System.cmd("kill", [to_string(os_pid)]) end)
+
+    Events.broadcast_event(:encoder_health_alert, %{
+      reason: :killed_stuck_process,
+      video_id: state.video_id,
+      video_path: state.video_path,
+      os_pid: os_pid
+    })
   end
 
   defp schedule_check, do: Process.send_after(self(), :health_check, @check_interval)
