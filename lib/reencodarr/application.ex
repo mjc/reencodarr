@@ -55,7 +55,8 @@ defmodule Reencodarr.Application do
     broadway_workers = [
       Reencodarr.AbAv1,
       Reencodarr.CrfSearcher.Supervisor,
-      Reencodarr.Encoder.Supervisor
+      Reencodarr.Encoder.Supervisor,
+      Reencodarr.Encoder.HealthCheck
     ]
 
     # Only start Analyzer GenStage in non-test environments
