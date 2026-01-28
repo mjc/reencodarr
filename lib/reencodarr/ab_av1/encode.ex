@@ -287,8 +287,8 @@ defmodule Reencodarr.AbAv1.Encode do
     PostProcessor.process_encoding_success(video, output_file)
   end
 
-  defp notify_encoder_failure(_video, _exit_code) do
-    # Failure handling complete - no additional work needed
+  defp notify_encoder_failure(video, exit_code) do
+    PostProcessor.process_encoding_failure(video, exit_code)
   end
 
   # Extract progress data from a line and store it for periodic updates
