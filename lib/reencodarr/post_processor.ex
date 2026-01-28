@@ -76,8 +76,12 @@ defmodule Reencodarr.PostProcessor do
   defp process_intermediate_success(video, actual_path) do
     case Repo.reload(video) do
       nil ->
-        Logger.error("Failed to reload video #{video.id}: Video not found.")
-        :ok
+        Logger.error(
+          "Failed to reload video #{video.id}: Video not found. Still attempting sync."
+        )
+
+        # File was moved successfully, still try to notify Sonarr with original video data
+        finalize_and_sync(video, actual_path)
 
       reloaded ->
         process_reloaded_video(reloaded, actual_path)
@@ -93,8 +97,12 @@ defmodule Reencodarr.PostProcessor do
         finalize_and_sync(updated_video, actual_path)
 
       {:error, reason} ->
-        Logger.error("Failed to mark video #{video.id} as re-encoded: #{inspect(reason)}")
-        :ok
+        Logger.error(
+          "Failed to mark video #{video.id} as re-encoded: #{inspect(reason)}. Still attempting sync."
+        )
+
+        # DB update failed but file was moved, still try to finalize and notify Sonarr
+        finalize_and_sync(video, actual_path)
     end
   end
 
