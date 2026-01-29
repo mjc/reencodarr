@@ -202,11 +202,11 @@ defmodule ReencodarrWeb.DashboardLive do
 
     message =
       case data.reason do
-        :stalled_30_min ->
-          "Encoder may be stuck - no progress for 30+ minutes (#{filename})"
+        :stalled_150_min ->
+          "Encoder may be stuck - no progress for 2.5+ hours (#{filename})"
 
         :killed_stuck_process ->
-          "Killed stuck encoder after 1 hour (#{filename})"
+          "Killed stuck encoder after 3 hours (#{filename})"
 
         _ ->
           "Encoder health alert: #{inspect(data.reason)}"
