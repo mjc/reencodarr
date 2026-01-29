@@ -4,7 +4,7 @@ defmodule Reencodarr.Encoder.HealthCheck do
 
   Subscribes to encoding events and detects when ab-av1/ffmpeg hangs silently
   (no progress events for extended periods). Automatically kills the stuck
-  process after 1 hour of no progress.
+  process after 3 hours of no progress.
   """
 
   use GenServer
@@ -14,10 +14,10 @@ defmodule Reencodarr.Encoder.HealthCheck do
 
   # Check every 60 seconds
   @check_interval 60_000
-  # Warn at 30 minutes
-  @warn_threshold 30 * 60_000
-  # Kill at 1 hour
-  @kill_threshold 60 * 60_000
+  # Warn at 2.5 hours (30 minutes before kill)
+  @warn_threshold 150 * 60_000
+  # Kill at 3 hours
+  @kill_threshold 3 * 60 * 60_000
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
@@ -110,7 +110,7 @@ defmodule Reencodarr.Encoder.HealthCheck do
     elapsed = now - state.last_progress_time
 
     cond do
-      # Stuck for 1 hour - kill the process
+      # Stuck for 3 hours - kill the process
       elapsed > @kill_threshold ->
         kill_stuck_encoder(state)
 
@@ -125,7 +125,7 @@ defmodule Reencodarr.Encoder.HealthCheck do
             os_pid: nil
         }
 
-      # Stuck for 30 min - warn
+      # Stuck for 2.5 hours - warn
       elapsed > @warn_threshold and not state.warned ->
         warn_stuck_encoder(state)
         %{state | warned: true}
@@ -137,12 +137,12 @@ defmodule Reencodarr.Encoder.HealthCheck do
 
   defp warn_stuck_encoder(state) do
     Logger.warning(
-      "Encoder may be stuck - no progress for 30+ minutes. " <>
+      "Encoder may be stuck - no progress for 2.5+ hours. " <>
         "Video ID: #{state.video_id}, Path: #{state.video_path}"
     )
 
     Events.broadcast_event(:encoder_health_alert, %{
-      reason: :stalled_30_min,
+      reason: :stalled_150_min,
       video_id: state.video_id,
       video_path: state.video_path
     })
@@ -157,7 +157,7 @@ defmodule Reencodarr.Encoder.HealthCheck do
 
   defp kill_stuck_encoder(%{os_pid: os_pid} = state) do
     Logger.error(
-      "Killing stuck encoder process (PID: #{os_pid}) after 1 hour of no progress. " <>
+      "Killing stuck encoder process (PID: #{os_pid}) after 3 hours of no progress. " <>
         "Video ID: #{state.video_id}, Path: #{state.video_path}"
     )
 
