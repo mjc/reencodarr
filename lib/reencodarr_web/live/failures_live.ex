@@ -834,19 +834,15 @@ defmodule ReencodarrWeb.FailuresLive do
   defp has_group_by?(%Ecto.Query{group_bys: group_bys}), do: not Enum.empty?(group_bys)
 
   defp get_failures_by_video(videos) do
+    import Ecto.Query
     video_ids = Enum.map(videos, & &1.id)
 
-    failures =
-      Enum.flat_map(video_ids, fn video_id ->
-        Media.get_video_failures(video_id)
-        |> Enum.map(&{video_id, &1})
-      end)
-
-    failures
-    |> Enum.group_by(fn {video_id, _failure} -> video_id end)
-    |> Enum.into(%{}, fn {video_id, failure_tuples} ->
-      {video_id, Enum.map(failure_tuples, fn {_video_id, failure} -> failure end)}
-    end)
+    from(f in Reencodarr.Media.VideoFailure,
+      where: f.video_id in ^video_ids and f.resolved == false,
+      order_by: [desc: f.inserted_at]
+    )
+    |> Reencodarr.Repo.all()
+    |> Enum.group_by(& &1.video_id)
   end
 
   defp summarize_failure_stats(stats) do
