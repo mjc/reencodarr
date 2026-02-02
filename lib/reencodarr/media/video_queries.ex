@@ -34,13 +34,15 @@ defmodule Reencodarr.Media.VideoQueries do
   Counts the total number of videos ready for CRF search.
   Excludes videos already in crf_searching state.
   """
-  @spec count_videos_for_crf_search() :: integer()
-  def count_videos_for_crf_search do
+  @spec count_videos_for_crf_search(keyword()) :: integer()
+  def count_videos_for_crf_search(opts \\ []) do
     # Simplified query - just check state, codec filtering happens at encode time
     Repo.one(
-      from v in Video,
+      from(v in Video,
         where: v.state == :analyzed,
         select: count()
+      ),
+      opts
     )
   end
 
@@ -72,12 +74,14 @@ defmodule Reencodarr.Media.VideoQueries do
   @doc """
   Counts the total number of videos needing analysis.
   """
-  @spec count_videos_needing_analysis() :: integer()
-  def count_videos_needing_analysis do
+  @spec count_videos_needing_analysis(keyword()) :: integer()
+  def count_videos_needing_analysis(opts \\ []) do
     Repo.one(
-      from v in Video,
+      from(v in Video,
         where: v.state == :needs_analysis,
         select: count()
+      ),
+      opts
     )
   end
 
@@ -106,13 +110,15 @@ defmodule Reencodarr.Media.VideoQueries do
   @doc """
   Counts total videos ready for encoding.
   """
-  @spec encoding_queue_count() :: integer()
-  def encoding_queue_count do
+  @spec encoding_queue_count(keyword()) :: integer()
+  def encoding_queue_count(opts \\ []) do
     Repo.one(
-      from v in Vmaf,
+      from(v in Vmaf,
         join: vid in assoc(v, :video),
         where: v.chosen == true and vid.state == :crf_searched,
         select: count(v.id)
+      ),
+      opts
     )
   end
 end

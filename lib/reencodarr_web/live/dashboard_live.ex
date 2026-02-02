@@ -11,8 +11,7 @@ defmodule ReencodarrWeb.DashboardLive do
   alias Reencodarr.CrfSearcher.Broadway, as: CrfSearcherBroadway
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Formatters
-  alias Reencodarr.Media.{Video, VideoQueries, Vmaf}
-  alias Reencodarr.Repo
+  alias Reencodarr.Media.VideoQueries
 
   require Logger
 
@@ -684,27 +683,18 @@ defmodule ReencodarrWeb.DashboardLive do
   @dashboard_query_timeout 2_000
 
   defp get_queue_counts do
-    import Ecto.Query
-
     %{
       analyzer:
         safe_query(fn ->
-          Repo.one(
-            from(v in Video, where: v.state == :needs_analysis, select: count()),
-            timeout: @dashboard_query_timeout
-          )
+          VideoQueries.count_videos_needing_analysis(timeout: @dashboard_query_timeout)
         end),
-      crf_searcher: count_videos_for_crf_search_with_timeout(),
+      crf_searcher:
+        safe_query(fn ->
+          VideoQueries.count_videos_for_crf_search(timeout: @dashboard_query_timeout)
+        end),
       encoder:
         safe_query(fn ->
-          Repo.one(
-            from(v in Vmaf,
-              join: vid in assoc(v, :video),
-              where: v.chosen == true and vid.state == :crf_searched,
-              select: count(v.id)
-            ),
-            timeout: @dashboard_query_timeout
-          )
+          VideoQueries.encoding_queue_count(timeout: @dashboard_query_timeout)
         end)
     }
   end
@@ -721,21 +711,6 @@ defmodule ReencodarrWeb.DashboardLive do
     :exit, {%DBConnection.ConnectionError{}, _} -> 0
     # Catch checkout timeouts
     :exit, {{%DBConnection.ConnectionError{}, _}, _} -> 0
-  end
-
-  # Inline CRF search count to apply timeout - simplified without codec checks
-  defp count_videos_for_crf_search_with_timeout do
-    import Ecto.Query
-
-    safe_query(fn ->
-      Repo.one(
-        from(v in Video,
-          where: v.state == :analyzed,
-          select: count()
-        ),
-        timeout: @dashboard_query_timeout
-      )
-    end)
   end
 
   # Get detailed queue items for each pipeline
