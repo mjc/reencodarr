@@ -831,33 +831,32 @@ defmodule Reencodarr.Media do
   VMAFs will be deleted automatically when videos are re-analyzed and their properties change.
   """
   def reset_videos_for_reanalysis_batched(batch_size \\ 1000) do
-    videos_to_reset =
-      from(v in Video,
-        where: v.state not in [:encoded, :failed],
-        select: %{id: v.id}
-      )
-      |> Repo.all()
+    total =
+      Stream.unfold(0, fn _offset ->
+        batch_ids =
+          from(v in Video,
+            where: v.state not in [:encoded, :failed] and not is_nil(v.bitrate),
+            limit: ^batch_size,
+            select: v.id
+          )
+          |> Repo.all()
 
-    total_videos = length(videos_to_reset)
-    Logger.info("Resetting #{total_videos} videos for reanalysis in batches of #{batch_size}")
+        if batch_ids != [] do
+          {count, _} =
+            from(v in Video, where: v.id in ^batch_ids, update: [set: [bitrate: nil]])
+            |> Repo.update_all([])
 
-    videos_to_reset
-    |> Enum.chunk_every(batch_size)
-    |> Enum.with_index()
-    |> Enum.each(fn {batch, index} ->
-      Logger.info("Processing batch #{index + 1}/#{div(total_videos, batch_size) + 1}")
+          Logger.info("Reset batch of #{count} videos for reanalysis")
+          Process.sleep(100)
+          {count, 0}
+        else
+          nil
+        end
+      end)
+      |> Enum.sum()
 
-      # Reset bitrate for this batch (set to NULL so analyzer picks them up)
-      video_ids = Enum.map(batch, & &1.id)
-
-      from(v in Video, where: v.id in ^video_ids, update: [set: [bitrate: nil]])
-      |> Repo.update_all([])
-
-      # Small delay to prevent overwhelming the system
-      Process.sleep(100)
-    end)
-
-    Logger.info("Completed resetting videos for reanalysis")
+    Logger.info("Completed resetting #{total} videos for reanalysis")
+    total
   end
 
   @doc """
