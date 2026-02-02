@@ -299,7 +299,7 @@ defmodule ReencodarrWeb.UIHelpers do
       },
       %{
         label: "CHOSEN VMAFS",
-        key: :chosen_vmafs_count,
+        key: :chosen_vmafs,
         formatter: &Reencodarr.Formatters.count/1
       },
       %{label: "LAST UPDATE", key: :last_video_update, small: true},
