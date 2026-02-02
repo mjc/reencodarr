@@ -698,7 +698,7 @@ defmodule Reencodarr.Media do
     from v in Vmaf,
       join: vid in assoc(v, :video),
       where: v.chosen == true and vid.state == :crf_searched,
-      preload: [:video],
+      select: %{v | video: vid},
       order_by: [asc: v.percent, asc: v.time]
   end
 
@@ -713,7 +713,7 @@ defmodule Reencodarr.Media do
       from v in Vmaf,
         join: vid in assoc(v, :video),
         where: v.chosen == true and v.video_id == ^video_id and vid.state == :crf_searched,
-        preload: [:video],
+        select: %{v | video: vid},
         order_by: [asc: v.percent, asc: v.time]
     )
   end
@@ -729,7 +729,7 @@ defmodule Reencodarr.Media do
           where: v.chosen == true and vid.state == :crf_searched,
           order_by: [fragment("? DESC NULLS LAST", v.savings), asc: v.time],
           limit: 1,
-          preload: [:video]
+          select: %{v | video: vid}
       )
 
     if result, do: [result], else: []
