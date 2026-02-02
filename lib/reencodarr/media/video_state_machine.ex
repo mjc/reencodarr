@@ -283,44 +283,22 @@ defmodule Reencodarr.Media.VideoStateMachine do
   end
 
   def mark_as_reencoded(%Video{} = video) do
-    # Ensure video is in the correct state for encoding completion
-    # If not in :encoding state, transition through the minimum required states
     case video.state do
-      :encoding ->
-        # Already in correct state, transition to encoded
-        case transition_to_encoded(video) do
-          {:ok, changeset} -> Reencodarr.Repo.update(changeset)
-          error -> error
-        end
-
-      :crf_searched ->
-        # Need to go through encoding state first
-        with {:ok, encoding_changeset} <- transition_to_encoding(video),
-             {:ok, encoding_video} <- Reencodarr.Repo.update(encoding_changeset),
-             {:ok, encoded_changeset} <- transition_to_encoded(encoding_video) do
-          Reencodarr.Repo.update(encoded_changeset)
-        end
-
-      state when state in [:needs_analysis, :analyzed, :crf_searching] ->
-        # Need to transition through multiple states
-        with {:ok, crf_searched_changeset} <- transition_to_crf_searched(video),
-             {:ok, crf_searched_video} <- Reencodarr.Repo.update(crf_searched_changeset),
-             {:ok, encoding_changeset} <- transition_to_encoding(crf_searched_video),
-             {:ok, encoding_video} <- Reencodarr.Repo.update(encoding_changeset),
-             {:ok, encoded_changeset} <- transition_to_encoded(encoding_video) do
-          Reencodarr.Repo.update(encoded_changeset)
-        end
-
       :encoded ->
-        # Already encoded, no change needed
         {:ok, video}
 
-      :failed ->
-        # Reset to encoding state first, then mark as encoded
-        with {:ok, encoding_changeset} <- transition_to_encoding(video),
-             {:ok, encoding_video} <- Reencodarr.Repo.update(encoding_changeset),
-             {:ok, encoded_changeset} <- transition_to_encoded(encoding_video) do
-          Reencodarr.Repo.update(encoded_changeset)
+      state
+      when state in [
+             :encoding,
+             :crf_searched,
+             :needs_analysis,
+             :analyzed,
+             :crf_searching,
+             :failed
+           ] ->
+        case transition_to_encoded(%{video | state: :encoding}) do
+          {:ok, changeset} -> Reencodarr.Repo.update(changeset)
+          error -> error
         end
     end
   end
