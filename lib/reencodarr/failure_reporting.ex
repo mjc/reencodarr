@@ -381,11 +381,12 @@ defmodule Reencodarr.FailureReporting do
     critical_codes = ["EXIT_137", "EXIT_143", "TIMEOUT", "RESOURCE_MEMORY", "ENV"]
 
     from(f in VideoFailure,
+      join: vid in assoc(f, :video),
       where: f.inserted_at >= ^cutoff_date,
       where: not f.resolved,
       where: f.failure_category in ^critical_categories or f.failure_code in ^critical_codes,
       order_by: [desc: f.inserted_at],
-      preload: [:video]
+      select: %{f | video: vid}
     )
     |> Repo.all()
     |> Enum.map(fn failure ->
