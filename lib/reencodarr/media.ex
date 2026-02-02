@@ -178,9 +178,13 @@ defmodule Reencodarr.Media do
   Resolves all failures for a video (typically when re-processing succeeds).
   """
   def resolve_video_failures(video_id) do
-    video_id
-    |> VideoFailure.get_unresolved_failures_for_video()
-    |> Enum.each(&VideoFailure.resolve_failure/1)
+    now = DateTime.utc_now()
+
+    from(f in VideoFailure,
+      where: f.video_id == ^video_id and f.resolved == false,
+      update: [set: [resolved: true, resolved_at: ^now]]
+    )
+    |> Repo.update_all([])
   end
 
   @doc """
