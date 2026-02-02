@@ -2,7 +2,7 @@ defmodule Reencodarr.Media do
   import Ecto.Query
 
   import __MODULE__.SharedQueries,
-    only: [aggregated_stats_query: 0, videos_with_no_chosen_vmafs_query: 0],
+    only: [videos_with_no_chosen_vmafs_query: 0],
     warn: false
 
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
