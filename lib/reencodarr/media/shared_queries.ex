@@ -111,15 +111,12 @@ defmodule Reencodarr.Media.SharedQueries do
         total_vmafs: count(m_all.id, :distinct),
         chosen_vmafs:
           fragment("COALESCE(SUM(CASE WHEN ? = 1 THEN 1 ELSE 0 END), 0)", m_all.chosen),
-        chosen_vmafs_count:
-          fragment("COALESCE(SUM(CASE WHEN ? = 1 THEN 1 ELSE 0 END), 0)", m_all.chosen),
         unprocessed_vmafs:
           fragment(
             "COALESCE(COUNT(DISTINCT ?) - SUM(CASE WHEN ? = 1 THEN 1 ELSE 0 END), 0)",
             m_all.id,
             m_all.chosen
           ),
-        # Additional fields for dashboard compatibility
         avg_vmaf_percentage: fragment("ROUND(AVG(?), 2)", m_all.percent),
         encodes_count:
           fragment(
@@ -127,24 +124,6 @@ defmodule Reencodarr.Media.SharedQueries do
             v.state,
             m_all.chosen
           ),
-        queued_crf_searches_count:
-          fragment("COALESCE(SUM(CASE WHEN ? = 'analyzed' THEN 1 ELSE 0 END), 0)", v.state),
-        analyzer_count:
-          fragment("COALESCE(SUM(CASE WHEN ? = 'needs_analysis' THEN 1 ELSE 0 END), 0)", v.state),
-        reencoded_count:
-          fragment("COALESCE(SUM(CASE WHEN ? = 'encoded' THEN 1 ELSE 0 END), 0)", v.state),
-        failed_count:
-          fragment("COALESCE(SUM(CASE WHEN ? = 'failed' THEN 1 ELSE 0 END), 0)", v.state),
-        analyzing_count:
-          fragment("COALESCE(SUM(CASE WHEN ? = 'needs_analysis' THEN 1 ELSE 0 END), 0)", v.state),
-        encoding_count:
-          fragment("COALESCE(SUM(CASE WHEN ? = 'encoding' THEN 1 ELSE 0 END), 0)", v.state),
-        searching_count:
-          fragment("COALESCE(SUM(CASE WHEN ? = 'crf_searching' THEN 1 ELSE 0 END), 0)", v.state),
-        available_count:
-          fragment("COALESCE(SUM(CASE WHEN ? = 'crf_searched' THEN 1 ELSE 0 END), 0)", v.state),
-        paused_count: fragment("0"),
-        skipped_count: fragment("0"),
         total_savings_gb:
           coalesce(
             sum(

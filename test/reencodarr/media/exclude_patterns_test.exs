@@ -361,21 +361,12 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       query = SharedQueries.aggregated_stats_query()
       stats = Repo.one(query)
 
-      # Dashboard-specific fields
-      assert stats.analyzer_count == 1
-      # needs_analysis
-      assert stats.queued_crf_searches_count == 1
-      # analyzed
-      assert stats.available_count == 1
-      # crf_searched
-      assert stats.encoding_count == 1
-      # encoding
-      assert stats.reencoded_count == 1
-      # encoded
-      assert stats.paused_count == 0
-      # Always 0
-      assert stats.skipped_count == 0
-      # Always 0
+      # State count fields (canonical names)
+      assert stats.needs_analysis == 1
+      assert stats.analyzed == 1
+      assert stats.crf_searched == 1
+      assert stats.encoding == 1
+      assert stats.encoded == 1
     end
   end
 end
