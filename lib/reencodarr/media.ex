@@ -527,14 +527,18 @@ defmodule Reencodarr.Media do
   def upsert_vmaf(attrs) do
     video_id = Map.get(attrs, "video_id") || Map.get(attrs, :video_id)
 
-    cond do
-      not (is_integer(video_id) or is_binary(video_id)) ->
-        Logger.error("Attempted to upsert VMAF with invalid video_id type: #{inspect(attrs)}")
-        {:error, :invalid_video_id}
+    if is_integer(video_id) or is_binary(video_id) do
+      do_upsert_vmaf(attrs, video_id)
+    else
+      Logger.error("Attempted to upsert VMAF with invalid video_id type: #{inspect(attrs)}")
+      {:error, :invalid_video_id}
+    end
+  end
 
-      match?(%Video{}, get_video(video_id)) ->
-        # Calculate savings if not provided but percent and video are available
-        attrs_with_savings = maybe_calculate_savings(attrs)
+  defp do_upsert_vmaf(attrs, video_id) do
+    case get_video(video_id) do
+      %Video{} = video ->
+        attrs_with_savings = maybe_calculate_savings(attrs, video)
 
         result =
           %Vmaf{}
@@ -545,37 +549,30 @@ defmodule Reencodarr.Media do
           )
 
         case result do
-          {:ok, vmaf} ->
-            # If this VMAF is chosen, update video state to crf_searched
-            handle_chosen_vmaf(vmaf)
-
-          {:error, _error} ->
-            :ok
+          {:ok, vmaf} -> handle_chosen_vmaf(vmaf, video)
+          {:error, _error} -> :ok
         end
 
         result
 
-      true ->
+      nil ->
         Logger.error("Attempted to upsert VMAF with missing video_id: #{inspect(attrs)}")
         {:error, :invalid_video_id}
     end
   end
 
   # Helper function to handle chosen VMAF updates
-  defp handle_chosen_vmaf(%{chosen: true, video_id: video_id}) do
-    video = get_video!(video_id)
+  defp handle_chosen_vmaf(%{chosen: true}, %Video{} = video) do
     mark_as_crf_searched(video)
   end
 
-  defp handle_chosen_vmaf(_vmaf), do: :ok
+  defp handle_chosen_vmaf(_vmaf, _video), do: :ok
 
   # Calculate savings if not already provided and we have the necessary data
-  defp maybe_calculate_savings(attrs) do
-    case {Map.get(attrs, "savings"), Map.get(attrs, "percent"), Map.get(attrs, "video_id")} do
-      {nil, percent, video_id}
-      when (is_number(percent) or is_binary(percent)) and
-             (is_integer(video_id) or is_binary(video_id)) ->
-        case get_video(video_id) do
+  defp maybe_calculate_savings(attrs, %Video{} = video) do
+    case {Map.get(attrs, "savings"), Map.get(attrs, "percent")} do
+      {nil, percent} when is_number(percent) or is_binary(percent) ->
+        case video do
           %Video{size: size} when is_integer(size) and size > 0 ->
             savings = calculate_vmaf_savings(percent, size)
             Map.put(attrs, "savings", savings)
