@@ -64,183 +64,172 @@ defmodule Reencodarr.AbAv1.Helper do
   end
 
   @doc """
-  Remove image attachments from MKV files to prevent FFmpeg encoding failures.
+  Remove image attachments from video files to prevent FFmpeg encoding failures.
 
-  Some MKV files contain attached JPEG/PNG images which cause FFmpeg to fail
-  with exit code 218. This function uses mkvmerge to remove these attachments and streams.
+  Some video files contain attached JPEG/PNG images which cause FFmpeg to fail.
+  This function uses ffprobe for universal detection and handles cleaning differently
+  based on container format:
+  - MKV: in-place removal with mkvpropedit (no copy for large files)
+  - MP4/other: ffmpeg remux to temp file
 
   Always returns the path to use - either cleaned temp file or original if cleaning not needed/failed.
   """
-  @spec clean_mkv_attachments(String.t()) :: {:ok, String.t()}
-  def clean_mkv_attachments(file_path) do
-    # Only process MKV files
-    if String.ends_with?(file_path, [".mkv", ".MKV"]) do
-      case check_for_image_attachments(file_path) do
-        {:ok, false} ->
-          # No image attachments found, use original file
-          Logger.debug("No image attachments found in #{file_path}")
-          {:ok, file_path}
+  @spec clean_attachments(String.t()) :: {:ok, String.t()}
+  def clean_attachments(file_path) do
+    case detect_attached_pictures(file_path) do
+      {:ok, []} ->
+        Logger.debug("No attached pictures found in #{file_path}")
+        {:ok, file_path}
 
-        {:ok, true} ->
-          # Image attachments found, clean them
-          Logger.info("Image attachments found in #{file_path}, cleaning...")
-          remove_image_attachments(file_path)
+      {:ok, attached_pics} ->
+        Logger.info(
+          "Found #{length(attached_pics)} attached picture(s) in #{file_path}, cleaning..."
+        )
 
-        {:error, reason} ->
-          Logger.warning("Failed to check attachments for #{file_path}: #{inspect(reason)}")
-          # If we can't check, assume no attachments and use original file
-          {:ok, file_path}
-      end
-    else
-      # Not an MKV file, no cleaning needed
-      {:ok, file_path}
-    end
-  end
-
-  @spec check_for_image_attachments(String.t()) :: {:ok, boolean()} | {:error, term()}
-  defp check_for_image_attachments(file_path) do
-    case System.cmd("mkvmerge", ["-i", file_path], stderr_to_stdout: true) do
-      {output, 0} ->
-        # Check for:
-        # 1. Attachment info with image types
-        # 2. Video streams that are attached pictures (mjpeg, png with "attached pic" flag)
-        has_image_attachments =
-          String.contains?(output, "attachment") and
-            (String.contains?(output, "image/jpeg") or
-               String.contains?(output, "image/jpg") or
-               String.contains?(output, "image/png"))
-
-        # Check for image streams (these appear as tracks in mkvmerge output)
-        # Look for tracks that are likely cover art (small video tracks, mjpeg/png)
-        has_image_streams =
-          Regex.match?(~r/Track ID \d+: video \(MJPEG\)/i, output) or
-            Regex.match?(~r/Track ID \d+: video \(PNG\)/i, output)
-
-        {:ok, has_image_attachments or has_image_streams}
-
-      {_output, _exit_code} ->
-        {:error, :mkvmerge_failed}
-    end
-  end
-
-  @spec remove_image_attachments(String.t()) :: {:ok, String.t()}
-  defp remove_image_attachments(file_path) do
-    # Create a cleaned copy in temp directory
-    filename = Path.basename(file_path)
-    name_without_ext = Path.rootname(filename)
-    ext = Path.extname(filename)
-    cleaned_path = Path.join(temp_dir(), "#{name_without_ext}_cleaned#{ext}")
-
-    Logger.info("Removing image attachments and streams from #{file_path}")
-
-    # Copy file to temp location first
-    case File.cp(file_path, cleaned_path) do
-      :ok ->
-        # Use mkvpropedit to delete tracks and attachments in-place
-        case remove_image_tracks_and_attachments(cleaned_path) do
-          :ok ->
-            Logger.info("Successfully cleaned image streams from #{file_path}")
-            {:ok, cleaned_path}
-
-          {:error, reason} ->
-            Logger.warning(
-              "Failed to clean #{file_path}: #{inspect(reason)}, falling back to original"
-            )
-
-            File.rm(cleaned_path)
-            {:ok, file_path}
+        cond do
+          mkv?(file_path) -> clean_mkv_in_place(file_path, attached_pics)
+          mp4?(file_path) -> clean_mp4_in_place(file_path, attached_pics)
+          true -> clean_via_ffmpeg_remux(file_path)
         end
 
       {:error, reason} ->
-        Logger.warning("Failed to copy file for cleaning: #{inspect(reason)}")
+        Logger.warning("Failed to detect attachments for #{file_path}: #{inspect(reason)}")
+        # If we can't check, assume no attachments and use original file
         {:ok, file_path}
     end
   end
 
-  defp remove_image_tracks_and_attachments(cleaned_path) do
-    # Get track info to find image streams
-    case get_image_track_uids(cleaned_path) do
-      {:ok, track_uids} ->
-        delete_tracks_and_attachments(cleaned_path, track_uids)
-
-      {:error, reason} ->
-        # If we can't get track info, at least try to delete attachments
-        Logger.warning("Failed to get track info: #{inspect(reason)}, trying attachments only")
-        delete_image_attachments(cleaned_path)
-    end
-  end
-
-  defp delete_tracks_and_attachments(cleaned_path, track_uids) do
-    # Delete each image track by UID using mkvpropedit
-    result =
-      Enum.reduce_while(track_uids, :ok, fn uid, _acc ->
-        case System.cmd("mkvpropedit", [cleaned_path, "--delete-track", uid],
-               stderr_to_stdout: true
-             ) do
-          {_output, 0} ->
-            {:cont, :ok}
-
-          {output, exit_code} ->
-            Logger.warning(
-              "mkvpropedit failed to delete track #{uid}: exit #{exit_code}, output: #{output}"
-            )
-
-            {:halt, {:error, :track_deletion_failed}}
-        end
-      end)
-
-    # Also delete image attachments
-    case result do
-      :ok -> delete_image_attachments(cleaned_path)
-      error -> error
-    end
-  end
-
-  defp get_image_track_uids(file_path) do
-    case System.cmd("mkvmerge", ["-J", file_path], stderr_to_stdout: true) do
+  @spec detect_attached_pictures(String.t()) :: {:ok, list(map())} | {:error, term()}
+  defp detect_attached_pictures(file_path) do
+    case System.cmd(
+           "ffprobe",
+           ["-v", "quiet", "-print_format", "json", "-show_streams", file_path],
+           stderr_to_stdout: true
+         ) do
       {output, 0} ->
-        parse_image_tracks_from_json(output)
+        parse_attached_pictures(output)
 
       {_output, _exit_code} ->
-        {:error, :mkvmerge_failed}
+        {:error, :ffprobe_failed}
     end
   end
 
-  defp parse_image_tracks_from_json(output) do
+  @spec parse_attached_pictures(String.t()) :: {:ok, list(map())}
+  defp parse_attached_pictures(output) do
     case Jason.decode(output) do
-      {:ok, %{"tracks" => tracks}} ->
-        image_uids = extract_image_track_uids(tracks)
-        {:ok, image_uids}
+      {:ok, %{"streams" => streams}} ->
+        pics = Enum.filter(streams, &attached_picture?/1)
+        {:ok, pics}
 
       _ ->
         {:ok, []}
     end
   end
 
-  defp extract_image_track_uids(tracks) do
-    tracks
-    |> Enum.filter(&filter_and_log_video_track/1)
-    |> Enum.map(& &1["properties"]["uid"])
-    |> Enum.reject(&is_nil/1)
-    |> Enum.map(&to_string/1)
+  @spec attached_picture?(map()) :: boolean()
+  defp attached_picture?(stream) do
+    get_in(stream, ["disposition", "attached_pic"]) == 1 or
+      stream["codec_name"] in ["mjpeg", "png"]
   end
 
-  defp filter_and_log_video_track(track) do
-    is_image = image_video_track?(track)
+  @spec mkv?(String.t()) :: boolean()
+  defp mkv?(file_path) do
+    String.ends_with?(file_path, [".mkv", ".MKV"])
+  end
 
-    if track["type"] == "video" do
-      Logger.debug(
-        "Video track: codec=#{inspect(track["codec"])}, codec_id=#{inspect(get_in(track, ["properties", "codec_id"]))}, uid=#{inspect(get_in(track, ["properties", "uid"]))}, is_image=#{is_image}"
-      )
+  @spec mp4?(String.t()) :: boolean()
+  defp mp4?(file_path) do
+    String.ends_with?(file_path, [".mp4", ".MP4", ".m4v", ".M4V"])
+  end
+
+  @spec clean_mkv_in_place(String.t(), list(map())) :: {:ok, String.t()}
+  defp clean_mkv_in_place(file_path, attached_pics) do
+    # Step 1: Delete image attachments via mkvpropedit (in-place, fast)
+    delete_image_attachments(file_path)
+
+    # Step 2: Check if any are actual MJPEG video tracks (not just attachments)
+    has_mjpeg_tracks =
+      Enum.any?(attached_pics, fn s ->
+        s["codec_type"] == "video" and s["codec_name"] == "mjpeg" and
+          get_in(s, ["disposition", "attached_pic"]) != 1
+      end)
+
+    if has_mjpeg_tracks do
+      # mkvpropedit can't delete tracks — fall back to ffmpeg remux
+      Logger.info("Found MJPEG video tracks in #{file_path}, using ffmpeg remux")
+      clean_via_ffmpeg_remux(file_path)
+    else
+      Logger.info("Successfully cleaned image attachments from #{file_path} (in-place)")
+      {:ok, file_path}
     end
-
-    is_image
   end
 
-  defp image_video_track?(track) do
-    track["type"] == "video" and
-      (String.upcase(track["codec"] || "") in ["MJPEG", "PNG"] or
-         String.contains?(get_in(track, ["properties", "codec_id"]) || "", ["V_MS/VFW", "PNG"]))
+  @spec clean_mp4_in_place(String.t(), list(map())) :: {:ok, String.t()}
+  defp clean_mp4_in_place(file_path, attached_pics) do
+    # Get track IDs from ffprobe (1-indexed "index" field)
+    # MP4Box uses 1-based track numbering that matches ffprobe index + 1
+    track_ids = Enum.map(attached_pics, & &1["index"])
+
+    Logger.info("Removing #{length(track_ids)} track(s) from #{file_path} using MP4Box")
+
+    results =
+      Enum.map(track_ids, fn idx ->
+        # MP4Box track numbering is 1-based, ffprobe index is 0-based
+        track_num = idx + 1
+
+        Logger.debug("Removing track #{track_num} from #{file_path}")
+
+        System.cmd("MP4Box", ["-rem", to_string(track_num), file_path], stderr_to_stdout: true)
+      end)
+
+    if Enum.all?(results, fn {_, code} -> code == 0 end) do
+      Logger.info("Successfully cleaned tracks from #{file_path} (in-place)")
+      {:ok, file_path}
+    else
+      Logger.warning("MP4Box failed, falling back to ffmpeg remux for #{file_path}")
+      # Fall back to ffmpeg remux
+      clean_via_ffmpeg_remux(file_path)
+    end
+  end
+
+  @spec clean_via_ffmpeg_remux(String.t()) :: {:ok, String.t()}
+  defp clean_via_ffmpeg_remux(file_path) do
+    ext = Path.extname(file_path)
+    name_without_ext = Path.basename(file_path, ext)
+    cleaned = Path.join(temp_dir(), "#{name_without_ext}_cleaned#{ext}")
+
+    Logger.info("Remuxing #{file_path} to remove attached pictures via ffmpeg")
+
+    case System.cmd(
+           "ffmpeg",
+           [
+             "-i",
+             file_path,
+             "-map",
+             "0:V",
+             "-map",
+             "0:a",
+             "-map",
+             "0:s?",
+             "-c",
+             "copy",
+             "-y",
+             cleaned
+           ],
+           stderr_to_stdout: true
+         ) do
+      {_output, 0} ->
+        Logger.info("Successfully remuxed #{file_path} to #{cleaned}")
+        {:ok, cleaned}
+
+      {output, code} ->
+        Logger.warning(
+          "ffmpeg remux failed (#{code}) for #{file_path}: #{String.slice(output, -500..-1//1)}"
+        )
+
+        File.rm(cleaned)
+        {:ok, file_path}
+    end
   end
 
   defp delete_image_attachments(cleaned_path) do
@@ -307,7 +296,7 @@ defmodule Reencodarr.AbAv1.Helper do
     case find_input_file_path(args) do
       {:ok, input_path, input_index} ->
         # Clean the input file of image attachments
-        {:ok, cleaned_path} = clean_mkv_attachments(input_path)
+        {:ok, cleaned_path} = clean_attachments(input_path)
         # Replace the input path in args with cleaned path
         new_args = List.replace_at(args, input_index, cleaned_path)
         {:ok, new_args}

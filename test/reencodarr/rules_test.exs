@@ -5,16 +5,13 @@ defmodule Reencodarr.RulesTest do
   import Reencodarr.TestHelpers
 
   describe "build_args/4 - context-based argument building" do
-    test "encoding context includes audio arguments for non-Opus audio" do
+    test "encoding context copies audio for non-Opus audio" do
       video = Fixtures.create_test_video()
       args = Rules.build_args(video, :encode)
 
-      # Should include audio arguments
+      # Should include audio copy
       assert "--acodec" in args
-      assert "libopus" in args
-      assert "--enc" in args
-      assert "b:a=256k" in args
-      assert "ac=6" in args
+      assert "copy" in args
 
       # Should include video arguments
       assert "--pix-format" in args
@@ -23,13 +20,13 @@ defmodule Reencodarr.RulesTest do
       assert "tune=0" in args
     end
 
-    test "encoding context skips audio arguments for Opus audio" do
+    test "encoding context copies audio for Opus audio too" do
       video = Fixtures.create_opus_video()
       args = Rules.build_args(video, :encode)
 
-      # Should NOT include audio arguments (already Opus)
-      refute "--acodec" in args
-      refute "libopus" in args
+      # Should include audio copy
+      assert "--acodec" in args
+      assert "copy" in args
 
       # Should still include video arguments
       assert "--pix-format" in args
@@ -42,9 +39,6 @@ defmodule Reencodarr.RulesTest do
 
       # Should NOT include audio arguments
       refute "--acodec" in args
-      refute "libopus" in args
-      refute "b:a=256k" in args
-      refute "ac=6" in args
 
       # Should include video arguments
       assert "--pix-format" in args
@@ -77,24 +71,22 @@ defmodule Reencodarr.RulesTest do
       assert Enum.at(args, vfilter_index + 1) == "scale=1920:-2"
     end
 
-    test "3-channel audio gets upmixed to 5.1" do
+    test "3-channel audio is copied (no upmix)" do
       video = Fixtures.create_test_video(%{max_audio_channels: 3})
       args = Rules.build_args(video, :encode)
 
-      # Should include upmix settings
+      # Should copy audio
       assert "--acodec" in args
-      assert "libopus" in args
-      assert "b:a=128k" in args
-      assert "ac=6" in args
+      assert "copy" in args
     end
 
-    test "Atmos audio is skipped" do
+    test "Atmos audio is copied" do
       video = Fixtures.create_test_video(%{atmos: true})
       args = Rules.build_args(video, :encode)
 
-      # Should NOT include audio arguments
-      refute "--acodec" in args
-      refute "libopus" in args
+      # Should copy audio
+      assert "--acodec" in args
+      assert "copy" in args
 
       # Should still include video arguments
       assert "--pix-format" in args
@@ -146,12 +138,11 @@ defmodule Reencodarr.RulesTest do
       # Should have multiple SVT flags
       svt_indices = find_flag_indices(args, "--svt")
       # extra + tune=0 + dolbyvision=1
-      assert length(svt_indices) >= 3
+      assert Enum.count(svt_indices) >= 3
 
-      # Should have multiple ENC flags
+      # Should have ENC flags from additional params
       enc_indices = find_flag_indices(args, "--enc")
-      # custom + b:a= + ac=
-      assert length(enc_indices) >= 3
+      assert enc_indices != []
     end
   end
 
@@ -164,7 +155,7 @@ defmodule Reencodarr.RulesTest do
         "6",
         # Should be filtered out
         "--acodec",
-        "libopus",
+        "copy",
         # Should be filtered out
         "--enc",
         "b:a=128k",
@@ -204,7 +195,7 @@ defmodule Reencodarr.RulesTest do
         "95",
         # Should be kept
         "--acodec",
-        "libopus"
+        "copy"
       ]
 
       args = Rules.build_args(video, :encode, additional_params)
@@ -267,32 +258,30 @@ defmodule Reencodarr.RulesTest do
       assert Enum.all?(rules, fn item -> is_tuple(item) and tuple_size(item) == 2 end)
 
       # Should include expected rules
-      assert {"--acodec", "libopus"} in rules
+      assert {"--acodec", "copy"} in rules
       assert {"--pix-format", "yuv420p10le"} in rules
       assert {"--svt", "tune=0"} in rules
     end
   end
 
   describe "individual rule functions" do
-    test "audio/1 with EAC3 codec" do
+    test "audio/1 always returns copy" do
       video = Fixtures.create_test_video()
       rules = Rules.audio(video)
 
-      assert {"--acodec", "libopus"} in rules
-      assert {"--enc", "b:a=256k"} in rules
-      assert {"--enc", "ac=6"} in rules
+      assert rules == [{"--acodec", "copy"}]
     end
 
-    test "audio/1 with Opus codec returns empty" do
+    test "audio/1 with Opus codec returns copy" do
       video = Fixtures.create_opus_video()
       rules = Rules.audio(video)
-      assert rules == []
+      assert rules == [{"--acodec", "copy"}]
     end
 
-    test "audio/1 with Atmos returns empty" do
+    test "audio/1 with Atmos returns copy" do
       video = Fixtures.create_test_video(%{atmos: true})
       rules = Rules.audio(video)
-      assert rules == []
+      assert rules == [{"--acodec", "copy"}]
     end
 
     test "hdr/1 with HDR video" do
@@ -366,7 +355,7 @@ defmodule Reencodarr.RulesTest do
 
     test "Rules.build_args filters audio params from additional_params for CRF search" do
       video = Fixtures.create_test_video()
-      additional_params = ["--preset", "6", "--acodec", "libopus", "--enc", "ac=6"]
+      additional_params = ["--preset", "6", "--acodec", "copy", "--enc", "ac=6"]
 
       args = Rules.build_args(video, :crf_search, additional_params)
 
@@ -406,30 +395,7 @@ defmodule Reencodarr.RulesTest do
       # Should include audio codec
       assert "--acodec" in args
       acodec_index = Enum.find_index(args, &(&1 == "--acodec"))
-      assert Enum.at(args, acodec_index + 1) == "libopus"
-
-      # Should include audio bitrate
-      enc_indices =
-        Enum.with_index(args)
-        |> Enum.filter(fn {arg, _} -> arg == "--enc" end)
-        |> Enum.map(&elem(&1, 1))
-
-      bitrate_found =
-        Enum.any?(enc_indices, fn idx ->
-          value = Enum.at(args, idx + 1)
-          String.contains?(value, "b:a=")
-        end)
-
-      assert bitrate_found, "Should include audio bitrate argument"
-
-      # Should include audio channels
-      channels_found =
-        Enum.any?(enc_indices, fn idx ->
-          value = Enum.at(args, idx + 1)
-          String.contains?(value, "ac=")
-        end)
-
-      assert channels_found, "Should include audio channels argument"
+      assert Enum.at(args, acodec_index + 1) == "copy"
     end
 
     test "Rules.build_args handles multiple SVT flags correctly with HDR" do
@@ -516,14 +482,13 @@ defmodule Reencodarr.RulesTest do
   end
 
   describe "uncovered function coverage" do
-    test "opus_bitrate handles channels > 11" do
+    test "high channel count still copies audio" do
       video = Fixtures.create_test_video(%{max_audio_channels: 15, audio_codecs: ["DTS"]})
       result = Rules.build_args(video, :encode)
 
-      # Should use max bitrate of 510k for very high channel counts
-      assert "--enc" in result
-      bitrate_index = Enum.find_index(result, &(&1 == "--enc")) + 1
-      assert Enum.at(result, bitrate_index) == "b:a=510k"
+      assert "--acodec" in result
+      acodec_index = Enum.find_index(result, &(&1 == "--acodec"))
+      assert Enum.at(result, acodec_index + 1) == "copy"
     end
 
     test "cuda function" do
@@ -771,68 +736,11 @@ defmodule Reencodarr.RulesTest do
     end
   end
 
-  describe "audio/1 - edge cases for 100% coverage" do
-    test "handles zero channels gracefully" do
+  describe "audio/1 - edge cases" do
+    test "always copies audio regardless of channels" do
       video = Fixtures.create_test_video(%{max_audio_channels: 0})
       result = Rules.audio(video)
-
-      # Should return empty list for zero channels
-      assert result == []
-    end
-
-    test "handles nil channels gracefully" do
-      video = %{
-        atmos: false,
-        max_audio_channels: nil,
-        audio_codecs: ["aac"]
-      }
-
-      result = Rules.audio(video)
-      assert result == []
-    end
-
-    test "handles empty audio codecs list" do
-      video = %{
-        atmos: false,
-        max_audio_channels: 2,
-        audio_codecs: []
-      }
-
-      result = Rules.audio(video)
-      assert result == []
-    end
-
-    test "handles nil audio codecs" do
-      video = %{
-        atmos: false,
-        max_audio_channels: 2,
-        audio_codecs: nil
-      }
-
-      result = Rules.audio(video)
-      assert result == []
-    end
-
-    test "handles very high channel counts (>11)" do
-      video = Fixtures.create_test_video(%{max_audio_channels: 16})
-      args = Rules.build_args(video, :encode)
-
-      # Should include audio config with max bitrate
-      assert "--acodec" in args
-      assert "libopus" in args
-      assert "b:a=510k" in args
-    end
-
-    test "handles unmapped channel counts" do
-      # Test a channel count not in @recommended_opus_bitrates (12 channels)
-      video = Fixtures.create_test_video(%{max_audio_channels: 12})
-      args = Rules.build_args(video, :encode)
-
-      # Should use fallback calculation (12 * 64 = 768, but max is 510)
-      assert "--acodec" in args
-      assert "libopus" in args
-      # Should cap at 510k
-      assert "b:a=510k" in args
+      assert result == [{"--acodec", "copy"}]
     end
 
     test "handles plain map input (non-struct)" do
@@ -842,7 +750,7 @@ defmodule Reencodarr.RulesTest do
       }
 
       result = Rules.audio(video_map)
-      assert result == []
+      assert result == [{"--acodec", "copy"}]
     end
   end
 
@@ -895,29 +803,14 @@ defmodule Reencodarr.RulesTest do
     end
   end
 
-  describe "opus_bitrate calculation - edge cases" do
-    test "calculates bitrate for unmapped channel count" do
-      # Directly test the private function via public API
+  describe "audio/1 - all inputs return copy" do
+    test "copies audio regardless of channel count" do
       video = Fixtures.create_test_video(%{max_audio_channels: 10})
-      args = Rules.build_args(video, :encode)
-
-      # 10 channels * 64 = 640, capped at 510
-      assert "b:a=510k" in args
+      result = Rules.audio(video)
+      assert result == [{"--acodec", "copy"}]
     end
 
-    test "handles exactly 11 channels" do
-      video = Fixtures.create_test_video(%{max_audio_channels: 11})
-      args = Rules.build_args(video, :encode)
-
-      # Should use the 11-channel mapping
-      assert "--acodec" in args
-      assert "libopus" in args
-    end
-  end
-
-  describe "build_args/4 - invalid audio metadata behavior" do
-    test "returns empty list for invalid channel metadata" do
-      # Create a proper video struct but with invalid metadata
+    test "copies audio for invalid channel metadata" do
       {:ok, video} =
         Fixtures.video_fixture(%{
           max_audio_channels: nil,
@@ -925,14 +818,7 @@ defmodule Reencodarr.RulesTest do
         })
 
       result = Rules.audio(video)
-      assert result == []
-    end
-
-    test "returns empty list for zero channels" do
-      {:ok, video} = Fixtures.video_fixture(%{max_audio_channels: 0})
-
-      result = Rules.audio(video)
-      assert result == []
+      assert result == [{"--acodec", "copy"}]
     end
   end
 
@@ -1037,25 +923,21 @@ defmodule Reencodarr.RulesTest do
     end
   end
 
-  describe "3-channel upmix to 5.1" do
-    test "upmixes 3 channels to 5.1 with reduced bitrate" do
+  describe "audio copy for all channel configs" do
+    test "3-channel audio is copied" do
       video = Fixtures.create_test_video(%{max_audio_channels: 3})
       args = Rules.build_args(video, :encode)
 
-      # Should upmix to 6 channels
-      assert "ac=6" in args
-      # Should use 128k bitrate for 3-channel source
-      assert "b:a=128k" in args
+      assert "--acodec" in args
+      assert "copy" in args
     end
-  end
 
-  describe "5.1 channel layout workaround" do
-    test "applies channel layout workaround for 5.1" do
+    test "5.1 audio is copied" do
       video = Fixtures.create_test_video(%{max_audio_channels: 6})
       args = Rules.build_args(video, :encode)
 
-      # Should include the aformat workaround
-      assert Enum.any?(args, &String.contains?(&1, "aformat=channel_layouts=5.1"))
+      assert "--acodec" in args
+      assert "copy" in args
     end
   end
 
@@ -1127,15 +1009,62 @@ defmodule Reencodarr.RulesTest do
     end
   end
 
+  describe "vmaf_target/1" do
+    test "returns 92 for files larger than 80 GiB" do
+      video = %{size: 91 * 1024 * 1024 * 1024}
+      assert Rules.vmaf_target(video) == 92
+    end
+
+    test "returns 93 for files larger than 60 GiB" do
+      video = %{size: 65 * 1024 * 1024 * 1024}
+      assert Rules.vmaf_target(video) == 93
+    end
+
+    test "returns 94 for files larger than 40 GiB" do
+      video = %{size: 50 * 1024 * 1024 * 1024}
+      assert Rules.vmaf_target(video) == 94
+    end
+
+    test "returns 95 for files 40 GiB or smaller" do
+      video = %{size: 35 * 1024 * 1024 * 1024}
+      assert Rules.vmaf_target(video) == 95
+    end
+
+    test "returns 95 for files with no size" do
+      video = %{size: nil}
+      assert Rules.vmaf_target(video) == 95
+    end
+
+    test "returns 95 for videos without size field" do
+      video = %{}
+      assert Rules.vmaf_target(video) == 95
+    end
+
+    test "exact threshold at 80 GiB returns 93" do
+      video = %{size: 80 * 1024 * 1024 * 1024}
+      assert Rules.vmaf_target(video) == 93
+    end
+
+    test "exact threshold at 60 GiB returns 94" do
+      video = %{size: 60 * 1024 * 1024 * 1024}
+      assert Rules.vmaf_target(video) == 94
+    end
+
+    test "exact threshold at 40 GiB returns 95" do
+      video = %{size: 40 * 1024 * 1024 * 1024}
+      assert Rules.vmaf_target(video) == 95
+    end
+  end
+
   describe "parameter filtering by context" do
     test "crf_search context filters out audio params from additional_params" do
       video = Fixtures.create_test_video(%{max_audio_channels: 2})
-      additional = ["--acodec", "libopus", "--preset", "6"]
+      additional = ["--acodec", "copy", "--preset", "6"]
       result = Rules.build_args(video, :crf_search, additional)
 
       # Audio params should be filtered
       refute "--acodec" in result
-      refute "libopus" in result
+      refute "copy" in result
       # Non-audio params should be preserved
       assert "--preset" in result
     end
