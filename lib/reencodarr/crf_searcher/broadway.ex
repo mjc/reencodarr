@@ -136,15 +136,17 @@ defmodule Reencodarr.CrfSearcher.Broadway do
 
   @impl Broadway
   def handle_batch(_batcher, messages, _batch_info, _context) do
-    crf_quality = Application.get_env(:reencodarr, :crf_search_quality, 95)
     Logger.info("[CRF Broadway] Processing batch of #{length(messages)} videos")
 
     Enum.map(messages, fn message ->
+      # Use adaptive VMAF target based on file size
+      vmaf_target = Reencodarr.Rules.vmaf_target(message.data)
+
       Logger.info(
-        "[CRF Broadway] Processing video #{message.data.id}: #{Path.basename(message.data.path)}"
+        "[CRF Broadway] Processing video #{message.data.id}: #{Path.basename(message.data.path)} (VMAF target: #{vmaf_target})"
       )
 
-      case process_video_crf_search(message.data, crf_quality) do
+      case process_video_crf_search(message.data, vmaf_target) do
         :ok ->
           Logger.info("[CRF Broadway] Successfully queued video #{message.data.id}")
           message
