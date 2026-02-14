@@ -47,7 +47,7 @@ defmodule Reencodarr.RulesIntegrationTest do
       # Should include audio codec
       assert "--acodec" in args
       acodec_index = Enum.find_index(args, &(&1 == "--acodec"))
-      assert Enum.at(args, acodec_index + 1) == "libopus"
+      assert Enum.at(args, acodec_index + 1) == "copy"
 
       # Should include pixel format
       assert "--pix-format" in args
@@ -71,7 +71,7 @@ defmodule Reencodarr.RulesIntegrationTest do
       # Should include audio codec
       assert "--acodec" in args
       acodec_index = Enum.find_index(args, &(&1 == "--acodec"))
-      assert Enum.at(args, acodec_index + 1) == "libopus"
+      assert Enum.at(args, acodec_index + 1) == "copy"
     end
 
     test "CRF search excludes audio arguments", %{video: video} do
