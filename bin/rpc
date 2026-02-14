@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Usage: bin/rpc 'Reencodarr.Diagnostics.status()'
+NODE="${REENCODARR_NODE:-reencodarr@$(hostname -s)}"
+COOKIE="${REENCODARR_COOKIE:-reencodarr}"
+EXPR="$1"
+
+if [ -z "$EXPR" ]; then
+  echo "Usage: bin/rpc 'Reencodarr.Diagnostics.status()'"
+  exit 1
+fi
+
+# Auto-wrap with IO.puts if not already printing
+if [[ "$EXPR" != *"IO.puts"* && "$EXPR" != *"IO.inspect"* ]]; then
+  EXPR="$EXPR |> IO.puts()"
+fi
+
+exec elixir --sname "diag_$$" --cookie "$COOKIE" --rpc-eval "$NODE" "$EXPR"
