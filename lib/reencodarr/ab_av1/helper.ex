@@ -241,31 +241,41 @@ defmodule Reencodarr.AbAv1.Helper do
       Enum.reduce_while(attachment_types, :ok, fn mime_type, _acc ->
         Logger.debug("Deleting attachments with mime-type: #{mime_type}")
 
-        case System.cmd(
-               "mkvpropedit",
-               [cleaned_path, "--delete-attachment", "mime-type:#{mime_type}"],
-               stderr_to_stdout: true
-             ) do
-          {output, 0} ->
-            Logger.info("Successfully deleted #{mime_type} attachments: #{output}")
-            {:cont, :ok}
+        result =
+          System.cmd(
+            "mkvpropedit",
+            [cleaned_path, "--delete-attachment", "mime-type:#{mime_type}"],
+            stderr_to_stdout: true
+          )
 
-          # Exit code 2 means "no attachments of this type found" - that's OK
-          {output, 2} ->
-            Logger.debug("No #{mime_type} attachments found: #{output}")
-            {:cont, :ok}
-
-          {output, exit_code} ->
-            Logger.warning(
-              "mkvpropedit failed for #{mime_type}: exit #{exit_code}, output: #{output}"
-            )
-
-            # Continue even if one type fails
-            {:cont, :ok}
-        end
+        handle_mkvpropedit_result(result, mime_type)
       end)
 
     result
+  end
+
+  defp handle_mkvpropedit_result({output, 0}, mime_type) do
+    Logger.info("Successfully deleted #{mime_type} attachments: #{output}")
+    {:cont, :ok}
+  end
+
+  # Exit code 1 or 2 with "No attachment matched" is normal - no attachments of this type
+  defp handle_mkvpropedit_result({output, exit_code}, mime_type)
+       when exit_code in [1, 2] do
+    if String.contains?(output, "No attachment matched") or
+         String.contains?(output, "No changes were made") do
+      Logger.debug("No #{mime_type} attachments found")
+    else
+      Logger.warning("mkvpropedit warning for #{mime_type}: exit #{exit_code}, output: #{output}")
+    end
+
+    {:cont, :ok}
+  end
+
+  defp handle_mkvpropedit_result({output, exit_code}, mime_type) do
+    Logger.warning("mkvpropedit failed for #{mime_type}: exit #{exit_code}, output: #{output}")
+
+    {:cont, :ok}
   end
 
   @spec open_port([binary()]) :: port() | :error
