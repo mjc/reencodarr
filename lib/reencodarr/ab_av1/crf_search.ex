@@ -168,11 +168,18 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         output_buffer: []
     }
 
-    # Dashboard event
+    # Dashboard event with enhanced metadata
     Events.broadcast_event(:crf_search_started, %{
       video_id: video.id,
       filename: Path.basename(video.path),
-      target_vmaf: vmaf_percent
+      target_vmaf: vmaf_percent,
+      video_size: video.size,
+      width: video.width,
+      height: video.height,
+      hdr: video.hdr,
+      video_codecs: video.video_codecs,
+      audio_codecs: video.audio_codecs,
+      bitrate: video.bitrate
     })
 
     {:noreply, new_state}
@@ -896,7 +903,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       video_id: vmaf_data.video_id,
       filename: video_path && Path.basename(video_path),
       crf: vmaf_data.crf,
-      score: vmaf_data.score
+      score: vmaf_data.score,
+      percent: vmaf_data.percent
     })
   end
 

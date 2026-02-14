@@ -61,7 +61,9 @@ defmodule Reencodarr.AbAv1.Encode do
        vmaf: :none,
        output_file: :none,
        partial_line_buffer: "",
-       last_progress: nil
+       last_progress: nil,
+       output_lines: [],
+       encode_args: []
      }}
   end
 
@@ -96,7 +98,7 @@ defmodule Reencodarr.AbAv1.Encode do
   @impl true
   def handle_info(
         {port, {:data, {:eol, data}}},
-        %{port: port, partial_line_buffer: buffer} = state
+        %{port: port, partial_line_buffer: buffer, output_lines: output_lines} = state
       ) do
     full_line = buffer <> data
     ProgressParser.process_line(full_line, state)
@@ -104,7 +106,16 @@ defmodule Reencodarr.AbAv1.Encode do
     # Try to extract progress data from the line to store as last_progress
     updated_state = extract_and_store_progress(full_line, state)
 
-    {:noreply, %{updated_state | partial_line_buffer: ""}}
+    # Accumulate output lines (cap at 200 to avoid memory issues)
+    new_output_lines =
+      if length(output_lines) < 200 do
+        [full_line | output_lines]
+      else
+        # Keep most recent 200 lines
+        [full_line | Enum.take(output_lines, 199)]
+      end
+
+    {:noreply, %{updated_state | partial_line_buffer: "", output_lines: new_output_lines}}
   end
 
   @impl true
@@ -119,7 +130,13 @@ defmodule Reencodarr.AbAv1.Encode do
   @impl true
   def handle_info(
         {port, {:exit_status, exit_code}},
-        %{port: port, vmaf: vmaf, output_file: output_file} = state
+        %{
+          port: port,
+          vmaf: vmaf,
+          output_file: output_file,
+          encode_args: encode_args,
+          output_lines: output_lines
+        } = state
       ) do
     # Broadcast encoding completion to Dashboard Events
     pubsub_result = if exit_code == 0, do: :success, else: {:error, exit_code}
@@ -137,7 +154,7 @@ defmodule Reencodarr.AbAv1.Encode do
       if exit_code == 0 do
         notify_encoder_success(vmaf.video, output_file)
       else
-        notify_encoder_failure(vmaf.video, exit_code)
+        notify_encoder_failure(vmaf.video, exit_code, encode_args, output_lines)
       end
     end)
 
@@ -220,11 +237,20 @@ defmodule Reencodarr.AbAv1.Encode do
             _ -> nil
           end
 
-        # Broadcast encoding started to Dashboard Events (includes OS PID for health check)
+        # Broadcast encoding started to Dashboard Events (includes OS PID for health check + metadata)
         Events.broadcast_event(:encoding_started, %{
           video_id: vmaf.video.id,
           filename: Path.basename(vmaf.video.path),
-          os_pid: os_pid
+          os_pid: os_pid,
+          video_size: vmaf.video.size,
+          width: vmaf.video.width,
+          height: vmaf.video.height,
+          hdr: vmaf.video.hdr,
+          video_codecs: vmaf.video.video_codecs,
+          crf: vmaf.crf,
+          vmaf_score: vmaf.score,
+          predicted_percent: vmaf.percent,
+          predicted_savings: vmaf.savings
         })
 
         # Set up a periodic timer to check if we're still alive and potentially emit progress
@@ -236,7 +262,9 @@ defmodule Reencodarr.AbAv1.Encode do
           | port: port,
             video: vmaf.video,
             vmaf: vmaf,
-            output_file: output_file
+            output_file: output_file,
+            encode_args: args,
+            output_lines: []
         }
 
       {:error, reason} ->
@@ -286,7 +314,9 @@ defmodule Reencodarr.AbAv1.Encode do
         vmaf: :none,
         output_file: nil,
         partial_line_buffer: "",
-        last_progress: nil
+        last_progress: nil,
+        output_lines: [],
+        encode_args: []
     }
   end
 
@@ -295,8 +325,17 @@ defmodule Reencodarr.AbAv1.Encode do
     PostProcessor.process_encoding_success(video, output_file)
   end
 
-  defp notify_encoder_failure(video, exit_code) do
-    PostProcessor.process_encoding_failure(video, exit_code)
+  defp notify_encoder_failure(video, exit_code, encode_args, output_lines) do
+    # Build command context for failure diagnostics
+    # Reverse output_lines since we prepended them
+    context =
+      Reencodarr.FailureTracker.build_command_context(
+        encode_args,
+        Enum.reverse(output_lines),
+        %{exit_code: exit_code}
+      )
+
+    PostProcessor.process_encoding_failure(video, exit_code, context)
   end
 
   # Extract progress data from a line and store it for periodic updates
