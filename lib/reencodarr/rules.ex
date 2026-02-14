@@ -9,33 +9,6 @@ defmodule Reencodarr.Rules do
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Media
 
-  @opus_codec_tag "A_OPUS"
-
-  @recommended_opus_bitrates %{
-    # Mono - official recommendation
-    1 => 48,
-    # Stereo - official recommendation
-    2 => 96,
-    # 2.1 or 3.0 - (~53 kbps per channel)
-    3 => 160,
-    # 4.0 or 3.1 - (~48 kbps per channel)
-    4 => 192,
-    # 5.0 or 4.1 - (~45 kbps per channel)
-    5 => 224,
-    # 5.1 - official recommendation (~43 kbps per channel)
-    6 => 256,
-    # 6.1 - (~46 kbps per channel)
-    7 => 320,
-    # 7.1 - official recommendation (~56 kbps per channel)
-    8 => 450,
-    # 8.1 - (~56 kbps per channel)
-    9 => 500,
-    # 9.1 - Max supported bitrate
-    10 => 510,
-    # 9.2 - Max supported bitrate
-    11 => 510
-  }
-
   @doc """
   Build arguments for ab-av1 commands.
 
@@ -255,101 +228,10 @@ defmodule Reencodarr.Rules do
   end
 
   @spec audio(Media.Video.t() | map()) :: list()
-  def audio(
-        %Media.Video{atmos: atmos, max_audio_channels: channels, audio_codecs: audio_codecs} =
-          video
-      ) do
-    cond do
-      atmos ->
-        []
-
-      not (is_integer(channels) and channels > 0) or
-          not (is_list(audio_codecs) and not Enum.empty?(audio_codecs)) ->
-        Logger.debug(
-          "🔴 Invalid audio metadata for video #{video.id}: channels=#{inspect(channels)}, codecs=#{inspect(audio_codecs)}, path=#{video.path}"
-        )
-
-        []
-
-      channels == 0 ->
-        Logger.debug(
-          "🔴 Zero audio channels for video #{video.id}: channels=#{channels}, codecs=#{inspect(audio_codecs)}, path=#{video.path}"
-        )
-
-        []
-
-      @opus_codec_tag in audio_codecs ->
-        []
-
-      true ->
-        build_opus_audio_config(channels)
-    end
-  end
+  def audio(%Media.Video{}), do: [{"--acodec", "copy"}]
 
   # Handle map inputs (for tests that don't use proper structs)
-  def audio(%{} = _video_map), do: []
-
-  defp build_opus_audio_config(channels) do
-    # Log problematic inputs that would generate invalid audio arguments
-    cond do
-      is_nil(channels) ->
-        Logger.warning("🔴 Invalid audio config: channels is nil - this should not happen")
-        []
-
-      channels == 0 ->
-        Logger.warning("🔴 Invalid audio config: channels is 0 - indicates bad MediaInfo parsing")
-        []
-
-      channels < 0 ->
-        Logger.warning(
-          "🔴 Invalid audio config: channels is negative (#{channels}) - indicates corrupted data"
-        )
-
-        []
-
-      channels == 3 ->
-        [
-          {"--acodec", "libopus"},
-          {"--enc", "b:a=128k"},
-          # Upmix to 5.1
-          {"--enc", "ac=6"}
-        ]
-
-      true ->
-        base_config = [
-          {"--acodec", "libopus"},
-          {"--enc", "b:a=#{opus_bitrate(channels)}k"},
-          {"--enc", "ac=#{channels}"}
-        ]
-
-        # Add channel layout workaround for 5.1(side) -> 5.1 mapping
-        # This handles the common FFmpeg error: "Invalid channel layout 5.1(side) for specified mapping family -1"
-        if channels == 6 do
-          base_config ++ [{"--enc", "af=aformat=channel_layouts=5.1"}]
-        else
-          base_config
-        end
-    end
-  end
-
-  defp opus_bitrate(channels) when channels > 11 do
-    # For very high channel counts, use maximum supported bitrate
-    510
-  end
-
-  defp opus_bitrate(channels) do
-    # Use ~64 kbps per channel as fallback for unmapped channel counts
-    calculated_bitrate = Map.get(@recommended_opus_bitrates, channels, min(510, channels * 64))
-
-    # Log if we calculate a problematic bitrate
-    if calculated_bitrate <= 0 do
-      Logger.warning(
-        "🔴 Invalid opus bitrate calculated: #{calculated_bitrate} for #{channels} channels"
-      )
-    end
-
-    calculated_bitrate
-  end
+  def audio(%{} = _video_map), do: [{"--acodec", "copy"}]
 
   @spec cuda(any()) :: list()
   def cuda(_) do
@@ -456,4 +338,31 @@ defmodule Reencodarr.Rules do
   def video(_) do
     [{"--pix-format", "yuv420p10le"}]
   end
+
+  @doc """
+  Determines the target VMAF score based on file size.
+
+  Larger files get lower VMAF targets to achieve better compression
+  while maintaining acceptable quality:
+  - >80 GiB: VMAF 92
+  - >60 GiB: VMAF 93
+  - >40 GiB: VMAF 94
+  - Default: VMAF 95
+
+  ## Examples
+
+      iex> Reencodarr.Rules.vmaf_target(%{size: 100 * 1024 * 1024 * 1024})
+      92
+
+      iex> Reencodarr.Rules.vmaf_target(%{size: 50 * 1024 * 1024 * 1024})
+      94
+
+      iex> Reencodarr.Rules.vmaf_target(%{size: 10 * 1024 * 1024 * 1024})
+      95
+  """
+  @spec vmaf_target(map()) :: integer()
+  def vmaf_target(%{size: size}) when is_integer(size) and size > 80 * 1024 * 1024 * 1024, do: 92
+  def vmaf_target(%{size: size}) when is_integer(size) and size > 60 * 1024 * 1024 * 1024, do: 93
+  def vmaf_target(%{size: size}) when is_integer(size) and size > 40 * 1024 * 1024 * 1024, do: 94
+  def vmaf_target(_video), do: 95
 end

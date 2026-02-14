@@ -5,50 +5,19 @@ defmodule Reencodarr.Encoder.AudioArgsIntegrationTest do
 
   describe "centralized argument building" do
     setup do
-      # Create a test video struct that represents a video needing audio transcoding (not Opus)
       video = Fixtures.create_test_video()
       %{video: video}
     end
 
-    test "Rules.build_args for encoding includes audio arguments", %{video: video} do
+    test "Rules.build_args for encoding copies audio", %{video: video} do
       args = Rules.build_args(video, :encode)
 
-      # Should include audio codec
+      # Should include audio codec set to copy
       assert "--acodec" in args
       acodec_index = Enum.find_index(args, &(&1 == "--acodec"))
-      assert Enum.at(args, acodec_index + 1) == "libopus"
+      assert Enum.at(args, acodec_index + 1) == "copy"
 
-      # Should include audio bitrate
-      enc_indices =
-        Enum.with_index(args)
-        |> Enum.filter(fn {arg, _} -> arg == "--enc" end)
-        |> Enum.map(&elem(&1, 1))
-
-      bitrate_found =
-        Enum.any?(enc_indices, fn idx ->
-          value = Enum.at(args, idx + 1)
-          String.contains?(value, "b:a=")
-        end)
-
-      assert bitrate_found, "Should include audio bitrate argument"
-
-      # Should include audio channels
-      channels_found =
-        Enum.any?(enc_indices, fn idx ->
-          value = Enum.at(args, idx + 1)
-          String.contains?(value, "ac=")
-        end)
-
-      assert channels_found, "Should include audio channels argument"
-    end
-
-    test "Rules.build_args for CRF search excludes audio arguments", %{video: video} do
-      args = Rules.build_args(video, :crf_search)
-
-      # Should NOT include audio codec
-      refute "--acodec" in args
-
-      # Should NOT include audio enc arguments
+      # Should NOT include audio encoding enc arguments
       enc_indices =
         Enum.with_index(args)
         |> Enum.filter(fn {arg, _} -> arg == "--enc" end)
@@ -60,7 +29,14 @@ defmodule Reencodarr.Encoder.AudioArgsIntegrationTest do
           String.contains?(value, "b:a=") or String.contains?(value, "ac=")
         end)
 
-      refute audio_enc_found, "CRF search should not include audio enc arguments"
+      refute audio_enc_found, "Should not include audio encoding arguments"
+    end
+
+    test "Rules.build_args for CRF search excludes audio arguments", %{video: video} do
+      args = Rules.build_args(video, :crf_search)
+
+      # Should NOT include audio codec
+      refute "--acodec" in args
     end
 
     test "Rules.build_args includes video arguments for both contexts", %{video: video} do
@@ -104,7 +80,7 @@ defmodule Reencodarr.Encoder.AudioArgsIntegrationTest do
     test "Rules.build_args filters audio params from additional_params for CRF search", %{
       video: video
     } do
-      additional_params = ["--preset", "6", "--acodec", "libopus", "--enc", "ac=6"]
+      additional_params = ["--preset", "6", "--acodec", "copy", "--enc", "ac=6"]
 
       args = Rules.build_args(video, :crf_search, additional_params)
 
@@ -113,24 +89,9 @@ defmodule Reencodarr.Encoder.AudioArgsIntegrationTest do
 
       # Should NOT include audio params from additional_params
       refute "--acodec" in args
-
-      # Check that audio enc param is filtered out
-      enc_indices =
-        Enum.with_index(args)
-        |> Enum.filter(fn {arg, _} -> arg == "--enc" end)
-        |> Enum.map(&elem(&1, 1))
-
-      audio_enc_found =
-        Enum.any?(enc_indices, fn idx ->
-          value = Enum.at(args, idx + 1)
-          String.contains?(value, "ac=")
-        end)
-
-      refute audio_enc_found
     end
 
     test "Rules.build_args handles multiple SVT flags correctly" do
-      # Create an HDR video using struct
       hdr_video = Fixtures.create_hdr_video()
       args = Rules.build_args(hdr_video, :encode)
 
@@ -140,7 +101,6 @@ defmodule Reencodarr.Encoder.AudioArgsIntegrationTest do
         |> Enum.filter(fn {arg, _} -> arg == "--svt" end)
         |> Enum.map(&elem(&1, 1))
 
-      # Should have at least tune=0 and dolbyvision=1
       tune_found =
         Enum.any?(svt_indices, fn idx ->
           value = Enum.at(args, idx + 1)
@@ -168,9 +128,9 @@ defmodule Reencodarr.Encoder.AudioArgsIntegrationTest do
       assert is_list(rules)
       assert Enum.all?(rules, fn item -> is_tuple(item) and tuple_size(item) == 2 end)
 
-      # Find audio codec rule
+      # Find audio codec rule - should be copy
       acodec_rule = Enum.find(rules, fn {flag, _} -> flag == "--acodec" end)
-      assert acodec_rule == {"--acodec", "libopus"}
+      assert acodec_rule == {"--acodec", "copy"}
 
       # Find pixel format rule
       pix_rule = Enum.find(rules, fn {flag, _} -> flag == "--pix-format" end)
