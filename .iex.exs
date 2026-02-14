@@ -1,5 +1,12 @@
 IEx.configure(auto_reload: true)
 
+# Enable distribution for remote diagnostics (bin/rpc)
+if !Node.alive?() do
+  {:ok, host} = :inet.gethostname()
+  Node.start(:"reencodarr@#{host}", :shortnames)
+  Node.set_cookie(:reencodarr)
+end
+
 # Core modules
 alias Reencodarr.{Media, Repo, Rules, Services, Sync, Config}
 alias Reencodarr.Media.{Video, Library, Vmaf}

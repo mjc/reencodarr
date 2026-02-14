@@ -28,6 +28,7 @@
             erlang
             elixir
             ffmpeg-full
+            gpac
             fd
             curl
             bash
@@ -74,6 +75,7 @@
               # Video processing tools for CI/dev
               pkgs.ab-av1
               pkgs.mediainfo
+              pkgs.gpac
               # GitHub Actions local testing
               pkgs.act
             ]
