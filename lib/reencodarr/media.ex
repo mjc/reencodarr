@@ -921,6 +921,38 @@ defmodule Reencodarr.Media do
   end
 
   @doc """
+  Get dashboard statistics with safe timeout handling.
+
+  Returns aggregated stats or defaults on timeout/error.
+  """
+  @spec get_dashboard_stats(integer()) :: map()
+  def get_dashboard_stats(timeout \\ 5_000) do
+    query = SharedQueries.aggregated_stats_query()
+
+    Repo.one(query, timeout: timeout)
+  rescue
+    DBConnection.ConnectionError -> get_default_stats()
+  catch
+    :exit, {:timeout, _} -> get_default_stats()
+    :exit, {%DBConnection.ConnectionError{}, _} -> get_default_stats()
+  end
+
+  defp get_default_stats do
+    %{
+      total_videos: 0,
+      total_size_gb: 0.0,
+      needs_analysis: 0,
+      analyzed: 0,
+      crf_searching: 0,
+      crf_searched: 0,
+      encoding: 0,
+      encoded: 0,
+      failed: 0,
+      total_savings_gb: 0.0
+    }
+  end
+
+  @doc """
   Debug function to show how the encoding queue alternates between libraries.
   """
   def debug_encoding_queue_by_library(limit \\ 10) do

@@ -1,4 +1,4 @@
-<.header class="bg-white shadow p-4 mb-4">
+<.header class="bg-gray-800 shadow p-4 mb-4 rounded-lg border border-gray-700">
   Listing Configs
   <:actions>
     <.link patch={~p"/configs/new"}>
@@ -7,21 +7,23 @@
   </:actions>
 </.header>
 
-<div class="card bg-white shadow p-4 rounded-lg">
+<div class="card bg-gray-800 shadow p-4 rounded-lg border border-gray-700">
   <.table
     id="configs"
     rows={@streams.configs}
     row_click={fn {_id, config} -> JS.navigate(~p"/configs/#{config}") end}
   >
     <:col :let={{_id, config}} label="Url">{config.url}</:col>
-    <:col :let={{_id, config}} label="Api key">{config.api_key}</:col>
+    <:col :let={{_id, config}} label="Api key">
+      {"****" <> String.slice(config.api_key || "", -4..-1//1)}
+    </:col>
     <:col :let={{_id, config}} label="Enabled">{config.enabled}</:col>
     <:col :let={{_id, config}} label="Service type">{config.service_type}</:col>
     <:action :let={{_id, config}}>
       <div class="sr-only">
         <.link navigate={~p"/configs/#{config}"}>Show</.link>
       </div>
-      <.link patch={~p"/configs/#{config}/edit"} class="text-indigo-600 hover:text-indigo-900">
+      <.link patch={~p"/configs/#{config}/edit"} class="text-indigo-400 hover:text-indigo-300">
         Edit
       </.link>
     </:action>
@@ -29,7 +31,7 @@
       <.link
         phx-click={JS.push("delete", value: %{id: config.id}) |> hide("##{id}")}
         data-confirm="Are you sure?"
-        class="text-red-600 hover:text-red-900"
+        class="text-red-400 hover:text-red-300"
       >
         Delete
       </.link>

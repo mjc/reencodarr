@@ -28,24 +28,26 @@ defmodule ReencodarrWeb.Router do
   scope "/", ReencodarrWeb do
     pipe_through :browser
 
-    live "/", DashboardLive, :index
-    live "/broadway", BroadwayLive, :index
-    live "/failures", FailuresLive, :index
-    live "/rules", RulesLive, :index
+    live_session :default, layout: {ReencodarrWeb.Layouts, :app} do
+      live "/", DashboardLive, :index
+      live "/broadway", BroadwayLive, :index
+      live "/failures", FailuresLive, :index
+      live "/rules", RulesLive, :index
 
-    live "/libraries", LibraryLive.Index, :index
-    live "/libraries/new", LibraryLive.Index, :new
-    live "/libraries/:id/edit", LibraryLive.Index, :edit
+      live "/libraries", LibraryLive.Index, :index
+      live "/libraries/new", LibraryLive.Index, :new
+      live "/libraries/:id/edit", LibraryLive.Index, :edit
 
-    live "/libraries/:id", LibraryLive.Show, :show
-    live "/libraries/:id/show/edit", LibraryLive.Show, :edit
+      live "/libraries/:id", LibraryLive.Show, :show
+      live "/libraries/:id/show/edit", LibraryLive.Show, :edit
 
-    live "/configs", ConfigLive.Index, :index
-    live "/configs/new", ConfigLive.Index, :new
-    live "/configs/:id/edit", ConfigLive.Index, :edit
+      live "/configs", ConfigLive.Index, :index
+      live "/configs/new", ConfigLive.Index, :new
+      live "/configs/:id/edit", ConfigLive.Index, :edit
 
-    live "/configs/:id", ConfigLive.Show, :show
-    live "/configs/:id/show/edit", ConfigLive.Show, :edit
+      live "/configs/:id", ConfigLive.Show, :show
+      live "/configs/:id/show/edit", ConfigLive.Show, :edit
+    end
   end
 
   scope "/api", ReencodarrWeb do

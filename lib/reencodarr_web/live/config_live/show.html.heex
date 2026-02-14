@@ -10,7 +10,7 @@
 
 <.list>
   <:item title="Url">{@config.url}</:item>
-  <:item title="Api key">{@config.api_key}</:item>
+  <:item title="Api key">{"****" <> String.slice(@config.api_key || "", -4..-1//1)}</:item>
   <:item title="Enabled">{@config.enabled}</:item>
   <:item title="Service type">{@config.service_type}</:item>
 </.list>

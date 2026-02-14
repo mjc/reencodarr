@@ -1,6 +1,52 @@
-<main class="flex-1 overflow-y-auto p-6 bg-gray-100 dark:bg-gray-900">
-  <div class="mx-auto max-w-7xl">
-    <.flash_group flash={@flash} />
-    {@inner_content}
+<nav class="bg-gray-900 border-b border-gray-700">
+  <div class="mx-auto max-w-7xl px-4">
+    <div class="flex items-center justify-between h-14">
+      <div class="flex items-center gap-2">
+        <img src="/images/favicon.svg" alt="Reencodarr" class="w-8 h-8" />
+        <.link
+          navigate={~p"/"}
+          class="text-white font-bold text-lg hover:text-purple-300 transition-colors"
+        >
+          Reencodarr
+        </.link>
+      </div>
+      <div class="flex items-center gap-1">
+        <.link
+          navigate={~p"/"}
+          class="text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-2 rounded text-sm transition-colors"
+        >
+          Dashboard
+        </.link>
+        <.link
+          navigate={~p"/failures"}
+          class="text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-2 rounded text-sm transition-colors"
+        >
+          Failures
+        </.link>
+        <.link
+          navigate={~p"/rules"}
+          class="text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-2 rounded text-sm transition-colors"
+        >
+          Rules
+        </.link>
+        <.link
+          navigate={~p"/libraries"}
+          class="text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-2 rounded text-sm transition-colors"
+        >
+          Libraries
+        </.link>
+        <.link
+          navigate={~p"/configs"}
+          class="text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-2 rounded text-sm transition-colors"
+        >
+          Configs
+        </.link>
+      </div>
+    </div>
   </div>
+</nav>
+
+<main class="flex-1 overflow-y-auto">
+  <.flash_group flash={@flash} />
+  {@inner_content}
 </main>
