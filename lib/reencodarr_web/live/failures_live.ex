@@ -170,18 +170,6 @@ defmodule ReencodarrWeb.FailuresLive do
     end
   end
 
-  defp retry_video(video_id) do
-    case Media.get_video(video_id) do
-      nil ->
-        :ok
-
-      video ->
-        Media.update_video(video, %{bitrate: nil})
-        Media.mark_as_needs_analysis(video)
-        Media.resolve_video_failures(video.id)
-    end
-  end
-
   @impl true
   def handle_event("filter_failures", %{"filter" => filter}, socket) do
     socket =
@@ -241,6 +229,20 @@ defmodule ReencodarrWeb.FailuresLive do
       |> load_failures_data()
 
     {:noreply, socket}
+  end
+
+  # Private helper functions
+
+  defp retry_video(video_id) do
+    case Media.get_video(video_id) do
+      nil ->
+        :ok
+
+      video ->
+        Media.update_video(video, %{bitrate: nil})
+        Media.mark_as_needs_analysis(video)
+        Media.resolve_video_failures(video.id)
+    end
   end
 
   @impl true

@@ -43,7 +43,8 @@ defmodule ReencodarrWeb.ConfigLiveTest do
         {:ok, _index_live, html} = live(conn, ~p"/configs")
 
         assert html =~ "Listing Configs"
-        assert html =~ config.api_key
+        # API key is masked in the listing - only last 4 chars shown
+        assert html =~ "****" <> String.slice(config.api_key, -4..-1//1)
       end)
     end
 
@@ -66,7 +67,8 @@ defmodule ReencodarrWeb.ConfigLiveTest do
 
         html = render(index_live)
         assert html =~ "Config created successfully"
-        assert html =~ "some api_key"
+        # API key is masked - only last 4 chars shown
+        assert html =~ "****_key"
       end)
     end
 
@@ -91,7 +93,8 @@ defmodule ReencodarrWeb.ConfigLiveTest do
 
         html = render(index_live)
         assert html =~ "Config updated successfully"
-        assert html =~ "some updated api_key"
+        # API key is masked - only last 4 chars shown
+        assert html =~ "****_key"
       end)
     end
 
@@ -113,7 +116,8 @@ defmodule ReencodarrWeb.ConfigLiveTest do
         {:ok, _show_live, html} = live(conn, ~p"/configs/#{config}")
 
         assert html =~ "Show Config"
-        assert html =~ config.api_key
+        # API key is masked - only last 4 chars shown
+        assert html =~ "****" <> String.slice(config.api_key, -4..-1//1)
       end)
     end
 
@@ -138,7 +142,8 @@ defmodule ReencodarrWeb.ConfigLiveTest do
 
         html = render(show_live)
         assert html =~ "Config updated successfully"
-        assert html =~ "some updated api_key"
+        # API key is masked - only last 4 chars shown
+        assert html =~ "****_key"
       end)
     end
   end

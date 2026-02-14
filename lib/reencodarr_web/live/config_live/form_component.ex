@@ -20,7 +20,7 @@ defmodule ReencodarrWeb.ConfigLive.FormComponent do
         phx-submit="save"
       >
         <.input field={@form[:url]} type="text" label="Url" />
-        <.input field={@form[:api_key]} type="text" label="Api key" />
+        <.input field={@form[:api_key]} type="password" label="Api key" autocomplete="off" />
         <.input field={@form[:enabled]} type="checkbox" label="Enabled" />
         <.input
           field={@form[:service_type]}
