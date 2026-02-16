@@ -10,6 +10,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   alias Reencodarr.CrfSearcher.Broadway, as: CrfSearcherBroadway
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.Dashboard.State, as: DashboardState
   alias Reencodarr.Formatters
   alias Reencodarr.Media.VideoQueries
 
@@ -52,24 +53,51 @@ defmodule ReencodarrWeb.DashboardLive do
       })
 
     # Setup subscriptions and processes if connected
-    if connected?(socket) do
-      # Subscribe to the single clean dashboard channel
-      Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
-      # Subscribe to pipeline state changes
-      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "analyzer")
-      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
-      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
-      # Request current status from all services with a small delay to let services initialize
-      Process.send_after(self(), :request_status, 100)
-      # Start periodic updates for queue counts and service status
-      schedule_periodic_update()
-      # Fetch the initial queue counts/items asynchronously so mount returns quickly
-      request_dashboard_queue_async()
-      # Request throughput async
-      request_analyzer_throughput()
-      # Fetch dashboard stats async
-      request_dashboard_stats_async()
-    end
+    socket =
+      if connected?(socket) do
+        # Subscribe to the single clean dashboard channel
+        Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+        # Subscribe to pipeline state changes
+        Phoenix.PubSub.subscribe(Reencodarr.PubSub, "analyzer")
+        Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
+        Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
+
+        # Hydrate from persisted dashboard state (if available - not in test mode)
+        socket =
+          case Process.whereis(DashboardState) do
+            nil ->
+              socket
+
+            _pid ->
+              persisted = DashboardState.get_state()
+
+              assign(socket,
+                crf_search_video: persisted.crf_search_video,
+                crf_search_results: persisted.crf_search_results,
+                crf_search_sample: persisted.crf_search_sample,
+                crf_progress: persisted.crf_progress,
+                encoding_video: persisted.encoding_video,
+                encoding_vmaf: persisted.encoding_vmaf,
+                encoding_progress: persisted.encoding_progress,
+                service_status: persisted.service_status
+              )
+          end
+
+        # Request current status from all services with a small delay to let services initialize
+        Process.send_after(self(), :request_status, 100)
+        # Start periodic updates for queue counts and service status
+        schedule_periodic_update()
+        # Fetch the initial queue counts/items asynchronously so mount returns quickly
+        request_dashboard_queue_async()
+        # Request throughput async
+        request_analyzer_throughput()
+        # Fetch dashboard stats async
+        request_dashboard_stats_async()
+
+        socket
+      else
+        socket
+      end
 
     {:ok, socket}
   end
@@ -670,6 +698,7 @@ defmodule ReencodarrWeb.DashboardLive do
   attr :sample, :map, required: true
   attr :progress, :any, required: true
   attr :queue_count, :integer, required: true
+  attr :queue_items, :list, required: true
   attr :status, :atom, required: true
 
   defp crf_search_panel(assigns) do
@@ -740,6 +769,16 @@ defmodule ReencodarrWeb.DashboardLive do
           <% end %>
         </div>
       <% end %>
+      
+    <!-- Always show next-up videos -->
+      <%= if length(@queue_items) > 0 do %>
+        <div class="text-xs text-gray-500 space-y-0.5 mt-2 pt-2 border-t border-gray-800">
+          <div class="text-gray-600 mb-0.5">Next up ({@queue_count}):</div>
+          <%= for video <- Enum.take(@queue_items, 3) do %>
+            <div class="truncate">{Path.basename(video.path)}</div>
+          <% end %>
+        </div>
+      <% end %>
     </div>
     """
   end
@@ -749,6 +788,7 @@ defmodule ReencodarrWeb.DashboardLive do
   attr :vmaf, :map, required: true
   attr :progress, :any, required: true
   attr :queue_count, :integer, required: true
+  attr :queue_items, :list, required: true
   attr :status, :atom, required: true
 
   defp encoding_panel(assigns) do
@@ -818,6 +858,16 @@ defmodule ReencodarrWeb.DashboardLive do
           <span>Queue: {@queue_count}</span>
           <%= if @status == :idle do %>
             <span class="ml-2">• Idle</span>
+          <% end %>
+        </div>
+      <% end %>
+      
+    <!-- Always show next-up videos -->
+      <%= if length(@queue_items) > 0 do %>
+        <div class="text-xs text-gray-500 space-y-0.5 mt-2 pt-2 border-t border-gray-800">
+          <div class="text-gray-600 mb-0.5">Next up ({@queue_count}):</div>
+          <%= for vmaf <- Enum.take(@queue_items, 3) do %>
+            <div class="truncate">{Path.basename(vmaf.video.path)}</div>
           <% end %>
         </div>
       <% end %>
@@ -1092,6 +1142,7 @@ defmodule ReencodarrWeb.DashboardLive do
               sample={@crf_search_sample}
               progress={@crf_progress}
               queue_count={@queue_counts.crf_searcher}
+              queue_items={@queue_items.crf_searcher}
               status={@service_status.crf_searcher}
             />
           </div>
@@ -1101,6 +1152,7 @@ defmodule ReencodarrWeb.DashboardLive do
               vmaf={@encoding_vmaf}
               progress={@encoding_progress}
               queue_count={@queue_counts.encoder}
+              queue_items={@queue_items.encoder}
               status={@service_status.encoder}
             />
           </div>
