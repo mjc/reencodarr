@@ -1342,7 +1342,7 @@ defmodule Reencodarr.MediaTest do
       # For now, just verify it returns the expected tuple format
       result = Media.delete_videos_with_nonexistent_paths()
 
-      assert match?({:ok, {_, _}}, result)
+      assert match?({:ok, _count}, result)
     end
   end
 

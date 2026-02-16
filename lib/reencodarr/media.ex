@@ -484,15 +484,69 @@ defmodule Reencodarr.Media do
   end
 
   def delete_videos_with_nonexistent_paths do
-    video_ids = get_video_ids_with_missing_files()
-    delete_videos_by_ids(video_ids)
+    Logger.info("Starting cleanup of videos with nonexistent paths...")
+
+    deleted_count = delete_missing_files_batched(0, 0)
+
+    Logger.info("Cleanup complete: deleted #{deleted_count} videos with nonexistent paths")
+    {:ok, deleted_count}
   end
 
-  defp get_video_ids_with_missing_files do
-    from(v in Video, select: %{id: v.id, path: v.path})
-    |> Repo.all()
-    |> Enum.filter(&file_missing?/1)
-    |> Enum.map(& &1.id)
+  defp delete_missing_files_batched(last_id, total_deleted) do
+    batch =
+      from(v in Video,
+        where: v.id > ^last_id,
+        order_by: [asc: v.id],
+        limit: 500,
+        select: %{id: v.id, path: v.path}
+      )
+      |> Repo.all()
+
+    case batch do
+      [] ->
+        total_deleted
+
+      videos ->
+        missing_ids = find_missing_file_ids(videos)
+        new_total = delete_missing_batch(missing_ids, total_deleted, List.last(videos).id)
+        delete_missing_files_batched(List.last(videos).id, new_total)
+    end
+  end
+
+  defp find_missing_file_ids(videos) do
+    videos
+    |> Task.async_stream(
+      fn video -> {video.id, file_missing?(video)} end,
+      max_concurrency: 20,
+      timeout: 10_000,
+      on_timeout: :kill_task
+    )
+    |> Enum.flat_map(fn
+      {:ok, {id, true}} -> [id]
+      _ -> []
+    end)
+  end
+
+  defp delete_missing_batch([], total_deleted, _last_id), do: total_deleted
+
+  defp delete_missing_batch(missing_ids, total_deleted, last_id) do
+    Repo.transaction(fn ->
+      from(v in Vmaf, where: v.video_id in ^missing_ids) |> Repo.delete_all()
+      {count, _} = from(v in Video, where: v.id in ^missing_ids) |> Repo.delete_all()
+      count
+    end)
+    |> case do
+      {:ok, count} ->
+        Logger.info(
+          "Deleted #{count} missing videos (#{total_deleted + count} total, last_id: #{last_id})"
+        )
+
+        total_deleted + count
+
+      {:error, reason} ->
+        Logger.error("Failed to delete batch: #{inspect(reason)}")
+        total_deleted
+    end
   end
 
   defp file_missing?(%{path: path}), do: not File.exists?(path)
