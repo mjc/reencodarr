@@ -55,12 +55,10 @@ defmodule ReencodarrWeb.DashboardLive do
     # Setup subscriptions and processes if connected
     socket =
       if connected?(socket) do
-        # Subscribe to the single clean dashboard channel
+        # Subscribe to dashboard events (for sync, analyzer, health alerts, etc.)
         Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
-        # Subscribe to pipeline state changes
-        Phoenix.PubSub.subscribe(Reencodarr.PubSub, "analyzer")
-        Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
-        Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
+        # Subscribe to consolidated state changes from Dashboard.State
+        Phoenix.PubSub.subscribe(Reencodarr.PubSub, DashboardState.state_channel())
 
         # Hydrate from persisted dashboard state (if available - not in test mode)
         socket =
@@ -108,123 +106,22 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   # All handle_info callbacks grouped together
-  @impl true
-  def handle_info({:analyzer_started, _data}, socket) do
-    current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, :analyzer, :running)
-    {:noreply, assign(socket, :service_status, updated_status)}
-  end
 
-  # Pipeline state change events - use actual states from PipelineStateMachine
+  # Consolidated state update from Dashboard.State (single source of truth).
+  # Replaces independent handlers for encoding/CRF/service-status events.
   @impl true
-  def handle_info({:analyzer, state}, socket) when is_atom(state) do
-    current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, :analyzer, state)
-    {:noreply, assign(socket, :service_status, updated_status)}
-  end
-
-  @impl true
-  def handle_info({:crf_searcher, state}, socket) when is_atom(state) do
-    current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, :crf_searcher, state)
-    {:noreply, assign(socket, :service_status, updated_status)}
-  end
-
-  @impl true
-  def handle_info({:encoder, state}, socket) when is_atom(state) do
-    current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, :encoder, state)
-    {:noreply, assign(socket, :service_status, updated_status)}
-  end
-
-  @impl true
-  def handle_info({:crf_search_started, data}, socket) do
-    # Store video metadata and reset results accumulator
+  def handle_info({:dashboard_state_changed, state}, socket) do
     {:noreply,
      assign(socket,
-       crf_search_video: data,
-       crf_search_results: [],
-       crf_search_sample: nil
+       crf_search_video: state.crf_search_video,
+       crf_search_results: state.crf_search_results,
+       crf_search_sample: state.crf_search_sample,
+       crf_progress: state.crf_progress,
+       encoding_video: state.encoding_video,
+       encoding_vmaf: state.encoding_vmaf,
+       encoding_progress: state.encoding_progress,
+       service_status: state.service_status
      )}
-  end
-
-  @impl true
-  def handle_info({:crf_search_progress, data}, socket) do
-    progress = %{
-      percent: calculate_progress_percent(data),
-      filename: data[:filename],
-      crf: data[:crf],
-      score: data[:score]
-    }
-
-    # Update status to processing since we're receiving active progress
-    current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, :crf_searcher, :processing)
-
-    socket
-    |> assign(:crf_progress, progress)
-    |> assign(:service_status, updated_status)
-    |> then(&{:noreply, &1})
-  end
-
-  @impl true
-  def handle_info({:encoding_started, data}, socket) do
-    # Store video + vmaf metadata for active work panel
-    encoding_video = %{
-      video_id: data.video_id,
-      filename: data.filename,
-      video_size: data[:video_size],
-      width: data[:width],
-      height: data[:height],
-      hdr: data[:hdr],
-      video_codecs: data[:video_codecs]
-    }
-
-    encoding_vmaf = %{
-      crf: data[:crf],
-      vmaf_score: data[:vmaf_score],
-      predicted_percent: data[:predicted_percent],
-      predicted_savings: data[:predicted_savings]
-    }
-
-    progress = %{
-      percent: 0,
-      video_id: data.video_id,
-      filename: data.filename
-    }
-
-    # Update status to processing since encoding is actually running
-    current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, :encoder, :processing)
-
-    socket
-    |> assign(:encoding_progress, progress)
-    |> assign(:encoding_video, encoding_video)
-    |> assign(:encoding_vmaf, encoding_vmaf)
-    |> assign(:service_status, updated_status)
-    |> then(&{:noreply, &1})
-  end
-
-  @impl true
-  def handle_info({:encoding_progress, data}, socket) do
-    progress = %{
-      percent: calculate_progress_percent(data),
-      filename: data[:filename],
-      fps: data[:fps],
-      eta: data[:eta],
-      time_unit: data[:time_unit],
-      timestamp: data[:timestamp],
-      video_id: data[:video_id]
-    }
-
-    # Update status to processing since we're receiving active progress
-    current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, :encoder, :processing)
-
-    socket
-    |> assign(:encoding_progress, progress)
-    |> assign(:service_status, updated_status)
-    |> then(&{:noreply, &1})
   end
 
   @impl true
@@ -236,14 +133,7 @@ defmodule ReencodarrWeb.DashboardLive do
       batch_size: data[:batch_size]
     }
 
-    # Update status to processing since we're receiving active progress
-    current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, :analyzer, :processing)
-
-    socket
-    |> assign(:analyzer_progress, progress)
-    |> assign(:service_status, updated_status)
-    |> then(&{:noreply, &1})
+    {:noreply, assign(socket, :analyzer_progress, progress)}
   end
 
   @impl true
@@ -279,63 +169,6 @@ defmodule ReencodarrWeb.DashboardLive do
       end
 
     {:noreply, put_flash(socket, :error, message)}
-  end
-
-  # Completion and reset handlers
-  @impl true
-  def handle_info({:encoding_completed, _data}, socket) do
-    # Reset status back to idle when encoding completes
-    current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, :encoder, :idle)
-
-    socket
-    |> assign(:encoding_progress, :none)
-    |> assign(:encoding_video, nil)
-    |> assign(:encoding_vmaf, nil)
-    |> assign(:service_status, updated_status)
-    |> then(&{:noreply, &1})
-  end
-
-  @impl true
-  def handle_info({event, _data}, socket) when event in [:crf_search_completed] do
-    # Reset status back to idle when CRF search completes
-    current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, :crf_searcher, :idle)
-
-    socket
-    |> assign(:crf_progress, :none)
-    |> assign(:crf_search_video, nil)
-    |> assign(:crf_search_results, [])
-    |> assign(:crf_search_sample, nil)
-    |> assign(:service_status, updated_status)
-    |> then(&{:noreply, &1})
-  end
-
-  # Special CRF search event handlers
-  @impl true
-  def handle_info({:crf_search_encoding_sample, data}, socket) do
-    # Store current sample info for active work display
-    sample_info = %{
-      crf: data.crf,
-      sample_num: data[:sample_num],
-      total_samples: data[:total_samples]
-    }
-
-    progress = %{filename: data.filename, crf: data.crf, percent: 0}
-    {:noreply, assign(socket, crf_progress: progress, crf_search_sample: sample_info)}
-  end
-
-  @impl true
-  def handle_info({:crf_search_vmaf_result, data}, socket) do
-    # Accumulate VMAF result into results list
-    result = %{crf: data.crf, score: data.score, percent: data[:percent]}
-    results = update_or_append(socket.assigns.crf_search_results, result, :crf)
-    sorted_results = Enum.sort_by(results, & &1.crf)
-
-    # Also update legacy progress for compatibility
-    progress = %{filename: data.filename, crf: data.crf, score: data.score, percent: 100}
-
-    {:noreply, assign(socket, crf_search_results: sorted_results, crf_progress: progress)}
   end
 
   @impl true
@@ -451,6 +284,13 @@ defmodule ReencodarrWeb.DashboardLive do
         socket
       end
 
+    {:noreply, socket}
+  end
+
+  # Catch-all: ignore events handled by Dashboard.State
+  # (encoding_*, crf_search_*, pipeline state changes, etc.)
+  @impl true
+  def handle_info(_msg, socket) do
     {:noreply, socket}
   end
 
@@ -1336,16 +1176,6 @@ defmodule ReencodarrWeb.DashboardLive do
       round(data.current / data.total * 100)
     else
       data[:percent] || 0
-    end
-  end
-
-  # Helper to upsert a result in a list by key
-  defp update_or_append(list, new_item, key) do
-    key_value = Map.get(new_item, key)
-
-    case Enum.find_index(list, &(Map.get(&1, key) == key_value)) do
-      nil -> [new_item | list]
-      index -> List.replace_at(list, index, new_item)
     end
   end
 

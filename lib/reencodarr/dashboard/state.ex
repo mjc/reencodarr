@@ -1,15 +1,19 @@
 defmodule Reencodarr.Dashboard.State do
   @moduledoc """
-  Persistent state manager for the dashboard.
+  Single source of truth for dashboard state.
 
-  Subscribes to the same PubSub channels as DashboardLive and maintains
-  a snapshot of active work state that survives page refreshes.
+  Subscribes to pipeline PubSub channels, maintains state that survives
+  page refreshes, and broadcasts consolidated state changes on
+  `state_channel()` so DashboardLive doesn't need to independently
+  process the same raw events.
   """
 
   use GenServer
   require Logger
 
   alias Reencodarr.Dashboard.Events
+
+  @state_channel "dashboard:state"
 
   @default_state %{
     crf_search_video: nil,
@@ -39,6 +43,15 @@ defmodule Reencodarr.Dashboard.State do
     GenServer.call(__MODULE__, :get_state)
   end
 
+  @doc """
+  Returns the PubSub channel that state change broadcasts are sent on.
+
+  DashboardLive subscribes to this channel to receive consolidated
+  `{:dashboard_state_changed, state}` messages instead of independently
+  processing raw pipeline events.
+  """
+  def state_channel, do: @state_channel
+
   # Server Callbacks
 
   @impl true
@@ -46,10 +59,11 @@ defmodule Reencodarr.Dashboard.State do
     # Subscribe to dashboard events
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
 
-    # Subscribe to pipeline status channels
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "analyzer:status")
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher:status")
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder:status")
+    # Subscribe to pipeline state changes (same channels as DashboardLive)
+    # PipelineStateMachine broadcasts on these via Events.pipeline_state_changed/3
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "analyzer")
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
 
     {:ok, @default_state}
   end
@@ -63,14 +77,18 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_info({:crf_search_started, video}, state) do
+    service_status = Map.put(state.service_status, :crf_searcher, :processing)
+
     state = %{
       state
       | crf_search_video: video,
         crf_search_results: [],
         crf_search_sample: nil,
-        crf_progress: :none
+        crf_progress: :none,
+        service_status: service_status
     }
 
+    broadcast_state(state)
     {:noreply, state}
   end
 
@@ -82,31 +100,38 @@ defmodule Reencodarr.Dashboard.State do
       |> Enum.sort_by(& &1.crf)
 
     state = %{state | crf_search_results: results}
+    broadcast_state(state)
     {:noreply, state}
   end
 
   @impl true
   def handle_info({:crf_search_encoding_sample, sample}, state) do
     state = %{state | crf_search_sample: sample}
+    broadcast_state(state)
     {:noreply, state}
   end
 
   @impl true
   def handle_info({:crf_search_progress, progress}, state) do
     state = %{state | crf_progress: progress}
+    broadcast_state(state)
     {:noreply, state}
   end
 
   @impl true
   def handle_info({:crf_search_completed, _data}, state) do
+    service_status = Map.put(state.service_status, :crf_searcher, :idle)
+
     state = %{
       state
       | crf_search_video: nil,
         crf_search_results: [],
         crf_search_sample: nil,
-        crf_progress: :none
+        crf_progress: :none,
+        service_status: service_status
     }
 
+    broadcast_state(state)
     {:noreply, state}
   end
 
@@ -131,54 +156,55 @@ defmodule Reencodarr.Dashboard.State do
       predicted_savings: data[:predicted_savings]
     }
 
+    service_status = Map.put(state.service_status, :encoder, :processing)
+
     state = %{
       state
       | encoding_video: encoding_video,
         encoding_vmaf: encoding_vmaf,
-        encoding_progress: %{percent: 0, video_id: data.video_id, filename: data.filename}
+        encoding_progress: %{percent: 0, video_id: data.video_id, filename: data.filename},
+        service_status: service_status
     }
 
+    broadcast_state(state)
     {:noreply, state}
   end
 
   @impl true
   def handle_info({:encoding_progress, progress}, state) do
-    state = %{state | encoding_progress: progress}
+    service_status = Map.put(state.service_status, :encoder, :processing)
+    state = %{state | encoding_progress: progress, service_status: service_status}
+    broadcast_state(state)
     {:noreply, state}
   end
 
   @impl true
   def handle_info({:encoding_completed, _data}, state) do
+    service_status = Map.put(state.service_status, :encoder, :idle)
+
     state = %{
       state
       | encoding_video: nil,
         encoding_vmaf: nil,
-        encoding_progress: :none
+        encoding_progress: :none,
+        service_status: service_status
     }
 
+    broadcast_state(state)
     {:noreply, state}
   end
 
-  # Service Status Events
+  # Service Status Events from PipelineStateMachine
+  # Accepts only valid pipeline states defined in PipelineStateMachine
+
+  @pipeline_services [:analyzer, :crf_searcher, :encoder]
 
   @impl true
-  def handle_info({:analyzer, status}, state) do
-    service_status = Map.put(state.service_status, :analyzer, status)
+  def handle_info({service, status}, state)
+      when service in @pipeline_services and is_atom(status) do
+    service_status = Map.put(state.service_status, service, status)
     state = %{state | service_status: service_status}
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info({:crf_searcher, status}, state) do
-    service_status = Map.put(state.service_status, :crf_searcher, status)
-    state = %{state | service_status: service_status}
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info({:encoder, status}, state) do
-    service_status = Map.put(state.service_status, :encoder, status)
-    state = %{state | service_status: service_status}
+    broadcast_state(state)
     {:noreply, state}
   end
 
@@ -191,7 +217,11 @@ defmodule Reencodarr.Dashboard.State do
 
   # Private Helpers
 
-  # Helper to upsert a result in a list by key (same as dashboard_live.ex:1291)
+  defp broadcast_state(state) do
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, @state_channel, {:dashboard_state_changed, state})
+  end
+
+  # Helper to upsert a result in a list by key
   defp update_or_append(list, new_item, key) do
     key_value = Map.get(new_item, key)
 
