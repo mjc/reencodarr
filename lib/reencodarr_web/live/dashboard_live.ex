@@ -831,7 +831,7 @@ defmodule ReencodarrWeb.DashboardLive do
           <% end %>
           
     <!-- Progress bar -->
-          <%= if @progress != :none && Map.get(@progress, :percent) do %>
+          <%= if @progress != :none && Map.get(@progress, :percent) != nil do %>
             <div>
               <div class="w-full bg-gray-800 rounded-full h-2 mb-1">
                 <div
@@ -846,7 +846,7 @@ defmodule ReencodarrWeb.DashboardLive do
                   <span>{@progress.fps} fps</span>
                 <% end %>
                 <%= if @progress[:eta] do %>
-                  <span>ETA: {@progress.eta}</span>
+                  <span>ETA: {@progress.eta} {@progress[:time_unit]}</span>
                 <% end %>
               </div>
             </div>
