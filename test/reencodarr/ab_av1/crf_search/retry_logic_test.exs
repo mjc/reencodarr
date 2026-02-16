@@ -1,47 +1,27 @@
 defmodule Reencodarr.AbAv1.CrfSearch.RetryLogicTest do
   @moduledoc """
-  Tests for CRF search retry logic (preset 6 retry disabled).
+  Tests for CRF search retry logic with season-aware narrowed ranges.
+  See crf_search_retry_refactor_test.exs for the full test suite.
   """
   use Reencodarr.DataCase, async: true
 
   alias Reencodarr.AbAv1.CrfSearch
-  alias Reencodarr.Media
+  alias Reencodarr.CrfSearchHints
 
-  describe "preset 6 retry decision logic" do
+  describe "season-aware CRF range" do
     setup do
       {:ok, video} = Fixtures.video_fixture(%{path: "/test/retry_video.mkv", size: 2_000_000_000})
       %{video: video}
     end
 
-    test "has_preset_6_params? correctly identifies preset 6", %{video: _video} do
-      # Test the helper function that checks for --preset 6 in params
+    test "build_crf_search_args/3 respects crf_range option", %{video: video} do
+      args = CrfSearch.build_crf_search_args(video, 95, crf_range: {14, 30})
 
-      # Should detect --preset 6
-      params_with_preset_6 = ["--preset", "6", "--other", "value"]
-      assert CrfSearch.has_preset_6_params?(params_with_preset_6) == true
+      min_idx = Enum.find_index(args, &(&1 == "--min-crf"))
+      max_idx = Enum.find_index(args, &(&1 == "--max-crf"))
 
-      # Should not detect other presets
-      params_with_different_preset = ["--preset", "medium", "--other", "value"]
-      assert CrfSearch.has_preset_6_params?(params_with_different_preset) == false
-
-      # Should handle empty params
-      assert CrfSearch.has_preset_6_params?([]) == false
-
-      # Should handle non-list params
-      assert CrfSearch.has_preset_6_params?("not a list") == false
-
-      # Should handle params without --preset
-      params_without_preset = ["--other", "value"]
-      assert CrfSearch.has_preset_6_params?(params_without_preset) == false
-    end
-
-    test "build_crf_search_args_with_preset_6 includes preset 6 parameter", %{video: video} do
-      args = CrfSearch.build_crf_search_args_with_preset_6(video, 95)
-
-      # Should include --preset 6
-      assert "--preset" in args
-      preset_index = Enum.find_index(args, &(&1 == "--preset"))
-      assert Enum.at(args, preset_index + 1) == "6"
+      assert Enum.at(args, min_idx + 1) == "14"
+      assert Enum.at(args, max_idx + 1) == "30"
 
       # Should include basic CRF search args
       assert "crf-search" in args
@@ -50,36 +30,21 @@ defmodule Reencodarr.AbAv1.CrfSearch.RetryLogicTest do
       assert "95" in args
     end
 
-    test "should_retry_with_preset_6 returns :mark_failed (preset 6 retry disabled)", %{
-      video: video
-    } do
-      # Test case 1: No VMAF records -> mark as failed (preset 6 retry disabled)
-      result = CrfSearch.should_retry_with_preset_6(video.id)
-      assert result == :mark_failed
+    test "build_crf_search_args/2 uses default range", %{video: video} do
+      args = CrfSearch.build_crf_search_args(video, 95)
 
-      # Test case 2: VMAF record without --preset 6 -> mark as failed (preset 6 retry disabled)
-      {:ok, _vmaf} =
-        Media.create_vmaf(%{
-          video_id: video.id,
-          crf: 28.0,
-          score: 91.33,
-          params: ["--preset", "medium"]
-        })
+      min_idx = Enum.find_index(args, &(&1 == "--min-crf"))
+      max_idx = Enum.find_index(args, &(&1 == "--max-crf"))
 
-      result = CrfSearch.should_retry_with_preset_6(video.id)
-      assert result == :mark_failed
+      assert Enum.at(args, min_idx + 1) == "8"
+      assert Enum.at(args, max_idx + 1) == "40"
+    end
 
-      # Test case 3: VMAF record with --preset 6 -> mark as failed (preset 6 retry disabled)
-      {:ok, _vmaf2} =
-        Media.create_vmaf(%{
-          video_id: video.id,
-          crf: 30.0,
-          score: 89.5,
-          params: ["--preset", "6"]
-        })
-
-      result = CrfSearch.should_retry_with_preset_6(video.id)
-      assert result == :mark_failed
+    test "narrowed_range? detects non-default ranges" do
+      assert CrfSearchHints.narrowed_range?({14, 30})
+      assert CrfSearchHints.narrowed_range?({10, 40})
+      assert CrfSearchHints.narrowed_range?({8, 35})
+      refute CrfSearchHints.narrowed_range?({8, 40})
     end
   end
 end

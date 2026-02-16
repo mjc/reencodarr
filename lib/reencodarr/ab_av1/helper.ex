@@ -278,7 +278,7 @@ defmodule Reencodarr.AbAv1.Helper do
     {:cont, :ok}
   end
 
-  @spec open_port([binary()]) :: port() | :error
+  @spec open_port([binary()]) :: {:ok, port()} | {:error, :not_found}
   def open_port(args) do
     # Preprocess input file to remove image streams/attachments
     {:ok, cleaned_args} = preprocess_input_file(args)
@@ -286,17 +286,20 @@ defmodule Reencodarr.AbAv1.Helper do
     case System.find_executable("ab-av1") do
       nil ->
         Logger.error("ab-av1 executable not found")
-        :error
+        {:error, :not_found}
 
       path ->
-        Port.open({:spawn_executable, path}, [
-          :binary,
-          :exit_status,
-          :line,
-          :use_stdio,
-          :stderr_to_stdout,
-          args: cleaned_args
-        ])
+        port =
+          Port.open({:spawn_executable, path}, [
+            :binary,
+            :exit_status,
+            :line,
+            :use_stdio,
+            :stderr_to_stdout,
+            args: cleaned_args
+          ])
+
+        {:ok, port}
     end
   end
 

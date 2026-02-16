@@ -140,20 +140,6 @@ defmodule Reencodarr.AbAv1.CrfSearch.GenServerTest do
         wait_for_crf_search_to_complete()
       end)
     end
-
-    test "handles crf_search_with_preset_6 cast", %{video: video} do
-      capture_log(fn ->
-        # Should handle the cast without crashing
-        GenServer.cast(CrfSearch, {:crf_search_with_preset_6, video, 95})
-        Process.sleep(100)
-
-        # Should attempt to start processing
-        assert is_boolean(CrfSearch.running?())
-
-        # Wait for completion to capture all logs
-        wait_for_crf_search_to_complete()
-      end)
-    end
   end
 
   # Helper function to wait for CRF search to complete
