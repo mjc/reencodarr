@@ -337,28 +337,22 @@ defmodule Reencodarr.Analyzer.Broadway do
   end
 
   defp process_filtered_videos(videos_needing_analysis, context) do
-    # Then filter videos needing analysis by filename patterns to skip MediaInfo
+    # Filter videos with AV1 in filename to skip MediaInfo (already encoded)
+    # Note: Opus audio detection removed - audio codec is irrelevant for video encoding
     {encoded_filename_videos, videos_needing_mediainfo} =
       Enum.split_with(videos_needing_analysis, fn video_info ->
-        has_av1_in_filename?(video_info) || has_opus_in_filename?(video_info)
+        has_av1_in_filename?(video_info)
       end)
 
-    # Process encoded filename videos directly without MediaInfo - mark them as encoded
+    # Process AV1 filename videos directly without MediaInfo - mark them as encoded
     Enum.each(encoded_filename_videos, fn video ->
-      # Debug log to see if we're processing already-encoded videos
       current_video = Media.get_video(video.id)
 
       Logger.debug(
-        "Processing filename-detected video: #{video.path}, current state: #{current_video.state}"
+        "Processing filename-detected AV1 video: #{video.path}, current state: #{current_video.state}"
       )
 
-      cond do
-        has_av1_in_filename?(video) ->
-          apply_processing_decision(current_video, {:skip_encoding, "AV1 detected in filename"})
-
-        has_opus_in_filename?(video) ->
-          apply_processing_decision(current_video, {:skip_encoding, "Opus detected in filename"})
-      end
+      apply_processing_decision(current_video, {:skip_encoding, "AV1 detected in filename"})
     end)
 
     # Process remaining videos through MediaInfo pipeline if any
@@ -572,6 +566,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   This is a pure function with no side effects.
   """
   def check_encoding_requirements(video) do
+    # Only check VIDEO codec - audio codec (Opus etc.) is irrelevant for video encoding decisions
     requirement =
       cond do
         has_av1_codec?(video) ->
@@ -579,12 +574,6 @@ defmodule Reencodarr.Analyzer.Broadway do
 
         has_av1_in_filename?(video) ->
           {:skip_encoding, "filename indicates AV1 encoding"}
-
-        has_opus_codec?(video) ->
-          {:skip_encoding, "already has Opus audio codec"}
-
-        has_opus_in_filename?(video) ->
-          {:skip_encoding, "filename indicates Opus audio"}
 
         true ->
           {:needs_encoding, "requires CRF search"}
