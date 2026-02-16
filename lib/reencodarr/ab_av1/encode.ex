@@ -224,37 +224,25 @@ defmodule Reencodarr.AbAv1.Encode do
     # Mark video as encoding BEFORE starting the port to prevent duplicate dispatches
     case Media.mark_as_encoding(vmaf.video) do
       {:ok, _updated_video} ->
-        args = build_encode_args(vmaf)
-        ext = output_extension(vmaf.video.path)
-        output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}#{ext}")
+        start_encode_port(vmaf, state)
 
-        port = Helper.open_port(args)
+      {:error, reason} ->
+        Logger.error(
+          "Failed to mark video #{vmaf.video.id} as encoding: #{inspect(reason)}. Skipping encode."
+        )
 
-        # Get OS PID from port for health monitoring
-        os_pid =
-          case Port.info(port, :os_pid) do
-            {:os_pid, pid} -> pid
-            _ -> nil
-          end
+        state
+    end
+  end
 
-        # Broadcast encoding started to Dashboard Events (includes OS PID for health check + metadata)
-        Events.broadcast_event(:encoding_started, %{
-          video_id: vmaf.video.id,
-          filename: Path.basename(vmaf.video.path),
-          os_pid: os_pid,
-          video_size: vmaf.video.size,
-          width: vmaf.video.width,
-          height: vmaf.video.height,
-          hdr: vmaf.video.hdr,
-          video_codecs: vmaf.video.video_codecs,
-          crf: vmaf.crf,
-          vmaf_score: vmaf.score,
-          predicted_percent: vmaf.percent,
-          predicted_savings: vmaf.savings
-        })
+  defp start_encode_port(vmaf, state) do
+    args = build_encode_args(vmaf)
+    ext = output_extension(vmaf.video.path)
+    output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}#{ext}")
 
-        # Set up a periodic timer to check if we're still alive and potentially emit progress
-        # Check every 10 seconds
+    case Helper.open_port(args) do
+      {:ok, port} ->
+        broadcast_encoding_started(vmaf, port)
         Process.send_after(self(), :periodic_check, 10_000)
 
         %{
@@ -267,13 +255,33 @@ defmodule Reencodarr.AbAv1.Encode do
             output_lines: []
         }
 
-      {:error, reason} ->
-        Logger.error(
-          "Failed to mark video #{vmaf.video.id} as encoding: #{inspect(reason)}. Skipping encode."
-        )
-
+      {:error, :not_found} ->
+        Logger.error("ab-av1 executable not found, cannot encode video #{vmaf.video.id}")
         state
     end
+  end
+
+  defp broadcast_encoding_started(vmaf, port) do
+    os_pid =
+      case Port.info(port, :os_pid) do
+        {:os_pid, pid} -> pid
+        _ -> nil
+      end
+
+    Events.broadcast_event(:encoding_started, %{
+      video_id: vmaf.video.id,
+      filename: Path.basename(vmaf.video.path),
+      os_pid: os_pid,
+      video_size: vmaf.video.size,
+      width: vmaf.video.width,
+      height: vmaf.video.height,
+      hdr: vmaf.video.hdr,
+      video_codecs: vmaf.video.video_codecs,
+      crf: vmaf.crf,
+      vmaf_score: vmaf.score,
+      predicted_percent: vmaf.percent,
+      predicted_savings: vmaf.savings
+    })
   end
 
   defp build_encode_args(vmaf) do
