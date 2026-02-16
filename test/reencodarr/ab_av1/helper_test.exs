@@ -502,4 +502,46 @@ defmodule Reencodarr.AbAv1.HelperTest do
       assert result == ["--input", "file.mkv", "--preset", "6"]
     end
   end
+
+  describe "open_port/1" do
+    test "returns {:ok, port} when ab-av1 executable exists" do
+      # Create a temp file for testing
+      test_file = Path.join(System.tmp_dir!(), "test_open_port_#{:rand.uniform(1000)}.mkv")
+      File.write!(test_file, "test content")
+
+      # Find a real executable to use as a stand-in for ab-av1
+      cat_path = System.find_executable("cat")
+
+      # Mock System.find_executable to return a valid executable path (use cat as a stand-in)
+      :meck.new(System, [:passthrough])
+      :meck.expect(System, :find_executable, fn "ab-av1" -> cat_path end)
+
+      args = ["crf-search", "--input", test_file]
+
+      result = Helper.open_port(args)
+
+      assert {:ok, port} = result
+      assert is_port(port)
+
+      # Clean up the port and temp file
+      Port.close(port)
+      File.rm(test_file)
+
+      :meck.unload(System)
+    end
+
+    test "returns {:error, :not_found} when ab-av1 executable is missing" do
+      # Mock System.find_executable to return nil
+      :meck.new(System, [:passthrough])
+      :meck.expect(System, :find_executable, fn "ab-av1" -> nil end)
+
+      args = ["crf-search", "--input", "/tmp/test.mkv"]
+
+      result = Helper.open_port(args)
+
+      assert {:error, :not_found} = result
+
+      :meck.unload(System)
+    end
+  end
 end

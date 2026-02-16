@@ -456,7 +456,6 @@ defmodule ReencodarrWeb.FailuresLive do
                         class="flex items-center"
                         phx-click="toggle_select"
                         phx-value-video_id={video.id}
-                        phx-click-away=""
                       >
                         <input
                           type="checkbox"
@@ -550,7 +549,6 @@ defmodule ReencodarrWeb.FailuresLive do
                         class="flex items-center"
                         phx-click="retry_failed_video"
                         phx-value-video_id={video.id}
-                        phx-click-away=""
                       >
                         <button class="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700 transition-colors pointer-events-none">
                           Retry

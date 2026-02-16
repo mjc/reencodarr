@@ -15,6 +15,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Core.Retry
   alias Reencodarr.Core.Time
+  alias Reencodarr.CrfSearchHints
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.ErrorHelpers
   alias Reencodarr.Formatters
@@ -118,30 +119,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  # Public test helpers - no wrappers, just make functions public
-  def has_preset_6_params?(params) when is_list(params) do
-    # Check for adjacent --preset and 6 in a flat list
-    case check_for_preset_6_in_flat_list(params) do
-      true ->
-        true
-
-      false ->
-        # Also check for tuple format
-        Enum.any?(params, fn
-          {flag, value} -> flag == "--preset" and value == "6"
-          _ -> false
-        end)
-    end
-  end
-
-  def has_preset_6_params?(_), do: false
-
-  # Helper to check for --preset 6 in flat list format
-  defp check_for_preset_6_in_flat_list([]), do: false
-  defp check_for_preset_6_in_flat_list([_]), do: false
-  defp check_for_preset_6_in_flat_list(["--preset", "6" | _]), do: true
-  defp check_for_preset_6_in_flat_list([_ | rest]), do: check_for_preset_6_in_flat_list(rest)
-
   # GenServer callbacks
   @impl true
   def init(:ok) do
@@ -150,67 +127,89 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
-    # Mark video as crf_searching NOW that we're actually starting
-    case Media.mark_as_crf_searching(video) do
-      {:ok, _updated_video} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Failed to mark video #{video.id} as crf_searching: #{inspect(reason)}")
-    end
-
-    args = build_crf_search_args(video, vmaf_percent)
-
-    new_state = %{
-      state
-      | port: Helper.open_port(args),
-        current_task: %{video: video, args: args, target_vmaf: vmaf_percent},
-        output_buffer: []
-    }
-
-    # Dashboard event with enhanced metadata
-    Events.broadcast_event(:crf_search_started, %{
-      video_id: video.id,
-      filename: Path.basename(video.path),
-      target_vmaf: vmaf_percent,
-      video_size: video.size,
-      width: video.width,
-      height: video.height,
-      hdr: video.hdr,
-      video_codecs: video.video_codecs,
-      audio_codecs: video.audio_codecs,
-      bitrate: video.bitrate
-    })
-
-    {:noreply, new_state}
+    crf_range = CrfSearchHints.crf_range(video)
+    start_crf_search(video, vmaf_percent, crf_range, state)
   end
 
-  def handle_cast({:crf_search_with_preset_6, video, vmaf_percent}, %{port: :none} = state) do
-    Logger.info("CrfSearch: Starting retry with --preset 6 for video #{video.id}")
-    args = build_crf_search_args_with_preset_6(video, vmaf_percent)
-
-    new_state = %{
-      state
-      | port: Helper.open_port(args),
-        current_task: %{video: video, args: args, target_vmaf: vmaf_percent},
-        output_buffer: []
-    }
-
-    {:noreply, new_state}
-  end
-
-  def handle_cast({:crf_search_with_preset_6, video, _vmaf_percent}, state) do
-    Logger.error(
-      "CRF search already in progress, cannot retry with preset 6 for video #{video.id}"
-    )
-
-    {:noreply, state}
+  def handle_cast({:crf_search_retry, video, vmaf_percent}, %{port: :none} = state) do
+    Logger.info("CrfSearch: Retrying with standard range for video #{video.id}")
+    start_crf_search(video, vmaf_percent, {8, 40}, state)
   end
 
   def handle_cast({:crf_search, video, _vmaf_percent}, state) do
     Logger.error("CRF search already in progress for video #{video.id}")
 
     {:noreply, state}
+  end
+
+  def handle_cast({:crf_search_retry, video, _vmaf_percent}, state) do
+    Logger.error("CRF search retry already in progress for video #{video.id}")
+
+    {:noreply, state}
+  end
+
+  defp start_crf_search(video, vmaf_percent, crf_range, state) do
+    args = build_crf_search_args(video, vmaf_percent, crf_range: crf_range)
+
+    case Helper.open_port(args) do
+      {:ok, port} ->
+        # Mark video as crf_searching ONLY AFTER successful port open
+        case Media.mark_as_crf_searching(video) do
+          {:ok, _updated_video} ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to mark video #{video.id} as crf_searching: #{inspect(reason)}"
+            )
+        end
+
+        new_state = %{
+          state
+          | port: port,
+            current_task: %{
+              video: video,
+              args: args,
+              target_vmaf: vmaf_percent,
+              crf_range: crf_range
+            },
+            output_buffer: []
+        }
+
+        # Dashboard event with enhanced metadata
+        Events.broadcast_event(:crf_search_started, %{
+          video_id: video.id,
+          filename: Path.basename(video.path),
+          target_vmaf: vmaf_percent,
+          video_size: video.size,
+          width: video.width,
+          height: video.height,
+          hdr: video.hdr,
+          video_codecs: video.video_codecs,
+          audio_codecs: video.audio_codecs,
+          bitrate: video.bitrate
+        })
+
+        {:noreply, new_state}
+
+      {:error, :not_found} ->
+        Logger.error(
+          "Failed to start CRF search for video #{video.id}: ab-av1 executable not found"
+        )
+
+        # Record failure
+        Media.record_video_failure(video, :crf_search, :command_error,
+          code: "executable_not_found",
+          message: "ab-av1 executable not found on PATH",
+          context: %{
+            command: "ab-av1 #{Enum.join(args, " ")}",
+            full_output: "ab-av1 executable not found"
+          }
+        )
+
+        # Keep port as :none so GenServer stays available
+        {:noreply, state}
+    end
   end
 
   @impl true
@@ -283,7 +282,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_info({port, {:exit_status, 0}}, %{port: port, current_task: %{video: video}} = state) do
-    Logger.info("✅ AbAv1: CRF search completed for video #{video.id} (#{video.title})")
+    Logger.info("✅ AbAv1: CRF search completed for video #{video.id}")
 
     # CRITICAL: Update video state to crf_searched to prevent infinite loop
     ErrorHelpers.handle_error_with_default(
@@ -292,18 +291,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       "Failed to update video #{video.id} state"
     )
 
-    # Check for pending preset 6 retry
-    case Process.get(:pending_preset_6_retry) do
-      {retry_video, retry_target_vmaf} ->
-        Process.delete(:pending_preset_6_retry)
-        {cleanup_reply, cleanup_state} = perform_crf_search_cleanup(state)
-
-        {cleanup_reply, cleanup_state,
-         {:continue, {:preset_6_retry, retry_video, retry_target_vmaf}}}
-
-      nil ->
-        perform_crf_search_cleanup(state)
-    end
+    perform_crf_search_cleanup(state)
   end
 
   @impl true
@@ -367,10 +355,37 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp handle_crf_search_failure(video, target_vmaf, exit_code, command_line, full_output, state) do
-    # Preset 6 retry is disabled - go straight to marking as failed
-    case should_retry_with_preset_6(video.id) do
-      :mark_failed ->
-        handle_mark_failed(video, target_vmaf, exit_code, command_line, full_output, state)
+    crf_range = get_in(state, [:current_task, :crf_range]) || {8, 40}
+
+    if CrfSearchHints.narrowed_range?(crf_range) do
+      # Narrowed range failed — retry with the full standard range
+      Logger.info(
+        "CrfSearch: Narrowed range #{inspect(crf_range)} failed for video #{video.id}, retrying with standard range"
+      )
+
+      # Record the failure but don't mark as final
+      Reencodarr.FailureTracker.record_vmaf_calculation_failure(
+        video,
+        "Process failed with exit code #{exit_code} (narrowed range, will retry)",
+        context: %{
+          exit_code: exit_code,
+          command: command_line,
+          full_output: full_output,
+          target_vmaf: target_vmaf,
+          crf_range: inspect(crf_range),
+          final_failure: false
+        }
+      )
+
+      # Reset video state to analyzed so retry can proceed
+      Media.mark_as_analyzed(video)
+
+      {:noreply, clean_state} = perform_crf_search_cleanup(state)
+      GenServer.cast(__MODULE__, {:crf_search_retry, video, target_vmaf})
+      {:noreply, clean_state}
+    else
+      # Standard range failed — this is final
+      handle_mark_failed(video, target_vmaf, exit_code, command_line, full_output, state)
     end
   end
 
@@ -390,25 +405,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     Media.mark_as_failed(video)
 
-    # Check for pending preset 6 retry even in failure cases
-    case Process.get(:pending_preset_6_retry) do
-      {retry_video, retry_target_vmaf} ->
-        Process.delete(:pending_preset_6_retry)
-        {cleanup_reply, cleanup_state} = perform_crf_search_cleanup(state)
-
-        {cleanup_reply, cleanup_state,
-         {:continue, {:preset_6_retry, retry_video, retry_target_vmaf}}}
-
-      nil ->
-        perform_crf_search_cleanup(state)
-    end
-  end
-
-  @impl true
-  def handle_continue({:preset_6_retry, video, target_vmaf}, state) do
-    Logger.debug("CrfSearch: Executing preset 6 retry for video #{video.id} via handle_continue")
-    GenServer.cast(__MODULE__, {:crf_search_with_preset_6, video, target_vmaf})
-    {:noreply, state}
+    perform_crf_search_cleanup(state)
   end
 
   @impl true
@@ -660,29 +657,18 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp handle_error_line(line, video, target_vmaf) do
     if line == "Error: Failed to find a suitable crf" do
       Logger.debug("CrfSearch: Processing error line for video #{video.id}")
-      Logger.debug("CrfSearch: About to get VMAF scores")
       tested_scores = get_vmaf_scores_for_video(video.id)
-      Logger.debug("CrfSearch: Got tested scores: #{inspect(tested_scores)}")
 
       error_msg = build_detailed_error_message(target_vmaf, tested_scores, video.path)
       Logger.error(error_msg)
 
-      # Check if we should retry with --preset 6 (disabled - always mark as failed)
-      Logger.debug("CrfSearch: About to check retry logic for video #{video.id}")
-      retry_result = should_retry_with_preset_6(video.id)
-      Logger.info("CrfSearch: Retry result: #{inspect(retry_result)}")
-
-      case retry_result do
-        :mark_failed ->
-          Logger.info("CrfSearch: Marking video #{video.id} as failed due to no VMAF records")
-
-          # Record CRF optimization failure
-          Reencodarr.FailureTracker.record_crf_optimization_failure(
-            video,
-            target_vmaf,
-            tested_scores
-          )
-      end
+      # Record CRF optimization failure (actual retry is handled by handle_crf_search_failure
+      # when the port exits with non-zero status)
+      Reencodarr.FailureTracker.record_crf_optimization_failure(
+        video,
+        target_vmaf,
+        tested_scores
+      )
 
       true
     else
@@ -740,7 +726,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  def build_crf_search_args(video, vmaf_percent) do
+  def build_crf_search_args(video, vmaf_percent, opts \\ []) do
+    {min_crf, max_crf} = Keyword.get(opts, :crf_range, {8, 40})
+
     base_args = [
       "crf-search",
       "--input",
@@ -748,35 +736,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       "--min-vmaf",
       Integer.to_string(vmaf_percent),
       "--min-crf",
-      "8",
+      to_string(min_crf),
       "--max-crf",
-      "40",
+      to_string(max_crf),
       "--temp-dir",
       Helper.temp_dir()
     ]
 
     # Use centralized Rules module to handle all argument building and deduplication
     Reencodarr.Rules.build_args(video, :crf_search, [], base_args)
-  end
-
-  # Build CRF search args with --preset 6 added
-  def build_crf_search_args_with_preset_6(video, vmaf_percent) do
-    base_args = [
-      "crf-search",
-      "--input",
-      video.path,
-      "--min-vmaf",
-      Integer.to_string(vmaf_percent),
-      "--min-crf",
-      "8",
-      "--max-crf",
-      "40",
-      "--temp-dir",
-      Helper.temp_dir()
-    ]
-
-    # Use centralized Rules module with preset 6 additional param
-    Reencodarr.Rules.build_args(video, :crf_search, ["--preset", "6"], base_args)
   end
 
   # New function that accepts pre-parsed data instead of string parameters
@@ -1066,25 +1034,4 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   # New function for pre-parsed numeric data (no late parsing!) - just delegates to the existing function
   defp calculate_savings_from_numeric(percent, video_size),
     do: calculate_savings(percent, video_size)
-
-  # Determine if we should retry with preset 6 based on video ID
-  def should_retry_with_preset_6(video_id) do
-    import Ecto.Query
-
-    # Get existing VMAF records for this video
-    existing_vmafs =
-      from(v in Media.Vmaf, where: v.video_id == ^video_id)
-      |> Repo.all()
-
-    case existing_vmafs do
-      [] ->
-        # No existing records, mark as failed (no point retrying with preset 6 if we haven't tried anything yet)
-        :mark_failed
-
-      _vmafs ->
-        # DISABLED: Skip preset 6 retry and go straight to film grain retry
-        # Always mark as failed to skip preset 6 and trigger film grain retry
-        :mark_failed
-    end
-  end
 end
