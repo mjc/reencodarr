@@ -109,6 +109,44 @@ defmodule Reencodarr.CrfSearcher.Broadway.ProducerTest do
     end
   end
 
+  describe "auto-recovery helper functions" do
+    alias Reencodarr.CrfSearcher.Broadway.Producer
+
+    test "update_consecutive_count/2 resets to 0 when available" do
+      assert Producer.update_consecutive_count(0, true) == 0
+      assert Producer.update_consecutive_count(500, true) == 0
+      assert Producer.update_consecutive_count(1000, true) == 0
+    end
+
+    test "update_consecutive_count/2 increments when unavailable" do
+      assert Producer.update_consecutive_count(0, false) == 1
+      assert Producer.update_consecutive_count(1, false) == 2
+      assert Producer.update_consecutive_count(899, false) == 900
+    end
+
+    test "should_attempt_recovery?/1 returns false below threshold" do
+      refute Producer.should_attempt_recovery?(0)
+      refute Producer.should_attempt_recovery?(1)
+      refute Producer.should_attempt_recovery?(899)
+    end
+
+    test "should_attempt_recovery?/1 returns true at threshold" do
+      assert Producer.should_attempt_recovery?(900)
+    end
+
+    test "should_attempt_recovery?/1 returns true at multiples of threshold" do
+      assert Producer.should_attempt_recovery?(1800)
+      assert Producer.should_attempt_recovery?(2700)
+      assert Producer.should_attempt_recovery?(3600)
+    end
+
+    test "should_attempt_recovery?/1 returns false between threshold multiples" do
+      refute Producer.should_attempt_recovery?(901)
+      refute Producer.should_attempt_recovery?(1799)
+      refute Producer.should_attempt_recovery?(1801)
+    end
+  end
+
   describe "auto-recovery from stuck CrfSearch GenServer" do
     test "tracks consecutive unavailable polls" do
       # This test documents the expected behavior for Fix 4
