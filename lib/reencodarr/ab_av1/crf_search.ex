@@ -217,13 +217,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     # This ensures clean state between tests
     if Application.get_env(:reencodarr, :environment) == :test do
       # Close any open port
-      if state.port != :none do
-        try do
-          Port.close(state.port)
-        rescue
-          _ -> :ok
-        end
-      end
+      Retry.safe_port_close(state.port)
 
       # Reset to initial state
       {:noreply, %{port: :none, current_task: :none, partial_line_buffer: "", output_buffer: []}}
@@ -245,28 +239,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       ) do
     full_line = buffer <> line
 
-    try do
-      # Use retry logic for database operations
-      Retry.retry_on_db_busy(fn ->
-        process_line(full_line, video, args, target_vmaf)
-      end)
+    Retry.retry_on_db_busy(fn -> process_line(full_line, video, args, target_vmaf) end)
 
-      # Add the line to our output buffer for failure tracking
-      new_output_buffer = [full_line | output_buffer]
-
-      {:noreply, %{state | partial_line_buffer: "", output_buffer: new_output_buffer}}
-    rescue
-      # If retries are exhausted, log and continue
-      e in Exqlite.Error ->
-        Logger.error("CrfSearch: Database error after retries, skipping line: #{inspect(e)}")
-
-        {:noreply, %{state | partial_line_buffer: ""}}
-
-      e in DBConnection.ConnectionError ->
-        Logger.error("CrfSearch: DB connection error after retries, skipping line: #{inspect(e)}")
-
-        {:noreply, %{state | partial_line_buffer: ""}}
-    end
+    new_output_buffer = [full_line | output_buffer]
+    {:noreply, %{state | partial_line_buffer: "", output_buffer: new_output_buffer}}
   end
 
   @impl true
@@ -285,40 +261,20 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     # CRITICAL: Update video state to crf_searched to prevent infinite loop
     # Use retry logic for DB busy errors, but record failure if it still fails
-    try do
-      Retry.retry_on_db_busy(fn ->
-        case Media.mark_as_crf_searched(video) do
-          {:ok, _} ->
-            :ok
+    case Retry.retry_on_db_busy(fn -> Media.mark_as_crf_searched(video) end) do
+      {:ok, _} ->
+        :ok
 
-          {:error, reason} ->
-            Logger.error(
-              "Failed to mark video #{video.id} as crf_searched after retries: #{inspect(reason)}"
-            )
-
-            # Record failure so video doesn't stay stuck in crf_searching state
-            Media.record_video_failure(video, :crf_search, :database_error,
-              code: "state_transition_failed",
-              message: "Failed to mark video as crf_searched: #{inspect(reason)}",
-              context: %{
-                error: inspect(reason),
-                video_id: video.id
-              }
-            )
-
-            # Still return ok to continue cleanup
-            :ok
-        end
-      end)
-    rescue
-      error ->
-        Logger.error("Exception marking video #{video.id} as crf_searched: #{inspect(error)}")
+      {:error, reason} ->
+        Logger.error(
+          "Failed to mark video #{video.id} as crf_searched: #{inspect(reason)}"
+        )
 
         Media.record_video_failure(video, :crf_search, :database_error,
-          code: "state_transition_exception",
-          message: "Exception marking video as crf_searched: #{Exception.message(error)}",
+          code: "state_transition_failed",
+          message: "Failed to mark video as crf_searched: #{inspect(reason)}",
           context: %{
-            error: inspect(error),
+            error: inspect(reason),
             video_id: video.id
           }
         )
@@ -470,13 +426,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     Logger.warning("Force resetting CRF searcher state - was stuck")
 
     # Close any open port
-    if state.port != :none do
-      try do
-        Port.close(state.port)
-      rescue
-        _ -> :ok
-      end
-    end
+    Retry.safe_port_close(state.port)
 
     # Reset to clean state
     clean_state = %{port: :none, current_task: :none, partial_line_buffer: "", output_buffer: []}
@@ -494,13 +444,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     filename = Path.basename(video.path)
     cache_key = {:crf_progress, filename}
 
-    try do
-      :persistent_term.erase(cache_key)
-    rescue
-      ArgumentError ->
-        # Key didn't exist, that's fine
-        :ok
-    end
+    Retry.safe_persistent_term_erase(cache_key)
 
     # Broadcast completion event via unified Events system
     Events.broadcast_event(:crf_search_completed, %{
