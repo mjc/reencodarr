@@ -44,9 +44,7 @@ defmodule Reencodarr.Core.Retry do
     jitter = :rand.uniform(base |> div(2))
     backoff = base + jitter
 
-    Logger.warning(
-      "Database busy, retrying in #{backoff}ms (attempt #{attempt}/#{max_attempts})"
-    )
+    Logger.warning("Database busy, retrying in #{backoff}ms (attempt #{attempt}/#{max_attempts})")
 
     Process.sleep(backoff)
     do_retry(fun, attempt + 1, max_attempts, base_backoff)
@@ -68,7 +66,9 @@ defmodule Reencodarr.Core.Retry do
   @spec safe_persistent_term_erase(term()) :: :ok
   def safe_persistent_term_erase(key) do
     case :persistent_term.get(key, :__not_found__) do
-      :__not_found__ -> :ok
+      :__not_found__ ->
+        :ok
+
       _ ->
         :persistent_term.erase(key)
         :ok

@@ -126,15 +126,15 @@ defmodule Reencodarr.Rules do
               # This is a value for the previous flag
               {[{expecting_value, param} | acc], nil}
 
-           is_flag?(param) ->
+            flag?(param) ->
               # This is a flag (both long --flag and short -f forms), expect a value next
               {acc, param}
 
-            is_file_path?(param) ->
+            file_path?(param) ->
               # Skip standalone file paths - they shouldn't be in params
               {acc, nil}
 
-            is_standalone_value?(param) ->
+            standalone_value?(param) ->
               # Standalone value without a flag (like "crf-search", "encode"), treat as single arg
               {[{param, nil} | acc], nil}
 
@@ -149,17 +149,17 @@ defmodule Reencodarr.Rules do
 
   # Public for testing
   @doc false
-  def is_flag?(param) do
+  def flag?(param) do
     String.starts_with?(param, "--") or String.starts_with?(param, "-")
   end
 
   @doc false
-  def is_file_path?(param) do
+  def file_path?(param) do
     String.starts_with?(param, "/") and String.contains?(param, ".")
   end
 
   @doc false
-  def is_standalone_value?(param) do
+  def standalone_value?(param) do
     # Only known subcommands are valid standalone values
     param in ["crf-search", "encode"]
   end

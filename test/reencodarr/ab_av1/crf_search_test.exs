@@ -263,4 +263,65 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       assert :persistent_term.get(cache_key, nil) == nil
     end
   end
+
+  describe "GenServer hardening" do
+    setup do
+      # Stop the global CrfSearch if it's running
+      case Process.whereis(CrfSearch) do
+        nil ->
+          :ok
+
+        pid ->
+          # Unlink and kill the process to avoid exit signals
+          Process.unlink(pid)
+          Process.exit(pid, :kill)
+          # Wait for it to die
+          Process.sleep(10)
+      end
+
+      # Start a fresh one for testing
+      {:ok, pid} = start_supervised({CrfSearch, []})
+      %{pid: pid}
+    end
+
+    test "GenServer starts with trap_exit enabled", %{pid: pid} do
+      process_info = Process.info(pid, :trap_exit)
+      assert process_info == {:trap_exit, true}
+    end
+
+    test "GenServer starts with os_pid nil", %{pid: _pid} do
+      state = :sys.get_state(CrfSearch)
+      assert state.os_pid == nil
+    end
+
+    test "get_state/0 returns debug info", %{pid: _pid} do
+      state = CrfSearch.get_state()
+
+      assert is_map(state)
+      assert Map.has_key?(state, :port_status)
+      assert Map.has_key?(state, :has_current_task)
+      assert Map.has_key?(state, :current_task_video_id)
+      assert Map.has_key?(state, :os_pid)
+
+      # Initial state should be available
+      assert state.port_status == :available
+      assert state.has_current_task == false
+      assert state.current_task_video_id == nil
+      assert state.os_pid == nil
+    end
+
+    test "reset_if_stuck/0 resets state to available", %{pid: _pid} do
+      # Call reset_if_stuck
+      assert CrfSearch.reset_if_stuck() == :ok
+
+      # Verify CrfSearch is available
+      assert CrfSearch.available?() == true
+
+      # Verify state is clean
+      state = :sys.get_state(CrfSearch)
+      assert state.port == :none
+      assert state.current_task == :none
+      assert state.os_pid == nil
+    end
+  end
 end

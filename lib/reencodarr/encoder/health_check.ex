@@ -10,6 +10,8 @@ defmodule Reencodarr.Encoder.HealthCheck do
   use GenServer
   require Logger
 
+  alias Reencodarr.AbAv1.Encode
+  alias Reencodarr.AbAv1.Helper
   alias Reencodarr.Dashboard.Events
 
   # Check every 60 seconds
@@ -153,6 +155,9 @@ defmodule Reencodarr.Encoder.HealthCheck do
       "Could not kill stuck encoder - no OS PID available. " <>
         "Video ID: #{state.video_id}, Path: #{state.video_path}"
     )
+
+    # Try using reset_if_stuck as a fallback
+    attempt_reset_if_stuck()
   end
 
   defp kill_stuck_encoder(%{os_pid: os_pid} = state) do
@@ -161,11 +166,46 @@ defmodule Reencodarr.Encoder.HealthCheck do
         "Video ID: #{state.video_id}, Path: #{state.video_path}"
     )
 
-    # Run the kill command asynchronously so the HealthCheck GenServer is not blocked
-    Task.start(fn -> System.cmd("kill", [to_string(os_pid)]) end)
+    # Use the Encode GenServer's reset_if_stuck for clean shutdown
+    case Encode.reset_if_stuck() do
+      :ok ->
+        handle_reset_success(state, os_pid)
+
+      {:error, reason} ->
+        handle_reset_failure(state, os_pid, reason)
+    end
+  end
+
+  defp attempt_reset_if_stuck do
+    case Encode.reset_if_stuck() do
+      :ok ->
+        Logger.info("Successfully reset stuck encoder via reset_if_stuck()")
+
+      {:error, reason} ->
+        Logger.error("Failed to reset encoder via reset_if_stuck(): #{inspect(reason)}")
+    end
+  end
+
+  defp handle_reset_success(state, os_pid) do
+    Logger.info("Successfully reset stuck encoder via reset_if_stuck()")
 
     Events.broadcast_event(:encoder_health_alert, %{
       reason: :killed_stuck_process,
+      video_id: state.video_id,
+      video_path: state.video_path,
+      os_pid: os_pid
+    })
+  end
+
+  defp handle_reset_failure(state, os_pid, reason) do
+    Logger.error("Failed to reset encoder via reset_if_stuck(): #{inspect(reason)}")
+
+    # Fallback: use direct process group kill as last resort
+    Logger.warning("Falling back to direct process group kill")
+    Helper.kill_process_group(os_pid)
+
+    Events.broadcast_event(:encoder_health_alert, %{
+      reason: :killed_stuck_process_fallback,
       video_id: state.video_id,
       video_path: state.video_path,
       os_pid: os_pid
