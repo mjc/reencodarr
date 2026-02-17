@@ -344,25 +344,25 @@ defmodule Reencodarr.Rules do
 
   Larger files get lower VMAF targets to achieve better compression
   while maintaining acceptable quality:
-  - >80 GiB: VMAF 92
-  - >60 GiB: VMAF 93
-  - >40 GiB: VMAF 94
+  - >60 GiB: VMAF 91
+  - >40 GiB: VMAF 92
+  - >25 GiB: VMAF 94
   - Default: VMAF 95
 
   ## Examples
 
       iex> Reencodarr.Rules.vmaf_target(%{size: 100 * 1024 * 1024 * 1024})
-      92
+      91
 
       iex> Reencodarr.Rules.vmaf_target(%{size: 50 * 1024 * 1024 * 1024})
-      94
+      92
 
       iex> Reencodarr.Rules.vmaf_target(%{size: 10 * 1024 * 1024 * 1024})
       95
   """
   @spec vmaf_target(map()) :: integer()
-  def vmaf_target(%{size: size}) when is_integer(size) and size > 80 * 1024 * 1024 * 1024, do: 92
-  def vmaf_target(%{size: size}) when is_integer(size) and size > 60 * 1024 * 1024 * 1024, do: 93
-  def vmaf_target(%{size: size}) when is_integer(size) and size > 40 * 1024 * 1024 * 1024, do: 94
+  def vmaf_target(%{size: size}) when is_integer(size) and size > 60 * 1024 * 1024 * 1024, do: 91
+  def vmaf_target(%{size: size}) when is_integer(size) and size > 40 * 1024 * 1024 * 1024, do: 92
+  def vmaf_target(%{size: size}) when is_integer(size) and size > 25 * 1024 * 1024 * 1024, do: 94
   def vmaf_target(_video), do: 95
 end

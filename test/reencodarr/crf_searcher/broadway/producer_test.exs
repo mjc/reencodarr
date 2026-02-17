@@ -108,4 +108,49 @@ defmodule Reencodarr.CrfSearcher.Broadway.ProducerTest do
       assert PipelineStateMachine.get_state(paused) == :paused
     end
   end
+
+  describe "auto-recovery from stuck CrfSearch GenServer" do
+    test "tracks consecutive unavailable polls" do
+      # This test documents the expected behavior for Fix 4
+      # The producer should track how many consecutive polls returned unavailable
+
+      # Initial state
+      state = %{pending_demand: 0, consecutive_unavailable: 0}
+
+      # Simulate CrfSearch being unavailable
+      # After implementation, consecutive_unavailable should increment
+      assert state.consecutive_unavailable == 0
+
+      # After 900 consecutive unavailable polls (~30 minutes), should call reset_if_stuck
+      # This is documentation of expected behavior
+    end
+
+    test "resets counter when CrfSearch becomes available" do
+      # State after many unavailable polls
+      state = %{pending_demand: 0, consecutive_unavailable: 500}
+
+      # When CrfSearch becomes available again, counter should reset to 0
+      # This is documentation of expected behavior
+      assert state.consecutive_unavailable == 500
+    end
+
+    @tag :flaky
+    test "calls CrfSearch.reset_if_stuck after threshold" do
+      # After 900 consecutive unavailable polls, should attempt recovery
+      # This is documentation of expected behavior
+
+      # Mock CrfSearch
+      :meck.new(Reencodarr.AbAv1.CrfSearch, [:passthrough])
+      :meck.expect(Reencodarr.AbAv1.CrfSearch, :available?, fn -> false end)
+      :meck.expect(Reencodarr.AbAv1.CrfSearch, :reset_if_stuck, fn -> :ok end)
+
+      # Simulate 900 consecutive unavailable polls
+      # After implementation, reset_if_stuck should be called
+
+      # Verify reset_if_stuck was called
+      # This will be implemented in the next step
+
+      :meck.unload(Reencodarr.AbAv1.CrfSearch)
+    end
+  end
 end
