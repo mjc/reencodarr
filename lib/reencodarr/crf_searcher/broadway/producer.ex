@@ -10,13 +10,18 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.Media
 
+  # Poll every 2 seconds to check for new work
+  @poll_interval_ms 2000
+
+  # After 900 consecutive unavailable polls (~30 minutes), attempt recovery
+  @recovery_threshold 900
+
   def start_link(opts) do
     GenStage.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
   @impl GenStage
   def init(_opts) do
-    # Poll every 2 seconds to check for new work
     schedule_poll()
     {:producer, %{pending_demand: 0, consecutive_unavailable: 0}}
   end
@@ -48,23 +53,10 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
       end
 
     remaining_demand = demand - length(videos)
+    new_consecutive = update_consecutive_count(state.consecutive_unavailable, available)
 
-    # Track consecutive unavailable polls for auto-recovery
-    new_consecutive =
-      if available do
-        0
-      else
-        state.consecutive_unavailable + 1
-      end
-
-    # After 900 consecutive unavailable polls (~30 minutes), attempt recovery
-    threshold = 900
-
-    if new_consecutive >= threshold and rem(new_consecutive, threshold) == 0 do
-      Logger.warning(
-        "CrfSearch has been unavailable for #{new_consecutive} consecutive polls (~#{div(new_consecutive * 2, 60)} minutes). Attempting recovery..."
-      )
-
+    if should_attempt_recovery?(new_consecutive) do
+      log_recovery_attempt(new_consecutive)
       CrfSearch.reset_if_stuck()
     end
 
@@ -75,6 +67,26 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   defp dispatch(_demand, state), do: {:noreply, [], state}
 
   defp schedule_poll do
-    Process.send_after(self(), :poll, 2000)
+    Process.send_after(self(), :poll, @poll_interval_ms)
+  end
+
+  # Public for testing
+  @doc false
+  def update_consecutive_count(_current, true), do: 0
+  def update_consecutive_count(current, false), do: current + 1
+
+  @doc false
+  def should_attempt_recovery?(count) when count >= @recovery_threshold do
+    rem(count, @recovery_threshold) == 0
+  end
+
+  def should_attempt_recovery?(_count), do: false
+
+  defp log_recovery_attempt(count) do
+    minutes = div(count * @poll_interval_ms, 60_000)
+
+    Logger.warning(
+      "CrfSearch has been unavailable for #{count} consecutive polls (~#{minutes} minutes). Attempting recovery..."
+    )
   end
 end
