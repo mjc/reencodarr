@@ -126,22 +126,42 @@ defmodule Reencodarr.Rules do
               # This is a value for the previous flag
               {[{expecting_value, param} | acc], nil}
 
-            String.starts_with?(param, "--") or String.starts_with?(param, "-") ->
+           is_flag?(param) ->
               # This is a flag (both long --flag and short -f forms), expect a value next
               {acc, param}
 
-            # Filter out standalone file paths (they start with / and contain file extensions)
-            String.starts_with?(param, "/") and String.contains?(param, ".") ->
+            is_file_path?(param) ->
               # Skip standalone file paths - they shouldn't be in params
               {acc, nil}
 
-            true ->
+            is_standalone_value?(param) ->
               # Standalone value without a flag (like "crf-search", "encode"), treat as single arg
               {[{param, nil} | acc], nil}
+
+            true ->
+              # Unknown standalone value, skip it
+              {acc, nil}
           end
       end)
 
     Enum.reverse(result)
+  end
+
+  # Public for testing
+  @doc false
+  def is_flag?(param) do
+    String.starts_with?(param, "--") or String.starts_with?(param, "-")
+  end
+
+  @doc false
+  def is_file_path?(param) do
+    String.starts_with?(param, "/") and String.contains?(param, ".")
+  end
+
+  @doc false
+  def is_standalone_value?(param) do
+    # Only known subcommands are valid standalone values
+    param in ["crf-search", "encode"]
   end
 
   # Separate subcommands (like "crf-search", "encode") from flags (like "--preset", "--input")
