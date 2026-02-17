@@ -4,7 +4,7 @@ defmodule Reencodarr.Encoder.HealthCheck do
 
   Subscribes to encoding events and detects when ab-av1/ffmpeg hangs silently
   (no progress events for extended periods). Automatically kills the stuck
-  process after 3 hours of no progress.
+  process after 24 hours of no progress.
   """
 
   use GenServer
@@ -16,10 +16,10 @@ defmodule Reencodarr.Encoder.HealthCheck do
 
   # Check every 60 seconds
   @check_interval 60_000
-  # Warn at 2.5 hours (30 minutes before kill)
-  @warn_threshold 150 * 60_000
-  # Kill at 3 hours
-  @kill_threshold 3 * 60 * 60_000
+  # Warn at 23 hours (1 hour before kill)
+  @warn_threshold 23 * 60 * 60_000
+  # Kill at 24 hours
+  @kill_threshold 24 * 60 * 60_000
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
@@ -139,12 +139,12 @@ defmodule Reencodarr.Encoder.HealthCheck do
 
   defp warn_stuck_encoder(state) do
     Logger.warning(
-      "Encoder may be stuck - no progress for 2.5+ hours. " <>
+      "Encoder may be stuck - no progress for 23+ hours. " <>
         "Video ID: #{state.video_id}, Path: #{state.video_path}"
     )
 
     Events.broadcast_event(:encoder_health_alert, %{
-      reason: :stalled_150_min,
+      reason: :stalled_23_hours,
       video_id: state.video_id,
       video_path: state.video_path
     })
@@ -162,7 +162,7 @@ defmodule Reencodarr.Encoder.HealthCheck do
 
   defp kill_stuck_encoder(%{os_pid: os_pid} = state) do
     Logger.error(
-      "Killing stuck encoder process (PID: #{os_pid}) after 3 hours of no progress. " <>
+      "Killing stuck encoder process (PID: #{os_pid}) after 24 hours of no progress. " <>
         "Video ID: #{state.video_id}, Path: #{state.video_path}"
     )
 
