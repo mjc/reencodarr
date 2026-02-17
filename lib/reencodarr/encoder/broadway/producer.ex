@@ -9,6 +9,12 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   alias Reencodarr.AbAv1.Encode
   alias Reencodarr.Media
 
+  # Poll every 2 seconds to check for new work
+  @poll_interval_ms 2000
+
+  # After 900 consecutive unavailable polls (~30 minutes), attempt recovery
+  @recovery_threshold 900
+
   def start_link(opts) do
     GenStage.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -24,7 +30,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   def init(_opts) do
     # Poll every 2 seconds to check for new work
     schedule_poll()
-    {:producer, %{pending_demand: 0}}
+    {:producer, %{pending_demand: 0, consecutive_unavailable: 0}}
   end
 
   @impl GenStage
@@ -44,8 +50,10 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   def handle_info(_msg, state), do: {:noreply, [], state}
 
   defp dispatch(demand, state) when demand > 0 do
+    available = Encode.available?()
+
     vmaf_list =
-      if Encode.available?() do
+      if available do
         case Media.get_next_for_encoding(1) do
           %Reencodarr.Media.Vmaf{} = vmaf -> [vmaf]
           [%Reencodarr.Media.Vmaf{} = vmaf] -> [vmaf]
@@ -57,12 +65,40 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
       end
 
     remaining_demand = demand - length(vmaf_list)
-    {:noreply, vmaf_list, %{state | pending_demand: remaining_demand}}
+    new_consecutive = update_consecutive_count(state.consecutive_unavailable, available)
+
+    if should_attempt_recovery?(new_consecutive) do
+      log_recovery_attempt(new_consecutive)
+      Encode.reset_if_stuck()
+    end
+
+    {:noreply, vmaf_list,
+     %{state | pending_demand: remaining_demand, consecutive_unavailable: new_consecutive}}
   end
 
   defp dispatch(_demand, state), do: {:noreply, [], state}
 
   defp schedule_poll do
-    Process.send_after(self(), :poll, 2000)
+    Process.send_after(self(), :poll, @poll_interval_ms)
+  end
+
+  # Public for testing
+  @doc false
+  def update_consecutive_count(_current, true), do: 0
+  def update_consecutive_count(current, false), do: current + 1
+
+  @doc false
+  def should_attempt_recovery?(count) when count >= @recovery_threshold do
+    rem(count, @recovery_threshold) == 0
+  end
+
+  def should_attempt_recovery?(_count), do: false
+
+  defp log_recovery_attempt(count) do
+    minutes = div(count * @poll_interval_ms, 60_000)
+
+    Logger.warning(
+      "Encode has been unavailable for #{count} consecutive polls (~#{minutes} minutes). Attempting recovery..."
+    )
   end
 end

@@ -121,7 +121,44 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   # GenServer callbacks
   @impl true
   def init(:ok) do
-    {:ok, %{port: :none, current_task: :none, partial_line_buffer: "", output_buffer: []}}
+    # Enable trap_exit to handle port crashes gracefully
+    Process.flag(:trap_exit, true)
+
+    # Kill any orphaned ab-av1 crf-search processes from previous crashes
+    Helper.kill_orphaned_processes("ab-av1 crf-search")
+
+    {:ok,
+     %{port: :none, current_task: :none, partial_line_buffer: "", output_buffer: [], os_pid: nil}}
+  end
+
+  @impl true
+  def terminate(reason, state) do
+    Logger.warning("CrfSearch GenServer terminating: #{inspect(reason)}")
+
+    # Kill the process group to ensure ffmpeg children are also killed
+    Helper.kill_process_group(state.os_pid)
+
+    # Close the port if it's open
+    Helper.close_port(state.port)
+
+    # Best-effort: reset video state so it can be re-queued
+    reset_video_on_terminate(state)
+
+    :ok
+  end
+
+  defp reset_video_on_terminate(%{current_task: :none}), do: :ok
+
+  defp reset_video_on_terminate(%{current_task: %{video: video}}) do
+    if is_struct(video, Reencodarr.Media.Video) do
+      case Media.mark_as_analyzed(video) do
+        {:ok, _} ->
+          Logger.info("Reset video #{video.id} to analyzed state for re-queue")
+
+        {:error, reason} ->
+          Logger.error("Failed to reset video #{video.id} to analyzed: #{inspect(reason)}")
+      end
+    end
   end
 
   @impl true
@@ -152,6 +189,13 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     case Helper.open_port(args) do
       {:ok, port} ->
+        # Extract OS PID immediately for process group tracking
+        os_pid =
+          case Port.info(port, :os_pid) do
+            {:os_pid, pid} -> pid
+            _ -> nil
+          end
+
         # Mark video as crf_searching ONLY AFTER successful port open
         case Media.mark_as_crf_searching(video) do
           {:ok, _updated_video} ->
@@ -172,7 +216,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
               target_vmaf: vmaf_percent,
               crf_range: crf_range
             },
-            output_buffer: []
+            output_buffer: [],
+            os_pid: os_pid
         }
 
         # Dashboard event with enhanced metadata
@@ -239,10 +284,19 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       ) do
     full_line = buffer <> line
 
-    Retry.retry_on_db_busy(fn -> process_line(full_line, video, args, target_vmaf) end)
+    # Wrap in try/rescue to prevent crashes from bad data or DB errors
+    try do
+      Retry.retry_on_db_busy(fn -> process_line(full_line, video, args, target_vmaf) end)
 
-    new_output_buffer = [full_line | output_buffer]
-    {:noreply, %{state | partial_line_buffer: "", output_buffer: new_output_buffer}}
+      new_output_buffer = [full_line | output_buffer]
+      {:noreply, %{state | partial_line_buffer: "", output_buffer: new_output_buffer}}
+    rescue
+      e ->
+        Logger.error("CrfSearch: Error processing line '#{full_line}': #{Exception.message(e)}")
+
+        # Continue with original state, just clearing the buffer
+        {:noreply, %{state | partial_line_buffer: "", output_buffer: [full_line | output_buffer]}}
+    end
   end
 
   @impl true
@@ -259,25 +313,29 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def handle_info({port, {:exit_status, 0}}, %{port: port, current_task: %{video: video}} = state) do
     Logger.info("✅ AbAv1: CRF search completed for video #{video.id}")
 
-    # CRITICAL: Update video state to crf_searched to prevent infinite loop
-    # Use retry logic for DB busy errors, but record failure if it still fails
-    case Retry.retry_on_db_busy(fn -> Media.mark_as_crf_searched(video) end) do
-      {:ok, _} ->
-        :ok
+    # Wrap in try/rescue to ensure cleanup always happens
+    try do
+      # CRITICAL: Update video state to crf_searched to prevent infinite loop
+      # Use retry logic for DB busy errors, but record failure if it still fails
+      case Retry.retry_on_db_busy(fn -> Media.mark_as_crf_searched(video) end) do
+        {:ok, _} ->
+          :ok
 
-      {:error, reason} ->
-        Logger.error(
-          "Failed to mark video #{video.id} as crf_searched: #{inspect(reason)}"
-        )
+        {:error, reason} ->
+          Logger.error("Failed to mark video #{video.id} as crf_searched: #{inspect(reason)}")
 
-        Media.record_video_failure(video, :crf_search, :database_error,
-          code: "state_transition_failed",
-          message: "Failed to mark video as crf_searched: #{inspect(reason)}",
-          context: %{
-            error: inspect(reason),
-            video_id: video.id
-          }
-        )
+          Media.record_video_failure(video, :crf_search, :database_error,
+            code: "state_transition_failed",
+            message: "Failed to mark video as crf_searched: #{inspect(reason)}",
+            context: %{
+              error: inspect(reason),
+              video_id: video.id
+            }
+          )
+      end
+    rescue
+      e ->
+        Logger.error("CrfSearch: Error in exit_status=0 handler: #{Exception.message(e)}")
     end
 
     perform_crf_search_cleanup(state)
@@ -295,11 +353,48 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       when exit_code != 0 do
     Logger.error("CRF search failed for video #{video.id} with exit code #{exit_code}")
 
-    # Capture the full command output for failure analysis
-    full_output = output_buffer |> Enum.reverse() |> Enum.join("\n")
-    command_line = "ab-av1 " <> Enum.join(args, " ")
+    # Wrap in try/rescue to ensure cleanup happens
+    try do
+      # Capture the full command output for failure analysis
+      full_output = output_buffer |> Enum.reverse() |> Enum.join("\n")
+      command_line = "ab-av1 " <> Enum.join(args, " ")
 
-    handle_crf_search_failure(video, target_vmaf, exit_code, command_line, full_output, state)
+      handle_crf_search_failure(video, target_vmaf, exit_code, command_line, full_output, state)
+    rescue
+      e ->
+        Logger.error("CrfSearch: Error in exit_status handler: #{Exception.message(e)}")
+        # Still perform cleanup
+        perform_crf_search_cleanup(state)
+    end
+  end
+
+  # Handle port death without exit_status (safety net)
+  @impl true
+  def handle_info({:EXIT, port, reason}, %{port: port, current_task: %{video: video}} = state)
+      when port != :none do
+    Logger.error("CrfSearch: Port died unexpectedly: #{inspect(reason)}")
+
+    # Record failure
+    Media.record_video_failure(video, :crf_search, :command_error,
+      code: "port_died",
+      message: "Port died unexpectedly: #{inspect(reason)}",
+      context: %{reason: inspect(reason)}
+    )
+
+    # Broadcast completion event
+    Events.broadcast_event(:crf_search_completed, %{
+      video_id: video.id,
+      result: {:error, :port_died}
+    })
+
+    # Clean up and reset state
+    {:noreply, %{state | port: :none, current_task: :none, partial_line_buffer: "", os_pid: nil}}
+  end
+
+  # Ignore EXIT from unknown ports (stale references after restart)
+  @impl true
+  def handle_info({:EXIT, _port, _reason}, state) do
+    {:noreply, state}
   end
 
   @impl true
@@ -415,7 +510,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       port_status: if(state.port == :none, do: :available, else: :busy),
       has_current_task: state.current_task != :none,
       current_task_video_id:
-        if(state.current_task != :none, do: state.current_task.video.id, else: nil)
+        if(state.current_task != :none, do: state.current_task.video.id, else: nil),
+      os_pid: state.os_pid
     }
 
     {:reply, debug_state, state}
@@ -425,11 +521,23 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def handle_call(:reset_if_stuck, _from, state) do
     Logger.warning("Force resetting CRF searcher state - was stuck")
 
+    # Kill the process group to ensure all children are killed
+    Helper.kill_process_group(state.os_pid)
+
     # Close any open port
     Retry.safe_port_close(state.port)
 
+    # Reset video state if we have one
+    reset_video_state_if_present(state)
+
     # Reset to clean state
-    clean_state = %{port: :none, current_task: :none, partial_line_buffer: "", output_buffer: []}
+    clean_state = %{
+      port: :none,
+      current_task: :none,
+      partial_line_buffer: "",
+      output_buffer: [],
+      os_pid: nil
+    }
 
     # With new simple Broadway design, no need to notify - it polls automatically
 
@@ -437,6 +545,20 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   # Private helper functions
+
+  defp reset_video_state_if_present(%{current_task: :none}), do: :ok
+
+  defp reset_video_state_if_present(%{current_task: %{video: video}}) do
+    if is_struct(video, Reencodarr.Media.Video) do
+      case Media.mark_as_analyzed(video) do
+        {:ok, _} ->
+          Logger.info("Reset video #{video.id} to analyzed state")
+
+        {:error, reason} ->
+          Logger.error("Failed to reset video #{video.id}: #{inspect(reason)}")
+      end
+    end
+  end
 
   # Cleanup after CRF search when a video task was active - broadcasts completion event
   defp perform_crf_search_cleanup(%{current_task: %{video: video}} = state) do
@@ -452,14 +574,28 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       result: :ok
     })
 
-    new_state = %{state | port: :none, current_task: :none, partial_line_buffer: ""}
+    new_state = %{
+      state
+      | port: :none,
+        current_task: :none,
+        partial_line_buffer: "",
+        os_pid: nil
+    }
+
     {:noreply, new_state}
   end
 
   # Cleanup after CRF search when no video task was active - just reset state
   defp perform_crf_search_cleanup(state) do
     # No current task, just reset state
-    new_state = %{state | port: :none, current_task: :none, partial_line_buffer: ""}
+    new_state = %{
+      state
+      | port: :none,
+        current_task: :none,
+        partial_line_buffer: "",
+        os_pid: nil
+    }
+
     {:noreply, new_state}
   end
 
