@@ -385,4 +385,21 @@ defmodule Reencodarr.Rules do
   def vmaf_target(%{size: size}) when is_integer(size) and size > 40 * 1024 * 1024 * 1024, do: 92
   def vmaf_target(%{size: size}) when is_integer(size) and size > 25 * 1024 * 1024 * 1024, do: 94
   def vmaf_target(_video), do: 95
+
+  @doc """
+  The lowest VMAF target we'll accept after retry reduction.
+
+  Always 1 point below `vmaf_target/1` for the same video — this caps
+  the retry cascade at a single 1-point reduction.
+
+  ## Examples
+
+      iex> Reencodarr.Rules.min_vmaf_target(%{size: 100 * 1024 * 1024 * 1024})
+      90
+
+      iex> Reencodarr.Rules.min_vmaf_target(%{size: 10 * 1024 * 1024 * 1024})
+      94
+  """
+  @spec min_vmaf_target(map()) :: integer()
+  def min_vmaf_target(video), do: vmaf_target(video) - 1
 end

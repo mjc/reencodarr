@@ -440,53 +440,85 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_crf_search_failure(video, target_vmaf, exit_code, command_line, full_output, state) do
     crf_range = get_in(state, [:current_task, :crf_range]) || {8, 40}
+    output_lines = state.output_buffer
 
-    if CrfSearchHints.narrowed_range?(crf_range) do
-      # Narrowed range failed — retry with the full standard range
-      Logger.info(
-        "CrfSearch: Narrowed range #{inspect(crf_range)} failed for video #{video.id}, retrying with standard range"
-      )
+    failure_context = %{
+      exit_code: exit_code,
+      command: command_line,
+      full_output: full_output,
+      target_vmaf: target_vmaf,
+      crf_range: inspect(crf_range)
+    }
 
-      # Record the failure but don't mark as final
-      Reencodarr.FailureTracker.record_vmaf_calculation_failure(
-        video,
-        "Process failed with exit code #{exit_code} (narrowed range, will retry)",
-        context: %{
-          exit_code: exit_code,
-          command: command_line,
-          full_output: full_output,
-          target_vmaf: target_vmaf,
-          crf_range: inspect(crf_range),
-          final_failure: false
-        }
-      )
+    case retry_strategy(video, target_vmaf, crf_range, output_lines) do
+      {:retry_wider_range} ->
+        retry_crf_search(video, target_vmaf, state, failure_context,
+          reason: "narrowed range #{inspect(crf_range)} failed"
+        )
 
-      # Reset video state to analyzed so retry can proceed
-      Media.mark_as_analyzed(video)
+      {:retry_lower_target, new_target} ->
+        retry_crf_search(video, new_target, state, failure_context,
+          reason: "reducing VMAF target from #{target_vmaf} to #{new_target}"
+        )
 
-      {:noreply, clean_state} = perform_crf_search_cleanup(state)
-      GenServer.cast(__MODULE__, {:crf_search_retry, video, target_vmaf})
-      {:noreply, clean_state}
-    else
-      # Standard range failed — this is final
-      handle_mark_failed(video, target_vmaf, exit_code, command_line, full_output, state)
+      :final_failure ->
+        record_final_failure(video, target_vmaf, exit_code, full_output, failure_context, state)
     end
   end
 
-  defp handle_mark_failed(video, target_vmaf, exit_code, command_line, full_output, state) do
-    # Record the process failure with full output
+  # Retry cascade: narrowed range → standard range → reduced target → fail
+  defp retry_strategy(video, target_vmaf, crf_range, output_lines) do
+    cond do
+      CrfSearchHints.narrowed_range?(crf_range) ->
+        {:retry_wider_range}
+
+      crf_optimization_error?(output_lines) and target_vmaf >= Reencodarr.Rules.vmaf_target(video) ->
+        {:retry_lower_target, target_vmaf - 1}
+
+      true ->
+        :final_failure
+    end
+  end
+
+  defp retry_crf_search(video, new_target, state, failure_context, opts) do
+    reason = Keyword.fetch!(opts, :reason)
+
+    Logger.info("CrfSearch: Retrying video #{video.id} — #{reason}")
+
     Reencodarr.FailureTracker.record_vmaf_calculation_failure(
       video,
-      "Process failed with exit code #{exit_code}",
-      context: %{
-        exit_code: exit_code,
-        command: command_line,
-        full_output: full_output,
-        target_vmaf: target_vmaf,
-        final_failure: true
-      }
+      "CRF search failed (#{reason}, will retry)",
+      context: Map.put(failure_context, :final_failure, false)
     )
 
+    Media.mark_as_analyzed(video)
+    {:noreply, clean_state} = perform_crf_search_cleanup(state)
+    GenServer.cast(__MODULE__, {:crf_search_retry, video, new_target})
+    {:noreply, clean_state}
+  end
+
+  defp record_final_failure(video, target_vmaf, exit_code, _full_output, failure_context, state) do
+    tested_scores = get_vmaf_scores_for_video(video.id)
+    error_msg = build_detailed_error_message(target_vmaf, tested_scores, video.path)
+    Logger.error(error_msg)
+
+    # Record CRF optimization failure if that's what happened, otherwise generic
+    if crf_optimization_error?(state.output_buffer) do
+      Reencodarr.FailureTracker.record_crf_optimization_failure(
+        video,
+        target_vmaf,
+        tested_scores,
+        context: Map.put(failure_context, :final_failure, true)
+      )
+    else
+      Reencodarr.FailureTracker.record_vmaf_calculation_failure(
+        video,
+        "Process failed with exit code #{exit_code}",
+        context: Map.put(failure_context, :final_failure, true)
+      )
+    end
+
+    # Ensure video is marked failed even if failure recording above had issues
     Media.mark_as_failed(video)
 
     perform_crf_search_cleanup(state)
@@ -779,26 +811,21 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     )
   end
 
-  defp handle_error_line(line, video, target_vmaf) do
-    if line == "Error: Failed to find a suitable crf" do
-      Logger.debug("CrfSearch: Processing error line for video #{video.id}")
-      tested_scores = get_vmaf_scores_for_video(video.id)
+  @crf_error_line "Error: Failed to find a suitable crf"
 
-      error_msg = build_detailed_error_message(target_vmaf, tested_scores, video.path)
-      Logger.error(error_msg)
-
-      # Record CRF optimization failure (actual retry is handled by handle_crf_search_failure
-      # when the port exits with non-zero status)
-      Reencodarr.FailureTracker.record_crf_optimization_failure(
-        video,
-        target_vmaf,
-        tested_scores
-      )
-
+  defp handle_error_line(line, video, _target_vmaf) do
+    if line == @crf_error_line do
+      Logger.info("CrfSearch: CRF optimization error detected for video #{video.id}")
+      # Don't record failure or mark as failed here — the exit handler
+      # decides whether to retry with a reduced target or record final failure.
       true
     else
       false
     end
+  end
+
+  defp crf_optimization_error?(output_buffer) do
+    Enum.any?(output_buffer, &(&1 == @crf_error_line))
   end
 
   # Helper function to get VMAF scores that were tested for this video

@@ -60,10 +60,27 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
         _ -> :ok
       end
 
+      # Stop any lingering GenServer from other tests
+      if pid = GenServer.whereis(CrfSearch) do
+        try do
+          GenServer.stop(pid, :normal, 1000)
+        catch
+          :exit, _ -> :ok
+        end
+      end
+
       # Start the CrfSearch GenServer for testing
       {:ok, pid} = CrfSearch.start_link([])
 
       on_exit(fn ->
+        if pid = GenServer.whereis(CrfSearch) do
+          try do
+            GenServer.stop(pid, :normal, 1000)
+          catch
+            :exit, _ -> :ok
+          end
+        end
+
         try do
           :meck.unload()
         rescue
