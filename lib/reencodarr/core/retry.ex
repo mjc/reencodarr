@@ -33,19 +33,45 @@ defmodule Reencodarr.Core.Retry do
   rescue
     error in Exqlite.Error ->
       if error.message == "Database busy" and attempt < max_attempts do
-        # Exponential backoff with jitter to prevent thundering herd
-        base = (:math.pow(2, attempt) * base_backoff) |> round()
-        jitter = :rand.uniform(base |> div(2))
-        backoff = base + jitter
-
-        Logger.warning(
-          "Database busy, retrying in #{backoff}ms (attempt #{attempt}/#{max_attempts})"
-        )
-
-        Process.sleep(backoff)
-        do_retry(fun, attempt + 1, max_attempts, base_backoff)
+        backoff_and_retry(fun, attempt, max_attempts, base_backoff)
       else
         reraise error, __STACKTRACE__
       end
+  end
+
+  defp backoff_and_retry(fun, attempt, max_attempts, base_backoff) do
+    base = (:math.pow(2, attempt) * base_backoff) |> round()
+    jitter = :rand.uniform(base |> div(2))
+    backoff = base + jitter
+
+    Logger.warning(
+      "Database busy, retrying in #{backoff}ms (attempt #{attempt}/#{max_attempts})"
+    )
+
+    Process.sleep(backoff)
+    do_retry(fun, attempt + 1, max_attempts, base_backoff)
+  end
+
+  @doc false
+  @spec safe_port_close(port() | :none) :: :ok
+  def safe_port_close(:none), do: :ok
+
+  def safe_port_close(port) when is_port(port) do
+    if Port.info(port) do
+      Port.close(port)
+    end
+
+    :ok
+  end
+
+  @doc false
+  @spec safe_persistent_term_erase(term()) :: :ok
+  def safe_persistent_term_erase(key) do
+    case :persistent_term.get(key, :__not_found__) do
+      :__not_found__ -> :ok
+      _ ->
+        :persistent_term.erase(key)
+        :ok
+    end
   end
 end
