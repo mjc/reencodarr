@@ -1010,23 +1010,23 @@ defmodule Reencodarr.RulesTest do
   end
 
   describe "vmaf_target/1" do
-    test "returns 92 for files larger than 80 GiB" do
+    test "returns 91 for files larger than 60 GiB" do
       video = %{size: 91 * 1024 * 1024 * 1024}
+      assert Rules.vmaf_target(video) == 91
+    end
+
+    test "returns 92 for files larger than 40 GiB" do
+      video = %{size: 50 * 1024 * 1024 * 1024}
       assert Rules.vmaf_target(video) == 92
     end
 
-    test "returns 93 for files larger than 60 GiB" do
-      video = %{size: 65 * 1024 * 1024 * 1024}
-      assert Rules.vmaf_target(video) == 93
-    end
-
-    test "returns 94 for files larger than 40 GiB" do
-      video = %{size: 50 * 1024 * 1024 * 1024}
+    test "returns 94 for files larger than 25 GiB" do
+      video = %{size: 35 * 1024 * 1024 * 1024}
       assert Rules.vmaf_target(video) == 94
     end
 
-    test "returns 95 for files 40 GiB or smaller" do
-      video = %{size: 35 * 1024 * 1024 * 1024}
+    test "returns 95 for files 25 GiB or smaller" do
+      video = %{size: 20 * 1024 * 1024 * 1024}
       assert Rules.vmaf_target(video) == 95
     end
 
@@ -1040,18 +1040,18 @@ defmodule Reencodarr.RulesTest do
       assert Rules.vmaf_target(video) == 95
     end
 
-    test "exact threshold at 80 GiB returns 93" do
-      video = %{size: 80 * 1024 * 1024 * 1024}
-      assert Rules.vmaf_target(video) == 93
+    test "exact threshold at 60 GiB returns 92" do
+      video = %{size: 60 * 1024 * 1024 * 1024}
+      assert Rules.vmaf_target(video) == 92
     end
 
-    test "exact threshold at 60 GiB returns 94" do
-      video = %{size: 60 * 1024 * 1024 * 1024}
+    test "exact threshold at 40 GiB returns 94" do
+      video = %{size: 40 * 1024 * 1024 * 1024}
       assert Rules.vmaf_target(video) == 94
     end
 
-    test "exact threshold at 40 GiB returns 95" do
-      video = %{size: 40 * 1024 * 1024 * 1024}
+    test "exact threshold at 25 GiB returns 95" do
+      video = %{size: 25 * 1024 * 1024 * 1024}
       assert Rules.vmaf_target(video) == 95
     end
   end

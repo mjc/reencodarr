@@ -18,7 +18,7 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   def init(_opts) do
     # Poll every 2 seconds to check for new work
     schedule_poll()
-    {:producer, %{pending_demand: 0}}
+    {:producer, %{pending_demand: 0, consecutive_unavailable: 0}}
   end
 
   @impl GenStage
@@ -38,15 +38,38 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   def handle_info(_msg, state), do: {:noreply, [], state}
 
   defp dispatch(demand, state) when demand > 0 do
+    available = CrfSearch.available?()
+
     videos =
-      if CrfSearch.available?() do
+      if available do
         Media.get_videos_for_crf_search(1)
       else
         []
       end
 
     remaining_demand = demand - length(videos)
-    {:noreply, videos, %{state | pending_demand: remaining_demand}}
+
+    # Track consecutive unavailable polls for auto-recovery
+    new_consecutive =
+      if available do
+        0
+      else
+        state.consecutive_unavailable + 1
+      end
+
+    # After 900 consecutive unavailable polls (~30 minutes), attempt recovery
+    threshold = 900
+
+    if new_consecutive >= threshold and rem(new_consecutive, threshold) == 0 do
+      Logger.warning(
+        "CrfSearch has been unavailable for #{new_consecutive} consecutive polls (~#{div(new_consecutive * 2, 60)} minutes). Attempting recovery..."
+      )
+
+      CrfSearch.reset_if_stuck()
+    end
+
+    {:noreply, videos,
+     %{state | pending_demand: remaining_demand, consecutive_unavailable: new_consecutive}}
   end
 
   defp dispatch(_demand, state), do: {:noreply, [], state}

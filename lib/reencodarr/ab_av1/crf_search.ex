@@ -17,7 +17,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.Core.Time
   alias Reencodarr.CrfSearchHints
   alias Reencodarr.Dashboard.Events
-  alias Reencodarr.ErrorHelpers
   alias Reencodarr.Formatters
   alias Reencodarr.Media
   alias Reencodarr.Repo
@@ -285,11 +284,45 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     Logger.info("✅ AbAv1: CRF search completed for video #{video.id}")
 
     # CRITICAL: Update video state to crf_searched to prevent infinite loop
-    ErrorHelpers.handle_error_with_default(
-      Reencodarr.Media.mark_as_crf_searched(video),
-      :ok,
-      "Failed to update video #{video.id} state"
-    )
+    # Use retry logic for DB busy errors, but record failure if it still fails
+    try do
+      Retry.retry_on_db_busy(fn ->
+        case Media.mark_as_crf_searched(video) do
+          {:ok, _} ->
+            :ok
+
+          {:error, reason} ->
+            Logger.error(
+              "Failed to mark video #{video.id} as crf_searched after retries: #{inspect(reason)}"
+            )
+
+            # Record failure so video doesn't stay stuck in crf_searching state
+            Media.record_video_failure(video, :crf_search, :database_error,
+              code: "state_transition_failed",
+              message: "Failed to mark video as crf_searched: #{inspect(reason)}",
+              context: %{
+                error: inspect(reason),
+                video_id: video.id
+              }
+            )
+
+            # Still return ok to continue cleanup
+            :ok
+        end
+      end)
+    rescue
+      error ->
+        Logger.error("Exception marking video #{video.id} as crf_searched: #{inspect(error)}")
+
+        Media.record_video_failure(video, :crf_search, :database_error,
+          code: "state_transition_exception",
+          message: "Exception marking video as crf_searched: #{Exception.message(error)}",
+          context: %{
+            error: inspect(error),
+            video_id: video.id
+          }
+        )
+    end
 
     perform_crf_search_cleanup(state)
   end
@@ -457,6 +490,18 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   # Cleanup after CRF search when a video task was active - broadcasts completion event
   defp perform_crf_search_cleanup(%{current_task: %{video: video}} = state) do
+    # Clean up persistent_term entry for progress debouncing
+    filename = Path.basename(video.path)
+    cache_key = {:crf_progress, filename}
+
+    try do
+      :persistent_term.erase(cache_key)
+    rescue
+      ArgumentError ->
+        # Key didn't exist, that's fine
+        :ok
+    end
+
     # Broadcast completion event via unified Events system
     Events.broadcast_event(:crf_search_completed, %{
       video_id: video.id,
