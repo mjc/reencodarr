@@ -1056,6 +1056,36 @@ defmodule Reencodarr.RulesTest do
     end
   end
 
+  describe "min_vmaf_target/1" do
+    test "returns 90 for files larger than 60 GiB" do
+      video = %{size: 91 * 1024 * 1024 * 1024}
+      assert Rules.min_vmaf_target(video) == 90
+    end
+
+    test "returns 91 for files larger than 40 GiB" do
+      video = %{size: 50 * 1024 * 1024 * 1024}
+      assert Rules.min_vmaf_target(video) == 91
+    end
+
+    test "returns 93 for files larger than 25 GiB" do
+      video = %{size: 35 * 1024 * 1024 * 1024}
+      assert Rules.min_vmaf_target(video) == 93
+    end
+
+    test "returns 94 for files 25 GiB or smaller" do
+      video = %{size: 20 * 1024 * 1024 * 1024}
+      assert Rules.min_vmaf_target(video) == 94
+    end
+
+    test "is always 1 below vmaf_target" do
+      for size <- [nil, 10, 30, 45, 65, 100] do
+        gib = if size, do: size * 1024 * 1024 * 1024, else: nil
+        video = %{size: gib}
+        assert Rules.min_vmaf_target(video) == Rules.vmaf_target(video) - 1
+      end
+    end
+  end
+
   describe "parameter filtering by context" do
     test "crf_search context filters out audio params from additional_params" do
       video = Fixtures.create_test_video(%{max_audio_channels: 2})

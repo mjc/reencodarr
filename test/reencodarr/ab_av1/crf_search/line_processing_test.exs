@@ -143,8 +143,9 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
           CrfSearch.process_line(line, video, [], 95)
         end)
 
-      # Should process error and trigger retry logic
-      assert log =~ "Failed to find a suitable CRF"
+      # Error line is detected (no "No match" error). Failure recording
+      # is deferred to the exit handler for the retry cascade to decide.
+      refute log =~ "No match for line"
     end
   end
 

@@ -127,11 +127,14 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
           CrfSearch.process_line(specific_error, video, [], 95)
         end)
 
-      assert log =~ "Failed to find a suitable CRF"
+      # handle_error_line detects the pattern — no "No match" error should appear.
+      # Failure recording is deferred to the exit handler so the
+      # retry cascade (narrowed → standard → reduced target) can decide.
+      refute log =~ "No match for line"
 
-      # Check that the video was marked as failed
+      # Video should NOT be marked failed during output processing
       updated_video = Media.get_video!(video.id)
-      assert updated_video.state == :failed
+      refute updated_video.state == :failed
     end
 
     test "handles decimal CRF values", %{video: video, crf_search_lines: lines} do
