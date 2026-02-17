@@ -4,10 +4,12 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
   These tests focus on pure function behavior without GenServer interactions.
   """
 
-  use ExUnit.Case, async: true
+  # async: false because tests in this module use :meck which replaces modules globally
+  use ExUnit.Case, async: false
   alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.Media
+  alias Reencodarr.Media.Video
 
   describe "build_crf_search_args/2" do
     test "builds basic CRF search args without preset 6" do
@@ -183,7 +185,7 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
     test "records failure when mark_as_crf_searched fails permanently" do
       # This test verifies Fix 5: don't silently swallow failures
       # Create a mock video
-      video = %{id: 999, path: "/test/video.mkv"}
+      video = %Video{id: 999, path: "/test/video.mkv"}
 
       # Mock Media.mark_as_crf_searched to fail
       :meck.new(Media, [:passthrough])
@@ -211,7 +213,7 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
 
     test "retries on database busy errors" do
       # This test verifies that Retry.retry_on_db_busy is used
-      video = %{id: 998, path: "/test/video.mkv"}
+      _video = %Video{id: 998, path: "/test/video.mkv"}
 
       # Mock to fail once with DB busy, then succeed
       :meck.new(Media, [:passthrough])

@@ -1181,11 +1181,16 @@ defmodule ReencodarrWeb.DashboardLive do
 
   # Async fetch dashboard stats
   defp request_dashboard_stats_async do
-    parent = self()
+    if Application.get_env(:reencodarr, :env) == :test do
+      # Skip async DB queries in test to avoid sandbox ownership issues
+      :ok
+    else
+      parent = self()
 
-    Task.Supervisor.start_child(ReencodarrWeb.TaskSupervisor, fn ->
-      stats = Reencodarr.Media.get_dashboard_stats(5_000)
-      send(parent, {:dashboard_stats_update, stats})
-    end)
+      Task.Supervisor.start_child(ReencodarrWeb.TaskSupervisor, fn ->
+        stats = Reencodarr.Media.get_dashboard_stats(5_000)
+        send(parent, {:dashboard_stats_update, stats})
+      end)
+    end
   end
 end

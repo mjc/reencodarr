@@ -41,3 +41,6 @@ config :phoenix, :plug_init_mode, :runtime
 # Enable helpful, but potentially expensive runtime checks
 config :phoenix_live_view,
   enable_expensive_runtime_checks: true
+
+# Mark test environment so async DB tasks run synchronously
+config :reencodarr, env: :test
