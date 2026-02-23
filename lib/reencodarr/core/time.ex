@@ -191,10 +191,9 @@ defmodule Reencodarr.Core.Time do
     end
   end
 
-  @spec parse_int(String.t() | integer() | nil, integer()) :: integer()
+  @spec parse_int(String.t() | nil, integer()) :: integer()
   defp parse_int(nil, default), do: default
   defp parse_int("", default), do: default
-  defp parse_int(value, _default) when is_integer(value), do: value
 
   defp parse_int(value, default) when is_binary(value) do
     case Integer.parse(value) do

@@ -72,7 +72,7 @@ defmodule Reencodarr.Media do
   end
 
   def get_next_for_encoding(limit \\ 1) do
-    query_videos_ready_for_encoding(limit) || []
+    query_videos_ready_for_encoding(limit)
   end
 
   def encoding_queue_count do
