@@ -403,7 +403,6 @@ defmodule Reencodarr.AbAv1.Encode do
             _ -> nil
           end
 
-        broadcast_encoding_started(vmaf, port)
         Process.send_after(self(), :periodic_check, 10_000)
 
         %{
@@ -421,29 +420,6 @@ defmodule Reencodarr.AbAv1.Encode do
         Logger.error("ab-av1 executable not found, cannot encode video #{vmaf.video.id}")
         state
     end
-  end
-
-  defp broadcast_encoding_started(vmaf, port) do
-    os_pid =
-      case Port.info(port, :os_pid) do
-        {:os_pid, pid} -> pid
-        _ -> nil
-      end
-
-    Events.broadcast_event(:encoding_started, %{
-      video_id: vmaf.video.id,
-      filename: Path.basename(vmaf.video.path),
-      os_pid: os_pid,
-      video_size: vmaf.video.size,
-      width: vmaf.video.width,
-      height: vmaf.video.height,
-      hdr: vmaf.video.hdr,
-      video_codecs: vmaf.video.video_codecs,
-      crf: vmaf.crf,
-      vmaf_score: vmaf.score,
-      predicted_percent: vmaf.percent,
-      predicted_savings: vmaf.savings
-    })
   end
 
   defp build_encode_args(vmaf) do

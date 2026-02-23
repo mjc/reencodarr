@@ -115,7 +115,7 @@ defmodule Reencodarr.Analyzer.Core.FileOperations do
 
   defp validate_file_accessibility(path, %{exists: true}) do
     # Additional checks can be added here (permissions, file type, etc.)
-    case File.stat(path, [:read]) do
+    case File.stat(path) do
       {:ok, _file_stat} -> :ok
       {:error, reason} -> {:error, "file not accessible: #{path} (#{reason})"}
     end

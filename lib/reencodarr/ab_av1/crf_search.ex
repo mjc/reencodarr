@@ -985,35 +985,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp broadcast_crf_search_progress(video_path, progress_data) do
     filename = Path.basename(video_path)
 
-    progress =
-      case progress_data do
-        %{} = existing_progress ->
-          # Update filename to ensure it's consistent and preserve video_id
-          %{existing_progress | filename: filename}
-
-        vmaf when is_map(vmaf) ->
-          # Convert VMAF struct to CrfSearchProgress
-          crf_value = convert_to_number(vmaf.crf)
-          score_value = convert_to_number(vmaf.score)
-          percent_value = convert_to_number(vmaf.percent)
-
-          Logger.debug(
-            "CrfSearch: Converting VMAF to progress - CRF: #{inspect(crf_value)}, Score: #{inspect(score_value)}, Percent: #{inspect(percent_value)}"
-          )
-
-          # Include all fields for progress tracking
-          %{
-            video_id: progress_data[:video_id],
-            filename: filename,
-            percent: percent_value,
-            crf: crf_value,
-            score: score_value
-          }
-
-        invalid_data ->
-          Logger.warning("CrfSearch: Invalid progress data received: #{inspect(invalid_data)}")
-          %{video_id: progress_data[:video_id], filename: filename}
-      end
+    progress = Map.put(progress_data, :filename, filename)
 
     # Debounce telemetry updates to avoid overwhelming the dashboard
     if should_emit_progress?(filename, progress) do
@@ -1099,15 +1071,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         true
     end
   end
-
-  defp convert_to_number(nil), do: nil
-  defp convert_to_number(val) when is_number(val), do: val
-
-  defp convert_to_number(val) when is_binary(val) do
-    Parsers.parse_float(val)
-  end
-
-  defp convert_to_number(_), do: nil
 
   # Get VMAF record by video ID and CRF value
   defp get_vmaf_by_crf(video_id, crf_value) when is_number(crf_value) do

@@ -1190,7 +1190,7 @@ defmodule Reencodarr.Media do
   defp attempt_video_upsert(diagnostics) do
     case upsert_video(diagnostics.attrs) do
       {:ok, video} ->
-        operation = if diagnostics.existing_video, do: "upsert", else: "insert"
+        operation = if match?({:ok, _}, diagnostics.existing_video), do: "upsert", else: "insert"
 
         %{
           success: true,
@@ -1232,7 +1232,7 @@ defmodule Reencodarr.Media do
       |> Map.put(:path, diagnostics.path)
       |> Map.put(:library_id, diagnostics.library_id)
       |> Map.put(:file_exists, diagnostics.file_exists)
-      |> Map.put(:had_existing_video, match?(%Video{}, diagnostics.existing_video))
+      |> Map.put(:had_existing_video, match?({:ok, %Video{}}, diagnostics.existing_video))
       |> Map.put(:messages, Enum.reverse(result.messages))
       |> Map.put(:errors, Enum.reverse(result.errors))
 

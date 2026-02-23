@@ -169,9 +169,6 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
         # Convert flat structure to proper format
         wrapped_data = %{"media" => flat_data}
         {:ok, %{single_path => wrapped_data}}
-
-      _ ->
-        {:error, "unexpected MediaInfo JSON structure"}
     end
   end
 
