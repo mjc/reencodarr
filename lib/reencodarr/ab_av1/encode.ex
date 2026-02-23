@@ -116,13 +116,34 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   @impl true
-  def terminate(reason, state) do
+  # Clean shutdown (BEAM/application exiting) — kill any active encode so it doesn't orphan
+  def terminate(reason, state) when reason in [:normal, :shutdown] do
     Logger.warning("Encode GenServer terminating: #{inspect(reason)}")
 
-    # Close the port if it's open
+    if state.port != :none, do: Helper.kill_process_group(state.os_pid)
     Helper.close_port(state.port)
 
     # Best-effort: reset video state so it can be re-queued
+    if state.video != :none and is_struct(state.video, Reencodarr.Media.Video) do
+      case Media.mark_as_crf_searched(state.video) do
+        {:ok, _} ->
+          Logger.info("Reset video #{state.video.id} to crf_searched state for re-queue")
+
+        {:error, reason} ->
+          Logger.error(
+            "Failed to reset video #{state.video.id} to crf_searched: #{inspect(reason)}"
+          )
+      end
+    end
+
+    :ok
+  end
+
+  # Crash/restart — leave the OS process running; kill_orphaned_processes in init will clean up
+  def terminate(reason, state) do
+    Logger.warning("Encode GenServer terminating (crash): #{inspect(reason)}")
+    Helper.close_port(state.port)
+
     if state.video != :none and is_struct(state.video, Reencodarr.Media.Video) do
       case Media.mark_as_crf_searched(state.video) do
         {:ok, _} ->
@@ -154,7 +175,8 @@ defmodule Reencodarr.AbAv1.Encode do
   def handle_call(:reset_if_stuck, _from, state) do
     Logger.warning("Force resetting Encode GenServer - was stuck")
 
-    # Close the port and port process
+    # Only kill the OS process if something is actually running
+    if state.port != :none, do: Helper.kill_process_group(state.os_pid)
     Helper.close_port(state.port)
 
     # Reset video state if we have one

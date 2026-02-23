@@ -137,13 +137,21 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
-  def terminate(reason, state) do
+  # Clean shutdown (BEAM/application exiting) — kill any active CRF search so it doesn't orphan
+  def terminate(reason, state) when reason in [:normal, :shutdown] do
     Logger.warning("CrfSearch GenServer terminating: #{inspect(reason)}")
 
-    # Close the port if it's open
+    if state.port != :none, do: Helper.kill_process_group(state.os_pid)
     Helper.close_port(state.port)
+    reset_video_on_terminate(state)
 
-    # Best-effort: reset video state so it can be re-queued
+    :ok
+  end
+
+  # Crash/restart — leave the OS process running; kill_orphaned_processes in init will clean up
+  def terminate(reason, state) do
+    Logger.warning("CrfSearch GenServer terminating (crash): #{inspect(reason)}")
+    Helper.close_port(state.port)
     reset_video_on_terminate(state)
 
     :ok
@@ -576,7 +584,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def handle_call(:reset_if_stuck, _from, state) do
     Logger.warning("Force resetting CRF searcher state - was stuck")
 
-    # Close any open port
+    # Only kill the OS process if something is actually running
+    if state.port != :none, do: Helper.kill_process_group(state.os_pid)
     Retry.safe_port_close(state.port)
 
     # Reset video state if we have one

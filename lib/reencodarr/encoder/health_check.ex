@@ -11,6 +11,7 @@ defmodule Reencodarr.Encoder.HealthCheck do
   require Logger
 
   alias Reencodarr.AbAv1.Encode
+  alias Reencodarr.AbAv1.Helper
   alias Reencodarr.Dashboard.Events
 
   # Check every 60 seconds
@@ -199,9 +200,8 @@ defmodule Reencodarr.Encoder.HealthCheck do
   defp handle_reset_failure(state, os_pid, reason) do
     Logger.error("Failed to reset encoder via reset_if_stuck(): #{inspect(reason)}")
 
-    Logger.warning(
-      "Direct kill disabled (diagnostic mode) - os_pid: #{os_pid} will be orphaned until next init"
-    )
+    Logger.warning("Falling back to direct process group kill")
+    Helper.kill_process_group(os_pid)
 
     Events.broadcast_event(:encoder_health_alert, %{
       reason: :killed_stuck_process_fallback,
