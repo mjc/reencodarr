@@ -183,9 +183,28 @@ defmodule Reencodarr.Media.VideoStateMachine do
 
   defp validate_analysis_requirements(changeset) do
     changeset
-    |> validate_required([:bitrate, :width, :height])
+    |> validate_required([:bitrate, :width, :height, :path])
     |> validate_optional_duration()
     |> validate_codecs_present()
+    |> validate_metadata_completeness()
+  end
+
+  defp validate_metadata_completeness(changeset) do
+    # Ensure bitrate, width, height are all positive numbers
+    changeset
+    |> validate_change(:bitrate, fn :bitrate, bitrate ->
+      if is_integer(bitrate) and bitrate > 0,
+        do: [],
+        else: [bitrate: "must be a positive integer"]
+    end)
+    |> validate_change(:width, fn :width, width ->
+      if is_integer(width) and width > 0, do: [], else: [width: "must be a positive integer"]
+    end)
+    |> validate_change(:height, fn :height, height ->
+      if is_integer(height) and height > 0,
+        do: [],
+        else: [height: "must be a positive integer"]
+    end)
   end
 
   defp validate_optional_duration(changeset) do
@@ -203,13 +222,40 @@ defmodule Reencodarr.Media.VideoStateMachine do
   end
 
   defp validate_vmaf_requirements(changeset) do
-    # This would be validated in the context where VMAFs are checked
-    changeset
+    # CRITICAL: Validate that a chosen VMAF actually exists before allowing crf_searched state
+    # This prevents videos from getting stuck without an encoding path
+    video_id = get_field(changeset, :id)
+
+    if video_id && chosen_vmaf_exists_for_video(video_id) do
+      changeset
+    else
+      add_error(
+        changeset,
+        :state,
+        "cannot transition to crf_searched: no chosen VMAF record found"
+      )
+    end
   end
 
   defp validate_encoding_requirements(changeset) do
-    # No additional validation needed - state enum handles the constraint
+    # CRITICAL: Validate chosen VMAF exists and video has required metadata
+    video_id = get_field(changeset, :id)
+
     changeset
+    |> validate_encoding_metadata()
+    |> then(fn cs ->
+      if cs.valid? and video_id and not chosen_vmaf_exists_for_video(video_id) do
+        add_error(cs, :state, "cannot transition to encoding: no chosen VMAF record found")
+      else
+        cs
+      end
+    end)
+  end
+
+  defp validate_encoding_metadata(changeset) do
+    # Ensure video has complete metadata needed for encoding
+    changeset
+    |> validate_required([:bitrate, :width, :height, :path])
   end
 
   defp validate_codecs_present(changeset) do
@@ -259,6 +305,22 @@ defmodule Reencodarr.Media.VideoStateMachine do
     # In a real implementation, this might query the vmafs association
     false
   end
+
+  # Helper to check if a chosen VMAF exists (used in validations)
+  defp chosen_vmaf_exists_for_video(nil), do: false
+
+  defp chosen_vmaf_exists_for_video(video_id) when is_integer(video_id) do
+    import Ecto.Query
+    alias Reencodarr.Repo
+
+    Repo.exists?(
+      from(v in Reencodarr.Media.Vmaf,
+        where: v.video_id == ^video_id and v.chosen == true
+      )
+    )
+  end
+
+  defp chosen_vmaf_exists_for_video(_), do: false
 
   # === High-level State Management Functions ===
   # These functions handle database operations with proper error handling
