@@ -373,10 +373,6 @@ defmodule Reencodarr.Media.VideoUpsert do
     )
   end
 
-  # Fallback for invalid paths - let validation handle the error
-  @spec get_video_metadata_for_comparison(any()) :: nil
-  defp get_video_metadata_for_comparison(_), do: nil
-
   @spec safe_to_existing_atom(binary()) :: {:ok, atom()}
   defp safe_to_existing_atom(key) when is_binary(key) do
     # Only convert if the atom already exists - let it crash if not
