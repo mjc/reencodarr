@@ -15,6 +15,8 @@ defmodule Reencodarr.Dashboard.State do
 
   @state_channel "dashboard:state"
 
+  @stats_refresh_interval 60_000
+
   @default_state %{
     crf_search_video: nil,
     crf_search_results: [],
@@ -27,7 +29,8 @@ defmodule Reencodarr.Dashboard.State do
       analyzer: :idle,
       crf_searcher: :idle,
       encoder: :idle
-    }
+    },
+    stats: nil
   }
 
   # Client API
@@ -65,7 +68,19 @@ defmodule Reencodarr.Dashboard.State do
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
 
-    {:ok, @default_state}
+    {:ok, @default_state, {:continue, :fetch_initial_stats}}
+  end
+
+  @impl true
+  def handle_continue(:fetch_initial_stats, state) do
+    parent = self()
+
+    Task.start(fn ->
+      stats = Reencodarr.Media.get_dashboard_stats()
+      send(parent, {:stats_ready, stats})
+    end)
+
+    {:noreply, state}
   end
 
   @impl true
@@ -205,6 +220,26 @@ defmodule Reencodarr.Dashboard.State do
     service_status = Map.put(state.service_status, service, status)
     state = %{state | service_status: service_status}
     broadcast_state(state)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:stats_ready, stats}, state) do
+    state = %{state | stats: stats}
+    broadcast_state(state)
+    Process.send_after(self(), :refresh_stats, @stats_refresh_interval)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:refresh_stats, state) do
+    parent = self()
+
+    Task.start(fn ->
+      stats = Reencodarr.Media.get_dashboard_stats()
+      send(parent, {:stats_ready, stats})
+    end)
+
     {:noreply, state}
   end
 

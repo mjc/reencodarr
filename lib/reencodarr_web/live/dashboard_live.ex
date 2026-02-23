@@ -60,27 +60,6 @@ defmodule ReencodarrWeb.DashboardLive do
         # Subscribe to consolidated state changes from Dashboard.State
         Phoenix.PubSub.subscribe(Reencodarr.PubSub, DashboardState.state_channel())
 
-        # Hydrate from persisted dashboard state (if available - not in test mode)
-        socket =
-          case Process.whereis(DashboardState) do
-            nil ->
-              socket
-
-            _pid ->
-              persisted = DashboardState.get_state()
-
-              assign(socket,
-                crf_search_video: persisted.crf_search_video,
-                crf_search_results: persisted.crf_search_results,
-                crf_search_sample: persisted.crf_search_sample,
-                crf_progress: persisted.crf_progress,
-                encoding_video: persisted.encoding_video,
-                encoding_vmaf: persisted.encoding_vmaf,
-                encoding_progress: persisted.encoding_progress,
-                service_status: persisted.service_status
-              )
-          end
-
         # Request current status from all services with a small delay to let services initialize
         Process.send_after(self(), :request_status, 100)
         # Start periodic updates for queue counts and service status
@@ -89,8 +68,6 @@ defmodule ReencodarrWeb.DashboardLive do
         request_dashboard_queue_async()
         # Request throughput async
         request_analyzer_throughput()
-        # Fetch dashboard stats async
-        request_dashboard_stats_async()
 
         socket
       else
@@ -120,7 +97,8 @@ defmodule ReencodarrWeb.DashboardLive do
        encoding_video: state.encoding_video,
        encoding_vmaf: state.encoding_vmaf,
        encoding_progress: state.encoding_progress,
-       service_status: state.service_status
+       service_status: state.service_status,
+       stats: state.stats
      )}
   end
 
@@ -225,9 +203,6 @@ defmodule ReencodarrWeb.DashboardLive do
     # Fetch queue data asynchronously to avoid DB checkout blocking the LiveView process
     request_dashboard_queue_async()
 
-    # Fetch dashboard stats async (every 30s is fine for heavy query)
-    request_dashboard_stats_async()
-
     {:noreply, socket}
   end
 
@@ -235,12 +210,6 @@ defmodule ReencodarrWeb.DashboardLive do
   # Receive asynchronous dashboard queue data and assign it
   def handle_info({:dashboard_queue_update, queue_counts, queue_items}, socket) do
     {:noreply, assign(socket, queue_counts: queue_counts, queue_items: queue_items)}
-  end
-
-  @impl true
-  # Receive asynchronous dashboard stats data and assign it
-  def handle_info({:dashboard_stats_update, stats}, socket) do
-    {:noreply, assign(socket, :stats, stats)}
   end
 
   @impl true
@@ -1176,21 +1145,6 @@ defmodule ReencodarrWeb.DashboardLive do
       round(data.current / data.total * 100)
     else
       data[:percent] || 0
-    end
-  end
-
-  # Async fetch dashboard stats
-  defp request_dashboard_stats_async do
-    if Application.get_env(:reencodarr, :env) == :test do
-      # Skip async DB queries in test to avoid sandbox ownership issues
-      :ok
-    else
-      parent = self()
-
-      Task.Supervisor.start_child(ReencodarrWeb.TaskSupervisor, fn ->
-        stats = Reencodarr.Media.get_dashboard_stats(5_000)
-        send(parent, {:dashboard_stats_update, stats})
-      end)
     end
   end
 end

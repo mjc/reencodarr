@@ -48,11 +48,13 @@ defmodule Reencodarr.Media.VideoStateMachine do
   @doc """
   Gets all valid video states.
   """
+  @spec valid_states() :: [atom()]
   def valid_states, do: @valid_states
 
   @doc """
   Gets valid transitions from a given state.
   """
+  @spec valid_transitions(atom()) :: [atom()]
   def valid_transitions(from_state) when from_state in @valid_states do
     Map.get(@valid_transitions, from_state, [])
   end
@@ -60,6 +62,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
   @doc """
   Checks if a state transition is valid.
   """
+  @spec valid_transition?(atom(), atom()) :: boolean()
   def valid_transition?(from_state, to_state)
       when from_state in @valid_states and to_state in @valid_states do
     to_state in valid_transitions(from_state)
@@ -71,6 +74,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
   Validates and transitions a video to a new state.
   Returns {:ok, changeset} or {:error, reason}.
   """
+  @spec transition(Video.t(), atom(), map()) :: {:ok, Ecto.Changeset.t()} | {:error, String.t()}
   def transition(%Video{} = video, to_state, attrs \\ %{}) do
     from_state = video.state
 
@@ -95,10 +99,14 @@ defmodule Reencodarr.Media.VideoStateMachine do
   @doc """
   Transitions a video to a new state with automatic state-specific validations.
   """
+  @spec transition_to_needs_analysis(Video.t(), map()) ::
+          {:ok, Ecto.Changeset.t()} | {:error, String.t()}
   def transition_to_needs_analysis(%Video{} = video, attrs \\ %{}) do
     transition(video, :needs_analysis, attrs)
   end
 
+  @spec transition_to_analyzed(Video.t(), map()) ::
+          {:ok, Ecto.Changeset.t()} | {:error, String.t()}
   def transition_to_analyzed(%Video{} = video, attrs \\ %{}) do
     # Check if video has low bitrate and HDR content, should be marked as encoded
     if low_bitrate?(video) do
@@ -115,22 +123,31 @@ defmodule Reencodarr.Media.VideoStateMachine do
     end
   end
 
+  @spec transition_to_crf_searching(Video.t(), map()) ::
+          {:ok, Ecto.Changeset.t()} | {:error, String.t()}
   def transition_to_crf_searching(%Video{} = video, attrs \\ %{}) do
     transition(video, :crf_searching, attrs)
   end
 
+  @spec transition_to_crf_searched(Video.t(), map()) ::
+          {:ok, Ecto.Changeset.t()} | {:error, String.t()}
   def transition_to_crf_searched(%Video{} = video, attrs \\ %{}) do
     transition(video, :crf_searched, attrs)
   end
 
+  @spec transition_to_encoding(Video.t(), map()) ::
+          {:ok, Ecto.Changeset.t()} | {:error, String.t()}
   def transition_to_encoding(%Video{} = video, attrs \\ %{}) do
     transition(video, :encoding, attrs)
   end
 
+  @spec transition_to_encoded(Video.t(), map()) ::
+          {:ok, Ecto.Changeset.t()} | {:error, String.t()}
   def transition_to_encoded(%Video{} = video, attrs \\ %{}) do
     transition(video, :encoded, attrs)
   end
 
+  @spec transition_to_failed(Video.t(), map()) :: {:ok, Ecto.Changeset.t()} | {:error, String.t()}
   def transition_to_failed(%Video{} = video, attrs \\ %{}) do
     transition(video, :failed, attrs)
   end
@@ -138,6 +155,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
   @doc """
   Gets the expected next state for a video based on its current state and data.
   """
+  @spec next_expected_state(Video.t()) :: atom()
   def next_expected_state(%Video{state: :needs_analysis} = video) do
     if analysis_complete?(video), do: :analyzed, else: :needs_analysis
   end
@@ -222,11 +240,11 @@ defmodule Reencodarr.Media.VideoStateMachine do
   end
 
   defp validate_vmaf_requirements(changeset) do
-    # CRITICAL: Validate that a chosen VMAF actually exists before allowing crf_searched state
-    # This prevents videos from getting stuck without an encoding path
+    # CRITICAL: Validate that a chosen VMAF actually exists before allowing crf_searched state.
+    # video_id is always a pos_integer here — only persisted videos reach crf_searched.
     video_id = get_field(changeset, :id)
 
-    if video_id && chosen_vmaf_exists_for_video(video_id) do
+    if chosen_vmaf_exists_for_video(video_id) do
       changeset
     else
       add_error(
@@ -238,13 +256,14 @@ defmodule Reencodarr.Media.VideoStateMachine do
   end
 
   defp validate_encoding_requirements(changeset) do
-    # CRITICAL: Validate chosen VMAF exists and video has required metadata
+    # CRITICAL: Validate chosen VMAF exists and video has required metadata.
+    # video_id is always a pos_integer here — only persisted videos reach encoding.
     video_id = get_field(changeset, :id)
 
     changeset
     |> validate_encoding_metadata()
     |> then(fn cs ->
-      if cs.valid? and video_id and not chosen_vmaf_exists_for_video(video_id) do
+      if cs.valid? and not chosen_vmaf_exists_for_video(video_id) do
         add_error(cs, :state, "cannot transition to encoding: no chosen VMAF record found")
       else
         cs
@@ -306,10 +325,9 @@ defmodule Reencodarr.Media.VideoStateMachine do
     false
   end
 
-  # Helper to check if a chosen VMAF exists (used in validations)
-  defp chosen_vmaf_exists_for_video(nil), do: false
-
-  defp chosen_vmaf_exists_for_video(video_id) when is_integer(video_id) do
+  # Only accepts a persisted video id — nil or any other type is a bug and will crash.
+  @spec chosen_vmaf_exists_for_video(pos_integer()) :: boolean()
+  defp chosen_vmaf_exists_for_video(video_id) when is_integer(video_id) and video_id > 0 do
     import Ecto.Query
     alias Reencodarr.Repo
 
@@ -320,8 +338,6 @@ defmodule Reencodarr.Media.VideoStateMachine do
     )
   end
 
-  defp chosen_vmaf_exists_for_video(_), do: false
-
   # === High-level State Management Functions ===
   # These functions handle database operations with proper error handling
 
@@ -330,6 +346,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
 
   Handles the appropriate state transitions regardless of current state.
   """
+  @spec mark_as_crf_searching(Video.t()) :: {:ok, Video.t()} | {:error, any()}
   def mark_as_crf_searching(%Video{} = video) do
     case transition_to_crf_searching(video) do
       {:ok, changeset} -> Reencodarr.Repo.update(changeset)
@@ -337,6 +354,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
     end
   end
 
+  @spec mark_as_encoding(Video.t()) :: {:ok, Video.t()} | {:error, any()}
   def mark_as_encoding(%Video{} = video) do
     case transition_to_encoding(video) do
       {:ok, changeset} -> Reencodarr.Repo.update(changeset)
@@ -344,6 +362,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
     end
   end
 
+  @spec mark_as_reencoded(Video.t()) :: {:ok, Video.t()} | {:error, any()}
   def mark_as_reencoded(%Video{} = video) do
     case video.state do
       :encoded ->
@@ -370,6 +389,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
 
   Handles the appropriate state transitions for videos that have completed analysis.
   """
+  @spec mark_as_analyzed(Video.t()) :: {:ok, Video.t()} | {:error, any()}
   def mark_as_analyzed(%Video{} = video) do
     case transition_to_analyzed(video) do
       {:ok, changeset} ->
@@ -397,6 +417,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
 
   Includes special handling for test environment stale entry errors.
   """
+  @spec mark_as_failed(Video.t()) :: {:ok, Video.t()} | {:error, any()}
   def mark_as_failed(%Video{} = video) do
     case transition_to_failed(video) do
       {:ok, changeset} ->
@@ -422,6 +443,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
   @doc """
   Marks a video as crf_searched by transitioning it to the :crf_searched state.
   """
+  @spec mark_as_crf_searched(Video.t()) :: {:ok, Video.t()} | {:error, any()}
   def mark_as_crf_searched(%Video{} = video) do
     case transition_to_crf_searched(video) do
       {:ok, changeset} ->
@@ -442,6 +464,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
   @doc """
   Marks a video as needs_analysis by transitioning it to the :needs_analysis state.
   """
+  @spec mark_as_needs_analysis(Video.t()) :: {:ok, Video.t()} | {:error, any()}
   def mark_as_needs_analysis(%Video{} = video) do
     case transition_to_needs_analysis(video) do
       {:ok, changeset} ->
@@ -459,6 +482,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
     end
   end
 
+  @spec mark_as_encoded(Video.t()) :: {:ok, Video.t()} | {:error, any()}
   def mark_as_encoded(%Video{} = video) do
     case transition_to_encoded(video) do
       {:ok, changeset} ->
@@ -483,6 +507,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
   This allows Broadway producers to react to specific state changes instead of
   generic upsert events, improving efficiency and precision.
   """
+  @spec broadcast_state_transition(Video.t(), atom()) :: :ok | {:error, any()}
   def broadcast_state_transition(%Video{} = video, new_state) do
     Logger.debug(
       "[VideoStateMachine] Broadcasting state transition: #{video.path} -> #{new_state}"
