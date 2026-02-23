@@ -638,20 +638,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     {:noreply, new_state}
   end
 
-  # Cleanup after CRF search when no video task was active - just reset state
-  defp perform_crf_search_cleanup(state) do
-    # No current task, just reset state
-    new_state = %{
-      state
-      | port: :none,
-        current_task: :none,
-        partial_line_buffer: "",
-        os_pid: nil
-    }
-
-    {:noreply, new_state}
-  end
-
   def process_line(line, video, args, target_vmaf \\ 95) do
     handlers = [
       &handle_encoding_sample_line/2,
