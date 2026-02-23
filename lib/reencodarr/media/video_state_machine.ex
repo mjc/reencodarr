@@ -263,9 +263,10 @@ defmodule Reencodarr.Media.VideoStateMachine do
   end
 
   defp validate_encoding_metadata(changeset) do
-    # Ensure video has complete metadata needed for encoding
-    changeset
-    |> validate_required([:bitrate, :width, :height, :path])
+    # Only path is required to transition to :encoded.
+    # bitrate/width/height belong to analysis validation, not encoding validation —
+    # skip-encoding paths (already AV1 / low bitrate) may legitimately lack analysis metadata.
+    validate_required(changeset, [:path])
   end
 
   defp validate_codecs_present(changeset) do
