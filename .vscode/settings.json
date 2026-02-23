@@ -56,5 +56,8 @@
         "Mshort",
         "dont",
         "scrf"
-    ]
+    ],
+    "chat.tools.terminal.autoApprove": {
+        "bin/rpc": true
+    }
 }

@@ -234,26 +234,21 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
     end
   end
 
-  describe "aggregated_stats_query/0" do
-    test "returns query with comprehensive statistics fields" do
-      # The query should be executable and return stats
-      query = SharedQueries.aggregated_stats_query()
-
-      # Verify it's a valid Ecto query
+  describe "video_stats_query/0" do
+    test "returns a valid Ecto query with expected keys" do
+      query = SharedQueries.video_stats_query()
       assert %Ecto.Query{} = query
 
-      # Execute the query to ensure it's valid SQL
       stats = Repo.one(query)
-
-      # Should return a map with expected keys
       assert is_map(stats)
-      assert Map.has_key?(stats, :total_videos)
-      assert Map.has_key?(stats, :analyzed)
-      assert Map.has_key?(stats, :needs_analysis)
+
+      for key <- ~w[total_videos total_size_gb needs_analysis analyzed crf_searching
+                    crf_searched encoding encoded failed avg_duration_minutes]a do
+        assert Map.has_key?(stats, key), "missing key: #{key}"
+      end
     end
 
-    test "calculates correct statistics with various video states" do
-      # Create videos and update states
+    test "counts all video states correctly, including failed" do
       {:ok, _v1} = video_fixture(%{path: "/v1.mkv"})
       {:ok, v2} = video_fixture(%{path: "/v2.mkv"})
       Repo.update!(Ecto.Changeset.change(v2, state: :analyzed))
@@ -268,105 +263,107 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       {:ok, v7} = video_fixture(%{path: "/v7.mkv"})
       Repo.update!(Ecto.Changeset.change(v7, state: :failed))
 
-      query = SharedQueries.aggregated_stats_query()
-      stats = Repo.one(query)
+      stats = Repo.one(SharedQueries.video_stats_query())
 
-      # Query excludes :failed videos, so total should be 6
-      assert stats.total_videos == 6
+      assert stats.total_videos == 7
       assert stats.needs_analysis == 1
       assert stats.analyzed == 1
       assert stats.crf_searching == 1
       assert stats.crf_searched == 1
       assert stats.encoding == 1
       assert stats.encoded == 1
-      # :failed is filtered out by the query's where clause
-      assert stats.failed == 0
-    end
-
-    test "calculates VMAF statistics correctly" do
-      {:ok, video1} = video_fixture(%{path: "/v1.mkv", state: :crf_searched})
-      {:ok, video2} = video_fixture(%{path: "/v2.mkv", state: :crf_searched})
-
-      # Video1: has chosen VMAF
-      _vmaf1 = vmaf_fixture(%{video_id: video1.id, chosen: true, crf: 25.0, percent: 95.5})
-      _vmaf2 = vmaf_fixture(%{video_id: video1.id, chosen: false, crf: 26.0, percent: 94.0})
-
-      # Video2: has unchosen VMAFs only
-      _vmaf3 = vmaf_fixture(%{video_id: video2.id, chosen: false, crf: 25.0, percent: 96.0})
-
-      query = SharedQueries.aggregated_stats_query()
-      stats = Repo.one(query)
-
-      assert stats.total_vmafs == 3
-      assert stats.chosen_vmafs == 1
-      assert stats.unprocessed_vmafs == 2
-    end
-
-    test "calculates savings statistics with chosen VMAFs" do
-      {:ok, video} = video_fixture(%{path: "/v1.mkv", state: :crf_searched})
-
-      # Chosen VMAF with savings (1GB = 1073741824 bytes)
-      _vmaf1 =
-        vmaf_fixture(%{
-          video_id: video.id,
-          chosen: true,
-          crf: 25.0,
-          savings: 2_147_483_648
-        })
-
-      # 2GB savings
-
-      _vmaf2 =
-        vmaf_fixture(%{video_id: video.id, chosen: false, crf: 26.0, savings: 1_073_741_824})
-
-      # Unchosen, shouldn't count
-
-      query = SharedQueries.aggregated_stats_query()
-      stats = Repo.one(query)
-
-      # Should be 2GB in savings
-      assert_in_delta stats.total_savings_gb, 2.0, 0.01
-    end
-
-    test "handles empty database" do
-      query = SharedQueries.aggregated_stats_query()
-      stats = Repo.one(query)
-
-      assert stats.total_videos == 0
-      assert stats.total_vmafs == 0
-      assert stats.chosen_vmafs == 0
+      assert stats.failed == 1
     end
 
     test "calculates average duration correctly" do
-      # Duration is in seconds
       {:ok, _v1} = video_fixture(%{path: "/v1.mkv", duration: 3600})
-      # 60 min
       {:ok, _v2} = video_fixture(%{path: "/v2.mkv", duration: 7200})
-      # 120 min
 
-      query = SharedQueries.aggregated_stats_query()
-      stats = Repo.one(query)
+      stats = Repo.one(SharedQueries.video_stats_query())
 
-      # Average should be 90 minutes
       assert_in_delta stats.avg_duration_minutes, 90.0, 0.1
     end
 
-    test "includes dashboard compatibility fields" do
-      {:ok, _v1} = video_fixture(%{path: "/v1.mkv", state: :needs_analysis})
-      {:ok, _v2} = video_fixture(%{path: "/v2.mkv", state: :analyzed})
-      {:ok, _v3} = video_fixture(%{path: "/v3.mkv", state: :crf_searched})
-      {:ok, _v4} = video_fixture(%{path: "/v4.mkv", state: :encoding})
-      {:ok, _v5} = video_fixture(%{path: "/v5.mkv", state: :encoded})
+    test "handles empty database" do
+      stats = Repo.one(SharedQueries.video_stats_query())
 
-      query = SharedQueries.aggregated_stats_query()
+      assert stats.total_videos == 0
+      assert stats.needs_analysis == 0
+    end
+  end
+
+  describe "vmaf_stats_query/0" do
+    test "returns a valid Ecto query with expected keys" do
+      query = SharedQueries.vmaf_stats_query()
+      assert %Ecto.Query{} = query
+
       stats = Repo.one(query)
+      assert is_map(stats)
 
-      # State count fields (canonical names)
-      assert stats.needs_analysis == 1
+      for key <- ~w[total_vmafs chosen_vmafs total_savings_gb]a do
+        assert Map.has_key?(stats, key), "missing key: #{key}"
+      end
+    end
+
+    test "counts total and chosen VMAFs correctly" do
+      {:ok, video1} = video_fixture(%{path: "/v1.mkv", state: :crf_searched})
+      {:ok, video2} = video_fixture(%{path: "/v2.mkv", state: :crf_searched})
+
+      _vmaf1 = vmaf_fixture(%{video_id: video1.id, chosen: true, crf: 25.0})
+      _vmaf2 = vmaf_fixture(%{video_id: video1.id, chosen: false, crf: 26.0})
+      _vmaf3 = vmaf_fixture(%{video_id: video2.id, chosen: false, crf: 25.0})
+
+      stats = Repo.one(SharedQueries.vmaf_stats_query())
+
+      assert stats.total_vmafs == 3
+      assert stats.chosen_vmafs == 1
+    end
+
+    test "sums savings from chosen VMAFs only" do
+      {:ok, video} = video_fixture(%{path: "/v1.mkv", state: :crf_searched})
+
+      # Chosen: 2GB savings
+      _vmaf1 =
+        vmaf_fixture(%{video_id: video.id, chosen: true, crf: 25.0, savings: 2_147_483_648})
+
+      # Unchosen: should not count
+      _vmaf2 =
+        vmaf_fixture(%{video_id: video.id, chosen: false, crf: 26.0, savings: 1_073_741_824})
+
+      stats = Repo.one(SharedQueries.vmaf_stats_query())
+
+      assert_in_delta stats.total_savings_gb, 2.0, 0.01
+    end
+
+    test "handles empty vmafs table" do
+      stats = Repo.one(SharedQueries.vmaf_stats_query())
+
+      assert stats.total_vmafs == 0
+      assert stats.chosen_vmafs == 0
+      assert stats.total_savings_gb == 0
+    end
+  end
+
+  describe "get_dashboard_stats/1" do
+    test "returns merged map with all dashboard-required keys" do
+      {:ok, _v1} = video_fixture(%{path: "/v1.mkv", state: :analyzed})
+      {:ok, video} = video_fixture(%{path: "/v2.mkv", state: :crf_searched})
+      _vmaf = vmaf_fixture(%{video_id: video.id, chosen: true, crf: 25.0, savings: 1_073_741_824})
+
+      stats = Reencodarr.Media.get_dashboard_stats()
+
+      assert is_map(stats)
+
+      for key <- ~w[total_videos total_size_gb needs_analysis analyzed crf_searching
+                    crf_searched encoding encoded failed total_vmafs chosen_vmafs
+                    total_savings_gb]a do
+        assert Map.has_key?(stats, key), "missing dashboard key: #{key}"
+      end
+
       assert stats.analyzed == 1
       assert stats.crf_searched == 1
-      assert stats.encoding == 1
-      assert stats.encoded == 1
+      assert stats.chosen_vmafs == 1
+      assert_in_delta stats.total_savings_gb, 1.0, 0.01
     end
   end
 end

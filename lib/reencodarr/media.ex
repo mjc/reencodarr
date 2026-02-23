@@ -984,13 +984,15 @@ defmodule Reencodarr.Media do
   @doc """
   Get dashboard statistics with safe timeout handling.
 
-  Returns aggregated stats or defaults on timeout/error.
+  Runs two single-table queries (videos + vmafs) and merges the results,
+  avoiding the slow LEFT JOIN that caused dirty-NIF / DBConnection timeouts.
+  Returns merged stats or defaults on timeout/error.
   """
   @spec get_dashboard_stats(integer()) :: map()
-  def get_dashboard_stats(timeout \\ 5_000) do
-    query = SharedQueries.aggregated_stats_query()
-
-    Repo.one(query, timeout: timeout)
+  def get_dashboard_stats(timeout \\ 15_000) do
+    video_stats = Repo.one(SharedQueries.video_stats_query(), timeout: timeout)
+    vmaf_stats = Repo.one(SharedQueries.vmaf_stats_query(), timeout: timeout)
+    Map.merge(video_stats || get_default_video_stats(), vmaf_stats || get_default_vmaf_stats())
   rescue
     DBConnection.ConnectionError -> get_default_stats()
   catch
@@ -998,7 +1000,7 @@ defmodule Reencodarr.Media do
     :exit, {%DBConnection.ConnectionError{}, _} -> get_default_stats()
   end
 
-  defp get_default_stats do
+  defp get_default_video_stats do
     %{
       total_videos: 0,
       total_size_gb: 0.0,
@@ -1009,8 +1011,22 @@ defmodule Reencodarr.Media do
       encoding: 0,
       encoded: 0,
       failed: 0,
+      avg_duration_minutes: 0.0,
+      most_recent_video_update: nil,
+      most_recent_inserted_video: nil
+    }
+  end
+
+  defp get_default_vmaf_stats do
+    %{
+      total_vmafs: 0,
+      chosen_vmafs: 0,
       total_savings_gb: 0.0
     }
+  end
+
+  defp get_default_stats do
+    Map.merge(get_default_video_stats(), get_default_vmaf_stats())
   end
 
   @doc """

@@ -75,23 +75,15 @@ defmodule Reencodarr.Media.SharedQueries do
   end
 
   @doc """
-  Aggregated statistics query used by both Media and Media.Statistics modules.
+  Single-table query for video statistics (no join).
 
-  Returns comprehensive video statistics including counts, averages, and timestamps.
-  This query is used identically in multiple modules, so it's consolidated here.
+  Returns state counts, size, and duration aggregates from the videos table only.
+  Combine with `vmaf_stats_query/0` via `Map.merge/2` for full dashboard stats.
   """
-  def aggregated_stats_query do
-    sqlite_aggregated_stats_query()
-  end
-
-  # SQLite version without FILTER syntax and with proper type casting
-  defp sqlite_aggregated_stats_query do
+  def video_stats_query do
     from v in Video,
-      where: v.state not in ^[:failed],
-      left_join: m_all in Vmaf,
-      on: m_all.video_id == v.id,
       select: %{
-        total_videos: count(v.id, :distinct),
+        total_videos: count(v.id),
         total_size_gb: fragment("ROUND(CAST(SUM(?) AS FLOAT) / (1024*1024*1024), 2)", v.size),
         needs_analysis:
           fragment("COALESCE(SUM(CASE WHEN ? = 'needs_analysis' THEN 1 ELSE 0 END), 0)", v.state),
@@ -106,38 +98,34 @@ defmodule Reencodarr.Media.SharedQueries do
         encoded: fragment("COALESCE(SUM(CASE WHEN ? = 'encoded' THEN 1 ELSE 0 END), 0)", v.state),
         failed: fragment("COALESCE(SUM(CASE WHEN ? = 'failed' THEN 1 ELSE 0 END), 0)", v.state),
         avg_duration_minutes: fragment("ROUND(AVG(CAST(? AS FLOAT)) / 60.0, 1)", v.duration),
-        newest_video: max(v.inserted_at),
-        oldest_video: min(v.inserted_at),
-        total_vmafs: count(m_all.id, :distinct),
-        chosen_vmafs:
-          fragment("COALESCE(SUM(CASE WHEN ? = 1 THEN 1 ELSE 0 END), 0)", m_all.chosen),
-        unprocessed_vmafs:
-          fragment(
-            "COALESCE(COUNT(DISTINCT ?) - SUM(CASE WHEN ? = 1 THEN 1 ELSE 0 END), 0)",
-            m_all.id,
-            m_all.chosen
-          ),
-        avg_vmaf_percentage: fragment("ROUND(AVG(?), 2)", m_all.percent),
-        encodes_count:
-          fragment(
-            "COALESCE(SUM(CASE WHEN ? = 'crf_searched' AND ? = 1 THEN 1 ELSE 0 END), 0)",
-            v.state,
-            m_all.chosen
-          ),
+        most_recent_video_update: max(v.updated_at),
+        most_recent_inserted_video: max(v.inserted_at)
+      }
+  end
+
+  @doc """
+  Single-table query for VMAF statistics (no join).
+
+  Returns counts and savings from the vmafs table only.
+  Combine with `video_stats_query/0` via `Map.merge/2` for full dashboard stats.
+  """
+  def vmaf_stats_query do
+    from m in Vmaf,
+      select: %{
+        total_vmafs: count(m.id),
+        chosen_vmafs: fragment("COALESCE(SUM(CASE WHEN ? = 1 THEN 1 ELSE 0 END), 0)", m.chosen),
         total_savings_gb:
           coalesce(
             sum(
               fragment(
                 "CASE WHEN ? = 1 AND ? > 0 THEN ? / 1073741824.0 ELSE 0 END",
-                m_all.chosen,
-                m_all.savings,
-                m_all.savings
+                m.chosen,
+                m.savings,
+                m.savings
               )
             ),
             0
-          ),
-        most_recent_video_update: max(v.updated_at),
-        most_recent_inserted_video: max(v.inserted_at)
+          )
       }
   end
 end
