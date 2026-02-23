@@ -445,8 +445,6 @@ defmodule Reencodarr.Diagnostics do
     String.pad_trailing(str, width)
   end
 
-  defp pad(nil, width), do: String.pad_trailing("N/A", width)
-
   defp format_elapsed_seconds(seconds) do
     cond do
       seconds < 60 -> "#{seconds}s"

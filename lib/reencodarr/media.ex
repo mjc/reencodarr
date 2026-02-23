@@ -1169,10 +1169,8 @@ defmodule Reencodarr.Media do
 
   defp add_existing_video_messages(existing_video, messages) do
     case existing_video do
-      nil -> ["No existing video found in database" | messages]
       {:error, :not_found} -> ["No existing video found in database" | messages]
       {:ok, %Video{id: id}} -> ["Found existing video with ID: #{id}" | messages]
-      %Video{id: id} -> ["Found existing video with ID: #{id}" | messages]
     end
   end
 
