@@ -187,7 +187,6 @@ defmodule Reencodarr.Core.Time do
     case Map.get(captures, key) do
       nil -> 0
       value when is_binary(value) -> parse_int(value, 0)
-      value when is_integer(value) -> value
       _ -> 0
     end
   end

@@ -40,15 +40,9 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
     {valid_videos, invalid_videos_with_errors} = filter_valid_videos(video_infos)
 
     # Process valid videos with batch MediaInfo fetching
-    case process_valid_videos(valid_videos, context) do
-      {:ok, processed_videos} ->
-        # Combine results - invalid videos now include their actual error reasons
-        all_results = processed_videos ++ mark_invalid_videos(invalid_videos_with_errors)
-        {:ok, all_results}
-
-      error ->
-        error
-    end
+    {:ok, processed_videos} = process_valid_videos(valid_videos, context)
+    all_results = processed_videos ++ mark_invalid_videos(invalid_videos_with_errors)
+    {:ok, all_results}
   end
 
   @doc """
@@ -98,11 +92,6 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
         )
 
         {:error, {video_info.path, reason}}
-
-      error ->
-        error_msg = inspect(error)
-        Logger.error("Failed to process video #{video_info.path}: #{error_msg}")
-        {:error, {video_info.path, error_msg}}
     end
   end
 
@@ -445,7 +434,6 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
     case MediaInfoExtractor.extract_video_params(validated_mediainfo, path) do
       video_params when is_map(video_params) -> {:ok, video_params}
       {:error, reason} -> {:error, reason}
-      error -> {:error, "video parameter extraction failed: #{inspect(error)}"}
     end
   end
 

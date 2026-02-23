@@ -157,10 +157,8 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
   defp extract_path_and_parse(%{"media" => media_item} = media_info) do
     case extract_complete_name(media_item) do
       {:ok, path} ->
-        case parse_single_media_item(media_item) do
-          {:ok, _parsed} -> {:ok, path, media_info}
-          error -> error
-        end
+        {:ok, _parsed} = parse_single_media_item(media_item)
+        {:ok, path, media_info}
 
       error ->
         error

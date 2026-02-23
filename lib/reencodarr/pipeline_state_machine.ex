@@ -119,7 +119,8 @@ defmodule Reencodarr.PipelineStateMachine do
   def running?(%{current_state: state}), do: running?(state)
 
   def running?(s) when is_atom(s),
-    do: raise(FunctionClauseError, "no function clause matching in running?/1 for #{inspect(s)}")
+    do:
+      raise(ArgumentError, message: "no function clause matching in running?/1 for #{inspect(s)}")
 
   def running?(_), do: false
 end

@@ -73,7 +73,7 @@ defmodule Reencodarr.PostProcessor do
     end
   end
 
-  @spec process_intermediate_success(any(), String.t()) :: :ok
+  @spec process_intermediate_success(any(), String.t()) :: {:ok, String.t()} | {:error, any()}
 
   defp process_intermediate_success(video, actual_path) do
     case Repo.reload(video) do
@@ -90,7 +90,7 @@ defmodule Reencodarr.PostProcessor do
     end
   end
 
-  @spec process_reloaded_video(any(), String.t()) :: :ok
+  @spec process_reloaded_video(any(), String.t()) :: {:ok, String.t()} | {:error, any()}
 
   defp process_reloaded_video(video, actual_path) do
     case Media.mark_as_reencoded(video) do
@@ -164,11 +164,6 @@ defmodule Reencodarr.PostProcessor do
       {:error, reason} ->
         Logger.error(
           "Sync.refresh_and_rename_from_video failed for video #{video.id}: #{inspect(reason)}"
-        )
-
-      other ->
-        Logger.warning(
-          "Sync.refresh_and_rename_from_video returned unexpected result for video #{video.id}: #{inspect(other)}"
         )
     end
   end

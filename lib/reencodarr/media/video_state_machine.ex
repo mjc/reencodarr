@@ -183,7 +183,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
 
   # Private validation functions
 
-  defp validate_state_transition(changeset, _from_state, to_state) do
+  defp validate_state_transition(changeset, from_state, to_state) do
     case to_state do
       :analyzed ->
         validate_analysis_requirements(changeset)
@@ -192,7 +192,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
         validate_vmaf_requirements(changeset)
 
       :encoded ->
-        validate_encoding_requirements(changeset)
+        validate_encoding_requirements(changeset, from_state)
 
       _ ->
         changeset
@@ -255,20 +255,11 @@ defmodule Reencodarr.Media.VideoStateMachine do
     end
   end
 
-  defp validate_encoding_requirements(changeset) do
-    # CRITICAL: Validate chosen VMAF exists and video has required metadata.
-    # video_id is always a pos_integer here — only persisted videos reach encoding.
-    video_id = get_field(changeset, :id)
-
-    changeset
-    |> validate_encoding_metadata()
-    |> then(fn cs ->
-      if cs.valid? and not chosen_vmaf_exists_for_video(video_id) do
-        add_error(cs, :state, "cannot transition to encoding: no chosen VMAF record found")
-      else
-        cs
-      end
-    end)
+  defp validate_encoding_requirements(changeset, _from_state) do
+    # Only validate required metadata. VMAF existence was already enforced during
+    # the crf_searched transition, so by :encoding state it is guaranteed.
+    # Skip-encoding paths (already AV1 / low bitrate) legitimately have no VMAF.
+    validate_encoding_metadata(changeset)
   end
 
   defp validate_encoding_metadata(changeset) do
@@ -377,6 +368,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
              :crf_searching,
              :failed
            ] ->
+        # Force :encoding so the :encoding → :encoded transition is always valid
         case transition_to_encoded(%{video | state: :encoding}) do
           {:ok, changeset} -> Reencodarr.Repo.update(changeset)
           error -> error

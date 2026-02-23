@@ -814,6 +814,8 @@ defmodule Reencodarr.MediaTest do
     test "mark_as_encoded/1 transitions video to encoded state" do
       {:ok, video} = Fixtures.video_fixture()
       {:ok, analyzed} = Media.mark_as_analyzed(video)
+      # Insert a chosen VMAF so crf_searched and encoding transitions are valid
+      Fixtures.vmaf_fixture(%{video_id: analyzed.id, chosen: true, crf: 25.0})
       {:ok, crf_searched} = Media.mark_as_crf_searched(analyzed)
       # Need to transition through encoding state first
       {:ok, encoding} = Media.update_video(crf_searched, %{state: :encoding})

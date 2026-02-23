@@ -236,7 +236,7 @@ defmodule Reencodarr.Diagnostics do
       #{command}
 
       Output (last 5000 chars):
-      #{String.slice(output, -5000..-1//1) || output}
+      #{String.slice(output, -5000..-1//1)}
       """
     end
   rescue

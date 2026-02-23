@@ -26,7 +26,7 @@ defmodule Reencodarr.AbAv1.ProgressParser do
 
       {:progress, progress} ->
         # Broadcast to Dashboard Events system
-        percent = progress.percent || 0
+        percent = progress.percent
         video_id = if state.video, do: state.video.id, else: nil
 
         Events.broadcast_event(:encoding_progress, %{

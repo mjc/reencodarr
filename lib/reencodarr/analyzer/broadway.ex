@@ -612,7 +612,6 @@ defmodule Reencodarr.Analyzer.Broadway do
 
         {:error, error} ->
           Logger.error("Failed to mark as encoded for #{video.path}: #{inspect(error)}")
-
           {:ok, video}
       end
     end
