@@ -748,6 +748,13 @@ defmodule Reencodarr.Media do
   def chosen_vmaf_exists?(%{id: id}),
     do: Repo.exists?(from v in Vmaf, where: v.video_id == ^id and v.chosen == true)
 
+  @doc """
+  Checks if any VMAF records exist for a video (regardless of chosen status).
+  Used to validate that CRF search actually produced results.
+  """
+  def vmaf_records_exist?(%{id: id}),
+    do: Repo.exists?(from v in Vmaf, where: v.video_id == ^id)
+
   # Consolidated shared logic for chosen VMAF queries
   defp query_chosen_vmafs do
     from v in Vmaf,
