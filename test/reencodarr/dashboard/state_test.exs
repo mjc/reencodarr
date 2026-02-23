@@ -27,7 +27,10 @@ defmodule Reencodarr.Dashboard.StateTest do
                  analyzer: :idle,
                  crf_searcher: :idle,
                  encoder: :idle
-               }
+               },
+               stats: nil,
+               queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
+               queue_items: %{analyzer: [], crf_searcher: [], encoder: []}
              }
     end
   end
