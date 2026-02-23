@@ -113,15 +113,21 @@ defmodule Reencodarr.CrfSearcher.Broadway.ProducerTest do
     alias Reencodarr.CrfSearcher.Broadway.Producer
 
     test "update_consecutive_count/2 resets to 0 when available" do
-      assert Producer.update_consecutive_count(0, true) == 0
-      assert Producer.update_consecutive_count(500, true) == 0
-      assert Producer.update_consecutive_count(1000, true) == 0
+      assert Producer.update_consecutive_count(0, :available) == 0
+      assert Producer.update_consecutive_count(500, :available) == 0
+      assert Producer.update_consecutive_count(1000, :available) == 0
     end
 
-    test "update_consecutive_count/2 increments when unavailable" do
-      assert Producer.update_consecutive_count(0, false) == 1
-      assert Producer.update_consecutive_count(1, false) == 2
-      assert Producer.update_consecutive_count(899, false) == 900
+    test "update_consecutive_count/2 resets to 0 when busy (alive but searching)" do
+      assert Producer.update_consecutive_count(0, :busy) == 0
+      assert Producer.update_consecutive_count(500, :busy) == 0
+      assert Producer.update_consecutive_count(1000, :busy) == 0
+    end
+
+    test "update_consecutive_count/2 increments only on timeout (unresponsive)" do
+      assert Producer.update_consecutive_count(0, :timeout) == 1
+      assert Producer.update_consecutive_count(1, :timeout) == 2
+      assert Producer.update_consecutive_count(899, :timeout) == 900
     end
 
     test "should_attempt_recovery?/1 returns false below threshold" do

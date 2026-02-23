@@ -35,18 +35,22 @@ defmodule Reencodarr.AbAv1.Encode do
     end
   end
 
-  @spec available?() :: boolean()
+  @spec available?() :: :available | :busy | :timeout
   def available? do
     # Check if encoder is available (not currently encoding)
+    # Returns :available, :busy (normal encoding in progress), or :timeout (unresponsive)
     case GenServer.whereis(__MODULE__) do
       nil ->
-        false
+        :timeout
 
       pid ->
         try do
-          GenServer.call(pid, :available?, 100)
+          case GenServer.call(pid, :available?, 100) do
+            true -> :available
+            false -> :busy
+          end
         catch
-          :exit, _ -> false
+          :exit, _ -> :timeout
         end
     end
   end

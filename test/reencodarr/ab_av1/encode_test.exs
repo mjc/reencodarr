@@ -12,7 +12,7 @@ defmodule Reencodarr.AbAv1.EncodeTest do
     test "GenServer starts with port :none and is available", %{pid: _pid} do
       state = :sys.get_state(Encode)
       assert state.port == :none
-      assert Encode.available?() == true
+      assert Encode.available?() == :available
     end
 
     test "GenServer starts with trap_exit enabled", %{pid: pid} do
@@ -37,7 +37,7 @@ defmodule Reencodarr.AbAv1.EncodeTest do
       assert Encode.reset_if_stuck() == :ok
 
       # Verify encoder is available
-      assert Encode.available?() == true
+      assert Encode.available?() == :available
 
       # Verify state is clean
       state = :sys.get_state(Encode)

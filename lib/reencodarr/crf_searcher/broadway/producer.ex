@@ -43,17 +43,18 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   def handle_info(_msg, state), do: {:noreply, [], state}
 
   defp dispatch(demand, state) when demand > 0 do
-    available = CrfSearch.available?()
+    status = CrfSearch.available?()
 
     videos =
-      if available do
+      if status == :available do
         Media.get_videos_for_crf_search(1)
       else
         []
       end
 
     remaining_demand = demand - length(videos)
-    new_consecutive = update_consecutive_count(state.consecutive_unavailable, available)
+    # Only count :timeout (truly unresponsive) toward recovery, not :busy (normal CRF search)
+    new_consecutive = update_consecutive_count(state.consecutive_unavailable, status)
 
     if should_attempt_recovery?(new_consecutive) do
       log_recovery_attempt(new_consecutive)
@@ -72,8 +73,12 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
 
   # Public for testing
   @doc false
-  def update_consecutive_count(_current, true), do: 0
-  def update_consecutive_count(current, false), do: current + 1
+  # :available means CRF searcher responded and is free — reset counter
+  # :busy means CRF searcher responded but is searching — reset counter (it's alive)
+  # :timeout means CRF searcher didn't respond — increment toward recovery
+  def update_consecutive_count(_current, :available), do: 0
+  def update_consecutive_count(_current, :busy), do: 0
+  def update_consecutive_count(current, :timeout), do: current + 1
 
   @doc false
   def should_attempt_recovery?(count) when count >= @recovery_threshold do

@@ -1141,47 +1141,47 @@ defmodule Reencodarr.RulesTest do
   end
 
   describe "parameter parsing helpers" do
-    test "is_flag?/1 identifies long flags" do
-      assert Rules.is_flag?("--preset")
-      assert Rules.is_flag?("--svt")
-      assert Rules.is_flag?("--min-crf")
+    test "flag?/1 identifies long flags" do
+      assert Rules.flag?("--preset")
+      assert Rules.flag?("--svt")
+      assert Rules.flag?("--min-crf")
     end
 
-    test "is_flag?/1 identifies short flags" do
-      assert Rules.is_flag?("-i")
-      assert Rules.is_flag?("-v")
-      assert Rules.is_flag?("-h")
+    test "flag?/1 identifies short flags" do
+      assert Rules.flag?("-i")
+      assert Rules.flag?("-v")
+      assert Rules.flag?("-h")
     end
 
-    test "is_flag?/1 rejects non-flags" do
-      refute Rules.is_flag?("4")
-      refute Rules.is_flag?("crf-search")
-      refute Rules.is_flag?("encode")
-      refute Rules.is_flag?("/path/to/file.mkv")
+    test "flag?/1 rejects non-flags" do
+      refute Rules.flag?("4")
+      refute Rules.flag?("crf-search")
+      refute Rules.flag?("encode")
+      refute Rules.flag?("/path/to/file.mkv")
     end
 
-    test "is_file_path?/1 identifies absolute paths with extensions" do
-      assert Rules.is_file_path?("/path/to/video.mkv")
-      assert Rules.is_file_path?("/tmp/test.mp4")
-      assert Rules.is_file_path?("/media/movie.avi")
+    test "file_path?/1 identifies absolute paths with extensions" do
+      assert Rules.file_path?("/path/to/video.mkv")
+      assert Rules.file_path?("/tmp/test.mp4")
+      assert Rules.file_path?("/media/movie.avi")
     end
 
-    test "is_file_path?/1 rejects non-file-paths" do
-      refute Rules.is_file_path?("--preset")
-      refute Rules.is_file_path?("4")
-      refute Rules.is_file_path?("crf-search")
-      refute Rules.is_file_path?("/path/without/extension")
+    test "file_path?/1 rejects non-file-paths" do
+      refute Rules.file_path?("--preset")
+      refute Rules.file_path?("4")
+      refute Rules.file_path?("crf-search")
+      refute Rules.file_path?("/path/without/extension")
     end
 
-    test "is_standalone_value?/1 identifies subcommands" do
-      assert Rules.is_standalone_value?("crf-search")
-      assert Rules.is_standalone_value?("encode")
+    test "standalone_value?/1 identifies subcommands" do
+      assert Rules.standalone_value?("crf-search")
+      assert Rules.standalone_value?("encode")
     end
 
-    test "is_standalone_value?/1 rejects flags and values" do
-      refute Rules.is_standalone_value?("--preset")
-      refute Rules.is_standalone_value?("/path/to/file.mkv")
-      refute Rules.is_standalone_value?("4")
+    test "standalone_value?/1 rejects flags and values" do
+      refute Rules.standalone_value?("--preset")
+      refute Rules.standalone_value?("/path/to/file.mkv")
+      refute Rules.standalone_value?("4")
     end
   end
 end
