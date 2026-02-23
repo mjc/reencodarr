@@ -55,10 +55,8 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     vmaf_list =
       if available do
         case Media.get_next_for_encoding(1) do
-          %Reencodarr.Media.Vmaf{} = vmaf -> [vmaf]
           [%Reencodarr.Media.Vmaf{} = vmaf] -> [vmaf]
           [] -> []
-          nil -> []
         end
       else
         []
