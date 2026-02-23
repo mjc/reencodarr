@@ -315,23 +315,44 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     # Wrap in try/rescue to ensure cleanup always happens
     try do
-      # CRITICAL: Update video state to crf_searched to prevent infinite loop
-      # Use retry logic for DB busy errors, but record failure if it still fails
-      case Retry.retry_on_db_busy(fn -> Media.mark_as_crf_searched(video) end) do
-        {:ok, _} ->
-          :ok
+      # CRITICAL: Validate that VMAF records were actually created before marking as crf_searched
+      # If no VMAFs exist, the CRF search process ran but produced no valid output
+      if Media.vmaf_records_exist?(video) do
+        # CRITICAL: Update video state to crf_searched to prevent infinite loop
+        # Use retry logic for DB busy errors, but record failure if it still fails
+        case Retry.retry_on_db_busy(fn -> Media.mark_as_crf_searched(video) end) do
+          {:ok, _} ->
+            :ok
 
-        {:error, reason} ->
-          Logger.error("Failed to mark video #{video.id} as crf_searched: #{inspect(reason)}")
+          {:error, reason} ->
+            Logger.error("Failed to mark video #{video.id} as crf_searched: #{inspect(reason)}")
 
-          Media.record_video_failure(video, :crf_search, :database_error,
-            code: "state_transition_failed",
-            message: "Failed to mark video as crf_searched: #{inspect(reason)}",
-            context: %{
-              error: inspect(reason),
-              video_id: video.id
-            }
-          )
+            Media.record_video_failure(video, :crf_search, :database_error,
+              code: "state_transition_failed",
+              message: "Failed to mark video as crf_searched: #{inspect(reason)}",
+              context: %{
+                error: inspect(reason),
+                video_id: video.id
+              }
+            )
+        end
+      else
+        # CRF search completed but produced no VMAF results - record as failure
+        Logger.error(
+          "CRF search completed for video #{video.id} but no VMAF records were created"
+        )
+
+        Media.record_video_failure(video, :crf_search, :validation_error,
+          code: "no_vmaf_results",
+          message: "CRF search process completed but produced no VMAF results",
+          context: %{
+            video_id: video.id,
+            note: "Process exited with status 0 but no output lines were parsed into VMAF records"
+          }
+        )
+
+        # Mark video as failed so it doesn't get stuck in crf_searching state
+        Media.mark_as_failed(video)
       end
     rescue
       e ->
