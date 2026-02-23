@@ -12,7 +12,6 @@ defmodule ReencodarrWeb.DashboardLive do
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Dashboard.State, as: DashboardState
   alias Reencodarr.Formatters
-  alias Reencodarr.Media.VideoQueries
 
   require Logger
 
@@ -64,8 +63,6 @@ defmodule ReencodarrWeb.DashboardLive do
         Process.send_after(self(), :request_status, 100)
         # Start periodic updates for queue counts and service status
         schedule_periodic_update()
-        # Fetch the initial queue counts/items asynchronously so mount returns quickly
-        request_dashboard_queue_async()
         # Request throughput async
         request_analyzer_throughput()
 
@@ -98,7 +95,9 @@ defmodule ReencodarrWeb.DashboardLive do
        encoding_vmaf: state.encoding_vmaf,
        encoding_progress: state.encoding_progress,
        service_status: state.service_status,
-       stats: state.stats
+       stats: state.stats,
+       queue_counts: state.queue_counts,
+       queue_items: state.queue_items
      )}
   end
 
@@ -200,16 +199,7 @@ defmodule ReencodarrWeb.DashboardLive do
     # Schedule next update (recursive scheduling)
     schedule_periodic_update()
 
-    # Fetch queue data asynchronously to avoid DB checkout blocking the LiveView process
-    request_dashboard_queue_async()
-
     {:noreply, socket}
-  end
-
-  @impl true
-  # Receive asynchronous dashboard queue data and assign it
-  def handle_info({:dashboard_queue_update, queue_counts, queue_items}, socket) do
-    {:noreply, assign(socket, queue_counts: queue_counts, queue_items: queue_items)}
   end
 
   @impl true
@@ -987,73 +977,6 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   # Helper functions for real data
-  # Dashboard polls regularly, so use a short timeout (2s) to avoid blocking
-  # If SQLite is busy, we'll skip this update and get data on next poll
-  @dashboard_query_timeout 2_000
-
-  defp get_queue_counts do
-    %{
-      analyzer:
-        safe_query(fn ->
-          VideoQueries.count_videos_needing_analysis(timeout: @dashboard_query_timeout)
-        end),
-      crf_searcher:
-        safe_query(fn ->
-          VideoQueries.count_videos_for_crf_search(timeout: @dashboard_query_timeout)
-        end),
-      encoder:
-        safe_query(fn ->
-          VideoQueries.encoding_queue_count(timeout: @dashboard_query_timeout)
-        end)
-    }
-  end
-
-  # Wrapper to safely execute queries and return 0 on timeout or connection errors
-  defp safe_query(fun) do
-    fun.()
-  rescue
-    # Catch all DB connection errors (busy, timeout, disconnect, etc)
-    DBConnection.ConnectionError -> 0
-  catch
-    :exit, {:timeout, _} -> 0
-    # Catch connection errors wrapped in exit tuples
-    :exit, {%DBConnection.ConnectionError{}, _} -> 0
-    # Catch checkout timeouts
-    :exit, {{%DBConnection.ConnectionError{}, _}, _} -> 0
-  end
-
-  # Get detailed queue items for each pipeline
-  defp get_queue_items do
-    %{
-      analyzer:
-        safe_query_list(fn ->
-          VideoQueries.videos_needing_analysis(5, timeout: @dashboard_query_timeout)
-        end),
-      crf_searcher:
-        safe_query_list(fn ->
-          VideoQueries.videos_for_crf_search(5, timeout: @dashboard_query_timeout)
-        end),
-      encoder:
-        safe_query_list(fn ->
-          VideoQueries.videos_ready_for_encoding(5, timeout: @dashboard_query_timeout)
-        end)
-    }
-  end
-
-  # Wrapper for list queries - return empty list on timeout or connection errors
-  defp safe_query_list(fun) do
-    fun.()
-  rescue
-    # Catch all DB connection errors (busy, timeout, disconnect, etc)
-    DBConnection.ConnectionError -> []
-  catch
-    :exit, {:timeout, _} -> []
-    # Catch connection errors wrapped in exit tuples
-    :exit, {%DBConnection.ConnectionError{}, _} -> []
-    # Catch checkout timeouts
-    :exit, {{%DBConnection.ConnectionError{}, _}, _} -> []
-  end
-
   # Simple service status - just check if processes are alive
   defp get_optimistic_service_status do
     %{
@@ -1117,26 +1040,6 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp schedule_periodic_update do
     Process.send_after(self(), :update_dashboard_data, 5_000)
-  end
-
-  # Fetch queue counts and items in a background task and send results back to the LiveView
-  defp request_dashboard_queue_async do
-    # In test mode, run synchronously to avoid DB connection issues during cleanup
-    if Application.get_env(:reencodarr, :env) == :test do
-      counts = get_queue_counts()
-      items = get_queue_items()
-      send(self(), {:dashboard_queue_update, counts, items})
-    else
-      parent = self()
-
-      Task.Supervisor.start_child(ReencodarrWeb.TaskSupervisor, fn ->
-        # Use short timeout for dashboard queries since it polls regularly
-        # If DB is busy, safe_query/safe_query_list will return defaults (0 or [])
-        counts = get_queue_counts()
-        items = get_queue_items()
-        send(parent, {:dashboard_queue_update, counts, items})
-      end)
-    end
   end
 
   # Helper functions to reduce duplication

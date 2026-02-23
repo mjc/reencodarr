@@ -990,8 +990,14 @@ defmodule Reencodarr.Media do
   """
   @spec get_dashboard_stats(integer()) :: map()
   def get_dashboard_stats(timeout \\ 15_000) do
-    video_stats = Repo.one(SharedQueries.video_stats_query(), timeout: timeout)
-    vmaf_stats = Repo.one(SharedQueries.vmaf_stats_query(), timeout: timeout)
+    video_task =
+      Task.async(fn -> Repo.one(SharedQueries.video_stats_query(), timeout: timeout) end)
+
+    vmaf_task = Task.async(fn -> Repo.one(SharedQueries.vmaf_stats_query(), timeout: timeout) end)
+
+    video_stats = Task.await(video_task, timeout + 500)
+    vmaf_stats = Task.await(vmaf_task, timeout + 500)
+
     Map.merge(video_stats || get_default_video_stats(), vmaf_stats || get_default_vmaf_stats())
   rescue
     DBConnection.ConnectionError -> get_default_stats()

@@ -12,10 +12,13 @@ defmodule Reencodarr.Dashboard.State do
   require Logger
 
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.Media.VideoQueries
 
   @state_channel "dashboard:state"
 
   @stats_refresh_interval 60_000
+  @queue_refresh_interval 5_000
+  @query_timeout 2_000
 
   @default_state %{
     crf_search_video: nil,
@@ -30,7 +33,9 @@ defmodule Reencodarr.Dashboard.State do
       crf_searcher: :idle,
       encoder: :idle
     },
-    stats: nil
+    stats: nil,
+    queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
+    queue_items: %{analyzer: [], crf_searcher: [], encoder: []}
   }
 
   # Client API
@@ -68,17 +73,19 @@ defmodule Reencodarr.Dashboard.State do
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
 
-    {:ok, @default_state, {:continue, :fetch_initial_stats}}
+    {:ok, @default_state, {:continue, :fetch_initial_data}}
   end
 
   @impl true
-  def handle_continue(:fetch_initial_stats, state) do
+  def handle_continue(:fetch_initial_data, state) do
     parent = self()
 
     Task.start(fn ->
       stats = Reencodarr.Media.get_dashboard_stats()
       send(parent, {:stats_ready, stats})
     end)
+
+    send(self(), :refresh_queues)
 
     {:noreply, state}
   end
@@ -225,7 +232,13 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_info({:stats_ready, stats}, state) do
-    state = %{state | stats: stats}
+    queue_counts = %{
+      analyzer: stats.needs_analysis || 0,
+      crf_searcher: stats.analyzed || 0,
+      encoder: stats.crf_searched || 0
+    }
+
+    state = %{state | stats: stats, queue_counts: queue_counts}
     broadcast_state(state)
     Process.send_after(self(), :refresh_stats, @stats_refresh_interval)
     {:noreply, state}
@@ -243,6 +256,26 @@ defmodule Reencodarr.Dashboard.State do
     {:noreply, state}
   end
 
+  @impl true
+  def handle_info(:refresh_queues, state) do
+    parent = self()
+
+    Task.start(fn ->
+      items = fetch_queue_items_parallel()
+      send(parent, {:queue_items_ready, items})
+    end)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:queue_items_ready, items}, state) do
+    state = %{state | queue_items: items}
+    broadcast_state(state)
+    Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
+    {:noreply, state}
+  end
+
   # Catch-all for unknown messages
   @impl true
   def handle_info(msg, state) do
@@ -254,6 +287,41 @@ defmodule Reencodarr.Dashboard.State do
 
   defp broadcast_state(state) do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, @state_channel, {:dashboard_state_changed, state})
+  end
+
+  defp fetch_queue_items_parallel do
+    tasks = %{
+      analyzer:
+        Task.async(fn ->
+          safe_query_list(fn ->
+            VideoQueries.videos_needing_analysis(5, timeout: @query_timeout)
+          end)
+        end),
+      crf_searcher:
+        Task.async(fn ->
+          safe_query_list(fn ->
+            VideoQueries.videos_for_crf_search(5, timeout: @query_timeout)
+          end)
+        end),
+      encoder:
+        Task.async(fn ->
+          safe_query_list(fn ->
+            VideoQueries.videos_ready_for_encoding(5, timeout: @query_timeout)
+          end)
+        end)
+    }
+
+    Map.new(tasks, fn {k, task} -> {k, Task.await(task, @query_timeout + 500)} end)
+  end
+
+  defp safe_query_list(fun) do
+    fun.()
+  rescue
+    DBConnection.ConnectionError -> []
+  catch
+    :exit, {:timeout, _} -> []
+    :exit, {%DBConnection.ConnectionError{}, _} -> []
+    :exit, {{%DBConnection.ConnectionError{}, _}, _} -> []
   end
 
   # Helper to upsert a result in a list by key
