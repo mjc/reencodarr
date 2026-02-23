@@ -140,9 +140,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def terminate(reason, state) do
     Logger.warning("CrfSearch GenServer terminating: #{inspect(reason)}")
 
-    # Kill the process group to ensure ffmpeg children are also killed
-    Helper.kill_process_group(state.os_pid)
-
     # Close the port if it's open
     Helper.close_port(state.port)
 
@@ -578,9 +575,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   @impl true
   def handle_call(:reset_if_stuck, _from, state) do
     Logger.warning("Force resetting CRF searcher state - was stuck")
-
-    # Kill the process group to ensure all children are killed
-    Helper.kill_process_group(state.os_pid)
 
     # Close any open port
     Retry.safe_port_close(state.port)

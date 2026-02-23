@@ -119,9 +119,6 @@ defmodule Reencodarr.AbAv1.Encode do
   def terminate(reason, state) do
     Logger.warning("Encode GenServer terminating: #{inspect(reason)}")
 
-    # Kill the process group to ensure ffmpeg children are also killed
-    Helper.kill_process_group(state.os_pid)
-
     # Close the port if it's open
     Helper.close_port(state.port)
 
@@ -157,8 +154,7 @@ defmodule Reencodarr.AbAv1.Encode do
   def handle_call(:reset_if_stuck, _from, state) do
     Logger.warning("Force resetting Encode GenServer - was stuck")
 
-    # Kill the process group and port
-    Helper.kill_process_group(state.os_pid)
+    # Close the port and port process
     Helper.close_port(state.port)
 
     # Reset video state if we have one
