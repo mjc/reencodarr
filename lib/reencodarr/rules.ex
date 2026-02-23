@@ -218,7 +218,7 @@ defmodule Reencodarr.Rules do
   end
 
   # Remove duplicate tuples, keeping first occurrence
-  # Special handling for --svt and --enc which can appear multiple times
+  # Special handling for --svt and --enc which can appear multiple times with different values
   defp remove_duplicate_tuples(tuples) do
     # Map equivalent flags to canonical forms for deduplication
     flag_equivalents = %{
@@ -236,11 +236,19 @@ defmodule Reencodarr.Rules do
     {result, _seen} =
       Enum.reduce(normalized_tuples, {[], MapSet.new()}, fn
         {flag, _value} = tuple, {acc, seen} ->
-          # Allow multiple --svt and --enc flags since they can have different values
-          if flag in ["--svt", "--enc"] or not MapSet.member?(seen, flag) do
-            {[tuple | acc], MapSet.put(seen, flag)}
-          else
+          # For multi-value flags (--svt, --enc), deduplicate by exact {flag, value} pair
+          # so --svt tune=0 --svt film-grain=8 is allowed but --svt tune=0 --svt tune=0 is not
+          dedup_key =
+            if flag in ["--svt", "--enc"] do
+              tuple
+            else
+              flag
+            end
+
+          if MapSet.member?(seen, dedup_key) do
             {acc, seen}
+          else
+            {[tuple | acc], MapSet.put(seen, dedup_key)}
           end
       end)
 

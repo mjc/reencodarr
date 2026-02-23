@@ -117,7 +117,7 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       # Verify GenServer is still available (port should be :none)
       state = :sys.get_state(CrfSearch)
       assert state.port == :none
-      assert CrfSearch.available?() == true
+      assert CrfSearch.available?() == :available
 
       # Verify video was marked as failed
       assert :meck.called(Reencodarr.Media, :record_video_failure, :_)
@@ -157,7 +157,7 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       # Verify GenServer is busy (port should be the fake_port)
       state = :sys.get_state(CrfSearch)
       assert state.port == fake_port
-      assert CrfSearch.available?() == false
+      assert CrfSearch.available?() == :busy
 
       # Clean up
       Port.close(fake_port)
@@ -332,7 +332,7 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       assert CrfSearch.reset_if_stuck() == :ok
 
       # Verify CrfSearch is available
-      assert CrfSearch.available?() == true
+      assert CrfSearch.available?() == :available
 
       # Verify state is clean
       state = :sys.get_state(CrfSearch)

@@ -11,7 +11,7 @@ defmodule Reencodarr.Encoder do
   def dispatch_available, do: Producer.dispatch_available()
 
   @doc "Check if the encoder is actively processing work"
-  def actively_running?, do: not available?()
+  def actively_running?, do: available?() != :available
 
   @doc "Check if the encode GenServer is available"
   def available?, do: Encode.available?()

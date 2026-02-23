@@ -50,10 +50,10 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   def handle_info(_msg, state), do: {:noreply, [], state}
 
   defp dispatch(demand, state) when demand > 0 do
-    available = Encode.available?()
+    status = Encode.available?()
 
     vmaf_list =
-      if available do
+      if status == :available do
         case Media.get_next_for_encoding(1) do
           [%Reencodarr.Media.Vmaf{} = vmaf] -> [vmaf]
           [] -> []
@@ -63,7 +63,8 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
       end
 
     remaining_demand = demand - length(vmaf_list)
-    new_consecutive = update_consecutive_count(state.consecutive_unavailable, available)
+    # Only count :timeout (truly unresponsive) toward recovery, not :busy (normal encoding)
+    new_consecutive = update_consecutive_count(state.consecutive_unavailable, status)
 
     if should_attempt_recovery?(new_consecutive) do
       log_recovery_attempt(new_consecutive)
@@ -82,8 +83,12 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   # Public for testing
   @doc false
-  def update_consecutive_count(_current, true), do: 0
-  def update_consecutive_count(current, false), do: current + 1
+  # :available means encoder responded and is free — reset counter
+  # :busy means encoder responded but is encoding — reset counter (it's alive)
+  # :timeout means encoder didn't respond — increment toward recovery
+  def update_consecutive_count(_current, :available), do: 0
+  def update_consecutive_count(_current, :busy), do: 0
+  def update_consecutive_count(current, :timeout), do: current + 1
 
   @doc false
   def should_attempt_recovery?(count) when count >= @recovery_threshold do

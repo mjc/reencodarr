@@ -29,7 +29,7 @@ defmodule Reencodarr.CrfSearcher do
   @doc "Check if the CRF searcher is actively processing work"
   def actively_running? do
     # Simple: if CrfSearch GenServer is busy, we're actively running
-    not available?()
+    available?() != :available
   end
 
   @doc "Check if the CRF search GenServer is available"
