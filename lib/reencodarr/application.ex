@@ -30,6 +30,9 @@ defmodule Reencodarr.Application do
       {Finch, name: Reencodarr.Finch},
       # Start to serve requests, typically the last entry
       ReencodarrWeb.Endpoint,
+      # DynamicSupervisor for port-holder processes (AbAv1.Encoder, AbAv1.CrfSearcher).
+      # These are started on-demand and survive restarts of the worker GenServers.
+      {DynamicSupervisor, name: Reencodarr.PortSupervisor, strategy: :one_for_one},
       %{
         id: :worker_supervisor,
         start: {Supervisor, :start_link, [worker_children(), [strategy: :one_for_one]]}

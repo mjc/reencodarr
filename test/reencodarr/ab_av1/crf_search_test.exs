@@ -114,9 +114,9 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       # Give it time to process
       Process.sleep(100)
 
-      # Verify GenServer is still available (port should be :none)
+      # Verify GenServer is still available (current_task should be :none)
       state = :sys.get_state(CrfSearch)
-      assert state.port == :none
+      assert state.current_task == :none
       assert CrfSearch.available?() == :available
 
       # Verify video was marked as failed
@@ -154,9 +154,9 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       # Give it time to process
       Process.sleep(100)
 
-      # Verify GenServer is busy (port should be the fake_port)
+      # Verify GenServer is busy (current_task should be set)
       state = :sys.get_state(CrfSearch)
-      assert state.port == fake_port
+      assert state.current_task != :none
       assert CrfSearch.available?() == :busy
 
       # Clean up
@@ -164,14 +164,14 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
     end
 
     test "marks video as crf_searching ONLY AFTER successful port open", %{pid: _pid} do
-      # This test verifies the ordering fix
-      # Track the order of calls
+      # This test verifies the ordering fix: mark_as_crf_searching only called
+      # after CrfSearcher.start succeeds
       test_pid = self()
 
-      :meck.new(Helper, [:passthrough])
+      :meck.new(Reencodarr.AbAv1.CrfSearcher, [:passthrough])
 
-      :meck.expect(Helper, :open_port, fn _args ->
-        send(test_pid, :open_port_called)
+      :meck.expect(Reencodarr.AbAv1.CrfSearcher, :start, fn _args, _metadata ->
+        send(test_pid, :start_called)
         {:error, :not_found}
       end)
 
@@ -192,9 +192,9 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       GenServer.cast(CrfSearch, {:crf_search, video, vmaf_percent})
       Process.sleep(100)
 
-      # Verify mark_as_crf_searching was NOT called when port open failed
+      # Verify mark_as_crf_searching was NOT called when start failed
       refute_received :mark_as_crf_searching_called
-      assert_received :open_port_called
+      assert_received :start_called
     end
   end
 
@@ -308,7 +308,8 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
 
     test "GenServer starts with os_pid nil", %{pid: _pid} do
       state = :sys.get_state(CrfSearch)
-      assert state.os_pid == nil
+      # os_pid is nil when no CRF search is active
+      assert state.current_task == :none
     end
 
     test "get_state/0 returns debug info", %{pid: _pid} do
@@ -336,8 +337,8 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
 
       # Verify state is clean
       state = :sys.get_state(CrfSearch)
-      assert state.port == :none
       assert state.current_task == :none
+      assert state.searcher_monitor == nil
       assert state.os_pid == nil
     end
   end

@@ -2,12 +2,15 @@ defmodule Reencodarr.AbAv1.Encode do
   @moduledoc """
   GenServer for handling video encoding operations using ab-av1.
 
-  This module manages the encoding process for videos, processes output data,
-  handles file operations, and coordinates with the media database.
+  This module manages encoding business logic (progress parsing, DB updates,
+  file operations) but does NOT own the OS port. Port ownership is held by
+  `AbAv1.Encoder`, which survives restarts of this GenServer. On restart,
+  `init/1` re-subscribes to `Encoder` and recovers state from its metadata.
   """
 
   use GenServer
 
+  alias Reencodarr.AbAv1.Encoder
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.AbAv1.ProgressParser
   alias Reencodarr.Core.Retry
@@ -18,7 +21,10 @@ defmodule Reencodarr.AbAv1.Encode do
 
   require Logger
 
+  # ---------------------------------------------------------------------------
   # Public API
+  # ---------------------------------------------------------------------------
+
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
@@ -28,7 +34,6 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   def running? do
-    # Simplified - just check if process exists and is alive
     case GenServer.whereis(__MODULE__) do
       nil -> false
       pid -> Process.alive?(pid)
@@ -37,8 +42,6 @@ defmodule Reencodarr.AbAv1.Encode do
 
   @spec available?() :: :available | :busy | :timeout
   def available? do
-    # Check if encoder is available (not currently encoding)
-    # Returns :available, :busy (normal encoding in progress), or :timeout (unresponsive)
     case GenServer.whereis(__MODULE__) do
       nil ->
         :timeout
@@ -56,7 +59,7 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   @doc """
-  Force reset the GenServer if it's stuck. Kills the port and process group,
+  Force reset the GenServer if it's stuck. Kills the port holder process,
   resets video state, and clears internal state.
   """
   @spec reset_if_stuck() :: :ok | {:error, :not_running}
@@ -67,16 +70,14 @@ defmodule Reencodarr.AbAv1.Encode do
 
       pid ->
         try do
-          GenServer.call(pid, :reset_if_stuck, 1000)
+          GenServer.call(pid, :reset_if_stuck, 5_000)
         catch
           :exit, _ -> {:error, :timeout}
         end
     end
   end
 
-  @doc """
-  Get the current GenServer state for debugging.
-  """
+  @doc "Get the current GenServer state for debugging."
   @spec get_state() :: map() | {:error, :not_running}
   def get_state do
     case GenServer.whereis(__MODULE__) do
@@ -92,117 +93,67 @@ defmodule Reencodarr.AbAv1.Encode do
     end
   end
 
+  # ---------------------------------------------------------------------------
   # GenServer Callbacks
+  # ---------------------------------------------------------------------------
+
   @impl true
   def init(:ok) do
-    # Enable trap_exit to handle port crashes gracefully
+    # Keep trap_exit so supervisor :shutdown flows through terminate/2
     Process.flag(:trap_exit, true)
 
-    # Kill any orphaned ab-av1 encode processes from previous crashes
-    Helper.kill_orphaned_processes("ab-av1 encode")
-
-    {:ok,
-     %{
-       port: :none,
-       video: :none,
-       vmaf: :none,
-       output_file: :none,
-       partial_line_buffer: "",
-       last_progress: nil,
-       output_lines: [],
-       encode_args: [],
-       os_pid: nil
-     }}
+    {:ok, recover_or_init_state()}
   end
 
   @impl true
-  # Clean shutdown (BEAM/application exiting) — kill any active encode so it doesn't orphan
+  # Clean or supervised shutdown — best-effort: reset video so it can be re-queued
   def terminate(reason, state) when reason in [:normal, :shutdown] do
     Logger.warning("Encode GenServer terminating: #{inspect(reason)}")
-
-    if state.port != :none, do: Helper.kill_process_group(state.os_pid)
-    Helper.close_port(state.port)
-
-    # Best-effort: reset video state so it can be re-queued
-    if state.video != :none and is_struct(state.video, Reencodarr.Media.Video) do
-      case Media.mark_as_crf_searched(state.video) do
-        {:ok, _} ->
-          Logger.info("Reset video #{state.video.id} to crf_searched state for re-queue")
-
-        {:error, reason} ->
-          Logger.error(
-            "Failed to reset video #{state.video.id} to crf_searched: #{inspect(reason)}"
-          )
-      end
-    end
-
+    reset_video_if_present(state)
     :ok
   end
 
-  # Crash/restart — leave the OS process running; kill_orphaned_processes in init will clean up
+  # Crash — leave Encoder running so the port survives; init will re-subscribe
   def terminate(reason, state) do
     Logger.warning("Encode GenServer terminating (crash): #{inspect(reason)}")
-    Helper.close_port(state.port)
-
-    if state.video != :none and is_struct(state.video, Reencodarr.Media.Video) do
-      case Media.mark_as_crf_searched(state.video) do
-        {:ok, _} ->
-          Logger.info("Reset video #{state.video.id} to crf_searched state for re-queue")
-
-        {:error, reason} ->
-          Logger.error(
-            "Failed to reset video #{state.video.id} to crf_searched: #{inspect(reason)}"
-          )
-      end
-    end
-
+    reset_video_if_present(state)
     :ok
   end
 
   @impl true
-  def handle_call(:running?, _from, %{port: port} = state) do
-    status = if port == :none, do: :not_running, else: :running
-    {:reply, status, state}
+  def handle_call(:available?, _from, state) do
+    {:reply, state.video == :none, state}
   end
 
   @impl true
-  def handle_call(:available?, _from, %{port: port} = state) do
-    available = port == :none
-    {:reply, available, state}
+  def handle_call(:running?, _from, state) do
+    status = if state.video == :none, do: :not_running, else: :running
+    {:reply, status, state}
   end
 
   @impl true
   def handle_call(:reset_if_stuck, _from, state) do
     Logger.warning("Force resetting Encode GenServer - was stuck")
 
-    # Only kill the OS process if something is actually running
-    if state.port != :none, do: Helper.kill_process_group(state.os_pid)
-    Helper.close_port(state.port)
+    # Demonitor first to flush any pending :DOWN message
+    if state.encoder_monitor, do: Process.demonitor(state.encoder_monitor, [:flush])
 
-    # Reset video state if we have one
-    if state.video != :none and is_struct(state.video, Reencodarr.Media.Video) do
-      case Media.mark_as_crf_searched(state.video) do
-        {:ok, _} ->
-          Logger.info("Reset video #{state.video.id} to crf_searched state")
+    # Kill Encoder (kills OS process group then stops GenServer)
+    Encoder.kill()
 
-        {:error, reason} ->
-          Logger.error("Failed to reset video #{state.video.id}: #{inspect(reason)}")
-      end
-    end
+    # Reset video state so it can be re-queued
+    reset_video_if_present(state)
 
-    # Notify producer that encoder is available again
+    # Notify Broadway producer
     Producer.dispatch_available()
 
-    # Clear state
-    clean_state = clear_state(state)
-
-    {:reply, :ok, clean_state}
+    {:reply, :ok, clear_state(state)}
   end
 
   @impl true
   def handle_call(:get_state, _from, state) do
     debug_state = %{
-      port_status: if(state.port == :none, do: :available, else: :busy),
+      port_status: if(state.video == :none, do: :available, else: :busy),
       has_video: state.video != :none,
       video_id: if(state.video != :none, do: state.video.id, else: nil),
       os_pid: state.os_pid,
@@ -215,39 +166,39 @@ defmodule Reencodarr.AbAv1.Encode do
   @impl true
   def handle_cast(
         {:encode, %Vmaf{params: _params} = vmaf},
-        %{port: :none} = state
+        %{video: :none} = state
       ) do
     new_state = prepare_encode_state(vmaf, state)
     {:noreply, new_state}
   end
 
   @impl true
-  def handle_cast({:encode, %Vmaf{} = _vmaf}, %{port: port} = state) when port != :none do
+  def handle_cast({:encode, %Vmaf{} = _vmaf}, state) do
     Logger.info("Encoding is already in progress, skipping new encode request.")
-
     {:noreply, state}
   end
 
+  # ---------------------------------------------------------------------------
+  # Port output forwarded from Encoder
+  # ---------------------------------------------------------------------------
+
+  # eol line — process it
   @impl true
   def handle_info(
-        {port, {:data, {:eol, data}}},
-        %{port: port, partial_line_buffer: buffer, output_lines: output_lines} = state
-      ) do
+        {Encoder, {:line, data}},
+        %{partial_line_buffer: buffer, output_lines: output_lines} = state
+      )
+      when state.video != :none do
     full_line = buffer <> data
 
-    # Wrap in try/rescue to prevent crashes from bad data or DB errors
     try do
       ProgressParser.process_line(full_line, state)
-
-      # Try to extract progress data from the line to store as last_progress
       updated_state = extract_and_store_progress(full_line, state)
 
-      # Accumulate output lines (cap at 1024 to avoid memory issues)
       new_output_lines =
         if length(output_lines) < 1024 do
           [full_line | output_lines]
         else
-          # Keep most recent 1024 lines
           [full_line | Enum.take(output_lines, 1023)]
         end
 
@@ -258,47 +209,42 @@ defmodule Reencodarr.AbAv1.Encode do
           "AbAv1.Encode: Error processing line '#{full_line}': #{Exception.message(e)}"
         )
 
-        # Continue with original state, just clearing the buffer
         {:noreply, %{state | partial_line_buffer: "", output_lines: [full_line | output_lines]}}
     end
   end
 
+  # partial chunk — accumulate into buffer
   @impl true
-  def handle_info(
-        {port, {:data, {:noeol, message}}},
-        %{port: port, partial_line_buffer: buffer} = state
-      ) do
-    new_buffer = buffer <> message
-    {:noreply, %{state | partial_line_buffer: new_buffer}}
+  def handle_info({Encoder, {:partial, chunk}}, %{partial_line_buffer: buffer} = state)
+      when state.video != :none do
+    {:noreply, %{state | partial_line_buffer: buffer <> chunk}}
   end
 
+  # port exited
   @impl true
   def handle_info(
-        {port, {:exit_status, exit_code}},
+        {Encoder, {:exit_status, exit_code}},
         %{
-          port: port,
           vmaf: vmaf,
           output_file: output_file,
           encode_args: encode_args,
           output_lines: output_lines
         } = state
-      ) do
-    # Wrap entire exit handling in try/rescue to ensure state cleanup always happens
+      )
+      when state.video != :none do
     try do
-      # Broadcast encoding completion to Dashboard Events
-      pubsub_result = if exit_code == 0, do: :success, else: {:error, exit_code}
+      pubsub_result =
+        if is_integer(exit_code) and exit_code == 0, do: :success, else: {:error, exit_code}
 
       Events.broadcast_event(:encoding_completed, %{
         video_id: vmaf.video.id,
         result: pubsub_result
       })
 
-      # Notify the Broadway producer that encoding is now available
       Producer.dispatch_available()
 
-      # Handle success/failure with automatic retry on DB busy
       Retry.retry_on_db_busy(fn ->
-        if exit_code == 0 do
+        if is_integer(exit_code) and exit_code == 0 do
           notify_encoder_success(vmaf.video, output_file)
         else
           notify_encoder_failure(vmaf.video, exit_code, encode_args, output_lines)
@@ -309,32 +255,48 @@ defmodule Reencodarr.AbAv1.Encode do
         Logger.error("AbAv1.Encode: Error in exit_status handler: #{Exception.message(e)}")
     end
 
-    # Always clear state after handling exit (retry succeeded or max attempts reached)
     {:noreply, clear_state(state)}
   end
 
-  # Catch-all for any other port messages
+  # Stale Encoder messages after reset — ignore
   @impl true
-  def handle_info({port, message}, %{port: port} = state) do
-    Logger.warning("AbAv1.Encode: Received unexpected port message: #{inspect(message)}")
+  def handle_info({Encoder, _msg}, state) do
     {:noreply, state}
   end
 
-  # Periodic check to see if encoding is still active
+  # Encoder process went down unexpectedly while an encode was in progress
   @impl true
-  def handle_info(:periodic_check, %{port: :none} = state) do
-    # Encoding not active, don't schedule another check
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{encoder_monitor: ref} = state)
+      when state.video != :none do
+    Logger.error("AbAv1.Encode: Encoder process went down: #{inspect(reason)}")
+
+    if state.vmaf != :none do
+      Events.broadcast_event(:encoding_completed, %{
+        video_id: state.vmaf.video.id,
+        result: {:error, :encoder_died}
+      })
+
+      Producer.dispatch_available()
+    end
+
+    {:noreply, clear_state(state)}
+  end
+
+  # Stale or irrelevant :DOWN (after reset or mismatched monitor ref)
+  @impl true
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
+    {:noreply, state}
+  end
+
+  # Periodic heartbeat — broadcast last known progress to keep dashboard alive
+  @impl true
+  def handle_info(:periodic_check, %{video: :none} = state) do
     {:noreply, state}
   end
 
   @impl true
-  def handle_info(
-        :periodic_check,
-        %{port: port, video: video, last_progress: last_progress} = state
-      )
-      when port != :none do
-    # Broadcast the last known progress to keep dashboard alive during long encodings
-    # Only broadcast if we have real progress data, otherwise let the dashboard handle the silence
+  def handle_info(:periodic_check, %{video: video, last_progress: last_progress} = state)
+      when video != :none do
     if last_progress do
       Events.broadcast_event(:encoding_progress, %{
         video_id: video.id,
@@ -344,86 +306,111 @@ defmodule Reencodarr.AbAv1.Encode do
         filename: Path.basename(video.path)
       })
 
-      # Also ensure encoder status shows as active
       Events.broadcast_event(:encoder_started, %{})
     end
 
-    # Schedule the next check
     Process.send_after(self(), :periodic_check, 10_000)
     {:noreply, state}
   end
 
-  # Handle port death without exit_status (safety net)
+  # Ignore EXIT signals (we trap_exit but don't own ports)
   @impl true
-  def handle_info({:EXIT, port, reason}, %{port: port} = state) when port != :none do
-    Logger.error("AbAv1.Encode: Port died unexpectedly: #{inspect(reason)}")
-
-    # Broadcast failure
-    if state.vmaf != :none do
-      Events.broadcast_event(:encoding_completed, %{
-        video_id: state.vmaf.video.id,
-        result: {:error, :port_died}
-      })
-
-      Producer.dispatch_available()
-    end
-
-    # Clear state and reset video for re-queue
-    {:noreply, clear_state(state)}
-  end
-
-  # Ignore EXIT from unknown ports (stale references after restart)
-  @impl true
-  def handle_info({:EXIT, _port, _reason}, state) do
+  def handle_info({:EXIT, _from, _reason}, state) do
     {:noreply, state}
   end
 
-  # Catch-all for any other messages
   @impl true
   def handle_info(message, state) do
     Logger.warning("AbAv1.Encode: Received unexpected message: #{inspect(message)}")
     {:noreply, state}
   end
 
-  # Private Helper Functions
+  # ---------------------------------------------------------------------------
+  # Private Helpers
+  # ---------------------------------------------------------------------------
 
-  # Determine output extension based on input file
-  # MP4 files output as MP4, everything else outputs as MKV
-  defp output_extension(video_path) do
-    case Path.extname(video_path) |> String.downcase() do
-      ".mp4" -> ".mp4"
-      _ -> ".mkv"
+  # On init, check if Encoder is already running (we crashed mid-encode).
+  # If so, re-subscribe and recover state from its stored metadata.
+  defp recover_or_init_state do
+    if Encoder.running?() do
+      case Encoder.get_metadata() do
+        {:ok, metadata} ->
+          encoder_pid = Process.whereis(Encoder)
+          monitor = Process.monitor(encoder_pid)
+          {:ok, _replayed} = Encoder.subscribe(self())
+          os_pid = Encoder.get_os_pid()
+
+          Logger.info(
+            "Encode: recovering — re-subscribed to Encoder, video #{metadata.vmaf.video.id}"
+          )
+
+          Process.send_after(self(), :periodic_check, 10_000)
+
+          %{
+            video: metadata.vmaf.video,
+            vmaf: metadata.vmaf,
+            output_file: metadata.output_file,
+            encode_args: metadata.encode_args,
+            partial_line_buffer: "",
+            last_progress: nil,
+            output_lines: [],
+            encoder_monitor: monitor,
+            os_pid: os_pid
+          }
+
+        _err ->
+          # Encoder running but metadata unavailable — fall back to clean start
+          empty_state_after_orphan_kill()
+      end
+    else
+      empty_state_after_orphan_kill()
     end
   end
 
+  defp empty_state_after_orphan_kill do
+    Helper.kill_orphaned_processes("ab-av1 encode")
+    empty_state()
+  end
+
+  defp empty_state do
+    %{
+      video: :none,
+      vmaf: :none,
+      output_file: :none,
+      partial_line_buffer: "",
+      last_progress: nil,
+      output_lines: [],
+      encode_args: [],
+      encoder_monitor: nil,
+      os_pid: nil
+    }
+  end
+
   defp prepare_encode_state(vmaf, state) do
-    # Mark video as encoding BEFORE starting the port to prevent duplicate dispatches
     case Media.mark_as_encoding(vmaf.video) do
       {:ok, _updated_video} ->
-        start_encode_port(vmaf, state)
+        start_encoder(vmaf, state)
 
       {:error, reason} ->
         Logger.error(
-          "Failed to mark video #{vmaf.video.id} as encoding: #{inspect(reason)}. Skipping encode."
+          "Failed to mark video #{vmaf.video.id} as encoding: #{inspect(reason)}. Skipping."
         )
 
         state
     end
   end
 
-  defp start_encode_port(vmaf, state) do
+  defp start_encoder(vmaf, state) do
     args = build_encode_args(vmaf)
     ext = output_extension(vmaf.video.path)
     output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}#{ext}")
+    metadata = %{vmaf: vmaf, output_file: output_file, encode_args: args}
 
-    case Helper.open_port(args) do
-      {:ok, port} ->
-        # Extract OS PID immediately for process group tracking
-        os_pid =
-          case Port.info(port, :os_pid) do
-            {:os_pid, pid} -> pid
-            _ -> nil
-          end
+    case Encoder.start(args, metadata) do
+      {:ok, encoder_pid} ->
+        monitor = Process.monitor(encoder_pid)
+        {:ok, _} = Encoder.subscribe(self())
+        os_pid = Encoder.get_os_pid()
 
         Events.broadcast_event(:encoding_started, %{
           video_id: vmaf.video.id,
@@ -444,18 +431,26 @@ defmodule Reencodarr.AbAv1.Encode do
 
         %{
           state
-          | port: port,
-            video: vmaf.video,
+          | video: vmaf.video,
             vmaf: vmaf,
             output_file: output_file,
             encode_args: args,
             output_lines: [],
+            encoder_monitor: monitor,
             os_pid: os_pid
         }
 
-      {:error, :not_found} ->
-        Logger.error("ab-av1 executable not found, cannot encode video #{vmaf.video.id}")
+      {:error, reason} ->
+        Logger.error("Failed to start Encoder for video #{vmaf.video.id}: #{inspect(reason)}")
+
         state
+    end
+  end
+
+  defp output_extension(video_path) do
+    case Path.extname(video_path) |> String.downcase() do
+      ".mp4" -> ".mp4"
+      _ -> ".mkv"
     end
   end
 
@@ -472,46 +467,53 @@ defmodule Reencodarr.AbAv1.Encode do
       vmaf.video.path
     ]
 
-    # Get rule-based arguments from centralized Rules module
-    # Extract VMAF params for use in Rules.build_args
     vmaf_params = extract_vmaf_params(vmaf)
-
-    # Pass base_args to Rules.build_args so it can handle deduplication properly
     Reencodarr.Rules.build_args(vmaf.video, :encode, vmaf_params, base_args)
   end
 
-  # Helper function to extract VMAF params with proper pattern matching
   defp extract_vmaf_params(%{params: params}) when is_list(params), do: params
   defp extract_vmaf_params(_), do: []
 
-  # Test helper function to expose build_encode_args for testing
   if Mix.env() == :test do
     def build_encode_args_for_test(vmaf), do: build_encode_args(vmaf)
   end
 
   defp clear_state(state) do
+    if state.encoder_monitor, do: Process.demonitor(state.encoder_monitor, [:flush])
+
     %{
       state
-      | port: :none,
-        video: :none,
+      | video: :none,
         vmaf: :none,
-        output_file: nil,
+        output_file: :none,
         partial_line_buffer: "",
         last_progress: nil,
         output_lines: [],
         encode_args: [],
+        encoder_monitor: nil,
         os_pid: nil
     }
   end
 
+  defp reset_video_if_present(%{video: :none}), do: :ok
+
+  defp reset_video_if_present(%{video: video}) do
+    if is_struct(video, Reencodarr.Media.Video) do
+      case Media.mark_as_crf_searched(video) do
+        {:ok, _} ->
+          Logger.info("Reset video #{video.id} to crf_searched state for re-queue")
+
+        {:error, reason} ->
+          Logger.error("Failed to reset video #{video.id} to crf_searched: #{inspect(reason)}")
+      end
+    end
+  end
+
   defp notify_encoder_success(video, output_file) do
-    # Use PostProcessor for cleanup work
     PostProcessor.process_encoding_success(video, output_file)
   end
 
   defp notify_encoder_failure(video, exit_code, encode_args, output_lines) do
-    # Build command context for failure diagnostics
-    # Reverse output_lines since we prepended them
     context =
       Reencodarr.FailureTracker.build_command_context(
         encode_args,
@@ -522,9 +524,7 @@ defmodule Reencodarr.AbAv1.Encode do
     PostProcessor.process_encoding_failure(video, exit_code, context)
   end
 
-  # Extract progress data from a line and store it for periodic updates
   defp extract_and_store_progress(line, state) do
-    # Simple regex to match progress lines: "X%, Y fps, eta Z"
     progress_regex =
       ~r/(?<percent>\d+(?:\.\d+)?)%,\s+(?<fps>\d+(?:\.\d+)?)\s+fps.*?eta\s+(?<eta>[^,\n]+)/
 
@@ -539,11 +539,9 @@ defmodule Reencodarr.AbAv1.Encode do
         %{state | last_progress: progress_data}
 
       nil ->
-        # No progress found in this line, keep existing state
         state
     end
   rescue
-    # If parsing fails, just return the original state
     _ -> state
   end
 end

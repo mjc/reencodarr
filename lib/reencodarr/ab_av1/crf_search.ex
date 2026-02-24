@@ -2,14 +2,17 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   @moduledoc """
   GenServer for handling CRF search operations using ab-av1.
 
-  This module manages the CRF search process for videos to find optimal
-  encoding parameters based on VMAF quality targets.
+  This module manages CRF search business logic (VMAF parsing, DB updates,
+  retry strategy) but does NOT own the OS port. Port ownership is held by
+  `AbAv1.CrfSearcher`, which survives restarts of this GenServer. On restart,
+  `init/1` re-subscribes to `CrfSearcher` and recovers state from its metadata.
   """
 
   use GenServer
 
   import Ecto.Query
 
+  alias Reencodarr.AbAv1.CrfSearcher
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.AbAv1.OutputParser
   alias Reencodarr.Core.Parsers
@@ -23,12 +26,14 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   require Logger
 
-  # Updated line matching function using centralized OutputParser with proper type conversion
   defp parse_line_with_types(line) do
     OutputParser.parse_line(line)
   end
 
+  # ---------------------------------------------------------------------------
   # Public API
+  # ---------------------------------------------------------------------------
+
   @spec start_link(any()) :: GenServer.on_start()
   def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
 
@@ -38,7 +43,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   def crf_search(video, _vmaf_percent) when video.state == :encoded do
     Logger.info("Skipping crf search for video #{video.path} as it is already encoded")
 
-    # Clean dashboard event
     Events.broadcast_event(:crf_search_completed, %{
       video_id: video.id,
       result: :skipped
@@ -66,7 +70,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   def running? do
-    # Simplified - just check if process exists and is alive
     case GenServer.whereis(__MODULE__) do
       nil -> false
       pid -> Process.alive?(pid)
@@ -75,8 +78,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @spec available?() :: :available | :busy | :timeout
   def available? do
-    # Check if the process exists and is not busy (port is :none)
-    # Returns :available, :busy (normal CRF search in progress), or :timeout (unresponsive)
     case GenServer.whereis(__MODULE__) do
       nil ->
         :timeout
@@ -94,7 +95,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   def get_state do
-    # Get the current state for debugging
     case GenServer.whereis(__MODULE__) do
       nil ->
         {:error, :not_running}
@@ -109,51 +109,40 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   def reset_if_stuck do
-    # Force reset the GenServer if it's stuck
     case GenServer.whereis(__MODULE__) do
       nil ->
         {:error, :not_running}
 
       pid when is_pid(pid) ->
         try do
-          GenServer.call(pid, :reset_if_stuck, 1000)
+          GenServer.call(pid, :reset_if_stuck, 5_000)
         catch
           :exit, _ -> {:error, :timeout}
         end
     end
   end
 
-  # GenServer callbacks
+  # ---------------------------------------------------------------------------
+  # GenServer Callbacks
+  # ---------------------------------------------------------------------------
+
   @impl true
   def init(:ok) do
-    # Enable trap_exit to handle port crashes gracefully
     Process.flag(:trap_exit, true)
-
-    # Kill any orphaned ab-av1 crf-search processes from previous crashes
-    Helper.kill_orphaned_processes("ab-av1 crf-search")
-
-    {:ok,
-     %{port: :none, current_task: :none, partial_line_buffer: "", output_buffer: [], os_pid: nil}}
+    {:ok, recover_or_init_state()}
   end
 
   @impl true
-  # Clean shutdown (BEAM/application exiting) — kill any active CRF search so it doesn't orphan
   def terminate(reason, state) when reason in [:normal, :shutdown] do
     Logger.warning("CrfSearch GenServer terminating: #{inspect(reason)}")
-
-    if state.port != :none, do: Helper.kill_process_group(state.os_pid)
-    Helper.close_port(state.port)
     reset_video_on_terminate(state)
-
     :ok
   end
 
-  # Crash/restart — leave the OS process running; kill_orphaned_processes in init will clean up
+  # Crash — leave CrfSearcher running so the port survives; init will re-subscribe
   def terminate(reason, state) do
     Logger.warning("CrfSearch GenServer terminating (crash): #{inspect(reason)}")
-    Helper.close_port(state.port)
     reset_video_on_terminate(state)
-
     :ok
   end
 
@@ -172,45 +161,39 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
-  def handle_cast({:crf_search, video, vmaf_percent}, %{port: :none} = state) do
+  def handle_cast({:crf_search, video, vmaf_percent}, %{current_task: :none} = state) do
     crf_range = CrfSearchHints.crf_range(video)
     start_crf_search(video, vmaf_percent, crf_range, state)
   end
 
-  def handle_cast({:crf_search_retry, video, vmaf_percent}, %{port: :none} = state) do
+  def handle_cast({:crf_search_retry, video, vmaf_percent}, %{current_task: :none} = state) do
     Logger.info("CrfSearch: Retrying with standard range for video #{video.id}")
     start_crf_search(video, vmaf_percent, {8, 40}, state)
   end
 
   def handle_cast({:crf_search, video, _vmaf_percent}, state) do
     Logger.error("CRF search already in progress for video #{video.id}")
-
     {:noreply, state}
   end
 
   def handle_cast({:crf_search_retry, video, _vmaf_percent}, state) do
     Logger.error("CRF search retry already in progress for video #{video.id}")
-
     {:noreply, state}
   end
 
   defp start_crf_search(video, vmaf_percent, crf_range, state) do
     args = build_crf_search_args(video, vmaf_percent, crf_range: crf_range)
+    metadata = %{video: video, args: args, target_vmaf: vmaf_percent, crf_range: crf_range}
 
-    case Helper.open_port(args) do
-      {:ok, port} ->
-        # Extract OS PID immediately for process group tracking
-        os_pid =
-          case Port.info(port, :os_pid) do
-            {:os_pid, pid} -> pid
-            _ -> nil
-          end
+    case CrfSearcher.start(args, metadata) do
+      {:ok, searcher_pid} ->
+        monitor = Process.monitor(searcher_pid)
+        {:ok, _} = CrfSearcher.subscribe(self())
+        os_pid = CrfSearcher.get_os_pid()
 
-        # Mark video as crf_searching ONLY AFTER successful port open
+        # Mark video as crf_searching AFTER successful port open
         case Media.mark_as_crf_searching(video) do
-          {:ok, _updated_video} ->
-            :ok
-
+          {:ok, _updated_video} -> :ok
           {:error, reason} ->
             Logger.warning(
               "Failed to mark video #{video.id} as crf_searching: #{inspect(reason)}"
@@ -219,18 +202,17 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
         new_state = %{
           state
-          | port: port,
-            current_task: %{
+          | current_task: %{
               video: video,
               args: args,
               target_vmaf: vmaf_percent,
               crf_range: crf_range
             },
             output_buffer: [],
+            searcher_monitor: monitor,
             os_pid: os_pid
         }
 
-        # Dashboard event with enhanced metadata
         Events.broadcast_event(:crf_search_started, %{
           video_id: video.id,
           filename: Path.basename(video.path),
@@ -246,90 +228,80 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
         {:noreply, new_state}
 
-      {:error, :not_found} ->
+      {:error, reason} ->
         Logger.error(
-          "Failed to start CRF search for video #{video.id}: ab-av1 executable not found"
+          "Failed to start CRF search for video #{video.id}: #{inspect(reason)}"
         )
 
-        # Record failure
         Media.record_video_failure(video, :crf_search, :command_error,
-          code: "executable_not_found",
-          message: "ab-av1 executable not found on PATH",
+          code: "start_failed",
+          message: "Failed to start CrfSearcher: #{inspect(reason)}",
           context: %{
             command: "ab-av1 #{Enum.join(args, " ")}",
-            full_output: "ab-av1 executable not found"
+            full_output: inspect(reason)
           }
         )
 
-        # Keep port as :none so GenServer stays available
         {:noreply, state}
     end
   end
 
   @impl true
   def handle_info(:test_reset, state) do
-    # Test-only handler to force reset the GenServer state
-    # This ensures clean state between tests
     if Application.get_env(:reencodarr, :environment) == :test do
-      # Close any open port
-      Retry.safe_port_close(state.port)
-
-      # Reset to initial state
-      {:noreply, %{port: :none, current_task: :none, partial_line_buffer: "", output_buffer: []}}
+      if state.searcher_monitor, do: Process.demonitor(state.searcher_monitor, [:flush])
+      CrfSearcher.kill()
+      {:noreply, %{current_task: :none, partial_line_buffer: "", output_buffer: [], searcher_monitor: nil, os_pid: nil}}
     else
       {:noreply, state}
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # Port output forwarded from CrfSearcher
+  # ---------------------------------------------------------------------------
+
   @impl true
   def handle_info(
-        {port, {:data, {:eol, line}}},
+        {CrfSearcher, {:line, line}},
         %{
-          port: port,
           current_task: %{video: video, args: args, target_vmaf: target_vmaf},
           partial_line_buffer: buffer,
           output_buffer: output_buffer
-        } =
-          state
+        } = state
       ) do
     full_line = buffer <> line
 
-    # Wrap in try/rescue to prevent crashes from bad data or DB errors
     try do
       Retry.retry_on_db_busy(fn -> process_line(full_line, video, args, target_vmaf) end)
-
       new_output_buffer = [full_line | output_buffer]
       {:noreply, %{state | partial_line_buffer: "", output_buffer: new_output_buffer}}
     rescue
       e ->
         Logger.error("CrfSearch: Error processing line '#{full_line}': #{Exception.message(e)}")
-
-        # Continue with original state, just clearing the buffer
         {:noreply, %{state | partial_line_buffer: "", output_buffer: [full_line | output_buffer]}}
     end
   end
 
   @impl true
   def handle_info(
-        {port, {:data, {:noeol, data}}},
-        %{port: port, current_task: %{video: video}, partial_line_buffer: buffer} = state
+        {CrfSearcher, {:partial, chunk}},
+        %{current_task: %{video: video}, partial_line_buffer: buffer} = state
       ) do
     Logger.debug("Received partial data chunk for video #{video.id}, buffering.")
-    new_buffer = buffer <> data
-    {:noreply, %{state | partial_line_buffer: new_buffer}}
+    {:noreply, %{state | partial_line_buffer: buffer <> chunk}}
   end
 
+  # Success exit
   @impl true
-  def handle_info({port, {:exit_status, 0}}, %{port: port, current_task: %{video: video}} = state) do
+  def handle_info(
+        {CrfSearcher, {:exit_status, 0}},
+        %{current_task: %{video: video}} = state
+      ) do
     Logger.info("✅ AbAv1: CRF search completed for video #{video.id}")
 
-    # Wrap in try/rescue to ensure cleanup always happens
     try do
-      # CRITICAL: Validate that VMAF records were actually created before marking as crf_searched
-      # If no VMAFs exist, the CRF search process ran but produced no valid output
       if Media.vmaf_records_exist?(video) do
-        # CRITICAL: Update video state to crf_searched to prevent infinite loop
-        # Use retry logic for DB busy errors, but record failure if it still fails
         case Retry.retry_on_db_busy(fn -> Media.mark_as_crf_searched(video) end) do
           {:ok, _} ->
             :ok
@@ -340,14 +312,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
             Media.record_video_failure(video, :crf_search, :database_error,
               code: "state_transition_failed",
               message: "Failed to mark video as crf_searched: #{inspect(reason)}",
-              context: %{
-                error: inspect(reason),
-                video_id: video.id
-              }
+              context: %{error: inspect(reason), video_id: video.id}
             )
         end
       else
-        # CRF search completed but produced no VMAF results - record as failure
         Logger.error(
           "CRF search completed for video #{video.id} but no VMAF records were created"
         )
@@ -361,7 +329,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           }
         )
 
-        # Mark video as failed so it doesn't get stuck in crf_searching state
         Media.mark_as_failed(video)
       end
     rescue
@@ -372,11 +339,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     perform_crf_search_cleanup(state)
   end
 
+  # Failure exit
   @impl true
   def handle_info(
-        {port, {:exit_status, exit_code}},
+        {CrfSearcher, {:exit_status, exit_code}},
         %{
-          port: port,
           current_task: %{video: video, args: args, target_vmaf: target_vmaf},
           output_buffer: output_buffer
         } = state
@@ -384,47 +351,55 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       when exit_code != 0 do
     Logger.error("CRF search failed for video #{video.id} with exit code #{exit_code}")
 
-    # Wrap in try/rescue to ensure cleanup happens
     try do
-      # Capture the full command output for failure analysis
       full_output = output_buffer |> Enum.reverse() |> Enum.join("\n")
       command_line = "ab-av1 " <> Enum.join(args, " ")
-
       handle_crf_search_failure(video, target_vmaf, exit_code, command_line, full_output, state)
     rescue
       e ->
         Logger.error("CrfSearch: Error in exit_status handler: #{Exception.message(e)}")
-        # Still perform cleanup
         perform_crf_search_cleanup(state)
     end
   end
 
-  # Handle port death without exit_status (safety net)
+  # CrfSearcher process died unexpectedly while task was active
   @impl true
-  def handle_info({:EXIT, port, reason}, %{port: port, current_task: %{video: video}} = state)
-      when port != :none do
-    Logger.error("CrfSearch: Port died unexpectedly: #{inspect(reason)}")
+  def handle_info(
+        {:DOWN, ref, :process, _pid, reason},
+        %{searcher_monitor: ref, current_task: %{video: video}} = state
+      ) do
+    Logger.error("CrfSearch: CrfSearcher process went down: #{inspect(reason)}")
 
-    # Record failure
     Media.record_video_failure(video, :crf_search, :command_error,
-      code: "port_died",
-      message: "Port died unexpectedly: #{inspect(reason)}",
+      code: "searcher_died",
+      message: "CrfSearcher process died: #{inspect(reason)}",
       context: %{reason: inspect(reason)}
     )
 
-    # Broadcast completion event
     Events.broadcast_event(:crf_search_completed, %{
       video_id: video.id,
-      result: {:error, :port_died}
+      result: {:error, :searcher_died}
     })
 
-    # Clean up and reset state
-    {:noreply, %{state | port: :none, current_task: :none, partial_line_buffer: "", os_pid: nil}}
+    {:noreply,
+     %{state | current_task: :none, partial_line_buffer: "", output_buffer: [], searcher_monitor: nil, os_pid: nil}}
   end
 
-  # Ignore EXIT from unknown ports (stale references after restart)
+  # Stale or irrelevant :DOWN
   @impl true
-  def handle_info({:EXIT, _port, _reason}, state) do
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
+    {:noreply, state}
+  end
+
+  # Stale CrfSearcher messages after reset
+  @impl true
+  def handle_info({CrfSearcher, _msg}, state) do
+    {:noreply, state}
+  end
+
+  # Ignore EXIT signals (trap_exit set but we don't own ports)
+  @impl true
+  def handle_info({:EXIT, _from, _reason}, state) do
     {:noreply, state}
   end
 
@@ -443,6 +418,145 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
 
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(msg, state) do
+    Logger.warning("CrfSearch: unexpected message: #{inspect(msg)}")
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_call(:running?, _from, state) do
+    status = if state.current_task == :none, do: :not_running, else: :running
+    {:reply, status, state}
+  end
+
+  @impl true
+  def handle_call(:available?, _from, state) do
+    {:reply, state.current_task == :none, state}
+  end
+
+  @impl true
+  def handle_call(:get_state, _from, state) do
+    debug_state = %{
+      port_status: if(state.current_task == :none, do: :available, else: :busy),
+      has_current_task: state.current_task != :none,
+      current_task_video_id:
+        if(state.current_task != :none, do: state.current_task.video.id, else: nil),
+      os_pid: state.os_pid
+    }
+
+    {:reply, debug_state, state}
+  end
+
+  @impl true
+  def handle_call(:reset_if_stuck, _from, state) do
+    Logger.warning("Force resetting CRF searcher state - was stuck")
+
+    # Demonitor first to flush any pending :DOWN message
+    if state.searcher_monitor, do: Process.demonitor(state.searcher_monitor, [:flush])
+
+    # Kill CrfSearcher (kills OS process group then stops GenServer)
+    CrfSearcher.kill()
+
+    # Reset video state if we have one
+    reset_video_state_if_present(state)
+
+    clean_state = %{
+      current_task: :none,
+      partial_line_buffer: "",
+      output_buffer: [],
+      searcher_monitor: nil,
+      os_pid: nil
+    }
+
+    {:reply, :ok, clean_state}
+  end
+
+  # ---------------------------------------------------------------------------
+  # Private Helpers
+  # ---------------------------------------------------------------------------
+
+  defp recover_or_init_state do
+    if CrfSearcher.running?() do
+      case CrfSearcher.get_metadata() do
+        {:ok, metadata} ->
+          searcher_pid = Process.whereis(CrfSearcher)
+          monitor = Process.monitor(searcher_pid)
+          {:ok, _replayed} = CrfSearcher.subscribe(self())
+          os_pid = CrfSearcher.get_os_pid()
+
+          Logger.info(
+            "CrfSearch: recovering — re-subscribed to CrfSearcher, video #{metadata.video.id}"
+          )
+
+          %{
+            current_task: %{
+              video: metadata.video,
+              args: metadata.args,
+              target_vmaf: metadata.target_vmaf,
+              crf_range: metadata.crf_range
+            },
+            partial_line_buffer: "",
+            output_buffer: [],
+            searcher_monitor: monitor,
+            os_pid: os_pid
+          }
+
+        _err ->
+          empty_state_after_orphan_kill()
+      end
+    else
+      empty_state_after_orphan_kill()
+    end
+  end
+
+  defp empty_state_after_orphan_kill do
+    Helper.kill_orphaned_processes("ab-av1 crf-search")
+    empty_state()
+  end
+
+  defp empty_state do
+    %{current_task: :none, partial_line_buffer: "", output_buffer: [], searcher_monitor: nil, os_pid: nil}
+  end
+
+  defp reset_video_state_if_present(%{current_task: :none}), do: :ok
+
+  defp reset_video_state_if_present(%{current_task: %{video: video}}) do
+    if is_struct(video, Reencodarr.Media.Video) do
+      case Media.mark_as_analyzed(video) do
+        {:ok, _} ->
+          Logger.info("Reset video #{video.id} to analyzed state")
+
+        {:error, reason} ->
+          Logger.error("Failed to reset video #{video.id}: #{inspect(reason)}")
+      end
+    end
+  end
+
+  defp perform_crf_search_cleanup(%{current_task: %{video: video}} = state) do
+    filename = Path.basename(video.path)
+    cache_key = {:crf_progress, filename}
+    Retry.safe_persistent_term_erase(cache_key)
+
+    Events.broadcast_event(:crf_search_completed, %{
+      video_id: video.id,
+      result: :ok
+    })
+
+    if state.searcher_monitor, do: Process.demonitor(state.searcher_monitor, [:flush])
+
+    new_state = %{
+      state
+      | current_task: :none,
+        partial_line_buffer: "",
+        output_buffer: [],
+        searcher_monitor: nil,
+        os_pid: nil
+    }
+
+    {:noreply, new_state}
   end
 
   defp maybe_upsert_vmaf_with_video(data) do
@@ -497,7 +611,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  # Retry cascade: narrowed range → standard range → reduced target → fail
   defp retry_strategy(video, target_vmaf, crf_range, output_lines) do
     cond do
       CrfSearchHints.narrowed_range?(crf_range) ->
@@ -533,7 +646,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     error_msg = build_detailed_error_message(target_vmaf, tested_scores, video.path)
     Logger.error(error_msg)
 
-    # Record CRF optimization failure if that's what happened, otherwise generic
     if crf_optimization_error?(state.output_buffer) do
       Reencodarr.FailureTracker.record_crf_optimization_failure(
         video,
@@ -549,101 +661,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       )
     end
 
-    # Ensure video is marked failed even if failure recording above had issues
     Media.mark_as_failed(video)
-
     perform_crf_search_cleanup(state)
-  end
-
-  @impl true
-  def handle_call(:running?, _from, %{port: port} = state) do
-    status = if port == :none, do: :not_running, else: :running
-    {:reply, status, state}
-  end
-
-  @impl true
-  def handle_call(:available?, _from, %{port: port} = state) do
-    available = port == :none
-    {:reply, available, state}
-  end
-
-  @impl true
-  def handle_call(:get_state, _from, state) do
-    debug_state = %{
-      port_status: if(state.port == :none, do: :available, else: :busy),
-      has_current_task: state.current_task != :none,
-      current_task_video_id:
-        if(state.current_task != :none, do: state.current_task.video.id, else: nil),
-      os_pid: state.os_pid
-    }
-
-    {:reply, debug_state, state}
-  end
-
-  @impl true
-  def handle_call(:reset_if_stuck, _from, state) do
-    Logger.warning("Force resetting CRF searcher state - was stuck")
-
-    # Only kill the OS process if something is actually running
-    if state.port != :none, do: Helper.kill_process_group(state.os_pid)
-    Retry.safe_port_close(state.port)
-
-    # Reset video state if we have one
-    reset_video_state_if_present(state)
-
-    # Reset to clean state
-    clean_state = %{
-      port: :none,
-      current_task: :none,
-      partial_line_buffer: "",
-      output_buffer: [],
-      os_pid: nil
-    }
-
-    # With new simple Broadway design, no need to notify - it polls automatically
-
-    {:reply, :ok, clean_state}
-  end
-
-  # Private helper functions
-
-  defp reset_video_state_if_present(%{current_task: :none}), do: :ok
-
-  defp reset_video_state_if_present(%{current_task: %{video: video}}) do
-    if is_struct(video, Reencodarr.Media.Video) do
-      case Media.mark_as_analyzed(video) do
-        {:ok, _} ->
-          Logger.info("Reset video #{video.id} to analyzed state")
-
-        {:error, reason} ->
-          Logger.error("Failed to reset video #{video.id}: #{inspect(reason)}")
-      end
-    end
-  end
-
-  # Cleanup after CRF search when a video task was active - broadcasts completion event
-  defp perform_crf_search_cleanup(%{current_task: %{video: video}} = state) do
-    # Clean up persistent_term entry for progress debouncing
-    filename = Path.basename(video.path)
-    cache_key = {:crf_progress, filename}
-
-    Retry.safe_persistent_term_erase(cache_key)
-
-    # Broadcast completion event via unified Events system
-    Events.broadcast_event(:crf_search_completed, %{
-      video_id: video.id,
-      result: :ok
-    })
-
-    new_state = %{
-      state
-      | port: :none,
-        current_task: :none,
-        partial_line_buffer: "",
-        os_pid: nil
-    }
-
-    {:noreply, new_state}
   end
 
   def process_line(line, video, args, target_vmaf \\ 95) do
@@ -702,8 +721,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  # Remove unused try_patterns function since we're using parse_line_with_types
-
   defp handle_eta_vmaf_line(line, video, args) do
     case parse_line_with_types(line) do
       {:ok, %{type: :eta_vmaf, data: eta_data}} ->
@@ -711,11 +728,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           "CrfSearch: CRF: #{eta_data.crf}, VMAF: #{eta_data.vmaf_score}, size: #{eta_data.predicted_size} #{eta_data.size_unit}, Percent: #{eta_data.percent}%, time: #{eta_data.time_taken} #{eta_data.time_unit}"
         )
 
-        # Always insert the VMAF record, but log a warning if size exceeds 10GB
         estimated_size_bytes =
           Formatters.size_to_bytes(eta_data.predicted_size, eta_data.size_unit)
 
-        # 10GB in bytes
         max_size_bytes = 10 * 1024 * 1024 * 1024
 
         if estimated_size_bytes && estimated_size_bytes > max_size_bytes do
@@ -753,10 +768,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         broadcast_crf_search_progress(video.path, %{
           video_id: video.id,
           filename: video.path,
-          # Already numeric, no conversion needed
           percent: progress_data.progress,
           eta: progress_data.eta,
-          # Already numeric, no conversion needed
           fps: progress_data.fps
         })
 
@@ -771,11 +784,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     case parse_line_with_types(line) do
       {:ok, %{type: :success, data: success_data}} ->
         Logger.debug("CrfSearch successful for CRF: #{success_data.crf}")
-
-        # Mark VMAF as chosen first
         Media.mark_vmaf_as_chosen(video.id, success_data.crf)
 
-        # Check if the chosen VMAF has a file size estimate that exceeds 10GB
         case get_vmaf_by_crf(video.id, success_data.crf) do
           nil ->
             Logger.warning(
@@ -796,7 +806,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp handle_warning_line(line, _video) do
     case parse_line_with_types(line) do
       {:ok, %{type: :warning, data: _warning_data}} ->
-        # Log the warning at info level so tests can capture it
         Logger.info("CrfSearch: #{line}")
         true
 
@@ -807,11 +816,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp handle_vmaf_size_check(vmaf, video, crf) do
     case check_vmaf_size_limit(vmaf, video) do
-      :ok ->
-        :ok
-
-      {:error, :size_too_large} ->
-        handle_size_limit_exceeded(video, crf)
+      :ok -> :ok
+      {:error, :size_too_large} -> handle_size_limit_exceeded(video, crf)
     end
   end
 
@@ -820,7 +826,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       "CrfSearch: Chosen VMAF CRF #{crf} exceeds 10GB limit for video #{video.id}. Marking as failed."
     )
 
-    # Record size limit failure with detailed context
     Reencodarr.FailureTracker.record_size_limit_failure(video, "Estimated > 10GB", "10GB",
       context: %{chosen_crf: crf}
     )
@@ -831,8 +836,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp handle_error_line(line, video, _target_vmaf) do
     if line == @crf_error_line do
       Logger.info("CrfSearch: CRF optimization error detected for video #{video.id}")
-      # Don't record failure or mark as failed here — the exit handler
-      # decides whether to retry with a reduced target or record final failure.
       true
     else
       false
@@ -843,10 +846,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     Enum.any?(output_buffer, &(&1 == @crf_error_line))
   end
 
-  # Helper function to get VMAF scores that were tested for this video
   defp get_vmaf_scores_for_video(video_id) do
-    import Ecto.Query
-
     query =
       from v in Media.Vmaf,
         where: v.video_id == ^video_id,
@@ -855,16 +855,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         select: %{crf: v.crf, score: v.score}
 
     case Repo.all(query) do
-      [] ->
-        []
-
-      vmaf_entries ->
-        vmaf_entries
-        |> Enum.map(fn %{crf: crf, score: score} -> %{crf: crf, score: score} end)
+      [] -> []
+      vmaf_entries -> Enum.map(vmaf_entries, fn %{crf: crf, score: score} -> %{crf: crf, score: score} end)
     end
   end
 
-  # Helper function to build a detailed error message
   defp build_detailed_error_message(target_vmaf, tested_scores, video_path) do
     base_msg =
       "Failed to find a suitable CRF for #{Path.basename(video_path)} (target VMAF: #{target_vmaf})"
@@ -910,34 +905,27 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       Helper.temp_dir()
     ]
 
-    # Use centralized Rules module to handle all argument building and deduplication
     Reencodarr.Rules.build_args(video, :crf_search, [], base_args)
   end
 
-  # New function that accepts pre-parsed data instead of string parameters
   defp upsert_vmaf_with_parsed_data(vmaf_data, chosen, video, args) do
     vmaf_params = %{
       "crf" => vmaf_data.crf,
-      # Map vmaf_score to score field expected by schema
       "score" => vmaf_data.vmaf_score,
       "percent" => vmaf_data.percent,
       "chosen" => chosen
     }
 
-    # Handle time data if present (from eta_vmaf patterns)
     vmaf_params =
       if Map.has_key?(vmaf_data, :time_taken) and Map.has_key?(vmaf_data, :time_unit) do
         time_seconds = Time.to_seconds(vmaf_data.time_taken, vmaf_data.time_unit)
-        # Round to integer for database
         Map.put(vmaf_params, "time", round(time_seconds))
       else
         Map.put(vmaf_params, "time", nil)
       end
 
-    # Handle size data if present
     size_info =
       if Map.has_key?(vmaf_data, :predicted_size) and Map.has_key?(vmaf_data, :size_unit) do
-        # Format size as integer if it's a whole number, otherwise as float
         formatted_size =
           if vmaf_data.predicted_size == Float.round(vmaf_data.predicted_size) do
             "#{round(vmaf_data.predicted_size)} #{vmaf_data.size_unit}"
@@ -950,7 +938,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         nil
       end
 
-    # Calculate savings based on percent and video size - no parsing needed since percent is already numeric!
     savings = calculate_savings_from_numeric(vmaf_data.percent, video.size)
 
     final_vmaf_data =
@@ -974,23 +961,17 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  # Removed old upsert_vmaf function - replaced with upsert_vmaf_with_parsed_data
-
   defp broadcast_crf_search_progress(video_path, progress_data) do
     filename = Path.basename(video_path)
-
     progress = Map.put(progress_data, :filename, filename)
 
-    # Debounce telemetry updates to avoid overwhelming the dashboard
     if should_emit_progress?(filename, progress) do
-      # Clean dashboard event
       Events.broadcast_event(:crf_search_progress, %{
         video_id: progress[:video_id],
         percent: progress[:percent] || 0,
         filename: progress[:filename] && Path.basename(progress[:filename])
       })
 
-      # Update cache
       update_last_progress(filename, progress)
     end
   end
@@ -1015,31 +996,21 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     })
   end
 
-  # Debouncing logic to prevent too many telemetry updates
   defp should_emit_progress?(filename, progress) do
     cache_key = {:crf_progress, filename}
     now = System.monotonic_time(:millisecond)
 
     case :persistent_term.get(cache_key, nil) do
       nil ->
-        # First progress update for this file
         true
 
       {last_time, last_progress} ->
         time_since_last = now - last_time
 
-        # Balanced debouncing: 5 seconds OR major progress change (>50%)
         cond do
-          time_since_last > 5_000 ->
-            true
-
-          # Only emit for major progress jumps (>50% change)
-          significant_change?(last_progress, progress) ->
-            true
-
-          # Otherwise debounce everything
-          true ->
-            false
+          time_since_last > 5_000 -> true
+          significant_change?(last_progress, progress) -> true
+          true -> false
         end
     end
   end
@@ -1052,24 +1023,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp significant_change?(last_progress, new_progress) do
     case {last_progress.percent, new_progress.percent} do
-      {nil, _} ->
-        true
-
-      {_, nil} ->
-        true
-
+      {nil, _} -> true
+      {_, nil} -> true
       {last_percent, new_percent} when is_number(last_percent) and is_number(new_percent) ->
         abs(new_percent - last_percent) > 50.0
-
-      _ ->
-        true
+      _ -> true
     end
   end
 
-  # Get VMAF record by video ID and CRF value
   defp get_vmaf_by_crf(video_id, crf_value) when is_number(crf_value) do
-    import Ecto.Query
-
     query =
       from v in Media.Vmaf,
         where: v.video_id == ^video_id and v.crf == ^crf_value,
@@ -1081,8 +1043,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp get_vmaf_by_crf(video_id, crf_str) when is_binary(crf_str) do
     case Parsers.parse_float_exact(crf_str) do
       {:ok, crf_float} ->
-        import Ecto.Query
-
         query =
           from v in Media.Vmaf,
             where: v.video_id == ^video_id and v.crf == ^crf_float,
@@ -1095,35 +1055,23 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  # Check if VMAF's estimated size exceeds 10GB limit
   defp check_vmaf_size_limit(vmaf, video) do
     case vmaf.size do
-      nil ->
-        # No size info available, allow it
-        :ok
-
-      size_str when is_binary(size_str) ->
-        check_size_string_limit(size_str, video)
-
-      _ ->
-        :ok
+      nil -> :ok
+      size_str when is_binary(size_str) -> check_size_string_limit(size_str, video)
+      _ -> :ok
     end
   end
 
   defp check_size_string_limit(size_str, video) do
-    # Parse size string like "12.5 GB" or "8.2 MB"
     case Regex.run(~r/^(\d+\.?\d*)\s+(\w+)$/, String.trim(size_str)) do
-      [_, size_value, unit] ->
-        validate_size_limit(size_value, unit, video)
-
-      _ ->
-        :ok
+      [_, size_value, unit] -> validate_size_limit(size_value, unit, video)
+      _ -> :ok
     end
   end
 
   defp validate_size_limit(size_value, unit, video) do
     estimated_size_bytes = Formatters.size_to_bytes(size_value, unit)
-    # 10GB in bytes
     max_size_bytes = 10 * 1024 * 1024 * 1024
 
     if estimated_size_bytes && estimated_size_bytes > max_size_bytes do
@@ -1137,9 +1085,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  # Removed old parse_time function - no longer needed since we parse time data early with proper types
-
-  # Calculate estimated space savings in bytes based on percent and video size
   defp calculate_savings(nil, _video_size), do: nil
   defp calculate_savings(_percent, nil), do: nil
 
@@ -1152,7 +1097,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp calculate_savings(percent, video_size) when is_number(percent) and is_number(video_size) do
     if percent > 0 and percent <= 100 do
-      # Savings = (100 - percent) / 100 * original_size
       round((100 - percent) / 100 * video_size)
     else
       nil
@@ -1161,7 +1105,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp calculate_savings(_, _), do: nil
 
-  # New function for pre-parsed numeric data (no late parsing!) - just delegates to the existing function
   defp calculate_savings_from_numeric(percent, video_size),
     do: calculate_savings(percent, video_size)
 end
