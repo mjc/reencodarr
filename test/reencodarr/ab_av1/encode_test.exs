@@ -9,9 +9,9 @@ defmodule Reencodarr.AbAv1.EncodeTest do
       %{pid: pid}
     end
 
-    test "GenServer starts with port :none and is available", %{pid: _pid} do
+    test "GenServer starts with video :none and is available", %{pid: _pid} do
       state = :sys.get_state(Encode)
-      assert state.port == :none
+      assert state.video == :none
       assert Encode.available?() == :available
     end
 
@@ -41,8 +41,8 @@ defmodule Reencodarr.AbAv1.EncodeTest do
 
       # Verify state is clean
       state = :sys.get_state(Encode)
-      assert state.port == :none
       assert state.video == :none
+      assert state.encoder_monitor == nil
       assert state.os_pid == nil
     end
   end
