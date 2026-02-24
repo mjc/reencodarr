@@ -23,7 +23,12 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   @impl GenStage
   def init(_opts) do
     schedule_poll()
-    {:producer, %{pending_demand: 0, consecutive_unavailable: 0}}
+    {:producer, %{pending_demand: 0, consecutive_unavailable: 0}, {:continue, :reset_orphaned}}
+  end
+
+  def handle_continue(:reset_orphaned, state) do
+    Media.reset_orphaned_crf_searching()
+    {:noreply, [], state}
   end
 
   @impl GenStage

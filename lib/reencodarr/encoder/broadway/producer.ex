@@ -30,7 +30,12 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   def init(_opts) do
     # Poll every 2 seconds to check for new work
     schedule_poll()
-    {:producer, %{pending_demand: 0, consecutive_unavailable: 0}}
+    {:producer, %{pending_demand: 0, consecutive_unavailable: 0}, {:continue, :reset_orphaned}}
+  end
+
+  def handle_continue(:reset_orphaned, state) do
+    Media.reset_orphaned_encoding()
+    {:noreply, [], state}
   end
 
   @impl GenStage
