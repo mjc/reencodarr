@@ -6,11 +6,19 @@ defmodule Reencodarr.BroadwayProducersTest do
   alias Reencodarr.CrfSearcher.Broadway.Producer, as: CrfProducer
   alias Reencodarr.Encoder.Broadway.Producer, as: EncoderProducer
 
+  # Extract state from init, which may return {: producer, state} or {:producer, state, {:continue, _}}
+  defp init_state(module) do
+    case module.init([]) do
+      {:producer, state} -> state
+      {:producer, state, {:continue, _}} -> state
+    end
+  end
+
   describe "Analyzer Producer" do
     test "handle_demand returns videos when available" do
       {:ok, _video} = video_fixture(%{state: :needs_analysis})
 
-      {:producer, state} = AnalyzerProducer.init([])
+      state = init_state(AnalyzerProducer)
       {:noreply, videos, _new_state} = AnalyzerProducer.handle_demand(1, state)
 
       # May return 0 or 1 videos depending on timing
@@ -19,7 +27,7 @@ defmodule Reencodarr.BroadwayProducersTest do
     end
 
     test "handle_demand returns empty when no videos" do
-      {:producer, state} = AnalyzerProducer.init([])
+      state = init_state(AnalyzerProducer)
       {:noreply, videos, _new_state} = AnalyzerProducer.handle_demand(1, state)
 
       assert videos == []
@@ -61,7 +69,7 @@ defmodule Reencodarr.BroadwayProducersTest do
     test "handle_demand returns video when work exists" do
       {:ok, _video} = video_fixture(%{state: :analyzed})
 
-      {:producer, state} = CrfProducer.init([])
+      state = init_state(CrfProducer)
       {:noreply, videos, _new_state} = CrfProducer.handle_demand(1, state)
 
       # May or may not return video depending on CrfSearch availability
@@ -71,7 +79,7 @@ defmodule Reencodarr.BroadwayProducersTest do
     test "poll returns list when called" do
       {:ok, _video} = video_fixture(%{state: :analyzed})
 
-      {:producer, state} = CrfProducer.init([])
+      state = init_state(CrfProducer)
       {:noreply, videos, _new_state} = CrfProducer.handle_info(:poll, state)
 
       assert is_list(videos)
@@ -83,7 +91,7 @@ defmodule Reencodarr.BroadwayProducersTest do
       {:ok, video} = video_fixture(%{state: :crf_searched})
       _vmaf = vmaf_fixture(%{video_id: video.id, chosen: true})
 
-      {:producer, state} = EncoderProducer.init([])
+      state = init_state(EncoderProducer)
       {:noreply, vmafs, _new_state} = EncoderProducer.handle_demand(1, state)
 
       assert is_list(vmafs)
@@ -93,7 +101,7 @@ defmodule Reencodarr.BroadwayProducersTest do
       {:ok, video} = video_fixture(%{state: :crf_searched})
       _vmaf = vmaf_fixture(%{video_id: video.id, chosen: true})
 
-      {:producer, state} = EncoderProducer.init([])
+      state = init_state(EncoderProducer)
       {:noreply, vmafs, _new_state} = EncoderProducer.handle_info(:poll, state)
 
       assert is_list(vmafs)
@@ -102,19 +110,19 @@ defmodule Reencodarr.BroadwayProducersTest do
 
   describe "All Producers" do
     test "all producers initialize with polling scheduled" do
-      assert {:producer, %{}} = AnalyzerProducer.init([])
-      assert {:producer, %{}} = CrfProducer.init([])
-      assert {:producer, %{}} = EncoderProducer.init([])
+      assert %{} = init_state(AnalyzerProducer)
+      assert %{} = init_state(CrfProducer)
+      assert %{} = init_state(EncoderProducer)
     end
 
     test "all producers handle unknown messages gracefully" do
-      {:producer, state} = AnalyzerProducer.init([])
+      state = init_state(AnalyzerProducer)
       assert {:noreply, [], ^state} = AnalyzerProducer.handle_info(:unknown, state)
 
-      {:producer, state} = CrfProducer.init([])
+      state = init_state(CrfProducer)
       assert {:noreply, [], ^state} = CrfProducer.handle_info(:unknown, state)
 
-      {:producer, state} = EncoderProducer.init([])
+      state = init_state(EncoderProducer)
       assert {:noreply, [], ^state} = EncoderProducer.handle_info(:unknown, state)
     end
   end

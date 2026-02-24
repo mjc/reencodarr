@@ -199,6 +199,52 @@ defmodule Reencodarr.Media do
     do: VideoFailure.get_common_failure_patterns(limit)
 
   @doc """
+  Resets videos stuck in `:crf_searching` back to `:analyzed`.
+
+  Called by the CRF Searcher Broadway pipeline on startup to reclaim orphaned work.
+
+  ## Examples
+      iex> Media.reset_orphaned_crf_searching()
+      :ok
+  """
+  @spec reset_orphaned_crf_searching() :: :ok
+  def reset_orphaned_crf_searching do
+    {count, _} =
+      from(v in Video, where: v.state == :crf_searching)
+      |> Repo.update_all(set: [state: :analyzed, updated_at: DateTime.utc_now()])
+
+    if count > 0 do
+      require Logger
+      Logger.info("Reset #{count} orphaned crf_searching videos → analyzed")
+    end
+
+    :ok
+  end
+
+  @doc """
+  Resets videos stuck in `:encoding` back to `:crf_searched`.
+
+  Called by the Encoder Broadway pipeline on startup to reclaim orphaned work.
+
+  ## Examples
+      iex> Media.reset_orphaned_encoding()
+      :ok
+  """
+  @spec reset_orphaned_encoding() :: :ok
+  def reset_orphaned_encoding do
+    {count, _} =
+      from(v in Video, where: v.state == :encoding)
+      |> Repo.update_all(set: [state: :crf_searched, updated_at: DateTime.utc_now()])
+
+    if count > 0 do
+      require Logger
+      Logger.info("Reset #{count} orphaned encoding videos → crf_searched")
+    end
+
+    :ok
+  end
+
+  @doc """
   Counts videos that would generate invalid audio encoding arguments (b:a=0k, ac=0).
 
   Tests each video by calling Rules.build_args/2 and checking if it produces invalid
