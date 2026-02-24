@@ -7,9 +7,23 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
   # async: false because tests in this module use :meck which replaces modules globally
   use ExUnit.Case, async: false
   alias Reencodarr.AbAv1.CrfSearch
+  alias Reencodarr.AbAv1.CrfSearcher
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.Media
   alias Reencodarr.Media.Video
+
+  # Stop lingering CrfSearcher port-holder from previous tests
+  defp stop_crf_searcher do
+    if pid = GenServer.whereis(CrfSearcher) do
+      try do
+        GenServer.stop(pid, :normal, 1000)
+      catch
+        :exit, _ -> :ok
+      end
+
+      Process.sleep(10)
+    end
+  end
 
   describe "build_crf_search_args/2" do
     test "builds basic CRF search args without preset 6" do
@@ -60,6 +74,9 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
         _ -> :ok
       end
 
+      # Stop any lingering CrfSearcher port-holder from other tests
+      stop_crf_searcher()
+
       # Stop any lingering GenServer from other tests
       if pid = GenServer.whereis(CrfSearch) do
         try do
@@ -73,6 +90,8 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       {:ok, pid} = CrfSearch.start_link([])
 
       on_exit(fn ->
+        stop_crf_searcher()
+
         if pid = GenServer.whereis(CrfSearch) do
           try do
             GenServer.stop(pid, :normal, 1000)
@@ -283,6 +302,9 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
 
   describe "GenServer hardening" do
     setup do
+      # Stop any lingering CrfSearcher port-holder from other tests
+      stop_crf_searcher()
+
       # Stop the global CrfSearch if it's running
       case Process.whereis(CrfSearch) do
         nil ->
