@@ -298,7 +298,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         {CrfSearcher, {:exit_status, 0}},
         %{current_task: %{video: video}} = state
       ) do
-    Logger.info("✅ AbAv1: CRF search completed for video #{video.id}")
+    Logger.info("AbAv1: CRF search completed for video #{video.id}")
 
     try do
       if Media.vmaf_records_exist?(video) do
@@ -427,12 +427,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   @impl true
-  def handle_call(:running?, _from, state) do
-    status = if state.current_task == :none, do: :not_running, else: :running
-    {:reply, status, state}
-  end
-
-  @impl true
   def handle_call(:available?, _from, state) do
     {:reply, state.current_task == :none, state}
   end
@@ -537,7 +531,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp perform_crf_search_cleanup(%{current_task: %{video: video}} = state) do
     filename = Path.basename(video.path)
     cache_key = {:crf_progress, filename}
-    Retry.safe_persistent_term_erase(cache_key)
+    Process.delete(cache_key)
 
     Events.broadcast_event(:crf_search_completed, %{
       video_id: video.id,
@@ -937,7 +931,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         nil
       end
 
-    savings = calculate_savings_from_numeric(vmaf_data.percent, video.size)
+    savings = calculate_savings(vmaf_data.percent, video.size)
 
     final_vmaf_data =
       Map.merge(vmaf_params, %{
@@ -999,7 +993,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     cache_key = {:crf_progress, filename}
     now = System.monotonic_time(:millisecond)
 
-    case :persistent_term.get(cache_key, nil) do
+    case Process.get(cache_key) do
       nil ->
         true
 
@@ -1017,7 +1011,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp update_last_progress(filename, progress) do
     cache_key = {:crf_progress, filename}
     now = System.monotonic_time(:millisecond)
-    :persistent_term.put(cache_key, {now, progress})
+    Process.put(cache_key, {now, progress})
   end
 
   defp significant_change?(last_progress, new_progress) do
@@ -1103,7 +1097,4 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp calculate_savings(_, _), do: nil
-
-  defp calculate_savings_from_numeric(percent, video_size),
-    do: calculate_savings(percent, video_size)
 end

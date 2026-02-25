@@ -178,22 +178,17 @@ defmodule Reencodarr.Core.Parsers do
   def parse_boolean(val, default \\ false)
   def parse_boolean(true, _default), do: true
   def parse_boolean(false, _default), do: false
-  def parse_boolean("true", _default), do: true
-  def parse_boolean("false", _default), do: false
-  def parse_boolean("True", _default), do: true
-  def parse_boolean("False", _default), do: false
-  def parse_boolean("TRUE", _default), do: true
-  def parse_boolean("FALSE", _default), do: false
-  def parse_boolean("yes", _default), do: true
-  def parse_boolean("no", _default), do: false
-  def parse_boolean("Yes", _default), do: true
-  def parse_boolean("No", _default), do: false
-  def parse_boolean("YES", _default), do: true
-  def parse_boolean("NO", _default), do: false
-  def parse_boolean("1", _default), do: true
-  def parse_boolean("0", _default), do: false
   def parse_boolean(1, _default), do: true
   def parse_boolean(0, _default), do: false
+
+  def parse_boolean(val, default) when is_binary(val) do
+    case String.downcase(val) do
+      v when v in ~w(true yes 1) -> true
+      v when v in ~w(false no 0) -> false
+      _ -> default
+    end
+  end
+
   def parse_boolean(_, default), do: default
 
   @doc """

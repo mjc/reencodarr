@@ -1143,7 +1143,7 @@ defmodule Reencodarr.Media do
           had_existing_video: boolean()
         }
   def test_insert_path(path, additional_attrs \\ %{}) when is_binary(path) do
-    Logger.info("🧪 Testing path insertion: #{path}")
+    Logger.info("Testing path insertion: #{path}")
 
     # Gather initial diagnostics
     diagnostics = gather_path_diagnostics(path, additional_attrs)
@@ -1286,7 +1286,7 @@ defmodule Reencodarr.Media do
       |> Map.put(:messages, Enum.reverse(result.messages))
       |> Map.put(:errors, Enum.reverse(result.errors))
 
-    Logger.info("🧪 Test result: #{if result.success, do: "SUCCESS", else: "FAILED"}")
+    Logger.info("Test result: #{if result.success, do: "SUCCESS", else: "FAILED"}")
 
     log_test_result_details(result)
 
