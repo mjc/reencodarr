@@ -45,20 +45,6 @@ defmodule Reencodarr.AbAv1.OutputParser do
     }
   end
 
-  # Cache patterns in process dictionary for performance
-  # This avoids recompilation while maintaining Elixir 1.19 compatibility
-  defp cached_patterns do
-    case Process.get(:ab_av1_patterns) do
-      nil ->
-        patterns = get_patterns()
-        Process.put(:ab_av1_patterns, patterns)
-        patterns
-
-      patterns ->
-        patterns
-    end
-  end
-
   @doc """
   Matches a line against a specific pattern and returns named captures.
 
@@ -66,7 +52,7 @@ defmodule Reencodarr.AbAv1.OutputParser do
   """
   @spec match_pattern(String.t(), atom()) :: {:ok, map()} | {:error, :no_match}
   def match_pattern(line, pattern_key) do
-    patterns = cached_patterns()
+    patterns = get_patterns()
     pattern = Map.get(patterns, pattern_key)
 
     case Regex.named_captures(pattern, line) do

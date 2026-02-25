@@ -28,20 +28,7 @@ defmodule Reencodarr.AbAv1.Helper do
   @spec build_rules(Media.Video.t()) :: list()
   def build_rules(video) do
     Rules.build_args(video, :crf_search)
-    |> Enum.reject(&(&1 == "--acodec"))
-    |> remove_acodec_values()
-  end
-
-  # Remove acodec values that follow --acodec flags
-  defp remove_acodec_values(args) do
-    args
-    |> Enum.with_index()
-    |> Enum.reject(fn {arg, idx} ->
-      # Remove --acodec flag and its following value
-      arg == "--acodec" or
-        (idx > 0 and Enum.at(args, idx - 1) == "--acodec")
-    end)
-    |> Enum.map(&elem(&1, 0))
+    |> remove_args(["--acodec"])
   end
 
   @spec temp_dir() :: String.t()
@@ -317,20 +304,6 @@ defmodule Reencodarr.AbAv1.Helper do
       # Port already closed
       :ok
   end
-
-  @doc """
-  No-op: previously sent SIGTERM/SIGKILL to process groups. Removed because
-  Port.close/1 (SIGHUP) and OS process-group cleanup are sufficient.
-  """
-  @spec kill_process_group(integer() | nil) :: :ok
-  def kill_process_group(_os_pid), do: :ok
-
-  @doc """
-  No-op: previously used pgrep to find and kill orphaned ab-av1 processes.
-  Removed because it could race-kill legitimate processes and Port.close handles cleanup.
-  """
-  @spec kill_orphaned_processes(String.t()) :: :ok
-  def kill_orphaned_processes(_pattern), do: :ok
 
   @spec preprocess_input_file([String.t()]) :: {:ok, [String.t()]}
   defp preprocess_input_file(args) do
