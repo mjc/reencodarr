@@ -12,6 +12,8 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
     3. standard range + reduced target   → final failure
   """
   use Reencodarr.DataCase, async: false
+  @moduletag capture_log: true
+  import ExUnit.CaptureLog
 
   alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.AbAv1.Helper
@@ -55,6 +57,8 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
 
       try do
         :meck.unload()
+      catch
+        :exit, _ -> :ok
       rescue
         _ -> :ok
       end
@@ -119,6 +123,19 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
       setup_meck()
       {:ok, _pid} = CrfSearch.start_link([])
 
+      on_exit(fn ->
+        case GenServer.whereis(CrfSearch) do
+          nil ->
+            :ok
+
+          crf_pid when is_pid(crf_pid) ->
+            if Process.alive?(crf_pid), do: GenServer.stop(crf_pid, :normal), else: :ok
+
+          _ ->
+            :ok
+        end
+      end)
+
       # No siblings → standard range {8, 40} used on first attempt
       {:ok, video} =
         Fixtures.video_fixture(%{
@@ -133,28 +150,30 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
     end
 
     test "retries with target - 1 on CRF optimization error", %{video: video} do
-      test_pid = self()
-      original_target = Rules.vmaf_target(video)
-      _call_count = mock_port_failure(test_pid)
+      capture_log(fn ->
+        test_pid = self()
+        original_target = Rules.vmaf_target(video)
+        _call_count = mock_port_failure(test_pid)
 
-      GenServer.cast(CrfSearch, {:crf_search, video, original_target})
-      Process.sleep(1500)
+        GenServer.cast(CrfSearch, {:crf_search, video, original_target})
+        Process.sleep(1500)
 
-      # First call: standard range, original target
-      assert_received {:open_port_call, 1, first_args}
-      assert find_arg(first_args, "--min-vmaf") == Integer.to_string(original_target)
-      assert find_arg(first_args, "--min-crf") == "8"
-      assert find_arg(first_args, "--max-crf") == "40"
+        # First call: standard range, original target
+        assert_received {:open_port_call, 1, first_args}
+        assert find_arg(first_args, "--min-vmaf") == Integer.to_string(original_target)
+        assert find_arg(first_args, "--min-crf") == "8"
+        assert find_arg(first_args, "--max-crf") == "40"
 
-      # Second call: standard range, reduced target
-      assert_received {:open_port_call, 2, retry_args}
-      assert find_arg(retry_args, "--min-vmaf") == Integer.to_string(original_target - 1)
-      assert find_arg(retry_args, "--min-crf") == "8"
-      assert find_arg(retry_args, "--max-crf") == "40"
+        # Second call: standard range, reduced target
+        assert_received {:open_port_call, 2, retry_args}
+        assert find_arg(retry_args, "--min-vmaf") == Integer.to_string(original_target - 1)
+        assert find_arg(retry_args, "--min-crf") == "8"
+        assert find_arg(retry_args, "--max-crf") == "40"
 
-      # Second attempt fails → final failure (target already reduced)
-      assert_received :marked_as_failed
-      refute_received {:open_port_call, 3, _}
+        # Second attempt fails → final failure (target already reduced)
+        assert_received :marked_as_failed
+        refute_received {:open_port_call, 3, _}
+      end)
     end
   end
 
@@ -176,17 +195,19 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
     end
 
     test "no retry when target is already below vmaf_target", %{video: video} do
-      test_pid = self()
-      reduced_target = Rules.min_vmaf_target(video)
-      _call_count = mock_port_failure(test_pid)
+      capture_log(fn ->
+        test_pid = self()
+        reduced_target = Rules.min_vmaf_target(video)
+        _call_count = mock_port_failure(test_pid)
 
-      GenServer.cast(CrfSearch, {:crf_search, video, reduced_target})
-      Process.sleep(800)
+        GenServer.cast(CrfSearch, {:crf_search, video, reduced_target})
+        Process.sleep(800)
 
-      # Only one call — no retry
-      assert_received {:open_port_call, 1, _args}
-      assert_received :marked_as_failed
-      refute_received {:open_port_call, 2, _}
+        # Only one call — no retry
+        assert_received {:open_port_call, 1, _args}
+        assert_received :marked_as_failed
+        refute_received {:open_port_call, 2, _}
+      end)
     end
   end
 
@@ -226,34 +247,36 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
     end
 
     test "first retry uses standard range with same target, then reduces", %{video: video} do
-      test_pid = self()
-      original_target = Rules.vmaf_target(video)
-      _call_count = mock_port_failure(test_pid)
+      capture_log(fn ->
+        test_pid = self()
+        original_target = Rules.vmaf_target(video)
+        _call_count = mock_port_failure(test_pid)
 
-      GenServer.cast(CrfSearch, {:crf_search, video, original_target})
-      Process.sleep(2000)
+        GenServer.cast(CrfSearch, {:crf_search, video, original_target})
+        Process.sleep(2000)
 
-      # Call 1: narrowed range, original target
-      assert_received {:open_port_call, 1, first_args}
-      first_min = find_arg(first_args, "--min-crf")
-      assert String.to_integer(first_min) > 8
-      assert find_arg(first_args, "--min-vmaf") == Integer.to_string(original_target)
+        # Call 1: narrowed range, original target
+        assert_received {:open_port_call, 1, first_args}
+        first_min = find_arg(first_args, "--min-crf")
+        assert String.to_integer(first_min) > 8
+        assert find_arg(first_args, "--min-vmaf") == Integer.to_string(original_target)
 
-      # Call 2: standard range, same target (narrowed retry)
-      assert_received {:open_port_call, 2, standard_args}
-      assert find_arg(standard_args, "--min-crf") == "8"
-      assert find_arg(standard_args, "--max-crf") == "40"
-      assert find_arg(standard_args, "--min-vmaf") == Integer.to_string(original_target)
+        # Call 2: standard range, same target (narrowed retry)
+        assert_received {:open_port_call, 2, standard_args}
+        assert find_arg(standard_args, "--min-crf") == "8"
+        assert find_arg(standard_args, "--max-crf") == "40"
+        assert find_arg(standard_args, "--min-vmaf") == Integer.to_string(original_target)
 
-      # Call 3: standard range, reduced target
-      assert_received {:open_port_call, 3, reduced_args}
-      assert find_arg(reduced_args, "--min-crf") == "8"
-      assert find_arg(reduced_args, "--max-crf") == "40"
-      assert find_arg(reduced_args, "--min-vmaf") == Integer.to_string(original_target - 1)
+        # Call 3: standard range, reduced target
+        assert_received {:open_port_call, 3, reduced_args}
+        assert find_arg(reduced_args, "--min-crf") == "8"
+        assert find_arg(reduced_args, "--max-crf") == "40"
+        assert find_arg(reduced_args, "--min-vmaf") == Integer.to_string(original_target - 1)
 
-      # Third attempt fails → final failure (target already reduced)
-      assert_received :marked_as_failed
-      refute_received {:open_port_call, 4, _}
+        # Third attempt fails → final failure (target already reduced)
+        assert_received :marked_as_failed
+        refute_received {:open_port_call, 4, _}
+      end)
     end
   end
 
@@ -275,19 +298,21 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
     end
 
     test "port crash without CRF error line goes to final failure", %{video: video} do
-      test_pid = self()
-      original_target = Rules.vmaf_target(video)
+      capture_log(fn ->
+        test_pid = self()
+        original_target = Rules.vmaf_target(video)
 
-      # Output doesn't contain the CRF optimization error
-      _call_count = mock_port_failure(test_pid, output_lines: ["Some random error"])
+        # Output doesn't contain the CRF optimization error
+        _call_count = mock_port_failure(test_pid, output_lines: ["Some random error"])
 
-      GenServer.cast(CrfSearch, {:crf_search, video, original_target})
-      Process.sleep(800)
+        GenServer.cast(CrfSearch, {:crf_search, video, original_target})
+        Process.sleep(800)
 
-      # Only one attempt — no retry since it's not a CRF optimization error
-      assert_received {:open_port_call, 1, _args}
-      assert_received :marked_as_failed
-      refute_received {:open_port_call, 2, _}
+        # Only one attempt — no retry since it's not a CRF optimization error
+        assert_received {:open_port_call, 1, _args}
+        assert_received :marked_as_failed
+        refute_received {:open_port_call, 2, _}
+      end)
     end
   end
 end

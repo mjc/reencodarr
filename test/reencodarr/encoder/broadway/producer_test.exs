@@ -1,5 +1,6 @@
 defmodule Reencodarr.Encoder.Broadway.ProducerTest do
   use Reencodarr.UnitCase, async: true
+  @moduletag capture_log: true
 
   alias Reencodarr.PipelineStateMachine
 

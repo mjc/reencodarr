@@ -3,6 +3,8 @@ defmodule Reencodarr.AbAv1.HelperTest do
   Tests for Helper module attachment cleaning and utility functions.
   """
   use ExUnit.Case, async: false
+  import ExUnit.CaptureLog
+  @moduletag capture_log: true
 
   alias Reencodarr.AbAv1.Helper
 
@@ -531,17 +533,19 @@ defmodule Reencodarr.AbAv1.HelperTest do
     end
 
     test "returns {:error, :not_found} when ab-av1 executable is missing" do
-      # Mock System.find_executable to return nil
-      :meck.new(System, [:passthrough])
-      :meck.expect(System, :find_executable, fn "ab-av1" -> nil end)
+      capture_log(fn ->
+        # Mock System.find_executable to return nil
+        :meck.new(System, [:passthrough])
+        :meck.expect(System, :find_executable, fn "ab-av1" -> nil end)
 
-      args = ["crf-search", "--input", "/tmp/test.mkv"]
+        args = ["crf-search", "--input", "/tmp/test.mkv"]
 
-      result = Helper.open_port(args)
+        result = Helper.open_port(args)
 
-      assert {:error, :not_found} = result
+        assert {:error, :not_found} = result
 
-      :meck.unload(System)
+        :meck.unload(System)
+      end)
     end
   end
 end

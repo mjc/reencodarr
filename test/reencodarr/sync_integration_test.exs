@@ -1,5 +1,5 @@
 defmodule Reencodarr.SyncIntegrationTest do
-  use Reencodarr.DataCase, async: true
+  use Reencodarr.DataCase, async: false
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.Fixtures
   alias Reencodarr.{Media, Sync}

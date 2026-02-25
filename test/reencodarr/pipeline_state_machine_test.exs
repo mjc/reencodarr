@@ -1,6 +1,7 @@
 defmodule Reencodarr.PipelineStateMachineTest do
   use ExUnit.Case, async: true
   use Reencodarr.DataCase
+  @moduletag capture_log: true
 
   alias Reencodarr.PipelineStateMachine
 

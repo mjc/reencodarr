@@ -1,5 +1,6 @@
 defmodule Reencodarr.AbAv1.EncodeTest do
   use Reencodarr.DataCase, async: false
+  @moduletag capture_log: true
 
   alias Reencodarr.AbAv1.Encode
 
