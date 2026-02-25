@@ -32,37 +32,43 @@ defmodule Reencodarr.Media.VideoUpsert do
   end
 
   @doc """
-  Batch upsert multiple videos in a single transaction.
+  Batch upsert multiple videos using per-video transactions.
   Returns a list of results, one for each video in the same order.
   """
   @spec batch_upsert([attrs()]) :: [upsert_result()]
   def batch_upsert(video_attrs_list) when is_list(video_attrs_list) do
     Logger.debug("VideoUpsert batch processing #{length(video_attrs_list)} videos")
 
-    retry_transaction(fn ->
-      Enum.map(video_attrs_list, fn attrs ->
-        attrs
-        |> normalize_keys_to_strings()
-        |> ensure_library_id()
-        |> ensure_required_fields()
-        |> handle_vmaf_deletion_and_bitrate_preservation()
-        |> perform_single_upsert_in_batch()
-      end)
-    end)
-    |> case do
-      {:ok, results} ->
-        results
-
-      {:error, reason} ->
-        Logger.error("Batch upsert transaction failed after retries: #{inspect(reason)}")
-        # Return error for each video
-        Enum.map(video_attrs_list, fn _ -> {:error, reason} end)
-    end
+    Enum.map(video_attrs_list, &process_single_video_in_batch/1)
   end
 
   # Retry transaction with exponential backoff for "Database busy" errors
   defp retry_transaction(fun) do
     Retry.retry_on_db_busy(fn -> Repo.transaction(fun) end)
+  end
+
+  @spec process_single_video_in_batch(attrs()) :: upsert_result()
+  defp process_single_video_in_batch(attrs) do
+    normalized_attrs =
+      attrs
+      |> normalize_keys_to_strings()
+      |> ensure_library_id()
+      |> ensure_required_fields()
+
+    retry_transaction(fn ->
+      normalized_attrs
+      |> handle_vmaf_deletion_and_bitrate_preservation()
+      |> perform_single_upsert_in_batch()
+    end)
+    |> case do
+      {:ok, result} ->
+        result
+
+      {:error, reason} ->
+        path = Map.get(normalized_attrs, "path", "unknown")
+        Logger.error("Batch upsert failed for #{path} after retries: #{inspect(reason)}")
+        {:error, reason}
+    end
   end
 
   @spec normalize_keys_to_strings(attrs()) :: %{String.t() => any()}
