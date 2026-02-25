@@ -11,6 +11,10 @@ defmodule Reencodarr.Sync do
   alias Reencodarr.Media.{MediaInfoExtractor, VideoFileInfo, VideoUpsert}
   alias Reencodarr.Media.Video.MediaInfoConverter
 
+  @default_batch_size 50
+  @default_fetch_timeout_ms 90_000
+  @default_fetch_concurrency 8
+
   # Public API
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   def sync_episodes, do: GenServer.cast(__MODULE__, :sync_episodes)
@@ -56,7 +60,7 @@ defmodule Reencodarr.Sync do
 
   defp process_items_in_batches(items, get_files, service_type) do
     items
-    |> Stream.chunk_every(50)
+    |> Stream.chunk_every(sync_batch_size())
     |> Stream.with_index()
     |> Stream.each(&process_batch(&1, get_files, service_type, length(items)))
     |> Stream.run()
@@ -69,10 +73,8 @@ defmodule Reencodarr.Sync do
     all_files =
       batch
       |> Task.async_stream(&fetch_and_upsert_files(&1["id"], get_files, service_type),
-        # Increased for better throughput
-        max_concurrency: 8,
-        # Reduced timeout for faster failure detection
-        timeout: 30_000,
+        max_concurrency: sync_fetch_concurrency(),
+        timeout: sync_fetch_timeout_ms(),
         on_timeout: :kill_task
       )
       |> Enum.flat_map(fn
@@ -104,12 +106,24 @@ defmodule Reencodarr.Sync do
     )
 
     # Update progress
-    progress = div((batch_index + 1) * 50 * 100, total_items)
+    progress = div((batch_index + 1) * sync_batch_size() * 100, total_items)
 
     Events.broadcast_event(:sync_progress, %{
       progress: min(progress, 100),
       service_type: service_type
     })
+  end
+
+  defp sync_batch_size do
+    Application.get_env(:reencodarr, :sync_batch_size, @default_batch_size)
+  end
+
+  defp sync_fetch_timeout_ms do
+    Application.get_env(:reencodarr, :sync_fetch_timeout_ms, @default_fetch_timeout_ms)
+  end
+
+  defp sync_fetch_concurrency do
+    Application.get_env(:reencodarr, :sync_fetch_concurrency, @default_fetch_concurrency)
   end
 
   @doc """
