@@ -1,13 +1,22 @@
 defmodule Reencodarr.Dashboard.StateTest do
   use Reencodarr.DataCase
+  @moduletag capture_log: true
 
   alias Reencodarr.Dashboard.{Events, State}
   alias Reencodarr.Media.{Video, Vmaf}
   alias Reencodarr.Repo
 
   setup do
+    prev = Application.get_env(:reencodarr, :dashboard_queue_refresh_enabled)
+    Application.put_env(:reencodarr, :dashboard_queue_refresh_enabled, false)
+
     # Start the State GenServer for each test
     start_supervised!(State)
+
+    on_exit(fn ->
+      Application.put_env(:reencodarr, :dashboard_queue_refresh_enabled, prev)
+    end)
+
     :ok
   end
 
