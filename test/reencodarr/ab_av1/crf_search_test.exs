@@ -6,6 +6,8 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
 
   # async: false because tests in this module use :meck which replaces modules globally
   use ExUnit.Case, async: false
+  @moduletag capture_log: true
+  import ExUnit.CaptureLog
   alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.AbAv1.CrfSearcher
   alias Reencodarr.AbAv1.Helper
@@ -112,34 +114,39 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
 
     test "handles {:error, :not_found} from open_port - marks video as failed and stays available",
          %{pid: _pid} do
-      # Mock Helper.open_port to return {:error, :not_found}
-      :meck.new(Helper, [:passthrough])
-      :meck.expect(Helper, :open_port, fn _args -> {:error, :not_found} end)
+      capture_log(fn ->
+        # Mock Helper.open_port to return {:error, :not_found}
+        :meck.new(Helper, [:passthrough])
+        :meck.expect(Helper, :open_port, fn _args -> {:error, :not_found} end)
 
-      # Mock Media functions to prevent actual DB calls
-      :meck.new(Reencodarr.Media, [:passthrough])
-      :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn _video -> {:ok, %{}} end)
+        # Mock Media functions to prevent actual DB calls
+        :meck.new(Reencodarr.Media, [:passthrough])
+        :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn _video -> {:ok, %{}} end)
 
-      :meck.expect(Reencodarr.Media, :record_video_failure, fn _video, _stage, _category, _opts ->
-        {:ok, %{}}
+        :meck.expect(Reencodarr.Media, :record_video_failure, fn _video,
+                                                                 _stage,
+                                                                 _category,
+                                                                 _opts ->
+          {:ok, %{}}
+        end)
+
+        video = %{id: 123, path: "/test/video.mkv"}
+        vmaf_percent = 95
+
+        # Send the cast
+        GenServer.cast(CrfSearch, {:crf_search, video, vmaf_percent})
+
+        # Give it time to process
+        Process.sleep(100)
+
+        # Verify GenServer is still available (current_task should be :none)
+        state = :sys.get_state(CrfSearch)
+        assert state.current_task == :none
+        assert CrfSearch.available?() == :available
+
+        # Verify video was marked as failed
+        assert :meck.called(Reencodarr.Media, :record_video_failure, :_)
       end)
-
-      video = %{id: 123, path: "/test/video.mkv"}
-      vmaf_percent = 95
-
-      # Send the cast
-      GenServer.cast(CrfSearch, {:crf_search, video, vmaf_percent})
-
-      # Give it time to process
-      Process.sleep(100)
-
-      # Verify GenServer is still available (current_task should be :none)
-      state = :sys.get_state(CrfSearch)
-      assert state.current_task == :none
-      assert CrfSearch.available?() == :available
-
-      # Verify video was marked as failed
-      assert :meck.called(Reencodarr.Media, :record_video_failure, :_)
     end
 
     test "handles {:ok, port} from open_port - proceeds normally", %{pid: _pid} do

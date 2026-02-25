@@ -1,5 +1,7 @@
 defmodule Reencodarr.Media.ExcludePatternsTest do
   use Reencodarr.DataCase
+  @moduletag capture_log: true
+  import ExUnit.CaptureLog
 
   import Reencodarr.Fixtures
   import Ecto.Query
@@ -346,24 +348,28 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
 
   describe "get_dashboard_stats/1" do
     test "returns merged map with all dashboard-required keys" do
-      {:ok, _v1} = video_fixture(%{path: "/v1.mkv", state: :analyzed})
-      {:ok, video} = video_fixture(%{path: "/v2.mkv", state: :crf_searched})
-      _vmaf = vmaf_fixture(%{video_id: video.id, chosen: true, crf: 25.0, savings: 1_073_741_824})
+      capture_log(fn ->
+        {:ok, _v1} = video_fixture(%{path: "/v1.mkv", state: :analyzed})
+        {:ok, video} = video_fixture(%{path: "/v2.mkv", state: :crf_searched})
 
-      stats = Reencodarr.Media.get_dashboard_stats()
+        _vmaf =
+          vmaf_fixture(%{video_id: video.id, chosen: true, crf: 25.0, savings: 1_073_741_824})
 
-      assert is_map(stats)
+        stats = Reencodarr.Media.get_dashboard_stats()
 
-      for key <- ~w[total_videos total_size_gb needs_analysis analyzed crf_searching
-                    crf_searched encoding encoded failed total_vmafs chosen_vmafs
-                    total_savings_gb]a do
-        assert Map.has_key?(stats, key), "missing dashboard key: #{key}"
-      end
+        assert is_map(stats)
 
-      assert stats.analyzed == 1
-      assert stats.crf_searched == 1
-      assert stats.chosen_vmafs == 1
-      assert_in_delta stats.total_savings_gb, 1.0, 0.01
+        for key <- ~w[total_videos total_size_gb needs_analysis analyzed crf_searching
+                      crf_searched encoding encoded failed total_vmafs chosen_vmafs
+                      total_savings_gb]a do
+          assert Map.has_key?(stats, key), "missing dashboard key: #{key}"
+        end
+
+        assert stats.analyzed == 1
+        assert stats.crf_searched == 1
+        assert stats.chosen_vmafs == 1
+        assert_in_delta stats.total_savings_gb, 1.0, 0.01
+      end)
     end
   end
 end

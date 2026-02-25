@@ -827,19 +827,22 @@ defmodule Reencodarr.MediaTest do
 
   describe "video failure tracking" do
     test "record_video_failure/4 creates failure and marks video as failed" do
-      {:ok, video} = Fixtures.video_fixture()
+      _log =
+        capture_log(fn ->
+          {:ok, video} = Fixtures.video_fixture()
 
-      {:ok, _failure} =
-        Media.record_video_failure(
-          video,
-          :encoding,
-          :process_failure,
-          code: "1",
-          message: "Encoding failed"
-        )
+          {:ok, _failure} =
+            Media.record_video_failure(
+              video,
+              :encoding,
+              :process_failure,
+              code: "1",
+              message: "Encoding failed"
+            )
 
-      updated_video = Media.get_video!(video.id)
-      assert updated_video.state == :failed
+          updated_video = Media.get_video!(video.id)
+          assert updated_video.state == :failed
+        end)
     end
 
     test "record_video_failure/4 logs warning on success" do
@@ -886,67 +889,79 @@ defmodule Reencodarr.MediaTest do
     end
 
     test "get_video_failures/1 returns unresolved failures" do
-      {:ok, video} = Fixtures.video_fixture()
+      _log =
+        capture_log(fn ->
+          {:ok, video} = Fixtures.video_fixture()
 
-      {:ok, _} =
-        Media.record_video_failure(
-          video,
-          :encoding,
-          :process_failure,
-          message: "Failure 1"
-        )
+          {:ok, _} =
+            Media.record_video_failure(
+              video,
+              :encoding,
+              :process_failure,
+              message: "Failure 1"
+            )
 
-      failures = Media.get_video_failures(video.id)
-      assert not Enum.empty?(failures)
-      assert Enum.all?(failures, &(&1.resolved == false))
+          failures = Media.get_video_failures(video.id)
+          assert not Enum.empty?(failures)
+          assert Enum.all?(failures, &(&1.resolved == false))
+        end)
     end
 
     test "resolve_video_failures/1 resolves all failures for video" do
-      {:ok, video} = Fixtures.video_fixture()
+      _log =
+        capture_log(fn ->
+          {:ok, video} = Fixtures.video_fixture()
 
-      {:ok, _} =
-        Media.record_video_failure(
-          video,
-          :encoding,
-          :process_failure,
-          message: "Failure 1"
-        )
+          {:ok, _} =
+            Media.record_video_failure(
+              video,
+              :encoding,
+              :process_failure,
+              message: "Failure 1"
+            )
 
-      Media.resolve_video_failures(video.id)
+          Media.resolve_video_failures(video.id)
 
-      failures = Media.get_video_failures(video.id)
-      assert Enum.empty?(failures)
+          failures = Media.get_video_failures(video.id)
+          assert Enum.empty?(failures)
+        end)
     end
 
     test "get_failure_statistics/1 returns failure stats" do
-      {:ok, video} = Fixtures.video_fixture()
+      _log =
+        capture_log(fn ->
+          {:ok, video} = Fixtures.video_fixture()
 
-      {:ok, _} =
-        Media.record_video_failure(
-          video,
-          :encoding,
-          :process_failure,
-          message: "Test"
-        )
+          {:ok, _} =
+            Media.record_video_failure(
+              video,
+              :encoding,
+              :process_failure,
+              message: "Test"
+            )
 
-      stats = Media.get_failure_statistics()
-      assert is_list(stats)
-      assert not Enum.empty?(stats)
+          stats = Media.get_failure_statistics()
+          assert is_list(stats)
+          assert not Enum.empty?(stats)
+        end)
     end
 
     test "get_common_failure_patterns/1 returns common patterns" do
-      {:ok, video} = Fixtures.video_fixture()
+      _log =
+        capture_log(fn ->
+          {:ok, video} = Fixtures.video_fixture()
 
-      {:ok, _} =
-        Media.record_video_failure(
-          video,
-          :encoding,
-          :process_failure,
-          message: "Common error"
-        )
+          {:ok, _} =
+            Media.record_video_failure(
+              video,
+              :encoding,
+              :process_failure,
+              message: "Common error"
+            )
 
-      patterns = Media.get_common_failure_patterns(10)
-      assert is_list(patterns)
+          patterns = Media.get_common_failure_patterns(10)
+          assert is_list(patterns)
+        end)
     end
   end
 
@@ -1541,27 +1556,31 @@ defmodule Reencodarr.MediaTest do
     end
 
     test "upsert_vmaf/1 handles invalid video_id type" do
-      result =
-        Media.upsert_vmaf(%{
-          "video_id" => %{invalid: "type"},
-          "crf" => "23.0",
-          "score" => "95.5",
-          "params" => ["--preset", "6"]
-        })
+      capture_log(fn ->
+        result =
+          Media.upsert_vmaf(%{
+            "video_id" => %{invalid: "type"},
+            "crf" => "23.0",
+            "score" => "95.5",
+            "params" => ["--preset", "6"]
+          })
 
-      assert result == {:error, :invalid_video_id}
+        assert result == {:error, :invalid_video_id}
+      end)
     end
 
     test "upsert_vmaf/1 handles missing video_id" do
-      result =
-        Media.upsert_vmaf(%{
-          "video_id" => 999_999_999,
-          "crf" => "23.0",
-          "score" => "95.5",
-          "params" => ["--preset", "6"]
-        })
+      capture_log(fn ->
+        result =
+          Media.upsert_vmaf(%{
+            "video_id" => 999_999_999,
+            "crf" => "23.0",
+            "score" => "95.5",
+            "params" => ["--preset", "6"]
+          })
 
-      assert result == {:error, :invalid_video_id}
+        assert result == {:error, :invalid_video_id}
+      end)
     end
 
     test "upsert_vmaf/1 does not calculate savings when already provided" do

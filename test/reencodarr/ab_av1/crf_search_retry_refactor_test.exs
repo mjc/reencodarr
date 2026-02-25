@@ -8,6 +8,8 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
   3. If CRF search fails with standard range, mark as failed (no more retries)
   """
   use Reencodarr.DataCase, async: false
+  @moduletag capture_log: true
+  import ExUnit.CaptureLog
 
   alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.AbAv1.Helper
@@ -141,6 +143,27 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
 
       {:ok, pid} = CrfSearch.start_link([])
 
+      on_exit(fn ->
+        case GenServer.whereis(CrfSearch) do
+          nil ->
+            :ok
+
+          crf_pid when is_pid(crf_pid) ->
+            if Process.alive?(crf_pid) do
+              try do
+                GenServer.stop(crf_pid, :normal)
+              catch
+                :exit, _ -> :ok
+              end
+            else
+              :ok
+            end
+
+          _ ->
+            :ok
+        end
+      end)
+
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/tv/Retry Show/Season 01/Retry.Show.S01E02.mkv",
@@ -171,88 +194,92 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
     end
 
     test "failure with narrowed range triggers retry with standard range", %{video: video} do
-      test_pid = self()
-      call_count = :counters.new(1, [:atomics])
+      capture_log(fn ->
+        test_pid = self()
+        call_count = :counters.new(1, [:atomics])
 
-      :meck.new(Helper, [:passthrough])
+        :meck.new(Helper, [:passthrough])
 
-      :meck.expect(Helper, :open_port, fn args ->
-        :counters.add(call_count, 1, 1)
-        count = :counters.get(call_count, 1)
+        :meck.expect(Helper, :open_port, fn args ->
+          :counters.add(call_count, 1, 1)
+          count = :counters.get(call_count, 1)
 
-        # First call: succeed to start the search, then we'll trigger failure via exit
-        # Second call (retry): capture the args to verify standard range
-        send(test_pid, {:open_port_call, count, args})
+          # First call: succeed to start the search, then we'll trigger failure via exit
+          # Second call (retry): capture the args to verify standard range
+          send(test_pid, {:open_port_call, count, args})
 
-        # Open a process that immediately exits with non-zero status
-        port = Port.open({:spawn, "false"}, [:exit_status, :binary, {:line, 1024}])
-        {:ok, port}
+          # Open a process that immediately exits with non-zero status
+          port = Port.open({:spawn, "false"}, [:exit_status, :binary, {:line, 1024}])
+          {:ok, port}
+        end)
+
+        :meck.new(Reencodarr.Media, [:passthrough])
+        :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn _v -> {:ok, %{}} end)
+        :meck.expect(Reencodarr.Media, :mark_as_failed, fn _v -> {:ok, %{}} end)
+        :meck.expect(Reencodarr.Media, :mark_as_analyzed, fn _v -> {:ok, %{}} end)
+
+        :meck.expect(Reencodarr.Media, :record_video_failure, fn _v, _s, _c, _o -> {:ok, %{}} end)
+
+        # Trigger the CRF search
+        GenServer.cast(CrfSearch, {:crf_search, video, 95})
+
+        # Wait for both attempts
+        Process.sleep(500)
+
+        # Should have been called twice - first with narrowed range, second with standard
+        assert_received {:open_port_call, 1, first_args}
+        assert_received {:open_port_call, 2, retry_args}
+
+        # First attempt should have narrowed range
+        first_min_idx = Enum.find_index(first_args, &(&1 == "--min-crf"))
+        first_min = Enum.at(first_args, first_min_idx + 1)
+        # Narrowed from sibling CRF 22 ± 6 → min should be > 8
+        assert String.to_integer(first_min) > 8
+
+        # Retry should have standard range
+        retry_min_idx = Enum.find_index(retry_args, &(&1 == "--min-crf"))
+        retry_max_idx = Enum.find_index(retry_args, &(&1 == "--max-crf"))
+        assert Enum.at(retry_args, retry_min_idx + 1) == "8"
+        assert Enum.at(retry_args, retry_max_idx + 1) == "40"
       end)
-
-      :meck.new(Reencodarr.Media, [:passthrough])
-      :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn _v -> {:ok, %{}} end)
-      :meck.expect(Reencodarr.Media, :mark_as_failed, fn _v -> {:ok, %{}} end)
-      :meck.expect(Reencodarr.Media, :mark_as_analyzed, fn _v -> {:ok, %{}} end)
-
-      :meck.expect(Reencodarr.Media, :record_video_failure, fn _v, _s, _c, _o -> {:ok, %{}} end)
-
-      # Trigger the CRF search
-      GenServer.cast(CrfSearch, {:crf_search, video, 95})
-
-      # Wait for both attempts
-      Process.sleep(500)
-
-      # Should have been called twice - first with narrowed range, second with standard
-      assert_received {:open_port_call, 1, first_args}
-      assert_received {:open_port_call, 2, retry_args}
-
-      # First attempt should have narrowed range
-      first_min_idx = Enum.find_index(first_args, &(&1 == "--min-crf"))
-      first_min = Enum.at(first_args, first_min_idx + 1)
-      # Narrowed from sibling CRF 22 ± 6 → min should be > 8
-      assert String.to_integer(first_min) > 8
-
-      # Retry should have standard range
-      retry_min_idx = Enum.find_index(retry_args, &(&1 == "--min-crf"))
-      retry_max_idx = Enum.find_index(retry_args, &(&1 == "--max-crf"))
-      assert Enum.at(retry_args, retry_min_idx + 1) == "8"
-      assert Enum.at(retry_args, retry_max_idx + 1) == "40"
     end
 
     test "failure with standard range marks video as failed", %{pid: _pid} do
-      test_pid = self()
+      capture_log(fn ->
+        test_pid = self()
 
-      # Create video with NO siblings (so standard range is used)
-      {:ok, lonely_video} =
-        Fixtures.video_fixture(%{
-          path: "/tv/Lonely Show/Season 01/Lonely.Show.S01E01.mkv",
-          height: 1080,
-          width: 1920,
-          state: :analyzed
-        })
+        # Create video with NO siblings (so standard range is used)
+        {:ok, lonely_video} =
+          Fixtures.video_fixture(%{
+            path: "/tv/Lonely Show/Season 01/Lonely.Show.S01E01.mkv",
+            height: 1080,
+            width: 1920,
+            state: :analyzed
+          })
 
-      :meck.new(Helper, [:passthrough])
+        :meck.new(Helper, [:passthrough])
 
-      :meck.expect(Helper, :open_port, fn _args ->
-        port = Port.open({:spawn, "false"}, [:exit_status, :binary, {:line, 1024}])
-        {:ok, port}
+        :meck.expect(Helper, :open_port, fn _args ->
+          port = Port.open({:spawn, "false"}, [:exit_status, :binary, {:line, 1024}])
+          {:ok, port}
+        end)
+
+        :meck.new(Reencodarr.Media, [:passthrough])
+        :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn _v -> {:ok, %{}} end)
+
+        :meck.expect(Reencodarr.Media, :mark_as_failed, fn _v ->
+          send(test_pid, :marked_as_failed)
+          {:ok, %{}}
+        end)
+
+        :meck.expect(Reencodarr.Media, :record_video_failure, fn _v, _s, _c, _o -> {:ok, %{}} end)
+
+        GenServer.cast(CrfSearch, {:crf_search, lonely_video, 95})
+        Process.sleep(500)
+
+        # Should mark as failed (no retry since standard range was already used)
+        assert_received :marked_as_failed
       end)
-
-      :meck.new(Reencodarr.Media, [:passthrough])
-      :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn _v -> {:ok, %{}} end)
-
-      :meck.expect(Reencodarr.Media, :mark_as_failed, fn _v ->
-        send(test_pid, :marked_as_failed)
-        {:ok, %{}}
-      end)
-
-      :meck.expect(Reencodarr.Media, :record_video_failure, fn _v, _s, _c, _o -> {:ok, %{}} end)
-
-      GenServer.cast(CrfSearch, {:crf_search, lonely_video, 95})
-      Process.sleep(500)
-
-      # Should mark as failed (no retry since standard range was already used)
-      assert_received :marked_as_failed
     end
   end
 end

@@ -1,5 +1,6 @@
 defmodule Reencodarr.CrfSearcher.Broadway.ProducerTest do
   use ExUnit.Case, async: true
+  @moduletag capture_log: true
 
   alias Reencodarr.PipelineStateMachine
 
