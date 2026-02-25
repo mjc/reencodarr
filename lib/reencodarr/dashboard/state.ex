@@ -85,7 +85,9 @@ defmodule Reencodarr.Dashboard.State do
       send(parent, {:stats_ready, stats})
     end)
 
-    send(self(), :refresh_queues)
+    if queue_refresh_enabled?() do
+      send(self(), :refresh_queues)
+    end
 
     {:noreply, state}
   end
@@ -258,12 +260,14 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_info(:refresh_queues, state) do
-    parent = self()
+    if queue_refresh_enabled?() do
+      parent = self()
 
-    Task.start(fn ->
-      items = fetch_queue_items_parallel()
-      send(parent, {:queue_items_ready, items})
-    end)
+      Task.start(fn ->
+        items = fetch_queue_items_parallel()
+        send(parent, {:queue_items_ready, items})
+      end)
+    end
 
     {:noreply, state}
   end
@@ -272,7 +276,11 @@ defmodule Reencodarr.Dashboard.State do
   def handle_info({:queue_items_ready, items}, state) do
     state = %{state | queue_items: items}
     broadcast_state(state)
-    Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
+
+    if queue_refresh_enabled?() do
+      Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
+    end
+
     {:noreply, state}
   end
 
@@ -322,6 +330,10 @@ defmodule Reencodarr.Dashboard.State do
     :exit, {:timeout, _} -> []
     :exit, {%DBConnection.ConnectionError{}, _} -> []
     :exit, {{%DBConnection.ConnectionError{}, _}, _} -> []
+  end
+
+  defp queue_refresh_enabled? do
+    Application.get_env(:reencodarr, :dashboard_queue_refresh_enabled, true)
   end
 
   # Helper to upsert a result in a list by key
