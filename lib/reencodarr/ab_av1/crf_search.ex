@@ -513,7 +513,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp empty_state_after_orphan_kill do
-    Helper.kill_orphaned_processes("ab-av1 crf-search")
     empty_state()
   end
 
