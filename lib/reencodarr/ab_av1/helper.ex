@@ -319,70 +319,18 @@ defmodule Reencodarr.AbAv1.Helper do
   end
 
   @doc """
-  Kill a process and all its children by sending SIGTERM to the process group,
-  waiting 500ms, then sending SIGKILL if still alive.
+  No-op: previously sent SIGTERM/SIGKILL to process groups. Removed because
+  Port.close/1 (SIGHUP) and OS process-group cleanup are sufficient.
   """
   @spec kill_process_group(integer() | nil) :: :ok
-  def kill_process_group(nil), do: :ok
-
-  def kill_process_group(os_pid) when is_integer(os_pid) do
-    Logger.info("Killing process group #{os_pid}")
-
-    # Send SIGTERM to the process group (negative PID)
-    System.cmd("kill", ["-TERM", "-#{os_pid}"], stderr_to_stdout: true)
-
-    # Wait 500ms for graceful shutdown
-    Process.sleep(500)
-
-    # Check if process is still alive
-    case System.cmd("ps", ["-p", to_string(os_pid)], stderr_to_stdout: true) do
-      {_, 0} ->
-        # Still alive, send SIGKILL
-        Logger.warning("Process #{os_pid} did not terminate, sending SIGKILL")
-        System.cmd("kill", ["-KILL", "-#{os_pid}"], stderr_to_stdout: true)
-
-      _ ->
-        # Process is gone
-        :ok
-    end
-
-    :ok
-  end
+  def kill_process_group(_os_pid), do: :ok
 
   @doc """
-  Find and kill all processes matching a pattern (e.g., "ab-av1 encode").
-  Uses pgrep to find matching processes, then kills each with process group kill.
+  No-op: previously used pgrep to find and kill orphaned ab-av1 processes.
+  Removed because it could race-kill legitimate processes and Port.close handles cleanup.
   """
   @spec kill_orphaned_processes(String.t()) :: :ok
-  def kill_orphaned_processes(pattern) do
-    case System.cmd("pgrep", ["-f", pattern], stderr_to_stdout: true) do
-      {output, 0} ->
-        pids =
-          output
-          |> String.split("\n", trim: true)
-          |> Enum.map(&String.to_integer/1)
-
-        case pids do
-          [] ->
-            :ok
-
-          pids ->
-            Logger.info("Found #{length(pids)} orphaned processes matching '#{pattern}'")
-            Enum.each(pids, &kill_orphaned_process(&1))
-        end
-
-        :ok
-
-      {_, _} ->
-        # No matches found or pgrep error
-        :ok
-    end
-  end
-
-  defp kill_orphaned_process(pid) do
-    Logger.info("Killing orphaned process #{pid}")
-    kill_process_group(pid)
-  end
+  def kill_orphaned_processes(_pattern), do: :ok
 
   @spec preprocess_input_file([String.t()]) :: {:ok, [String.t()]}
   defp preprocess_input_file(args) do
