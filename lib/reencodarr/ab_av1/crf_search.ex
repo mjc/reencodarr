@@ -193,7 +193,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
         # Mark video as crf_searching AFTER successful port open
         case Media.mark_as_crf_searching(video) do
-          {:ok, _updated_video} -> :ok
+          {:ok, _updated_video} ->
+            :ok
+
           {:error, reason} ->
             Logger.warning(
               "Failed to mark video #{video.id} as crf_searching: #{inspect(reason)}"
@@ -229,9 +231,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         {:noreply, new_state}
 
       {:error, reason} ->
-        Logger.error(
-          "Failed to start CRF search for video #{video.id}: #{inspect(reason)}"
-        )
+        Logger.error("Failed to start CRF search for video #{video.id}: #{inspect(reason)}")
 
         Media.record_video_failure(video, :crf_search, :command_error,
           code: "start_failed",
@@ -251,7 +251,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     if Application.get_env(:reencodarr, :environment) == :test do
       if state.searcher_monitor, do: Process.demonitor(state.searcher_monitor, [:flush])
       CrfSearcher.kill()
-      {:noreply, %{current_task: :none, partial_line_buffer: "", output_buffer: [], searcher_monitor: nil, os_pid: nil}}
+
+      {:noreply,
+       %{
+         current_task: :none,
+         partial_line_buffer: "",
+         output_buffer: [],
+         searcher_monitor: nil,
+         os_pid: nil
+       }}
     else
       {:noreply, state}
     end
@@ -382,7 +390,14 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     })
 
     {:noreply,
-     %{state | current_task: :none, partial_line_buffer: "", output_buffer: [], searcher_monitor: nil, os_pid: nil}}
+     %{
+       state
+       | current_task: :none,
+         partial_line_buffer: "",
+         output_buffer: [],
+         searcher_monitor: nil,
+         os_pid: nil
+     }}
   end
 
   # Stale or irrelevant :DOWN
@@ -511,7 +526,13 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp empty_state do
-    %{current_task: :none, partial_line_buffer: "", output_buffer: [], searcher_monitor: nil, os_pid: nil}
+    %{
+      current_task: :none,
+      partial_line_buffer: "",
+      output_buffer: [],
+      searcher_monitor: nil,
+      os_pid: nil
+    }
   end
 
   defp reset_video_state_if_present(%{current_task: :none}), do: :ok
@@ -848,8 +869,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         select: %{crf: v.crf, score: v.score}
 
     case Repo.all(query) do
-      [] -> []
-      vmaf_entries -> Enum.map(vmaf_entries, fn %{crf: crf, score: score} -> %{crf: crf, score: score} end)
+      [] ->
+        []
+
+      vmaf_entries ->
+        Enum.map(vmaf_entries, fn %{crf: crf, score: score} -> %{crf: crf, score: score} end)
     end
   end
 
@@ -1016,11 +1040,17 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp significant_change?(last_progress, new_progress) do
     case {last_progress.percent, new_progress.percent} do
-      {nil, _} -> true
-      {_, nil} -> true
+      {nil, _} ->
+        true
+
+      {_, nil} ->
+        true
+
       {last_percent, new_percent} when is_number(last_percent) and is_number(new_percent) ->
         abs(new_percent - last_percent) > 50.0
-      _ -> true
+
+      _ ->
+        true
     end
   end
 

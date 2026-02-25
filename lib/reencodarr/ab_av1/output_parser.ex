@@ -116,7 +116,7 @@ defmodule Reencodarr.AbAv1.OutputParser do
   end
 
   defp parse_pattern_with_mapping(line, pattern_key, type, field_mapping) do
-    patterns = cached_patterns()
+    patterns = get_patterns()
 
     case Parsers.parse_with_pattern(line, pattern_key, patterns, field_mapping) do
       {:error, _} = error -> error
@@ -126,7 +126,7 @@ defmodule Reencodarr.AbAv1.OutputParser do
 
   # Special parser for encoding_start pattern with custom transformations
   defp parse_encoding_start_pattern(line) do
-    patterns = cached_patterns()
+    patterns = get_patterns()
     pattern = patterns[:encoding_start]
 
     case Regex.named_captures(pattern, line) do
