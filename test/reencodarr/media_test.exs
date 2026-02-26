@@ -2270,16 +2270,16 @@ defmodule Reencodarr.MediaTest do
       assert chosen.crf == 25.0
     end
 
-    test "mark_vmaf_as_chosen/2 handles invalid string CRF" do
+    test "mark_vmaf_as_chosen/2 returns error on invalid string CRF" do
       {:ok, video} = Fixtures.video_fixture()
       vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: true})
 
-      # Invalid CRF string should fall back to 0.0, which won't match any VMAF
-      {:ok, _result} = Media.mark_vmaf_as_chosen(video.id, "invalid")
+      # Invalid CRF string should return error, not silently use 0.0
+      assert {:error, :invalid_crf} = Media.mark_vmaf_as_chosen(video.id, "invalid")
 
-      # Original should be unchosen since 0.0 doesn't match
+      # Original chosen VMAF should be preserved (not silently unchosen)
       updated = Repo.get(Reencodarr.Media.Vmaf, vmaf.id)
-      assert updated.chosen == false
+      assert updated.chosen == true
     end
 
     test "get_chosen_vmaf_for_video/1 returns nil when video state is not crf_searched" do
