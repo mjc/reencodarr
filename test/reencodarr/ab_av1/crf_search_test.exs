@@ -91,6 +91,13 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       # Start the CrfSearch GenServer for testing
       {:ok, pid} = CrfSearch.start_link([])
 
+      # Mock CrfSearchHints.crf_range to avoid DB queries from the GenServer process
+      # (this test uses plain maps for videos, not DB-persisted structs)
+      :meck.new(Reencodarr.CrfSearchHints, [:passthrough])
+      :meck.expect(Reencodarr.CrfSearchHints, :crf_range, fn _video, _target -> {5, 70} end)
+
+      :meck.expect(Reencodarr.CrfSearchHints, :crf_range, fn _video, _target, _opts -> {5, 70} end)
+
       on_exit(fn ->
         stop_crf_searcher()
 

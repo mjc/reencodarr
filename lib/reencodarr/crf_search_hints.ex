@@ -1,19 +1,30 @@
 defmodule Reencodarr.CrfSearchHints do
   @moduledoc """
-  Provides season-aware CRF range narrowing for TV show episodes.
+  Provides CRF range narrowing using existing VMAF records and season-aware sibling data.
 
-  Within the same season, episodes with the same resolution and HDR status
-  tend to have similar optimal CRF values (avg σ ≈ 2.8 CRF points across
-  3000+ episodes). This module exploits that pattern by querying sibling
-  episodes that already have chosen CRF values and narrowing the search
-  range for subsequent episodes.
+  ## Priority chain
 
-  ## Strategy
+  1. **Own VMAF records** — `{crf, score}` pairs from any prior records for the exact video
+     (including unchosen ones from failed searches). Bracketed against the target, margin ±2.
+  2. **Sibling VMAF records** — chosen `{crf, score}` pairs from episodes in the same season
+     folder with matching resolution and HDR status. Bracketed against the target, margin ±4.
+  3. **Default range** — `{5, 70}` (full SVT-AV1 range).
 
-  - First attempt: use narrowed range from sibling CRFs (±6 margin for ~95% coverage)
-  - Retry (after failure): fall back to standard range {8, 40}
-  - No siblings found: use standard range
-  - Movies (no season folder): use standard range
+  ## Bracketing logic
+
+  Given `{crf, score}` pairs and a target VMAF:
+
+  - **Passing** (score ≥ target): highest-CRF passing record is our floor — the least aggressive
+    CRF that still met quality. `min_crf = highest_passing_crf − margin`.
+  - **Failing** (score < target): lowest-CRF failing record is our ceiling — even that aggressive
+    a CRF was not enough. `max_crf = lowest_failing_crf + margin`.
+  - Only passing: ceiling is `highest_passing_crf + margin * 2` (search a bit above too).
+  - Only failing: floor is `@absolute_min_crf` (go as low as needed).
+
+  ## Retry behaviour
+
+  On retry, sibling narrowing is skipped (it may have caused the failure).
+  Own records are still used if present; otherwise falls back to the default range.
   """
 
   import Ecto.Query
@@ -28,70 +39,94 @@ defmodule Reencodarr.CrfSearchHints do
   @default_max_crf 70
   @default_range {@default_min_crf, @default_max_crf}
 
-  # Margin around sibling CRF range: ±6 covers ~95% of observed variance (2σ where σ ≈ 2.8)
-  @margin 6
+  # Margin for own records: tight — same source video
+  @own_margin 2
 
-  # Absolute bounds - never go outside these regardless of sibling data
+  # Margin for sibling records: slightly wider — same season, different content
+  @sibling_margin 4
+
+  # Absolute bounds — never exceed these
   @absolute_min_crf 5
   @absolute_max_crf 70
 
   @doc """
-  Returns a CRF search range for the given video.
+  Returns a CRF search range for the given video and VMAF target.
 
-  On retry, always returns the default range `{8, 40}`.
-  Otherwise, attempts to narrow the range based on sibling episodes
-  in the same season with matching resolution and HDR status.
+  Checks in priority order:
+  1. Own VMAF records — bracketed against `target_vmaf`, margin ±#{@own_margin}
+  2. Sibling chosen records — bracketed against `target_vmaf`, margin ±#{@sibling_margin}
+  3. Default range `{#{@default_min_crf}, #{@default_max_crf}}`
+
+  On retry, sibling narrowing is skipped. Own records are still used if present.
 
   ## Options
 
-  - `retry: true` - forces default range (used after a narrowed search fails)
+  - `retry: true` — skip sibling narrowing; use own records or default
 
   ## Returns
 
   `{min_crf, max_crf}` tuple
   """
-  @spec crf_range(Video.t(), keyword()) :: {integer(), integer()}
-  def crf_range(_video, opts \\ [])
+  @spec crf_range(Video.t(), pos_integer(), keyword()) :: {integer(), integer()}
+  def crf_range(video, target_vmaf, opts \\ [])
 
-  def crf_range(_video, retry: true), do: @default_range
+  def crf_range(video, target_vmaf, retry: true) do
+    case own_vmaf_records(video) do
+      [] -> @default_range
+      records -> bracket_range(records, target_vmaf, @own_margin)
+    end
+  end
 
-  def crf_range(video, _opts) do
-    case sibling_crfs(video) do
-      [] ->
-        @default_range
-
-      crfs ->
-        narrow_range(crfs)
+  def crf_range(video, target_vmaf, _opts) do
+    case {own_vmaf_records(video), sibling_vmaf_records(video)} do
+      {[_ | _] = own, _} -> bracket_range(own, target_vmaf, @own_margin)
+      {[], [_ | _] = siblings} -> bracket_range(siblings, target_vmaf, @sibling_margin)
+      {[], []} -> @default_range
     end
   end
 
   @doc """
-  Finds chosen CRF values from sibling episodes.
+  Returns `{crf, score}` pairs from all VMAF records for the given video.
+
+  Includes non-chosen records, so data from prior failed searches is utilised.
+  Returns an empty list if the video has no VMAF records yet.
+  """
+  @spec own_vmaf_records(Video.t() | map()) :: [{float(), float()}]
+  def own_vmaf_records(%{id: video_id}) do
+    from(vmaf in Vmaf,
+      where: vmaf.video_id == ^video_id,
+      select: {vmaf.crf, vmaf.score}
+    )
+    |> Repo.all()
+  end
+
+  def own_vmaf_records(_), do: []
+
+  @doc """
+  Returns `{crf, score}` pairs from chosen VMAF records of sibling episodes.
 
   Siblings are videos in the same directory (season folder) with matching
   resolution and HDR status that already have a chosen VMAF record.
   The target video itself is excluded.
 
-  Returns an empty list for movies or videos without a recognizable
+  Returns an empty list for movies or videos without a recognisable
   season folder structure.
   """
-  @spec sibling_crfs(Video.t() | map()) :: [float()]
-  def sibling_crfs(%{id: video_id, path: path, height: height, width: width, hdr: hdr}) do
+  @spec sibling_vmaf_records(Video.t() | map()) :: [{float(), float()}]
+  def sibling_vmaf_records(%{id: video_id, path: path, height: height, width: width, hdr: hdr}) do
     season_dir = Path.dirname(path)
 
-    # Only proceed if the path looks like it has a season folder
     if season_folder?(season_dir) do
-      query_sibling_crfs(video_id, season_dir, height, width, hdr)
+      query_sibling_vmaf_records(video_id, season_dir, height, width, hdr)
     else
       []
     end
   end
 
-  # Fallback for maps missing required fields — return default range
-  def sibling_crfs(_video), do: []
+  def sibling_vmaf_records(_video), do: []
 
   @doc """
-  Returns true if the given CRF range is narrower than the default.
+  Returns true if the given CRF range is narrower than the default `{5, 70}`.
   """
   @spec narrowed_range?({number(), number()}) :: boolean()
   def narrowed_range?({min_crf, max_crf}) do
@@ -105,8 +140,7 @@ defmodule Reencodarr.CrfSearchHints do
     Regex.match?(~r/^[Ss](?:eason\s*)?0*\d+$/i, basename)
   end
 
-  defp query_sibling_crfs(exclude_video_id, season_dir, height, width, hdr) do
-    # Use LIKE to match videos in the same directory
+  defp query_sibling_vmaf_records(exclude_video_id, season_dir, height, width, hdr) do
     dir_prefix = season_dir <> "/"
 
     base_query =
@@ -118,9 +152,8 @@ defmodule Reencodarr.CrfSearchHints do
         where: v.height == ^height,
         where: v.width == ^width,
         where: vmaf.chosen == true,
-        select: vmaf.crf
+        select: {vmaf.crf, vmaf.score}
 
-    # Match HDR status: both nil (SDR) or both non-nil (HDR)
     query =
       if is_nil(hdr) do
         from [v, _vmaf] in base_query, where: is_nil(v.hdr)
@@ -131,12 +164,43 @@ defmodule Reencodarr.CrfSearchHints do
     Repo.all(query)
   end
 
-  defp narrow_range(crfs) do
-    min_sibling = Enum.min(crfs)
-    max_sibling = Enum.max(crfs)
+  # Given {crf, score} pairs and a target, compute the tightest valid bracket.
+  #
+  # - Highest-CRF passing record  → floor  (min_crf = that CRF − margin)
+  # - Lowest-CRF  failing record  → ceiling (max_crf = that CRF + margin)
+  # - Only passing → ceiling = highest_passing_crf + margin * 2 (also search above)
+  # - Only failing → floor = @absolute_min_crf (go as low as needed)
+  defp bracket_range(records, target, margin) do
+    passing = Enum.filter(records, fn {_crf, score} -> score >= target end)
+    failing = Enum.filter(records, fn {_crf, score} -> score < target end)
 
-    min_crf = max(@absolute_min_crf, floor(min_sibling - @margin))
-    max_crf = min(@absolute_max_crf, ceil(max_sibling + @margin))
+    min_crf =
+      case passing do
+        [] ->
+          @absolute_min_crf
+
+        ps ->
+          highest_passing = ps |> Enum.max_by(&elem(&1, 0)) |> elem(0)
+          max(@absolute_min_crf, floor(highest_passing) - margin)
+      end
+
+    max_crf =
+      case failing do
+        [] ->
+          # No failing data — also search a bit above the highest passing CRF
+          case passing do
+            [] ->
+              @absolute_max_crf
+
+            ps ->
+              highest_passing = ps |> Enum.max_by(&elem(&1, 0)) |> elem(0)
+              min(@absolute_max_crf, ceil(highest_passing) + margin * 2)
+          end
+
+        fs ->
+          lowest_failing = fs |> Enum.min_by(&elem(&1, 0)) |> elem(0)
+          min(@absolute_max_crf, ceil(lowest_failing) + margin)
+      end
 
     {min_crf, max_crf}
   end
