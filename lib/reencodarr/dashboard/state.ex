@@ -97,6 +97,12 @@ defmodule Reencodarr.Dashboard.State do
     {:reply, state, state}
   end
 
+  @impl true
+  def handle_cast(:broadcast_state, state) do
+    broadcast_state(state)
+    {:noreply, state}
+  end
+
   # CRF Search Events
 
   @impl true

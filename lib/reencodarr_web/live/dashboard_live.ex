@@ -58,6 +58,8 @@ defmodule ReencodarrWeb.DashboardLive do
         Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
         # Subscribe to consolidated state changes from Dashboard.State
         Phoenix.PubSub.subscribe(Reencodarr.PubSub, DashboardState.state_channel())
+        # Request current state immediately (subscribe-then-cast ensures ordering)
+        GenServer.cast(DashboardState, :broadcast_state)
 
         # Request current status from all services with a small delay to let services initialize
         Process.send_after(self(), :request_status, 100)
