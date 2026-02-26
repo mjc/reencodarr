@@ -844,27 +844,28 @@ defmodule Reencodarr.Media do
   end
 
   def mark_vmaf_as_chosen(video_id, crf) do
-    crf_float = parse_crf(crf)
+    case parse_crf(crf) do
+      {:ok, crf_float} ->
+        Repo.transaction(fn ->
+          from(v in Vmaf, where: v.video_id == ^video_id, update: [set: [chosen: false]])
+          |> Repo.update_all([])
 
-    Repo.transaction(fn ->
-      from(v in Vmaf, where: v.video_id == ^video_id, update: [set: [chosen: false]])
-      |> Repo.update_all([])
+          from(v in Vmaf,
+            where: v.video_id == ^video_id and v.crf == ^crf_float,
+            update: [set: [chosen: true]]
+          )
+          |> Repo.update_all([])
+        end)
 
-      from(v in Vmaf,
-        where: v.video_id == ^video_id and v.crf == ^crf_float,
-        update: [set: [chosen: true]]
-      )
-      |> Repo.update_all([])
-    end)
+      {:error, _} ->
+        {:error, :invalid_crf}
+    end
   end
 
-  defp parse_crf(crf) when is_number(crf), do: crf
+  defp parse_crf(crf) when is_number(crf), do: {:ok, crf}
 
   defp parse_crf(crf) when is_binary(crf) do
-    case Parsers.parse_float_exact(crf) do
-      {:ok, float} -> float
-      {:error, _} -> 0.0
-    end
+    Parsers.parse_float_exact(crf)
   end
 
   def list_videos_awaiting_crf_search do
