@@ -388,6 +388,13 @@ defmodule Reencodarr.FormattersTest do
       assert Formatters.size_to_bytes(1.5, "GB") == 1_610_612_736
     end
 
+    test "converts IEC units (MiB, GiB) from ab-av1 output" do
+      assert Formatters.size_to_bytes("253.42", "MiB") == round(253.42 * 1_048_576)
+      assert Formatters.size_to_bytes("879.22", "MiB") == round(879.22 * 1_048_576)
+      assert Formatters.size_to_bytes("1.5", "GiB") == round(1.5 * 1_073_741_824)
+      assert Formatters.size_to_bytes("100", "KiB") == 100 * 1024
+    end
+
     test "handles case insensitive units" do
       assert Formatters.size_to_bytes("1", "gb") == 1_073_741_824
       assert Formatters.size_to_bytes("1", "Mb") == 1_048_576
@@ -416,6 +423,13 @@ defmodule Reencodarr.FormattersTest do
       assert Formatters.get_unit_multiplier("kb") == {:ok, 1024}
       assert Formatters.get_unit_multiplier("Mb") == {:ok, 1_048_576}
       assert Formatters.get_unit_multiplier("GB") == {:ok, 1_073_741_824}
+    end
+
+    test "returns correct multipliers for IEC units (MiB, GiB, etc.)" do
+      assert Formatters.get_unit_multiplier("KiB") == {:ok, 1024}
+      assert Formatters.get_unit_multiplier("MiB") == {:ok, 1_048_576}
+      assert Formatters.get_unit_multiplier("GiB") == {:ok, 1_073_741_824}
+      assert Formatters.get_unit_multiplier("TiB") == {:ok, 1_099_511_627_776}
     end
 
     test "returns error for invalid units" do
