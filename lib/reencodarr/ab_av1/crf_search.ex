@@ -554,10 +554,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp perform_crf_search_cleanup(%{current_task: %{video: video}} = state) do
-    filename = Path.basename(video.path)
-    cache_key = {:crf_progress, filename}
-    Process.delete(cache_key)
-
     Events.broadcast_event(:crf_search_completed, %{
       video_id: video.id,
       result: :ok
@@ -984,17 +980,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   defp broadcast_crf_search_progress(video_path, progress_data) do
     filename = Path.basename(video_path)
-    progress = Map.put(progress_data, :filename, filename)
 
-    if should_emit_progress?(filename, progress) do
-      Events.broadcast_event(:crf_search_progress, %{
-        video_id: progress[:video_id],
-        percent: progress[:percent] || 0,
-        filename: progress[:filename] && Path.basename(progress[:filename])
-      })
-
-      update_last_progress(filename, progress)
-    end
+    Events.broadcast_event(:crf_search_progress, %{
+      video_id: progress_data[:video_id],
+      percent: progress_data[:percent] || 0,
+      filename: filename
+    })
   end
 
   defp broadcast_crf_search_encoding_sample(_video_path, sample_data) do
@@ -1015,47 +1006,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       score: vmaf_data.score,
       percent: vmaf_data.percent
     })
-  end
-
-  defp should_emit_progress?(filename, progress) do
-    cache_key = {:crf_progress, filename}
-    now = System.monotonic_time(:millisecond)
-
-    case Process.get(cache_key) do
-      nil ->
-        true
-
-      {last_time, last_progress} ->
-        time_since_last = now - last_time
-
-        cond do
-          time_since_last > 5_000 -> true
-          significant_change?(last_progress, progress) -> true
-          true -> false
-        end
-    end
-  end
-
-  defp update_last_progress(filename, progress) do
-    cache_key = {:crf_progress, filename}
-    now = System.monotonic_time(:millisecond)
-    Process.put(cache_key, {now, progress})
-  end
-
-  defp significant_change?(last_progress, new_progress) do
-    case {last_progress.percent, new_progress.percent} do
-      {nil, _} ->
-        true
-
-      {_, nil} ->
-        true
-
-      {last_percent, new_percent} when is_number(last_percent) and is_number(new_percent) ->
-        abs(new_percent - last_percent) > 5.0
-
-      _ ->
-        true
-    end
   end
 
   defp get_vmaf_by_crf(video_id, crf_value) when is_number(crf_value) do
