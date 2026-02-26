@@ -128,7 +128,10 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
 
         # Mock Media functions to prevent actual DB calls
         :meck.new(Reencodarr.Media, [:passthrough])
-        :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn _video -> {:ok, %{}} end)
+
+        :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn v ->
+          {:ok, Map.put(v, :state, :crf_searching)}
+        end)
 
         :meck.expect(Reencodarr.Media, :record_video_failure, fn _video,
                                                                  _stage,
@@ -164,7 +167,10 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
 
       # Mock Media functions
       :meck.new(Reencodarr.Media, [:passthrough])
-      :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn _video -> {:ok, %{}} end)
+
+      :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn v ->
+        {:ok, Map.put(v, :state, :crf_searching)}
+      end)
 
       # Create a complete video object with all required fields
       video = %{
@@ -210,9 +216,9 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
 
       :meck.new(Reencodarr.Media, [:passthrough])
 
-      :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn _video ->
+      :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn video ->
         send(test_pid, :mark_as_crf_searching_called)
-        {:ok, %{}}
+        {:ok, Map.put(video, :state, :crf_searching)}
       end)
 
       :meck.expect(Reencodarr.Media, :record_video_failure, fn _video, _stage, _category, _opts ->
