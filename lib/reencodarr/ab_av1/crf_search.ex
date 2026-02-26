@@ -193,15 +193,18 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         os_pid = CrfSearcher.get_os_pid()
 
         # Mark video as crf_searching AFTER successful port open
-        case Media.mark_as_crf_searching(video) do
-          {:ok, _updated_video} ->
-            :ok
+        video =
+          case Media.mark_as_crf_searching(video) do
+            {:ok, updated_video} ->
+              updated_video
 
-          {:error, reason} ->
-            Logger.warning(
-              "Failed to mark video #{video.id} as crf_searching: #{inspect(reason)}"
-            )
-        end
+            {:error, reason} ->
+              Logger.warning(
+                "Failed to mark video #{video.id} as crf_searching: #{inspect(reason)}"
+              )
+
+              video
+          end
 
         new_state = %{
           state

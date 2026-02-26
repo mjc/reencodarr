@@ -83,7 +83,11 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
     end)
 
     :meck.new(Reencodarr.Media, [:passthrough])
-    :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn _v -> {:ok, %{}} end)
+
+    :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn v ->
+      {:ok, Map.put(v, :state, :crf_searching)}
+    end)
+
     :meck.expect(Reencodarr.Media, :mark_as_analyzed, fn _v -> {:ok, %{}} end)
 
     :meck.expect(Reencodarr.Media, :mark_as_failed, fn _v ->

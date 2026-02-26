@@ -282,7 +282,11 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
         end)
 
         :meck.new(Reencodarr.Media, [:passthrough])
-        :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn _v -> {:ok, %{}} end)
+
+        :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn v ->
+          {:ok, Map.put(v, :state, :crf_searching)}
+        end)
+
         :meck.expect(Reencodarr.Media, :mark_as_failed, fn _v -> {:ok, %{}} end)
         :meck.expect(Reencodarr.Media, :mark_as_analyzed, fn _v -> {:ok, %{}} end)
 
@@ -333,7 +337,10 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
         end)
 
         :meck.new(Reencodarr.Media, [:passthrough])
-        :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn _v -> {:ok, %{}} end)
+
+        :meck.expect(Reencodarr.Media, :mark_as_crf_searching, fn v ->
+          {:ok, Map.put(v, :state, :crf_searching)}
+        end)
 
         :meck.expect(Reencodarr.Media, :mark_as_failed, fn _v ->
           send(test_pid, :marked_as_failed)
