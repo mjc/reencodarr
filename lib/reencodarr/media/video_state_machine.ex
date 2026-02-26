@@ -341,8 +341,18 @@ defmodule Reencodarr.Media.VideoStateMachine do
   @spec mark_as_crf_searching(Video.t()) :: {:ok, Video.t()} | {:error, any()}
   def mark_as_crf_searching(%Video{} = video) do
     case transition_to_crf_searching(video) do
-      {:ok, changeset} -> Reencodarr.Repo.update(changeset)
-      error -> error
+      {:ok, changeset} ->
+        case Reencodarr.Repo.update(changeset) do
+          {:ok, updated_video} ->
+            broadcast_state_transition(updated_video, :crf_searching)
+            {:ok, updated_video}
+
+          error ->
+            error
+        end
+
+      error ->
+        error
     end
   end
 
