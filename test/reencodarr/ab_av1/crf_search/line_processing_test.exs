@@ -53,8 +53,8 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
       assert vmaf.score == 91.33
       assert vmaf.size == "800 MB"
       assert vmaf.time == 120
-      # ETA VMAF lines are marked as chosen
-      assert vmaf.chosen == true
+      # ETA VMAF lines are NOT marked as chosen — only the success line chooses
+      refute vmaf.chosen
     end
 
     test "processes simple VMAF line without size information", %{video: video} do
