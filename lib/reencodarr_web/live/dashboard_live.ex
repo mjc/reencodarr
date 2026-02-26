@@ -340,6 +340,8 @@ defmodule ReencodarrWeb.DashboardLive do
   attr :testing_crf, :float, default: nil
 
   defp crf_search_chart(assigns) do
+    alias ReencodarrWeb.ChartHelpers
+
     # Calculate VMAF y-axis range from target ± results
     scores = Enum.map(assigns.results, & &1.score)
 
@@ -349,12 +351,15 @@ defmodule ReencodarrWeb.DashboardLive do
     vmaf_max =
       max(assigns.target_vmaf + 3, Enum.max(scores, fn -> assigns.target_vmaf + 3 end) + 1)
 
+    # Dynamic CRF axis range from actual results
+    {crf_min, crf_max} = ChartHelpers.crf_range_from_results(assigns.results)
+
     # Pre-compute dot positions
     dots =
       Enum.with_index(assigns.results, fn r, idx ->
         %{
-          x: crf_to_x(r.crf),
-          y: vmaf_to_y(r.score, vmaf_min, vmaf_max),
+          x: ChartHelpers.crf_to_x(r.crf, crf_min, crf_max),
+          y: ChartHelpers.vmaf_to_y(r.score, vmaf_min, vmaf_max),
           crf: r.crf,
           score: r.score,
           above: r.score >= assigns.target_vmaf,
@@ -363,24 +368,26 @@ defmodule ReencodarrWeb.DashboardLive do
       end)
 
     # Calculate target line y-coordinate
-    target_y = vmaf_to_y(assigns.target_vmaf, vmaf_min, vmaf_max)
+    target_y = ChartHelpers.vmaf_to_y(assigns.target_vmaf, vmaf_min, vmaf_max)
 
     # Y-axis tick labels (every 1 VMAF)
     y_ticks =
       for vmaf <- trunc(vmaf_min)..trunc(vmaf_max) do
-        %{value: vmaf, y: vmaf_to_y(vmaf, vmaf_min, vmaf_max)}
+        %{value: vmaf, y: ChartHelpers.vmaf_to_y(vmaf, vmaf_min, vmaf_max)}
       end
 
-    # X-axis tick labels (CRF: 8, 16, 24, 32, 40)
+    # X-axis tick labels (dynamic based on actual CRF range)
     x_ticks =
-      for crf <- [8, 16, 24, 32, 40] do
-        %{value: crf, x: crf_to_x(crf)}
+      for crf <- ChartHelpers.generate_x_ticks(trunc(crf_min), trunc(crf_max)) do
+        %{value: crf, x: ChartHelpers.crf_to_x(crf, crf_min, crf_max)}
       end
 
     assigns =
       assign(assigns,
         vmaf_min: vmaf_min,
         vmaf_max: vmaf_max,
+        crf_min: crf_min,
+        crf_max: crf_max,
         dots: dots,
         target_y: target_y,
         y_ticks: y_ticks,
@@ -442,7 +449,7 @@ defmodule ReencodarrWeb.DashboardLive do
     <!-- Currently-testing CRF indicator (pulsing ring at bottom) -->
       <%= if @testing_crf do %>
         <circle
-          cx={crf_to_x(@testing_crf)}
+          cx={ChartHelpers.crf_to_x(@testing_crf, @crf_min, @crf_max)}
           cy="115"
           r="4"
           fill="none"
@@ -451,7 +458,7 @@ defmodule ReencodarrWeb.DashboardLive do
           class="animate-pulse"
         />
         <text
-          x={crf_to_x(@testing_crf)}
+          x={ChartHelpers.crf_to_x(@testing_crf, @crf_min, @crf_max)}
           y="127"
           fill="#60a5fa"
           font-size="8"
@@ -490,11 +497,7 @@ defmodule ReencodarrWeb.DashboardLive do
     """
   end
 
-  # SVG coordinate helpers
-  defp crf_to_x(crf), do: 30 + (crf - 8) / 32 * 280
-
-  defp vmaf_to_y(score, vmaf_min, vmaf_max),
-    do: 10 + (1 - (score - vmaf_min) / (vmaf_max - vmaf_min)) * 100
+  # SVG coordinate helpers delegated to ChartHelpers (dynamic CRF range)
 
   # Row 2: CRF Search Panel Component
   attr :video, :map, required: true
