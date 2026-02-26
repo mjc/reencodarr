@@ -371,5 +371,19 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
         assert_in_delta stats.total_savings_gb, 1.0, 0.01
       end)
     end
+
+    test "does not produce DB connection errors from spawned tasks" do
+      {:ok, _v1} = video_fixture(%{path: "/v_noerror.mkv", state: :analyzed})
+
+      log =
+        capture_log(fn ->
+          stats = Reencodarr.Media.get_dashboard_stats()
+          assert is_map(stats)
+          assert stats.total_videos >= 1
+        end)
+
+      refute log =~ "owner",
+             "get_dashboard_stats should not produce DB ownership errors, got: #{log}"
+    end
   end
 end
