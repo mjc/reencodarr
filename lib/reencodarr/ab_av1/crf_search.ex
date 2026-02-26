@@ -754,7 +754,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           )
         end
 
-        upsert_vmaf_with_parsed_data(eta_data, true, video, args, target_vmaf)
+        upsert_vmaf_with_parsed_data(eta_data, false, video, args, target_vmaf)
         true
 
       _ ->
