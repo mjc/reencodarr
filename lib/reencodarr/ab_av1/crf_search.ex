@@ -168,7 +168,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   def handle_cast({:crf_search_retry, video, vmaf_percent}, %{current_task: :none} = state) do
     Logger.info("CrfSearch: Retrying with standard range for video #{video.id}")
-    start_crf_search(video, vmaf_percent, {8, 40}, state)
+    start_crf_search(video, vmaf_percent, {5, 70}, state)
   end
 
   def handle_cast({:crf_search, video, _vmaf_percent}, state) do
@@ -906,7 +906,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   def build_crf_search_args(video, vmaf_percent, opts \\ []) do
-    {min_crf, max_crf} = Keyword.get(opts, :crf_range, {8, 40})
+    {min_crf, max_crf} = Keyword.get(opts, :crf_range, {5, 70})
 
     base_args = [
       "crf-search",
