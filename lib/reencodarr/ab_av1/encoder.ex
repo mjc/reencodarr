@@ -162,7 +162,8 @@ defmodule Reencodarr.AbAv1.Encoder do
 
   @impl true
   def handle_call(:kill, _from, state) do
-    Logger.info("Encoder: kill() called, closing port for OS process #{state.os_pid}")
+    Logger.info("Encoder: kill() called, killing OS process #{state.os_pid}")
+    Helper.kill_os_process(state.os_pid)
     Helper.close_port(state.port)
     {:stop, :normal, :ok, %{state | os_pid: nil, port: :none}}
   end
@@ -222,13 +223,20 @@ defmodule Reencodarr.AbAv1.Encoder do
   end
 
   # :normal  → port exited naturally or kill() already cleaned up
-  # :shutdown → BEAM shutting down while encode is in progress → close port
-  # other    → crash → close port
+  # :shutdown → BEAM shutting down while encode is in progress → kill OS process
+  # other    → crash → just close port (don't kill, let process finish)
   @impl true
   def terminate(:normal, _state), do: :ok
 
+  def terminate(:shutdown, state) do
+    Logger.info("Encoder: shutdown, killing OS process #{state.os_pid}")
+    Helper.kill_os_process(state.os_pid)
+    Helper.close_port(state.port)
+    :ok
+  end
+
   def terminate(reason, state) do
-    Logger.warning("Encoder: terminating (#{inspect(reason)}), closing port")
+    Logger.debug("Encoder: terminating (#{inspect(reason)}), closing port")
     Helper.close_port(state.port)
     :ok
   end
