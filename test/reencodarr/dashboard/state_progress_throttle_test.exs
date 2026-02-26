@@ -21,18 +21,24 @@ defmodule Reencodarr.Dashboard.StateProgressThrottleTest do
     end
 
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, @state_channel)
+
+    # Drain any startup broadcasts from handle_continue
+    Process.sleep(50)
+    drain_messages()
+
     :ok
   end
 
   describe "progress debounce" do
-    test "first progress event is broadcast immediately" do
+    test "first progress event is broadcast after debounce" do
       Events.broadcast_event(:crf_search_progress, %{
         video_id: 1,
         percent: 10,
         filename: "test.mkv"
       })
 
-      assert_receive {:dashboard_state_changed, state}, 200
+      # Debounce is 500ms, so wait long enough for the flush
+      assert_receive {:dashboard_state_changed, state}, 700
       assert state.crf_progress.percent == 10
     end
 

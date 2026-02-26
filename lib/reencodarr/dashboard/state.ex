@@ -34,7 +34,7 @@ defmodule Reencodarr.Dashboard.State do
       crf_searcher: :idle,
       encoder: :idle
     },
-    stats: nil,
+    stats: Reencodarr.Media.get_default_stats(),
     queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
     queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
     progress_debounce_ref: nil
@@ -80,18 +80,19 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_continue(:fetch_initial_data, state) do
-    parent = self()
+    stats = Reencodarr.Media.get_dashboard_stats()
 
-    Task.start(fn ->
-      stats = Reencodarr.Media.get_dashboard_stats()
-      send(parent, {:stats_ready, stats})
-    end)
+    queue_counts = %{
+      analyzer: stats.needs_analysis || 0,
+      crf_searcher: stats.analyzed || 0,
+      encoder: stats.crf_searched || 0
+    }
 
     if queue_refresh_enabled?() do
       send(self(), :refresh_queues)
     end
 
-    {:noreply, state}
+    {:noreply, %{state | stats: stats, queue_counts: queue_counts}}
   end
 
   @impl true
@@ -248,7 +249,9 @@ defmodule Reencodarr.Dashboard.State do
   end
 
   @impl true
-  def handle_info({:stats_ready, stats}, state) do
+  def handle_info(:refresh_stats, state) do
+    stats = Reencodarr.Media.get_dashboard_stats()
+
     queue_counts = %{
       analyzer: stats.needs_analysis || 0,
       crf_searcher: stats.analyzed || 0,
@@ -262,37 +265,11 @@ defmodule Reencodarr.Dashboard.State do
   end
 
   @impl true
-  def handle_info(:refresh_stats, state) do
-    parent = self()
-
-    Task.start(fn ->
-      stats = Reencodarr.Media.get_dashboard_stats()
-      send(parent, {:stats_ready, stats})
-    end)
-
-    {:noreply, state}
-  end
-
-  @impl true
   def handle_info(:refresh_queues, state) do
     if queue_refresh_enabled?() do
-      parent = self()
-
-      Task.start(fn ->
-        items = fetch_queue_items_parallel()
-        send(parent, {:queue_items_ready, items})
-      end)
-    end
-
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_info({:queue_items_ready, items}, state) do
-    state = %{state | queue_items: items}
-    broadcast_state(state)
-
-    if queue_refresh_enabled?() do
+      items = fetch_queue_items()
+      state = %{state | queue_items: items}
+      broadcast_state(state)
       Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
     end
 
@@ -312,29 +289,21 @@ defmodule Reencodarr.Dashboard.State do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, @state_channel, {:dashboard_state_changed, state})
   end
 
-  defp fetch_queue_items_parallel do
-    tasks = %{
+  defp fetch_queue_items do
+    %{
       analyzer:
-        Task.async(fn ->
-          safe_query_list(fn ->
-            VideoQueries.videos_needing_analysis(5, timeout: @query_timeout)
-          end)
+        safe_query_list(fn ->
+          VideoQueries.videos_needing_analysis(5, timeout: @query_timeout)
         end),
       crf_searcher:
-        Task.async(fn ->
-          safe_query_list(fn ->
-            VideoQueries.videos_for_crf_search(5, timeout: @query_timeout)
-          end)
+        safe_query_list(fn ->
+          VideoQueries.videos_for_crf_search(5, timeout: @query_timeout)
         end),
       encoder:
-        Task.async(fn ->
-          safe_query_list(fn ->
-            VideoQueries.videos_ready_for_encoding(5, timeout: @query_timeout)
-          end)
+        safe_query_list(fn ->
+          VideoQueries.videos_ready_for_encoding(5, timeout: @query_timeout)
         end)
     }
-
-    Map.new(tasks, fn {k, task} -> {k, Task.await(task, @query_timeout + 500)} end)
   end
 
   defp safe_query_list(fun) do

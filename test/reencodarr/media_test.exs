@@ -1070,7 +1070,9 @@ defmodule Reencodarr.MediaTest do
       {:ok, failed2} = Fixtures.video_fixture(%{state: :failed})
       {:ok, _encoded} = Fixtures.video_fixture(%{state: :encoded})
 
-      Media.record_video_failure(failed1, :encoding, :process_failure, message: "Test failure")
+      capture_log(fn ->
+        Media.record_video_failure(failed1, :encoding, :process_failure, message: "Test failure")
+      end)
 
       result = Media.reset_all_failures()
 
@@ -2152,7 +2154,9 @@ defmodule Reencodarr.MediaTest do
       _vmaf1 = Fixtures.vmaf_fixture(%{video_id: failed1.id})
       _vmaf2 = Fixtures.vmaf_fixture(%{video_id: failed2.id})
 
-      Media.record_video_failure(failed1, :encoding, :process_failure, message: "Test")
+      capture_log(fn ->
+        Media.record_video_failure(failed1, :encoding, :process_failure, message: "Test")
+      end)
 
       result = Media.reset_all_failures()
 
