@@ -165,14 +165,14 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
         # First call: standard range, original target
         assert_received {:open_port_call, 1, first_args}
         assert find_arg(first_args, "--min-vmaf") == Integer.to_string(original_target)
-        assert find_arg(first_args, "--min-crf") == "8"
-        assert find_arg(first_args, "--max-crf") == "40"
+        assert find_arg(first_args, "--min-crf") == "5"
+        assert find_arg(first_args, "--max-crf") == "70"
 
         # Second call: standard range, reduced target
         assert_received {:open_port_call, 2, retry_args}
         assert find_arg(retry_args, "--min-vmaf") == Integer.to_string(original_target - 1)
-        assert find_arg(retry_args, "--min-crf") == "8"
-        assert find_arg(retry_args, "--max-crf") == "40"
+        assert find_arg(retry_args, "--min-crf") == "5"
+        assert find_arg(retry_args, "--max-crf") == "70"
 
         # Second attempt fails → final failure (target already reduced)
         assert_received :marked_as_failed
@@ -262,19 +262,19 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
         # Call 1: narrowed range, original target
         assert_received {:open_port_call, 1, first_args}
         first_min = find_arg(first_args, "--min-crf")
-        assert String.to_integer(first_min) > 8
+        assert String.to_integer(first_min) > 5
         assert find_arg(first_args, "--min-vmaf") == Integer.to_string(original_target)
 
         # Call 2: standard range, same target (narrowed retry)
         assert_received {:open_port_call, 2, standard_args}
-        assert find_arg(standard_args, "--min-crf") == "8"
-        assert find_arg(standard_args, "--max-crf") == "40"
+        assert find_arg(standard_args, "--min-crf") == "5"
+        assert find_arg(standard_args, "--max-crf") == "70"
         assert find_arg(standard_args, "--min-vmaf") == Integer.to_string(original_target)
 
         # Call 3: standard range, reduced target
         assert_received {:open_port_call, 3, reduced_args}
-        assert find_arg(reduced_args, "--min-crf") == "8"
-        assert find_arg(reduced_args, "--max-crf") == "40"
+        assert find_arg(reduced_args, "--min-crf") == "5"
+        assert find_arg(reduced_args, "--max-crf") == "70"
         assert find_arg(reduced_args, "--min-vmaf") == Integer.to_string(original_target - 1)
 
         # Third attempt fails → final failure (target already reduced)

@@ -36,15 +36,16 @@ defmodule Reencodarr.AbAv1.CrfSearch.RetryLogicTest do
       min_idx = Enum.find_index(args, &(&1 == "--min-crf"))
       max_idx = Enum.find_index(args, &(&1 == "--max-crf"))
 
-      assert Enum.at(args, min_idx + 1) == "8"
-      assert Enum.at(args, max_idx + 1) == "40"
+      assert Enum.at(args, min_idx + 1) == "5"
+      assert Enum.at(args, max_idx + 1) == "70"
     end
 
     test "narrowed_range? detects non-default ranges" do
       assert CrfSearchHints.narrowed_range?({14, 30})
       assert CrfSearchHints.narrowed_range?({10, 40})
       assert CrfSearchHints.narrowed_range?({8, 35})
-      refute CrfSearchHints.narrowed_range?({8, 40})
+      assert CrfSearchHints.narrowed_range?({8, 40})
+      refute CrfSearchHints.narrowed_range?({5, 70})
     end
   end
 end

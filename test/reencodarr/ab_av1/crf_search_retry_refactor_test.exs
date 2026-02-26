@@ -24,8 +24,8 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
       min_idx = Enum.find_index(args, &(&1 == "--min-crf"))
       max_idx = Enum.find_index(args, &(&1 == "--max-crf"))
 
-      assert Enum.at(args, min_idx + 1) == "8"
-      assert Enum.at(args, max_idx + 1) == "40"
+      assert Enum.at(args, min_idx + 1) == "5"
+      assert Enum.at(args, max_idx + 1) == "70"
     end
 
     test "uses provided CRF range from options" do
@@ -113,15 +113,15 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
     test "retry uses standard range", %{video: video} do
       # On retry, crf_range should return default
       {min_crf, max_crf} = CrfSearchHints.crf_range(video, retry: true)
-      assert {min_crf, max_crf} == {8, 40}
+      assert {min_crf, max_crf} == {5, 70}
 
       args = CrfSearch.build_crf_search_args(video, 95, crf_range: {min_crf, max_crf})
 
       min_idx = Enum.find_index(args, &(&1 == "--min-crf"))
       max_idx = Enum.find_index(args, &(&1 == "--max-crf"))
 
-      assert Enum.at(args, min_idx + 1) == "8"
-      assert Enum.at(args, max_idx + 1) == "40"
+      assert Enum.at(args, min_idx + 1) == "5"
+      assert Enum.at(args, max_idx + 1) == "70"
     end
   end
 
@@ -233,14 +233,14 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
         # First attempt should have narrowed range
         first_min_idx = Enum.find_index(first_args, &(&1 == "--min-crf"))
         first_min = Enum.at(first_args, first_min_idx + 1)
-        # Narrowed from sibling CRF 22 ± 6 → min should be > 8
-        assert String.to_integer(first_min) > 8
+        # Narrowed from sibling CRF 22 ± 6 → min should be > 5
+        assert String.to_integer(first_min) > 5
 
         # Retry should have standard range
         retry_min_idx = Enum.find_index(retry_args, &(&1 == "--min-crf"))
         retry_max_idx = Enum.find_index(retry_args, &(&1 == "--max-crf"))
-        assert Enum.at(retry_args, retry_min_idx + 1) == "8"
-        assert Enum.at(retry_args, retry_max_idx + 1) == "40"
+        assert Enum.at(retry_args, retry_min_idx + 1) == "5"
+        assert Enum.at(retry_args, retry_max_idx + 1) == "70"
       end)
     end
 

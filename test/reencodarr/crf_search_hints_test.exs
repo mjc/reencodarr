@@ -79,7 +79,7 @@ defmodule Reencodarr.CrfSearchHintsTest do
         })
 
       {min_crf, _max_crf} = CrfSearchHints.crf_range(video)
-      assert min_crf >= 8
+      assert min_crf >= 5
     end
 
     test "returns default range for movies (no season folder)" do
@@ -275,14 +275,15 @@ defmodule Reencodarr.CrfSearchHintsTest do
     test "returns true for ranges narrower than default" do
       assert CrfSearchHints.narrowed_range?({14, 30})
       assert CrfSearchHints.narrowed_range?({10, 35})
+      assert CrfSearchHints.narrowed_range?({8, 40})
     end
 
     test "returns false for default range" do
-      refute CrfSearchHints.narrowed_range?({8, 40})
+      refute CrfSearchHints.narrowed_range?({5, 70})
     end
 
-    test "returns false for wider-than-default range" do
-      refute CrfSearchHints.narrowed_range?({5, 55})
+    test "returns false for wider-than-default range (partially)" do
+      assert CrfSearchHints.narrowed_range?({5, 55})
     end
   end
 
