@@ -52,6 +52,7 @@ defmodule Reencodarr.Media.VmafUpsertConflictTest do
         "video_id" => video.id,
         "score" => "95.0",
         "percent" => "50.0",
+        "params" => ["--preset", "4"],
         "chosen" => false,
         "target" => 95
       }
@@ -69,6 +70,7 @@ defmodule Reencodarr.Media.VmafUpsertConflictTest do
         "crf" => "23.0",
         "score" => "95.0",
         "percent" => "50.0",
+        "params" => ["--preset", "4"],
         "chosen" => false,
         "target" => 95
       }
@@ -90,6 +92,7 @@ defmodule Reencodarr.Media.VmafUpsertConflictTest do
         "crf" => "23.0",
         "score" => "95.0",
         "percent" => "50.0",
+        "params" => ["--preset", "4"],
         "chosen" => false,
         "target" => 95
       }

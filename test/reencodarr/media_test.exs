@@ -2218,16 +2218,16 @@ defmodule Reencodarr.MediaTest do
       refute video_with_vmaf.id in video_ids
     end
 
-    test "mark_vmaf_as_chosen/2 with non-existent CRF does nothing" do
+    test "mark_vmaf_as_chosen/2 with non-existent CRF returns error and preserves existing chosen" do
       {:ok, video} = Fixtures.video_fixture()
       vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: true})
 
-      # Try to mark a CRF that doesn't exist
-      {:ok, _result} = Media.mark_vmaf_as_chosen(video.id, 99.0)
+      # Try to mark a CRF that doesn't exist — transaction rolls back
+      assert {:error, :no_vmaf_matched} = Media.mark_vmaf_as_chosen(video.id, 99.0)
 
-      # Original VMAF should now be unchosen
+      # Original VMAF should remain chosen (transaction was rolled back)
       updated = Repo.get(Reencodarr.Media.Vmaf, vmaf.id)
-      assert updated.chosen == false
+      assert updated.chosen == true
     end
 
     test "get_videos_in_library/1 returns only videos from that library" do

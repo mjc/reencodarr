@@ -845,21 +845,25 @@ defmodule Reencodarr.Media do
 
   def mark_vmaf_as_chosen(video_id, crf) do
     case parse_crf(crf) do
-      {:ok, crf_float} ->
-        Repo.transaction(fn ->
-          from(v in Vmaf, where: v.video_id == ^video_id, update: [set: [chosen: false]])
-          |> Repo.update_all([])
-
-          from(v in Vmaf,
-            where: v.video_id == ^video_id and v.crf == ^crf_float,
-            update: [set: [chosen: true]]
-          )
-          |> Repo.update_all([])
-        end)
-
-      {:error, _} ->
-        {:error, :invalid_crf}
+      {:ok, crf_float} -> do_mark_vmaf_as_chosen(video_id, crf_float)
+      {:error, _} -> {:error, :invalid_crf}
     end
+  end
+
+  defp do_mark_vmaf_as_chosen(video_id, crf_float) do
+    Repo.transaction(fn ->
+      from(v in Vmaf, where: v.video_id == ^video_id, update: [set: [chosen: false]])
+      |> Repo.update_all([])
+
+      {count, _} =
+        from(v in Vmaf,
+          where: v.video_id == ^video_id and v.crf == ^crf_float,
+          update: [set: [chosen: true]]
+        )
+        |> Repo.update_all([])
+
+      if count == 0, do: Repo.rollback(:no_vmaf_matched)
+    end)
   end
 
   defp parse_crf(crf) when is_number(crf), do: {:ok, crf}
