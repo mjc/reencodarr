@@ -159,7 +159,8 @@ defmodule Reencodarr.AbAv1.CrfSearcher do
 
   @impl true
   def handle_call(:kill, _from, state) do
-    Logger.info("CrfSearcher: kill() called, closing port for OS process #{state.os_pid}")
+    Logger.info("CrfSearcher: kill() called, killing OS process #{state.os_pid}")
+    Helper.kill_os_process(state.os_pid)
     Helper.close_port(state.port)
     {:stop, :normal, :ok, %{state | os_pid: nil, port: :none}}
   end
@@ -221,8 +222,15 @@ defmodule Reencodarr.AbAv1.CrfSearcher do
   @impl true
   def terminate(:normal, _state), do: :ok
 
+  def terminate(:shutdown, state) do
+    Logger.info("CrfSearcher: shutdown, killing OS process #{state.os_pid}")
+    Helper.kill_os_process(state.os_pid)
+    Helper.close_port(state.port)
+    :ok
+  end
+
   def terminate(reason, state) do
-    Logger.warning("CrfSearcher: terminating (#{inspect(reason)}), closing port")
+    Logger.debug("CrfSearcher: terminating (#{inspect(reason)}), closing port")
     Helper.close_port(state.port)
     :ok
   end

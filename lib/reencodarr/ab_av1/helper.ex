@@ -305,6 +305,27 @@ defmodule Reencodarr.AbAv1.Helper do
       :ok
   end
 
+  @doc """
+  Send SIGTERM to an OS process by PID.
+
+  Port.close/1 only closes the Erlang-side file descriptors — it does NOT
+  signal the OS process. Since ab-av1 reads from video files (not stdin),
+  it never notices the closed pipe and keeps running as an orphan.
+
+  This function sends SIGTERM so the process actually terminates.
+  Returns :ok unconditionally (process may already be dead).
+  """
+  @spec kill_os_process(integer() | nil) :: :ok
+  def kill_os_process(nil), do: :ok
+
+  def kill_os_process(os_pid) when is_integer(os_pid) do
+    Logger.info("Sending SIGTERM to OS process #{os_pid}")
+    System.cmd("kill", ["-TERM", to_string(os_pid)], stderr_to_stdout: true)
+    :ok
+  rescue
+    _ -> :ok
+  end
+
   @spec preprocess_input_file([String.t()]) :: {:ok, [String.t()]}
   defp preprocess_input_file(args) do
     # Find the input file path in the args

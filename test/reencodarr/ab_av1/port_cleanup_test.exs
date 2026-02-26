@@ -90,12 +90,11 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
         subscriber: nil
       }
 
-      result =
-        capture_log(fn ->
-          CrfSearcher.handle_call(:kill, {self(), make_ref()}, state)
-        end)
+      {:stop, :normal, :ok, new_state} =
+        CrfSearcher.handle_call(:kill, {self(), make_ref()}, state)
 
-      assert result =~ "kill"
+      assert new_state.os_pid == nil
+      assert new_state.port == :none
       assert :meck.called(System, :cmd, ["kill", ["-TERM", "42000"], :_])
 
       :meck.unload(System)
@@ -142,12 +141,11 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
         subscriber: nil
       }
 
-      result =
-        capture_log(fn ->
-          Encoder.handle_call(:kill, {self(), make_ref()}, state)
-        end)
+      {:stop, :normal, :ok, new_state} =
+        Encoder.handle_call(:kill, {self(), make_ref()}, state)
 
-      assert result =~ "kill"
+      assert new_state.os_pid == nil
+      assert new_state.port == :none
       assert :meck.called(System, :cmd, ["kill", ["-TERM", "42000"], :_])
 
       :meck.unload(System)
