@@ -21,7 +21,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
       line = sample_vmaf_line(crf: 28, score: 91.33)
 
       assert_database_state(Vmaf, 1, fn ->
-        CrfSearch.process_line(line, video, [])
+        CrfSearch.process_line(line, video, [], 95)
       end)
 
       vmaf = Repo.one(Vmaf)
@@ -35,7 +35,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
 
       log =
         capture_log(fn ->
-          CrfSearch.process_line(line, video, [])
+          CrfSearch.process_line(line, video, [], 95)
         end)
 
       assert log =~ "No match for line"
@@ -45,7 +45,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
     test "processes VMAF line with size and time information", %{video: video} do
       line = "crf 28 VMAF 91.33 predicted video stream size 800 MB (85%) taking 120 seconds"
 
-      CrfSearch.process_line(line, video, ["--preset", "medium"])
+      CrfSearch.process_line(line, video, ["--preset", "medium"], 95)
 
       vmaf = Repo.one(Vmaf)
       assert vmaf.video_id == video.id
@@ -61,7 +61,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
       line =
         "[2024-12-12T00:13:08Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 28 VMAF 91.33 (85%)"
 
-      CrfSearch.process_line(line, video, ["--preset", "medium"])
+      CrfSearch.process_line(line, video, ["--preset", "medium"], 95)
 
       vmaf = Repo.one(Vmaf)
       assert vmaf.video_id == video.id
@@ -77,7 +77,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
       # This should not create a VMAF record, just process the line
       log =
         capture_log(fn ->
-          CrfSearch.process_line(line, video, [])
+          CrfSearch.process_line(line, video, [], 95)
         end)
 
       assert Repo.aggregate(Vmaf, :count, :id) == 0
@@ -92,7 +92,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
 
       log =
         capture_log(fn ->
-          CrfSearch.process_line(line, video, [])
+          CrfSearch.process_line(line, video, [], 95)
         end)
 
       assert Repo.aggregate(Vmaf, :count, :id) == 0
@@ -112,7 +112,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
 
       line = "crf 28 successful"
 
-      CrfSearch.process_line(line, video, [])
+      CrfSearch.process_line(line, video, [], 95)
 
       # Should mark the VMAF as chosen
       vmaf = Repo.one(Vmaf)

@@ -97,7 +97,7 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
 
     test "first attempt uses narrowed range from siblings", %{video: video} do
       # Verify hints return a narrowed range
-      {min_crf, max_crf} = CrfSearchHints.crf_range(video)
+      {min_crf, max_crf} = CrfSearchHints.crf_range(video, 95)
       assert CrfSearchHints.narrowed_range?({min_crf, max_crf})
 
       # Build args with the hint
@@ -112,7 +112,7 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
 
     test "retry uses standard range", %{video: video} do
       # On retry, crf_range should return default
-      {min_crf, max_crf} = CrfSearchHints.crf_range(video, retry: true)
+      {min_crf, max_crf} = CrfSearchHints.crf_range(video, 95, retry: true)
       assert {min_crf, max_crf} == {5, 70}
 
       args = CrfSearch.build_crf_search_args(video, 95, crf_range: {min_crf, max_crf})

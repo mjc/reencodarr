@@ -80,7 +80,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       # Process all VMAF lines
       Enum.each(vmaf_lines, fn line ->
-        CrfSearch.process_line(line, video, ["--preset", "medium"])
+        CrfSearch.process_line(line, video, ["--preset", "medium"], 95)
       end)
 
       # Verify VMAF records were created
@@ -92,7 +92,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
       assert crf_values == [26.0, 28.0, 30.0]
 
       # Simulate success line to mark one as chosen
-      CrfSearch.process_line("crf 28 successful", video, [])
+      CrfSearch.process_line("crf 28 successful", video, [], 95)
 
       # Verify the correct VMAF was marked as chosen
       chosen_vmaf = Repo.get_by(Vmaf, video_id: video.id, chosen: true)
@@ -107,7 +107,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       log =
         capture_log(fn ->
-          CrfSearch.process_line(large_size_line, video, [])
+          CrfSearch.process_line(large_size_line, video, [], 95)
         end)
 
       # Should create the VMAF record but log a warning
@@ -136,7 +136,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
       log =
         capture_log(fn ->
           Enum.each(malformed_lines, fn line ->
-            CrfSearch.process_line(line, video, [])
+            CrfSearch.process_line(line, video, [], 95)
           end)
         end)
 
@@ -163,7 +163,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
         _log =
           capture_log(fn ->
             Enum.each(lines, fn line ->
-              CrfSearch.process_line(line, video, ["--preset", "medium"])
+              CrfSearch.process_line(line, video, ["--preset", "medium"], 95)
             end)
           end)
 

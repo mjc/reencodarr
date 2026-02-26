@@ -15,6 +15,7 @@ defmodule Reencodarr.Media.Vmaf do
     field :time, :integer
     field :params, {:array, :string}
     field :savings, :integer
+    field :target, :integer
 
     belongs_to :video, Reencodarr.Media.Video
 
@@ -27,7 +28,18 @@ defmodule Reencodarr.Media.Vmaf do
   @spec changeset(t(), map()) :: Ecto.Changeset.t()
   def changeset(vmaf \\ %__MODULE__{}, attrs) do
     vmaf
-    |> cast(attrs, [:score, :crf, :percent, :chosen, :size, :time, :params, :video_id, :savings])
+    |> cast(attrs, [
+      :score,
+      :crf,
+      :percent,
+      :chosen,
+      :size,
+      :time,
+      :params,
+      :video_id,
+      :savings,
+      :target
+    ])
     |> validate_required([:score, :crf, :params])
     |> foreign_key_constraint(:video_id, name: "vmafs_video_id_fkey")
   end

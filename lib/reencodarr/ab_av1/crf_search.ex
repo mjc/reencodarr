@@ -162,13 +162,14 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def handle_cast({:crf_search, video, vmaf_percent}, %{current_task: :none} = state) do
-    crf_range = CrfSearchHints.crf_range(video)
+    crf_range = CrfSearchHints.crf_range(video, vmaf_percent)
     start_crf_search(video, vmaf_percent, crf_range, state)
   end
 
   def handle_cast({:crf_search_retry, video, vmaf_percent}, %{current_task: :none} = state) do
     Logger.info("CrfSearch: Retrying with standard range for video #{video.id}")
-    start_crf_search(video, vmaf_percent, {5, 70}, state)
+    crf_range = CrfSearchHints.crf_range(video, vmaf_percent, retry: true)
+    start_crf_search(video, vmaf_percent, crf_range, state)
   end
 
   def handle_cast({:crf_search, video, _vmaf_percent}, state) do
@@ -598,7 +599,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp handle_crf_search_failure(video, target_vmaf, exit_code, command_line, full_output, state) do
-    crf_range = get_in(state, [:current_task, :crf_range]) || {8, 40}
+    crf_range = get_in(state, [:current_task, :crf_range]) || {5, 70}
     output_lines = state.output_buffer
 
     failure_context = %{
@@ -679,16 +680,16 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     perform_crf_search_cleanup(state)
   end
 
-  def process_line(line, video, args, target_vmaf \\ 95) do
+  def process_line(line, video, args, target_vmaf) do
     handlers = [
       &handle_encoding_sample_line/2,
-      fn l, v -> handle_eta_vmaf_line(l, v, args) end,
-      fn l, v -> handle_vmaf_line(l, v, args) end,
+      fn l, v -> handle_eta_vmaf_line(l, v, args, target_vmaf) end,
+      fn l, v -> handle_vmaf_line(l, v, args, target_vmaf) end,
       fn l, _v -> handle_vmaf_comparison_line(l) end,
       &handle_progress_line/2,
       &handle_success_line/2,
       &handle_warning_line/2,
-      fn l, v -> handle_error_line(l, v, target_vmaf) end
+      fn l, v -> handle_error_line(l, v) end
     ]
 
     case Enum.find(handlers, fn handler -> handler.(line, video) end) do
@@ -719,7 +720,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  defp handle_vmaf_line(line, video, args) do
+  defp handle_vmaf_line(line, video, args, target_vmaf) do
     case parse_line_with_types(line) do
       {:ok, %{type: type, data: vmaf_data}}
       when type in [:vmaf_result, :sample_vmaf, :dash_vmaf] ->
@@ -727,7 +728,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           "CrfSearch: CRF: #{vmaf_data.crf}, VMAF: #{vmaf_data.vmaf_score}, Percent: #{vmaf_data.percent}%"
         )
 
-        upsert_vmaf_with_parsed_data(vmaf_data, false, video, args)
+        upsert_vmaf_with_parsed_data(vmaf_data, false, video, args, target_vmaf)
         true
 
       _ ->
@@ -735,7 +736,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  defp handle_eta_vmaf_line(line, video, args) do
+  defp handle_eta_vmaf_line(line, video, args, target_vmaf) do
     case parse_line_with_types(line) do
       {:ok, %{type: :eta_vmaf, data: eta_data}} ->
         Logger.debug(
@@ -753,7 +754,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           )
         end
 
-        upsert_vmaf_with_parsed_data(eta_data, true, video, args)
+        upsert_vmaf_with_parsed_data(eta_data, true, video, args, target_vmaf)
         true
 
       _ ->
@@ -847,7 +848,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @crf_error_line "Error: Failed to find a suitable crf"
 
-  defp handle_error_line(line, video, _target_vmaf) do
+  defp handle_error_line(line, video) do
     if line == @crf_error_line do
       Logger.info("CrfSearch: CRF optimization error detected for video #{video.id}")
       true
@@ -925,7 +926,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     Reencodarr.Rules.build_args(video, :crf_search, [], base_args)
   end
 
-  defp upsert_vmaf_with_parsed_data(vmaf_data, chosen, video, args) do
+  defp upsert_vmaf_with_parsed_data(vmaf_data, chosen, video, args, target_vmaf) do
     vmaf_params = %{
       "crf" => vmaf_data.crf,
       "score" => vmaf_data.vmaf_score,
@@ -963,7 +964,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         "params" => Helper.remove_args(args, ["--min-vmaf", "crf-search"]),
         "size" => size_info,
         "savings" => savings,
-        "target" => 95
+        "target" => target_vmaf
       })
 
     case Media.upsert_vmaf(final_vmaf_data) do
