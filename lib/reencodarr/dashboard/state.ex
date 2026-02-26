@@ -19,6 +19,7 @@ defmodule Reencodarr.Dashboard.State do
   @stats_refresh_interval 60_000
   @queue_refresh_interval 5_000
   @query_timeout 2_000
+  @progress_debounce_ms 500
 
   @default_state %{
     crf_search_video: nil,
@@ -35,7 +36,8 @@ defmodule Reencodarr.Dashboard.State do
     },
     stats: nil,
     queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
-    queue_items: %{analyzer: [], crf_searcher: [], encoder: []}
+    queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
+    progress_debounce_ref: nil
   }
 
   # Client API
@@ -94,7 +96,7 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_call(:get_state, _from, state) do
-    {:reply, state, state}
+    {:reply, Map.delete(state, :progress_debounce_ref), state}
   end
 
   @impl true
@@ -143,9 +145,16 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_info({:crf_search_progress, progress}, state) do
-    state = %{state | crf_progress: progress}
+    # Debounce: cancel any pending flush and schedule a new one
+    if state.progress_debounce_ref, do: Process.cancel_timer(state.progress_debounce_ref)
+    ref = Process.send_after(self(), :flush_progress, @progress_debounce_ms)
+    {:noreply, %{state | crf_progress: progress, progress_debounce_ref: ref}}
+  end
+
+  @impl true
+  def handle_info(:flush_progress, state) do
     broadcast_state(state)
-    {:noreply, state}
+    {:noreply, %{state | progress_debounce_ref: nil}}
   end
 
   @impl true

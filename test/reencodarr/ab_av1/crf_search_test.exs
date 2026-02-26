@@ -296,26 +296,6 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
     end
   end
 
-  describe "progress cache cleanup" do
-    test "perform_crf_search_cleanup erases Process dictionary progress entry" do
-      # The CRF search stores progress throttle data using Process.put/2
-      # with key {:crf_progress, filename}. When a search completes,
-      # perform_crf_search_cleanup/1 calls Process.delete/1 to clean it up.
-      #
-      # We verify the Process dictionary API is used correctly.
-      filename = "video.mkv"
-      cache_key = {:crf_progress, filename}
-
-      # Simulate what update_last_progress/2 does
-      Process.put(cache_key, {System.monotonic_time(:millisecond), %{percent: 50}})
-      assert Process.get(cache_key) != nil
-
-      # Simulate what perform_crf_search_cleanup does
-      Process.delete(cache_key)
-      assert Process.get(cache_key) == nil
-    end
-  end
-
   describe "GenServer hardening" do
     setup do
       # Stop any lingering CrfSearcher port-holder from other tests
