@@ -1051,7 +1051,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         true
 
       {last_percent, new_percent} when is_number(last_percent) and is_number(new_percent) ->
-        abs(new_percent - last_percent) > 50.0
+        abs(new_percent - last_percent) > 5.0
 
       _ ->
         true
