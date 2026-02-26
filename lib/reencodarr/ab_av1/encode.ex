@@ -108,7 +108,7 @@ defmodule Reencodarr.AbAv1.Encode do
   @impl true
   # Clean or supervised shutdown — best-effort: reset video so it can be re-queued
   def terminate(reason, state) when reason in [:normal, :shutdown] do
-    Logger.warning("Encode GenServer terminating: #{inspect(reason)}")
+    Logger.debug("Encode GenServer terminating: #{inspect(reason)}")
     reset_video_if_present(state)
     :ok
   end
