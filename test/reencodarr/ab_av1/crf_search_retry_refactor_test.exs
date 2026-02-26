@@ -49,6 +49,74 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
     end
   end
 
+  describe "current_task stores updated video state" do
+    setup do
+      try do
+        :meck.unload()
+      rescue
+        _ -> :ok
+      end
+
+      on_exit(fn ->
+        try do
+          :meck.unload()
+        rescue
+          _ -> :ok
+        end
+      end)
+
+      {:ok, pid} = CrfSearch.start_link([])
+
+      on_exit(fn ->
+        case GenServer.whereis(CrfSearch) do
+          nil ->
+            :ok
+
+          crf_pid when is_pid(crf_pid) ->
+            if Process.alive?(crf_pid) do
+              try do
+                GenServer.stop(crf_pid, :normal)
+              catch
+                :exit, _ -> :ok
+              end
+            else
+              :ok
+            end
+
+          _ ->
+            :ok
+        end
+      end)
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/tv/Stale State/Season 01/Stale.State.S01E01.mkv",
+          height: 1080,
+          width: 1920,
+          state: :analyzed
+        })
+
+      %{pid: pid, video: video}
+    end
+
+    test "video in current_task has crf_searching state after search starts", %{video: video} do
+      fake_port = Port.open({:spawn, "cat"}, [:binary])
+      :meck.new(Helper, [:passthrough])
+      :meck.expect(Helper, :open_port, fn _args -> {:ok, fake_port} end)
+
+      GenServer.cast(CrfSearch, {:crf_search, video, 95})
+      Process.sleep(100)
+
+      state = :sys.get_state(CrfSearch)
+      assert state.current_task != :none
+      # The stored video should reflect the DB state (crf_searching),
+      # not the stale state from when the Producer dispatched it
+      assert state.current_task.video.state == :crf_searching
+
+      Port.close(fake_port)
+    end
+  end
+
   describe "retry on failure with narrowed range" do
     setup do
       try do
