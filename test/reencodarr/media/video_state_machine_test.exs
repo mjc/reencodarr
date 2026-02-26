@@ -644,6 +644,18 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
   end
 
   describe "mark_as_* functions" do
+    test "mark_as_crf_searching updates and broadcasts" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
+
+      {:ok, updated} = VideoStateMachine.mark_as_crf_searching(video)
+
+      assert updated.state == :crf_searching
+      assert updated.id == video.id
+      assert_received {:video_state_changed, ^updated, :crf_searching}
+    end
+
     test "mark_as_crf_searched updates and broadcasts" do
       {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
       Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true, crf: 25.0})
