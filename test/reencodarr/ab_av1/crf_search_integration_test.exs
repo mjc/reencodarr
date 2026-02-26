@@ -117,6 +117,28 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
       assert vmaf.crf == 20.0
       assert vmaf.size == "15 GB"
     end
+
+    test "eta_vmaf lines do not prematurely transition video to crf_searched", %{video: video} do
+      # Transition video to crf_searching (simulating active search)
+      {:ok, video} = Media.update_video(video, %{state: :crf_searching})
+
+      # Process an eta_vmaf line (has predicted size info)
+      eta_line =
+        "crf 28 VMAF 90.52 predicted video stream size 253.42 MiB (3%) taking 30 minutes"
+
+      capture_log(fn ->
+        CrfSearch.process_line(eta_line, video, [], 95)
+      end)
+
+      # Video should still be in crf_searching — NOT prematurely transitioned
+      reloaded = Repo.get!(Media.Video, video.id)
+      assert reloaded.state == :crf_searching
+
+      # VMAF record should exist but NOT be chosen
+      vmaf = Repo.one(from v in Vmaf, where: v.video_id == ^video.id)
+      assert vmaf.crf == 28.0
+      refute vmaf.chosen
+    end
   end
 
   describe "error scenarios and edge cases" do
