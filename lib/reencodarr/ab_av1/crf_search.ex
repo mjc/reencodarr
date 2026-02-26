@@ -134,7 +134,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @impl true
   def terminate(reason, state) when reason in [:normal, :shutdown] do
-    Logger.warning("CrfSearch GenServer terminating: #{inspect(reason)}")
+    Logger.debug("CrfSearch GenServer terminating: #{inspect(reason)}")
     reset_video_on_terminate(state)
     :ok
   end
