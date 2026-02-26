@@ -16,6 +16,7 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
   import ExUnit.CaptureLog
 
   alias Reencodarr.AbAv1.CrfSearch
+  alias Reencodarr.AbAv1.CrfSearcher
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.Media
   alias Reencodarr.Rules
@@ -34,6 +35,18 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
   end
 
   defp stop_genserver do
+    # Stop the CrfSearcher port-holder first, otherwise the new
+    # CrfSearch GenServer will recover its state via recover_or_init_state/0
+    if searcher_pid = GenServer.whereis(CrfSearcher) do
+      try do
+        GenServer.stop(searcher_pid, :normal, 1000)
+      catch
+        :exit, _ -> :ok
+      end
+
+      Process.sleep(10)
+    end
+
     if pid = GenServer.whereis(CrfSearch) do
       try do
         GenServer.stop(pid, :normal, 1000)

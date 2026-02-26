@@ -12,9 +12,24 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
   import ExUnit.CaptureLog
 
   alias Reencodarr.AbAv1.CrfSearch
+  alias Reencodarr.AbAv1.CrfSearcher
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.CrfSearchHints
   alias Reencodarr.Media
+
+  # Stop lingering CrfSearcher port-holder from previous tests so
+  # recover_or_init_state/0 doesn't inherit stale current_task
+  defp stop_crf_searcher do
+    if pid = GenServer.whereis(CrfSearcher) do
+      try do
+        GenServer.stop(pid, :normal, 1000)
+      catch
+        :exit, _ -> :ok
+      end
+
+      Process.sleep(10)
+    end
+  end
 
   describe "build_crf_search_args/3 with CRF range option" do
     test "uses default range when no range option provided" do
@@ -57,7 +72,11 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
         _ -> :ok
       end
 
+      stop_crf_searcher()
+
       on_exit(fn ->
+        stop_crf_searcher()
+
         try do
           :meck.unload()
         rescue
@@ -201,7 +220,11 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
         _ -> :ok
       end
 
+      stop_crf_searcher()
+
       on_exit(fn ->
+        stop_crf_searcher()
+
         try do
           :meck.unload()
         rescue
