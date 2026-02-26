@@ -29,8 +29,7 @@ defmodule Reencodarr.CrfSearcher.Broadway do
     rate_limit_messages: 10,
     rate_limit_interval: 1_000,
     batch_size: 1,
-    batch_timeout: 5_000,
-    crf_quality: 95
+    batch_timeout: 5_000
   ]
 
   @doc """
@@ -41,7 +40,6 @@ defmodule Reencodarr.CrfSearcher.Broadway do
     * `:rate_limit_interval` - Rate limit interval in milliseconds (default: 1000)
     * `:batch_size` - Number of messages per batch (default: 1)
     * `:batch_timeout` - Batch timeout in milliseconds (default: 5000)
-    * `:crf_quality` - CRF quality setting (default: 95)
 
   ## Examples
       iex> Reencodarr.CrfSearcher.Broadway.start_link([])
@@ -80,7 +78,6 @@ defmodule Reencodarr.CrfSearcher.Broadway do
         ]
       ],
       context: %{
-        crf_quality: config[:crf_quality],
         rate_limit_messages: config[:rate_limit_messages],
         rate_limit_interval: config[:rate_limit_interval]
       }
