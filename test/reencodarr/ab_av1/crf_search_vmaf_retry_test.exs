@@ -57,10 +57,10 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
 
       try do
         :meck.unload()
-      catch
-        :exit, _ -> :ok
       rescue
         _ -> :ok
+      catch
+        :exit, _ -> :ok
       end
     end)
   end
@@ -129,7 +129,11 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
             :ok
 
           crf_pid when is_pid(crf_pid) ->
-            if Process.alive?(crf_pid), do: GenServer.stop(crf_pid, :normal), else: :ok
+            try do
+              if Process.alive?(crf_pid), do: GenServer.stop(crf_pid, :normal, 1000), else: :ok
+            catch
+              :exit, _ -> :ok
+            end
 
           _ ->
             :ok

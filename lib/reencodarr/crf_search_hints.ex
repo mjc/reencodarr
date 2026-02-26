@@ -24,16 +24,16 @@ defmodule Reencodarr.CrfSearchHints do
 
   require Logger
 
-  @default_min_crf 8
-  @default_max_crf 40
+  @default_min_crf 5
+  @default_max_crf 70
   @default_range {@default_min_crf, @default_max_crf}
 
   # Margin around sibling CRF range: ±6 covers ~95% of observed variance (2σ where σ ≈ 2.8)
   @margin 6
 
   # Absolute bounds - never go outside these regardless of sibling data
-  @absolute_min_crf 8
-  @absolute_max_crf 55
+  @absolute_min_crf 5
+  @absolute_max_crf 70
 
   @doc """
   Returns a CRF search range for the given video.

@@ -12,7 +12,7 @@ defmodule Reencodarr.CrfSearchHintsTest do
   alias Reencodarr.CrfSearchHints
   alias Reencodarr.Media
 
-  @default_range {8, 40}
+  @default_range {5, 70}
 
   describe "crf_range/2" do
     test "returns default range when no siblings exist" do

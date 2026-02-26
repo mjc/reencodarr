@@ -72,7 +72,7 @@ defmodule Reencodarr.MixProject do
       {:phoenix_live_reload, "~> 1.6.2", only: :dev},
       {:phoenix_live_view, "~> 1.1.18"},
       {:ecto_sqlite3, "~> 0.17"},
-      {:exqlite, "~> 0.35"},
+      {:exqlite, github: "mjc/exqlite", branch: "fix/deadlock-investigation", override: true},
       {:req, "~> 0.5"},
       {:stream_data, "~> 1.2.0", only: :test},
       {:swoosh, "~> 1.22.0"},
