@@ -219,11 +219,11 @@ from v in Vmaf, where: v.video_id == ^id and v.chosen == true
 
 ## Encoding Rules
 
-VMAF target is size-based:
-- `>80 GiB` → 92 VMAF
-- `>60 GiB` → 93 VMAF
-- `>40 GiB` → 94 VMAF
-- `≤40 GiB` → 95 VMAF
+VMAF target is size-based (see `Rules.vmaf_target/1`):
+- `>60 GiB` → 91 VMAF
+- `>40 GiB` → 92 VMAF
+- `>25 GiB` → 94 VMAF
+- `≤25 GiB` → 95 VMAF
 
 Args are built by `Rules.build_args(video, context)`:
 - **HDR Rule**: `--pix-format yuv420p10le` for HDR content
