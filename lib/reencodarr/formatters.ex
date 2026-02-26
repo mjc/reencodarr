@@ -79,10 +79,10 @@ defmodule Reencodarr.Formatters do
   def get_unit_multiplier(unit) do
     case String.downcase(unit) do
       "b" -> {:ok, 1}
-      "kb" -> {:ok, 1024}
-      "mb" -> {:ok, 1024 * 1024}
-      "gb" -> {:ok, 1024 * 1024 * 1024}
-      "tb" -> {:ok, 1024 * 1024 * 1024 * 1024}
+      u when u in ["kb", "kib"] -> {:ok, 1024}
+      u when u in ["mb", "mib"] -> {:ok, 1024 * 1024}
+      u when u in ["gb", "gib"] -> {:ok, 1024 * 1024 * 1024}
+      u when u in ["tb", "tib"] -> {:ok, 1024 * 1024 * 1024 * 1024}
       _ -> {:error, :unknown_unit}
     end
   end
