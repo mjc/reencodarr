@@ -314,25 +314,13 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     try do
       if Media.vmaf_records_exist?(video) do
-        case Retry.retry_on_db_busy(fn -> Media.mark_as_crf_searched(video) end) do
-          {:ok, _} ->
-            :ok
-
-          {:error, reason} ->
-            Logger.error("Failed to mark video #{video.id} as crf_searched: #{inspect(reason)}")
-
-            Media.record_video_failure(video, :crf_search, :database_error,
-              code: "state_transition_failed",
-              message: "Failed to mark video as crf_searched: #{inspect(reason)}",
-              context: %{error: inspect(reason), video_id: video.id}
-            )
-        end
+        ensure_chosen_vmaf_and_transition(video)
       else
         Logger.error(
           "CRF search completed for video #{video.id} but no VMAF records were created"
         )
 
-        Media.record_video_failure(video, :crf_search, :validation_error,
+        Media.record_video_failure(video, :crf_search, :validation,
           code: "no_vmaf_results",
           message: "CRF search process completed but produced no VMAF results",
           context: %{
@@ -490,6 +478,37 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   # ---------------------------------------------------------------------------
   # Private Helpers
   # ---------------------------------------------------------------------------
+
+  # Ensures a chosen VMAF exists before transitioning to crf_searched.
+  # If no VMAF is marked chosen (e.g. success line wasn't parsed or
+  # mark_vmaf_as_chosen failed), auto-selects the best candidate.
+  defp ensure_chosen_vmaf_and_transition(video) do
+    if !Media.chosen_vmaf_exists?(video) do
+      Logger.warning("No chosen VMAF for video #{video.id}, auto-selecting best candidate")
+
+      case Media.choose_best_vmaf(video) do
+        {:ok, vmaf} ->
+          Logger.info("Auto-chose VMAF CRF=#{vmaf.crf} score=#{vmaf.score} for video #{video.id}")
+
+        {:error, reason} ->
+          Logger.error("Failed to auto-choose VMAF for video #{video.id}: #{inspect(reason)}")
+      end
+    end
+
+    case Retry.retry_on_db_busy(fn -> Media.mark_as_crf_searched(video) end) do
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.error("Failed to mark video #{video.id} as crf_searched: #{inspect(reason)}")
+
+        Media.record_video_failure(video, :crf_search, :validation,
+          code: "state_transition_failed",
+          message: "Failed to mark video as crf_searched: #{inspect(reason)}",
+          context: %{error: inspect(reason), video_id: video.id}
+        )
+    end
+  end
 
   defp recover_or_init_state do
     if CrfSearcher.running?() do
@@ -798,7 +817,16 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     case parse_line_with_types(line) do
       {:ok, %{type: :success, data: success_data}} ->
         Logger.debug("CrfSearch successful for CRF: #{success_data.crf}")
-        Media.mark_vmaf_as_chosen(video.id, success_data.crf)
+
+        case Media.mark_vmaf_as_chosen(video.id, success_data.crf) do
+          {:ok, _} ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "CrfSearch: mark_vmaf_as_chosen failed for CRF #{success_data.crf} video #{video.id}: #{inspect(reason)}"
+            )
+        end
 
         case get_vmaf_by_crf(video.id, success_data.crf) do
           nil ->

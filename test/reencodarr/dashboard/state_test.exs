@@ -24,23 +24,25 @@ defmodule Reencodarr.Dashboard.StateTest do
     test "returns default state on startup" do
       state = State.get_state()
 
-      assert state == %{
-               crf_search_video: nil,
-               crf_search_results: [],
-               crf_search_sample: nil,
-               crf_progress: :none,
-               encoding_video: nil,
-               encoding_vmaf: nil,
-               encoding_progress: :none,
-               service_status: %{
-                 analyzer: :idle,
-                 crf_searcher: :idle,
-                 encoder: :idle
-               },
-               stats: nil,
-               queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
-               queue_items: %{analyzer: [], crf_searcher: [], encoder: []}
+      assert state.crf_search_video == nil
+      assert state.crf_search_results == []
+      assert state.crf_search_sample == nil
+      assert state.crf_progress == :none
+      assert state.encoding_video == nil
+      assert state.encoding_vmaf == nil
+      assert state.encoding_progress == :none
+
+      assert state.service_status == %{
+               analyzer: :idle,
+               crf_searcher: :idle,
+               encoder: :idle
              }
+
+      # Stats are fetched inline during init, so they're populated (not nil)
+      assert is_map(state.stats)
+      assert state.stats.total_videos == 0
+      assert state.queue_counts == %{analyzer: 0, crf_searcher: 0, encoder: 0}
+      assert state.queue_items == %{analyzer: [], crf_searcher: [], encoder: []}
     end
   end
 

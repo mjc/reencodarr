@@ -20,6 +20,7 @@ defmodule Reencodarr.Media do
   }
 
   alias Reencodarr.Repo
+  alias Reencodarr.Rules
   require Logger
 
   @moduledoc "Handles media-related operations and database interactions."
@@ -866,6 +867,49 @@ defmodule Reencodarr.Media do
     end)
   end
 
+  @doc """
+  Auto-chooses the best VMAF for a video when no success line was parsed.
+
+  Selects the VMAF with the highest score that meets the video's VMAF target,
+  preferring smaller file sizes (lower percent) among qualifying results.
+  Falls back to the highest-scoring VMAF if none meet the target.
+
+  Returns `{:ok, vmaf}` or `{:error, :no_vmafs}`.
+  """
+  def choose_best_vmaf(%Video{id: video_id} = video) do
+    target = Rules.vmaf_target(video)
+
+    # Prefer: meets target, lowest percent (smallest file), then highest score
+    best =
+      Repo.one(
+        from v in Vmaf,
+          where: v.video_id == ^video_id and v.score >= ^target,
+          order_by: [asc: v.percent, desc: v.score],
+          limit: 1
+      )
+
+    # Fallback: highest score regardless of target
+    best =
+      best ||
+        Repo.one(
+          from v in Vmaf,
+            where: v.video_id == ^video_id,
+            order_by: [desc: v.score],
+            limit: 1
+        )
+
+    case best do
+      nil ->
+        {:error, :no_vmafs}
+
+      %Vmaf{crf: crf} ->
+        case do_mark_vmaf_as_chosen(video_id, crf) do
+          {:ok, _} -> {:ok, best}
+          error -> error
+        end
+    end
+  end
+
   defp parse_crf(crf) when is_number(crf), do: {:ok, crf}
 
   defp parse_crf(crf) when is_binary(crf) do
@@ -1077,7 +1121,8 @@ defmodule Reencodarr.Media do
     }
   end
 
-  defp get_default_stats do
+  @doc "Returns default (zeroed) dashboard stats map."
+  def get_default_stats do
     Map.merge(get_default_video_stats(), get_default_vmaf_stats())
   end
 

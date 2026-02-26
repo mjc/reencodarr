@@ -41,7 +41,7 @@ defmodule ReencodarrWeb.DashboardLive do
         sync_progress: 0,
         service_type: nil,
         # New dashboard stats
-        stats: nil,
+        stats: Reencodarr.Media.get_default_stats(),
         # CRF Search active work
         crf_search_video: nil,
         crf_search_results: [],
