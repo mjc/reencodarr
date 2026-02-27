@@ -727,6 +727,46 @@ defmodule Reencodarr.Dashboard.StateTest do
     end
   end
 
+  describe "periodic stats refresh" do
+    test "handle_continue broadcasts initial state to subscribers" do
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
+
+      # Drain any broadcasts from the setup-started GenServer's handle_continue
+      receive do
+        {:dashboard_state_changed, _} -> :ok
+      after
+        500 -> flunk("handle_continue should broadcast initial state but didn't")
+      end
+    end
+
+    test "refresh_stats updates queue_counts from DB" do
+      insert_video()
+
+      send(Process.whereis(State), :refresh_stats)
+      :timer.sleep(50)
+
+      state = State.get_state()
+      assert state.queue_counts.crf_searcher == 1
+    end
+
+    test "refresh_stats broadcasts updated state" do
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
+
+      # Drain any existing broadcasts from startup
+      receive do
+        {:dashboard_state_changed, _} -> :ok
+      after
+        500 -> :ok
+      end
+
+      insert_video()
+      send(Process.whereis(State), :refresh_stats)
+
+      assert_receive {:dashboard_state_changed, state}, 1_000
+      assert state.queue_counts.crf_searcher == 1
+    end
+  end
+
   # Test helpers
   defp insert_video do
     %Video{}
