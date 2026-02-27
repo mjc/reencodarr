@@ -92,7 +92,11 @@ defmodule Reencodarr.Dashboard.State do
       send(self(), :refresh_queues)
     end
 
-    {:noreply, %{state | stats: stats, queue_counts: queue_counts}}
+    state = %{state | stats: stats, queue_counts: queue_counts}
+    broadcast_state(state)
+    Process.send_after(self(), :refresh_stats, @stats_refresh_interval)
+
+    {:noreply, state}
   end
 
   @impl true

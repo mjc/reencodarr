@@ -592,6 +592,14 @@ defmodule Reencodarr.Dashboard.StateTest do
   describe "state change broadcasting" do
     setup do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
+
+      # Drain the initial broadcast from handle_continue
+      receive do
+        {:dashboard_state_changed, _} -> :ok
+      after
+        500 -> :ok
+      end
+
       :ok
     end
 
