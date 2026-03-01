@@ -10,7 +10,6 @@ defmodule Reencodarr.Media.Vmaf do
     field :crf, :float
     field :score, :float
     field :percent, :float
-    field :chosen, :boolean, default: false
     field :size, :string
     field :time, :integer
     field :params, {:array, :string}
@@ -32,7 +31,6 @@ defmodule Reencodarr.Media.Vmaf do
       :score,
       :crf,
       :percent,
-      :chosen,
       :size,
       :time,
       :params,
