@@ -55,8 +55,10 @@ defmodule Reencodarr.Media.ChooseBestVmafTest do
       {:ok, _} = Media.choose_best_vmaf(video)
 
       # Verify via direct query
+      updated_video = Media.get_video(video.id)
+      assert updated_video.chosen_vmaf_id != nil
       vmafs = Media.get_vmafs_for_video(video.id)
-      chosen = Enum.find(vmafs, & &1.chosen)
+      chosen = Enum.find(vmafs, &(&1.id == updated_video.chosen_vmaf_id))
       assert chosen != nil
       assert chosen.crf == 23.0
     end

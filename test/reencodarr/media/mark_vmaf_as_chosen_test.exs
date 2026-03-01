@@ -29,7 +29,6 @@ defmodule Reencodarr.Media.MarkVmafAsChosenTest do
         "score" => "95.0",
         "percent" => "50.0",
         "params" => ["--preset", "4"],
-        "chosen" => false,
         "target" => 95
       })
 
@@ -40,8 +39,9 @@ defmodule Reencodarr.Media.MarkVmafAsChosenTest do
     test "returns :ok when CRF matches an existing VMAF", %{video: video} do
       assert {:ok, _} = Media.mark_vmaf_as_chosen(video.id, "23.0")
 
+      updated_video = Media.get_video(video.id)
       [vmaf] = Media.get_vmafs_for_video(video.id)
-      assert vmaf.chosen == true
+      assert updated_video.chosen_vmaf_id == vmaf.id
     end
 
     test "returns error when CRF does not match any VMAF", %{video: video} do
@@ -49,9 +49,9 @@ defmodule Reencodarr.Media.MarkVmafAsChosenTest do
 
       assert {:error, :no_vmaf_matched} = result
 
-      # Original VMAF should remain unchosen
-      [vmaf] = Media.get_vmafs_for_video(video.id)
-      assert vmaf.chosen == false
+      # Video should have no chosen VMAF
+      updated_video = Media.get_video(video.id)
+      assert is_nil(updated_video.chosen_vmaf_id)
     end
 
     test "returns error for invalid CRF string", %{video: video} do

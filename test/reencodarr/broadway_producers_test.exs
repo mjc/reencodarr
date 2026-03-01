@@ -89,7 +89,8 @@ defmodule Reencodarr.BroadwayProducersTest do
   describe "Encoder Producer" do
     test "handle_demand returns list" do
       {:ok, video} = video_fixture(%{state: :crf_searched})
-      _vmaf = vmaf_fixture(%{video_id: video.id, chosen: true})
+      vmaf = vmaf_fixture(%{video_id: video.id})
+      Fixtures.choose_vmaf(video, vmaf)
 
       state = init_state(EncoderProducer)
       {:noreply, vmafs, _new_state} = EncoderProducer.handle_demand(1, state)
@@ -99,7 +100,8 @@ defmodule Reencodarr.BroadwayProducersTest do
 
     test "poll returns list when called" do
       {:ok, video} = video_fixture(%{state: :crf_searched})
-      _vmaf = vmaf_fixture(%{video_id: video.id, chosen: true})
+      vmaf = vmaf_fixture(%{video_id: video.id})
+      Fixtures.choose_vmaf(video, vmaf)
 
       state = init_state(EncoderProducer)
       {:noreply, vmafs, _new_state} = EncoderProducer.handle_info(:poll, state)

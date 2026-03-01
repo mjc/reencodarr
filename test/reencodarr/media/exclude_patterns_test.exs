@@ -172,13 +172,14 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       {:ok, video2} = video_fixture(%{path: "/media/video2.mkv"})
       {:ok, video3} = video_fixture(%{path: "/media/video3.mkv"})
 
-      # Video1: has unchosen VMAFs only
-      _vmaf1 = vmaf_fixture(%{video_id: video1.id, chosen: false, crf: 25.0})
-      _vmaf2 = vmaf_fixture(%{video_id: video1.id, chosen: false, crf: 26.0})
+      # Video1: has VMAFs but none chosen
+      _vmaf1 = vmaf_fixture(%{video_id: video1.id, crf: 25.0})
+      _vmaf2 = vmaf_fixture(%{video_id: video1.id, crf: 26.0})
 
       # Video2: has chosen VMAF
-      _vmaf3 = vmaf_fixture(%{video_id: video2.id, chosen: true, crf: 25.0})
-      _vmaf4 = vmaf_fixture(%{video_id: video2.id, chosen: false, crf: 26.0})
+      vmaf3 = vmaf_fixture(%{video_id: video2.id, crf: 25.0})
+      choose_vmaf(video2, vmaf3)
+      _vmaf4 = vmaf_fixture(%{video_id: video2.id, crf: 26.0})
 
       # Video3: has no VMAFs at all (should not be in results)
 
@@ -195,10 +196,10 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
     test "handles video with multiple unchosen VMAFs" do
       {:ok, video} = video_fixture(%{path: "/media/test.mkv"})
 
-      # Add multiple unchosen VMAFs
-      _vmaf1 = vmaf_fixture(%{video_id: video.id, chosen: false, crf: 20.0})
-      _vmaf2 = vmaf_fixture(%{video_id: video.id, chosen: false, crf: 25.0})
-      _vmaf3 = vmaf_fixture(%{video_id: video.id, chosen: false, crf: 30.0})
+      # Add multiple VMAFs with none chosen
+      _vmaf1 = vmaf_fixture(%{video_id: video.id, crf: 20.0})
+      _vmaf2 = vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      _vmaf3 = vmaf_fixture(%{video_id: video.id, crf: 30.0})
 
       query = SharedQueries.videos_with_no_chosen_vmafs_query()
       video_ids = Repo.all(query)
@@ -210,10 +211,11 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
     test "excludes videos with at least one chosen VMAF" do
       {:ok, video} = video_fixture(%{path: "/media/test.mkv"})
 
-      # Mix of chosen and unchosen
-      _vmaf1 = vmaf_fixture(%{video_id: video.id, chosen: false, crf: 20.0})
-      _vmaf2 = vmaf_fixture(%{video_id: video.id, chosen: true, crf: 25.0})
-      _vmaf3 = vmaf_fixture(%{video_id: video.id, chosen: false, crf: 30.0})
+      # One chosen, others not
+      _vmaf1 = vmaf_fixture(%{video_id: video.id, crf: 20.0})
+      vmaf2 = vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      choose_vmaf(video, vmaf2)
+      _vmaf3 = vmaf_fixture(%{video_id: video.id, crf: 30.0})
 
       query = SharedQueries.videos_with_no_chosen_vmafs_query()
       video_ids = Repo.all(query)
@@ -226,8 +228,10 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       {:ok, video1} = video_fixture(%{path: "/media/video1.mkv"})
       {:ok, video2} = video_fixture(%{path: "/media/video2.mkv"})
 
-      _vmaf1 = vmaf_fixture(%{video_id: video1.id, chosen: true, crf: 25.0})
-      _vmaf2 = vmaf_fixture(%{video_id: video2.id, chosen: true, crf: 26.0})
+      vmaf1 = vmaf_fixture(%{video_id: video1.id, crf: 25.0})
+      choose_vmaf(video1, vmaf1)
+      vmaf2 = vmaf_fixture(%{video_id: video2.id, crf: 26.0})
+      choose_vmaf(video2, vmaf2)
 
       query = SharedQueries.videos_with_no_chosen_vmafs_query()
       video_ids = Repo.all(query)
@@ -311,9 +315,10 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       {:ok, video1} = video_fixture(%{path: "/v1.mkv", state: :crf_searched})
       {:ok, video2} = video_fixture(%{path: "/v2.mkv", state: :crf_searched})
 
-      _vmaf1 = vmaf_fixture(%{video_id: video1.id, chosen: true, crf: 25.0})
-      _vmaf2 = vmaf_fixture(%{video_id: video1.id, chosen: false, crf: 26.0})
-      _vmaf3 = vmaf_fixture(%{video_id: video2.id, chosen: false, crf: 25.0})
+      vmaf1 = vmaf_fixture(%{video_id: video1.id, crf: 25.0})
+      choose_vmaf(video1, vmaf1)
+      _vmaf2 = vmaf_fixture(%{video_id: video1.id, crf: 26.0})
+      _vmaf3 = vmaf_fixture(%{video_id: video2.id, crf: 25.0})
 
       stats = Repo.one(SharedQueries.vmaf_stats_query())
 
@@ -325,12 +330,14 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       {:ok, video} = video_fixture(%{path: "/v1.mkv", state: :crf_searched})
 
       # Chosen: 2GB savings
-      _vmaf1 =
-        vmaf_fixture(%{video_id: video.id, chosen: true, crf: 25.0, savings: 2_147_483_648})
+      vmaf1 =
+        vmaf_fixture(%{video_id: video.id, crf: 25.0, savings: 2_147_483_648})
+
+      choose_vmaf(video, vmaf1)
 
       # Unchosen: should not count
       _vmaf2 =
-        vmaf_fixture(%{video_id: video.id, chosen: false, crf: 26.0, savings: 1_073_741_824})
+        vmaf_fixture(%{video_id: video.id, crf: 26.0, savings: 1_073_741_824})
 
       stats = Repo.one(SharedQueries.vmaf_stats_query())
 
@@ -352,8 +359,10 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
         {:ok, _v1} = video_fixture(%{path: "/v1.mkv", state: :analyzed})
         {:ok, video} = video_fixture(%{path: "/v2.mkv", state: :crf_searched})
 
-        _vmaf =
-          vmaf_fixture(%{video_id: video.id, chosen: true, crf: 25.0, savings: 1_073_741_824})
+        vmaf =
+          vmaf_fixture(%{video_id: video.id, crf: 25.0, savings: 1_073_741_824})
+
+        choose_vmaf(video, vmaf)
 
         stats = Reencodarr.Media.get_dashboard_stats()
 

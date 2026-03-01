@@ -602,14 +602,15 @@ defmodule Reencodarr.MediaTest do
 
     test "chosen_vmaf_exists?/1 returns true when chosen VMAF exists" do
       {:ok, video} = Fixtures.video_fixture()
-      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: true})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
 
       assert Media.chosen_vmaf_exists?(video) == true
     end
 
     test "chosen_vmaf_exists?/1 returns false when no chosen VMAF" do
       {:ok, video} = Fixtures.video_fixture()
-      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: false})
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
 
       assert Media.chosen_vmaf_exists?(video) == false
     end
@@ -623,9 +624,11 @@ defmodule Reencodarr.MediaTest do
       {:ok, video2} =
         Fixtures.video_fixture(%{path: "/#{test_name}/v2.mkv", state: :crf_searched})
 
-      chosen1 = Fixtures.vmaf_fixture(%{video_id: video1.id, crf: 25.0, chosen: true})
-      _unchosen = Fixtures.vmaf_fixture(%{video_id: video1.id, crf: 30.0, chosen: false})
-      chosen2 = Fixtures.vmaf_fixture(%{video_id: video2.id, crf: 28.0, chosen: true})
+      chosen1 = Fixtures.vmaf_fixture(%{video_id: video1.id, crf: 25.0})
+      Fixtures.choose_vmaf(video1, chosen1)
+      _unchosen = Fixtures.vmaf_fixture(%{video_id: video1.id, crf: 30.0})
+      chosen2 = Fixtures.vmaf_fixture(%{video_id: video2.id, crf: 28.0})
+      Fixtures.choose_vmaf(video2, chosen2)
 
       chosen_vmafs = Media.list_chosen_vmafs()
 
@@ -637,48 +640,45 @@ defmodule Reencodarr.MediaTest do
 
     test "get_chosen_vmaf_for_video/1 returns chosen VMAF" do
       {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
-      chosen = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: true})
-      _unchosen = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, chosen: false})
+      chosen = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, chosen)
+      _unchosen = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0})
 
       result = Media.get_chosen_vmaf_for_video(video)
 
       assert result.id == chosen.id
-      assert result.chosen == true
     end
 
     test "get_chosen_vmaf_for_video/1 returns nil when no chosen VMAF" do
       {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
-      _unchosen = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, chosen: false})
+      _unchosen = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0})
 
       assert Media.get_chosen_vmaf_for_video(video) == nil
     end
 
-    test "mark_vmaf_as_chosen/2 marks VMAF as chosen and unmarks others" do
+    test "mark_vmaf_as_chosen/2 sets chosen_vmaf_id on video" do
       {:ok, video} = Fixtures.video_fixture()
-      vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: false})
-      vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, chosen: false})
+      vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      _vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0})
 
       {:ok, _} = Media.mark_vmaf_as_chosen(video.id, 25.0)
 
-      # Verify the correct VMAF was marked as chosen
-      updated_vmaf1 = Repo.get!(Reencodarr.Media.Vmaf, vmaf1.id)
-      assert updated_vmaf1.chosen == true
-
-      # Verify the other VMAF for THIS video is not chosen
-      updated_vmaf2 = Repo.get!(Reencodarr.Media.Vmaf, vmaf2.id)
-      assert updated_vmaf2.chosen == false
+      # Verify the video's chosen_vmaf_id points to vmaf1
+      updated_video = Repo.get!(Reencodarr.Media.Video, video.id)
+      assert updated_video.chosen_vmaf_id == vmaf1.id
     end
 
-    test "delete_unchosen_vmafs/0 deletes VMAFs without chosen=true" do
+    test "delete_unchosen_vmafs/0 deletes VMAFs for videos without chosen_vmaf_id" do
       # Video with chosen VMAF - should keep all VMAFs
       {:ok, video_with_chosen} = Fixtures.video_fixture()
-      chosen = Fixtures.vmaf_fixture(%{video_id: video_with_chosen.id, crf: 25.0, chosen: true})
-      keep1 = Fixtures.vmaf_fixture(%{video_id: video_with_chosen.id, crf: 28.0, chosen: false})
+      chosen = Fixtures.vmaf_fixture(%{video_id: video_with_chosen.id, crf: 25.0})
+      Fixtures.choose_vmaf(video_with_chosen, chosen)
+      keep1 = Fixtures.vmaf_fixture(%{video_id: video_with_chosen.id, crf: 28.0})
 
       # Video with NO chosen VMAFs - should delete all VMAFs
       {:ok, video_no_chosen} = Fixtures.video_fixture()
-      delete1 = Fixtures.vmaf_fixture(%{video_id: video_no_chosen.id, crf: 30.0, chosen: false})
-      delete2 = Fixtures.vmaf_fixture(%{video_id: video_no_chosen.id, crf: 32.0, chosen: false})
+      delete1 = Fixtures.vmaf_fixture(%{video_id: video_no_chosen.id, crf: 30.0})
+      delete2 = Fixtures.vmaf_fixture(%{video_id: video_no_chosen.id, crf: 32.0})
 
       # Store IDs before deletion
       chosen_id = chosen.id
@@ -703,7 +703,8 @@ defmodule Reencodarr.MediaTest do
     test "delete_unchosen_vmafs/0 handles empty case" do
       # Create video with chosen VMAF
       {:ok, video} = Fixtures.video_fixture()
-      _chosen = Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+      Fixtures.choose_vmaf(video, vmaf)
 
       {:ok, {deleted_count, _}} = Media.delete_unchosen_vmafs()
 
@@ -777,7 +778,7 @@ defmodule Reencodarr.MediaTest do
       {:ok, video} = Fixtures.video_fixture()
       {:ok, analyzed} = Media.mark_as_analyzed(video)
       vmaf = Fixtures.optimal_vmaf_fixture(analyzed, 95.0)
-      {:ok, _chosen_vmaf} = Media.update_vmaf(vmaf, %{chosen: true})
+      Fixtures.choose_vmaf(analyzed, vmaf)
       # Mark video as crf_searched (required for encoding queue)
       {:ok, _} = Media.mark_as_crf_searched(analyzed)
 
@@ -815,7 +816,8 @@ defmodule Reencodarr.MediaTest do
       {:ok, video} = Fixtures.video_fixture()
       {:ok, analyzed} = Media.mark_as_analyzed(video)
       # Insert a chosen VMAF so crf_searched and encoding transitions are valid
-      Fixtures.vmaf_fixture(%{video_id: analyzed.id, chosen: true, crf: 25.0})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: analyzed.id, crf: 25.0})
+      Fixtures.choose_vmaf(analyzed, vmaf)
       {:ok, crf_searched} = Media.mark_as_crf_searched(analyzed)
       # Need to transition through encoding state first
       {:ok, encoding} = Media.update_video(crf_searched, %{state: :encoding})
@@ -988,7 +990,8 @@ defmodule Reencodarr.MediaTest do
 
     test "list_videos_by_estimated_percent/1 returns ready for encoding" do
       {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
-      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+      Fixtures.choose_vmaf(video, vmaf)
 
       vmafs = Media.list_videos_by_estimated_percent(10)
 
@@ -998,18 +1001,20 @@ defmodule Reencodarr.MediaTest do
 
     test "get_next_for_encoding_by_time/0 returns chosen VMAFs ordered by time" do
       {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
-      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true, time: 100})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, time: 100})
+      Fixtures.choose_vmaf(video, vmaf)
 
       result = Media.get_next_for_encoding_by_time()
 
       assert is_list(result)
-      if not Enum.empty?(result), do: assert(hd(result).chosen == true)
+      assert not Enum.empty?(result)
     end
 
     test "debug_encoding_queue_by_library/1 returns queue debug info" do
       library = Fixtures.library_fixture()
       {:ok, video} = Fixtures.video_fixture(%{library_id: library.id, state: :crf_searched})
-      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+      Fixtures.choose_vmaf(video, vmaf)
 
       results = Media.debug_encoding_queue_by_library(10)
 
@@ -1045,13 +1050,11 @@ defmodule Reencodarr.MediaTest do
           video_id: video.id,
           crf: 25.0,
           score: 95.5,
-          chosen: false,
           params: ["--preset", "medium"]
         })
 
       assert vmaf.crf == 25.0
       assert vmaf.score == 95.5
-      assert vmaf.chosen == false
       assert vmaf.params == ["--preset", "medium"]
     end
 
@@ -1122,11 +1125,11 @@ defmodule Reencodarr.MediaTest do
 
     test "update_vmaf/2 updates VMAF attributes" do
       {:ok, video} = Fixtures.video_fixture()
-      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, chosen: false})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
 
-      {:ok, updated} = Media.update_vmaf(vmaf, %{chosen: true})
+      {:ok, updated} = Media.update_vmaf(vmaf, %{score: 97.0})
 
-      assert updated.chosen == true
+      assert updated.score == 97.0
     end
   end
 
@@ -1139,8 +1142,7 @@ defmodule Reencodarr.MediaTest do
           "video_id" => video.id,
           "crf" => 25.0,
           "score" => 95.5,
-          "params" => ["--preset", "medium"],
-          "chosen" => false
+          "params" => ["--preset", "medium"]
         })
 
       assert vmaf.crf == 25.0
@@ -1155,8 +1157,7 @@ defmodule Reencodarr.MediaTest do
           "video_id" => video.id,
           "crf" => 25.0,
           "score" => 94.0,
-          "params" => ["--preset", "medium"],
-          "chosen" => false
+          "params" => ["--preset", "medium"]
         })
 
       {:ok, vmaf2} =
@@ -1164,8 +1165,7 @@ defmodule Reencodarr.MediaTest do
           "video_id" => video.id,
           "crf" => 25.0,
           "score" => 95.5,
-          "params" => ["--preset", "medium"],
-          "chosen" => false
+          "params" => ["--preset", "medium"]
         })
 
       assert vmaf1.id == vmaf2.id
@@ -1386,9 +1386,9 @@ defmodule Reencodarr.MediaTest do
       {:ok, video} = Fixtures.video_fixture()
       vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
 
-      changeset = Media.change_vmaf(vmaf, %{chosen: true})
+      changeset = Media.change_vmaf(vmaf, %{score: 97.0})
 
-      assert changeset.changes.chosen == true
+      assert changeset.changes.score == 97.0
     end
   end
 
@@ -1452,7 +1452,8 @@ defmodule Reencodarr.MediaTest do
 
     test "get_next_for_encoding/1 returns videos ready for encoding" do
       {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
-      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+      Fixtures.choose_vmaf(video, vmaf)
 
       results = Media.get_next_for_encoding(5)
 
@@ -1462,7 +1463,8 @@ defmodule Reencodarr.MediaTest do
 
     test "get_next_for_encoding/1 with no limit returns single result" do
       {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
-      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+      Fixtures.choose_vmaf(video, vmaf)
 
       results = Media.get_next_for_encoding()
 
@@ -1483,28 +1485,25 @@ defmodule Reencodarr.MediaTest do
 
     test "mark_vmaf_as_chosen/2 marks specific VMAF as chosen" do
       {:ok, video} = Fixtures.video_fixture()
-      vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 23.0, chosen: false})
-      vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: true})
+      vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 23.0})
+      vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf2)
 
       Media.mark_vmaf_as_chosen(video.id, 23.0)
 
-      # vmaf1 should now be chosen
-      updated_vmaf1 = Repo.get(Reencodarr.Media.Vmaf, vmaf1.id)
-      assert updated_vmaf1.chosen == true
-
-      # vmaf2 should no longer be chosen
-      updated_vmaf2 = Repo.get(Reencodarr.Media.Vmaf, vmaf2.id)
-      assert updated_vmaf2.chosen == false
+      # video should now point to vmaf1
+      updated_video = Repo.get(Reencodarr.Media.Video, video.id)
+      assert updated_video.chosen_vmaf_id == vmaf1.id
     end
 
     test "mark_vmaf_as_chosen/2 with string CRF" do
       {:ok, video} = Fixtures.video_fixture()
-      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 23.0, chosen: false})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 23.0})
 
       Media.mark_vmaf_as_chosen(video.id, "23.0")
 
-      updated_vmaf = Repo.get(Reencodarr.Media.Vmaf, vmaf.id)
-      assert updated_vmaf.chosen == true
+      updated_video = Repo.get(Reencodarr.Media.Video, video.id)
+      assert updated_video.chosen_vmaf_id == vmaf.id
     end
   end
 
@@ -1541,7 +1540,7 @@ defmodule Reencodarr.MediaTest do
       assert vmaf.savings == 2_000_000
     end
 
-    test "upsert_vmaf/1 marks video as crf_searched when VMAF is chosen" do
+    test "upsert_vmaf/1 does not change video state" do
       {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
 
       {:ok, _vmaf} =
@@ -1549,12 +1548,12 @@ defmodule Reencodarr.MediaTest do
           "video_id" => video.id,
           "crf" => "23.0",
           "score" => "95.5",
-          "chosen" => true,
           "params" => ["--preset", "6"]
         })
 
+      # upsert_vmaf never changes video state - state transitions are explicit
       updated_video = Media.get_video(video.id)
-      assert updated_video.state == :crf_searched
+      assert updated_video.state == :analyzed
     end
 
     test "upsert_vmaf/1 handles invalid video_id type" do
@@ -1963,7 +1962,7 @@ defmodule Reencodarr.MediaTest do
 
     test "chosen_vmaf_exists?/1 returns false when only unchosen VMAFs" do
       {:ok, video} = Fixtures.video_fixture()
-      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, chosen: false})
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
 
       assert Media.chosen_vmaf_exists?(video) == false
     end
@@ -2180,22 +2179,24 @@ defmodule Reencodarr.MediaTest do
       {:ok, video2} = Fixtures.video_fixture(%{state: :crf_searched})
 
       # video1 has higher savings
-      _vmaf1 =
+      vmaf1 =
         Fixtures.vmaf_fixture(%{
           video_id: video1.id,
-          chosen: true,
           savings: 5_000_000,
           time: 200
         })
 
+      Fixtures.choose_vmaf(video1, vmaf1)
+
       # video2 has lower savings
-      _vmaf2 =
+      vmaf2 =
         Fixtures.vmaf_fixture(%{
           video_id: video2.id,
-          chosen: true,
           savings: 1_000_000,
           time: 100
         })
+
+      Fixtures.choose_vmaf(video2, vmaf2)
 
       result = Media.get_next_for_encoding_by_time()
 
@@ -2224,14 +2225,15 @@ defmodule Reencodarr.MediaTest do
 
     test "mark_vmaf_as_chosen/2 with non-existent CRF returns error and preserves existing chosen" do
       {:ok, video} = Fixtures.video_fixture()
-      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: true})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
 
-      # Try to mark a CRF that doesn't exist — transaction rolls back
+      # Try to mark a CRF that doesn't exist — should return error
       assert {:error, :no_vmaf_matched} = Media.mark_vmaf_as_chosen(video.id, 99.0)
 
-      # Original VMAF should remain chosen (transaction was rolled back)
-      updated = Repo.get(Reencodarr.Media.Vmaf, vmaf.id)
-      assert updated.chosen == true
+      # Original chosen VMAF should remain (chosen_vmaf_id unchanged)
+      updated_video = Repo.get(Reencodarr.Media.Video, video.id)
+      assert updated_video.chosen_vmaf_id == vmaf.id
     end
 
     test "get_videos_in_library/1 returns only videos from that library" do
@@ -2263,32 +2265,34 @@ defmodule Reencodarr.MediaTest do
 
     test "mark_vmaf_as_chosen/2 accepts string CRF" do
       {:ok, video} = Fixtures.video_fixture()
-      _vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: false})
-      _vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, chosen: false})
+      _vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      _vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0})
 
       # Use string CRF
       {:ok, _result} = Media.mark_vmaf_as_chosen(video.id, "25.0")
 
-      vmafs = Media.get_vmafs_for_video(video.id)
-      chosen = Enum.find(vmafs, & &1.chosen)
-      assert chosen.crf == 25.0
+      updated_video = Repo.get(Reencodarr.Media.Video, video.id)
+      chosen_vmaf = Repo.get(Reencodarr.Media.Vmaf, updated_video.chosen_vmaf_id)
+      assert chosen_vmaf.crf == 25.0
     end
 
     test "mark_vmaf_as_chosen/2 returns error on invalid string CRF" do
       {:ok, video} = Fixtures.video_fixture()
-      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: true})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
 
       # Invalid CRF string should return error, not silently use 0.0
       assert {:error, :invalid_crf} = Media.mark_vmaf_as_chosen(video.id, "invalid")
 
-      # Original chosen VMAF should be preserved (not silently unchosen)
-      updated = Repo.get(Reencodarr.Media.Vmaf, vmaf.id)
-      assert updated.chosen == true
+      # Original chosen VMAF should be preserved (chosen_vmaf_id unchanged)
+      updated_video = Repo.get(Reencodarr.Media.Video, video.id)
+      assert updated_video.chosen_vmaf_id == vmaf.id
     end
 
     test "get_chosen_vmaf_for_video/1 returns nil when video state is not crf_searched" do
       {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
-      _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+      Fixtures.choose_vmaf(video, vmaf)
 
       # Should return nil because video.state != :crf_searched
       assert Media.get_chosen_vmaf_for_video(video) == nil
@@ -2352,8 +2356,8 @@ defmodule Reencodarr.MediaTest do
 
     test "delete_unchosen_vmafs/0 deletes all VMAFs when none are chosen" do
       {:ok, video} = Fixtures.video_fixture()
-      _vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: false})
-      _vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, chosen: false})
+      _vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      _vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0})
 
       {deleted_count, _} = Media.delete_unchosen_vmafs()
 
@@ -2366,8 +2370,9 @@ defmodule Reencodarr.MediaTest do
 
     test "delete_unchosen_vmafs/0 preserves VMAFs when at least one is chosen" do
       {:ok, video} = Fixtures.video_fixture()
-      vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0, chosen: true})
-      vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, chosen: false})
+      vmaf1 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      vmaf2 = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0})
+      Fixtures.choose_vmaf(video, vmaf1)
 
       Media.delete_unchosen_vmafs()
 
@@ -2381,13 +2386,14 @@ defmodule Reencodarr.MediaTest do
     test "delete_unchosen_vmafs/0 handles multiple videos correctly" do
       # Video 1: has chosen VMAF
       {:ok, video1} = Fixtures.video_fixture()
-      vmaf1 = Fixtures.vmaf_fixture(%{video_id: video1.id, crf: 25.0, chosen: true})
-      vmaf2 = Fixtures.vmaf_fixture(%{video_id: video1.id, crf: 30.0, chosen: false})
+      vmaf1 = Fixtures.vmaf_fixture(%{video_id: video1.id, crf: 25.0})
+      vmaf2 = Fixtures.vmaf_fixture(%{video_id: video1.id, crf: 30.0})
+      Fixtures.choose_vmaf(video1, vmaf1)
 
       # Video 2: no chosen VMAFs
       {:ok, video2} = Fixtures.video_fixture()
-      _vmaf3 = Fixtures.vmaf_fixture(%{video_id: video2.id, crf: 25.0, chosen: false})
-      _vmaf4 = Fixtures.vmaf_fixture(%{video_id: video2.id, crf: 30.0, chosen: false})
+      _vmaf3 = Fixtures.vmaf_fixture(%{video_id: video2.id, crf: 25.0})
+      _vmaf4 = Fixtures.vmaf_fixture(%{video_id: video2.id, crf: 30.0})
 
       {deleted_count, _} = Media.delete_unchosen_vmafs()
 
@@ -2415,7 +2421,7 @@ defmodule Reencodarr.MediaTest do
       assert Map.has_key?(result, :vmafs_deleted)
     end
 
-    test "upsert_vmaf/1 handles chosen VMAF updating video state" do
+    test "upsert_vmaf/1 does not change video state from crf_searching" do
       {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
 
       attrs = %{
@@ -2423,18 +2429,17 @@ defmodule Reencodarr.MediaTest do
         "crf" => 25.0,
         "score" => 95.0,
         "percent" => 75.0,
-        "params" => ["--preset", "medium"],
-        "chosen" => true
+        "params" => ["--preset", "medium"]
       }
 
       {:ok, _vmaf} = Media.upsert_vmaf(attrs)
 
-      # Video should now be in crf_searched state
+      # upsert_vmaf never changes video state - state transitions are explicit
       updated = Repo.get(Reencodarr.Media.Video, video.id)
-      assert updated.state == :crf_searched
+      assert updated.state == :crf_searching
     end
 
-    test "upsert_vmaf/1 does not update state when chosen is false" do
+    test "upsert_vmaf/1 does not update state when upserting non-chosen VMAF" do
       {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
 
       attrs = %{
@@ -2442,8 +2447,7 @@ defmodule Reencodarr.MediaTest do
         "crf" => 25.0,
         "score" => 95.0,
         "percent" => 75.0,
-        "params" => ["--preset", "medium"],
-        "chosen" => false
+        "params" => ["--preset", "medium"]
       }
 
       {:ok, _vmaf} = Media.upsert_vmaf(attrs)
@@ -2636,13 +2640,14 @@ defmodule Reencodarr.MediaTest do
         Enum.map(1..5, fn i ->
           {:ok, v} = Fixtures.video_fixture(%{state: :crf_searched})
 
-          Fixtures.vmaf_fixture(%{
-            video_id: v.id,
-            chosen: true,
-            crf: 25.0 + i,
-            savings: 100_000 * i
-          })
+          vmaf =
+            Fixtures.vmaf_fixture(%{
+              video_id: v.id,
+              crf: 25.0 + i,
+              savings: 100_000 * i
+            })
 
+          Fixtures.choose_vmaf(v, vmaf)
           v
         end)
 
@@ -2675,7 +2680,7 @@ defmodule Reencodarr.MediaTest do
     test "get_next_for_encoding_by_time/0 returns empty list when no chosen VMAFs" do
       # Create videos without chosen VMAFs
       {:ok, v1} = Fixtures.video_fixture(%{state: :analyzed})
-      Fixtures.vmaf_fixture(%{video_id: v1.id, chosen: false})
+      Fixtures.vmaf_fixture(%{video_id: v1.id})
 
       result = Media.get_next_for_encoding_by_time()
 
@@ -2684,7 +2689,8 @@ defmodule Reencodarr.MediaTest do
 
     test "get_next_for_encoding_by_time/0 returns video with chosen VMAF" do
       {:ok, v1} = Fixtures.video_fixture(%{state: :crf_searched})
-      vmaf = Fixtures.vmaf_fixture(%{video_id: v1.id, chosen: true})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: v1.id})
+      Fixtures.choose_vmaf(v1, vmaf)
 
       result = Media.get_next_for_encoding_by_time()
 
@@ -2698,12 +2704,16 @@ defmodule Reencodarr.MediaTest do
       {:ok, v3} = Fixtures.video_fixture(%{state: :crf_searched})
 
       # Create VMAFs with different savings (and one with nil)
-      _vmaf1 = Fixtures.vmaf_fixture(%{video_id: v1.id, chosen: true, crf: 25.0, savings: 50_000})
+      vmaf1 = Fixtures.vmaf_fixture(%{video_id: v1.id, crf: 25.0, savings: 50_000})
+      Fixtures.choose_vmaf(v1, vmaf1)
 
-      _vmaf2 =
-        Fixtures.vmaf_fixture(%{video_id: v2.id, chosen: true, crf: 26.0, savings: 100_000})
+      vmaf2 =
+        Fixtures.vmaf_fixture(%{video_id: v2.id, crf: 26.0, savings: 100_000})
 
-      _vmaf3 = Fixtures.vmaf_fixture(%{video_id: v3.id, chosen: true, crf: 27.0, savings: nil})
+      Fixtures.choose_vmaf(v2, vmaf2)
+
+      vmaf3 = Fixtures.vmaf_fixture(%{video_id: v3.id, crf: 27.0, savings: nil})
+      Fixtures.choose_vmaf(v3, vmaf3)
 
       result = Media.get_next_for_encoding_by_time()
 

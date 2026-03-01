@@ -38,18 +38,17 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
       %{video: video, crf_search_lines: crf_search_lines, encoding_lines: encoding_lines}
     end
 
-    test "matches simple VMAF pattern", %{video: video, crf_search_lines: lines} do
-      # Use the first sample VMAF line from fixture
+    test "matches simple VMAF pattern without creating a record", %{
+      video: video,
+      crf_search_lines: lines
+    } do
+      # Per-sample lines are recognized for progress display but not persisted
       line = Enum.find(lines, &String.contains?(&1, "sample 1/5 crf 28 VMAF 91.33"))
 
-      assert Repo.aggregate(Vmaf, :count, :id) == 0
-      CrfSearch.process_line(line, video, [], 95)
-      assert Repo.aggregate(Vmaf, :count, :id) == 1
+      log = capture_log(fn -> CrfSearch.process_line(line, video, [], 95) end)
 
-      vmaf = Repo.one(Vmaf)
-      assert vmaf.crf == 28.0
-      assert vmaf.score == 91.33
-      assert vmaf.percent == 4.0
+      refute log =~ "No match for line"
+      assert Repo.aggregate(Vmaf, :count, :id) == 0
     end
 
     test "matches extended VMAF pattern with file size prediction", %{
@@ -71,16 +70,17 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
       assert vmaf.percent == 3.0
     end
 
-    test "matches simple VMAF without percentage", %{video: video, crf_search_lines: lines} do
-      # Use dash pattern line from fixture
+    test "matches simple VMAF without percentage without creating a record", %{
+      video: video,
+      crf_search_lines: lines
+    } do
+      # Dash-format lines (print_attempt output) are recognized but not persisted
       line = Enum.find(lines, &String.contains?(&1, "- crf 28 VMAF 90.52"))
 
-      CrfSearch.process_line(line, video, [], 95)
+      log = capture_log(fn -> CrfSearch.process_line(line, video, [], 95) end)
 
-      vmaf = Repo.one(Vmaf)
-      assert vmaf.crf == 28.0
-      assert vmaf.score == 90.52
-      assert vmaf.percent == 3.0
+      refute log =~ "No match for line"
+      assert Repo.aggregate(Vmaf, :count, :id) == 0
     end
 
     test "matches success pattern and marks chosen VMAF", %{video: video, crf_search_lines: lines} do
@@ -95,9 +95,10 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
 
       CrfSearch.process_line(success_line, video, [], 95)
 
-      # Should update the VMAF as chosen
+      # Should mark the VMAF as chosen on the video
       vmaf = Repo.one(Vmaf)
-      assert vmaf.chosen == true
+      updated_video = Media.get_video!(video.id)
+      assert updated_video.chosen_vmaf_id == vmaf.id
       assert vmaf.crf == 23.1
     end
 
@@ -137,9 +138,13 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
       refute updated_video.state == :failed
     end
 
-    test "handles decimal CRF values", %{video: video, crf_search_lines: lines} do
-      # Use decimal CRF line from fixture
-      line = Enum.find(lines, &String.contains?(&1, "- crf 17.2 VMAF 97.68"))
+    test "handles decimal CRF values in eta_vmaf lines", %{video: video, crf_search_lines: lines} do
+      # Use the aggregate eta_vmaf line (not the dash print_attempt line)
+      line =
+        Enum.find(
+          lines,
+          &String.contains?(&1, "crf 17.2 VMAF 97.68 predicted video stream size")
+        )
 
       CrfSearch.process_line(line, video, [], 95)
 
@@ -149,15 +154,22 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
       assert vmaf.percent == 9.0
     end
 
-    test "handles high precision VMAF scores", %{video: video, crf_search_lines: lines} do
-      # Use high precision VMAF line from fixture
-      line = Enum.find(lines, &String.contains?(&1, "sample 1/5 crf 28 VMAF 91.33"))
+    test "handles high precision VMAF scores in eta_vmaf lines", %{
+      video: video,
+      crf_search_lines: lines
+    } do
+      # Per-sample lines no longer create records; use aggregate eta_vmaf line
+      line =
+        Enum.find(
+          lines,
+          &String.contains?(&1, "crf 28 VMAF 90.52 predicted video stream size")
+        )
 
       CrfSearch.process_line(line, video, [], 95)
 
       vmaf = Repo.one(Vmaf)
       assert vmaf.crf == 28.0
-      assert vmaf.score == 91.33
+      assert vmaf.score == 90.52
     end
 
     test "ignores non-matching lines", %{video: video} do
@@ -183,24 +195,33 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
       video: video,
       crf_search_lines: lines
     } do
-      # Add VMAF first using dash pattern from fixture
-      line1 = Enum.find(lines, &String.contains?(&1, "- crf 21.2 VMAF 96.23"))
+      # Insert VMAF using the aggregate eta_vmaf line (not the dash print_attempt line)
+      line1 =
+        Enum.find(
+          lines,
+          &String.contains?(&1, "crf 21.2 VMAF 96.23 predicted video stream size")
+        )
+
       CrfSearch.process_line(line1, video, [], 96)
 
-      # Process success with target VMAF from fixture - use matching CRF 21.2
+      # Process success line — should mark the record chosen
       success_line = Enum.find(lines, &String.contains?(&1, "crf 21.2 successful"))
       CrfSearch.process_line(success_line, video, [], 96)
 
       vmaf = Repo.one(Vmaf)
-      assert vmaf.chosen == true
+      updated_video = Media.get_video!(video.id)
+      assert updated_video.chosen_vmaf_id == vmaf.id
     end
 
     test "validates CRF range boundaries", %{video: video, crf_search_lines: lines} do
-      # Use actual lines from fixture with different CRF values
+      # Use eta_vmaf (aggregate) lines from fixture — only these create records
       edge_case_lines = [
-        Enum.find(lines, &String.contains?(&1, "- crf 17.2 VMAF 97.68")),
-        Enum.find(lines, &String.contains?(&1, "- crf 28 VMAF 90.52")),
-        Enum.find(lines, &String.contains?(&1, "- crf 22.7 VMAF 95.41"))
+        Enum.find(
+          lines,
+          &String.contains?(&1, "crf 17.2 VMAF 97.68 predicted video stream size")
+        ),
+        Enum.find(lines, &String.contains?(&1, "crf 28 VMAF 90.52 predicted video stream size")),
+        Enum.find(lines, &String.contains?(&1, "crf 22.7 VMAF 95.41 predicted video stream size"))
       ]
 
       Enum.each(edge_case_lines, fn line ->
@@ -214,69 +235,76 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
       assert Enum.at(vmafs, 2).crf == 28.0
     end
 
-    test "handles VMAF scores at boundaries", %{video: video, crf_search_lines: lines} do
-      # Use different VMAF scores from fixture
+    test "handles VMAF scores at boundaries without creating records", %{
+      video: video,
+      crf_search_lines: lines
+    } do
+      # Per-sample lines are recognized for progress display but not persisted
       boundary_lines = [
         Enum.find(lines, &String.contains?(&1, "sample 4/5 crf 28 VMAF 88.88")),
         Enum.find(lines, &String.contains?(&1, "sample 1/5 crf 17.2 VMAF 98.63")),
         Enum.find(lines, &String.contains?(&1, "sample 1/5 crf 23.1 VMAF 95.94"))
       ]
 
-      Enum.each(boundary_lines, fn line ->
-        CrfSearch.process_line(line, video, [], 95)
-      end)
+      log =
+        capture_log(fn ->
+          Enum.each(boundary_lines, fn line ->
+            CrfSearch.process_line(line, video, [], 95)
+          end)
+        end)
 
-      vmafs = Repo.all(Vmaf) |> Enum.sort_by(& &1.score)
-      assert length(vmafs) == 3
-      assert Enum.at(vmafs, 0).score == 88.88
-      assert Enum.at(vmafs, 1).score == 95.94
-      assert Enum.at(vmafs, 2).score == 98.63
+      refute log =~ "No match for line"
+      assert Repo.aggregate(Vmaf, :count, :id) == 0
     end
 
-    test "handles percentage edge cases", %{video: video, crf_search_lines: lines} do
-      # Use different percentage values from fixture
+    test "handles percentage edge cases without creating records", %{
+      video: video,
+      crf_search_lines: lines
+    } do
+      # Per-sample lines are recognized for progress display but not persisted
       percentage_lines = [
         Enum.find(lines, &String.contains?(&1, "sample 4/5 crf 28 VMAF 88.88 (1%)")),
         Enum.find(lines, &String.contains?(&1, "sample 1/5 crf 17.2 VMAF 98.63 (15%)")),
         Enum.find(lines, &String.contains?(&1, "sample 1/5 crf 23.1 VMAF 95.94 (7%)"))
       ]
 
-      Enum.each(percentage_lines, fn line ->
-        CrfSearch.process_line(line, video, [], 95)
-      end)
+      log =
+        capture_log(fn ->
+          Enum.each(percentage_lines, fn line ->
+            CrfSearch.process_line(line, video, [], 95)
+          end)
+        end)
 
-      vmafs = Repo.all(Vmaf) |> Enum.sort_by(& &1.percent)
-      assert length(vmafs) == 3
-      assert Enum.at(vmafs, 0).percent == 1.0
-      assert Enum.at(vmafs, 1).percent == 7.0
-      assert Enum.at(vmafs, 2).percent == 15.0
+      refute log =~ "No match for line"
+      assert Repo.aggregate(Vmaf, :count, :id) == 0
     end
 
-    test "handles malformed but parseable lines", %{video: video} do
-      # Use a line that matches the simple_vmaf pattern which expects a timestamp
+    test "handles malformed but parseable lines without creating records", %{video: video} do
+      # simple_vmaf lines (even with timestamps) are recognized but not persisted
       slightly_malformed_line = "[2024-12-12T00:13:08Z INFO] crf 22 VMAF 94.50 (75%)"
 
-      CrfSearch.process_line(slightly_malformed_line, video, [], 95)
+      log = capture_log(fn -> CrfSearch.process_line(slightly_malformed_line, video, [], 95) end)
 
-      # Should create one VMAF record
-      vmafs = Repo.all(Vmaf)
-      assert length(vmafs) == 1
-      vmaf = hd(vmafs)
-      assert vmaf.crf == 22.0
-      assert vmaf.score == 94.50
-      assert vmaf.percent == 75.0
+      refute log =~ "No match for line"
+      assert Repo.aggregate(Vmaf, :count, :id) == 0
     end
 
     test "processes multiple VMAF entries for same video", %{
       video: video,
       crf_search_lines: lines
     } do
-      # Use multiple lines from fixture
+      # Use eta_vmaf (aggregate) lines from fixture — only these create records
       vmaf_lines = [
-        Enum.find(lines, &String.contains?(&1, "- crf 28 VMAF 90.52")),
-        Enum.find(lines, &String.contains?(&1, "- crf 17.2 VMAF 97.68")),
-        Enum.find(lines, &String.contains?(&1, "- crf 21.2 VMAF 96.23")),
-        Enum.find(lines, &String.contains?(&1, "- crf 22.7 VMAF 95.41"))
+        Enum.find(lines, &String.contains?(&1, "crf 28 VMAF 90.52 predicted video stream size")),
+        Enum.find(
+          lines,
+          &String.contains?(&1, "crf 17.2 VMAF 97.68 predicted video stream size")
+        ),
+        Enum.find(
+          lines,
+          &String.contains?(&1, "crf 21.2 VMAF 96.23 predicted video stream size")
+        ),
+        Enum.find(lines, &String.contains?(&1, "crf 22.7 VMAF 95.41 predicted video stream size"))
       ]
 
       Enum.each(vmaf_lines, fn line ->

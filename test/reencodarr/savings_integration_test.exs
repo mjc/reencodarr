@@ -38,10 +38,13 @@ defmodule Reencodarr.SavingsIntegrationTest do
           "score" => "95.2",
           # 30% savings = 600MB
           "percent" => "70",
-          "chosen" => true,
           "params" => ["--preset", "medium"],
           "target" => 95
         })
+
+      # Mark this VMAF as chosen and transition video to crf_searched
+      Fixtures.choose_vmaf(video, vmaf)
+      {:ok, _} = Media.mark_as_crf_searched(video)
 
       # Verify savings calculation
       assert vmaf.savings == 600_000_000
@@ -74,20 +77,24 @@ defmodule Reencodarr.SavingsIntegrationTest do
           audio_codecs: ["aac"],
           width: 1920,
           height: 1080,
-          duration: 7200.0
+          duration: 7200.0,
+          state: :analyzed
         })
 
-      {:ok, _vmaf3} =
+      {:ok, vmaf3} =
         Media.upsert_vmaf(%{
           "video_id" => video2.id,
           "crf" => "23.0",
           "score" => "95.8",
           # 20% of original = 80% savings = 2.4GB
           "percent" => "20",
-          "chosen" => true,
           "params" => ["--preset", "slow"],
           "target" => 95
         })
+
+      # Mark chosen and transition to crf_searched
+      Fixtures.choose_vmaf(video2, vmaf3)
+      {:ok, _} = Media.mark_as_crf_searched(video2)
 
       # Now the queue should prioritize video2 (higher savings)
       next_videos_updated = Media.get_next_for_encoding()
@@ -140,10 +147,12 @@ defmodule Reencodarr.SavingsIntegrationTest do
           "score" => "94.0",
           # 40% savings = 40KB
           "percent" => "60",
-          "chosen" => true,
           "params" => ["--preset", "fast"],
           "target" => 95
         })
+
+      Fixtures.choose_vmaf(small_video, small_vmaf)
+      {:ok, _} = Media.mark_as_crf_searched(small_video)
 
       assert small_vmaf.savings == 40_000
 
@@ -173,10 +182,12 @@ defmodule Reencodarr.SavingsIntegrationTest do
           "score" => "98.0",
           # 95% savings = 950MB
           "percent" => "5",
-          "chosen" => true,
           "params" => ["--preset", "slow"],
           "target" => 95
         })
+
+      Fixtures.choose_vmaf(perfect_video, perfect_vmaf)
+      {:ok, _} = Media.mark_as_crf_searched(perfect_video)
 
       assert perfect_vmaf.savings == 950_000_000
 
