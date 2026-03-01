@@ -658,7 +658,8 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
 
     test "mark_as_crf_searched updates and broadcasts" do
       {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
-      Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true, crf: 25.0})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
 
       {:ok, updated} = VideoStateMachine.mark_as_crf_searched(video)
 
@@ -789,7 +790,8 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
 
     test "transition_to_crf_searched" do
       {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
-      Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true, crf: 25.0})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
 
       {:ok, changeset} = VideoStateMachine.transition_to_crf_searched(video)
 

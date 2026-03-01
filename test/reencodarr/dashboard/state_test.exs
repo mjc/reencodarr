@@ -794,17 +794,20 @@ defmodule Reencodarr.Dashboard.StateTest do
   end
 
   defp insert_vmaf(video) do
-    %Vmaf{}
-    |> Vmaf.changeset(%{
-      video_id: video.id,
-      crf: 28,
-      score: 95.0,
-      percent: 94.0,
-      size: "500 MB",
-      time: 3600,
-      params: ["--preset", "4"],
-      chosen: true
-    })
-    |> Repo.insert!()
+    vmaf =
+      %Vmaf{}
+      |> Vmaf.changeset(%{
+        video_id: video.id,
+        crf: 28,
+        score: 95.0,
+        percent: 94.0,
+        size: "500 MB",
+        time: 3600,
+        params: ["--preset", "4"]
+      })
+      |> Repo.insert!()
+
+    Fixtures.choose_vmaf(video, vmaf)
+    vmaf
   end
 end

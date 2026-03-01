@@ -37,9 +37,10 @@ defmodule Reencodarr.RulesIntegrationTest do
           video_id: video.id,
           crf: 28.0,
           score: 95.0,
-          chosen: true,
           params: []
         })
+
+      Fixtures.choose_vmaf(video, vmaf)
 
       vmaf = Repo.preload(vmaf, :video)
       args = Broadway.build_encode_args_for_test(vmaf)
@@ -61,9 +62,10 @@ defmodule Reencodarr.RulesIntegrationTest do
           video_id: video.id,
           crf: 28.0,
           score: 95.0,
-          chosen: true,
           params: []
         })
+
+      Fixtures.choose_vmaf(video, vmaf)
 
       vmaf = Repo.preload(vmaf, :video)
       args = Encode.build_encode_args_for_test(vmaf)

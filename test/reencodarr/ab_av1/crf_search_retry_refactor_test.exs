@@ -172,14 +172,15 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
           state: :crf_searched
         })
 
-      {:ok, _vmaf} =
+      {:ok, sibling_vmaf} =
         Media.create_vmaf(%{
           video_id: sibling.id,
           crf: 20.0,
           score: 95.0,
-          chosen: true,
           params: ["--preset", "4"]
         })
+
+      Fixtures.choose_vmaf(sibling, sibling_vmaf)
 
       %{video: video, sibling: sibling}
     end
@@ -274,14 +275,15 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
           state: :crf_searched
         })
 
-      {:ok, _vmaf} =
+      {:ok, sibling_vmaf} =
         Media.create_vmaf(%{
           video_id: sibling.id,
           crf: 22.0,
           score: 95.0,
-          chosen: true,
           params: ["--preset", "4"]
         })
+
+      Fixtures.choose_vmaf(sibling, sibling_vmaf)
 
       %{pid: pid, video: video, sibling: sibling}
     end

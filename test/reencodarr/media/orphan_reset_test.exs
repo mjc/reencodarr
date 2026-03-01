@@ -60,7 +60,8 @@ defmodule Reencodarr.Media.OrphanResetTest do
           audio_codecs: ["aac"]
         })
 
-      Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true, crf: 25.0})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
 
       assert :ok = Media.reset_orphaned_encoding()
 
@@ -124,7 +125,8 @@ defmodule Reencodarr.Media.OrphanResetTest do
           audio_codecs: ["aac"]
         })
 
-      Fixtures.vmaf_fixture(%{video_id: video.id, chosen: true, crf: 25.0})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
 
       assert :ok = Media.reset_crf_searched_without_vmaf()
 

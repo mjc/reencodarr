@@ -22,7 +22,7 @@ defmodule Reencodarr.MediaSavingsSortTest do
           width: 1920,
           height: 1080,
           duration: 7200.0,
-          state: :analyzed
+          state: :crf_searched
         })
 
       {:ok, video2} =
@@ -39,7 +39,7 @@ defmodule Reencodarr.MediaSavingsSortTest do
           width: 1920,
           height: 1080,
           duration: 7200.0,
-          state: :analyzed
+          state: :crf_searched
         })
 
       {:ok, video3} =
@@ -56,7 +56,7 @@ defmodule Reencodarr.MediaSavingsSortTest do
           width: 1920,
           height: 1080,
           duration: 7200.0,
-          state: :analyzed
+          state: :crf_searched
         })
 
       %{video1: video1, video2: video2, video3: video3}
@@ -75,9 +75,10 @@ defmodule Reencodarr.MediaSavingsSortTest do
           "score" => 95.0,
           # 10% savings = 100MB
           "percent" => "90",
-          "chosen" => true,
           "params" => []
         })
+
+      Fixtures.choose_vmaf(video1, vmaf1)
 
       {:ok, vmaf2} =
         Media.upsert_vmaf(%{
@@ -86,9 +87,10 @@ defmodule Reencodarr.MediaSavingsSortTest do
           "score" => 95.0,
           # 50% savings = 500MB
           "percent" => "50",
-          "chosen" => true,
           "params" => []
         })
+
+      Fixtures.choose_vmaf(video2, vmaf2)
 
       {:ok, vmaf3} =
         Media.upsert_vmaf(%{
@@ -97,9 +99,10 @@ defmodule Reencodarr.MediaSavingsSortTest do
           "score" => 95.0,
           # 30% savings = 300MB
           "percent" => "70",
-          "chosen" => true,
           "params" => []
         })
+
+      Fixtures.choose_vmaf(video3, vmaf3)
 
       # Verify savings were calculated correctly
       # 100MB
@@ -125,27 +128,29 @@ defmodule Reencodarr.MediaSavingsSortTest do
 
     test "get_next_for_encoding returns highest savings first", %{video1: video1, video2: video2} do
       # Create VMAFs with different savings
-      {:ok, _vmaf1} =
+      {:ok, vmaf1} =
         Media.upsert_vmaf(%{
           "video_id" => video1.id,
           "crf" => 25.0,
           "score" => 95.0,
           # 20% savings = 200MB
           "percent" => "80",
-          "chosen" => true,
           "params" => []
         })
 
-      {:ok, _vmaf2} =
+      Fixtures.choose_vmaf(video1, vmaf1)
+
+      {:ok, vmaf2} =
         Media.upsert_vmaf(%{
           "video_id" => video2.id,
           "crf" => 25.0,
           "score" => 95.0,
           # 40% savings = 400MB
           "percent" => "60",
-          "chosen" => true,
           "params" => []
         })
+
+      Fixtures.choose_vmaf(video2, vmaf2)
 
       # Should return video2 with higher savings first
       next_encodings = Media.get_next_for_encoding()
@@ -161,31 +166,33 @@ defmodule Reencodarr.MediaSavingsSortTest do
       video2: video2
     } do
       # Create VMAFs where video1 has shorter time but lower savings
-      {:ok, _vmaf1} =
+      {:ok, vmaf1} =
         Media.upsert_vmaf(%{
           "video_id" => video1.id,
           "crf" => 25.0,
           "score" => 95.0,
           # 15% savings = 150MB
           "percent" => "85",
-          "chosen" => true,
           # Shorter encoding time
           "time" => 100,
           "params" => []
         })
 
-      {:ok, _vmaf2} =
+      Fixtures.choose_vmaf(video1, vmaf1)
+
+      {:ok, vmaf2} =
         Media.upsert_vmaf(%{
           "video_id" => video2.id,
           "crf" => 25.0,
           "score" => 95.0,
           # 60% savings = 600MB
           "percent" => "40",
-          "chosen" => true,
           # Longer encoding time
           "time" => 200,
           "params" => []
         })
+
+      Fixtures.choose_vmaf(video2, vmaf2)
 
       # Should return video2 with higher savings despite longer time
       next_encodings = Media.get_next_for_encoding_by_time()
@@ -198,26 +205,28 @@ defmodule Reencodarr.MediaSavingsSortTest do
 
     test "handles nil savings gracefully in sorting", %{video1: video1, video2: video2} do
       # Create one VMAF with savings and one without
-      {:ok, _vmaf1} =
+      {:ok, vmaf1} =
         Media.upsert_vmaf(%{
           "video_id" => video1.id,
           "crf" => 25.0,
           "score" => 95.0,
-          "chosen" => true,
           "params" => []
           # No percent, so no savings calculation
         })
 
-      {:ok, _vmaf2} =
+      Fixtures.choose_vmaf(video1, vmaf1)
+
+      {:ok, vmaf2} =
         Media.upsert_vmaf(%{
           "video_id" => video2.id,
           "crf" => 25.0,
           "score" => 95.0,
           # 30% savings
           "percent" => "70",
-          "chosen" => true,
           "params" => []
         })
+
+      Fixtures.choose_vmaf(video2, vmaf2)
 
       # Should prioritize the one with savings
       encoding_queue = Media.list_videos_by_estimated_percent(2)

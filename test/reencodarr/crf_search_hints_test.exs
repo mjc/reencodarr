@@ -130,13 +130,15 @@ defmodule Reencodarr.CrfSearchHintsTest do
           state: :crf_searched
         })
 
-      Media.create_vmaf(%{
-        video_id: sibling.id,
-        crf: 20.0,
-        score: 92.0,
-        chosen: true,
-        params: ["--preset", "4"]
-      })
+      {:ok, sibling_vmaf} =
+        Media.create_vmaf(%{
+          video_id: sibling.id,
+          crf: 20.0,
+          score: 92.0,
+          params: ["--preset", "4"]
+        })
+
+      Fixtures.choose_vmaf(sibling, sibling_vmaf)
 
       {:ok, video} =
         Fixtures.video_fixture(%{
@@ -380,19 +382,20 @@ defmodule Reencodarr.CrfSearchHintsTest do
           state: :crf_searched
         })
 
-      Media.create_vmaf(%{
-        video_id: sibling.id,
-        crf: 20.0,
-        score: 95.0,
-        chosen: true,
-        params: ["--preset", "4"]
-      })
+      {:ok, chosen_vmaf} =
+        Media.create_vmaf(%{
+          video_id: sibling.id,
+          crf: 20.0,
+          score: 95.0,
+          params: ["--preset", "4"]
+        })
+
+      Fixtures.choose_vmaf(sibling, chosen_vmaf)
 
       Media.create_vmaf(%{
         video_id: sibling.id,
         crf: 30.0,
         score: 91.0,
-        chosen: false,
         params: ["--preset", "4"]
       })
 
@@ -451,16 +454,18 @@ defmodule Reencodarr.CrfSearchHintsTest do
   end
 
   # Add [{crf, score, chosen}] records to a single video
+  # The chosen flag now means we set chosen_vmaf_id on the video
   defp add_vmaf_records(video, records) do
     Enum.each(records, fn {crf, score, chosen} ->
-      {:ok, _} =
+      {:ok, vmaf} =
         Media.create_vmaf(%{
           video_id: video.id,
           crf: crf,
           score: score,
-          chosen: chosen,
           params: ["--preset", "4"]
         })
+
+      if chosen, do: Fixtures.choose_vmaf(video, vmaf)
     end)
   end
 
@@ -468,14 +473,15 @@ defmodule Reencodarr.CrfSearchHintsTest do
   defp add_vmaf_records_chosen(videos, crf_scores) do
     Enum.zip(videos, crf_scores)
     |> Enum.each(fn {video, {crf, score}} ->
-      {:ok, _} =
+      {:ok, vmaf} =
         Media.create_vmaf(%{
           video_id: video.id,
           crf: crf,
           score: score,
-          chosen: true,
           params: ["--preset", "4"]
         })
+
+      Fixtures.choose_vmaf(video, vmaf)
     end)
   end
 end

@@ -94,8 +94,7 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
 
       # Step 3: Mark one VMAF as chosen (simulating CRF search completion)
       chosen_vmaf = Enum.find(vmafs, &(&1.crf == 22.0))
-      {:ok, updated_vmaf} = Media.update_vmaf(chosen_vmaf, %{chosen: true})
-      assert updated_vmaf.chosen == true
+      Fixtures.choose_vmaf(video, chosen_vmaf)
 
       # Step 4: Test encoding success scenario
       capture_log(fn ->

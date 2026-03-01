@@ -33,7 +33,6 @@ defmodule Reencodarr.Media.VmafUpsertConflictTest do
         "score" => "95.0",
         "percent" => "50.0",
         "params" => ["--preset", "4"],
-        "chosen" => false,
         "target" => 95
       }
 
@@ -53,7 +52,6 @@ defmodule Reencodarr.Media.VmafUpsertConflictTest do
         "score" => "95.0",
         "percent" => "50.0",
         "params" => ["--preset", "4"],
-        "chosen" => false,
         "target" => 95
       }
 
@@ -63,27 +61,28 @@ defmodule Reencodarr.Media.VmafUpsertConflictTest do
       refute vmaf_23.id == vmaf_25.id
     end
 
-    test "re-upsert replaces chosen status", %{video: video} do
-      # First upsert with chosen: false
+    test "re-upsert does not affect chosen_vmaf_id on video", %{video: video} do
       attrs = %{
         "video_id" => video.id,
         "crf" => "23.0",
         "score" => "95.0",
         "percent" => "50.0",
         "params" => ["--preset", "4"],
-        "chosen" => false,
         "target" => 95
       }
 
-      {:ok, _} = Media.upsert_vmaf(attrs)
+      {:ok, vmaf} = Media.upsert_vmaf(attrs)
 
-      # Mark it as chosen via a second upsert
-      {:ok, chosen} = Media.upsert_vmaf(%{attrs | "chosen" => true})
-      assert chosen.chosen == true
+      # Mark it as chosen on the video
+      Fixtures.choose_vmaf(video, vmaf)
 
-      # Re-upsert with chosen: false (e.g., retry path) replaces chosen
-      {:ok, unchosen} = Media.upsert_vmaf(%{attrs | "score" => "94.0"})
-      assert unchosen.chosen == false
+      # Re-upsert with updated score
+      {:ok, updated} = Media.upsert_vmaf(%{attrs | "score" => "94.0"})
+      assert updated.id == vmaf.id
+
+      # chosen_vmaf_id on video is unchanged
+      reloaded = Reencodarr.Repo.get!(Reencodarr.Media.Video, video.id)
+      assert reloaded.chosen_vmaf_id == vmaf.id
     end
 
     test "re-upsert updates savings calculation", %{video: video} do
@@ -93,7 +92,6 @@ defmodule Reencodarr.Media.VmafUpsertConflictTest do
         "score" => "95.0",
         "percent" => "50.0",
         "params" => ["--preset", "4"],
-        "chosen" => false,
         "target" => 95
       }
 

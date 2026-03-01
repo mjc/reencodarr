@@ -17,7 +17,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
       %{video: video}
     end
 
-    test "creates VMAF record for valid line", %{video: video} do
+    test "creates VMAF record for valid eta_vmaf line", %{video: video} do
       line = sample_vmaf_line(crf: 28, score: 91.33)
 
       assert_database_state(Vmaf, 1, fn ->
@@ -54,21 +54,22 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
       assert vmaf.size == "800 MB"
       assert vmaf.time == 120
       # ETA VMAF lines are NOT marked as chosen — only the success line chooses
-      refute vmaf.chosen
+      updated_video = Media.get_video!(video.id)
+      assert is_nil(updated_video.chosen_vmaf_id)
     end
 
-    test "processes simple VMAF line without size information", %{video: video} do
+    test "processes simple VMAF line without creating a record", %{video: video} do
+      # Per-sample lines are recognized for progress display but not persisted
       line =
         "[2024-12-12T00:13:08Z INFO  ab_av1::command::sample_encode] sample 1/5 crf 28 VMAF 91.33 (85%)"
 
-      CrfSearch.process_line(line, video, ["--preset", "medium"], 95)
+      log =
+        capture_log(fn ->
+          CrfSearch.process_line(line, video, ["--preset", "medium"], 95)
+        end)
 
-      vmaf = Repo.one(Vmaf)
-      assert vmaf.video_id == video.id
-      assert vmaf.crf == 28.0
-      assert vmaf.score == 91.33
-      # Sample VMAF lines are not marked as chosen
-      assert vmaf.chosen == false
+      refute log =~ "No match for line"
+      assert Repo.aggregate(Vmaf, :count, :id) == 0
     end
 
     test "handles encoding sample line", %{video: video} do
@@ -114,9 +115,10 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
 
       CrfSearch.process_line(line, video, [], 95)
 
-      # Should mark the VMAF as chosen
+      # Should mark the VMAF as chosen on the video
       vmaf = Repo.one(Vmaf)
-      assert vmaf.chosen == true
+      updated_video = Media.get_video!(video.id)
+      assert updated_video.chosen_vmaf_id == vmaf.id
     end
   end
 
@@ -155,6 +157,6 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
     score = Keyword.get(opts, :score, 91.33)
     percent = Keyword.get(opts, :percent, 85)
 
-    "[2024-12-12T00:13:08Z INFO  ab_av1::command::sample_encode] sample 1/5 crf #{crf} VMAF #{score} (#{percent}%)"
+    "crf #{crf} VMAF #{score} predicted video stream size 800 MiB (#{percent}%) taking 30 minutes"
   end
 end
