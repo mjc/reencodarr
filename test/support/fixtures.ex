@@ -17,7 +17,7 @@ defmodule Reencodarr.Fixtures do
   """
 
   alias Reencodarr.Media
-  alias Reencodarr.Media.VideoUpsert
+  alias Reencodarr.Media.{Video, VideoUpsert, Vmaf}
 
   @type video_attrs :: %{atom() => any()} | %{String.t() => any()}
   @type vmaf_attrs :: %{atom() => any()}
@@ -255,6 +255,22 @@ defmodule Reencodarr.Fixtures do
     vmaf_attrs = Map.merge(defaults, attrs)
     {:ok, vmaf} = Media.create_vmaf(vmaf_attrs)
     vmaf
+  end
+
+  @doc """
+  Sets the chosen VMAF on a video. Returns the updated video.
+  """
+  @spec choose_vmaf(Video.t(), Vmaf.t()) :: Video.t()
+  def choose_vmaf(%Video{} = video, %Vmaf{} = vmaf) do
+    import Ecto.Query
+
+    {1, _} =
+      Reencodarr.Repo.update_all(
+        from(v in Video, where: v.id == ^video.id),
+        set: [chosen_vmaf_id: vmaf.id, updated_at: DateTime.utc_now()]
+      )
+
+    %{video | chosen_vmaf_id: vmaf.id}
   end
 
   @doc """
