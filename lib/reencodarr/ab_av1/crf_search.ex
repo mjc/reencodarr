@@ -1060,17 +1060,17 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       })
 
     case Media.insert_vmaf(final_vmaf_data) do
-      {:ok, created_vmaf} ->
-        Logger.debug("Inserted VMAF: #{inspect(created_vmaf)}")
-        broadcast_crf_search_vmaf_result(video.path, created_vmaf)
-        created_vmaf
-
       {:ok, :skipped} ->
         Logger.debug(
           "VMAF already exists for crf #{vmaf_data.crf}, skipping duplicate stdout line"
         )
 
         nil
+
+      {:ok, created_vmaf} ->
+        Logger.debug("Inserted VMAF: #{inspect(created_vmaf)}")
+        broadcast_crf_search_vmaf_result(video.path, created_vmaf)
+        created_vmaf
 
       {:error, changeset} ->
         Logger.error("Failed to insert VMAF: #{inspect(changeset)}")
