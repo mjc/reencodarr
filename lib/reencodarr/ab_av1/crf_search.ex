@@ -485,6 +485,30 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   # If no VMAF is marked chosen (e.g. success line wasn't parsed or
   # mark_vmaf_as_chosen failed), auto-selects the best candidate.
   defp ensure_chosen_vmaf_and_transition(video) do
+    if has_unresolved_size_limit_failure?(video) do
+      Logger.info(
+        "CrfSearch: Skipping crf_searched transition for video #{video.id} — size limit failure exists"
+      )
+
+      :ok
+    else
+      do_ensure_chosen_vmaf_and_transition(video)
+    end
+  end
+
+  defp has_unresolved_size_limit_failure?(video) do
+    alias Reencodarr.Media.VideoFailure
+
+    Repo.one(
+      from f in VideoFailure,
+        where:
+          f.video_id == ^video.id and f.failure_category == :size_limits and
+            f.resolved == false,
+        select: count(f.id)
+    ) > 0
+  end
+
+  defp do_ensure_chosen_vmaf_and_transition(video) do
     if !Media.chosen_vmaf_exists?(video) do
       Logger.warning("No chosen VMAF for video #{video.id}, auto-selecting best candidate")
 
@@ -901,6 +925,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     Reencodarr.FailureTracker.record_size_limit_failure(video, "Estimated > 10GB", "10GB",
       context: %{chosen_crf: crf}
     )
+
+    Media.mark_as_failed(video)
   end
 
   @crf_error_line "Error: Failed to find a suitable crf"
