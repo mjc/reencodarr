@@ -581,7 +581,7 @@ defmodule ReencodarrWeb.DashboardLive do
       <%= if length(@queue_items) > 0 do %>
         <div class="text-xs text-gray-500 space-y-0.5 mt-2 pt-2 border-t border-gray-800">
           <div class="text-gray-600 mb-0.5">Next up ({@queue_count}):</div>
-          <%= for video <- Enum.take(@queue_items, 3) do %>
+          <%= for video <- Enum.take(@queue_items, 5) do %>
             <div class="truncate">{Path.basename(video.path)}</div>
           <% end %>
         </div>
@@ -673,7 +673,7 @@ defmodule ReencodarrWeb.DashboardLive do
       <%= if length(@queue_items) > 0 do %>
         <div class="text-xs text-gray-500 space-y-0.5 mt-2 pt-2 border-t border-gray-800">
           <div class="text-gray-600 mb-0.5">Next up ({@queue_count}):</div>
-          <%= for vmaf <- Enum.take(@queue_items, 3) do %>
+          <%= for vmaf <- Enum.take(@queue_items, 5) do %>
             <div class="truncate">{Path.basename(vmaf.video.path)}</div>
           <% end %>
         </div>
