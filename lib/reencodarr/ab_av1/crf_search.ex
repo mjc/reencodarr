@@ -26,6 +26,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   require Logger
 
+  @max_crf_search_retries 3
+
   defp parse_line_with_types(line) do
     OutputParser.parse_line(line)
   end
@@ -619,6 +621,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp handle_crf_search_failure(video, target_vmaf, exit_code, command_line, full_output, state) do
     crf_range = get_in(state, [:current_task, :crf_range]) || {5, 70}
     output_lines = state.output_buffer
+    retry_count = count_crf_search_failures(video)
 
     failure_context = %{
       exit_code: exit_code,
@@ -628,20 +631,38 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       crf_range: inspect(crf_range)
     }
 
-    case retry_strategy(video, target_vmaf, crf_range, output_lines) do
-      {:retry_wider_range} ->
-        retry_crf_search(video, target_vmaf, state, failure_context,
-          reason: "narrowed range #{inspect(crf_range)} failed"
-        )
+    if retry_count >= @max_crf_search_retries do
+      Logger.warning(
+        "CrfSearch: Max retries (#{@max_crf_search_retries}) reached for video #{video.id}, marking as failed"
+      )
 
-      {:retry_lower_target, new_target} ->
-        retry_crf_search(video, new_target, state, failure_context,
-          reason: "reducing VMAF target from #{target_vmaf} to #{new_target}"
-        )
+      record_final_failure(video, target_vmaf, exit_code, full_output, failure_context, state)
+    else
+      case retry_strategy(video, target_vmaf, crf_range, output_lines) do
+        {:retry_wider_range} ->
+          retry_crf_search(video, target_vmaf, state, failure_context,
+            reason: "narrowed range #{inspect(crf_range)} failed"
+          )
 
-      :final_failure ->
-        record_final_failure(video, target_vmaf, exit_code, full_output, failure_context, state)
+        {:retry_lower_target, new_target} ->
+          retry_crf_search(video, new_target, state, failure_context,
+            reason: "reducing VMAF target from #{target_vmaf} to #{new_target}"
+          )
+
+        :final_failure ->
+          record_final_failure(video, target_vmaf, exit_code, full_output, failure_context, state)
+      end
     end
+  end
+
+  defp count_crf_search_failures(video) do
+    alias Reencodarr.Media.VideoFailure
+
+    Repo.one(
+      from f in VideoFailure,
+        where: f.video_id == ^video.id and f.failure_stage == :crf_search and f.resolved == false,
+        select: count(f.id)
+    ) || 0
   end
 
   defp retry_strategy(video, target_vmaf, crf_range, output_lines) do
@@ -668,10 +689,19 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       context: Map.put(failure_context, :final_failure, false)
     )
 
-    Media.mark_as_analyzed(video)
-    {:noreply, clean_state} = perform_crf_search_cleanup(state)
-    GenServer.cast(__MODULE__, {:crf_search_retry, video, new_target})
-    {:noreply, clean_state}
+    case Media.mark_as_analyzed(video) do
+      {:ok, updated_video} ->
+        {:noreply, clean_state} = perform_crf_search_cleanup(state)
+        GenServer.cast(__MODULE__, {:crf_search_retry, updated_video, new_target})
+        {:noreply, clean_state}
+
+      {:error, transition_error} ->
+        Logger.error(
+          "CrfSearch: Failed to reset video #{video.id} to analyzed for retry: #{inspect(transition_error)}"
+        )
+
+        record_final_failure(video, new_target, 1, "", failure_context, state)
+    end
   end
 
   defp record_final_failure(video, target_vmaf, exit_code, _full_output, failure_context, state) do

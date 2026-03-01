@@ -2,14 +2,18 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
   @moduledoc """
   Tests for VMAF target reduction retry.
 
-  When a CRF search fails because the target VMAF is unreachable (even at CRF 8),
+  When a CRF search fails because the target VMAF is unreachable (even at minimum CRF),
   the system retries with a 1-point lower target — but only after exhausting the
-  narrowed → standard range retry first.
+  narrowed → standard range retry first, and only if the retry limit has not been reached.
 
   Retry cascade:
-    1. narrowed range + original target  → retry with standard range {8,40} + same target
-    2. standard range + original target  → retry with standard range {8,40} + target - 1
+    1. narrowed range + original target  → retry with standard range {5,70} + same target
+    2. standard range + original target  → retry with standard range {5,70} + target - 1
     3. standard range + reduced target   → final failure
+
+  Hard stop: when @max_crf_search_retries (3) unresolved crf_search failures already
+  exist for the video, any further failure immediately records a final failure and
+  marks the video as failed — no retry regardless of range or target.
   """
   use Reencodarr.DataCase, async: false
   @moduletag capture_log: true
@@ -19,6 +23,7 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
   alias Reencodarr.AbAv1.CrfSearcher
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.Media
+  alias Reencodarr.Media.VideoFailure
   alias Reencodarr.Rules
 
   require Logger
@@ -101,7 +106,9 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
       {:ok, Map.put(v, :state, :crf_searching)}
     end)
 
-    :meck.expect(Reencodarr.Media, :mark_as_analyzed, fn _v -> {:ok, %{}} end)
+    :meck.expect(Reencodarr.Media, :mark_as_analyzed, fn v ->
+      {:ok, Map.put(v, :state, :analyzed)}
+    end)
 
     :meck.expect(Reencodarr.Media, :mark_as_failed, fn _v ->
       send(test_pid, :marked_as_failed)
@@ -297,6 +304,106 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
         # Third attempt fails → final failure (target already reduced)
         assert_received :marked_as_failed
         refute_received {:open_port_call, 4, _}
+      end)
+    end
+  end
+
+  describe "max retry count prevents infinite loop" do
+    setup do
+      setup_meck()
+      {:ok, _pid} = CrfSearch.start_link([])
+
+      on_exit(fn ->
+        case GenServer.whereis(CrfSearch) do
+          nil ->
+            :ok
+
+          crf_pid when is_pid(crf_pid) ->
+            try do
+              if Process.alive?(crf_pid), do: GenServer.stop(crf_pid, :normal, 1000), else: :ok
+            catch
+              :exit, _ -> :ok
+            end
+
+          _ ->
+            :ok
+        end
+      end)
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/movies/max_retry_test.mkv",
+          height: 1080,
+          width: 1920,
+          state: :analyzed,
+          size: 2_147_483_648
+        })
+
+      # Pre-seed @max_crf_search_retries (3) unresolved crf_search failures using
+      # VideoFailure.record_failure directly — avoids the state transition that
+      # Media.record_video_failure would trigger (which also calls mark_as_failed).
+      # This simulates the state that caused video 11917998's infinite loop.
+      for i <- 1..3 do
+        {:ok, _} =
+          VideoFailure.record_failure(video, :crf_search, :vmaf_calculation,
+            code: "VMAF_CALC",
+            message: "Prior loop failure #{i}"
+          )
+      end
+
+      %{video: video}
+    end
+
+    test "goes straight to final failure when retry limit already reached", %{video: video} do
+      capture_log(fn ->
+        test_pid = self()
+        _call_count = mock_port_failure(test_pid)
+
+        GenServer.cast(CrfSearch, {:crf_search, video, 95})
+        Process.sleep(800)
+
+        # One port call to start the search
+        assert_received {:open_port_call, 1, _args}
+
+        # Immediately final-failures — no retry despite CRF error and narrowed range
+        assert_received :marked_as_failed
+        refute_received {:open_port_call, 2, _}
+      end)
+    end
+
+    test "retry limit is checked before range/target logic", %{video: video} do
+      # With siblings in scope, the first attempt would normally use a narrowed range.
+      # Even with a narrowed range (which previously always triggered retry_wider_range),
+      # the limit check fires first and stops any retry.
+      {:ok, sibling} =
+        Fixtures.video_fixture(%{
+          path: "/tv/Loop Show/Season 01/Loop.Show.S01E01.mkv",
+          height: 1080,
+          width: 1920,
+          state: :crf_searched
+        })
+
+      {:ok, _} =
+        Media.create_vmaf(%{
+          video_id: sibling.id,
+          crf: 22.0,
+          score: 95.0,
+          chosen: true,
+          params: ["--preset", "4"]
+        })
+
+      capture_log(fn ->
+        test_pid = self()
+        _call_count = mock_port_failure(test_pid)
+
+        # Override the video path so it shares the season dir with the sibling
+        narrowed_video = %{video | path: "/tv/Loop Show/Season 01/Loop.Show.S01E02.mkv"}
+        GenServer.cast(CrfSearch, {:crf_search, narrowed_video, 95})
+        Process.sleep(800)
+
+        assert_received {:open_port_call, 1, _args}
+        assert_received :marked_as_failed
+        refute_received {:open_port_call, 2, _}
       end)
     end
   end
