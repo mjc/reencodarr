@@ -23,8 +23,9 @@ defmodule Reencodarr.CrfSearchHints do
 
   ## Retry behaviour
 
-  On retry, sibling narrowing is skipped (it may have caused the failure).
-  Own records are still used if present; otherwise falls back to the default range.
+  On retry, the full default range `{5, 70}` is always used to guarantee a wider
+  search. Using own records on retry re-narrows to the same failing range and
+  causes an infinite retry loop.
   """
 
   import Ecto.Query
@@ -57,11 +58,12 @@ defmodule Reencodarr.CrfSearchHints do
   2. Sibling chosen records — bracketed against `target_vmaf`, margin ±#{@sibling_margin}
   3. Default range `{#{@default_min_crf}, #{@default_max_crf}}`
 
-  On retry, sibling narrowing is skipped. Own records are still used if present.
+  On retry, the full default range `{5, 70}` is always returned so that the
+  search is guaranteed to be wider than any previously-attempted narrowed range.
 
   ## Options
 
-  - `retry: true` — skip sibling narrowing; use own records or default
+  - `retry: true` — always return the default range `{#{@default_min_crf}, #{@default_max_crf}}`
 
   ## Returns
 
@@ -70,11 +72,8 @@ defmodule Reencodarr.CrfSearchHints do
   @spec crf_range(Video.t(), pos_integer(), keyword()) :: {integer(), integer()}
   def crf_range(video, target_vmaf, opts \\ [])
 
-  def crf_range(video, target_vmaf, retry: true) do
-    case own_vmaf_records(video) do
-      [] -> @default_range
-      records -> bracket_range(records, target_vmaf, @own_margin)
-    end
+  def crf_range(_video, _target_vmaf, retry: true) do
+    @default_range
   end
 
   def crf_range(video, target_vmaf, _opts) do

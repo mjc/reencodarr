@@ -2,10 +2,12 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
   @moduledoc """
   Tests for the refactored CRF search retry mechanism.
 
-  The new retry strategy:
+  The retry strategy:
   1. First attempt uses season-aware narrowed CRF range (if siblings exist)
-  2. If CRF search fails with a narrowed range, retry with standard range {8, 40}
+  2. If CRF search fails with a narrowed range, retry with standard range {5, 70}
   3. If CRF search fails with standard range, mark as failed (no more retries)
+  4. Hard stop: if @max_crf_search_retries (3) unresolved failures already exist,
+     skip retries entirely and mark as failed immediately.
   """
   use Reencodarr.DataCase, async: false
   @moduletag capture_log: true
@@ -311,7 +313,10 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
         end)
 
         :meck.expect(Reencodarr.Media, :mark_as_failed, fn _v -> {:ok, %{}} end)
-        :meck.expect(Reencodarr.Media, :mark_as_analyzed, fn _v -> {:ok, %{}} end)
+
+        :meck.expect(Reencodarr.Media, :mark_as_analyzed, fn v ->
+          {:ok, Map.put(v, :state, :analyzed)}
+        end)
 
         :meck.expect(Reencodarr.Media, :record_video_failure, fn _v, _s, _c, _o -> {:ok, %{}} end)
 

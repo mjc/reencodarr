@@ -3,7 +3,8 @@ defmodule Reencodarr.CrfSearchHintsTest do
   Tests for CrfSearchHints — score-based CRF bracketing.
 
   Priority: own VMAF records (margin ±2) → sibling chosen records (margin ±4) → default {5, 70}.
-  On retry, sibling narrowing is skipped; own records still used if present.
+  On retry, the full default range {5, 70} is always returned regardless of own records,
+  preventing infinite retry loops where own failing records re-narrow to the same failing range.
 
   ## Bracketing logic under test
 
@@ -167,7 +168,10 @@ defmodule Reencodarr.CrfSearchHintsTest do
       assert CrfSearchHints.crf_range(video, @target, retry: true) == @default_range
     end
 
-    test "on retry, uses own records and skips siblings" do
+    test "on retry, always returns default range even when own records exist" do
+      # Previously own records were used on retry, but this caused an infinite loop:
+      # own failing records would re-narrow to the same range that just failed.
+      # Now retry always returns the full default range to guarantee a wider search.
       siblings = create_season_siblings("Retry Own Show", 1, 2, %{height: 1080, width: 1920})
       add_vmaf_records_chosen(siblings, [{20.0, 95.0}, {22.0, 94.5}])
 
@@ -181,11 +185,7 @@ defmodule Reencodarr.CrfSearchHintsTest do
 
       add_vmaf_records(video, [{8.0, 93.7, false}])
 
-      {min_crf, max_crf} = CrfSearchHints.crf_range(video, @target, retry: true)
-
-      # Own record CRF 8 failing → floor=5, ceiling=8+2=10
-      assert min_crf == 5
-      assert max_crf == 10
+      assert CrfSearchHints.crf_range(video, @target, retry: true) == @default_range
     end
 
     test "result is clamped to absolute bounds" do
