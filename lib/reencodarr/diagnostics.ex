@@ -113,7 +113,7 @@ defmodule Reencodarr.Diagnostics do
         Title:      #{video.title || "N/A"}
 
       VMAFs (#{length(video.vmafs)} total):
-      #{format_vmafs(video.vmafs)}
+      #{format_vmafs(video.vmafs, video.chosen_vmaf_id)}
 
       Failures (#{length(video.failures)} total, #{count_unresolved(video.failures)} unresolved):
       #{format_failures(video.failures)}
@@ -510,11 +510,11 @@ defmodule Reencodarr.Diagnostics do
 
   defp format_cache_stats(_), do: "Cache: N/A"
 
-  defp format_vmafs([]), do: "  (none)"
+  defp format_vmafs([], _chosen_vmaf_id), do: "  (none)"
 
-  defp format_vmafs(vmafs) do
+  defp format_vmafs(vmafs, chosen_vmaf_id) do
     Enum.map_join(vmafs, "\n", fn v ->
-      chosen = if v.chosen, do: "[CHOSEN]", else: "        "
+      chosen = if v.id == chosen_vmaf_id, do: "[CHOSEN]", else: "        "
       savings_str = if v.savings, do: Formatters.file_size(v.savings), else: "N/A"
 
       "  #{chosen} CRF=#{pad(to_string(v.crf), 4)} VMAF=#{pad(Formatters.vmaf_score(v.score), 6)} Percent=#{pad(to_string(v.percent), 6)} Savings=#{savings_str}"

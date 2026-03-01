@@ -3,7 +3,7 @@ import Ecto.Query
 # Get all videos with chosen VMAF results
 query = from v in Reencodarr.Media.Video,
   join: vmaf in Reencodarr.Media.Vmaf, on: vmaf.video_id == v.id,
-  where: vmaf.chosen == true,
+  where: v.chosen_vmaf_id == vmaf.id,
   select: %{path: v.path, bitrate: v.bitrate, crf: vmaf.crf, width: v.width, height: v.height, hdr: v.hdr}
 
 raw_results = Reencodarr.Repo.all(query)
@@ -13,7 +13,7 @@ raw_results = Reencodarr.Repo.all(query)
 # or: /path/to/Series Name (Year)/Season 01/Episode.mkv
 extract_series_info = fn path ->
   parts = String.split(path, "/")
-  
+
   # Find the season folder and get series name from one folder up
   Enum.with_index(parts)
   |> Enum.find_value(fn {part, idx} ->
@@ -48,13 +48,13 @@ IO.puts(String.duplicate("=", 100))
 Enum.each(data, fn {{series, season}, episodes} ->
   crfs = Enum.map(episodes, & &1.crf)
   bitrates = episodes |> Enum.map(& &1.bitrate) |> Enum.reject(&is_nil/1) |> Enum.map(& &1 / 1_000_000)
-  
+
   avg_crf = Float.round(Enum.sum(crfs) / length(crfs), 1)
   min_crf = Enum.min(crfs)
   max_crf = Enum.max(crfs)
   range = Float.round(max_crf - min_crf, 1)
   std_dev = :math.sqrt(Enum.sum(Enum.map(crfs, fn c -> :math.pow(c - avg_crf, 2) end)) / length(crfs)) |> Float.round(2)
-  
+
   br_str = if bitrates != [] do
     avg_br = Float.round(Enum.sum(bitrates) / length(bitrates), 1)
     min_br = Float.round(Enum.min(bitrates), 1)
@@ -64,10 +64,10 @@ Enum.each(data, fn {{series, season}, episodes} ->
   else
     "BR: N/A"
   end
-  
+
   # Truncate series name for display
   short_name = if String.length(series) > 30, do: String.slice(series, 0, 27) <> "...", else: series
-  
+
   IO.puts("#{String.pad_trailing(short_name, 30)} S#{String.pad_leading(to_string(season), 2, "0")} (#{String.pad_leading(to_string(length(episodes)), 2)} eps) | CRF #{String.pad_leading(to_string(min_crf), 4)}-#{String.pad_trailing(to_string(max_crf), 4)} avg #{String.pad_leading(to_string(avg_crf), 4)} σ#{String.pad_leading(to_string(std_dev), 4)} | #{br_str}")
 end)
 
@@ -97,7 +97,7 @@ IO.puts(String.duplicate("=", 100))
 consistent_br_data = data
 |> Enum.filter(fn {_, episodes} ->
   bitrates = episodes |> Enum.map(& &1.bitrate) |> Enum.reject(&is_nil/1) |> Enum.reject(&(&1 == 0))
-  
+
   if length(bitrates) >= 4 do
     avg = Enum.sum(bitrates) / length(bitrates)
     std = :math.sqrt(Enum.sum(Enum.map(bitrates, fn b -> :math.pow(b - avg, 2) end)) / length(bitrates))
@@ -111,18 +111,18 @@ end)
 Enum.each(consistent_br_data, fn {{series, season}, episodes} ->
   crfs = Enum.map(episodes, & &1.crf)
   bitrates = episodes |> Enum.map(& &1.bitrate) |> Enum.reject(&is_nil/1) |> Enum.reject(&(&1 == 0)) |> Enum.map(& &1 / 1_000_000)
-  
+
   avg_crf = Float.round(Enum.sum(crfs) / length(crfs), 1)
   min_crf = Enum.min(crfs)
   max_crf = Enum.max(crfs)
   crf_range = Float.round(max_crf - min_crf, 1)
   std_dev = :math.sqrt(Enum.sum(Enum.map(crfs, fn c -> :math.pow(c - avg_crf, 2) end)) / length(crfs)) |> Float.round(2)
-  
+
   avg_br = Float.round(Enum.sum(bitrates) / length(bitrates), 1)
   br_std = :math.sqrt(Enum.sum(Enum.map(bitrates, fn b -> :math.pow(b - avg_br, 2) end)) / length(bitrates)) |> Float.round(2)
-  
+
   short_name = if String.length(series) > 30, do: String.slice(series, 0, 27) <> "...", else: series
-  
+
   IO.puts("#{String.pad_trailing(short_name, 30)} S#{String.pad_leading(to_string(season), 2, "0")} (#{String.pad_leading(to_string(length(episodes)), 2)} eps) | CRF #{String.pad_leading(to_string(min_crf), 4)}-#{String.pad_trailing(to_string(max_crf), 4)} Δ#{String.pad_leading(to_string(crf_range), 4)} σ#{String.pad_trailing(to_string(std_dev), 4)} | BR #{avg_br}±#{br_std} Mbps")
 end)
 
@@ -138,7 +138,7 @@ if length(consistent_ranges) > 0 do
   very_tight = Enum.count(consistent_ranges, & &1 <= 5.0)
   pct = Float.round(tight / length(consistent_ranges) * 100, 1)
   pct5 = Float.round(very_tight / length(consistent_ranges) * 100, 1)
-  
+
   IO.puts("\nSUMMARY (CONSISTENT BITRATE SEASONS ONLY):")
   IO.puts("  Seasons analyzed: #{length(consistent_br_data)}")
   IO.puts("  Average CRF range: #{avg_r}")
