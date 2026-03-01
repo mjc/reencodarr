@@ -49,6 +49,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   @impl GenStage
   def handle_info(:reset_orphaned, state) do
     Media.reset_orphaned_encoding()
+    Media.reset_crf_searched_without_vmaf()
     {:noreply, [], state}
   end
 
