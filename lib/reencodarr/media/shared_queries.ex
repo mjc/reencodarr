@@ -63,14 +63,16 @@ defmodule Reencodarr.Media.SharedQueries do
   end
 
   @doc """
-  Database-agnostic query to find video IDs with no chosen VMAFs.
+  Query to find video IDs that have VMAF records but no chosen VMAF.
   Used by delete_unchosen_vmafs functions.
   """
   def videos_with_no_chosen_vmafs_query do
-    from(v in Vmaf,
-      group_by: v.video_id,
-      having: fragment("SUM(CASE WHEN ? = 1 THEN 1 ELSE 0 END) = 0", v.chosen),
-      select: v.video_id
+    from(v in Video,
+      join: vm in Vmaf,
+      on: vm.video_id == v.id,
+      where: is_nil(v.chosen_vmaf_id),
+      group_by: v.id,
+      select: v.id
     )
   end
 
@@ -111,15 +113,18 @@ defmodule Reencodarr.Media.SharedQueries do
   """
   def vmaf_stats_query do
     from m in Vmaf,
+      left_join: vid in Video,
+      on: vid.chosen_vmaf_id == m.id,
       select: %{
         total_vmafs: count(m.id),
-        chosen_vmafs: fragment("COALESCE(SUM(CASE WHEN ? = 1 THEN 1 ELSE 0 END), 0)", m.chosen),
+        chosen_vmafs:
+          fragment("COALESCE(SUM(CASE WHEN ? IS NOT NULL THEN 1 ELSE 0 END), 0)", vid.id),
         total_savings_gb:
           coalesce(
             sum(
               fragment(
-                "CASE WHEN ? = 1 AND ? > 0 THEN ? / 1073741824.0 ELSE 0 END",
-                m.chosen,
+                "CASE WHEN ? IS NOT NULL AND ? > 0 THEN ? / 1073741824.0 ELSE 0 END",
+                vid.id,
                 m.savings,
                 m.savings
               )

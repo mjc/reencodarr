@@ -803,7 +803,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  defp handle_vmaf_line(line, video, args, target_vmaf) do
+  defp handle_vmaf_line(line, _video, _args, _target_vmaf) do
     case parse_line_with_types(line) do
       {:ok, %{type: type, data: vmaf_data}}
       when type in [:vmaf_result, :sample_vmaf, :dash_vmaf] ->
@@ -811,7 +811,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           "CrfSearch: CRF: #{vmaf_data.crf}, VMAF: #{vmaf_data.vmaf_score}, Percent: #{vmaf_data.percent}%"
         )
 
-        upsert_vmaf_with_parsed_data(vmaf_data, false, video, args, target_vmaf)
         true
 
       _ ->
@@ -837,7 +836,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           )
         end
 
-        upsert_vmaf_with_parsed_data(eta_data, false, video, args, target_vmaf)
+        insert_vmaf_with_parsed_data(eta_data, video, args, target_vmaf)
         true
 
       _ ->
@@ -1020,12 +1019,11 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     Reencodarr.Rules.build_args(video, :crf_search, [], base_args)
   end
 
-  defp upsert_vmaf_with_parsed_data(vmaf_data, chosen, video, args, target_vmaf) do
+  defp insert_vmaf_with_parsed_data(vmaf_data, video, args, target_vmaf) do
     vmaf_params = %{
       "crf" => vmaf_data.crf,
       "score" => vmaf_data.vmaf_score,
-      "percent" => vmaf_data.percent,
-      "chosen" => chosen
+      "percent" => vmaf_data.percent
     }
 
     vmaf_params =
@@ -1061,14 +1059,21 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         "target" => target_vmaf
       })
 
-    case Media.upsert_vmaf(final_vmaf_data) do
+    case Media.insert_vmaf(final_vmaf_data) do
       {:ok, created_vmaf} ->
-        Logger.debug("Upserted VMAF: #{inspect(created_vmaf)}")
+        Logger.debug("Inserted VMAF: #{inspect(created_vmaf)}")
         broadcast_crf_search_vmaf_result(video.path, created_vmaf)
         created_vmaf
 
+      {:ok, :skipped} ->
+        Logger.debug(
+          "VMAF already exists for crf #{vmaf_data.crf}, skipping duplicate stdout line"
+        )
+
+        nil
+
       {:error, changeset} ->
-        Logger.error("Failed to upsert VMAF: #{inspect(changeset)}")
+        Logger.error("Failed to insert VMAF: #{inspect(changeset)}")
         nil
     end
   end

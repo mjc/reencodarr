@@ -150,7 +150,7 @@ defmodule Reencodarr.CrfSearchHints do
         where: like(v.path, ^"#{dir_prefix}%"),
         where: v.height == ^height,
         where: v.width == ^width,
-        where: vmaf.chosen == true,
+        where: v.chosen_vmaf_id == vmaf.id,
         select: {vmaf.crf, vmaf.score}
 
     query =

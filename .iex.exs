@@ -85,12 +85,12 @@ defmodule IExHelpers do
 
   @doc "Debug a specific video"
   def debug_video(id) when is_integer(id) do
-    video = Repo.get!(Video, id) |> Repo.preload(:vmafs)
+    video = Repo.get!(Video, id) |> Repo.preload([:vmafs, :chosen_vmaf])
 
     %{
       video: video,
       vmaf_count: length(video.vmafs),
-      chosen_vmaf: Enum.find(video.vmafs, & &1.chosen)
+      chosen_vmaf: video.chosen_vmaf
     }
   end
 end
