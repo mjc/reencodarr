@@ -95,13 +95,13 @@ defmodule Reencodarr.Media.VideoQueries do
   @spec videos_ready_for_encoding(integer(), keyword()) :: [Vmaf.t()]
   def videos_ready_for_encoding(limit, opts \\ []) do
     Repo.all(
-      from(v in Vmaf,
-        join: vid in assoc(v, :video),
-        where: v.chosen == true and vid.state == :crf_searched,
+      from(vid in Video,
+        join: v in Vmaf,
+        on: vid.chosen_vmaf_id == v.id,
+        where: vid.state == :crf_searched,
         order_by: [fragment("? DESC NULLS LAST", v.savings), desc: vid.updated_at],
         limit: ^limit,
-        preload: [:video],
-        select: v
+        select: %{v | video: vid}
       ),
       opts
     )
@@ -113,10 +113,9 @@ defmodule Reencodarr.Media.VideoQueries do
   @spec encoding_queue_count(keyword()) :: integer()
   def encoding_queue_count(opts \\ []) do
     Repo.one(
-      from(v in Vmaf,
-        join: vid in assoc(v, :video),
-        where: v.chosen == true and vid.state == :crf_searched,
-        select: count(v.id)
+      from(vid in Video,
+        where: vid.state == :crf_searched and not is_nil(vid.chosen_vmaf_id),
+        select: count(vid.id)
       ),
       opts
     )

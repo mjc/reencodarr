@@ -324,8 +324,8 @@ defmodule Reencodarr.Media.VideoStateMachine do
     alias Reencodarr.Repo
 
     Repo.exists?(
-      from(v in Reencodarr.Media.Vmaf,
-        where: v.video_id == ^video_id and v.chosen == true
+      from(v in Reencodarr.Media.Video,
+        where: v.id == ^video_id and not is_nil(v.chosen_vmaf_id)
       )
     )
   end
