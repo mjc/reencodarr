@@ -3,7 +3,7 @@ import Ecto.Query
 # Get all videos with chosen VMAF results
 query = from v in Reencodarr.Media.Video,
   join: vmaf in Reencodarr.Media.Vmaf, on: vmaf.video_id == v.id,
-  where: vmaf.chosen == true,
+  where: v.chosen_vmaf_id == vmaf.id,
   select: %{
     path: v.path,
     bitrate: v.bitrate,
@@ -18,7 +18,7 @@ raw_results = Reencodarr.Repo.all(query)
 # Extract series name and season from path
 extract_series_info = fn path ->
   parts = String.split(path, "/")
-  
+
   Enum.with_index(parts)
   |> Enum.find_value(fn {part, idx} ->
     case Regex.run(~r/^[Ss](?:eason\s*)?0*(\d+)$/i, part) do
@@ -52,9 +52,9 @@ end
 results = raw_results
 |> Enum.map(fn r ->
   case extract_series_info.(r.path) do
-    {series, season} -> 
+    {series, season} ->
       Map.merge(r, %{
-        series: series, 
+        series: series,
         season: season,
         resolution: normalize_res.(r.width, r.height),
         hdr_status: normalize_hdr.(r.hdr)
@@ -86,7 +86,7 @@ stats = Enum.map(grouped, fn {{series, season, res, hdr}, episodes} ->
   range = max_crf - min_crf
   avg_crf = Enum.sum(crfs) / length(crfs)
   std_dev = :math.sqrt(Enum.sum(Enum.map(crfs, fn c -> :math.pow(c - avg_crf, 2) end)) / length(crfs))
-  
+
   %{
     series: series,
     season: season,
@@ -104,7 +104,7 @@ end)
 # Print detailed results
 Enum.each(stats, fn s ->
   short_name = if String.length(s.series) > 28, do: String.slice(s.series, 0, 25) <> "...", else: s.series
-  
+
   IO.puts("#{String.pad_trailing(short_name, 28)} S#{String.pad_leading(to_string(s.season), 2, "0")} #{String.pad_trailing(s.res, 5)} #{String.pad_trailing(s.hdr, 3)} (#{String.pad_leading(to_string(s.count), 2)} eps) | CRF #{String.pad_leading(to_string(s.min), 4)}-#{String.pad_trailing(to_string(s.max), 4)} Δ#{String.pad_leading(Float.to_string(Float.round(s.range, 1)), 4)} σ#{Float.round(s.std, 1)}")
 end)
 
@@ -152,7 +152,7 @@ p99_range = Float.round(avg_std * 3, 1)
 IO.puts("""
 
 If episode 1 of a season finds CRF = X, for subsequent episodes with same resolution/HDR:
-  
+
   95% confidence: Search CRF range = X ± #{p95_range} (based on 2σ)
   99% confidence: Search CRF range = X ± #{p99_range} (based on 3σ)
 
