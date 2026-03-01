@@ -509,18 +509,25 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp do_ensure_chosen_vmaf_and_transition(video) do
-    if !Media.chosen_vmaf_exists?(video) do
-      Logger.warning("No chosen VMAF for video #{video.id}, auto-selecting best candidate")
+    if Media.chosen_vmaf_exists?(video) do
+      transition_to_crf_searched(video)
+    else
+      Logger.error(
+        "CrfSearch: No chosen VMAF for video #{video.id} after successful CRF search — marking as failed"
+      )
 
-      case Media.choose_best_vmaf(video) do
-        {:ok, vmaf} ->
-          Logger.info("Auto-chose VMAF CRF=#{vmaf.crf} score=#{vmaf.score} for video #{video.id}")
+      Media.record_video_failure(video, :crf_search, :validation,
+        code: "no_chosen_vmaf",
+        message: "CRF search completed but no VMAF was marked as chosen",
+        context: %{video_id: video.id}
+      )
 
-        {:error, reason} ->
-          Logger.error("Failed to auto-choose VMAF for video #{video.id}: #{inspect(reason)}")
-      end
+      Media.mark_as_failed(video)
+      :ok
     end
+  end
 
+  defp transition_to_crf_searched(video) do
     case Retry.retry_on_db_busy(fn -> Media.mark_as_crf_searched(video) end) do
       {:ok, _} ->
         :ok
