@@ -249,17 +249,15 @@ defmodule Reencodarr.Media do
   """
   @spec reset_orphaned_encoding() :: :ok
   def reset_orphaned_encoding do
-    chosen_ids = from(vm in Vmaf, where: vm.chosen == true, select: vm.video_id)
-
     # Videos that have a chosen VMAF can safely go back to crf_searched for re-encoding.
     {with_vmaf, _} =
-      from(v in Video, where: v.state == :encoding, where: v.id in subquery(chosen_ids))
+      from(v in Video, where: v.state == :encoding, where: not is_nil(v.chosen_vmaf_id))
       |> Repo.update_all(set: [state: :crf_searched, updated_at: DateTime.utc_now()])
 
     # Videos without a chosen VMAF must go back to analyzed — they were never
     # encodable in the first place and need CRF search to run first.
     {without_vmaf, _} =
-      from(v in Video, where: v.state == :encoding, where: v.id not in subquery(chosen_ids))
+      from(v in Video, where: v.state == :encoding, where: is_nil(v.chosen_vmaf_id))
       |> Repo.update_all(set: [state: :analyzed, updated_at: DateTime.utc_now()])
 
     total = with_vmaf + without_vmaf
@@ -276,9 +274,8 @@ defmodule Reencodarr.Media do
   @doc """
   Resets videos stuck in `:crf_searched` with no chosen VMAF back to `:analyzed`.
 
-  A `crf_searched` video with no chosen VMAF will never be picked up by the encoder
-  (which requires `chosen == true`), so it would be stuck forever. This function
-  recovers them so CRF search can run again.
+  A `crf_searched` video with no chosen VMAF will never be picked up by the encoder,
+  so it would be stuck forever. This function recovers them so CRF search can run again.
 
   Called by the Encoder Broadway pipeline on startup.
 
@@ -288,10 +285,8 @@ defmodule Reencodarr.Media do
   """
   @spec reset_crf_searched_without_vmaf() :: :ok
   def reset_crf_searched_without_vmaf do
-    chosen_ids = from(vm in Vmaf, where: vm.chosen == true, select: vm.video_id)
-
     {count, _} =
-      from(v in Video, where: v.state == :crf_searched, where: v.id not in subquery(chosen_ids))
+      from(v in Video, where: v.state == :crf_searched, where: is_nil(v.chosen_vmaf_id))
       |> Repo.update_all(set: [state: :analyzed, updated_at: DateTime.utc_now()])
 
     if count > 0 do
@@ -685,6 +680,49 @@ defmodule Reencodarr.Media do
     %Vmaf{} |> Vmaf.changeset(attrs) |> Repo.insert()
   end
 
+  @doc """
+  Inserts a VMAF record, ignoring conflicts on (crf, video_id).
+
+  Use this during CRF search line processing to safely ignore the duplicate plain-stdout
+  summary line that ab-av1 emits after the INFO-level line for the same CRF value.
+  Returns `{:ok, vmaf}` on insert or `{:ok, :skipped}` when a record already exists.
+  """
+  def insert_vmaf(attrs) do
+    video_id = Map.get(attrs, "video_id") || Map.get(attrs, :video_id)
+
+    if is_integer(video_id) or is_binary(video_id) do
+      do_insert_vmaf(attrs, video_id)
+    else
+      Logger.error("Attempted to insert VMAF with invalid video_id type: #{inspect(attrs)}")
+      {:error, :invalid_video_id}
+    end
+  end
+
+  defp do_insert_vmaf(attrs, video_id) do
+    case get_video(video_id) do
+      %Video{} = video ->
+        attrs_with_savings = maybe_calculate_savings(attrs, video)
+
+        result =
+          %Vmaf{}
+          |> Vmaf.changeset(attrs_with_savings)
+          |> Repo.insert(
+            on_conflict: :nothing,
+            conflict_target: [:crf, :video_id]
+          )
+
+        case result do
+          {:ok, %Vmaf{id: nil}} -> {:ok, :skipped}
+          {:ok, _vmaf} = ok -> ok
+          {:error, _} = err -> err
+        end
+
+      nil ->
+        Logger.error("Attempted to insert VMAF with missing video_id: #{inspect(attrs)}")
+        {:error, :invalid_video_id}
+    end
+  end
+
   def upsert_vmaf(attrs) do
     video_id = Map.get(attrs, "video_id") || Map.get(attrs, :video_id)
 
@@ -701,33 +739,18 @@ defmodule Reencodarr.Media do
       %Video{} = video ->
         attrs_with_savings = maybe_calculate_savings(attrs, video)
 
-        result =
-          %Vmaf{}
-          |> Vmaf.changeset(attrs_with_savings)
-          |> Repo.insert(
-            on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
-            conflict_target: [:crf, :video_id]
-          )
-
-        case result do
-          {:ok, vmaf} -> handle_chosen_vmaf(vmaf, video)
-          {:error, _error} -> :ok
-        end
-
-        result
+        %Vmaf{}
+        |> Vmaf.changeset(attrs_with_savings)
+        |> Repo.insert(
+          on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
+          conflict_target: [:crf, :video_id]
+        )
 
       nil ->
         Logger.error("Attempted to upsert VMAF with missing video_id: #{inspect(attrs)}")
         {:error, :invalid_video_id}
     end
   end
-
-  # Helper function to handle chosen VMAF updates
-  defp handle_chosen_vmaf(%{chosen: true}, %Video{} = video) do
-    mark_as_crf_searched(video)
-  end
-
-  defp handle_chosen_vmaf(_vmaf, _video), do: :ok
 
   # Calculate savings if not already provided and we have the necessary data
   defp maybe_calculate_savings(attrs, %Video{} = video) do
@@ -849,7 +872,7 @@ defmodule Reencodarr.Media do
   end
 
   def chosen_vmaf_exists?(%{id: id}),
-    do: Repo.exists?(from v in Vmaf, where: v.video_id == ^id and v.chosen == true)
+    do: Repo.exists?(from v in Video, where: v.id == ^id and not is_nil(v.chosen_vmaf_id))
 
   @doc """
   Checks if any VMAF records exist for a video (regardless of chosen status).
@@ -860,9 +883,10 @@ defmodule Reencodarr.Media do
 
   # Consolidated shared logic for chosen VMAF queries
   defp query_chosen_vmafs do
-    from v in Vmaf,
-      join: vid in assoc(v, :video),
-      where: v.chosen == true and vid.state == :crf_searched,
+    from vid in Video,
+      join: v in Vmaf,
+      on: vid.chosen_vmaf_id == v.id,
+      where: vid.state == :crf_searched,
       select: %{v | video: vid},
       order_by: [asc: v.percent, asc: v.time]
   end
@@ -875,11 +899,11 @@ defmodule Reencodarr.Media do
   # Function to get the chosen VMAF for a specific video
   def get_chosen_vmaf_for_video(%Video{id: video_id}) do
     Repo.one(
-      from v in Vmaf,
-        join: vid in assoc(v, :video),
-        where: v.chosen == true and v.video_id == ^video_id and vid.state == :crf_searched,
-        select: %{v | video: vid},
-        order_by: [asc: v.percent, asc: v.time]
+      from vid in Video,
+        join: v in Vmaf,
+        on: vid.chosen_vmaf_id == v.id,
+        where: vid.id == ^video_id and vid.state == :crf_searched,
+        select: %{v | video: vid}
     )
   end
 
@@ -888,10 +912,10 @@ defmodule Reencodarr.Media do
   def get_next_for_encoding_by_time do
     result =
       Repo.one(
-        from v in Vmaf,
-          join: vid in assoc(v, :video),
-          # Ensure video is properly analyzed before encoding
-          where: v.chosen == true and vid.state == :crf_searched,
+        from vid in Video,
+          join: v in Vmaf,
+          on: vid.chosen_vmaf_id == v.id,
+          where: vid.state == :crf_searched,
           order_by: [fragment("? DESC NULLS LAST", v.savings), asc: v.time],
           limit: 1,
           select: %{v | video: vid}
@@ -908,19 +932,23 @@ defmodule Reencodarr.Media do
   end
 
   defp do_mark_vmaf_as_chosen(video_id, crf_float) do
-    Repo.transaction(fn ->
-      from(v in Vmaf, where: v.video_id == ^video_id, update: [set: [chosen: false]])
-      |> Repo.update_all([])
+    case Repo.one(
+           from(v in Vmaf,
+             where: v.video_id == ^video_id and v.crf == ^crf_float,
+             select: v.id,
+             limit: 1
+           )
+         ) do
+      nil ->
+        {:error, :no_vmaf_matched}
 
-      {count, _} =
-        from(v in Vmaf,
-          where: v.video_id == ^video_id and v.crf == ^crf_float,
-          update: [set: [chosen: true]]
-        )
-        |> Repo.update_all([])
+      vmaf_id ->
+        {1, _} =
+          from(v in Video, where: v.id == ^video_id)
+          |> Repo.update_all(set: [chosen_vmaf_id: vmaf_id, updated_at: DateTime.utc_now()])
 
-      if count == 0, do: Repo.rollback(:no_vmaf_matched)
-    end)
+        {:ok, vmaf_id}
+    end
   end
 
   @doc """
@@ -958,11 +986,12 @@ defmodule Reencodarr.Media do
       nil ->
         {:error, :no_vmafs}
 
-      %Vmaf{crf: crf} ->
-        case do_mark_vmaf_as_chosen(video_id, crf) do
-          {:ok, _} -> {:ok, best}
-          error -> error
-        end
+      %Vmaf{id: vmaf_id} ->
+        {1, _} =
+          from(v in Video, where: v.id == ^video_id)
+          |> Repo.update_all(set: [chosen_vmaf_id: vmaf_id, updated_at: DateTime.utc_now()])
+
+        {:ok, best}
     end
   end
 
