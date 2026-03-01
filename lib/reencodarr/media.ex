@@ -215,7 +215,6 @@ defmodule Reencodarr.Media do
       |> Repo.update_all(set: [state: :analyzed, updated_at: DateTime.utc_now()])
 
     if count > 0 do
-      require Logger
       Logger.info("Reset #{count} orphaned crf_searching videos → analyzed")
     end
 
@@ -233,13 +232,53 @@ defmodule Reencodarr.Media do
   """
   @spec reset_orphaned_encoding() :: :ok
   def reset_orphaned_encoding do
-    {count, _} =
-      from(v in Video, where: v.state == :encoding)
+    chosen_ids = from(vm in Vmaf, where: vm.chosen == true, select: vm.video_id)
+
+    # Videos that have a chosen VMAF can safely go back to crf_searched for re-encoding.
+    {with_vmaf, _} =
+      from(v in Video, where: v.state == :encoding, where: v.id in subquery(chosen_ids))
       |> Repo.update_all(set: [state: :crf_searched, updated_at: DateTime.utc_now()])
 
+    # Videos without a chosen VMAF must go back to analyzed — they were never
+    # encodable in the first place and need CRF search to run first.
+    {without_vmaf, _} =
+      from(v in Video, where: v.state == :encoding, where: v.id not in subquery(chosen_ids))
+      |> Repo.update_all(set: [state: :analyzed, updated_at: DateTime.utc_now()])
+
+    total = with_vmaf + without_vmaf
+
+    if total > 0 do
+      Logger.info(
+        "Reset #{total} orphaned encoding videos (#{with_vmaf} → crf_searched, #{without_vmaf} → analyzed)"
+      )
+    end
+
+    :ok
+  end
+
+  @doc """
+  Resets videos stuck in `:crf_searched` with no chosen VMAF back to `:analyzed`.
+
+  A `crf_searched` video with no chosen VMAF will never be picked up by the encoder
+  (which requires `chosen == true`), so it would be stuck forever. This function
+  recovers them so CRF search can run again.
+
+  Called by the Encoder Broadway pipeline on startup.
+
+  ## Examples
+      iex> Media.reset_crf_searched_without_vmaf()
+      :ok
+  """
+  @spec reset_crf_searched_without_vmaf() :: :ok
+  def reset_crf_searched_without_vmaf do
+    chosen_ids = from(vm in Vmaf, where: vm.chosen == true, select: vm.video_id)
+
+    {count, _} =
+      from(v in Video, where: v.state == :crf_searched, where: v.id not in subquery(chosen_ids))
+      |> Repo.update_all(set: [state: :analyzed, updated_at: DateTime.utc_now()])
+
     if count > 0 do
-      require Logger
-      Logger.info("Reset #{count} orphaned encoding videos → crf_searched")
+      Logger.info("Reset #{count} crf_searched videos without chosen VMAF → analyzed")
     end
 
     :ok

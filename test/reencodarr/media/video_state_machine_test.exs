@@ -797,6 +797,15 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
       assert changeset.changes.state == :crf_searched
     end
 
+    test "transition_to_crf_searched fails when no chosen VMAF exists" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+
+      {:ok, changeset} = VideoStateMachine.transition_to_crf_searched(video)
+
+      refute changeset.valid?
+      assert changeset.errors[:state]
+    end
+
     test "transition_to_failed" do
       {:ok, video} = Fixtures.video_fixture(%{state: :encoding})
 

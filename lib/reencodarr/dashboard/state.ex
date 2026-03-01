@@ -85,7 +85,7 @@ defmodule Reencodarr.Dashboard.State do
     queue_counts = %{
       analyzer: stats.needs_analysis || 0,
       crf_searcher: stats.analyzed || 0,
-      encoder: stats.crf_searched || 0
+      encoder: Reencodarr.Media.encoding_queue_count()
     }
 
     if queue_refresh_enabled?() do
@@ -259,7 +259,7 @@ defmodule Reencodarr.Dashboard.State do
     queue_counts = %{
       analyzer: stats.needs_analysis || 0,
       crf_searcher: stats.analyzed || 0,
-      encoder: stats.crf_searched || 0
+      encoder: Reencodarr.Media.encoding_queue_count()
     }
 
     state = %{state | stats: stats, queue_counts: queue_counts}
