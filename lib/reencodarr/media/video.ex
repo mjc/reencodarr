@@ -40,7 +40,8 @@ defmodule Reencodarr.Media.Video do
     :service_id,
     :service_type,
     :duration,
-    :mediainfo
+    :mediainfo,
+    :chosen_vmaf_id
   ]
 
   @required [
@@ -98,6 +99,7 @@ defmodule Reencodarr.Media.Video do
       default: :needs_analysis
 
     belongs_to :library, Reencodarr.Media.Library
+    belongs_to :chosen_vmaf, Reencodarr.Media.Vmaf
     has_many :vmafs, Reencodarr.Media.Vmaf
     has_many :failures, Reencodarr.Media.VideoFailure
 
