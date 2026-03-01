@@ -10,6 +10,12 @@ defmodule Reencodarr.Application do
     # Setup file logging
     setup_file_logging()
 
+    # Start Erlang distribution early so bin/rpc always works,
+    # regardless of whether the app was started via `iex -S mix phx.server`
+    # or `mix phx.server`. Previously this was only done in .iex.exs, which
+    # meant distribution was never started in non-IEx invocations.
+    maybe_start_distribution()
+
     opts = [strategy: :one_for_one, name: Reencodarr.Supervisor]
     Supervisor.start_link(children(), opts)
   end
@@ -17,6 +23,32 @@ defmodule Reencodarr.Application do
   defp setup_file_logging do
     if Code.ensure_loaded?(LoggerBackends) do
       LoggerBackends.add({LoggerFileBackend, :file})
+    end
+  end
+
+  defp maybe_start_distribution do
+    if !Node.alive?() and Application.get_env(:reencodarr, :start_distribution, true) do
+      node_name = System.get_env("REENCODARR_NODE")
+      cookie = System.get_env("REENCODARR_COOKIE", "reencodarr") |> String.to_atom()
+
+      name =
+        if node_name do
+          String.to_atom(node_name)
+        else
+          {:ok, host} = :inet.gethostname()
+          :"reencodarr@#{host}"
+        end
+
+      case Node.start(name, :shortnames) do
+        {:ok, _} ->
+          Node.set_cookie(cookie)
+          require Logger
+          Logger.info("Distribution started: #{Node.self()}")
+
+        {:error, reason} ->
+          require Logger
+          Logger.warning("Failed to start distribution as #{name}: #{inspect(reason)}")
+      end
     end
   end
 
