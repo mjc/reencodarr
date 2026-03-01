@@ -1,11 +1,7 @@
 IEx.configure(auto_reload: true)
 
-# Enable distribution for remote diagnostics (bin/rpc)
-if !Node.alive?() do
-  {:ok, host} = :inet.gethostname()
-  Node.start(:"reencodarr@#{host}", :shortnames)
-  Node.set_cookie(:reencodarr)
-end
+# Distribution is started by Application.start/2 (see lib/reencodarr/application.ex).
+# Both `iex -S mix phx.server` and `mix phx.server` will have a registered node.
 
 # Core modules
 alias Reencodarr.{Media, Repo, Rules, Services, Sync, Config}

@@ -44,3 +44,7 @@ config :phoenix_live_view,
 
 # Mark test environment so async DB tasks run synchronously
 config :reencodarr, env: :test
+
+# Don't start Erlang distribution in tests — avoids duplicate_name conflicts
+# with a running dev node and unnecessary epmd registration per test run.
+config :reencodarr, start_distribution: false
