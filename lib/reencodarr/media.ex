@@ -189,6 +189,23 @@ defmodule Reencodarr.Media do
   end
 
   @doc """
+  Resolves all unresolved CRF search failures for a video.
+
+  Called when a CRF search retry begins — previous attempt failures are no
+  longer relevant once a new attempt is underway; only the latest matters.
+  """
+  @spec resolve_crf_search_failures(integer()) :: {integer(), nil}
+  def resolve_crf_search_failures(video_id) do
+    now = DateTime.utc_now()
+
+    from(f in VideoFailure,
+      where: f.video_id == ^video_id and f.failure_stage == :crf_search and f.resolved == false,
+      update: [set: [resolved: true, resolved_at: ^now]]
+    )
+    |> Repo.update_all([])
+  end
+
+  @doc """
   Gets failure statistics for monitoring and investigation.
   """
   def get_failure_statistics(opts \\ []), do: VideoFailure.get_failure_statistics(opts)

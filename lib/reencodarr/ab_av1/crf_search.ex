@@ -714,6 +714,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     Logger.info("CrfSearch: Retrying video #{video.id} — #{reason}")
 
+    # Resolve previous attempt failures before recording this retry — only the
+    # current attempt's failure is relevant; stale attempts clutter diagnostics.
+    Media.resolve_crf_search_failures(video.id)
+
     Reencodarr.FailureTracker.record_vmaf_calculation_failure(
       video,
       "CRF search failed (#{reason}, will retry)",
