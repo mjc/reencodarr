@@ -5,20 +5,58 @@ defmodule ReencodarrWeb.VideosLive do
 
   use ReencodarrWeb, :live_view
 
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
 
   @per_page 50
+  @update_interval 30_000
   @valid_states ~w(needs_analysis analyzed crf_searching crf_searched encoding encoded failed)
+  @sortable_columns ~w(path state size width updated_at)a
 
   @impl true
   def mount(_params, _session, socket) do
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+      Process.send_after(self(), :periodic_update, @update_interval)
+    end
+
     socket =
       socket
-      |> assign(page: 1, state_filter: nil, search: "", videos: [], total: 0)
+      |> assign(
+        page: 1,
+        state_filter: nil,
+        search: "",
+        sort_by: :updated_at,
+        sort_dir: :desc,
+        videos: [],
+        total: 0
+      )
       |> load_videos()
 
     {:ok, socket}
   end
+
+  @impl true
+  def handle_info(:periodic_update, socket) do
+    Process.send_after(self(), :periodic_update, @update_interval)
+    {:noreply, load_videos(socket)}
+  end
+
+  # Reload on any event that indicates a video state changed
+  @impl true
+  def handle_info({event, _data}, socket)
+      when event in [
+             :encoding_completed,
+             :encoding_started,
+             :crf_search_completed,
+             :crf_search_started,
+             :analyzer_progress
+           ] do
+    {:noreply, load_videos(socket)}
+  end
+
+  @impl true
+  def handle_info({_event, _data}, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("filter_state", %{"state" => state}, socket) do
@@ -40,6 +78,27 @@ defmodule ReencodarrWeb.VideosLive do
       |> load_videos()
 
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_event("sort", %{"col" => col}, socket) do
+    col_atom = String.to_existing_atom(col)
+
+    {sort_by, sort_dir} =
+      if socket.assigns.sort_by == col_atom do
+        {col_atom, toggle_dir(socket.assigns.sort_dir)}
+      else
+        {col_atom, :asc}
+      end
+
+    socket =
+      socket
+      |> assign(sort_by: sort_by, sort_dir: sort_dir, page: 1)
+      |> load_videos()
+
+    {:noreply, socket}
+  rescue
+    ArgumentError -> {:noreply, socket}
   end
 
   @impl true
@@ -96,11 +155,16 @@ defmodule ReencodarrWeb.VideosLive do
         page: socket.assigns.page,
         per_page: @per_page,
         state: socket.assigns.state_filter,
-        search: socket.assigns.search
+        search: socket.assigns.search,
+        sort_by: socket.assigns.sort_by,
+        sort_dir: socket.assigns.sort_dir
       )
 
     assign(socket, videos: videos, total: total)
   end
+
+  defp toggle_dir(:asc), do: :desc
+  defp toggle_dir(:desc), do: :asc
 
   @impl true
   def render(assigns) do
@@ -148,24 +212,27 @@ defmodule ReencodarrWeb.VideosLive do
           <table class="min-w-full divide-y divide-gray-700">
             <thead class="bg-gray-750">
               <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Path
-                </th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  State
-                </th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Size
-                </th>
-                <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Resolution
-                </th>
+                <.sort_header col={:path} label="Path" sort_by={@sort_by} sort_dir={@sort_dir} />
+                <.sort_header col={:state} label="State" sort_by={@sort_by} sort_dir={@sort_dir} />
+                <.sort_header col={:size} label="Size" sort_by={@sort_by} sort_dir={@sort_dir} />
+                <.sort_header
+                  col={:width}
+                  label="Resolution"
+                  sort_by={@sort_by}
+                  sort_dir={@sort_dir}
+                />
                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                   Codecs
                 </th>
                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                   HDR
                 </th>
+                <.sort_header
+                  col={:updated_at}
+                  label="Updated"
+                  sort_by={@sort_by}
+                  sort_dir={@sort_dir}
+                />
                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                   Actions
                 </th>
@@ -195,6 +262,9 @@ defmodule ReencodarrWeb.VideosLive do
                   </td>
                   <td class="px-4 py-3 text-sm text-gray-300">
                     {video.hdr || "-"}
+                  </td>
+                  <td class="px-4 py-3 text-sm text-gray-400">
+                    {format_datetime(video.updated_at)}
                   </td>
                   <td class="px-4 py-3 text-sm">
                     <%= if video.state in [:failed, :encoded] do %>
@@ -240,6 +310,48 @@ defmodule ReencodarrWeb.VideosLive do
     """
   end
 
+  attr :col, :atom, required: true
+  attr :label, :string, required: true
+  attr :sort_by, :atom, required: true
+  attr :sort_dir, :atom, required: true
+
+  defp sort_header(assigns) do
+    active = assigns.col in @sortable_columns
+
+    assigns =
+      assign(assigns,
+        active: active,
+        is_sorted: assigns.sort_by == assigns.col,
+        dir: assigns.sort_dir
+      )
+
+    ~H"""
+    <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+      <%= if @active do %>
+        <button
+          phx-click="sort"
+          phx-value-col={@col}
+          class={"flex items-center gap-1 uppercase tracking-wider hover:text-white #{if @is_sorted, do: "text-purple-400", else: ""}"}
+        >
+          {@label}
+          <span class="text-xs">
+            <%= cond do %>
+              <% @is_sorted && @dir == :asc -> %>
+                ↑
+              <% @is_sorted && @dir == :desc -> %>
+                ↓
+              <% true -> %>
+                ↕
+            <% end %>
+          </span>
+        </button>
+      <% else %>
+        {@label}
+      <% end %>
+    </th>
+    """
+  end
+
   defp valid_states, do: @valid_states
 
   defp state_color(state) do
@@ -265,4 +377,14 @@ defmodule ReencodarrWeb.VideosLive do
       true -> "#{bytes} B"
     end
   end
+
+  defp format_datetime(nil), do: "-"
+
+  defp format_datetime(%NaiveDateTime{} = dt) do
+    dt
+    |> NaiveDateTime.to_date()
+    |> Date.to_iso8601()
+  end
+
+  defp format_datetime(%DateTime{} = dt), do: format_datetime(DateTime.to_naive(dt))
 end

@@ -1082,23 +1082,37 @@ defmodule Reencodarr.Media do
   List videos with pagination, optional state filter, and search.
   Returns {videos, total_count}.
   """
+  @valid_sort_fields ~w(path state size updated_at width)a
+  @valid_sort_dirs ~w(asc desc)a
+
   @spec list_videos_paginated(keyword()) :: {[Video.t()], non_neg_integer()}
   def list_videos_paginated(opts \\ []) do
     page = Keyword.get(opts, :page, 1)
     per_page = Keyword.get(opts, :per_page, 50)
     state_filter = Keyword.get(opts, :state, nil)
     search = Keyword.get(opts, :search, nil)
+    sort_by = Keyword.get(opts, :sort_by, :updated_at)
+    sort_dir = Keyword.get(opts, :sort_dir, :desc)
     offset = (page - 1) * per_page
 
+    sort_by = if sort_by in @valid_sort_fields, do: sort_by, else: :updated_at
+    sort_dir = if sort_dir in @valid_sort_dirs, do: sort_dir, else: :desc
+
     base =
-      from(v in Video, order_by: [desc: v.updated_at])
+      from(v in Video)
       |> maybe_filter_state(state_filter)
       |> maybe_filter_search(search)
+      |> apply_sort(sort_by, sort_dir)
 
     total = Repo.aggregate(base, :count, :id)
     videos = Repo.all(from(q in base, limit: ^per_page, offset: ^offset))
     {videos, total}
   end
+
+  defp apply_sort(query, :width, dir),
+    do: from(v in query, order_by: [{^dir, v.width}, {^dir, v.height}])
+
+  defp apply_sort(query, field, dir), do: from(v in query, order_by: [{^dir, field(v, ^field)}])
 
   defp maybe_filter_state(query, nil), do: query
   defp maybe_filter_state(query, ""), do: query
