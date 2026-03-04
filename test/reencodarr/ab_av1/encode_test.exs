@@ -155,4 +155,46 @@ defmodule Reencodarr.AbAv1.EncodeTest do
       assert Encode.available?() == :available
     end
   end
+
+  describe "extract_and_store_progress/2" do
+    # We test via send_progress_line/2 which calls extract_and_store_progress internally.
+    # Instead we unit-test the private function indirectly by injecting a line via handle_info.
+
+    test "parses integer fps without crashing (no bare rescue)", %{pid: pid} do
+      # Previously String.to_float("42") would raise; bare rescue hid the bug
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+      video = Fixtures.choose_vmaf(video, vmaf)
+      {:ok, video} = Media.mark_as_encoding(video)
+      vmaf = %{vmaf | video: video}
+
+      fake_encoder = spawn(fn -> Process.sleep(:infinity) end)
+
+      :sys.replace_state(pid, fn state ->
+        ref = Process.monitor(fake_encoder)
+
+        %{
+          state
+          | video: video,
+            vmaf: vmaf,
+            encoder_monitor: ref,
+            output_lines: [],
+            output_file: "/tmp/test.mkv",
+            encode_args: [],
+            partial_line_buffer: ""
+        }
+      end)
+
+      # Send a line with integer fps (no decimal point)
+      line_with_int_fps = "42%, 5 fps, eta 1h 23m"
+
+      send(pid, {Reencodarr.AbAv1.Encoder, {:line, line_with_int_fps}})
+      Process.sleep(50)
+
+      state = :sys.get_state(pid)
+      assert state.last_progress != nil
+      assert state.last_progress.percent == 42.0
+      assert state.last_progress.fps == 5.0
+    end
+  end
 end

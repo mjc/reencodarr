@@ -194,13 +194,7 @@ defmodule Reencodarr.AbAv1.Encode do
     try do
       ProgressParser.process_line(full_line, state)
       updated_state = extract_and_store_progress(full_line, state)
-
-      new_output_lines =
-        if length(output_lines) < 1024 do
-          [full_line | output_lines]
-        else
-          [full_line | Enum.take(output_lines, 1023)]
-        end
+      new_output_lines = append_output_line(full_line, output_lines)
 
       {:noreply, %{updated_state | partial_line_buffer: "", output_lines: new_output_lines}}
     rescue
@@ -502,6 +496,25 @@ defmodule Reencodarr.AbAv1.Encode do
     }
   end
 
+  # Keep the first @header_lines (diagnostic info from ab-av1 startup) plus the
+  # most recent lines, capped at @max_output_lines total.  Lines are stored in
+  # reverse order (newest first).
+  @max_output_lines 1024
+  @header_lines 50
+
+  defp append_output_line(line, output_lines) do
+    count = length(output_lines)
+
+    if count < @max_output_lines do
+      [line | output_lines]
+    else
+      # Preserve the last @header_lines in the list (= first emitted lines).
+      # Drop the middle, keep [ newest … | oldest @header_lines ].
+      tail_count = @max_output_lines - @header_lines - 1
+      [line | Enum.take(output_lines, tail_count) ++ Enum.slice(output_lines, -@header_lines..-1)]
+    end
+  end
+
   defp reset_video_if_present(%{video: :none}), do: :ok
 
   defp reset_video_if_present(%{video: video}) do
@@ -538,8 +551,8 @@ defmodule Reencodarr.AbAv1.Encode do
     case Regex.named_captures(progress_regex, line) do
       %{"percent" => percent_str, "fps" => fps_str, "eta" => eta_str} ->
         progress_data = %{
-          percent: String.to_float(percent_str),
-          fps: String.to_float(fps_str),
+          percent: parse_float(percent_str),
+          fps: parse_float(fps_str),
           eta: String.trim(eta_str)
         }
 
@@ -548,7 +561,14 @@ defmodule Reencodarr.AbAv1.Encode do
       nil ->
         state
     end
-  rescue
-    _ -> state
+  end
+
+  # Parse a numeric string as float, handling integers like "42" that
+  # String.to_float/1 would reject.
+  defp parse_float(str) do
+    case Float.parse(str) do
+      {val, _} -> val
+      :error -> 0.0
+    end
   end
 end
