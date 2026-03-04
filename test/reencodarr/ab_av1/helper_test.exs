@@ -237,7 +237,7 @@ defmodule Reencodarr.AbAv1.HelperTest do
     test "calls MP4Box -rem for MP4 with attached pictures" do
       file_path = "/media/movie.mp4"
 
-      ffprobe_response =
+      ffprobe_with_images =
         Jason.encode!(%{
           "streams" => [
             %{"codec_name" => "hevc", "codec_type" => "video"},
@@ -250,11 +250,30 @@ defmodule Reencodarr.AbAv1.HelperTest do
           ]
         })
 
+      ffprobe_clean =
+        Jason.encode!(%{
+          "streams" => [
+            %{
+              "codec_name" => "hevc",
+              "codec_type" => "video",
+              "disposition" => %{"attached_pic" => 0}
+            }
+          ]
+        })
+
+      counter = :counters.new(1, [:atomics])
       :meck.new(System, [:passthrough])
 
       :meck.expect(System, :cmd, fn
-        "ffprobe", _, _ -> {ffprobe_response, 0}
-        "MP4Box", ["-rem", "2", ^file_path], _ -> {"Done.\n", 0}
+        "ffprobe", _, _ ->
+          :counters.add(counter, 1, 1)
+
+          if :counters.get(counter, 1) == 1,
+            do: {ffprobe_with_images, 0},
+            else: {ffprobe_clean, 0}
+
+        "MP4Box", ["-rem", "2", ^file_path], _ ->
+          {"Done.\n", 0}
       end)
 
       assert {:ok, ^file_path} = Helper.clean_attachments(file_path)
@@ -262,6 +281,8 @@ defmodule Reencodarr.AbAv1.HelperTest do
       # Verify MP4Box was called with correct track number (index + 1)
       assert :meck.called(System, :cmd, ["MP4Box", ["-rem", "2", file_path], :_])
       refute :meck.called(System, :cmd, ["ffmpeg", :_, :_])
+      # Verify ffprobe was called twice (detection + verification)
+      assert :counters.get(counter, 1) == 2
 
       :meck.unload(System)
     end
@@ -269,7 +290,7 @@ defmodule Reencodarr.AbAv1.HelperTest do
     test "handles .m4v extension" do
       file_path = "/media/movie.m4v"
 
-      ffprobe_response =
+      ffprobe_with_images =
         Jason.encode!(%{
           "streams" => [
             %{"codec_name" => "hevc", "codec_type" => "video"},
@@ -282,11 +303,30 @@ defmodule Reencodarr.AbAv1.HelperTest do
           ]
         })
 
+      ffprobe_clean =
+        Jason.encode!(%{
+          "streams" => [
+            %{
+              "codec_name" => "hevc",
+              "codec_type" => "video",
+              "disposition" => %{"attached_pic" => 0}
+            }
+          ]
+        })
+
+      counter = :counters.new(1, [:atomics])
       :meck.new(System, [:passthrough])
 
       :meck.expect(System, :cmd, fn
-        "ffprobe", _, _ -> {ffprobe_response, 0}
-        "MP4Box", ["-rem", "3", ^file_path], _ -> {"Done.\n", 0}
+        "ffprobe", _, _ ->
+          :counters.add(counter, 1, 1)
+
+          if :counters.get(counter, 1) == 1,
+            do: {ffprobe_with_images, 0},
+            else: {ffprobe_clean, 0}
+
+        "MP4Box", ["-rem", "3", ^file_path], _ ->
+          {"Done.\n", 0}
       end)
 
       assert {:ok, ^file_path} = Helper.clean_attachments(file_path)
@@ -299,7 +339,7 @@ defmodule Reencodarr.AbAv1.HelperTest do
     test "handles multiple attached pictures" do
       file_path = "/media/movie.MP4"
 
-      ffprobe_response =
+      ffprobe_with_images =
         Jason.encode!(%{
           "streams" => [
             %{"codec_name" => "hevc", "codec_type" => "video"},
@@ -318,18 +358,39 @@ defmodule Reencodarr.AbAv1.HelperTest do
           ]
         })
 
+      ffprobe_clean =
+        Jason.encode!(%{
+          "streams" => [
+            %{
+              "codec_name" => "hevc",
+              "codec_type" => "video",
+              "disposition" => %{"attached_pic" => 0}
+            }
+          ]
+        })
+
+      counter = :counters.new(1, [:atomics])
       :meck.new(System, [:passthrough])
 
       :meck.expect(System, :cmd, fn
-        "ffprobe", _, _ -> {ffprobe_response, 0}
-        "MP4Box", ["-rem", _track_num, ^file_path], _ -> {"Done.\n", 0}
+        "ffprobe", _, _ ->
+          :counters.add(counter, 1, 1)
+
+          if :counters.get(counter, 1) == 1,
+            do: {ffprobe_with_images, 0},
+            else: {ffprobe_clean, 0}
+
+        "MP4Box", ["-rem", _track_num, ^file_path], _ ->
+          {"Done.\n", 0}
       end)
 
       assert {:ok, ^file_path} = Helper.clean_attachments(file_path)
 
-      # Verify MP4Box was called twice (once per track)
-      assert :meck.called(System, :cmd, ["MP4Box", ["-rem", "2", file_path], :_])
+      # Verify MP4Box was called twice (once per track, descending order)
       assert :meck.called(System, :cmd, ["MP4Box", ["-rem", "3", file_path], :_])
+      assert :meck.called(System, :cmd, ["MP4Box", ["-rem", "2", file_path], :_])
+      # Verify ffprobe was called twice (detection + verification)
+      assert :counters.get(counter, 1) == 2
 
       :meck.unload(System)
     end

@@ -153,9 +153,13 @@ defmodule Reencodarr.AbAv1.Helper do
 
   @spec clean_mp4_in_place(String.t(), list(map())) :: {:ok, String.t()}
   defp clean_mp4_in_place(file_path, attached_pics) do
-    # Get track IDs from ffprobe (1-indexed "index" field)
-    # MP4Box uses 1-based track numbering that matches ffprobe index + 1
-    track_ids = Enum.map(attached_pics, & &1["index"])
+    # MP4Box -rem uses track IDs from the container (tkhd box), which are
+    # typically ffprobe index + 1 but NOT guaranteed for complex files.
+    # Remove in descending order so earlier removals don't shift later IDs.
+    track_ids =
+      attached_pics
+      |> Enum.map(& &1["index"])
+      |> Enum.sort(:desc)
 
     Logger.info("Removing #{length(track_ids)} track(s) from #{file_path} using MP4Box")
 
@@ -169,12 +173,27 @@ defmodule Reencodarr.AbAv1.Helper do
         System.cmd("MP4Box", ["-rem", to_string(track_num), file_path], stderr_to_stdout: true)
       end)
 
-    if Enum.all?(results, fn {_, code} -> code == 0 end) do
-      Logger.info("Successfully cleaned tracks from #{file_path} (in-place)")
-      {:ok, file_path}
+    mp4box_ok = Enum.all?(results, fn {_, code} -> code == 0 end)
+
+    # Verify cleaning actually worked — MP4 track IDs may not match
+    # ffprobe index + 1, so MP4Box could silently remove the wrong track
+    # or succeed on a non-existent ID without error.
+    if mp4box_ok do
+      case detect_attached_pictures(file_path) do
+        {:ok, []} ->
+          Logger.info("Successfully cleaned tracks from #{file_path} (in-place)")
+          {:ok, file_path}
+
+        {:ok, remaining} ->
+          Logger.warning(
+            "MP4Box reported success but #{length(remaining)} image stream(s) remain " <>
+              "in #{file_path} — track ID mismatch? Falling back to ffmpeg remux"
+          )
+
+          clean_via_ffmpeg_remux(file_path)
+      end
     else
       Logger.warning("MP4Box failed, falling back to ffmpeg remux for #{file_path}")
-      # Fall back to ffmpeg remux
       clean_via_ffmpeg_remux(file_path)
     end
   end
@@ -195,7 +214,7 @@ defmodule Reencodarr.AbAv1.Helper do
              "-map",
              "0:V",
              "-map",
-             "0:a",
+             "0:a?",
              "-map",
              "0:s?",
              "-c",
