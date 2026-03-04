@@ -16,7 +16,7 @@ defmodule Reencodarr.AbAv1.Encode do
   alias Reencodarr.Core.Retry
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Encoder.Broadway.Producer
-  alias Reencodarr.{Media, PostProcessor}
+  alias Reencodarr.{FailureTracker, Media, PostProcessor}
   alias Reencodarr.Media.Vmaf
 
   require Logger
@@ -270,14 +270,22 @@ defmodule Reencodarr.AbAv1.Encode do
       when state.video != :none do
     Logger.error("AbAv1.Encode: Encoder process went down: #{inspect(reason)}")
 
+    video = if state.vmaf != :none, do: state.vmaf.video, else: state.video
+
     if state.vmaf != :none do
       Events.broadcast_event(:encoding_completed, %{
-        video_id: state.vmaf.video.id,
+        video_id: video.id,
         result: {:error, :encoder_died}
       })
-
-      Producer.dispatch_available()
     end
+
+    # Record failure for diagnostics, then reset video so it can be re-queued
+    FailureTracker.record_process_failure(video, :encoder_died,
+      context: %{reason: inspect(reason), output_lines: Enum.reverse(state.output_lines)}
+    )
+
+    reset_video_if_present(state)
+    Producer.dispatch_available()
 
     {:noreply, clear_state(state)}
   end

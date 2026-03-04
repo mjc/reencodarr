@@ -443,7 +443,7 @@ defmodule Reencodarr.FailureTracker do
   end
 
   defp special_atom_code?(exit_code) do
-    exit_code in [:port_error, :timeout, :exception]
+    exit_code in [:port_error, :timeout, :exception, :encoder_died]
   end
 
   defp classify_special_atom_code(exit_code) do
@@ -451,6 +451,7 @@ defmodule Reencodarr.FailureTracker do
       :port_error -> {:system_environment, "Failed to create encoding process"}
       :timeout -> {:timeout, "Encoding timeout - system may be overloaded"}
       :exception -> {:process_failure, "Unexpected exception during encoding"}
+      :encoder_died -> {:process_failure, "Encoder process died unexpectedly"}
     end
   end
 end
