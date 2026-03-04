@@ -17,15 +17,32 @@ defmodule Reencodarr.PostProcessor do
   @spec process_encoding_success(video :: any(), output_file :: String.t()) ::
           {:ok, :success} | {:error, atom()}
   def process_encoding_success(video, output_file) do
-    intermediate_path = FileOperations.calculate_intermediate_path(video)
+    case verify_encoded_output(video, output_file) do
+      :ok ->
+        store_original_size(video)
+        intermediate_path = FileOperations.calculate_intermediate_path(video)
 
-    case move_to_intermediate(output_file, intermediate_path, video) do
-      {:ok, actual_path} ->
-        process_intermediate_success(video, actual_path)
-        {:ok, :success}
+        case move_to_intermediate(output_file, intermediate_path, video) do
+          {:ok, actual_path} ->
+            process_intermediate_success(video, actual_path)
+            {:ok, :success}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
 
       {:error, reason} ->
-        {:error, reason}
+        Logger.error(
+          "Post-encode verification failed for video #{video.id}: #{reason}. Keeping original file."
+        )
+
+        Reencodarr.FailureTracker.record_process_failure(video, 0,
+          context: %{verification_error: reason, output_file: output_file}
+        )
+
+        # Clean up the invalid output file
+        File.rm(output_file)
+        {:error, :verification_failed}
     end
   end
 
@@ -167,4 +184,62 @@ defmodule Reencodarr.PostProcessor do
         )
     end
   end
+
+  # Verify the encoded output file exists, has content, and is smaller than original
+  defp verify_encoded_output(video, output_file) do
+    case File.stat(output_file) do
+      {:ok, %File.Stat{size: 0}} ->
+        {:error, "encoded file is empty (0 bytes)"}
+
+      {:ok, %File.Stat{size: encoded_size}} ->
+        original_size = video.size || 0
+
+        savings_pct =
+          if original_size > 0,
+            do: Float.round((1 - encoded_size / original_size) * 100, 1),
+            else: 0.0
+
+        Logger.info(
+          "Encoded video #{video.id}: #{format_size(encoded_size)} " <>
+            "(original: #{format_size(original_size)}, savings: #{savings_pct}%)"
+        )
+
+        if original_size > 0 and encoded_size > original_size do
+          Logger.warning(
+            "Encoded file is larger than original for video #{video.id} " <>
+              "(#{format_size(encoded_size)} > #{format_size(original_size)}). Proceeding anyway."
+          )
+        end
+
+        :ok
+
+      {:error, reason} ->
+        {:error, "encoded file not found: #{inspect(reason)}"}
+    end
+  end
+
+  # Save original file size before it gets replaced
+  defp store_original_size(video) do
+    if is_nil(video.original_size) and is_integer(video.size) and video.size > 0 do
+      case Media.update_video(video, %{original_size: video.size}) do
+        {:ok, _} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning(
+            "Failed to store original_size for video #{video.id}: #{inspect(reason)}"
+          )
+      end
+    end
+  end
+
+  defp format_size(bytes) when is_integer(bytes) and bytes > 0 do
+    cond do
+      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824, 1)} GiB"
+      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576, 1)} MiB"
+      true -> "#{bytes} B"
+    end
+  end
+
+  defp format_size(_), do: "unknown"
 end

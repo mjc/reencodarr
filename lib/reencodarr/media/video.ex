@@ -41,7 +41,8 @@ defmodule Reencodarr.Media.Video do
     :service_type,
     :duration,
     :mediainfo,
-    :chosen_vmaf_id
+    :chosen_vmaf_id,
+    :original_size
   ]
 
   @required [
@@ -72,6 +73,7 @@ defmodule Reencodarr.Media.Video do
     field :max_audio_channels, :integer
     field :path, :string
     field :size, :integer
+    field :original_size, :integer
     field :text_codecs, {:array, :string}, default: []
     field :text_count, :integer
     field :video_codecs, {:array, :string}, default: []
