@@ -599,6 +599,36 @@ defmodule Reencodarr.Media do
     delete_videos_by_ids(video_ids)
   end
 
+  @doc """
+  Deletes all videos (and their VMAFs/failures) whose path starts with the given
+  directory prefix. Used when a series or movie is deleted from Sonarr/Radarr.
+
+  Returns `{:ok, count}` with the number of deleted videos, or `{:error, reason}`.
+  """
+  def delete_videos_under_path(dir_path) when is_binary(dir_path) do
+    # Ensure trailing separator so we don't match partial directory names
+    prefix = String.trim_trailing(dir_path, "/") <> "/"
+    like_pattern = prefix <> "%"
+
+    video_ids =
+      from(v in Video,
+        where: like(v.path, ^like_pattern),
+        select: v.id
+      )
+      |> Repo.all()
+
+    case video_ids do
+      [] ->
+        {:ok, 0}
+
+      ids ->
+        case delete_videos_by_ids(ids) do
+          {:ok, _} -> {:ok, length(ids)}
+          err -> err
+        end
+    end
+  end
+
   def delete_videos_with_nonexistent_paths do
     Logger.info("Starting cleanup of videos with nonexistent paths...")
 

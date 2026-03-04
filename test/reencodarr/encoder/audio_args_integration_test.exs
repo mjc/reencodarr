@@ -92,8 +92,9 @@ defmodule Reencodarr.Encoder.AudioArgsIntegrationTest do
     end
 
     test "Rules.build_args handles multiple SVT flags correctly" do
-      hdr_video = Fixtures.create_hdr_video()
-      args = Rules.build_args(hdr_video, :encode)
+      # Use DV video to get dolbyvision=1 flag
+      dv_video = Fixtures.create_hdr_video(%{hdr: "DV"})
+      args = Rules.build_args(dv_video, :encode)
 
       # Should include multiple SVT arguments
       svt_indices =
@@ -107,7 +108,7 @@ defmodule Reencodarr.Encoder.AudioArgsIntegrationTest do
           value == "tune=0"
         end)
 
-      assert tune_found, "Should include tune=0 for HDR"
+      assert tune_found, "Should include tune=0 for DV"
 
       dv_found =
         Enum.any?(svt_indices, fn idx ->
@@ -115,7 +116,7 @@ defmodule Reencodarr.Encoder.AudioArgsIntegrationTest do
           value == "dolbyvision=1"
         end)
 
-      assert dv_found, "Should include dolbyvision=1 for HDR"
+      assert dv_found, "Should include dolbyvision=1 for DV"
     end
   end
 

@@ -28,7 +28,7 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
   end
 
   describe "build_crf_search_args/2" do
-    test "builds basic CRF search args without preset 6" do
+    test "builds basic CRF search args with preset from rules" do
       video = %{path: "/test/video.mkv"}
       target_vmaf = 95
 
@@ -39,18 +39,18 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       assert "/test/video.mkv" in args
       assert "--min-vmaf" in args
       assert "95" in args
-      # Should NOT include preset 6 by default
-      refute "--preset" in args || "6" in args
+      # Preset is now included from rules (preset/1)
+      assert "--preset" in args
     end
 
-    test "does not include preset 6 by default" do
+    test "includes preset from rules" do
       video = %{path: "/test/video.mkv"}
       target_vmaf = 90
 
       args = CrfSearch.build_crf_search_args(video, target_vmaf)
 
-      # Should NOT include preset 6 by default
-      refute "--preset" in args || "6" in args
+      # Preset is applied by the preset rule
+      assert "--preset" in args
     end
 
     test "always includes basic required arguments" do

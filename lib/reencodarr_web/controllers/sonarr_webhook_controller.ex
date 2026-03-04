@@ -159,12 +159,26 @@ defmodule ReencodarrWeb.SonarrWebhookController do
   defp handle_series_delete(conn, %{"series" => series} = _params) do
     series_title = series["title"]
     series_id = series["id"]
+    series_path = series["path"]
+
     Logger.info("Received SeriesDelete event from Sonarr for: #{series_title} (ID: #{series_id})")
 
-    # For now, just log the event. In the future, this could:
-    # - Remove all videos associated with this series
-    # - Clean up any tracking data for the series
-    # - Update library statistics
+    if is_binary(series_path) and series_path != "" do
+      case Reencodarr.Media.delete_videos_under_path(series_path) do
+        {:ok, 0} ->
+          Logger.info("SeriesDelete: no videos found under #{series_path}")
+
+        {:ok, count} ->
+          Logger.info("SeriesDelete: deleted #{count} videos under #{series_path}")
+
+        {:error, reason} ->
+          Logger.error(
+            "SeriesDelete: failed to delete videos under #{series_path}: #{inspect(reason)}"
+          )
+      end
+    else
+      Logger.warning("SeriesDelete: no path in webhook payload for #{series_title}")
+    end
 
     send_resp(conn, :no_content, "")
   end

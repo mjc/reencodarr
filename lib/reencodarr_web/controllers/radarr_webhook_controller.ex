@@ -146,12 +146,26 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   defp handle_movie_delete(conn, %{"movie" => movie} = _params) do
     movie_title = movie["title"]
     movie_id = movie["id"]
+    movie_path = movie["folderPath"] || movie["path"]
+
     Logger.info("Received MovieDelete event from Radarr for: #{movie_title} (ID: #{movie_id})")
 
-    # For now, just log the event. In the future, this could:
-    # - Remove all videos associated with this movie
-    # - Clean up any tracking data for the movie
-    # - Update library statistics
+    if is_binary(movie_path) and movie_path != "" do
+      case Reencodarr.Media.delete_videos_under_path(movie_path) do
+        {:ok, 0} ->
+          Logger.info("MovieDelete: no videos found under #{movie_path}")
+
+        {:ok, count} ->
+          Logger.info("MovieDelete: deleted #{count} videos under #{movie_path}")
+
+        {:error, reason} ->
+          Logger.error(
+            "MovieDelete: failed to delete videos under #{movie_path}: #{inspect(reason)}"
+          )
+      end
+    else
+      Logger.warning("MovieDelete: no path in webhook payload for #{movie_title}")
+    end
 
     send_resp(conn, :no_content, "")
   end

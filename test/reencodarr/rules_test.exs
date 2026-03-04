@@ -49,16 +49,27 @@ defmodule Reencodarr.RulesTest do
   end
 
   describe "build_args/4 - video-specific rules" do
-    test "HDR video includes multiple SVT flags" do
-      video = Fixtures.create_hdr_video()
+    test "DV video includes dolbyvision SVT flag" do
+      video = Fixtures.create_hdr_video(%{hdr: "DV"})
       args = Rules.build_args(video, :encode)
 
-      # Should include both SVT flags
+      # Should include both SVT flags for DV content
       tune_found = find_flag_value(args, "--svt", "tune=0")
       dv_found = find_flag_value(args, "--svt", "dolbyvision=1")
 
       assert tune_found
       assert dv_found
+    end
+
+    test "HDR10 video does not include dolbyvision flag" do
+      video = Fixtures.create_hdr_video(%{hdr: "HDR10"})
+      args = Rules.build_args(video, :encode)
+
+      tune_found = find_flag_value(args, "--svt", "tune=0")
+      dv_found = find_flag_value(args, "--svt", "dolbyvision=1")
+
+      assert tune_found
+      refute dv_found
     end
 
     test "high resolution video includes scaling filter" do
@@ -130,8 +141,8 @@ defmodule Reencodarr.RulesTest do
     end
 
     test "multiple SVT and ENC flags are preserved" do
-      # Use non-Atmos HDR video so audio rules apply
-      video = Fixtures.create_hdr_video(%{atmos: false})
+      # Use non-Atmos DV video so audio rules apply and dolbyvision is included
+      video = Fixtures.create_hdr_video(%{atmos: false, hdr: "DV"})
       additional_params = ["--svt", "extra=param", "--enc", "custom=setting"]
       args = Rules.build_args(video, :encode, additional_params)
 
@@ -284,13 +295,20 @@ defmodule Reencodarr.RulesTest do
       assert rules == [{"--acodec", "copy"}]
     end
 
-    test "hdr/1 with HDR video" do
-      video = Fixtures.create_hdr_video()
+    test "hdr/1 with DV video includes dolbyvision" do
+      video = Fixtures.create_hdr_video(%{hdr: "DV"})
       rules = Rules.hdr(video)
 
       assert {"--svt", "tune=0"} in rules
       assert {"--svt", "dolbyvision=1"} in rules
       assert length(rules) == 2
+    end
+
+    test "hdr/1 with HDR10 video does not include dolbyvision" do
+      video = Fixtures.create_hdr_video()
+      rules = Rules.hdr(video)
+
+      assert rules == [{"--svt", "tune=0"}]
     end
 
     test "hdr/1 with non-HDR video" do
@@ -398,17 +416,17 @@ defmodule Reencodarr.RulesTest do
       assert Enum.at(args, acodec_index + 1) == "copy"
     end
 
-    test "Rules.build_args handles multiple SVT flags correctly with HDR" do
-      # Use a simple struct with HDR
-      hdr_video = %Reencodarr.Media.Video{
+    test "Rules.build_args handles multiple SVT flags correctly with DV" do
+      # Use a simple struct with DV HDR
+      dv_video = %Reencodarr.Media.Video{
         atmos: false,
         max_audio_channels: 6,
         audio_codecs: ["A_EAC3"],
         height: 1080,
-        hdr: "HDR10"
+        hdr: "DV"
       }
 
-      args = Rules.build_args(hdr_video, :encode)
+      args = Rules.build_args(dv_video, :encode)
 
       # Should include multiple SVT arguments
       svt_indices =
@@ -416,14 +434,14 @@ defmodule Reencodarr.RulesTest do
         |> Enum.filter(fn {arg, _} -> arg == "--svt" end)
         |> Enum.map(&elem(&1, 1))
 
-      # Should have at least tune=0 and dolbyvision=1
+      # Should have tune=0 and dolbyvision=1 for DV content
       tune_found =
         Enum.any?(svt_indices, fn idx ->
           value = Enum.at(args, idx + 1)
           value == "tune=0"
         end)
 
-      assert tune_found, "Should include tune=0 for HDR"
+      assert tune_found, "Should include tune=0 for DV"
 
       dv_found =
         Enum.any?(svt_indices, fn idx ->
@@ -431,7 +449,36 @@ defmodule Reencodarr.RulesTest do
           value == "dolbyvision=1"
         end)
 
-      assert dv_found, "Should include dolbyvision=1 for HDR"
+      assert dv_found, "Should include dolbyvision=1 for DV"
+    end
+
+    test "Rules.build_args does not include dolbyvision for HDR10" do
+      hdr10_video = %Reencodarr.Media.Video{
+        atmos: false,
+        max_audio_channels: 6,
+        audio_codecs: ["A_EAC3"],
+        height: 1080,
+        hdr: "HDR10"
+      }
+
+      args = Rules.build_args(hdr10_video, :encode)
+
+      tune_found =
+        Enum.chunk_every(args, 2, 1)
+        |> Enum.any?(fn
+          ["--svt", "tune=0"] -> true
+          _ -> false
+        end)
+
+      dv_found =
+        Enum.chunk_every(args, 2, 1)
+        |> Enum.any?(fn
+          ["--svt", "dolbyvision=1"] -> true
+          _ -> false
+        end)
+
+      assert tune_found, "Should include tune=0 for HDR10"
+      refute dv_found, "Should NOT include dolbyvision=1 for HDR10"
     end
   end
 
@@ -456,11 +503,11 @@ defmodule Reencodarr.RulesTest do
       video = Fixtures.create_test_video(%{max_audio_channels: 2})
 
       # Single flag without value should be ignored
-      result = Rules.build_args(video, :encode, ["--preset"])
+      result = Rules.build_args(video, :encode, ["--cpu-used"])
 
       assert is_list(result)
-      # Should contain base rules but not the malformed preset
-      refute "--preset" in result
+      # Should contain base rules but not the malformed flag
+      refute "--cpu-used" in result
     end
 
     test "handles properly formed additional_params" do
@@ -861,12 +908,27 @@ defmodule Reencodarr.RulesTest do
   end
 
   describe "hdr/1" do
-    test "applies dolbyvision for HDR content" do
-      video = Fixtures.create_test_video(%{hdr: "HDR10"})
+    test "applies dolbyvision only for DV content" do
+      video = Fixtures.create_test_video(%{hdr: "DV"})
       result = Rules.hdr(video)
 
       assert {"--svt", "tune=0"} in result
       assert {"--svt", "dolbyvision=1"} in result
+    end
+
+    test "applies tune=0 only for HDR10 content (no dolbyvision)" do
+      video = Fixtures.create_test_video(%{hdr: "HDR10"})
+      result = Rules.hdr(video)
+
+      assert result == [{"--svt", "tune=0"}]
+      refute {"--svt", "dolbyvision=1"} in result
+    end
+
+    test "applies tune=0 for HLG content (no dolbyvision)" do
+      video = Fixtures.create_test_video(%{hdr: "HLG"})
+      result = Rules.hdr(video)
+
+      assert result == [{"--svt", "tune=0"}]
     end
 
     test "applies tune=0 for non-HDR content" do
@@ -878,11 +940,18 @@ defmodule Reencodarr.RulesTest do
   end
 
   describe "resolution/1" do
-    test "downscales content above 1080p" do
+    test "downscales 4K content (≥2160p)" do
       video = Fixtures.create_test_video(%{height: 2160})
       result = Rules.resolution(video)
 
       assert result == [{"--vfilter", "scale=1920:-2"}]
+    end
+
+    test "does not downscale 1440p content" do
+      video = Fixtures.create_test_video(%{height: 1440})
+      result = Rules.resolution(video)
+
+      assert result == []
     end
 
     test "does not downscale 1080p content" do
@@ -897,6 +966,45 @@ defmodule Reencodarr.RulesTest do
       result = Rules.resolution(video)
 
       assert result == []
+    end
+  end
+
+  describe "encoder/1" do
+    test "always returns svt-av1 encoder" do
+      video = Fixtures.create_test_video()
+      result = Rules.encoder(video)
+
+      assert result == [{"--encoder", "svt-av1"}]
+    end
+  end
+
+  describe "preset/1" do
+    test "returns preset 4 for 1080p content" do
+      video = Fixtures.create_test_video(%{height: 1080})
+      result = Rules.preset(video)
+
+      assert result == [{"--preset", "4"}]
+    end
+
+    test "returns preset 4 for 4K content" do
+      video = Fixtures.create_test_video(%{height: 2160})
+      result = Rules.preset(video)
+
+      assert result == [{"--preset", "4"}]
+    end
+
+    test "returns preset 6 for 720p content" do
+      video = Fixtures.create_test_video(%{height: 720})
+      result = Rules.preset(video)
+
+      assert result == [{"--preset", "6"}]
+    end
+
+    test "returns preset 6 for 480p content" do
+      video = Fixtures.create_test_video(%{height: 480})
+      result = Rules.preset(video)
+
+      assert result == [{"--preset", "6"}]
     end
   end
 

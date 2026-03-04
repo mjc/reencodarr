@@ -32,7 +32,17 @@ defmodule Reencodarr.Sync do
     {get_items, get_files, service_type} = resolve_action(action)
 
     Events.broadcast_event(:sync_started, %{service_type: service_type})
-    sync_items(get_items, get_files, service_type)
+
+    try do
+      sync_items(get_items, get_files, service_type)
+    rescue
+      e ->
+        Logger.error("Sync #{service_type} crashed: #{Exception.message(e)}")
+    catch
+      kind, reason ->
+        Logger.error("Sync #{service_type} failed (#{kind}): #{inspect(reason)}")
+    end
+
     Events.broadcast_event(:sync_completed, %{service_type: service_type})
 
     # Trigger analyzer to process any videos that need analysis after sync completion

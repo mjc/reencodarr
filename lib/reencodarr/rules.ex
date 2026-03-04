@@ -24,6 +24,8 @@ defmodule Reencodarr.Rules do
   @spec build_args(Media.Video.t(), :crf_search | :encode, list(), list()) :: [String.t()]
   def build_args(video, context, additional_params \\ [], base_args \\ []) do
     rules_to_apply = [
+      &encoder/1,
+      &preset/1,
       &hdr/1,
       &resolution/1,
       &video/1,
@@ -71,6 +73,8 @@ defmodule Reencodarr.Rules do
   def apply(video) do
     rules_to_apply = [
       &audio/1,
+      &encoder/1,
+      &preset/1,
       &hdr/1,
       &resolution/1,
       &video/1
@@ -341,12 +345,23 @@ defmodule Reencodarr.Rules do
     Parsers.extract_year_from_text(text)
   end
 
+  @spec encoder(Media.Video.t()) :: list()
+  def encoder(_), do: [{"--encoder", "svt-av1"}]
+
+  @spec preset(Media.Video.t()) :: list()
+  def preset(%Media.Video{height: height}) when is_integer(height) and height >= 1080 do
+    [{"--preset", "4"}]
+  end
+
+  def preset(_), do: [{"--preset", "6"}]
+
   @spec hdr(Media.Video.t()) :: list()
+  def hdr(%Media.Video{hdr: "DV"}) do
+    [{"--svt", "tune=0"}, {"--svt", "dolbyvision=1"}]
+  end
+
   def hdr(%Media.Video{hdr: hdr}) when is_binary(hdr) do
-    [
-      {"--svt", "tune=0"},
-      {"--svt", "dolbyvision=1"}
-    ]
+    [{"--svt", "tune=0"}]
   end
 
   def hdr(_) do
@@ -354,7 +369,7 @@ defmodule Reencodarr.Rules do
   end
 
   @spec resolution(Media.Video.t()) :: list()
-  def resolution(%Media.Video{height: height}) when height > 1080 do
+  def resolution(%Media.Video{height: height}) when is_integer(height) and height >= 2160 do
     [{"--vfilter", "scale=1920:-2"}]
   end
 
