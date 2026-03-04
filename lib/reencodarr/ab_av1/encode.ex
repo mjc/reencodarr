@@ -450,7 +450,7 @@ defmodule Reencodarr.AbAv1.Encode do
 
   defp output_extension(video_path) do
     case Path.extname(video_path) |> String.downcase() do
-      ".mp4" -> ".mp4"
+      ext when ext in [".mp4", ".m4v"] -> ".mp4"
       _ -> ".mkv"
     end
   end
