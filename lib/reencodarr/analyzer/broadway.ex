@@ -18,6 +18,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   }
 
   alias Reencodarr.Core.Retry
+  alias Reencodarr.CrfSearcher.Broadway.Producer, as: CrfProducer
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
   alias Reencodarr.Media.{Codecs, Video}
@@ -646,6 +647,11 @@ defmodule Reencodarr.Analyzer.Broadway do
             "Successfully marked as analyzed: #{video.path}, video_id: #{updated_video.id}, state: #{updated_video.state}"
           )
 
+          log_analyzed_video_info(updated_video)
+
+          # Wake up CRF searcher immediately so it picks up the newly analyzed video
+          CrfProducer.dispatch_available()
+
           {:ok, updated_video}
 
         {:error, error} ->
@@ -661,6 +667,18 @@ defmodule Reencodarr.Analyzer.Broadway do
       {:ok, video}
     end
   end
+
+  # Log notable video properties after analysis for operator visibility
+  defp log_analyzed_video_info(%{hdr: hdr} = video) when not is_nil(hdr) do
+    size_gb = Float.round(video.size / 1_073_741_824, 1)
+    resolution = "#{video.width}x#{video.height}"
+
+    Logger.info(
+      "Analyzed HDR video: #{Path.basename(video.path)} (#{hdr}, #{resolution}, #{size_gb} GiB)"
+    )
+  end
+
+  defp log_analyzed_video_info(_video), do: :ok
 
   # Pure helper functions to check for target codecs using Media.Codecs
   def has_av1_codec?(%{video_codecs: video_codecs}) when not is_nil(video_codecs) do

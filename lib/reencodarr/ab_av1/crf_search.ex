@@ -20,6 +20,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.Core.Time
   alias Reencodarr.CrfSearchHints
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.Encoder.Broadway.Producer, as: EncoderProducer
   alias Reencodarr.Formatters
   alias Reencodarr.Media
   alias Reencodarr.Media.Codecs
@@ -628,6 +629,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     })
 
     if state.searcher_monitor, do: Process.demonitor(state.searcher_monitor, [:flush])
+
+    # Wake up the encoder immediately so it picks up newly crf_searched videos
+    EncoderProducer.dispatch_available()
 
     new_state = %{
       state

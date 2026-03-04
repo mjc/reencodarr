@@ -20,6 +20,13 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     GenStage.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
+  def dispatch_available do
+    case Process.whereis(__MODULE__) do
+      nil -> {:error, :producer_not_found}
+      pid -> send(pid, :poll)
+    end
+  end
+
   @impl GenStage
   def init(_opts) do
     send(self(), :reset_orphaned)
