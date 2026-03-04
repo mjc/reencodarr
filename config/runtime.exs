@@ -21,6 +21,13 @@ if System.get_env("PHX_SERVER") do
 end
 
 if config_env() == :prod do
+  # Parse CHECK_ORIGIN env var: "false" disables, otherwise comma-separated origin list
+  parse_check_origin = fn
+    "false" -> false
+    "true" -> true
+    origins when is_binary(origins) -> String.split(origins, ",", trim: true)
+  end
+
   database_path =
     System.get_env("DATABASE_PATH") ||
       "priv/reencodarr_prod.db"
@@ -58,7 +65,10 @@ if config_env() == :prod do
       ip: {0, 0, 0, 0, 0, 0, 0, 0},
       port: port
     ],
-    secret_key_base: secret_key_base
+    secret_key_base: secret_key_base,
+    # Allow configuring check_origin via env var. Set to "false" to disable,
+    # or a comma-separated list of allowed origins like "https://app.example.com,https://other.com"
+    check_origin: parse_check_origin.(System.get_env("CHECK_ORIGIN", "false"))
   ]
 
   # Add HTTPS configuration if SSL is enabled

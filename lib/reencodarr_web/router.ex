@@ -53,6 +53,7 @@ defmodule ReencodarrWeb.Router do
   scope "/api", ReencodarrWeb do
     pipe_through :api
 
+    get "/health", HealthController, :index
     post "/webhooks/sonarr", SonarrWebhookController, :sonarr
     post "/webhooks/radarr", RadarrWebhookController, :radarr
   end

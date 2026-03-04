@@ -55,8 +55,8 @@ ENV PHX_SERVER=true
 ENV PORT=4000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD nix develop --command curl -f http://localhost:4000/ || exit 1
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
+    CMD curl -sf http://localhost:4000/api/health || exit 1
 
 # Start the application
 CMD ["./bin/reencodarr", "start"]
