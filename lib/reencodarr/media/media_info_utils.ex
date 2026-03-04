@@ -15,8 +15,6 @@ defmodule Reencodarr.Media.MediaInfoUtils do
   """
 
   alias Reencodarr.Core.Parsers
-
-  alias Reencodarr.Core.Parsers
   alias Reencodarr.Media.{CodecMapper, Codecs, MediaInfo, VideoFileInfo}
 
   @doc """
@@ -32,6 +30,7 @@ defmodule Reencodarr.Media.MediaInfoUtils do
     general = find_track(tracks, "General")
     video_track = find_track(tracks, "Video")
     audio_tracks = filter_tracks(tracks, "Audio")
+    text_tracks = filter_tracks(tracks, "Text")
 
     width = get_int_field(video_track, "Width", 0)
     height = get_int_field(video_track, "Height", 0)
@@ -63,7 +62,7 @@ defmodule Reencodarr.Media.MediaInfoUtils do
 
           # Text/subtitle info
           text_count: get_int_field(general, "TextCount", 0),
-          text_codecs: [],
+          text_codecs: extract_text_codecs(text_tracks),
 
           # Video counts
           video_count: get_int_field(general, "VideoCount", 0),
@@ -265,6 +264,17 @@ defmodule Reencodarr.Media.MediaInfoUtils do
       end
 
     if codec != "", do: codec, else: nil
+  end
+
+  # Extract text/subtitle codecs from text tracks
+  defp extract_text_codecs(text_tracks) do
+    Enum.map(text_tracks, fn track ->
+      case get_string_field(track, "CodecID", "") do
+        "" -> get_string_field(track, "Format", "")
+        codec_id -> codec_id
+      end
+    end)
+    |> Enum.reject(&(&1 == ""))
   end
 
   # Calculate the maximum audio channels across all tracks
