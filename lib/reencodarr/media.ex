@@ -1082,7 +1082,7 @@ defmodule Reencodarr.Media do
   List videos with pagination, optional state filter, and search.
   Returns {videos, total_count}.
   """
-  @valid_sort_fields ~w(path state size updated_at width)a
+  @valid_sort_fields ~w(path state size updated_at width bitrate)a
   @valid_sort_dirs ~w(asc desc)a
 
   @spec list_videos_paginated(keyword()) :: {[Video.t()], non_neg_integer()}
@@ -1093,6 +1093,8 @@ defmodule Reencodarr.Media do
     search = Keyword.get(opts, :search, nil)
     sort_by = Keyword.get(opts, :sort_by, :updated_at)
     sort_dir = Keyword.get(opts, :sort_dir, :desc)
+    service_type = Keyword.get(opts, :service_type, nil)
+    hdr = Keyword.get(opts, :hdr, nil)
     offset = (page - 1) * per_page
 
     sort_by = if sort_by in @valid_sort_fields, do: sort_by, else: :updated_at
@@ -1102,11 +1104,25 @@ defmodule Reencodarr.Media do
       from(v in Video)
       |> maybe_filter_state(state_filter)
       |> maybe_filter_search(search)
+      |> maybe_filter_service_type(service_type)
+      |> maybe_filter_hdr(hdr)
       |> apply_sort(sort_by, sort_dir)
 
     total = Repo.aggregate(base, :count, :id)
-    videos = Repo.all(from(q in base, limit: ^per_page, offset: ^offset))
+
+    videos =
+      Repo.all(from(q in base, limit: ^per_page, offset: ^offset))
+      |> Repo.preload(:chosen_vmaf)
+
     {videos, total}
+  end
+
+  @doc "Returns a map of %{state => count} for all video states."
+  @spec count_videos_by_state() :: %{atom() => non_neg_integer()}
+  def count_videos_by_state do
+    from(v in Video, group_by: v.state, select: {v.state, count(v.id)})
+    |> Repo.all()
+    |> Map.new()
   end
 
   defp apply_sort(query, :width, dir),
@@ -1135,6 +1151,22 @@ defmodule Reencodarr.Media do
     pattern = "%#{search}%"
     from(v in query, where: like(v.path, ^pattern))
   end
+
+  defp maybe_filter_service_type(query, nil), do: query
+
+  defp maybe_filter_service_type(query, service) when is_binary(service) do
+    atom = String.to_existing_atom(service)
+    from(v in query, where: v.service_type == ^atom)
+  rescue
+    ArgumentError -> query
+  end
+
+  defp maybe_filter_service_type(query, service) when is_atom(service),
+    do: from(v in query, where: v.service_type == ^service)
+
+  defp maybe_filter_hdr(query, nil), do: query
+  defp maybe_filter_hdr(query, true), do: from(v in query, where: not is_nil(v.hdr))
+  defp maybe_filter_hdr(query, false), do: from(v in query, where: is_nil(v.hdr))
 
   def get_videos_in_library(library_id) do
     Repo.all(from v in Video, where: v.library_id == ^library_id)
