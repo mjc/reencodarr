@@ -58,6 +58,9 @@
         "scrf"
     ],
     "chat.tools.terminal.autoApprove": {
-        "bin/rpc": true
+        "bin/rpc": true,
+        "ffprobe": true,
+        "ffmpeg": true,
+        "MP4Box": true
     }
 }
