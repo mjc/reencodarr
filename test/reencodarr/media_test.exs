@@ -2722,4 +2722,66 @@ defmodule Reencodarr.MediaTest do
       assert hd(result).savings == 100_000
     end
   end
+
+  describe "mark_analyzed_av1_videos_as_encoded/0" do
+    test "marks :analyzed video with AV1 codec as :encoded" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{state: :analyzed, video_codecs: ["AV1"]})
+
+      {count, _} = Media.mark_analyzed_av1_videos_as_encoded()
+
+      assert count >= 1
+      reloaded = Reencodarr.Repo.get!(Reencodarr.Media.Video, video.id)
+      assert reloaded.state == :encoded
+    end
+
+    test "marks :analyzed video with AV1 in filename as :encoded" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/media/Kill Bill (2011) - Remux-1080p AV1 Opus 5.1.mkv",
+          state: :analyzed,
+          video_codecs: ["h264"]
+        })
+
+      {count, _} = Media.mark_analyzed_av1_videos_as_encoded()
+
+      assert count >= 1
+      reloaded = Reencodarr.Repo.get!(Reencodarr.Media.Video, video.id)
+      assert reloaded.state == :encoded
+    end
+
+    test "does not touch :analyzed non-AV1 video" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/media/some_movie.mkv",
+          state: :analyzed,
+          video_codecs: ["h264"]
+        })
+
+      Media.mark_analyzed_av1_videos_as_encoded()
+
+      reloaded = Reencodarr.Repo.get!(Reencodarr.Media.Video, video.id)
+      assert reloaded.state == :analyzed
+    end
+
+    test "does not touch videos in other states" do
+      {:ok, unanalyzed} =
+        Fixtures.video_fixture(%{state: :needs_analysis, video_codecs: ["AV1"]})
+
+      Media.mark_analyzed_av1_videos_as_encoded()
+
+      reloaded = Reencodarr.Repo.get!(Reencodarr.Media.Video, unanalyzed.id)
+      assert reloaded.state == :needs_analysis
+    end
+
+    test "returns count of updated videos" do
+      {:ok, _} = Fixtures.video_fixture(%{state: :analyzed, video_codecs: ["AV1"]})
+      {:ok, _} = Fixtures.video_fixture(%{state: :analyzed, video_codecs: ["AV1"]})
+      {:ok, _} = Fixtures.video_fixture(%{state: :analyzed, video_codecs: ["h264"]})
+
+      {count, _} = Media.mark_analyzed_av1_videos_as_encoded()
+
+      assert count == 2
+    end
+  end
 end

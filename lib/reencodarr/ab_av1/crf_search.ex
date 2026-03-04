@@ -22,6 +22,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Formatters
   alias Reencodarr.Media
+  alias Reencodarr.Media.Codecs
   alias Reencodarr.Repo
 
   require Logger
@@ -62,13 +63,28 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   def crf_search(video, vmaf_percent) do
-    if Media.chosen_vmaf_exists?(video) do
-      Logger.info("Skipping crf search for video #{video.path} as a chosen VMAF already exists")
-    else
-      GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
-    end
+    cond do
+      av1_video?(video) ->
+        Logger.info("Skipping crf search for #{video.path} - already AV1, marking as encoded")
+        Media.mark_as_encoded(video)
+        :ok
 
-    :ok
+      Media.chosen_vmaf_exists?(video) ->
+        Logger.info("Skipping crf search for video #{video.path} as a chosen VMAF already exists")
+        :ok
+
+      true ->
+        GenServer.cast(__MODULE__, {:crf_search, video, vmaf_percent})
+        :ok
+    end
+  end
+
+  defp av1_video?(video) do
+    Codecs.has_av1_codec?(video.video_codecs) or has_av1_in_filename?(video.path)
+  end
+
+  defp has_av1_in_filename?(path) do
+    path |> Path.basename() |> String.downcase() |> String.contains?("av1")
   end
 
   def running? do

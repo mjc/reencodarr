@@ -60,6 +60,54 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
       # Should always return a boolean
       assert is_boolean(CrfSearch.running?())
     end
+
+    test "crf_search/2 skips AV1 video by codec and marks it as encoded", %{video: video} do
+      capture_log(fn ->
+        {:ok, av1_video} =
+          Media.update_video(video, %{video_codecs: ["AV1"], state: :analyzed})
+
+        result = CrfSearch.crf_search(av1_video, 95)
+        assert result == :ok
+
+        Process.sleep(50)
+
+        reloaded = Repo.get!(Reencodarr.Media.Video, av1_video.id)
+        assert reloaded.state == :encoded
+      end)
+    end
+
+    test "crf_search/2 skips AV1 video by filename and marks it as encoded", %{video: _video} do
+      capture_log(fn ->
+        {:ok, av1_filename_video} =
+          Fixtures.video_fixture(%{
+            path:
+              "/media/Kill Bill The Whole Bloody Affair (2011) - Remux-1080p AV1 Opus 5.1.mkv",
+            video_codecs: ["h264"],
+            state: :analyzed
+          })
+
+        result = CrfSearch.crf_search(av1_filename_video, 95)
+        assert result == :ok
+
+        Process.sleep(50)
+
+        reloaded = Repo.get!(Reencodarr.Media.Video, av1_filename_video.id)
+        assert reloaded.state == :encoded
+      end)
+    end
+
+    test "crf_search/2 does not skip non-AV1 video by codec or filename", %{video: video} do
+      capture_log(fn ->
+        result = CrfSearch.crf_search(video, 95)
+        assert result == :ok
+
+        Process.sleep(50)
+
+        reloaded = Repo.get!(Reencodarr.Media.Video, video.id)
+        # Still :analyzed or :crf_searching — not :encoded
+        refute reloaded.state == :encoded
+      end)
+    end
   end
 
   describe "workflow integration" do

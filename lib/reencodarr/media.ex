@@ -139,6 +139,24 @@ defmodule Reencodarr.Media do
     VideoStateMachine.mark_as_encoded(video)
   end
 
+  @doc """
+  Bulk-marks all :analyzed videos that are already AV1 (by codec or filename) as :encoded.
+
+  Returns `{count, nil}` like `Repo.update_all/2`.
+  """
+  def mark_analyzed_av1_videos_as_encoded do
+    Repo.update_all(
+      from(v in Video,
+        where: v.state == :analyzed,
+        where:
+          fragment("? LIKE '%\"V_AV1\"%'", v.video_codecs) or
+            fragment("? LIKE '%\"AV1\"%'", v.video_codecs) or
+            fragment("LOWER(?) LIKE '%av1%'", v.path)
+      ),
+      set: [state: :encoded]
+    )
+  end
+
   # --- Video Failure Tracking Functions ---
 
   @doc """
