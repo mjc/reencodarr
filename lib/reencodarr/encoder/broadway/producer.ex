@@ -8,6 +8,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   require Logger
   alias Reencodarr.AbAv1.Encode
   alias Reencodarr.Media
+  alias Reencodarr.TempCleaner
 
   # Poll every 2 seconds to check for new work
   @poll_interval_ms 2000
@@ -60,12 +61,16 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
     status = Encode.available?()
 
     vmaf_list =
-      if status == :available do
+      if status == :available and TempCleaner.sufficient_disk_space?() do
         case Media.get_next_for_encoding(1) do
           [%Reencodarr.Media.Vmaf{} = vmaf] -> [vmaf]
           [] -> []
         end
       else
+        if status == :available do
+          Logger.warning("Encoder: insufficient disk space, skipping dispatch")
+        end
+
         []
       end
 

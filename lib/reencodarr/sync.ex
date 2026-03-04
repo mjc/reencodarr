@@ -14,6 +14,8 @@ defmodule Reencodarr.Sync do
   @default_batch_size 50
   @default_fetch_timeout_ms 90_000
   @default_fetch_concurrency 8
+  # Sync every 6 hours by default; override via :sync_interval_ms app env
+  @default_sync_interval_ms :timer.hours(6)
 
   # Public API
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -21,7 +23,10 @@ defmodule Reencodarr.Sync do
   def sync_movies, do: GenServer.cast(__MODULE__, :sync_movies)
 
   # GenServer Callbacks
-  def init(state), do: {:ok, state}
+  def init(state) do
+    schedule_sync()
+    {:ok, state}
+  end
 
   def handle_cast(:refresh_and_rename_series, state) do
     Services.Sonarr.refresh_and_rename_all_series()
@@ -50,6 +55,16 @@ defmodule Reencodarr.Sync do
 
     {:noreply, state}
   end
+
+  def handle_info(:periodic_sync, state) do
+    Logger.info("Sync: running scheduled periodic sync")
+    sync_episodes()
+    sync_movies()
+    schedule_sync()
+    {:noreply, state}
+  end
+
+  def handle_info(_msg, state), do: {:noreply, state}
 
   # Private Functions
   defp resolve_action(:sync_episodes),
@@ -507,5 +522,10 @@ defmodule Reencodarr.Sync do
   # Extract year from filename as fallback using the centralized high-performance Parsers function
   defp extract_year_from_filename(path) do
     Parsers.extract_year_from_text(path)
+  end
+
+  defp schedule_sync do
+    interval = Application.get_env(:reencodarr, :sync_interval_ms, @default_sync_interval_ms)
+    Process.send_after(self(), :periodic_sync, interval)
   end
 end

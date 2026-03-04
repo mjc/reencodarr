@@ -92,7 +92,8 @@ defmodule Reencodarr.Application do
       Reencodarr.CrfSearcher.Supervisor,
       Reencodarr.Encoder.Supervisor,
       Reencodarr.Encoder.HealthCheck,
-      Reencodarr.Dashboard.State
+      Reencodarr.Dashboard.State,
+      Reencodarr.TempCleaner
     ]
 
     # Only start Analyzer GenStage in non-test environments

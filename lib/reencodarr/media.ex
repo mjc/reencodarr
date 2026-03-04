@@ -1078,6 +1078,50 @@ defmodule Reencodarr.Media do
     Repo.aggregate(Video, :count, :id)
   end
 
+  @doc """
+  List videos with pagination, optional state filter, and search.
+  Returns {videos, total_count}.
+  """
+  @spec list_videos_paginated(keyword()) :: {[Video.t()], non_neg_integer()}
+  def list_videos_paginated(opts \\ []) do
+    page = Keyword.get(opts, :page, 1)
+    per_page = Keyword.get(opts, :per_page, 50)
+    state_filter = Keyword.get(opts, :state, nil)
+    search = Keyword.get(opts, :search, nil)
+    offset = (page - 1) * per_page
+
+    base =
+      from(v in Video, order_by: [desc: v.updated_at])
+      |> maybe_filter_state(state_filter)
+      |> maybe_filter_search(search)
+
+    total = Repo.aggregate(base, :count, :id)
+    videos = Repo.all(from(q in base, limit: ^per_page, offset: ^offset))
+    {videos, total}
+  end
+
+  defp maybe_filter_state(query, nil), do: query
+  defp maybe_filter_state(query, ""), do: query
+
+  defp maybe_filter_state(query, state) when is_binary(state) do
+    state_atom = String.to_existing_atom(state)
+    from(v in query, where: v.state == ^state_atom)
+  rescue
+    ArgumentError -> query
+  end
+
+  defp maybe_filter_state(query, state) when is_atom(state) do
+    from(v in query, where: v.state == ^state)
+  end
+
+  defp maybe_filter_search(query, nil), do: query
+  defp maybe_filter_search(query, ""), do: query
+
+  defp maybe_filter_search(query, search) when is_binary(search) do
+    pattern = "%#{search}%"
+    from(v in query, where: like(v.path, ^pattern))
+  end
+
   def get_videos_in_library(library_id) do
     Repo.all(from v in Video, where: v.library_id == ^library_id)
   end
