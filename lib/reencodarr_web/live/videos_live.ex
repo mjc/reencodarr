@@ -116,7 +116,7 @@ defmodule ReencodarrWeb.VideosLive do
             {@total} videos total
           </p>
         </div>
-
+        
     <!-- Filters -->
         <div class="flex flex-wrap gap-4 items-center">
           <form phx-change="search" class="flex-1 min-w-[200px]">
@@ -142,7 +142,7 @@ defmodule ReencodarrWeb.VideosLive do
             </select>
           </form>
         </div>
-
+        
     <!-- Table -->
         <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
           <table class="min-w-full divide-y divide-gray-700">
@@ -212,7 +212,7 @@ defmodule ReencodarrWeb.VideosLive do
             </tbody>
           </table>
         </div>
-
+        
     <!-- Pagination -->
         <div class="flex justify-between items-center text-sm text-gray-400">
           <span>
