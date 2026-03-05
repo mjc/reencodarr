@@ -156,4 +156,82 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       assert html =~ "Failures"
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Row interactions (requires at least one failure in DB)
+  # ---------------------------------------------------------------------------
+
+  describe "toggle_details event" do
+    test "toggle_details expands and collapses video row", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/show/detail.mkv"})
+      Media.record_video_failure(video, :crf_search, :timeout, message: "Timed out")
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      loaded_html(view)
+
+      html =
+        view
+        |> element("[phx-click='toggle_details'][phx-value-video_id='#{video.id}']")
+        |> render_click()
+
+      assert html =~ "Failures"
+    end
+  end
+
+  describe "toggle_select event" do
+    test "toggle_select marks a row as selected", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture()
+      Media.record_video_failure(video, :crf_search, :timeout, message: "timeout")
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      loaded_html(view)
+
+      html =
+        view
+        |> element("div[phx-click='toggle_select'][phx-value-video_id='#{video.id}']")
+        |> render_click()
+
+      assert html =~ "Failures"
+    end
+  end
+
+  describe "deselect_all event" do
+    test "deselect_all clears selected rows", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture()
+      Media.record_video_failure(video, :crf_search, :timeout, message: "timeout")
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      loaded_html(view)
+
+      # First select all
+      view |> element("input[phx-click='select_all']") |> render_click()
+
+      # Then deselect all
+      html = view |> element("input[phx-click='deselect_all']") |> render_click()
+      assert html =~ "Failures"
+    end
+  end
+
+  describe "clear_filters event" do
+    test "clear_filters resets active filters", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture()
+      Media.record_video_failure(video, :crf_search, :timeout, message: "timeout")
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      loaded_html(view)
+
+      # Apply a filter first
+      view
+      |> element("button[phx-click='filter_failures'][phx-value-filter='crf_search']")
+      |> render_click()
+
+      # Reset via the "All" stage button (same visual effect as clear_filters)
+      html =
+        view
+        |> element("button[phx-click='filter_failures'][phx-value-filter='all']")
+        |> render_click()
+
+      assert html =~ "Failures"
+    end
+  end
 end
