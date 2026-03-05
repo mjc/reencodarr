@@ -43,7 +43,14 @@ defmodule Reencodarr.FailureTracker do
     error_summary =
       Enum.map_join(changeset_errors, ", ", fn {field, {msg, _}} -> "#{field}: #{msg}" end)
 
-    context = Map.merge(%{changeset_errors: changeset_errors}, Keyword.get(opts, :context, %{}))
+    # Convert tuples to maps for JSON serialization in SQLite :map field
+    serializable_errors =
+      Enum.map(changeset_errors, fn {field, {msg, validation_opts}} ->
+        %{field: field, message: msg, validation: Keyword.get(validation_opts, :validation)}
+      end)
+
+    context =
+      Map.merge(%{changeset_errors: serializable_errors}, Keyword.get(opts, :context, %{}))
 
     Media.record_video_failure(video, :analysis, :validation,
       code: "VALIDATION",

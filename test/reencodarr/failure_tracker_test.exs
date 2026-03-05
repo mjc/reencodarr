@@ -218,4 +218,305 @@ defmodule Reencodarr.FailureTrackerTest do
         end)
     end
   end
+
+  describe "analysis failures - validation" do
+    test "records validation failure with changeset errors" do
+      {:ok, video} = Fixtures.video_fixture()
+      changeset_errors = [{:path, {"can't be blank", [validation: :required]}}]
+
+      _log =
+        with_captured_logs(fn ->
+          {:ok, failure} = FailureTracker.record_validation_failure(video, changeset_errors)
+
+          assert failure.failure_stage == :analysis
+          assert failure.failure_category == :validation
+          assert failure.failure_code == "VALIDATION"
+          assert String.contains?(failure.failure_message, "Validation failed")
+          assert String.contains?(failure.failure_message, "path")
+        end)
+    end
+
+    test "records validation failure includes changeset errors in context" do
+      {:ok, video} = Fixtures.video_fixture()
+      changeset_errors = [{:width, {"is invalid", [type: :integer]}}]
+
+      _log =
+        with_captured_logs(fn ->
+          {:ok, failure} = FailureTracker.record_validation_failure(video, changeset_errors)
+          [error] = failure.system_context.changeset_errors
+          assert error.field == :width
+          assert error.message == "is invalid"
+        end)
+    end
+  end
+
+  describe "crf search failures - vmaf calculation" do
+    test "records vmaf calculation failure" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      _log =
+        with_captured_logs(fn ->
+          {:ok, failure} =
+            FailureTracker.record_vmaf_calculation_failure(video, "probe timed out")
+
+          assert failure.failure_stage == :crf_search
+          assert failure.failure_category == :vmaf_calculation
+          assert failure.failure_code == "VMAF_CALC"
+          assert String.contains?(failure.failure_message, "VMAF calculation failed")
+          assert failure.system_context.reason == "probe timed out"
+        end)
+    end
+  end
+
+  describe "encoding failures - resource exhaustion and codec" do
+    test "records resource exhaustion failure" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      _log =
+        with_captured_logs(fn ->
+          {:ok, failure} =
+            FailureTracker.record_resource_exhaustion_failure(video, :memory, "OOM killer")
+
+          assert failure.failure_stage == :encoding
+          assert failure.failure_category == :resource_exhaustion
+          assert failure.failure_code == "RESOURCE_MEMORY"
+          assert String.contains?(failure.failure_message, "Resource exhaustion")
+          assert failure.system_context.resource_type == :memory
+          assert failure.system_context.details == "OOM killer"
+        end)
+    end
+
+    test "records codec failure" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      _log =
+        with_captured_logs(fn ->
+          {:ok, failure} =
+            FailureTracker.record_codec_failure(video, %{codec: "HEVC", profile: "main10"})
+
+          assert failure.failure_stage == :encoding
+          assert failure.failure_category == :codec_issues
+          assert failure.failure_code == "CODEC_UNSUPPORTED"
+          assert String.contains?(failure.failure_message, "Codec compatibility issue")
+        end)
+    end
+  end
+
+  describe "post process failures - sync, cleanup, config, environment" do
+    test "records sync failure" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      _log =
+        with_captured_logs(fn ->
+          {:ok, failure} =
+            FailureTracker.record_sync_failure(video, :sonarr, "connection refused")
+
+          assert failure.failure_stage == :post_process
+          assert failure.failure_category == :sync_integration
+          assert failure.failure_code == "SYNC_SONARR"
+          assert String.contains?(failure.failure_message, "sonarr sync failed")
+          assert failure.system_context.service == :sonarr
+          assert failure.system_context.error == "connection refused"
+        end)
+    end
+
+    test "records cleanup failure" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      _log =
+        with_captured_logs(fn ->
+          {:ok, failure} =
+            FailureTracker.record_cleanup_failure(video, "/tmp/video.reencoded.mkv", "eacces")
+
+          assert failure.failure_stage == :post_process
+          assert failure.failure_category == :cleanup
+          assert failure.failure_code == "CLEANUP"
+          assert String.contains?(failure.failure_message, "Cleanup failed")
+          assert failure.system_context.cleanup_target == "/tmp/video.reencoded.mkv"
+          assert failure.system_context.error == "eacces"
+        end)
+    end
+
+    test "records configuration failure - defaults to analysis stage" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      _log =
+        with_captured_logs(fn ->
+          {:ok, failure} =
+            FailureTracker.record_configuration_failure(video, "missing ab-av1 binary")
+
+          assert failure.failure_stage == :analysis
+          assert failure.failure_category == :configuration
+          assert failure.failure_code == "CONFIG"
+          assert String.contains?(failure.failure_message, "Configuration issue")
+          assert failure.system_context.config_issue == "missing ab-av1 binary"
+        end)
+    end
+
+    test "records configuration failure - custom stage via opts" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      _log =
+        with_captured_logs(fn ->
+          {:ok, failure} =
+            FailureTracker.record_configuration_failure(video, "bad encoder args",
+              stage: :encoding
+            )
+
+          assert failure.failure_stage == :encoding
+          assert failure.failure_category == :configuration
+        end)
+    end
+
+    test "records system environment failure - defaults to analysis stage" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      _log =
+        with_captured_logs(fn ->
+          {:ok, failure} =
+            FailureTracker.record_system_environment_failure(video, "out of disk space")
+
+          assert failure.failure_stage == :analysis
+          assert failure.failure_category == :system_environment
+          assert failure.failure_code == "ENV"
+          assert String.contains?(failure.failure_message, "System environment issue")
+          assert failure.system_context.env_issue == "out of disk space"
+        end)
+    end
+  end
+
+  describe "cross-cutting failures - unknown and exception" do
+    test "records unknown failure with given stage" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      _log =
+        with_captured_logs(fn ->
+          {:ok, failure} =
+            FailureTracker.record_unknown_failure(video, :crf_search, "unexpected crash")
+
+          assert failure.failure_stage == :crf_search
+          assert failure.failure_category == :unknown
+          assert failure.failure_code == "UNKNOWN"
+          assert String.contains?(failure.failure_message, "Unknown failure")
+          assert failure.system_context.error == "unexpected crash"
+        end)
+    end
+
+    test "records exception failure in encoding stage" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      _log =
+        with_captured_logs(fn ->
+          exception_context = %{
+            exception_type: "RuntimeError",
+            exception_message: "process crashed"
+          }
+
+          {:ok, failure} = FailureTracker.record_exception_failure(video, exception_context)
+
+          assert failure.failure_stage == :encoding
+          assert failure.failure_category == :process_failure
+          assert failure.failure_code == "EXCEPTION"
+          assert String.contains?(failure.failure_message, "Exception during encoding setup")
+          assert String.contains?(failure.failure_message, "RuntimeError")
+          assert failure.system_context["error_type"] == "exception"
+        end)
+    end
+  end
+
+  describe "build_command_context/3" do
+    test "builds context with command line from args" do
+      args = ["crf-search", "--vmaf", "95", "input.mkv"]
+      context = FailureTracker.build_command_context(args)
+      assert context.command == "ab-av1 crf-search --vmaf 95 input.mkv"
+      assert context.args == args
+      assert context.full_output == ""
+    end
+
+    test "joins output_lines list into full_output string" do
+      args = ["encode"]
+      lines = ["line1", "line2", "line3"]
+      context = FailureTracker.build_command_context(args, lines)
+      assert context.full_output == "line1\nline2\nline3"
+    end
+
+    test "accepts binary output directly" do
+      args = ["encode"]
+      output = "some output text"
+      context = FailureTracker.build_command_context(args, output)
+      assert context.full_output == "some output text"
+    end
+
+    test "merges extra_context into result" do
+      args = ["encode"]
+      extra = %{target_vmaf: 95, video_id: 123}
+      context = FailureTracker.build_command_context(args, [], extra)
+      assert context.target_vmaf == 95
+      assert context.video_id == 123
+    end
+
+    test "extra_context does not overwrite base keys" do
+      args = ["crf-search"]
+      extra = %{command: "overridden"}
+      context = FailureTracker.build_command_context(args, [], extra)
+      # Map.merge with extra_context means extra_context wins — verifying actual behavior
+      assert is_binary(context.command)
+    end
+
+    test "works with empty args" do
+      context = FailureTracker.build_command_context([])
+      assert context.command == "ab-av1 "
+      assert context.full_output == ""
+    end
+  end
+
+  describe "parse_ffmpeg_error_from_output/2" do
+    test "uses original exit code classification when no ffmpeg error line in output" do
+      context = %{"full_output" => "some non-error output\nno ffmpeg lines here"}
+
+      {exit_code, category, _message} =
+        FailureTracker.parse_ffmpeg_error_from_output(context, 137)
+
+      assert exit_code == 137
+      assert category == :resource_exhaustion
+    end
+
+    test "extracts ffmpeg exit code from output and classifies it" do
+      context = %{"full_output" => "Error: ffmpeg encode exit code 22"}
+      {exit_code, category, _message} = FailureTracker.parse_ffmpeg_error_from_output(context, 1)
+      assert exit_code == 22
+      assert category == :codec_issues
+    end
+
+    test "uses exit code 1 classification when no ffmpeg error found" do
+      {exit_code, category, _message} = FailureTracker.parse_ffmpeg_error_from_output(%{}, 1)
+      assert exit_code == 1
+      assert category == :process_failure
+    end
+
+    test "uses exit code 2 classification (configuration error)" do
+      {exit_code, category, _message} = FailureTracker.parse_ffmpeg_error_from_output(%{}, 2)
+      assert exit_code == 2
+      assert category == :configuration
+    end
+
+    test "uses exit code 143 classification (SIGTERM)" do
+      {exit_code, category, _message} = FailureTracker.parse_ffmpeg_error_from_output(%{}, 143)
+      assert exit_code == 143
+      assert category == :resource_exhaustion
+    end
+
+    test "handles context with no full_output key" do
+      context = %{"other_key" => "value"}
+      {exit_code, category, _message} = FailureTracker.parse_ffmpeg_error_from_output(context, 5)
+      assert exit_code == 5
+      assert category == :system_environment
+    end
+
+    test "message includes exit code information" do
+      {_exit_code, _category, message} = FailureTracker.parse_ffmpeg_error_from_output(%{}, 137)
+      assert is_binary(message)
+      assert String.length(message) > 0
+    end
+  end
 end

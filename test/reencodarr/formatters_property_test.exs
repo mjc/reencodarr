@@ -293,7 +293,29 @@ defmodule Reencodarr.FormattersPropertyTest do
 
   describe "get_unit_multiplier/1 property tests" do
     property "returns valid multipliers for known units" do
-      check all(unit <- member_of(["B", "KB", "MB", "GB", "TB", "b", "kb", "mb", "gb", "tb"])) do
+      check all(
+              unit <-
+                member_of([
+                  "B",
+                  "KB",
+                  "MB",
+                  "GB",
+                  "TB",
+                  "b",
+                  "kb",
+                  "mb",
+                  "gb",
+                  "tb",
+                  "KiB",
+                  "MiB",
+                  "GiB",
+                  "TiB",
+                  "kib",
+                  "mib",
+                  "gib",
+                  "tib"
+                ])
+            ) do
         result = Formatters.get_unit_multiplier(unit)
         assert {:ok, multiplier} = result
         assert is_integer(multiplier)
@@ -304,8 +326,9 @@ defmodule Reencodarr.FormattersPropertyTest do
     property "returns error for invalid units" do
       check all(unit <- string(:ascii, max_length: 5)) do
         result = Formatters.get_unit_multiplier(unit)
+        valid_units = ["b", "kb", "kib", "mb", "mib", "gb", "gib", "tb", "tib"]
 
-        if unit in ["B", "KB", "MB", "GB", "TB", "b", "kb", "mb", "gb", "tb"] do
+        if String.downcase(unit) in valid_units do
           assert {:ok, _} = result
         else
           assert {:error, :unknown_unit} = result
