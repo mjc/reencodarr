@@ -777,7 +777,7 @@ defmodule ReencodarrWeb.VideosLive do
   attr :hdr, :any, required: true
 
   defp hdr_badge(%{hdr: v} = assigns) when v in [nil, ""],
-    do: ~H"<span class=\"text-gray-500\">—</span>"
+    do: ~H(<span class="text-gray-500">—</span>)
 
   defp hdr_badge(assigns) do
     ~H"""
@@ -797,7 +797,7 @@ defmodule ReencodarrWeb.VideosLive do
   attr :vmaf, :any, required: true
 
   defp vmaf_badge(%{vmaf: nil} = assigns),
-    do: ~H"<span class=\"text-gray-500\">—</span>"
+    do: ~H(<span class="text-gray-500">—</span>)
 
   defp vmaf_badge(assigns) do
     assigns = assign(assigns, :display, Float.round(assigns.vmaf.score * 1.0, 1))

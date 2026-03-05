@@ -164,4 +164,97 @@ defmodule ReencodarrWeb.VideosLiveTest do
       assert html =~ "Videos"
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # VMAF badge
+  # ---------------------------------------------------------------------------
+
+  describe "vmaf badge" do
+    test "shows em-dash when video has no chosen VMAF", %{conn: conn} do
+      {:ok, _video} = Fixtures.video_fixture(%{path: "/media/no_vmaf.mkv"})
+      {:ok, _view, html} = live(conn, ~p"/videos")
+      assert html =~ "—"
+    end
+
+    test "renders score in green for VMAF >= 95", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/excellent.mkv"})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, score: 96.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      {:ok, _view, html} = live(conn, ~p"/videos")
+      assert html =~ "text-green-300"
+      assert html =~ "96.0"
+    end
+
+    test "renders score in yellow for VMAF in [90, 95)", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/good.mkv"})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, score: 92.5})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      {:ok, _view, html} = live(conn, ~p"/videos")
+      assert html =~ "text-yellow-300"
+      assert html =~ "92.5"
+    end
+
+    test "renders score in red for VMAF < 90", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/poor.mkv"})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, score: 85.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      {:ok, _view, html} = live(conn, ~p"/videos")
+      assert html =~ "text-red-400"
+      assert html =~ "85.0"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # HDR badge
+  # ---------------------------------------------------------------------------
+
+  describe "hdr badge" do
+    test "shows em-dash when video has no HDR", %{conn: conn} do
+      {:ok, _video} = Fixtures.video_fixture(%{path: "/media/sdr.mkv", hdr: nil})
+      {:ok, _view, html} = live(conn, ~p"/videos")
+      assert html =~ "—"
+    end
+
+    test "renders HDR label in amber badge", %{conn: conn} do
+      {:ok, _video} = Fixtures.hdr_video_fixture(%{path: "/media/hdr.mkv"})
+      {:ok, _view, html} = live(conn, ~p"/videos")
+      assert html =~ "HDR10"
+      assert html =~ "bg-amber-900"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Checkbox / bulk select
+  # ---------------------------------------------------------------------------
+
+  describe "bulk selection" do
+    test "renders checkbox column", %{conn: conn} do
+      {:ok, _video} = Fixtures.video_fixture(%{path: "/media/checkme.mkv"})
+      {:ok, _view, html} = live(conn, ~p"/videos")
+      assert html =~ ~s(type="checkbox")
+    end
+
+    test "select_all checks all visible rows and shows bulk action", %{conn: conn} do
+      {:ok, _} = Fixtures.video_fixture(%{path: "/media/a.mkv"})
+      {:ok, _} = Fixtures.video_fixture(%{path: "/media/b.mkv"})
+      {:ok, view, _html} = live(conn, ~p"/videos")
+
+      html = view |> element("[phx-click='select_all']") |> render_click()
+
+      assert html =~ "Reset 2 selected"
+    end
+
+    test "deselect_all clears selection", %{conn: conn} do
+      {:ok, _} = Fixtures.video_fixture(%{path: "/media/c.mkv"})
+      {:ok, view, _html} = live(conn, ~p"/videos")
+
+      view |> element("[phx-click='select_all']") |> render_click()
+      html = view |> element("button[phx-click='deselect_all']") |> render_click()
+
+      refute html =~ "Reset"
+    end
+  end
 end

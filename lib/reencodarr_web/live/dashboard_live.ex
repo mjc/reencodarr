@@ -305,7 +305,7 @@ defmodule ReencodarrWeb.DashboardLive do
         value={format_savings(@stats && @stats.total_savings_gb)}
         sublabel="TiB"
       />
-      <.stat_box label="Pipeline" value={pipeline_dots(@service_status)} sublabel="status" />
+      <.pipeline_status_box service_status={@service_status} />
       <.stat_box
         label="Failures"
         value={format_number(@stats && @stats.failed)}
@@ -913,21 +913,37 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp format_size_gb(_), do: "—"
 
-  defp pipeline_dots(service_status) do
-    analyzer = dot_for_status(service_status.analyzer)
-    crf = dot_for_status(service_status.crf_searcher)
-    encoder = dot_for_status(service_status.encoder)
-    raw("#{analyzer} #{crf} #{encoder}")
+  attr :service_status, :map, required: true
+
+  defp pipeline_status_box(assigns) do
+    ~H"""
+    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
+      <div class="text-xs text-gray-400 mb-1">Pipeline</div>
+      <div class="flex gap-1.5 items-center mt-1">
+        <.pipeline_dot status={@service_status.analyzer} label="A" />
+        <.pipeline_dot status={@service_status.crf_searcher} label="C" />
+        <.pipeline_dot status={@service_status.encoder} label="E" />
+      </div>
+      <div class="text-xs text-gray-500">status</div>
+    </div>
+    """
   end
 
-  defp dot_for_status(status) when status in [:running, :processing],
-    do: "<span class='inline-block w-2 h-2 rounded-full bg-green-500'></span>"
+  attr :status, :atom, required: true
+  attr :label, :string, required: true
 
-  defp dot_for_status(:stopped),
-    do: "<span class='inline-block w-2 h-2 rounded-full bg-red-500'></span>"
+  defp pipeline_dot(assigns) do
+    ~H"""
+    <span
+      class={"inline-block w-2 h-2 rounded-full #{dot_color(@status)}"}
+      title={"#{@label}: #{@status}"}
+    />
+    """
+  end
 
-  defp dot_for_status(_),
-    do: "<span class='inline-block w-2 h-2 rounded-full bg-gray-500'></span>"
+  defp dot_color(status) when status in [:running, :processing], do: "bg-green-500"
+  defp dot_color(:stopped), do: "bg-red-500"
+  defp dot_color(_), do: "bg-gray-500"
 
   defp percent(_count, 0), do: 0
   defp percent(count, total), do: round(count / total * 100)

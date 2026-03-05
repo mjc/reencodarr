@@ -70,4 +70,46 @@ defmodule Reencodarr.AbAv1Test do
       assert result.encodes >= 0
     end
   end
+
+  describe "crf_search/2" do
+    test "returns :ok for valid video and vmaf_percent" do
+      video = %{id: 1, path: "/test.mkv"}
+      # GenServer not running in test - cast silently drops message, returns :ok
+      assert :ok = AbAv1.crf_search(video, 95)
+    end
+
+    test "returns error for invalid video" do
+      assert {:error, :invalid_video} = AbAv1.crf_search(nil, 95)
+      assert {:error, :invalid_video} = AbAv1.crf_search("not a map", 95)
+    end
+
+    test "returns error for out-of-range vmaf_percent" do
+      video = %{id: 1, path: "/test.mkv"}
+      assert {:error, :invalid_vmaf_percent} = AbAv1.crf_search(video, 150)
+      assert {:error, :invalid_vmaf_percent} = AbAv1.crf_search(video, 30)
+    end
+
+    test "uses default vmaf_percent of 95" do
+      video = %{id: 1, path: "/test.mkv"}
+      assert :ok = AbAv1.crf_search(video)
+    end
+  end
+
+  describe "encode/1" do
+    test "returns :ok for valid vmaf struct" do
+      vmaf = %{id: 1, video_id: 10, crf: 28.0}
+      # GenServer not running in test - cast silently drops message, returns :ok
+      assert :ok = AbAv1.encode(vmaf)
+    end
+
+    test "returns error for invalid vmaf" do
+      assert {:error, :invalid_vmaf} = AbAv1.encode(nil)
+      assert {:error, :invalid_vmaf} = AbAv1.encode("not a vmaf")
+    end
+
+    test "returns error for vmaf without video_id" do
+      vmaf = %{id: 1, crf: 28.0}
+      assert {:error, :missing_video_id} = AbAv1.encode(vmaf)
+    end
+  end
 end
