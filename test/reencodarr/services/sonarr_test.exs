@@ -26,6 +26,21 @@ defmodule Reencodarr.Services.SonarrTest do
       # No config seeded in test DB — expects empty list and logs error
       assert Sonarr.client_options() == []
     end
+
+    test "returns base_url and api_key headers when sonarr config exists" do
+      import Reencodarr.ServicesFixtures
+
+      config_fixture(%{
+        service_type: :sonarr,
+        url: "http://sonarr.test",
+        api_key: "sonarr_secret"
+      })
+
+      opts = Sonarr.client_options()
+      assert Keyword.get(opts, :base_url) == "http://sonarr.test"
+      headers = Keyword.get(opts, :headers, [])
+      assert Keyword.get(headers, :"X-Api-Key") == "sonarr_secret"
+    end
   end
 
   describe "rename_files/1 guard clauses" do

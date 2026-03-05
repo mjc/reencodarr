@@ -133,6 +133,62 @@ defmodule Reencodarr.Encoder.HealthCheckTest do
       assert state.encoding == true
       assert is_integer(state.last_progress_time)
     end
+
+    test "encoding with progress older than warn threshold: sets warned flag and logs" do
+      pid = start_health_check()
+      # Just over 23 hours ago
+      old_time = System.monotonic_time(:millisecond) - (23 * 60 * 60_000 + 1)
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | encoding: true,
+            video_id: 77,
+            video_path: "/v.mkv",
+            last_progress_time: old_time,
+            os_pid: nil,
+            warned: false
+        }
+      end)
+
+      log =
+        capture_log(fn ->
+          send(pid, :health_check)
+          :timer.sleep(50)
+        end)
+
+      state = :sys.get_state(pid)
+      assert state.warned == true
+      assert state.encoding == true
+      assert log =~ "stuck"
+    end
+
+    test "encoding with progress older than kill threshold: clears state" do
+      pid = start_health_check()
+      # Just over 24 hours ago
+      very_old_time = System.monotonic_time(:millisecond) - (24 * 60 * 60_000 + 1)
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | encoding: true,
+            video_id: 55,
+            video_path: "/old.mkv",
+            last_progress_time: very_old_time,
+            os_pid: nil
+        }
+      end)
+
+      capture_log(fn ->
+        send(pid, :health_check)
+        :timer.sleep(50)
+      end)
+
+      state = :sys.get_state(pid)
+      assert state.encoding == false
+      assert is_nil(state.video_id)
+      assert is_nil(state.last_progress_time)
+    end
   end
 
   describe "ignores unrelated PubSub events" do

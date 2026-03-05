@@ -524,30 +524,32 @@ defmodule ReencodarrWeb.VideosLive do
         <% else %>
           <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-700 text-sm">
-              <thead class="bg-gray-750">
+              <thead class="bg-gray-700/80">
                 <tr>
-                  <th class="w-8 px-3 py-3 text-center">
+                  <th class="w-10 px-3 py-3 text-center">
                     <%= if length(@videos) > 0 do %>
-                      <%= if @select_count == length(@videos) do %>
-                        <button
-                          phx-click="deselect_all"
-                          class="text-purple-400 hover:text-purple-300"
-                          title="Deselect all"
-                        >
-                          [x]
-                        </button>
-                      <% else %>
-                        <button
-                          phx-click="select_all"
-                          class="text-gray-400 hover:text-white"
-                          title="Select all on page"
-                        >
-                          [ ]
-                        </button>
-                      <% end %>
+                      <input
+                        type="checkbox"
+                        checked={@select_count == length(@videos)}
+                        phx-click={
+                          if @select_count == length(@videos), do: "deselect_all", else: "select_all"
+                        }
+                        title={
+                          if @select_count == length(@videos),
+                            do: "Deselect all",
+                            else: "Select all on page"
+                        }
+                        class="rounded border-gray-500 bg-gray-700 text-purple-500 focus:ring-purple-500 focus:ring-offset-gray-800 cursor-pointer"
+                      />
                     <% end %>
                   </th>
-                  <.col_header col={:path} label="File" sort_by={@sort_by} sort_dir={@sort_dir} />
+                  <.col_header
+                    col={:path}
+                    label="File"
+                    sort_by={@sort_by}
+                    sort_dir={@sort_dir}
+                    class="w-full"
+                  />
                   <.col_header col={:state} label="State" sort_by={@sort_by} sort_dir={@sort_dir} />
                   <.col_header col={:size} label="Size" sort_by={@sort_by} sort_dir={@sort_dir} />
                   <.col_header
@@ -562,13 +564,13 @@ defmodule ReencodarrWeb.VideosLive do
                     sort_by={@sort_by}
                     sort_dir={@sort_dir}
                   />
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     VMAF
                   </th>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     HDR
                   </th>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     Source
                   </th>
                   <.col_header
@@ -577,27 +579,27 @@ defmodule ReencodarrWeb.VideosLive do
                     sort_by={@sort_by}
                     sort_dir={@sort_dir}
                   />
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
                     Actions
                   </th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-gray-700">
+              <tbody class="divide-y divide-gray-600">
                 <%= for video <- @videos do %>
-                  <tr class={"transition-colors #{if MapSet.member?(@selected, video.id), do: "bg-purple-900/20", else: "hover:bg-gray-750"}"}>
-                    <td class="w-8 px-3 py-2 text-center">
-                      <button
+                  <tr class={"transition-colors #{if MapSet.member?(@selected, video.id), do: "bg-purple-900/20", else: "hover:bg-gray-700/50"}"}>
+                    <td class="w-10 px-3 py-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={MapSet.member?(@selected, video.id)}
                         phx-click="toggle_select"
                         phx-value-id={video.id}
-                        class="text-gray-400 hover:text-purple-400"
-                      >
-                        {if MapSet.member?(@selected, video.id), do: "[x]", else: "[ ]"}
-                      </button>
+                        class="rounded border-gray-500 bg-gray-700 text-purple-500 focus:ring-purple-500 focus:ring-offset-gray-800 cursor-pointer"
+                      />
                     </td>
-                    <td class="px-4 py-2 text-gray-300 max-w-xs" title={video.path}>
+                    <td class="px-4 py-2 text-gray-200 max-w-0 w-full" title={video.path}>
                       <%= if video.title do %>
                         <div class="font-medium text-white truncate">{video.title}</div>
-                        <div class="text-xs text-gray-500 truncate">
+                        <div class="text-xs text-gray-400 truncate">
                           {Path.basename(video.path)}
                           <%= if video.content_year do %>
                             ({video.content_year})
@@ -612,25 +614,25 @@ defmodule ReencodarrWeb.VideosLive do
                         {video.state}
                       </span>
                     </td>
-                    <td class="px-4 py-2 text-gray-300 whitespace-nowrap">
+                    <td class="px-4 py-2 text-gray-200 whitespace-nowrap">
                       {format_size(video.size)}
                     </td>
-                    <td class="px-4 py-2 text-gray-300 whitespace-nowrap">
+                    <td class="px-4 py-2 text-gray-200 whitespace-nowrap">
                       {format_resolution(video.width, video.height)}
                     </td>
-                    <td class="px-4 py-2 text-gray-300 whitespace-nowrap">
+                    <td class="px-4 py-2 text-gray-200 whitespace-nowrap">
                       {format_bitrate(video.bitrate)}
                     </td>
                     <td class="px-4 py-2 whitespace-nowrap">
-                      {vmaf_display(video.chosen_vmaf)}
+                      <.vmaf_badge vmaf={video.chosen_vmaf} />
                     </td>
                     <td class="px-4 py-2 whitespace-nowrap">
-                      {hdr_display(video.hdr)}
+                      <.hdr_badge hdr={video.hdr} />
                     </td>
-                    <td class="px-4 py-2 whitespace-nowrap">
+                    <td class="px-4 py-2 whitespace-nowrap text-gray-300">
                       {service_display(video.service_type)}
                     </td>
-                    <td class="px-4 py-2 text-gray-400 whitespace-nowrap text-xs">
+                    <td class="px-4 py-2 text-gray-300 whitespace-nowrap text-xs">
                       {format_datetime(video.updated_at)}
                     </td>
                     <td class="px-4 py-2">
@@ -712,6 +714,7 @@ defmodule ReencodarrWeb.VideosLive do
   attr :label, :string, required: true
   attr :sort_by, :atom, required: true
   attr :sort_dir, :atom, required: true
+  attr :class, :string, default: ""
 
   defp col_header(assigns) do
     assigns =
@@ -721,7 +724,7 @@ defmodule ReencodarrWeb.VideosLive do
       )
 
     ~H"""
-    <th class="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+    <th class={"px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap #{@class}"}>
       <button
         phx-click="sort"
         phx-value-col={@col}
@@ -771,12 +774,42 @@ defmodule ReencodarrWeb.VideosLive do
   defp hdr_display(""), do: "-"
   defp hdr_display(hdr), do: hdr
 
+  attr :hdr, :any, required: true
+
+  defp hdr_badge(%{hdr: v} = assigns) when v in [nil, ""],
+    do: ~H"<span class=\"text-gray-500\">—</span>"
+
+  defp hdr_badge(assigns) do
+    ~H"""
+    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-900/60 text-amber-300 border border-amber-700/50">
+      {@hdr}
+    </span>
+    """
+  end
+
   defp vmaf_display(nil), do: "-"
 
   defp vmaf_display(vmaf) do
     score = Float.round(vmaf.score * 1.0, 1)
     "#{score}"
   end
+
+  attr :vmaf, :any, required: true
+
+  defp vmaf_badge(%{vmaf: nil} = assigns),
+    do: ~H"<span class=\"text-gray-500\">—</span>"
+
+  defp vmaf_badge(assigns) do
+    assigns = assign(assigns, :display, Float.round(assigns.vmaf.score * 1.0, 1))
+
+    ~H"""
+    <span class={"font-mono #{vmaf_color(@display)}"}>{@display}</span>
+    """
+  end
+
+  defp vmaf_color(s) when s >= 95, do: "text-green-300"
+  defp vmaf_color(s) when s >= 90, do: "text-yellow-300"
+  defp vmaf_color(_), do: "text-red-400"
 
   defp format_size(nil), do: "-"
   defp format_size(0), do: "-"

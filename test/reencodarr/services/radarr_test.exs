@@ -28,9 +28,29 @@ defmodule Reencodarr.Services.RadarrTest do
     end
   end
 
+  describe "client_options/0 with config" do
+    import Reencodarr.ServicesFixtures
+
+    test "returns base_url and api_key headers when radarr config exists" do
+      config_fixture(%{service_type: :radarr, url: "http://radarr.test", api_key: "secret"})
+      opts = Radarr.client_options()
+      assert Keyword.get(opts, :base_url) == "http://radarr.test"
+      headers = Keyword.get(opts, :headers, [])
+      assert Keyword.get(headers, :"X-Api-Key") == "secret"
+    end
+  end
+
   describe "rename_movie_files/1 guard clauses" do
     test "returns error for nil movie_id" do
       assert {:error, {:nil_value, "Movie ID"}} = Radarr.rename_movie_files(nil)
+    end
+
+    test "raises FunctionClauseError for string movie_id" do
+      assert_raise FunctionClauseError, fn -> Radarr.rename_movie_files("123") end
+    end
+
+    test "raises FunctionClauseError for atom movie_id" do
+      assert_raise FunctionClauseError, fn -> Radarr.rename_movie_files(:some_id) end
     end
   end
 end
