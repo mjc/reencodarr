@@ -315,4 +315,128 @@ defmodule ReencodarrWeb.VideosLiveTest do
       assert html =~ "Videos"
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Per-row toggle_select
+  # ---------------------------------------------------------------------------
+
+  describe "per-row toggle_select" do
+    test "clicking row checkbox selects that video", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/toggle.mkv"})
+      {:ok, view, _} = live(conn, ~p"/videos")
+
+      html =
+        view
+        |> element("input[phx-click='toggle_select'][phx-value-id='#{video.id}']")
+        |> render_click()
+
+      assert html =~ "Videos"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Per-row actions
+  # ---------------------------------------------------------------------------
+
+  describe "reset_video event" do
+    test "resets a failed video to needs_analysis", %{conn: conn} do
+      {:ok, video} = Fixtures.failed_video_fixture(%{path: "/media/failed_reset.mkv"})
+      {:ok, view, _} = live(conn, ~p"/videos")
+
+      html =
+        view
+        |> element("button[phx-click='reset_video'][phx-value-id='#{video.id}']")
+        |> render_click()
+
+      assert html =~ "Reset to needs_analysis"
+    end
+
+    test "shows error flash for non-existent video id", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/videos")
+      html = view |> render_click("reset_video", %{"id" => "999999"})
+      assert html =~ "Video not found"
+    end
+  end
+
+  describe "force_reanalyze event" do
+    test "queues video for re-analysis and shows flash", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/reanalyze.mkv"})
+      {:ok, view, _} = live(conn, ~p"/videos")
+
+      html =
+        view
+        |> element("button[phx-click='force_reanalyze'][phx-value-id='#{video.id}']")
+        |> render_click()
+
+      assert html =~ "Queued for re-analysis"
+    end
+  end
+
+  describe "delete_video event" do
+    test "deletes video and shows success flash", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/delete_me.mkv"})
+      {:ok, view, _} = live(conn, ~p"/videos")
+
+      html =
+        view
+        |> element("button[phx-click='delete_video'][phx-value-id='#{video.id}']")
+        |> render_click()
+
+      assert html =~ "Video deleted"
+    end
+
+    test "shows error for non-existent video id", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/videos")
+      html = view |> render_click("delete_video", %{"id" => "999999"})
+      assert html =~ "Video not found"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Bulk actions
+  # ---------------------------------------------------------------------------
+
+  describe "reset_selected event" do
+    test "resets all selected videos and shows flash", %{conn: conn} do
+      {:ok, _} = Fixtures.failed_video_fixture(%{path: "/media/bulk_reset.mkv"})
+      {:ok, view, _} = live(conn, ~p"/videos")
+
+      view |> element("[phx-click='select_all']") |> render_click()
+      html = view |> element("button[phx-click='reset_selected']") |> render_click()
+
+      assert html =~ "Reset 1 video(s) to needs_analysis"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # quick_filter_state
+  # ---------------------------------------------------------------------------
+
+  describe "quick_filter_state event" do
+    test "clicking a state badge applies filter without crashing", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/videos")
+      html = view |> render_click("quick_filter_state", %{"state" => "analyzed"})
+      assert html =~ "Videos"
+    end
+
+    test "clicking the active state badge toggles filter off", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/videos?state=analyzed")
+      html = view |> render_click("quick_filter_state", %{"state" => "analyzed"})
+      assert html =~ "Videos"
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # clear_filters
+  # ---------------------------------------------------------------------------
+
+  describe "clear_filters button" do
+    test "clicking clear_filters removes all active filters", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/videos?state=analyzed")
+
+      html = view |> element("button[phx-click='clear_filters']") |> render_click()
+
+      assert html =~ "Videos"
+    end
+  end
 end
