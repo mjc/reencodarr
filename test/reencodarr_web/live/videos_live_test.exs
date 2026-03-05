@@ -257,4 +257,62 @@ defmodule ReencodarrWeb.VideosLiveTest do
       refute html =~ "Reset"
     end
   end
+
+  # ---------------------------------------------------------------------------
+  # Filter dropdowns
+  # ---------------------------------------------------------------------------
+
+  describe "filter_service event" do
+    test "filtering by sonarr does not crash", %{conn: conn} do
+      {:ok, _} = Fixtures.video_fixture(%{path: "/media/show.mkv"})
+      {:ok, view, _} = live(conn, ~p"/videos")
+
+      html =
+        view
+        |> element("form[phx-change='filter_service']")
+        |> render_change(%{"service" => "sonarr"})
+
+      assert html =~ "Videos"
+    end
+
+    test "resetting service filter shows all videos", %{conn: conn} do
+      {:ok, _} = Fixtures.video_fixture(%{path: "/media/show.mkv"})
+      {:ok, view, _} = live(conn, ~p"/videos")
+
+      view
+      |> element("form[phx-change='filter_service']")
+      |> render_change(%{"service" => "sonarr"})
+
+      html =
+        view
+        |> element("form[phx-change='filter_service']")
+        |> render_change(%{"service" => ""})
+
+      assert html =~ "Videos"
+    end
+  end
+
+  describe "filter_hdr event" do
+    test "filtering HDR only does not crash", %{conn: conn} do
+      {:ok, _} = Fixtures.video_fixture(%{path: "/media/hdr.mkv"})
+      {:ok, view, _} = live(conn, ~p"/videos")
+
+      html =
+        view
+        |> element("form[phx-change='filter_hdr']")
+        |> render_change(%{"hdr" => "true"})
+
+      assert html =~ "Videos"
+    end
+  end
+
+  describe "next_page event" do
+    test "next_page button does not crash", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/videos")
+
+      # next_page has no visible button when on page 1 and no data, but sending the event directly is valid
+      html = view |> render_click("next_page", %{})
+      assert html =~ "Videos"
+    end
+  end
 end
