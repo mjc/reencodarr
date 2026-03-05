@@ -16,6 +16,8 @@ defmodule Reencodarr.Analyzer.Optimization.BulkFileChecker do
   Optimized for RAID arrays with high I/O concurrency.
   """
   @spec check_files_exist([String.t()]) :: %{String.t() => boolean()}
+  def check_files_exist([]), do: %{}
+
   def check_files_exist(paths) when is_list(paths) do
     # Use storage-aware concurrency for file checks
     concurrency = get_optimal_file_check_concurrency(length(paths))
