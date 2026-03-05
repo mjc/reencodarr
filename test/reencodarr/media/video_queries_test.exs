@@ -96,4 +96,253 @@ defmodule Reencodarr.Media.VideoQueriesTest do
       assert found_video == nil, "Expected video with complete metadata to not need analysis"
     end
   end
+
+  describe "count_videos_for_crf_search/1" do
+    test "counts analyzed videos eligible for CRF search" do
+      before_count = VideoQueries.count_videos_for_crf_search()
+
+      {:ok, _video} =
+        Fixtures.video_fixture(%{
+          path: "/test/count_crf_eligible.mkv",
+          state: :analyzed,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      after_count = VideoQueries.count_videos_for_crf_search()
+      assert after_count == before_count + 1
+    end
+
+    test "does not count encoded videos" do
+      before_count = VideoQueries.count_videos_for_crf_search()
+
+      {:ok, _video} =
+        Fixtures.video_fixture(%{
+          path: "/test/count_crf_encoded.mkv",
+          state: :encoded,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      after_count = VideoQueries.count_videos_for_crf_search()
+      assert after_count == before_count
+    end
+
+    test "does not count needs_analysis videos" do
+      before_count = VideoQueries.count_videos_for_crf_search()
+
+      {:ok, _video} =
+        Fixtures.video_fixture(%{
+          path: "/test/count_crf_unanalyzed.mkv",
+          state: :needs_analysis,
+          bitrate: nil
+        })
+
+      after_count = VideoQueries.count_videos_for_crf_search()
+      assert after_count == before_count
+    end
+
+    test "returns an integer" do
+      result = VideoQueries.count_videos_for_crf_search()
+      assert is_integer(result)
+      assert result >= 0
+    end
+  end
+
+  describe "count_videos_needing_analysis/1" do
+    test "counts videos in needs_analysis state" do
+      before_count = VideoQueries.count_videos_needing_analysis()
+
+      {:ok, _video} =
+        Fixtures.video_fixture(%{
+          path: "/test/count_analysis_needed.mkv",
+          bitrate: nil
+        })
+
+      after_count = VideoQueries.count_videos_needing_analysis()
+      assert after_count == before_count + 1
+    end
+
+    test "does not count analyzed videos" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/count_analysis_analyzed.mkv",
+          bitrate: 5_000_000,
+          width: 1920,
+          height: 1080,
+          duration: 3600.0,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          audio_count: 1,
+          video_count: 1
+        })
+
+      {:ok, _} = Reencodarr.Media.update_video(video, %{state: :analyzed})
+
+      before_count = VideoQueries.count_videos_needing_analysis()
+
+      # Add one more analyzed video and confirm count stays same
+      {:ok, video2} =
+        Fixtures.video_fixture(%{
+          path: "/test/count_analysis_analyzed2.mkv",
+          bitrate: 5_000_000,
+          width: 1920,
+          height: 1080,
+          duration: 3600.0,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          audio_count: 1,
+          video_count: 1
+        })
+
+      {:ok, _} = Reencodarr.Media.update_video(video2, %{state: :analyzed})
+
+      after_count = VideoQueries.count_videos_needing_analysis()
+      assert after_count == before_count
+    end
+
+    test "returns an integer" do
+      result = VideoQueries.count_videos_needing_analysis()
+      assert is_integer(result)
+      assert result >= 0
+    end
+  end
+
+  describe "videos_ready_for_encoding/2" do
+    test "returns videos in crf_searched state with a chosen VMAF" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/ready_for_encoding.mkv",
+          state: :analyzed,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+      {:ok, _} = Reencodarr.Media.update_video(video, %{state: :crf_searched})
+
+      results = VideoQueries.videos_ready_for_encoding(10)
+      found = Enum.find(results, fn v -> v.video.id == video.id end)
+
+      assert found != nil,
+             "Expected crf_searched video with chosen VMAF to appear in encoding queue"
+    end
+
+    test "excludes videos without a chosen VMAF" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/ready_no_vmaf.mkv",
+          state: :analyzed,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      {:ok, _} = Reencodarr.Media.update_video(video, %{state: :crf_searched})
+
+      results = VideoQueries.videos_ready_for_encoding(10)
+      found = Enum.find(results, fn v -> v.video.id == video.id end)
+
+      assert found == nil, "Expected video without chosen VMAF to be excluded"
+    end
+
+    test "excludes videos not in crf_searched state" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/ready_wrong_state.mkv",
+          state: :analyzed,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      # Leave video in :analyzed state (not :crf_searched)
+      results = VideoQueries.videos_ready_for_encoding(10)
+      found = Enum.find(results, fn v -> v.video.id == video.id end)
+
+      assert found == nil, "Expected :analyzed video to be excluded from encoding queue"
+    end
+
+    test "returns Vmaf structs with preloaded video" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/ready_struct_check.mkv",
+          state: :analyzed,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0})
+      Fixtures.choose_vmaf(video, vmaf)
+      {:ok, _} = Reencodarr.Media.update_video(video, %{state: :crf_searched})
+
+      results = VideoQueries.videos_ready_for_encoding(10)
+      found = Enum.find(results, fn v -> v.video.id == video.id end)
+
+      assert %Reencodarr.Media.Vmaf{} = found
+      assert %Reencodarr.Media.Video{} = found.video
+      assert found.video.id == video.id
+    end
+  end
+
+  describe "encoding_queue_count/1" do
+    test "counts crf_searched videos with a chosen VMAF" do
+      before_count = VideoQueries.encoding_queue_count()
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/enc_queue_count.mkv",
+          state: :analyzed,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+      {:ok, _} = Reencodarr.Media.update_video(video, %{state: :crf_searched})
+
+      after_count = VideoQueries.encoding_queue_count()
+      assert after_count == before_count + 1
+    end
+
+    test "does not count encoded videos" do
+      before_count = VideoQueries.encoding_queue_count()
+
+      {:ok, _video} =
+        Fixtures.video_fixture(%{
+          path: "/test/enc_queue_encoded.mkv",
+          state: :encoded,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      after_count = VideoQueries.encoding_queue_count()
+      assert after_count == before_count
+    end
+
+    test "does not count crf_searched videos without chosen VMAF" do
+      before_count = VideoQueries.encoding_queue_count()
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/enc_queue_no_vmaf.mkv",
+          state: :analyzed,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      {:ok, _} = Reencodarr.Media.update_video(video, %{state: :crf_searched})
+
+      after_count = VideoQueries.encoding_queue_count()
+      assert after_count == before_count
+    end
+
+    test "returns an integer" do
+      result = VideoQueries.encoding_queue_count()
+      assert is_integer(result)
+      assert result >= 0
+    end
+  end
 end
