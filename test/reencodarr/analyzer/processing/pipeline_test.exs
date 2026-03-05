@@ -47,6 +47,49 @@ defmodule Reencodarr.Analyzer.Processing.PipelineTest do
 
       assert {:error, {"/tmp/video2.mkv", "boom"}} = Pipeline.process_single_video(video_info)
     end
+
+    test "returns tagged error when file validation fails" do
+      video_info = %{id: 3, path: "/tmp/missing.mkv", service_id: "789", service_type: :sonarr}
+
+      :meck.new(FileOperations, [:passthrough])
+
+      :meck.expect(FileOperations, :validate_file_for_processing, fn _path ->
+        {:error, "file not found"}
+      end)
+
+      assert {:error, {"/tmp/missing.mkv", "file not found"}} =
+               Pipeline.process_single_video(video_info)
+    end
+
+    test "preserves service attributes in result params" do
+      video_info = %{
+        id: 4,
+        path: "/tmp/video4.mkv",
+        service_id: "999",
+        service_type: :jellyfin,
+        custom_field: "preserve_me"
+      }
+
+      :meck.new(FileOperations, [:passthrough])
+      :meck.expect(FileOperations, :validate_file_for_processing, fn _path -> {:ok, %{}} end)
+
+      :meck.new(CommandExecutor, [:passthrough])
+
+      :meck.expect(CommandExecutor, :execute_single_mediainfo, fn _path ->
+        {:ok, %{"track" => [%{"@type" => "General", "Duration" => 7_200_000}]}}
+      end)
+
+      :meck.new(MediaInfoExtractor, [:passthrough])
+
+      :meck.expect(MediaInfoExtractor, :extract_video_params, fn _mediainfo, _path ->
+        %{"duration" => 7200}
+      end)
+
+      assert {:ok, {_video, params}} = Pipeline.process_single_video(video_info)
+      assert params["service_type"] == "jellyfin"
+      assert params["service_id"] == "999"
+      assert params["duration"] == 7200
+    end
   end
 
   describe "process_video_batch/2" do
@@ -85,6 +128,30 @@ defmodule Reencodarr.Analyzer.Processing.PipelineTest do
                _ ->
                  false
              end)
+    end
+
+    test "handles all files failing validation" do
+      videos = [
+        %{id: 12, path: "/tmp/bad1.mkv", service_id: "1", service_type: :sonarr},
+        %{id: 13, path: "/tmp/bad2.mkv", service_id: "2", service_type: :radarr}
+      ]
+
+      :meck.new(FileOperations, [:passthrough])
+
+      :meck.expect(FileOperations, :validate_files_for_processing, fn _paths ->
+        %{
+          "/tmp/bad1.mkv" => {:error, "corrupted"},
+          "/tmp/bad2.mkv" => {:error, "unreadable"}
+        }
+      end)
+
+      assert {:ok, results} = Pipeline.process_video_batch(videos, %{})
+      assert length(results) == 2
+      assert Enum.all?(results, fn result -> match?({:error, _}, result) end)
+    end
+
+    test "processes empty batch gracefully" do
+      assert {:ok, []} = Pipeline.process_video_batch([], %{})
     end
   end
 end
