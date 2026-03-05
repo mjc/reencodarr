@@ -359,5 +359,35 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       assert state.searcher_monitor == nil
       assert state.os_pid == nil
     end
+
+    test "running?/0 returns true when GenServer is alive", %{pid: _pid} do
+      assert CrfSearch.running?() == true
+    end
+
+    test "available?/0 returns :busy when current_task is set", %{pid: pid} do
+      :sys.replace_state(pid, fn state ->
+        %{state | current_task: %{video: %Video{id: 99, path: "/tmp/video.mkv"}}}
+      end)
+
+      assert CrfSearch.available?() == :busy
+    end
+  end
+
+  describe "crf_search/2 guard clauses" do
+    test "returns :error for video with nil id" do
+      video = %Video{id: nil, path: "/tmp/video.mkv", state: :analyzed}
+      assert CrfSearch.crf_search(video, 95) == :error
+    end
+
+    test "returns :error for video in non-analyzed state (not encoded)" do
+      video = %Video{id: 1, path: "/tmp/video.mkv", state: :needs_analysis}
+      assert CrfSearch.crf_search(video, 95) == :error
+    end
+
+    test "returns :ok for already-encoded video and skips search" do
+      video = %Video{id: 1, path: "/tmp/video.mkv", state: :encoded}
+      result = CrfSearch.crf_search(video, 95)
+      assert result == :ok
+    end
   end
 end
