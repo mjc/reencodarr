@@ -360,7 +360,7 @@ defmodule Reencodarr.FailureReporting do
       total_failures: summary.total_failures,
       unresolved_failures: summary.unresolved_failures,
       stages_affected: length(by_stage),
-      most_recent: get_recent_failures(limit: 5, days_back: days_back),
+      most_recent: get_recent_failures(5),
       requires_attention: summary.unresolved_failures > 0
     }
   end

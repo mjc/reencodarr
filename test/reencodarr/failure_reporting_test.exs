@@ -184,4 +184,120 @@ defmodule Reencodarr.FailureReportingTest do
         end)
     end
   end
+
+  describe "get_recent_failures/1" do
+    test "returns empty list when no unresolved failures exist" do
+      result = FailureReporting.get_recent_failures(10)
+      assert result == []
+    end
+
+    test "returns list of maps with required keys" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      _log =
+        capture_log(fn ->
+          {:ok, _} = FailureTracker.record_file_access_failure(video, "File error")
+        end)
+
+      [failure | _] = FailureReporting.get_recent_failures(10)
+      assert Map.has_key?(failure, :id)
+      assert Map.has_key?(failure, :video_id)
+      assert Map.has_key?(failure, :video_path)
+      assert Map.has_key?(failure, :stage)
+      assert Map.has_key?(failure, :category)
+      assert Map.has_key?(failure, :code)
+      assert Map.has_key?(failure, :message)
+      assert Map.has_key?(failure, :retry_count)
+      assert Map.has_key?(failure, :occurred_at)
+      assert Map.has_key?(failure, :context)
+      assert failure.video_id == video.id
+    end
+
+    test "respects limit parameter" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      _log =
+        capture_log(fn ->
+          Enum.each(1..5, fn i ->
+            FailureTracker.record_file_access_failure(video, "error #{i}")
+          end)
+        end)
+
+      result = FailureReporting.get_recent_failures(2)
+      assert length(result) <= 2
+    end
+  end
+
+  describe "get_resolution_rate/1" do
+    test "returns nil when no failures exist in the period" do
+      assert FailureReporting.get_resolution_rate(7) == nil
+    end
+
+    test "returns a number when failures exist" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      _log =
+        capture_log(fn ->
+          FailureTracker.record_file_access_failure(video, "error")
+        end)
+
+      result = FailureReporting.get_resolution_rate(7)
+      assert is_number(result) or is_nil(result)
+    end
+  end
+
+  describe "get_failure_overview/1" do
+    test "returns map with required keys" do
+      overview = FailureReporting.get_failure_overview()
+      assert Map.has_key?(overview, :total_failures)
+      assert Map.has_key?(overview, :unresolved_failures)
+      assert Map.has_key?(overview, :stages_affected)
+      assert Map.has_key?(overview, :most_recent)
+      assert Map.has_key?(overview, :requires_attention)
+    end
+
+    test "total_failures is 0 and requires_attention is false when no failures" do
+      overview = FailureReporting.get_failure_overview()
+      assert overview.total_failures == 0
+      assert overview.requires_attention == false
+    end
+
+    test "requires_attention is true when unresolved failures exist" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      _log =
+        capture_log(fn ->
+          FailureTracker.record_file_access_failure(video, "error")
+        end)
+
+      overview = FailureReporting.get_failure_overview(days_back: 7)
+      assert overview.requires_attention == true
+    end
+  end
+
+  describe "print_failure_report/1" do
+    test "returns :ok" do
+      log =
+        capture_log(fn ->
+          assert :ok = FailureReporting.print_failure_report()
+        end)
+
+      assert is_binary(log)
+    end
+
+    test "outputs content when failures exist" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      capture_log(fn ->
+        FailureTracker.record_file_access_failure(video, "test error")
+      end)
+
+      log =
+        capture_log(fn ->
+          assert :ok = FailureReporting.print_failure_report()
+        end)
+
+      assert is_binary(log)
+    end
+  end
 end

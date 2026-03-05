@@ -73,4 +73,50 @@ defmodule Reencodarr.ServicesTest do
       assert %Ecto.Changeset{} = Services.change_config(config)
     end
   end
+
+  describe "sonarr config lookups" do
+    alias Reencodarr.Services.Config
+    import Reencodarr.ServicesFixtures
+
+    test "get_sonarr_config/0 returns {:ok, config} when sonarr config exists" do
+      config_fixture(%{service_type: :sonarr, url: "http://sonarr.local", api_key: "testkey"})
+      assert {:ok, %Config{service_type: :sonarr}} = Services.get_sonarr_config()
+    end
+
+    test "get_sonarr_config/0 returns {:error, :not_found} when no sonarr config" do
+      assert {:error, :not_found} = Services.get_sonarr_config()
+    end
+
+    test "get_sonarr_config!/0 returns config when sonarr config exists" do
+      config_fixture(%{service_type: :sonarr, url: "http://sonarr.local", api_key: "testkey"})
+      assert %Config{service_type: :sonarr} = Services.get_sonarr_config!()
+    end
+
+    test "get_sonarr_config!/0 raises when no sonarr config" do
+      assert_raise Ecto.NoResultsError, fn -> Services.get_sonarr_config!() end
+    end
+  end
+
+  describe "radarr config lookups" do
+    alias Reencodarr.Services.Config
+    import Reencodarr.ServicesFixtures
+
+    test "get_radarr_config/0 returns {:ok, config} when radarr config exists" do
+      config_fixture(%{service_type: :radarr, url: "http://radarr.local", api_key: "testkey"})
+      assert {:ok, %Config{service_type: :radarr}} = Services.get_radarr_config()
+    end
+
+    test "get_radarr_config/0 returns {:error, :not_found} when no radarr config" do
+      assert {:error, :not_found} = Services.get_radarr_config()
+    end
+
+    test "get_radarr_config!/0 returns config when radarr config exists" do
+      config_fixture(%{service_type: :radarr, url: "http://radarr.local", api_key: "testkey"})
+      assert %Config{service_type: :radarr} = Services.get_radarr_config!()
+    end
+
+    test "get_radarr_config!/0 raises when no radarr config" do
+      assert_raise Ecto.NoResultsError, fn -> Services.get_radarr_config!() end
+    end
+  end
 end
