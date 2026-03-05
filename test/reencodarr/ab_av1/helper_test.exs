@@ -609,4 +609,56 @@ defmodule Reencodarr.AbAv1.HelperTest do
       end)
     end
   end
+
+  describe "build_rules/1" do
+    test "returns a list of args" do
+      video = %Reencodarr.Media.Video{path: "/test/video.mkv", width: 1920, height: 1080}
+      result = Helper.build_rules(video)
+      assert is_list(result)
+    end
+
+    test "does not include --acodec in crf_search context" do
+      video = %Reencodarr.Media.Video{path: "/test/video.mkv", width: 1920, height: 1080}
+      result = Helper.build_rules(video)
+      refute "--acodec" in result
+    end
+
+    test "includes svt av1 encoder args" do
+      video = %Reencodarr.Media.Video{path: "/test/video.mkv", width: 1920, height: 1080}
+      result = Helper.build_rules(video)
+      assert "--encoder" in result
+      assert "svt-av1" in result
+    end
+  end
+
+  describe "temp_dir/0" do
+    test "returns a non-empty string path" do
+      result = Helper.temp_dir()
+      assert is_binary(result)
+      assert String.length(result) > 0
+    end
+
+    test "returns an existing directory" do
+      result = Helper.temp_dir()
+      assert File.exists?(result)
+      assert File.dir?(result)
+    end
+  end
+
+  describe "close_port/1" do
+    test "returns :ok for :none" do
+      assert :ok = Helper.close_port(:none)
+    end
+  end
+
+  describe "kill_os_process/1" do
+    test "returns :ok for nil pid" do
+      assert :ok = Helper.kill_os_process(nil)
+    end
+
+    test "returns :ok for non-existent pid (graceful failure)" do
+      # PID 9_999_999 almost certainly doesn't exist; signal is gracefully rescued
+      assert :ok = Helper.kill_os_process(9_999_999)
+    end
+  end
 end
