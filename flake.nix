@@ -51,6 +51,9 @@
         };
 
         devShells.default = pkgs.mkShell {
+          buildInputs = [
+            pkgs.bashInteractive
+          ];
           nativeBuildInputs =
             [
               erlang

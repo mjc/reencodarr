@@ -271,7 +271,7 @@ defmodule Reencodarr.Dashboard.State do
   @impl true
   def handle_info(:refresh_queues, state) do
     if queue_refresh_enabled?() do
-      items = fetch_queue_items()
+      items = fetch_queue_items(state.queue_items)
       state = %{state | queue_items: items}
       broadcast_state(state)
       Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
@@ -293,31 +293,40 @@ defmodule Reencodarr.Dashboard.State do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, @state_channel, {:dashboard_state_changed, state})
   end
 
-  defp fetch_queue_items do
+  defp fetch_queue_items(current_items) do
     %{
       analyzer:
-        safe_query_list(fn ->
-          VideoQueries.videos_needing_analysis(5, timeout: @query_timeout)
-        end),
+        safe_query_list(
+          fn ->
+            VideoQueries.videos_needing_analysis(5, timeout: @query_timeout)
+          end,
+          current_items.analyzer
+        ),
       crf_searcher:
-        safe_query_list(fn ->
-          VideoQueries.videos_for_crf_search(5, timeout: @query_timeout)
-        end),
+        safe_query_list(
+          fn ->
+            VideoQueries.videos_for_crf_search(5, timeout: @query_timeout)
+          end,
+          current_items.crf_searcher
+        ),
       encoder:
-        safe_query_list(fn ->
-          VideoQueries.videos_ready_for_encoding(5, timeout: @query_timeout)
-        end)
+        safe_query_list(
+          fn ->
+            VideoQueries.videos_ready_for_encoding(5, timeout: @query_timeout)
+          end,
+          current_items.encoder
+        )
     }
   end
 
-  defp safe_query_list(fun) do
+  defp safe_query_list(fun, fallback) do
     fun.()
   rescue
-    DBConnection.ConnectionError -> []
+    DBConnection.ConnectionError -> fallback
   catch
-    :exit, {:timeout, _} -> []
-    :exit, {%DBConnection.ConnectionError{}, _} -> []
-    :exit, {{%DBConnection.ConnectionError{}, _}, _} -> []
+    :exit, {:timeout, _} -> fallback
+    :exit, {%DBConnection.ConnectionError{}, _} -> fallback
+    :exit, {{%DBConnection.ConnectionError{}, _}, _} -> fallback
   end
 
   defp queue_refresh_enabled? do

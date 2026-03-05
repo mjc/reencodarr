@@ -87,6 +87,13 @@ defmodule ReencodarrWeb.DashboardLive do
   # Replaces independent handlers for encoding/CRF/service-status events.
   @impl true
   def handle_info({:dashboard_state_changed, state}, socket) do
+    merged_queue_items =
+      merge_queue_items_for_display(
+        socket.assigns.queue_items,
+        state.queue_items,
+        state.queue_counts
+      )
+
     {:noreply,
      assign(socket,
        crf_search_video: state.crf_search_video,
@@ -99,7 +106,7 @@ defmodule ReencodarrWeb.DashboardLive do
        service_status: state.service_status,
        stats: state.stats,
        queue_counts: state.queue_counts,
-       queue_items: state.queue_items
+       queue_items: merged_queue_items
      )}
   end
 
@@ -724,6 +731,38 @@ defmodule ReencodarrWeb.DashboardLive do
       </div>
     </div>
     """
+  end
+
+  defp merge_queue_items_for_display(previous, incoming, counts) do
+    %{
+      analyzer:
+        keep_previous_if_transient_empty(
+          previous.analyzer,
+          incoming.analyzer,
+          counts.analyzer
+        ),
+      crf_searcher:
+        keep_previous_if_transient_empty(
+          previous.crf_searcher,
+          incoming.crf_searcher,
+          counts.crf_searcher
+        ),
+      encoder:
+        keep_previous_if_transient_empty(
+          previous.encoder,
+          incoming.encoder,
+          counts.encoder
+        )
+    }
+  end
+
+  defp keep_previous_if_transient_empty(previous, incoming, queue_count)
+       when is_list(previous) and is_list(incoming) and is_integer(queue_count) do
+    if incoming == [] and previous != [] and queue_count > 0 do
+      previous
+    else
+      incoming
+    end
   end
 
   attr :stats, :map, required: true
