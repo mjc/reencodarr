@@ -774,7 +774,7 @@ defmodule ReencodarrWeb.VideosLive do
   defp vmaf_display(nil), do: "-"
 
   defp vmaf_display(vmaf) do
-    score = Float.round(vmaf.vmaf_score * 1.0, 1)
+    score = Float.round(vmaf.score * 1.0, 1)
     "#{score}"
   end
 
