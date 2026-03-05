@@ -770,10 +770,6 @@ defmodule ReencodarrWeb.VideosLive do
   defp service_display(:radarr), do: "Movie"
   defp service_display(_), do: "-"
 
-  defp hdr_display(nil), do: "-"
-  defp hdr_display(""), do: "-"
-  defp hdr_display(hdr), do: hdr
-
   attr :hdr, :any, required: true
 
   defp hdr_badge(%{hdr: v} = assigns) when v in [nil, ""],
@@ -785,13 +781,6 @@ defmodule ReencodarrWeb.VideosLive do
       {@hdr}
     </span>
     """
-  end
-
-  defp vmaf_display(nil), do: "-"
-
-  defp vmaf_display(vmaf) do
-    score = Float.round(vmaf.score * 1.0, 1)
-    "#{score}"
   end
 
   attr :vmaf, :any, required: true

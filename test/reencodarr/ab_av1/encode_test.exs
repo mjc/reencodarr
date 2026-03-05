@@ -43,6 +43,23 @@ defmodule Reencodarr.AbAv1.EncodeTest do
       state = :sys.get_state(Encode)
       assert state.os_pid == nil
     end
+
+    test "running?/0 returns true when GenServer is alive" do
+      assert Encode.running?() == true
+    end
+
+    test "available?/0 returns :busy when a video is being encoded", %{pid: pid} do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+      video = Fixtures.choose_vmaf(video, vmaf)
+      {:ok, video} = Media.mark_as_encoding(video)
+
+      :sys.replace_state(pid, fn state ->
+        %{state | video: video, os_pid: nil}
+      end)
+
+      assert Encode.available?() == :busy
+    end
   end
 
   describe "reset_if_stuck/0" do
@@ -195,6 +212,49 @@ defmodule Reencodarr.AbAv1.EncodeTest do
       assert state.last_progress != nil
       assert state.last_progress.percent == 42.0
       assert state.last_progress.fps == 5.0
+    end
+  end
+
+  describe "encode cast when busy" do
+    test "ignores new encode request and leaves state unchanged when already encoding", %{
+      pid: pid
+    } do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+      video = Fixtures.choose_vmaf(video, vmaf)
+      {:ok, video} = Media.mark_as_encoding(video)
+
+      :sys.replace_state(pid, fn state ->
+        %{state | video: video, os_pid: nil}
+      end)
+
+      state_before = :sys.get_state(pid)
+      other_vmaf = %Reencodarr.Media.Vmaf{id: 999, video_id: video.id, crf: 28.0}
+      GenServer.cast(Encode, {:encode, other_vmaf})
+      Process.sleep(50)
+
+      state_after = :sys.get_state(pid)
+      assert state_after.video.id == state_before.video.id
+    end
+  end
+
+  describe "partial chunk buffering" do
+    test "accumulates partial line chunks into buffer", %{pid: pid} do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+      video = Fixtures.choose_vmaf(video, vmaf)
+      {:ok, video} = Media.mark_as_encoding(video)
+      vmaf = %{vmaf | video: video}
+
+      :sys.replace_state(pid, fn state ->
+        %{state | video: video, vmaf: vmaf, partial_line_buffer: "start_"}
+      end)
+
+      send(pid, {Reencodarr.AbAv1.Encoder, {:partial, "more_data"}})
+      Process.sleep(50)
+
+      state = :sys.get_state(pid)
+      assert state.partial_line_buffer == "start_more_data"
     end
   end
 end
