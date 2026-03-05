@@ -1,5 +1,7 @@
 defmodule Reencodarr.Services.RadarrTest do
-  use ExUnit.Case
+  use Reencodarr.DataCase, async: true
+
+  alias Reencodarr.Services.Radarr
 
   # Note: Comprehensive integration tests for wait_for_command,
   # refresh_movie_and_wait, and exponential backoff retry logic
@@ -19,9 +21,16 @@ defmodule Reencodarr.Services.RadarrTest do
   #   RADARR_URL=http://localhost:7878 RADARR_API_KEY=your_key \
   #   elixir scripts/test_app_rename.exs
 
-  test "placeholder - see scripts/test_app_rename.exs for integration tests" do
-    # Integration tests are in scripts/test_app_rename.exs
-    # which test the real Radarr API
-    assert true
+  describe "client_options/0" do
+    test "returns empty list when Radarr config is not configured" do
+      # No config seeded in test DB — expects empty list and logs error
+      assert Radarr.client_options() == []
+    end
+  end
+
+  describe "rename_movie_files/1 guard clauses" do
+    test "returns error for nil movie_id" do
+      assert {:error, {:nil_value, "Movie ID"}} = Radarr.rename_movie_files(nil)
+    end
   end
 end
