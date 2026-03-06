@@ -68,4 +68,42 @@ defmodule ReencodarrWeb.LiveViewHelpersTest do
       assert LiveViewHelpers.calculate_stardate(42) == 75_212.8
     end
   end
+
+  describe "handle_timezone_change/2" do
+    test "assigns timezone to socket" do
+      socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}}}
+      result = LiveViewHelpers.handle_timezone_change(socket, "America/Chicago")
+      assert result.assigns.timezone == "America/Chicago"
+    end
+  end
+
+  describe "setup_stardate_assigns/2" do
+    test "assigns current_stardate as a float" do
+      result =
+        LiveViewHelpers.setup_stardate_assigns(%Phoenix.LiveView.Socket{
+          assigns: %{__changed__: %{}}
+        })
+
+      assert is_float(result.assigns.current_stardate)
+    end
+
+    test "assigns the given timezone" do
+      result =
+        LiveViewHelpers.setup_stardate_assigns(
+          %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}}},
+          "Europe/London"
+        )
+
+      assert result.assigns.timezone == "Europe/London"
+    end
+
+    test "defaults timezone to UTC" do
+      result =
+        LiveViewHelpers.setup_stardate_assigns(%Phoenix.LiveView.Socket{
+          assigns: %{__changed__: %{}}
+        })
+
+      assert result.assigns.timezone == "UTC"
+    end
+  end
 end

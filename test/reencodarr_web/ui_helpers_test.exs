@@ -249,4 +249,95 @@ defmodule ReencodarrWeb.UIHelpersTest do
       end)
     end
   end
+
+  describe "filter_tag_classes/1" do
+    test "orange returns a string containing bg-orange-700" do
+      result = UIHelpers.filter_tag_classes(:orange)
+      assert String.contains?(result, "bg-orange-700")
+    end
+
+    test "blue returns a string containing bg-blue-700" do
+      result = UIHelpers.filter_tag_classes(:blue)
+      assert String.contains?(result, "bg-blue-700")
+    end
+
+    test "unknown color falls back to gray" do
+      result = UIHelpers.filter_tag_classes(:unknown)
+      assert String.contains?(result, "bg-gray-700")
+    end
+  end
+
+  describe "action_button_classes/2" do
+    test "blue color scheme contains bg-blue-600" do
+      result = UIHelpers.action_button_classes(:blue)
+      assert String.contains?(result, "bg-blue-600")
+    end
+
+    test "red color scheme contains bg-red-600" do
+      result = UIHelpers.action_button_classes(:red)
+      assert String.contains?(result, "bg-red-600")
+    end
+
+    test "medium size contains text-sm" do
+      result = UIHelpers.action_button_classes(:blue, size: :medium)
+      assert String.contains?(result, "text-sm")
+    end
+
+    test "transition option appends transition-colors" do
+      result = UIHelpers.action_button_classes(:blue, transition: true)
+      assert String.contains?(result, "transition-colors")
+    end
+
+    test "without transition option does not have transition-colors" do
+      result = UIHelpers.action_button_classes(:blue)
+      refute String.contains?(result, "transition-colors")
+    end
+  end
+
+  describe "format_display_count/1" do
+    test "formats integer 0 as string" do
+      result = UIHelpers.format_display_count(0)
+      assert is_binary(result)
+    end
+
+    test "formats a positive integer" do
+      result = UIHelpers.format_display_count(42)
+      assert String.contains?(result, "42")
+    end
+
+    test "returns N/A for nil" do
+      assert UIHelpers.format_display_count(nil) == "N/A"
+    end
+  end
+
+  describe "progress_color/1" do
+    test "blue returns cyan gradient" do
+      result = UIHelpers.progress_color("blue")
+      assert String.contains?(result, "cyan")
+    end
+
+    test "green returns emerald gradient" do
+      result = UIHelpers.progress_color("green")
+      assert String.contains?(result, "emerald")
+    end
+
+    test "unknown defaults to orange gradient" do
+      result = UIHelpers.progress_color("other")
+      assert String.contains?(result, "orange")
+    end
+  end
+
+  describe "queue_header_color/1" do
+    test "cyan returns bg-cyan-400" do
+      assert UIHelpers.queue_header_color("cyan") == "bg-cyan-400"
+    end
+
+    test "green returns bg-green-500" do
+      assert UIHelpers.queue_header_color("green") == "bg-green-500"
+    end
+
+    test "unknown defaults to bg-orange-500" do
+      assert UIHelpers.queue_header_color("other") == "bg-orange-500"
+    end
+  end
 end
