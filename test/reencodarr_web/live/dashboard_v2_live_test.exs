@@ -189,5 +189,84 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       # Note: We can't test button clicking when disabled,
       # so we'll just verify the page handles the sync state
     end
+
+    test "handles batch_analysis_completed event without crashing", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      send(view.pid, {:batch_analysis_completed, %{batch_size: 5}})
+      :timer.sleep(50)
+
+      assert render(view) =~ "Processing Pipeline"
+    end
+
+    test "handles analyzer_progress event without crashing", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      send(view.pid, {:analyzer_progress, %{current: 3, total: 10, batch_size: 2}})
+      :timer.sleep(50)
+
+      assert render(view) =~ "Processing Pipeline"
+    end
+
+    test "encoder_health_alert stalled shows error flash", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      send(
+        view.pid,
+        {:encoder_health_alert, %{video_path: "/tmp/video.mkv", reason: :stalled_23_hours}}
+      )
+
+      :timer.sleep(50)
+
+      html = render(view)
+      assert html =~ "Encoder may be stuck"
+    end
+
+    test "encoder_health_alert with unknown reason shows generic message", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      send(view.pid, {:encoder_health_alert, %{video_path: nil, reason: :some_other_reason}})
+      :timer.sleep(50)
+
+      html = render(view)
+      assert html =~ "Encoder health alert"
+    end
+  end
+
+  describe "sync event handlers" do
+    test "sync_sonarr event starts sync and shows flash", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      html = view |> render_click("sync_sonarr", %{})
+
+      assert html =~ "Sonarr sync started"
+    end
+
+    test "sync_radarr event starts sync and shows flash", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      html = view |> render_click("sync_radarr", %{})
+
+      assert html =~ "Radarr sync started"
+    end
+
+    test "sync_sonarr shows error when sync already in progress", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      send(view.pid, {:sync_started, %{service_type: "sonarr"}})
+      :timer.sleep(50)
+
+      html = view |> render_click("sync_sonarr", %{})
+
+      assert html =~ "Sync already in progress"
+    end
+
+    test "unknown sync_service event shows error flash", %{conn: conn} do
+      {:ok, view, _} = live(conn, ~p"/")
+
+      html = view |> render_click("sync_unknownservice", %{})
+
+      assert html =~ "Unknown sync service"
+    end
   end
 end
