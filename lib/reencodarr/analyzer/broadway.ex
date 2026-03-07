@@ -137,7 +137,13 @@ defmodule Reencodarr.Analyzer.Broadway do
     # Process the batch using optimized batch mediainfo fetching
     _result = process_batch_with_single_mediainfo(video_infos, context)
 
-    finish_batch_processing(batch_metrics, video_infos)
+    result = finish_batch_processing(batch_metrics, video_infos)
+
+    # Clear processed video IDs from producer's in-flight set
+    video_ids = Enum.map(video_infos, & &1.id)
+    Producer.batch_completed(video_ids)
+
+    result
   end
 
   # Private batch processing helpers
