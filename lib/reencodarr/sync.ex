@@ -278,10 +278,10 @@ defmodule Reencodarr.Sync do
   end
 
   def upsert_video_from_file(
-        %{"path" => _path, "size" => _size, "mediaInfo" => media_info} = file,
+        %{"path" => _path, "size" => _size} = file,
         service_type
       ) do
-    info = build_video_file_info(file, media_info, service_type)
+    info = build_video_file_info(file, Map.get(file, "mediaInfo"), service_type)
     upsert_video_from_file(info, service_type)
   end
 

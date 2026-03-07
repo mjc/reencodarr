@@ -385,11 +385,11 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
           Logger.debug("Video skipped: #{reason}")
           {success, fails}
 
-        {:ok, {:error, path}}, {success, fails} ->
+        {:ok, {:error, error_info}}, {success, fails} ->
           # Record the failure using the failure tracker instead of just logging
           # Note: We don't have the video struct here, so we'll still log but also collect for reporting
-          Logger.error("Video processing failed for: #{path}")
-          {success, [path | fails]}
+          Logger.error("Video processing failed for: #{inspect(error_info)}")
+          {success, [inspect(error_info) | fails]}
 
         {:exit, :timeout}, {success, fails} ->
           Logger.error("Video processing timed out")

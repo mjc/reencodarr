@@ -123,6 +123,32 @@ defmodule ReencodarrWeb.SonarrWebhookControllerTest do
       assert {:ok, _} = Media.get_video_by_path(path1)
       assert {:ok, _} = Media.get_video_by_path(path2)
     end
+
+    test "returns 204 and upserts files when mediaInfo is missing", %{conn: conn} do
+      uid = System.unique_integer([:positive])
+      path = "/test/batch/no_media_info_#{uid}.mkv"
+
+      log =
+        capture_log(fn ->
+          conn =
+            sonarr_post(conn, %{
+              "eventType" => "Download",
+              "episodeFiles" => [
+                %{
+                  "id" => uid,
+                  "path" => path,
+                  "size" => 1_250_000_000,
+                  "sceneName" => "Show.S01E08.1080p.BluRay.Remux",
+                  "quality" => "Bluray-1080p Remux"
+                }
+              ]
+            })
+
+          assert conn.status == 204
+        end)
+
+      refute String.contains?(log, "FunctionClauseError")
+    end
   end
 
   describe "EpisodeFileDelete event" do
