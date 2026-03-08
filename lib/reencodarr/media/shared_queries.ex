@@ -81,9 +81,14 @@ defmodule Reencodarr.Media.SharedQueries do
 
   Returns state counts, size, and duration aggregates from the videos table only.
   Combine with `vmaf_stats_query/0` via `Map.merge/2` for full dashboard stats.
+
+  Savings calculation uses actual data (original_size - size) for encoded videos
+  and falls back to predicted savings from chosen VMAFs for not-yet-encoded videos.
   """
   def video_stats_query do
     from v in Video,
+      left_join: m in Vmaf,
+      on: v.chosen_vmaf_id == m.id,
       select: %{
         total_videos: count(v.id),
         total_size_gb: fragment("ROUND(CAST(SUM(?) AS FLOAT) / (1024*1024*1024), 2)", v.size),
@@ -101,15 +106,34 @@ defmodule Reencodarr.Media.SharedQueries do
         failed: fragment("COALESCE(SUM(CASE WHEN ? = 'failed' THEN 1 ELSE 0 END), 0)", v.state),
         avg_duration_minutes: fragment("ROUND(AVG(CAST(? AS FLOAT)) / 60.0, 1)", v.duration),
         most_recent_video_update: max(v.updated_at),
-        most_recent_inserted_video: max(v.inserted_at)
+        most_recent_inserted_video: max(v.inserted_at),
+        total_savings_gb:
+          coalesce(
+            sum(
+              fragment(
+                "CASE WHEN ? = 'encoded' AND ? IS NOT NULL AND ? > ? THEN (? - ?) / 1073741824.0 WHEN ? IS NOT NULL AND ? > 0 THEN ? / 1073741824.0 ELSE 0 END",
+                v.state,
+                v.original_size,
+                v.original_size,
+                v.size,
+                v.original_size,
+                v.size,
+                m.id,
+                m.savings,
+                m.savings
+              )
+            ),
+            0
+          )
       }
   end
 
   @doc """
-  Single-table query for VMAF statistics (no join).
+  VMAF statistics query.
 
-  Returns counts and savings from the vmafs table only.
+  Returns VMAF counts from the vmafs table.
   Combine with `video_stats_query/0` via `Map.merge/2` for full dashboard stats.
+  Note: total_savings_gb is computed in video_stats_query using actual file sizes.
   """
   def vmaf_stats_query do
     from m in Vmaf,
@@ -118,19 +142,7 @@ defmodule Reencodarr.Media.SharedQueries do
       select: %{
         total_vmafs: count(m.id),
         chosen_vmafs:
-          fragment("COALESCE(SUM(CASE WHEN ? IS NOT NULL THEN 1 ELSE 0 END), 0)", vid.id),
-        total_savings_gb:
-          coalesce(
-            sum(
-              fragment(
-                "CASE WHEN ? IS NOT NULL AND ? > 0 THEN ? / 1073741824.0 ELSE 0 END",
-                vid.id,
-                m.savings,
-                m.savings
-              )
-            ),
-            0
-          )
+          fragment("COALESCE(SUM(CASE WHEN ? IS NOT NULL THEN 1 ELSE 0 END), 0)", vid.id)
       }
   end
 end

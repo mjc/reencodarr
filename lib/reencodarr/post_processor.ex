@@ -134,6 +134,8 @@ defmodule Reencodarr.PostProcessor do
           "[FinalRename] Successfully finalized re-encoded file from #{intermediate_path} to #{video.path} for video #{video.id}"
         )
 
+        update_encoded_file_size(video)
+
       {:error, _reason} ->
         Logger.error(
           "[FinalRename] Failed to finalize re-encoded file from #{intermediate_path} to #{video.path} for video #{video.id}. " <>
@@ -142,6 +144,31 @@ defmodule Reencodarr.PostProcessor do
     end
 
     spawn_refresh_and_rename_task(video)
+  end
+
+  # Update video.size with actual encoded file size so space saved can use actual data
+  defp update_encoded_file_size(video) do
+    case File.stat(video.path) do
+      {:ok, %File.Stat{size: file_size}} when file_size > 0 ->
+        case Media.update_video(video, %{size: file_size}) do
+          {:ok, _} ->
+            Logger.info(
+              "Updated video #{video.id} encoded size: #{format_size(file_size)} " <>
+                "(original: #{format_size(video.size)})"
+            )
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to update encoded size for video #{video.id}: #{inspect(reason)}"
+            )
+        end
+
+      {:ok, %File.Stat{size: 0}} ->
+        Logger.warning("Encoded file at #{video.path} is 0 bytes, not updating size")
+
+      {:error, reason} ->
+        Logger.warning("Cannot stat encoded file #{video.path}: #{inspect(reason)}")
+    end
   end
 
   defp spawn_refresh_and_rename_task(video) do

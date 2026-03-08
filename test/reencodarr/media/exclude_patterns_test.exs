@@ -306,7 +306,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       stats = Repo.one(query)
       assert is_map(stats)
 
-      for key <- ~w[total_vmafs chosen_vmafs total_savings_gb]a do
+      for key <- ~w[total_vmafs chosen_vmafs]a do
         assert Map.has_key?(stats, key), "missing key: #{key}"
       end
     end
@@ -339,7 +339,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       _vmaf2 =
         vmaf_fixture(%{video_id: video.id, crf: 26.0, savings: 1_073_741_824})
 
-      stats = Repo.one(SharedQueries.vmaf_stats_query())
+      stats = Repo.one(SharedQueries.video_stats_query())
 
       assert_in_delta stats.total_savings_gb, 2.0, 0.01
     end
@@ -349,7 +349,6 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
 
       assert stats.total_vmafs == 0
       assert stats.chosen_vmafs == 0
-      assert stats.total_savings_gb == 0
     end
   end
 

@@ -1332,15 +1332,15 @@ defmodule Reencodarr.Media do
       failed: 0,
       avg_duration_minutes: 0.0,
       most_recent_video_update: nil,
-      most_recent_inserted_video: nil
+      most_recent_inserted_video: nil,
+      total_savings_gb: 0.0
     }
   end
 
   defp get_default_vmaf_stats do
     %{
       total_vmafs: 0,
-      chosen_vmafs: 0,
-      total_savings_gb: 0.0
+      chosen_vmafs: 0
     }
   end
 
