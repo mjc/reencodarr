@@ -42,7 +42,21 @@ defmodule ReencodarrWeb.ChartComponents do
       )
       |> Contex.Plot.axis_labels("", "")
       |> Contex.Plot.to_svg()
+      |> apply_dark_theme()
     end
+  end
+
+  # Contex embeds `text {fill: black}` and `line {stroke: black}` inside the SVG.
+  # Replace with dark theme colors since external CSS can't override in-SVG styles.
+  defp apply_dark_theme({:safe, iodata}) do
+    svg =
+      iodata
+      |> IO.iodata_to_binary()
+      |> String.replace("text {fill: black}", "text {fill: #9CA3AF}")
+      |> String.replace("line {stroke: black}", "line {stroke: #4B5563}")
+      |> String.replace(~s|stroke="#000"|, ~s|stroke="#4B5563"|)
+
+    {:safe, svg}
   end
 
   defp empty_svg(width, height) do

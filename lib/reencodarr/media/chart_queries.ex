@@ -25,17 +25,45 @@ defmodule Reencodarr.Media.ChartQueries do
   ]
 
   @codec_map %{
+    # HEVC / H.265 variants
+    "v_mpegh/iso/hevc" => "HEVC",
     "hevc" => "HEVC",
     "h265" => "HEVC",
     "h.265" => "HEVC",
+    "x265" => "HEVC",
+    "hev1" => "HEVC",
+    "hvc1" => "HEVC",
+    "dvhe" => "HEVC",
+    # H.264 / AVC variants
+    "v_mpeg4/iso/avc" => "H.264",
     "h264" => "H.264",
     "h.264" => "H.264",
+    "x264" => "H.264",
     "avc" => "H.264",
+    "avc1" => "H.264",
+    "27" => "H.264",
+    # AV1 variants
+    "v_av1" => "AV1",
     "av1" => "AV1",
+    "av01" => "AV1",
+    # VP9
+    "v_vp9" => "VP9",
+    "vp9" => "VP9",
+    "vp09" => "VP9",
+    # MPEG-2
+    "v_mpeg2" => "MPEG-2",
+    "mpeg2" => "MPEG-2",
+    # MPEG-4 ASP (DivX/XviD)
+    "v_mpeg4/iso/asp" => "MPEG-4",
     "mpeg4" => "MPEG-4",
+    "mp4v-20" => "MPEG-4",
+    "xvid" => "MPEG-4",
+    "divx" => "MPEG-4",
+    "dx50" => "MPEG-4",
+    # VC-1
     "vc1" => "VC-1",
     "vc-1" => "VC-1",
-    "vp9" => "VP9"
+    "v_ms/vfw/fourcc / wvc1" => "VC-1"
   }
 
   @doc "Get VMAF score distribution as histogram bins for chosen VMAFs."

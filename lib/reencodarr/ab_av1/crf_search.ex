@@ -106,6 +106,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   def get_state, do: safe_call(:get_state)
 
+  @doc "Returns the video ID currently being CRF-searched, or nil if idle."
+  @spec current_video_id() :: integer() | nil
+  def current_video_id do
+    case safe_call(:current_video_id) do
+      id when is_integer(id) -> id
+      _ -> nil
+    end
+  end
+
   def reset_if_stuck, do: safe_call(:reset_if_stuck, 5_000)
 
   defp safe_call(message, timeout \\ 1_000) do
@@ -429,6 +438,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   @impl true
   def handle_call(:available?, _from, state) do
     {:reply, state.current_task == :none, state}
+  end
+
+  @impl true
+  def handle_call(:current_video_id, _from, state) do
+    video_id = if state.current_task != :none, do: state.current_task.video.id, else: nil
+    {:reply, video_id, state}
   end
 
   @impl true

@@ -5,6 +5,7 @@ defmodule Reencodarr.Media do
     only: [videos_with_no_chosen_vmafs_query: 0],
     warn: false
 
+  alias Reencodarr.AbAv1.{CrfSearch, Encode}
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.Core.Parsers
 
@@ -229,6 +230,7 @@ defmodule Reencodarr.Media do
   Resets videos stuck in `:crf_searching` back to `:analyzed`.
 
   Called by the CRF Searcher Broadway pipeline on startup to reclaim orphaned work.
+  Excludes videos currently being processed by the CRF search GenServer.
 
   ## Examples
       iex> Media.reset_orphaned_crf_searching()
@@ -236,7 +238,10 @@ defmodule Reencodarr.Media do
   """
   @spec reset_orphaned_crf_searching() :: :ok
   def reset_orphaned_crf_searching do
+    exclude_id = CrfSearch.current_video_id()
+
     from(v in Video, where: v.state == :crf_searching)
+    |> maybe_exclude_video(exclude_id)
     |> reset_videos("orphaned crf_searching videos → analyzed")
   end
 
@@ -244,6 +249,7 @@ defmodule Reencodarr.Media do
   Resets videos stuck in `:encoding` back to `:crf_searched`.
 
   Called by the Encoder Broadway pipeline on startup to reclaim orphaned work.
+  Excludes videos currently being processed by the Encode GenServer.
 
   ## Examples
       iex> Media.reset_orphaned_encoding()
@@ -251,15 +257,19 @@ defmodule Reencodarr.Media do
   """
   @spec reset_orphaned_encoding() :: :ok
   def reset_orphaned_encoding do
+    exclude_id = Encode.current_video_id()
+
     # Videos that have a chosen VMAF can safely go back to crf_searched for re-encoding.
     {with_vmaf, _} =
       from(v in Video, where: v.state == :encoding, where: not is_nil(v.chosen_vmaf_id))
+      |> maybe_exclude_video(exclude_id)
       |> Repo.update_all(set: [state: :crf_searched, updated_at: DateTime.utc_now()])
 
     # Videos without a chosen VMAF must go back to analyzed — they were never
     # encodable in the first place and need CRF search to run first.
     {without_vmaf, _} =
       from(v in Video, where: v.state == :encoding, where: is_nil(v.chosen_vmaf_id))
+      |> maybe_exclude_video(exclude_id)
       |> Repo.update_all(set: [state: :analyzed, updated_at: DateTime.utc_now()])
 
     total = with_vmaf + without_vmaf
@@ -296,6 +306,9 @@ defmodule Reencodarr.Media do
     if count > 0, do: Logger.info("Reset #{count} #{log_message}")
     :ok
   end
+
+  defp maybe_exclude_video(query, nil), do: query
+  defp maybe_exclude_video(query, video_id), do: from(v in query, where: v.id != ^video_id)
 
   @doc """
   Counts videos that would generate invalid audio encoding arguments (b:a=0k, ac=0).

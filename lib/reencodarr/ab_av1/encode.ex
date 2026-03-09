@@ -70,6 +70,15 @@ defmodule Reencodarr.AbAv1.Encode do
     end
   end
 
+  @doc "Returns the video ID currently being encoded, or nil if idle."
+  @spec current_video_id() :: integer() | nil
+  def current_video_id do
+    case safe_call(:current_video_id) do
+      {:ok, id} when is_integer(id) -> id
+      _ -> nil
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # GenServer Callbacks
   # ---------------------------------------------------------------------------
@@ -100,6 +109,12 @@ defmodule Reencodarr.AbAv1.Encode do
   @impl true
   def handle_call(:available?, _from, state) do
     {:reply, state.video == :none, state}
+  end
+
+  @impl true
+  def handle_call(:current_video_id, _from, state) do
+    video_id = if state.video != :none, do: state.video.id, else: nil
+    {:reply, video_id, state}
   end
 
   @impl true

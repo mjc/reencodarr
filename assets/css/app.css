@@ -33,16 +33,6 @@
 }
 
 /* Dark theme overrides for Contex SVG charts */
-.chart-container svg text {
-  fill: #9CA3AF;
-}
-.chart-container svg .exc-tick line,
-.chart-container svg .exc-tick path {
-  stroke: #4B5563;
-}
-.chart-container svg .exc-domain {
-  stroke: #4B5563;
-}
 .chart-container svg .exc-barlabel-in {
   fill: #F9FAFB;
 }
