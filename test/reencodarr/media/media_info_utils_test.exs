@@ -175,4 +175,80 @@ defmodule Reencodarr.Media.MediaInfoUtilsTest do
       assert result.audio_codecs == []
     end
   end
+
+  describe "from_video_file_info/1" do
+    alias Reencodarr.Media.VideoFileInfo
+
+    defp sample_file_info(overrides \\ %{}) do
+      defaults = %{
+        path: "/test/video.mkv",
+        size: 2_500_000_000,
+        service_id: "test1",
+        service_type: :sonarr,
+        audio_codec: "A_AAC",
+        bitrate: 8_000_000,
+        audio_channels: 6,
+        video_codec: "V_MPEGH/ISO/HEVC",
+        resolution: {1920, 1080},
+        video_fps: 24.0,
+        video_dynamic_range: "HDR10",
+        video_dynamic_range_type: "HDR10",
+        audio_stream_count: 2,
+        overall_bitrate: 8_500_000,
+        run_time: 7200,
+        subtitles: ["eng", "spa"],
+        title: "Test Movie"
+      }
+
+      struct(VideoFileInfo, Map.merge(defaults, overrides))
+    end
+
+    test "converts VideoFileInfo with tuple resolution to correct structure" do
+      result = MediaInfoUtils.from_video_file_info(sample_file_info())
+
+      assert is_map(result["media"])
+      tracks = result["media"]["track"]
+      assert length(tracks) == 3
+
+      video = Enum.find(tracks, &(&1["@type"] == "Video"))
+      assert video["Width"] == 1920
+      assert video["Height"] == 1080
+    end
+
+    test "converts VideoFileInfo with string resolution" do
+      info = sample_file_info(%{resolution: "3840x2160"})
+      result = MediaInfoUtils.from_video_file_info(info)
+
+      video = Enum.find(result["media"]["track"], &(&1["@type"] == "Video"))
+      assert video["Width"] == 3840
+      assert video["Height"] == 2160
+    end
+
+    test "general track contains correct metadata" do
+      result = MediaInfoUtils.from_video_file_info(sample_file_info())
+      general = Enum.find(result["media"]["track"], &(&1["@type"] == "General"))
+
+      assert general["AudioCount"] == 2
+      assert general["OverallBitRate"] == 8_500_000
+      assert general["FileSize"] == 2_500_000_000
+      assert general["TextCount"] == 2
+      assert general["Title"] == "Test Movie"
+    end
+
+    test "falls back to bitrate when overall_bitrate is nil" do
+      info = sample_file_info(%{overall_bitrate: nil})
+      result = MediaInfoUtils.from_video_file_info(info)
+      general = Enum.find(result["media"]["track"], &(&1["@type"] == "General"))
+
+      assert general["OverallBitRate"] == 8_000_000
+    end
+
+    test "handles nil subtitles without crashing" do
+      info = sample_file_info(%{subtitles: nil})
+      result = MediaInfoUtils.from_video_file_info(info)
+      general = Enum.find(result["media"]["track"], &(&1["@type"] == "General"))
+
+      assert general["TextCount"] == 0
+    end
+  end
 end

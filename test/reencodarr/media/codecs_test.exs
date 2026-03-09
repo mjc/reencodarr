@@ -233,4 +233,135 @@ defmodule Reencodarr.Media.CodecsTest do
       assert result == 6
     end
   end
+
+  describe "normalize_codec/1" do
+    test "normalizes Atmos-containing string to Atmos" do
+      assert Codecs.normalize_codec("Dolby Atmos") == "Atmos"
+    end
+
+    test "normalizes EAC3 Atmos to Atmos" do
+      assert Codecs.normalize_codec("EAC3 Atmos") == "Atmos"
+    end
+
+    test "returns empty string for non-Atmos codec" do
+      assert Codecs.normalize_codec("AAC") == ""
+    end
+
+    test "returns empty string for unknown codec" do
+      assert Codecs.normalize_codec("SomeRandomCodec") == ""
+    end
+  end
+
+  describe "has_opus_audio_in_mediainfo?/1" do
+    test "returns false when tracks are nil" do
+      refute Codecs.has_opus_audio_in_mediainfo?(%{"media" => %{"track" => nil}})
+    end
+
+    test "returns false for empty mediainfo map" do
+      refute Codecs.has_opus_audio_in_mediainfo?(%{})
+    end
+
+    test "returns true when audio track list contains Opus by Format" do
+      mediainfo = %{
+        "media" => %{
+          "track" => [
+            %{"@type" => "Video", "CodecID" => "V_AV1"},
+            %{"@type" => "Audio", "Format" => "Opus"}
+          ]
+        }
+      }
+
+      assert Codecs.has_opus_audio_in_mediainfo?(mediainfo)
+    end
+
+    test "returns true when audio track list contains Opus by CodecID" do
+      mediainfo = %{
+        "media" => %{
+          "track" => [
+            %{"@type" => "Audio", "CodecID" => "A_OPUS"}
+          ]
+        }
+      }
+
+      assert Codecs.has_opus_audio_in_mediainfo?(mediainfo)
+    end
+
+    test "returns false when audio tracks have no Opus" do
+      mediainfo = %{
+        "media" => %{
+          "track" => [
+            %{"@type" => "Audio", "Format" => "AAC", "CodecID" => "A_AAC"}
+          ]
+        }
+      }
+
+      refute Codecs.has_opus_audio_in_mediainfo?(mediainfo)
+    end
+
+    test "returns true for single Opus audio track map" do
+      mediainfo = %{
+        "media" => %{
+          "track" => %{"@type" => "Audio", "Format" => "Opus"}
+        }
+      }
+
+      assert Codecs.has_opus_audio_in_mediainfo?(mediainfo)
+    end
+
+    test "returns false for single non-Opus track map" do
+      mediainfo = %{
+        "media" => %{
+          "track" => %{"@type" => "Audio", "Format" => "AAC"}
+        }
+      }
+
+      refute Codecs.has_opus_audio_in_mediainfo?(mediainfo)
+    end
+  end
+
+  describe "video_codecs_only/1" do
+    test "filters mixed list to video codecs only" do
+      result = Codecs.video_codecs_only(["HEVC", "AAC", "AV1", "FLAC"])
+      assert "HEVC" in result
+      assert "AV1" in result
+      refute "AAC" in result
+      refute "FLAC" in result
+    end
+
+    test "returns empty list when all codecs are audio" do
+      assert Codecs.video_codecs_only(["AAC", "AC3", "Opus"]) == []
+    end
+
+    test "returns all codecs when all are video" do
+      result = Codecs.video_codecs_only(["HEVC", "VP9", "AV1"])
+      assert length(result) == 3
+    end
+
+    test "returns empty list for empty input" do
+      assert Codecs.video_codecs_only([]) == []
+    end
+  end
+
+  describe "audio_codecs_only/1" do
+    test "filters mixed list to audio codecs only" do
+      result = Codecs.audio_codecs_only(["HEVC", "AAC", "AV1", "FLAC"])
+      assert "AAC" in result
+      assert "FLAC" in result
+      refute "HEVC" in result
+      refute "AV1" in result
+    end
+
+    test "returns empty list when all codecs are video" do
+      assert Codecs.audio_codecs_only(["HEVC", "VP9", "AV1"]) == []
+    end
+
+    test "returns all codecs when all are audio" do
+      result = Codecs.audio_codecs_only(["AAC", "AC3", "Opus", "FLAC"])
+      assert length(result) == 4
+    end
+
+    test "returns empty list for empty input" do
+      assert Codecs.audio_codecs_only([]) == []
+    end
+  end
 end
