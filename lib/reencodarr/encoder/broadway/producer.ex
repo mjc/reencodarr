@@ -12,6 +12,8 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   # Poll every 2 seconds to check for new work
   @poll_interval_ms 2000
+  # Reset orphaned/invalid states every 5 minutes
+  @orphan_reset_interval_ms 300_000
 
   # After 900 consecutive unavailable polls (~30 minutes), attempt recovery
   @recovery_threshold 900
@@ -31,6 +33,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   def init(_opts) do
     send(self(), :reset_orphaned)
     schedule_poll()
+    schedule_orphan_reset()
     {:producer, %{pending_demand: 0, consecutive_unavailable: 0}}
   end
 
@@ -51,6 +54,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   def handle_info(:reset_orphaned, state) do
     Media.reset_orphaned_encoding()
     Media.reset_crf_searched_without_vmaf()
+    schedule_orphan_reset()
     {:noreply, [], state}
   end
 
@@ -91,6 +95,10 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   defp schedule_poll do
     Process.send_after(self(), :poll, @poll_interval_ms)
+  end
+
+  defp schedule_orphan_reset do
+    Process.send_after(self(), :reset_orphaned, @orphan_reset_interval_ms)
   end
 
   # Public for testing

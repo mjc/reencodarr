@@ -147,9 +147,26 @@ defmodule Reencodarr.Media.VideoUpsert do
     if not being_marked_encoded and
          VideoValidator.should_delete_vmafs?(existing_video, new_values) do
       delete_vmafs_for_video(existing_video.id)
+      reset_crf_searched_state(existing_video.id)
     end
 
     :ok
+  end
+
+  # When VMAFs are deleted during sync, any crf_searched video must be reset to
+  # analyzed — the old VMAF data is invalid and the video needs re-searching.
+  defp reset_crf_searched_state(video_id) do
+    {count, _} =
+      from(v in Video,
+        where: v.id == ^video_id and v.state == :crf_searched
+      )
+      |> Repo.update_all(
+        set: [state: :analyzed, chosen_vmaf_id: nil, updated_at: DateTime.utc_now()]
+      )
+
+    if count > 0 do
+      Logger.info("Reset crf_searched video #{video_id} → analyzed after VMAF deletion")
+    end
   end
 
   @spec handle_bitrate_preservation(

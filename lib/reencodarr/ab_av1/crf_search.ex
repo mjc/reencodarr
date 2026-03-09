@@ -547,6 +547,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp transition_to_crf_searched(video) do
     case Retry.retry_on_db_busy(fn -> Media.mark_as_crf_searched(video) end) do
       {:ok, _} ->
+        Media.resolve_crf_search_failures(video.id)
         :ok
 
       {:error, reason} ->
