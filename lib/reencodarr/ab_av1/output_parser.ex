@@ -36,10 +36,12 @@ defmodule Reencodarr.AbAv1.OutputParser do
       success: ~r/(?:\[.*\]\s)?crf\s(?<crf>\d+(?:\.\d+)?)\ssuccessful/,
       warning: ~r/^Warning:\s(?<message>.*)/,
       encoding_start: ~r/\[.*\] encoding (?<filename>\d+\.(?:mkv|mp4))/,
+      # Encoding progress: handles both full words ("45 minutes") and
+      # abbreviated indicatif format ("1h 23m", "5m 30s", "45s")
       encoding_progress:
-        ~r/\[.*\]\s*(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
+        ~r/\[.*\]\s*(?<percent>\d+(?:\.\d+)?)%,\s*(?<fps>[\d\.]+)\s*fps?,?\s*eta\s*(?<eta>(?:\d+\s*(?:seconds?|minutes?|hours?|days?|weeks?|months?|years?)|\d+[hms](?:\s*\d+[hms])*|Unknown|N\/A|unknown))/,
       encoding_progress_alt:
-        ~r/(?<percent>\d+)%,\s*(?<fps>[\d\.]+)\s*fps,\s*eta\s*(?<eta>\d+)\s*(?<unit>minutes|seconds|hours|days|weeks|months|years)/,
+        ~r/(?<percent>\d+(?:\.\d+)?)%,\s*(?<fps>[\d\.]+)\s*fps?,?\s*eta\s*(?<eta>(?:\d+\s*(?:seconds?|minutes?|hours?|days?|weeks?|months?|years?)|\d+[hms](?:\s*\d+[hms])*|Unknown|N\/A|unknown))/,
       file_size_progress: ~r/Encoded\s(?<size>[\d\.]+\s\w+)\s\((?<percent>\d+)%\)/,
       ffmpeg_error: ~r/Error: ffmpeg encode exit code (?<exit_code>\d+)/
     }
@@ -240,17 +242,15 @@ defmodule Reencodarr.AbAv1.OutputParser do
       },
       encoding_progress:
         Parsers.field_mapping([
-          {:percent, :int},
+          {:percent, :float},
           {:fps, :float},
-          {:eta, :int},
-          {:eta_unit, :string, "unit"}
+          {:eta, :string}
         ]),
       encoding_progress_alt:
         Parsers.field_mapping([
-          {:percent, :int},
+          {:percent, :float},
           {:fps, :float},
-          {:eta, :int},
-          {:eta_unit, :string, "unit"}
+          {:eta, :string}
         ]),
       file_size_progress:
         Parsers.field_mapping([

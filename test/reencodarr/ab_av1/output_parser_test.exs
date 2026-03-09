@@ -206,9 +206,78 @@ defmodule Reencodarr.AbAv1.OutputParserTest do
       line = "75%, 30.0 fps, eta 45 seconds"
       assert {:ok, result} = OutputParser.parse_line(line)
       assert result.type == :encoding_progress
-      assert result.data.percent == 75
+      assert result.data.percent == 75.0
       assert result.data.fps == 30.0
-      assert result.data.eta == 45
+      assert result.data.eta == "45 seconds"
+    end
+
+    test "parses abbreviated time format 1h 23m" do
+      line = "42%, 5 fps, eta 1h 23m"
+      assert {:ok, result} = OutputParser.parse_line(line)
+      assert result.type == :encoding_progress
+      assert result.data.percent == 42.0
+      assert result.data.fps == 5.0
+      assert result.data.eta == "1h 23m"
+    end
+
+    test "parses abbreviated time format 5m 30s" do
+      line = "85%, 12.5 fps, eta 5m 30s"
+      assert {:ok, result} = OutputParser.parse_line(line)
+      assert result.type == :encoding_progress
+      assert result.data.percent == 85.0
+      assert result.data.fps == 12.5
+      assert result.data.eta == "5m 30s"
+    end
+
+    test "parses abbreviated time format seconds only 45s" do
+      line = "99%, 30 fps, eta 45s"
+      assert {:ok, result} = OutputParser.parse_line(line)
+      assert result.type == :encoding_progress
+      assert result.data.percent == 99.0
+      assert result.data.eta == "45s"
+    end
+
+    test "parses abbreviated time format with all three units 2h 15m 30s" do
+      line = "10%, 8.0 fps, eta 2h 15m 30s"
+      assert {:ok, result} = OutputParser.parse_line(line)
+      assert result.type == :encoding_progress
+      assert result.data.percent == 10.0
+      assert result.data.eta == "2h 15m 30s"
+    end
+
+    test "parses Unknown ETA" do
+      line = "25%, 0.0 fps, eta Unknown"
+      assert {:ok, result} = OutputParser.parse_line(line)
+      assert result.type == :encoding_progress
+      assert result.data.eta == "Unknown"
+    end
+
+    test "parses N/A ETA" do
+      line = "1%, 2.0 fps, eta N/A"
+      assert {:ok, result} = OutputParser.parse_line(line)
+      assert result.type == :encoding_progress
+      assert result.data.eta == "N/A"
+    end
+
+    test "parses timestamped abbreviated progress" do
+      line = "[2024-06-15T10:30:00] 50%, 15.0 fps, eta 1h 23m"
+      assert {:ok, result} = OutputParser.parse_line(line)
+      # :progress pattern fires first for timestamped lines with full words,
+      # but encoding_progress handles the abbreviated format
+      assert result.data.percent in [50.0, 50]
+      assert result.data.fps == 15.0
+    end
+
+    test "parses full word time units via encoding_progress_alt" do
+      for {unit, _} <- [
+            {"seconds", "10 seconds"},
+            {"minutes", "5 minutes"},
+            {"hours", "2 hours"},
+            {"days", "1 days"}
+          ] do
+        line = "75%, 20.0 fps, eta 10 #{unit}"
+        assert {:ok, _result} = OutputParser.parse_line(line)
+      end
     end
 
     test "parses file_size_progress line" do

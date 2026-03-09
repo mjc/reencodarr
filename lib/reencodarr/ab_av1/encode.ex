@@ -12,7 +12,7 @@ defmodule Reencodarr.AbAv1.Encode do
 
   alias Reencodarr.AbAv1.Encoder
   alias Reencodarr.AbAv1.Helper
-  alias Reencodarr.AbAv1.ProgressParser
+  alias Reencodarr.AbAv1.OutputParser
   alias Reencodarr.Core.Retry
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Encoder.Broadway.Producer
@@ -184,8 +184,7 @@ defmodule Reencodarr.AbAv1.Encode do
     full_line = buffer <> data
 
     try do
-      ProgressParser.process_line(full_line, state)
-      updated_state = extract_and_store_progress(full_line, state)
+      updated_state = process_and_broadcast_progress(full_line, state)
       new_output_lines = append_output_line(full_line, output_lines)
 
       {:noreply, %{updated_state | partial_line_buffer: "", output_lines: new_output_lines}}
@@ -550,31 +549,49 @@ defmodule Reencodarr.AbAv1.Encode do
     PostProcessor.process_encoding_failure(video, exit_code, context)
   end
 
-  defp extract_and_store_progress(line, state) do
-    progress_regex =
-      ~r/(?<percent>\d+(?:\.\d+)?)%,\s+(?<fps>\d+(?:\.\d+)?)\s+fps.*?eta\s+(?<eta>[^,\n]+)/
-
-    case Regex.named_captures(progress_regex, line) do
-      %{"percent" => percent_str, "fps" => fps_str, "eta" => eta_str} ->
+  defp process_and_broadcast_progress(line, state) do
+    case OutputParser.parse_line(line) do
+      {:ok, %{type: type, data: data}} when type in [:encoding_progress, :progress] ->
         progress_data = %{
-          percent: parse_float(percent_str),
-          fps: parse_float(fps_str),
-          eta: String.trim(eta_str)
+          percent: data[:percent] || data[:progress] || 0,
+          fps: data[:fps] || 0.0,
+          eta: format_eta(data)
         }
 
+        broadcast_progress(state, progress_data)
         %{state | last_progress: progress_data}
 
-      nil ->
+      {:ok, %{type: :file_size_progress, data: data}} ->
+        progress_data = %{percent: data[:percent] || 0, fps: 0.0, eta: "unknown"}
+        broadcast_progress(state, progress_data)
+        %{state | last_progress: progress_data}
+
+      _ ->
         state
     end
   end
 
-  # Parse a numeric string as float, handling integers like "42" that
-  # String.to_float/1 would reject.
-  defp parse_float(str) do
-    case Float.parse(str) do
-      {val, _} -> val
-      :error -> 0.0
+  defp broadcast_progress(state, progress_data) do
+    {video_id, filename} = video_info(state)
+
+    Events.broadcast_event(:encoding_progress, %{
+      video_id: video_id,
+      percent: progress_data.percent,
+      fps: progress_data.fps,
+      eta: progress_data.eta,
+      filename: filename
+    })
+  end
+
+  defp video_info(%{video: :none}), do: {nil, "unknown"}
+  defp video_info(%{video: video}), do: {video.id, Path.basename(video.path)}
+
+  defp format_eta(data) do
+    cond do
+      is_binary(data[:eta]) -> data[:eta]
+      is_number(data[:eta]) && data[:eta_unit] -> "#{data[:eta]} #{data[:eta_unit]}"
+      is_number(data[:eta]) -> "#{data[:eta]}s"
+      true -> "unknown"
     end
   end
 end
