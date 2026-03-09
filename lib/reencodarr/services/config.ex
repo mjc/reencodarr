@@ -10,6 +10,7 @@ defmodule Reencodarr.Services.Config do
           enabled: boolean(),
           service_type: :sonarr | :radarr | :plex,
           url: String.t() | nil,
+          last_synced_at: DateTime.t() | nil,
           inserted_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil
         }
@@ -19,6 +20,7 @@ defmodule Reencodarr.Services.Config do
     field :enabled, :boolean, default: false
     field :service_type, Ecto.Enum, values: [:sonarr, :radarr, :plex]
     field :url, :string
+    field :last_synced_at, :utc_datetime
 
     timestamps(type: :utc_datetime)
   end
