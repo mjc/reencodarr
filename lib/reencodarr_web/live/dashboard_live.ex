@@ -12,6 +12,9 @@ defmodule ReencodarrWeb.DashboardLive do
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Dashboard.State, as: DashboardState
   alias Reencodarr.Formatters
+  alias Reencodarr.Media.ChartQueries
+
+  import ReencodarrWeb.ChartComponents
 
   require Logger
 
@@ -48,7 +51,11 @@ defmodule ReencodarrWeb.DashboardLive do
         crf_search_sample: nil,
         # Encoding active work
         encoding_video: nil,
-        encoding_vmaf: nil
+        encoding_vmaf: nil,
+        # Chart data (loaded when connected)
+        vmaf_distribution: [],
+        resolution_distribution: [],
+        codec_distribution: []
       })
 
     # Setup subscriptions and processes if connected
@@ -67,6 +74,8 @@ defmodule ReencodarrWeb.DashboardLive do
         schedule_periodic_update()
         # Request throughput async
         request_analyzer_throughput()
+        # Start chart refresh timer (every 5 minutes)
+        Process.send_after(self(), :refresh_charts, 100)
 
         socket
       else
@@ -212,6 +221,12 @@ defmodule ReencodarrWeb.DashboardLive do
     schedule_periodic_update()
 
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info(:refresh_charts, socket) do
+    Process.send_after(self(), :refresh_charts, :timer.minutes(5))
+    {:noreply, load_chart_data(socket)}
   end
 
   @impl true
@@ -1028,7 +1043,29 @@ defmodule ReencodarrWeb.DashboardLive do
           analyzer_throughput={@analyzer_throughput}
         />
         
-    <!-- Row 4: Sync Controls -->
+    <!-- Row 4: Analytics Charts -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <.bar_chart
+            data={@vmaf_distribution}
+            title="VMAF Score Distribution"
+            width={400}
+            height={220}
+          />
+          <.bar_chart
+            data={@resolution_distribution}
+            title="Resolution Breakdown"
+            width={400}
+            height={220}
+          />
+          <.bar_chart
+            data={@codec_distribution}
+            title="Codec Distribution"
+            width={400}
+            height={220}
+          />
+        </div>
+        
+    <!-- Row 5: Sync Controls -->
         <.sync_controls
           syncing={@syncing}
           sync_progress={@sync_progress}
@@ -1112,5 +1149,13 @@ defmodule ReencodarrWeb.DashboardLive do
     else
       data[:percent] || 0
     end
+  end
+
+  defp load_chart_data(socket) do
+    assign(socket,
+      vmaf_distribution: ChartQueries.vmaf_score_distribution(),
+      resolution_distribution: ChartQueries.resolution_distribution(),
+      codec_distribution: ChartQueries.codec_distribution()
+    )
   end
 end
