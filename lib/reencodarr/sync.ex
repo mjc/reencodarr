@@ -38,11 +38,8 @@ defmodule Reencodarr.Sync do
 
     Events.broadcast_event(:sync_started, %{service_type: service_type})
 
-    config = load_config_for(service_type)
-
     try do
-      sync_items(get_items, get_files, service_type, config)
-      update_last_synced_at(config)
+      sync_items(get_items, get_files, service_type)
     rescue
       e ->
         Logger.error("Sync #{service_type} crashed: #{Exception.message(e)}")
@@ -76,54 +73,22 @@ defmodule Reencodarr.Sync do
   defp resolve_action(:sync_movies),
     do: {&Services.get_movies/0, &Services.get_movie_files/1, :radarr}
 
-  defp sync_items(get_items, get_files, service_type, config) do
+  defp sync_items(get_items, get_files, service_type) do
     case get_items.() do
       {:ok, %Req.Response{body: items}} when is_list(items) ->
-        last_synced_at = config && config.last_synced_at
-        process_items_in_batches(items, get_files, service_type, last_synced_at)
+        process_items_in_batches(items, get_files, service_type)
 
       _ ->
         Logger.error("Sync error: unexpected response")
     end
   end
 
-  defp process_items_in_batches(items, get_files, service_type, last_synced_at) do
-    {skipped, to_sync} = partition_items(items, last_synced_at)
-
-    if skipped > 0 do
-      Logger.info("Sync: Skipping #{skipped} unchanged items, syncing #{length(to_sync)}")
-    end
-
-    to_sync
+  defp process_items_in_batches(items, get_files, service_type) do
+    items
     |> Stream.chunk_every(sync_batch_size())
     |> Stream.with_index()
-    |> Stream.each(&process_batch(&1, get_files, service_type, length(to_sync)))
+    |> Stream.each(&process_batch(&1, get_files, service_type, length(items)))
     |> Stream.run()
-  end
-
-  defp partition_items(items, nil), do: {0, items}
-
-  defp partition_items(items, last_synced_at) do
-    {to_sync, unchanged} =
-      Enum.split_with(items, fn item ->
-        item_added_after?(item, last_synced_at)
-      end)
-
-    {length(unchanged), to_sync}
-  end
-
-  defp item_added_after?(item, last_synced_at) do
-    case item["dateAdded"] do
-      nil -> true
-      date_str -> parse_datetime_after?(date_str, last_synced_at)
-    end
-  end
-
-  defp parse_datetime_after?(date_str, last_synced_at) do
-    case DateTime.from_iso8601(date_str) do
-      {:ok, dt, _} -> DateTime.compare(dt, last_synced_at) == :gt
-      _ -> true
-    end
   end
 
   defp process_batch({batch, batch_index}, get_files, service_type, total_items) do
@@ -562,17 +527,5 @@ defmodule Reencodarr.Sync do
   defp schedule_sync do
     interval = Application.get_env(:reencodarr, :sync_interval_ms, @default_sync_interval_ms)
     Process.send_after(self(), :periodic_sync, interval)
-  end
-
-  defp load_config_for(service_type) do
-    Repo.get_by(Services.Config, service_type: service_type)
-  end
-
-  defp update_last_synced_at(nil), do: :ok
-
-  defp update_last_synced_at(config) do
-    config
-    |> Ecto.Changeset.change(%{last_synced_at: DateTime.utc_now() |> DateTime.truncate(:second)})
-    |> Repo.update()
   end
 end
