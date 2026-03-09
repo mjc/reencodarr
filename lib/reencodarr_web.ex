@@ -85,6 +85,7 @@ defmodule ReencodarrWeb do
       import Phoenix.HTML
       # Core UI components and translation
       import ReencodarrWeb.CoreComponents
+      import Flop.Phoenix, except: [table: 1]
       use Gettext, backend: ReencodarrWeb.Gettext
 
       # Shortcut for generating JS commands

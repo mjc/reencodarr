@@ -1035,12 +1035,9 @@ defmodule Reencodarr.Media do
 
   @doc """
   List videos with pagination, optional state filter, and search.
-  Returns {videos, total_count}.
+  Returns {videos, %Flop.Meta{}}.
   """
-  @valid_sort_fields ~w(path state size updated_at width bitrate)a
-  @valid_sort_dirs ~w(asc desc)a
-
-  @spec list_videos_paginated(keyword()) :: {[Video.t()], non_neg_integer()}
+  @spec list_videos_paginated(keyword()) :: {[Video.t()], Flop.Meta.t()}
   def list_videos_paginated(opts \\ []) do
     page = Keyword.get(opts, :page, 1)
     per_page = Keyword.get(opts, :per_page, 50)
@@ -1050,26 +1047,27 @@ defmodule Reencodarr.Media do
     sort_dir = Keyword.get(opts, :sort_dir, :desc)
     service_type = Keyword.get(opts, :service_type, nil)
     hdr = Keyword.get(opts, :hdr, nil)
-    offset = (page - 1) * per_page
 
-    sort_by = if sort_by in @valid_sort_fields, do: sort_by, else: :updated_at
-    sort_dir = if sort_dir in @valid_sort_dirs, do: sort_dir, else: :desc
+    filters = build_flop_filters(state_filter, search, service_type)
 
-    base =
-      from(v in Video)
-      |> maybe_filter_state(state_filter)
-      |> maybe_filter_search(search)
-      |> maybe_filter_service_type(service_type)
-      |> maybe_filter_hdr(hdr)
-      |> apply_sort(sort_by, sort_dir)
+    flop_params = %{
+      page: page,
+      page_size: per_page,
+      order_by: [sort_by],
+      order_directions: [sort_dir],
+      filters: filters
+    }
 
-    total = Repo.aggregate(base, :count, :id)
+    base_query = from(v in Video) |> maybe_filter_hdr(hdr)
 
-    videos =
-      Repo.all(from(q in base, limit: ^per_page, offset: ^offset))
-      |> Repo.preload(:chosen_vmaf)
+    case Flop.validate_and_run(base_query, flop_params, for: Video) do
+      {:ok, {videos, meta}} ->
+        videos = Repo.preload(videos, :chosen_vmaf)
+        {videos, meta}
 
-    {videos, total}
+      {:error, _meta} ->
+        {[], %Flop.Meta{flop: %Flop{}, schema: Video}}
+    end
   end
 
   @doc "Returns a map of %{state => count} for all video states."
@@ -1080,44 +1078,18 @@ defmodule Reencodarr.Media do
     |> Map.new()
   end
 
-  defp apply_sort(query, :width, dir),
-    do: from(v in query, order_by: [{^dir, v.width}, {^dir, v.height}])
-
-  defp apply_sort(query, field, dir), do: from(v in query, order_by: [{^dir, field(v, ^field)}])
-
-  defp safe_to_existing_atom(value) when is_atom(value), do: {:ok, value}
-
-  defp safe_to_existing_atom(value) when is_binary(value) do
-    {:ok, String.to_existing_atom(value)}
-  rescue
-    ArgumentError -> :error
+  defp build_flop_filters(state_filter, search, service_type) do
+    []
+    |> maybe_add_flop_filter(:state, :==, state_filter)
+    |> maybe_add_flop_filter(:path, :like, search)
+    |> maybe_add_flop_filter(:service_type, :==, service_type)
   end
 
-  defp maybe_filter_state(query, nil), do: query
-  defp maybe_filter_state(query, ""), do: query
+  defp maybe_add_flop_filter(filters, _field, _op, nil), do: filters
+  defp maybe_add_flop_filter(filters, _field, _op, ""), do: filters
 
-  defp maybe_filter_state(query, state) do
-    case safe_to_existing_atom(state) do
-      {:ok, atom} -> from(v in query, where: v.state == ^atom)
-      :error -> query
-    end
-  end
-
-  defp maybe_filter_search(query, nil), do: query
-  defp maybe_filter_search(query, ""), do: query
-
-  defp maybe_filter_search(query, search) when is_binary(search) do
-    pattern = "%#{search}%"
-    from(v in query, where: like(v.path, ^pattern))
-  end
-
-  defp maybe_filter_service_type(query, nil), do: query
-
-  defp maybe_filter_service_type(query, service) do
-    case safe_to_existing_atom(service) do
-      {:ok, atom} -> from(v in query, where: v.service_type == ^atom)
-      :error -> query
-    end
+  defp maybe_add_flop_filter(filters, field, op, value) do
+    [%{field: field, op: op, value: value} | filters]
   end
 
   defp maybe_filter_hdr(query, nil), do: query

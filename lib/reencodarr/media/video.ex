@@ -61,6 +61,18 @@ defmodule Reencodarr.Media.Video do
 
   @service_types [:sonarr, :radarr]
 
+  @derive {
+    Flop.Schema,
+    filterable: [:state, :service_type, :hdr, :path],
+    sortable: [:path, :state, :size, :updated_at, :width, :bitrate],
+    default_order: %{
+      order_by: [:updated_at],
+      order_directions: [:desc]
+    },
+    default_limit: 50,
+    max_limit: 250
+  }
+
   schema "videos" do
     field :atmos, :boolean
     field :audio_codecs, {:array, :string}, default: []

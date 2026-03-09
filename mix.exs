@@ -52,6 +52,8 @@ defmodule Reencodarr.MixProject do
       {:ecto_sql, "~> 3.13.3"},
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
       {:finch, "~> 0.13"},
+      {:flop, "~> 0.26"},
+      {:flop_phoenix, "~> 0.25"},
       {:floki, ">= 0.30.0", only: :test},
       {:lazy_html, ">= 0.1.0", only: :test},
       {:meck, "~> 1.0", only: :test},

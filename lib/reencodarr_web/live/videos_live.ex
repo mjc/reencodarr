@@ -278,7 +278,7 @@ defmodule ReencodarrWeb.VideosLive do
   defp load_data(socket) do
     a = socket.assigns
 
-    {videos, total} =
+    {videos, meta} =
       Media.list_videos_paginated(
         page: a.page,
         per_page: a.per_page,
@@ -291,7 +291,16 @@ defmodule ReencodarrWeb.VideosLive do
       )
 
     state_counts = Media.count_videos_by_state()
-    assign(socket, videos: videos, total: total, state_counts: state_counts, loading: false)
+
+    assign(socket,
+      videos: videos,
+      meta: meta,
+      total: meta.total_count || 0,
+      page: meta.current_page || a.page,
+      per_page: meta.page_size || a.per_page,
+      state_counts: state_counts,
+      loading: false
+    )
   end
 
   defp reset_video_by_id(id) do

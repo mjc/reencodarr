@@ -126,6 +126,8 @@ config :phoenix, :json_library, Jason
 
 config :elixir, :time_zone_database, Tzdata.TimeZoneDatabase
 
+config :flop, repo: Reencodarr.Repo
+
 # Configure Broadway CRF Search Pipeline
 config :reencodarr, Reencodarr.CrfSearcher.Broadway,
   rate_limit_messages: 10,
