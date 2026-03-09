@@ -42,19 +42,10 @@ defmodule Reencodarr.AbAv1.Encode do
 
   @spec available?() :: :available | :busy | :timeout
   def available? do
-    case GenServer.whereis(__MODULE__) do
-      nil ->
-        :timeout
-
-      pid ->
-        try do
-          case GenServer.call(pid, :available?, 100) do
-            true -> :available
-            false -> :busy
-          end
-        catch
-          :exit, _ -> :timeout
-        end
+    case safe_call(:available?, 100) do
+      {:ok, true} -> :available
+      {:ok, false} -> :busy
+      {:error, _} -> :timeout
     end
   end
 
@@ -64,32 +55,18 @@ defmodule Reencodarr.AbAv1.Encode do
   """
   @spec reset_if_stuck() :: :ok | {:error, :not_running}
   def reset_if_stuck do
-    case GenServer.whereis(__MODULE__) do
-      nil ->
-        {:error, :not_running}
-
-      pid ->
-        try do
-          GenServer.call(pid, :reset_if_stuck, 5_000)
-        catch
-          :exit, _ -> {:error, :timeout}
-        end
+    case safe_call(:reset_if_stuck, 5_000) do
+      {:ok, result} -> result
+      error -> error
     end
   end
 
   @doc "Get the current GenServer state for debugging."
   @spec get_state() :: map() | {:error, :not_running}
   def get_state do
-    case GenServer.whereis(__MODULE__) do
-      nil ->
-        {:error, :not_running}
-
-      pid ->
-        try do
-          GenServer.call(pid, :get_state, 1000)
-        catch
-          :exit, _ -> {:error, :timeout}
-        end
+    case safe_call(:get_state) do
+      {:ok, state} -> state
+      error -> error
     end
   end
 
@@ -136,7 +113,7 @@ defmodule Reencodarr.AbAv1.Encode do
     Logger.warning("Force resetting Encode GenServer - was stuck")
 
     # Demonitor first to flush any pending :DOWN message
-    if state.encoder_monitor, do: Process.demonitor(state.encoder_monitor, [:flush])
+    cleanup_monitor(state)
 
     # Kill Encoder (kills OS process group then stops GenServer)
     Encoder.kill()
@@ -331,41 +308,55 @@ defmodule Reencodarr.AbAv1.Encode do
   # Private Helpers
   # ---------------------------------------------------------------------------
 
+  defp safe_call(message, timeout \\ 1_000) do
+    case GenServer.whereis(__MODULE__) do
+      nil ->
+        {:error, :not_running}
+
+      pid ->
+        try do
+          {:ok, GenServer.call(pid, message, timeout)}
+        catch
+          :exit, _ -> {:error, :timeout}
+        end
+    end
+  end
+
+  defp cleanup_monitor(%{encoder_monitor: ref}) when is_reference(ref) do
+    Process.demonitor(ref, [:flush])
+  end
+
+  defp cleanup_monitor(_), do: :ok
+
   # On init, check if Encoder is already running (we crashed mid-encode).
   # If so, re-subscribe and recover state from its stored metadata.
   defp recover_or_init_state do
-    if Encoder.running?() do
-      case Encoder.get_metadata() do
-        {:ok, metadata} ->
-          encoder_pid = Process.whereis(Encoder)
-          monitor = Process.monitor(encoder_pid)
-          {:ok, _replayed} = Encoder.subscribe(self())
-          os_pid = Encoder.get_os_pid()
+    with true <- Encoder.running?(),
+         {:ok, metadata} <- Encoder.get_metadata() do
+      encoder_pid = Process.whereis(Encoder)
+      monitor = Process.monitor(encoder_pid)
+      {:ok, _replayed} = Encoder.subscribe(self())
+      os_pid = Encoder.get_os_pid()
 
-          Logger.info(
-            "Encode: recovering — re-subscribed to Encoder, video #{metadata.vmaf.video.id}"
-          )
+      Logger.info(
+        "Encode: recovering — re-subscribed to Encoder, video #{metadata.vmaf.video.id}"
+      )
 
-          Process.send_after(self(), :periodic_check, 10_000)
+      Process.send_after(self(), :periodic_check, 10_000)
 
-          %{
-            video: metadata.vmaf.video,
-            vmaf: metadata.vmaf,
-            output_file: metadata.output_file,
-            encode_args: metadata.encode_args,
-            partial_line_buffer: "",
-            last_progress: nil,
-            output_lines: [],
-            encoder_monitor: monitor,
-            os_pid: os_pid
-          }
-
-        _err ->
-          # Encoder running but metadata unavailable — fall back to clean start
-          empty_state_after_orphan_kill()
-      end
+      %{
+        video: metadata.vmaf.video,
+        vmaf: metadata.vmaf,
+        output_file: metadata.output_file,
+        encode_args: metadata.encode_args,
+        partial_line_buffer: "",
+        last_progress: nil,
+        output_lines: [],
+        encoder_monitor: monitor,
+        os_pid: os_pid
+      }
     else
-      empty_state_after_orphan_kill()
+      _ -> empty_state_after_orphan_kill()
     end
   end
 
@@ -480,7 +471,7 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   defp clear_state(state) do
-    if state.encoder_monitor, do: Process.demonitor(state.encoder_monitor, [:flush])
+    cleanup_monitor(state)
 
     %{
       state

@@ -17,19 +17,15 @@ defmodule Reencodarr.PostProcessor do
   @spec process_encoding_success(video :: any(), output_file :: String.t()) ::
           {:ok, :success} | {:error, atom()}
   def process_encoding_success(video, output_file) do
-    case verify_encoded_output(video, output_file) do
-      :ok ->
-        store_original_size(video)
-        intermediate_path = FileOperations.calculate_intermediate_path(video)
-
-        case move_to_intermediate(output_file, intermediate_path, video) do
-          {:ok, actual_path} ->
-            process_intermediate_success(video, actual_path)
-            {:ok, :success}
-
-          {:error, reason} ->
-            {:error, reason}
-        end
+    with :ok <- verify_encoded_output(video, output_file),
+         intermediate_path = FileOperations.calculate_intermediate_path(video),
+         _ = store_original_size(video),
+         {:ok, actual_path} <- move_to_intermediate(output_file, intermediate_path, video) do
+      process_intermediate_success(video, actual_path)
+      {:ok, :success}
+    else
+      {:error, :failed_to_move_to_intermediate} = error ->
+        error
 
       {:error, reason} ->
         Logger.error(
@@ -40,7 +36,6 @@ defmodule Reencodarr.PostProcessor do
           context: %{verification_error: reason, output_file: output_file}
         )
 
-        # Clean up the invalid output file
         File.rm(output_file)
         {:error, :verification_failed}
     end
@@ -150,7 +145,8 @@ defmodule Reencodarr.PostProcessor do
   defp update_encoded_file_size(video) do
     case File.stat(video.path) do
       {:ok, %File.Stat{size: file_size}} when file_size > 0 ->
-        case Media.update_video(video, %{size: file_size}) do
+        Media.update_video(video, %{size: file_size})
+        |> tap(fn
           {:ok, _} ->
             Logger.info(
               "Updated video #{video.id} encoded size: #{format_size(file_size)} " <>
@@ -161,7 +157,7 @@ defmodule Reencodarr.PostProcessor do
             Logger.warning(
               "Failed to update encoded size for video #{video.id}: #{inspect(reason)}"
             )
-        end
+        end)
 
       {:ok, %File.Stat{size: 0}} ->
         Logger.warning("Encoded file at #{video.path} is 0 bytes, not updating size")
@@ -198,18 +194,16 @@ defmodule Reencodarr.PostProcessor do
     end
   end
 
-  defp handle_refresh_and_rename_result(video, result) do
-    case result do
-      {:ok, outcome} ->
-        Logger.info(
-          "Sync.refresh_and_rename_from_video succeeded for video #{video.id}: #{inspect(outcome)}"
-        )
+  defp handle_refresh_and_rename_result(video, {:ok, outcome}) do
+    Logger.info(
+      "Sync.refresh_and_rename_from_video succeeded for video #{video.id}: #{inspect(outcome)}"
+    )
+  end
 
-      {:error, reason} ->
-        Logger.error(
-          "Sync.refresh_and_rename_from_video failed for video #{video.id}: #{inspect(reason)}"
-        )
-    end
+  defp handle_refresh_and_rename_result(video, {:error, reason}) do
+    Logger.error(
+      "Sync.refresh_and_rename_from_video failed for video #{video.id}: #{inspect(reason)}"
+    )
   end
 
   # Verify the encoded output file exists, has content, and is smaller than original

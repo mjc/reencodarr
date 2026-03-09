@@ -97,44 +97,25 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   @spec available?() :: :available | :busy | :timeout
   def available? do
-    case GenServer.whereis(__MODULE__) do
-      nil ->
-        :timeout
-
-      pid when is_pid(pid) ->
-        try do
-          case GenServer.call(pid, :available?, 1000) do
-            true -> :available
-            false -> :busy
-          end
-        catch
-          :exit, _ -> :timeout
-        end
+    case safe_call(:available?) do
+      true -> :available
+      false -> :busy
+      {:error, _} -> :timeout
     end
   end
 
-  def get_state do
+  def get_state, do: safe_call(:get_state)
+
+  def reset_if_stuck, do: safe_call(:reset_if_stuck, 5_000)
+
+  defp safe_call(message, timeout \\ 1_000) do
     case GenServer.whereis(__MODULE__) do
       nil ->
         {:error, :not_running}
 
-      pid when is_pid(pid) ->
+      pid ->
         try do
-          GenServer.call(pid, :get_state, 1000)
-        catch
-          :exit, _ -> {:error, :timeout}
-        end
-    end
-  end
-
-  def reset_if_stuck do
-    case GenServer.whereis(__MODULE__) do
-      nil ->
-        {:error, :not_running}
-
-      pid when is_pid(pid) ->
-        try do
-          GenServer.call(pid, :reset_if_stuck, 5_000)
+          GenServer.call(pid, message, timeout)
         catch
           :exit, _ -> {:error, :timeout}
         end
@@ -275,14 +256,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       if state.searcher_monitor, do: Process.demonitor(state.searcher_monitor, [:flush])
       CrfSearcher.kill()
 
-      {:noreply,
-       %{
-         current_task: :none,
-         partial_line_buffer: "",
-         output_buffer: [],
-         searcher_monitor: nil,
-         os_pid: nil
-       }}
+      {:noreply, clean_state()}
     else
       {:noreply, state}
     end
@@ -393,7 +367,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   @impl true
   def handle_info(
         {:DOWN, ref, :process, _pid, reason},
-        %{searcher_monitor: ref, current_task: %{video: video}} = state
+        %{searcher_monitor: ref, current_task: %{video: video}}
       ) do
     Logger.error("CrfSearch: CrfSearcher process went down: #{inspect(reason)}")
 
@@ -408,15 +382,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       result: {:error, :searcher_died}
     })
 
-    {:noreply,
-     %{
-       state
-       | current_task: :none,
-         partial_line_buffer: "",
-         output_buffer: [],
-         searcher_monitor: nil,
-         os_pid: nil
-     }}
+    {:noreply, clean_state()}
   end
 
   # Stale or irrelevant :DOWN
@@ -491,15 +457,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     # Reset video state if we have one
     reset_video_state_if_present(state)
 
-    clean_state = %{
-      current_task: :none,
-      partial_line_buffer: "",
-      output_buffer: [],
-      searcher_monitor: nil,
-      os_pid: nil
-    }
-
-    {:reply, :ok, clean_state}
+    {:reply, :ok, clean_state()}
   end
 
   # ---------------------------------------------------------------------------
@@ -596,18 +554,14 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           }
 
         _err ->
-          empty_state_after_orphan_kill()
+          clean_state()
       end
     else
-      empty_state_after_orphan_kill()
+      clean_state()
     end
   end
 
-  defp empty_state_after_orphan_kill do
-    empty_state()
-  end
-
-  defp empty_state do
+  defp clean_state do
     %{
       current_task: :none,
       partial_line_buffer: "",
@@ -642,16 +596,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     # Wake up the encoder immediately so it picks up newly crf_searched videos
     EncoderProducer.dispatch_available()
 
-    new_state = %{
-      state
-      | current_task: :none,
-        partial_line_buffer: "",
-        output_buffer: [],
-        searcher_monitor: nil,
-        os_pid: nil
-    }
-
-    {:noreply, new_state}
+    {:noreply, clean_state()}
   end
 
   defp maybe_upsert_vmaf_with_video(data) do

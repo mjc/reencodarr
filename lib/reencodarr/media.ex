@@ -107,37 +107,22 @@ defmodule Reencodarr.Media do
     Video.changeset(video, attrs)
   end
 
-  def mark_as_crf_searching(%Video{} = video) do
-    VideoStateMachine.mark_as_crf_searching(video)
-  end
+  def mark_as_crf_searching(%Video{} = video), do: VideoStateMachine.mark_as_crf_searching(video)
 
-  def mark_as_encoding(%Video{} = video) do
-    VideoStateMachine.mark_as_encoding(video)
-  end
+  def mark_as_encoding(%Video{} = video), do: VideoStateMachine.mark_as_encoding(video)
 
-  def mark_as_reencoded(%Video{} = video) do
-    VideoStateMachine.mark_as_reencoded(video)
-  end
+  def mark_as_reencoded(%Video{} = video), do: VideoStateMachine.mark_as_reencoded(video)
 
-  def mark_as_failed(%Video{} = video) do
-    VideoStateMachine.mark_as_failed(video)
-  end
+  def mark_as_failed(%Video{} = video), do: VideoStateMachine.mark_as_failed(video)
 
-  def mark_as_analyzed(%Video{} = video) do
-    VideoStateMachine.mark_as_analyzed(video)
-  end
+  def mark_as_analyzed(%Video{} = video), do: VideoStateMachine.mark_as_analyzed(video)
 
-  def mark_as_crf_searched(%Video{} = video) do
-    VideoStateMachine.mark_as_crf_searched(video)
-  end
+  def mark_as_crf_searched(%Video{} = video), do: VideoStateMachine.mark_as_crf_searched(video)
 
-  def mark_as_needs_analysis(%Video{} = video) do
-    VideoStateMachine.mark_as_needs_analysis(video)
-  end
+  def mark_as_needs_analysis(%Video{} = video),
+    do: VideoStateMachine.mark_as_needs_analysis(video)
 
-  def mark_as_encoded(%Video{} = video) do
-    VideoStateMachine.mark_as_encoded(video)
-  end
+  def mark_as_encoded(%Video{} = video), do: VideoStateMachine.mark_as_encoded(video)
 
   @doc """
   Bulk-marks all :analyzed videos that are already AV1 (by codec or filename) as :encoded.
@@ -194,17 +179,29 @@ defmodule Reencodarr.Media do
   def get_video_failures(video_id), do: VideoFailure.get_unresolved_failures_for_video(video_id)
 
   @doc """
-  Resolves all failures for a video (typically when re-processing succeeds).
+  Resolves failures for a video (typically when re-processing succeeds).
+
+  ## Options
+
+    * `:stage` - when given, only resolves failures for that stage
+      (e.g. `:crf_search`). Otherwise resolves all failures.
   """
-  def resolve_video_failures(video_id) do
+  @spec resolve_video_failures(integer(), keyword()) :: {integer(), nil}
+  def resolve_video_failures(video_id, opts \\ []) do
     now = DateTime.utc_now()
 
     from(f in VideoFailure,
       where: f.video_id == ^video_id and f.resolved == false,
       update: [set: [resolved: true, resolved_at: ^now]]
     )
+    |> maybe_filter_failure_stage(opts[:stage])
     |> Repo.update_all([])
   end
+
+  defp maybe_filter_failure_stage(query, nil), do: query
+
+  defp maybe_filter_failure_stage(query, stage),
+    do: from(f in query, where: f.failure_stage == ^stage)
 
   @doc """
   Resolves all unresolved CRF search failures for a video.
@@ -214,13 +211,7 @@ defmodule Reencodarr.Media do
   """
   @spec resolve_crf_search_failures(integer()) :: {integer(), nil}
   def resolve_crf_search_failures(video_id) do
-    now = DateTime.utc_now()
-
-    from(f in VideoFailure,
-      where: f.video_id == ^video_id and f.failure_stage == :crf_search and f.resolved == false,
-      update: [set: [resolved: true, resolved_at: ^now]]
-    )
-    |> Repo.update_all([])
+    resolve_video_failures(video_id, stage: :crf_search)
   end
 
   @doc """
@@ -245,15 +236,8 @@ defmodule Reencodarr.Media do
   """
   @spec reset_orphaned_crf_searching() :: :ok
   def reset_orphaned_crf_searching do
-    {count, _} =
-      from(v in Video, where: v.state == :crf_searching)
-      |> Repo.update_all(set: [state: :analyzed, updated_at: DateTime.utc_now()])
-
-    if count > 0 do
-      Logger.info("Reset #{count} orphaned crf_searching videos → analyzed")
-    end
-
-    :ok
+    from(v in Video, where: v.state == :crf_searching)
+    |> reset_videos("orphaned crf_searching videos → analyzed")
   end
 
   @doc """
@@ -303,14 +287,13 @@ defmodule Reencodarr.Media do
   """
   @spec reset_crf_searched_without_vmaf() :: :ok
   def reset_crf_searched_without_vmaf do
-    {count, _} =
-      from(v in Video, where: v.state == :crf_searched, where: is_nil(v.chosen_vmaf_id))
-      |> Repo.update_all(set: [state: :analyzed, updated_at: DateTime.utc_now()])
+    from(v in Video, where: v.state == :crf_searched, where: is_nil(v.chosen_vmaf_id))
+    |> reset_videos("crf_searched videos without chosen VMAF → analyzed")
+  end
 
-    if count > 0 do
-      Logger.info("Reset #{count} crf_searched videos without chosen VMAF → analyzed")
-    end
-
+  defp reset_videos(query, log_message) do
+    {count, _} = Repo.update_all(query, set: [state: :analyzed, updated_at: DateTime.utc_now()])
+    if count > 0, do: Logger.info("Reset #{count} #{log_message}")
     :ok
   end
 
@@ -735,70 +718,42 @@ defmodule Reencodarr.Media do
   summary line that ab-av1 emits after the INFO-level line for the same CRF value.
   Returns `{:ok, vmaf}` on insert or `{:ok, :skipped}` when a record already exists.
   """
-  def insert_vmaf(attrs) do
-    video_id = Map.get(attrs, "video_id") || Map.get(attrs, :video_id)
-
-    if is_integer(video_id) or is_binary(video_id) do
-      do_insert_vmaf(attrs, video_id)
-    else
-      Logger.error("Attempted to insert VMAF with invalid video_id type: #{inspect(attrs)}")
-      {:error, :invalid_video_id}
-    end
-  end
-
-  defp do_insert_vmaf(attrs, video_id) do
-    case get_video(video_id) do
-      %Video{} = video ->
-        attrs_with_savings = maybe_calculate_savings(attrs, video)
-
-        result =
-          %Vmaf{}
-          |> Vmaf.changeset(attrs_with_savings)
-          |> Repo.insert(
-            on_conflict: :nothing,
-            conflict_target: [:crf, :video_id]
-          )
-
-        case result do
-          {:ok, %Vmaf{id: nil}} -> {:ok, :skipped}
-          {:ok, _vmaf} = ok -> ok
-          {:error, _} = err -> err
-        end
-
-      nil ->
-        Logger.error("Attempted to insert VMAF with missing video_id: #{inspect(attrs)}")
-        {:error, :invalid_video_id}
-    end
-  end
+  def insert_vmaf(attrs), do: vmaf_operation(attrs, on_conflict: :nothing)
 
   def upsert_vmaf(attrs) do
-    video_id = Map.get(attrs, "video_id") || Map.get(attrs, :video_id)
-
-    if is_integer(video_id) or is_binary(video_id) do
-      do_upsert_vmaf(attrs, video_id)
-    else
-      Logger.error("Attempted to upsert VMAF with invalid video_id type: #{inspect(attrs)}")
-      {:error, :invalid_video_id}
-    end
+    vmaf_operation(attrs, on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]})
   end
 
-  defp do_upsert_vmaf(attrs, video_id) do
-    case get_video(video_id) do
-      %Video{} = video ->
-        attrs_with_savings = maybe_calculate_savings(attrs, video)
+  defp vmaf_operation(attrs, opts) do
+    video_id = Map.get(attrs, "video_id") || Map.get(attrs, :video_id)
 
+    with {:ok, video_id} <- validate_video_id(video_id),
+         %Video{} = video <- get_video(video_id) do
+      attrs_with_savings = maybe_calculate_savings(attrs, video)
+
+      result =
         %Vmaf{}
         |> Vmaf.changeset(attrs_with_savings)
-        |> Repo.insert(
-          on_conflict: {:replace_all_except, [:id, :video_id, :inserted_at]},
-          conflict_target: [:crf, :video_id]
-        )
+        |> Repo.insert(Keyword.merge([conflict_target: [:crf, :video_id]], opts))
+
+      case result do
+        {:ok, %Vmaf{id: nil}} -> {:ok, :skipped}
+        {:ok, _vmaf} = ok -> ok
+        {:error, _} = err -> err
+      end
+    else
+      :error ->
+        Logger.error("Attempted VMAF operation with invalid video_id type: #{inspect(attrs)}")
+        {:error, :invalid_video_id}
 
       nil ->
-        Logger.error("Attempted to upsert VMAF with missing video_id: #{inspect(attrs)}")
+        Logger.error("Attempted VMAF operation with missing video_id: #{inspect(attrs)}")
         {:error, :invalid_video_id}
     end
   end
+
+  defp validate_video_id(id) when is_integer(id) or is_binary(id), do: {:ok, id}
+  defp validate_video_id(_), do: :error
 
   # Calculate savings if not already provided and we have the necessary data
   defp maybe_calculate_savings(attrs, %Video{} = video) do

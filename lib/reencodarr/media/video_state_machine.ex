@@ -333,36 +333,13 @@ defmodule Reencodarr.Media.VideoStateMachine do
   # === High-level State Management Functions ===
   # These functions handle database operations with proper error handling
 
-  @doc """
-  Marks a video as reencoded by transitioning it to the :encoded state.
-
-  Handles the appropriate state transitions regardless of current state.
-  """
   @spec mark_as_crf_searching(Video.t()) :: {:ok, Video.t()} | {:error, any()}
-  def mark_as_crf_searching(%Video{} = video) do
-    case transition_to_crf_searching(video) do
-      {:ok, changeset} ->
-        case Reencodarr.Repo.update(changeset) do
-          {:ok, updated_video} ->
-            broadcast_state_transition(updated_video, :crf_searching)
-            {:ok, updated_video}
-
-          error ->
-            error
-        end
-
-      error ->
-        error
-    end
-  end
+  def mark_as_crf_searching(%Video{} = video),
+    do: mark_video_state(video, &transition_to_crf_searching/1)
 
   @spec mark_as_encoding(Video.t()) :: {:ok, Video.t()} | {:error, any()}
-  def mark_as_encoding(%Video{} = video) do
-    case transition_to_encoding(video) do
-      {:ok, changeset} -> Reencodarr.Repo.update(changeset)
-      error -> error
-    end
-  end
+  def mark_as_encoding(%Video{} = video),
+    do: mark_video_state(video, &transition_to_encoding/1, broadcast: false)
 
   @spec mark_as_reencoded(Video.t()) :: {:ok, Video.t()} | {:error, any()}
   def mark_as_reencoded(%Video{} = video) do
@@ -387,121 +364,32 @@ defmodule Reencodarr.Media.VideoStateMachine do
     end
   end
 
-  @doc """
-  Marks a video as analyzed by transitioning it to the :analyzed state.
-
-  Handles the appropriate state transitions for videos that have completed analysis.
-  """
   @spec mark_as_analyzed(Video.t()) :: {:ok, Video.t()} | {:error, any()}
-  def mark_as_analyzed(%Video{} = video) do
-    case transition_to_analyzed(video) do
-      {:ok, changeset} ->
-        result =
-          Retry.retry_on_db_busy(fn ->
-            Reencodarr.Repo.update(changeset)
-          end)
-
-        case result do
-          {:ok, updated_video} ->
-            broadcast_state_transition(updated_video, :analyzed)
-            {:ok, updated_video}
-
-          error ->
-            error
-        end
-
-      error ->
-        error
-    end
-  end
+  def mark_as_analyzed(%Video{} = video),
+    do: mark_video_state(video, &transition_to_analyzed/1, retry_on_busy: true)
 
   @doc """
-  Marks a video as failed by transitioning it to the :failed state.
-
-  Includes special handling for test environment stale entry errors.
+  Marks a video as failed. Rescues `Ecto.StaleEntryError` for test cleanup races.
   """
   @spec mark_as_failed(Video.t()) :: {:ok, Video.t()} | {:error, any()}
   def mark_as_failed(%Video{} = video) do
-    case transition_to_failed(video) do
-      {:ok, changeset} ->
-        case Reencodarr.Repo.update(changeset) do
-          {:ok, updated_video} ->
-            broadcast_state_transition(updated_video, :failed)
-            {:ok, updated_video}
-
-          error ->
-            error
-        end
-
-      error ->
-        error
-    end
+    mark_video_state(video, &transition_to_failed/1)
   rescue
     Ecto.StaleEntryError ->
-      # In test environment, video may be deleted by test cleanup before GenServer completes
-      # This is expected behavior and not an error
       {:ok, video}
   end
 
-  @doc """
-  Marks a video as crf_searched by transitioning it to the :crf_searched state.
-  """
   @spec mark_as_crf_searched(Video.t()) :: {:ok, Video.t()} | {:error, any()}
-  def mark_as_crf_searched(%Video{} = video) do
-    case transition_to_crf_searched(video) do
-      {:ok, changeset} ->
-        case Reencodarr.Repo.update(changeset) do
-          {:ok, updated_video} ->
-            broadcast_state_transition(updated_video, :crf_searched)
-            {:ok, updated_video}
+  def mark_as_crf_searched(%Video{} = video),
+    do: mark_video_state(video, &transition_to_crf_searched/1)
 
-          error ->
-            error
-        end
-
-      error ->
-        error
-    end
-  end
-
-  @doc """
-  Marks a video as needs_analysis by transitioning it to the :needs_analysis state.
-  """
   @spec mark_as_needs_analysis(Video.t()) :: {:ok, Video.t()} | {:error, any()}
-  def mark_as_needs_analysis(%Video{} = video) do
-    case transition_to_needs_analysis(video) do
-      {:ok, changeset} ->
-        case Reencodarr.Repo.update(changeset) do
-          {:ok, updated_video} ->
-            broadcast_state_transition(updated_video, :needs_analysis)
-            {:ok, updated_video}
-
-          error ->
-            error
-        end
-
-      error ->
-        error
-    end
-  end
+  def mark_as_needs_analysis(%Video{} = video),
+    do: mark_video_state(video, &transition_to_needs_analysis/1)
 
   @spec mark_as_encoded(Video.t()) :: {:ok, Video.t()} | {:error, any()}
-  def mark_as_encoded(%Video{} = video) do
-    case transition_to_encoded(video) do
-      {:ok, changeset} ->
-        case Reencodarr.Repo.update(changeset) do
-          {:ok, updated_video} ->
-            broadcast_state_transition(updated_video, :encoded)
-            {:ok, updated_video}
-
-          error ->
-            error
-        end
-
-      error ->
-        error
-    end
-  end
+  def mark_as_encoded(%Video{} = video),
+    do: mark_video_state(video, &transition_to_encoded/1)
 
   # Public helper functions
 
@@ -524,6 +412,25 @@ defmodule Reencodarr.Media.VideoStateMachine do
   end
 
   # Private helper functions
+
+  defp mark_video_state(%Video{} = video, transition_fn, opts \\ []) do
+    with {:ok, changeset} <- transition_fn.(video),
+         {:ok, updated_video} <- do_repo_update(changeset, opts) do
+      if Keyword.get(opts, :broadcast, true) do
+        broadcast_state_transition(updated_video, updated_video.state)
+      end
+
+      {:ok, updated_video}
+    end
+  end
+
+  defp do_repo_update(changeset, opts) do
+    if Keyword.get(opts, :retry_on_busy, false) do
+      Retry.retry_on_db_busy(fn -> Reencodarr.Repo.update(changeset) end)
+    else
+      Reencodarr.Repo.update(changeset)
+    end
+  end
 
   # Check if video has low bitrate (less than 5 Mbps = 5,000,000 bps) AND is HDR and should skip encoding
   defp low_bitrate?(%Video{bitrate: bitrate, hdr: hdr})
