@@ -2784,4 +2784,251 @@ defmodule Reencodarr.MediaTest do
       assert count == 2
     end
   end
+
+  describe "video_exists?/1 edge cases" do
+    test "returns false for partial path match (exact match only)" do
+      {:ok, _video} = Fixtures.video_fixture(%{path: "/media/movies/full_path.mkv"})
+
+      refute Media.video_exists?("/media/movies/full")
+      refute Media.video_exists?("full_path.mkv")
+      refute Media.video_exists?("/media/movies/full_path")
+    end
+  end
+
+  describe "find_videos_by_path_wildcard/1 edge cases" do
+    test "matches with % at both start and end" do
+      unique = "wildcard_edge_#{:erlang.unique_integer([:positive])}"
+      {:ok, v1} = Fixtures.video_fixture(%{path: "/a/#{unique}/video.mkv"})
+      {:ok, _v2} = Fixtures.video_fixture(%{path: "/b/other/video.mkv"})
+
+      results = Media.find_videos_by_path_wildcard("%#{unique}%")
+
+      assert length(results) == 1
+      assert hd(results).id == v1.id
+    end
+
+    test "underscore in pattern matches literal underscore" do
+      unique = "under_score_#{:erlang.unique_integer([:positive])}"
+      {:ok, _v1} = Fixtures.video_fixture(%{path: "/test/#{unique}/video.mkv"})
+
+      results = Media.find_videos_by_path_wildcard("%#{unique}%")
+
+      assert length(results) == 1
+    end
+  end
+
+  describe "count_videos_for_crf_search/0 edge cases" do
+    test "returns 0 when no videos exist" do
+      assert Media.count_videos_for_crf_search() == 0
+    end
+
+    test "does not count videos in non-analyzed states" do
+      {:ok, _needs} = Fixtures.video_fixture(%{state: :needs_analysis})
+      {:ok, _encoded} = Fixtures.video_fixture(%{state: :encoded})
+      {:ok, _failed} = Fixtures.video_fixture(%{state: :failed})
+
+      assert Media.count_videos_for_crf_search() == 0
+    end
+
+    test "counts only analyzed videos" do
+      {:ok, v1} = Fixtures.video_fixture(%{state: :needs_analysis})
+      {:ok, _v2} = Fixtures.video_fixture(%{state: :encoded})
+      {:ok, _} = Media.mark_as_analyzed(v1)
+
+      assert Media.count_videos_for_crf_search() >= 1
+    end
+  end
+
+  describe "list_videos_by_estimated_percent/1 edge cases" do
+    test "returns empty list when no videos are ready" do
+      {:ok, _} = Fixtures.video_fixture(%{state: :needs_analysis})
+
+      assert Media.list_videos_by_estimated_percent(10) == []
+    end
+
+    test "respects the limit parameter" do
+      videos =
+        for _ <- 1..3 do
+          {:ok, v} = Fixtures.video_fixture(%{state: :crf_searched})
+          vmaf = Fixtures.vmaf_fixture(%{video_id: v.id})
+          Fixtures.choose_vmaf(v, vmaf)
+          v
+        end
+
+      assert length(videos) == 3
+
+      results = Media.list_videos_by_estimated_percent(2)
+
+      assert length(results) <= 2
+    end
+
+    test "default limit does not crash with few videos" do
+      {:ok, v} = Fixtures.video_fixture(%{state: :crf_searched})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: v.id})
+      Fixtures.choose_vmaf(v, vmaf)
+
+      results = Media.list_videos_by_estimated_percent()
+
+      assert is_list(results)
+      assert results != []
+    end
+  end
+
+  describe "delete_video_with_vmafs/1 edge cases" do
+    test "works when video has no VMAFs" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      assert {:ok, _} = Media.delete_video_with_vmafs(video)
+      assert_raise Ecto.NoResultsError, fn -> Media.get_video!(video.id) end
+    end
+
+    test "associated VMAFs are no longer in the database" do
+      {:ok, video} = Fixtures.video_fixture()
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 22.0})
+
+      assert {:ok, _} = Media.delete_video_with_vmafs(video)
+
+      assert Reencodarr.Repo.get(Reencodarr.Media.Vmaf, vmaf.id) == nil
+    end
+
+    test "does not affect other videos or their VMAFs" do
+      {:ok, video_to_delete} = Fixtures.video_fixture()
+      {:ok, video_to_keep} = Fixtures.video_fixture()
+      _vmaf_delete = Fixtures.vmaf_fixture(%{video_id: video_to_delete.id, crf: 25.0})
+      vmaf_keep = Fixtures.vmaf_fixture(%{video_id: video_to_keep.id, crf: 30.0})
+
+      assert {:ok, _} = Media.delete_video_with_vmafs(video_to_delete)
+
+      assert Media.get_video!(video_to_keep.id).id == video_to_keep.id
+      assert Reencodarr.Repo.get(Reencodarr.Media.Vmaf, vmaf_keep.id) != nil
+    end
+  end
+
+  describe "resolve_video_failures/2 edge cases" do
+    test "returns {0, nil} when no failures exist" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      assert {0, nil} = Media.resolve_video_failures(video.id)
+    end
+
+    test "with stage: option only resolves failures for that stage" do
+      capture_log(fn ->
+        {:ok, video} = Fixtures.video_fixture()
+
+        {:ok, _} =
+          Media.record_video_failure(video, :crf_search, :timeout, message: "CRF timeout")
+
+        {:ok, _} =
+          Media.record_video_failure(video, :encoding, :process_failure,
+            message: "Encoding failed"
+          )
+
+        {count, nil} = Media.resolve_video_failures(video.id, stage: :crf_search)
+        assert count == 1
+
+        remaining = Media.get_video_failures(video.id)
+        assert length(remaining) == 1
+        assert hd(remaining).failure_stage == :encoding
+      end)
+    end
+
+    test "leaves already-resolved failures unchanged" do
+      capture_log(fn ->
+        {:ok, video} = Fixtures.video_fixture()
+
+        {:ok, _} =
+          Media.record_video_failure(video, :encoding, :process_failure, message: "First fail")
+
+        # Resolve once
+        {1, nil} = Media.resolve_video_failures(video.id)
+
+        # Create a new failure
+        {:ok, _} =
+          Media.record_video_failure(video, :encoding, :process_failure, message: "Second fail")
+
+        # Resolve again should only affect the new unresolved one
+        {1, nil} = Media.resolve_video_failures(video.id)
+
+        assert Media.get_video_failures(video.id) == []
+      end)
+    end
+
+    test "resolves multiple failures at once" do
+      capture_log(fn ->
+        {:ok, video} = Fixtures.video_fixture()
+
+        {:ok, _} =
+          Media.record_video_failure(video, :encoding, :process_failure, message: "Fail 1")
+
+        {:ok, _} =
+          Media.record_video_failure(video, :encoding, :timeout, message: "Fail 2")
+
+        {:ok, _} =
+          Media.record_video_failure(video, :crf_search, :timeout, message: "Fail 3")
+
+        {count, nil} = Media.resolve_video_failures(video.id)
+        assert count == 3
+
+        assert Media.get_video_failures(video.id) == []
+      end)
+    end
+  end
+
+  describe "resolve_crf_search_failures/1" do
+    test "resolves only CRF search failures, not other stages" do
+      capture_log(fn ->
+        {:ok, video} = Fixtures.video_fixture()
+
+        {:ok, _} =
+          Media.record_video_failure(video, :crf_search, :timeout, message: "CRF timeout")
+
+        {:ok, _} =
+          Media.record_video_failure(video, :encoding, :process_failure,
+            message: "Encoding failed"
+          )
+
+        {count, nil} = Media.resolve_crf_search_failures(video.id)
+        assert count == 1
+
+        remaining = Media.get_video_failures(video.id)
+        assert length(remaining) == 1
+        assert hd(remaining).failure_stage == :encoding
+      end)
+    end
+
+    test "returns {0, nil} when no CRF search failures exist" do
+      capture_log(fn ->
+        {:ok, video} = Fixtures.video_fixture()
+
+        {:ok, _} =
+          Media.record_video_failure(video, :encoding, :process_failure,
+            message: "Encoding failed"
+          )
+
+        {0, nil} = Media.resolve_crf_search_failures(video.id)
+
+        remaining = Media.get_video_failures(video.id)
+        assert length(remaining) == 1
+      end)
+    end
+
+    test "resolves multiple CRF search failures at once" do
+      capture_log(fn ->
+        {:ok, video} = Fixtures.video_fixture()
+
+        {:ok, _} =
+          Media.record_video_failure(video, :crf_search, :timeout, message: "Timeout 1")
+
+        {:ok, _} =
+          Media.record_video_failure(video, :crf_search, :crf_optimization,
+            message: "Optimization fail"
+          )
+
+        {count, nil} = Media.resolve_crf_search_failures(video.id)
+        assert count == 2
+
+        assert Media.get_video_failures(video.id) == []
+      end)
+    end
+  end
 end

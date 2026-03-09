@@ -916,4 +916,318 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
       assert length(states) == 7
     end
   end
+
+  # === NEW TEST BLOCKS ===
+
+  describe "transition_to_crf_searching/2 edge cases" do
+    test "from :crf_searched (restart CRF search)" do
+      video = Fixtures.build_video_struct(%{state: :crf_searched, id: 1})
+      assert {:ok, changeset} = VideoStateMachine.transition_to_crf_searching(video)
+      assert Ecto.Changeset.get_change(changeset, :state) == :crf_searching
+    end
+
+    test "from :failed (retry)" do
+      video = Fixtures.build_video_struct(%{state: :failed, id: 2})
+      assert {:ok, changeset} = VideoStateMachine.transition_to_crf_searching(video)
+      assert Ecto.Changeset.get_change(changeset, :state) == :crf_searching
+    end
+
+    test "rejects from :needs_analysis" do
+      video = Fixtures.build_video_struct(%{state: :needs_analysis, id: 3})
+      assert {:error, msg} = VideoStateMachine.transition_to_crf_searching(video)
+      assert msg =~ "Invalid transition"
+    end
+
+    test "rejects from :encoding" do
+      video = Fixtures.build_video_struct(%{state: :encoding, id: 4})
+      assert {:error, msg} = VideoStateMachine.transition_to_crf_searching(video)
+      assert msg =~ "Invalid transition"
+    end
+
+    test "rejects from :encoded" do
+      video = Fixtures.build_video_struct(%{state: :encoded, id: 5})
+      assert {:error, msg} = VideoStateMachine.transition_to_crf_searching(video)
+      assert msg =~ "Invalid transition"
+    end
+
+    test "passes through additional attrs" do
+      video = Fixtures.build_video_struct(%{state: :analyzed, id: 6})
+      {:ok, changeset} = VideoStateMachine.transition_to_crf_searching(video, %{bitrate: 999})
+      assert Ecto.Changeset.get_change(changeset, :state) == :crf_searching
+      assert Ecto.Changeset.get_change(changeset, :bitrate) == 999
+    end
+  end
+
+  describe "transition_to_crf_searched/2 VMAF validation" do
+    test "succeeds from :crf_searching when chosen VMAF exists" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 28.0})
+      video = Fixtures.choose_vmaf(video, vmaf)
+      video = Repo.reload!(video)
+
+      assert {:ok, changeset} = VideoStateMachine.transition_to_crf_searched(video)
+      assert changeset.valid?
+      assert Ecto.Changeset.get_change(changeset, :state) == :crf_searched
+    end
+
+    test "fails from :crf_searching without chosen VMAF" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+
+      assert {:ok, changeset} = VideoStateMachine.transition_to_crf_searched(video)
+      refute changeset.valid?
+
+      assert {"cannot transition to crf_searched: no chosen VMAF record found", _} =
+               changeset.errors[:state]
+    end
+
+    test "from :needs_analysis yields invalid changeset without chosen VMAF" do
+      # needs_analysis -> crf_searched is a valid transition, but VMAF validation fails
+      {:ok, video} = Fixtures.video_fixture(%{state: :needs_analysis})
+      assert {:ok, changeset} = VideoStateMachine.transition_to_crf_searched(video)
+      refute changeset.valid?
+
+      assert {"cannot transition to crf_searched: no chosen VMAF record found", _} =
+               changeset.errors[:state]
+    end
+
+    test "rejects from :encoded" do
+      video = Fixtures.build_video_struct(%{state: :encoded, id: 101})
+      assert {:error, msg} = VideoStateMachine.transition_to_crf_searched(video)
+      assert msg =~ "Invalid transition"
+    end
+
+    test "from :encoding yields invalid changeset without chosen VMAF" do
+      # encoding -> crf_searched is a valid transition, but VMAF validation fails
+      {:ok, video} = Fixtures.video_fixture(%{state: :encoding})
+      assert {:ok, changeset} = VideoStateMachine.transition_to_crf_searched(video)
+      refute changeset.valid?
+    end
+  end
+
+  describe "transition_to_encoding/2 edge cases" do
+    test "succeeds from :crf_searched" do
+      video = Fixtures.build_video_struct(%{state: :crf_searched, id: 200})
+      assert {:ok, changeset} = VideoStateMachine.transition_to_encoding(video)
+      assert Ecto.Changeset.get_change(changeset, :state) == :encoding
+    end
+
+    test "rejects from :needs_analysis" do
+      video = Fixtures.build_video_struct(%{state: :needs_analysis, id: 201})
+      assert {:error, msg} = VideoStateMachine.transition_to_encoding(video)
+      assert msg =~ "Invalid transition"
+    end
+
+    test "rejects from :analyzed" do
+      video = Fixtures.build_video_struct(%{state: :analyzed, id: 202})
+      assert {:error, msg} = VideoStateMachine.transition_to_encoding(video)
+      assert msg =~ "Invalid transition"
+    end
+
+    test "rejects from :encoded" do
+      video = Fixtures.build_video_struct(%{state: :encoded, id: 203})
+      assert {:error, msg} = VideoStateMachine.transition_to_encoding(video)
+      assert msg =~ "Invalid transition"
+    end
+
+    test "rejects from :crf_searching" do
+      video = Fixtures.build_video_struct(%{state: :crf_searching, id: 204})
+      assert {:error, msg} = VideoStateMachine.transition_to_encoding(video)
+      assert msg =~ "Invalid transition"
+    end
+
+    test "passes through additional attrs" do
+      video = Fixtures.build_video_struct(%{state: :crf_searched, id: 205})
+      {:ok, changeset} = VideoStateMachine.transition_to_encoding(video, %{size: 123_456})
+      assert Ecto.Changeset.get_change(changeset, :state) == :encoding
+      assert Ecto.Changeset.get_change(changeset, :size) == 123_456
+    end
+  end
+
+  describe "mark_as_crf_searching/1 from additional states" do
+    test "from :crf_searched (restart)" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      assert {:ok, updated} = VideoStateMachine.mark_as_crf_searching(video)
+      assert updated.state == :crf_searching
+    end
+
+    test "from :failed (retry)" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :failed})
+      assert {:ok, updated} = VideoStateMachine.mark_as_crf_searching(video)
+      assert updated.state == :crf_searching
+    end
+
+    test "fails from :needs_analysis" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :needs_analysis})
+      assert {:error, _} = VideoStateMachine.mark_as_crf_searching(video)
+    end
+  end
+
+  describe "mark_as_encoding/1 broadcast suppression" do
+    test "does not broadcast state transition" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
+
+      {:ok, updated} = VideoStateMachine.mark_as_encoding(video)
+      assert updated.state == :encoding
+
+      refute_receive {:video_state_changed, _, :encoding}, 100
+    end
+
+    test "fails from :analyzed" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+      assert {:error, _} = VideoStateMachine.mark_as_encoding(video)
+    end
+  end
+
+  describe "mark_as_crf_searched/1 VMAF requirement" do
+    test "fails without chosen VMAF record" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+      assert {:error, _} = VideoStateMachine.mark_as_crf_searched(video)
+    end
+
+    test "succeeds after choosing VMAF" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      assert {:ok, updated} = VideoStateMachine.mark_as_crf_searched(video)
+      assert updated.state == :crf_searched
+    end
+  end
+
+  describe "mark_as_reencoded/1 edge cases" do
+    test "returns unchanged video when already encoded" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :encoded})
+      assert {:ok, ^video} = VideoStateMachine.mark_as_reencoded(video)
+    end
+
+    test "forces through from :crf_searched" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      assert {:ok, updated} = VideoStateMachine.mark_as_reencoded(video)
+      assert updated.state == :encoded
+    end
+
+    test "forces through from :needs_analysis" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :needs_analysis})
+      assert {:ok, updated} = VideoStateMachine.mark_as_reencoded(video)
+      assert updated.state == :encoded
+    end
+
+    test "forces through from :failed" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :failed})
+      assert {:ok, updated} = VideoStateMachine.mark_as_reencoded(video)
+      assert updated.state == :encoded
+    end
+  end
+
+  describe "broadcast_state_transition/2" do
+    test "sends message to video_state_transitions topic" do
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
+      video = Fixtures.build_video_struct(%{id: 999, state: :analyzed})
+
+      assert :ok = VideoStateMachine.broadcast_state_transition(video, :crf_searching)
+      assert_receive {:video_state_changed, ^video, :crf_searching}
+    end
+
+    test "includes correct video and new_state in message" do
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
+      video = Fixtures.build_video_struct(%{id: 888, state: :encoding})
+
+      :ok = VideoStateMachine.broadcast_state_transition(video, :encoded)
+      assert_receive {:video_state_changed, received_video, :encoded}
+      assert received_video.id == 888
+    end
+  end
+
+  describe "transition/3 invalid state atom" do
+    test "rejects completely invalid state atom" do
+      video = Fixtures.build_video_struct(%{state: :analyzed, id: 300})
+      assert {:error, msg} = VideoStateMachine.transition(video, :bogus_state)
+      assert msg =~ "Invalid state"
+    end
+
+    test "rejects nil state" do
+      video = Fixtures.build_video_struct(%{state: :analyzed, id: 301})
+      assert {:error, msg} = VideoStateMachine.transition(video, nil)
+      assert msg =~ "Invalid state"
+    end
+  end
+
+  describe "mark_as_analyzed/1 edge cases" do
+    test "from :needs_analysis with high bitrate succeeds as analyzed" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :needs_analysis,
+          bitrate: 15_000_000,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      assert {:ok, updated} = VideoStateMachine.mark_as_analyzed(video)
+      assert updated.state == :analyzed
+    end
+
+    test "from :needs_analysis with low bitrate AND HDR goes to encoded" do
+      import ExUnit.CaptureLog
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :needs_analysis,
+          bitrate: 3_000_000,
+          hdr: "HDR10",
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h265"],
+          audio_codecs: ["eac3"]
+        })
+
+      capture_log(fn ->
+        assert {:ok, updated} = VideoStateMachine.mark_as_analyzed(video)
+        assert updated.state == :encoded
+      end)
+    end
+
+    test "broadcasts state transition" do
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :needs_analysis,
+          bitrate: 15_000_000,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      {:ok, _updated} = VideoStateMachine.mark_as_analyzed(video)
+      assert_receive {:video_state_changed, _, :analyzed}
+    end
+  end
+
+  describe "mark_as_encoded/1 edge cases" do
+    test "from :encoding persists and broadcasts" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :encoding})
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
+
+      assert {:ok, updated} = VideoStateMachine.mark_as_encoded(video)
+      assert updated.state == :encoded
+      assert_receive {:video_state_changed, _, :encoded}
+    end
+
+    test "succeeds from :analyzed (skip-encoding path)" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+      assert {:ok, updated} = VideoStateMachine.mark_as_encoded(video)
+      assert updated.state == :encoded
+    end
+  end
+
+  describe "next_expected_state/1 for crf_searching" do
+    test "returns :crf_searching since has_vmaf_data? is always false" do
+      video = Fixtures.build_video_struct(%{state: :crf_searching})
+      assert VideoStateMachine.next_expected_state(video) == :crf_searching
+    end
+  end
 end

@@ -1,6 +1,7 @@
 defmodule Reencodarr.PostProcessorTest do
   use Reencodarr.DataCase, async: false
   import ExUnit.CaptureLog
+  require Logger
 
   alias Reencodarr.{Media, PostProcessor}
 
@@ -221,6 +222,123 @@ defmodule Reencodarr.PostProcessorTest do
 
       updated = Media.get_video!(video.id)
       assert updated.state == :failed
+    end
+
+    test "handles signal kill exit code (137)" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      capture_log(fn ->
+        assert :ok =
+                 PostProcessor.process_encoding_failure(video, 137, %{
+                   command: "ab-av1 encode --crf 28",
+                   full_output: "Killed"
+                 })
+      end)
+
+      failures = Media.get_video_failures(video.id)
+      assert failures != []
+    end
+
+    test "handles exit code 255" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      capture_log(fn ->
+        assert :ok =
+                 PostProcessor.process_encoding_failure(video, 255, %{
+                   command: "ab-av1 encode",
+                   full_output: "Unknown error"
+                 })
+      end)
+
+      failures = Media.get_video_failures(video.id)
+      assert failures != []
+    end
+
+    test "logs the exit code and video path" do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/test/videos/logged_video.mkv"})
+
+      log =
+        capture_log(fn ->
+          PostProcessor.process_encoding_failure(video, 42, %{})
+        end)
+
+      assert log =~ "exit code 42"
+      assert log =~ "#{video.id}"
+    end
+
+    test "uses default empty context when not provided" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      capture_log(fn ->
+        assert :ok = PostProcessor.process_encoding_failure(video, 1)
+      end)
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # verify_encoded_output edge cases (tested via process_encoding_success)
+  # ---------------------------------------------------------------------------
+
+  describe "verify_encoded_output edge cases via process_encoding_success/2" do
+    setup do
+      tmp = Path.join(System.tmp_dir!(), "pp_verify_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(tmp)
+      on_exit(fn -> File.rm_rf(tmp) end)
+      %{tmp: tmp}
+    end
+
+    test "succeeds when original size is very small", %{tmp: tmp} do
+      video_path = Path.join(tmp, "small_orig.mkv")
+      output_file = Path.join(tmp, "small_output.mkv")
+
+      File.write!(video_path, "x")
+      File.write!(output_file, "y")
+
+      {:ok, video} = Fixtures.video_fixture(%{path: video_path, size: 1})
+
+      capture_log(fn ->
+        assert {:ok, :success} = PostProcessor.process_encoding_success(video, output_file)
+      end)
+    end
+
+    test "logs encoded video size information", %{tmp: tmp} do
+      video_path = Path.join(tmp, "savings.mkv")
+      output_file = Path.join(tmp, "savings_output.mkv")
+
+      File.write!(video_path, String.duplicate("x", 100))
+      File.write!(output_file, String.duplicate("y", 50))
+
+      {:ok, video} = Fixtures.video_fixture(%{path: video_path, size: 100})
+
+      prev_level = Logger.level()
+      Logger.configure(level: :info)
+
+      log =
+        capture_log(fn ->
+          PostProcessor.process_encoding_success(video, output_file)
+        end)
+
+      Logger.configure(level: prev_level)
+
+      assert log =~ "Encoded video"
+      assert log =~ "savings:"
+    end
+
+    test "warns when encoded file is larger but still succeeds", %{tmp: tmp} do
+      video_path = Path.join(tmp, "larger.mkv")
+      output_file = Path.join(tmp, "larger_output.mkv")
+
+      File.write!(video_path, "sm")
+      File.write!(output_file, String.duplicate("x", 200))
+
+      {:ok, video} = Fixtures.video_fixture(%{path: video_path, size: 2})
+
+      log =
+        capture_log(fn ->
+          assert {:ok, :success} = PostProcessor.process_encoding_success(video, output_file)
+        end)
+
+      assert log =~ "larger than original"
     end
   end
 end

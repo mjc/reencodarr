@@ -1,115 +1,196 @@
 defmodule Reencodarr.FileOperationsTest do
-  use ExUnit.Case, async: true
+  use Reencodarr.DataCase, async: false
+  import ExUnit.CaptureLog
+
   alias Reencodarr.FileOperations
 
-  # Minimal video struct for passing to move_file
-  defp make_video(id \\ 1), do: %{id: id, path: "/fake/path/video.mkv"}
+  setup do
+    tmp = Path.join(System.tmp_dir!(), "fo_test_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(tmp)
+    on_exit(fn -> File.rm_rf(tmp) end)
 
-  defp tmp_path(suffix) do
-    Path.join(System.tmp_dir!(), "file_ops_test_#{System.unique_integer([:positive])}_#{suffix}")
+    {:ok, video} = Fixtures.video_fixture(%{path: Path.join(tmp, "video.mkv")})
+    %{tmp: tmp, video: video}
   end
 
+  # ---------------------------------------------------------------------------
+  # calculate_intermediate_path/1
+  # ---------------------------------------------------------------------------
+
   describe "calculate_intermediate_path/1" do
-    test "appends .reencoded before the extension" do
-      video = %{path: "/media/movies/The.Movie.mkv"}
-      result = FileOperations.calculate_intermediate_path(video)
-      assert result == "/media/movies/The.Movie.reencoded.mkv"
+    test "inserts .reencoded before .mkv extension" do
+      video = Fixtures.build_video_struct(%{path: "/media/movies/The.Movie.mkv"})
+
+      assert FileOperations.calculate_intermediate_path(video) ==
+               "/media/movies/The.Movie.reencoded.mkv"
     end
 
-    test "works with mp4 files" do
-      video = %{path: "/media/movies/The.Movie.mp4"}
-      result = FileOperations.calculate_intermediate_path(video)
-      assert result == "/media/movies/The.Movie.reencoded.mp4"
+    test "works with .mp4 extension" do
+      video = Fixtures.build_video_struct(%{path: "/media/movie.mp4"})
+      assert FileOperations.calculate_intermediate_path(video) == "/media/movie.reencoded.mp4"
     end
 
-    test "preserves directory structure" do
-      video = %{path: "/mnt/deep/nested/path/to/file.mkv"}
-      result = FileOperations.calculate_intermediate_path(video)
-      assert result == "/mnt/deep/nested/path/to/file.reencoded.mkv"
+    test "works with .avi extension" do
+      video = Fixtures.build_video_struct(%{path: "/data/clip.avi"})
+      assert FileOperations.calculate_intermediate_path(video) == "/data/clip.reencoded.avi"
     end
 
-    test "works with file that has multiple dots in name" do
-      video = %{path: "/media/tv/Show.S01E01.720p.mkv"}
-      result = FileOperations.calculate_intermediate_path(video)
-      assert result == "/media/tv/Show.S01E01.720p.reencoded.mkv"
+    test "handles path with multiple dots in filename" do
+      video = Fixtures.build_video_struct(%{path: "/media/tv/Show.S01E01.720p.mkv"})
+
+      assert FileOperations.calculate_intermediate_path(video) ==
+               "/media/tv/Show.S01E01.720p.reencoded.mkv"
     end
 
-    test "works with file in root-adjacent directory" do
-      video = %{path: "/videos/movie.mkv"}
-      result = FileOperations.calculate_intermediate_path(video)
-      assert result == "/videos/movie.reencoded.mkv"
+    test "preserves deeply nested directory structure" do
+      video = Fixtures.build_video_struct(%{path: "/a/b/c/d/e/f/video.mkv"})
+
+      assert FileOperations.calculate_intermediate_path(video) ==
+               "/a/b/c/d/e/f/video.reencoded.mkv"
     end
 
     test "result has same directory as original" do
-      video = %{path: "/some/dir/file.mkv"}
+      video = Fixtures.build_video_struct(%{path: "/some/dir/file.mkv"})
       result = FileOperations.calculate_intermediate_path(video)
       assert Path.dirname(result) == Path.dirname(video.path)
     end
 
     test "result has same extension as original" do
-      video = %{path: "/some/dir/file.mkv"}
+      video = Fixtures.build_video_struct(%{path: "/some/dir/file.mkv"})
       result = FileOperations.calculate_intermediate_path(video)
       assert Path.extname(result) == Path.extname(video.path)
     end
+  end
 
-    test "result basename contains .reencoded" do
-      video = %{path: "/some/dir/file.mkv"}
-      result = FileOperations.calculate_intermediate_path(video)
-      assert String.contains?(Path.basename(result), ".reencoded")
+  # ---------------------------------------------------------------------------
+  # move_file/4 — successful rename (same device)
+  # ---------------------------------------------------------------------------
+
+  describe "move_file/4 happy path" do
+    test "moves file and returns :ok", %{tmp: tmp, video: video} do
+      source = Path.join(tmp, "source.mkv")
+      dest = Path.join(tmp, "dest.mkv")
+      File.write!(source, "video data")
+
+      capture_log(fn ->
+        assert :ok = FileOperations.move_file(source, dest, "Test", video)
+      end)
+
+      refute File.exists?(source)
+      assert File.read!(dest) == "video data"
+    end
+
+    test "preserves binary content after move", %{tmp: tmp, video: video} do
+      content = :crypto.strong_rand_bytes(256)
+      source = Path.join(tmp, "binary_source.mkv")
+      dest = Path.join(tmp, "binary_dest.mkv")
+      File.write!(source, content)
+
+      capture_log(fn ->
+        assert :ok = FileOperations.move_file(source, dest, "BinaryTest", video)
+      end)
+
+      assert File.read!(dest) == content
+    end
+
+    test "source file no longer exists after successful move", %{tmp: tmp, video: video} do
+      source = Path.join(tmp, "vanish_source.mkv")
+      dest = Path.join(tmp, "vanish_dest.mkv")
+      File.write!(source, "data")
+
+      capture_log(fn ->
+        FileOperations.move_file(source, dest, "Vanish", video)
+      end)
+
+      refute File.exists?(source)
     end
   end
 
-  describe "move_file/4 - successful rename" do
-    test "returns :ok and moves file" do
-      src = tmp_path("src.mkv")
-      dst = tmp_path("dst.mkv")
-      File.write!(src, "video data")
+  # ---------------------------------------------------------------------------
+  # move_file/4 — failure paths
+  # ---------------------------------------------------------------------------
 
-      on_exit(fn ->
-        File.rm(src)
-        File.rm(dst)
-      end)
+  describe "move_file/4 failure paths" do
+    test "returns {:error, :enoent} when source does not exist", %{tmp: tmp, video: video} do
+      source = Path.join(tmp, "nonexistent.mkv")
+      dest = Path.join(tmp, "dest.mkv")
 
-      assert :ok = FileOperations.move_file(src, dst, "test", make_video())
-      assert File.exists?(dst)
-      refute File.exists?(src)
+      log =
+        capture_log(fn ->
+          assert {:error, :enoent} = FileOperations.move_file(source, dest, "Fail", video)
+        end)
+
+      assert log =~ "Failed to rename"
     end
 
-    test "content is preserved after move" do
-      src = tmp_path("src_content.mkv")
-      dst = tmp_path("dst_content.mkv")
-      File.write!(src, "some important video bytes")
+    test "returns error when destination directory does not exist", %{tmp: tmp, video: video} do
+      source = Path.join(tmp, "src.mkv")
+      dest = Path.join(tmp, "no/such/dir/dest.mkv")
+      File.write!(source, "data")
 
-      on_exit(fn ->
-        File.rm(src)
-        File.rm(dst)
+      capture_log(fn ->
+        assert {:error, _reason} = FileOperations.move_file(source, dest, "BadDir", video)
       end)
 
-      :ok = FileOperations.move_file(src, dst, "test", make_video())
-      assert File.read!(dst) == "some important video bytes"
+      assert File.exists?(source), "source should remain intact on failure"
+    end
+
+    test "error log includes context and reason", %{tmp: tmp, video: video} do
+      log =
+        capture_log(fn ->
+          FileOperations.move_file(
+            Path.join(tmp, "missing.mkv"),
+            Path.join(tmp, "dest.mkv"),
+            "ErrorCtx",
+            video
+          )
+        end)
+
+      assert log =~ "[ErrorCtx]"
+      assert log =~ "File remains at"
     end
   end
 
-  describe "move_file/4 - error handling" do
-    test "returns error tuple when source file does not exist" do
-      src = tmp_path("nonexistent.mkv")
-      dst = tmp_path("dst_nonexistent.mkv")
+  # ---------------------------------------------------------------------------
+  # move_file/4 — EXDEV cross-device fallback (mocked)
+  # ---------------------------------------------------------------------------
 
-      on_exit(fn -> File.rm(dst) end)
+  describe "move_file/4 EXDEV cross-device fallback" do
+    test "succeeds via copy+delete when rename returns :exdev", %{tmp: tmp, video: video} do
+      source = Path.join(tmp, "exdev_source.mkv")
+      dest = Path.join(tmp, "exdev_dest.mkv")
+      File.write!(source, "cross device content")
 
-      result = FileOperations.move_file(src, dst, "test", make_video())
-      assert {:error, _reason} = result
+      :meck.new(File, [:passthrough, :unstick])
+      :meck.expect(File, :rename, fn ^source, ^dest -> {:error, :exdev} end)
+
+      capture_log(fn ->
+        assert :ok = FileOperations.move_file(source, dest, "EXDEV", video)
+      end)
+
+      :meck.unload(File)
+
+      assert File.read!(dest) == "cross device content"
+      refute File.exists?(source)
     end
 
-    test "returns error tuple when destination directory does not exist" do
-      src = tmp_path("src_bad_dst.mkv")
-      File.write!(src, "data")
-      dst = "/nonexistent_directory_xyz/output.mkv"
+    test "returns error when cross-device copy fails", %{tmp: tmp, video: video} do
+      source = Path.join(tmp, "exdev_fail.mkv")
+      dest = Path.join(tmp, "exdev_fail_dest.mkv")
+      File.write!(source, "data")
 
-      on_exit(fn -> File.rm(src) end)
+      :meck.new(File, [:passthrough, :unstick])
+      :meck.expect(File, :rename, fn ^source, ^dest -> {:error, :exdev} end)
+      :meck.expect(File, :cp, fn ^source, ^dest -> {:error, :enospc} end)
 
-      result = FileOperations.move_file(src, dst, "test", make_video())
-      assert {:error, _reason} = result
+      log =
+        capture_log(fn ->
+          assert {:error, :enospc} = FileOperations.move_file(source, dest, "EXDEV", video)
+        end)
+
+      :meck.unload(File)
+
+      assert log =~ "Failed to copy"
     end
   end
 end
