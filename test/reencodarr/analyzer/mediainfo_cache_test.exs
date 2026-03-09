@@ -63,7 +63,6 @@ defmodule Reencodarr.Analyzer.MediaInfoCacheTest do
 
   describe "get_bulk_mediainfo/1" do
     test "returns empty map for empty list" do
-      # Note: empty list may not go through GenServer; test behavior
       result = MediaInfoCache.get_bulk_mediainfo([])
       assert result == %{}
     end

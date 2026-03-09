@@ -43,6 +43,7 @@ defmodule Reencodarr.MixProject do
       {:bandit, "~> 1.5"},
       {:broadway, "~> 1.1"},
       {:broadway_dashboard, "~> 0.4.0"},
+      {:cachex, "~> 4.0"},
       {:car_req, tag: "0.3.1", github: "carsdotcom/car_req"},
       {:contex, "~> 0.5.0"},
       {:credo, "~> 1.7.14", only: [:dev, :test], runtime: false},
@@ -79,8 +80,7 @@ defmodule Reencodarr.MixProject do
       {:tailwind, "~> 0.2", runtime: Mix.env() == :dev},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},
-      {:tzdata, "~> 1.1"},
-      {:nimble_csv, "~> 1.2"}
+      {:tzdata, "~> 1.1"}
     ]
   end
 

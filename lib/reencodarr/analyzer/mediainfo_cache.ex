@@ -4,22 +4,30 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
 
   Avoids re-running mediainfo for files that haven't changed,
   significantly improving analyzer performance for re-analysis scenarios.
+
+  Backed by Cachex with a 1-hour TTL. Cache entries are invalidated when
+  the file's mtime changes, ensuring stale data is never returned.
   """
-  use GenServer
   require Logger
+  import Cachex.Spec
 
   alias Reencodarr.Analyzer.Core.FileStatCache
 
-  @cache_cleanup_interval :timer.minutes(15)
-  # Keep mediainfo cache for 1 hour
-  @cache_ttl :timer.hours(1)
-  # Maximum cache size (number of entries)
+  @cache_name :mediainfo_cache
   @max_cache_size 1000
 
-  defstruct [:cache, :access_times, :cache_size]
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
+      type: :worker
+    }
+  end
 
   def start_link(_opts) do
-    GenServer.start_link(__MODULE__, [], name: __MODULE__)
+    Cachex.start_link(@cache_name,
+      expiration: expiration(default: :timer.hours(1), interval: :timer.minutes(5), lazy: true)
+    )
   end
 
   @doc """
@@ -31,7 +39,16 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
   """
   @spec get_mediainfo(String.t()) :: {:ok, map()} | {:error, term()}
   def get_mediainfo(path) when is_binary(path) do
-    GenServer.call(__MODULE__, {:get_mediainfo, path}, :timer.minutes(10))
+    case Cachex.get(@cache_name, path) do
+      {:ok, {cached_data, cached_mtime}} ->
+        validate_and_return(path, cached_data, cached_mtime)
+
+      {:ok, nil} ->
+        fetch_and_cache_mediainfo(path)
+
+      {:error, _} ->
+        fetch_and_cache_mediainfo(path)
+    end
   end
 
   @doc """
@@ -40,7 +57,16 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
   """
   @spec get_bulk_mediainfo([String.t()]) :: %{String.t() => {:ok, map()} | {:error, term()}}
   def get_bulk_mediainfo(paths) when is_list(paths) do
-    GenServer.call(__MODULE__, {:get_bulk_mediainfo, paths}, :timer.minutes(15))
+    {cached_results, uncached_paths} = separate_cached_and_uncached(paths)
+
+    fresh_results =
+      if uncached_paths != [] do
+        fetch_bulk_mediainfo(uncached_paths)
+      else
+        %{}
+      end
+
+    Map.merge(cached_results, fresh_results)
   end
 
   @doc """
@@ -48,7 +74,8 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
   """
   @spec invalidate(String.t()) :: :ok
   def invalidate(path) do
-    GenServer.cast(__MODULE__, {:invalidate, path})
+    Cachex.del(@cache_name, path)
+    :ok
   end
 
   @doc """
@@ -56,7 +83,8 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
   """
   @spec clear_cache() :: :ok
   def clear_cache do
-    GenServer.cast(__MODULE__, :clear_cache)
+    Cachex.clear(@cache_name)
+    :ok
   end
 
   @doc """
@@ -64,173 +92,94 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
   """
   @spec get_stats() :: map()
   def get_stats do
-    GenServer.call(__MODULE__, :get_stats)
-  end
+    {:ok, size} = Cachex.size(@cache_name)
 
-  # GenServer callbacks
-
-  @impl GenServer
-  def init(_args) do
-    # Schedule periodic cache cleanup
-    Process.send_after(self(), :cleanup_cache, @cache_cleanup_interval)
-
-    {:ok,
-     %__MODULE__{
-       cache: %{},
-       access_times: %{},
-       cache_size: 0
-     }}
-  end
-
-  @impl GenServer
-  def handle_call({:get_mediainfo, path}, _from, state) do
-    case get_cached_mediainfo(path, state) do
-      {:cache_hit, result, new_state} ->
-        {:reply, result, new_state}
-
-      {:cache_miss, new_state} ->
-        {result, final_state} = fetch_and_cache_mediainfo(path, new_state)
-        {:reply, result, final_state}
-    end
-  end
-
-  @impl GenServer
-  def handle_call({:get_bulk_mediainfo, paths}, _from, state) do
-    {results, new_state} = get_bulk_mediainfo_with_cache(paths, state)
-    {:reply, results, new_state}
-  end
-
-  @impl GenServer
-  def handle_call(:get_stats, _from, state) do
-    stats = %{
-      cache_size: state.cache_size,
+    %{
+      cache_size: size,
       max_cache_size: @max_cache_size,
-      cache_utilization: state.cache_size / @max_cache_size
+      cache_utilization: size / @max_cache_size
     }
-
-    {:reply, stats, state}
-  end
-
-  @impl GenServer
-  def handle_cast({:invalidate, path}, state) do
-    new_state = remove_from_cache(path, state)
-    {:noreply, new_state}
-  end
-
-  @impl GenServer
-  def handle_cast(:clear_cache, _state) do
-    {:noreply, %__MODULE__{cache: %{}, access_times: %{}, cache_size: 0}}
-  end
-
-  @impl GenServer
-  def handle_info(:cleanup_cache, state) do
-    # Schedule next cleanup
-    Process.send_after(self(), :cleanup_cache, @cache_cleanup_interval)
-
-    # Clean up expired entries and enforce size limits
-    new_state = cleanup_expired_and_enforce_limits(state)
-
-    {:noreply, new_state}
   end
 
   # Private functions
 
-  defp get_cached_mediainfo(path, state) do
-    case Map.get(state.cache, path) do
-      nil ->
-        {:cache_miss, state}
+  defp validate_and_return(path, cached_data, cached_mtime) do
+    case FileStatCache.get_file_stats(path) do
+      {:ok, %{exists: true, mtime: ^cached_mtime}} ->
+        {:ok, cached_data}
 
-      {cached_data, cached_mtime} ->
-        # Check if file has been modified since cache
-        case FileStatCache.get_file_stats(path) do
-          {:ok, %{exists: true, mtime: current_mtime}} when current_mtime == cached_mtime ->
-            # Cache hit - file unchanged
-            new_access_times =
-              Map.put(state.access_times, path, System.monotonic_time(:millisecond))
+      {:ok, %{exists: true}} ->
+        Logger.debug("MediaInfoCache: File modified, invalidating cache for #{path}")
+        Cachex.del(@cache_name, path)
+        fetch_and_cache_mediainfo(path)
 
-            new_state = %{state | access_times: new_access_times}
-            {:cache_hit, {:ok, cached_data}, new_state}
+      {:ok, %{exists: false}} ->
+        Logger.debug("MediaInfoCache: File no longer exists, removing from cache: #{path}")
+        Cachex.del(@cache_name, path)
+        {:error, :file_not_found}
 
-          {:ok, %{exists: true}} ->
-            # File modified - cache invalid
-            Logger.debug("MediaInfoCache: File modified, invalidating cache for #{path}")
-            new_state = remove_from_cache(path, state)
-            {:cache_miss, new_state}
-
-          {:ok, %{exists: false}} ->
-            # File no longer exists
-            Logger.debug("MediaInfoCache: File no longer exists, removing from cache: #{path}")
-            new_state = remove_from_cache(path, state)
-            {:cache_miss, new_state}
-
-          {:error, _reason} ->
-            # Can't stat file - assume cache invalid
-            new_state = remove_from_cache(path, state)
-            {:cache_miss, new_state}
-        end
+      {:error, _reason} ->
+        Cachex.del(@cache_name, path)
+        fetch_and_cache_mediainfo(path)
     end
   end
 
-  defp fetch_and_cache_mediainfo(path, state) do
-    # First check if file exists using cached file stats
+  defp fetch_and_cache_mediainfo(path) do
     case FileStatCache.get_file_stats(path) do
       {:ok, %{exists: true, mtime: mtime}} ->
-        # File exists, fetch mediainfo
         case execute_mediainfo(path) do
           {:ok, mediainfo_data} ->
-            # Cache the result
-            new_state = add_to_cache(path, mediainfo_data, mtime, state)
-            {{:ok, mediainfo_data}, new_state}
+            maybe_prune()
+            Cachex.put(@cache_name, path, {mediainfo_data, mtime})
+            {:ok, mediainfo_data}
 
           {:error, _reason} = error ->
-            {error, state}
+            error
         end
 
       {:ok, %{exists: false}} ->
-        {{:error, :file_not_found}, state}
+        {:error, :file_not_found}
 
       {:error, reason} ->
-        {{:error, reason}, state}
+        {:error, reason}
     end
   end
 
-  defp get_bulk_mediainfo_with_cache(paths, state) do
-    # First, separate cached vs uncached paths
-    {cached_results, uncached_paths, intermediate_state} =
-      Enum.reduce(paths, {%{}, [], state}, fn path, {acc_results, acc_uncached, acc_state} ->
-        case get_cached_mediainfo(path, acc_state) do
-          {:cache_hit, result, new_state} ->
-            {Map.put(acc_results, path, result), acc_uncached, new_state}
-
-          {:cache_miss, new_state} ->
-            {acc_results, [path | acc_uncached], new_state}
-        end
-      end)
-
-    # Fetch mediainfo for uncached paths
-    {fresh_results, final_state} =
-      if uncached_paths != [] do
-        fetch_bulk_mediainfo(uncached_paths, intermediate_state)
-      else
-        {%{}, intermediate_state}
+  defp separate_cached_and_uncached(paths) do
+    Enum.reduce(paths, {%{}, []}, fn path, {cached, uncached} ->
+      case check_cached(path) do
+        {:ok, _} = result -> {Map.put(cached, path, result), uncached}
+        :miss -> {cached, [path | uncached]}
       end
-
-    # Combine cached and fresh results
-    all_results = Map.merge(cached_results, fresh_results)
-    {all_results, final_state}
+    end)
   end
 
-  defp fetch_bulk_mediainfo(paths, state) do
-    # Get file stats for all paths
+  defp check_cached(path) do
+    case Cachex.get(@cache_name, path) do
+      {:ok, {cached_data, cached_mtime}} ->
+        validate_cached_entry(path, cached_data, cached_mtime)
+
+      _ ->
+        :miss
+    end
+  end
+
+  defp validate_cached_entry(path, cached_data, cached_mtime) do
+    case FileStatCache.get_file_stats(path) do
+      {:ok, %{exists: true, mtime: ^cached_mtime}} ->
+        {:ok, cached_data}
+
+      _ ->
+        Cachex.del(@cache_name, path)
+        :miss
+    end
+  end
+
+  defp fetch_bulk_mediainfo(paths) do
     file_stats = FileStatCache.get_bulk_file_stats(paths)
-
-    # Filter to existing files and extract their paths
     {existing_paths, path_to_mtime} = extract_existing_paths(file_stats)
-
-    # Execute batch mediainfo for existing files
     batch_results = execute_batch_if_needed(existing_paths)
-
-    process_bulk_mediainfo_results(paths, file_stats, path_to_mtime, batch_results, state)
+    process_bulk_mediainfo_results(paths, file_stats, path_to_mtime, batch_results)
   end
 
   defp extract_existing_paths(file_stats) do
@@ -248,28 +197,21 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
   defp execute_batch_if_needed([]), do: {:ok, %{}}
   defp execute_batch_if_needed(existing_paths), do: execute_batch_mediainfo(existing_paths)
 
-  defp process_bulk_mediainfo_results(paths, file_stats, path_to_mtime, batch_results, state) do
+  defp process_bulk_mediainfo_results(paths, file_stats, path_to_mtime, batch_results) do
     case batch_results do
       {:ok, mediainfo_map} ->
-        process_successful_bulk_results(paths, file_stats, path_to_mtime, mediainfo_map, state)
+        maybe_prune()
+
+        Map.new(paths, fn path ->
+          {path, cache_and_return(path, file_stats, path_to_mtime, mediainfo_map)}
+        end)
 
       {:error, reason} ->
-        process_failed_bulk_results(paths, reason, state)
+        Map.new(paths, fn path -> {path, {:error, reason}} end)
     end
   end
 
-  defp process_successful_bulk_results(paths, file_stats, path_to_mtime, mediainfo_map, state) do
-    Enum.reduce(paths, {%{}, state}, fn path, {acc_results, acc_state} ->
-      result_for_path = determine_path_result(path, file_stats, path_to_mtime, mediainfo_map)
-
-      {updated_results, updated_state} =
-        update_results_and_cache(path, result_for_path, acc_results, acc_state)
-
-      {updated_results, updated_state}
-    end)
-  end
-
-  defp determine_path_result(path, file_stats, path_to_mtime, mediainfo_map) do
+  defp cache_and_return(path, file_stats, path_to_mtime, mediainfo_map) do
     cond do
       Map.get(file_stats, path) == {:ok, %{exists: false}} ->
         {:error, :file_not_found}
@@ -277,32 +219,22 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
       Map.has_key?(mediainfo_map, path) ->
         mediainfo_data = Map.get(mediainfo_map, path)
         mtime = Map.get(path_to_mtime, path)
-        {:ok, mediainfo_data, mtime}
+        Cachex.put(@cache_name, path, {mediainfo_data, mtime})
+        {:ok, mediainfo_data}
 
       true ->
         {:error, :mediainfo_failed}
     end
   end
 
-  defp update_results_and_cache(path, result_for_path, acc_results, acc_state) do
-    case result_for_path do
-      {:ok, mediainfo_data, mtime} ->
-        updated_state = add_to_cache(path, mediainfo_data, mtime, acc_state)
-        {Map.put(acc_results, path, {:ok, mediainfo_data}), updated_state}
-
-      {:error, reason} ->
-        {Map.put(acc_results, path, {:error, reason}), acc_state}
+  defp maybe_prune do
+    case Cachex.size(@cache_name) do
+      {:ok, size} when size > @max_cache_size -> Cachex.prune(@cache_name, @max_cache_size)
+      _ -> :ok
     end
   end
 
-  defp process_failed_bulk_results(paths, reason, state) do
-    error_results =
-      Enum.reduce(paths, %{}, fn path, acc ->
-        Map.put(acc, path, {:error, reason})
-      end)
-
-    {error_results, state}
-  end
+  # Domain logic - mediainfo execution and parsing
 
   defp execute_mediainfo(path) do
     case System.cmd("mediainfo", ["--Output=JSON", path], stderr_to_stdout: true) do
@@ -336,7 +268,6 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
   defp process_mediainfo_json(json, paths) do
     case Jason.decode(json) do
       {:ok, data} when is_list(data) ->
-        # Parse batch results into path -> mediainfo map
         parse_batch_mediainfo_results(data, paths)
 
       {:ok, single_result} ->
@@ -348,7 +279,6 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
   end
 
   defp handle_single_mediainfo_result(single_result, paths) do
-    # Single file result
     if length(paths) == 1 do
       {:ok, %{List.first(paths) => single_result}}
     else
@@ -357,7 +287,6 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
   end
 
   defp parse_batch_mediainfo_results(media_info_list, original_paths) do
-    # If we have the same number of results as requested paths, we can map them by index
     if length(media_info_list) == length(original_paths) do
       parse_by_index_mapping(media_info_list, original_paths)
     else
@@ -367,10 +296,9 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
 
   defp parse_by_index_mapping(media_info_list, original_paths) do
     result_map =
-      Enum.zip(original_paths, media_info_list)
-      |> Enum.reduce(%{}, fn {path, media_info}, acc ->
-        Map.put(acc, path, media_info)
-      end)
+      original_paths
+      |> Enum.zip(media_info_list)
+      |> Map.new()
 
     {:ok, result_map}
   end
@@ -429,96 +357,5 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
       _ ->
         {:error, "no Complete_name or CompleteName in General track"}
     end
-  end
-
-  defp add_to_cache(path, data, mtime, state) do
-    # Enforce cache size limit before adding
-    state_after_cleanup =
-      if state.cache_size >= @max_cache_size do
-        evict_least_recently_used(state)
-      else
-        state
-      end
-
-    # Add new entry
-    now = System.monotonic_time(:millisecond)
-    new_cache = Map.put(state_after_cleanup.cache, path, {data, mtime})
-    new_access_times = Map.put(state_after_cleanup.access_times, path, now)
-
-    %{
-      state_after_cleanup
-      | cache: new_cache,
-        access_times: new_access_times,
-        cache_size: state_after_cleanup.cache_size + 1
-    }
-  end
-
-  defp remove_from_cache(path, state) do
-    if Map.has_key?(state.cache, path) do
-      %{
-        state
-        | cache: Map.delete(state.cache, path),
-          access_times: Map.delete(state.access_times, path),
-          cache_size: state.cache_size - 1
-      }
-    else
-      state
-    end
-  end
-
-  defp evict_least_recently_used(state) do
-    if state.cache_size > 0 do
-      # Find least recently used entry
-      {lru_path, _lru_time} = Enum.min_by(state.access_times, fn {_path, time} -> time end)
-      remove_from_cache(lru_path, state)
-    else
-      state
-    end
-  end
-
-  defp cleanup_expired_and_enforce_limits(state) do
-    now = System.monotonic_time(:millisecond)
-    cutoff = now - @cache_ttl
-
-    # Remove expired entries
-    {expired_paths, active_access_times} =
-      Enum.reduce(state.access_times, {[], %{}}, fn {path, access_time}, {expired, active} ->
-        if access_time < cutoff do
-          {[path | expired], active}
-        else
-          {expired, Map.put(active, path, access_time)}
-        end
-      end)
-
-    # Remove expired entries from cache
-    active_cache = Map.drop(state.cache, expired_paths)
-    expired_count = length(expired_paths)
-    new_cache_size = state.cache_size - expired_count
-
-    if expired_count > 0 do
-      Logger.debug("MediaInfoCache: Cleaned up #{expired_count} expired entries")
-    end
-
-    # Enforce size limits by evicting LRU entries if needed
-    intermediate_state = %{
-      state
-      | cache: active_cache,
-        access_times: active_access_times,
-        cache_size: new_cache_size
-    }
-
-    # Evict excess entries if still over limit
-    final_state =
-      if intermediate_state.cache_size > @max_cache_size do
-        excess_count = intermediate_state.cache_size - @max_cache_size
-
-        Enum.reduce(1..excess_count, intermediate_state, fn _i, acc_state ->
-          evict_least_recently_used(acc_state)
-        end)
-      else
-        intermediate_state
-      end
-
-    final_state
   end
 end
