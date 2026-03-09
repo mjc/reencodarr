@@ -72,6 +72,41 @@ defmodule Reencodarr.Media.VideoQueries do
   end
 
   @doc """
+  Atomically claims videos for analysis by transitioning them from
+  `:needs_analysis` to `:analyzing`. Returns the claimed video IDs.
+
+  This prevents race conditions where the same video could be fetched
+  by multiple producer demand cycles before the batch processor
+  transitions them to `:analyzed`.
+  """
+  @spec claim_videos_for_analysis(integer(), keyword()) :: [Video.t()]
+  def claim_videos_for_analysis(limit, opts \\ []) do
+    candidates =
+      from(v in Video,
+        where: v.state == :needs_analysis,
+        order_by: [desc: v.size, desc: v.inserted_at],
+        limit: ^limit,
+        select: v.id
+      )
+      |> Repo.all(opts)
+
+    case candidates do
+      [] ->
+        []
+
+      ids ->
+        {_count, claimed} =
+          from(v in Video,
+            where: v.id in ^ids and v.state == :needs_analysis,
+            select: v
+          )
+          |> Repo.update_all([set: [state: :analyzing, updated_at: DateTime.utc_now()]], opts)
+
+        claimed
+    end
+  end
+
+  @doc """
   Counts the total number of videos needing analysis.
   """
   @spec count_videos_needing_analysis(keyword()) :: integer()

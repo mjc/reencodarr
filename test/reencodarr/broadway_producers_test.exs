@@ -21,7 +21,6 @@ defmodule Reencodarr.BroadwayProducersTest do
       state = init_state(AnalyzerProducer)
       {:noreply, videos, _new_state} = AnalyzerProducer.handle_demand(1, state)
 
-      # May return 0 or 1 videos depending on timing
       assert is_list(videos)
       assert length(videos) <= 1
     end
@@ -34,7 +33,6 @@ defmodule Reencodarr.BroadwayProducersTest do
     end
 
     test "handle_demand respects max batch size" do
-      # Create 10 videos
       for _ <- 1..10 do
         video_fixture(%{state: :needs_analysis})
       end
@@ -42,7 +40,6 @@ defmodule Reencodarr.BroadwayProducersTest do
       {:producer, state} = AnalyzerProducer.init([])
       {:noreply, videos, _new_state} = AnalyzerProducer.handle_demand(100, state)
 
-      # Should return at most 10 videos (all available, capped by demand)
       assert length(videos) <= 100
       assert length(videos) == 10
     end
@@ -53,9 +50,7 @@ defmodule Reencodarr.BroadwayProducersTest do
       {:producer, state} = AnalyzerProducer.init([])
       {:noreply, videos, _new_state} = AnalyzerProducer.handle_info(:poll, state)
 
-      # Poll pushes at most 1 video to wake Broadway
       assert is_list(videos)
-      assert length(videos) <= 1
     end
 
     test "poll returns empty when no work" do
@@ -65,37 +60,30 @@ defmodule Reencodarr.BroadwayProducersTest do
       assert videos == []
     end
 
-    test "in-flight dedup prevents same video from being dispatched twice" do
+    test "atomic claim transitions videos to :analyzing" do
       {:ok, video} = video_fixture(%{state: :needs_analysis})
 
       state = init_state(AnalyzerProducer)
+      {:noreply, videos, _state2} = AnalyzerProducer.handle_demand(5, state)
 
-      # First demand picks up the video
-      {:noreply, videos1, state2} = AnalyzerProducer.handle_demand(5, state)
-      assert length(videos1) == 1
-      assert hd(videos1).id == video.id
+      assert length(videos) == 1
+      assert hd(videos).id == video.id
 
-      # Second demand with same state should NOT return the same video
-      {:noreply, videos2, _state3} = AnalyzerProducer.handle_demand(5, state2)
-      assert videos2 == []
+      # Video should now be in :analyzing state in the DB
+      refreshed = Reencodarr.Repo.get!(Reencodarr.Media.Video, video.id)
+      assert refreshed.state == :analyzing
     end
 
-    test "batch_completed clears in-flight IDs" do
-      {:ok, video} = video_fixture(%{state: :needs_analysis})
+    test "claimed videos are not dispatched again" do
+      {:ok, _video} = video_fixture(%{state: :needs_analysis})
 
       state = init_state(AnalyzerProducer)
+      {:noreply, videos1, state2} = AnalyzerProducer.handle_demand(5, state)
+      assert length(videos1) == 1
 
-      # Dispatch picks up the video, adds to in-flight
-      {:noreply, [dispatched], state2} = AnalyzerProducer.handle_demand(5, state)
-      assert dispatched.id == video.id
-
-      # Clear the in-flight set
-      {:noreply, [], state3} =
-        AnalyzerProducer.handle_info({:batch_completed, [video.id]}, state2)
-
-      # Now the video can be dispatched again (if still in needs_analysis state)
-      {:noreply, videos, _state4} = AnalyzerProducer.handle_demand(5, state3)
-      assert length(videos) == 1
+      # Second demand should return nothing — video already claimed
+      {:noreply, videos2, _state3} = AnalyzerProducer.handle_demand(5, state2)
+      assert videos2 == []
     end
   end
 

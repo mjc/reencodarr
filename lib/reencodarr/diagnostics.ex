@@ -10,7 +10,6 @@ defmodule Reencodarr.Diagnostics do
 
   alias Reencodarr.AbAv1.{CrfSearch, Encode}
   alias Reencodarr.Analyzer
-  alias Reencodarr.Analyzer.Broadway.PerformanceMonitor
   alias Reencodarr.Analyzer.MediaInfoCache
   alias Reencodarr.Core.Time
   alias Reencodarr.CrfSearcher
@@ -46,7 +45,6 @@ defmodule Reencodarr.Diagnostics do
       |> Repo.one()
 
     # Performance stats (may not exist)
-    perf_stats = safe_call(fn -> PerformanceMonitor.get_performance_stats() end)
     cache_stats = safe_call(fn -> MediaInfoCache.get_stats() end)
 
     # Format output
@@ -67,7 +65,6 @@ defmodule Reencodarr.Diagnostics do
 
     Failures: #{failure_count} unresolved
 
-    #{format_performance_stats(perf_stats)}
     #{format_cache_stats(cache_stats)}
     """
   rescue
@@ -277,7 +274,6 @@ defmodule Reencodarr.Diagnostics do
     encode_state = safe_get_state(Reencodarr.AbAv1.Encode, 2000)
     health_state = safe_get_state(Reencodarr.Encoder.HealthCheck, 2000)
     cache_stats = safe_call(fn -> MediaInfoCache.get_stats() end)
-    perf_stats = safe_call(fn -> PerformanceMonitor.get_performance_stats() end)
 
     """
     #{section("Live Process State")}
@@ -293,9 +289,6 @@ defmodule Reencodarr.Diagnostics do
 
     MediaInfo Cache:
     #{format_cache_stats(cache_stats)}
-
-    Performance Monitor:
-    #{format_performance_stats(perf_stats)}
     """
   rescue
     e -> "Error in processes/0: #{Exception.message(e)}"
@@ -309,7 +302,7 @@ defmodule Reencodarr.Diagnostics do
     now = DateTime.utc_now()
 
     processing_videos =
-      from(v in Video, where: v.state in [:crf_searching, :encoding])
+      from(v in Video, where: v.state in [:analyzing, :crf_searching, :encoding])
       |> Repo.all()
 
     crf_state = safe_get_state(Reencodarr.AbAv1.CrfSearch, 2000)
@@ -483,20 +476,6 @@ defmodule Reencodarr.Diagnostics do
       "    #{pad(to_string(state), 20)} #{count}"
     end)
   end
-
-  defp format_performance_stats({:error, _}), do: "Performance Monitor: unavailable"
-
-  defp format_performance_stats(stats) when is_map(stats) do
-    """
-    Performance Monitor:
-      Throughput:    #{Map.get(stats, :throughput, "N/A")} videos/hour
-      Batch Size:    #{Map.get(stats, :batch_size, "N/A")}
-      Storage Tier:  #{Map.get(stats, :storage_tier, "N/A")}
-      Auto-tuning:   #{Map.get(stats, :auto_tuning_enabled, "N/A")}
-    """
-  end
-
-  defp format_performance_stats(_), do: "Performance Monitor: N/A"
 
   defp format_cache_stats({:error, _}), do: "Cache: unavailable"
 

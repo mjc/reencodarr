@@ -1129,14 +1129,7 @@ defmodule ReencodarrWeb.DashboardLive do
   defp service_status_text(status),
     do: @service_status_labels[status] || @service_status_labels.unknown
 
-  defp request_analyzer_throughput do
-    do_request_analyzer_throughput(
-      GenServer.whereis(Reencodarr.Analyzer.Broadway.PerformanceMonitor)
-    )
-  end
-
-  defp do_request_analyzer_throughput(nil), do: :ok
-  defp do_request_analyzer_throughput(pid), do: GenServer.cast(pid, {:throughput_request, self()})
+  defp request_analyzer_throughput, do: :ok
 
   defp schedule_periodic_update do
     Process.send_after(self(), :update_dashboard_data, 5_000)

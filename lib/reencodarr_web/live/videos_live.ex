@@ -753,18 +753,19 @@ defmodule ReencodarrWeb.VideosLive do
   defp sort_icon(sort_by, col, dir) when sort_by == col, do: if(dir == :asc, do: "^", else: "v")
   defp sort_icon(_, _, _), do: "~"
 
-  defp state_badge_class(state) do
-    case state do
-      :needs_analysis -> "bg-gray-600 text-gray-200"
-      :analyzed -> "bg-blue-900 text-blue-200"
-      :crf_searching -> "bg-yellow-900 text-yellow-200"
-      :crf_searched -> "bg-indigo-900 text-indigo-200"
-      :encoding -> "bg-orange-900 text-orange-200"
-      :encoded -> "bg-green-900 text-green-200"
-      :failed -> "bg-red-900 text-red-200"
-      _ -> "bg-gray-600 text-gray-200"
-    end
-  end
+  @state_badge_classes %{
+    needs_analysis: "bg-gray-600 text-gray-200",
+    analyzing: "bg-gray-700 text-gray-300",
+    analyzed: "bg-blue-900 text-blue-200",
+    crf_searching: "bg-yellow-900 text-yellow-200",
+    crf_searched: "bg-indigo-900 text-indigo-200",
+    encoding: "bg-orange-900 text-orange-200",
+    encoded: "bg-green-900 text-green-200",
+    failed: "bg-red-900 text-red-200"
+  }
+
+  defp state_badge_class(state),
+    do: Map.get(@state_badge_classes, state, "bg-gray-600 text-gray-200")
 
   defp stats_badge_class(state, active_filter) do
     base = state_badge_class(String.to_existing_atom(state))

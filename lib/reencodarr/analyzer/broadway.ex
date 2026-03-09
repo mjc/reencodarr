@@ -12,7 +12,6 @@ defmodule Reencodarr.Analyzer.Broadway do
   alias Broadway.Message
 
   alias Reencodarr.Analyzer.{
-    Broadway.PerformanceMonitor,
     Broadway.Producer,
     Processing.Pipeline
   }
@@ -47,7 +46,6 @@ defmodule Reencodarr.Analyzer.Broadway do
         module: {Producer, []},
         transformer: {__MODULE__, :transform, []},
         rate_limiting: [
-          # Use normal rate limiting - pause/resume controlled by producer state
           allowed_messages: @running_rate_limit,
           interval: @rate_limit_interval
         ]
@@ -71,25 +69,6 @@ defmodule Reencodarr.Analyzer.Broadway do
         mediainfo_batch_size: @default_mediainfo_batch_size
       }
     )
-    |> case do
-      {:ok, _pid} = result ->
-        # Start performance monitor for self-tuning after Broadway starts successfully
-        case PerformanceMonitor.start_link(__MODULE__) do
-          {:ok, _monitor_pid} ->
-            Logger.info("Performance monitor started for self-tuning Broadway")
-
-          {:error, {:already_started, _monitor_pid}} ->
-            Logger.debug("Performance monitor already running")
-
-          {:error, reason} ->
-            Logger.warning("Failed to start performance monitor: #{inspect(reason)}")
-        end
-
-        result
-
-      error_result ->
-        error_result
-    end
   end
 
   @doc """
@@ -139,10 +118,6 @@ defmodule Reencodarr.Analyzer.Broadway do
 
     result = finish_batch_processing(batch_metrics, video_infos)
 
-    # Clear processed video IDs from producer's in-flight set
-    video_ids = Enum.map(video_infos, & &1.id)
-    Producer.batch_completed(video_ids)
-
     result
   end
 
@@ -175,32 +150,17 @@ defmodule Reencodarr.Analyzer.Broadway do
     duration = System.monotonic_time(:millisecond) - start_time
     Logger.debug("Broadway: Completed batch of #{batch_size} videos in #{duration}ms")
 
-    # Report performance metrics for self-tuning
-    PerformanceMonitor.record_batch_processed(batch_size, duration)
-
-    # Get current queue length for progress calculation
     current_queue_length = Media.count_videos_needing_analysis()
+    throughput = if duration > 0, do: batch_size / (duration / 1000.0), else: 0.0
 
-    # Get current performance settings for UI display
-    current_batch_size = PerformanceMonitor.get_current_mediainfo_batch_size()
-
-    # Get actual throughput from PerformanceMonitor (will be 0 if no data available)
-    # Convert from files/min to files/s
-    current_throughput = PerformanceMonitor.get_current_throughput() / 60.0
-
-    # Send to new dashboard via Events module
     Events.broadcast_event(:analyzer_throughput, %{
-      throughput: current_throughput,
+      throughput: throughput,
       queue_length: current_queue_length,
-      batch_size: current_batch_size
+      batch_size: @default_mediainfo_batch_size
     })
 
-    # Send analyzer progress to Dashboard V2 to indicate active analysis
-    # Only send progress if there's actually work remaining or active throughput
-    if current_queue_length > 0 and current_throughput > 0 do
-      # Show progress based on queue activity - indicate we're actively processing
-      percent =
-        if current_queue_length > 0, do: round(1 / (current_queue_length + 1) * 100), else: 0
+    if current_queue_length > 0 and throughput > 0 do
+      percent = round(1 / (current_queue_length + 1) * 100)
 
       Events.broadcast_event(:analyzer_progress, %{
         count: 1,
@@ -209,20 +169,11 @@ defmodule Reencodarr.Analyzer.Broadway do
       })
     end
 
-    # Note: Don't send progress events if queue is empty or no throughput
-    # This prevents showing "processing" when analyzer is actually idle
-
-    # Send telemetry for analyzer progress - but don't send misleading count/total data
-    # since we don't track the initial total when analysis started.
-    # The dashboard will show throughput which is accurate.
-
-    # Notify producer that batch analysis is complete
     Events.broadcast_event(
       :batch_analysis_completed,
       %{batch_size: batch_size}
     )
 
-    # Return messages as-is since processing always succeeds
     messages
   end
 
@@ -260,13 +211,11 @@ defmodule Reencodarr.Analyzer.Broadway do
   # Helper to determine if video needs full analysis (reduces nesting)
   defp needs_full_analysis?(video_info) do
     case Media.get_video(video_info.id) do
-      %{state: :needs_analysis} = video ->
+      %{state: state} = video when state in [:needs_analysis, :analyzing] ->
         video_needs_analysis?(video, video_info)
 
       %{state: state} ->
-        Logger.debug(
-          "Skipping video #{video_info.path} - already in #{state} state, not needs_analysis"
-        )
+        Logger.debug("Skipping video #{video_info.path} - already in #{state} state")
 
         false
 
@@ -323,7 +272,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   # Helper to reduce nesting in unchanged video processing
   defp process_single_unchanged_video(video_info) do
     case Media.get_video(video_info.id) do
-      %Video{state: :needs_analysis} = video ->
+      %Video{state: state} = video when state in [:needs_analysis, :analyzing] ->
         decide_video_processing_path(video)
 
       %Video{state: state} ->
@@ -554,7 +503,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   All other videos are marked :analyzed and queued for CRF search.
   """
   def decide_video_processing_path(%{state: state, path: path} = video)
-      when state != :needs_analysis do
+      when state not in [:needs_analysis, :analyzing] do
     Logger.debug("Video #{path} already in state #{state}, skipping transition")
     {:ok, video}
   end

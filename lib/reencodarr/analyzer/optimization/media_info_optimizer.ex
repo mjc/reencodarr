@@ -1,20 +1,9 @@
 defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
   @moduledoc """
-  Advanced MediaInfo execution optimizations for high-performance storage.
+  Advanced MediaInfo execution optimizations.
 
   Provides intelligent command execution with:
-  - Dynamic     # Get the current optimal batch size from performance monitor
-    current_batch_size =
-      case Process.whereis(PerformanceMonitor) do
-        nil -> ConcurrencyManager.get_optimal_mediainfo_batch_size()
-        pid when is_pid(pid) ->
-          PerformanceMonitor.get_current_mediainfo_batch_size()
-        _ -> ConcurrencyManager.get_optimal_mediainfo_batch_size()
-      end
-
-    # Don't exceed the number of files we actually have
-    min(current_batch_size, file_count)
-  endbased on storage performance
+  - Dynamic batch sizing based on system capabilities
   - Concurrent chunk processing for large batches
   - Memory-efficient JSON parsing
   - Error recovery and fallback strategies
@@ -23,7 +12,6 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
   require Logger
 
   alias Reencodarr.Analyzer.{
-    Broadway.PerformanceMonitor,
     Core.ConcurrencyManager,
     Optimization.BulkFileChecker
   }
@@ -102,12 +90,6 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
       {json, 0} ->
         duration = System.monotonic_time(:millisecond) - start_time
         Logger.debug("MediaInfo completed #{length(paths)} files in #{duration}ms")
-
-        # Record batch processing time for performance monitoring
-        PerformanceMonitor.record_mediainfo_batch(
-          length(paths),
-          duration
-        )
 
         parse_mediainfo_json_efficiently(json, paths)
 
@@ -211,17 +193,7 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
   end
 
   defp get_optimal_batch_size_for_storage(file_count) do
-    # Get the current optimal batch size from performance monitor
-    current_batch_size =
-      try do
-        PerformanceMonitor.get_current_mediainfo_batch_size()
-      catch
-        :exit, _ ->
-          # Fallback to ConcurrencyManager
-          ConcurrencyManager.get_optimal_mediainfo_batch_size()
-      end
-
-    # Don't exceed the number of files we actually have
+    current_batch_size = ConcurrencyManager.get_optimal_mediainfo_batch_size()
     min(current_batch_size, file_count)
   end
 

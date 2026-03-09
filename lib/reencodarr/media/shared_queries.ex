@@ -93,7 +93,10 @@ defmodule Reencodarr.Media.SharedQueries do
         total_videos: count(v.id),
         total_size_gb: fragment("ROUND(CAST(SUM(?) AS FLOAT) / (1024*1024*1024), 2)", v.size),
         needs_analysis:
-          fragment("COALESCE(SUM(CASE WHEN ? = 'needs_analysis' THEN 1 ELSE 0 END), 0)", v.state),
+          fragment(
+            "COALESCE(SUM(CASE WHEN ? IN ('needs_analysis', 'analyzing') THEN 1 ELSE 0 END), 0)",
+            v.state
+          ),
         analyzed:
           fragment("COALESCE(SUM(CASE WHEN ? = 'analyzed' THEN 1 ELSE 0 END), 0)", v.state),
         crf_searching:

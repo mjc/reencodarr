@@ -103,6 +103,7 @@ defmodule Reencodarr.Media.Video do
     field :state, Ecto.Enum,
       values: [
         :needs_analysis,
+        :analyzing,
         :analyzed,
         :crf_searching,
         :crf_searched,

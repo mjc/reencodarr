@@ -16,7 +16,6 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
   require Logger
 
   alias Reencodarr.Analyzer.{
-    Broadway.PerformanceMonitor,
     Core.ConcurrencyManager,
     Optimization.BulkFileChecker
   }
@@ -106,12 +105,6 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
       {json, 0} ->
         duration = System.monotonic_time(:millisecond) - start_time
         Logger.debug("MediaInfo completed #{length(paths)} files in #{duration}ms")
-
-        # Record batch processing time for performance monitoring
-        PerformanceMonitor.record_mediainfo_batch(
-          length(paths),
-          duration
-        )
 
         parse_mediainfo_json(json, paths)
 
@@ -236,24 +229,7 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
   end
 
   defp get_optimal_batch_size(file_count) do
-    # Get the current optimal batch size from performance systems
-    base_batch_size =
-      case Process.whereis(PerformanceMonitor) do
-        nil ->
-          ConcurrencyManager.get_optimal_mediainfo_batch_size()
-
-        pid when is_pid(pid) ->
-          if Process.alive?(pid) do
-            PerformanceMonitor.get_current_mediainfo_batch_size()
-          else
-            ConcurrencyManager.get_optimal_mediainfo_batch_size()
-          end
-
-        _ ->
-          ConcurrencyManager.get_optimal_mediainfo_batch_size()
-      end
-
-    # Don't exceed the number of files we actually have
+    base_batch_size = ConcurrencyManager.get_optimal_mediainfo_batch_size()
     min(base_batch_size, file_count)
   end
 

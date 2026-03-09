@@ -7,13 +7,14 @@ defmodule Reencodarr.Media.VideoStateMachine do
 
   ## State Flow:
   ```
-  needs_analysis -> analyzed -> crf_searching -> crf_searched -> encoding -> encoded
-                                     ↓                ↓            ↓
-                                   failed           failed      failed
+  needs_analysis -> analyzing -> analyzed -> crf_searching -> crf_searched -> encoding -> encoded
+                       ↓                         ↓                ↓            ↓
+                     failed                    failed           failed      failed
   ```
 
   ## States:
   - `needs_analysis`: Video lacks required metadata, needs MediaInfo analysis
+  - `analyzing`: Video has been claimed by the analyzer and is being processed
   - `analyzed`: Video has all metadata, ready for CRF search
   - `crf_searching`: Video is currently being CRF searched for optimal quality
   - `crf_searched`: Video has VMAF data, ready for encoding
@@ -27,11 +28,11 @@ defmodule Reencodarr.Media.VideoStateMachine do
   alias Reencodarr.Media.Video
   require Logger
 
-  @valid_states ~w(needs_analysis analyzed crf_searching crf_searched encoding encoded failed)a
+  @valid_states ~w(needs_analysis analyzing analyzed crf_searching crf_searched encoding encoded failed)a
 
-  # Valid state transitions - only these transitions are allowed
   @valid_transitions %{
-    needs_analysis: [:analyzed, :crf_searched, :encoded, :failed],
+    needs_analysis: [:analyzing, :analyzed, :crf_searched, :encoded, :failed],
+    analyzing: [:analyzed, :needs_analysis, :failed],
     analyzed: [:crf_searching, :crf_searched, :encoded, :failed],
     # Can go back to analyzed if CRF search is cancelled
     crf_searching: [:crf_searched, :failed, :analyzed],
@@ -158,6 +159,10 @@ defmodule Reencodarr.Media.VideoStateMachine do
   @spec next_expected_state(Video.t()) :: atom()
   def next_expected_state(%Video{state: :needs_analysis} = video) do
     if analysis_complete?(video), do: :analyzed, else: :needs_analysis
+  end
+
+  def next_expected_state(%Video{state: :analyzing} = video) do
+    if analysis_complete?(video), do: :analyzed, else: :analyzing
   end
 
   def next_expected_state(%Video{state: :analyzed}) do

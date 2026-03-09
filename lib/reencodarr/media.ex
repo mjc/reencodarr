@@ -60,6 +60,10 @@ defmodule Reencodarr.Media do
     VideoQueries.videos_needing_analysis(limit)
   end
 
+  def claim_videos_for_analysis(limit) do
+    VideoQueries.claim_videos_for_analysis(limit)
+  end
+
   def count_videos_needing_analysis do
     VideoQueries.count_videos_needing_analysis()
   end
@@ -227,6 +231,17 @@ defmodule Reencodarr.Media do
     do: VideoFailure.get_common_failure_patterns(limit)
 
   @doc """
+  Resets videos stuck in `:analyzing` back to `:needs_analysis`.
+
+  Called on startup to reclaim videos that were being analyzed when the app crashed.
+  """
+  @spec reset_orphaned_analyzing() :: :ok
+  def reset_orphaned_analyzing do
+    from(v in Video, where: v.state == :analyzing)
+    |> reset_videos("orphaned analyzing videos → needs_analysis", :needs_analysis)
+  end
+
+  @doc """
   Resets videos stuck in `:crf_searching` back to `:analyzed`.
 
   Called by the CRF Searcher Broadway pipeline on startup to reclaim orphaned work.
@@ -301,8 +316,10 @@ defmodule Reencodarr.Media do
     |> reset_videos("crf_searched videos without chosen VMAF → analyzed")
   end
 
-  defp reset_videos(query, log_message) do
-    {count, _} = Repo.update_all(query, set: [state: :analyzed, updated_at: DateTime.utc_now()])
+  defp reset_videos(query, log_message, target_state \\ :analyzed) do
+    {count, _} =
+      Repo.update_all(query, set: [state: target_state, updated_at: DateTime.utc_now()])
+
     if count > 0, do: Logger.info("Reset #{count} #{log_message}")
     :ok
   end

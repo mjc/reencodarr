@@ -7,18 +7,12 @@ defmodule Reencodarr.Analyzer.Core.ConcurrencyManager do
   """
 
   require Logger
-  alias Reencodarr.Analyzer.Broadway.PerformanceMonitor
 
   @system_concurrency_base 4
   @memory_threshold_mb 1000
   @load_threshold 0.8
   @min_concurrency 2
   @max_concurrency 16
-
-  # High-performance storage specific settings (only applied after detection)
-  @high_perf_min_concurrency 4
-  @high_perf_max_concurrency 32
-  @ultra_high_perf_max_concurrency 64
 
   @doc """
   Get optimal concurrency level for video processing tasks.
@@ -35,16 +29,15 @@ defmodule Reencodarr.Analyzer.Core.ConcurrencyManager do
     base_concurrency = get_base_concurrency()
     system_adjusted = adjust_for_system_load(base_concurrency)
     memory_adjusted = adjust_for_memory_usage(system_adjusted)
-    storage_adjusted = adjust_for_storage_performance(memory_adjusted)
 
     final_concurrency =
-      storage_adjusted
-      |> max(get_min_concurrency())
-      |> min(get_max_concurrency())
+      memory_adjusted
+      |> max(@min_concurrency)
+      |> min(@max_concurrency)
 
     Logger.debug(
       "ConcurrencyManager: Using #{final_concurrency} concurrency " <>
-        "(base: #{base_concurrency}, system: #{system_adjusted}, memory: #{memory_adjusted}, storage: #{storage_adjusted})"
+        "(base: #{base_concurrency}, system: #{system_adjusted}, memory: #{memory_adjusted})"
     )
 
     final_concurrency
@@ -52,31 +45,11 @@ defmodule Reencodarr.Analyzer.Core.ConcurrencyManager do
 
   @doc """
   Get optimal concurrency for mediainfo operations.
-  For high-performance storage, allows higher concurrency for I/O intensive operations.
   """
   @spec get_mediainfo_concurrency() :: pos_integer()
   def get_mediainfo_concurrency do
     video_concurrency = get_video_processing_concurrency()
-    storage_tier = get_storage_performance_tier()
-
-    # For high-performance storage, mediainfo can benefit from higher concurrency
-    # since sequential I/O performance scales well with RAID arrays
-    mediainfo_concurrency =
-      case storage_tier do
-        :ultra_high_performance ->
-          # Ultra high-performance storage can handle much higher concurrency
-          min(video_concurrency, 16)
-
-        :high_performance ->
-          # High-performance storage benefits from higher concurrency
-          min(video_concurrency, 12)
-
-        _ ->
-          # Standard storage - conservative concurrency for I/O bound operations
-          max(2, div(video_concurrency, 2))
-      end
-
-    max(2, mediainfo_concurrency)
+    max(2, div(video_concurrency, 2))
   end
 
   @doc """
@@ -103,88 +76,21 @@ defmodule Reencodarr.Analyzer.Core.ConcurrencyManager do
   end
 
   @doc """
-  Get optimal MediaInfo batch size for detected storage performance.
-  Starts conservative for single drives, scales up for RAID arrays.
+  Get optimal MediaInfo batch size.
   """
   @spec get_optimal_mediainfo_batch_size() :: pos_integer()
-  def get_optimal_mediainfo_batch_size do
-    storage_tier = get_storage_performance_tier()
-
-    case storage_tier do
-      :ultra_high_performance ->
-        # Ultra high-performance storage (>1GB/s) - large batches for optimal sequential I/O
-        100
-
-      :high_performance ->
-        # High-performance storage (>500MB/s) - moderate batches
-        50
-
-      :standard ->
-        # Standard storage - conservative batches to avoid overwhelming single drives
-        15
-
-      :unknown ->
-        # Unknown performance - very conservative until we detect capabilities
-        8
-    end
-  end
+  def get_optimal_mediainfo_batch_size, do: 8
 
   # Private functions
 
   defp get_base_concurrency do
-    # Start with number of CPU cores with higher base for high-performance systems
     cpu_cores = System.schedulers_online()
     base = max(@system_concurrency_base, cpu_cores)
 
-    # Scale up for high-core-count systems (common with RAID setups)
     if cpu_cores >= 16 do
       round(base * 1.5)
     else
       base
-    end
-  end
-
-  defp get_storage_performance_tier do
-    case Process.whereis(PerformanceMonitor) do
-      nil -> :unknown
-      _pid -> PerformanceMonitor.get_storage_performance_tier()
-    end
-  end
-
-  defp get_min_concurrency do
-    case get_storage_performance_tier() do
-      tier when tier in [:ultra_high_performance, :high_performance] -> @high_perf_min_concurrency
-      _ -> @min_concurrency
-    end
-  end
-
-  defp get_max_concurrency do
-    case get_storage_performance_tier() do
-      :ultra_high_performance -> @ultra_high_perf_max_concurrency
-      :high_performance -> @high_perf_max_concurrency
-      _ -> @max_concurrency
-    end
-  end
-
-  defp adjust_for_storage_performance(concurrency) do
-    storage_tier = get_storage_performance_tier()
-
-    case storage_tier do
-      :ultra_high_performance ->
-        # RAID arrays with >1GB/s capability - scale up aggressively only after detection
-        round(concurrency * 2.5)
-
-      :high_performance ->
-        # High-performance storage - moderate scaling after detection
-        round(concurrency * 1.8)
-
-      :standard ->
-        # Standard storage - small scaling to avoid overwhelming single drives
-        round(concurrency * 1.2)
-
-      :unknown ->
-        # Unknown storage - no scaling until we know performance characteristics
-        concurrency
     end
   end
 

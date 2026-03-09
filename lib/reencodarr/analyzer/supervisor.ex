@@ -9,6 +9,8 @@ defmodule Reencodarr.Analyzer.Supervisor do
 
   @impl true
   def init(:ok) do
+    Reencodarr.Media.reset_orphaned_analyzing()
+
     children = [
       {Reencodarr.Analyzer.Broadway, []}
     ]

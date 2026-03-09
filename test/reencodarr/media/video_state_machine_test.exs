@@ -354,9 +354,16 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
   describe "valid_transitions/1" do
     test "returns valid transitions for each state" do
       assert VideoStateMachine.valid_transitions(:needs_analysis) == [
+               :analyzing,
                :analyzed,
                :crf_searched,
                :encoded,
+               :failed
+             ]
+
+      assert VideoStateMachine.valid_transitions(:analyzing) == [
+               :analyzed,
+               :needs_analysis,
                :failed
              ]
 
@@ -394,7 +401,8 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
 
   describe "valid_transition?/2" do
     test "validates valid state transitions" do
-      assert VideoStateMachine.valid_transition?(:needs_analysis, :analyzed)
+      assert VideoStateMachine.valid_transition?(:needs_analysis, :analyzing)
+      assert VideoStateMachine.valid_transition?(:analyzing, :analyzed)
       assert VideoStateMachine.valid_transition?(:analyzed, :crf_searching)
       assert VideoStateMachine.valid_transition?(:crf_searched, :encoding)
       assert VideoStateMachine.valid_transition?(:encoding, :encoded)
@@ -404,6 +412,7 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
       refute VideoStateMachine.valid_transition?(:needs_analysis, :encoding)
       refute VideoStateMachine.valid_transition?(:encoded, :analyzed)
       refute VideoStateMachine.valid_transition?(:crf_searching, :encoding)
+      refute VideoStateMachine.valid_transition?(:analyzing, :crf_searching)
     end
 
     test "handles invalid states" do
@@ -911,9 +920,9 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
       assert :failed in states
     end
 
-    test "returns exactly 7 states" do
+    test "returns exactly 8 states" do
       states = VideoStateMachine.valid_states()
-      assert length(states) == 7
+      assert length(states) == 8
     end
   end
 
