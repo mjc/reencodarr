@@ -21,32 +21,4 @@ defmodule Reencodarr.Core.RetryTest do
       end
     end
   end
-
-  describe "safe_port_close/1" do
-    test "returns :ok for :none" do
-      assert Retry.safe_port_close(:none) == :ok
-    end
-
-    test "returns :ok for already-closed port" do
-      port = Port.open({:spawn, "echo test"}, [:binary])
-      Port.close(port)
-
-      assert Retry.safe_port_close(port) == :ok
-    end
-  end
-
-  describe "safe_persistent_term_erase/1" do
-    test "erases existing key" do
-      key = {:test_erase, System.unique_integer()}
-      :persistent_term.put(key, "value")
-
-      assert Retry.safe_persistent_term_erase(key) == :ok
-      assert :persistent_term.get(key, nil) == nil
-    end
-
-    test "returns :ok for non-existent key" do
-      key = {:test_erase, System.unique_integer()}
-      assert Retry.safe_persistent_term_erase(key) == :ok
-    end
-  end
 end

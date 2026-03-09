@@ -10,13 +10,14 @@ defmodule Reencodarr.PipelineStateMachine do
   @states [:stopped, :idle, :running, :processing, :pausing, :paused]
   @services [:analyzer, :crf_searcher, :encoder]
 
-  # Valid state transitions
-  @transitions_from_stopped [:idle, :running, :paused]
-  @transitions_from_idle [:running, :processing, :paused, :stopped]
-  @transitions_from_running [:processing, :idle, :pausing, :paused, :stopped]
-  @transitions_from_processing [:idle, :running, :pausing, :stopped]
-  @transitions_from_pausing [:paused, :stopped]
-  @transitions_from_paused [:idle, :running, :stopped]
+  @valid_transitions %{
+    stopped: [:idle, :running, :paused],
+    idle: [:running, :processing, :paused, :stopped],
+    running: [:processing, :idle, :pausing, :paused, :stopped],
+    processing: [:idle, :running, :pausing, :stopped],
+    pausing: [:paused, :stopped],
+    paused: [:idle, :running, :stopped]
+  }
 
   @type t :: %__MODULE__{service: service, current_state: state}
   defstruct [:service, :current_state]
@@ -31,47 +32,14 @@ defmodule Reencodarr.PipelineStateMachine do
   # Get current state
   def get_state(%__MODULE__{current_state: state}), do: state
 
-  # Valid state transitions with pattern matching
-  def transition_to(%{service: s, current_state: :stopped} = m, new_s)
-      when new_s in @transitions_from_stopped do
-    Events.pipeline_state_changed(s, :stopped, new_s)
-    %{m | current_state: new_s}
-  end
-
-  def transition_to(%{service: s, current_state: :idle} = m, new_s)
-      when new_s in @transitions_from_idle do
-    Events.pipeline_state_changed(s, :idle, new_s)
-    %{m | current_state: new_s}
-  end
-
-  def transition_to(%{service: s, current_state: :running} = m, new_s)
-      when new_s in @transitions_from_running do
-    Events.pipeline_state_changed(s, :running, new_s)
-    %{m | current_state: new_s}
-  end
-
-  def transition_to(%{service: s, current_state: :processing} = m, new_s)
-      when new_s in @transitions_from_processing do
-    Events.pipeline_state_changed(s, :processing, new_s)
-    %{m | current_state: new_s}
-  end
-
-  def transition_to(%{service: s, current_state: :pausing} = m, new_s)
-      when new_s in @transitions_from_pausing do
-    Events.pipeline_state_changed(s, :pausing, new_s)
-    %{m | current_state: new_s}
-  end
-
-  def transition_to(%{service: s, current_state: :paused} = m, new_s)
-      when new_s in @transitions_from_paused do
-    Events.pipeline_state_changed(s, :paused, new_s)
-    %{m | current_state: new_s}
-  end
-
-  # Invalid transitions - catch-all
-  def transition_to(%{service: s, current_state: c} = m, new_s) do
-    Logger.warning("Invalid state transition for #{s} from #{c} to #{new_s}")
-    m
+  def transition_to(%{service: service, current_state: current} = machine, new_state) do
+    if new_state in Map.get(@valid_transitions, current, []) do
+      Events.pipeline_state_changed(service, current, new_state)
+      %{machine | current_state: new_state}
+    else
+      Logger.warning("Invalid state transition for #{service} from #{current} to #{new_state}")
+      machine
+    end
   end
 
   # High-level operations

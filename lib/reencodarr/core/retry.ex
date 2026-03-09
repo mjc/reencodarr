@@ -49,29 +49,4 @@ defmodule Reencodarr.Core.Retry do
     Process.sleep(backoff)
     do_retry(fun, attempt + 1, max_attempts, base_backoff)
   end
-
-  @doc false
-  @spec safe_port_close(port() | :none) :: :ok
-  def safe_port_close(:none), do: :ok
-
-  def safe_port_close(port) when is_port(port) do
-    if Port.info(port) do
-      Port.close(port)
-    end
-
-    :ok
-  end
-
-  @doc false
-  @spec safe_persistent_term_erase(term()) :: :ok
-  def safe_persistent_term_erase(key) do
-    case :persistent_term.get(key, :__not_found__) do
-      :__not_found__ ->
-        :ok
-
-      _ ->
-        :persistent_term.erase(key)
-        :ok
-    end
-  end
 end
