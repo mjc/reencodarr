@@ -242,18 +242,7 @@ defmodule Reencodarr.Media.VideoUpsert do
           {:replace_all_except, [atom()]} | Ecto.Query.t()
         ) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
   defp perform_video_upsert(attrs, on_conflict_query) do
-    result =
-      %Video{}
-      |> Video.changeset(attrs)
-      |> Repo.insert(
-        on_conflict: on_conflict_query,
-        conflict_target: :path,
-        stale_error_field: :updated_at,
-        returning: true
-      )
-
-    # Return the result directly, don't wrap in transaction
-    result
+    do_insert(attrs, on_conflict_query)
   end
 
   @spec perform_single_upsert_in_batch(%{String.t() => any()}) ::
@@ -262,44 +251,17 @@ defmodule Reencodarr.Media.VideoUpsert do
     conflict_except = determine_conflict_except_fields(attrs)
     on_conflict_query = build_on_conflict_query(attrs, conflict_except)
 
-    result =
-      %Video{}
-      |> Video.changeset(attrs)
-      |> Repo.insert(
-        on_conflict: on_conflict_query,
-        conflict_target: :path,
-        stale_error_field: :updated_at,
-        returning: true
-      )
-
-    case result do
+    case do_insert(attrs, on_conflict_query) do
       {:ok, video} ->
         handle_successful_upsert(video)
 
       {:error, %Ecto.Changeset{errors: [updated_at: {"is stale", _}]} = changeset} ->
-        handle_stale_update_error_in_batch(changeset, attrs)
+        handle_stale_update_error(changeset, attrs)
 
       {:error, changeset} ->
         path = Map.get(attrs, "path", "unknown")
         Logger.error("Failed to upsert video in batch #{path}: #{inspect(changeset.errors)}")
         {:error, changeset}
-    end
-  end
-
-  @spec handle_stale_update_error_in_batch(
-          Ecto.Changeset.t(),
-          %{String.t() => any()}
-        ) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
-  defp handle_stale_update_error_in_batch(changeset, attrs) do
-    # This is expected when dateAdded is not newer than updated_at - treat as success (skip)
-    path = Map.get(attrs, "path")
-    Logger.debug("Skipping update for #{path} in batch - dateAdded not newer than updated_at")
-
-    # Return the existing video instead of an error
-    case Repo.get_by(Video, path: path) do
-      # Shouldn't happen, but handle gracefully
-      nil -> {:error, changeset}
-      existing_video -> {:ok, existing_video}
     end
   end
 
@@ -334,14 +296,22 @@ defmodule Reencodarr.Media.VideoUpsert do
     {:ok, video}
   end
 
-  defp handle_stale_update_error(changeset, attrs) do
-    # This is expected when dateAdded is not newer than updated_at - treat as success (skip)
-    path = Map.get(attrs, "path")
-    Logger.debug("Skipping update for #{path} - dateAdded not newer than updated_at")
+  defp do_insert(attrs, on_conflict_query) do
+    %Video{}
+    |> Video.changeset(attrs)
+    |> Repo.insert(
+      on_conflict: on_conflict_query,
+      conflict_target: :path,
+      stale_error_field: :updated_at,
+      returning: true
+    )
+  end
 
-    # Return the existing video instead of an error
+  defp handle_stale_update_error(changeset, attrs) do
+    path = Map.get(attrs, "path")
+    Logger.debug("Skipping update for #{path} — dateAdded not newer than updated_at")
+
     case Repo.get_by(Video, path: path) do
-      # Shouldn't happen, but handle gracefully
       nil -> {:error, changeset}
       existing_video -> {:ok, existing_video}
     end

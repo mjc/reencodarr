@@ -309,7 +309,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       {:noreply, %{state | partial_line_buffer: "", output_buffer: new_output_buffer}}
     rescue
       e ->
-        Logger.error("CrfSearch: Error processing line '#{full_line}': #{Exception.message(e)}")
+        Logger.error("CrfSearch: Error processing line '#{full_line}': #{Exception.message(e)}",
+          crash_reason: {e, __STACKTRACE__}
+        )
+
         {:noreply, %{state | partial_line_buffer: "", output_buffer: [full_line | output_buffer]}}
     end
   end
@@ -352,7 +355,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       end
     rescue
       e ->
-        Logger.error("CrfSearch: Error in exit_status=0 handler: #{Exception.message(e)}")
+        Logger.error("CrfSearch: Error in exit_status=0 handler: #{Exception.message(e)}",
+          crash_reason: {e, __STACKTRACE__}
+        )
     end
 
     perform_crf_search_cleanup(state)
@@ -376,7 +381,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       handle_crf_search_failure(video, target_vmaf, exit_code, command_line, full_output, state)
     rescue
       e ->
-        Logger.error("CrfSearch: Error in exit_status handler: #{Exception.message(e)}")
+        Logger.error("CrfSearch: Error in exit_status handler: #{Exception.message(e)}",
+          crash_reason: {e, __STACKTRACE__}
+        )
+
         perform_crf_search_cleanup(state)
     end
   end

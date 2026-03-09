@@ -117,7 +117,8 @@ config :logger, :console,
     :state,
     :exit_code,
     :result,
-    :video_info
+    :video_info,
+    :crash_reason
   ]
 
 # Use Jason for JSON parsing in Phoenix

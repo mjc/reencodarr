@@ -1130,18 +1130,22 @@ defmodule Reencodarr.Media do
 
   defp apply_sort(query, field, dir), do: from(v in query, order_by: [{^dir, field(v, ^field)}])
 
+  defp safe_to_existing_atom(value) when is_atom(value), do: {:ok, value}
+
+  defp safe_to_existing_atom(value) when is_binary(value) do
+    {:ok, String.to_existing_atom(value)}
+  rescue
+    ArgumentError -> :error
+  end
+
   defp maybe_filter_state(query, nil), do: query
   defp maybe_filter_state(query, ""), do: query
 
-  defp maybe_filter_state(query, state) when is_binary(state) do
-    state_atom = String.to_existing_atom(state)
-    from(v in query, where: v.state == ^state_atom)
-  rescue
-    ArgumentError -> query
-  end
-
-  defp maybe_filter_state(query, state) when is_atom(state) do
-    from(v in query, where: v.state == ^state)
+  defp maybe_filter_state(query, state) do
+    case safe_to_existing_atom(state) do
+      {:ok, atom} -> from(v in query, where: v.state == ^atom)
+      :error -> query
+    end
   end
 
   defp maybe_filter_search(query, nil), do: query
@@ -1154,15 +1158,12 @@ defmodule Reencodarr.Media do
 
   defp maybe_filter_service_type(query, nil), do: query
 
-  defp maybe_filter_service_type(query, service) when is_binary(service) do
-    atom = String.to_existing_atom(service)
-    from(v in query, where: v.service_type == ^atom)
-  rescue
-    ArgumentError -> query
+  defp maybe_filter_service_type(query, service) do
+    case safe_to_existing_atom(service) do
+      {:ok, atom} -> from(v in query, where: v.service_type == ^atom)
+      :error -> query
+    end
   end
-
-  defp maybe_filter_service_type(query, service) when is_atom(service),
-    do: from(v in query, where: v.service_type == ^service)
 
   defp maybe_filter_hdr(query, nil), do: query
   defp maybe_filter_hdr(query, true), do: from(v in query, where: not is_nil(v.hdr))
@@ -1313,10 +1314,23 @@ defmodule Reencodarr.Media do
 
     Map.merge(video_stats || get_default_video_stats(), vmaf_stats || get_default_vmaf_stats())
   rescue
-    DBConnection.ConnectionError -> get_default_stats()
+    e in DBConnection.ConnectionError ->
+      Logger.warning(
+        "Dashboard stats query failed with connection error: #{Exception.message(e)}"
+      )
+
+      get_default_stats()
   catch
-    :exit, {:timeout, _} -> get_default_stats()
-    :exit, {%DBConnection.ConnectionError{}, _} -> get_default_stats()
+    :exit, {:timeout, _} ->
+      Logger.warning("Dashboard stats query timed out after #{timeout}ms")
+      get_default_stats()
+
+    :exit, {%DBConnection.ConnectionError{} = e, _} ->
+      Logger.warning(
+        "Dashboard stats query failed with connection error: #{Exception.message(e)}"
+      )
+
+      get_default_stats()
   end
 
   defp get_default_video_stats do

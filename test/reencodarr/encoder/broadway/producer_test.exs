@@ -186,4 +186,73 @@ defmodule Reencodarr.Encoder.Broadway.ProducerTest do
       refute Producer.should_attempt_recovery?(1801)
     end
   end
+
+  describe "recovery threshold boundary" do
+    alias Reencodarr.Encoder.Broadway.Producer
+
+    test "exactly at threshold triggers recovery" do
+      assert Producer.should_attempt_recovery?(900)
+    end
+
+    test "one below threshold does not trigger" do
+      refute Producer.should_attempt_recovery?(899)
+    end
+
+    test "one above threshold does not trigger" do
+      refute Producer.should_attempt_recovery?(901)
+    end
+
+    test "zero never triggers" do
+      refute Producer.should_attempt_recovery?(0)
+    end
+
+    test "negative values never trigger" do
+      refute Producer.should_attempt_recovery?(-1)
+      refute Producer.should_attempt_recovery?(-900)
+    end
+  end
+
+  describe "update_consecutive_count/2 exhaustive" do
+    alias Reencodarr.Encoder.Broadway.Producer
+
+    test "all non-timeout statuses reset counter" do
+      for status <- [:available, :busy] do
+        assert Producer.update_consecutive_count(999, status) == 0,
+               "Expected #{status} to reset counter"
+      end
+    end
+
+    test "timeout from zero increments to one" do
+      assert Producer.update_consecutive_count(0, :timeout) == 1
+    end
+
+    test "timeout accumulates linearly" do
+      result =
+        Enum.reduce(1..10, 0, fn _i, acc ->
+          Producer.update_consecutive_count(acc, :timeout)
+        end)
+
+      assert result == 10
+    end
+
+    test "reset after accumulation returns to zero" do
+      count =
+        0
+        |> Producer.update_consecutive_count(:timeout)
+        |> Producer.update_consecutive_count(:timeout)
+        |> Producer.update_consecutive_count(:timeout)
+        |> Producer.update_consecutive_count(:available)
+
+      assert count == 0
+    end
+  end
+
+  describe "dispatch_available/0" do
+    alias Reencodarr.Encoder.Broadway.Producer
+
+    test "returns error when producer is not running" do
+      # Producer is not started in test environment
+      assert {:error, :producer_not_found} = Producer.dispatch_available()
+    end
+  end
 end

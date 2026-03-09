@@ -9,6 +9,11 @@ defmodule Reencodarr.Rules do
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Media
 
+  # Size thresholds for VMAF target selection (in bytes)
+  @size_60_gib 60 * 1024 * 1024 * 1024
+  @size_40_gib 40 * 1024 * 1024 * 1024
+  @size_25_gib 25 * 1024 * 1024 * 1024
+
   @doc """
   Build arguments for ab-av1 commands.
 
@@ -404,9 +409,9 @@ defmodule Reencodarr.Rules do
       95
   """
   @spec vmaf_target(map()) :: integer()
-  def vmaf_target(%{size: size}) when is_integer(size) and size > 60 * 1024 * 1024 * 1024, do: 91
-  def vmaf_target(%{size: size}) when is_integer(size) and size > 40 * 1024 * 1024 * 1024, do: 92
-  def vmaf_target(%{size: size}) when is_integer(size) and size > 25 * 1024 * 1024 * 1024, do: 94
+  def vmaf_target(%{size: size}) when is_integer(size) and size > @size_60_gib, do: 91
+  def vmaf_target(%{size: size}) when is_integer(size) and size > @size_40_gib, do: 92
+  def vmaf_target(%{size: size}) when is_integer(size) and size > @size_25_gib, do: 94
   def vmaf_target(_video), do: 95
 
   @doc """
