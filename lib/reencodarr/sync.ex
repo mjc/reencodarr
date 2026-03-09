@@ -156,19 +156,50 @@ defmodule Reencodarr.Sync do
   This function is exposed for testing performance optimizations.
   """
   def batch_upsert_videos(files, service_type) do
-    # Pre-fetch all library mappings to avoid N+1 queries
     library_mappings = preload_library_mappings()
 
-    # Process files and prepare for batch upsert
+    # Pre-filter: skip files we already have with the same path and service_id
+    known_files = preload_known_files(service_type)
+
+    {new_or_changed, skipped} =
+      Enum.split_with(files, fn file ->
+        file_changed?(file, known_files)
+      end)
+
+    if skipped != [] do
+      Logger.debug("Sync: Skipped #{length(skipped)} unchanged files")
+    end
+
     video_attrs_list =
-      files
+      new_or_changed
       |> Enum.map(&prepare_video_attrs(&1, service_type, library_mappings))
       |> Enum.reject(&is_nil/1)
 
-    Logger.info("Sync: Processing #{length(video_attrs_list)} videos in batch")
-
-    perform_batch_transaction(video_attrs_list)
+    if video_attrs_list != [] do
+      Logger.info("Sync: Processing #{length(video_attrs_list)} changed videos in batch")
+      perform_batch_transaction(video_attrs_list)
+    else
+      :ok
+    end
   end
+
+  defp preload_known_files(service_type) do
+    Repo.all(
+      from v in Media.Video,
+        where: v.service_type == ^service_type,
+        select: {v.path, v.service_id}
+    )
+    |> MapSet.new()
+  end
+
+  defp file_changed?(file, known_files) do
+    {path, file_id} = extract_path_and_id(file)
+    path == nil or not MapSet.member?(known_files, {path, file_id})
+  end
+
+  defp extract_path_and_id(%{"path" => path, "id" => id}), do: {path, to_string(id)}
+  defp extract_path_and_id(%VideoFileInfo{path: path, service_id: sid}), do: {path, sid}
+  defp extract_path_and_id(_), do: {nil, nil}
 
   defp perform_batch_transaction(video_attrs_list) do
     # Use the new batch upsert function which handles its own transaction
