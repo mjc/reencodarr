@@ -497,11 +497,49 @@ defmodule Reencodarr.Media.VideoUpsertTest do
       {:ok, video} = VideoUpsert.upsert(attrs)
       assert video.state == :encoded
 
+      video =
+        video
+        |> Ecto.Changeset.change(%{original_size: 1_500_000})
+        |> Repo.update!()
+
       # Should not query for metadata comparison when encoded
       updated_attrs = Map.merge(attrs, %{"size" => 2_000_000})
       {:ok, updated_video} = VideoUpsert.upsert(updated_attrs)
 
       assert updated_video.id == video.id
+      assert updated_video.size == 2_000_000
+      assert updated_video.original_size == 1_500_000
+    end
+
+    test "preserves encoded size data on same-size upserts", %{library: library} do
+      attrs = %{
+        "path" => "/mnt/test/show/episode.mkv",
+        "size" => 1_000_000,
+        "duration" => 3600.0,
+        "bitrate" => 8_000_000,
+        "width" => 1920,
+        "height" => 1080,
+        "video_codecs" => ["av1"],
+        "audio_codecs" => ["opus"],
+        "library_id" => library.id,
+        "state" => "encoded",
+        "service_id" => "file-1"
+      }
+
+      {:ok, video} = VideoUpsert.upsert(attrs)
+
+      video =
+        video
+        |> Ecto.Changeset.change(%{original_size: 1_500_000})
+        |> Repo.update!()
+
+      updated_attrs = Map.merge(attrs, %{"service_id" => "file-2"})
+      {:ok, updated_video} = VideoUpsert.upsert(updated_attrs)
+
+      assert updated_video.id == video.id
+      assert updated_video.size == 1_000_000
+      assert updated_video.original_size == 1_500_000
+      assert updated_video.service_id == "file-2"
     end
 
     test "handles update when video is in failed state", %{library: library} do

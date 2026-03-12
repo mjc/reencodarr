@@ -216,12 +216,33 @@ defmodule Reencodarr.Media.VideoUpsert do
     # These are set by the encoding pipeline and must never be reset by sync.
     base = [:id, :inserted_at, :state, :failed, :chosen_vmaf_id, :original_size]
 
+    base =
+      if preserve_saved_space_size?(attrs) do
+        [:size | base]
+      else
+        base
+      end
+
     if Map.has_key?(attrs, "bitrate") do
       base
     else
       [:bitrate | base]
     end
   end
+
+  defp preserve_saved_space_size?(%{"path" => path, "size" => new_size})
+       when is_binary(path) and is_integer(new_size) do
+    case Repo.one(
+           from v in Video,
+             where: v.path == ^path and not is_nil(v.original_size),
+             select: %{size: v.size}
+         ) do
+      %{size: ^new_size} -> true
+      _ -> false
+    end
+  end
+
+  defp preserve_saved_space_size?(_), do: false
 
   @spec build_on_conflict_query(%{String.t() => any()}, [atom()]) ::
           {:replace_all_except, [atom()]} | Ecto.Query.t()
