@@ -37,6 +37,39 @@ Hooks.TimezoneHook = {
   }
 }
 
+Hooks.RangeSelectCheckboxes = {
+  mounted() {
+    this.lastClickedId = null
+    this.handleClick = (event) => {
+      const checkbox = event.target.closest("input[data-range-select='video']")
+      if (!checkbox) return
+
+      event.preventDefault()
+
+      const id = checkbox.dataset.id
+      const shouldSelect = (!checkbox.checked).toString()
+
+      if (event.shiftKey && this.lastClickedId) {
+        this.pushEvent("select_range", {
+          start_id: this.lastClickedId,
+          end_id: id,
+          selected: shouldSelect
+        })
+      } else {
+        this.pushEvent("toggle_select", {id})
+      }
+
+      this.lastClickedId = id
+    }
+
+    this.el.addEventListener("click", this.handleClick)
+  },
+
+  destroyed() {
+    this.el.removeEventListener("click", this.handleClick)
+  }
+}
+
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 // Use embedded socket for iframe pages
 let socketUrl = window.location.pathname.startsWith("/embed/") ? "/embed/live" : "/live"
@@ -59,4 +92,3 @@ liveSocket.connect()
 // >> liveSocket.enableLatencySim(1000)  // enabled for duration of browser session
 // >> liveSocket.disableLatencySim()
 window.liveSocket = liveSocket
-

@@ -89,9 +89,9 @@ defmodule ReencodarrWeb.VideosLiveTest do
       |> form("form[phx-change='filter_state']", %{state: "encoded"})
       |> render_change()
 
-      # The event pushes a patch — after render, the select should show "encoded" selected
+      # The event pushes a patch — after render, the select should keep the chosen value
       html = render(view)
-      assert html =~ "selected"
+      assert html =~ ~s(<select name="state" value="encoded")
     end
 
     test "filter_state renders the page without crashing", %{conn: conn} do
@@ -103,6 +103,20 @@ defmodule ReencodarrWeb.VideosLiveTest do
         |> render_change()
 
       assert html =~ "Videos"
+    end
+
+    test "filter_state narrows visible rows", %{conn: conn} do
+      {:ok, _} = Fixtures.video_fixture(%{path: "/media/only_encoded.mkv", state: :encoded})
+      {:ok, _} = Fixtures.video_fixture(%{path: "/media/only_failed.mkv", state: :failed})
+      {:ok, view, _} = live(conn, ~p"/videos")
+
+      html =
+        view
+        |> form("form[phx-change='filter_state']", %{state: "encoded"})
+        |> render_change()
+
+      assert html =~ "only_encoded.mkv"
+      refute html =~ "only_failed.mkv"
     end
   end
 
@@ -163,6 +177,11 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       assert html =~ "Videos"
     end
+
+    test "per_page dropdown keeps the selected value", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/videos?per_page=100")
+      assert html =~ ~s(<select name="per_page" value="100")
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -170,10 +189,10 @@ defmodule ReencodarrWeb.VideosLiveTest do
   # ---------------------------------------------------------------------------
 
   describe "vmaf badge" do
-    test "shows em-dash when video has no chosen VMAF", %{conn: conn} do
+    test "does not render a vmaf badge when video has no chosen VMAF", %{conn: conn} do
       {:ok, _video} = Fixtures.video_fixture(%{path: "/media/no_vmaf.mkv"})
       {:ok, _view, html} = live(conn, ~p"/videos")
-      assert html =~ "—"
+      refute html =~ ~s(<span class="font-mono text-)
     end
 
     test "renders score in green for VMAF >= 95", %{conn: conn} do
@@ -212,10 +231,11 @@ defmodule ReencodarrWeb.VideosLiveTest do
   # ---------------------------------------------------------------------------
 
   describe "hdr badge" do
-    test "shows em-dash when video has no HDR", %{conn: conn} do
+    test "does not render an hdr badge when video has no HDR", %{conn: conn} do
       {:ok, _video} = Fixtures.video_fixture(%{path: "/media/sdr.mkv", hdr: nil})
       {:ok, _view, html} = live(conn, ~p"/videos")
-      assert html =~ "—"
+      refute html =~ "HDR10"
+      refute html =~ "bg-amber-900"
     end
 
     test "renders HDR label in amber badge", %{conn: conn} do
@@ -256,6 +276,16 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       refute html =~ "Reset"
     end
+
+    test "select_all shows prioritize bulk action", %{conn: conn} do
+      {:ok, _} = Fixtures.video_fixture(%{path: "/media/prio_a.mkv"})
+      {:ok, _} = Fixtures.video_fixture(%{path: "/media/prio_b.mkv"})
+      {:ok, view, _html} = live(conn, ~p"/videos")
+
+      html = view |> element("[phx-click='select_all']") |> render_click()
+
+      assert html =~ "Prioritize 2 selected"
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -290,6 +320,13 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       assert html =~ "Videos"
     end
+
+    test "service dropdown keeps the selected filter", %{conn: conn} do
+      {:ok, _} = Fixtures.video_fixture(%{path: "/media/service_keep.mkv", service_type: :sonarr})
+      {:ok, _view, html} = live(conn, ~p"/videos?service=sonarr")
+
+      assert html =~ ~s(<select name="service" value="sonarr")
+    end
   end
 
   describe "filter_hdr event" do
@@ -303,6 +340,13 @@ defmodule ReencodarrWeb.VideosLiveTest do
         |> render_change(%{"hdr" => "true"})
 
       assert html =~ "Videos"
+    end
+
+    test "hdr dropdown keeps the selected filter", %{conn: conn} do
+      {:ok, _} = Fixtures.hdr_video_fixture(%{path: "/media/hdr_keep.mkv"})
+      {:ok, _view, html} = live(conn, ~p"/videos?hdr=true")
+
+      assert html =~ ~s(<select name="hdr" value="true")
     end
   end
 
@@ -327,10 +371,27 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       html =
         view
-        |> element("input[phx-click='toggle_select'][phx-value-id='#{video.id}']")
-        |> render_click()
+        |> render_click("toggle_select", %{"id" => Integer.to_string(video.id)})
 
       assert html =~ "Videos"
+    end
+
+    test "select_range selects a contiguous visible range", %{conn: conn} do
+      {:ok, first} = Fixtures.video_fixture(%{path: "/media/range/Show - S01E01.mkv"})
+      {:ok, second} = Fixtures.video_fixture(%{path: "/media/range/Show - S01E02.mkv"})
+      {:ok, third} = Fixtures.video_fixture(%{path: "/media/range/Show - S01E03.mkv"})
+      {:ok, view, _} = live(conn, ~p"/videos?search=/media/range")
+
+      html =
+        view
+        |> render_click("select_range", %{
+          "start_id" => Integer.to_string(first.id),
+          "end_id" => Integer.to_string(third.id),
+          "selected" => "true"
+        })
+
+      assert html =~ "Prioritize 3 selected"
+      assert html =~ Integer.to_string(second.id)
     end
   end
 
@@ -405,6 +466,65 @@ defmodule ReencodarrWeb.VideosLiveTest do
       html = view |> element("button[phx-click='reset_selected']") |> render_click()
 
       assert html =~ "Reset 1 video(s) to needs_analysis"
+    end
+  end
+
+  describe "prioritize actions" do
+    test "prioritize_selected updates selected videos", %{conn: conn} do
+      {:ok, first} =
+        Fixtures.video_fixture(%{
+          path: "/media/Season 01/Show - S01E01.mkv",
+          state: :needs_analysis
+        })
+
+      {:ok, second} =
+        Fixtures.video_fixture(%{
+          path: "/media/Season 01/Show - S01E02.mkv",
+          state: :analyzed
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/videos")
+
+      view |> element("[phx-click='select_all']") |> render_click()
+      html = view |> element("button[phx-click='prioritize_selected']") |> render_click()
+
+      assert html =~ "Prioritized 2 video(s)"
+      assert Reencodarr.Media.get_video!(first.id).priority > 0
+      assert Reencodarr.Media.get_video!(second.id).priority > 0
+    end
+
+    test "prioritize_season_visible only updates matching visible season rows", %{conn: conn} do
+      {:ok, season_one_first} =
+        Fixtures.video_fixture(%{
+          path: "/media/Show/Season 01/Show - S01E01.mkv",
+          state: :needs_analysis
+        })
+
+      {:ok, season_one_second} =
+        Fixtures.video_fixture(%{
+          path: "/media/Show/Season 01/Show - S01E02.mkv",
+          state: :analyzed
+        })
+
+      {:ok, other_season} =
+        Fixtures.video_fixture(%{
+          path: "/media/Show/Season 02/Show - S02E01.mkv",
+          state: :needs_analysis
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/videos?search=Season%2001")
+
+      html =
+        view
+        |> element(
+          "button[phx-click='prioritize_season_visible'][phx-value-id='#{season_one_first.id}']"
+        )
+        |> render_click()
+
+      assert html =~ "Prioritized 2 visible Season 01 video(s)"
+      assert Reencodarr.Media.get_video!(season_one_first.id).priority > 0
+      assert Reencodarr.Media.get_video!(season_one_second.id).priority > 0
+      assert Reencodarr.Media.get_video!(other_season.id).priority == 0
     end
   end
 

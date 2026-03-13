@@ -25,6 +25,7 @@ defmodule ReencodarrWeb.VideosLive do
   @per_page_options [25, 50, 100, 250]
   @default_per_page 50
   @update_interval 30_000
+  @queueable_states [:needs_analysis, :analyzed, :crf_searched]
 
   @valid_states ~w(needs_analysis analyzed crf_searching crf_searched encoding encoded failed)
   @valid_service_types ~w(sonarr radarr)
@@ -104,7 +105,7 @@ defmodule ReencodarrWeb.VideosLive do
   def handle_event("filter_state", %{"state" => state}, socket) do
     {:noreply,
      push_patch(socket,
-       to: patch_path(socket.assigns, state_filter: nilify_empty(state), page: 1)
+       to: patch_path(socket.assigns, state: nilify_empty(state), page: 1)
      )}
   end
 
@@ -112,7 +113,7 @@ defmodule ReencodarrWeb.VideosLive do
   def handle_event("filter_service", %{"service" => svc}, socket) do
     {:noreply,
      push_patch(socket,
-       to: patch_path(socket.assigns, service_filter: nilify_empty(svc), page: 1)
+       to: patch_path(socket.assigns, service: nilify_empty(svc), page: 1)
      )}
   end
 
@@ -122,7 +123,7 @@ defmodule ReencodarrWeb.VideosLive do
      push_patch(socket,
        to:
          patch_path(socket.assigns,
-           hdr_filter: parse_hdr_param(nilify_empty(hdr)),
+           hdr: hdr_to_param(parse_hdr_param(nilify_empty(hdr))),
            page: 1
          )
      )}
@@ -177,8 +178,7 @@ defmodule ReencodarrWeb.VideosLive do
   def handle_event("quick_filter_state", %{"state" => state}, socket) do
     new_filter = if socket.assigns.state_filter == state, do: nil, else: state
 
-    {:noreply,
-     push_patch(socket, to: patch_path(socket.assigns, state_filter: new_filter, page: 1))}
+    {:noreply, push_patch(socket, to: patch_path(socket.assigns, state: new_filter, page: 1))}
   end
 
   @impl true
@@ -188,9 +188,9 @@ defmodule ReencodarrWeb.VideosLive do
        to:
          patch_path(socket.assigns,
            search: "",
-           state_filter: nil,
-           service_filter: nil,
-           hdr_filter: nil,
+           state: nil,
+           service: nil,
+           hdr: nil,
            page: 1
          )
      )}
@@ -212,6 +212,24 @@ defmodule ReencodarrWeb.VideosLive do
   end
 
   @impl true
+  def handle_event(
+        "select_range",
+        %{"start_id" => start_id, "end_id" => end_id, "selected" => selected},
+        socket
+      ) do
+    with {:ok, start_id} <- Parsers.parse_integer_exact(start_id),
+         {:ok, end_id} <- Parsers.parse_integer_exact(end_id) do
+      ids = visible_range_ids(socket.assigns.videos, start_id, end_id)
+      selected = selected == "true"
+
+      {:noreply,
+       assign(socket, :selected, apply_range_selection(socket.assigns.selected, ids, selected))}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  @impl true
   def handle_event("select_all", _params, socket) do
     ids = MapSet.new(socket.assigns.videos, & &1.id)
     {:noreply, assign(socket, selected: ids)}
@@ -229,6 +247,27 @@ defmodule ReencodarrWeb.VideosLive do
 
     socket = socket |> assign(selected: MapSet.new()) |> load_data()
     {:noreply, put_flash(socket, :info, "Reset #{length(ids)} video(s) to needs_analysis")}
+  end
+
+  @impl true
+  def handle_event("prioritize_selected", _params, socket) do
+    ordered_ids =
+      socket.assigns.videos
+      |> Enum.map(& &1.id)
+      |> Enum.filter(&MapSet.member?(socket.assigns.selected, &1))
+
+    case Media.prioritize_videos(ordered_ids) do
+      {:ok, 0} ->
+        {:noreply,
+         put_flash(socket, :error, "No selected videos were eligible for queue prioritization")}
+
+      {:ok, count} ->
+        socket = socket |> assign(selected: MapSet.new()) |> load_data()
+        {:noreply, put_flash(socket, :info, "Prioritized #{count} video(s)")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to prioritize selected videos")}
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -256,6 +295,61 @@ defmodule ReencodarrWeb.VideosLive do
 
       _ ->
         {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_event("prioritize_video", %{"id" => id_str}, socket) do
+    with {:ok, id} <- Parsers.parse_integer_exact(id_str),
+         {:ok, count} <- Media.prioritize_video(id),
+         true <- count > 0 do
+      {:noreply, socket |> put_flash(:info, "Prioritized video") |> load_data()}
+    else
+      {:ok, 0} -> {:noreply, put_flash(socket, :error, "Video is not currently queueable")}
+      false -> {:noreply, put_flash(socket, :error, "Video is not currently queueable")}
+      {:error, _} -> {:noreply, put_flash(socket, :error, "Failed to prioritize video")}
+      _ -> {:noreply, put_flash(socket, :error, "Video not found")}
+    end
+  end
+
+  @impl true
+  def handle_event("prioritize_season_visible", %{"id" => id_str}, socket) do
+    with {:ok, id} <- Parsers.parse_integer_exact(id_str),
+         {:ok, season_dir} <- visible_season_directory(socket.assigns.videos, id) do
+      ordered_ids =
+        socket.assigns.videos
+        |> Enum.filter(&(season_directory(&1.path) == season_dir))
+        |> Enum.map(& &1.id)
+
+      case Media.prioritize_videos(ordered_ids) do
+        {:ok, 0} ->
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             "No visible videos in that season were eligible for prioritization"
+           )}
+
+        {:ok, count} ->
+          {:noreply,
+           socket
+           |> put_flash(
+             :info,
+             "Prioritized #{count} visible #{Path.basename(season_dir)} video(s)"
+           )
+           |> load_data()}
+
+        {:error, _reason} ->
+          {:noreply, put_flash(socket, :error, "Failed to prioritize visible season videos")}
+      end
+    else
+      _ ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           "Season prioritization is only available for visible season rows"
+         )}
     end
   end
 
@@ -309,6 +403,52 @@ defmodule ReencodarrWeb.VideosLive do
       video -> Media.mark_as_needs_analysis(video)
     end
   end
+
+  defp apply_range_selection(selected_set, ids, true) do
+    Enum.reduce(ids, selected_set, &MapSet.put(&2, &1))
+  end
+
+  defp apply_range_selection(selected_set, ids, false) do
+    Enum.reduce(ids, selected_set, &MapSet.delete(&2, &1))
+  end
+
+  defp visible_range_ids(videos, start_id, end_id) do
+    ids = Enum.map(videos, & &1.id)
+
+    case {Enum.find_index(ids, &(&1 == start_id)), Enum.find_index(ids, &(&1 == end_id))} do
+      {nil, _} -> []
+      {_, nil} -> []
+      {start_idx, end_idx} when start_idx <= end_idx -> Enum.slice(ids, start_idx..end_idx)
+      {start_idx, end_idx} -> Enum.slice(ids, end_idx..start_idx)
+    end
+  end
+
+  defp queueable_video?(video), do: video.state in @queueable_states
+
+  defp visible_season_directory(videos, id) do
+    case Enum.find(videos, &(&1.id == id)) do
+      nil ->
+        :error
+
+      video ->
+        case season_directory(video.path) do
+          nil -> :error
+          dir -> {:ok, dir}
+        end
+    end
+  end
+
+  defp season_directory(path) when is_binary(path) do
+    dir = Path.dirname(path)
+
+    if Regex.match?(~r/^[Ss](?:eason\s*)?0*\d+$/i, Path.basename(dir)) do
+      dir
+    else
+      nil
+    end
+  end
+
+  defp season_directory(_path), do: nil
 
   defp parse_params(params) do
     %{
@@ -424,6 +564,12 @@ defmodule ReencodarrWeb.VideosLive do
           <div class="flex gap-2 flex-wrap">
             <%= if @select_count > 0 do %>
               <button
+                phx-click="prioritize_selected"
+                class="px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors"
+              >
+                Prioritize {@select_count} selected
+              </button>
+              <button
                 phx-click="reset_selected"
                 class="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors"
               >
@@ -479,11 +625,12 @@ defmodule ReencodarrWeb.VideosLive do
             <form phx-change="filter_state">
               <select
                 name="state"
+                value={@state_filter || ""}
                 class="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500"
               >
-                <option value="" selected={is_nil(@state_filter)}>All states</option>
+                <option value="">All states</option>
                 <%= for s <- @valid_states do %>
-                  <option value={s} selected={@state_filter == s}>{s}</option>
+                  <option value={s}>{s}</option>
                 <% end %>
               </select>
             </form>
@@ -491,32 +638,35 @@ defmodule ReencodarrWeb.VideosLive do
             <form phx-change="filter_service">
               <select
                 name="service"
+                value={@service_filter || ""}
                 class="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500"
               >
-                <option value="" selected={is_nil(@service_filter)}>All sources</option>
-                <option value="sonarr" selected={@service_filter == "sonarr"}>Sonarr (TV)</option>
-                <option value="radarr" selected={@service_filter == "radarr"}>Radarr (Movies)</option>
+                <option value="">All sources</option>
+                <option value="sonarr">Sonarr (TV)</option>
+                <option value="radarr">Radarr (Movies)</option>
               </select>
             </form>
 
             <form phx-change="filter_hdr">
               <select
                 name="hdr"
+                value={hdr_to_param(@hdr_filter) || ""}
                 class="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500"
               >
-                <option value="" selected={is_nil(@hdr_filter)}>Any HDR</option>
-                <option value="true" selected={@hdr_filter == true}>HDR only</option>
-                <option value="false" selected={@hdr_filter == false}>SDR only</option>
+                <option value="">Any HDR</option>
+                <option value="true">HDR only</option>
+                <option value="false">SDR only</option>
               </select>
             </form>
 
             <form phx-change="set_per_page">
               <select
                 name="per_page"
+                value={@per_page}
                 class="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500"
               >
                 <%= for n <- @per_page_options do %>
-                  <option value={n} selected={@per_page == n}>{n} / page</option>
+                  <option value={n}>{n} / page</option>
                 <% end %>
               </select>
             </form>
@@ -562,27 +712,6 @@ defmodule ReencodarrWeb.VideosLive do
                   <.col_header col={:state} label="State" sort_by={@sort_by} sort_dir={@sort_dir} />
                   <.col_header col={:size} label="Size" sort_by={@sort_by} sort_dir={@sort_dir} />
                   <.col_header
-                    col={:width}
-                    label="Resolution"
-                    sort_by={@sort_by}
-                    sort_dir={@sort_dir}
-                  />
-                  <.col_header
-                    col={:bitrate}
-                    label="Bitrate"
-                    sort_by={@sort_by}
-                    sort_dir={@sort_dir}
-                  />
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                    VMAF
-                  </th>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                    HDR
-                  </th>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
-                    Source
-                  </th>
-                  <.col_header
                     col={:updated_at}
                     label="Updated"
                     sort_by={@sort_by}
@@ -593,30 +722,46 @@ defmodule ReencodarrWeb.VideosLive do
                   </th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-gray-600">
+              <tbody
+                id="videos-table-body"
+                phx-hook="RangeSelectCheckboxes"
+                class="divide-y divide-gray-600"
+              >
                 <%= for video <- @videos do %>
                   <tr class={"transition-colors #{if MapSet.member?(@selected, video.id), do: "bg-purple-900/20", else: "hover:bg-gray-700/50"}"}>
                     <td class="w-10 px-3 py-2 text-center">
                       <input
                         type="checkbox"
                         checked={MapSet.member?(@selected, video.id)}
-                        phx-click="toggle_select"
-                        phx-value-id={video.id}
+                        data-range-select="video"
+                        data-id={video.id}
                         class="rounded border-gray-500 bg-gray-700 text-purple-500 focus:ring-purple-500 focus:ring-offset-gray-800 cursor-pointer"
                       />
                     </td>
                     <td class="px-4 py-2 text-gray-200 max-w-0 w-full" title={video.path}>
+                      <div class="font-medium text-white truncate">{Path.basename(video.path)}</div>
                       <%= if video.title do %>
-                        <div class="font-medium text-white truncate">{video.title}</div>
                         <div class="text-xs text-gray-400 truncate">
-                          {Path.basename(video.path)}
+                          {video.title}
                           <%= if video.content_year do %>
                             ({video.content_year})
                           <% end %>
                         </div>
-                      <% else %>
-                        <div class="truncate">{Path.basename(video.path)}</div>
                       <% end %>
+                      <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
+                        <span class="truncate max-w-full">
+                          {Path.basename(Path.dirname(video.path))}
+                        </span>
+                        <span>{format_resolution(video.width, video.height)}</span>
+                        <span>{format_bitrate(video.bitrate)}</span>
+                        <span>{service_display(video.service_type)}</span>
+                        <%= if video.hdr do %>
+                          <.hdr_badge hdr={video.hdr} />
+                        <% end %>
+                        <%= if video.chosen_vmaf do %>
+                          <.vmaf_badge vmaf={video.chosen_vmaf} />
+                        <% end %>
+                      </div>
                     </td>
                     <td class="px-4 py-2 whitespace-nowrap">
                       <span class={"inline-flex items-center px-2 py-0.5 rounded text-xs font-medium #{state_badge_class(video.state)}"}>
@@ -626,33 +771,38 @@ defmodule ReencodarrWeb.VideosLive do
                     <td class="px-4 py-2 text-gray-200 whitespace-nowrap">
                       {format_size(video.size)}
                     </td>
-                    <td class="px-4 py-2 text-gray-200 whitespace-nowrap">
-                      {format_resolution(video.width, video.height)}
-                    </td>
-                    <td class="px-4 py-2 text-gray-200 whitespace-nowrap">
-                      {format_bitrate(video.bitrate)}
-                    </td>
-                    <td class="px-4 py-2 whitespace-nowrap">
-                      <.vmaf_badge vmaf={video.chosen_vmaf} />
-                    </td>
-                    <td class="px-4 py-2 whitespace-nowrap">
-                      <.hdr_badge hdr={video.hdr} />
-                    </td>
-                    <td class="px-4 py-2 whitespace-nowrap text-gray-300">
-                      {service_display(video.service_type)}
-                    </td>
                     <td class="px-4 py-2 text-gray-300 whitespace-nowrap text-xs">
                       {format_datetime(video.updated_at)}
                     </td>
                     <td class="px-4 py-2">
-                      <div class="flex gap-2 items-center">
+                      <div class="flex flex-wrap gap-x-2 gap-y-1 items-center">
+                        <%= if queueable_video?(video) do %>
+                          <button
+                            phx-click="prioritize_video"
+                            phx-value-id={video.id}
+                            title="Move this queued video to the top"
+                            class="text-emerald-400 hover:text-emerald-300 text-xs"
+                          >
+                            prioritize
+                          </button>
+                        <% end %>
+                        <%= if queueable_video?(video) and season_directory(video.path) do %>
+                          <button
+                            phx-click="prioritize_season_visible"
+                            phx-value-id={video.id}
+                            title="Move visible videos from this season to the top"
+                            class="text-emerald-300 hover:text-emerald-200 text-xs"
+                          >
+                            prioritize season
+                          </button>
+                        <% end %>
                         <button
                           phx-click="force_reanalyze"
                           phx-value-id={video.id}
                           title="Force re-analyze (clears VMAFs and resets metadata)"
                           class="text-blue-400 hover:text-blue-300 text-xs"
                         >
-                          re-analyze
+                          scan
                         </button>
                         <%= if video.state in [:failed, :encoded, :crf_searched, :analyzed] do %>
                           <button
@@ -671,7 +821,7 @@ defmodule ReencodarrWeb.VideosLive do
                           title="Remove from database"
                           class="text-red-500 hover:text-red-400 text-xs"
                         >
-                          delete
+                          del
                         </button>
                       </div>
                     </td>
@@ -679,7 +829,7 @@ defmodule ReencodarrWeb.VideosLive do
                 <% end %>
                 <%= if @videos == [] do %>
                   <tr>
-                    <td colspan="11" class="px-8 py-12 text-center text-gray-500">
+                    <td colspan="6" class="px-8 py-12 text-center text-gray-500">
                       No videos match the current filters.
                     </td>
                   </tr>
