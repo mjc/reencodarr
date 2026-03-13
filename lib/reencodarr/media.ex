@@ -25,6 +25,7 @@ defmodule Reencodarr.Media do
   require Logger
 
   @moduledoc "Handles media-related operations and database interactions."
+  @queueable_states [:needs_analysis, :analyzed, :crf_searched]
 
   # --- Video-related functions ---
   def list_videos, do: Repo.all(from v in Video, order_by: [desc: v.updated_at])
@@ -101,6 +102,46 @@ defmodule Reencodarr.Media do
   def update_video(%Video{} = video, attrs) do
     video |> Video.changeset(attrs) |> Repo.update()
   end
+
+  @doc """
+  Moves queueable videos to the top of their queue in the provided order.
+
+  Higher priority values are processed first by the analyzer, CRF searcher,
+  and encoder queries. Non-queueable videos are ignored.
+  """
+  @spec prioritize_videos([integer()]) :: {:ok, non_neg_integer()}
+  def prioritize_videos(ids) when is_list(ids) do
+    ordered_ids = ids |> Enum.uniq() |> Enum.reject(&is_nil/1)
+
+    Repo.transaction(fn ->
+      queueable_by_id =
+        from(v in Video,
+          where: v.id in ^ordered_ids and v.state in ^@queueable_states,
+          select: {v.id, v}
+        )
+        |> Repo.all()
+        |> Map.new()
+
+      prioritized_ids =
+        ordered_ids
+        |> Enum.filter(&Map.has_key?(queueable_by_id, &1))
+
+      max_priority = highest_queue_priority()
+      total = length(prioritized_ids)
+
+      assign_priorities(prioritized_ids, queueable_by_id, max_priority, total)
+
+      total
+    end)
+    |> case do
+      {:ok, count} -> {:ok, count}
+      {:error, changeset} -> {:error, changeset}
+    end
+  end
+
+  @spec prioritize_video(integer() | Video.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def prioritize_video(%Video{id: id}), do: prioritize_videos([id])
+  def prioritize_video(id) when is_integer(id), do: prioritize_videos([id])
 
   def delete_video(%Video{} = video), do: Repo.delete(video)
 
@@ -1106,6 +1147,32 @@ defmodule Reencodarr.Media do
     from(v in Video, group_by: v.state, select: {v.state, count(v.id)})
     |> Repo.all()
     |> Map.new()
+  end
+
+  defp assign_priorities(prioritized_ids, queueable_by_id, max_priority, total) do
+    prioritized_ids
+    |> Enum.with_index(1)
+    |> Enum.each(fn {id, index} ->
+      video = Map.fetch!(queueable_by_id, id)
+      new_priority = max_priority + (total - index + 1)
+      persist_priority(video, new_priority)
+    end)
+  end
+
+  defp persist_priority(video, new_priority) do
+    case update_video(video, %{priority: new_priority}) do
+      {:ok, _updated_video} -> :ok
+      {:error, changeset} -> Repo.rollback(changeset)
+    end
+  end
+
+  defp highest_queue_priority do
+    from(v in Video,
+      where: v.state in ^@queueable_states,
+      select: max(v.priority)
+    )
+    |> Repo.one()
+    |> Kernel.||(0)
   end
 
   defp build_flop_filters(state_filter, search, service_type) do

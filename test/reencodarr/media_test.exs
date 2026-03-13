@@ -74,6 +74,50 @@ defmodule Reencodarr.MediaTest do
       assert unchanged_video.path == video.path
     end
 
+    test "prioritize_videos/1 pushes queueable videos to the top in the provided order" do
+      {:ok, first} =
+        Fixtures.video_fixture(%{
+          path: "/test/prioritize_first.mkv",
+          state: :needs_analysis,
+          priority: 0
+        })
+
+      {:ok, second} =
+        Fixtures.video_fixture(%{
+          path: "/test/prioritize_second.mkv",
+          state: :analyzed,
+          priority: 0
+        })
+
+      {:ok, existing_top} =
+        Fixtures.video_fixture(%{
+          path: "/test/prioritize_existing_top.mkv",
+          state: :crf_searched,
+          priority: 10
+        })
+
+      assert {:ok, 2} = Media.prioritize_videos([first.id, second.id])
+
+      first = Media.get_video!(first.id)
+      second = Media.get_video!(second.id)
+      existing_top = Media.get_video!(existing_top.id)
+
+      assert first.priority > second.priority
+      assert second.priority > existing_top.priority
+    end
+
+    test "prioritize_videos/1 skips non-queueable videos" do
+      {:ok, encoded} =
+        Fixtures.video_fixture(%{
+          path: "/test/prioritize_encoded_skip.mkv",
+          state: :encoded,
+          priority: 0
+        })
+
+      assert {:ok, 0} = Media.prioritize_videos([encoded.id])
+      assert Media.get_video!(encoded.id).priority == 0
+    end
+
     test "delete_video/1 deletes the video" do
       {:ok, video} = Fixtures.video_fixture()
 

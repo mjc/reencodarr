@@ -46,6 +46,30 @@ defmodule Reencodarr.Media.VideoQueriesTest do
 
       assert excluded_video == nil, "Expected video with av1 codec to be excluded"
     end
+
+    test "orders higher priority videos first" do
+      {:ok, low_priority} =
+        Fixtures.video_fixture(%{
+          path: "/test/crf_low_priority.mkv",
+          state: :analyzed,
+          bitrate: 12_000_000,
+          size: 2_000_000_000,
+          priority: 1
+        })
+
+      {:ok, high_priority} =
+        Fixtures.video_fixture(%{
+          path: "/test/crf_high_priority.mkv",
+          state: :analyzed,
+          bitrate: 8_000_000,
+          size: 1_000_000_000,
+          priority: 50
+        })
+
+      results = VideoQueries.videos_for_crf_search(10)
+
+      assert Enum.take(Enum.map(results, & &1.id), 2) == [high_priority.id, low_priority.id]
+    end
   end
 
   describe "videos_needing_analysis/1" do
@@ -94,6 +118,28 @@ defmodule Reencodarr.Media.VideoQueriesTest do
       found_video = Enum.find(results, fn v -> v.path == video.path end)
 
       assert found_video == nil, "Expected video with complete metadata to not need analysis"
+    end
+
+    test "orders higher priority videos first" do
+      {:ok, low_priority} =
+        Fixtures.video_fixture(%{
+          path: "/test/analysis_low_priority.mkv",
+          bitrate: nil,
+          size: 3_000_000_000,
+          priority: 1
+        })
+
+      {:ok, high_priority} =
+        Fixtures.video_fixture(%{
+          path: "/test/analysis_high_priority.mkv",
+          bitrate: nil,
+          size: 1_000_000_000,
+          priority: 100
+        })
+
+      results = VideoQueries.videos_needing_analysis(10)
+
+      assert Enum.take(Enum.map(results, & &1.id), 2) == [high_priority.id, low_priority.id]
     end
   end
 
@@ -284,6 +330,34 @@ defmodule Reencodarr.Media.VideoQueriesTest do
       assert %Reencodarr.Media.Vmaf{} = found
       assert %Reencodarr.Media.Video{} = found.video
       assert found.video.id == video.id
+    end
+
+    test "orders higher priority videos first" do
+      {:ok, low_priority} =
+        Fixtures.video_fixture(%{
+          path: "/test/encoding_low_priority.mkv",
+          state: :analyzed,
+          priority: 2
+        })
+
+      low_vmaf = Fixtures.vmaf_fixture(%{video_id: low_priority.id, crf: 28.0, savings: 80})
+      Fixtures.choose_vmaf(low_priority, low_vmaf)
+      {:ok, _} = Reencodarr.Media.update_video(low_priority, %{state: :crf_searched})
+
+      {:ok, high_priority} =
+        Fixtures.video_fixture(%{
+          path: "/test/encoding_high_priority.mkv",
+          state: :analyzed,
+          priority: 200
+        })
+
+      high_vmaf = Fixtures.vmaf_fixture(%{video_id: high_priority.id, crf: 30.0, savings: 10})
+      Fixtures.choose_vmaf(high_priority, high_vmaf)
+      {:ok, _} = Reencodarr.Media.update_video(high_priority, %{state: :crf_searched})
+
+      results = VideoQueries.videos_ready_for_encoding(10)
+
+      assert Enum.take(Enum.map(results, & &1.video.id), 2) == [high_priority.id, low_priority.id]
     end
   end
 

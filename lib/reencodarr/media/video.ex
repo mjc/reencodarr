@@ -25,6 +25,7 @@ defmodule Reencodarr.Media.Video do
   ]
 
   @optional [
+    :priority,
     :bitrate,
     :width,
     :height,
@@ -64,7 +65,7 @@ defmodule Reencodarr.Media.Video do
   @derive {
     Flop.Schema,
     filterable: [:state, :service_type, :hdr, :path],
-    sortable: [:path, :state, :size, :updated_at, :width, :bitrate],
+    sortable: [:path, :state, :size, :updated_at, :width, :bitrate, :priority],
     default_order: %{
       order_by: [:updated_at],
       order_directions: [:desc]
@@ -84,6 +85,7 @@ defmodule Reencodarr.Media.Video do
     field :height, :integer
     field :max_audio_channels, :integer
     field :path, :string
+    field :priority, :integer, default: 0
     field :size, :integer
     field :original_size, :integer
     field :text_codecs, {:array, :string}, default: []

@@ -22,7 +22,7 @@ defmodule Reencodarr.Media.VideoQueries do
     Repo.all(
       from(v in Video,
         where: v.state == :analyzed,
-        order_by: [desc: v.bitrate, desc: v.size, asc: v.updated_at],
+        order_by: [desc: v.priority, desc: v.bitrate, desc: v.size, asc: v.updated_at],
         limit: ^limit,
         select: v
       ),
@@ -60,6 +60,7 @@ defmodule Reencodarr.Media.VideoQueries do
       from(v in Video,
         where: v.state == :needs_analysis,
         order_by: [
+          desc: v.priority,
           desc: v.size,
           desc: v.inserted_at,
           desc: v.updated_at
@@ -84,7 +85,7 @@ defmodule Reencodarr.Media.VideoQueries do
     candidates =
       from(v in Video,
         where: v.state == :needs_analysis,
-        order_by: [desc: v.size, desc: v.inserted_at],
+        order_by: [desc: v.priority, desc: v.size, desc: v.inserted_at],
         limit: ^limit,
         select: v.id
       )
@@ -134,7 +135,7 @@ defmodule Reencodarr.Media.VideoQueries do
         join: v in Vmaf,
         on: vid.chosen_vmaf_id == v.id,
         where: vid.state == :crf_searched,
-        order_by: [fragment("? DESC NULLS LAST", v.savings), desc: vid.updated_at],
+        order_by: [desc: vid.priority, desc: v.savings, desc: vid.updated_at],
         limit: ^limit,
         select: %{v | video: vid}
       ),
