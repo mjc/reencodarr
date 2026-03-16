@@ -188,41 +188,48 @@ defmodule ReencodarrWeb.VideosLiveTest do
   # VMAF badge
   # ---------------------------------------------------------------------------
 
-  describe "vmaf badge" do
-    test "does not render a vmaf badge when video has no chosen VMAF", %{conn: conn} do
-      {:ok, _video} = Fixtures.video_fixture(%{path: "/media/no_vmaf.mkv"})
+  describe "space saved badge" do
+    test "does not render a space saved badge when video has no original_size", %{conn: conn} do
+      {:ok, _video} = Fixtures.video_fixture(%{path: "/media/no_space.mkv", size: 1_000_000_000})
       {:ok, _view, html} = live(conn, ~p"/videos")
-      refute html =~ ~s(<span class="font-mono text-)
+      refute html =~ "Space saved"
     end
 
-    test "renders score in green for VMAF >= 95", %{conn: conn} do
-      {:ok, video} = Fixtures.video_fixture(%{path: "/media/excellent.mkv"})
-      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, score: 96.0})
-      Fixtures.choose_vmaf(video, vmaf)
+    test "renders space saved in green for >= 1 GiB saved", %{conn: conn} do
+      {:ok, _video} =
+        Fixtures.video_fixture(%{
+          path: "/media/large_save.mkv",
+          size: 2_000_000_000,
+          original_size: 5_000_000_000
+        })
 
       {:ok, _view, html} = live(conn, ~p"/videos")
       assert html =~ "text-green-300"
-      assert html =~ "96.0"
+      assert html =~ "GiB"
     end
 
-    test "renders score in yellow for VMAF in [90, 95)", %{conn: conn} do
-      {:ok, video} = Fixtures.video_fixture(%{path: "/media/good.mkv"})
-      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, score: 92.5})
-      Fixtures.choose_vmaf(video, vmaf)
+    test "renders space saved in yellow for >= 512 MiB saved", %{conn: conn} do
+      {:ok, _video} =
+        Fixtures.video_fixture(%{
+          path: "/media/medium_save.mkv",
+          size: 1_500_000_000,
+          original_size: 2_500_000_000
+        })
 
       {:ok, _view, html} = live(conn, ~p"/videos")
       assert html =~ "text-yellow-300"
-      assert html =~ "92.5"
     end
 
-    test "renders score in red for VMAF < 90", %{conn: conn} do
-      {:ok, video} = Fixtures.video_fixture(%{path: "/media/poor.mkv"})
-      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, score: 85.0})
-      Fixtures.choose_vmaf(video, vmaf)
+    test "renders space saved in red for < 512 MiB saved", %{conn: conn} do
+      {:ok, _video} =
+        Fixtures.video_fixture(%{
+          path: "/media/small_save.mkv",
+          size: 900_000_000,
+          original_size: 950_000_000
+        })
 
       {:ok, _view, html} = live(conn, ~p"/videos")
       assert html =~ "text-red-400"
-      assert html =~ "85.0"
     end
   end
 

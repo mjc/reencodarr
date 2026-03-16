@@ -11,7 +11,7 @@ defmodule ReencodarrWeb.VideosLive do
   - State stats bar: clickable count badges per pipeline state
   - Bulk selection and bulk reset to needs_analysis
   - Per-row actions: reset, force re-analyze, delete
-  - VMAF score column for crf_searched/encoded videos
+  - Space saved display for encoded videos
   - Live updates via PubSub on pipeline events; periodic 30s fallback
   - Loading state for initial data fetch
   """
@@ -281,8 +281,13 @@ defmodule ReencodarrWeb.VideosLive do
          {:ok, _} <- Media.mark_as_needs_analysis(video) do
       {:noreply, socket |> put_flash(:info, "Reset to needs_analysis") |> load_data()}
     else
-      nil -> {:noreply, put_flash(socket, :error, "Video not found")}
-      {:error, _} -> {:noreply, put_flash(socket, :error, "Reset failed")}
+      nil ->
+        {:noreply, put_flash(socket, :error, "Video not found")}
+
+      {:error, reason} ->
+        require Logger
+        Logger.error("Failed to reset video #{id_str}: #{inspect(reason)}")
+        {:noreply, put_flash(socket, :error, "Reset failed")}
     end
   end
 
@@ -758,8 +763,11 @@ defmodule ReencodarrWeb.VideosLive do
                         <%= if video.hdr do %>
                           <.hdr_badge hdr={video.hdr} />
                         <% end %>
-                        <%= if video.chosen_vmaf do %>
-                          <.vmaf_badge vmaf={video.chosen_vmaf} />
+                        <%= if video.original_size && video.size do %>
+                          <.space_saved_badge
+                            original_size={video.original_size}
+                            current_size={video.size}
+                          />
                         <% end %>
                       </div>
                     </td>
@@ -943,22 +951,25 @@ defmodule ReencodarrWeb.VideosLive do
     """
   end
 
-  attr :vmaf, :any, required: true
+  attr :original_size, :integer, required: true
+  attr :current_size, :integer, required: true
 
-  defp vmaf_badge(%{vmaf: nil} = assigns),
-    do: ~H(<span class="text-gray-500">—</span>)
+  defp space_saved_badge(assigns) do
+    saved = assigns.original_size - assigns.current_size
+    display = format_size(saved)
 
-  defp vmaf_badge(assigns) do
-    assigns = assign(assigns, :display, Float.round(assigns.vmaf.score * 1.0, 1))
+    assigns = assign(assigns, display: display, saved: saved)
 
     ~H"""
-    <span class={"font-mono #{vmaf_color(@display)}"}>{@display}</span>
+    <span class={"font-mono #{space_saved_color(@saved)}"} title="Space saved">
+      {@display}
+    </span>
     """
   end
 
-  defp vmaf_color(s) when s >= 95, do: "text-green-300"
-  defp vmaf_color(s) when s >= 90, do: "text-yellow-300"
-  defp vmaf_color(_), do: "text-red-400"
+  defp space_saved_color(bytes) when bytes >= 1_073_741_824, do: "text-green-300"
+  defp space_saved_color(bytes) when bytes >= 536_870_912, do: "text-yellow-300"
+  defp space_saved_color(_), do: "text-red-400"
 
   defp format_size(nil), do: "-"
   defp format_size(0), do: "-"

@@ -32,16 +32,17 @@ defmodule Reencodarr.Media.VideoStateMachine do
 
   @valid_transitions %{
     needs_analysis: [:analyzing, :analyzed, :crf_searched, :encoded, :failed],
-    analyzing: [:analyzed, :needs_analysis, :failed],
-    analyzed: [:crf_searching, :crf_searched, :encoded, :failed],
-    # Can go back to analyzed if CRF search is cancelled
-    crf_searching: [:crf_searched, :failed, :analyzed],
-    # Can restart CRF search if needed
-    crf_searched: [:encoding, :failed, :crf_searching],
-    # Can go back to crf_searched if encoding fails
-    encoding: [:encoded, :failed, :crf_searched],
+    analyzing: [:analyzed, :encoded, :needs_analysis, :failed],
+    analyzed: [:crf_searching, :crf_searched, :encoded, :failed, :needs_analysis],
+    # Can go back to analyzed if CRF search is cancelled, or reset to needs_analysis
+    crf_searching: [:crf_searched, :failed, :analyzed, :needs_analysis],
+    # Can restart CRF search if needed, or reset to needs_analysis
+    crf_searched: [:encoding, :failed, :crf_searching, :needs_analysis],
+    # Can go back to crf_searched if encoding fails, or reset to needs_analysis
+    encoding: [:encoded, :failed, :crf_searched, :needs_analysis],
     # Can only fail from encoded state (e.g., file corruption)
-    encoded: [:failed],
+    # Can also reset to needs_analysis for reprocessing (e.g., missing original_size)
+    encoded: [:failed, :needs_analysis],
     # Can retry from any previous state
     failed: [:needs_analysis, :analyzed, :crf_searching, :crf_searched, :encoding]
   }

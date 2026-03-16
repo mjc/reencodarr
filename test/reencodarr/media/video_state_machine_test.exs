@@ -363,6 +363,7 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
 
       assert VideoStateMachine.valid_transitions(:analyzing) == [
                :analyzed,
+               :encoded,
                :needs_analysis,
                :failed
              ]
@@ -371,23 +372,32 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
                :crf_searching,
                :crf_searched,
                :encoded,
-               :failed
+               :failed,
+               :needs_analysis
              ]
 
       assert VideoStateMachine.valid_transitions(:crf_searching) == [
                :crf_searched,
                :failed,
-               :analyzed
+               :analyzed,
+               :needs_analysis
              ]
 
       assert VideoStateMachine.valid_transitions(:crf_searched) == [
                :encoding,
                :failed,
-               :crf_searching
+               :crf_searching,
+               :needs_analysis
              ]
 
-      assert VideoStateMachine.valid_transitions(:encoding) == [:encoded, :failed, :crf_searched]
-      assert VideoStateMachine.valid_transitions(:encoded) == [:failed]
+      assert VideoStateMachine.valid_transitions(:encoding) == [
+               :encoded,
+               :failed,
+               :crf_searched,
+               :needs_analysis
+             ]
+
+      assert VideoStateMachine.valid_transitions(:encoded) == [:failed, :needs_analysis]
 
       assert VideoStateMachine.valid_transitions(:failed) == [
                :needs_analysis,
@@ -1237,6 +1247,260 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
     test "returns :crf_searching since has_vmaf_data? is always false" do
       video = Fixtures.build_video_struct(%{state: :crf_searching})
       assert VideoStateMachine.next_expected_state(video) == :crf_searching
+    end
+  end
+
+  describe "reset to needs_analysis (video reset button)" do
+    test "can reset from analyzed to needs_analysis" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :analyzed,
+          bitrate: 10_000_000,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      {:ok, changeset} = VideoStateMachine.transition_to_needs_analysis(video)
+      assert changeset.valid?
+      {:ok, reset_video} = Repo.update(changeset)
+      assert reset_video.state == :needs_analysis
+    end
+
+    test "can reset from crf_searching to needs_analysis" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :crf_searching,
+          bitrate: 10_000_000,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      {:ok, changeset} = VideoStateMachine.transition_to_needs_analysis(video)
+      assert changeset.valid?
+      {:ok, reset_video} = Repo.update(changeset)
+      assert reset_video.state == :needs_analysis
+    end
+
+    test "can reset from crf_searched to needs_analysis" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :crf_searched,
+          bitrate: 10_000_000,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      {:ok, changeset} = VideoStateMachine.transition_to_needs_analysis(video)
+      assert changeset.valid?
+      {:ok, reset_video} = Repo.update(changeset)
+      assert reset_video.state == :needs_analysis
+    end
+
+    test "can reset from encoding to needs_analysis" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :encoding,
+          bitrate: 10_000_000,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      {:ok, changeset} = VideoStateMachine.transition_to_needs_analysis(video)
+      assert changeset.valid?
+      {:ok, reset_video} = Repo.update(changeset)
+      assert reset_video.state == :needs_analysis
+    end
+
+    test "can reset from analyzing to needs_analysis" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :analyzing,
+          bitrate: 10_000_000,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      {:ok, changeset} = VideoStateMachine.transition_to_needs_analysis(video)
+      assert changeset.valid?
+      {:ok, reset_video} = Repo.update(changeset)
+      assert reset_video.state == :needs_analysis
+    end
+  end
+
+  describe "analyzing to encoded (low-bitrate skip)" do
+    test "can transition from analyzing to encoded for low-bitrate HDR" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :analyzing,
+          bitrate: 3_000_000,
+          width: 1920,
+          height: 1080,
+          hdr: "DV",
+          video_codecs: ["hevc"],
+          audio_codecs: ["aac"]
+        })
+
+      {:ok, changeset} = VideoStateMachine.transition_to_encoded(video)
+      assert changeset.valid?
+      {:ok, encoded_video} = Repo.update(changeset)
+      assert encoded_video.state == :encoded
+    end
+
+    test "analyzer can mark low-bitrate HDR video as encoded directly" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :analyzing,
+          bitrate: 2_000_000,
+          width: 1920,
+          height: 1080,
+          hdr: "HDR10",
+          video_codecs: ["hevc"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 2,
+          atmos: false
+        })
+
+      # Simulate analyzer result for low-bitrate HDR
+      {:ok, changeset} = VideoStateMachine.transition_to_encoded(video)
+      assert changeset.valid?
+      assert changeset.changes.state == :encoded
+    end
+  end
+
+  describe "recovery: encoded to needs_analysis" do
+    test "can reset from encoded to needs_analysis for reprocessing" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :encoded,
+          bitrate: 10_000_000,
+          width: 1920,
+          height: 1080,
+          original_size: nil,
+          size: 5_000_000_000,
+          video_codecs: ["hevc"],
+          audio_codecs: ["aac"]
+        })
+
+      {:ok, changeset} = VideoStateMachine.transition_to_needs_analysis(video)
+      assert changeset.valid?
+      {:ok, reset_video} = Repo.update(changeset)
+      assert reset_video.state == :needs_analysis
+    end
+
+    test "can use mark_as_needs_analysis from encoded state" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :encoded,
+          bitrate: 8_000_000,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["hevc"],
+          audio_codecs: ["aac"]
+        })
+
+      {:ok, reset_video} = VideoStateMachine.mark_as_needs_analysis(video)
+      assert reset_video.state == :needs_analysis
+    end
+
+    test "valid_transition? returns true for encoded to needs_analysis" do
+      assert VideoStateMachine.valid_transition?(:encoded, :needs_analysis)
+    end
+  end
+
+  describe "bulk recovery of encoded videos without original_size" do
+    test "bulk reset encoded videos for reprocessing" do
+      # Create multiple encoded videos without original_size
+      videos =
+        Enum.map(1..5, fn i ->
+          {:ok, v} =
+            Fixtures.video_fixture(%{
+              state: :encoded,
+              path: "/media/video_#{i}.mkv",
+              bitrate: 10_000_000,
+              width: 1920,
+              height: 1080,
+              original_size: nil,
+              size: 5_000_000_000,
+              video_codecs: ["hevc"],
+              audio_codecs: ["aac"]
+            })
+
+          v
+        end)
+
+      # Bulk reset them
+      reset_count =
+        Enum.reduce(videos, 0, fn video, acc ->
+          case VideoStateMachine.mark_as_needs_analysis(video) do
+            {:ok, _} -> acc + 1
+            {:error, _} -> acc
+          end
+        end)
+
+      assert reset_count == 5
+
+      # Verify they're all in needs_analysis
+      video_ids = Enum.map(videos, & &1.id)
+      reloaded = Repo.all(from v in Reencodarr.Media.Video, where: v.id in ^video_ids)
+      assert Enum.all?(reloaded, &(&1.state == :needs_analysis))
+    end
+
+    test "filters out low-bitrate and AV1 videos in recovery query" do
+      # Create mix of videos
+      {:ok, _low_bitrate} =
+        Fixtures.video_fixture(%{
+          state: :encoded,
+          bitrate: 3_000_000,
+          hdr: "HDR10",
+          original_size: nil,
+          video_codecs: ["hevc"],
+          audio_codecs: ["aac"]
+        })
+
+      {:ok, _av1} =
+        Fixtures.video_fixture(%{
+          state: :encoded,
+          bitrate: 10_000_000,
+          original_size: nil,
+          video_codecs: ["av1"],
+          audio_codecs: ["aac"]
+        })
+
+      {:ok, normal_video} =
+        Fixtures.video_fixture(%{
+          state: :encoded,
+          bitrate: 10_000_000,
+          original_size: nil,
+          video_codecs: ["hevc"],
+          audio_codecs: ["aac"]
+        })
+
+      # Query for videos to reset (should exclude low-bitrate and AV1)
+      import Ecto.Query
+
+      eligible =
+        Repo.all(
+          from v in Reencodarr.Media.Video,
+            where:
+              v.state == :encoded and is_nil(v.original_size) and
+                (is_nil(v.bitrate) or v.bitrate >= 5_000_000 or is_nil(v.hdr)) and
+                not like(v.video_codecs, ^"%av1%"),
+            select: v.id
+        )
+
+      # Should only include the normal video
+      assert normal_video.id in eligible
+      assert eligible != []
     end
   end
 end
