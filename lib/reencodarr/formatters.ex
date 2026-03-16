@@ -10,16 +10,18 @@ defmodule Reencodarr.Formatters do
   @spec file_size(non_neg_integer()) :: String.t()
   def file_size(bytes) when is_integer(bytes) and bytes >= 0 do
     cond do
-      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776, 1)} TiB"
-      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824, 1)} GiB"
-      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576, 1)} MiB"
-      bytes >= 1024 -> "#{Float.round(bytes / 1024, 1)} KiB"
+      bytes >= 1_099_511_627_776 -> "#{fmt(bytes / 1_099_511_627_776)} TiB"
+      bytes >= 1_073_741_824 -> "#{fmt(bytes / 1_073_741_824)} GiB"
+      bytes >= 1_048_576 -> "#{fmt(bytes / 1_048_576)} MiB"
+      bytes >= 1024 -> "#{fmt(bytes / 1024)} KiB"
       true -> "#{bytes} B"
     end
   end
 
   @spec file_size(any()) :: String.t()
   def file_size(_), do: "N/A"
+
+  defp fmt(value), do: :erlang.float_to_binary(value, decimals: 1)
 
   @spec file_size_gib(pos_integer()) :: float()
   def file_size_gib(bytes) when is_integer(bytes) and bytes > 0 do

@@ -21,6 +21,13 @@ defmodule Reencodarr.FormattersTest do
       assert Formatters.file_size(2_684_354_560) == "2.5 GiB"
     end
 
+    test "never uses scientific notation at unit boundaries" do
+      # Values that round to 1000.0 within a unit — used to produce "1.0e3 XiB"
+      assert Formatters.file_size(1_024_000) == "1000.0 KiB"
+      assert Formatters.file_size(1_048_523_784) == "1000.0 MiB"
+      assert Formatters.file_size(1_048_576_000) == "1000.0 MiB"
+    end
+
     test "handles edge cases and invalid input" do
       assert Formatters.file_size(nil) == "N/A"
       assert Formatters.file_size(-1024) == "N/A"
