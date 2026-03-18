@@ -12,7 +12,6 @@ defmodule ReencodarrWeb.DashboardLive do
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Dashboard.State, as: DashboardState
   alias Reencodarr.Formatters
-  alias Reencodarr.Media.ChartQueries
 
   import ReencodarrWeb.ChartComponents
 
@@ -74,8 +73,6 @@ defmodule ReencodarrWeb.DashboardLive do
         schedule_periodic_update()
         # Request throughput async
         request_analyzer_throughput()
-        # Start chart refresh timer (every 5 minutes)
-        Process.send_after(self(), :refresh_charts, 100)
 
         socket
       else
@@ -177,41 +174,6 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, assign(socket, :analyzer_throughput, data.throughput || 0.0)}
   end
 
-  # Test-specific event handlers
-  @impl true
-  def handle_info({:service_status, %{service: service, status: status}}, socket) do
-    current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, service, status)
-    {:noreply, assign(socket, :service_status, updated_status)}
-  end
-
-  @impl true
-  def handle_info({:service_status, service, status}, socket)
-      when is_atom(service) and is_atom(status) do
-    current_status = socket.assigns.service_status
-    updated_status = Map.put(current_status, service, status)
-    {:noreply, assign(socket, :service_status, updated_status)}
-  end
-
-  @impl true
-  def handle_info({:queue_count, service, count}, socket) do
-    current_counts = socket.assigns.queue_counts
-    updated_counts = Map.put(current_counts, service, count)
-    {:noreply, assign(socket, :queue_counts, updated_counts)}
-  end
-
-  @impl true
-  def handle_info({:crf_progress, data}, socket) do
-    progress = %{
-      percent: calculate_progress_percent(data),
-      filename: data[:filename],
-      crf: data[:crf],
-      score: data[:score]
-    }
-
-    {:noreply, assign(socket, :crf_progress, progress)}
-  end
-
   @impl true
   def handle_info(:update_dashboard_data, socket) do
     # Request updated throughput async (don't block)
@@ -224,12 +186,6 @@ defmodule ReencodarrWeb.DashboardLive do
     schedule_periodic_update()
 
     {:noreply, socket}
-  end
-
-  @impl true
-  def handle_info(:refresh_charts, socket) do
-    Process.send_after(self(), :refresh_charts, :timer.minutes(5))
-    {:noreply, load_chart_data(socket)}
   end
 
   @impl true
@@ -1145,13 +1101,5 @@ defmodule ReencodarrWeb.DashboardLive do
     else
       data[:percent] || 0
     end
-  end
-
-  defp load_chart_data(socket) do
-    assign(socket,
-      vmaf_distribution: ChartQueries.vmaf_score_distribution(),
-      resolution_distribution: ChartQueries.resolution_distribution(),
-      codec_distribution: ChartQueries.codec_distribution()
-    )
   end
 end
