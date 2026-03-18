@@ -11,6 +11,8 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias Reencodarr.Dashboard.State
+
   describe "basic functionality" do
     test "mounts successfully and displays initial state", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/")
@@ -141,8 +143,10 @@ defmodule ReencodarrWeb.DashboardLiveTest do
     test "displays service status information", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/")
 
-      # Send service status and check it appears in UI
-      send(view.pid, {:service_status, :analyzer, :running})
+      # Get current state and update service status
+      base = State.get_state()
+      state = %{base | service_status: %{base.service_status | analyzer: :running}}
+      send(view.pid, {:dashboard_state_changed, state})
       :timer.sleep(50)
 
       html = render(view)
@@ -154,8 +158,10 @@ defmodule ReencodarrWeb.DashboardLiveTest do
     test "displays queue counts in UI", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/")
 
-      # Send queue count and verify it shows up
-      send(view.pid, {:queue_count, :analyzer, 5})
+      # Get current state and update queue counts
+      base = State.get_state()
+      state = %{base | queue_counts: %{base.queue_counts | analyzer: 5}}
+      send(view.pid, {:dashboard_state_changed, state})
       :timer.sleep(50)
 
       html = render(view)

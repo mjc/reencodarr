@@ -44,6 +44,17 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert state.queue_counts == %{analyzer: 0, crf_searcher: 0, encoder: 0}
       assert state.queue_items == %{analyzer: [], crf_searcher: [], encoder: []}
     end
+
+    test "returns chart data fields in state" do
+      state = State.get_state()
+
+      assert Map.has_key?(state, :vmaf_distribution)
+      assert is_list(state.vmaf_distribution)
+      assert Map.has_key?(state, :resolution_distribution)
+      assert is_list(state.resolution_distribution)
+      assert Map.has_key?(state, :codec_distribution)
+      assert is_list(state.codec_distribution)
+    end
   end
 
   describe "CRF search event handling" do
@@ -732,6 +743,25 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert Map.has_key?(state, :encoding_vmaf)
       assert Map.has_key?(state, :encoding_progress)
       assert Map.has_key?(state, :service_status)
+    end
+
+    test "handles :refresh_charts message and broadcasts updated state with chart data" do
+      # Send :refresh_charts message to the GenServer
+      send(Process.whereis(State), :refresh_charts)
+      :timer.sleep(50)
+
+      # Subscribe after sending to get the broadcast
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
+
+      assert_receive {:dashboard_state_changed, state}
+
+      # Verify chart fields are present and are lists
+      assert Map.has_key?(state, :vmaf_distribution)
+      assert is_list(state.vmaf_distribution)
+      assert Map.has_key?(state, :resolution_distribution)
+      assert is_list(state.resolution_distribution)
+      assert Map.has_key?(state, :codec_distribution)
+      assert is_list(state.codec_distribution)
     end
   end
 
