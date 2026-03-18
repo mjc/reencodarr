@@ -287,8 +287,11 @@ defmodule ReencodarrWeb.DashboardLiveTest do
     test "sync_sonarr shows error when sync already in progress", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/")
 
+      # Manually update the view to mark sync as in progress
       send(view.pid, {:sync_started, %{service_type: "sonarr"}})
-      :timer.sleep(50)
+
+      # Render to process the message, no sleep needed
+      _html = render(view)
 
       html = view |> render_click("sync_sonarr", %{})
 

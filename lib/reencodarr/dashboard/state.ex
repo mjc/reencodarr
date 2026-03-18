@@ -287,6 +287,11 @@ defmodule Reencodarr.Dashboard.State do
     broadcast_state(state)
     Process.send_after(self(), :refresh_stats, @stats_refresh_interval)
     {:noreply, state}
+  rescue
+    error ->
+      Logger.warning("Dashboard.State refresh_stats failed: #{inspect(error)}")
+      Process.send_after(self(), :refresh_stats, @stats_refresh_interval)
+      {:noreply, state}
   end
 
   @impl true
@@ -299,6 +304,15 @@ defmodule Reencodarr.Dashboard.State do
     end
 
     {:noreply, state}
+  rescue
+    error ->
+      Logger.warning("Dashboard.State refresh_queues failed: #{inspect(error)}")
+
+      if queue_refresh_enabled?() do
+        Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
+      end
+
+      {:noreply, state}
   end
 
   @impl true
@@ -315,6 +329,11 @@ defmodule Reencodarr.Dashboard.State do
     broadcast_state(state)
     Process.send_after(self(), :refresh_charts, @chart_refresh_interval)
     {:noreply, state}
+  rescue
+    error ->
+      Logger.warning("Dashboard.State refresh_charts failed: #{inspect(error)}")
+      Process.send_after(self(), :refresh_charts, @chart_refresh_interval)
+      {:noreply, state}
   end
 
   # Catch-all for unknown messages
@@ -330,40 +349,12 @@ defmodule Reencodarr.Dashboard.State do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, @state_channel, {:dashboard_state_changed, state})
   end
 
-  defp fetch_queue_items(current_items) do
+  defp fetch_queue_items(_current_items) do
     %{
-      analyzer:
-        safe_query_list(
-          fn ->
-            VideoQueries.videos_needing_analysis(5, timeout: @query_timeout)
-          end,
-          current_items.analyzer
-        ),
-      crf_searcher:
-        safe_query_list(
-          fn ->
-            VideoQueries.videos_for_crf_search(5, timeout: @query_timeout)
-          end,
-          current_items.crf_searcher
-        ),
-      encoder:
-        safe_query_list(
-          fn ->
-            VideoQueries.videos_ready_for_encoding(5, timeout: @query_timeout)
-          end,
-          current_items.encoder
-        )
+      analyzer: VideoQueries.videos_needing_analysis(5, timeout: @query_timeout),
+      crf_searcher: VideoQueries.videos_for_crf_search(5, timeout: @query_timeout),
+      encoder: VideoQueries.videos_ready_for_encoding(5, timeout: @query_timeout)
     }
-  end
-
-  defp safe_query_list(fun, fallback) do
-    fun.()
-  rescue
-    DBConnection.ConnectionError -> fallback
-  catch
-    :exit, {:timeout, _} -> fallback
-    :exit, {%DBConnection.ConnectionError{}, _} -> fallback
-    :exit, {{%DBConnection.ConnectionError{}, _}, _} -> fallback
   end
 
   defp queue_refresh_enabled? do
@@ -382,19 +373,9 @@ defmodule Reencodarr.Dashboard.State do
 
   defp load_chart_data do
     %{
-      vmaf: safe_chart_query(fn -> ChartQueries.vmaf_score_distribution() end, []),
-      resolution: safe_chart_query(fn -> ChartQueries.resolution_distribution() end, []),
-      codec: safe_chart_query(fn -> ChartQueries.codec_distribution() end, [])
+      vmaf: ChartQueries.vmaf_score_distribution(),
+      resolution: ChartQueries.resolution_distribution(),
+      codec: ChartQueries.codec_distribution()
     }
-  end
-
-  defp safe_chart_query(fun, fallback) do
-    fun.()
-  rescue
-    DBConnection.ConnectionError -> fallback
-  catch
-    :exit, {:timeout, _} -> fallback
-    :exit, {%DBConnection.ConnectionError{}, _} -> fallback
-    :exit, {{%DBConnection.ConnectionError{}, _}, _} -> fallback
   end
 end
