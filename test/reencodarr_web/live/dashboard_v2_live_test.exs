@@ -11,8 +11,6 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
   import Phoenix.LiveViewTest
 
-  alias Reencodarr.Dashboard.State
-
   describe "basic functionality" do
     test "mounts successfully and displays initial state", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/")
@@ -143,9 +141,24 @@ defmodule ReencodarrWeb.DashboardLiveTest do
     test "displays service status information", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/")
 
-      # Get current state and update service status
-      base = State.get_state()
-      state = %{base | service_status: %{base.service_status | analyzer: :running}}
+      # Construct dashboard state with running analyzer
+      state = %{
+        crf_search_video: nil,
+        crf_search_results: [],
+        crf_search_sample: nil,
+        crf_progress: :none,
+        encoding_video: nil,
+        encoding_vmaf: nil,
+        encoding_progress: :none,
+        service_status: %{analyzer: :running, crf_searcher: :idle, encoder: :idle},
+        stats: Reencodarr.Media.get_default_stats(),
+        queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
+        queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
+        vmaf_distribution: [],
+        resolution_distribution: [],
+        codec_distribution: []
+      }
+
       send(view.pid, {:dashboard_state_changed, state})
       :timer.sleep(50)
 
@@ -158,9 +171,24 @@ defmodule ReencodarrWeb.DashboardLiveTest do
     test "displays queue counts in UI", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/")
 
-      # Get current state and update queue counts
-      base = State.get_state()
-      state = %{base | queue_counts: %{base.queue_counts | analyzer: 5}}
+      # Construct dashboard state with queue counts
+      state = %{
+        crf_search_video: nil,
+        crf_search_results: [],
+        crf_search_sample: nil,
+        crf_progress: :none,
+        encoding_video: nil,
+        encoding_vmaf: nil,
+        encoding_progress: :none,
+        service_status: %{analyzer: :idle, crf_searcher: :idle, encoder: :idle},
+        stats: Reencodarr.Media.get_default_stats(),
+        queue_counts: %{analyzer: 5, crf_searcher: 0, encoder: 0},
+        queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
+        vmaf_distribution: [],
+        resolution_distribution: [],
+        codec_distribution: []
+      }
+
       send(view.pid, {:dashboard_state_changed, state})
       :timer.sleep(50)
 

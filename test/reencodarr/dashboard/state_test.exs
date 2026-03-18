@@ -604,7 +604,13 @@ defmodule Reencodarr.Dashboard.StateTest do
     setup do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
 
-      # Drain the initial broadcast from handle_continue
+      # Drain the initial broadcasts from handle_continue(:fetch_initial_data) and handle_continue(:fetch_chart_data)
+      receive do
+        {:dashboard_state_changed, _} -> :ok
+      after
+        500 -> :ok
+      end
+
       receive do
         {:dashboard_state_changed, _} -> :ok
       after
@@ -769,11 +775,18 @@ defmodule Reencodarr.Dashboard.StateTest do
     test "handle_continue broadcasts initial state to subscribers" do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
 
-      # Drain any broadcasts from the setup-started GenServer's handle_continue
+      # Receive initial_data broadcast
       receive do
         {:dashboard_state_changed, _} -> :ok
       after
         500 -> flunk("handle_continue should broadcast initial state but didn't")
+      end
+
+      # Receive chart_data broadcast
+      receive do
+        {:dashboard_state_changed, _} -> :ok
+      after
+        500 -> flunk("handle_continue should broadcast chart data but didn't")
       end
     end
 
@@ -790,7 +803,13 @@ defmodule Reencodarr.Dashboard.StateTest do
     test "refresh_stats broadcasts updated state" do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
 
-      # Drain any existing broadcasts from startup
+      # Drain any existing broadcasts from startup (initial_data and chart_data)
+      receive do
+        {:dashboard_state_changed, _} -> :ok
+      after
+        500 -> :ok
+      end
+
       receive do
         {:dashboard_state_changed, _} -> :ok
       after

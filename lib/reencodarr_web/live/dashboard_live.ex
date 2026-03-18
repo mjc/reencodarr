@@ -115,7 +115,10 @@ defmodule ReencodarrWeb.DashboardLive do
        service_status: state.service_status,
        stats: state.stats,
        queue_counts: state.queue_counts,
-       queue_items: merged_queue_items
+       queue_items: merged_queue_items,
+       vmaf_distribution: state.vmaf_distribution,
+       resolution_distribution: state.resolution_distribution,
+       codec_distribution: state.codec_distribution
      )}
   end
 

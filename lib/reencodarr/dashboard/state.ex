@@ -12,12 +12,14 @@ defmodule Reencodarr.Dashboard.State do
   require Logger
 
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.Media.ChartQueries
   alias Reencodarr.Media.VideoQueries
 
   @state_channel "dashboard:state"
 
   @stats_refresh_interval 60_000
   @queue_refresh_interval 5_000
+  @chart_refresh_interval 300_000
   @query_timeout 2_000
   @progress_debounce_ms 500
 
@@ -37,6 +39,9 @@ defmodule Reencodarr.Dashboard.State do
     stats: Reencodarr.Media.get_default_stats(),
     queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
     queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
+    vmaf_distribution: [],
+    resolution_distribution: [],
+    codec_distribution: [],
     progress_debounce_ref: nil
   }
 
@@ -96,6 +101,22 @@ defmodule Reencodarr.Dashboard.State do
     broadcast_state(state)
     Process.send_after(self(), :refresh_stats, @stats_refresh_interval)
 
+    {:noreply, state, {:continue, :fetch_chart_data}}
+  end
+
+  @impl true
+  def handle_continue(:fetch_chart_data, state) do
+    charts = load_chart_data()
+
+    state = %{
+      state
+      | vmaf_distribution: charts.vmaf,
+        resolution_distribution: charts.resolution,
+        codec_distribution: charts.codec
+    }
+
+    broadcast_state(state)
+    Process.send_after(self(), :refresh_charts, @chart_refresh_interval)
     {:noreply, state}
   end
 
@@ -280,6 +301,22 @@ defmodule Reencodarr.Dashboard.State do
     {:noreply, state}
   end
 
+  @impl true
+  def handle_info(:refresh_charts, state) do
+    charts = load_chart_data()
+
+    state = %{
+      state
+      | vmaf_distribution: charts.vmaf,
+        resolution_distribution: charts.resolution,
+        codec_distribution: charts.codec
+    }
+
+    broadcast_state(state)
+    Process.send_after(self(), :refresh_charts, @chart_refresh_interval)
+    {:noreply, state}
+  end
+
   # Catch-all for unknown messages
   @impl true
   def handle_info(msg, state) do
@@ -341,5 +378,23 @@ defmodule Reencodarr.Dashboard.State do
       nil -> [new_item | list]
       index -> List.replace_at(list, index, new_item)
     end
+  end
+
+  defp load_chart_data do
+    %{
+      vmaf: safe_chart_query(fn -> ChartQueries.vmaf_score_distribution() end, []),
+      resolution: safe_chart_query(fn -> ChartQueries.resolution_distribution() end, []),
+      codec: safe_chart_query(fn -> ChartQueries.codec_distribution() end, [])
+    }
+  end
+
+  defp safe_chart_query(fun, fallback) do
+    fun.()
+  rescue
+    DBConnection.ConnectionError -> fallback
+  catch
+    :exit, {:timeout, _} -> fallback
+    :exit, {%DBConnection.ConnectionError{}, _} -> fallback
+    :exit, {{%DBConnection.ConnectionError{}, _}, _} -> fallback
   end
 end
