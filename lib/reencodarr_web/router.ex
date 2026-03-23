@@ -31,6 +31,7 @@ defmodule ReencodarrWeb.Router do
     live_session :default, layout: {ReencodarrWeb.Layouts, :app} do
       live "/", DashboardLive, :index
       live "/broadway", BroadwayLive, :index
+      live "/bad-files", BadFilesLive, :index
       live "/failures", FailuresLive, :index
       live "/videos", VideosLive, :index
       live "/rules", RulesLive, :index

@@ -177,11 +177,13 @@ defmodule Reencodarr.Media do
 
   @spec list_bad_file_issues() :: [BadFileIssue.t()]
   def list_bad_file_issues do
-    Repo.all(from i in BadFileIssue, order_by: [desc: i.updated_at, desc: i.id])
+    Repo.all(
+      from i in BadFileIssue, order_by: [desc: i.updated_at, desc: i.id], preload: [:video]
+    )
   end
 
   @spec get_bad_file_issue!(integer()) :: BadFileIssue.t()
-  def get_bad_file_issue!(id), do: Repo.get!(BadFileIssue, id)
+  def get_bad_file_issue!(id), do: Repo.get!(BadFileIssue, id) |> Repo.preload(:video)
 
   @spec create_bad_file_issue(Video.t(), map()) ::
           {:ok, BadFileIssue.t()} | {:error, Ecto.Changeset.t()}
