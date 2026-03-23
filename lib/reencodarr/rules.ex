@@ -402,10 +402,13 @@ defmodule Reencodarr.Rules do
     commercial = track.format_commercial_if_any |> normalize_codec_string()
     additional = track.format_additionalfeatures |> normalize_codec_string()
     format = Map.get(track, :codec, "") |> normalize_codec_string()
+    codec_id = Map.get(track, :codec_id, "") |> normalize_codec_string()
 
     String.contains?(commercial, "atmos") or
+      String.contains?(additional, "joc") or
       String.contains?(additional, "atmos") or
-      Enum.any?(@possibly_atmos_codecs, &String.contains?(format, &1))
+      Enum.any?(@possibly_atmos_codecs, &String.contains?(format, &1)) or
+      Enum.any?(@possibly_atmos_codecs, &String.contains?(codec_id, &1))
   end
 
   defp normalize_codec_string(nil), do: ""

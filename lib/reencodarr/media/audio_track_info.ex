@@ -12,6 +12,7 @@ defmodule Reencodarr.Media.AudioTrackInfo do
       %{} = track ->
         %{
           codec: Map.get(track, "Format", ""),
+          codec_id: Map.get(track, "CodecID", ""),
           channels: parse_channel_count(track),
           channel_layout: Map.get(track, "ChannelLayout", ""),
           format_commercial_if_any: Map.get(track, "Format_Commercial_IfAny", ""),

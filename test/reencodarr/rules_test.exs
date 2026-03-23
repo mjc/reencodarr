@@ -353,16 +353,25 @@ defmodule Reencodarr.RulesTest do
       assert Rules.audio(video) == [{"--acodec", "copy"}]
     end
 
-    test "audio/1 copies tracks with explicit JOC metadata even when only raw track markers show it" do
+    test "audio/1 copies tracks when raw CodecID shows E-AC-3 JOC despite a generic codec summary" do
       video =
-        Fixtures.create_test_video(%{
-          audio_codecs: ["aac"],
-          mediainfo:
-            sample_mediainfo("AAC", 6, "5.1(side)", %{
-              "CodecID" => "A_EAC3/JOC",
-              "Format_AdditionalFeatures" => "JOC"
-            })
-        })
+        raw_audio_video(
+          ["aac"],
+          sample_mediainfo("Dolby Digital Plus", 6, "5.1(side)", %{
+            "CodecID" => "A_EAC3/JOC",
+            "Format_AdditionalFeatures" => ""
+          })
+        )
+
+      assert Rules.audio(video) == [{"--acodec", "copy"}]
+    end
+
+    test "audio/1 copies tracks when raw CodecID shows TrueHD despite a generic codec summary" do
+      video =
+        raw_audio_video(
+          ["aac"],
+          sample_mediainfo("MLP FBA", 6, "5.1", %{"CodecID" => "A_TRUEHD"})
+        )
 
       assert Rules.audio(video) == [{"--acodec", "copy"}]
     end
@@ -1385,5 +1394,14 @@ defmodule Reencodarr.RulesTest do
         ]
       }
     }
+  end
+
+  defp raw_audio_video(audio_codecs, mediainfo) do
+    struct(Reencodarr.Media.Video, %{
+      audio_codecs: audio_codecs,
+      max_audio_channels: 6,
+      atmos: false,
+      mediainfo: mediainfo
+    })
   end
 end
