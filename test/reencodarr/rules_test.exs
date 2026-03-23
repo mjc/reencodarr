@@ -353,6 +353,20 @@ defmodule Reencodarr.RulesTest do
       assert Rules.audio(video) == [{"--acodec", "copy"}]
     end
 
+    test "audio/1 copies tracks with explicit JOC metadata even when only raw track markers show it" do
+      video =
+        Fixtures.create_test_video(%{
+          audio_codecs: ["aac"],
+          mediainfo:
+            sample_mediainfo("AAC", 6, "5.1(side)", %{
+              "CodecID" => "A_EAC3/JOC",
+              "Format_AdditionalFeatures" => "JOC"
+            })
+        })
+
+      assert Rules.audio(video) == [{"--acodec", "copy"}]
+    end
+
     test "hdr/1 with DV video includes dolbyvision" do
       video = Fixtures.create_hdr_video(%{hdr: "DV"})
       rules = Rules.hdr(video)
@@ -1351,20 +1365,23 @@ defmodule Reencodarr.RulesTest do
     end
   end
 
-  defp sample_mediainfo(format, channels, layout) do
+  defp sample_mediainfo(format, channels, layout, audio_overrides \\ %{}) do
     %{
       "media" => %{
         "track" => [
           %{"@type" => "General", "Duration" => "7200.0"},
           %{"@type" => "Video", "Format" => "AVC", "Width" => "1920", "Height" => "1080"},
-          %{
-            "@type" => "Audio",
-            "Format" => format,
-            "CodecID" => format,
-            "Channels" => Integer.to_string(channels),
-            "ChannelLayout" => layout,
-            "Default" => "Yes"
-          }
+          Map.merge(
+            %{
+              "@type" => "Audio",
+              "Format" => format,
+              "CodecID" => format,
+              "Channels" => Integer.to_string(channels),
+              "ChannelLayout" => layout,
+              "Default" => "Yes"
+            },
+            audio_overrides
+          )
         ]
       }
     }
