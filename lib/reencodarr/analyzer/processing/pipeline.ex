@@ -82,7 +82,7 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
          {:ok, validated_mediainfo} <- validate_mediainfo(mediainfo, video_info.path),
          {:ok, video_params} <- extract_video_params(validated_mediainfo, video_info.path) do
       # Merge with service metadata
-      complete_params = merge_service_metadata(video_params, video_info)
+      complete_params = merge_service_metadata(video_params, video_info, validated_mediainfo)
 
       {:ok, {video_info, complete_params}}
     else
@@ -352,7 +352,7 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
 
     with {:ok, validated_mediainfo} <- validate_mediainfo(media_data, video_info.path),
          {:ok, video_params} <- extract_video_params(validated_mediainfo, video_info.path) do
-      complete_params = merge_service_metadata(video_params, video_info)
+      complete_params = merge_service_metadata(video_params, video_info, validated_mediainfo)
       {:ok, {video_info, complete_params}}
     else
       {:error, reason} ->
@@ -437,11 +437,12 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
     end
   end
 
-  defp merge_service_metadata(video_params, video_info) do
+  defp merge_service_metadata(video_params, video_info, validated_mediainfo) do
     Map.merge(video_params, %{
       "path" => video_info.path,
       "service_id" => video_info.service_id,
-      "service_type" => to_string(video_info.service_type)
+      "service_type" => to_string(video_info.service_type),
+      "mediainfo" => validated_mediainfo
     })
   end
 

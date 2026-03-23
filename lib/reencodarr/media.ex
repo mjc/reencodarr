@@ -8,8 +8,11 @@ defmodule Reencodarr.Media do
   alias Reencodarr.AbAv1.{CrfSearch, Encode}
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.Core.Parsers
+  alias Reencodarr.Dashboard.Events
+  alias Reencodarr.Media.MediaInfoExtractor
 
   alias Reencodarr.Media.{
+    AudioTrackInfo,
     BadFileIssue,
     Library,
     SharedQueries,
@@ -27,6 +30,7 @@ defmodule Reencodarr.Media do
 
   @moduledoc "Handles media-related operations and database interactions."
   @queueable_states [:needs_analysis, :analyzed, :crf_searched]
+  @backfill_service_lanes [:sonarr, :radarr, :unknown]
 
   # --- Video-related functions ---
   def list_videos, do: Repo.all(from v in Video, order_by: [desc: v.updated_at])
@@ -173,17 +177,86 @@ defmodule Reencodarr.Media do
 
   # --- Bad File Issue Functions ---
 
-  @resolved_bad_file_issue_statuses [:replaced_clean, :replaced_still_bad, :dismissed]
+  @resolved_bad_file_issue_statuses [:replaced_clean, :dismissed]
 
-  @spec list_bad_file_issues() :: [BadFileIssue.t()]
-  def list_bad_file_issues do
+  @spec list_bad_file_issues(keyword()) :: [BadFileIssue.t()]
+  def list_bad_file_issues(opts \\ []) do
+    video_preload_query =
+      from v in Video,
+        select: struct(v, [:id, :path, :service_type, :service_id])
+
+    BadFileIssue
+    |> bad_file_issue_filters_query(opts)
+    |> order_by([i], [desc: i.updated_at, desc: i.id])
+    |> maybe_limit_bad_file_issues(Keyword.get(opts, :limit))
+    |> maybe_offset_bad_file_issues(Keyword.get(opts, :offset))
+    |> Repo.all()
+    |> Repo.preload(video: video_preload_query)
+  end
+
+  @spec count_bad_file_issues(keyword()) :: non_neg_integer()
+  def count_bad_file_issues(opts \\ []) do
+    BadFileIssue
+    |> bad_file_issue_filters_query(opts)
+    |> select([i], count(i.id))
+    |> Repo.one()
+  end
+
+  @spec bad_file_issue_summary() :: %{
+          open: non_neg_integer(),
+          queued: non_neg_integer(),
+          processing: non_neg_integer(),
+          waiting_for_replacement: non_neg_integer(),
+          failed: non_neg_integer(),
+          resolved: non_neg_integer()
+        }
+  def bad_file_issue_summary do
     Repo.all(
-      from i in BadFileIssue, order_by: [desc: i.updated_at, desc: i.id], preload: [:video]
+      from i in BadFileIssue,
+        group_by: i.status,
+        select: {i.status, count(i.id)}
     )
+    |> Enum.reduce(
+      %{open: 0, queued: 0, processing: 0, waiting_for_replacement: 0, failed: 0, resolved: 0},
+      fn
+        {:open, count}, acc -> %{acc | open: count}
+        {:queued, count}, acc -> %{acc | queued: count}
+        {:processing, count}, acc -> %{acc | processing: count}
+        {:waiting_for_replacement, count}, acc -> %{acc | waiting_for_replacement: count}
+        {:failed, count}, acc -> %{acc | failed: count}
+        {_resolved_status, count}, acc -> %{acc | resolved: acc.resolved + count}
+      end
+    )
+  end
+
+  @spec unresolved_bad_file_issues_by_video_ids([integer()]) :: %{integer() => BadFileIssue.t()}
+  def unresolved_bad_file_issues_by_video_ids(video_ids) when is_list(video_ids) do
+    case Enum.uniq(Enum.filter(video_ids, &is_integer/1)) do
+      [] ->
+        %{}
+
+      filtered_ids ->
+        Repo.all(
+          from i in BadFileIssue,
+            where: i.video_id in ^filtered_ids and i.status not in ^@resolved_bad_file_issue_statuses,
+            order_by: [desc: i.updated_at, desc: i.id]
+        )
+        |> Enum.reduce(%{}, fn issue, acc ->
+          Map.put_new(acc, issue.video_id, issue)
+        end)
+    end
   end
 
   @spec get_bad_file_issue!(integer()) :: BadFileIssue.t()
   def get_bad_file_issue!(id), do: Repo.get!(BadFileIssue, id) |> Repo.preload(:video)
+
+  @spec fetch_bad_file_issue(integer()) :: {:ok, BadFileIssue.t()} | :not_found
+  def fetch_bad_file_issue(id) when is_integer(id) do
+    case Repo.get(BadFileIssue, id) do
+      %BadFileIssue{} = issue -> {:ok, Repo.preload(issue, :video)}
+      nil -> :not_found
+    end
+  end
 
   @spec create_bad_file_issue(Video.t(), map()) ::
           {:ok, BadFileIssue.t()} | {:error, Ecto.Changeset.t()}
@@ -236,12 +309,118 @@ defmodule Reencodarr.Media do
 
   @spec next_queued_bad_file_issue() :: BadFileIssue.t() | nil
   def next_queued_bad_file_issue do
+    next_queued_bad_file_issue(:all)
+  end
+
+  @spec next_queued_bad_file_issue(atom()) :: BadFileIssue.t() | nil
+  def next_queued_bad_file_issue(:all) do
     Repo.one(
       from i in BadFileIssue,
         where: i.status == :queued,
+        preload: [:video],
         order_by: [asc: i.inserted_at, asc: i.id],
         limit: 1
     )
+  end
+
+  def next_queued_bad_file_issue(service_type) when service_type in [:sonarr, :radarr] do
+    Repo.one(
+      from i in BadFileIssue,
+        join: v in assoc(i, :video),
+        where: i.status == :queued and v.service_type == ^service_type,
+        preload: [video: v],
+        order_by: [asc: i.inserted_at, asc: i.id],
+        limit: 1
+    )
+  end
+
+  def next_queued_bad_file_issue(_service_type), do: nil
+
+  @spec enqueue_bad_file_issues([BadFileIssue.t()]) :: {:ok, non_neg_integer()}
+  def enqueue_bad_file_issues(issues) when is_list(issues) do
+    count =
+      issues
+      |> Enum.reduce(0, fn
+        %BadFileIssue{} = issue, acc ->
+          case enqueue_bad_file_issue(issue) do
+            {:ok, _queued_issue} -> acc + 1
+            {:error, _changeset} -> acc
+          end
+
+        _other, acc ->
+          acc
+      end)
+
+    {:ok, count}
+  end
+
+  @spec queue_bad_file_issue_series(BadFileIssue.t()) :: {:ok, non_neg_integer()} | {:error, atom()}
+  def queue_bad_file_issue_series(%BadFileIssue{} = issue) do
+    issue = Repo.preload(issue, :video)
+
+    case series_group_key(issue.video) do
+      nil ->
+        {:error, :not_series_scoped}
+
+      group_key ->
+        issues =
+          list_bad_file_issues()
+          |> Enum.filter(fn candidate ->
+            unresolved_bad_file_issue?(candidate) and series_group_key(candidate.video) == group_key
+          end)
+
+        Enum.each(issues, &enqueue_bad_file_issue/1)
+        {:ok, length(issues)}
+    end
+  end
+
+  @spec resolve_waiting_bad_file_issues_for_video(Video.t()) :: {:ok, non_neg_integer()}
+  def resolve_waiting_bad_file_issues_for_video(%Video{} = video) do
+    issues =
+      Repo.all(
+        from i in BadFileIssue,
+          where: i.video_id == ^video.id and i.status == :waiting_for_replacement,
+          order_by: [asc: i.id]
+      )
+
+    Enum.each(issues, fn issue ->
+      {:ok, _updated_issue} = update_bad_file_issue_status(issue, :replaced_clean)
+    end)
+
+    {:ok, length(issues)}
+  end
+
+  @spec reconcile_replacement_video(Video.t(), atom()) :: {:ok, Video.t()}
+  def reconcile_replacement_video(%Video{} = video, service_type)
+      when service_type in [:sonarr, :radarr] do
+    {:ok, _resolved_count} = resolve_waiting_bad_file_issues_for_video(video)
+    Events.broadcast_event(:sync_completed, %{service_type: service_type, source: :webhook, path: video.path})
+    {:ok, video}
+  end
+
+  @spec audit_pre_fix_multichannel_opus(keyword()) ::
+          {:ok, %{scanned: integer(), issues_upserted: integer()}}
+  def audit_pre_fix_multichannel_opus(_opts \\ []) do
+    candidates =
+      Repo.all(
+        from v in Video,
+          where: v.max_audio_channels > 2
+      )
+      |> Enum.filter(&opus_video?/1)
+
+    issues_upserted =
+      Enum.reduce(candidates, 0, fn video, count ->
+        case classify_bad_audio_issue(video) do
+          {:ok, attrs} ->
+            {:ok, _issue} = create_bad_file_issue(video, attrs)
+            count + 1
+
+          :skip ->
+            count
+        end
+      end)
+
+    {:ok, %{scanned: length(candidates), issues_upserted: issues_upserted}}
   end
 
   defp normalize_bad_file_issue_attrs(attrs) do
@@ -285,6 +464,187 @@ defmodule Reencodarr.Media do
   end
 
   defp maybe_put_last_attempted_at(attrs, _status), do: attrs
+
+  defp bad_file_issue_filters_query(queryable, opts) do
+    queryable
+    |> maybe_filter_bad_file_issue_statuses(Keyword.get(opts, :statuses, :all))
+    |> maybe_filter_bad_file_issue_service(Keyword.get(opts, :service, "all"))
+    |> maybe_filter_bad_file_issue_kind(Keyword.get(opts, :kind, "all"))
+    |> maybe_filter_bad_file_issue_search(Keyword.get(opts, :search, ""))
+  end
+
+  defp maybe_filter_bad_file_issue_statuses(query, :all), do: query
+
+  defp maybe_filter_bad_file_issue_statuses(query, statuses) when is_list(statuses) do
+    from i in query, where: i.status in ^statuses
+  end
+
+  defp maybe_filter_bad_file_issue_service(query, "all"), do: query
+
+  defp maybe_filter_bad_file_issue_service(query, service) when service in ["sonarr", "radarr"] do
+    service_type = String.to_existing_atom(service)
+    query = ensure_bad_file_issue_video_join(query)
+    from [i, video: v] in query, where: v.service_type == ^service_type
+  end
+
+  defp maybe_filter_bad_file_issue_service(query, _service), do: query
+
+  defp maybe_filter_bad_file_issue_kind(query, "all"), do: query
+
+  defp maybe_filter_bad_file_issue_kind(query, kind) when kind in ["audio", "manual"] do
+    issue_kind = String.to_existing_atom(kind)
+    from i in query, where: i.issue_kind == ^issue_kind
+  end
+
+  defp maybe_filter_bad_file_issue_kind(query, _kind), do: query
+
+  defp maybe_filter_bad_file_issue_search(query, ""), do: query
+
+  defp maybe_filter_bad_file_issue_search(query, search) when is_binary(search) do
+    pattern = "%" <> String.downcase(search) <> "%"
+    query = ensure_bad_file_issue_video_join(query)
+
+    from [i, video: v] in query,
+      where:
+        fragment("lower(?) like ?", v.path, ^pattern) or
+          fragment("lower(coalesce(?, '')) like ?", i.manual_reason, ^pattern) or
+          fragment("lower(coalesce(?, '')) like ?", i.manual_note, ^pattern) or
+          fragment("lower(?) like ?", i.classification, ^pattern) or
+          fragment("lower(?) like ?", i.issue_kind, ^pattern)
+  end
+
+  defp maybe_filter_bad_file_issue_search(query, _search), do: query
+
+  defp maybe_limit_bad_file_issues(query, limit) when is_integer(limit) and limit > 0 do
+    from i in query, limit: ^limit
+  end
+
+  defp maybe_limit_bad_file_issues(query, _limit), do: query
+
+  defp maybe_offset_bad_file_issues(query, offset) when is_integer(offset) and offset >= 0 do
+    from i in query, offset: ^offset
+  end
+
+  defp maybe_offset_bad_file_issues(query, _offset), do: query
+
+  defp ensure_bad_file_issue_video_join(%Ecto.Query{aliases: aliases} = query) do
+    case Map.has_key?(aliases, :video) do
+      true -> query
+      false -> join(query, :inner, [i], v in assoc(i, :video), as: :video)
+    end
+  end
+
+  defp classify_bad_audio_issue(video) do
+    output = current_audio_issue_fields(video)
+
+    if output_is_multichannel_opus?(output) do
+      {:ok,
+       %{
+         origin: :audit,
+         issue_kind: :audio,
+         classification: :likely_bad_pre_commit_multichannel_opus,
+         source_audio_codec: "unknown",
+         source_channels: 0,
+         source_layout: "unknown",
+         output_audio_codec: output.codec,
+         output_channels: output.channels,
+         output_layout: output.layout
+       }}
+    else
+      :skip
+    end
+  end
+
+  defp audio_track_issue_fields(mediainfo) do
+    case AudioTrackInfo.primary_from_mediainfo(mediainfo) do
+      %{codec: codec, channels: channels, channel_layout: layout} ->
+        %{codec: codec, channels: channels, layout: layout}
+
+      :error ->
+        %{codec: "unknown", channels: 0, layout: "unknown"}
+    end
+  end
+
+  defp current_audio_issue_fields(video) do
+    audio_fields = audio_track_issue_fields(video.mediainfo)
+
+    %{
+      codec: current_audio_codec(video, audio_fields.codec),
+      channels: current_audio_channels(video, audio_fields.channels),
+      layout: current_audio_layout(video, audio_fields.layout)
+    }
+  end
+
+  defp current_audio_codec(%Video{audio_codecs: audio_codecs}, "unknown") when is_list(audio_codecs) do
+    case Enum.find(audio_codecs, &opus_codec?/1) do
+      nil -> "unknown"
+      codec -> to_string(codec)
+    end
+  end
+
+  defp current_audio_codec(_video, codec), do: codec
+
+  defp current_audio_channels(%Video{max_audio_channels: channels}, 0) when is_integer(channels),
+    do: channels
+
+  defp current_audio_channels(_video, channels), do: channels
+
+  defp current_audio_layout(%Video{path: path}, layout) when layout in [nil, "", "unknown"] do
+    case layout_from_filename(path) do
+      nil -> "unknown"
+      detected_layout -> detected_layout
+    end
+  end
+
+  defp current_audio_layout(_video, layout), do: layout
+
+  defp output_is_multichannel_opus?(%{codec: codec, channels: channels})
+       when is_binary(codec) and is_integer(channels) do
+    channels > 2 and opus_codec?(codec)
+  end
+
+  defp output_is_multichannel_opus?(_audio_fields), do: false
+
+  defp opus_video?(%Video{audio_codecs: audio_codecs}) when is_list(audio_codecs) do
+    Enum.any?(audio_codecs, fn codec ->
+      opus_codec?(codec)
+    end)
+  end
+
+  defp opus_video?(_video), do: false
+
+  defp opus_codec?(codec) do
+    codec
+    |> to_string()
+    |> String.downcase()
+    |> String.contains?("opus")
+  end
+
+  defp layout_from_filename(path) when is_binary(path) do
+    filename = path |> Path.basename() |> String.downcase()
+
+    Enum.find_value(["7.1", "5.1", "2.0", "1.0"], fn layout ->
+      if String.contains?(filename, layout), do: layout, else: nil
+    end)
+  end
+
+  defp layout_from_filename(_path), do: nil
+
+  defp unresolved_bad_file_issue?(issue) do
+    issue.status not in [:replaced_clean, :dismissed]
+  end
+
+  defp series_group_key(%Video{service_type: :sonarr, path: path}) when is_binary(path) do
+    dir = Path.dirname(path)
+
+    if Regex.match?(~r/^[Ss](?:eason\s*)?0*\d+$/i, Path.basename(dir)) do
+      Path.dirname(dir)
+    else
+      dir
+    end
+  end
+
+  defp series_group_key(_video), do: nil
 
   @doc """
   Bulk-marks all :analyzed videos that are already AV1 (by codec or filename) as :encoded.
@@ -1204,6 +1564,14 @@ defmodule Reencodarr.Media do
     Repo.get(Video, id)
   end
 
+  @spec fetch_video(integer()) :: {:ok, Video.t()} | :not_found
+  def fetch_video(id) when is_integer(id) do
+    case Repo.get(Video, id) do
+      %Video{} = video -> {:ok, video}
+      nil -> :not_found
+    end
+  end
+
   def get_video_by_service_id(service_id, service_type)
       when is_binary(service_id) or is_integer(service_id) do
     case Repo.one(
@@ -1331,6 +1699,288 @@ defmodule Reencodarr.Media do
   end
 
   # --- Bulk operations ---
+
+  @doc """
+  Backfill stored MediaInfo for videos that are missing it without resetting analysis state.
+  """
+  @spec backfill_missing_mediainfo(keyword()) ::
+          {:ok, %{scanned: non_neg_integer(), backfilled: non_neg_integer(), failed: non_neg_integer()}}
+  def backfill_missing_mediainfo(opts \\ []) do
+    batch_probe_fun =
+      Keyword.get(opts, :batch_probe_fun, &MediaInfoExtractor.execute_optimized_mediainfo_command/1)
+
+    batch_size = Keyword.get(opts, :batch_size, 100)
+    max_concurrency = normalize_backfill_max_concurrency(Keyword.get(opts, :max_concurrency, 4))
+    limit = Keyword.get(opts, :limit, :all)
+    sleep_ms = Keyword.get(opts, :sleep_ms, 0)
+
+    {:ok,
+     do_backfill_missing_mediainfo(
+       batch_probe_fun,
+       batch_size,
+       max_concurrency,
+       limit,
+       sleep_ms,
+       MapSet.new(),
+       %{scanned: 0, backfilled: 0, failed: 0}
+     )}
+  end
+
+  defp do_backfill_missing_mediainfo(
+         batch_probe_fun,
+         batch_size,
+         max_concurrency,
+         remaining_limit,
+         sleep_ms,
+         attempted_ids,
+         summary
+       ) do
+    batch_limit = next_backfill_batch_limit(batch_size * max_concurrency, remaining_limit)
+    lane_videos = fetch_backfill_lane_videos(batch_limit, attempted_ids)
+    selected_videos = Enum.flat_map(lane_videos, fn {_lane, videos} -> videos end)
+
+    case selected_videos do
+      [] ->
+        summary
+
+      videos ->
+        updated_summary =
+          backfill_video_service_lanes_mediainfo(
+            lane_videos,
+            batch_size,
+            max_concurrency,
+            batch_probe_fun,
+            summary
+          )
+
+        maybe_sleep_after_backfill_batch(sleep_ms)
+
+        do_backfill_missing_mediainfo(
+          batch_probe_fun,
+          batch_size,
+          max_concurrency,
+          decrement_backfill_limit(remaining_limit, length(videos)),
+          sleep_ms,
+          Enum.reduce(videos, attempted_ids, fn video, acc -> MapSet.put(acc, video.id) end),
+          updated_summary
+        )
+    end
+  end
+
+  defp fetch_backfill_lane_videos(batch_limit, attempted_ids) do
+    attempted_id_list = MapSet.to_list(attempted_ids)
+    lane_limit = max(1, ceil(batch_limit / length(@backfill_service_lanes)))
+
+    @backfill_service_lanes
+    |> Enum.map(fn lane ->
+      {lane, fetch_backfill_lane_batch(lane, lane_limit, attempted_id_list)}
+    end)
+    |> trim_backfill_lane_videos(batch_limit)
+  end
+
+  defp fetch_backfill_lane_batch(:unknown, lane_limit, attempted_id_list) do
+    from(v in Video,
+      where: is_nil(v.mediainfo),
+      where: is_nil(v.service_type),
+      where: v.id not in ^attempted_id_list,
+      order_by: [asc: v.id],
+      limit: ^lane_limit
+    )
+    |> Repo.all()
+  end
+
+  defp fetch_backfill_lane_batch(service_type, lane_limit, attempted_id_list)
+       when service_type in [:sonarr, :radarr] do
+    from(v in Video,
+      where: is_nil(v.mediainfo),
+      where: v.service_type == ^service_type,
+      where: v.id not in ^attempted_id_list,
+      order_by: [asc: v.id],
+      limit: ^lane_limit
+    )
+    |> Repo.all()
+  end
+
+  defp trim_backfill_lane_videos(lane_videos, batch_limit) do
+    interleaved =
+      lane_videos
+      |> Enum.map(fn {lane, videos} -> {lane, videos} end)
+      |> interleave_backfill_lane_videos([])
+      |> Enum.take(batch_limit)
+
+    grouped = Enum.group_by(interleaved, fn {lane, _video} -> lane end, fn {_lane, video} -> video end)
+
+    Enum.map(lane_videos, fn {lane, _videos} -> {lane, Map.get(grouped, lane, [])} end)
+  end
+
+  defp interleave_backfill_lane_videos(lane_videos, acc) do
+    case Enum.split_with(lane_videos, fn {_lane, videos} -> videos != [] end) do
+      {[], _empty_lanes} ->
+        Enum.reverse(acc)
+
+      {active_lanes, _empty_lanes} ->
+        next_acc =
+          Enum.reduce(active_lanes, acc, fn {lane, [video | _rest]}, lane_acc ->
+            [{lane, video} | lane_acc]
+          end)
+
+        next_lanes =
+          Enum.map(active_lanes, fn {lane, [_video | rest]} -> {lane, rest} end) ++
+            Enum.reject(lane_videos, fn {lane, videos} ->
+              videos != [] and Enum.any?(active_lanes, fn {active_lane, _} -> active_lane == lane end)
+            end)
+
+        interleave_backfill_lane_videos(next_lanes, next_acc)
+    end
+  end
+
+  defp backfill_video_service_lanes_mediainfo(
+         lane_videos,
+         batch_size,
+         max_concurrency,
+         batch_probe_fun,
+         summary
+       ) do
+    active_lane_videos = Enum.filter(lane_videos, fn {_lane, videos} -> videos != [] end)
+
+    if active_lane_videos == [] do
+      summary
+    else
+      lane_concurrency = split_backfill_lane_concurrency(active_lane_videos, max_concurrency)
+
+      active_lane_videos
+      |> Enum.map(fn {lane, videos} ->
+        Task.async(fn ->
+          backfill_video_batches_mediainfo(
+            videos,
+            batch_size,
+            Map.fetch!(lane_concurrency, lane),
+            batch_probe_fun,
+            %{scanned: 0, backfilled: 0, failed: 0}
+          )
+        end)
+      end)
+      |> Enum.reduce(summary, fn task, acc ->
+        merge_backfill_summary(acc, Task.await(task, :infinity))
+      end)
+    end
+  end
+
+  defp backfill_video_batches_mediainfo(videos, batch_size, max_concurrency, batch_probe_fun, summary) do
+    videos
+    |> Enum.chunk_every(batch_size)
+    |> Enum.chunk_every(max_concurrency)
+    |> Enum.reduce(summary, fn video_batch_group, acc ->
+      video_batch_group
+      |> Enum.map(fn video_batch ->
+        Task.async(fn -> backfill_video_batch_mediainfo(video_batch, batch_probe_fun) end)
+      end)
+      |> Enum.reduce(acc, fn task, group_acc ->
+        batch_summary = Task.await(task, :infinity)
+        merge_backfill_summary(group_acc, batch_summary)
+      end)
+    end)
+  end
+
+  defp backfill_video_batch_mediainfo(videos, batch_probe_fun) do
+    paths = Enum.map(videos, & &1.path)
+    scanned_summary = %{scanned: length(videos), backfilled: 0, failed: 0}
+
+    case batch_probe_fun.(paths) do
+      {:ok, mediainfo_payloads} when is_map(mediainfo_payloads) ->
+        Enum.reduce(videos, scanned_summary, fn video, acc ->
+          backfill_video_from_payload(video, mediainfo_payloads, acc)
+        end)
+
+      {:ok, invalid_payload} ->
+        Logger.warning(
+          "MediaInfo backfill returned invalid batch payload: #{inspect(invalid_payload, limit: 200)}"
+        )
+
+        %{scanned_summary | failed: scanned_summary.failed + length(videos)}
+
+      {:error, reason} ->
+        Logger.warning(
+          "MediaInfo backfill batch probe failed for #{length(videos)} paths: #{inspect(reason)}"
+        )
+
+        %{scanned_summary | failed: scanned_summary.failed + length(videos)}
+    end
+  end
+
+  defp merge_backfill_summary(left, right) do
+    %{
+      scanned: left.scanned + right.scanned,
+      backfilled: left.backfilled + right.backfilled,
+      failed: left.failed + right.failed
+    }
+  end
+
+  defp normalize_backfill_max_concurrency(value) when is_integer(value) and value > 0, do: value
+  defp normalize_backfill_max_concurrency(_value), do: 1
+
+  defp split_backfill_lane_concurrency(active_lane_videos, max_concurrency) do
+    lanes = Enum.map(active_lane_videos, fn {lane, _videos} -> lane end)
+    lane_count = length(lanes)
+    base = max(1, div(max_concurrency, lane_count))
+    remainder = rem(max_concurrency, lane_count)
+
+    lanes
+    |> Enum.with_index()
+    |> Enum.into(%{}, fn {lane, index} ->
+      extra = if index < remainder, do: 1, else: 0
+      {lane, base + extra}
+    end)
+  end
+
+  defp backfill_video_from_payload(%Video{} = video, mediainfo_payloads, summary) do
+    case normalize_backfill_mediainfo(mediainfo_payloads, video.path) do
+      {:ok, mediainfo} ->
+        case update_video(video, %{mediainfo: mediainfo}) do
+          {:ok, _updated_video} ->
+            %{summary | backfilled: summary.backfilled + 1}
+
+          {:error, changeset} ->
+            Logger.warning(
+              "MediaInfo backfill update failed for #{video.path}: #{inspect(changeset.errors)}"
+            )
+
+            %{summary | failed: summary.failed + 1}
+        end
+
+      {:error, :invalid_mediainfo_payload} ->
+        Logger.warning(
+          "MediaInfo backfill returned invalid payload for #{video.path}: #{inspect(mediainfo_payloads, limit: 200)}"
+        )
+
+        %{summary | failed: summary.failed + 1}
+    end
+  end
+
+  defp normalize_backfill_mediainfo(%{"media" => _tracks} = mediainfo, _path), do: {:ok, mediainfo}
+
+  defp normalize_backfill_mediainfo(mediainfo_by_path, path) when is_map(mediainfo_by_path) do
+    case Map.get(mediainfo_by_path, path, :missing_mediainfo_for_path) do
+      %{"media" => _tracks} = mediainfo -> {:ok, mediainfo}
+      :missing_mediainfo_for_path -> {:error, :invalid_mediainfo_payload}
+      _other -> {:error, :invalid_mediainfo_payload}
+    end
+  end
+
+  defp normalize_backfill_mediainfo(_mediainfo_payload, _path),
+    do: {:error, :invalid_mediainfo_payload}
+
+  defp next_backfill_batch_limit(batch_size, :all), do: batch_size
+  defp next_backfill_batch_limit(batch_size, remaining_limit), do: min(batch_size, remaining_limit)
+
+  defp decrement_backfill_limit(:all, _processed_count), do: :all
+  defp decrement_backfill_limit(remaining_limit, processed_count), do: remaining_limit - processed_count
+
+  defp maybe_sleep_after_backfill_batch(sleep_ms) when sleep_ms > 0 do
+    Process.sleep(sleep_ms)
+  end
+
+  defp maybe_sleep_after_backfill_batch(_sleep_ms), do: :ok
 
   @doc """
   Reset all videos for reanalysis by clearing their bitrate.

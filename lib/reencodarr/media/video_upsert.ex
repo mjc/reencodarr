@@ -188,7 +188,7 @@ defmodule Reencodarr.Media.VideoUpsert do
 
       attrs
       |> Map.delete("bitrate")
-      |> Map.delete("mediainfo")
+      |> drop_invalid_mediainfo()
     else
       case existing_video do
         nil -> :ok
@@ -223,10 +223,29 @@ defmodule Reencodarr.Media.VideoUpsert do
         base
       end
 
+    base =
+      if should_preserve_mediainfo?(attrs) do
+        [:mediainfo | base]
+      else
+        base
+      end
+
     if Map.has_key?(attrs, "bitrate") do
       base
     else
       [:bitrate | base]
+    end
+  end
+
+  defp should_preserve_mediainfo?(attrs) do
+    not Map.has_key?(attrs, "mediainfo") or is_nil(Map.get(attrs, "mediainfo"))
+  end
+
+  defp drop_invalid_mediainfo(attrs) do
+    case Map.get(attrs, "mediainfo", :missing) do
+      :missing -> attrs
+      mediainfo when is_map(mediainfo) -> attrs
+      _other -> Map.delete(attrs, "mediainfo")
     end
   end
 

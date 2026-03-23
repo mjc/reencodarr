@@ -21,6 +21,7 @@ defmodule ReencodarrWeb.VideosLive do
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
+  alias ReencodarrWeb.Live.ListPagination
 
   @per_page_options [25, 50, 100, 250]
   @default_per_page 50
@@ -41,6 +42,7 @@ defmodule ReencodarrWeb.VideosLive do
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
       Process.send_after(self(), :periodic_update, @update_interval)
+      send(self(), :load_initial_data)
     end
 
     {:ok,
@@ -50,6 +52,7 @@ defmodule ReencodarrWeb.VideosLive do
        state_counts: %{},
        selected: MapSet.new(),
        loading: true,
+       loaded_once: false,
        per_page_options: @per_page_options,
        valid_states: @valid_states
      )}
@@ -62,7 +65,9 @@ defmodule ReencodarrWeb.VideosLive do
     socket =
       socket
       |> assign(filters)
-      |> then(fn s -> if connected?(s), do: load_data(s), else: s end)
+      |> then(fn s ->
+        if connected?(s) and s.assigns.loaded_once, do: load_data(s), else: s
+      end)
 
     {:noreply, socket}
   end
@@ -72,9 +77,14 @@ defmodule ReencodarrWeb.VideosLive do
   # ---------------------------------------------------------------------------
 
   @impl true
+  def handle_info(:load_initial_data, socket) do
+    {:noreply, socket |> load_data() |> assign(:loaded_once, true)}
+  end
+
+  @impl true
   def handle_info(:periodic_update, socket) do
     Process.send_after(self(), :periodic_update, @update_interval)
-    {:noreply, load_data(socket)}
+    {:noreply, if(socket.assigns.loaded_once, do: load_data(socket), else: socket)}
   end
 
   @impl true
@@ -86,7 +96,7 @@ defmodule ReencodarrWeb.VideosLive do
              :crf_search_started,
              :analyzer_progress
            ] do
-    {:noreply, load_data(socket)}
+    {:noreply, if(socket.assigns.loaded_once, do: load_data(socket), else: socket)}
   end
 
   @impl true
@@ -361,11 +371,11 @@ defmodule ReencodarrWeb.VideosLive do
   @impl true
   def handle_event("delete_video", %{"id" => id_str}, socket) do
     with {:ok, id} <- Parsers.parse_integer_exact(id_str),
-         video when not is_nil(video) <- Media.get_video(id),
+         {:ok, video} <- Media.fetch_video(id),
          {:ok, _} <- Media.delete_video(video) do
       {:noreply, socket |> put_flash(:info, "Video deleted") |> load_data()}
     else
-      nil -> {:noreply, put_flash(socket, :error, "Video not found")}
+      :not_found -> {:noreply, put_flash(socket, :error, "Video not found")}
       {:error, _} -> {:noreply, put_flash(socket, :error, "Delete failed")}
     end
   end
@@ -373,7 +383,7 @@ defmodule ReencodarrWeb.VideosLive do
   @impl true
   def handle_event("mark_bad", %{"id" => id_str, "issue" => issue_params}, socket) do
     with {:ok, id} <- Parsers.parse_integer_exact(id_str),
-         video when not is_nil(video) <- Media.get_video(id),
+         {:ok, video} <- Media.fetch_video(id),
          {:ok, _issue} <-
            Media.create_bad_file_issue(video, %{
              origin: :manual,
@@ -384,7 +394,7 @@ defmodule ReencodarrWeb.VideosLive do
            }) do
       {:noreply, socket |> put_flash(:info, "Marked as bad") |> load_data()}
     else
-      nil -> {:noreply, put_flash(socket, :error, "Video not found")}
+      :not_found -> {:noreply, put_flash(socket, :error, "Video not found")}
       {:error, _} -> {:noreply, put_flash(socket, :error, "Mark bad failed")}
       _ -> {:noreply, put_flash(socket, :error, "Mark bad failed")}
     end
@@ -397,19 +407,24 @@ defmodule ReencodarrWeb.VideosLive do
   defp load_data(socket) do
     a = socket.assigns
 
-    {videos, meta} =
-      Media.list_videos_paginated(
-        page: a.page,
-        per_page: a.per_page,
-        state: a.state_filter,
-        service_type: a.service_filter,
-        hdr: a.hdr_filter,
-        search: a.search,
-        sort_by: a.sort_by,
-        sort_dir: a.sort_dir
-      )
+    videos_task =
+      Task.async(fn ->
+        Media.list_videos_paginated(
+          page: a.page,
+          per_page: a.per_page,
+          state: a.state_filter,
+          service_type: a.service_filter,
+          hdr: a.hdr_filter,
+          search: a.search,
+          sort_by: a.sort_by,
+          sort_dir: a.sort_dir
+        )
+      end)
 
-    state_counts = Media.count_videos_by_state()
+    state_counts_task = Task.async(&Media.count_videos_by_state/0)
+
+    {videos, meta} = Task.await(videos_task, :infinity)
+    state_counts = Task.await(state_counts_task, :infinity)
 
     assign(socket,
       videos: videos,
@@ -523,7 +538,7 @@ defmodule ReencodarrWeb.VideosLive do
     "/videos?#{query}"
   end
 
-  defp max_page(%{total: total, per_page: per_page}), do: max(ceil(total / per_page), 1)
+  defp max_page(%{total: total, per_page: per_page}), do: ListPagination.max_page(total, per_page)
 
   defp toggle_dir(:asc), do: :desc
   defp toggle_dir(:desc), do: :asc
@@ -556,13 +571,7 @@ defmodule ReencodarrWeb.VideosLive do
       not is_nil(assigns.service_filter) or not is_nil(assigns.hdr_filter)
   end
 
-  defp pagination_label(page, per_page, total) when total > 0 do
-    first = (page - 1) * per_page + 1
-    last = min(page * per_page, total)
-    "#{first}-#{last} of #{total}"
-  end
-
-  defp pagination_label(_, _, _), do: "0 results"
+  defp pagination_label(page, per_page, total), do: ListPagination.pagination_label(page, per_page, total)
 
   # ---------------------------------------------------------------------------
   # Render

@@ -25,6 +25,8 @@ defmodule Reencodarr.Services.Radarr do
     end
   end
 
+  def api_request(opts), do: request(opts)
+
   @spec get_movies() :: {:ok, Req.Response.t()} | {:error, any()}
   def get_movies do
     request(url: "/api/v3/movie?includeImages=false", method: :get)
@@ -39,6 +41,13 @@ defmodule Reencodarr.Services.Radarr do
   def get_movie_file(movie_file_id) do
     request(url: "/api/v3/moviefile/#{movie_file_id}", method: :get)
   end
+
+  @spec get_movie(integer()) :: {:ok, Req.Response.t()} | {:error, :invalid_movie_id}
+  def get_movie(movie_id) when is_integer(movie_id) and movie_id > 0 do
+    __MODULE__.api_request(url: "/api/v3/movie/#{movie_id}", method: :get)
+  end
+
+  def get_movie(_movie_id), do: {:error, :invalid_movie_id}
 
   @spec refresh_movie(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
   def refresh_movie(movie_id) do
@@ -116,6 +125,37 @@ defmodule Reencodarr.Services.Radarr do
         {:error, reason}
     end
   end
+
+  @spec set_movie_monitored(integer(), boolean()) ::
+          {:ok, Req.Response.t()} | {:error, :invalid_movie_id}
+  def set_movie_monitored(movie_id, monitored)
+      when is_integer(movie_id) and movie_id > 0 and is_boolean(monitored) do
+    __MODULE__.api_request(
+      url: "/api/v3/movie/editor",
+      method: :put,
+      json: %{movieIds: [movie_id], monitored: monitored}
+    )
+  end
+
+  def set_movie_monitored(_movie_id, _monitored), do: {:error, :invalid_movie_id}
+
+  @spec delete_movie_file(integer()) :: {:ok, Req.Response.t()} | {:error, :invalid_movie_file_id}
+  def delete_movie_file(movie_file_id) when is_integer(movie_file_id) and movie_file_id > 0 do
+    __MODULE__.api_request(url: "/api/v3/moviefile/#{movie_file_id}", method: :delete)
+  end
+
+  def delete_movie_file(_movie_file_id), do: {:error, :invalid_movie_file_id}
+
+  @spec trigger_movie_search(integer()) :: {:ok, Req.Response.t()} | {:error, :invalid_movie_id}
+  def trigger_movie_search(movie_id) when is_integer(movie_id) and movie_id > 0 do
+    __MODULE__.api_request(
+      url: "/api/v3/command",
+      method: :post,
+      json: %{name: "MoviesSearch", movieIds: [movie_id]}
+    )
+  end
+
+  def trigger_movie_search(_movie_id), do: {:error, :invalid_movie_id}
 
   @spec rename_movie_files(integer() | nil) ::
           {:ok, Req.Response.t()} | {:error, any()}

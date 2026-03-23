@@ -33,14 +33,16 @@ defmodule ReencodarrWeb.VideosLiveTest do
     end
 
     test "renders empty state when no videos exist", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live(conn, ~p"/videos")
+      html = render(view)
       # Table should still be present (no crash)
       assert html =~ "<table" or html =~ "No videos"
     end
 
     test "renders video rows when videos exist", %{conn: conn} do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/show/ep01.mkv"})
-      {:ok, _view, html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live(conn, ~p"/videos")
+      html = render(view)
       assert html =~ video.path
     end
   end
@@ -132,7 +134,8 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
     test "search query param pre-fills the search", %{conn: conn} do
       {:ok, _video} = Fixtures.video_fixture(%{path: "/media/preloaded.mkv"})
-      {:ok, _view, html} = live(conn, ~p"/videos?q=preloaded")
+      {:ok, view, _html} = live(conn, ~p"/videos?q=preloaded")
+      html = render(view)
       assert html =~ "preloaded"
     end
 
@@ -161,7 +164,8 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
   describe "pagination" do
     test "prev_page button is disabled on page 1", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/videos?page=1")
+      {:ok, view, _html} = live(conn, ~p"/videos?page=1")
+      html = render(view)
       # Button is rendered as disabled when already on first page
       assert html =~ "phx-click=\"prev_page\""
       assert html =~ "disabled"
@@ -191,7 +195,8 @@ defmodule ReencodarrWeb.VideosLiveTest do
   describe "space saved badge" do
     test "does not render a space saved badge when video has no original_size", %{conn: conn} do
       {:ok, _video} = Fixtures.video_fixture(%{path: "/media/no_space.mkv", size: 1_000_000_000})
-      {:ok, _view, html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live(conn, ~p"/videos")
+      html = render(view)
       refute html =~ "Space saved"
     end
 
@@ -203,7 +208,8 @@ defmodule ReencodarrWeb.VideosLiveTest do
           original_size: 5_000_000_000
         })
 
-      {:ok, _view, html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live(conn, ~p"/videos")
+      html = render(view)
       assert html =~ "text-green-300"
       assert html =~ "GiB"
     end
@@ -216,7 +222,8 @@ defmodule ReencodarrWeb.VideosLiveTest do
           original_size: 2_500_000_000
         })
 
-      {:ok, _view, html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live(conn, ~p"/videos")
+      html = render(view)
       assert html =~ "text-yellow-300"
     end
 
@@ -228,7 +235,8 @@ defmodule ReencodarrWeb.VideosLiveTest do
           original_size: 950_000_000
         })
 
-      {:ok, _view, html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live(conn, ~p"/videos")
+      html = render(view)
       assert html =~ "text-red-400"
     end
   end
@@ -240,14 +248,16 @@ defmodule ReencodarrWeb.VideosLiveTest do
   describe "hdr badge" do
     test "does not render an hdr badge when video has no HDR", %{conn: conn} do
       {:ok, _video} = Fixtures.video_fixture(%{path: "/media/sdr.mkv", hdr: nil})
-      {:ok, _view, html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live(conn, ~p"/videos")
+      html = render(view)
       refute html =~ "HDR10"
       refute html =~ "bg-amber-900"
     end
 
     test "renders HDR label in amber badge", %{conn: conn} do
       {:ok, _video} = Fixtures.hdr_video_fixture(%{path: "/media/hdr.mkv"})
-      {:ok, _view, html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live(conn, ~p"/videos")
+      html = render(view)
       assert html =~ "HDR10"
       assert html =~ "bg-amber-900"
     end
@@ -304,7 +314,8 @@ defmodule ReencodarrWeb.VideosLiveTest do
   describe "bulk selection" do
     test "renders checkbox column", %{conn: conn} do
       {:ok, _video} = Fixtures.video_fixture(%{path: "/media/checkme.mkv"})
-      {:ok, _view, html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live(conn, ~p"/videos")
+      html = render(view)
       assert html =~ ~s(type="checkbox")
     end
 

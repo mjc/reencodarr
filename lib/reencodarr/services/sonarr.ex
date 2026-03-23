@@ -25,6 +25,8 @@ defmodule Reencodarr.Services.Sonarr do
     end
   end
 
+  def api_request(opts), do: request(opts)
+
   def system_status do
     request(url: "/api/v3/system/status", method: :get)
   end
@@ -44,6 +46,13 @@ defmodule Reencodarr.Services.Sonarr do
   def get_episode_file(episode_file_id) do
     request(url: "/api/v3/episodefile/#{episode_file_id}", method: :get)
   end
+
+  @spec get_episodes_by_file(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
+  def get_episodes_by_file(episode_file_id) when is_integer(episode_file_id) and episode_file_id > 0 do
+    __MODULE__.api_request(url: "/api/v3/episode?episodeFileId=#{episode_file_id}", method: :get)
+  end
+
+  def get_episodes_by_file(_episode_file_id), do: {:error, :invalid_episode_file_id}
 
   @spec refresh_series(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
   def refresh_series(series_id) do
@@ -121,6 +130,47 @@ defmodule Reencodarr.Services.Sonarr do
         {:error, reason}
     end
   end
+
+  @spec set_episodes_monitored([integer()], boolean()) ::
+          {:ok, Req.Response.t()} | {:error, :invalid_episode_ids}
+  def set_episodes_monitored(episode_ids, monitored)
+      when is_list(episode_ids) and episode_ids != [] and is_boolean(monitored) do
+    if Enum.all?(episode_ids, &(is_integer(&1) and &1 > 0)) do
+      __MODULE__.api_request(
+        url: "/api/v3/episode/monitor",
+        method: :put,
+        json: %{episodeIds: episode_ids, monitored: monitored}
+      )
+    else
+      {:error, :invalid_episode_ids}
+    end
+  end
+
+  def set_episodes_monitored(_episode_ids, _monitored), do: {:error, :invalid_episode_ids}
+
+  @spec delete_episode_file(integer()) :: {:ok, Req.Response.t()} | {:error, :invalid_episode_file_id}
+  def delete_episode_file(episode_file_id)
+      when is_integer(episode_file_id) and episode_file_id > 0 do
+    __MODULE__.api_request(url: "/api/v3/episodefile/#{episode_file_id}", method: :delete)
+  end
+
+  def delete_episode_file(_episode_file_id), do: {:error, :invalid_episode_file_id}
+
+  @spec trigger_episode_search([integer()]) ::
+          {:ok, Req.Response.t()} | {:error, :invalid_episode_ids}
+  def trigger_episode_search(episode_ids) when is_list(episode_ids) and episode_ids != [] do
+    if Enum.all?(episode_ids, &(is_integer(&1) and &1 > 0)) do
+      __MODULE__.api_request(
+        url: "/api/v3/command",
+        method: :post,
+        json: %{name: "EpisodeSearch", episodeIds: episode_ids}
+      )
+    else
+      {:error, :invalid_episode_ids}
+    end
+  end
+
+  def trigger_episode_search(_episode_ids), do: {:error, :invalid_episode_ids}
 
   @spec rename_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
   def rename_files(series_id) when not is_integer(series_id) do

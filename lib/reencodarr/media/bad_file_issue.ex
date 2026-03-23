@@ -18,7 +18,6 @@ defmodule Reencodarr.Media.BadFileIssue do
     :processing,
     :waiting_for_replacement,
     :replaced_clean,
-    :replaced_still_bad,
     :failed,
     :dismissed
   ]

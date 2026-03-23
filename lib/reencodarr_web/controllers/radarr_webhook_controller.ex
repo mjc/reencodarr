@@ -34,7 +34,9 @@ defmodule ReencodarrWeb.RadarrWebhookController do
       Enum.map(movie_files, fn file ->
         case validate_movie_file(file) do
           {:ok, validated_file} ->
-            process_valid_movie_file(validated_file)
+            validated_file
+            |> process_valid_movie_file()
+            |> reconcile_waiting_bad_file_issues()
 
           {:error, reason} ->
             Logger.error("Invalid movie file data from Radarr: #{reason}")
@@ -126,7 +128,9 @@ defmodule ReencodarrWeb.RadarrWebhookController do
 
   defp handle_moviefile(conn, %{"movieFile" => movie_file}) do
     Logger.info("Received new MovieFile event from Radarr!")
-    Reencodarr.Sync.upsert_video_from_file(movie_file, :radarr)
+    movie_file
+    |> Reencodarr.Sync.upsert_video_from_file(:radarr)
+    |> reconcile_waiting_bad_file_issues()
     send_resp(conn, :no_content, "")
   end
 
@@ -236,4 +240,14 @@ defmodule ReencodarrWeb.RadarrWebhookController do
         error
     end
   end
+
+  defp reconcile_waiting_bad_file_issues({:ok, {:ok, video}}) do
+    Reencodarr.Media.reconcile_replacement_video(video, :radarr)
+  end
+
+  defp reconcile_waiting_bad_file_issues({:ok, video}) do
+    Reencodarr.Media.reconcile_replacement_video(video, :radarr)
+  end
+
+  defp reconcile_waiting_bad_file_issues(other_result), do: other_result
 end

@@ -36,7 +36,9 @@ defmodule ReencodarrWeb.SonarrWebhookController do
           {:ok, validated_file} ->
             scene_name = validated_file.scene_name
             Logger.info("Received download event from Sonarr for #{scene_name}!")
-            Reencodarr.Sync.upsert_video_from_file(validated_file.raw_file, :sonarr)
+            validated_file.raw_file
+            |> Reencodarr.Sync.upsert_video_from_file(:sonarr)
+            |> reconcile_waiting_bad_file_issues()
 
           {:error, reason} ->
             Logger.error("Invalid episode file data from Sonarr: #{reason}")
@@ -59,7 +61,9 @@ defmodule ReencodarrWeb.SonarrWebhookController do
       {:ok, validated_file} ->
         scene_name = validated_file.scene_name
         Logger.info("Received download event from Sonarr for #{scene_name}!")
-        Reencodarr.Sync.upsert_video_from_file(validated_file.raw_file, :sonarr)
+        validated_file.raw_file
+        |> Reencodarr.Sync.upsert_video_from_file(:sonarr)
+        |> reconcile_waiting_bad_file_issues()
 
       {:error, reason} ->
         Logger.error("Invalid episode file data from Sonarr: #{reason}")
@@ -139,7 +143,9 @@ defmodule ReencodarrWeb.SonarrWebhookController do
 
   defp handle_episodefile(conn, %{"episodeFile" => episode_file}) do
     Logger.info("Received new episodefile event from Sonarr!")
-    Reencodarr.Sync.upsert_video_from_file(episode_file, :sonarr)
+    episode_file
+    |> Reencodarr.Sync.upsert_video_from_file(:sonarr)
+    |> reconcile_waiting_bad_file_issues()
     send_resp(conn, :no_content, "")
   end
 
@@ -220,4 +226,10 @@ defmodule ReencodarrWeb.SonarrWebhookController do
 
   defp validate_file_id(id) when is_binary(id) or is_integer(id), do: {:ok, id}
   defp validate_file_id(_), do: {:error, "file id is required"}
+
+  defp reconcile_waiting_bad_file_issues({:ok, {:ok, video}}) do
+    Reencodarr.Media.reconcile_replacement_video(video, :sonarr)
+  end
+
+  defp reconcile_waiting_bad_file_issues(other_result), do: other_result
 end
