@@ -253,6 +253,50 @@ defmodule ReencodarrWeb.VideosLiveTest do
     end
   end
 
+  describe "mark bad" do
+    test "creates a manual bad-file issue from the videos page", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/manual_bad.mkv"})
+      {:ok, view, _html} = live(conn, ~p"/videos")
+
+      html =
+        view
+        |> form("#mark-bad-form-#{video.id}", %{
+          "issue" => %{
+            "manual_reason" => "corrupt replacement",
+            "manual_note" => "audio desync after intro"
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "Marked as bad"
+
+      [issue] = Reencodarr.Media.list_bad_file_issues()
+      assert issue.video_id == video.id
+      assert issue.issue_kind == :manual
+      assert issue.classification == :manual_bad
+      assert issue.manual_reason == "corrupt replacement"
+      assert issue.manual_note == "audio desync after intro"
+    end
+
+    test "shows an error when the reason is blank", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/no_reason.mkv"})
+      {:ok, view, _html} = live(conn, ~p"/videos")
+
+      html =
+        view
+        |> form("#mark-bad-form-#{video.id}", %{
+          "issue" => %{
+            "manual_reason" => "",
+            "manual_note" => "still bad"
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "Mark bad failed"
+      assert Reencodarr.Media.list_bad_file_issues() == []
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Checkbox / bulk select
   # ---------------------------------------------------------------------------

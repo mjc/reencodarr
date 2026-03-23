@@ -370,6 +370,26 @@ defmodule ReencodarrWeb.VideosLive do
     end
   end
 
+  @impl true
+  def handle_event("mark_bad", %{"id" => id_str, "issue" => issue_params}, socket) do
+    with {:ok, id} <- Parsers.parse_integer_exact(id_str),
+         video when not is_nil(video) <- Media.get_video(id),
+         {:ok, _issue} <-
+           Media.create_bad_file_issue(video, %{
+             origin: :manual,
+             issue_kind: :manual,
+             classification: :manual_bad,
+             manual_reason: String.trim(Map.get(issue_params, "manual_reason", "")),
+             manual_note: String.trim(Map.get(issue_params, "manual_note", ""))
+           }) do
+      {:noreply, socket |> put_flash(:info, "Marked as bad") |> load_data()}
+    else
+      nil -> {:noreply, put_flash(socket, :error, "Video not found")}
+      {:error, _} -> {:noreply, put_flash(socket, :error, "Mark bad failed")}
+      _ -> {:noreply, put_flash(socket, :error, "Mark bad failed")}
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Private helpers
   # ---------------------------------------------------------------------------
@@ -783,54 +803,81 @@ defmodule ReencodarrWeb.VideosLive do
                       {format_datetime(video.updated_at)}
                     </td>
                     <td class="px-4 py-2">
-                      <div class="flex flex-wrap gap-x-2 gap-y-1 items-center">
-                        <%= if queueable_video?(video) do %>
+                      <div class="flex flex-col gap-2">
+                        <div class="flex flex-wrap gap-x-2 gap-y-1 items-center">
+                          <%= if queueable_video?(video) do %>
+                            <button
+                              phx-click="prioritize_video"
+                              phx-value-id={video.id}
+                              title="Move this queued video to the top"
+                              class="text-emerald-400 hover:text-emerald-300 text-xs"
+                            >
+                              prioritize
+                            </button>
+                          <% end %>
+                          <%= if queueable_video?(video) and season_directory(video.path) do %>
+                            <button
+                              phx-click="prioritize_season_visible"
+                              phx-value-id={video.id}
+                              title="Move visible videos from this season to the top"
+                              class="text-emerald-300 hover:text-emerald-200 text-xs"
+                            >
+                              prioritize season
+                            </button>
+                          <% end %>
                           <button
-                            phx-click="prioritize_video"
+                            phx-click="force_reanalyze"
                             phx-value-id={video.id}
-                            title="Move this queued video to the top"
-                            class="text-emerald-400 hover:text-emerald-300 text-xs"
+                            title="Force re-analyze (clears VMAFs and resets metadata)"
+                            class="text-blue-400 hover:text-blue-300 text-xs"
                           >
-                            prioritize
+                            scan
                           </button>
-                        <% end %>
-                        <%= if queueable_video?(video) and season_directory(video.path) do %>
+                          <%= if video.state in [:failed, :encoded, :crf_searched, :analyzed] do %>
+                            <button
+                              phx-click="reset_video"
+                              phx-value-id={video.id}
+                              title="Reset to needs_analysis"
+                              class="text-purple-400 hover:text-purple-300 text-xs"
+                            >
+                              reset
+                            </button>
+                          <% end %>
                           <button
-                            phx-click="prioritize_season_visible"
+                            phx-click="delete_video"
                             phx-value-id={video.id}
-                            title="Move visible videos from this season to the top"
-                            class="text-emerald-300 hover:text-emerald-200 text-xs"
+                            data-confirm={"Delete #{Path.basename(video.path)}?"}
+                            title="Remove from database"
+                            class="text-red-500 hover:text-red-400 text-xs"
                           >
-                            prioritize season
+                            del
                           </button>
-                        <% end %>
-                        <button
-                          phx-click="force_reanalyze"
+                        </div>
+                        <form
+                          id={"mark-bad-form-#{video.id}"}
+                          phx-submit="mark_bad"
                           phx-value-id={video.id}
-                          title="Force re-analyze (clears VMAFs and resets metadata)"
-                          class="text-blue-400 hover:text-blue-300 text-xs"
+                          class="flex flex-wrap gap-1"
                         >
-                          scan
-                        </button>
-                        <%= if video.state in [:failed, :encoded, :crf_searched, :analyzed] do %>
+                          <input
+                            type="text"
+                            name="issue[manual_reason]"
+                            placeholder="reason"
+                            class="w-28 rounded border border-gray-600 bg-gray-700 px-2 py-1 text-xs text-white placeholder-gray-400"
+                          />
+                          <input
+                            type="text"
+                            name="issue[manual_note]"
+                            placeholder="optional note"
+                            class="w-32 rounded border border-gray-600 bg-gray-700 px-2 py-1 text-xs text-white placeholder-gray-400"
+                          />
                           <button
-                            phx-click="reset_video"
-                            phx-value-id={video.id}
-                            title="Reset to needs_analysis"
-                            class="text-purple-400 hover:text-purple-300 text-xs"
+                            type="submit"
+                            class="text-amber-300 hover:text-amber-200 text-xs"
                           >
-                            reset
+                            mark bad
                           </button>
-                        <% end %>
-                        <button
-                          phx-click="delete_video"
-                          phx-value-id={video.id}
-                          data-confirm={"Delete #{Path.basename(video.path)}?"}
-                          title="Remove from database"
-                          class="text-red-500 hover:text-red-400 text-xs"
-                        >
-                          del
-                        </button>
+                        </form>
                       </div>
                     </td>
                   </tr>
