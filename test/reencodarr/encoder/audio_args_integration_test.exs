@@ -91,51 +91,22 @@ defmodule Reencodarr.Encoder.AudioArgsIntegrationTest do
       refute "--acodec" in args
     end
 
-    test "Rules.build_args handles multiple SVT flags correctly" do
-      # Use DV video to get dolbyvision=1 flag
+    test "Rules.build_args handles multiple SVT/ENC flags correctly with DV" do
+      # dolbyvision is a libsvtav1 AVOption routed through --enc, not --svt
       dv_video = Fixtures.create_hdr_video(%{hdr: "DV"})
       args = Rules.build_args(dv_video, :encode)
 
-      # Should include multiple SVT arguments
-      svt_indices =
-        Enum.with_index(args)
-        |> Enum.filter(fn {arg, _} -> arg == "--svt" end)
-        |> Enum.map(&elem(&1, 1))
-
       tune_found =
-        Enum.any?(svt_indices, fn idx ->
-          value = Enum.at(args, idx + 1)
-          value == "tune=0"
-        end)
+        Enum.chunk_every(args, 2, 1, :discard)
+        |> Enum.any?(&(&1 == ["--svt", "tune=0"]))
 
       assert tune_found, "Should include tune=0 for DV"
 
       dv_found =
-        Enum.any?(svt_indices, fn idx ->
-          value = Enum.at(args, idx + 1)
-          value == "dolbyvision=1"
-        end)
+        Enum.chunk_every(args, 2, 1, :discard)
+        |> Enum.any?(&(&1 == ["--enc", "dolbyvision=1"]))
 
-      assert dv_found, "Should include dolbyvision=1 for DV"
-    end
-  end
-
-  describe "legacy compatibility" do
-    test "Rules.apply still works for backward compatibility" do
-      video = Fixtures.create_test_video()
-      rules = Rules.apply(video)
-
-      # Should return tuples as before
-      assert is_list(rules)
-      assert Enum.all?(rules, fn item -> is_tuple(item) and tuple_size(item) == 2 end)
-
-      # Find audio codec rule - should be copy
-      acodec_rule = Enum.find(rules, fn {flag, _} -> flag == "--acodec" end)
-      assert acodec_rule == {"--acodec", "copy"}
-
-      # Find pixel format rule
-      pix_rule = Enum.find(rules, fn {flag, _} -> flag == "--pix-format" end)
-      assert pix_rule == {"--pix-format", "yuv420p10le"}
+      assert dv_found, "Should include dolbyvision=1 via --enc for DV"
     end
   end
 end

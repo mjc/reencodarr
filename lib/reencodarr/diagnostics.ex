@@ -14,6 +14,7 @@ defmodule Reencodarr.Diagnostics do
   alias Reencodarr.Core.Time
   alias Reencodarr.CrfSearcher
   alias Reencodarr.Encoder
+  alias Reencodarr.Encoder.Capabilities
   alias Reencodarr.Formatters
   alias Reencodarr.Media.{Video, VideoFailure}
   alias Reencodarr.Repo
@@ -332,10 +333,11 @@ defmodule Reencodarr.Diagnostics do
       encode_args = safe_call(fn -> Rules.build_args(video, :encode) end)
 
       # Individual rule outputs
-      hdr_rule = safe_call(fn -> Rules.hdr(video) end)
+      hdr_fork = Capabilities.svt_av1_hdr?()
+      hdr_rule = safe_call(fn -> Rules.hdr(video, hdr_fork) end)
       res_rule = safe_call(fn -> Rules.resolution(video) end)
       video_rule = safe_call(fn -> Rules.video(video) end)
-      grain_rule = safe_call(fn -> Rules.grain_for_vintage_content(video) end)
+      grain_rule = safe_call(fn -> Rules.grain_for_vintage_content(video, hdr_fork) end)
       audio_rule = safe_call(fn -> Rules.audio(video) end)
 
       """

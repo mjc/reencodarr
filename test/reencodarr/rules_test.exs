@@ -68,13 +68,12 @@ defmodule Reencodarr.RulesTest do
   end
 
   describe "build_args/4 - video-specific rules" do
-    test "DV video includes dolbyvision SVT flag" do
+    test "DV video includes dolbyvision enc flag" do
       video = Fixtures.create_hdr_video(%{hdr: "DV"})
       args = Rules.build_args(video, :encode)
 
-      # Should include both SVT flags for DV content
       tune_found = find_flag_value(args, "--svt", "tune=0")
-      dv_found = find_flag_value(args, "--svt", "dolbyvision=1")
+      dv_found = find_flag_value(args, "--enc", "dolbyvision=1")
 
       assert tune_found
       assert dv_found
@@ -165,14 +164,13 @@ defmodule Reencodarr.RulesTest do
       additional_params = ["--svt", "extra=param", "--enc", "custom=setting"]
       args = Rules.build_args(video, :encode, additional_params)
 
-      # Should have multiple SVT flags
+      # Should have multiple SVT flags (extra + tune=0)
       svt_indices = find_flag_indices(args, "--svt")
-      # extra + tune=0 + dolbyvision=1
-      assert Enum.count(svt_indices) >= 3
+      assert Enum.count(svt_indices) >= 2
 
-      # Should have ENC flags from additional params
+      # Should have ENC flags: custom=setting from additional + dolbyvision=1 from DV rule
       enc_indices = find_flag_indices(args, "--enc")
-      assert enc_indices != []
+      assert Enum.count(enc_indices) >= 2
     end
   end
 
@@ -278,22 +276,6 @@ defmodule Reencodarr.RulesTest do
     end
   end
 
-  describe "apply/1 (legacy compatibility)" do
-    test "returns tuples for backward compatibility" do
-      video = Fixtures.create_test_video()
-      rules = Rules.apply(video)
-
-      # Should return list of tuples
-      assert is_list(rules)
-      assert Enum.all?(rules, fn item -> is_tuple(item) and tuple_size(item) == 2 end)
-
-      # Should include expected rules
-      assert {"--acodec", "copy"} in rules
-      assert {"--pix-format", "yuv420p10le"} in rules
-      assert {"--svt", "tune=0"} in rules
-    end
-  end
-
   describe "individual rule functions" do
     test "audio/1 copies audio when metadata is not trustworthy enough to rule out Atmos" do
       video = Fixtures.create_test_video()
@@ -376,28 +358,26 @@ defmodule Reencodarr.RulesTest do
       assert Rules.audio(video) == [{"--acodec", "copy"}]
     end
 
-    test "hdr/1 with DV video includes dolbyvision" do
+    test "hdr/2 with DV video includes dolbyvision enc flag (stock encoder)" do
       video = Fixtures.create_hdr_video(%{hdr: "DV"})
-      rules = Rules.hdr(video)
+      rules = Rules.hdr(video, false)
 
-      assert {"--svt", "tune=0"} in rules
-      assert {"--svt", "dolbyvision=1"} in rules
-      assert length(rules) == 2
+      assert rules == [{"--enc", "dolbyvision=1"}]
     end
 
-    test "hdr/1 with HDR10 video does not include dolbyvision" do
+    test "hdr/2 with HDR10 video returns empty list (stock encoder)" do
       video = Fixtures.create_hdr_video()
-      rules = Rules.hdr(video)
+      rules = Rules.hdr(video, false)
 
-      assert rules == [{"--svt", "tune=0"}]
+      assert rules == []
     end
 
-    test "hdr/1 with non-HDR video" do
+    test "hdr/2 with non-HDR video returns empty list" do
       # Default is no HDR
       video = Fixtures.create_test_video()
-      rules = Rules.hdr(video)
+      rules = Rules.hdr(video, false)
 
-      assert rules == [{"--svt", "tune=0"}]
+      assert rules == []
     end
 
     test "resolution/1 with 4K video" do
@@ -497,7 +477,7 @@ defmodule Reencodarr.RulesTest do
       assert Enum.at(args, acodec_index + 1) == "copy"
     end
 
-    test "Rules.build_args handles multiple SVT flags correctly with DV" do
+    test "Rules.build_args handles multiple SVT/ENC flags correctly with DV" do
       # Use a simple struct with DV HDR
       dv_video = %Reencodarr.Media.Video{
         atmos: false,
@@ -509,28 +489,13 @@ defmodule Reencodarr.RulesTest do
 
       args = Rules.build_args(dv_video, :encode)
 
-      # Should include multiple SVT arguments
-      svt_indices =
-        Enum.with_index(args)
-        |> Enum.filter(fn {arg, _} -> arg == "--svt" end)
-        |> Enum.map(&elem(&1, 1))
-
-      # Should have tune=0 and dolbyvision=1 for DV content
-      tune_found =
-        Enum.any?(svt_indices, fn idx ->
-          value = Enum.at(args, idx + 1)
-          value == "tune=0"
-        end)
-
+      # tune=0 comes through --svt
+      tune_found = find_flag_value(args, "--svt", "tune=0")
       assert tune_found, "Should include tune=0 for DV"
 
-      dv_found =
-        Enum.any?(svt_indices, fn idx ->
-          value = Enum.at(args, idx + 1)
-          value == "dolbyvision=1"
-        end)
-
-      assert dv_found, "Should include dolbyvision=1 for DV"
+      # dolbyvision=1 is a libsvtav1 AVOption routed through --enc
+      dv_found = find_flag_value(args, "--enc", "dolbyvision=1")
+      assert dv_found, "Should include dolbyvision=1 via --enc for DV"
     end
 
     test "Rules.build_args does not include dolbyvision for HDR10" do
@@ -625,21 +590,6 @@ defmodule Reencodarr.RulesTest do
 
       assert result == [{"--enc-input", "hwaccel=cuda"}]
     end
-
-    test "grain function with non-HDR video" do
-      video = Fixtures.create_test_video(%{max_audio_channels: 2})
-      result = Rules.grain(video, 25)
-
-      assert result == [{"--svt", "film-grain=25"}]
-    end
-
-    test "grain function fallback clause" do
-      hdr_video = Fixtures.create_hdr_video(%{max_audio_channels: 2})
-
-      result = Rules.grain(hdr_video, 25)
-
-      assert result == []
-    end
   end
 
   describe "vintage content grain detection" do
@@ -650,7 +600,7 @@ defmodule Reencodarr.RulesTest do
           title: "The Dark Knight"
         })
 
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       assert result == [{"--svt", "film-grain=8"}]
     end
@@ -662,7 +612,7 @@ defmodule Reencodarr.RulesTest do
           title: "Lost"
         })
 
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       assert result == [{"--svt", "film-grain=8"}]
     end
@@ -674,7 +624,7 @@ defmodule Reencodarr.RulesTest do
           title: "Casino"
         })
 
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       assert result == [{"--svt", "film-grain=8"}]
     end
@@ -686,7 +636,7 @@ defmodule Reencodarr.RulesTest do
           title: "Apocalypse Now (1979)"
         })
 
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       assert result == [{"--svt", "film-grain=8"}]
     end
@@ -698,7 +648,7 @@ defmodule Reencodarr.RulesTest do
           title: "Avatar"
         })
 
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       assert result == []
     end
@@ -710,7 +660,7 @@ defmodule Reencodarr.RulesTest do
           title: "Dune"
         })
 
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       assert result == []
     end
@@ -722,7 +672,7 @@ defmodule Reencodarr.RulesTest do
           title: "Blade Runner"
         })
 
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       assert result == [{"--svt", "film-grain=8"}]
     end
@@ -734,7 +684,7 @@ defmodule Reencodarr.RulesTest do
           title: "Unknown Movie"
         })
 
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       assert result == []
     end
@@ -746,7 +696,7 @@ defmodule Reencodarr.RulesTest do
           title: "Some Movie"
         })
 
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       assert result == []
     end
@@ -759,7 +709,7 @@ defmodule Reencodarr.RulesTest do
         })
 
       # Should pick (2010) over (1985) since (year) pattern comes first in regex list
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       assert result == []
     end
@@ -787,7 +737,7 @@ defmodule Reencodarr.RulesTest do
           content_year: 2005
         })
 
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       assert result == [{"--svt", "film-grain=8"}]
     end
@@ -800,7 +750,7 @@ defmodule Reencodarr.RulesTest do
           content_year: 2015
         })
 
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       assert result == []
     end
@@ -814,7 +764,7 @@ defmodule Reencodarr.RulesTest do
           content_year: 2005
         })
 
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       # Should use API year (2005) not filename year (2020)
       assert result == [{"--svt", "film-grain=8"}]
@@ -829,7 +779,7 @@ defmodule Reencodarr.RulesTest do
           content_year: nil
         })
 
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       assert result == [{"--svt", "film-grain=8"}]
     end
@@ -864,28 +814,10 @@ defmodule Reencodarr.RulesTest do
     end
   end
 
-  describe "audio/1 - edge cases" do
-    test "always copies audio regardless of channels" do
-      video = Fixtures.create_test_video(%{max_audio_channels: 0})
-      result = Rules.audio(video)
-      assert result == [{"--acodec", "copy"}]
-    end
-
-    test "handles plain map input (non-struct)" do
-      video_map = %{
-        max_audio_channels: 2,
-        audio_codecs: ["aac"]
-      }
-
-      result = Rules.audio(video_map)
-      assert result == [{"--acodec", "copy"}]
-    end
-  end
-
   describe "grain_for_vintage_content/1 - full coverage" do
     test "applies grain for API-sourced vintage content (2008)" do
       video = Fixtures.create_test_video(%{content_year: 2008, hdr: nil})
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       assert result == [{"--svt", "film-grain=8"}]
     end
@@ -899,20 +831,20 @@ defmodule Reencodarr.RulesTest do
           hdr: nil
         })
 
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
       assert result == [{"--svt", "film-grain=8"}]
     end
 
     test "skips grain for modern content (2010+)" do
       video = Fixtures.create_test_video(%{content_year: 2010, hdr: nil})
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       assert result == []
     end
 
     test "applies grain for HDR vintage content" do
       video = Fixtures.create_test_video(%{content_year: 2005, hdr: "HDR10"})
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
 
       assert result == [{"--svt", "film-grain=8"}]
     end
@@ -926,43 +858,62 @@ defmodule Reencodarr.RulesTest do
           hdr: nil
         })
 
-      result = Rules.grain_for_vintage_content(video)
+      result = Rules.grain_for_vintage_content(video, false)
       assert result == []
     end
   end
 
-  describe "audio/1 - all inputs return copy" do
-    test "copies audio regardless of channel count" do
-      video = Fixtures.create_test_video(%{max_audio_channels: 10})
-      result = Rules.audio(video)
-      assert result == [{"--acodec", "copy"}]
+  describe "grain_for_vintage_content/2 - hdr fork behavior" do
+    test "hdr fork: standard bitrate vintage returns strength 12 with denoise flags" do
+      video = Fixtures.create_test_video(%{content_year: 2000, bitrate: 5_000_000})
+      result = Rules.grain_for_vintage_content(video, true)
+
+      assert {"--svt", "film-grain=12"} in result
+      assert {"--svt", "film-grain-denoise=1"} in result
+      assert {"--svt", "adaptive-film-grain=1"} in result
     end
 
-    test "copies audio for invalid channel metadata" do
-      {:ok, video} =
-        Fixtures.video_fixture(%{
-          max_audio_channels: nil,
-          audio_codecs: ["aac"]
+    test "hdr fork: high bitrate (≥20Mbps) vintage returns strength 20 with denoise flags" do
+      video = Fixtures.create_test_video(%{content_year: 2000, bitrate: 25_000_000})
+      result = Rules.grain_for_vintage_content(video, true)
+
+      assert {"--svt", "film-grain=20"} in result
+      assert {"--svt", "film-grain-denoise=1"} in result
+      assert {"--svt", "adaptive-film-grain=1"} in result
+    end
+
+    test "hdr fork: exactly at high bitrate threshold returns strength 20" do
+      video = Fixtures.create_test_video(%{content_year: 2000, bitrate: 20_000_000})
+      result = Rules.grain_for_vintage_content(video, true)
+
+      assert {"--svt", "film-grain=20"} in result
+    end
+
+    test "stock encoder: always returns strength 8, no denoise flags" do
+      video = Fixtures.create_test_video(%{content_year: 2000, bitrate: 25_000_000})
+      result = Rules.grain_for_vintage_content(video, false)
+
+      assert result == [{"--svt", "film-grain=8"}]
+    end
+
+    test "hdr fork: modern content returns empty list" do
+      video = Fixtures.create_test_video(%{content_year: 2020})
+      assert Rules.grain_for_vintage_content(video, true) == []
+    end
+
+    test "hdr fork: grain detected from path also includes denoise flags" do
+      video =
+        Fixtures.create_test_video(%{
+          content_year: nil,
+          path: "/movies/Alien (1979)/movie.mkv",
+          bitrate: 5_000_000
         })
 
-      result = Rules.audio(video)
-      assert result == [{"--acodec", "copy"}]
-    end
-  end
+      result = Rules.grain_for_vintage_content(video, true)
 
-  describe "grain/2" do
-    test "applies grain with specified strength for non-HDR content" do
-      video = Fixtures.create_test_video(%{hdr: nil})
-      result = Rules.grain(video, 12)
-
-      assert result == [{"--svt", "film-grain=12"}]
-    end
-
-    test "does not apply grain for HDR content" do
-      video = Fixtures.create_test_video(%{hdr: "HDR10"})
-      result = Rules.grain(video, 12)
-
-      assert result == []
+      assert {"--svt", "film-grain=12"} in result
+      assert {"--svt", "film-grain-denoise=1"} in result
+      assert {"--svt", "adaptive-film-grain=1"} in result
     end
   end
 
@@ -974,49 +925,95 @@ defmodule Reencodarr.RulesTest do
     end
   end
 
-  describe "apply/1 - legacy function" do
-    test "returns rule tuples for backward compatibility" do
-      video = Fixtures.create_test_video(%{max_audio_channels: 2})
-      result = Rules.apply(video)
+  describe "hdr/2" do
+    test "DV always returns dolbyvision=1 via --enc regardless of hdr_fork" do
+      video = Fixtures.create_test_video(%{hdr: "DV"})
 
-      # Should return tuples, not formatted args
-      assert is_list(result)
-      assert Enum.all?(result, fn item -> is_tuple(item) and tuple_size(item) == 2 end)
+      assert Rules.hdr(video, false) == [{"--enc", "dolbyvision=1"}]
+      assert Rules.hdr(video, true) == [{"--enc", "dolbyvision=1"}]
+    end
 
-      # Should include audio rules
-      assert Enum.any?(result, fn {flag, _} -> flag == "--acodec" end)
+    test "HDR10 returns variance-boost-curve=3 with hdr fork" do
+      video = Fixtures.create_test_video(%{hdr: "HDR10"})
+      result = Rules.hdr(video, true)
+
+      assert result == [{"--svt", "variance-boost-curve=3"}]
+    end
+
+    test "HDR10+ returns variance-boost-curve=3 with hdr fork" do
+      video = Fixtures.create_test_video(%{hdr: "HDR10+"})
+      result = Rules.hdr(video, true)
+
+      assert result == [{"--svt", "variance-boost-curve=3"}]
+    end
+
+    test "HDR10 returns empty list with stock encoder" do
+      video = Fixtures.create_test_video(%{hdr: "HDR10"})
+
+      assert Rules.hdr(video, false) == []
+    end
+
+    test "HLG returns empty list with hdr fork (not a PQ transfer function)" do
+      video = Fixtures.create_test_video(%{hdr: "HLG"})
+
+      assert Rules.hdr(video, true) == []
+    end
+
+    test "HLG returns empty list with stock encoder" do
+      video = Fixtures.create_test_video(%{hdr: "HLG"})
+
+      assert Rules.hdr(video, false) == []
+    end
+
+    test "non-HDR returns empty list regardless of hdr_fork" do
+      video = Fixtures.create_test_video(%{hdr: nil})
+
+      assert Rules.hdr(video, false) == []
+      assert Rules.hdr(video, true) == []
     end
   end
 
-  describe "hdr/1" do
-    test "applies dolbyvision only for DV content" do
-      video = Fixtures.create_test_video(%{hdr: "DV"})
-      result = Rules.hdr(video)
-
-      assert {"--svt", "tune=0"} in result
-      assert {"--svt", "dolbyvision=1"} in result
+  describe "tune/2" do
+    test "stock encoder always returns tune=0" do
+      for year <- [1999, 2008, 2010, 2020] do
+        video = Fixtures.create_test_video(%{content_year: year})
+        assert Rules.tune(video, false) == [{"--svt", "tune=0"}]
+      end
     end
 
-    test "applies tune=0 only for HDR10 content (no dolbyvision)" do
-      video = Fixtures.create_test_video(%{hdr: "HDR10"})
-      result = Rules.hdr(video)
-
-      assert result == [{"--svt", "tune=0"}]
-      refute {"--svt", "dolbyvision=1"} in result
+    test "hdr fork returns tune=5 for vintage content" do
+      video = Fixtures.create_test_video(%{content_year: 1999})
+      assert Rules.tune(video, true) == [{"--svt", "tune=5"}]
     end
 
-    test "applies tune=0 for HLG content (no dolbyvision)" do
-      video = Fixtures.create_test_video(%{hdr: "HLG"})
-      result = Rules.hdr(video)
-
-      assert result == [{"--svt", "tune=0"}]
+    test "hdr fork returns tune=5 for vintage content at boundary (2008)" do
+      video = Fixtures.create_test_video(%{content_year: 2008})
+      assert Rules.tune(video, true) == [{"--svt", "tune=5"}]
     end
 
-    test "applies tune=0 for non-HDR content" do
-      video = Fixtures.create_test_video(%{hdr: nil})
-      result = Rules.hdr(video)
+    test "hdr fork returns tune=2 for modern content (2009+)" do
+      video = Fixtures.create_test_video(%{content_year: 2009})
+      assert Rules.tune(video, true) == [{"--svt", "tune=2"}]
+    end
 
-      assert result == [{"--svt", "tune=0"}]
+    test "hdr fork returns tune=2 for recent content" do
+      video = Fixtures.create_test_video(%{content_year: 2020})
+      assert Rules.tune(video, true) == [{"--svt", "tune=2"}]
+    end
+
+    test "hdr fork returns tune=2 for non-HDR content without year" do
+      video = Fixtures.create_test_video(%{content_year: nil, path: "/movies/unknown.mkv"})
+      assert Rules.tune(video, true) == [{"--svt", "tune=2"}]
+    end
+
+    test "hdr fork returns tune=5 for vintage content detected from path" do
+      video =
+        Fixtures.create_test_video(%{
+          content_year: nil,
+          path: "/movies/Blade Runner (1982)/movie.mkv"
+        })
+
+      assert Rules.tune(video, true) == [{"--svt", "tune=5"}]
     end
   end
 
