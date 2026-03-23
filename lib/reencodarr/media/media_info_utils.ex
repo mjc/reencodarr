@@ -143,13 +143,7 @@ defmodule Reencodarr.Media.MediaInfoUtils do
   Check if an audio format contains Atmos.
   """
   @spec has_atmos_format?(String.t() | nil) :: boolean()
-  def has_atmos_format?(nil), do: false
-
-  def has_atmos_format?(format) when is_binary(format) do
-    String.contains?(format, "Atmos")
-  end
-
-  def has_atmos_format?(_), do: false
+  def has_atmos_format?(format), do: MediaInfo.has_atmos_format?(format)
 
   # === Private Helper Functions ===
 
@@ -289,15 +283,7 @@ defmodule Reencodarr.Media.MediaInfoUtils do
 
   # Detect Atmos from audio tracks
   defp detect_atmos(audio_tracks) do
-    Enum.any?(audio_tracks, fn track ->
-      commercial = get_string_field(track, "Format_Commercial_IfAny", "")
-      codec = get_string_field(track, "CodecID", "")
-      format = get_string_field(track, "Format", "")
-
-      has_atmos_format?(commercial) or
-        has_atmos_format?(codec) or
-        has_atmos_format?(format)
-    end)
+    Enum.any?(audio_tracks, &MediaInfo.track_has_atmos_markers?/1)
   end
 
   # Parse resolution from VideoFileInfo format

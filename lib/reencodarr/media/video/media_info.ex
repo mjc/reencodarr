@@ -9,6 +9,7 @@ defmodule Reencodarr.Media.Video.MediaInfo do
 
   use Ecto.Schema
   import Ecto.Changeset
+  alias Reencodarr.Media.MediaInfo
   alias Reencodarr.Media.Video.MediaInfo.{AudioTrack, GeneralTrack, VideoTrack}
 
   @primary_key false
@@ -163,9 +164,12 @@ defmodule Reencodarr.Media.Video.MediaInfo do
 
   defp detect_atmos(audio_tracks) do
     Enum.any?(audio_tracks, fn track ->
-      track.format == "E-AC-3" and
-        not is_nil(track.format_additionalfeatures) and
-        String.contains?(String.downcase(track.format_additionalfeatures), "atmos")
+      MediaInfo.track_has_atmos_markers?(%{
+        "Format" => track.format,
+        "CodecID" => track.codec_id,
+        "Format_Commercial_IfAny" => track.format_commercial_if_any,
+        "Format_AdditionalFeatures" => track.format_additionalfeatures
+      })
     end)
   end
 

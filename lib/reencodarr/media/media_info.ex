@@ -61,10 +61,28 @@ defmodule Reencodarr.Media.MediaInfo do
   def has_atmos_format?(nil), do: false
 
   def has_atmos_format?(format) when is_binary(format) do
-    String.contains?(format, "Atmos")
+    normalized = String.downcase(format)
+
+    String.contains?(normalized, "atmos") or String.contains?(normalized, "joc")
   end
 
   def has_atmos_format?(_), do: false
+
+  @doc """
+  Checks whether an audio track exposes explicit Atmos/JOC markers.
+  """
+  @spec track_has_atmos_markers?(map()) :: boolean()
+  def track_has_atmos_markers?(track) when is_map(track) do
+    [
+      get_track_field(track, "Format_Commercial_IfAny"),
+      get_track_field(track, "Format_AdditionalFeatures"),
+      get_track_field(track, "Format"),
+      get_track_field(track, "CodecID")
+    ]
+    |> Enum.any?(&has_atmos_format?/1)
+  end
+
+  def track_has_atmos_markers?(_), do: false
 
   @doc """
   Converts VideoFileInfo struct to MediaInfo JSON format for legacy compatibility.
@@ -129,5 +147,11 @@ defmodule Reencodarr.Media.MediaInfo do
       subtitles: parse_subtitles(media["subtitles"]),
       title: file["title"]
     }
+  end
+
+  defp get_track_field(track, key) do
+    Map.get(track, key) || Map.get(track, String.to_atom(key)) || ""
+  rescue
+    ArgumentError -> Map.get(track, key, "")
   end
 end

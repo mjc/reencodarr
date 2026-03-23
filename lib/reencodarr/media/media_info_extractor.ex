@@ -171,10 +171,7 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
   end
 
   defp detect_atmos(audio_tracks) do
-    Enum.any?(audio_tracks, fn track ->
-      get_string_field(track, "Format_AdditionalFeatures", "") |> String.contains?("JOC") or
-        get_string_field(track, "Format_Commercial_IfAny", "") |> String.contains?("Atmos")
-    end)
+    Enum.any?(audio_tracks, &MediaInfo.track_has_atmos_markers?/1)
   end
 
   defp extract_hdr_info(nil), do: nil
