@@ -164,12 +164,10 @@ defmodule Reencodarr.Media.Video.MediaInfo do
 
   defp detect_atmos(audio_tracks) do
     Enum.any?(audio_tracks, fn track ->
-      MediaInfo.track_has_atmos_markers?(%{
-        "Format" => track.format,
-        "CodecID" => track.codec_id,
-        "Format_Commercial_IfAny" => track.format_commercial_if_any,
-        "Format_AdditionalFeatures" => track.format_additionalfeatures
-      })
+      track
+      |> AudioTrack.atmos_marker_fields()
+      |> Map.put("CodecID", track.codec_id)
+      |> MediaInfo.track_has_atmos_markers?()
     end)
   end
 

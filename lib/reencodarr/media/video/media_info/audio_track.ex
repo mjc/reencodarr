@@ -196,11 +196,17 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
   Checks for explicit Atmos or JOC markers on the track metadata.
   """
   def atmos?(%__MODULE__{} = track) do
-    MediaInfo.track_has_atmos_markers?(%{
+    MediaInfo.track_has_atmos_markers?(atmos_marker_fields(track))
+  end
+
+  @doc false
+  def atmos_marker_fields(%__MODULE__{} = track) do
+    %{
       "Format" => track.format,
+      "CodecID" => nil,
       "Format_Commercial_IfAny" => track.format_commercial_if_any,
       "Format_AdditionalFeatures" => track.format_additionalfeatures
-    })
+    }
   end
 
   @doc """
