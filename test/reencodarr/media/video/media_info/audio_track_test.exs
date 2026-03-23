@@ -73,13 +73,13 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrackTest do
       assert AudioTrack.atmos?(track)
     end
 
-    test "returns false when format is not E-AC-3" do
+    test "returns true for explicit Atmos markers even when format is not E-AC-3" do
       track = %AudioTrack{
         format: "TrueHD",
         format_additionalfeatures: "Atmos"
       }
 
-      refute AudioTrack.atmos?(track)
+      assert AudioTrack.atmos?(track)
     end
 
     test "returns true for explicit commercial Atmos markers on TrueHD" do

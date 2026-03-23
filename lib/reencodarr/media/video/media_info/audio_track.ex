@@ -11,6 +11,7 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
   import Ecto.Changeset
 
   alias Reencodarr.DataConverters
+  alias Reencodarr.Media.MediaInfo
 
   @primary_key false
   embedded_schema do
@@ -192,12 +193,14 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
   @doc """
   Detects if this audio track represents Atmos content.
 
-  Checks for E-AC-3 format with Atmos in the additional features.
+  Checks for explicit Atmos or JOC markers on the track metadata.
   """
   def atmos?(%__MODULE__{} = track) do
-    track.format == "E-AC-3" and
-      not is_nil(track.format_additionalfeatures) and
-      String.contains?(String.downcase(track.format_additionalfeatures), "atmos")
+    MediaInfo.track_has_atmos_markers?(%{
+      "Format" => track.format,
+      "Format_Commercial_IfAny" => track.format_commercial_if_any,
+      "Format_AdditionalFeatures" => track.format_additionalfeatures
+    })
   end
 
   @doc """
