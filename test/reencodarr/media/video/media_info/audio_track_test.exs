@@ -82,14 +82,23 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrackTest do
       refute AudioTrack.atmos?(track)
     end
 
+    test "returns true for explicit commercial Atmos markers on TrueHD" do
+      track = %AudioTrack{
+        format: "TrueHD",
+        format_commercial_if_any: "TrueHD Atmos"
+      }
+
+      assert AudioTrack.atmos?(track)
+    end
+
     test "returns false when additional features is nil" do
       track = %AudioTrack{format: "E-AC-3", format_additionalfeatures: nil}
       refute AudioTrack.atmos?(track)
     end
 
-    test "returns false when additional features has no atmos" do
+    test "returns true when additional features has JOC" do
       track = %AudioTrack{format: "E-AC-3", format_additionalfeatures: "JOC"}
-      refute AudioTrack.atmos?(track)
+      assert AudioTrack.atmos?(track)
     end
 
     test "is case-insensitive for 'atmos'" do
