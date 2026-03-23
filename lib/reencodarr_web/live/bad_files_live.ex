@@ -2,6 +2,7 @@ defmodule ReencodarrWeb.BadFilesLive do
   use ReencodarrWeb, :live_view
 
   alias Reencodarr.BadFileRemediation
+  alias Reencodarr.BadFiles.State, as: BadFilesState
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
@@ -23,8 +24,6 @@ defmodule ReencodarrWeb.BadFilesLive do
   @service_filter_values ["all", "sonarr", "radarr"]
   @kind_filter_values ["all" | Enum.map(BadFileIssue.issue_kind_values(), &to_string/1)]
   @active_statuses [:open, :queued, :processing, :waiting_for_replacement, :failed]
-  @resolved_statuses [:replaced_clean, :dismissed]
-  @resolved_limit 50
 
   @impl true
   def mount(_params, _session, socket) do
@@ -345,62 +344,12 @@ defmodule ReencodarrWeb.BadFilesLive do
   end
 
   defp fetch_issue_payload(assigns) do
-    filters = [
-      service: assigns.service_filter,
-      kind: assigns.kind_filter,
-      search: assigns.search_query
-    ]
-
-    {active_statuses, resolved_statuses} = statuses_for_filter(assigns.status_filter)
-    active_issues = fetch_active_issues(filters, active_statuses, assigns)
-    active_total = fetch_active_total(filters, active_statuses)
-    issue_summary = Media.bad_file_issue_summary()
-    resolved_issues = fetch_resolved_issues(filters, resolved_statuses, assigns.show_resolved)
-    issues = active_issues ++ resolved_issues
-
-    %{
-      issues: issues,
-      tracked_count:
-        issue_summary.open + issue_summary.queued + issue_summary.processing +
-          issue_summary.waiting_for_replacement + issue_summary.failed + issue_summary.resolved,
-      active_total: active_total,
-      active_issues: active_issues,
-      replacement_issues: Enum.filter(active_issues, &replacement_issue?/1),
-      resolved_issues: resolved_issues,
-      issue_summary: issue_summary
-    }
-  end
-
-  defp fetch_active_issues(_filters, [], _assigns), do: []
-
-  defp fetch_active_issues(filters, active_statuses, assigns) do
-    Media.list_bad_file_issues(
-      filters ++
-        [
-          statuses: active_statuses,
-          limit: assigns.per_page,
-          offset: (assigns.page - 1) * assigns.per_page
-        ]
-    )
-  end
-
-  defp fetch_active_total(_filters, []), do: 0
-
-  defp fetch_active_total(filters, active_statuses),
-    do: Media.count_bad_file_issues(filters ++ [statuses: active_statuses])
-
-  defp fetch_resolved_issues(_filters, _resolved_statuses, false), do: []
-  defp fetch_resolved_issues(_filters, [], true), do: []
-
-  defp fetch_resolved_issues(filters, resolved_statuses, true) do
-    Media.list_bad_file_issues(filters ++ [statuses: resolved_statuses, limit: @resolved_limit])
+    BadFilesState.load(assigns)
   end
 
   defp apply_issue_payload(socket, issue_payload) do
     assign(socket, Map.put(issue_payload, :loading_issues, false))
   end
-
-  defp replacement_issue?(issue), do: issue.status in [:processing, :waiting_for_replacement]
 
   defp issue_reason(issue) do
     case issue.manual_reason do
@@ -484,29 +433,13 @@ defmodule ReencodarrWeb.BadFilesLive do
   end
 
   defp active_statuses_for_filter(status_filter) do
-    {active_statuses, _resolved_statuses} = statuses_for_filter(status_filter)
-    active_statuses
-  end
-
-  defp statuses_for_filter(status_filter) do
     case status_filter do
-      "all" ->
-        {@active_statuses, @resolved_statuses}
-
-      "resolved" ->
-        {[], @resolved_statuses}
-
-      other ->
-        status = String.to_existing_atom(other)
-
-        if status in @resolved_statuses do
-          {[], [status]}
-        else
-          {[status], []}
-        end
+      "all" -> @active_statuses
+      "resolved" -> []
+      other -> [String.to_existing_atom(other)]
     end
   rescue
-    ArgumentError -> {@active_statuses, @resolved_statuses}
+    ArgumentError -> @active_statuses
   end
 
   defp start_service_replacements do

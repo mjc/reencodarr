@@ -21,6 +21,7 @@ defmodule ReencodarrWeb.VideosLive do
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
+  alias Reencodarr.Videos.State, as: VideosState
   alias ReencodarrWeb.Live.ListPagination
 
   @per_page_options [25, 50, 100, 250]
@@ -430,36 +431,19 @@ defmodule ReencodarrWeb.VideosLive do
   # ---------------------------------------------------------------------------
 
   defp load_data(socket) do
-    a = socket.assigns
+    page_state =
+      VideosState.load(%{
+        page: socket.assigns.page,
+        per_page: socket.assigns.per_page,
+        state_filter: socket.assigns.state_filter,
+        service_filter: socket.assigns.service_filter,
+        hdr_filter: socket.assigns.hdr_filter,
+        search: socket.assigns.search,
+        sort_by: socket.assigns.sort_by,
+        sort_dir: socket.assigns.sort_dir
+      })
 
-    videos_task =
-      Task.async(fn ->
-        Media.list_videos_paginated(
-          page: a.page,
-          per_page: a.per_page,
-          state: a.state_filter,
-          service_type: a.service_filter,
-          hdr: a.hdr_filter,
-          search: a.search,
-          sort_by: a.sort_by,
-          sort_dir: a.sort_dir
-        )
-      end)
-
-    state_counts_task = Task.async(&Media.count_videos_by_state/0)
-
-    {videos, meta} = Task.await(videos_task, :infinity)
-    state_counts = Task.await(state_counts_task, :infinity)
-
-    assign(socket,
-      videos: videos,
-      meta: meta,
-      total: meta.total_count || 0,
-      page: meta.current_page || a.page,
-      per_page: meta.page_size || a.per_page,
-      state_counts: state_counts,
-      loading: false
-    )
+    assign(socket, Map.put(page_state, :loading, false))
   end
 
   defp reset_video_by_id(id) do
