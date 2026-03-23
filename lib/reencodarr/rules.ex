@@ -346,23 +346,27 @@ defmodule Reencodarr.Rules do
   # Fallback when no year info available
   def grain_for_vintage_content(_), do: []
 
-  defp build_audio_rules_from_mediainfo(%Media.Video{mediainfo: mediainfo, max_audio_channels: channels})
+  defp build_audio_rules_from_mediainfo(%Media.Video{
+         mediainfo: mediainfo,
+         max_audio_channels: channels
+       })
        when is_map(mediainfo) and is_integer(channels) and channels > 0 do
-    with %{channels: track_channels, channel_layout: channel_layout} = track
-         when is_integer(track_channels) and track_channels > 0 <-
-           AudioTrackInfo.primary_from_mediainfo(mediainfo) do
-      cond do
-        track_channels <= 2 ->
-          @copy_audio
+    case AudioTrackInfo.primary_from_mediainfo(mediainfo) do
+      %{channels: track_channels, channel_layout: channel_layout} = track
+      when is_integer(track_channels) and track_channels > 0 ->
+        cond do
+          track_channels <= 2 ->
+            @copy_audio
 
-        audio_track_possibly_atmos?(track) ->
-          @copy_audio
+          audio_track_possibly_atmos?(track) ->
+            @copy_audio
 
-        true ->
-          opus_audio_rules(track_channels, channel_layout)
-      end
-    else
-      _ -> @copy_audio
+          true ->
+            opus_audio_rules(track_channels, channel_layout)
+        end
+
+      _ ->
+        @copy_audio
     end
   end
 
@@ -405,7 +409,9 @@ defmodule Reencodarr.Rules do
   end
 
   defp normalize_codec_string(nil), do: ""
-  defp normalize_codec_string(value), do: value |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "")
+
+  defp normalize_codec_string(value),
+    do: value |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "")
 
   defp mapping_family_255_layout?(nil), do: true
   defp mapping_family_255_layout?(""), do: true

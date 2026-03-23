@@ -36,6 +36,7 @@ defmodule ReencodarrWeb.SonarrWebhookController do
           {:ok, validated_file} ->
             scene_name = validated_file.scene_name
             Logger.info("Received download event from Sonarr for #{scene_name}!")
+
             validated_file.raw_file
             |> Reencodarr.Sync.upsert_video_from_file(:sonarr)
             |> reconcile_waiting_bad_file_issues()
@@ -61,6 +62,7 @@ defmodule ReencodarrWeb.SonarrWebhookController do
       {:ok, validated_file} ->
         scene_name = validated_file.scene_name
         Logger.info("Received download event from Sonarr for #{scene_name}!")
+
         validated_file.raw_file
         |> Reencodarr.Sync.upsert_video_from_file(:sonarr)
         |> reconcile_waiting_bad_file_issues()
@@ -143,9 +145,11 @@ defmodule ReencodarrWeb.SonarrWebhookController do
 
   defp handle_episodefile(conn, %{"episodeFile" => episode_file}) do
     Logger.info("Received new episodefile event from Sonarr!")
+
     episode_file
     |> Reencodarr.Sync.upsert_video_from_file(:sonarr)
     |> reconcile_waiting_bad_file_issues()
+
     send_resp(conn, :no_content, "")
   end
 

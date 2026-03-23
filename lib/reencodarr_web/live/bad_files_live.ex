@@ -4,14 +4,22 @@ defmodule ReencodarrWeb.BadFilesLive do
   alias Reencodarr.BadFileRemediation
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Dashboard.Events
-  alias Reencodarr.Media.BadFileIssue
   alias Reencodarr.Media
+  alias Reencodarr.Media.BadFileIssue
   alias ReencodarrWeb.Live.ListPagination
 
   @update_interval 30_000
   @per_page_options [25, 50, 100, 250]
   @default_per_page 50
-  @status_filter_values ["all", "open", "queued", "processing", "waiting_for_replacement", "failed", "resolved"]
+  @status_filter_values [
+    "all",
+    "open",
+    "queued",
+    "processing",
+    "waiting_for_replacement",
+    "failed",
+    "resolved"
+  ]
   @service_filter_values ["all", "sonarr", "radarr"]
   @kind_filter_values ["all" | Enum.map(BadFileIssue.issue_kind_values(), &to_string/1)]
   @active_statuses [:open, :queued, :processing, :waiting_for_replacement, :failed]
@@ -47,7 +55,14 @@ defmodule ReencodarrWeb.BadFilesLive do
        active_issues: [],
        replacement_issues: [],
        resolved_issues: [],
-       issue_summary: %{open: 0, queued: 0, processing: 0, waiting_for_replacement: 0, failed: 0, resolved: 0}
+       issue_summary: %{
+         open: 0,
+         queued: 0,
+         processing: 0,
+         waiting_for_replacement: 0,
+         failed: 0,
+         resolved: 0
+       }
      )}
   end
 
@@ -92,19 +107,26 @@ defmodule ReencodarrWeb.BadFilesLive do
 
   @impl true
   def handle_async(:load_issues, {:exit, _reason}, socket) do
-    {:noreply, socket |> assign(:loading_issues, false) |> put_flash(:error, "Failed to load bad-file issues")}
+    {:noreply,
+     socket
+     |> assign(:loading_issues, false)
+     |> put_flash(:error, "Failed to load bad-file issues")}
   end
 
   @impl true
   def handle_event("filter_status", %{"status" => status}, socket) do
     normalized_status = if status in @status_filter_values, do: status, else: "all"
-    {:noreply, push_patch(socket, to: patch_path(socket.assigns, status: normalized_status, page: 1))}
+
+    {:noreply,
+     push_patch(socket, to: patch_path(socket.assigns, status: normalized_status, page: 1))}
   end
 
   @impl true
   def handle_event("filter_service", %{"service" => service}, socket) do
     normalized_service = if service in @service_filter_values, do: service, else: "all"
-    {:noreply, push_patch(socket, to: patch_path(socket.assigns, service: normalized_service, page: 1))}
+
+    {:noreply,
+     push_patch(socket, to: patch_path(socket.assigns, service: normalized_service, page: 1))}
   end
 
   @impl true
@@ -131,7 +153,8 @@ defmodule ReencodarrWeb.BadFilesLive do
   @impl true
   def handle_event("prev_page", _params, socket) do
     if socket.assigns.page > 1 do
-      {:noreply, push_patch(socket, to: patch_path(socket.assigns, page: socket.assigns.page - 1))}
+      {:noreply,
+       push_patch(socket, to: patch_path(socket.assigns, page: socket.assigns.page - 1))}
     else
       {:noreply, socket}
     end
@@ -140,7 +163,8 @@ defmodule ReencodarrWeb.BadFilesLive do
   @impl true
   def handle_event("next_page", _params, socket) do
     if socket.assigns.page < max_page(socket.assigns.active_total, socket.assigns.per_page) do
-      {:noreply, push_patch(socket, to: patch_path(socket.assigns, page: socket.assigns.page + 1))}
+      {:noreply,
+       push_patch(socket, to: patch_path(socket.assigns, page: socket.assigns.page + 1))}
     else
       {:noreply, socket}
     end
@@ -184,7 +208,8 @@ defmodule ReencodarrWeb.BadFilesLive do
     with {:ok, id} <- Parsers.parse_integer_exact(id_str),
          {:ok, issue} <- Media.fetch_bad_file_issue(id),
          {:ok, _issue} <- BadFileRemediation.process_issue(issue, []) do
-      {:noreply, socket |> put_flash(:info, "Started replacement for selected issue") |> async_load_issues()}
+      {:noreply,
+       socket |> put_flash(:info, "Started replacement for selected issue") |> async_load_issues()}
     else
       _ -> {:noreply, put_flash(socket, :error, "Failed to start replacement")}
     end
@@ -280,17 +305,18 @@ defmodule ReencodarrWeb.BadFilesLive do
 
   @impl true
   def handle_event("replace_filtered_now", _params, socket) do
-    with {:ok, queued_count} when queued_count > 0 <- Media.enqueue_bad_file_issues(filtered_active_issues(socket)) do
-      started_count = start_service_replacements()
+    case Media.enqueue_bad_file_issues(filtered_active_issues(socket)) do
+      {:ok, queued_count} when queued_count > 0 ->
+        started_count = start_service_replacements()
 
-      {:noreply,
+        {:noreply,
          socket
          |> put_flash(
            :info,
            "Queued #{queued_count} filtered bad-file issues and started #{started_count} replacements"
          )
          |> async_load_issues()}
-    else
+
       {:ok, 0} ->
         {:noreply, put_flash(socket, :error, "No filtered bad-file issues could be queued")}
     end
@@ -298,7 +324,8 @@ defmodule ReencodarrWeb.BadFilesLive do
 
   @impl true
   def handle_event("toggle_resolved", _params, socket) do
-    {:noreply, socket |> assign(:show_resolved, !socket.assigns.show_resolved) |> async_load_issues()}
+    {:noreply,
+     socket |> assign(:show_resolved, !socket.assigns.show_resolved) |> async_load_issues()}
   end
 
   defp async_load_issues(socket) do
@@ -325,68 +352,48 @@ defmodule ReencodarrWeb.BadFilesLive do
     ]
 
     {active_statuses, resolved_statuses} = statuses_for_filter(assigns.status_filter)
-
-    active_issues_task =
-      Task.async(fn ->
-        case active_statuses do
-          [] ->
-            []
-
-          statuses ->
-            Media.list_bad_file_issues(
-              filters ++
-                [
-                  statuses: statuses,
-                  limit: assigns.per_page,
-                  offset: (assigns.page - 1) * assigns.per_page
-                ]
-            )
-        end
-      end)
-
-    active_total_task =
-      Task.async(fn ->
-        case active_statuses do
-          [] -> 0
-          statuses -> Media.count_bad_file_issues(filters ++ [statuses: statuses])
-        end
-      end)
-
-    issue_summary_task = Task.async(&Media.bad_file_issue_summary/0)
-
-    resolved_issues_task =
-      if assigns.show_resolved do
-        Task.async(fn ->
-          case resolved_statuses do
-            [] -> []
-            statuses -> Media.list_bad_file_issues(filters ++ [statuses: statuses, limit: @resolved_limit])
-          end
-        end)
-      else
-        :not_loaded
-      end
-
-    active_issues = Task.await(active_issues_task)
-    active_total = Task.await(active_total_task)
-    issue_summary = Task.await(issue_summary_task)
-
-    resolved_issues =
-      case resolved_issues_task do
-        :not_loaded -> []
-        task -> Task.await(task)
-      end
-
+    active_issues = fetch_active_issues(filters, active_statuses, assigns)
+    active_total = fetch_active_total(filters, active_statuses)
+    issue_summary = Media.bad_file_issue_summary()
+    resolved_issues = fetch_resolved_issues(filters, resolved_statuses, assigns.show_resolved)
     issues = active_issues ++ resolved_issues
 
     %{
       issues: issues,
-      tracked_count: issue_summary.open + issue_summary.queued + issue_summary.processing + issue_summary.waiting_for_replacement + issue_summary.failed + issue_summary.resolved,
+      tracked_count:
+        issue_summary.open + issue_summary.queued + issue_summary.processing +
+          issue_summary.waiting_for_replacement + issue_summary.failed + issue_summary.resolved,
       active_total: active_total,
       active_issues: active_issues,
       replacement_issues: Enum.filter(active_issues, &replacement_issue?/1),
       resolved_issues: resolved_issues,
       issue_summary: issue_summary
     }
+  end
+
+  defp fetch_active_issues(_filters, [], _assigns), do: []
+
+  defp fetch_active_issues(filters, active_statuses, assigns) do
+    Media.list_bad_file_issues(
+      filters ++
+        [
+          statuses: active_statuses,
+          limit: assigns.per_page,
+          offset: (assigns.page - 1) * assigns.per_page
+        ]
+    )
+  end
+
+  defp fetch_active_total(_filters, []), do: 0
+
+  defp fetch_active_total(filters, active_statuses),
+    do: Media.count_bad_file_issues(filters ++ [statuses: active_statuses])
+
+  defp fetch_resolved_issues(_filters, _resolved_statuses, false), do: []
+  defp fetch_resolved_issues(_filters, [], true), do: []
+
+  defp fetch_resolved_issues(filters, resolved_statuses, true) do
+    Media.list_bad_file_issues(filters ++ [statuses: resolved_statuses, limit: @resolved_limit])
   end
 
   defp apply_issue_payload(socket, issue_payload) do
@@ -604,12 +611,24 @@ defmodule ReencodarrWeb.BadFilesLive do
         </div>
 
         <div class="grid gap-3 md:grid-cols-6">
-          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">Open: {@issue_summary.open}</div>
-          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">Queued: {@issue_summary.queued}</div>
-          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">Processing: {@issue_summary.processing}</div>
-          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">Waiting: {@issue_summary.waiting_for_replacement}</div>
-          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">Failed: {@issue_summary.failed}</div>
-          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">Resolved: {@issue_summary.resolved}</div>
+          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
+            Open: {@issue_summary.open}
+          </div>
+          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
+            Queued: {@issue_summary.queued}
+          </div>
+          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
+            Processing: {@issue_summary.processing}
+          </div>
+          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
+            Waiting: {@issue_summary.waiting_for_replacement}
+          </div>
+          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
+            Failed: {@issue_summary.failed}
+          </div>
+          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
+            Resolved: {@issue_summary.resolved}
+          </div>
         </div>
 
         <%= if @replacement_issues != [] do %>
@@ -793,27 +812,27 @@ defmodule ReencodarrWeb.BadFilesLive do
             </button>
           </div>
           <%= if @show_resolved do %>
-          <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-            <table class="min-w-full divide-y divide-gray-700 text-sm">
-              <thead class="bg-gray-700/80">
-                <tr>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                    File
-                  </th>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                    Reason
-                  </th>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <.render_issue_rows issues={@resolved_issues} />
-            </table>
-          </div>
+            <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+              <table class="min-w-full divide-y divide-gray-700 text-sm">
+                <thead class="bg-gray-700/80">
+                  <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                      File
+                    </th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                      Reason
+                    </th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <.render_issue_rows issues={@resolved_issues} />
+              </table>
+            </div>
           <% end %>
         </section>
       </div>

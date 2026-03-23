@@ -21,22 +21,29 @@ defmodule Reencodarr.BadFileRemediation do
   @spec process_issue(BadFileIssue.t(), keyword()) :: {:ok, BadFileIssue.t()} | {:error, term()}
   def process_issue(%BadFileIssue{} = issue, opts \\ []) do
     already_fixed_fun = Keyword.get(opts, :already_fixed_fun, fn _video, _issue -> false end)
+
     with {:ok, current_issue} <- refresh_issue(issue.id),
          {:ok, processing_issue} <- ensure_processing_issue(current_issue) do
-      video = processing_issue.video
-
-      if already_fixed_fun.(video, processing_issue) do
-        transition_issue(processing_issue.id, :replaced_clean)
-      else
-        case remediate_video(video) do
-          :ok ->
-            transition_issue(processing_issue.id, :waiting_for_replacement)
-
-          {:error, reason} ->
-            transition_issue(processing_issue.id, :failed) |> tag_error(reason)
-        end
-      end
+      resolve_issue_processing(processing_issue, already_fixed_fun)
     end
+  end
+
+  defp resolve_issue_processing(processing_issue, already_fixed_fun) do
+    video = processing_issue.video
+
+    if already_fixed_fun.(video, processing_issue) do
+      transition_issue(processing_issue.id, :replaced_clean)
+    else
+      remediate_video(video)
+      |> complete_remediation_transition(processing_issue.id)
+    end
+  end
+
+  defp complete_remediation_transition(:ok, issue_id),
+    do: transition_issue(issue_id, :waiting_for_replacement)
+
+  defp complete_remediation_transition({:error, reason}, issue_id) do
+    transition_issue(issue_id, :failed) |> tag_error(reason)
   end
 
   defp remediate_video(%{service_type: :sonarr, service_id: service_id}) do
@@ -96,8 +103,12 @@ defmodule Reencodarr.BadFileRemediation do
   end
 
   defp ensure_processing_issue(%BadFileIssue{status: :processing} = issue), do: {:ok, issue}
-  defp ensure_processing_issue(%BadFileIssue{status: :waiting_for_replacement} = issue), do: {:ok, issue}
-  defp ensure_processing_issue(%BadFileIssue{} = issue), do: transition_issue(issue.id, :processing)
+
+  defp ensure_processing_issue(%BadFileIssue{status: :waiting_for_replacement} = issue),
+    do: {:ok, issue}
+
+  defp ensure_processing_issue(%BadFileIssue{} = issue),
+    do: transition_issue(issue.id, :processing)
 
   defp transition_issue(issue_id, status) when is_integer(issue_id) do
     with {:ok, current_issue} <- refresh_issue(issue_id) do
@@ -106,6 +117,5 @@ defmodule Reencodarr.BadFileRemediation do
   end
 
   defp tag_error({:ok, issue}, reason), do: {:error, {issue, reason}}
-  defp tag_error({:error, changeset}, reason), do: {:error, {changeset, reason}}
   defp tag_error({:error, error}, reason), do: {:error, {error, reason}}
 end

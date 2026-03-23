@@ -128,9 +128,11 @@ defmodule ReencodarrWeb.RadarrWebhookController do
 
   defp handle_moviefile(conn, %{"movieFile" => movie_file}) do
     Logger.info("Received new MovieFile event from Radarr!")
+
     movie_file
     |> Reencodarr.Sync.upsert_video_from_file(:radarr)
     |> reconcile_waiting_bad_file_issues()
+
     send_resp(conn, :no_content, "")
   end
 

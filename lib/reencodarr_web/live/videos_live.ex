@@ -571,7 +571,8 @@ defmodule ReencodarrWeb.VideosLive do
       not is_nil(assigns.service_filter) or not is_nil(assigns.hdr_filter)
   end
 
-  defp pagination_label(page, per_page, total), do: ListPagination.pagination_label(page, per_page, total)
+  defp pagination_label(page, per_page, total),
+    do: ListPagination.pagination_label(page, per_page, total)
 
   # ---------------------------------------------------------------------------
   # Render

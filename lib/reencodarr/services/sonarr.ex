@@ -48,7 +48,8 @@ defmodule Reencodarr.Services.Sonarr do
   end
 
   @spec get_episodes_by_file(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
-  def get_episodes_by_file(episode_file_id) when is_integer(episode_file_id) and episode_file_id > 0 do
+  def get_episodes_by_file(episode_file_id)
+      when is_integer(episode_file_id) and episode_file_id > 0 do
     __MODULE__.api_request(url: "/api/v3/episode?episodeFileId=#{episode_file_id}", method: :get)
   end
 
@@ -148,7 +149,8 @@ defmodule Reencodarr.Services.Sonarr do
 
   def set_episodes_monitored(_episode_ids, _monitored), do: {:error, :invalid_episode_ids}
 
-  @spec delete_episode_file(integer()) :: {:ok, Req.Response.t()} | {:error, :invalid_episode_file_id}
+  @spec delete_episode_file(integer()) ::
+          {:ok, Req.Response.t()} | {:error, :invalid_episode_file_id}
   def delete_episode_file(episode_file_id)
       when is_integer(episode_file_id) and episode_file_id > 0 do
     __MODULE__.api_request(url: "/api/v3/episodefile/#{episode_file_id}", method: :delete)

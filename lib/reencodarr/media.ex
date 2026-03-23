@@ -187,7 +187,7 @@ defmodule Reencodarr.Media do
 
     BadFileIssue
     |> bad_file_issue_filters_query(opts)
-    |> order_by([i], [desc: i.updated_at, desc: i.id])
+    |> order_by([i], desc: i.updated_at, desc: i.id)
     |> maybe_limit_bad_file_issues(Keyword.get(opts, :limit))
     |> maybe_offset_bad_file_issues(Keyword.get(opts, :offset))
     |> Repo.all()
@@ -238,7 +238,8 @@ defmodule Reencodarr.Media do
       filtered_ids ->
         Repo.all(
           from i in BadFileIssue,
-            where: i.video_id in ^filtered_ids and i.status not in ^@resolved_bad_file_issue_statuses,
+            where:
+              i.video_id in ^filtered_ids and i.status not in ^@resolved_bad_file_issue_statuses,
             order_by: [desc: i.updated_at, desc: i.id]
         )
         |> Enum.reduce(%{}, fn issue, acc ->
@@ -354,7 +355,8 @@ defmodule Reencodarr.Media do
     {:ok, count}
   end
 
-  @spec queue_bad_file_issue_series(BadFileIssue.t()) :: {:ok, non_neg_integer()} | {:error, atom()}
+  @spec queue_bad_file_issue_series(BadFileIssue.t()) ::
+          {:ok, non_neg_integer()} | {:error, atom()}
   def queue_bad_file_issue_series(%BadFileIssue{} = issue) do
     issue = Repo.preload(issue, :video)
 
@@ -366,7 +368,8 @@ defmodule Reencodarr.Media do
         issues =
           list_bad_file_issues()
           |> Enum.filter(fn candidate ->
-            unresolved_bad_file_issue?(candidate) and series_group_key(candidate.video) == group_key
+            unresolved_bad_file_issue?(candidate) and
+              series_group_key(candidate.video) == group_key
           end)
 
         Enum.each(issues, &enqueue_bad_file_issue/1)
@@ -394,7 +397,13 @@ defmodule Reencodarr.Media do
   def reconcile_replacement_video(%Video{} = video, service_type)
       when service_type in [:sonarr, :radarr] do
     {:ok, _resolved_count} = resolve_waiting_bad_file_issues_for_video(video)
-    Events.broadcast_event(:sync_completed, %{service_type: service_type, source: :webhook, path: video.path})
+
+    Events.broadcast_event(:sync_completed, %{
+      service_type: service_type,
+      source: :webhook,
+      path: video.path
+    })
+
     {:ok, video}
   end
 
@@ -575,7 +584,8 @@ defmodule Reencodarr.Media do
     }
   end
 
-  defp current_audio_codec(%Video{audio_codecs: audio_codecs}, "unknown") when is_list(audio_codecs) do
+  defp current_audio_codec(%Video{audio_codecs: audio_codecs}, "unknown")
+       when is_list(audio_codecs) do
     case Enum.find(audio_codecs, &opus_codec?/1) do
       nil -> "unknown"
       codec -> to_string(codec)
@@ -1704,10 +1714,15 @@ defmodule Reencodarr.Media do
   Backfill stored MediaInfo for videos that are missing it without resetting analysis state.
   """
   @spec backfill_missing_mediainfo(keyword()) ::
-          {:ok, %{scanned: non_neg_integer(), backfilled: non_neg_integer(), failed: non_neg_integer()}}
+          {:ok,
+           %{scanned: non_neg_integer(), backfilled: non_neg_integer(), failed: non_neg_integer()}}
   def backfill_missing_mediainfo(opts \\ []) do
     batch_probe_fun =
-      Keyword.get(opts, :batch_probe_fun, &MediaInfoExtractor.execute_optimized_mediainfo_command/1)
+      Keyword.get(
+        opts,
+        :batch_probe_fun,
+        &MediaInfoExtractor.execute_optimized_mediainfo_command/1
+      )
 
     batch_size = Keyword.get(opts, :batch_size, 100)
     max_concurrency = normalize_backfill_max_concurrency(Keyword.get(opts, :max_concurrency, 4))
@@ -1808,7 +1823,8 @@ defmodule Reencodarr.Media do
       |> interleave_backfill_lane_videos([])
       |> Enum.take(batch_limit)
 
-    grouped = Enum.group_by(interleaved, fn {lane, _video} -> lane end, fn {_lane, video} -> video end)
+    grouped =
+      Enum.group_by(interleaved, fn {lane, _video} -> lane end, fn {_lane, video} -> video end)
 
     Enum.map(lane_videos, fn {lane, _videos} -> {lane, Map.get(grouped, lane, [])} end)
   end
@@ -1819,17 +1835,8 @@ defmodule Reencodarr.Media do
         Enum.reverse(acc)
 
       {active_lanes, _empty_lanes} ->
-        next_acc =
-          Enum.reduce(active_lanes, acc, fn {lane, [video | _rest]}, lane_acc ->
-            [{lane, video} | lane_acc]
-          end)
-
-        next_lanes =
-          Enum.map(active_lanes, fn {lane, [_video | rest]} -> {lane, rest} end) ++
-            Enum.reject(lane_videos, fn {lane, videos} ->
-              videos != [] and Enum.any?(active_lanes, fn {active_lane, _} -> active_lane == lane end)
-            end)
-
+        next_acc = Enum.reduce(active_lanes, acc, &prepend_lane_video/2)
+        next_lanes = remaining_backfill_lanes(lane_videos, active_lanes)
         interleave_backfill_lane_videos(next_lanes, next_acc)
     end
   end
@@ -1848,37 +1855,59 @@ defmodule Reencodarr.Media do
     else
       lane_concurrency = split_backfill_lane_concurrency(active_lane_videos, max_concurrency)
 
-      active_lane_videos
-      |> Enum.map(fn {lane, videos} ->
-        Task.async(fn ->
-          backfill_video_batches_mediainfo(
-            videos,
-            batch_size,
-            Map.fetch!(lane_concurrency, lane),
-            batch_probe_fun,
-            %{scanned: 0, backfilled: 0, failed: 0}
-          )
-        end)
-      end)
+      backfill_lane_tasks(active_lane_videos, batch_size, batch_probe_fun, lane_concurrency)
       |> Enum.reduce(summary, fn task, acc ->
         merge_backfill_summary(acc, Task.await(task, :infinity))
       end)
     end
   end
 
-  defp backfill_video_batches_mediainfo(videos, batch_size, max_concurrency, batch_probe_fun, summary) do
+  defp backfill_video_batches_mediainfo(
+         videos,
+         batch_size,
+         max_concurrency,
+         batch_probe_fun,
+         summary
+       ) do
     videos
     |> Enum.chunk_every(batch_size)
     |> Enum.chunk_every(max_concurrency)
     |> Enum.reduce(summary, fn video_batch_group, acc ->
-      video_batch_group
-      |> Enum.map(fn video_batch ->
-        Task.async(fn -> backfill_video_batch_mediainfo(video_batch, batch_probe_fun) end)
-      end)
+      backfill_batch_group_tasks(video_batch_group, batch_probe_fun)
       |> Enum.reduce(acc, fn task, group_acc ->
-        batch_summary = Task.await(task, :infinity)
-        merge_backfill_summary(group_acc, batch_summary)
+        merge_backfill_summary(group_acc, Task.await(task, :infinity))
       end)
+    end)
+  end
+
+  defp prepend_lane_video({lane, [video | _rest]}, acc), do: [{lane, video} | acc]
+
+  defp remaining_backfill_lanes(lane_videos, active_lanes) do
+    active_lane_names = MapSet.new(active_lanes, fn {lane, _} -> lane end)
+
+    Enum.map(active_lanes, fn {lane, [_video | rest]} -> {lane, rest} end) ++
+      Enum.reject(lane_videos, fn {lane, videos} ->
+        videos != [] and MapSet.member?(active_lane_names, lane)
+      end)
+  end
+
+  defp backfill_lane_tasks(active_lane_videos, batch_size, batch_probe_fun, lane_concurrency) do
+    Enum.map(active_lane_videos, fn {lane, videos} ->
+      Task.async(fn ->
+        backfill_video_batches_mediainfo(
+          videos,
+          batch_size,
+          Map.fetch!(lane_concurrency, lane),
+          batch_probe_fun,
+          %{scanned: 0, backfilled: 0, failed: 0}
+        )
+      end)
+    end)
+  end
+
+  defp backfill_batch_group_tasks(video_batch_group, batch_probe_fun) do
+    Enum.map(video_batch_group, fn video_batch ->
+      Task.async(fn -> backfill_video_batch_mediainfo(video_batch, batch_probe_fun) end)
     end)
   end
 
@@ -1957,7 +1986,8 @@ defmodule Reencodarr.Media do
     end
   end
 
-  defp normalize_backfill_mediainfo(%{"media" => _tracks} = mediainfo, _path), do: {:ok, mediainfo}
+  defp normalize_backfill_mediainfo(%{"media" => _tracks} = mediainfo, _path),
+    do: {:ok, mediainfo}
 
   defp normalize_backfill_mediainfo(mediainfo_by_path, path) when is_map(mediainfo_by_path) do
     case Map.get(mediainfo_by_path, path, :missing_mediainfo_for_path) do
@@ -1971,10 +2001,14 @@ defmodule Reencodarr.Media do
     do: {:error, :invalid_mediainfo_payload}
 
   defp next_backfill_batch_limit(batch_size, :all), do: batch_size
-  defp next_backfill_batch_limit(batch_size, remaining_limit), do: min(batch_size, remaining_limit)
+
+  defp next_backfill_batch_limit(batch_size, remaining_limit),
+    do: min(batch_size, remaining_limit)
 
   defp decrement_backfill_limit(:all, _processed_count), do: :all
-  defp decrement_backfill_limit(remaining_limit, processed_count), do: remaining_limit - processed_count
+
+  defp decrement_backfill_limit(remaining_limit, processed_count),
+    do: remaining_limit - processed_count
 
   defp maybe_sleep_after_backfill_batch(sleep_ms) when sleep_ms > 0 do
     Process.sleep(sleep_ms)
