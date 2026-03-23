@@ -48,3 +48,6 @@ config :reencodarr, env: :test
 # Don't start Erlang distribution in tests — avoids duplicate_name conflicts
 # with a running dev node and unnecessary epmd registration per test run.
 config :reencodarr, start_distribution: false
+
+# Default to stock SVT-AV1 behavior in tests; override per-test to test HDR-fork paths
+config :reencodarr, encoder_capabilities_override: false
