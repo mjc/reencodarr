@@ -119,6 +119,7 @@ defmodule Reencodarr.Media.Video do
     belongs_to :chosen_vmaf, Reencodarr.Media.Vmaf
     has_many :vmafs, Reencodarr.Media.Vmaf
     has_many :failures, Reencodarr.Media.VideoFailure
+    has_many :bad_file_issues, Reencodarr.Media.BadFileIssue
 
     timestamps(type: :utc_datetime)
   end

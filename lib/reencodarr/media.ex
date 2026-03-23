@@ -10,6 +10,7 @@ defmodule Reencodarr.Media do
   alias Reencodarr.Core.Parsers
 
   alias Reencodarr.Media.{
+    BadFileIssue,
     Library,
     SharedQueries,
     Video,
@@ -169,6 +170,119 @@ defmodule Reencodarr.Media do
     do: VideoStateMachine.mark_as_needs_analysis(video)
 
   def mark_as_encoded(%Video{} = video), do: VideoStateMachine.mark_as_encoded(video)
+
+  # --- Bad File Issue Functions ---
+
+  @resolved_bad_file_issue_statuses [:replaced_clean, :replaced_still_bad, :dismissed]
+
+  @spec list_bad_file_issues() :: [BadFileIssue.t()]
+  def list_bad_file_issues do
+    Repo.all(from i in BadFileIssue, order_by: [desc: i.updated_at, desc: i.id])
+  end
+
+  @spec get_bad_file_issue!(integer()) :: BadFileIssue.t()
+  def get_bad_file_issue!(id), do: Repo.get!(BadFileIssue, id)
+
+  @spec create_bad_file_issue(Video.t(), map()) ::
+          {:ok, BadFileIssue.t()} | {:error, Ecto.Changeset.t()}
+  def create_bad_file_issue(%Video{} = video, attrs) when is_map(attrs) do
+    attrs =
+      attrs
+      |> Map.put(:video_id, video.id)
+      |> normalize_bad_file_issue_attrs()
+
+    case find_existing_unresolved_bad_file_issue(video.id, attrs) do
+      nil ->
+        %BadFileIssue{}
+        |> BadFileIssue.changeset(attrs)
+        |> Repo.insert()
+
+      existing ->
+        existing
+        |> BadFileIssue.changeset(attrs)
+        |> Repo.update()
+    end
+  end
+
+  @spec enqueue_bad_file_issue(BadFileIssue.t()) ::
+          {:ok, BadFileIssue.t()} | {:error, Ecto.Changeset.t()}
+  def enqueue_bad_file_issue(%BadFileIssue{} = issue),
+    do: update_bad_file_issue_status(issue, :queued)
+
+  @spec retry_bad_file_issue(BadFileIssue.t()) ::
+          {:ok, BadFileIssue.t()} | {:error, Ecto.Changeset.t()}
+  def retry_bad_file_issue(%BadFileIssue{} = issue),
+    do: update_bad_file_issue_status(issue, :queued)
+
+  @spec dismiss_bad_file_issue(BadFileIssue.t()) ::
+          {:ok, BadFileIssue.t()} | {:error, Ecto.Changeset.t()}
+  def dismiss_bad_file_issue(%BadFileIssue{} = issue) do
+    update_bad_file_issue_status(issue, :dismissed)
+  end
+
+  @spec update_bad_file_issue_status(BadFileIssue.t(), atom()) ::
+          {:ok, BadFileIssue.t()} | {:error, Ecto.Changeset.t()}
+  def update_bad_file_issue_status(%BadFileIssue{} = issue, status) when is_atom(status) do
+    attrs =
+      %{status: status}
+      |> maybe_put_bad_file_issue_timestamps(status)
+
+    issue
+    |> BadFileIssue.changeset(attrs)
+    |> Repo.update()
+  end
+
+  @spec next_queued_bad_file_issue() :: BadFileIssue.t() | nil
+  def next_queued_bad_file_issue do
+    Repo.one(
+      from i in BadFileIssue,
+        where: i.status == :queued,
+        order_by: [asc: i.inserted_at, asc: i.id],
+        limit: 1
+    )
+  end
+
+  defp normalize_bad_file_issue_attrs(attrs) do
+    Enum.reduce(attrs, %{}, fn
+      {key, value}, acc when is_binary(key) -> Map.put(acc, String.to_existing_atom(key), value)
+      {key, value}, acc -> Map.put(acc, key, value)
+    end)
+  end
+
+  defp find_existing_unresolved_bad_file_issue(video_id, attrs) do
+    issue_kind = Map.get(attrs, :issue_kind)
+    classification = Map.get(attrs, :classification)
+
+    Repo.one(
+      from i in BadFileIssue,
+        where:
+          i.video_id == ^video_id and
+            i.issue_kind == ^issue_kind and
+            i.classification == ^classification and
+            i.status not in ^@resolved_bad_file_issue_statuses,
+        order_by: [desc: i.updated_at, desc: i.id],
+        limit: 1
+    )
+  end
+
+  defp maybe_put_bad_file_issue_timestamps(attrs, status) do
+    attrs
+    |> maybe_put_resolved_at(status)
+    |> maybe_put_last_attempted_at(status)
+  end
+
+  defp maybe_put_resolved_at(attrs, status) when status in @resolved_bad_file_issue_statuses do
+    Map.put(attrs, :resolved_at, DateTime.utc_now())
+  end
+
+  defp maybe_put_resolved_at(attrs, _status), do: attrs
+
+  defp maybe_put_last_attempted_at(attrs, status)
+       when status in [:queued, :processing, :waiting_for_replacement, :failed] do
+    Map.put(attrs, :last_attempted_at, DateTime.utc_now())
+  end
+
+  defp maybe_put_last_attempted_at(attrs, _status), do: attrs
 
   @doc """
   Bulk-marks all :analyzed videos that are already AV1 (by codec or filename) as :encoded.
