@@ -14,9 +14,30 @@
       system: let
         pkgs = import nixpkgs {inherit system;};
         lib = pkgs.lib;
-        # Use latest available Erlang 28.x version
-        erlang = pkgs.beam.interpreters.erlang_28;
-        beamPackages = pkgs.beam.packagesWith erlang;
+        svt-av1-hdr = pkgs.svt-av1.overrideAttrs (_old: {
+          pname = "svt-av1-hdr";
+          version = "4.0.1";
+          src = pkgs.fetchFromGitHub {
+            owner = "juliobbv-p";
+            repo = "svt-av1-hdr";
+            rev = "v4.0.1";
+            hash = "sha256-jfyolWcPcfMzxjBszg1KY9eHc6KRsp41h3lQKsrgiDU=";
+          };
+        });
+        ffmpeg-svt-hdr = (pkgs.ffmpeg-full.override {svt-av1 = svt-av1-hdr;}).overrideAttrs (old: {
+          # ffmpeg 8.x references enable_adaptive_quantization which was removed in SVT-AV1 2.x
+          # (the base for svt-av1-hdr v4.x). Drop the line so the encoder uses its default.
+          postPatch =
+            (old.postPatch or "")
+            + ''
+              substituteInPlace libavcodec/libsvtav1.c \
+                --replace-fail "param->enable_adaptive_quantization = 0;" ""
+            '';
+        });
+        # Use beam_minimal (wxSupport=false) to drop the wxwidgets → webkitgtk build chain;
+        # observer/wx GUI not needed for a server app.
+        erlang = pkgs.beam_minimal.interpreters.erlang_28;
+        beamPackages = pkgs.beam_minimal.packagesWith erlang;
         elixir = beamPackages.elixir_1_19;
       in {
         # Docker image for the application
@@ -24,16 +45,16 @@
           name = "reencodarr";
           tag = "latest";
 
-          contents = with pkgs; [
+          contents = [
             erlang
             elixir
-            ffmpeg-full
-            gpac
-            fd
-            curl
-            bash
-            coreutils
-            sqlite
+            ffmpeg-svt-hdr
+            pkgs.gpac
+            pkgs.fd
+            pkgs.curl
+            pkgs.bash
+            pkgs.coreutils
+            pkgs.sqlite
           ];
 
           config = {
@@ -69,7 +90,7 @@
               pkgs.nodePackages.cspell
               pkgs.alejandra
               pkgs.nil
-              pkgs.ffmpeg-full
+              ffmpeg-svt-hdr
               pkgs.fd
               pkgs.curl
               pkgs.docker-compose
@@ -92,8 +113,7 @@
             gh auth switch --user mjc
             export MIX_OS_DEPS_COMPILE_PARTITION_COUNT=$(( $(nproc) / 2 ))
             export ERL_AFLAGS="-kernel shell_history enabled"
-            export DATABASE_URL="ecto://mjc@localhost:5432/reencodarr_dev"
-            export SECRET_KEY_BASE="WEWsPGIpK/OgJA2ZcwzsgZxWKSAp35IsqWPYsvSUmm5awBUGpvsVOcG2kkDteXR1"
+            export SECRET_KEY_BASE="WEWsPGIpK/OgJA2ZcwzsgZxWKSAp35IsqWPYsvSUmm5awBUGpvsVOcG2kkDteXR1" # dev only, not a secret
             export COMPOSE_BAKE=true
 
             # GPG Configuration
