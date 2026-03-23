@@ -12,6 +12,7 @@ defmodule Reencodarr.Analyzer.Processing.PipelineTest do
   describe "process_single_video/1" do
     test "returns merged params on success" do
       video_info = %{id: 1, path: "/tmp/video1.mkv", service_id: "123", service_type: :sonarr}
+      mediainfo = %{"track" => [%{"@type" => "General"}]}
 
       :meck.new(FileOperations, [:passthrough])
       :meck.expect(FileOperations, :validate_file_for_processing, fn _path -> {:ok, %{}} end)
@@ -19,7 +20,7 @@ defmodule Reencodarr.Analyzer.Processing.PipelineTest do
       :meck.new(CommandExecutor, [:passthrough])
 
       :meck.expect(CommandExecutor, :execute_single_mediainfo, fn _path ->
-        {:ok, %{"track" => [%{"@type" => "General"}]}}
+        {:ok, mediainfo}
       end)
 
       :meck.new(MediaInfoExtractor, [:passthrough])
@@ -34,6 +35,7 @@ defmodule Reencodarr.Analyzer.Processing.PipelineTest do
       assert params["path"] == video_info.path
       assert params["service_id"] == "123"
       assert params["service_type"] == "sonarr"
+      assert params["mediainfo"] == %{"media" => mediainfo}
     end
 
     test "returns tagged error when command execution fails" do
@@ -152,6 +154,32 @@ defmodule Reencodarr.Analyzer.Processing.PipelineTest do
 
     test "processes empty batch gracefully" do
       assert {:ok, []} = Pipeline.process_video_batch([], %{})
+    end
+
+    test "includes raw mediainfo in batch-processed attrs" do
+      video = %{id: 14, path: "/tmp/batch.mkv", service_id: "3", service_type: :sonarr}
+      mediainfo = %{"media" => %{"track" => [%{"@type" => "General"}, %{"@type" => "Video"}]}}
+
+      :meck.new(FileOperations, [:passthrough])
+
+      :meck.expect(FileOperations, :validate_files_for_processing, fn _paths ->
+        %{"/tmp/batch.mkv" => {:ok, %{}}}
+      end)
+
+      :meck.new(CommandExecutor, [:passthrough])
+
+      :meck.expect(CommandExecutor, :execute_batch_mediainfo, fn ["/tmp/batch.mkv"] ->
+        {:ok, %{"/tmp/batch.mkv" => mediainfo}}
+      end)
+
+      :meck.new(MediaInfoExtractor, [:passthrough])
+
+      :meck.expect(MediaInfoExtractor, :extract_video_params, fn _mediainfo, _path ->
+        %{"fps" => 23.976}
+      end)
+
+      assert {:ok, [{^video, params}]} = Pipeline.process_video_batch([video], %{})
+      assert params["mediainfo"] == mediainfo
     end
   end
 end

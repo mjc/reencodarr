@@ -3,6 +3,11 @@ defmodule Reencodarr.Services.RadarrTest do
 
   alias Reencodarr.Services.Radarr
 
+  setup do
+    :meck.unload()
+    :ok
+  end
+
   # Note: Comprehensive integration tests for wait_for_command,
   # refresh_movie_and_wait, and exponential backoff retry logic
   # are provided in scripts/test_app_rename.exs which tests against
@@ -51,6 +56,71 @@ defmodule Reencodarr.Services.RadarrTest do
 
     test "raises FunctionClauseError for atom movie_id" do
       assert_raise FunctionClauseError, fn -> Radarr.rename_movie_files(:some_id) end
+    end
+  end
+
+  describe "movie remediation helpers" do
+    test "get_movie/1 requests a movie by id" do
+      :meck.new(Radarr, [:passthrough])
+
+      :meck.expect(Radarr, :api_request, fn opts ->
+        assert opts[:method] == :get
+        assert opts[:url] == "/api/v3/movie/77"
+        {:ok, %{body: %{"id" => 77}}}
+      end)
+
+      assert {:ok, %{body: %{"id" => 77}}} = Radarr.get_movie(77)
+    end
+
+    test "set_movie_monitored/2 rejects nil movie ids" do
+      assert Radarr.set_movie_monitored(nil, true) == {:error, :invalid_movie_id}
+    end
+
+    test "set_movie_monitored/2 updates monitored state via movie editor" do
+      :meck.new(Radarr, [:passthrough])
+
+      :meck.expect(Radarr, :api_request, fn opts ->
+        assert opts[:method] == :put
+        assert opts[:url] == "/api/v3/movie/editor"
+        assert opts[:json] == %{movieIds: [77], monitored: true}
+        {:ok, %{body: %{"updated" => true}}}
+      end)
+
+      assert {:ok, %{body: %{"updated" => true}}} = Radarr.set_movie_monitored(77, true)
+    end
+
+    test "delete_movie_file/1 rejects invalid movie file ids" do
+      assert Radarr.delete_movie_file(nil) == {:error, :invalid_movie_file_id}
+      assert Radarr.delete_movie_file("5") == {:error, :invalid_movie_file_id}
+    end
+
+    test "delete_movie_file/1 deletes a movie file by id" do
+      :meck.new(Radarr, [:passthrough])
+
+      :meck.expect(Radarr, :api_request, fn opts ->
+        assert opts[:method] == :delete
+        assert opts[:url] == "/api/v3/moviefile/88"
+        {:ok, %{status: 200}}
+      end)
+
+      assert {:ok, %{status: 200}} = Radarr.delete_movie_file(88)
+    end
+
+    test "trigger_movie_search/1 rejects nil movie ids" do
+      assert Radarr.trigger_movie_search(nil) == {:error, :invalid_movie_id}
+    end
+
+    test "trigger_movie_search/1 sends a MoviesSearch command" do
+      :meck.new(Radarr, [:passthrough])
+
+      :meck.expect(Radarr, :api_request, fn opts ->
+        assert opts[:method] == :post
+        assert opts[:url] == "/api/v3/command"
+        assert opts[:json] == %{name: "MoviesSearch", movieIds: [77]}
+        {:ok, %{body: %{"id" => 444}}}
+      end)
+
+      assert {:ok, %{body: %{"id" => 444}}} = Radarr.trigger_movie_search(77)
     end
   end
 end

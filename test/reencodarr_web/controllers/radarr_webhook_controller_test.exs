@@ -2,6 +2,8 @@ defmodule ReencodarrWeb.RadarrWebhookControllerTest do
   use ReencodarrWeb.ConnCase, async: false
   import ExUnit.CaptureLog
 
+  alias Phoenix.PubSub
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
 
   @minimal_media_info %{
@@ -68,6 +70,74 @@ defmodule ReencodarrWeb.RadarrWebhookControllerTest do
       assert {:ok, video} = Media.get_video_by_path(path)
       assert video.path == path
       assert video.service_type == :radarr
+    end
+
+    test "marks a waiting bad-file issue replaced_clean when Radarr reports the replacement", %{
+      conn: conn
+    } do
+      uid = System.unique_integer([:positive])
+      path = "/test/movies/replacement_#{uid}/movie.mkv"
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: path,
+          size: 5_000_000_000,
+          service_type: :radarr,
+          service_id: Integer.to_string(uid)
+        })
+
+      {:ok, issue} =
+        Media.create_bad_file_issue(video, %{
+          origin: :manual,
+          issue_kind: :manual,
+          classification: :manual_bad,
+          manual_reason: "bad release"
+        })
+
+      {:ok, _waiting_issue} = Media.update_bad_file_issue_status(issue, :waiting_for_replacement)
+
+      capture_log(fn ->
+        conn =
+          radarr_post(conn, %{
+            "eventType" => "Download",
+            "movieFile" => %{
+              "id" => uid,
+              "path" => path,
+              "size" => 15_000_000_000,
+              "mediaInfo" => @minimal_media_info
+            }
+          })
+
+        assert conn.status == 204
+      end)
+
+      assert Media.get_bad_file_issue!(issue.id).status == :replaced_clean
+    end
+
+    test "broadcasts an existing dashboard sync event when Radarr reports the replacement", %{
+      conn: conn
+    } do
+      PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+
+      uid = System.unique_integer([:positive])
+      path = "/test/movies/broadcast_#{uid}/movie.mkv"
+
+      capture_log(fn ->
+        conn =
+          radarr_post(conn, %{
+            "eventType" => "Download",
+            "movieFile" => %{
+              "id" => uid,
+              "path" => path,
+              "size" => 15_000_000_000,
+              "mediaInfo" => @minimal_media_info
+            }
+          })
+
+        assert conn.status == 204
+      end)
+
+      assert_receive {:sync_completed, %{service_type: :radarr, source: :webhook, path: ^path}}
     end
   end
 

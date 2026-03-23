@@ -137,6 +137,66 @@ defmodule Reencodarr.Media.VideoUpsertTest do
         assert {:error, %Ecto.Changeset{}} = result
       end)
     end
+
+    test "preserves existing mediainfo when a same-file update omits it", %{library: library} do
+      original_mediainfo = %{
+        "media" => %{
+          "track" => [
+            %{"@type" => "General", "Format" => "Matroska"},
+            %{
+              "@type" => "Video",
+              "Format" => "AVC",
+              "Width" => 1920,
+              "Height" => 1080
+            },
+            %{
+              "@type" => "Audio",
+              "Format" => "AAC",
+              "Channels" => 2
+            }
+          ]
+        }
+      }
+
+      original_video =
+        %Video{
+          path: "/mnt/test/show/episode.mkv",
+          size: 1_000_000,
+          duration: 3600.0,
+          bitrate: 8_000_000,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"],
+          max_audio_channels: 2,
+          atmos: false,
+          library_id: library.id,
+          mediainfo: original_mediainfo,
+          state: :analyzed
+        }
+        |> Repo.insert!()
+
+      assert original_video.mediainfo == original_mediainfo
+
+      updated_attrs =
+        %{
+          "path" => original_video.path,
+          "size" => original_video.size,
+          "duration" => 3700.0,
+          "bitrate" => original_video.bitrate,
+          "width" => original_video.width,
+          "height" => original_video.height,
+          "video_codecs" => original_video.video_codecs,
+          "audio_codecs" => original_video.audio_codecs,
+          "library_id" => library.id,
+          "max_audio_channels" => original_video.max_audio_channels,
+          "atmos" => original_video.atmos
+        }
+
+      assert {:ok, updated_video} = VideoUpsert.upsert(updated_attrs)
+      assert updated_video.id == original_video.id
+      assert updated_video.mediainfo == original_mediainfo
+    end
   end
 
   describe "batch_upsert/1" do

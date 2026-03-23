@@ -46,6 +46,25 @@ defmodule Reencodarr.RulesTest do
       assert "--svt" in args
       assert "tune=0" in args
     end
+
+    test "encoding context uses safe opus for trusted non-atmos side layouts" do
+      video =
+        Fixtures.create_test_video(%{
+          audio_codecs: ["aac"],
+          atmos: false,
+          mediainfo: sample_mediainfo("AAC", 6, "5.1(side)")
+        })
+
+      args = Rules.build_args(video, :encode)
+
+      assert "--acodec" in args
+      acodec_index = Enum.find_index(args, &(&1 == "--acodec"))
+      assert Enum.at(args, acodec_index + 1) == "libopus"
+
+      assert find_flag_value(args, "--enc", "mapping_family=255")
+      refute find_flag_value(args, "--enc", "ac=6")
+      refute find_flag_value(args, "--enc", "af=aformat=channel_layouts=5.1")
+    end
   end
 
   describe "build_args/4 - video-specific rules" do
@@ -276,7 +295,7 @@ defmodule Reencodarr.RulesTest do
   end
 
   describe "individual rule functions" do
-    test "audio/1 always returns copy" do
+    test "audio/1 copies audio when metadata is not trustworthy enough to rule out Atmos" do
       video = Fixtures.create_test_video()
       rules = Rules.audio(video)
 
@@ -293,6 +312,45 @@ defmodule Reencodarr.RulesTest do
       video = Fixtures.create_test_video(%{atmos: true})
       rules = Rules.audio(video)
       assert rules == [{"--acodec", "copy"}]
+    end
+
+    test "audio/1 with trusted non-atmos 5.1(side) uses mapping_family 255" do
+      video =
+        Fixtures.create_test_video(%{
+          audio_codecs: ["aac"],
+          mediainfo: sample_mediainfo("AAC", 6, "5.1(side)")
+        })
+
+      rules = Rules.audio(video)
+
+      assert {"--acodec", "libopus"} in rules
+      assert {"--enc", "mapping_family=255"} in rules
+      refute {"--enc", "ac=6"} in rules
+      refute {"--enc", "af=aformat=channel_layouts=5.1"} in rules
+    end
+
+    test "audio/1 with trusted non-atmos canonical 5.1 uses opus without layout coercion" do
+      video =
+        Fixtures.create_test_video(%{
+          audio_codecs: ["aac"],
+          mediainfo: sample_mediainfo("AAC", 6, "5.1")
+        })
+
+      rules = Rules.audio(video)
+
+      assert {"--acodec", "libopus"} in rules
+      refute {"--enc", "mapping_family=255"} in rules
+      refute {"--enc", "ac=6"} in rules
+    end
+
+    test "audio/1 copies eac3 because it is possibly Atmos" do
+      video =
+        Fixtures.create_test_video(%{
+          audio_codecs: ["eac3"],
+          mediainfo: sample_mediainfo("E-AC-3", 6, "5.1(side)")
+        })
+
+      assert Rules.audio(video) == [{"--acodec", "copy"}]
     end
 
     test "hdr/1 with DV video includes dolbyvision" do
@@ -1291,5 +1349,24 @@ defmodule Reencodarr.RulesTest do
       refute Rules.standalone_value?("/path/to/file.mkv")
       refute Rules.standalone_value?("4")
     end
+  end
+
+  defp sample_mediainfo(format, channels, layout) do
+    %{
+      "media" => %{
+        "track" => [
+          %{"@type" => "General", "Duration" => "7200.0"},
+          %{"@type" => "Video", "Format" => "AVC", "Width" => "1920", "Height" => "1080"},
+          %{
+            "@type" => "Audio",
+            "Format" => format,
+            "CodecID" => format,
+            "Channels" => Integer.to_string(channels),
+            "ChannelLayout" => layout,
+            "Default" => "Yes"
+          }
+        ]
+      }
+    }
   end
 end

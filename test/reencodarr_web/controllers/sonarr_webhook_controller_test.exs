@@ -2,6 +2,8 @@ defmodule ReencodarrWeb.SonarrWebhookControllerTest do
   use ReencodarrWeb.ConnCase, async: false
   import ExUnit.CaptureLog
 
+  alias Phoenix.PubSub
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
 
   @minimal_media_info %{
@@ -69,6 +71,76 @@ defmodule ReencodarrWeb.SonarrWebhookControllerTest do
       assert {:ok, video} = Media.get_video_by_path(path)
       assert video.path == path
       assert video.service_type == :sonarr
+    end
+
+    test "marks a waiting bad-file issue replaced_clean when Sonarr reports the replacement", %{
+      conn: conn
+    } do
+      unique = System.unique_integer([:positive])
+      path = "/test/shows/replacement_#{unique}/episode.mkv"
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: path,
+          size: 1_000_000_000,
+          service_type: :sonarr,
+          service_id: Integer.to_string(unique)
+        })
+
+      {:ok, issue} =
+        Media.create_bad_file_issue(video, %{
+          origin: :manual,
+          issue_kind: :manual,
+          classification: :manual_bad,
+          manual_reason: "bad encode"
+        })
+
+      {:ok, _waiting_issue} = Media.update_bad_file_issue_status(issue, :waiting_for_replacement)
+
+      capture_log(fn ->
+        conn =
+          sonarr_post(conn, %{
+            "eventType" => "Download",
+            "episodeFile" => %{
+              "id" => unique,
+              "path" => path,
+              "size" => 2_000_000_000,
+              "sceneName" => "Show.S01E01.REPACK",
+              "mediaInfo" => @minimal_media_info
+            }
+          })
+
+        assert conn.status == 204
+      end)
+
+      assert Media.get_bad_file_issue!(issue.id).status == :replaced_clean
+    end
+
+    test "broadcasts an existing dashboard sync event when Sonarr reports the replacement", %{
+      conn: conn
+    } do
+      PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+
+      unique = System.unique_integer([:positive])
+      path = "/test/shows/broadcast_#{unique}/episode.mkv"
+
+      capture_log(fn ->
+        conn =
+          sonarr_post(conn, %{
+            "eventType" => "Download",
+            "episodeFile" => %{
+              "id" => unique,
+              "path" => path,
+              "size" => 2_000_000_000,
+              "sceneName" => "Show.S01E01.REPACK",
+              "mediaInfo" => @minimal_media_info
+            }
+          })
+
+        assert conn.status == 204
+      end)
+
+      assert_receive {:sync_completed, %{service_type: :sonarr, source: :webhook, path: ^path}}
     end
 
     test "returns 204 for episodeFile with invalid/missing size", %{conn: conn} do
