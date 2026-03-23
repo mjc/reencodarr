@@ -19,6 +19,7 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
     field :format_profile, :string
     field :format_commercial_if_any, :string
     field :format_additionalfeatures, :string
+    field :codec_id, :string
     field :channels, :integer
     field :channel_layout, :string
     field :bit_rate, :integer
@@ -62,6 +63,7 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
       "Format_AdditionalFeatures",
       "format_additionalfeatures"
     ])
+    |> put_string_field(:codec_id, attrs, ["CodecID", "codec_id"])
     |> put_converted_field(:channels, attrs, ["Channels", "channels", "Channel(s)"])
     |> put_string_field(:channel_layout, attrs, [
       "ChannelLayout",
