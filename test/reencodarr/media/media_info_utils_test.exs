@@ -8,6 +8,8 @@ defmodule Reencodarr.Media.MediaInfoUtilsTest do
       assert MediaInfoUtils.has_atmos_format?("Dolby Atmos")
       assert MediaInfoUtils.has_atmos_format?("TrueHD Atmos")
       assert MediaInfoUtils.has_atmos_format?("EAC3 Atmos")
+      assert MediaInfoUtils.has_atmos_format?("joc / atmos")
+      assert MediaInfoUtils.has_atmos_format?("A_EAC3/JOC")
     end
 
     test "returns false for non-Atmos strings" do
@@ -109,6 +111,21 @@ defmodule Reencodarr.Media.MediaInfoUtilsTest do
       assert result.video_codecs == ["V_AV1"]
       assert result.audio_codecs == ["A_OPUS"]
       assert result.max_audio_channels == 2
+    end
+
+    test "detects Atmos from raw CodecID JOC markers" do
+      mediainfo =
+        put_in(sample_mediainfo(1920, 1080), ["media", "track", Access.at(2)], %{
+          "@type" => "Audio",
+          "CodecID" => "A_EAC3/JOC",
+          "Format" => "AAC",
+          "Channels" => "6"
+        })
+
+      result = MediaInfoUtils.extract_video_params(mediainfo, "/test/joc.mkv")
+
+      assert is_map(result)
+      assert result.atmos
     end
 
     test "returns error for zero width or height" do

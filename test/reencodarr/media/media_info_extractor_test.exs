@@ -147,6 +147,26 @@ defmodule Reencodarr.Media.MediaInfoExtractorTest do
 
       result = MediaInfoExtractor.extract_video_params(mediainfo, "/media/atmos.mkv")
       assert is_map(result)
+      assert result.atmos
+    end
+
+    test "detects Atmos from raw CodecID JOC markers" do
+      mediainfo =
+        update_in(valid_mediainfo(), ["media", "track"], fn tracks ->
+          tracks ++
+            [
+              %{
+                "@type" => "Audio",
+                "CodecID" => "A_EAC3/JOC",
+                "Format" => "AAC",
+                "Channels" => "6"
+              }
+            ]
+        end)
+
+      result = MediaInfoExtractor.extract_video_params(mediainfo, "/media/joc.mkv")
+      assert is_map(result)
+      assert result.atmos
     end
   end
 end
