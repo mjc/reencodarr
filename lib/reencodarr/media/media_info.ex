@@ -10,6 +10,13 @@ defmodule Reencodarr.Media.MediaInfo do
   alias Reencodarr.DataConverters
   alias Reencodarr.Media.{CodecMapper, VideoFileInfo}
 
+  @track_field_atoms %{
+    "Format_Commercial_IfAny" => :format_commercial_if_any,
+    "Format_AdditionalFeatures" => :format_additionalfeatures,
+    "Format" => :format,
+    "CodecID" => :codec_id
+  }
+
   @doc """
   Parses HDR format information from a list of format strings.
   """
@@ -150,8 +157,9 @@ defmodule Reencodarr.Media.MediaInfo do
   end
 
   defp get_track_field(track, key) do
-    Map.get(track, key) || Map.get(track, String.to_atom(key)) || ""
-  rescue
-    ArgumentError -> Map.get(track, key, "")
+    case Map.get(@track_field_atoms, key, :unknown_field) do
+      :unknown_field -> Map.get(track, key, "")
+      atom_key -> Map.get(track, key) || Map.get(track, atom_key) || ""
+    end
   end
 end
