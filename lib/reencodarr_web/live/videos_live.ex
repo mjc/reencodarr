@@ -51,6 +51,7 @@ defmodule ReencodarrWeb.VideosLive do
        total: 0,
        state_counts: %{},
        selected: MapSet.new(),
+       expanded_bad_forms: [],
        loading: true,
        loaded_once: false,
        per_page_options: @per_page_options,
@@ -204,6 +205,26 @@ defmodule ReencodarrWeb.VideosLive do
            page: 1
          )
      )}
+  end
+
+  @impl true
+  def handle_event("toggle_mark_bad", %{"id" => id_str}, socket) do
+    case Parsers.parse_integer_exact(id_str) do
+      {:ok, id} ->
+        expanded = socket.assigns.expanded_bad_forms
+
+        updated_expanded =
+          if id in expanded do
+            List.delete(expanded, id)
+          else
+            [id | expanded]
+          end
+
+        {:noreply, assign(socket, :expanded_bad_forms, updated_expanded)}
+
+      _other ->
+        {:noreply, socket}
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -392,7 +413,11 @@ defmodule ReencodarrWeb.VideosLive do
              manual_reason: String.trim(Map.get(issue_params, "manual_reason", "")),
              manual_note: String.trim(Map.get(issue_params, "manual_note", ""))
            }) do
-      {:noreply, socket |> put_flash(:info, "Marked as bad") |> load_data()}
+      {:noreply,
+       socket
+       |> assign(:expanded_bad_forms, List.delete(socket.assigns.expanded_bad_forms, id))
+       |> put_flash(:info, "Marked as bad")
+       |> load_data()}
     else
       :not_found -> {:noreply, put_flash(socket, :error, "Video not found")}
       {:error, _} -> {:noreply, put_flash(socket, :error, "Mark bad failed")}
@@ -854,6 +879,14 @@ defmodule ReencodarrWeb.VideosLive do
                             </button>
                           <% end %>
                           <button
+                            phx-click="toggle_mark_bad"
+                            phx-value-id={video.id}
+                            title="Open bad-file form"
+                            class="text-amber-300 hover:text-amber-200 text-xs"
+                          >
+                            mark bad
+                          </button>
+                          <button
                             phx-click="delete_video"
                             phx-value-id={video.id}
                             data-confirm={"Delete #{Path.basename(video.path)}?"}
@@ -863,31 +896,43 @@ defmodule ReencodarrWeb.VideosLive do
                             del
                           </button>
                         </div>
-                        <form
-                          id={"mark-bad-form-#{video.id}"}
-                          phx-submit="mark_bad"
-                          phx-value-id={video.id}
-                          class="flex flex-wrap gap-1"
-                        >
-                          <input
-                            type="text"
-                            name="issue[manual_reason]"
-                            placeholder="reason"
-                            class="w-28 rounded border border-gray-600 bg-gray-700 px-2 py-1 text-xs text-white placeholder-gray-400"
-                          />
-                          <input
-                            type="text"
-                            name="issue[manual_note]"
-                            placeholder="optional note"
-                            class="w-32 rounded border border-gray-600 bg-gray-700 px-2 py-1 text-xs text-white placeholder-gray-400"
-                          />
-                          <button
-                            type="submit"
-                            class="text-amber-300 hover:text-amber-200 text-xs"
+                        <%= if video.id in @expanded_bad_forms do %>
+                          <form
+                            id={"mark-bad-form-#{video.id}"}
+                            phx-submit="mark_bad"
+                            phx-value-id={video.id}
+                            class="rounded border border-amber-700/60 bg-amber-950/30 p-2"
                           >
-                            mark bad
-                          </button>
-                        </form>
+                            <div class="flex flex-wrap items-center gap-2">
+                              <input
+                                type="text"
+                                name="issue[manual_reason]"
+                                placeholder="Why is this bad?"
+                                class="min-w-[13rem] flex-1 rounded border border-gray-600 bg-gray-700 px-2 py-1.5 text-xs text-white placeholder-gray-400"
+                              />
+                              <input
+                                type="text"
+                                name="issue[manual_note]"
+                                placeholder="Optional note"
+                                class="min-w-[14rem] flex-1 rounded border border-gray-600 bg-gray-700 px-2 py-1.5 text-xs text-white placeholder-gray-400"
+                              />
+                              <button
+                                type="submit"
+                                class="rounded bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500"
+                              >
+                                save
+                              </button>
+                              <button
+                                type="button"
+                                phx-click="toggle_mark_bad"
+                                phx-value-id={video.id}
+                                class="text-xs text-gray-300 hover:text-white"
+                              >
+                                cancel
+                              </button>
+                            </div>
+                          </form>
+                        <% end %>
                       </div>
                     </td>
                   </tr>

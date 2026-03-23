@@ -264,9 +264,35 @@ defmodule ReencodarrWeb.VideosLiveTest do
   end
 
   describe "mark bad" do
+    test "toggles the inline mark bad form", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/toggle_bad_form.mkv"})
+      {:ok, view, _html} = live(conn, ~p"/videos")
+
+      refute render(view) =~ "Why is this bad?"
+
+      html =
+        view
+        |> element("td button[title='Open bad-file form'][phx-value-id='#{video.id}']")
+        |> render_click()
+
+      assert html =~ "Why is this bad?"
+      assert html =~ "save"
+
+      html =
+        view
+        |> element("form#mark-bad-form-#{video.id} button[type='button']")
+        |> render_click()
+
+      refute html =~ "Why is this bad?"
+    end
+
     test "creates a manual bad-file issue from the videos page", %{conn: conn} do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/manual_bad.mkv"})
       {:ok, view, _html} = live(conn, ~p"/videos")
+
+      view
+      |> element("td button[title='Open bad-file form'][phx-value-id='#{video.id}']")
+      |> render_click()
 
       html =
         view
@@ -291,6 +317,10 @@ defmodule ReencodarrWeb.VideosLiveTest do
     test "shows an error when the reason is blank", %{conn: conn} do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/no_reason.mkv"})
       {:ok, view, _html} = live(conn, ~p"/videos")
+
+      view
+      |> element("td button[title='Open bad-file form'][phx-value-id='#{video.id}']")
+      |> render_click()
 
       html =
         view
