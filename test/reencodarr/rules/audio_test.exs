@@ -14,9 +14,15 @@ defmodule Reencodarr.Rules.AudioTest do
       assert Audio.rules(video) == [{"--acodec", "copy"}]
     end
 
-    test "copies audio when atmos=true" do
-      video = Fixtures.create_test_video(%{atmos: true})
-      assert Audio.rules(video) == [{"--acodec", "copy"}]
+    test "transcodes primary track even when video.atmos=true if primary track has no Atmos markers" do
+      # video.atmos=true means SOME track has Atmos (e.g. a secondary TrueHD track),
+      # but if the primary track has no markers, transcode it normally
+      video =
+        raw_audio_video(["aac"], sample_mediainfo("AAC", 6, "5.1"))
+        |> Map.put(:atmos, true)
+
+      rules = Audio.rules(video)
+      assert {"--acodec", "libopus"} in rules
     end
 
     test "transcodes eac3 to opus when there are no Atmos markers" do
