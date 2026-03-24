@@ -1375,6 +1375,8 @@ defmodule Reencodarr.RulesTest do
   end
 
   defp sample_mediainfo(format, channels, layout, audio_overrides \\ %{}) do
+    default_bitrate = default_audio_bitrate(format, channels)
+
     %{
       "media" => %{
         "track" => [
@@ -1387,6 +1389,7 @@ defmodule Reencodarr.RulesTest do
               "CodecID" => format,
               "Channels" => Integer.to_string(channels),
               "ChannelLayout" => layout,
+              "BitRate" => default_bitrate,
               "Default" => "Yes"
             },
             audio_overrides
@@ -1395,6 +1398,20 @@ defmodule Reencodarr.RulesTest do
       }
     }
   end
+
+  defp default_audio_bitrate("AAC", 2), do: 128_000
+  defp default_audio_bitrate("AAC", 6), do: 256_000
+  defp default_audio_bitrate("AAC", 8), do: 384_000
+  defp default_audio_bitrate("E-AC-3", 2), do: 192_000
+  defp default_audio_bitrate("E-AC-3", 6), do: 384_000
+  defp default_audio_bitrate("MP3", 2), do: 320_000
+  defp default_audio_bitrate("Dolby Digital Plus", 6), do: 384_000
+  defp default_audio_bitrate("MLP FBA", 6), do: 3_000_000
+  defp default_audio_bitrate("Dolby TrueHD", 6), do: 3_000_000
+  defp default_audio_bitrate(_, 2), do: 128_000
+  defp default_audio_bitrate(_, 6), do: 384_000
+  defp default_audio_bitrate(_, 8), do: 384_000
+  defp default_audio_bitrate(_, _), do: 256_000
 
   defp raw_audio_video(audio_codecs, mediainfo) do
     struct(Reencodarr.Media.Video, %{

@@ -31,8 +31,10 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def init(_opts) do
-    send(self(), :reset_orphaned)
-    schedule_poll()
+    # Defer startup processing by 3 seconds to reduce database contention during app init.
+    # Other components (dashboard, sync, analyzer) are also initializing and writing.
+    Process.send_after(self(), :reset_orphaned, 3_000)
+    Process.send_after(self(), :poll, 3_500)
     schedule_orphan_reset()
     {:producer, %{pending_demand: 0, consecutive_unavailable: 0}}
   end

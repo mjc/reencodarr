@@ -15,6 +15,7 @@ defmodule Reencodarr.Media.AudioTrackInfo do
           codec_id: Map.get(track, "CodecID", ""),
           channels: parse_channel_count(track),
           channel_layout: Map.get(track, "ChannelLayout", ""),
+          bitrate: parse_bitrate(track),
           format_commercial_if_any: Map.get(track, "Format_Commercial_IfAny", ""),
           format_additionalfeatures: Map.get(track, "Format_AdditionalFeatures", "")
         }
@@ -40,4 +41,15 @@ defmodule Reencodarr.Media.AudioTrackInfo do
   end
 
   defp parse_channel_count(_track), do: 0
+
+  defp parse_bitrate(%{"BitRate" => bitrate}) when is_integer(bitrate), do: bitrate
+
+  defp parse_bitrate(%{"BitRate" => bitrate}) when is_binary(bitrate) do
+    case Integer.parse(bitrate) do
+      {value, _rest} -> value
+      :error -> nil
+    end
+  end
+
+  defp parse_bitrate(_track), do: nil
 end

@@ -23,7 +23,9 @@ defmodule Reencodarr.Analyzer.Broadway.Producer do
 
   @impl GenStage
   def init(_opts) do
-    schedule_poll()
+    # Defer first poll by 3 seconds to avoid database contention during startup
+    # when dashboard, sync, and other components are also initializing
+    Process.send_after(self(), :poll, 3_000)
     {:producer, %{pending_demand: 0}}
   end
 
