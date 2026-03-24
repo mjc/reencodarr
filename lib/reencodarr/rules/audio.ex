@@ -3,26 +3,25 @@ defmodule Reencodarr.Rules.Audio do
   Audio encoding rules for ab-av1.
 
   Determines the audio codec strategy for encode context:
-  - Copy if Atmos (preserve spatial metadata)
-  - Copy if already Opus
-  - Copy if codec is possibly Atmos (eac3, truehd, mlp)
-  - Transcode to Opus for multi-channel PCM/AAC/DTS with channel-scaled bitrate
+  - Copy if Atmos (preserve spatial metadata via explicit atmos flag or track markers)
+  - Copy if already Opus (no re-encoding needed)
+  - Transcode to Opus for multi-channel non-Atmos audio with channel-scaled bitrate
+  - Normalize non-standard layouts (5.1(side) → 5.1) for receiver compatibility
   """
 
   alias Reencodarr.Media
   alias Reencodarr.Media.AudioTrackInfo
 
   @copy_audio [{"--acodec", "copy"}]
-  @possibly_atmos_codecs ["eac3", "truehd", "mlp"]
 
   @spec rules(Media.Video.t() | map()) :: list()
   def rules(%Media.Video{atmos: true}), do: @copy_audio
 
   def rules(%Media.Video{audio_codecs: audio_codecs} = video) when is_list(audio_codecs) do
-    cond do
-      already_opus?(audio_codecs) -> @copy_audio
-      possibly_atmos?(audio_codecs) -> @copy_audio
-      true -> build_from_mediainfo(video)
+    if already_opus?(audio_codecs) do
+      @copy_audio
+    else
+      build_from_mediainfo(video)
     end
   end
 
@@ -58,8 +57,8 @@ defmodule Reencodarr.Rules.Audio do
       {"--enc", "b:a=#{opus_bitrate(channels)}k"}
     ]
 
-    if mapping_family_255_layout?(channel_layout) do
-      base ++ [{"--enc", "mapping_family=255"}]
+    if needs_layout_normalization?(channel_layout) do
+      base ++ [{"--enc", "af=aformat=channel_layouts=5.1|7.1|stereo"}]
     else
       base
     end
@@ -71,24 +70,13 @@ defmodule Reencodarr.Rules.Audio do
     end)
   end
 
-  defp possibly_atmos?(audio_codecs) do
-    Enum.any?(audio_codecs, fn codec ->
-      normalized = normalize_codec_string(codec)
-      Enum.any?(@possibly_atmos_codecs, &String.contains?(normalized, &1))
-    end)
-  end
-
   defp track_possibly_atmos?(track) do
     commercial = track.format_commercial_if_any |> normalize_codec_string()
     additional = track.format_additionalfeatures |> normalize_codec_string()
-    format = Map.get(track, :codec, "") |> normalize_codec_string()
-    codec_id = Map.get(track, :codec_id, "") |> normalize_codec_string()
 
     String.contains?(commercial, "atmos") or
       String.contains?(additional, "joc") or
-      String.contains?(additional, "atmos") or
-      Enum.any?(@possibly_atmos_codecs, &String.contains?(format, &1)) or
-      Enum.any?(@possibly_atmos_codecs, &String.contains?(codec_id, &1))
+      String.contains?(additional, "atmos")
   end
 
   defp normalize_codec_string(nil), do: ""
@@ -96,10 +84,10 @@ defmodule Reencodarr.Rules.Audio do
   defp normalize_codec_string(value),
     do: value |> String.downcase() |> String.replace(~r/[^a-z0-9]+/, "")
 
-  defp mapping_family_255_layout?(nil), do: true
-  defp mapping_family_255_layout?(""), do: true
+  defp needs_layout_normalization?(nil), do: true
+  defp needs_layout_normalization?(""), do: true
 
-  defp mapping_family_255_layout?(channel_layout) do
+  defp needs_layout_normalization?(channel_layout) do
     normalized = String.downcase(channel_layout)
 
     String.contains?(normalized, "side") or

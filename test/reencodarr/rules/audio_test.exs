@@ -19,34 +19,48 @@ defmodule Reencodarr.Rules.AudioTest do
       assert Audio.rules(video) == [{"--acodec", "copy"}]
     end
 
-    test "copies eac3 because it is possibly Atmos" do
+    test "transcodes eac3 to opus when there are no Atmos markers" do
       video =
         Fixtures.create_test_video(%{
           audio_codecs: ["eac3"],
           mediainfo: sample_mediainfo("E-AC-3", 6, "5.1(side)")
         })
 
-      assert Audio.rules(video) == [{"--acodec", "copy"}]
+      rules = Audio.rules(video)
+      assert {"--acodec", "libopus"} in rules
+      assert {"--enc", "af=aformat=channel_layouts=5.1|7.1|stereo"} in rules
     end
 
-    test "copies tracks when raw CodecID shows E-AC-3 JOC despite a generic codec summary" do
+    test "copies eac3 with JOC marker in Format_AdditionalFeatures" do
       video =
         raw_audio_video(
-          ["aac"],
-          sample_mediainfo("Dolby Digital Plus", 6, "5.1(side)", %{
-            "CodecID" => "A_EAC3/JOC",
-            "Format_AdditionalFeatures" => ""
+          ["eac3"],
+          sample_mediainfo("E-AC-3", 6, "5.1(side)", %{
+            "Format_AdditionalFeatures" => "JOC"
           })
         )
 
       assert Audio.rules(video) == [{"--acodec", "copy"}]
     end
 
-    test "copies tracks when raw CodecID shows TrueHD despite a generic codec summary" do
+    test "transcodes truehd to opus when there are no Atmos markers" do
       video =
         raw_audio_video(
           ["aac"],
           sample_mediainfo("MLP FBA", 6, "5.1", %{"CodecID" => "A_TRUEHD"})
+        )
+
+      rules = Audio.rules(video)
+      assert {"--acodec", "libopus"} in rules
+    end
+
+    test "copies truehd with Atmos marker in format_commercial_if_any" do
+      video =
+        raw_audio_video(
+          ["truehd"],
+          sample_mediainfo("Dolby TrueHD", 6, "5.1", %{
+            "Format_Commercial_IfAny" => "Dolby TrueHD Atmos"
+          })
         )
 
       assert Audio.rules(video) == [{"--acodec", "copy"}]
@@ -54,7 +68,7 @@ defmodule Reencodarr.Rules.AudioTest do
   end
 
   describe "rules/1 - Opus transcoding" do
-    test "trusted non-atmos 5.1(side) uses mapping_family 255" do
+    test "non-atmos 5.1(side) normalizes layout with aformat filter" do
       video =
         Fixtures.create_test_video(%{
           audio_codecs: ["aac"],
@@ -64,12 +78,11 @@ defmodule Reencodarr.Rules.AudioTest do
       rules = Audio.rules(video)
 
       assert {"--acodec", "libopus"} in rules
-      assert {"--enc", "mapping_family=255"} in rules
-      refute {"--enc", "ac=6"} in rules
-      refute {"--enc", "af=aformat=channel_layouts=5.1"} in rules
+      assert {"--enc", "af=aformat=channel_layouts=5.1|7.1|stereo"} in rules
+      assert {"--enc", "b:a=256k"} in rules
     end
 
-    test "trusted non-atmos canonical 5.1 uses opus without layout coercion" do
+    test "non-atmos canonical 5.1 uses opus without layout normalization" do
       video =
         Fixtures.create_test_video(%{
           audio_codecs: ["aac"],
@@ -79,8 +92,35 @@ defmodule Reencodarr.Rules.AudioTest do
       rules = Audio.rules(video)
 
       assert {"--acodec", "libopus"} in rules
-      refute {"--enc", "mapping_family=255"} in rules
-      refute {"--enc", "ac=6"} in rules
+      assert {"--enc", "b:a=256k"} in rules
+      refute {"--enc", "af=aformat=channel_layouts=5.1|7.1|stereo"} in rules
+    end
+
+    test "non-atmos 7.1(wide) normalizes layout with aformat filter" do
+      video =
+        Fixtures.create_test_video(%{
+          audio_codecs: ["aac"],
+          mediainfo: sample_mediainfo("AAC", 8, "7.1(wide)")
+        })
+
+      rules = Audio.rules(video)
+
+      assert {"--acodec", "libopus"} in rules
+      assert {"--enc", "af=aformat=channel_layouts=5.1|7.1|stereo"} in rules
+      assert {"--enc", "b:a=450k"} in rules
+    end
+
+    test "unknown channel layout (nil) defaults to layout normalization" do
+      video =
+        Fixtures.create_test_video(%{
+          audio_codecs: ["aac"],
+          mediainfo: sample_mediainfo("AAC", 6, nil)
+        })
+
+      rules = Audio.rules(video)
+
+      assert {"--acodec", "libopus"} in rules
+      assert {"--enc", "af=aformat=channel_layouts=5.1|7.1|stereo"} in rules
     end
   end
 
