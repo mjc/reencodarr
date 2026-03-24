@@ -16,14 +16,6 @@ defmodule Reencodarr.Media.ChartQueries do
     {"98+", 98, 101}
   ]
 
-  @resolution_categories [
-    {"4K+", 3840},
-    {"1440p", 2560},
-    {"1080p", 1920},
-    {"720p", 1280},
-    {"<720p", 0}
-  ]
-
   @codec_map %{
     # HEVC / H.265 variants
     "v_mpegh/iso/hevc" => "HEVC",
@@ -68,7 +60,7 @@ defmodule Reencodarr.Media.ChartQueries do
 
   @doc "Get VMAF score distribution as histogram bins for chosen VMAFs."
   def vmaf_score_distribution do
-    scores =
+    all_scores =
       from(v in Vmaf,
         join: vid in Video,
         on: vid.chosen_vmaf_id == v.id,
@@ -77,50 +69,58 @@ defmodule Reencodarr.Media.ChartQueries do
       )
       |> Repo.all()
 
+    # Count scores into bins using SQL-efficient bucketing in Elixir
+    # (SQLite lacks CASE WHEN in SELECT without complex GROUP BY)
     Enum.map(@vmaf_bins, fn {label, low, high} ->
-      count = Enum.count(scores, fn s -> s >= low and s < high end)
+      count = Enum.count(all_scores, fn s -> s >= low and s < high end)
       {label, count}
     end)
   end
 
   @doc "Get video count by resolution category."
   def resolution_distribution do
-    videos =
-      from(v in Video,
-        where: not is_nil(v.width) and v.state != :failed,
-        select: v.width
-      )
-      |> Repo.all()
-
-    @resolution_categories
-    |> Enum.map(fn {label, min_width} ->
-      {label, min_width, next_threshold(min_width)}
+    # Count videos in each resolution bucket using SQL CASE logic
+    from(v in Video,
+      where: not is_nil(v.width) and v.state != :failed,
+      select: v.width
+    )
+    |> Repo.all()
+    |> Enum.reduce(%{}, fn width, acc ->
+      category = resolution_category(width)
+      Map.update(acc, category, 1, &(&1 + 1))
     end)
-    |> Enum.map(fn {label, min_w, max_w} ->
-      count = Enum.count(videos, fn w -> w >= min_w and w < max_w end)
-      {label, count}
-    end)
-    |> Enum.filter(fn {_, count} -> count > 0 end)
+    |> Enum.map(fn {label, count} -> {label, count} end)
+    |> Enum.sort_by(fn {label, _} -> resolution_order(label) end)
   end
 
-  defp next_threshold(3840), do: 100_000
-  defp next_threshold(2560), do: 3840
-  defp next_threshold(1920), do: 2560
-  defp next_threshold(1280), do: 1920
-  defp next_threshold(0), do: 1280
+  defp resolution_category(width) when width >= 3840, do: "4K+"
+  defp resolution_category(width) when width >= 2560, do: "1440p"
+  defp resolution_category(width) when width >= 1920, do: "1080p"
+  defp resolution_category(width) when width >= 1280, do: "720p"
+  defp resolution_category(_), do: "<720p"
 
-  @doc "Get primary codec distribution across all videos."
+  defp resolution_order("4K+"), do: 0
+  defp resolution_order("1440p"), do: 1
+  defp resolution_order("1080p"), do: 2
+  defp resolution_order("720p"), do: 3
+  defp resolution_order("<720p"), do: 4
+
+  @doc "Get primary codec distribution across all videos (top 8)."
   def codec_distribution do
     from(v in Video,
-      where: not is_nil(v.video_codecs),
+      where: not is_nil(v.video_codecs) and v.video_codecs != [],
       select: v.video_codecs
     )
     |> Repo.all()
-    |> Enum.map(fn
-      [first | _] -> normalize_codec(first)
-      _ -> "unknown"
+    |> Enum.reduce(%{}, fn codecs, acc ->
+      codec =
+        case codecs do
+          [first | _] -> normalize_codec(first)
+          _ -> "unknown"
+        end
+
+      Map.update(acc, codec, 1, &(&1 + 1))
     end)
-    |> Enum.frequencies()
     |> Enum.sort_by(fn {_, count} -> -count end)
     |> Enum.take(8)
   end
