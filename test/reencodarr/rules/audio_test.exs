@@ -14,11 +14,34 @@ defmodule Reencodarr.Rules.AudioTest do
       assert Audio.rules(video) == [{"--acodec", "copy"}]
     end
 
-    test "copies all audio when video.atmos=true (any Atmos track means ab-av1 would transcode all tracks uniformly)" do
-      # ab-av1 uses -map 0 and applies --acodec to all audio tracks, so if any
-      # track is Atmos, we must copy all to avoid destroying spatial metadata
-      video = Fixtures.create_test_video(%{atmos: true})
+    test "copies all audio when all tracks are Atmos" do
+      video =
+        raw_audio_video(
+          ["truehd"],
+          sample_mediainfo("Dolby TrueHD", 8, "7.1", %{
+            "Format_Commercial_IfAny" => "Dolby TrueHD Atmos"
+          })
+        )
+
       assert Audio.rules(video) == [{"--acodec", "copy"}]
+    end
+
+    test "per-stream encoding for mixed Atmos + non-Atmos tracks" do
+      # Penny Dreadful style: AC3 stereo + TrueHD Atmos + AC3 stereo
+      video =
+        raw_audio_video(
+          ["aac", "truehd", "aac"],
+          mixed_atmos_mediainfo()
+        )
+
+      rules = Audio.rules(video)
+      # Base is copy (preserves the Atmos track)
+      assert {"--acodec", "copy"} in rules
+      # Non-Atmos tracks (0 and 2) get per-stream libopus overrides
+      assert {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "c:a:2=libopus"} in rules
+      # The Atmos track (1) has no per-stream override, so it stays as copy
+      refute {"--enc", "c:a:1=libopus"} in rules
     end
 
     test "transcodes eac3 to opus when there are no Atmos markers" do
@@ -195,5 +218,45 @@ defmodule Reencodarr.Rules.AudioTest do
       atmos: false,
       mediainfo: mediainfo
     })
+  end
+
+  # Three-track file: AC3 stereo (default) + TrueHD Atmos + AC3 stereo
+  defp mixed_atmos_mediainfo do
+    %{
+      "media" => %{
+        "track" => [
+          %{"@type" => "General", "Duration" => "7200.0"},
+          %{"@type" => "Video", "Format" => "AVC", "Width" => "1920", "Height" => "1080"},
+          %{
+            "@type" => "Audio",
+            "Format" => "AC-3",
+            "CodecID" => "A_AC3",
+            "Channels" => "2",
+            "ChannelLayout" => "L R",
+            "BitRate" => 192_000,
+            "Default" => "Yes"
+          },
+          %{
+            "@type" => "Audio",
+            "Format" => "MLP FBA",
+            "CodecID" => "A_TRUEHD",
+            "Channels" => "8",
+            "ChannelLayout" => "7.1",
+            "BitRate" => 3_000_000,
+            "Format_Commercial_IfAny" => "Dolby TrueHD Atmos",
+            "Default" => "No"
+          },
+          %{
+            "@type" => "Audio",
+            "Format" => "AC-3",
+            "CodecID" => "A_AC3",
+            "Channels" => "2",
+            "ChannelLayout" => "L R",
+            "BitRate" => 192_000,
+            "Default" => "No"
+          }
+        ]
+      }
+    }
   end
 end

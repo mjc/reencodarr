@@ -10,15 +10,7 @@ defmodule Reencodarr.Media.AudioTrackInfo do
 
     case Enum.find(audio_tracks, List.first(audio_tracks), &default_audio_track?/1) do
       %{} = track ->
-        %{
-          codec: Map.get(track, "Format", ""),
-          codec_id: Map.get(track, "CodecID", ""),
-          channels: parse_channel_count(track),
-          channel_layout: Map.get(track, "ChannelLayout", ""),
-          bitrate: parse_bitrate(track),
-          format_commercial_if_any: Map.get(track, "Format_Commercial_IfAny", ""),
-          format_additionalfeatures: Map.get(track, "Format_AdditionalFeatures", "")
-        }
+        build_track_info(track)
 
       _other ->
         :error
@@ -26,6 +18,32 @@ defmodule Reencodarr.Media.AudioTrackInfo do
   end
 
   def primary_from_mediainfo(_mediainfo), do: :error
+
+  @doc """
+  Returns all audio tracks with their ffmpeg audio stream index (0-based).
+  The index corresponds to the -c:a:N stream selector in ffmpeg.
+  """
+  @spec all_from_mediainfo(map()) :: list({non_neg_integer(), map()})
+  def all_from_mediainfo(%{"media" => %{"track" => tracks}}) when is_list(tracks) do
+    tracks
+    |> Enum.filter(fn track -> Map.get(track, "@type") == "Audio" end)
+    |> Enum.with_index()
+    |> Enum.map(fn {track, idx} -> {idx, build_track_info(track)} end)
+  end
+
+  def all_from_mediainfo(_mediainfo), do: []
+
+  defp build_track_info(track) do
+    %{
+      codec: Map.get(track, "Format", ""),
+      codec_id: Map.get(track, "CodecID", ""),
+      channels: parse_channel_count(track),
+      channel_layout: Map.get(track, "ChannelLayout", ""),
+      bitrate: parse_bitrate(track),
+      format_commercial_if_any: Map.get(track, "Format_Commercial_IfAny", ""),
+      format_additionalfeatures: Map.get(track, "Format_AdditionalFeatures", "")
+    }
+  end
 
   defp default_audio_track?(%{"Default" => "Yes"}), do: true
   defp default_audio_track?(%{"Default" => true}), do: true

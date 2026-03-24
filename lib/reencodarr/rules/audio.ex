@@ -3,11 +3,11 @@ defmodule Reencodarr.Rules.Audio do
   Audio encoding rules for ab-av1 with codec-aware bitrate scaling.
 
   Determines the audio codec strategy:
-  - Copy if Atmos (preserve spatial metadata)
   - Copy if already Opus (no re-encoding needed)
-  - Copy if source codec/channel combo is invalid
-  - Copy if lossy source bitrate is unknown
-  - Transcode to Opus for lossy audio, scaling bitrate by codec efficiency
+  - Copy all if mediainfo unavailable
+  - Transcode all to Opus if no Atmos tracks present
+  - Per-stream encoding if Atmos tracks are present: copy Atmos, transcode others
+    (ab-av1 uses -map 0 so --acodec applies to all; use --enc c:a:N= to override per-track)
   - Normalize non-standard layouts (5.1(side) → 5.1) for receiver compatibility
   """
 
@@ -41,8 +41,6 @@ defmodule Reencodarr.Rules.Audio do
   }
 
   @spec rules(Media.Video.t() | map()) :: list()
-  def rules(%Media.Video{atmos: true}), do: @copy_audio
-
   def rules(%Media.Video{audio_codecs: audio_codecs} = video) when is_list(audio_codecs) do
     if already_opus?(audio_codecs) do
       @copy_audio
@@ -54,52 +52,110 @@ defmodule Reencodarr.Rules.Audio do
   def rules(%Media.Video{}), do: @copy_audio
   def rules(%{} = _video_map), do: @copy_audio
 
-  defp build_from_mediainfo(%Media.Video{
-         mediainfo: mediainfo,
-         max_audio_channels: channels
-       })
+  defp build_from_mediainfo(%Media.Video{mediainfo: mediainfo, max_audio_channels: channels})
        when is_map(mediainfo) and is_integer(channels) and channels > 0 do
+    indexed_tracks = AudioTrackInfo.all_from_mediainfo(mediainfo)
+
+    {atmos, non_atmos} =
+      Enum.split_with(indexed_tracks, fn {_idx, t} -> track_possibly_atmos?(t) end)
+
+    route_by_atmos(atmos, non_atmos, mediainfo)
+  end
+
+  defp build_from_mediainfo(_video), do: @copy_audio
+
+  defp route_by_atmos([], _non_atmos, mediainfo), do: encode_uniform(mediainfo)
+  defp route_by_atmos(_atmos, [], _mediainfo), do: @copy_audio
+  defp route_by_atmos(_atmos, non_atmos, _mediainfo), do: encode_mixed(non_atmos)
+
+  defp encode_uniform(mediainfo) do
     case AudioTrackInfo.primary_from_mediainfo(mediainfo) do
-      %{channels: track_channels, channel_layout: channel_layout} = track
-      when is_integer(track_channels) and track_channels > 0 ->
-        if track_possibly_atmos?(track) do
-          @copy_audio
-        else
-          calculate_audio_rules(track, track_channels, channel_layout)
-        end
+      %{channels: ch, channel_layout: layout} = track when is_integer(ch) and ch > 0 ->
+        calculate_audio_rules(track, ch, layout)
 
       _ ->
         @copy_audio
     end
   end
 
-  defp build_from_mediainfo(_video), do: @copy_audio
+  # Mixed Atmos + non-Atmos: base is --acodec copy, override non-Atmos tracks per-stream
+  defp encode_mixed(non_atmos_tracks) do
+    overrides =
+      Enum.flat_map(non_atmos_tracks, fn {idx, track} ->
+        build_per_stream_overrides(idx, track)
+      end)
 
-  # Determine encoding rules based on codec, channels, and bitrate
-  defp calculate_audio_rules(track, channels, channel_layout) do
+    case overrides do
+      [] -> @copy_audio
+      _ -> @copy_audio ++ overrides
+    end
+  end
+
+  defp build_per_stream_overrides(idx, track) do
+    channels = track.channels
+
+    with true <- is_integer(channels) and channels > 0,
+         target_bitrate when not is_nil(target_bitrate) <- opus_target_for_track(track, channels) do
+      opus_stream_args(idx, target_bitrate, track.channel_layout)
+    else
+      _ -> []
+    end
+  end
+
+  defp opus_stream_args(idx, target_bitrate, channel_layout) do
+    base = [
+      {"--enc", "c:a:#{idx}=libopus"},
+      {"--enc", "b:a:#{idx}=#{target_bitrate}k"}
+    ]
+
+    if needs_layout_normalization?(channel_layout) do
+      base ++ [{"--enc", "filter:a:#{idx}=aformat=channel_layouts=5.1|7.1|stereo"}]
+    else
+      base
+    end
+  end
+
+  defp opus_target_for_track(track, channels) do
     codec = track.codec |> normalize_codec_string()
     bitrate = track.bitrate
-    is_lossless = lossless_codec?(codec)
 
     cond do
-      # Codec/channel combo is invalid (e.g., MP3 5.1)
       invalid_codec_channel_combo?(codec, channels) ->
-        @copy_audio
+        nil
 
-      # Lossless source: use transparent target for channel count
-      is_lossless ->
-        target_bitrate = Map.get(@opus_targets, channels, 256)
-        opus_rules(target_bitrate, channel_layout)
+      lossless_codec?(codec) ->
+        Map.get(@opus_targets, channels, 256)
 
-      # Lossy source with known bitrate: scale by codec efficiency
       bitrate && is_integer(bitrate) && bitrate > 0 ->
         factor = Map.get(@codec_factors, codec, 0.75)
         calculated = round(bitrate / 1000 * factor)
         max_bitrate = Map.get(@opus_targets, channels, 256)
-        target = min(calculated, max_bitrate)
-        opus_rules(target, channel_layout)
+        min(calculated, max_bitrate)
 
-      # Lossy source with unknown bitrate: copy (don't guess)
+      true ->
+        nil
+    end
+  end
+
+  # Determine encoding rules based on codec, channels, and bitrate (uniform case)
+  defp calculate_audio_rules(track, channels, channel_layout) do
+    codec = track.codec |> normalize_codec_string()
+    bitrate = track.bitrate
+
+    cond do
+      invalid_codec_channel_combo?(codec, channels) ->
+        @copy_audio
+
+      lossless_codec?(codec) ->
+        target_bitrate = Map.get(@opus_targets, channels, 256)
+        opus_rules(target_bitrate, channel_layout)
+
+      bitrate && is_integer(bitrate) && bitrate > 0 ->
+        factor = Map.get(@codec_factors, codec, 0.75)
+        calculated = round(bitrate / 1000 * factor)
+        max_bitrate = Map.get(@opus_targets, channels, 256)
+        opus_rules(min(calculated, max_bitrate), channel_layout)
+
       true ->
         @copy_audio
     end
@@ -118,9 +174,7 @@ defmodule Reencodarr.Rules.Audio do
     end
   end
 
-  # Check if codec/channel combination is invalid/unlikely
   defp invalid_codec_channel_combo?(codec, channels) when channels > 2 do
-    # MP3 and MP2 only support up to stereo
     String.contains?(codec, "mp3") or String.contains?(codec, "mp2")
   end
 

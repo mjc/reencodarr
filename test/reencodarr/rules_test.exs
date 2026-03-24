@@ -290,12 +290,16 @@ defmodule Reencodarr.RulesTest do
       assert rules == [{"--acodec", "copy"}]
     end
 
-    test "audio/1 copies all audio when video.atmos=true" do
-      # ab-av1 uses -map 0 and applies --acodec to all audio tracks uniformly,
-      # so any Atmos track in the file means we must copy all to preserve spatial metadata
-      video = Fixtures.create_test_video(%{atmos: true})
-      rules = Rules.audio(video)
-      assert rules == [{"--acodec", "copy"}]
+    test "audio/1 copies all audio when all tracks are Atmos" do
+      video =
+        raw_audio_video(
+          ["truehd"],
+          sample_mediainfo("Dolby TrueHD", 8, "7.1", %{
+            "Format_Commercial_IfAny" => "Dolby TrueHD Atmos"
+          })
+        )
+
+      assert Rules.audio(video) == [{"--acodec", "copy"}]
     end
 
     test "audio/1 with trusted non-atmos 5.1(side) normalizes layout with aformat filter" do
