@@ -782,11 +782,11 @@ defmodule Reencodarr.Dashboard.StateTest do
         500 -> flunk("handle_continue should broadcast initial state but didn't")
       end
 
-      # Receive chart_data broadcast
+      # Receive chart_data broadcast (deferred by 2 seconds)
       receive do
         {:dashboard_state_changed, _} -> :ok
       after
-        500 -> flunk("handle_continue should broadcast chart data but didn't")
+        3_000 -> flunk("handle_continue should broadcast chart data but didn't")
       end
     end
 

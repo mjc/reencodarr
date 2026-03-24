@@ -101,22 +101,8 @@ defmodule Reencodarr.Dashboard.State do
     broadcast_state(state)
     Process.send_after(self(), :refresh_stats, @stats_refresh_interval)
 
-    {:noreply, state, {:continue, :fetch_chart_data}}
-  end
-
-  @impl true
-  def handle_continue(:fetch_chart_data, state) do
-    charts = load_chart_data()
-
-    state = %{
-      state
-      | vmaf_distribution: charts.vmaf,
-        resolution_distribution: charts.resolution,
-        codec_distribution: charts.codec
-    }
-
-    broadcast_state(state)
-    Process.send_after(self(), :refresh_charts, @chart_refresh_interval)
+    # Defer chart data loading to avoid database lock contention during startup
+    Process.send_after(self(), :load_charts, 2_000)
     {:noreply, state}
   end
 
@@ -271,6 +257,27 @@ defmodule Reencodarr.Dashboard.State do
     state = %{state | service_status: service_status}
     broadcast_state(state)
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:load_charts, state) do
+    charts = load_chart_data()
+
+    state = %{
+      state
+      | vmaf_distribution: charts.vmaf,
+        resolution_distribution: charts.resolution,
+        codec_distribution: charts.codec
+    }
+
+    broadcast_state(state)
+    Process.send_after(self(), :refresh_charts, @chart_refresh_interval)
+    {:noreply, state}
+  rescue
+    error ->
+      Logger.warning("Dashboard.State load_charts failed: #{inspect(error)}")
+      Process.send_after(self(), :load_charts, @chart_refresh_interval)
+      {:noreply, state}
   end
 
   @impl true
