@@ -41,6 +41,8 @@ defmodule Reencodarr.Rules.Audio do
   }
 
   @spec rules(Media.Video.t() | map()) :: list()
+  def rules(%Media.Video{atmos: true}), do: @copy_audio
+
   def rules(%Media.Video{audio_codecs: audio_codecs} = video) when is_list(audio_codecs) do
     if already_opus?(audio_codecs) do
       @copy_audio

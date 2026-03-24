@@ -14,15 +14,11 @@ defmodule Reencodarr.Rules.AudioTest do
       assert Audio.rules(video) == [{"--acodec", "copy"}]
     end
 
-    test "transcodes primary track even when video.atmos=true if primary track has no Atmos markers" do
-      # video.atmos=true means SOME track has Atmos (e.g. a secondary TrueHD track),
-      # but if the primary track has no markers, transcode it normally
-      video =
-        raw_audio_video(["aac"], sample_mediainfo("AAC", 6, "5.1"))
-        |> Map.put(:atmos, true)
-
-      rules = Audio.rules(video)
-      assert {"--acodec", "libopus"} in rules
+    test "copies all audio when video.atmos=true (any Atmos track means ab-av1 would transcode all tracks uniformly)" do
+      # ab-av1 uses -map 0 and applies --acodec to all audio tracks, so if any
+      # track is Atmos, we must copy all to avoid destroying spatial metadata
+      video = Fixtures.create_test_video(%{atmos: true})
+      assert Audio.rules(video) == [{"--acodec", "copy"}]
     end
 
     test "transcodes eac3 to opus when there are no Atmos markers" do
