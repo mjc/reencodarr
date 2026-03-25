@@ -319,7 +319,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     try do
       if Media.vmaf_records_exist?(video) do
-        ensure_chosen_vmaf_and_transition(video)
+        ensure_chosen_vmaf_and_transition(video, state)
       else
         Logger.error(
           "CRF search completed for video #{video.id} but no VMAF records were created"
@@ -482,13 +482,27 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   # Ensures a chosen VMAF exists before transitioning to crf_searched.
   # If no VMAF is marked chosen (e.g. success line wasn't parsed or
   # mark_vmaf_as_chosen failed), auto-selects the best candidate.
-  defp ensure_chosen_vmaf_and_transition(video) do
+  defp ensure_chosen_vmaf_and_transition(video, state \\ nil) do
     if has_unresolved_size_limit_failure?(video) do
       Logger.info(
-        "CrfSearch: Skipping crf_searched transition for video #{video.id} — size limit failure exists"
+        "CrfSearch: Size limit failure detected for video #{video.id}, retrying with lower VMAF target"
       )
 
-      :ok
+      # If we have state, retry with lower target; otherwise just skip transition
+      case state do
+        %{current_task: %{target_vmaf: target_vmaf}} when target_vmaf > 85 ->
+          retry_crf_search(video, target_vmaf - 2, state, %{},
+            reason:
+              "retrying after size limit exceeded, reducing VMAF target from #{target_vmaf} to #{target_vmaf - 2}"
+          )
+
+        _ ->
+          Logger.warning(
+            "Cannot retry: state unavailable or target VMAF too low (#{get_in(state, [:current_task, :target_vmaf]) || "unknown"})"
+          )
+
+          :ok
+      end
     else
       do_ensure_chosen_vmaf_and_transition(video)
     end
