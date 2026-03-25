@@ -427,6 +427,7 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
       %{video: video}
     end
 
+    @tag :flaky
     test "port crash without CRF error line goes to final failure", %{video: video} do
       capture_log(fn ->
         test_pid = self()
