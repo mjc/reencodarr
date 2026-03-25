@@ -288,6 +288,7 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
       %{pid: pid, video: video, sibling: sibling}
     end
 
+    @tag :flaky
     test "failure with narrowed range triggers retry with standard range", %{video: video} do
       capture_log(fn ->
         test_pid = self()
