@@ -59,9 +59,10 @@ defmodule Reencodarr.RulesTest do
 
       assert "--acodec" in args
       acodec_index = Enum.find_index(args, &(&1 == "--acodec"))
-      assert Enum.at(args, acodec_index + 1) == "libopus"
+      assert Enum.at(args, acodec_index + 1) == "copy"
 
-      assert find_flag_value(args, "--enc", "af=aformat=channel_layouts=5.1|7.1|stereo")
+      assert find_flag_value(args, "--enc", "c:a:0=libopus")
+      assert find_flag_value(args, "--enc", "filter:a:0=aformat=channel_layouts=5.1|7.1|stereo")
       refute find_flag_value(args, "--enc", "ac=6")
       refute find_flag_value(args, "--enc", "mapping_family=255")
     end
@@ -311,8 +312,9 @@ defmodule Reencodarr.RulesTest do
 
       rules = Rules.audio(video)
 
-      assert {"--acodec", "libopus"} in rules
-      assert {"--enc", "af=aformat=channel_layouts=5.1|7.1|stereo"} in rules
+      assert {"--acodec", "copy"} in rules
+      assert {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "filter:a:0=aformat=channel_layouts=5.1|7.1|stereo"} in rules
       refute {"--enc", "ac=6"} in rules
       refute {"--enc", "mapping_family=255"} in rules
     end
@@ -326,8 +328,9 @@ defmodule Reencodarr.RulesTest do
 
       rules = Rules.audio(video)
 
-      assert {"--acodec", "libopus"} in rules
-      refute {"--enc", "af=aformat=channel_layouts=5.1|7.1|stereo"} in rules
+      assert {"--acodec", "copy"} in rules
+      assert {"--enc", "c:a:0=libopus"} in rules
+      refute {"--enc", "filter:a:0=aformat=channel_layouts=5.1|7.1|stereo"} in rules
       refute {"--enc", "ac=6"} in rules
     end
 
@@ -339,8 +342,9 @@ defmodule Reencodarr.RulesTest do
         })
 
       rules = Rules.audio(video)
-      assert {"--acodec", "libopus"} in rules
-      assert {"--enc", "af=aformat=channel_layouts=5.1|7.1|stereo"} in rules
+      assert {"--acodec", "copy"} in rules
+      assert {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "filter:a:0=aformat=channel_layouts=5.1|7.1|stereo"} in rules
     end
 
     test "audio/1 copies tracks when raw CodecID shows E-AC-3 JOC (explicit Atmos marker)" do
@@ -364,7 +368,8 @@ defmodule Reencodarr.RulesTest do
         )
 
       rules = Rules.audio(video)
-      assert {"--acodec", "libopus"} in rules
+      assert {"--acodec", "copy"} in rules
+      assert {"--enc", "c:a:0=libopus"} in rules
     end
 
     test "hdr/2 with DV video includes dolbyvision enc flag (stock encoder)" do

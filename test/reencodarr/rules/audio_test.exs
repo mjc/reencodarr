@@ -52,8 +52,9 @@ defmodule Reencodarr.Rules.AudioTest do
         })
 
       rules = Audio.rules(video)
-      assert {"--acodec", "libopus"} in rules
-      assert {"--enc", "af=aformat=channel_layouts=5.1|7.1|stereo"} in rules
+      assert {"--acodec", "copy"} in rules
+      assert {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "filter:a:0=aformat=channel_layouts=5.1|7.1|stereo"} in rules
     end
 
     test "copies eac3 with JOC marker in Format_AdditionalFeatures" do
@@ -76,7 +77,9 @@ defmodule Reencodarr.Rules.AudioTest do
         )
 
       rules = Audio.rules(video)
-      assert {"--acodec", "libopus"} in rules
+      assert {"--acodec", "copy"} in rules
+      assert {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "b:a:0=256k"} in rules
     end
 
     test "copies truehd with Atmos marker in format_commercial_if_any" do
@@ -102,10 +105,11 @@ defmodule Reencodarr.Rules.AudioTest do
 
       rules = Audio.rules(video)
 
-      assert {"--acodec", "libopus"} in rules
-      assert {"--enc", "af=aformat=channel_layouts=5.1|7.1|stereo"} in rules
+      assert {"--acodec", "copy"} in rules
+      assert {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "filter:a:0=aformat=channel_layouts=5.1|7.1|stereo"} in rules
       # AAC 256k * 0.8 = 205k (scaled down due to codec efficiency)
-      assert {"--enc", "b:a=205k"} in rules
+      assert {"--enc", "b:a:0=205k"} in rules
     end
 
     test "non-atmos canonical 5.1 uses opus without layout normalization" do
@@ -117,10 +121,11 @@ defmodule Reencodarr.Rules.AudioTest do
 
       rules = Audio.rules(video)
 
-      assert {"--acodec", "libopus"} in rules
+      assert {"--acodec", "copy"} in rules
+      assert {"--enc", "c:a:0=libopus"} in rules
       # AAC 256k * 0.8 = 205k (scaled down due to codec efficiency)
-      assert {"--enc", "b:a=205k"} in rules
-      refute {"--enc", "af=aformat=channel_layouts=5.1|7.1|stereo"} in rules
+      assert {"--enc", "b:a:0=205k"} in rules
+      refute {"--enc", "filter:a:0=aformat=channel_layouts=5.1|7.1|stereo"} in rules
     end
 
     test "non-atmos 7.1(wide) normalizes layout with aformat filter" do
@@ -132,10 +137,11 @@ defmodule Reencodarr.Rules.AudioTest do
 
       rules = Audio.rules(video)
 
-      assert {"--acodec", "libopus"} in rules
-      assert {"--enc", "af=aformat=channel_layouts=5.1|7.1|stereo"} in rules
+      assert {"--acodec", "copy"} in rules
+      assert {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "filter:a:0=aformat=channel_layouts=5.1|7.1|stereo"} in rules
       # AAC 384k * 0.8 = 307k (scaled down due to codec efficiency)
-      assert {"--enc", "b:a=307k"} in rules
+      assert {"--enc", "b:a:0=307k"} in rules
     end
 
     test "unknown channel layout (nil) defaults to layout normalization" do
@@ -147,8 +153,111 @@ defmodule Reencodarr.Rules.AudioTest do
 
       rules = Audio.rules(video)
 
-      assert {"--acodec", "libopus"} in rules
-      assert {"--enc", "af=aformat=channel_layouts=5.1|7.1|stereo"} in rules
+      assert {"--acodec", "copy"} in rules
+      assert {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "filter:a:0=aformat=channel_layouts=5.1|7.1|stereo"} in rules
+    end
+  end
+
+  describe "rules/1 - multi-track files with mixed layouts" do
+    test "per-stream rules for file with 5.1 + 2.0 stereo (no Atmos)" do
+      # Common case: 5.1 surround + 2.0 stereo descriptive audio
+      video =
+        raw_audio_video(
+          ["aac", "aac"],
+          multi_track_mediainfo([
+            {"AAC", 6, "5.1", 256_000},
+            {"AAC", 2, "L R", 128_000}
+          ])
+        )
+
+      rules = Audio.rules(video)
+
+      # Base is copy (so all tracks are mapped)
+      assert {"--acodec", "copy"} in rules
+      # Track 0 (5.1): encode to opus with 256k and normalization
+      assert {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "b:a:0=205k"} in rules
+      assert {"--enc", "filter:a:0=aformat=channel_layouts=5.1|7.1|stereo"} not in rules
+
+      # Track 1 (2.0): encode to opus with 128k, no filter needed
+      assert {"--enc", "c:a:1=libopus"} in rules
+      assert {"--enc", "b:a:1=102k"} in rules
+    end
+
+    test "per-stream rules for file with 5.1(side) + 2.0 + unsupported layout" do
+      # File with problematic 5.1(side) on track 1 and 2.0 on track 0
+      video =
+        raw_audio_video(
+          ["aac", "aac", "aac"],
+          multi_track_mediainfo([
+            {"AAC", 2, "L R", 128_000},
+            {"AAC", 6, "5.1(side)", 384_000},
+            {"AC-3", 6, "5.1", 384_000}
+          ])
+        )
+
+      rules = Audio.rules(video)
+
+      # Base is copy
+      assert {"--acodec", "copy"} in rules
+      # Track 0 (2.0 stereo): encode to opus
+      assert {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "b:a:0=102k"} in rules
+
+      # Track 1 (5.1(side)): encode to opus with normalization filter
+      assert {"--enc", "c:a:1=libopus"} in rules
+      assert {"--enc", "filter:a:1=aformat=channel_layouts=5.1|7.1|stereo"} in rules
+
+      # Track 2 (AC-3 5.1): encode to opus
+      assert {"--enc", "c:a:2=libopus"} in rules
+    end
+
+    test "mixed valid and invalid codec-channel combos skips invalid tracks" do
+      # Track 0: valid (AAC stereo)
+      # Track 1: invalid (MP3 5.1 - mp3 doesn't support > 2 channels)
+      # Track 2: valid (AAC 5.1)
+      video =
+        raw_audio_video(
+          ["aac", "mp3", "aac"],
+          multi_track_mediainfo([
+            {"AAC", 2, "L R", 128_000},
+            {"MP3", 6, "5.1", 320_000},
+            {"AAC", 6, "5.1", 256_000}
+          ])
+        )
+
+      rules = Audio.rules(video)
+
+      # Base is copy
+      assert {"--acodec", "copy"} in rules
+      # Track 0: encode to opus
+      assert {"--enc", "c:a:0=libopus"} in rules
+      # Track 1: NO encoding override (invalid combo, gets copied)
+      refute {"--enc", "c:a:1=libopus"} in rules
+      # Track 2: encode to opus
+      assert {"--enc", "c:a:2=libopus"} in rules
+    end
+
+    test "all tracks with missing metadata falls back to copy all" do
+      # Tracks with no channel info - can't determine encoding
+      video =
+        raw_audio_video(
+          ["aac", "aac"],
+          %{
+            "media" => %{
+              "track" => [
+                %{"@type" => "General", "Duration" => "7200.0"},
+                %{"@type" => "Video", "Format" => "AVC", "Width" => "1920", "Height" => "1080"},
+                %{"@type" => "Audio", "Format" => "AAC"},
+                %{"@type" => "Audio", "Format" => "AAC"}
+              ]
+            }
+          }
+        )
+
+      rules = Audio.rules(video)
+      assert rules == [{"--acodec", "copy"}]
     end
   end
 
@@ -218,6 +327,35 @@ defmodule Reencodarr.Rules.AudioTest do
       atmos: false,
       mediainfo: mediainfo
     })
+  end
+
+  # Helper to build mediainfo for multi-track files
+  # Takes list of {format, channels, layout, bitrate} tuples
+  defp multi_track_mediainfo(tracks) do
+    audio_tracks =
+      tracks
+      |> Enum.with_index()
+      |> Enum.map(fn {{format, channels, layout, bitrate}, idx} ->
+        %{
+          "@type" => "Audio",
+          "Format" => format,
+          "CodecID" => format,
+          "Channels" => Integer.to_string(channels),
+          "ChannelLayout" => layout,
+          "BitRate" => bitrate,
+          "Default" => if(idx == 0, do: "Yes", else: "No")
+        }
+      end)
+
+    %{
+      "media" => %{
+        "track" =>
+          [
+            %{"@type" => "General", "Duration" => "7200.0"},
+            %{"@type" => "Video", "Format" => "AVC", "Width" => "1920", "Height" => "1080"}
+          ] ++ audio_tracks
+      }
+    }
   end
 
   # Three-track file: AC3 stereo (default) + TrueHD Atmos + AC3 stereo

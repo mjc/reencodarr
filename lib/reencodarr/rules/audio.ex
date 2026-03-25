@@ -66,15 +66,22 @@ defmodule Reencodarr.Rules.Audio do
 
   defp route_by_atmos([], _non_atmos, mediainfo), do: encode_uniform(mediainfo)
   defp route_by_atmos(_atmos, [], _mediainfo), do: @copy_audio
+  # Mixed Atmos + non-Atmos: apply per-stream rules to each non-Atmos track
   defp route_by_atmos(_atmos, non_atmos, _mediainfo), do: encode_mixed(non_atmos)
 
+  # No Atmos tracks: apply rules uniformly across all tracks
+  # Build per-stream overrides for each track, or copy if issues found
   defp encode_uniform(mediainfo) do
-    case AudioTrackInfo.primary_from_mediainfo(mediainfo) do
-      %{channels: ch, channel_layout: layout} = track when is_integer(ch) and ch > 0 ->
-        calculate_audio_rules(track, ch, layout)
+    indexed_tracks = AudioTrackInfo.all_from_mediainfo(mediainfo)
 
-      _ ->
-        @copy_audio
+    overrides =
+      Enum.flat_map(indexed_tracks, fn {idx, track} ->
+        build_per_stream_overrides(idx, track)
+      end)
+
+    case overrides do
+      [] -> @copy_audio
+      _ -> @copy_audio ++ overrides
     end
   end
 
@@ -134,43 +141,6 @@ defmodule Reencodarr.Rules.Audio do
 
       true ->
         nil
-    end
-  end
-
-  # Determine encoding rules based on codec, channels, and bitrate (uniform case)
-  defp calculate_audio_rules(track, channels, channel_layout) do
-    codec = track.codec |> normalize_codec_string()
-    bitrate = track.bitrate
-
-    cond do
-      invalid_codec_channel_combo?(codec, channels) ->
-        @copy_audio
-
-      lossless_codec?(codec) ->
-        target_bitrate = Map.get(@opus_targets, channels, 256)
-        opus_rules(target_bitrate, channel_layout)
-
-      bitrate && is_integer(bitrate) && bitrate > 0 ->
-        factor = Map.get(@codec_factors, codec, 0.75)
-        calculated = round(bitrate / 1000 * factor)
-        max_bitrate = Map.get(@opus_targets, channels, 256)
-        opus_rules(min(calculated, max_bitrate), channel_layout)
-
-      true ->
-        @copy_audio
-    end
-  end
-
-  defp opus_rules(target_bitrate, channel_layout) do
-    base = [
-      {"--acodec", "libopus"},
-      {"--enc", "b:a=#{target_bitrate}k"}
-    ]
-
-    if needs_layout_normalization?(channel_layout) do
-      base ++ [{"--enc", "af=aformat=channel_layouts=5.1|7.1|stereo"}]
-    else
-      base
     end
   end
 
