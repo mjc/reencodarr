@@ -244,7 +244,7 @@ defmodule ReencodarrWeb.DashboardLive do
     if socket.assigns.syncing do
       {:noreply, put_flash(socket, :error, "Sync already in progress")}
     else
-      Task.start(&Reencodarr.Sync.sync_episodes/0)
+      Reencodarr.Sync.sync_episodes()
       {:noreply, put_flash(socket, :info, "Sonarr sync started")}
     end
   end
@@ -254,7 +254,7 @@ defmodule ReencodarrWeb.DashboardLive do
     if socket.assigns.syncing do
       {:noreply, put_flash(socket, :error, "Sync already in progress")}
     else
-      Task.start(&Reencodarr.Sync.sync_movies/0)
+      Reencodarr.Sync.sync_movies()
       {:noreply, put_flash(socket, :info, "Radarr sync started")}
     end
   end

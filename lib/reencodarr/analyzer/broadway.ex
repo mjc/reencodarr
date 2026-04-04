@@ -399,7 +399,10 @@ defmodule Reencodarr.Analyzer.Broadway do
   # Database operations and state transitions
 
   defp perform_batch_upsert(video_attrs_list, successful_data) do
-    upsert_results = retry_batch_upsert(video_attrs_list, @max_db_retry_attempts)
+    upsert_results =
+      Retry.retry_on_db_busy(fn -> Media.batch_upsert_videos(video_attrs_list) end,
+        max_attempts: @max_db_retry_attempts
+      )
 
     Logger.debug(
       "Broadway: Media.batch_upsert_videos completed with #{length(upsert_results)} results"
@@ -698,46 +701,4 @@ defmodule Reencodarr.Analyzer.Broadway do
     end
   end
 
-  # Retry batch upsert with exponential backoff for database busy errors
-  defp retry_batch_upsert(video_attrs_list, max_retries) do
-    retry_batch_upsert(video_attrs_list, max_retries, 0)
-  end
-
-  defp retry_batch_upsert(video_attrs_list, max_retries, attempt) when attempt < max_retries do
-    Media.batch_upsert_videos(video_attrs_list)
-  rescue
-    error in [Exqlite.Error] ->
-      case error.message do
-        "Database busy" ->
-          # Exponential backoff with max cap at 10 seconds
-          base_wait = (:math.pow(2, attempt) * 100) |> round()
-          wait_time = min(base_wait, 10_000)
-
-          Logger.warning(
-            "Database busy on attempt #{attempt + 1}/#{max_retries}, retrying in #{wait_time}ms"
-          )
-
-          Process.sleep(wait_time)
-          retry_batch_upsert(video_attrs_list, max_retries, attempt + 1)
-
-        _ ->
-          Logger.error("Broadway: Exception during batch upsert: #{inspect(error)}")
-          Logger.error("Broadway: Stacktrace: #{inspect(__STACKTRACE__)}")
-          reraise error, __STACKTRACE__
-      end
-
-    other_error ->
-      Logger.error("Broadway: Exception during batch upsert: #{inspect(other_error)}")
-      Logger.error("Broadway: Stacktrace: #{inspect(__STACKTRACE__)}")
-      reraise other_error, __STACKTRACE__
-  end
-
-  defp retry_batch_upsert(_video_attrs_list, max_retries, attempt) when attempt >= max_retries do
-    Logger.error(
-      "Broadway: Failed to complete batch upsert after #{max_retries} attempts due to database busy"
-    )
-
-    # Return empty list to indicate failure - calling code should handle this
-    []
-  end
 end

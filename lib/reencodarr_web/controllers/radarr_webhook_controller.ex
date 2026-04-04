@@ -1,7 +1,6 @@
 defmodule ReencodarrWeb.RadarrWebhookController do
   use ReencodarrWeb, :controller
   require Logger
-  alias Reencodarr.Core.Retry
   alias ReencodarrWeb.WebhookHelpers
 
   def radarr(conn, %{"eventType" => "Test"} = params), do: handle_test(conn, params)
@@ -17,10 +16,6 @@ defmodule ReencodarrWeb.RadarrWebhookController do
 
   def radarr(conn, params), do: handle_unknown(conn, params)
 
-  defp run_async(fun) do
-    ReencodarrWeb.WebhookProcessor.process(fun)
-  end
-
   defp handle_test(conn, _params) do
     Logger.info("Received test event from Radarr!")
     send_resp(conn, :no_content, "")
@@ -34,7 +29,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   defp handle_download(conn, %{"eventType" => "Download"} = params) do
     Logger.debug("Received download event from Radarr for #{inspect(params)}!")
     movie_files = params["movieFiles"] || [params["movieFile"]]
-    run_async(fn -> process_movie_downloads(movie_files) end)
+    ReencodarrWeb.WebhookProcessor.queue(fn -> process_movie_downloads(movie_files) end)
     send_resp(conn, :no_content, "")
   end
 
@@ -46,19 +41,19 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   defp handle_delete(conn, %{"movieFile" => movie_file}) do
     Logger.info("Received delete event from Radarr for movie file: #{movie_file["relativePath"]}")
     path = movie_file["path"]
-    run_async(fn -> process_movie_delete_by_path(path) end)
+    ReencodarrWeb.WebhookProcessor.queue(fn -> process_movie_delete_by_path(path) end)
     send_resp(conn, :no_content, "")
   end
 
   defp handle_rename(conn, %{"renamedMovieFiles" => renamed_files}) do
     Logger.debug("Received rename event from Radarr for files: #{inspect(renamed_files)}")
-    run_async(fn -> process_movie_renames(renamed_files) end)
+    ReencodarrWeb.WebhookProcessor.queue(fn -> process_movie_renames(renamed_files) end)
     send_resp(conn, :no_content, "")
   end
 
   defp handle_moviefile(conn, %{"movieFile" => movie_file}) do
     Logger.info("Received new MovieFile event from Radarr!")
-    run_async(fn -> process_movie_file(movie_file) end)
+    ReencodarrWeb.WebhookProcessor.queue(fn -> process_movie_file(movie_file) end)
     send_resp(conn, :no_content, "")
   end
 
@@ -81,7 +76,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
     movie_path = movie["folderPath"] || movie["path"]
 
     Logger.info("Received MovieDelete event from Radarr for: #{movie_title} (ID: #{movie_id})")
-    run_async(fn -> process_movie_folder_delete(movie_path, movie_title) end)
+    ReencodarrWeb.WebhookProcessor.queue(fn -> process_movie_folder_delete(movie_path, movie_title) end)
     send_resp(conn, :no_content, "")
   end
 
@@ -134,16 +129,6 @@ defmodule ReencodarrWeb.RadarrWebhookController do
     end
   end
 
-  defp reconcile_waiting_bad_file_issues({:ok, {:ok, video}}) do
-    Reencodarr.Media.reconcile_replacement_video(video, :radarr)
-  end
-
-  defp reconcile_waiting_bad_file_issues({:ok, video}) do
-    Reencodarr.Media.reconcile_replacement_video(video, :radarr)
-  end
-
-  defp reconcile_waiting_bad_file_issues(other_result), do: other_result
-
   # Async background task functions
 
   defp process_movie_downloads(files) do
@@ -153,11 +138,9 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   defp process_validated_movie_file(file) do
     case validate_movie_file(file) do
       {:ok, validated_file} ->
-        Retry.retry_on_db_busy(fn ->
-          validated_file
-          |> process_valid_movie_file()
-          |> reconcile_waiting_bad_file_issues()
-        end)
+        validated_file
+        |> process_valid_movie_file()
+        |> ReencodarrWeb.WebhookProcessor.reconcile_waiting_bad_file_issues(:radarr)
 
       {:error, reason} ->
         Logger.error("Invalid movie file data from Radarr: #{reason}")
@@ -165,49 +148,39 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   end
 
   defp process_movie_delete_by_path(path) do
-    Retry.retry_on_db_busy(fn ->
-      case Reencodarr.Sync.delete_video_and_vmafs(path) do
-        :ok ->
-          Logger.info("Deleted video and vmafs for path: #{path}")
+    case Reencodarr.Sync.delete_video_and_vmafs(path) do
+      :ok ->
+        Logger.info("Deleted video and vmafs for path: #{path}")
 
-        {:error, reason} ->
-          Logger.error("Failed to delete video and vmafs for path #{path}: #{inspect(reason)}")
-      end
-    end)
+      {:error, reason} ->
+        Logger.error("Failed to delete video and vmafs for path #{path}: #{inspect(reason)}")
+    end
   end
 
   defp process_movie_renames(files) do
-    Enum.each(files, fn file ->
-      Retry.retry_on_db_busy(fn ->
-        WebhookHelpers.update_or_upsert_video(file, :radarr)
-      end)
-    end)
+    Enum.each(files, &WebhookHelpers.update_or_upsert_video(&1, :radarr))
   end
 
   defp process_movie_file(file) do
-    Retry.retry_on_db_busy(fn ->
-      file
-      |> Reencodarr.Sync.upsert_video_from_file(:radarr)
-      |> reconcile_waiting_bad_file_issues()
-    end)
+    file
+    |> Reencodarr.Sync.upsert_video_from_file(:radarr)
+    |> ReencodarrWeb.WebhookProcessor.reconcile_waiting_bad_file_issues(:radarr)
   end
 
   defp process_movie_folder_delete(movie_path, _movie_title)
        when is_binary(movie_path) and movie_path != "" do
-    Retry.retry_on_db_busy(fn ->
-      case Reencodarr.Media.delete_videos_under_path(movie_path) do
-        {:ok, 0} ->
-          Logger.info("MovieDelete: no videos found under #{movie_path}")
+    case Reencodarr.Media.delete_videos_under_path(movie_path) do
+      {:ok, 0} ->
+        Logger.info("MovieDelete: no videos found under #{movie_path}")
 
-        {:ok, count} ->
-          Logger.info("MovieDelete: deleted #{count} videos under #{movie_path}")
+      {:ok, count} ->
+        Logger.info("MovieDelete: deleted #{count} videos under #{movie_path}")
 
-        {:error, reason} ->
-          Logger.error(
-            "MovieDelete: failed to delete videos under #{movie_path}: #{inspect(reason)}"
-          )
-      end
-    end)
+      {:error, reason} ->
+        Logger.error(
+          "MovieDelete: failed to delete videos under #{movie_path}: #{inspect(reason)}"
+        )
+    end
   end
 
   defp process_movie_folder_delete(_movie_path, movie_title) do

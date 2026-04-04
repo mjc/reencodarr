@@ -1,7 +1,7 @@
 defmodule ReencodarrWeb.WebhookHelpers do
   @moduledoc """
   Shared helpers for webhook processing across both Sonarr and Radarr controllers.
-  Consolidates duplicate validation and update logic that was copied between controllers.
+  Consolidates duplicate validation and update logic.
   """
 
   require Logger

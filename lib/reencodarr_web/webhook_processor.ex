@@ -18,6 +18,10 @@ defmodule ReencodarrWeb.WebhookProcessor do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
+  def queue(fun) when is_function(fun, 0) do
+    process(fun)
+  end
+
   if Application.compile_env(:reencodarr, :env) == :test do
     def process(fun) when is_function(fun, 0) do
       # In test, execute synchronously to avoid sandbox connection issues
@@ -37,19 +41,32 @@ defmodule ReencodarrWeb.WebhookProcessor do
     end
   end
 
-  @impl true
-  def init(_opts) do
-    {:ok, :empty}
+  def reconcile_waiting_bad_file_issues({:ok, {:ok, video}}, service_type) do
+    Reencodarr.Media.reconcile_replacement_video(video, service_type)
+  end
+
+  def reconcile_waiting_bad_file_issues({:ok, video}, service_type) do
+    Reencodarr.Media.reconcile_replacement_video(video, service_type)
+  end
+
+  def reconcile_waiting_bad_file_issues(other_result, _service_type) do
+    other_result
   end
 
   @impl true
-  def handle_cast({:process, fun}, :empty) do
+  def init(_opts) do
+    {:ok, []}
+  end
+
+  @impl true
+  def handle_cast({:process, fun}, []) do
     # Process immediately if queue is empty
     execute_task(fun)
 
-    {:noreply, :empty}
+    {:noreply, []}
   end
 
+  @impl true
   def handle_cast({:process, fun}, state) do
     # Queue if already processing
     {:noreply, [fun | state]}
@@ -59,17 +76,13 @@ defmodule ReencodarrWeb.WebhookProcessor do
   def handle_info({:EXIT, _pid, _reason}, [fun | rest]) do
     # Process next item when current one completes
     execute_task(fun)
-
-    if rest == [] do
-      {:noreply, :empty}
-    else
-      {:noreply, rest}
-    end
+    {:noreply, rest}
   end
 
   @impl true
-  def handle_info({:EXIT, _pid, _reason}, :empty) do
-    {:noreply, :empty}
+  def handle_info({:EXIT, _pid, _reason}, []) do
+    # No more items to process
+    {:noreply, []}
   end
 
   defp execute_task(fun) do
