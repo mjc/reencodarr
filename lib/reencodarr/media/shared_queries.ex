@@ -134,18 +134,18 @@ defmodule Reencodarr.Media.SharedQueries do
   @doc """
   VMAF statistics query.
 
-  Returns VMAF counts from the vmafs table.
+  Returns VMAF counts from the vmafs and videos tables.
   Combine with `video_stats_query/0` via `Map.merge/2` for full dashboard stats.
-  Note: total_savings_gb is computed in video_stats_query using actual file sizes.
+  Avoids expensive JOINs by counting directly on videos table.
   """
   def vmaf_stats_query do
     from m in Vmaf,
-      left_join: vid in Video,
-      on: vid.chosen_vmaf_id == m.id,
       select: %{
         total_vmafs: count(m.id),
         chosen_vmafs:
-          fragment("COALESCE(SUM(CASE WHEN ? IS NOT NULL THEN 1 ELSE 0 END), 0)", vid.id)
+          fragment(
+            "(SELECT COUNT(DISTINCT chosen_vmaf_id) FROM videos WHERE chosen_vmaf_id IS NOT NULL)"
+          )
       }
   end
 end
