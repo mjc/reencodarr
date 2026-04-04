@@ -1,6 +1,7 @@
 defmodule ReencodarrWeb.SonarrWebhookController do
   use ReencodarrWeb, :controller
   require Logger
+  alias Reencodarr.Core.Retry
 
   def sonarr(conn, %{"eventType" => "Test"} = params), do: handle_test(conn, params)
   def sonarr(conn, %{"eventType" => "Grab"} = params), do: handle_grab(conn, params)
@@ -18,6 +19,14 @@ defmodule ReencodarrWeb.SonarrWebhookController do
 
   def sonarr(conn, params), do: handle_unknown(conn, params)
 
+  defp run_async(fun) do
+    if Application.get_env(:reencodarr, :webhook_async, true) do
+      Task.start(fun)
+    else
+      fun.()
+    end
+  end
+
   defp handle_test(conn, _params) do
     Logger.info("Received test event from Sonarr!")
     send_resp(conn, :no_content, "")
@@ -30,72 +39,47 @@ defmodule ReencodarrWeb.SonarrWebhookController do
 
   defp handle_download(conn, %{"episodeFiles" => episode_files} = _params)
        when is_list(episode_files) do
-    results =
-      Enum.map(episode_files, fn file ->
-        case validate_episode_file(file) do
-          {:ok, validated_file} ->
-            scene_name = validated_file.scene_name
-            Logger.info("Received download event from Sonarr for #{scene_name}!")
-
-            validated_file.raw_file
-            |> Reencodarr.Sync.upsert_video_from_file(:sonarr)
-            |> reconcile_waiting_bad_file_issues()
-
-          {:error, reason} ->
-            Logger.error("Invalid episode file data from Sonarr: #{reason}")
-            {:error, reason}
-        end
-      end)
-
-    if Enum.all?(results, fn res -> res == :ok or match?({:ok, _}, res) end) do
-      Logger.info("Successfully processed download event for Sonarr")
-    else
-      Logger.error("Some upserts failed for download event: #{inspect(results)}")
-    end
-
+    run_async(fn -> process_episode_downloads(episode_files) end)
     send_resp(conn, :no_content, "")
   end
 
   defp handle_download(conn, %{"episodeFile" => episode_file} = _params)
        when is_map(episode_file) do
-    case validate_episode_file(episode_file) do
-      {:ok, validated_file} ->
-        scene_name = validated_file.scene_name
-        Logger.info("Received download event from Sonarr for #{scene_name}!")
-
-        validated_file.raw_file
-        |> Reencodarr.Sync.upsert_video_from_file(:sonarr)
-        |> reconcile_waiting_bad_file_issues()
-
-      {:error, reason} ->
-        Logger.error("Invalid episode file data from Sonarr: #{reason}")
-        {:error, reason}
-    end
-
+    run_async(fn -> process_single_episode_download(episode_file) end)
     send_resp(conn, :no_content, "")
   end
 
   defp handle_delete(conn, %{"episodeFile" => episode_file}) do
     Logger.info("Received delete event from Sonarr for episode file: #{inspect(episode_file)}")
     path = episode_file["path"]
-
-    case Reencodarr.Sync.delete_video_and_vmafs(path) do
-      :ok ->
-        Logger.info("Deleted video and vmafs for path: #{path}")
-
-      {:error, reason} ->
-        Logger.error("Failed to delete video and vmafs for path #{path}: #{inspect(reason)}")
-    end
-
+    run_async(fn -> process_episode_delete(path) end)
     send_resp(conn, :no_content, "")
+  end
+
+  defp process_episode_delete(path) do
+    Retry.retry_on_db_busy(fn ->
+      case Reencodarr.Sync.delete_video_and_vmafs(path) do
+        :ok ->
+          Logger.info("Deleted video and vmafs for path: #{path}")
+
+        {:error, reason} ->
+          Logger.error("Failed to delete video and vmafs for path #{path}: #{inspect(reason)}")
+      end
+    end)
   end
 
   defp handle_rename(conn, %{"renamedEpisodeFiles" => renamed_files}) do
     Logger.debug("Received rename event from Sonarr for files: #{inspect(renamed_files)}")
-
-    Enum.each(renamed_files, &update_or_upsert_video(&1, :sonarr))
-
+    run_async(fn -> process_episode_renames(renamed_files) end)
     send_resp(conn, :no_content, "")
+  end
+
+  defp process_episode_renames(files) do
+    Enum.each(files, fn file ->
+      Retry.retry_on_db_busy(fn ->
+        update_or_upsert_video(file, :sonarr)
+      end)
+    end)
   end
 
   defp update_or_upsert_video(%{"previousPath" => old_path, "path" => new_path} = file, source) do
@@ -145,11 +129,7 @@ defmodule ReencodarrWeb.SonarrWebhookController do
 
   defp handle_episodefile(conn, %{"episodeFile" => episode_file}) do
     Logger.info("Received new episodefile event from Sonarr!")
-
-    episode_file
-    |> Reencodarr.Sync.upsert_video_from_file(:sonarr)
-    |> reconcile_waiting_bad_file_issues()
-
+    run_async(fn -> process_episode_file(episode_file) end)
     send_resp(conn, :no_content, "")
   end
 
@@ -172,24 +152,7 @@ defmodule ReencodarrWeb.SonarrWebhookController do
     series_path = series["path"]
 
     Logger.info("Received SeriesDelete event from Sonarr for: #{series_title} (ID: #{series_id})")
-
-    if is_binary(series_path) and series_path != "" do
-      case Reencodarr.Media.delete_videos_under_path(series_path) do
-        {:ok, 0} ->
-          Logger.info("SeriesDelete: no videos found under #{series_path}")
-
-        {:ok, count} ->
-          Logger.info("SeriesDelete: deleted #{count} videos under #{series_path}")
-
-        {:error, reason} ->
-          Logger.error(
-            "SeriesDelete: failed to delete videos under #{series_path}: #{inspect(reason)}"
-          )
-      end
-    else
-      Logger.warning("SeriesDelete: no path in webhook payload for #{series_title}")
-    end
-
+    run_async(fn -> process_series_delete(series_path, series_title) end)
     send_resp(conn, :no_content, "")
   end
 
@@ -236,4 +199,74 @@ defmodule ReencodarrWeb.SonarrWebhookController do
   end
 
   defp reconcile_waiting_bad_file_issues(other_result), do: other_result
+
+  # Async background task functions
+
+  defp process_episode_downloads(files) do
+    Enum.each(files, &process_validated_episode_file/1)
+  end
+
+  defp process_validated_episode_file(file) do
+    case validate_episode_file(file) do
+      {:ok, validated_file} ->
+        scene_name = validated_file.scene_name
+        Logger.info("Received download event from Sonarr for #{scene_name}!")
+
+        Retry.retry_on_db_busy(fn ->
+          validated_file.raw_file
+          |> Reencodarr.Sync.upsert_video_from_file(:sonarr)
+          |> reconcile_waiting_bad_file_issues()
+        end)
+
+      {:error, reason} ->
+        Logger.error("Invalid episode file data from Sonarr: #{reason}")
+    end
+  end
+
+  defp process_single_episode_download(file) do
+    case validate_episode_file(file) do
+      {:ok, validated_file} ->
+        scene_name = validated_file.scene_name
+        Logger.info("Received download event from Sonarr for #{scene_name}!")
+
+        Retry.retry_on_db_busy(fn ->
+          validated_file.raw_file
+          |> Reencodarr.Sync.upsert_video_from_file(:sonarr)
+          |> reconcile_waiting_bad_file_issues()
+        end)
+
+      {:error, reason} ->
+        Logger.error("Invalid episode file data from Sonarr: #{reason}")
+    end
+  end
+
+  defp process_episode_file(file) do
+    Retry.retry_on_db_busy(fn ->
+      file
+      |> Reencodarr.Sync.upsert_video_from_file(:sonarr)
+      |> reconcile_waiting_bad_file_issues()
+    end)
+  end
+
+  defp process_series_delete(series_path, _series_title)
+       when is_binary(series_path) and series_path != "" do
+    Retry.retry_on_db_busy(fn ->
+      case Reencodarr.Media.delete_videos_under_path(series_path) do
+        {:ok, 0} ->
+          Logger.info("SeriesDelete: no videos found under #{series_path}")
+
+        {:ok, count} ->
+          Logger.info("SeriesDelete: deleted #{count} videos under #{series_path}")
+
+        {:error, reason} ->
+          Logger.error(
+            "SeriesDelete: failed to delete videos under #{series_path}: #{inspect(reason)}"
+          )
+      end
+    end)
+  end
+
+  defp process_series_delete(_series_path, series_title) do
+    Logger.warning("SeriesDelete: no path in webhook payload for #{series_title}")
+  end
 end

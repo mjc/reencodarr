@@ -29,6 +29,9 @@ config :reencodarr, Reencodarr.Mailer, adapter: Swoosh.Adapters.Test
 # Disable swoosh api client as it is only required for production adapters
 config :swoosh, :api_client, false
 
+# In tests, run webhook handlers synchronously to avoid test sandbox issues with async tasks
+config :reencodarr, :webhook_async, false
+
 # Print only warnings and errors during test
 config :logger, level: :warning
 
