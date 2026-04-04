@@ -339,7 +339,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       _vmaf2 =
         vmaf_fixture(%{video_id: video.id, crf: 26.0, savings: 1_073_741_824})
 
-      stats = Repo.one(SharedQueries.video_stats_query())
+      stats = Repo.one(SharedQueries.video_savings_query())
 
       assert_in_delta stats.total_savings_gb, 2.0, 0.01
     end

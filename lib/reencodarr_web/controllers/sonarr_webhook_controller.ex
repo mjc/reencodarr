@@ -2,6 +2,7 @@ defmodule ReencodarrWeb.SonarrWebhookController do
   use ReencodarrWeb, :controller
   require Logger
   alias Reencodarr.Core.Retry
+  alias ReencodarrWeb.WebhookHelpers
 
   def sonarr(conn, %{"eventType" => "Test"} = params), do: handle_test(conn, params)
   def sonarr(conn, %{"eventType" => "Grab"} = params), do: handle_grab(conn, params)
@@ -20,11 +21,7 @@ defmodule ReencodarrWeb.SonarrWebhookController do
   def sonarr(conn, params), do: handle_unknown(conn, params)
 
   defp run_async(fun) do
-    if Application.get_env(:reencodarr, :webhook_async, true) do
-      Task.start(fun)
-    else
-      fun.()
-    end
+    ReencodarrWeb.WebhookProcessor.process(fun)
   end
 
   defp handle_test(conn, _params) do
@@ -45,7 +42,7 @@ defmodule ReencodarrWeb.SonarrWebhookController do
 
   defp handle_download(conn, %{"episodeFile" => episode_file} = _params)
        when is_map(episode_file) do
-    run_async(fn -> process_single_episode_download(episode_file) end)
+    run_async(fn -> process_validated_episode_file(episode_file) end)
     send_resp(conn, :no_content, "")
   end
 
@@ -77,54 +74,9 @@ defmodule ReencodarrWeb.SonarrWebhookController do
   defp process_episode_renames(files) do
     Enum.each(files, fn file ->
       Retry.retry_on_db_busy(fn ->
-        update_or_upsert_video(file, :sonarr)
+        WebhookHelpers.update_or_upsert_video(file, :sonarr)
       end)
     end)
-  end
-
-  defp update_or_upsert_video(%{"previousPath" => old_path, "path" => new_path} = file, source) do
-    case Reencodarr.Media.get_video_by_path(old_path) do
-      {:error, :not_found} ->
-        Logger.warning("No video found for old path: #{old_path}, upserting as new")
-        Reencodarr.Sync.upsert_video_from_file(file, source)
-
-      {:ok, video} ->
-        video
-        |> Reencodarr.Media.update_video(%{path: new_path})
-        |> handle_update_result(video, old_path, new_path, file, source)
-    end
-  end
-
-  defp handle_update_result({:ok, _}, _video, old_path, new_path, _file, _source) do
-    Logger.info("Updated video path from #{old_path} to #{new_path}")
-  end
-
-  defp handle_update_result(
-         {:error, %Ecto.Changeset{errors: [path: {"has already been taken", _}]}},
-         video,
-         old_path,
-         new_path,
-         file,
-         source
-       ) do
-    Logger.warning(
-      "Video with path #{new_path} already exists, removing old entry and updating existing video"
-    )
-
-    case Reencodarr.Media.delete_video_with_vmafs(video) do
-      {:ok, _} ->
-        Logger.info("Successfully removed old video entry at #{old_path}")
-        Reencodarr.Sync.upsert_video_from_file(file, source)
-
-      {:error, reason} ->
-        Logger.error("Failed to remove old video entry at #{old_path}: #{inspect(reason)}")
-    end
-  end
-
-  defp handle_update_result({:error, changeset}, _video, old_path, new_path, _file, _source) do
-    Logger.error(
-      "Failed to update video path from #{old_path} to #{new_path}: #{inspect(changeset.errors)}"
-    )
   end
 
   defp handle_episodefile(conn, %{"episodeFile" => episode_file}) do
@@ -164,9 +116,9 @@ defmodule ReencodarrWeb.SonarrWebhookController do
   # Validation functions
 
   defp validate_episode_file(file) when is_map(file) do
-    with {:ok, path} <- validate_file_path(file["path"]),
-         {:ok, size} <- validate_file_size(file["size"]),
-         {:ok, id} <- validate_file_id(file["id"]) do
+    with {:ok, path} <- WebhookHelpers.validate_file_path(file["path"]),
+         {:ok, size} <- WebhookHelpers.validate_file_size(file["size"]),
+         {:ok, id} <- WebhookHelpers.validate_file_id(file["id"]) do
       scene_name = file["sceneName"] || Path.basename(path)
       {:ok, %{path: path, size: size, id: id, scene_name: scene_name, raw_file: file}}
     else
@@ -175,24 +127,6 @@ defmodule ReencodarrWeb.SonarrWebhookController do
   end
 
   defp validate_episode_file(_), do: {:error, "episode file must be a map"}
-
-  defp validate_file_path(path) when is_binary(path) and path != "" do
-    if String.trim(path) != "" do
-      {:ok, path}
-    else
-      {:error, "path cannot be empty"}
-    end
-  end
-
-  defp validate_file_path(nil), do: {:error, "path is required"}
-  defp validate_file_path(_), do: {:error, "path must be a string"}
-
-  defp validate_file_size(size) when is_integer(size) and size > 0, do: {:ok, size}
-  defp validate_file_size(nil), do: {:error, "size is required"}
-  defp validate_file_size(_), do: {:error, "size must be a positive integer"}
-
-  defp validate_file_id(id) when is_binary(id) or is_integer(id), do: {:ok, id}
-  defp validate_file_id(_), do: {:error, "file id is required"}
 
   defp reconcile_waiting_bad_file_issues({:ok, {:ok, video}}) do
     Reencodarr.Media.reconcile_replacement_video(video, :sonarr)
@@ -207,23 +141,6 @@ defmodule ReencodarrWeb.SonarrWebhookController do
   end
 
   defp process_validated_episode_file(file) do
-    case validate_episode_file(file) do
-      {:ok, validated_file} ->
-        scene_name = validated_file.scene_name
-        Logger.info("Received download event from Sonarr for #{scene_name}!")
-
-        Retry.retry_on_db_busy(fn ->
-          validated_file.raw_file
-          |> Reencodarr.Sync.upsert_video_from_file(:sonarr)
-          |> reconcile_waiting_bad_file_issues()
-        end)
-
-      {:error, reason} ->
-        Logger.error("Invalid episode file data from Sonarr: #{reason}")
-    end
-  end
-
-  defp process_single_episode_download(file) do
     case validate_episode_file(file) do
       {:ok, validated_file} ->
         scene_name = validated_file.scene_name

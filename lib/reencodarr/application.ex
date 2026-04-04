@@ -60,6 +60,8 @@ defmodule Reencodarr.Application do
       {Phoenix.PubSub, name: Reencodarr.PubSub},
       # Start the Finch HTTP client for sending emails
       {Finch, name: Reencodarr.Finch},
+      # Webhook processor GenServer - queues webhook tasks to prevent SQLite lock contention
+      ReencodarrWeb.WebhookProcessor,
       # Start to serve requests, typically the last entry
       ReencodarrWeb.Endpoint,
       # DynamicSupervisor for port-holder processes (AbAv1.Encoder, AbAv1.CrfSearcher).

@@ -2,6 +2,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   use ReencodarrWeb, :controller
   require Logger
   alias Reencodarr.Core.Retry
+  alias ReencodarrWeb.WebhookHelpers
 
   def radarr(conn, %{"eventType" => "Test"} = params), do: handle_test(conn, params)
   def radarr(conn, %{"eventType" => "Grab"} = params), do: handle_grab(conn, params)
@@ -17,11 +18,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   def radarr(conn, params), do: handle_unknown(conn, params)
 
   defp run_async(fun) do
-    if Application.get_env(:reencodarr, :webhook_async, true) do
-      Task.start(fun)
-    else
-      fun.()
-    end
+    ReencodarrWeb.WebhookProcessor.process(fun)
   end
 
   defp handle_test(conn, _params) do
@@ -57,51 +54,6 @@ defmodule ReencodarrWeb.RadarrWebhookController do
     Logger.debug("Received rename event from Radarr for files: #{inspect(renamed_files)}")
     run_async(fn -> process_movie_renames(renamed_files) end)
     send_resp(conn, :no_content, "")
-  end
-
-  defp update_or_upsert_video(%{"previousPath" => old_path, "path" => new_path} = file, source) do
-    case Reencodarr.Media.get_video_by_path(old_path) do
-      {:error, :not_found} ->
-        Logger.warning("No video found for old path: #{old_path}, upserting as new")
-        Reencodarr.Sync.upsert_video_from_file(file, source)
-
-      {:ok, video} ->
-        video
-        |> Reencodarr.Media.update_video(%{path: new_path})
-        |> handle_update_result(video, old_path, new_path, file, source)
-    end
-  end
-
-  defp handle_update_result({:ok, _}, _video, old_path, new_path, _file, _source) do
-    Logger.info("Updated video path from #{old_path} to #{new_path}")
-  end
-
-  defp handle_update_result(
-         {:error, %Ecto.Changeset{errors: [path: {"has already been taken", _}]}},
-         video,
-         old_path,
-         new_path,
-         file,
-         source
-       ) do
-    Logger.warning(
-      "Video with path #{new_path} already exists, removing old entry and updating existing video"
-    )
-
-    case Reencodarr.Media.delete_video_with_vmafs(video) do
-      {:ok, _} ->
-        Logger.info("Successfully removed old video entry at #{old_path}")
-        Reencodarr.Sync.upsert_video_from_file(file, source)
-
-      {:error, reason} ->
-        Logger.error("Failed to remove old video entry at #{old_path}: #{inspect(reason)}")
-    end
-  end
-
-  defp handle_update_result({:error, changeset}, _video, old_path, new_path, _file, _source) do
-    Logger.error(
-      "Failed to update video path from #{old_path} to #{new_path}: #{inspect(changeset.errors)}"
-    )
   end
 
   defp handle_moviefile(conn, %{"movieFile" => movie_file}) do
@@ -141,9 +93,9 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   # Validation functions
 
   defp validate_movie_file(file) when is_map(file) do
-    with {:ok, path} <- validate_file_path(file["path"]),
-         {:ok, size} <- validate_file_size(file["size"]),
-         {:ok, id} <- validate_file_id(file["id"] || file["movieFileId"]) do
+    with {:ok, path} <- WebhookHelpers.validate_file_path(file["path"]),
+         {:ok, size} <- WebhookHelpers.validate_file_size(file["size"]),
+         {:ok, id} <- WebhookHelpers.validate_file_id(file["id"] || file["movieFileId"]) do
       {:ok, %{path: path, size: size, id: id, raw_file: file}}
     else
       {:error, reason} -> {:error, reason}
@@ -151,24 +103,6 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   end
 
   defp validate_movie_file(_), do: {:error, "movie file must be a map"}
-
-  defp validate_file_path(path) when is_binary(path) and path != "" do
-    if String.trim(path) != "" do
-      {:ok, path}
-    else
-      {:error, "path cannot be empty"}
-    end
-  end
-
-  defp validate_file_path(nil), do: {:error, "path is required"}
-  defp validate_file_path(_), do: {:error, "path must be a string"}
-
-  defp validate_file_size(size) when is_integer(size) and size > 0, do: {:ok, size}
-  defp validate_file_size(nil), do: {:error, "size is required"}
-  defp validate_file_size(_), do: {:error, "size must be a positive integer"}
-
-  defp validate_file_id(id) when is_binary(id) or is_integer(id), do: {:ok, id}
-  defp validate_file_id(_), do: {:error, "file id is required"}
 
   defp process_valid_movie_file(%{path: path, size: size, id: id, raw_file: file}) do
     scene_name = file["sceneName"] || Path.basename(path)
@@ -245,7 +179,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   defp process_movie_renames(files) do
     Enum.each(files, fn file ->
       Retry.retry_on_db_busy(fn ->
-        update_or_upsert_video(file, :radarr)
+        WebhookHelpers.update_or_upsert_video(file, :radarr)
       end)
     end)
   end
