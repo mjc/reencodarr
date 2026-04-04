@@ -1700,10 +1700,29 @@ defmodule Reencodarr.Media do
   """
   @spec get_dashboard_stats(integer()) :: map()
   def get_dashboard_stats(timeout \\ 15_000) do
-    video_stats = Repo.one(SharedQueries.video_stats_query(), timeout: timeout)
-    vmaf_stats = Repo.one(SharedQueries.vmaf_stats_query(), timeout: timeout)
+    # Fast query: core stats from videos table only (no JOIN)
+    video_stats =
+      Repo.one(SharedQueries.video_stats_query(), timeout: timeout) || get_default_video_stats()
 
-    Map.merge(video_stats || get_default_video_stats(), vmaf_stats || get_default_vmaf_stats())
+    # Savings query: separate to avoid JOIN lock contention in main query
+    # Can fail independently without affecting core stats
+    savings =
+      try do
+        Repo.one(SharedQueries.video_savings_query(), timeout: timeout) ||
+          %{total_savings_gb: 0.0}
+      catch
+        :exit, _ ->
+          Logger.debug("Dashboard savings query timed out, using zero savings")
+          %{total_savings_gb: 0.0}
+      end
+
+    # VMAF stats: independent query without JOIN to videos
+    vmaf_stats =
+      Repo.one(SharedQueries.vmaf_stats_query(), timeout: timeout) || get_default_vmaf_stats()
+
+    video_stats
+    |> Map.put(:total_savings_gb, savings.total_savings_gb)
+    |> Map.merge(vmaf_stats)
   rescue
     e in DBConnection.ConnectionError ->
       Logger.warning(

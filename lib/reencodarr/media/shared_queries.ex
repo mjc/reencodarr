@@ -86,9 +86,10 @@ defmodule Reencodarr.Media.SharedQueries do
   and falls back to predicted savings from chosen VMAFs for not-yet-encoded videos.
   """
   def video_stats_query do
+    # Query ONLY the videos table - no JOIN
+    # This avoids lock contention from JOINing with vmafs during aggregation
+    # Savings are calculated separately in a dedicated query
     from v in Video,
-      left_join: m in Vmaf,
-      on: v.chosen_vmaf_id == m.id,
       select: %{
         total_videos: count(v.id),
         total_size_gb: fragment("ROUND(CAST(SUM(?) AS FLOAT) / (1024*1024*1024), 2)", v.size),
@@ -110,6 +111,22 @@ defmodule Reencodarr.Media.SharedQueries do
         avg_duration_minutes: fragment("ROUND(AVG(CAST(? AS FLOAT)) / 60.0, 1)", v.duration),
         most_recent_video_update: max(v.updated_at),
         most_recent_inserted_video: max(v.inserted_at),
+        total_savings_gb: 0.0
+      }
+  end
+
+  @doc """
+  Savings query - calculated separately to avoid JOIN lock contention in main stats query.
+
+  Calculates savings from two sources without the expensive JOIN during aggregation:
+  1. Actual savings from encoded videos (original_size - size)
+  2. Predicted savings from chosen VMAF records
+  """
+  def video_savings_query do
+    from v in Video,
+      left_join: m in Vmaf,
+      on: v.chosen_vmaf_id == m.id,
+      select: %{
         total_savings_gb:
           coalesce(
             sum(
