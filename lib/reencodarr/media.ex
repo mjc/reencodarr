@@ -1700,9 +1700,72 @@ defmodule Reencodarr.Media do
   """
   @spec get_dashboard_stats(integer()) :: map()
   def get_dashboard_stats(timeout \\ 15_000) do
-    # Fast query: core stats from videos table only (no JOIN)
+    # Use individual COUNT queries per state to leverage indexes
+    # Avoids full table scan aggregation which times out under concurrent load
     video_stats =
-      Repo.one(SharedQueries.video_stats_query(), timeout: timeout) || get_default_video_stats()
+      try do
+        result =
+          Repo.query!(
+            """
+            SELECT
+              (SELECT COUNT(*) FROM videos) as total_videos,
+              ROUND(CAST((SELECT SUM(size) FROM videos) AS FLOAT) / (1024*1024*1024), 2) as total_size_gb,
+              (SELECT COUNT(*) FROM videos WHERE state IN ('needs_analysis', 'analyzing')) as needs_analysis,
+              (SELECT COUNT(*) FROM videos WHERE state = 'analyzed') as analyzed,
+              (SELECT COUNT(*) FROM videos WHERE state = 'crf_searching') as crf_searching,
+              (SELECT COUNT(*) FROM videos WHERE state = 'crf_searched') as crf_searched,
+              (SELECT COUNT(*) FROM videos WHERE state = 'encoding') as encoding,
+              (SELECT COUNT(*) FROM videos WHERE state = 'encoded') as encoded,
+              (SELECT COUNT(*) FROM videos WHERE state = 'failed') as failed,
+              ROUND(COALESCE((SELECT AVG(CAST(duration AS FLOAT)) FROM videos WHERE duration IS NOT NULL), 0) / 60.0, 1) as avg_duration_minutes,
+              (SELECT MAX(updated_at) FROM videos) as most_recent_video_update,
+              (SELECT MAX(inserted_at) FROM videos) as most_recent_inserted_video
+            """,
+            [],
+            timeout: timeout
+          ).rows
+
+        case result do
+          [
+            [
+              total_videos,
+              total_size_gb,
+              needs_analysis,
+              analyzed,
+              crf_searching,
+              crf_searched,
+              encoding,
+              encoded,
+              failed,
+              avg_duration_minutes,
+              most_recent_video_update,
+              most_recent_inserted_video
+            ]
+          ] ->
+            %{
+              total_videos: total_videos,
+              total_size_gb: total_size_gb,
+              needs_analysis: needs_analysis,
+              analyzed: analyzed,
+              crf_searching: crf_searching,
+              crf_searched: crf_searched,
+              encoding: encoding,
+              encoded: encoded,
+              failed: failed,
+              avg_duration_minutes: avg_duration_minutes,
+              most_recent_video_update: most_recent_video_update,
+              most_recent_inserted_video: most_recent_inserted_video,
+              total_savings_gb: 0.0
+            }
+
+          _ ->
+            get_default_video_stats()
+        end
+      catch
+        :exit, _ ->
+          Logger.debug("Dashboard video stats query timed out, using default stats")
+          get_default_video_stats()
+      end
 
     # Savings query: separate to avoid JOIN lock contention in main query
     # Can fail independently without affecting core stats

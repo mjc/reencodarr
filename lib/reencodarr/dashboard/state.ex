@@ -17,7 +17,7 @@ defmodule Reencodarr.Dashboard.State do
 
   @state_channel "dashboard:state"
 
-  @stats_refresh_interval 60_000
+  @stats_refresh_interval 300_000
   @queue_refresh_interval 5_000
   @chart_refresh_interval 300_000
   @query_timeout 2_000
