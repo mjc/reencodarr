@@ -362,17 +362,21 @@ defmodule Reencodarr.Media.VideoStateMachine do
              :crf_searching,
              :failed
            ] ->
-        # Force :encoding so the :encoding → :encoded transition is always valid
-        case transition_to_encoded(%{video | state: :encoding}) do
-          {:ok, changeset} -> Reencodarr.Repo.update(changeset)
-          error -> error
-        end
+        do_transition_to_encoded(%{video | state: :encoding})
+    end
+  end
+
+  defp do_transition_to_encoded(video) do
+    # Force :encoding so the :encoding → :encoded transition is always valid
+    case transition_to_encoded(video) do
+      {:ok, changeset} -> Retry.retry_on_db_busy(fn -> Reencodarr.Repo.update(changeset) end)
+      error -> error
     end
   end
 
   @spec mark_as_analyzed(Video.t()) :: {:ok, Video.t()} | {:error, any()}
   def mark_as_analyzed(%Video{} = video),
-    do: mark_video_state(video, &transition_to_analyzed/1, retry_on_busy: true)
+    do: mark_video_state(video, &transition_to_analyzed/1)
 
   @doc """
   Marks a video as failed. Rescues `Ecto.StaleEntryError` for test cleanup races.
@@ -430,12 +434,8 @@ defmodule Reencodarr.Media.VideoStateMachine do
     end
   end
 
-  defp do_repo_update(changeset, opts) do
-    if Keyword.get(opts, :retry_on_busy, false) do
-      Retry.retry_on_db_busy(fn -> Reencodarr.Repo.update(changeset) end)
-    else
-      Reencodarr.Repo.update(changeset)
-    end
+  defp do_repo_update(changeset, _opts) do
+    Retry.retry_on_db_busy(fn -> Reencodarr.Repo.update(changeset) end)
   end
 
   # Check if video has low bitrate (less than 5 Mbps = 5,000,000 bps) AND is HDR and should skip encoding

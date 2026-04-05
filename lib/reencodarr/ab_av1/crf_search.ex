@@ -511,13 +511,15 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp has_unresolved_size_limit_failure?(video) do
     alias Reencodarr.Media.VideoFailure
 
-    Repo.one(
-      from f in VideoFailure,
-        where:
-          f.video_id == ^video.id and f.failure_category == :size_limits and
-            f.resolved == false,
-        select: count(f.id)
-    ) > 0
+    Retry.retry_on_db_busy(fn ->
+      Repo.one(
+        from f in VideoFailure,
+          where:
+            f.video_id == ^video.id and f.failure_category == :size_limits and
+              f.resolved == false,
+          select: count(f.id)
+      )
+    end) > 0
   end
 
   defp do_ensure_chosen_vmaf_and_transition(video) do
@@ -692,11 +694,13 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   defp count_crf_search_failures(video) do
     alias Reencodarr.Media.VideoFailure
 
-    Repo.one(
-      from f in VideoFailure,
-        where: f.video_id == ^video.id and f.failure_stage == :crf_search and f.resolved == false,
-        select: count(f.id)
-    ) || 0
+    Retry.retry_on_db_busy(fn ->
+      Repo.one(
+        from f in VideoFailure,
+          where: f.video_id == ^video.id and f.failure_stage == :crf_search and f.resolved == false,
+          select: count(f.id)
+      )
+    end) || 0
   end
 
   defp retry_strategy(video, target_vmaf, crf_range, output_lines) do
