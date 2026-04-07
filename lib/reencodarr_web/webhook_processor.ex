@@ -26,13 +26,10 @@ defmodule ReencodarrWeb.WebhookProcessor do
     def process(fun) when is_function(fun, 0) do
       # In test, execute synchronously to avoid sandbox connection issues
       # We need explicit try/catch to catch :exit signals from OTP processes
-      # credo:disable-for-next-line Credo.Check.Readability.ImplicitTry
-      try do
-        Retry.retry_on_db_busy(fun)
-      catch
-        :exit, reason ->
-          Logger.error("Webhook processor task failed: #{inspect(reason)}")
-      end
+      Retry.retry_on_db_busy(fun)
+    catch
+      :exit, reason ->
+        Logger.error("Webhook processor task failed: #{inspect(reason)}")
     end
   else
     def process(fun) when is_function(fun, 0) do
@@ -41,7 +38,10 @@ defmodule ReencodarrWeb.WebhookProcessor do
     end
   end
 
-  def reconcile_waiting_bad_file_issues({:ok, {:ok, %Reencodarr.Media.Video{} = video}}, service_type) do
+  def reconcile_waiting_bad_file_issues(
+        {:ok, {:ok, %Reencodarr.Media.Video{} = video}},
+        service_type
+      ) do
     Reencodarr.Media.reconcile_replacement_video(video, service_type)
   end
 

@@ -697,7 +697,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     Retry.retry_on_db_busy(fn ->
       Repo.one(
         from f in VideoFailure,
-          where: f.video_id == ^video.id and f.failure_stage == :crf_search and f.resolved == false,
+          where:
+            f.video_id == ^video.id and f.failure_stage == :crf_search and f.resolved == false,
           select: count(f.id)
       )
     end) || 0

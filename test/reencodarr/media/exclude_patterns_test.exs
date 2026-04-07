@@ -393,5 +393,34 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       refute log =~ "owner",
              "get_dashboard_stats should not produce DB ownership errors, got: #{log}"
     end
+
+    test "returns defaults when dashboard queries are interrupted" do
+      :meck.new(Reencodarr.Repo, [:passthrough])
+
+      on_exit(fn ->
+        try do
+          :meck.unload(Reencodarr.Repo)
+        catch
+          :error, {:not_mocked, Reencodarr.Repo} -> :ok
+          :exit, {:not_mocked, Reencodarr.Repo} -> :ok
+        end
+      end)
+
+      :meck.expect(Reencodarr.Repo, :query, fn _, _, _ ->
+        {:error, %Exqlite.Error{message: "interrupted"}}
+      end)
+
+      :meck.expect(Reencodarr.Repo, :one, fn _, _ ->
+        raise Exqlite.Error, message: "interrupted"
+      end)
+
+      log =
+        capture_log(fn ->
+          stats = Reencodarr.Media.get_dashboard_stats()
+          assert stats == Reencodarr.Media.get_default_stats()
+        end)
+
+      refute log =~ "Dashboard.State refresh_stats failed"
+    end
   end
 end

@@ -1696,92 +1696,22 @@ defmodule Reencodarr.Media do
 
   Runs two single-table queries (videos + vmafs) and merges the results,
   avoiding the slow LEFT JOIN that caused dirty-NIF / DBConnection timeouts.
-  Returns merged stats or defaults on timeout/error.
+  Returns merged stats or defaults on timeout/error/interruption.
   """
   @spec get_dashboard_stats(integer()) :: map()
   def get_dashboard_stats(timeout \\ 15_000) do
-    # Use individual COUNT queries per state to leverage indexes
-    # Avoids full table scan aggregation which times out under concurrent load
-    video_stats =
-      try do
-        result =
-          Repo.query!(
-            """
-            SELECT
-              (SELECT COUNT(*) FROM videos) as total_videos,
-              ROUND(CAST((SELECT SUM(size) FROM videos) AS FLOAT) / (1024*1024*1024), 2) as total_size_gb,
-              (SELECT COUNT(*) FROM videos WHERE state IN ('needs_analysis', 'analyzing')) as needs_analysis,
-              (SELECT COUNT(*) FROM videos WHERE state = 'analyzed') as analyzed,
-              (SELECT COUNT(*) FROM videos WHERE state = 'crf_searching') as crf_searching,
-              (SELECT COUNT(*) FROM videos WHERE state = 'crf_searched') as crf_searched,
-              (SELECT COUNT(*) FROM videos WHERE state = 'encoding') as encoding,
-              (SELECT COUNT(*) FROM videos WHERE state = 'encoded') as encoded,
-              (SELECT COUNT(*) FROM videos WHERE state = 'failed') as failed,
-              ROUND(COALESCE((SELECT AVG(CAST(duration AS FLOAT)) FROM videos WHERE duration IS NOT NULL), 0) / 60.0, 1) as avg_duration_minutes,
-              (SELECT MAX(updated_at) FROM videos) as most_recent_video_update,
-              (SELECT MAX(inserted_at) FROM videos) as most_recent_inserted_video
-            """,
-            [],
-            timeout: timeout
-          ).rows
+    video_stats = safe_dashboard_video_stats(timeout)
 
-        case result do
-          [
-            [
-              total_videos,
-              total_size_gb,
-              needs_analysis,
-              analyzed,
-              crf_searching,
-              crf_searched,
-              encoding,
-              encoded,
-              failed,
-              avg_duration_minutes,
-              most_recent_video_update,
-              most_recent_inserted_video
-            ]
-          ] ->
-            %{
-              total_videos: total_videos,
-              total_size_gb: total_size_gb,
-              needs_analysis: needs_analysis,
-              analyzed: analyzed,
-              crf_searching: crf_searching,
-              crf_searched: crf_searched,
-              encoding: encoding,
-              encoded: encoded,
-              failed: failed,
-              avg_duration_minutes: avg_duration_minutes,
-              most_recent_video_update: most_recent_video_update,
-              most_recent_inserted_video: most_recent_inserted_video,
-              total_savings_gb: 0.0
-            }
-
-          _ ->
-            get_default_video_stats()
-        end
-      catch
-        :exit, _ ->
-          Logger.debug("Dashboard video stats query timed out, using default stats")
-          get_default_video_stats()
-      end
-
-    # Savings query: separate to avoid JOIN lock contention in main query
-    # Can fail independently without affecting core stats
     savings =
-      try do
+      safe_dashboard_component("savings", %{total_savings_gb: 0.0}, fn ->
         Repo.one(SharedQueries.video_savings_query(), timeout: timeout) ||
           %{total_savings_gb: 0.0}
-      catch
-        :exit, _ ->
-          Logger.debug("Dashboard savings query timed out, using zero savings")
-          %{total_savings_gb: 0.0}
-      end
+      end)
 
-    # VMAF stats: independent query without JOIN to videos
     vmaf_stats =
-      Repo.one(SharedQueries.vmaf_stats_query(), timeout: timeout) || get_default_vmaf_stats()
+      safe_dashboard_component("vmaf stats", get_default_vmaf_stats(), fn ->
+        Repo.one(SharedQueries.vmaf_stats_query(), timeout: timeout) || get_default_vmaf_stats()
+      end)
 
     video_stats
     |> Map.put(:total_savings_gb, savings.total_savings_gb)
@@ -1804,6 +1734,108 @@ defmodule Reencodarr.Media do
       )
 
       get_default_stats()
+  end
+
+  defp safe_dashboard_video_stats(timeout) do
+    safe_dashboard_component("video stats", get_default_video_stats(), fn ->
+      case Repo.query(
+             """
+             SELECT
+               (SELECT COUNT(*) FROM videos) as total_videos,
+               (SELECT COUNT(*) FROM videos WHERE state IN ('needs_analysis', 'analyzing')) as needs_analysis,
+               (SELECT COUNT(*) FROM videos WHERE state = 'analyzed') as analyzed,
+               (SELECT COUNT(*) FROM videos WHERE state = 'crf_searching') as crf_searching,
+               (SELECT COUNT(*) FROM videos WHERE state = 'crf_searched') as crf_searched,
+               (SELECT COUNT(*) FROM videos WHERE state = 'encoding') as encoding,
+               (SELECT COUNT(*) FROM videos WHERE state = 'encoded') as encoded,
+               (SELECT COUNT(*) FROM videos WHERE state = 'failed') as failed,
+               ROUND(COALESCE((SELECT AVG(CAST(duration AS FLOAT)) FROM videos WHERE duration IS NOT NULL), 0) / 60.0, 1) as avg_duration_minutes,
+               (SELECT MAX(updated_at) FROM videos) as most_recent_video_update,
+               (SELECT MAX(inserted_at) FROM videos) as most_recent_inserted_video
+             """,
+             [],
+             timeout: timeout
+           ) do
+        {:ok, %{rows: rows}} ->
+          parse_dashboard_video_stats(rows)
+
+        {:error, error} ->
+          raise error
+      end
+    end)
+  end
+
+  defp parse_dashboard_video_stats([
+         [
+           total_videos,
+           needs_analysis,
+           analyzed,
+           crf_searching,
+           crf_searched,
+           encoding,
+           encoded,
+           failed,
+           avg_duration_minutes,
+           most_recent_video_update,
+           most_recent_inserted_video
+         ]
+       ]) do
+    %{
+      total_videos: total_videos,
+      total_size_gb: get_cached_total_size_gb(),
+      needs_analysis: needs_analysis,
+      analyzed: analyzed,
+      crf_searching: crf_searching,
+      crf_searched: crf_searched,
+      encoding: encoding,
+      encoded: encoded,
+      failed: failed,
+      avg_duration_minutes: avg_duration_minutes,
+      most_recent_video_update: most_recent_video_update,
+      most_recent_inserted_video: most_recent_inserted_video,
+      total_savings_gb: 0.0
+    }
+  end
+
+  defp parse_dashboard_video_stats(_rows), do: get_default_video_stats()
+
+  defp safe_dashboard_component(label, fallback, fun) do
+    fun.()
+  rescue
+    e in DBConnection.ConnectionError ->
+      Logger.warning(
+        "Dashboard #{label} query failed with connection error: #{Exception.message(e)}"
+      )
+
+      fallback
+
+    e in Exqlite.Error ->
+      if interrupted_dashboard_query?(e) do
+        Logger.debug("Dashboard #{label} query interrupted, using fallback")
+      else
+        Logger.warning("Dashboard #{label} query failed: #{Exception.message(e)}")
+      end
+
+      fallback
+  catch
+    :exit, {:timeout, _} ->
+      Logger.debug("Dashboard #{label} query timed out, using fallback")
+      fallback
+
+    :exit, {%DBConnection.ConnectionError{} = e, _} ->
+      Logger.warning(
+        "Dashboard #{label} query failed with connection error: #{Exception.message(e)}"
+      )
+
+      fallback
+
+    :exit, _ ->
+      Logger.debug("Dashboard #{label} query exited, using fallback")
+      fallback
+  end
+
+  defp interrupted_dashboard_query?(%Exqlite.Error{message: message}) do
+    String.downcase(to_string(message)) == "interrupted"
   end
 
   defp get_default_video_stats do
@@ -2055,5 +2087,59 @@ defmodule Reencodarr.Media do
 
   defp log_test_result_details(%{success: false, errors: errors}) do
     Logger.warning("   Errors: #{Enum.join(errors, ", ")}")
+  end
+
+  # Cache total_size_gb separately to avoid full table scan in main dashboard query
+  # Computed less frequently (60s TTL) to prevent memory exhaustion under load
+  @size_cache_key :dashboard_total_size_gb
+  # 60 seconds
+  @size_cache_ttl 60_000
+
+  defp get_cached_total_size_gb do
+    case :ets.lookup(:reencodarr_cache, @size_cache_key) do
+      [{_key, value, timestamp}] ->
+        if System.monotonic_time(:millisecond) - timestamp < @size_cache_ttl do
+          value
+        else
+          compute_and_cache_total_size_gb()
+        end
+
+      [] ->
+        compute_and_cache_total_size_gb()
+    end
+  catch
+    # If ETS table doesn't exist or query fails, return 0.0 gracefully
+    _kind, _reason -> 0.0
+  end
+
+  defp compute_and_cache_total_size_gb do
+    value =
+      Repo.one(
+        from(v in Video,
+          select: fragment("ROUND(CAST(COALESCE(SUM(size), 0) AS FLOAT) / (1024*1024*1024), 2)")
+        )
+      ) || 0.0
+
+    # Ensure ETS table exists before inserting
+    ensure_cache_table_exists()
+
+    :ets.insert(
+      :reencodarr_cache,
+      {@size_cache_key, value, System.monotonic_time(:millisecond)}
+    )
+
+    value
+  rescue
+    _e -> 0.0
+  end
+
+  defp ensure_cache_table_exists do
+    case :ets.info(:reencodarr_cache) do
+      :undefined ->
+        :ets.new(:reencodarr_cache, [:named_table, :public, {:write_concurrency, true}])
+
+      _ ->
+        :ok
+    end
   end
 end

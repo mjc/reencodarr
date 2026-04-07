@@ -93,7 +93,11 @@ defmodule ReencodarrWeb.SonarrWebhookController do
     series_path = series["path"]
 
     Logger.info("Received SeriesDelete event from Sonarr for: #{series_title} (ID: #{series_id})")
-    ReencodarrWeb.WebhookProcessor.queue(fn -> process_series_delete(series_path, series_title) end)
+
+    ReencodarrWeb.WebhookProcessor.queue(fn ->
+      process_series_delete(series_path, series_title)
+    end)
+
     send_resp(conn, :no_content, "")
   end
 

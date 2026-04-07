@@ -700,5 +700,4 @@ defmodule Reencodarr.Analyzer.Broadway do
         Reencodarr.FailureTracker.record_unknown_failure(video, :analysis, reason)
     end
   end
-
 end

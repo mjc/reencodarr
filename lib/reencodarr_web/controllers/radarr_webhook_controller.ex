@@ -76,7 +76,11 @@ defmodule ReencodarrWeb.RadarrWebhookController do
     movie_path = movie["folderPath"] || movie["path"]
 
     Logger.info("Received MovieDelete event from Radarr for: #{movie_title} (ID: #{movie_id})")
-    ReencodarrWeb.WebhookProcessor.queue(fn -> process_movie_folder_delete(movie_path, movie_title) end)
+
+    ReencodarrWeb.WebhookProcessor.queue(fn ->
+      process_movie_folder_delete(movie_path, movie_title)
+    end)
+
     send_resp(conn, :no_content, "")
   end
 
