@@ -116,33 +116,41 @@ defmodule Reencodarr.Media.SharedQueries do
   end
 
   @doc """
-  Savings query - calculated separately to avoid JOIN lock contention in main stats query.
-
-  Calculates savings from two sources without the expensive JOIN during aggregation:
-  1. Actual savings from encoded videos (original_size - size)
-  2. Predicted savings from chosen VMAF records
+  Actual savings query for already-encoded videos.
   """
-  def video_savings_query do
+  def encoded_video_savings_query do
     from v in Video,
-      left_join: m in Vmaf,
-      on: v.chosen_vmaf_id == m.id,
       select: %{
         total_savings_gb:
           coalesce(
             sum(
               fragment(
-                "CASE WHEN ? = 'encoded' AND ? IS NOT NULL AND ? > ? THEN (? - ?) / 1073741824.0 WHEN ? IS NOT NULL AND ? > 0 THEN ? / 1073741824.0 ELSE 0 END",
+                "CASE WHEN ? = 'encoded' AND ? IS NOT NULL AND ? > ? THEN (? - ?) / 1073741824.0 ELSE 0 END",
                 v.state,
                 v.original_size,
                 v.original_size,
                 v.size,
                 v.original_size,
-                v.size,
-                m.id,
-                m.savings,
-                m.savings
+                v.size
               )
             ),
+            0
+          )
+      }
+  end
+
+  @doc """
+  Predicted savings query for videos with a chosen VMAF that are not yet encoded.
+  """
+  def predicted_video_savings_query do
+    from v in Vmaf,
+      join: vid in Video,
+      on: vid.chosen_vmaf_id == v.id,
+      where: vid.state != :encoded and not is_nil(v.savings) and v.savings > 0,
+      select: %{
+        total_savings_gb:
+          coalesce(
+            sum(fragment("? / 1073741824.0", v.savings)),
             0
           )
       }

@@ -2,7 +2,7 @@ defmodule Reencodarr.Media.ChartQueries do
   @moduledoc "Database queries for dashboard chart data."
 
   import Ecto.Query
-  alias Reencodarr.Media.{Video, Vmaf}
+  alias Reencodarr.Media.Video
   alias Reencodarr.Repo
 
   @vmaf_bins [
@@ -60,44 +60,70 @@ defmodule Reencodarr.Media.ChartQueries do
 
   @doc "Get VMAF score distribution as histogram bins for chosen VMAFs."
   def vmaf_score_distribution do
-    all_scores =
-      from(v in Vmaf,
-        join: vid in Video,
-        on: vid.chosen_vmaf_id == v.id,
-        where: not is_nil(v.score),
-        select: v.score
-      )
-      |> Repo.all()
+    case Repo.query(
+           """
+           SELECT
+             CASE
+               WHEN v.score < 80 THEN '<80'
+               WHEN v.score < 85 THEN '80-85'
+               WHEN v.score < 90 THEN '85-90'
+               WHEN v.score < 92 THEN '90-92'
+               WHEN v.score < 94 THEN '92-94'
+               WHEN v.score < 96 THEN '94-96'
+               WHEN v.score < 98 THEN '96-98'
+               ELSE '98+'
+             END AS bucket,
+             COUNT(*)
+           FROM videos AS vid
+           INNER JOIN vmafs AS v ON vid.chosen_vmaf_id = v.id
+           WHERE v.score IS NOT NULL
+           GROUP BY bucket
+           """,
+           []
+         ) do
+      {:ok, %{rows: rows}} ->
+        counts =
+          Map.new(rows, fn [label, count] ->
+            {label, count}
+          end)
 
-    # Count scores into bins using SQL-efficient bucketing in Elixir
-    # (SQLite lacks CASE WHEN in SELECT without complex GROUP BY)
-    Enum.map(@vmaf_bins, fn {label, low, high} ->
-      count = Enum.count(all_scores, fn s -> s >= low and s < high end)
-      {label, count}
-    end)
+        Enum.map(@vmaf_bins, fn {label, _low, _high} ->
+          {label, Map.get(counts, label, 0)}
+        end)
+
+      {:error, error} ->
+        raise error
+    end
   end
 
   @doc "Get video count by resolution category."
   def resolution_distribution do
-    # Count videos in each resolution bucket using SQL CASE logic
-    from(v in Video,
-      where: not is_nil(v.width) and v.state != :failed,
-      select: v.width
-    )
-    |> Repo.all()
-    |> Enum.reduce(%{}, fn width, acc ->
-      category = resolution_category(width)
-      Map.update(acc, category, 1, &(&1 + 1))
-    end)
-    |> Enum.map(fn {label, count} -> {label, count} end)
-    |> Enum.sort_by(fn {label, _} -> resolution_order(label) end)
-  end
+    case Repo.query(
+           """
+           SELECT
+             CASE
+               WHEN width >= 3840 THEN '4K+'
+               WHEN width >= 2560 THEN '1440p'
+               WHEN width >= 1920 THEN '1080p'
+               WHEN width >= 1280 THEN '720p'
+               ELSE '<720p'
+             END AS bucket,
+             COUNT(*)
+           FROM videos
+           WHERE width IS NOT NULL AND state != 'failed'
+           GROUP BY bucket
+           """,
+           []
+         ) do
+      {:ok, %{rows: rows}} ->
+        rows
+        |> Enum.map(fn [label, count] -> {label, count} end)
+        |> Enum.sort_by(fn {label, _} -> resolution_order(label) end)
 
-  defp resolution_category(width) when width >= 3840, do: "4K+"
-  defp resolution_category(width) when width >= 2560, do: "1440p"
-  defp resolution_category(width) when width >= 1920, do: "1080p"
-  defp resolution_category(width) when width >= 1280, do: "720p"
-  defp resolution_category(_), do: "<720p"
+      {:error, error} ->
+        raise error
+    end
+  end
 
   defp resolution_order("4K+"), do: 0
   defp resolution_order("1440p"), do: 1

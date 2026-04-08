@@ -339,9 +339,11 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       _vmaf2 =
         vmaf_fixture(%{video_id: video.id, crf: 26.0, savings: 1_073_741_824})
 
-      stats = Repo.one(SharedQueries.video_savings_query())
+      encoded_stats = Repo.one(SharedQueries.encoded_video_savings_query())
+      predicted_stats = Repo.one(SharedQueries.predicted_video_savings_query())
 
-      assert_in_delta stats.total_savings_gb, 2.0, 0.01
+      assert_in_delta encoded_stats.total_savings_gb, 0.0, 0.01
+      assert_in_delta predicted_stats.total_savings_gb, 2.0, 0.01
     end
 
     test "handles empty vmafs table" do
@@ -381,11 +383,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       end)
     end
 
-    test "computes total_size_gb on first call when cache table does not exist" do
-      if :ets.info(:reencodarr_cache) != :undefined do
-        :ets.delete(:reencodarr_cache)
-      end
-
+    test "computes total_size_gb without Media-layer caching" do
       capture_log(fn ->
         {:ok, _video} =
           video_fixture(%{
@@ -394,9 +392,9 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
             size: 1_073_741_824
           })
 
-        stats = Reencodarr.Media.get_dashboard_stats()
+        {:ok, total_size_gb} = Reencodarr.Media.fetch_dashboard_total_size_gb()
 
-        assert_in_delta stats.total_size_gb, 1.0, 0.01
+        assert_in_delta total_size_gb, 1.0, 0.01
       end)
     end
 

@@ -8,6 +8,7 @@ defmodule Reencodarr.Media do
   alias Reencodarr.AbAv1.{CrfSearch, Encode}
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.Core.Parsers
+  alias Reencodarr.Core.Retry
   alias Reencodarr.Dashboard.Events
 
   alias Reencodarr.Media.{
@@ -959,37 +960,39 @@ defmodule Reencodarr.Media do
           vmafs_deleted: integer()
         }
   def reset_all_failures do
-    Repo.transaction(fn ->
-      # First, get IDs and counts of videos that will be reset
-      failed_video_ids =
-        from(v in Video, where: v.state == :failed, select: v.id)
-        |> Repo.all()
+    Retry.retry_on_db_busy(fn ->
+      Repo.transaction(fn ->
+        # First, get IDs and counts of videos that will be reset
+        failed_video_ids =
+          from(v in Video, where: v.state == :failed, select: v.id)
+          |> Repo.all()
 
-      videos_to_reset_count = length(failed_video_ids)
+        videos_to_reset_count = length(failed_video_ids)
 
-      # Get count of failures that will be deleted
-      failures_to_delete_count =
-        from(f in VideoFailure, where: is_nil(f.resolved_at), select: count(f.id))
-        |> Repo.one()
+        # Get count of failures that will be deleted
+        failures_to_delete_count =
+          from(f in VideoFailure, where: is_nil(f.resolved_at), select: count(f.id))
+          |> Repo.one()
 
-      # Delete VMAFs for failed videos (they were likely generated with bad data)
-      {vmafs_deleted_count, _} =
-        from(v in Vmaf, where: v.video_id in ^failed_video_ids)
+        # Delete VMAFs for failed videos (they were likely generated with bad data)
+        {vmafs_deleted_count, _} =
+          from(v in Vmaf, where: v.video_id in ^failed_video_ids)
+          |> Repo.delete_all()
+
+        # Reset all failed videos back to needs_analysis
+        from(v in Video, where: v.state == :failed)
+        |> Repo.update_all(set: [state: :needs_analysis, updated_at: DateTime.utc_now()])
+
+        # Delete all unresolved failures
+        from(f in VideoFailure, where: is_nil(f.resolved_at))
         |> Repo.delete_all()
 
-      # Reset all failed videos back to needs_analysis
-      from(v in Video, where: v.state == :failed)
-      |> Repo.update_all(set: [state: :needs_analysis, updated_at: DateTime.utc_now()])
-
-      # Delete all unresolved failures
-      from(f in VideoFailure, where: is_nil(f.resolved_at))
-      |> Repo.delete_all()
-
-      %{
-        videos_reset: videos_to_reset_count,
-        failures_deleted: failures_to_delete_count,
-        vmafs_deleted: vmafs_deleted_count
-      }
+        %{
+          videos_reset: videos_to_reset_count,
+          failures_deleted: failures_to_delete_count,
+          vmafs_deleted: vmafs_deleted_count
+        }
+      end)
     end)
     |> case do
       {:ok, result} -> result
@@ -1692,122 +1695,100 @@ defmodule Reencodarr.Media do
   end
 
   @doc """
+  Fetches the dashboard video stats component.
+  """
+  @spec fetch_dashboard_video_stats(integer()) :: {:ok, map()} | {:error, term()}
+  def fetch_dashboard_video_stats(timeout \\ 15_000) do
+    fetch_dashboard_component("video stats", fn ->
+      Repo.one(SharedQueries.video_stats_query(), timeout: timeout) || get_default_video_stats()
+    end)
+  end
+
+  @doc """
+  Fetches the dashboard library size in GiB.
+  """
+  @spec fetch_dashboard_total_size_gb(integer()) :: {:ok, float()} | {:error, term()}
+  def fetch_dashboard_total_size_gb(timeout \\ 15_000) do
+    fetch_dashboard_component("total size", fn ->
+      Repo.one(
+        from(v in Video,
+          select: fragment("ROUND(CAST(COALESCE(SUM(size), 0) AS FLOAT) / (1024*1024*1024), 2)")
+        ),
+        timeout: timeout
+      ) || 0.0
+    end)
+  end
+
+  @doc """
+  Fetches the dashboard savings component in GiB.
+  """
+  @spec fetch_dashboard_savings_gb(integer()) :: {:ok, float()} | {:error, term()}
+  def fetch_dashboard_savings_gb(timeout \\ 15_000) do
+    fetch_dashboard_component("savings", fn ->
+      encoded_savings =
+        Repo.one(SharedQueries.encoded_video_savings_query(), timeout: timeout) ||
+          %{total_savings_gb: 0.0}
+
+      predicted_savings =
+        Repo.one(SharedQueries.predicted_video_savings_query(), timeout: timeout) ||
+          %{total_savings_gb: 0.0}
+
+      (encoded_savings.total_savings_gb || 0.0) + (predicted_savings.total_savings_gb || 0.0)
+    end)
+  end
+
+  @doc """
+  Fetches the dashboard VMAF stats component.
+  """
+  @spec fetch_dashboard_vmaf_stats(integer()) :: {:ok, map()} | {:error, term()}
+  def fetch_dashboard_vmaf_stats(timeout \\ 15_000) do
+    fetch_dashboard_component("vmaf stats", fn ->
+      Repo.one(SharedQueries.vmaf_stats_query(), timeout: timeout) || get_default_vmaf_stats()
+    end)
+  end
+
+  @doc """
   Get dashboard statistics with safe timeout handling.
 
-  Runs two single-table queries (videos + vmafs) and merges the results,
-  avoiding the slow LEFT JOIN that caused dirty-NIF / DBConnection timeouts.
   Returns merged stats or defaults on timeout/error/interruption.
   """
   @spec get_dashboard_stats(integer()) :: map()
   def get_dashboard_stats(timeout \\ 15_000) do
-    video_stats = safe_dashboard_video_stats(timeout)
+    stats = get_default_stats()
 
-    savings =
-      safe_dashboard_component("savings", %{total_savings_gb: 0.0}, fn ->
-        Repo.one(SharedQueries.video_savings_query(), timeout: timeout) ||
-          %{total_savings_gb: 0.0}
-      end)
-
-    vmaf_stats =
-      safe_dashboard_component("vmaf stats", get_default_vmaf_stats(), fn ->
-        Repo.one(SharedQueries.vmaf_stats_query(), timeout: timeout) || get_default_vmaf_stats()
-      end)
-
-    video_stats
-    |> Map.put(:total_savings_gb, savings.total_savings_gb)
-    |> Map.merge(vmaf_stats)
-  rescue
-    e in DBConnection.ConnectionError ->
-      Logger.warning(
-        "Dashboard stats query failed with connection error: #{Exception.message(e)}"
-      )
-
-      get_default_stats()
-  catch
-    :exit, {:timeout, _} ->
-      Logger.warning("Dashboard stats query timed out after #{timeout}ms")
-      get_default_stats()
-
-    :exit, {%DBConnection.ConnectionError{} = e, _} ->
-      Logger.warning(
-        "Dashboard stats query failed with connection error: #{Exception.message(e)}"
-      )
-
-      get_default_stats()
-  end
-
-  defp safe_dashboard_video_stats(timeout) do
-    safe_dashboard_component("video stats", get_default_video_stats(), fn ->
-      case Repo.query(
-             """
-             SELECT
-               (SELECT COUNT(*) FROM videos) as total_videos,
-               (SELECT COUNT(*) FROM videos WHERE state IN ('needs_analysis', 'analyzing')) as needs_analysis,
-               (SELECT COUNT(*) FROM videos WHERE state = 'analyzed') as analyzed,
-               (SELECT COUNT(*) FROM videos WHERE state = 'crf_searching') as crf_searching,
-               (SELECT COUNT(*) FROM videos WHERE state = 'crf_searched') as crf_searched,
-               (SELECT COUNT(*) FROM videos WHERE state = 'encoding') as encoding,
-               (SELECT COUNT(*) FROM videos WHERE state = 'encoded') as encoded,
-               (SELECT COUNT(*) FROM videos WHERE state = 'failed') as failed,
-               ROUND(COALESCE((SELECT AVG(CAST(duration AS FLOAT)) FROM videos WHERE duration IS NOT NULL), 0) / 60.0, 1) as avg_duration_minutes,
-               (SELECT MAX(updated_at) FROM videos) as most_recent_video_update,
-               (SELECT MAX(inserted_at) FROM videos) as most_recent_inserted_video
-             """,
-             [],
-             timeout: timeout
-           ) do
-        {:ok, %{rows: rows}} ->
-          parse_dashboard_video_stats(rows)
-
-        {:error, error} ->
-          raise error
+    stats =
+      case fetch_dashboard_video_stats(timeout) do
+        {:ok, video_stats} -> Map.merge(stats, video_stats)
+        {:error, _reason} -> stats
       end
-    end)
+
+    stats =
+      case fetch_dashboard_total_size_gb(timeout) do
+        {:ok, total_size_gb} -> Map.put(stats, :total_size_gb, total_size_gb)
+        {:error, _reason} -> stats
+      end
+
+    stats =
+      case fetch_dashboard_savings_gb(timeout) do
+        {:ok, total_savings_gb} -> Map.put(stats, :total_savings_gb, total_savings_gb)
+        {:error, _reason} -> stats
+      end
+
+    case fetch_dashboard_vmaf_stats(timeout) do
+      {:ok, vmaf_stats} -> Map.merge(stats, vmaf_stats)
+      {:error, _reason} -> stats
+    end
   end
 
-  defp parse_dashboard_video_stats([
-         [
-           total_videos,
-           needs_analysis,
-           analyzed,
-           crf_searching,
-           crf_searched,
-           encoding,
-           encoded,
-           failed,
-           avg_duration_minutes,
-           most_recent_video_update,
-           most_recent_inserted_video
-         ]
-       ]) do
-    %{
-      total_videos: total_videos,
-      total_size_gb: get_cached_total_size_gb(),
-      needs_analysis: needs_analysis,
-      analyzed: analyzed,
-      crf_searching: crf_searching,
-      crf_searched: crf_searched,
-      encoding: encoding,
-      encoded: encoded,
-      failed: failed,
-      avg_duration_minutes: avg_duration_minutes,
-      most_recent_video_update: most_recent_video_update,
-      most_recent_inserted_video: most_recent_inserted_video,
-      total_savings_gb: 0.0
-    }
-  end
-
-  defp parse_dashboard_video_stats(_rows), do: get_default_video_stats()
-
-  defp safe_dashboard_component(label, fallback, fun) do
-    fun.()
+  defp fetch_dashboard_component(label, fun) do
+    {:ok, fun.()}
   rescue
     e in DBConnection.ConnectionError ->
       Logger.warning(
         "Dashboard #{label} query failed with connection error: #{Exception.message(e)}"
       )
 
-      fallback
+      {:error, e}
 
     e in Exqlite.Error ->
       if interrupted_dashboard_query?(e) do
@@ -1816,22 +1797,22 @@ defmodule Reencodarr.Media do
         Logger.warning("Dashboard #{label} query failed: #{Exception.message(e)}")
       end
 
-      fallback
+      {:error, e}
   catch
     :exit, {:timeout, _} ->
       Logger.debug("Dashboard #{label} query timed out, using fallback")
-      fallback
+      {:error, :timeout}
 
     :exit, {%DBConnection.ConnectionError{} = e, _} ->
       Logger.warning(
         "Dashboard #{label} query failed with connection error: #{Exception.message(e)}"
       )
 
-      fallback
+      {:error, e}
 
-    :exit, _ ->
+    :exit, reason ->
       Logger.debug("Dashboard #{label} query exited, using fallback")
-      fallback
+      {:error, reason}
   end
 
   defp interrupted_dashboard_query?(%Exqlite.Error{message: message}) do
@@ -2087,61 +2068,5 @@ defmodule Reencodarr.Media do
 
   defp log_test_result_details(%{success: false, errors: errors}) do
     Logger.warning("   Errors: #{Enum.join(errors, ", ")}")
-  end
-
-  # Cache total_size_gb separately to avoid full table scan in main dashboard query
-  # Computed less frequently (60s TTL) to prevent memory exhaustion under load
-  @size_cache_key :dashboard_total_size_gb
-  # 60 seconds
-  @size_cache_ttl 60_000
-
-  defp get_cached_total_size_gb do
-    ensure_cache_table_exists()
-
-    case :ets.lookup(:reencodarr_cache, @size_cache_key) do
-      [{_key, value, timestamp}] ->
-        if System.monotonic_time(:millisecond) - timestamp < @size_cache_ttl do
-          value
-        else
-          compute_and_cache_total_size_gb()
-        end
-
-      [] ->
-        compute_and_cache_total_size_gb()
-    end
-  catch
-    # If ETS or cache access fails unexpectedly, return 0.0 gracefully
-    _kind, _reason -> 0.0
-  end
-
-  defp compute_and_cache_total_size_gb do
-    value =
-      Repo.one(
-        from(v in Video,
-          select: fragment("ROUND(CAST(COALESCE(SUM(size), 0) AS FLOAT) / (1024*1024*1024), 2)")
-        )
-      ) || 0.0
-
-    # Ensure ETS table exists before inserting
-    ensure_cache_table_exists()
-
-    :ets.insert(
-      :reencodarr_cache,
-      {@size_cache_key, value, System.monotonic_time(:millisecond)}
-    )
-
-    value
-  rescue
-    _e -> 0.0
-  end
-
-  defp ensure_cache_table_exists do
-    case :ets.info(:reencodarr_cache) do
-      :undefined ->
-        :ets.new(:reencodarr_cache, [:named_table, :public, {:write_concurrency, true}])
-
-      _ ->
-        :ok
-    end
   end
 end

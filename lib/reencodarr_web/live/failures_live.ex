@@ -866,20 +866,13 @@ defmodule ReencodarrWeb.FailuresLive do
   end
 
   defp get_total_count(query) do
-    case has_group_by?(query) do
-      true ->
-        # When we have GROUP BY, we need to count the grouped results
-        subquery = from v in query, select: v.id
-        Repo.all(subquery) |> length()
-
-      false ->
-        # No GROUP BY, safe to use aggregate
-        Repo.aggregate(query, :count, :id)
-    end
+    query
+    |> exclude(:order_by)
+    |> exclude(:select)
+    |> exclude(:distinct)
+    |> select([v], count(fragment("DISTINCT ?", v.id)))
+    |> Repo.one()
   end
-
-  # Helper function to check if a query has GROUP BY clause
-  defp has_group_by?(%Ecto.Query{group_bys: group_bys}), do: not Enum.empty?(group_bys)
 
   defp get_failures_by_video(videos) do
     import Ecto.Query

@@ -822,6 +822,37 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert_receive {:dashboard_state_changed, state}, 1_000
       assert state.queue_counts.crf_searcher == 1
     end
+
+    test "refresh_stats keeps previous stats when one component refresh fails" do
+      insert_video()
+      send(Process.whereis(State), :refresh_stats)
+      :timer.sleep(50)
+
+      previous_state = State.get_state()
+      assert previous_state.stats.total_videos == 1
+
+      :meck.new(Reencodarr.Media, [:passthrough])
+
+      on_exit(fn ->
+        try do
+          :meck.unload(Reencodarr.Media)
+        catch
+          :error, {:not_mocked, Reencodarr.Media} -> :ok
+          :exit, {:not_mocked, Reencodarr.Media} -> :ok
+        end
+      end)
+
+      :meck.expect(Reencodarr.Media, :fetch_dashboard_savings_gb, fn _timeout ->
+        {:error, :timeout}
+      end)
+
+      send(Process.whereis(State), :refresh_stats)
+      :timer.sleep(50)
+
+      current_state = State.get_state()
+      assert current_state.stats.total_videos == previous_state.stats.total_videos
+      assert current_state.stats.total_savings_gb == previous_state.stats.total_savings_gb
+    end
   end
 
   # Test helpers
