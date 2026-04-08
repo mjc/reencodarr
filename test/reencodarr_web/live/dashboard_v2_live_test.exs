@@ -273,7 +273,8 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       html = render(view)
       assert html =~ "chart-pending.mkv"
       assert html =~ "Sample 6/8"
-      assert html =~ "Waiting for first VMAF result..."
+      assert html =~ "Sampling CRF 15"
+      assert html =~ "waiting for first completed VMAF result"
       assert html =~ ~s(<svg viewBox="0 0 320 140")
       assert html =~ "CRF 15"
     end

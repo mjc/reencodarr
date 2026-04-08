@@ -548,7 +548,7 @@ defmodule ReencodarrWeb.DashboardLive do
                 </div>
               <% else %>
                 <div class="text-xs text-gray-500 px-1">
-                  Waiting for first VMAF result...
+                  Sampling CRF {Formatters.crf(@sample.crf)}... waiting for first completed VMAF result.
                 </div>
               <% end %>
             </div>
