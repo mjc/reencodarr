@@ -157,9 +157,11 @@ defmodule Reencodarr.Sync do
   """
   def batch_upsert_videos(files, service_type) do
     library_mappings = preload_library_mappings()
+    file_refs = extract_file_refs(files)
 
-    # Pre-filter: skip files we already have with the same path and service_id
-    known_files = preload_known_files(service_type)
+    # Pre-filter: only look up rows for paths in this batch instead of loading the
+    # full service library into memory on every sync batch.
+    known_files = preload_known_files(service_type, file_refs)
 
     {new_or_changed, skipped} =
       Enum.split_with(files, fn file ->
@@ -183,10 +185,17 @@ defmodule Reencodarr.Sync do
     end
   end
 
-  defp preload_known_files(service_type) do
+  defp preload_known_files(_service_type, []), do: MapSet.new()
+
+  defp preload_known_files(service_type, file_refs) do
+    paths =
+      file_refs
+      |> Enum.map(&elem(&1, 0))
+      |> Enum.uniq()
+
     Repo.all(
       from v in Media.Video,
-        where: v.service_type == ^service_type,
+        where: v.service_type == ^service_type and v.path in ^paths,
         select: {v.path, v.service_id}
     )
     |> MapSet.new()
@@ -200,6 +209,12 @@ defmodule Reencodarr.Sync do
   defp extract_path_and_id(%{"path" => path, "id" => id}), do: {path, to_string(id)}
   defp extract_path_and_id(%VideoFileInfo{path: path, service_id: sid}), do: {path, sid}
   defp extract_path_and_id(_), do: {nil, nil}
+
+  defp extract_file_refs(files) do
+    files
+    |> Enum.map(&extract_path_and_id/1)
+    |> Enum.reject(fn {path, _id} -> is_nil(path) end)
+  end
 
   defp perform_batch_transaction(video_attrs_list) do
     # Use the new batch upsert function which handles its own transaction
