@@ -168,6 +168,38 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert hd(state.crf_search_results).vmaf_score == 95.5
     end
 
+    test ":crf_search_vmaf_result normalizes legacy payload keys for dashboard consumers" do
+      video = insert_video()
+
+      Phoenix.PubSub.broadcast(
+        Reencodarr.PubSub,
+        Events.channel(),
+        {:crf_search_started, video}
+      )
+
+      legacy_result = %{
+        crf: 28,
+        vmaf_score: 95.5,
+        vmaf_percentile: 94.9,
+        predicted_filesize: 1_100_000
+      }
+
+      Phoenix.PubSub.broadcast(
+        Reencodarr.PubSub,
+        Events.channel(),
+        {:crf_search_vmaf_result, legacy_result}
+      )
+
+      :timer.sleep(10)
+
+      state = State.get_state()
+      result = hd(state.crf_search_results)
+
+      assert result.crf == 28
+      assert result.score == 95.5
+      assert result.percent == 94.9
+    end
+
     test ":crf_search_encoding_sample updates sample state" do
       video = insert_video()
 

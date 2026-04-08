@@ -134,9 +134,11 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_info({:crf_search_vmaf_result, result}, state) do
+    normalized_result = normalize_crf_search_result(result)
+
     results =
       state.crf_search_results
-      |> update_or_append(result, :crf)
+      |> update_or_append(normalized_result, :crf)
       |> Enum.sort_by(& &1.crf)
 
     state = %{state | crf_search_results: results}
@@ -414,6 +416,15 @@ defmodule Reencodarr.Dashboard.State do
 
   defp queue_refresh_enabled? do
     Application.get_env(:reencodarr, :dashboard_queue_refresh_enabled, true)
+  end
+
+  defp normalize_crf_search_result(result) when is_map(result) do
+    score = Map.get(result, :score, Map.get(result, :vmaf_score))
+    percent = Map.get(result, :percent, Map.get(result, :vmaf_percentile))
+
+    result
+    |> Map.put(:score, score)
+    |> Map.put(:percent, percent)
   end
 
   defp fetch_queue_preview(label, fallback, fun) do
