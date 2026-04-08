@@ -523,7 +523,7 @@ defmodule ReencodarrWeb.DashboardLive do
           <% end %>
           
     <!-- SVG scatter plot showing convergence -->
-          <%= if length(@results) > 0 do %>
+          <%= if length(@results) > 0 or @sample do %>
             <div class="space-y-2">
               <.crf_search_chart
                 results={@results}
@@ -532,19 +532,25 @@ defmodule ReencodarrWeb.DashboardLive do
               />
               
     <!-- Compact results list (exact numbers) -->
-              <div class="text-xs font-mono text-gray-400 space-y-0.5 max-h-24 overflow-y-auto">
-                <%= for result <- @results do %>
-                  <div class={[
-                    "flex justify-between px-1",
-                    @sample && result.crf == @sample.crf && "bg-blue-900/30 text-blue-200"
-                  ]}>
-                    <span>
-                      CRF {Formatters.crf(result.crf)} → {Formatters.vmaf_score(result.score, 1)} VMAF
-                    </span>
-                    <span>{if result[:percent], do: "#{result.percent}%", else: "—"}</span>
-                  </div>
-                <% end %>
-              </div>
+              <%= if length(@results) > 0 do %>
+                <div class="text-xs font-mono text-gray-400 space-y-0.5 max-h-24 overflow-y-auto">
+                  <%= for result <- @results do %>
+                    <div class={[
+                      "flex justify-between px-1",
+                      @sample && result.crf == @sample.crf && "bg-blue-900/30 text-blue-200"
+                    ]}>
+                      <span>
+                        CRF {Formatters.crf(result.crf)} → {Formatters.vmaf_score(result.score, 1)} VMAF
+                      </span>
+                      <span>{if result[:percent], do: "#{result.percent}%", else: "—"}</span>
+                    </div>
+                  <% end %>
+                </div>
+              <% else %>
+                <div class="text-xs text-gray-500 px-1">
+                  Waiting for first VMAF result...
+                </div>
+              <% end %>
             </div>
           <% end %>
         </div>

@@ -197,6 +197,87 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert html =~ "5"
     end
 
+    test "renders CRF search chart when active search results are present", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      state = %{
+        crf_search_video: %{
+          video_id: 1,
+          filename: "chart-test.mkv",
+          target_vmaf: 95,
+          video_size: 1_000_000_000,
+          width: 1920,
+          height: 1080,
+          hdr: "HDR10"
+        },
+        crf_search_results: [
+          %{crf: 24, score: 97.1, percent: 96.0},
+          %{crf: 28, score: 94.8, percent: 93.5}
+        ],
+        crf_search_sample: %{crf: 26, sample_num: 1, total_samples: 3},
+        crf_progress: :none,
+        encoding_video: nil,
+        encoding_vmaf: nil,
+        encoding_progress: :none,
+        service_status: %{analyzer: :idle, crf_searcher: :processing, encoder: :idle},
+        stats: Reencodarr.Media.get_default_stats(),
+        queue_counts: %{analyzer: 0, crf_searcher: 2, encoder: 0},
+        queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
+        vmaf_distribution: [],
+        resolution_distribution: [],
+        codec_distribution: []
+      }
+
+      send(view.pid, {:dashboard_state_changed, state})
+      :timer.sleep(50)
+
+      html = render(view)
+      assert html =~ "chart-test.mkv"
+      assert html =~ "Target: 95 VMAF"
+      assert html =~ "CRF 24"
+      assert html =~ "CRF 28"
+      assert html =~ ~s(<svg viewBox="0 0 320 140")
+    end
+
+    test "renders CRF search chart before first result when sample is active", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      state = %{
+        crf_search_video: %{
+          video_id: 1,
+          filename: "chart-pending.mkv",
+          target_vmaf: 95,
+          video_size: 1_000_000_000,
+          width: 1920,
+          height: 1080,
+          hdr: "HDR10"
+        },
+        crf_search_results: [],
+        crf_search_sample: %{crf: 15.0, sample_num: 6, total_samples: 8},
+        crf_progress: %{video_id: 1, percent: 37.0, filename: "chart-pending.mkv"},
+        encoding_video: nil,
+        encoding_vmaf: nil,
+        encoding_progress: :none,
+        service_status: %{analyzer: :idle, crf_searcher: :processing, encoder: :idle},
+        stats: Reencodarr.Media.get_default_stats(),
+        queue_counts: %{analyzer: 0, crf_searcher: 2, encoder: 0},
+        queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
+        vmaf_distribution: [],
+        resolution_distribution: [],
+        codec_distribution: []
+      }
+
+      send(view.pid, {:dashboard_state_changed, state})
+      :timer.sleep(50)
+
+      html = render(view)
+      assert html =~ "chart-pending.mkv"
+      assert html =~ "Sample 6/8"
+      assert html =~ "Waiting for first VMAF result..."
+      assert html =~ ~s(<svg viewBox="0 0 320 140")
+      assert html =~ "CRF 15"
+    end
+
     test "handles throughput events without error", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/")
 
