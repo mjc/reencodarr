@@ -186,13 +186,11 @@ defmodule Reencodarr.Media.VideoQueries do
   @spec videos_ready_for_encoding_preview(integer(), keyword()) :: [map()]
   def videos_ready_for_encoding_preview(limit, opts \\ []) do
     Repo.all(
-      from(vid in Video,
-        join: v in Vmaf,
-        on: vid.chosen_vmaf_id == v.id,
-        where: vid.state == :crf_searched,
-        order_by: [desc: vid.priority, desc: v.savings, desc: vid.updated_at],
+      from(v in Video,
+        where: v.state == :crf_searched and not is_nil(v.chosen_vmaf_id),
+        order_by: [desc: v.priority, desc: v.updated_at],
         limit: ^limit,
-        select: %{id: v.id, video: %{id: vid.id, path: vid.path}}
+        select: %{id: v.id, path: v.path}
       ),
       opts
     )

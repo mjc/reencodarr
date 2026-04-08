@@ -470,11 +470,9 @@ defmodule Reencodarr.Media.VideoQueriesTest do
 
       [preview | _] = VideoQueries.videos_ready_for_encoding_preview(10)
 
-      assert preview.id == vmaf.id
-      assert preview.video.id == video.id
-      assert preview.video.path == video.path
-      assert Map.keys(preview) |> Enum.sort() == [:id, :video]
-      assert Map.keys(preview.video) |> Enum.sort() == [:id, :path]
+      assert preview.id == video.id
+      assert preview.path == video.path
+      assert Map.keys(preview) |> Enum.sort() == [:id, :path]
     end
   end
 end

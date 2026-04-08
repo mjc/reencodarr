@@ -347,13 +347,28 @@ defmodule Reencodarr.Dashboard.State do
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, @state_channel, {:dashboard_state_changed, state})
   end
 
-  defp fetch_queue_items(_current_items) do
+  defp fetch_queue_items(current_items) do
     timeout = queue_query_timeout()
 
     %{
-      analyzer: VideoQueries.videos_needing_analysis_preview(5, timeout: timeout),
-      crf_searcher: VideoQueries.videos_for_crf_search_preview(5, timeout: timeout),
-      encoder: VideoQueries.videos_ready_for_encoding_preview(5, timeout: timeout)
+      analyzer:
+        fetch_queue_preview(
+          "analyzer",
+          current_items.analyzer,
+          fn -> VideoQueries.videos_needing_analysis_preview(5, timeout: timeout) end
+        ),
+      crf_searcher:
+        fetch_queue_preview(
+          "crf_searcher",
+          current_items.crf_searcher,
+          fn -> VideoQueries.videos_for_crf_search_preview(5, timeout: timeout) end
+        ),
+      encoder:
+        fetch_queue_preview(
+          "encoder",
+          current_items.encoder,
+          fn -> VideoQueries.videos_ready_for_encoding_preview(5, timeout: timeout) end
+        )
     }
   end
 
@@ -399,6 +414,21 @@ defmodule Reencodarr.Dashboard.State do
 
   defp queue_refresh_enabled? do
     Application.get_env(:reencodarr, :dashboard_queue_refresh_enabled, true)
+  end
+
+  defp fetch_queue_preview(label, fallback, fun) do
+    fun.()
+  rescue
+    error in [DBConnection.ConnectionError, Exqlite.Error] ->
+      Logger.debug(
+        "Dashboard.State #{label} queue preview failed, keeping previous items: #{inspect(error)}"
+      )
+
+      fallback
+  catch
+    :exit, {:timeout, _} ->
+      Logger.debug("Dashboard.State #{label} queue preview timed out, keeping previous items")
+      fallback
   end
 
   defp stats_query_timeout do
