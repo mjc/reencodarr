@@ -352,25 +352,14 @@ defmodule Reencodarr.Dashboard.State do
   defp fetch_queue_items(current_items) do
     timeout = queue_query_timeout()
 
+    preview_items =
+      fetch_queue_preview_items(timeout)
+      |> Enum.group_by(& &1.queue_type)
+
     %{
-      analyzer:
-        fetch_queue_preview(
-          "analyzer",
-          current_items.analyzer,
-          fn -> VideoQueries.videos_needing_analysis_preview(5, timeout: timeout) end
-        ),
-      crf_searcher:
-        fetch_queue_preview(
-          "crf_searcher",
-          current_items.crf_searcher,
-          fn -> VideoQueries.videos_for_crf_search_preview(5, timeout: timeout) end
-        ),
-      encoder:
-        fetch_queue_preview(
-          "encoder",
-          current_items.encoder,
-          fn -> VideoQueries.videos_ready_for_encoding_preview(5, timeout: timeout) end
-        )
+      analyzer: queue_preview_rows(preview_items, :analyzer, current_items.analyzer),
+      crf_searcher: queue_preview_rows(preview_items, :crf_searcher, current_items.crf_searcher),
+      encoder: queue_preview_rows(preview_items, :encoder, current_items.encoder)
     }
   end
 
@@ -402,16 +391,8 @@ defmodule Reencodarr.Dashboard.State do
     %{
       analyzer: stats.needs_analysis || current_queue_counts.analyzer || 0,
       crf_searcher: stats.analyzed || current_queue_counts.crf_searcher || 0,
-      encoder: refresh_encoder_queue_count(current_queue_counts.encoder)
+      encoder: stats.encoding_queue_count || current_queue_counts.encoder || 0
     }
-  end
-
-  defp refresh_encoder_queue_count(previous_count) do
-    VideoQueries.encoding_queue_count(timeout: queue_query_timeout()) || previous_count || 0
-  rescue
-    error ->
-      Logger.warning("Dashboard.State encoder queue count refresh failed: #{inspect(error)}")
-      previous_count || 0
   end
 
   defp queue_refresh_enabled? do
@@ -427,19 +408,67 @@ defmodule Reencodarr.Dashboard.State do
     |> Map.put(:percent, percent)
   end
 
-  defp fetch_queue_preview(label, fallback, fun) do
-    fun.()
+  defp queue_preview_rows(preview_items_by_type, queue_type, fallback) do
+    preview_items_by_type
+    |> Map.get(queue_type, [])
+    |> Enum.sort_by(&queue_preview_sort_key(queue_type, &1))
+    |> Enum.map(&queue_preview_item/1)
+    |> case do
+      [] -> fallback
+      rows -> rows
+    end
+  end
+
+  defp queue_preview_sort_key(:analyzer, row) do
+    {
+      -normalize_queue_int(row.priority),
+      -normalize_queue_int(row.size),
+      -timestamp(row.inserted_at),
+      -timestamp(row.updated_at)
+    }
+  end
+
+  defp queue_preview_sort_key(:crf_searcher, row) do
+    {
+      -normalize_queue_int(row.priority),
+      -normalize_queue_int(row.bitrate),
+      -normalize_queue_int(row.size),
+      timestamp(row.updated_at)
+    }
+  end
+
+  defp queue_preview_sort_key(:encoder, row) do
+    {
+      -normalize_queue_int(row.priority),
+      -normalize_queue_int(row.savings),
+      -timestamp(row.updated_at)
+    }
+  end
+
+  defp normalize_queue_int(nil), do: 0
+  defp normalize_queue_int(value) when is_integer(value), do: value
+
+  defp timestamp(nil), do: 0
+  defp timestamp(%DateTime{} = dt), do: DateTime.to_unix(dt, :microsecond)
+
+  defp queue_preview_item(row), do: %{id: row.video_id, path: row.path}
+
+  defp fetch_queue_preview_items(timeout) do
+    VideoQueries.dashboard_queue_preview_items(timeout: timeout)
   rescue
     error in [DBConnection.ConnectionError, Exqlite.Error] ->
       Logger.debug(
-        "Dashboard.State #{label} queue preview failed, keeping previous items: #{inspect(error)}"
+        "Dashboard.State queue preview cache read failed, falling back to previous items: #{inspect(error)}"
       )
 
-      fallback
+      []
   catch
     :exit, {:timeout, _} ->
-      Logger.debug("Dashboard.State #{label} queue preview timed out, keeping previous items")
-      fallback
+      Logger.debug(
+        "Dashboard.State queue preview cache read timed out, falling back to previous items"
+      )
+
+      []
   end
 
   defp stats_query_timeout do

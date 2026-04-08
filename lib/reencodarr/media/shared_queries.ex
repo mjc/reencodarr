@@ -107,6 +107,7 @@ defmodule Reencodarr.Media.SharedQueries do
           ),
         most_recent_video_update: c.most_recent_video_update,
         most_recent_inserted_video: c.most_recent_inserted_video,
+        encoding_queue_count: c.encoding_queue_count,
         total_savings_gb: 0.0
       }
   end

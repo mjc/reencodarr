@@ -18,6 +18,7 @@ defmodule Reencodarr.Media.DashboardStatsCache do
     field :most_recent_inserted_video, :utc_datetime
     field :total_vmafs, :integer
     field :chosen_vmafs, :integer
+    field :encoding_queue_count, :integer
     field :encoded_savings_bytes, :integer
     field :predicted_savings_bytes, :integer
   end

@@ -1828,6 +1828,7 @@ defmodule Reencodarr.Media do
       avg_duration_minutes: 0.0,
       most_recent_video_update: nil,
       most_recent_inserted_video: nil,
+      encoding_queue_count: 0,
       total_savings_gb: 0.0
     }
   end
