@@ -1710,12 +1710,7 @@ defmodule Reencodarr.Media do
   @spec fetch_dashboard_total_size_gb(integer()) :: {:ok, float()} | {:error, term()}
   def fetch_dashboard_total_size_gb(timeout \\ 15_000) do
     fetch_dashboard_component("total size", fn ->
-      Repo.one(
-        from(v in Video,
-          select: fragment("ROUND(CAST(COALESCE(SUM(size), 0) AS FLOAT) / (1024*1024*1024), 2)")
-        ),
-        timeout: timeout
-      ) || 0.0
+      Repo.one(SharedQueries.dashboard_total_size_query(), timeout: timeout) || 0.0
     end)
   end
 

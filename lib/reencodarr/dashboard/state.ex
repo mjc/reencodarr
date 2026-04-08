@@ -20,8 +20,8 @@ defmodule Reencodarr.Dashboard.State do
   @stats_refresh_interval 300_000
   @queue_refresh_interval 5_000
   @chart_refresh_interval 300_000
-  @stats_query_timeout 5_000
-  @queue_query_timeout 5_000
+  @default_stats_query_timeout 500
+  @default_queue_query_timeout 500
   @progress_debounce_ms 500
 
   @default_state %{
@@ -348,21 +348,25 @@ defmodule Reencodarr.Dashboard.State do
   end
 
   defp fetch_queue_items(_current_items) do
+    timeout = queue_query_timeout()
+
     %{
-      analyzer: VideoQueries.videos_needing_analysis_preview(5, timeout: @queue_query_timeout),
-      crf_searcher: VideoQueries.videos_for_crf_search_preview(5, timeout: @queue_query_timeout),
-      encoder: VideoQueries.videos_ready_for_encoding_preview(5, timeout: @queue_query_timeout)
+      analyzer: VideoQueries.videos_needing_analysis_preview(5, timeout: timeout),
+      crf_searcher: VideoQueries.videos_for_crf_search_preview(5, timeout: timeout),
+      encoder: VideoQueries.videos_ready_for_encoding_preview(5, timeout: timeout)
     }
   end
 
   defp refresh_dashboard_stats(current_stats) do
+    timeout = stats_query_timeout()
+
     current_stats
-    |> merge_stats_component(Reencodarr.Media.fetch_dashboard_video_stats(@stats_query_timeout))
+    |> merge_stats_component(Reencodarr.Media.fetch_dashboard_video_stats(timeout))
     |> merge_scalar_component(
-      Reencodarr.Media.fetch_dashboard_savings_gb(@stats_query_timeout),
+      Reencodarr.Media.fetch_dashboard_savings_gb(timeout),
       :total_savings_gb
     )
-    |> merge_stats_component(Reencodarr.Media.fetch_dashboard_vmaf_stats(@stats_query_timeout))
+    |> merge_stats_component(Reencodarr.Media.fetch_dashboard_vmaf_stats(timeout))
   end
 
   defp merge_stats_component(current_stats, {:ok, new_stats}) when is_map(new_stats) do
@@ -386,7 +390,7 @@ defmodule Reencodarr.Dashboard.State do
   end
 
   defp refresh_encoder_queue_count(previous_count) do
-    VideoQueries.encoding_queue_count(timeout: @queue_query_timeout) || previous_count || 0
+    VideoQueries.encoding_queue_count(timeout: queue_query_timeout()) || previous_count || 0
   rescue
     error ->
       Logger.warning("Dashboard.State encoder queue count refresh failed: #{inspect(error)}")
@@ -395,6 +399,22 @@ defmodule Reencodarr.Dashboard.State do
 
   defp queue_refresh_enabled? do
     Application.get_env(:reencodarr, :dashboard_queue_refresh_enabled, true)
+  end
+
+  defp stats_query_timeout do
+    Application.get_env(
+      :reencodarr,
+      :dashboard_stats_query_timeout_ms,
+      @default_stats_query_timeout
+    )
+  end
+
+  defp queue_query_timeout do
+    Application.get_env(
+      :reencodarr,
+      :dashboard_queue_query_timeout_ms,
+      @default_queue_query_timeout
+    )
   end
 
   # Helper to upsert a result in a list by key

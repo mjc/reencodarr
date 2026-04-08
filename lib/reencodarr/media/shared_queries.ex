@@ -7,7 +7,7 @@ defmodule Reencodarr.Media.SharedQueries do
   """
 
   import Ecto.Query
-  alias Reencodarr.Media.{GlobPattern, Video, Vmaf}
+  alias Reencodarr.Media.{DashboardStatsCache, GlobPattern, Video, Vmaf}
 
   # Configuration constants
   @large_list_threshold 50
@@ -86,31 +86,27 @@ defmodule Reencodarr.Media.SharedQueries do
   and falls back to predicted savings from chosen VMAFs for not-yet-encoded videos.
   """
   def video_stats_query do
-    # Query ONLY the videos table - no JOIN
-    # This avoids lock contention from JOINing with vmafs during aggregation
-    # Savings are calculated separately in a dedicated query
-    from v in Video,
+    from c in dashboard_stats_cache_query(),
       select: %{
-        total_videos: count(v.id),
-        total_size_gb: fragment("ROUND(CAST(SUM(?) AS FLOAT) / (1024*1024*1024), 2)", v.size),
-        needs_analysis:
+        total_videos: c.total_videos,
+        total_size_gb:
+          fragment("ROUND(CAST(? AS FLOAT) / (1024*1024*1024), 2)", c.total_size_bytes),
+        needs_analysis: c.needs_analysis,
+        analyzed: c.analyzed,
+        crf_searching: c.crf_searching,
+        crf_searched: c.crf_searched,
+        encoding: c.encoding,
+        encoded: c.encoded,
+        failed: c.failed,
+        avg_duration_minutes:
           fragment(
-            "COALESCE(SUM(CASE WHEN ? IN ('needs_analysis', 'analyzing') THEN 1 ELSE 0 END), 0)",
-            v.state
+            "CASE WHEN ? > 0 THEN ROUND(CAST(? AS FLOAT) / ? / 60.0, 1) ELSE 0.0 END",
+            c.duration_count,
+            c.total_duration_seconds,
+            c.duration_count
           ),
-        analyzed:
-          fragment("COALESCE(SUM(CASE WHEN ? = 'analyzed' THEN 1 ELSE 0 END), 0)", v.state),
-        crf_searching:
-          fragment("COALESCE(SUM(CASE WHEN ? = 'crf_searching' THEN 1 ELSE 0 END), 0)", v.state),
-        crf_searched:
-          fragment("COALESCE(SUM(CASE WHEN ? = 'crf_searched' THEN 1 ELSE 0 END), 0)", v.state),
-        encoding:
-          fragment("COALESCE(SUM(CASE WHEN ? = 'encoding' THEN 1 ELSE 0 END), 0)", v.state),
-        encoded: fragment("COALESCE(SUM(CASE WHEN ? = 'encoded' THEN 1 ELSE 0 END), 0)", v.state),
-        failed: fragment("COALESCE(SUM(CASE WHEN ? = 'failed' THEN 1 ELSE 0 END), 0)", v.state),
-        avg_duration_minutes: fragment("ROUND(AVG(CAST(? AS FLOAT)) / 60.0, 1)", v.duration),
-        most_recent_video_update: max(v.updated_at),
-        most_recent_inserted_video: max(v.inserted_at),
+        most_recent_video_update: c.most_recent_video_update,
+        most_recent_inserted_video: c.most_recent_inserted_video,
         total_savings_gb: 0.0
       }
   end
@@ -119,23 +115,9 @@ defmodule Reencodarr.Media.SharedQueries do
   Actual savings query for already-encoded videos.
   """
   def encoded_video_savings_query do
-    from v in Video,
+    from c in dashboard_stats_cache_query(),
       select: %{
-        total_savings_gb:
-          coalesce(
-            sum(
-              fragment(
-                "CASE WHEN ? = 'encoded' AND ? IS NOT NULL AND ? > ? THEN (? - ?) / 1073741824.0 ELSE 0 END",
-                v.state,
-                v.original_size,
-                v.original_size,
-                v.size,
-                v.original_size,
-                v.size
-              )
-            ),
-            0
-          )
+        total_savings_gb: fragment("CAST(? AS FLOAT) / 1073741824.0", c.encoded_savings_bytes)
       }
   end
 
@@ -143,16 +125,9 @@ defmodule Reencodarr.Media.SharedQueries do
   Predicted savings query for videos with a chosen VMAF that are not yet encoded.
   """
   def predicted_video_savings_query do
-    from v in Vmaf,
-      join: vid in Video,
-      on: vid.chosen_vmaf_id == v.id,
-      where: vid.state != :encoded and not is_nil(v.savings) and v.savings > 0,
+    from c in dashboard_stats_cache_query(),
       select: %{
-        total_savings_gb:
-          coalesce(
-            sum(fragment("? / 1073741824.0", v.savings)),
-            0
-          )
+        total_savings_gb: fragment("CAST(? AS FLOAT) / 1073741824.0", c.predicted_savings_bytes)
       }
   end
 
@@ -164,13 +139,19 @@ defmodule Reencodarr.Media.SharedQueries do
   Avoids expensive JOINs by counting directly on videos table.
   """
   def vmaf_stats_query do
-    from m in Vmaf,
+    from c in dashboard_stats_cache_query(),
       select: %{
-        total_vmafs: count(m.id),
-        chosen_vmafs:
-          fragment(
-            "(SELECT COUNT(DISTINCT chosen_vmaf_id) FROM videos WHERE chosen_vmaf_id IS NOT NULL)"
-          )
+        total_vmafs: c.total_vmafs,
+        chosen_vmafs: c.chosen_vmafs
       }
+  end
+
+  def dashboard_total_size_query do
+    from c in dashboard_stats_cache_query(),
+      select: fragment("ROUND(CAST(? AS FLOAT) / (1024*1024*1024), 2)", c.total_size_bytes)
+  end
+
+  defp dashboard_stats_cache_query do
+    from c in DashboardStatsCache, where: c.id == 1
   end
 end
