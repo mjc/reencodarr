@@ -206,7 +206,7 @@ defmodule Reencodarr.Media.VideoUpsert do
     on_conflict_query = build_on_conflict_query(attrs, conflict_except)
 
     attrs
-    |> perform_video_upsert(on_conflict_query)
+    |> perform_video_upsert_with_retry(on_conflict_query)
     |> handle_upsert_result(attrs)
   end
 
@@ -287,6 +287,16 @@ defmodule Reencodarr.Media.VideoUpsert do
         ) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
   defp perform_video_upsert(attrs, on_conflict_query) do
     do_insert(attrs, on_conflict_query)
+  end
+
+  @spec perform_video_upsert_with_retry(
+          %{String.t() => any()},
+          {:replace_all_except, [atom()]} | Ecto.Query.t()
+        ) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
+  defp perform_video_upsert_with_retry(attrs, on_conflict_query) do
+    Retry.retry_on_db_busy(fn ->
+      perform_video_upsert(attrs, on_conflict_query)
+    end)
   end
 
   @spec perform_single_upsert_in_batch(%{String.t() => any()}) ::

@@ -89,6 +89,53 @@ defmodule Reencodarr.Media.VideoUpsertTest do
       assert result_video.size == video.size
     end
 
+    test "retries single upsert when sqlite reports database busy", %{library: library} do
+      :meck.new(Reencodarr.Repo, [:passthrough])
+
+      on_exit(fn ->
+        try do
+          :meck.unload(Reencodarr.Repo)
+        catch
+          :error, {:not_mocked, Reencodarr.Repo} -> :ok
+          :exit, {:not_mocked, Reencodarr.Repo} -> :ok
+        end
+      end)
+
+      Process.put(:video_upsert_insert_attempts, 0)
+
+      :meck.expect(Reencodarr.Repo, :insert, fn changeset, opts ->
+        attempts = Process.get(:video_upsert_insert_attempts, 0) + 1
+        Process.put(:video_upsert_insert_attempts, attempts)
+
+        if attempts == 1 do
+          raise Exqlite.Error, message: "Database busy"
+        else
+          :meck.passthrough([changeset, opts])
+        end
+      end)
+
+      attrs = %{
+        "path" => "/mnt/test/show/retry_busy.mkv",
+        "size" => 1_000_000,
+        "duration" => 3600.0,
+        "bitrate" => 8_000_000,
+        "width" => 1920,
+        "height" => 1080,
+        "video_codecs" => ["h264"],
+        "audio_codecs" => ["aac"],
+        "library_id" => library.id
+      }
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %Video{} = video} = VideoUpsert.upsert(attrs)
+          assert video.path == attrs["path"]
+        end)
+
+      assert Process.get(:video_upsert_insert_attempts) == 2
+      assert log =~ "Database busy, retrying"
+    end
+
     test "finds library_id automatically based on path", %{library: library} do
       attrs = %{
         "path" => "/mnt/test/show/episode.mkv",
