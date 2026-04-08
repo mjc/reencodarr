@@ -1,0 +1,115 @@
+wing: reencodarr
+rooms:
+- name: media_catalog
+  description: Core media domain models, queries, validation, libraries, videos, VMAF records, and pipeline state transitions
+  keywords:
+  - media
+  - video
+  - videos
+  - library
+  - libraries
+  - vmaf
+  - state_machine
+  - validation
+  - query
+  - upsert
+
+- name: analysis
+  description: Video analysis pipeline using MediaInfo, metadata extraction, batching, and analyzer supervision
+  keywords:
+  - analysis
+  - analyzer
+  - mediainfo
+  - metadata
+  - extract
+  - batch
+  - probe
+
+- name: crf_search
+  description: CRF search logic, VMAF targeting, search hints, and quality selection workflows
+  keywords:
+  - crf
+  - crf_search
+  - search
+  - vmaf_target
+  - quality
+  - hints
+  - chosen
+
+- name: encoding
+  description: Encoding execution, ab-av1 integration, encoder supervision, progress parsing, capabilities, and post-processing
+  keywords:
+  - encoding
+  - encoder
+  - ab-av1
+  - ffmpeg
+  - progress
+  - capabilities
+  - post_processing
+
+- name: integrations
+  description: Sonarr and Radarr integration, service configuration, webhooks, sync, and bad file remediation
+  keywords:
+  - sonarr
+  - radarr
+  - webhook
+  - services
+  - sync
+  - api
+  - remediation
+
+- name: web_ui
+  description: Phoenix controllers, LiveView pages, dashboard views, UI components, charts, and frontend assets
+  keywords:
+  - phoenix
+  - liveview
+  - dashboard
+  - ui
+  - controller
+  - component
+  - assets
+
+- name: data_layer
+  description: Ecto repo, SQLite persistence, migrations, seeds, and schema-level database concerns
+  keywords:
+  - ecto
+  - repo
+  - sqlite
+  - migration
+  - database
+  - schema
+  - seeds
+
+- name: operations
+  description: Application boot, runtime configuration, diagnostics, health checks, temp cleanup, scripts, and deployment concerns
+  keywords:
+  - application
+  - config
+  - diagnostics
+  - health
+  - runtime
+  - scripts
+  - deployment
+
+- name: testing
+  description: Unit tests, integration tests, fixtures, support helpers, and failure tracking coverage
+  keywords:
+  - testing
+  - test
+  - integration
+  - fixtures
+  - support
+  - assertions
+
+- name: documentation
+  description: README guidance, architecture notes, and operational documentation
+  keywords:
+  - documentation
+  - docs
+  - readme
+  - architecture
+  - guide
+
+- name: general
+  description: Files that do not fit the main project concepts
+  keywords: []
