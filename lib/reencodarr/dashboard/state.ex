@@ -20,7 +20,7 @@ defmodule Reencodarr.Dashboard.State do
   @stats_refresh_interval 300_000
   @queue_refresh_interval 5_000
   @chart_refresh_interval 300_000
-  @query_timeout 2_000
+  @query_timeout 5_000
   @progress_debounce_ms 500
 
   @default_state %{
@@ -358,9 +358,9 @@ defmodule Reencodarr.Dashboard.State do
 
   defp fetch_queue_items(_current_items) do
     %{
-      analyzer: VideoQueries.videos_needing_analysis(5, timeout: @query_timeout),
-      crf_searcher: VideoQueries.videos_for_crf_search(5, timeout: @query_timeout),
-      encoder: VideoQueries.videos_ready_for_encoding(5, timeout: @query_timeout)
+      analyzer: VideoQueries.videos_needing_analysis_preview(5, timeout: @query_timeout),
+      crf_searcher: VideoQueries.videos_for_crf_search_preview(5, timeout: @query_timeout),
+      encoder: VideoQueries.videos_ready_for_encoding_preview(5, timeout: @query_timeout)
     }
   end
 

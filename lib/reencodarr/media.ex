@@ -2096,6 +2096,8 @@ defmodule Reencodarr.Media do
   @size_cache_ttl 60_000
 
   defp get_cached_total_size_gb do
+    ensure_cache_table_exists()
+
     case :ets.lookup(:reencodarr_cache, @size_cache_key) do
       [{_key, value, timestamp}] ->
         if System.monotonic_time(:millisecond) - timestamp < @size_cache_ttl do
@@ -2108,7 +2110,7 @@ defmodule Reencodarr.Media do
         compute_and_cache_total_size_gb()
     end
   catch
-    # If ETS table doesn't exist or query fails, return 0.0 gracefully
+    # If ETS or cache access fails unexpectedly, return 0.0 gracefully
     _kind, _reason -> 0.0
   end
 

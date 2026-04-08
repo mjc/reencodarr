@@ -376,7 +376,27 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
         assert stats.analyzed == 1
         assert stats.crf_searched == 1
         assert stats.chosen_vmafs == 1
+        assert stats.total_size_gb > 0
         assert_in_delta stats.total_savings_gb, 1.0, 0.01
+      end)
+    end
+
+    test "computes total_size_gb on first call when cache table does not exist" do
+      if :ets.info(:reencodarr_cache) != :undefined do
+        :ets.delete(:reencodarr_cache)
+      end
+
+      capture_log(fn ->
+        {:ok, _video} =
+          video_fixture(%{
+            path: "/v_size_first_call.mkv",
+            state: :analyzed,
+            size: 1_073_741_824
+          })
+
+        stats = Reencodarr.Media.get_dashboard_stats()
+
+        assert_in_delta stats.total_size_gb, 1.0, 0.01
       end)
     end
 

@@ -143,6 +143,22 @@ defmodule Reencodarr.Media.VideoQueriesTest do
     end
   end
 
+  describe "videos_needing_analysis_preview/1" do
+    test "returns only dashboard preview fields" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/analysis_preview.mkv",
+          bitrate: nil
+        })
+
+      [preview | _] = VideoQueries.videos_needing_analysis_preview(10)
+
+      assert preview.id == video.id
+      assert preview.path == video.path
+      assert Map.keys(preview) |> Enum.sort() == [:id, :path]
+    end
+  end
+
   describe "count_videos_for_crf_search/1" do
     test "counts analyzed videos eligible for CRF search" do
       before_count = VideoQueries.count_videos_for_crf_search()
@@ -192,6 +208,24 @@ defmodule Reencodarr.Media.VideoQueriesTest do
       result = VideoQueries.count_videos_for_crf_search()
       assert is_integer(result)
       assert result >= 0
+    end
+  end
+
+  describe "videos_for_crf_search_preview/1" do
+    test "returns only dashboard preview fields" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/crf_preview.mkv",
+          state: :analyzed,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      [preview | _] = VideoQueries.videos_for_crf_search_preview(10)
+
+      assert preview.id == video.id
+      assert preview.path == video.path
+      assert Map.keys(preview) |> Enum.sort() == [:id, :path]
     end
   end
 
@@ -417,6 +451,30 @@ defmodule Reencodarr.Media.VideoQueriesTest do
       result = VideoQueries.encoding_queue_count()
       assert is_integer(result)
       assert result >= 0
+    end
+  end
+
+  describe "videos_ready_for_encoding_preview/2" do
+    test "returns only dashboard preview fields" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/encoding_preview.mkv",
+          state: :analyzed,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 26.0})
+      Fixtures.choose_vmaf(video, vmaf)
+      {:ok, _} = Reencodarr.Media.update_video(video, %{state: :crf_searched})
+
+      [preview | _] = VideoQueries.videos_ready_for_encoding_preview(10)
+
+      assert preview.id == vmaf.id
+      assert preview.video.id == video.id
+      assert preview.video.path == video.path
+      assert Map.keys(preview) |> Enum.sort() == [:id, :video]
+      assert Map.keys(preview.video) |> Enum.sort() == [:id, :path]
     end
   end
 end

@@ -73,6 +73,27 @@ defmodule Reencodarr.Media.VideoQueries do
   end
 
   @doc """
+  Gets a lightweight preview of videos needing analysis for dashboard display.
+  """
+  @spec videos_needing_analysis_preview(integer(), keyword()) :: [map()]
+  def videos_needing_analysis_preview(limit \\ 10, opts \\ []) do
+    Repo.all(
+      from(v in Video,
+        where: v.state == :needs_analysis,
+        order_by: [
+          desc: v.priority,
+          desc: v.size,
+          desc: v.inserted_at,
+          desc: v.updated_at
+        ],
+        limit: ^limit,
+        select: %{id: v.id, path: v.path}
+      ),
+      opts
+    )
+  end
+
+  @doc """
   Atomically claims videos for analysis by transitioning them from
   `:needs_analysis` to `:analyzing`. Returns the claimed video IDs.
 
@@ -122,6 +143,22 @@ defmodule Reencodarr.Media.VideoQueries do
   end
 
   @doc """
+  Gets a lightweight preview of videos ready for CRF search for dashboard display.
+  """
+  @spec videos_for_crf_search_preview(integer(), keyword()) :: [map()]
+  def videos_for_crf_search_preview(limit \\ 10, opts \\ []) do
+    Repo.all(
+      from(v in Video,
+        where: v.state == :analyzed,
+        order_by: [desc: v.priority, desc: v.bitrate, desc: v.size, asc: v.updated_at],
+        limit: ^limit,
+        select: %{id: v.id, path: v.path}
+      ),
+      opts
+    )
+  end
+
+  @doc """
   Gets videos ready for encoding with complex alternation logic between services and libraries.
   Uses 9:1 Sonarr:Radarr ratio and alternates between libraries within each service.
 
@@ -138,6 +175,24 @@ defmodule Reencodarr.Media.VideoQueries do
         order_by: [desc: vid.priority, desc: v.savings, desc: vid.updated_at],
         limit: ^limit,
         select: %{v | video: vid}
+      ),
+      opts
+    )
+  end
+
+  @doc """
+  Gets a lightweight preview of videos ready for encoding for dashboard display.
+  """
+  @spec videos_ready_for_encoding_preview(integer(), keyword()) :: [map()]
+  def videos_ready_for_encoding_preview(limit, opts \\ []) do
+    Repo.all(
+      from(vid in Video,
+        join: v in Vmaf,
+        on: vid.chosen_vmaf_id == v.id,
+        where: vid.state == :crf_searched,
+        order_by: [desc: vid.priority, desc: v.savings, desc: vid.updated_at],
+        limit: ^limit,
+        select: %{id: v.id, video: %{id: vid.id, path: vid.path}}
       ),
       opts
     )
