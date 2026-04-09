@@ -23,6 +23,15 @@ defmodule Reencodarr.Dashboard.State do
   @default_stats_query_timeout 500
   @default_queue_query_timeout 500
   @progress_debounce_ms 500
+  @tracked_video_states [
+    :needs_analysis,
+    :analyzed,
+    :crf_searching,
+    :crf_searched,
+    :encoding,
+    :encoded,
+    :failed
+  ]
 
   @default_state %{
     crf_search_video: nil,
@@ -74,6 +83,7 @@ defmodule Reencodarr.Dashboard.State do
   def init(_opts) do
     # Subscribe to dashboard events
     Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
 
     # Subscribe to pipeline state changes (same channels as DashboardLive)
     # PipelineStateMachine broadcasts on these via Events.pipeline_state_changed/3
@@ -86,7 +96,7 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_continue(:fetch_initial_data, state) do
-    stats = refresh_dashboard_stats(state.stats)
+    stats = load_initial_dashboard_stats(state.stats)
     queue_counts = refresh_queue_counts(state.queue_counts, stats)
 
     if queue_refresh_enabled?() do
@@ -128,6 +138,13 @@ defmodule Reencodarr.Dashboard.State do
         service_status: service_status
     }
 
+    broadcast_state(state)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:video_mutated, mutation}, state) when is_map(mutation) do
+    state = apply_video_mutation(state, mutation)
     broadcast_state(state)
     {:noreply, state}
   end
@@ -281,9 +298,7 @@ defmodule Reencodarr.Dashboard.State do
   @impl true
   def handle_info(:refresh_stats, state) do
     stats = refresh_dashboard_stats(state.stats)
-    queue_counts = refresh_queue_counts(state.queue_counts, stats)
-
-    state = %{state | stats: stats, queue_counts: queue_counts}
+    state = %{state | stats: stats}
     broadcast_state(state)
     Process.send_after(self(), :refresh_stats, @stats_refresh_interval)
     {:noreply, state}
@@ -352,22 +367,40 @@ defmodule Reencodarr.Dashboard.State do
   defp fetch_queue_items(current_items) do
     timeout = queue_query_timeout()
 
-    preview_items =
-      fetch_queue_preview_items(timeout)
-      |> Enum.group_by(& &1.queue_type)
-
     %{
-      analyzer: queue_preview_rows(preview_items, :analyzer, current_items.analyzer),
-      crf_searcher: queue_preview_rows(preview_items, :crf_searcher, current_items.crf_searcher),
-      encoder: queue_preview_rows(preview_items, :encoder, current_items.encoder)
+      analyzer:
+        fetch_queue_preview(
+          "analyzer",
+          current_items.analyzer,
+          fn -> VideoQueries.videos_needing_analysis_preview(5, timeout: timeout) end
+        ),
+      crf_searcher:
+        fetch_queue_preview(
+          "crf_searcher",
+          current_items.crf_searcher,
+          fn -> VideoQueries.videos_for_crf_search_preview(5, timeout: timeout) end
+        ),
+      encoder:
+        fetch_queue_preview(
+          "encoder",
+          current_items.encoder,
+          fn -> VideoQueries.videos_ready_for_encoding_preview(5, timeout: timeout) end
+        )
     }
+  end
+
+  defp load_initial_dashboard_stats(current_stats) do
+    timeout = stats_query_timeout()
+    current_stats |> Map.merge(Reencodarr.Media.get_dashboard_stats(timeout))
+  rescue
+    _error -> current_stats
   end
 
   defp refresh_dashboard_stats(current_stats) do
     timeout = stats_query_timeout()
 
     current_stats
-    |> merge_stats_component(Reencodarr.Media.fetch_dashboard_video_stats(timeout))
+    |> merge_stats_component(Reencodarr.Media.fetch_dashboard_metadata_stats(timeout))
     |> merge_scalar_component(
       Reencodarr.Media.fetch_dashboard_savings_gb(timeout),
       :total_savings_gb
@@ -399,6 +432,21 @@ defmodule Reencodarr.Dashboard.State do
     Application.get_env(:reencodarr, :dashboard_queue_refresh_enabled, true)
   end
 
+  defp fetch_queue_preview(label, fallback, fun) do
+    fun.()
+  rescue
+    error in [DBConnection.ConnectionError, Exqlite.Error] ->
+      Logger.debug(
+        "Dashboard.State #{label} queue preview failed, keeping previous items: #{inspect(error)}"
+      )
+
+      fallback
+  catch
+    :exit, {:timeout, _} ->
+      Logger.debug("Dashboard.State #{label} queue preview timed out, keeping previous items")
+      fallback
+  end
+
   defp normalize_crf_search_result(result) when is_map(result) do
     score = Map.get(result, :score, Map.get(result, :vmaf_score))
     percent = Map.get(result, :percent, Map.get(result, :vmaf_percentile))
@@ -406,69 +454,6 @@ defmodule Reencodarr.Dashboard.State do
     result
     |> Map.put(:score, score)
     |> Map.put(:percent, percent)
-  end
-
-  defp queue_preview_rows(preview_items_by_type, queue_type, fallback) do
-    preview_items_by_type
-    |> Map.get(queue_type, [])
-    |> Enum.sort_by(&queue_preview_sort_key(queue_type, &1))
-    |> Enum.map(&queue_preview_item/1)
-    |> case do
-      [] -> fallback
-      rows -> rows
-    end
-  end
-
-  defp queue_preview_sort_key(:analyzer, row) do
-    {
-      -normalize_queue_int(row.priority),
-      -normalize_queue_int(row.size),
-      -timestamp(row.inserted_at),
-      -timestamp(row.updated_at)
-    }
-  end
-
-  defp queue_preview_sort_key(:crf_searcher, row) do
-    {
-      -normalize_queue_int(row.priority),
-      -normalize_queue_int(row.bitrate),
-      -normalize_queue_int(row.size),
-      timestamp(row.updated_at)
-    }
-  end
-
-  defp queue_preview_sort_key(:encoder, row) do
-    {
-      -normalize_queue_int(row.priority),
-      -normalize_queue_int(row.savings),
-      -timestamp(row.updated_at)
-    }
-  end
-
-  defp normalize_queue_int(nil), do: 0
-  defp normalize_queue_int(value) when is_integer(value), do: value
-
-  defp timestamp(nil), do: 0
-  defp timestamp(%DateTime{} = dt), do: DateTime.to_unix(dt, :microsecond)
-
-  defp queue_preview_item(row), do: %{id: row.video_id, path: row.path}
-
-  defp fetch_queue_preview_items(timeout) do
-    VideoQueries.dashboard_queue_preview_items(timeout: timeout)
-  rescue
-    error in [DBConnection.ConnectionError, Exqlite.Error] ->
-      Logger.debug(
-        "Dashboard.State queue preview cache read failed, falling back to previous items: #{inspect(error)}"
-      )
-
-      []
-  catch
-    :exit, {:timeout, _} ->
-      Logger.debug(
-        "Dashboard.State queue preview cache read timed out, falling back to previous items"
-      )
-
-      []
   end
 
   defp stats_query_timeout do
@@ -504,4 +489,93 @@ defmodule Reencodarr.Dashboard.State do
       codec: ChartQueries.codec_distribution()
     }
   end
+
+  defp apply_video_mutation(state, %{action: action, old_video: old_video, new_video: new_video})
+       when action in [:insert, :update, :delete] do
+    stats =
+      state.stats
+      |> apply_total_video_delta(action)
+      |> apply_total_size_delta(old_video, new_video)
+      |> apply_state_count_deltas(old_video, new_video)
+      |> apply_encoding_queue_delta(old_video, new_video)
+
+    queue_counts =
+      state.queue_counts
+      |> update_queue_count(
+        :analyzer,
+        queue_member?(old_video, :analyzer),
+        queue_member?(new_video, :analyzer)
+      )
+      |> update_queue_count(
+        :crf_searcher,
+        queue_member?(old_video, :crf_searcher),
+        queue_member?(new_video, :crf_searcher)
+      )
+      |> update_queue_count(
+        :encoder,
+        queue_member?(old_video, :encoder),
+        queue_member?(new_video, :encoder)
+      )
+
+    %{state | stats: stats, queue_counts: queue_counts}
+  end
+
+  defp apply_video_mutation(state, _mutation), do: state
+
+  defp apply_total_video_delta(stats, :insert), do: increment_stat(stats, :total_videos, 1)
+  defp apply_total_video_delta(stats, :delete), do: increment_stat(stats, :total_videos, -1)
+  defp apply_total_video_delta(stats, :update), do: stats
+
+  defp apply_total_size_delta(stats, old_video, new_video) do
+    delta_bytes = snapshot_size(new_video) - snapshot_size(old_video)
+    current_total_size_gb = Map.get(stats, :total_size_gb, 0.0)
+    delta_gb = delta_bytes / :math.pow(1024, 3)
+
+    Map.put(stats, :total_size_gb, Float.round(current_total_size_gb + delta_gb, 2))
+  end
+
+  defp apply_state_count_deltas(stats, old_video, new_video) do
+    stats
+    |> decrement_state_count(old_video)
+    |> increment_state_count(new_video)
+  end
+
+  defp decrement_state_count(stats, %{state: state}) when state in @tracked_video_states,
+    do: increment_stat(stats, state, -1)
+
+  defp decrement_state_count(stats, _video), do: stats
+
+  defp increment_state_count(stats, %{state: state}) when state in @tracked_video_states,
+    do: increment_stat(stats, state, 1)
+
+  defp increment_state_count(stats, _video), do: stats
+
+  defp apply_encoding_queue_delta(stats, old_video, new_video) do
+    old_value = if queue_member?(old_video, :encoder), do: 1, else: 0
+    new_value = if queue_member?(new_video, :encoder), do: 1, else: 0
+    increment_stat(stats, :encoding_queue_count, new_value - old_value)
+  end
+
+  defp update_queue_count(queue_counts, key, old_member, new_member) do
+    delta = truthy_to_int(new_member) - truthy_to_int(old_member)
+    Map.update(queue_counts, key, max(delta, 0), &max(&1 + delta, 0))
+  end
+
+  defp queue_member?(%{state: :needs_analysis}, :analyzer), do: true
+  defp queue_member?(%{state: :analyzed}, :crf_searcher), do: true
+
+  defp queue_member?(%{state: :crf_searched, chosen_vmaf_id: chosen_vmaf_id}, :encoder),
+    do: not is_nil(chosen_vmaf_id)
+
+  defp queue_member?(_video, _queue), do: false
+
+  defp snapshot_size(%{size: size}) when is_number(size), do: size
+  defp snapshot_size(_video), do: 0
+
+  defp increment_stat(stats, key, delta) do
+    Map.update(stats, key, max(delta, 0), &max(&1 + delta, 0))
+  end
+
+  defp truthy_to_int(true), do: 1
+  defp truthy_to_int(_), do: 0
 end

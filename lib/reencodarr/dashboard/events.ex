@@ -11,7 +11,6 @@ defmodule Reencodarr.Dashboard.Events do
   @type pipeline_state :: :stopped | :idle | :running | :processing | :pausing | :paused
 
   @dashboard_channel "dashboard"
-
   @doc """
   Broadcast a dashboard event with optional data.
 

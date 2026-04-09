@@ -125,6 +125,46 @@ defmodule Reencodarr.MediaTest do
       assert_raise Ecto.NoResultsError, fn -> Media.get_video!(video.id) end
     end
 
+    test "video mutations broadcast dashboard snapshots" do
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
+
+      attrs = %{
+        size: 2_000_000_000,
+        path: "/test/video_mutation_event.mkv",
+        bitrate: 5_000_000,
+        max_audio_channels: 6,
+        atmos: false,
+        state: :analyzed
+      }
+
+      {:ok, video} = Media.upsert_video(attrs)
+
+      assert_receive {:video_mutated, %{action: :insert, old_video: nil, new_video: new_video}}
+      assert new_video.id == video.id
+      assert new_video.state == :analyzed
+      assert new_video.size == 2_000_000_000
+
+      {:ok, updated_video} =
+        Media.update_video(video, %{size: 3_000_000_000, state: :crf_searched})
+
+      assert_receive {:video_mutated,
+                      %{action: :update, old_video: old_video, new_video: new_video}}
+
+      assert old_video.id == video.id
+      assert old_video.state == :analyzed
+      assert new_video.id == updated_video.id
+      assert new_video.state == :crf_searched
+      assert new_video.size == 3_000_000_000
+
+      assert {:ok, _} = Media.delete_video(updated_video)
+
+      assert_receive {:video_mutated,
+                      %{action: :delete, old_video: deleted_video, new_video: nil}}
+
+      assert deleted_video.id == updated_video.id
+      assert deleted_video.state == :crf_searched
+    end
+
     test "change_video/1 returns a video changeset" do
       {:ok, video} = Fixtures.video_fixture()
       changeset = Media.change_video(video)

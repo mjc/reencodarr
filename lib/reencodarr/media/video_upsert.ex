@@ -23,12 +23,15 @@ defmodule Reencodarr.Media.VideoUpsert do
   def upsert(attrs) do
     Logger.debug("VideoUpsert processing: #{inspect(Map.get(attrs, "path"))}")
 
-    attrs
-    |> normalize_keys_to_strings()
-    |> ensure_library_id()
+    normalized_attrs = attrs |> normalize_keys_to_strings() |> ensure_library_id()
+
+    old_video =
+      Reencodarr.Media.fetch_dashboard_video_snapshot_by_path(Map.get(normalized_attrs, "path"))
+
+    normalized_attrs
     |> ensure_required_fields()
     |> handle_vmaf_deletion_and_bitrate_preservation()
-    |> insert_or_update_video()
+    |> insert_or_update_video(old_video)
   end
 
   @doc """
@@ -55,10 +58,13 @@ defmodule Reencodarr.Media.VideoUpsert do
       |> ensure_library_id()
       |> ensure_required_fields()
 
+    old_video =
+      Reencodarr.Media.fetch_dashboard_video_snapshot_by_path(Map.get(normalized_attrs, "path"))
+
     retry_transaction(fn ->
       normalized_attrs
       |> handle_vmaf_deletion_and_bitrate_preservation()
-      |> perform_single_upsert_in_batch()
+      |> perform_single_upsert_in_batch(old_video)
     end)
     |> case do
       {:ok, result} ->
@@ -199,15 +205,15 @@ defmodule Reencodarr.Media.VideoUpsert do
     end
   end
 
-  @spec insert_or_update_video(%{String.t() => any()}) ::
+  @spec insert_or_update_video(%{String.t() => any()}, map() | nil) ::
           {:ok, Video.t()} | {:error, Ecto.Changeset.t() | any()}
-  defp insert_or_update_video(attrs) do
+  defp insert_or_update_video(attrs, old_video) do
     conflict_except = determine_conflict_except_fields(attrs)
     on_conflict_query = build_on_conflict_query(attrs, conflict_except)
 
     attrs
     |> perform_video_upsert_with_retry(on_conflict_query)
-    |> handle_upsert_result(attrs)
+    |> handle_upsert_result(attrs, old_video)
   end
 
   @spec determine_conflict_except_fields(%{String.t() => any()}) :: [atom()]
@@ -299,15 +305,15 @@ defmodule Reencodarr.Media.VideoUpsert do
     end)
   end
 
-  @spec perform_single_upsert_in_batch(%{String.t() => any()}) ::
+  @spec perform_single_upsert_in_batch(%{String.t() => any()}, map() | nil) ::
           {:ok, Video.t()} | {:error, Ecto.Changeset.t() | any()}
-  defp perform_single_upsert_in_batch(attrs) do
+  defp perform_single_upsert_in_batch(attrs, old_video) do
     conflict_except = determine_conflict_except_fields(attrs)
     on_conflict_query = build_on_conflict_query(attrs, conflict_except)
 
     case do_insert(attrs, on_conflict_query) do
       {:ok, video} ->
-        handle_successful_upsert(video)
+        handle_successful_upsert(video, old_video)
 
       {:error, %Ecto.Changeset{errors: [updated_at: {"is stale", _}]} = changeset} ->
         handle_stale_update_error(changeset, attrs)
@@ -321,12 +327,13 @@ defmodule Reencodarr.Media.VideoUpsert do
 
   @spec handle_upsert_result(
           {:ok, Video.t()} | {:error, Ecto.Changeset.t()} | {:error, any()},
-          %{String.t() => any()}
+          %{String.t() => any()},
+          map() | nil
         ) :: {:ok, Video.t()} | {:error, any()}
-  defp handle_upsert_result(result, attrs) do
+  defp handle_upsert_result(result, attrs, old_video) do
     case result do
       {:ok, video} ->
-        handle_successful_upsert(video)
+        handle_successful_upsert(video, old_video)
 
       {:error, %Ecto.Changeset{errors: [updated_at: {"is stale", _}]} = changeset} ->
         handle_stale_update_error(changeset, attrs)
@@ -338,14 +345,22 @@ defmodule Reencodarr.Media.VideoUpsert do
   end
 
   # Helper function to handle successful video upserts consistently
-  @spec handle_successful_upsert(Video.t()) :: {:ok, Video.t()}
-  defp handle_successful_upsert(video) do
+  @spec handle_successful_upsert(Video.t(), map() | nil) :: {:ok, Video.t()}
+  defp handle_successful_upsert(video, old_video) do
     Logger.debug("Video upserted successfully: #{video.path}")
 
     # If video is in needs_analysis state, broadcast state transition for queue processing
     if video.state == :needs_analysis do
       VideoStateMachine.broadcast_state_transition(video, :needs_analysis)
     end
+
+    action = if old_video, do: :update, else: :insert
+
+    Reencodarr.Media.broadcast_video_mutation(
+      action,
+      old_video,
+      Reencodarr.Media.dashboard_video_snapshot(video)
+    )
 
     {:ok, video}
   end

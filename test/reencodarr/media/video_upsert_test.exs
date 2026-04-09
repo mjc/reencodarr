@@ -37,6 +37,29 @@ defmodule Reencodarr.Media.VideoUpsertTest do
       assert video.library_id == library.id
     end
 
+    test "broadcasts a video mutation event", %{library: library} do
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
+
+      attrs = %{
+        "path" => "/mnt/test/show/broadcast_episode.mkv",
+        "size" => 1_000_000,
+        "duration" => 3600.0,
+        "bitrate" => 8_000_000,
+        "width" => 1920,
+        "height" => 1080,
+        "video_codecs" => ["h264"],
+        "audio_codecs" => ["aac"],
+        "library_id" => library.id
+      }
+
+      assert {:ok, %Video{} = video} = VideoUpsert.upsert(attrs)
+
+      assert_receive {:video_mutated, %{action: :insert, old_video: nil, new_video: new_video}}
+      assert new_video.id == video.id
+      assert new_video.path == attrs["path"]
+      assert new_video.state == :needs_analysis
+    end
+
     test "updates existing video when path matches", %{library: library} do
       # Create initial video
       attrs = %{

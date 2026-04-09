@@ -90,12 +90,23 @@ defmodule Reencodarr.Media do
   end
 
   def upsert_video(attrs) do
+    path = Map.get(attrs, :path) || Map.get(attrs, "path")
+    old_video = if is_binary(path), do: fetch_dashboard_video_snapshot_by_path(path)
+
     %Video{}
     |> Video.changeset(attrs)
     |> Repo.insert(
       on_conflict: {:replace_all_except, [:id, :inserted_at, :updated_at]},
       conflict_target: :path
     )
+    |> tap(fn
+      {:ok, %Video{} = video} ->
+        action = if old_video, do: :update, else: :insert
+        broadcast_video_mutation(action, old_video, dashboard_video_snapshot(video))
+
+      _ ->
+        :ok
+    end)
   end
 
   def batch_upsert_videos(video_attrs_list) do
@@ -103,7 +114,16 @@ defmodule Reencodarr.Media do
   end
 
   def update_video(%Video{} = video, attrs) do
-    video |> Video.changeset(attrs) |> Repo.update()
+    old_video = dashboard_video_snapshot(video)
+
+    case video |> Video.changeset(attrs) |> Repo.update() do
+      {:ok, %Video{} = updated_video} ->
+        broadcast_video_mutation(:update, old_video, dashboard_video_snapshot(updated_video))
+        {:ok, updated_video}
+
+      other ->
+        other
+    end
   end
 
   @doc """
@@ -146,7 +166,18 @@ defmodule Reencodarr.Media do
   def prioritize_video(%Video{id: id}), do: prioritize_videos([id])
   def prioritize_video(id) when is_integer(id), do: prioritize_videos([id])
 
-  def delete_video(%Video{} = video), do: Repo.delete(video)
+  def delete_video(%Video{} = video) do
+    old_video = fetch_dashboard_video_snapshot_by_id(video.id) || dashboard_video_snapshot(video)
+
+    case Repo.delete(video) do
+      {:ok, deleted_video} ->
+        broadcast_video_mutation(:delete, old_video, nil)
+        {:ok, deleted_video}
+
+      other ->
+        other
+    end
+  end
 
   def delete_video_with_vmafs(%Video{} = video) do
     delete_videos_by_ids([video.id])
@@ -1002,9 +1033,15 @@ defmodule Reencodarr.Media do
 
   # Consolidated shared logic for video deletion
   defp delete_videos_by_ids(video_ids) do
+    deleted_videos = fetch_dashboard_video_snapshots_by_ids(video_ids)
+
     Repo.transaction(fn ->
       from(v in Vmaf, where: v.video_id in ^video_ids) |> Repo.delete_all()
       from(v in Video, where: v.id in ^video_ids) |> Repo.delete_all()
+    end)
+    |> tap(fn
+      {:ok, _} -> Enum.each(deleted_videos, &broadcast_video_mutation(:delete, &1, nil))
+      _ -> :ok
     end)
   end
 
@@ -1094,6 +1131,8 @@ defmodule Reencodarr.Media do
   defp delete_missing_batch([], total_deleted, _last_id), do: total_deleted
 
   defp delete_missing_batch(missing_ids, total_deleted, last_id) do
+    deleted_videos = fetch_dashboard_video_snapshots_by_ids(missing_ids)
+
     Repo.transaction(fn ->
       from(v in Vmaf, where: v.video_id in ^missing_ids) |> Repo.delete_all()
       {count, _} = from(v in Video, where: v.id in ^missing_ids) |> Repo.delete_all()
@@ -1101,6 +1140,8 @@ defmodule Reencodarr.Media do
     end)
     |> case do
       {:ok, count} ->
+        Enum.each(deleted_videos, &broadcast_video_mutation(:delete, &1, nil))
+
         Logger.info(
           "Deleted #{count} missing videos (#{total_deleted + count} total, last_id: #{last_id})"
         )
@@ -1362,6 +1403,86 @@ defmodule Reencodarr.Media do
     if result, do: [result], else: []
   end
 
+  @doc false
+  def dashboard_video_snapshot(nil), do: nil
+
+  def dashboard_video_snapshot(%Video{} = video) do
+    %{
+      id: video.id,
+      path: video.path,
+      state: video.state,
+      size: video.size,
+      priority: video.priority,
+      chosen_vmaf_id: video.chosen_vmaf_id
+    }
+  end
+
+  @doc false
+  def fetch_dashboard_video_snapshot_by_path(path) when is_binary(path) do
+    Repo.one(
+      from v in Video,
+        where: v.path == ^path,
+        select: %{
+          id: v.id,
+          path: v.path,
+          state: v.state,
+          size: v.size,
+          priority: v.priority,
+          chosen_vmaf_id: v.chosen_vmaf_id
+        }
+    )
+  end
+
+  def fetch_dashboard_video_snapshot_by_path(_), do: nil
+
+  @doc false
+  def fetch_dashboard_video_snapshot_by_id(id) when is_integer(id) do
+    Repo.one(
+      from v in Video,
+        where: v.id == ^id,
+        select: %{
+          id: v.id,
+          path: v.path,
+          state: v.state,
+          size: v.size,
+          priority: v.priority,
+          chosen_vmaf_id: v.chosen_vmaf_id
+        }
+    )
+  end
+
+  def fetch_dashboard_video_snapshot_by_id(_), do: nil
+
+  @doc false
+  def fetch_dashboard_video_snapshots_by_ids(video_ids) when is_list(video_ids) do
+    Repo.all(
+      from v in Video,
+        where: v.id in ^video_ids,
+        select: %{
+          id: v.id,
+          path: v.path,
+          state: v.state,
+          size: v.size,
+          priority: v.priority,
+          chosen_vmaf_id: v.chosen_vmaf_id
+        }
+    )
+  end
+
+  @doc false
+  def broadcast_video_mutation(action, old_video, new_video)
+      when action in [:insert, :update, :delete] do
+    if action != :update or old_video != new_video do
+      Phoenix.PubSub.broadcast(
+        Reencodarr.PubSub,
+        "video_state_transitions",
+        {:video_mutated, %{action: action, old_video: old_video, new_video: new_video}}
+      )
+    end
+
+    :ok
+  end
+
   def mark_vmaf_as_chosen(video_id, crf) do
     case parse_crf(crf) do
       {:ok, crf_float} -> do_mark_vmaf_as_chosen(video_id, crf_float)
@@ -1381,9 +1502,17 @@ defmodule Reencodarr.Media do
         {:error, :no_vmaf_matched}
 
       vmaf_id ->
+        old_video = fetch_dashboard_video_snapshot_by_id(video_id)
+
         {1, _} =
           from(v in Video, where: v.id == ^video_id)
           |> Repo.update_all(set: [chosen_vmaf_id: vmaf_id, updated_at: DateTime.utc_now()])
+
+        broadcast_video_mutation(
+          :update,
+          old_video,
+          fetch_dashboard_video_snapshot_by_id(video_id)
+        )
 
         {:ok, vmaf_id}
     end
@@ -1425,9 +1554,17 @@ defmodule Reencodarr.Media do
         {:error, :no_vmafs}
 
       %Vmaf{id: vmaf_id} ->
+        old_video = fetch_dashboard_video_snapshot_by_id(video_id)
+
         {1, _} =
           from(v in Video, where: v.id == ^video_id)
           |> Repo.update_all(set: [chosen_vmaf_id: vmaf_id, updated_at: DateTime.utc_now()])
+
+        broadcast_video_mutation(
+          :update,
+          old_video,
+          fetch_dashboard_video_snapshot_by_id(video_id)
+        )
 
         {:ok, best}
     end
@@ -1701,6 +1838,36 @@ defmodule Reencodarr.Media do
   def fetch_dashboard_video_stats(timeout \\ 15_000) do
     fetch_dashboard_component("video stats", fn ->
       Repo.one(SharedQueries.video_stats_query(), timeout: timeout) || get_default_video_stats()
+    end)
+  end
+
+  @doc """
+  Fetches dashboard fields that are not maintained incrementally in Dashboard.State.
+  """
+  @spec fetch_dashboard_metadata_stats(integer()) :: {:ok, map()} | {:error, term()}
+  def fetch_dashboard_metadata_stats(timeout \\ 15_000) do
+    fetch_dashboard_component("metadata stats", fn ->
+      Repo.one(
+        from(v in Video,
+          select: %{
+            avg_duration_minutes:
+              fragment(
+                "CASE WHEN COUNT(?) > 0 THEN ROUND(CAST(COALESCE(SUM(?), 0) AS FLOAT) / COUNT(?) / 60.0, 1) ELSE 0.0 END",
+                v.duration,
+                v.duration,
+                v.duration
+              ),
+            most_recent_video_update: max(v.updated_at),
+            most_recent_inserted_video: max(v.inserted_at)
+          }
+        ),
+        timeout: timeout
+      ) ||
+        %{
+          avg_duration_minutes: 0.0,
+          most_recent_video_update: nil,
+          most_recent_inserted_video: nil
+        }
     end)
   end
 

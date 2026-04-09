@@ -3,7 +3,8 @@ defmodule Reencodarr.Dashboard.StateTest do
   @moduletag capture_log: true
 
   alias Reencodarr.Dashboard.{Events, State}
-  alias Reencodarr.Media.{Video, Vmaf}
+  alias Reencodarr.Fixtures
+  alias Reencodarr.Media.Vmaf
   alias Reencodarr.Repo
 
   setup do
@@ -54,6 +55,69 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert is_list(state.resolution_distribution)
       assert Map.has_key?(state, :codec_distribution)
       assert is_list(state.codec_distribution)
+    end
+  end
+
+  describe "video change events" do
+    test "updates incremental stats and queue counts from video mutation broadcasts" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/video_change_counter.mkv",
+          size: 1_073_741_824,
+          state: :analyzed,
+          bitrate: 5_000_000,
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      :timer.sleep(25)
+
+      state = State.get_state()
+      assert state.stats.total_videos == 1
+      assert state.stats.analyzed == 1
+      assert state.queue_counts.crf_searcher == 1
+      assert_in_delta state.stats.total_size_gb, 1.0, 0.01
+
+      {:ok, updated_video} =
+        Reencodarr.Media.update_video(video, %{size: 2_147_483_648, state: :crf_searched})
+
+      :timer.sleep(25)
+
+      state = State.get_state()
+      assert state.stats.analyzed == 0
+      assert state.stats.crf_searched == 1
+      assert state.queue_counts.crf_searcher == 0
+      assert state.queue_counts.encoder == 0
+      assert_in_delta state.stats.total_size_gb, 2.0, 0.01
+
+      %Vmaf{}
+      |> Vmaf.changeset(%{
+        video_id: updated_video.id,
+        crf: 28,
+        score: 95.0,
+        percent: 94.0,
+        size: "500 MB",
+        time: 3600,
+        params: ["--preset", "4"]
+      })
+      |> Repo.insert!()
+
+      {:ok, _chosen_vmaf_id} = Reencodarr.Media.mark_vmaf_as_chosen(updated_video.id, 28.0)
+      :timer.sleep(25)
+
+      state = State.get_state()
+      assert state.stats.encoding_queue_count == 1
+      assert state.queue_counts.encoder == 1
+
+      {:ok, _deleted_video} = Reencodarr.Media.delete_video_with_vmafs(updated_video)
+      :timer.sleep(25)
+
+      state = State.get_state()
+      assert state.stats.total_videos == 0
+      assert state.stats.crf_searched == 0
+      assert state.stats.encoding_queue_count == 0
+      assert state.queue_counts.encoder == 0
+      assert_in_delta state.stats.total_size_gb, 0.0, 0.01
     end
   end
 
@@ -889,20 +953,19 @@ defmodule Reencodarr.Dashboard.StateTest do
 
   # Test helpers
   defp insert_video do
-    %Video{}
-    |> Video.changeset(%{
-      path: "/test/video.mkv",
-      size: 1_000_000_000,
-      state: :analyzed,
-      width: 1920,
-      height: 1080,
-      duration: 3600.0,
-      fps: 23.976,
-      video_codecs: ["h264"],
-      audio_codecs: ["aac"],
-      container_format: "matroska"
-    })
-    |> Repo.insert!()
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        path: "/test/video.mkv",
+        size: 1_000_000_000,
+        state: :analyzed,
+        width: 1920,
+        height: 1080,
+        duration: 3600.0,
+        video_codecs: ["h264"],
+        audio_codecs: ["aac"]
+      })
+
+    video
   end
 
   defp insert_vmaf(video) do
