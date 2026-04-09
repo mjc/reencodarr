@@ -7,7 +7,7 @@ defmodule Reencodarr.Media.VideoQueries do
   """
 
   import Ecto.Query
-  alias Reencodarr.{Media.DashboardQueueCache, Media.Video, Media.Vmaf, Repo}
+  alias Reencodarr.{Media.Video, Media.Vmaf, Repo}
 
   @doc """
   Gets videos ready for CRF search (state: analyzed).
@@ -76,8 +76,22 @@ defmodule Reencodarr.Media.VideoQueries do
   Gets a lightweight preview of videos needing analysis for dashboard display.
   """
   @spec videos_needing_analysis_preview(integer(), keyword()) :: [map()]
-  def videos_needing_analysis_preview(limit \\ 10, opts \\ []),
-    do: cached_dashboard_queue_preview(:analyzer, limit, opts)
+  def videos_needing_analysis_preview(limit \\ 10, opts \\ []) do
+    Repo.all(
+      from(v in Video,
+        where: v.state == :needs_analysis,
+        order_by: [
+          desc: v.priority,
+          desc: v.size,
+          desc: v.inserted_at,
+          desc: v.updated_at
+        ],
+        limit: ^limit,
+        select: %{id: v.id, path: v.path}
+      ),
+      opts
+    )
+  end
 
   @doc """
   Atomically claims videos for analysis by transitioning them from
@@ -132,8 +146,17 @@ defmodule Reencodarr.Media.VideoQueries do
   Gets a lightweight preview of videos ready for CRF search for dashboard display.
   """
   @spec videos_for_crf_search_preview(integer(), keyword()) :: [map()]
-  def videos_for_crf_search_preview(limit \\ 10, opts \\ []),
-    do: cached_dashboard_queue_preview(:crf_searcher, limit, opts)
+  def videos_for_crf_search_preview(limit \\ 10, opts \\ []) do
+    Repo.all(
+      from(v in Video,
+        where: v.state == :analyzed,
+        order_by: [desc: v.priority, desc: v.bitrate, desc: v.size, asc: v.updated_at],
+        limit: ^limit,
+        select: %{id: v.id, path: v.path}
+      ),
+      opts
+    )
+  end
 
   @doc """
   Gets videos ready for encoding with complex alternation logic between services and libraries.
@@ -161,71 +184,19 @@ defmodule Reencodarr.Media.VideoQueries do
   Gets a lightweight preview of videos ready for encoding for dashboard display.
   """
   @spec videos_ready_for_encoding_preview(integer(), keyword()) :: [map()]
-  def videos_ready_for_encoding_preview(limit, opts \\ []),
-    do: cached_dashboard_queue_preview(:encoder, limit, opts)
-
-  @doc """
-  Returns all cached dashboard queue preview items.
-
-  The dashboard uses this single cache-backed query so queue previews no longer
-  hit the live `videos` table during refresh.
-  """
-  @spec dashboard_queue_preview_items(keyword()) :: [DashboardQueueCache.t()]
-  def dashboard_queue_preview_items(opts \\ []) do
+  def videos_ready_for_encoding_preview(limit, opts \\ []) do
     Repo.all(
-      from(q in DashboardQueueCache,
-        where: q.queue_type in [:analyzer, :crf_searcher, :encoder],
-        select: q
+      from(vid in Video,
+        join: v in Vmaf,
+        on: vid.chosen_vmaf_id == v.id,
+        where: vid.state == :crf_searched,
+        order_by: [desc: vid.priority, desc: v.savings, desc: vid.updated_at],
+        limit: ^limit,
+        select: %{id: vid.id, path: vid.path}
       ),
       opts
     )
   end
-
-  defp queue_preview_items(queue_type, opts) do
-    dashboard_queue_preview_items(opts)
-    |> Enum.filter(&(&1.queue_type == queue_type))
-    |> Enum.sort_by(&queue_preview_sort_key(queue_type, &1))
-  end
-
-  defp cached_dashboard_queue_preview(queue_type, limit, opts) do
-    queue_preview_items(queue_type, opts)
-    |> Enum.take(limit)
-    |> Enum.map(&queue_preview_item/1)
-  end
-
-  defp queue_preview_sort_key(:analyzer, row) do
-    {
-      -normalize_int(row.priority),
-      -normalize_int(row.size),
-      -timestamp(row.inserted_at),
-      -timestamp(row.updated_at)
-    }
-  end
-
-  defp queue_preview_sort_key(:crf_searcher, row) do
-    {
-      -normalize_int(row.priority),
-      -normalize_int(row.bitrate),
-      -normalize_int(row.size),
-      timestamp(row.updated_at)
-    }
-  end
-
-  defp queue_preview_sort_key(:encoder, row) do
-    {
-      -normalize_int(row.priority),
-      -normalize_int(row.savings),
-      -timestamp(row.updated_at)
-    }
-  end
-
-  defp normalize_int(nil), do: 0
-  defp normalize_int(value) when is_integer(value), do: value
-
-  defp timestamp(nil), do: 0
-  defp timestamp(%DateTime{} = dt), do: DateTime.to_unix(dt, :microsecond)
-
-  defp queue_preview_item(row), do: %{id: row.video_id, path: row.path}
 
   @doc """
   Counts total videos ready for encoding.

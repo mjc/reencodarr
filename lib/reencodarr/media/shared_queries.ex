@@ -148,8 +148,9 @@ defmodule Reencodarr.Media.SharedQueries do
   end
 
   def dashboard_total_size_query do
-    from c in dashboard_stats_cache_query(),
-      select: fragment("ROUND(CAST(? AS FLOAT) / (1024*1024*1024), 2)", c.total_size_bytes)
+    from(v in Video,
+      select: fragment("ROUND(CAST(COALESCE(SUM(?), 0) AS FLOAT) / (1024*1024*1024), 2)", v.size)
+    )
   end
 
   defp dashboard_stats_cache_query do
