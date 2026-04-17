@@ -147,10 +147,29 @@ defmodule Reencodarr.Media.SharedQueries do
       }
   end
 
+  @doc """
+  Metadata statistics query backed by the dashboard cache.
+
+  Returns average duration and most recent timestamps without scanning videos.
+  """
+  def dashboard_metadata_stats_query do
+    from c in dashboard_stats_cache_query(),
+      select: %{
+        avg_duration_minutes:
+          fragment(
+            "CASE WHEN ? > 0 THEN ROUND(CAST(? AS FLOAT) / ? / 60.0, 1) ELSE 0.0 END",
+            c.duration_count,
+            c.total_duration_seconds,
+            c.duration_count
+          ),
+        most_recent_video_update: c.most_recent_video_update,
+        most_recent_inserted_video: c.most_recent_inserted_video
+      }
+  end
+
   def dashboard_total_size_query do
-    from(v in Video,
-      select: fragment("ROUND(CAST(COALESCE(SUM(?), 0) AS FLOAT) / (1024*1024*1024), 2)", v.size)
-    )
+    from c in dashboard_stats_cache_query(),
+      select: fragment("ROUND(CAST(? AS FLOAT) / (1024*1024*1024), 2)", c.total_size_bytes)
   end
 
   defp dashboard_stats_cache_query do

@@ -355,6 +355,23 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
   end
 
   describe "get_dashboard_stats/1" do
+    test "fetch_dashboard_metadata_stats/1 reads metadata from dashboard cache" do
+      {:ok, video} = video_fixture(%{path: "/v_metadata_cache.mkv", duration: 3_600})
+
+      future_inserted = ~U[2030-01-01 00:00:00Z]
+      future_updated = ~U[2030-01-01 01:00:00Z]
+
+      from(v in Video, where: v.id == ^video.id)
+      |> Repo.update_all(
+        set: [duration: 7_200, inserted_at: future_inserted, updated_at: future_updated]
+      )
+
+      assert {:ok, stats} = Reencodarr.Media.fetch_dashboard_metadata_stats()
+      assert_in_delta stats.avg_duration_minutes, 120.0, 0.1
+      assert stats.most_recent_inserted_video == future_inserted
+      assert stats.most_recent_video_update == future_updated
+    end
+
     test "returns merged map with all dashboard-required keys" do
       capture_log(fn ->
         {:ok, _v1} = video_fixture(%{path: "/v1.mkv", state: :analyzed})

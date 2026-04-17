@@ -1856,22 +1856,7 @@ defmodule Reencodarr.Media do
   @spec fetch_dashboard_metadata_stats(integer()) :: {:ok, map()} | {:error, term()}
   def fetch_dashboard_metadata_stats(timeout \\ 15_000) do
     fetch_dashboard_component("metadata stats", fn ->
-      Repo.one(
-        from(v in Video,
-          select: %{
-            avg_duration_minutes:
-              fragment(
-                "CASE WHEN COUNT(?) > 0 THEN ROUND(CAST(COALESCE(SUM(?), 0) AS FLOAT) / COUNT(?) / 60.0, 1) ELSE 0.0 END",
-                v.duration,
-                v.duration,
-                v.duration
-              ),
-            most_recent_video_update: max(v.updated_at),
-            most_recent_inserted_video: max(v.inserted_at)
-          }
-        ),
-        timeout: timeout
-      ) ||
+      Repo.one(SharedQueries.dashboard_metadata_stats_query(), timeout: timeout) ||
         %{
           avg_duration_minutes: 0.0,
           most_recent_video_update: nil,
