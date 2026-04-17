@@ -156,7 +156,8 @@ defmodule Reencodarr.Media.VideoUpsertTest do
         end)
 
       assert Process.get(:video_upsert_insert_attempts) == 2
-      assert log =~ "Database busy, retrying"
+      assert log =~ "SQLite transient error during perform video upsert"
+      assert log =~ "(Database busy), retrying"
     end
 
     test "finds library_id automatically based on path", %{library: library} do

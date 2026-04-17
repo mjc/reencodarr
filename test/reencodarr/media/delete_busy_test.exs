@@ -24,8 +24,9 @@ defmodule Reencodarr.Media.DeleteBusyTest do
     _vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
     File.rm!(missing_path)
 
-    :meck.expect(Retry, :retry_on_db_busy, fn fun ->
+    :meck.expect(Retry, :retry_on_db_busy, fn fun, opts ->
       send(self(), :retry_on_db_busy_called)
+      assert opts[:label] == "delete videos and vmafs"
       fun.()
     end)
 

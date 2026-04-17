@@ -1078,7 +1078,10 @@ defmodule Reencodarr.Media do
     video_ids =
       from(v in Video, where: ^case_insensitive_like_condition, select: v.id) |> Repo.all()
 
-    delete_videos_by_ids(video_ids)
+    case delete_videos_by_ids(video_ids) do
+      {:ok, %{videos_deleted: count}} -> {:ok, {count, nil}}
+      err -> err
+    end
   end
 
   @doc """
