@@ -20,5 +20,25 @@ defmodule Reencodarr.Core.RetryTest do
         end)
       end
     end
+
+    test "retries interrupted sqlite errors" do
+      test_pid = self()
+      attempts = :atomics.new(1, [])
+
+      assert :ok =
+               Retry.retry_on_db_busy(fn ->
+                 attempt = :atomics.add_get(attempts, 1, 1)
+                 send(test_pid, {:retry_attempt, attempt})
+
+                 if attempt == 1 do
+                   raise Exqlite.Error, message: "interrupted"
+                 end
+
+                 :ok
+               end)
+
+      assert_receive {:retry_attempt, 1}
+      assert_receive {:retry_attempt, 2}
+    end
   end
 end

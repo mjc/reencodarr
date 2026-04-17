@@ -54,8 +54,8 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   @impl GenStage
   def handle_info(:reset_orphaned, state) do
-    Media.reset_orphaned_encoding()
-    Media.reset_crf_searched_without_vmaf()
+    safe_orphan_reset(:encoding, &Media.reset_orphaned_encoding/0)
+    safe_orphan_reset(:crf_searched_without_vmaf, &Media.reset_crf_searched_without_vmaf/0)
     schedule_orphan_reset()
     {:noreply, [], state}
   end
@@ -101,6 +101,18 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
 
   defp schedule_orphan_reset do
     Process.send_after(self(), :reset_orphaned, @orphan_reset_interval_ms)
+  end
+
+  defp safe_orphan_reset(label, fun) do
+    fun.()
+  rescue
+    error in [Exqlite.Error, DBConnection.ConnectionError] ->
+      Logger.warning("Encoder orphan reset #{label} failed: #{Exception.message(error)}")
+      :ok
+  catch
+    :exit, reason ->
+      Logger.warning("Encoder orphan reset #{label} exited: #{inspect(reason)}")
+      :ok
   end
 
   # Public for testing

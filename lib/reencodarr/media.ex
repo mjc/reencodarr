@@ -708,18 +708,23 @@ defmodule Reencodarr.Media do
   def reset_orphaned_encoding do
     exclude_id = Encode.current_video_id()
 
-    # Videos that have a chosen VMAF can safely go back to crf_searched for re-encoding.
-    {with_vmaf, _} =
-      from(v in Video, where: v.state == :encoding, where: not is_nil(v.chosen_vmaf_id))
-      |> maybe_exclude_video(exclude_id)
-      |> Repo.update_all(set: [state: :crf_searched, updated_at: DateTime.utc_now()])
+    {with_vmaf, without_vmaf} =
+      Retry.retry_on_db_busy(fn ->
+        # Videos that have a chosen VMAF can safely go back to crf_searched for re-encoding.
+        {with_vmaf, _} =
+          from(v in Video, where: v.state == :encoding, where: not is_nil(v.chosen_vmaf_id))
+          |> maybe_exclude_video(exclude_id)
+          |> Repo.update_all(set: [state: :crf_searched, updated_at: DateTime.utc_now()])
 
-    # Videos without a chosen VMAF must go back to analyzed — they were never
-    # encodable in the first place and need CRF search to run first.
-    {without_vmaf, _} =
-      from(v in Video, where: v.state == :encoding, where: is_nil(v.chosen_vmaf_id))
-      |> maybe_exclude_video(exclude_id)
-      |> Repo.update_all(set: [state: :analyzed, updated_at: DateTime.utc_now()])
+        # Videos without a chosen VMAF must go back to analyzed — they were never
+        # encodable in the first place and need CRF search to run first.
+        {without_vmaf, _} =
+          from(v in Video, where: v.state == :encoding, where: is_nil(v.chosen_vmaf_id))
+          |> maybe_exclude_video(exclude_id)
+          |> Repo.update_all(set: [state: :analyzed, updated_at: DateTime.utc_now()])
+
+        {with_vmaf, without_vmaf}
+      end)
 
     total = with_vmaf + without_vmaf
 
@@ -752,7 +757,9 @@ defmodule Reencodarr.Media do
 
   defp reset_videos(query, log_message, target_state \\ :analyzed) do
     {count, _} =
-      Repo.update_all(query, set: [state: target_state, updated_at: DateTime.utc_now()])
+      Retry.retry_on_db_busy(fn ->
+        Repo.update_all(query, set: [state: target_state, updated_at: DateTime.utc_now()])
+      end)
 
     if count > 0, do: Logger.info("Reset #{count} #{log_message}")
     :ok
@@ -1035,10 +1042,7 @@ defmodule Reencodarr.Media do
   defp delete_videos_by_ids(video_ids) do
     deleted_videos = fetch_dashboard_video_snapshots_by_ids(video_ids)
 
-    Repo.transaction(fn ->
-      from(v in Vmaf, where: v.video_id in ^video_ids) |> Repo.delete_all()
-      from(v in Video, where: v.id in ^video_ids) |> Repo.delete_all()
-    end)
+    delete_videos_and_vmafs(video_ids)
     |> tap(fn
       {:ok, _} -> Enum.each(deleted_videos, &broadcast_video_mutation(:delete, &1, nil))
       _ -> :ok
@@ -1133,13 +1137,9 @@ defmodule Reencodarr.Media do
   defp delete_missing_batch(missing_ids, total_deleted, last_id) do
     deleted_videos = fetch_dashboard_video_snapshots_by_ids(missing_ids)
 
-    Repo.transaction(fn ->
-      from(v in Vmaf, where: v.video_id in ^missing_ids) |> Repo.delete_all()
-      {count, _} = from(v in Video, where: v.id in ^missing_ids) |> Repo.delete_all()
-      count
-    end)
+    delete_videos_and_vmafs(missing_ids)
     |> case do
-      {:ok, count} ->
+      {:ok, {count, _}} ->
         Enum.each(deleted_videos, &broadcast_video_mutation(:delete, &1, nil))
 
         Logger.info(
@@ -1152,6 +1152,15 @@ defmodule Reencodarr.Media do
         Logger.error("Failed to delete batch: #{inspect(reason)}")
         total_deleted
     end
+  end
+
+  defp delete_videos_and_vmafs(video_ids) do
+    Retry.retry_on_db_busy(fn ->
+      Repo.transaction(fn ->
+        from(v in Vmaf, where: v.video_id in ^video_ids) |> Repo.delete_all()
+        from(v in Video, where: v.id in ^video_ids) |> Repo.delete_all()
+      end)
+    end)
   end
 
   defp file_missing?(%{path: path}), do: not File.exists?(path)

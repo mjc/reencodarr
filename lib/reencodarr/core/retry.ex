@@ -6,9 +6,12 @@ defmodule Reencodarr.Core.Retry do
   require Logger
 
   @doc """
-  Retries a function with exponential backoff when SQLite database is busy.
+  Retries a function with exponential backoff when SQLite returns a transient
+  concurrency error.
 
   ## Options
+  Retryable SQLite errors currently include `Database busy` and `interrupted`.
+
   - `:max_attempts` - Maximum number of retry attempts (default: 5)
   - `:base_backoff_ms` - Base backoff time in milliseconds (default: 100)
 
@@ -32,21 +35,31 @@ defmodule Reencodarr.Core.Retry do
     fun.()
   rescue
     error in Exqlite.Error ->
-      if error.message == "Database busy" and attempt < max_attempts do
-        backoff_and_retry(fun, attempt, max_attempts, base_backoff)
+      if retryable_sqlite_error?(error) and attempt < max_attempts do
+        backoff_and_retry(fun, error.message, attempt, max_attempts, base_backoff)
       else
         reraise error, __STACKTRACE__
       end
   end
 
-  defp backoff_and_retry(fun, attempt, max_attempts, base_backoff) do
+  defp backoff_and_retry(fun, error_message, attempt, max_attempts, base_backoff) do
     base = (:math.pow(2, attempt) * base_backoff) |> round()
     jitter = :rand.uniform(base |> div(2))
     backoff = base + jitter
 
-    Logger.warning("Database busy, retrying in #{backoff}ms (attempt #{attempt}/#{max_attempts})")
+    Logger.warning(
+      "SQLite transient error (#{error_message}), retrying in #{backoff}ms " <>
+        "(attempt #{attempt}/#{max_attempts})"
+    )
 
     Process.sleep(backoff)
     do_retry(fun, attempt + 1, max_attempts, base_backoff)
+  end
+
+  defp retryable_sqlite_error?(%Exqlite.Error{message: message}) do
+    message
+    |> to_string()
+    |> String.downcase()
+    |> then(&(&1 in ["database busy", "interrupted"]))
   end
 end
