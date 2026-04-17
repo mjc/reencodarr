@@ -26,7 +26,7 @@ defmodule ReencodarrWeb.WebhookProcessor do
     def process(fun) when is_function(fun, 0) do
       # In test, execute synchronously to avoid sandbox connection issues
       # We need explicit try/catch to catch :exit signals from OTP processes
-      Retry.retry_on_db_busy(fun)
+      Retry.retry_on_db_busy(fun, label: "webhook task")
     catch
       :exit, reason ->
         Logger.error("Webhook processor task failed: #{inspect(reason)}")
@@ -89,7 +89,7 @@ defmodule ReencodarrWeb.WebhookProcessor do
     # Spawn a linked process for async sequential execution
     spawn_link(fn ->
       try do
-        Retry.retry_on_db_busy(fun)
+        Retry.retry_on_db_busy(fun, label: "webhook task")
       catch
         :exit, reason ->
           Logger.error("Webhook processor task failed: #{inspect(reason)}")

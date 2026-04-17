@@ -401,7 +401,8 @@ defmodule Reencodarr.Analyzer.Broadway do
   defp perform_batch_upsert(video_attrs_list, successful_data) do
     upsert_results =
       Retry.retry_on_db_busy(fn -> Media.batch_upsert_videos(video_attrs_list) end,
-        max_attempts: @max_db_retry_attempts
+        max_attempts: @max_db_retry_attempts,
+        label: "batch upsert videos"
       )
 
     Logger.debug(
@@ -558,7 +559,8 @@ defmodule Reencodarr.Analyzer.Broadway do
         Retry.retry_on_db_busy(
           fn -> Media.mark_as_encoded(video) end,
           max_attempts: 10,
-          base_backoff_ms: 50
+          base_backoff_ms: 50,
+          label: "mark video as encoded"
         )
 
       case result do
@@ -596,7 +598,8 @@ defmodule Reencodarr.Analyzer.Broadway do
         Retry.retry_on_db_busy(
           fn -> Media.mark_as_analyzed(video) end,
           max_attempts: 10,
-          base_backoff_ms: 50
+          base_backoff_ms: 50,
+          label: "mark video as analyzed"
         )
 
       case result do

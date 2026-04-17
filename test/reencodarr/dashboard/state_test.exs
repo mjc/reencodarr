@@ -58,6 +58,57 @@ defmodule Reencodarr.Dashboard.StateTest do
     end
   end
 
+  describe "queue refresh timeouts" do
+    test "passes configured timeout and pool_timeout to queue preview queries" do
+      previous_refresh_enabled =
+        Application.get_env(:reencodarr, :dashboard_queue_refresh_enabled)
+
+      previous_timeout = Application.get_env(:reencodarr, :dashboard_queue_query_timeout_ms)
+      Application.put_env(:reencodarr, :dashboard_queue_refresh_enabled, true)
+      Application.put_env(:reencodarr, :dashboard_queue_query_timeout_ms, 4_321)
+
+      :meck.new(Reencodarr.Media.VideoQueries, [:passthrough])
+
+      on_exit(fn ->
+        Application.put_env(
+          :reencodarr,
+          :dashboard_queue_refresh_enabled,
+          previous_refresh_enabled
+        )
+
+        Application.put_env(:reencodarr, :dashboard_queue_query_timeout_ms, previous_timeout)
+
+        try do
+          :meck.unload(Reencodarr.Media.VideoQueries)
+        catch
+          :error, {:not_mocked, Reencodarr.Media.VideoQueries} -> :ok
+          :exit, {:not_mocked, Reencodarr.Media.VideoQueries} -> :ok
+        end
+      end)
+
+      test_pid = self()
+
+      for {fun_name, message} <- [
+            {:videos_needing_analysis_preview, :analyzer_opts},
+            {:videos_for_crf_search_preview, :crf_searcher_opts},
+            {:videos_ready_for_encoding_preview, :encoder_opts}
+          ] do
+        :meck.expect(Reencodarr.Media.VideoQueries, fun_name, fn 5, opts ->
+          send(test_pid, {message, opts})
+          []
+        end)
+      end
+
+      send(Process.whereis(State), :refresh_queues)
+
+      for message <- [:analyzer_opts, :crf_searcher_opts, :encoder_opts] do
+        assert_receive {^message, opts}, 1_000
+        assert Keyword.fetch!(opts, :timeout) == 4_321
+        assert Keyword.fetch!(opts, :pool_timeout) == 4_321
+      end
+    end
+  end
+
   describe "video change events" do
     test "updates incremental stats and queue counts from video mutation broadcasts" do
       {:ok, video} =
@@ -867,7 +918,7 @@ defmodule Reencodarr.Dashboard.StateTest do
     end
   end
 
-  describe "periodic stats refresh" do
+  describe "initial stats load" do
     test "handle_continue broadcasts initial state to subscribers" do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
 
@@ -885,18 +936,18 @@ defmodule Reencodarr.Dashboard.StateTest do
         3_000 -> flunk("handle_continue should broadcast chart data but didn't")
       end
     end
+  end
 
-    test "refresh_stats updates queue_counts from DB" do
+  describe "incremental stats updates" do
+    test "video mutations update queue_counts without a stats refresh query" do
       insert_video()
-
-      send(Process.whereis(State), :refresh_stats)
       :timer.sleep(50)
 
       state = State.get_state()
       assert state.queue_counts.crf_searcher == 1
     end
 
-    test "refresh_stats broadcasts updated state" do
+    test "video mutation broadcasts updated state" do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
 
       # Drain any existing broadcasts from startup (initial_data and chart_data)
@@ -913,41 +964,28 @@ defmodule Reencodarr.Dashboard.StateTest do
       end
 
       insert_video()
-      send(Process.whereis(State), :refresh_stats)
 
       assert_receive {:dashboard_state_changed, state}, 1_000
       assert state.queue_counts.crf_searcher == 1
     end
 
-    test "refresh_stats keeps previous stats when one component refresh fails" do
-      insert_video()
-      send(Process.whereis(State), :refresh_stats)
+    test "vmaf and chosen-vmaf mutations update totals without a stats refresh query" do
+      video = insert_video()
+      vmaf = insert_vmaf(video)
       :timer.sleep(50)
 
-      previous_state = State.get_state()
-      assert previous_state.stats.total_videos == 1
+      state = State.get_state()
+      assert state.stats.total_vmafs == 1
+      assert state.stats.chosen_vmafs == 1
+      assert state.stats.total_savings_gb > 0.0
+      assert state.stats.most_recent_video_update != nil
+      assert state.stats.most_recent_inserted_video != nil
 
-      :meck.new(Reencodarr.Media, [:passthrough])
-
-      on_exit(fn ->
-        try do
-          :meck.unload(Reencodarr.Media)
-        catch
-          :error, {:not_mocked, Reencodarr.Media} -> :ok
-          :exit, {:not_mocked, Reencodarr.Media} -> :ok
-        end
-      end)
-
-      :meck.expect(Reencodarr.Media, :fetch_dashboard_savings_gb, fn _timeout ->
-        {:error, :timeout}
-      end)
-
-      send(Process.whereis(State), :refresh_stats)
+      assert {:ok, _deleted} = Reencodarr.Media.delete_vmaf(vmaf)
       :timer.sleep(50)
 
-      current_state = State.get_state()
-      assert current_state.stats.total_videos == previous_state.stats.total_videos
-      assert current_state.stats.total_savings_gb == previous_state.stats.total_savings_gb
+      state = State.get_state()
+      assert state.stats.total_vmafs == 0
     end
   end
 
@@ -969,20 +1007,19 @@ defmodule Reencodarr.Dashboard.StateTest do
   end
 
   defp insert_vmaf(video) do
-    vmaf =
-      %Vmaf{}
-      |> Vmaf.changeset(%{
+    {:ok, vmaf} =
+      Reencodarr.Media.create_vmaf(%{
         video_id: video.id,
         crf: 28,
         score: 95.0,
         percent: 94.0,
         size: "500 MB",
         time: 3600,
-        params: ["--preset", "4"]
+        params: ["--preset", "4"],
+        savings: 1_073_741_824
       })
-      |> Repo.insert!()
 
-    Fixtures.choose_vmaf(video, vmaf)
+    {:ok, _chosen_vmaf_id} = Reencodarr.Media.mark_vmaf_as_chosen(video.id, vmaf.crf)
     vmaf
   end
 end

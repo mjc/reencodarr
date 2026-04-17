@@ -12,7 +12,7 @@ config :reencodarr,
   generators: [timestamp_type: :utc_datetime],
   env: config_env(),
   dashboard_stats_query_timeout_ms: 500,
-  dashboard_queue_query_timeout_ms: 500
+  dashboard_queue_query_timeout_ms: 5_000
 
 # Shared database configuration - SQLite performance tuning
 config :reencodarr, Reencodarr.Repo,

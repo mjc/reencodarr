@@ -17,11 +17,9 @@ defmodule Reencodarr.Dashboard.State do
 
   @state_channel "dashboard:state"
 
-  @stats_refresh_interval 300_000
   @queue_refresh_interval 5_000
   @chart_refresh_interval 300_000
-  @default_stats_query_timeout 500
-  @default_queue_query_timeout 500
+  @default_queue_query_timeout 5_000
   @progress_debounce_ms 500
   @tracked_video_states [
     :needs_analysis,
@@ -105,7 +103,6 @@ defmodule Reencodarr.Dashboard.State do
 
     state = %{state | stats: stats, queue_counts: queue_counts}
     broadcast_state(state)
-    Process.send_after(self(), :refresh_stats, @stats_refresh_interval)
 
     # Defer chart data loading to avoid database lock contention during startup
     Process.send_after(self(), :load_charts, 2_000)
@@ -145,6 +142,13 @@ defmodule Reencodarr.Dashboard.State do
   @impl true
   def handle_info({:video_mutated, mutation}, state) when is_map(mutation) do
     state = apply_video_mutation(state, mutation)
+    broadcast_state(state)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:vmaf_mutated, mutation}, state) when is_map(mutation) do
+    state = %{state | stats: apply_vmaf_mutation(state.stats, mutation)}
     broadcast_state(state)
     {:noreply, state}
   end
@@ -296,20 +300,6 @@ defmodule Reencodarr.Dashboard.State do
   end
 
   @impl true
-  def handle_info(:refresh_stats, state) do
-    stats = refresh_dashboard_stats(state.stats)
-    state = %{state | stats: stats}
-    broadcast_state(state)
-    Process.send_after(self(), :refresh_stats, @stats_refresh_interval)
-    {:noreply, state}
-  rescue
-    error ->
-      Logger.warning("Dashboard.State refresh_stats failed: #{inspect(error)}")
-      Process.send_after(self(), :refresh_stats, @stats_refresh_interval)
-      {:noreply, state}
-  end
-
-  @impl true
   def handle_info(:refresh_queues, state) do
     if queue_refresh_enabled?() do
       items = fetch_queue_items(state.queue_items)
@@ -365,60 +355,35 @@ defmodule Reencodarr.Dashboard.State do
   end
 
   defp fetch_queue_items(current_items) do
-    timeout = queue_query_timeout()
+    query_opts = queue_query_opts()
 
     %{
       analyzer:
         fetch_queue_preview(
           "analyzer",
           current_items.analyzer,
-          fn -> VideoQueries.videos_needing_analysis_preview(5, timeout: timeout) end
+          fn -> VideoQueries.videos_needing_analysis_preview(5, query_opts) end
         ),
       crf_searcher:
         fetch_queue_preview(
           "crf_searcher",
           current_items.crf_searcher,
-          fn -> VideoQueries.videos_for_crf_search_preview(5, timeout: timeout) end
+          fn -> VideoQueries.videos_for_crf_search_preview(5, query_opts) end
         ),
       encoder:
         fetch_queue_preview(
           "encoder",
           current_items.encoder,
-          fn -> VideoQueries.videos_ready_for_encoding_preview(5, timeout: timeout) end
+          fn -> VideoQueries.videos_ready_for_encoding_preview(5, query_opts) end
         )
     }
   end
 
   defp load_initial_dashboard_stats(current_stats) do
-    timeout = stats_query_timeout()
-    current_stats |> Map.merge(Reencodarr.Media.get_dashboard_stats(timeout))
+    current_stats |> Map.merge(Reencodarr.Media.get_dashboard_stats())
   rescue
     _error -> current_stats
   end
-
-  defp refresh_dashboard_stats(current_stats) do
-    timeout = stats_query_timeout()
-
-    current_stats
-    |> merge_stats_component(Reencodarr.Media.fetch_dashboard_metadata_stats(timeout))
-    |> merge_scalar_component(
-      Reencodarr.Media.fetch_dashboard_savings_gb(timeout),
-      :total_savings_gb
-    )
-    |> merge_stats_component(Reencodarr.Media.fetch_dashboard_vmaf_stats(timeout))
-  end
-
-  defp merge_stats_component(current_stats, {:ok, new_stats}) when is_map(new_stats) do
-    Map.merge(current_stats, new_stats)
-  end
-
-  defp merge_stats_component(current_stats, {:error, _reason}), do: current_stats
-
-  defp merge_scalar_component(current_stats, {:ok, value}, key) do
-    Map.put(current_stats, key, value)
-  end
-
-  defp merge_scalar_component(current_stats, {:error, _reason}, _key), do: current_stats
 
   defp refresh_queue_counts(current_queue_counts, stats) do
     %{
@@ -456,20 +421,17 @@ defmodule Reencodarr.Dashboard.State do
     |> Map.put(:percent, percent)
   end
 
-  defp stats_query_timeout do
-    Application.get_env(
-      :reencodarr,
-      :dashboard_stats_query_timeout_ms,
-      @default_stats_query_timeout
-    )
-  end
-
   defp queue_query_timeout do
     Application.get_env(
       :reencodarr,
       :dashboard_queue_query_timeout_ms,
       @default_queue_query_timeout
     )
+  end
+
+  defp queue_query_opts do
+    timeout = queue_query_timeout()
+    [timeout: timeout, pool_timeout: timeout]
   end
 
   # Helper to upsert a result in a list by key
@@ -497,7 +459,10 @@ defmodule Reencodarr.Dashboard.State do
       |> apply_total_video_delta(action)
       |> apply_total_size_delta(old_video, new_video)
       |> apply_state_count_deltas(old_video, new_video)
+      |> apply_chosen_vmaf_delta(old_video, new_video)
       |> apply_encoding_queue_delta(old_video, new_video)
+      |> apply_total_savings_delta(old_video, new_video)
+      |> apply_recent_video_timestamps(new_video)
 
     queue_counts =
       state.queue_counts
@@ -521,6 +486,14 @@ defmodule Reencodarr.Dashboard.State do
   end
 
   defp apply_video_mutation(state, _mutation), do: state
+
+  defp apply_vmaf_mutation(stats, %{action: :insert, count: count}) when is_integer(count),
+    do: increment_stat(stats, :total_vmafs, count)
+
+  defp apply_vmaf_mutation(stats, %{action: :delete, count: count}) when is_integer(count),
+    do: increment_stat(stats, :total_vmafs, -count)
+
+  defp apply_vmaf_mutation(stats, _mutation), do: stats
 
   defp apply_total_video_delta(stats, :insert), do: increment_stat(stats, :total_videos, 1)
   defp apply_total_video_delta(stats, :delete), do: increment_stat(stats, :total_videos, -1)
@@ -556,6 +529,32 @@ defmodule Reencodarr.Dashboard.State do
     increment_stat(stats, :encoding_queue_count, new_value - old_value)
   end
 
+  defp apply_chosen_vmaf_delta(stats, old_video, new_video) do
+    old_value = if chosen_vmaf_selected?(old_video), do: 1, else: 0
+    new_value = if chosen_vmaf_selected?(new_video), do: 1, else: 0
+    increment_stat(stats, :chosen_vmafs, new_value - old_value)
+  end
+
+  defp apply_total_savings_delta(stats, old_video, new_video) do
+    delta_bytes = snapshot_savings_bytes(new_video) - snapshot_savings_bytes(old_video)
+    current_total_savings_gb = Map.get(stats, :total_savings_gb, 0.0)
+    delta_gb = delta_bytes / :math.pow(1024, 3)
+
+    Map.put(
+      stats,
+      :total_savings_gb,
+      Float.round(max(current_total_savings_gb + delta_gb, 0.0), 2)
+    )
+  end
+
+  defp apply_recent_video_timestamps(stats, %{updated_at: updated_at} = video) do
+    stats
+    |> maybe_put_latest_timestamp(:most_recent_video_update, updated_at)
+    |> maybe_put_latest_timestamp(:most_recent_inserted_video, Map.get(video, :inserted_at))
+  end
+
+  defp apply_recent_video_timestamps(stats, _video), do: stats
+
   defp update_queue_count(queue_counts, key, old_member, new_member) do
     delta = truthy_to_int(new_member) - truthy_to_int(old_member)
     Map.update(queue_counts, key, max(delta, 0), &max(&1 + delta, 0))
@@ -571,6 +570,42 @@ defmodule Reencodarr.Dashboard.State do
 
   defp snapshot_size(%{size: size}) when is_number(size), do: size
   defp snapshot_size(_video), do: 0
+
+  defp snapshot_savings_bytes(%{state: :encoded, original_size: original_size, size: size})
+       when is_number(original_size) and is_number(size) and original_size > size do
+    original_size - size
+  end
+
+  defp snapshot_savings_bytes(%{state: state, chosen_vmaf_savings: savings})
+       when state != :encoded and is_number(savings) and savings > 0 do
+    savings
+  end
+
+  defp snapshot_savings_bytes(_video), do: 0
+
+  defp chosen_vmaf_selected?(%{chosen_vmaf_id: chosen_vmaf_id}), do: not is_nil(chosen_vmaf_id)
+  defp chosen_vmaf_selected?(_video), do: false
+
+  defp maybe_put_latest_timestamp(stats, _key, nil), do: stats
+
+  defp maybe_put_latest_timestamp(stats, key, candidate) do
+    current = Map.get(stats, key)
+
+    if newer_timestamp?(candidate, current) do
+      Map.put(stats, key, candidate)
+    else
+      stats
+    end
+  end
+
+  defp newer_timestamp?(candidate, nil), do: not is_nil(candidate)
+  defp newer_timestamp?(nil, _current), do: false
+
+  defp newer_timestamp?(%DateTime{} = candidate, %DateTime{} = current) do
+    DateTime.compare(candidate, current) == :gt
+  end
+
+  defp newer_timestamp?(candidate, current), do: candidate > current
 
   defp increment_stat(stats, key, delta) do
     Map.update(stats, key, max(delta, 0), &max(&1 + delta, 0))

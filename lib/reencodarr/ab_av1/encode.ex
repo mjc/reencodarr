@@ -234,7 +234,7 @@ defmodule Reencodarr.AbAv1.Encode do
         else
           notify_encoder_failure(vmaf.video, exit_code, encode_args, output_lines)
         end
-      end)
+      end, label: "handle encoder exit status")
     rescue
       e ->
         Logger.error("AbAv1.Encode: Error in exit_status handler: #{Exception.message(e)}")

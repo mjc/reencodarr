@@ -47,7 +47,7 @@ defmodule Reencodarr.Media.VideoUpsert do
 
   # Retry transaction with exponential backoff for "Database busy" errors
   defp retry_transaction(fun) do
-    Retry.retry_on_db_busy(fn -> Repo.transaction(fun) end)
+    Retry.retry_on_db_busy(fn -> Repo.transaction(fun) end, label: "video upsert transaction")
   end
 
   @spec process_single_video_in_batch(attrs()) :: upsert_result()
@@ -302,7 +302,7 @@ defmodule Reencodarr.Media.VideoUpsert do
   defp perform_video_upsert_with_retry(attrs, on_conflict_query) do
     Retry.retry_on_db_busy(fn ->
       perform_video_upsert(attrs, on_conflict_query)
-    end)
+    end, label: "perform video upsert")
   end
 
   @spec perform_single_upsert_in_batch(%{String.t() => any()}, map() | nil) ::
@@ -359,7 +359,7 @@ defmodule Reencodarr.Media.VideoUpsert do
     Reencodarr.Media.broadcast_video_mutation(
       action,
       old_video,
-      Reencodarr.Media.dashboard_video_snapshot(video)
+      Reencodarr.Media.fetch_dashboard_video_snapshot_by_id(video.id)
     )
 
     {:ok, video}
