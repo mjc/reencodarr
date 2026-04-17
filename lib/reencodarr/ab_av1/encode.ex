@@ -228,13 +228,16 @@ defmodule Reencodarr.AbAv1.Encode do
 
       Producer.dispatch_available()
 
-      Retry.retry_on_db_busy(fn ->
-        if is_integer(exit_code) and exit_code == 0 do
-          notify_encoder_success(vmaf.video, output_file)
-        else
-          notify_encoder_failure(vmaf.video, exit_code, encode_args, output_lines)
-        end
-      end, label: "handle encoder exit status")
+      Retry.retry_on_db_busy(
+        fn ->
+          if is_integer(exit_code) and exit_code == 0 do
+            notify_encoder_success(vmaf.video, output_file)
+          else
+            notify_encoder_failure(vmaf.video, exit_code, encode_args, output_lines)
+          end
+        end,
+        label: "handle encoder exit status"
+      )
     rescue
       e ->
         Logger.error("AbAv1.Encode: Error in exit_status handler: #{Exception.message(e)}")

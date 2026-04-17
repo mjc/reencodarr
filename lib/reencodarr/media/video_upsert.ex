@@ -300,9 +300,12 @@ defmodule Reencodarr.Media.VideoUpsert do
           {:replace_all_except, [atom()]} | Ecto.Query.t()
         ) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
   defp perform_video_upsert_with_retry(attrs, on_conflict_query) do
-    Retry.retry_on_db_busy(fn ->
-      perform_video_upsert(attrs, on_conflict_query)
-    end, label: "perform video upsert")
+    Retry.retry_on_db_busy(
+      fn ->
+        perform_video_upsert(attrs, on_conflict_query)
+      end,
+      label: "perform video upsert"
+    )
   end
 
   @spec perform_single_upsert_in_batch(%{String.t() => any()}, map() | nil) ::

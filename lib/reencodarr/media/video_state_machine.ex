@@ -375,7 +375,8 @@ defmodule Reencodarr.Media.VideoStateMachine do
           label: "transition video to encoded"
         )
 
-      error -> error
+      error ->
+        error
     end
   end
 

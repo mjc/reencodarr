@@ -1,19 +1,10 @@
 {
-  "people": [],
+  "people": [
+    "Req"
+  ],
   "projects": [
-    "Reencodarr",
     "Elixir",
-    "Phoenix",
-    "Phoenix LiveView",
     "Broadway",
-    "Ecto",
-    "SQLite",
-    "ab-av1",
-    "FFmpeg",
-    "MediaInfo",
-    "VMAF",
-    "SVT-AV1",
-    "Sonarr",
-    "Radarr"
+    "Hex"
   ]
 }

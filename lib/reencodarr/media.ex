@@ -719,22 +719,25 @@ defmodule Reencodarr.Media do
     exclude_id = Encode.current_video_id()
 
     {with_vmaf, without_vmaf} =
-      Retry.retry_on_db_busy(fn ->
-        # Videos that have a chosen VMAF can safely go back to crf_searched for re-encoding.
-        {with_vmaf, _} =
-          from(v in Video, where: v.state == :encoding, where: not is_nil(v.chosen_vmaf_id))
-          |> maybe_exclude_video(exclude_id)
-          |> Repo.update_all(set: [state: :crf_searched, updated_at: DateTime.utc_now()])
+      Retry.retry_on_db_busy(
+        fn ->
+          # Videos that have a chosen VMAF can safely go back to crf_searched for re-encoding.
+          {with_vmaf, _} =
+            from(v in Video, where: v.state == :encoding, where: not is_nil(v.chosen_vmaf_id))
+            |> maybe_exclude_video(exclude_id)
+            |> Repo.update_all(set: [state: :crf_searched, updated_at: DateTime.utc_now()])
 
-        # Videos without a chosen VMAF must go back to analyzed — they were never
-        # encodable in the first place and need CRF search to run first.
-        {without_vmaf, _} =
-          from(v in Video, where: v.state == :encoding, where: is_nil(v.chosen_vmaf_id))
-          |> maybe_exclude_video(exclude_id)
-          |> Repo.update_all(set: [state: :analyzed, updated_at: DateTime.utc_now()])
+          # Videos without a chosen VMAF must go back to analyzed — they were never
+          # encodable in the first place and need CRF search to run first.
+          {without_vmaf, _} =
+            from(v in Video, where: v.state == :encoding, where: is_nil(v.chosen_vmaf_id))
+            |> maybe_exclude_video(exclude_id)
+            |> Repo.update_all(set: [state: :analyzed, updated_at: DateTime.utc_now()])
 
-        {with_vmaf, without_vmaf}
-      end, label: "reset orphaned encoding videos")
+          {with_vmaf, without_vmaf}
+        end,
+        label: "reset orphaned encoding videos"
+      )
 
     total = with_vmaf + without_vmaf
 
@@ -767,9 +770,12 @@ defmodule Reencodarr.Media do
 
   defp reset_videos(query, log_message, target_state \\ :analyzed) do
     {count, _} =
-      Retry.retry_on_db_busy(fn ->
-        Repo.update_all(query, set: [state: target_state, updated_at: DateTime.utc_now()])
-      end, label: "reset videos to #{target_state}")
+      Retry.retry_on_db_busy(
+        fn ->
+          Repo.update_all(query, set: [state: target_state, updated_at: DateTime.utc_now()])
+        end,
+        label: "reset videos to #{target_state}"
+      )
 
     if count > 0, do: Logger.info("Reset #{count} #{log_message}")
     :ok
@@ -1008,40 +1014,43 @@ defmodule Reencodarr.Media do
           vmafs_deleted: integer()
         }
   def reset_all_failures do
-    Retry.retry_on_db_busy(fn ->
-      Repo.transaction(fn ->
-        # First, get IDs and counts of videos that will be reset
-        failed_video_ids =
-          from(v in Video, where: v.state == :failed, select: v.id)
-          |> Repo.all()
+    Retry.retry_on_db_busy(
+      fn ->
+        Repo.transaction(fn ->
+          # First, get IDs and counts of videos that will be reset
+          failed_video_ids =
+            from(v in Video, where: v.state == :failed, select: v.id)
+            |> Repo.all()
 
-        videos_to_reset_count = length(failed_video_ids)
+          videos_to_reset_count = length(failed_video_ids)
 
-        # Get count of failures that will be deleted
-        failures_to_delete_count =
-          from(f in VideoFailure, where: is_nil(f.resolved_at), select: count(f.id))
-          |> Repo.one()
+          # Get count of failures that will be deleted
+          failures_to_delete_count =
+            from(f in VideoFailure, where: is_nil(f.resolved_at), select: count(f.id))
+            |> Repo.one()
 
-        # Delete VMAFs for failed videos (they were likely generated with bad data)
-        {vmafs_deleted_count, _} =
-          from(v in Vmaf, where: v.video_id in ^failed_video_ids)
+          # Delete VMAFs for failed videos (they were likely generated with bad data)
+          {vmafs_deleted_count, _} =
+            from(v in Vmaf, where: v.video_id in ^failed_video_ids)
+            |> Repo.delete_all()
+
+          # Reset all failed videos back to needs_analysis
+          from(v in Video, where: v.state == :failed)
+          |> Repo.update_all(set: [state: :needs_analysis, updated_at: DateTime.utc_now()])
+
+          # Delete all unresolved failures
+          from(f in VideoFailure, where: is_nil(f.resolved_at))
           |> Repo.delete_all()
 
-        # Reset all failed videos back to needs_analysis
-        from(v in Video, where: v.state == :failed)
-        |> Repo.update_all(set: [state: :needs_analysis, updated_at: DateTime.utc_now()])
-
-        # Delete all unresolved failures
-        from(f in VideoFailure, where: is_nil(f.resolved_at))
-        |> Repo.delete_all()
-
-        %{
-          videos_reset: videos_to_reset_count,
-          failures_deleted: failures_to_delete_count,
-          vmafs_deleted: vmafs_deleted_count
-        }
-      end)
-    end, label: "reset all failures")
+          %{
+            videos_reset: videos_to_reset_count,
+            failures_deleted: failures_to_delete_count,
+            vmafs_deleted: vmafs_deleted_count
+          }
+        end)
+      end,
+      label: "reset all failures"
+    )
     |> case do
       {:ok, result} -> result
       {:error, _reason} -> %{videos_reset: 0, failures_deleted: 0, vmafs_deleted: 0}
@@ -1170,13 +1179,18 @@ defmodule Reencodarr.Media do
   end
 
   defp delete_videos_and_vmafs(video_ids) do
-    Retry.retry_on_db_busy(fn ->
-      Repo.transaction(fn ->
-        {vmafs_deleted, _} = from(v in Vmaf, where: v.video_id in ^video_ids) |> Repo.delete_all()
-        {videos_deleted, _} = from(v in Video, where: v.id in ^video_ids) |> Repo.delete_all()
-        %{vmafs_deleted: vmafs_deleted, videos_deleted: videos_deleted}
-      end)
-    end, label: "delete videos and vmafs")
+    Retry.retry_on_db_busy(
+      fn ->
+        Repo.transaction(fn ->
+          {vmafs_deleted, _} =
+            from(v in Vmaf, where: v.video_id in ^video_ids) |> Repo.delete_all()
+
+          {videos_deleted, _} = from(v in Video, where: v.id in ^video_ids) |> Repo.delete_all()
+          %{vmafs_deleted: vmafs_deleted, videos_deleted: videos_deleted}
+        end)
+      end,
+      label: "delete videos and vmafs"
+    )
   end
 
   defp file_missing?(%{path: path}), do: not File.exists?(path)
@@ -1244,17 +1258,7 @@ defmodule Reencodarr.Media do
         changeset
         |> Repo.insert(Keyword.merge([conflict_target: [:crf, :video_id]], opts))
 
-      case result do
-        {:ok, %Vmaf{id: nil}} ->
-          {:ok, :skipped}
-
-        {:ok, %Vmaf{}} = ok ->
-          if not existing_vmaf?, do: broadcast_vmaf_mutation(:insert, 1)
-          ok
-
-        {:error, _} = err ->
-          err
-      end
+      handle_vmaf_insert_result(result, existing_vmaf?)
     else
       :error ->
         Logger.error("Attempted VMAF operation with invalid video_id type: #{inspect(attrs)}")
@@ -1265,6 +1269,15 @@ defmodule Reencodarr.Media do
         {:error, :invalid_video_id}
     end
   end
+
+  defp handle_vmaf_insert_result({:ok, %Vmaf{id: nil}}, _existing_vmaf?), do: {:ok, :skipped}
+
+  defp handle_vmaf_insert_result({:ok, %Vmaf{}} = ok, existing_vmaf?) do
+    if not existing_vmaf?, do: broadcast_vmaf_mutation(:insert, 1)
+    ok
+  end
+
+  defp handle_vmaf_insert_result({:error, _} = err, _existing_vmaf?), do: err
 
   defp validate_video_id(id) when is_integer(id) or is_binary(id), do: {:ok, id}
   defp validate_video_id(_), do: :error
