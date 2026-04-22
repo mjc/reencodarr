@@ -7,7 +7,8 @@ defmodule Reencodarr.Media.VideoQueries do
   """
 
   import Ecto.Query
-  alias Reencodarr.{Media.Video, Media.Vmaf, Repo}
+  alias Reencodarr.{DbWriter, Media.Video, Media.Vmaf, Repo}
+  require Logger
 
   @doc """
   Gets videos ready for CRF search (state: analyzed).
@@ -103,28 +104,41 @@ defmodule Reencodarr.Media.VideoQueries do
   """
   @spec claim_videos_for_analysis(integer(), keyword()) :: [Video.t()]
   def claim_videos_for_analysis(limit, opts \\ []) do
-    candidates =
-      from(v in Video,
-        where: v.state == :needs_analysis,
-        order_by: [desc: v.priority, desc: v.size, desc: v.inserted_at],
-        limit: ^limit,
-        select: v.id
-      )
-      |> Repo.all(opts)
-
-    case candidates do
-      [] ->
-        []
-
-      ids ->
-        {_count, claimed} =
+    DbWriter.transaction(
+      fn ->
+        candidates =
           from(v in Video,
-            where: v.id in ^ids and v.state == :needs_analysis,
-            select: v
+            where: v.state == :needs_analysis,
+            order_by: [desc: v.priority, desc: v.size, desc: v.inserted_at],
+            limit: ^limit,
+            select: v.id
           )
-          |> Repo.update_all([set: [state: :analyzing, updated_at: DateTime.utc_now()]], opts)
+          |> Repo.all(opts)
 
+        case candidates do
+          [] ->
+            []
+
+          ids ->
+            {_count, claimed} =
+              from(v in Video,
+                where: v.id in ^ids and v.state == :needs_analysis,
+                select: v
+              )
+              |> Repo.update_all([set: [state: :analyzing, updated_at: DateTime.utc_now()]], opts)
+
+            claimed
+        end
+      end,
+      label: :video_queries_claim_videos_for_analysis
+    )
+    |> case do
+      {:ok, claimed} ->
         claimed
+
+      {:error, reason} ->
+        Logger.warning("Failed to claim videos for analysis: #{inspect(reason)}")
+        []
     end
   end
 
@@ -187,10 +201,8 @@ defmodule Reencodarr.Media.VideoQueries do
   def videos_ready_for_encoding_preview(limit, opts \\ []) do
     Repo.all(
       from(vid in Video,
-        join: v in Vmaf,
-        on: vid.chosen_vmaf_id == v.id,
-        where: vid.state == :crf_searched,
-        order_by: [desc: vid.priority, desc: v.savings, desc: vid.updated_at],
+        where: vid.state == :crf_searched and not is_nil(vid.chosen_vmaf_id),
+        order_by: [desc: vid.priority, desc: vid.updated_at],
         limit: ^limit,
         select: %{id: vid.id, path: vid.path}
       ),
