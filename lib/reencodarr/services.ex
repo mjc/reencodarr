@@ -2,6 +2,7 @@ defmodule Reencodarr.Services do
   @moduledoc """
   This module is responsible for communicating with external services.
   """
+  alias Reencodarr.DbWriter
   alias Reencodarr.Repo
   alias Reencodarr.Services.Config
   alias Reencodarr.Services.Radarr
@@ -79,9 +80,14 @@ defmodule Reencodarr.Services do
 
   """
   def create_config(attrs \\ %{}) do
-    %Config{}
-    |> Config.changeset(attrs)
-    |> Repo.insert()
+    DbWriter.run(
+      fn ->
+        %Config{}
+        |> Config.changeset(attrs)
+        |> Repo.insert()
+      end,
+      label: :service_config_create
+    )
   end
 
   @doc """
@@ -97,9 +103,14 @@ defmodule Reencodarr.Services do
 
   """
   def update_config(%Config{} = config, attrs) do
-    config
-    |> Config.changeset(attrs)
-    |> Repo.update()
+    DbWriter.run(
+      fn ->
+        config
+        |> Config.changeset(attrs)
+        |> Repo.update()
+      end,
+      label: :service_config_update
+    )
   end
 
   @doc """
@@ -115,7 +126,7 @@ defmodule Reencodarr.Services do
 
   """
   def delete_config(%Config{} = config) do
-    Repo.delete(config)
+    DbWriter.run(fn -> Repo.delete(config) end, label: :service_config_delete)
   end
 
   @doc """

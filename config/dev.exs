@@ -5,8 +5,8 @@ config :reencodarr, Reencodarr.Repo,
   database: "priv/reencodarr_dev.db",
   stacktrace: true,
   show_sensitive_data_on_connection_error: true,
-  # Increase pool size for better concurrency with Broadway pipelines
-  pool_size: 20,
+  # Keep the read pool modest; writes are serialized through DbWriter
+  pool_size: 5,
   # Increase checkout timeout for slow queries (especially JSON fragment queries in SQLite)
   timeout: 30_000,
   # DBConnection queue configuration for better handling under load

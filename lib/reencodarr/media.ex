@@ -8,8 +8,8 @@ defmodule Reencodarr.Media do
   alias Reencodarr.AbAv1.{CrfSearch, Encode}
   alias Reencodarr.Analyzer.Broadway, as: AnalyzerBroadway
   alias Reencodarr.Core.Parsers
-  alias Reencodarr.Core.Retry
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.DbWriter
 
   alias Reencodarr.Media.{
     BadFileIssue,
@@ -29,6 +29,14 @@ defmodule Reencodarr.Media do
 
   @moduledoc "Handles media-related operations and database interactions."
   @queueable_states [:needs_analysis, :analyzed, :crf_searched]
+  @missing_file_scan_batch_size 50
+  @missing_file_delete_batch_size 25
+  @missing_file_check_concurrency 2
+  @missing_file_check_timeout_ms 2_000
+  @missing_file_batch_pause_ms 25
+
+  defp write(fun, opts) when is_function(fun, 0), do: DbWriter.run(fun, opts)
+  defp write_transaction(fun, opts) when is_function(fun, 0), do: DbWriter.transaction(fun, opts)
 
   # --- Video-related functions ---
   def list_videos, do: Repo.all(from v in Video, order_by: [desc: v.updated_at])
@@ -93,25 +101,18 @@ defmodule Reencodarr.Media do
     path = Map.get(attrs, :path) || Map.get(attrs, "path")
     old_video = if is_binary(path), do: fetch_dashboard_video_snapshot_by_path(path)
 
-    %Video{}
-    |> Video.changeset(attrs)
-    |> Repo.insert(
-      on_conflict: {:replace_all_except, [:id, :inserted_at, :updated_at]},
-      conflict_target: :path
-    )
-    |> tap(fn
-      {:ok, %Video{} = video} ->
-        action = if old_video, do: :update, else: :insert
-
-        broadcast_video_mutation(
-          action,
-          old_video,
-          fetch_dashboard_video_snapshot_by_id(video.id)
+    write(
+      fn ->
+        %Video{}
+        |> Video.changeset(attrs)
+        |> Repo.insert(
+          on_conflict: {:replace_all_except, [:id, :inserted_at, :updated_at]},
+          conflict_target: :path
         )
-
-      _ ->
-        :ok
-    end)
+        |> tap(&broadcast_upserted_video(&1, old_video))
+      end,
+      label: :media_upsert_video
+    )
   end
 
   def batch_upsert_videos(video_attrs_list) do
@@ -121,19 +122,24 @@ defmodule Reencodarr.Media do
   def update_video(%Video{} = video, attrs) do
     old_video = fetch_dashboard_video_snapshot_by_id(video.id) || dashboard_video_snapshot(video)
 
-    case video |> Video.changeset(attrs) |> Repo.update() do
-      {:ok, %Video{} = updated_video} ->
-        broadcast_video_mutation(
-          :update,
-          old_video,
-          fetch_dashboard_video_snapshot_by_id(updated_video.id)
-        )
+    write(
+      fn ->
+        case video |> Video.changeset(attrs) |> Repo.update() do
+          {:ok, %Video{} = updated_video} ->
+            broadcast_video_mutation(
+              :update,
+              old_video,
+              fetch_dashboard_video_snapshot_by_id(updated_video.id)
+            )
 
-        {:ok, updated_video}
+            {:ok, updated_video}
 
-      other ->
-        other
-    end
+          other ->
+            other
+        end
+      end,
+      label: :media_update_video
+    )
   end
 
   @doc """
@@ -146,26 +152,29 @@ defmodule Reencodarr.Media do
   def prioritize_videos(ids) when is_list(ids) do
     ordered_ids = ids |> Enum.uniq() |> Enum.reject(&is_nil/1)
 
-    Repo.transaction(fn ->
-      queueable_by_id =
-        from(v in Video,
-          where: v.id in ^ordered_ids and v.state in ^@queueable_states,
-          select: {v.id, v}
-        )
-        |> Repo.all()
-        |> Map.new()
+    write_transaction(
+      fn ->
+        queueable_by_id =
+          from(v in Video,
+            where: v.id in ^ordered_ids and v.state in ^@queueable_states,
+            select: {v.id, v}
+          )
+          |> Repo.all()
+          |> Map.new()
 
-      prioritized_ids =
-        ordered_ids
-        |> Enum.filter(&Map.has_key?(queueable_by_id, &1))
+        prioritized_ids =
+          ordered_ids
+          |> Enum.filter(&Map.has_key?(queueable_by_id, &1))
 
-      max_priority = highest_queue_priority()
-      total = length(prioritized_ids)
+        max_priority = highest_queue_priority()
+        total = length(prioritized_ids)
 
-      assign_priorities(prioritized_ids, queueable_by_id, max_priority, total)
+        assign_priorities(prioritized_ids, queueable_by_id, max_priority, total)
 
-      total
-    end)
+        total
+      end,
+      label: :media_prioritize_videos
+    )
     |> case do
       {:ok, count} -> {:ok, count}
       {:error, changeset} -> {:error, changeset}
@@ -179,14 +188,19 @@ defmodule Reencodarr.Media do
   def delete_video(%Video{} = video) do
     old_video = fetch_dashboard_video_snapshot_by_id(video.id) || dashboard_video_snapshot(video)
 
-    case Repo.delete(video) do
-      {:ok, deleted_video} ->
-        broadcast_video_mutation(:delete, old_video, nil)
-        {:ok, deleted_video}
+    write(
+      fn ->
+        case Repo.delete(video) do
+          {:ok, deleted_video} ->
+            broadcast_video_mutation(:delete, old_video, nil)
+            {:ok, deleted_video}
 
-      other ->
-        other
-    end
+          other ->
+            other
+        end
+      end,
+      label: :media_delete_video
+    )
   end
 
   def delete_video_with_vmafs(%Video{} = video) do
@@ -306,17 +320,22 @@ defmodule Reencodarr.Media do
       |> Map.put(:video_id, video.id)
       |> normalize_bad_file_issue_attrs()
 
-    case find_existing_unresolved_bad_file_issue(video.id, attrs) do
-      nil ->
-        %BadFileIssue{}
-        |> BadFileIssue.changeset(attrs)
-        |> Repo.insert()
+    write(
+      fn ->
+        case find_existing_unresolved_bad_file_issue(video.id, attrs) do
+          nil ->
+            %BadFileIssue{}
+            |> BadFileIssue.changeset(attrs)
+            |> Repo.insert()
 
-      existing ->
-        existing
-        |> BadFileIssue.changeset(attrs)
-        |> Repo.update()
-    end
+          existing ->
+            existing
+            |> BadFileIssue.changeset(attrs)
+            |> Repo.update()
+        end
+      end,
+      label: :media_create_bad_file_issue
+    )
   end
 
   @spec enqueue_bad_file_issue(BadFileIssue.t()) ::
@@ -342,9 +361,14 @@ defmodule Reencodarr.Media do
       %{status: status}
       |> maybe_put_bad_file_issue_timestamps(status)
 
-    issue
-    |> BadFileIssue.changeset(attrs)
-    |> Repo.update()
+    write(
+      fn ->
+        issue
+        |> BadFileIssue.changeset(attrs)
+        |> Repo.update()
+      end,
+      label: :media_update_bad_file_issue_status
+    )
   end
 
   @spec next_queued_bad_file_issue() :: BadFileIssue.t() | nil
@@ -579,15 +603,20 @@ defmodule Reencodarr.Media do
   Returns `{count, nil}` like `Repo.update_all/2`.
   """
   def mark_analyzed_av1_videos_as_encoded do
-    Repo.update_all(
-      from(v in Video,
-        where: v.state == :analyzed,
-        where:
-          fragment("? LIKE '%\"V_AV1\"%'", v.video_codecs) or
-            fragment("? LIKE '%\"AV1\"%'", v.video_codecs) or
-            fragment("LOWER(?) LIKE '%av1%'", v.path)
-      ),
-      set: [state: :encoded]
+    write(
+      fn ->
+        Repo.update_all(
+          from(v in Video,
+            where: v.state == :analyzed,
+            where:
+              fragment("? LIKE '%\"V_AV1\"%'", v.video_codecs) or
+                fragment("? LIKE '%\"AV1\"%'", v.video_codecs) or
+                fragment("LOWER(?) LIKE '%av1%'", v.path)
+          ),
+          set: [state: :encoded]
+        )
+      end,
+      label: :media_mark_analyzed_av1
     )
   end
 
@@ -639,12 +668,17 @@ defmodule Reencodarr.Media do
   def resolve_video_failures(video_id, opts \\ []) do
     now = DateTime.utc_now()
 
-    from(f in VideoFailure,
-      where: f.video_id == ^video_id and f.resolved == false,
-      update: [set: [resolved: true, resolved_at: ^now]]
+    write(
+      fn ->
+        from(f in VideoFailure,
+          where: f.video_id == ^video_id and f.resolved == false,
+          update: [set: [resolved: true, resolved_at: ^now]]
+        )
+        |> maybe_filter_failure_stage(opts[:stage])
+        |> Repo.update_all([])
+      end,
+      label: :media_resolve_video_failures
     )
-    |> maybe_filter_failure_stage(opts[:stage])
-    |> Repo.update_all([])
   end
 
   defp maybe_filter_failure_stage(query, nil), do: query
@@ -719,7 +753,7 @@ defmodule Reencodarr.Media do
     exclude_id = Encode.current_video_id()
 
     {with_vmaf, without_vmaf} =
-      Retry.retry_on_db_busy(
+      write(
         fn ->
           # Videos that have a chosen VMAF can safely go back to crf_searched for re-encoding.
           {with_vmaf, _} =
@@ -736,7 +770,7 @@ defmodule Reencodarr.Media do
 
           {with_vmaf, without_vmaf}
         end,
-        label: "reset orphaned encoding videos"
+        label: :media_reset_orphaned_encoding
       )
 
     total = with_vmaf + without_vmaf
@@ -770,11 +804,11 @@ defmodule Reencodarr.Media do
 
   defp reset_videos(query, log_message, target_state \\ :analyzed) do
     {count, _} =
-      Retry.retry_on_db_busy(
+      write(
         fn ->
           Repo.update_all(query, set: [state: target_state, updated_at: DateTime.utc_now()])
         end,
-        label: "reset videos to #{target_state}"
+        label: :media_reset_videos
       )
 
     if count > 0, do: Logger.info("Reset #{count} #{log_message}")
@@ -865,36 +899,39 @@ defmodule Reencodarr.Media do
   defp reset_problematic_videos(problematic_video_ids, videos_tested_count) do
     videos_reset_count = length(problematic_video_ids)
 
-    Repo.transaction(fn ->
-      # Delete VMAFs for these videos (they were generated with bad audio data)
-      {vmafs_deleted_count, _} =
-        from(v in Vmaf, where: v.video_id in ^problematic_video_ids)
-        |> Repo.delete_all()
+    write_transaction(
+      fn ->
+        # Delete VMAFs for these videos (they were generated with bad audio data)
+        {vmafs_deleted_count, _} =
+          from(v in Vmaf, where: v.video_id in ^problematic_video_ids)
+          |> Repo.delete_all()
 
-      # Reset analysis fields to force re-analysis
-      from(v in Video, where: v.id in ^problematic_video_ids)
-      |> Repo.update_all(
-        set: [
-          bitrate: nil,
-          video_codecs: nil,
-          audio_codecs: nil,
-          max_audio_channels: nil,
-          atmos: nil,
-          hdr: nil,
-          width: nil,
-          height: nil,
-          frame_rate: nil,
-          duration: nil,
-          updated_at: DateTime.utc_now()
-        ]
-      )
+        # Reset analysis fields to force re-analysis
+        from(v in Video, where: v.id in ^problematic_video_ids)
+        |> Repo.update_all(
+          set: [
+            bitrate: nil,
+            video_codecs: nil,
+            audio_codecs: nil,
+            max_audio_channels: nil,
+            atmos: nil,
+            hdr: nil,
+            width: nil,
+            height: nil,
+            frame_rate: nil,
+            duration: nil,
+            updated_at: DateTime.utc_now()
+          ]
+        )
 
-      %{
-        videos_tested: videos_tested_count,
-        videos_reset: videos_reset_count,
-        vmafs_deleted: vmafs_deleted_count
-      }
-    end)
+        %{
+          videos_tested: videos_tested_count,
+          videos_reset: videos_reset_count,
+          vmafs_deleted: vmafs_deleted_count
+        }
+      end,
+      label: :media_reset_problematic_videos
+    )
     |> case do
       {:ok, result} ->
         result
@@ -946,52 +983,55 @@ defmodule Reencodarr.Media do
           vmafs_deleted: integer()
         }
   def reset_videos_with_invalid_audio_metadata do
-    Repo.transaction(fn ->
-      # Find videos with problematic audio metadata that would cause Rules.audio/1 to return []
-      # This happens when max_audio_channels is nil/0 OR audio_codecs is nil/empty
-      # SQLite: audio_codecs is stored as JSON, check if empty with json_array_length
-      problematic_video_ids =
-        from(v in Video,
-          where:
-            v.state not in [:encoded, :failed] and
-              v.atmos != true and
-              (is_nil(v.max_audio_channels) or v.max_audio_channels == 0 or
-                 is_nil(v.audio_codecs) or
-                 fragment("json_array_length(?) = 0", v.audio_codecs)),
-          select: v.id
+    write_transaction(
+      fn ->
+        # Find videos with problematic audio metadata that would cause Rules.audio/1 to return []
+        # This happens when max_audio_channels is nil/0 OR audio_codecs is nil/empty
+        # SQLite: audio_codecs is stored as JSON, check if empty with json_array_length
+        problematic_video_ids =
+          from(v in Video,
+            where:
+              v.state not in [:encoded, :failed] and
+                v.atmos != true and
+                (is_nil(v.max_audio_channels) or v.max_audio_channels == 0 or
+                   is_nil(v.audio_codecs) or
+                   fragment("json_array_length(?) = 0", v.audio_codecs)),
+            select: v.id
+          )
+          |> Repo.all()
+
+        videos_reset_count = length(problematic_video_ids)
+
+        # Delete VMAFs for these videos (they were generated with bad audio data)
+        {vmafs_deleted_count, _} =
+          from(v in Vmaf, where: v.video_id in ^problematic_video_ids)
+          |> Repo.delete_all()
+
+        # Reset analysis fields to force re-analysis
+        from(v in Video, where: v.id in ^problematic_video_ids)
+        |> Repo.update_all(
+          set: [
+            bitrate: nil,
+            video_codecs: nil,
+            audio_codecs: nil,
+            max_audio_channels: nil,
+            atmos: nil,
+            hdr: nil,
+            width: nil,
+            height: nil,
+            frame_rate: nil,
+            duration: nil,
+            updated_at: DateTime.utc_now()
+          ]
         )
-        |> Repo.all()
 
-      videos_reset_count = length(problematic_video_ids)
-
-      # Delete VMAFs for these videos (they were generated with bad audio data)
-      {vmafs_deleted_count, _} =
-        from(v in Vmaf, where: v.video_id in ^problematic_video_ids)
-        |> Repo.delete_all()
-
-      # Reset analysis fields to force re-analysis
-      from(v in Video, where: v.id in ^problematic_video_ids)
-      |> Repo.update_all(
-        set: [
-          bitrate: nil,
-          video_codecs: nil,
-          audio_codecs: nil,
-          max_audio_channels: nil,
-          atmos: nil,
-          hdr: nil,
-          width: nil,
-          height: nil,
-          frame_rate: nil,
-          duration: nil,
-          updated_at: DateTime.utc_now()
-        ]
-      )
-
-      %{
-        videos_reset: videos_reset_count,
-        vmafs_deleted: vmafs_deleted_count
-      }
-    end)
+        %{
+          videos_reset: videos_reset_count,
+          vmafs_deleted: vmafs_deleted_count
+        }
+      end,
+      label: :media_reset_invalid_audio_metadata
+    )
     |> case do
       {:ok, result} -> result
       {:error, _reason} -> %{videos_reset: 0, vmafs_deleted: 0}
@@ -1014,42 +1054,40 @@ defmodule Reencodarr.Media do
           vmafs_deleted: integer()
         }
   def reset_all_failures do
-    Retry.retry_on_db_busy(
+    write_transaction(
       fn ->
-        Repo.transaction(fn ->
-          # First, get IDs and counts of videos that will be reset
-          failed_video_ids =
-            from(v in Video, where: v.state == :failed, select: v.id)
-            |> Repo.all()
+        # First, get IDs and counts of videos that will be reset
+        failed_video_ids =
+          from(v in Video, where: v.state == :failed, select: v.id)
+          |> Repo.all()
 
-          videos_to_reset_count = length(failed_video_ids)
+        videos_to_reset_count = length(failed_video_ids)
 
-          # Get count of failures that will be deleted
-          failures_to_delete_count =
-            from(f in VideoFailure, where: is_nil(f.resolved_at), select: count(f.id))
-            |> Repo.one()
+        # Get count of failures that will be deleted
+        failures_to_delete_count =
+          from(f in VideoFailure, where: is_nil(f.resolved_at), select: count(f.id))
+          |> Repo.one()
 
-          # Delete VMAFs for failed videos (they were likely generated with bad data)
-          {vmafs_deleted_count, _} =
-            from(v in Vmaf, where: v.video_id in ^failed_video_ids)
-            |> Repo.delete_all()
-
-          # Reset all failed videos back to needs_analysis
-          from(v in Video, where: v.state == :failed)
-          |> Repo.update_all(set: [state: :needs_analysis, updated_at: DateTime.utc_now()])
-
-          # Delete all unresolved failures
-          from(f in VideoFailure, where: is_nil(f.resolved_at))
+        # Delete VMAFs for failed videos (they were likely generated with bad data)
+        {vmafs_deleted_count, _} =
+          from(v in Vmaf, where: v.video_id in ^failed_video_ids)
           |> Repo.delete_all()
 
-          %{
-            videos_reset: videos_to_reset_count,
-            failures_deleted: failures_to_delete_count,
-            vmafs_deleted: vmafs_deleted_count
-          }
-        end)
+        # Reset all failed videos back to needs_analysis
+        from(v in Video, where: v.state == :failed)
+        |> Repo.update_all(set: [state: :needs_analysis, updated_at: DateTime.utc_now()])
+
+        # Delete all unresolved failures
+        from(f in VideoFailure, where: is_nil(f.resolved_at))
+        |> Repo.delete_all()
+
+        %{
+          videos_reset: videos_to_reset_count,
+          failures_deleted: failures_to_delete_count,
+          vmafs_deleted: vmafs_deleted_count
+        }
       end,
-      label: "reset all failures"
+      label: :media_reset_all_failures
     )
     |> case do
       {:ok, result} -> result
@@ -1114,22 +1152,32 @@ defmodule Reencodarr.Media do
     end
   end
 
-  def delete_videos_with_nonexistent_paths do
+  @doc """
+  Deletes videos whose files are confirmed missing.
+
+  Cleanup is intentionally throttled so it does not compete aggressively with
+  SQLite or remote filesystem I/O. Videos under unavailable library roots are
+  skipped instead of being treated as deleted files.
+  """
+  def delete_videos_with_nonexistent_paths(opts \\ []) do
     Logger.info("Starting cleanup of videos with nonexistent paths...")
 
-    deleted_count = delete_missing_files_batched(0, 0)
+    cleanup_opts = missing_file_cleanup_opts(opts)
+    log_unavailable_libraries(cleanup_opts.unavailable_libraries)
+
+    deleted_count = delete_missing_files_batched(0, 0, cleanup_opts)
 
     Logger.info("Cleanup complete: deleted #{deleted_count} videos with nonexistent paths")
     {:ok, deleted_count}
   end
 
-  defp delete_missing_files_batched(last_id, total_deleted) do
+  defp delete_missing_files_batched(last_id, total_deleted, cleanup_opts) do
     batch =
       from(v in Video,
         where: v.id > ^last_id,
         order_by: [asc: v.id],
-        limit: 500,
-        select: %{id: v.id, path: v.path}
+        limit: ^cleanup_opts.scan_batch_size,
+        select: %{id: v.id, path: v.path, library_id: v.library_id}
       )
       |> Repo.all()
 
@@ -1138,19 +1186,30 @@ defmodule Reencodarr.Media do
         total_deleted
 
       videos ->
-        missing_ids = find_missing_file_ids(videos)
-        new_total = delete_missing_batch(missing_ids, total_deleted, List.last(videos).id)
-        delete_missing_files_batched(List.last(videos).id, new_total)
+        last_video_id = List.last(videos).id
+        missing_ids = find_missing_file_ids(videos, cleanup_opts)
+
+        new_total =
+          missing_ids
+          |> Enum.chunk_every(cleanup_opts.delete_batch_size)
+          |> Enum.reduce(total_deleted, fn ids, acc ->
+            delete_missing_batch(ids, acc, last_video_id)
+          end)
+
+        pause_missing_file_cleanup(cleanup_opts)
+        delete_missing_files_batched(last_video_id, new_total, cleanup_opts)
     end
   end
 
-  defp find_missing_file_ids(videos) do
+  defp find_missing_file_ids(videos, cleanup_opts) do
     videos
+    |> Enum.filter(&library_available?(&1, cleanup_opts.available_library_ids))
     |> Task.async_stream(
       fn video -> {video.id, file_missing?(video)} end,
-      max_concurrency: 20,
-      timeout: 10_000,
-      on_timeout: :kill_task
+      max_concurrency: cleanup_opts.file_check_concurrency,
+      timeout: cleanup_opts.file_check_timeout_ms,
+      on_timeout: :kill_task,
+      ordered: false
     )
     |> Enum.flat_map(fn
       {:ok, {id, true}} -> [id]
@@ -1182,7 +1241,7 @@ defmodule Reencodarr.Media do
   end
 
   defp delete_videos_and_vmafs(video_ids) do
-    Retry.retry_on_db_busy(
+    write(
       fn ->
         Repo.transaction(fn ->
           {vmafs_deleted, _} =
@@ -1192,11 +1251,122 @@ defmodule Reencodarr.Media do
           %{vmafs_deleted: vmafs_deleted, videos_deleted: videos_deleted}
         end)
       end,
-      label: "delete videos and vmafs"
+      label: :media_delete_videos_and_vmafs
     )
   end
 
-  defp file_missing?(%{path: path}), do: not File.exists?(path)
+  defp missing_file_cleanup_opts(opts) do
+    libraries = Repo.all(from(l in Library, select: %{id: l.id, path: l.path}))
+
+    {available_library_ids, unavailable_libraries} =
+      Enum.reduce(libraries, {MapSet.new(), []}, fn library, {available, unavailable} ->
+        if library_root_available?(library.path) do
+          {MapSet.put(available, library.id), unavailable}
+        else
+          {available, [library | unavailable]}
+        end
+      end)
+
+    %{
+      scan_batch_size:
+        positive_cleanup_integer(
+          opts,
+          :scan_batch_size,
+          :missing_file_cleanup_scan_batch_size,
+          @missing_file_scan_batch_size
+        ),
+      delete_batch_size:
+        positive_cleanup_integer(
+          opts,
+          :delete_batch_size,
+          :missing_file_cleanup_delete_batch_size,
+          @missing_file_delete_batch_size
+        ),
+      file_check_concurrency:
+        positive_cleanup_integer(
+          opts,
+          :file_check_concurrency,
+          :missing_file_cleanup_file_check_concurrency,
+          @missing_file_check_concurrency
+        ),
+      file_check_timeout_ms:
+        positive_cleanup_integer(
+          opts,
+          :file_check_timeout_ms,
+          :missing_file_cleanup_file_check_timeout_ms,
+          @missing_file_check_timeout_ms
+        ),
+      batch_pause_ms:
+        non_negative_cleanup_integer(
+          opts,
+          :batch_pause_ms,
+          :missing_file_cleanup_batch_pause_ms,
+          @missing_file_batch_pause_ms
+        ),
+      available_library_ids: available_library_ids,
+      unavailable_libraries: Enum.reverse(unavailable_libraries)
+    }
+  end
+
+  defp positive_cleanup_integer(opts, opt_key, config_key, default) do
+    case Keyword.get(opts, opt_key, Application.get_env(:reencodarr, config_key, default)) do
+      value when is_integer(value) and value > 0 -> value
+      _invalid -> default
+    end
+  end
+
+  defp non_negative_cleanup_integer(opts, opt_key, config_key, default) do
+    case Keyword.get(opts, opt_key, Application.get_env(:reencodarr, config_key, default)) do
+      value when is_integer(value) and value >= 0 -> value
+      _invalid -> default
+    end
+  end
+
+  defp library_available?(%{library_id: nil}, _available_library_ids), do: true
+
+  defp library_available?(%{library_id: library_id}, available_library_ids) do
+    MapSet.member?(available_library_ids, library_id)
+  end
+
+  defp library_root_available?(path) when is_binary(path) do
+    case File.stat(path, time: :posix) do
+      {:ok, %File.Stat{type: :directory}} -> true
+      {:ok, _} -> false
+      {:error, _reason} -> false
+    end
+  end
+
+  defp library_root_available?(_path), do: false
+
+  defp log_unavailable_libraries([]), do: :ok
+
+  defp log_unavailable_libraries(libraries) do
+    paths = Enum.map_join(libraries, ", ", & &1.path)
+
+    Logger.warning(
+      "Skipping missing-path cleanup for #{length(libraries)} unavailable libraries: #{paths}"
+    )
+  end
+
+  defp pause_missing_file_cleanup(%{batch_pause_ms: 0}), do: :ok
+
+  defp pause_missing_file_cleanup(%{batch_pause_ms: batch_pause_ms}) do
+    Process.sleep(batch_pause_ms)
+  end
+
+  defp file_missing?(%{path: path}) do
+    case File.stat(path, time: :posix) do
+      {:ok, _stat} ->
+        false
+
+      {:error, reason} when reason in [:enoent, :enotdir] ->
+        true
+
+      {:error, reason} ->
+        Logger.debug("Skipping missing-path deletion for #{path}: #{inspect(reason)}")
+        false
+    end
+  end
 
   # --- Library-related functions ---
   def list_libraries do
@@ -1208,14 +1378,17 @@ defmodule Reencodarr.Media do
   end
 
   def create_library(attrs \\ %{}) do
-    %Library{} |> Library.changeset(attrs) |> Repo.insert()
+    write(fn -> %Library{} |> Library.changeset(attrs) |> Repo.insert() end,
+      label: :media_create_library
+    )
   end
 
   def update_library(%Library{} = l, attrs) do
-    l |> Library.changeset(attrs) |> Repo.update()
+    write(fn -> l |> Library.changeset(attrs) |> Repo.update() end, label: :media_update_library)
   end
 
-  def delete_library(%Library{} = l), do: Repo.delete(l)
+  def delete_library(%Library{} = l),
+    do: write(fn -> Repo.delete(l) end, label: :media_delete_library)
 
   def change_library(%Library{} = l, attrs \\ %{}) do
     Library.changeset(l, attrs)
@@ -1226,9 +1399,10 @@ defmodule Reencodarr.Media do
   def get_vmaf!(id), do: Repo.get!(Vmaf, id) |> Repo.preload(:video)
 
   def create_vmaf(attrs \\ %{}) do
-    %Vmaf{}
-    |> Vmaf.changeset(attrs)
-    |> Repo.insert()
+    write(
+      fn -> %Vmaf{} |> Vmaf.changeset(attrs) |> Repo.insert() end,
+      label: :media_create_vmaf
+    )
     |> tap(fn
       {:ok, %Vmaf{}} -> broadcast_vmaf_mutation(:insert, 1)
       _ -> :ok
@@ -1258,8 +1432,12 @@ defmodule Reencodarr.Media do
       existing_vmaf? = vmaf_conflict_exists?(changeset)
 
       result =
-        changeset
-        |> Repo.insert(Keyword.merge([conflict_target: [:crf, :video_id]], opts))
+        write(
+          fn ->
+            Repo.insert(changeset, Keyword.merge([conflict_target: [:crf, :video_id]], opts))
+          end,
+          label: :media_vmaf_operation
+        )
 
       handle_vmaf_insert_result(result, existing_vmaf?)
     else
@@ -1321,11 +1499,11 @@ defmodule Reencodarr.Media do
   defp calculate_vmaf_savings(_, _), do: nil
 
   def update_vmaf(%Vmaf{} = vmaf, attrs) do
-    vmaf |> Vmaf.changeset(attrs) |> Repo.update()
+    write(fn -> vmaf |> Vmaf.changeset(attrs) |> Repo.update() end, label: :media_update_vmaf)
   end
 
   def delete_vmaf(%Vmaf{} = vmaf) do
-    Repo.delete(vmaf)
+    write(fn -> Repo.delete(vmaf) end, label: :media_delete_vmaf)
     |> tap(fn
       {:ok, %Vmaf{}} -> broadcast_vmaf_mutation(:delete, 1)
       _ -> :ok
@@ -1346,8 +1524,13 @@ defmodule Reencodarr.Media do
       {3, nil}
   """
   def delete_vmafs_for_video(video_id) when is_integer(video_id) do
-    from(v in Vmaf, where: v.video_id == ^video_id)
-    |> Repo.delete_all()
+    write(
+      fn ->
+        from(v in Vmaf, where: v.video_id == ^video_id)
+        |> Repo.delete_all()
+      end,
+      label: :media_delete_vmafs_for_video
+    )
     |> tap(fn
       {count, _} when count > 0 -> broadcast_vmaf_mutation(:delete, count)
       _ -> :ok
@@ -1380,29 +1563,32 @@ defmodule Reencodarr.Media do
         {:error, "Video #{video_id} not found"}
 
       video ->
-        Repo.transaction(fn ->
-          # 1. Delete all VMAFs
-          delete_vmafs_for_video(video_id)
+        write_transaction(
+          fn ->
+            # 1. Delete all VMAFs
+            delete_vmafs_for_video(video_id)
 
-          # 2. Reset analysis fields to force re-analysis
-          update_video(video, %{
-            bitrate: nil,
-            video_codecs: nil,
-            audio_codecs: nil,
-            max_audio_channels: nil,
-            atmos: nil,
-            hdr: nil,
-            width: nil,
-            height: nil,
-            frame_rate: nil,
-            duration: nil
-          })
+            # 2. Reset analysis fields to force re-analysis
+            update_video(video, %{
+              bitrate: nil,
+              video_codecs: nil,
+              audio_codecs: nil,
+              max_audio_channels: nil,
+              atmos: nil,
+              hdr: nil,
+              width: nil,
+              height: nil,
+              frame_rate: nil,
+              duration: nil
+            })
 
-          # 3. Manually trigger analysis using Broadway dispatch
-          AnalyzerBroadway.dispatch_available()
+            # 3. Manually trigger analysis using Broadway dispatch
+            AnalyzerBroadway.dispatch_available()
 
-          video.path
-        end)
+            video.path
+          end,
+          label: :media_force_reanalyze_video
+        )
         |> case do
           {:ok, path} -> {:ok, path}
           {:error, reason} -> {:error, reason}
@@ -1606,8 +1792,13 @@ defmodule Reencodarr.Media do
         old_video = fetch_dashboard_video_snapshot_by_id(video_id)
 
         {1, _} =
-          from(v in Video, where: v.id == ^video_id)
-          |> Repo.update_all(set: [chosen_vmaf_id: vmaf_id, updated_at: DateTime.utc_now()])
+          write(
+            fn ->
+              from(v in Video, where: v.id == ^video_id)
+              |> Repo.update_all(set: [chosen_vmaf_id: vmaf_id, updated_at: DateTime.utc_now()])
+            end,
+            label: :media_mark_vmaf_as_chosen
+          )
 
         broadcast_video_mutation(
           :update,
@@ -1658,8 +1849,13 @@ defmodule Reencodarr.Media do
         old_video = fetch_dashboard_video_snapshot_by_id(video_id)
 
         {1, _} =
-          from(v in Video, where: v.id == ^video_id)
-          |> Repo.update_all(set: [chosen_vmaf_id: vmaf_id, updated_at: DateTime.utc_now()])
+          write(
+            fn ->
+              from(v in Video, where: v.id == ^video_id)
+              |> Repo.update_all(set: [chosen_vmaf_id: vmaf_id, updated_at: DateTime.utc_now()])
+            end,
+            label: :media_choose_best_vmaf
+          )
 
         broadcast_video_mutation(
           :update,
@@ -1812,16 +2008,19 @@ defmodule Reencodarr.Media do
   end
 
   def delete_unchosen_vmafs do
-    Repo.transaction(fn ->
-      # Get video_ids that have vmafs but none are chosen
-      video_ids_with_no_chosen_vmafs =
-        videos_with_no_chosen_vmafs_query()
-        |> Repo.all()
+    write_transaction(
+      fn ->
+        # Get video_ids that have vmafs but none are chosen
+        video_ids_with_no_chosen_vmafs =
+          videos_with_no_chosen_vmafs_query()
+          |> Repo.all()
 
-      # Delete all vmafs for those video_ids
-      from(v in Vmaf, where: v.video_id in ^video_ids_with_no_chosen_vmafs)
-      |> Repo.delete_all()
-    end)
+        # Delete all vmafs for those video_ids
+        from(v in Vmaf, where: v.video_id in ^video_ids_with_no_chosen_vmafs)
+        |> Repo.delete_all()
+      end,
+      label: :media_delete_unchosen_vmafs
+    )
     |> tap(fn
       {:ok, {count, _}} when count > 0 -> broadcast_vmaf_mutation(:delete, count)
       _ -> :ok
@@ -1835,11 +2034,16 @@ defmodule Reencodarr.Media do
   VMAFs will be deleted automatically when videos are re-analyzed and their properties change.
   """
   def reset_all_videos_for_reanalysis do
-    from(v in Video,
-      where: v.state not in [:encoded, :failed],
-      update: [set: [bitrate: nil]]
+    write(
+      fn ->
+        from(v in Video,
+          where: v.state not in [:encoded, :failed],
+          update: [set: [bitrate: nil]]
+        )
+        |> Repo.update_all([])
+      end,
+      label: :media_reset_all_videos_for_reanalysis
     )
-    |> Repo.update_all([])
   end
 
   @doc """
@@ -1857,17 +2061,7 @@ defmodule Reencodarr.Media do
           )
           |> Repo.all()
 
-        if batch_ids != [] do
-          {count, _} =
-            from(v in Video, where: v.id in ^batch_ids, update: [set: [bitrate: nil]])
-            |> Repo.update_all([])
-
-          Logger.info("Reset batch of #{count} videos for reanalysis")
-          Process.sleep(100)
-          {count, 0}
-        else
-          nil
-        end
+        next_reanalysis_batch(batch_ids)
       end)
       |> Enum.sum()
 
@@ -1875,15 +2069,49 @@ defmodule Reencodarr.Media do
     total
   end
 
+  defp broadcast_upserted_video({:ok, %Video{} = video}, old_video) do
+    action = if old_video, do: :update, else: :insert
+
+    broadcast_video_mutation(
+      action,
+      old_video,
+      fetch_dashboard_video_snapshot_by_id(video.id)
+    )
+  end
+
+  defp broadcast_upserted_video(_result, _old_video), do: :ok
+
+  defp next_reanalysis_batch([]), do: nil
+
+  defp next_reanalysis_batch(batch_ids) do
+    {count, _} =
+      write(
+        fn ->
+          from(v in Video, where: v.id in ^batch_ids, update: [set: [bitrate: nil]])
+          |> Repo.update_all([])
+        end,
+        label: :media_reset_videos_for_reanalysis_batch
+      )
+
+    Logger.info("Reset batch of #{count} videos for reanalysis")
+    Process.sleep(100)
+    {count, 0}
+  end
+
   @doc """
   Reset all failed videos to not failed in a single bulk operation.
   """
   def reset_failed_videos do
-    from(v in Video,
-      where: v.state == :failed,
-      update: [set: [state: :needs_analysis]]
+    write(
+      fn ->
+        from(v in Video,
+          where: v.state == :failed,
+          update: [set: [state: :needs_analysis]]
+        )
+        |> Repo.update_all([])
+      end,
+      label: :media_reset_failed_videos
     )
-    |> Repo.update_all([])
   end
 
   @doc """
@@ -1891,10 +2119,15 @@ defmodule Reencodarr.Media do
   This will force all videos to go through analysis again.
   """
   def reset_all_videos_to_needs_analysis do
-    from(v in Video,
-      update: [set: [state: :needs_analysis, bitrate: nil]]
+    write(
+      fn ->
+        from(v in Video,
+          update: [set: [state: :needs_analysis, bitrate: nil]]
+        )
+        |> Repo.update_all([])
+      end,
+      label: :media_reset_all_videos_to_needs_analysis
     )
-    |> Repo.update_all([])
   end
 
   @doc """

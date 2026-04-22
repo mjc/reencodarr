@@ -24,7 +24,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
   """
 
   import Ecto.Changeset
-  alias Reencodarr.Core.Retry
+  alias Reencodarr.DbWriter
   alias Reencodarr.Media.Video
   require Logger
 
@@ -370,8 +370,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
     # Force :encoding so the :encoding → :encoded transition is always valid
     case transition_to_encoded(video) do
       {:ok, changeset} ->
-        Retry.retry_on_db_busy(
-          fn -> Reencodarr.Repo.update(changeset) end,
+        DbWriter.run(fn -> Reencodarr.Repo.update(changeset) end,
           label: "transition video to encoded"
         )
 
@@ -443,7 +442,8 @@ defmodule Reencodarr.Media.VideoStateMachine do
   defp do_repo_update(changeset, _opts) do
     target_state = Ecto.Changeset.get_field(changeset, :state)
     label = if target_state, do: "transition video to #{target_state}", else: "update video state"
-    Retry.retry_on_db_busy(fn -> Reencodarr.Repo.update(changeset) end, label: label)
+
+    DbWriter.run(fn -> Reencodarr.Repo.update(changeset) end, label: label)
   end
 
   # Check if video has low bitrate (less than 5 Mbps = 5,000,000 bps) AND is HDR and should skip encoding

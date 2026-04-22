@@ -111,6 +111,8 @@ defmodule Reencodarr.Dashboard.StateTest do
 
   describe "video change events" do
     test "updates incremental stats and queue counts from video mutation broadcasts" do
+      State.get_state()
+
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/video_change_counter.mkv",
@@ -940,6 +942,8 @@ defmodule Reencodarr.Dashboard.StateTest do
 
   describe "incremental stats updates" do
     test "video mutations update queue_counts without a stats refresh query" do
+      State.get_state()
+
       insert_video()
       :timer.sleep(50)
 
@@ -970,6 +974,8 @@ defmodule Reencodarr.Dashboard.StateTest do
     end
 
     test "vmaf and chosen-vmaf mutations update totals without a stats refresh query" do
+      State.get_state()
+
       video = insert_video()
       vmaf = insert_vmaf(video)
       :timer.sleep(50)
