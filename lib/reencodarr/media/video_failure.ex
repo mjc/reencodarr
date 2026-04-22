@@ -144,20 +144,26 @@ defmodule Reencodarr.Media.VideoFailure do
       retry_count: retry_count
     }
 
-    DbWriter.run(fn ->
-      Reencodarr.Repo.insert(changeset(%__MODULE__{}, attrs))
-    end)
+    DbWriter.run(
+      fn ->
+        Reencodarr.Repo.insert(changeset(%__MODULE__{}, attrs))
+      end,
+      label: :video_failure_insert
+    )
   end
 
   @doc """
   Marks a failure as resolved.
   """
   def resolve_failure(%__MODULE__{} = failure) do
-    DbWriter.run(fn ->
-      failure
-      |> changeset(%{resolved: true, resolved_at: DateTime.utc_now()})
-      |> Reencodarr.Repo.update()
-    end)
+    DbWriter.run(
+      fn ->
+        failure
+        |> changeset(%{resolved: true, resolved_at: DateTime.utc_now()})
+        |> Reencodarr.Repo.update()
+      end,
+      label: :video_failure_resolve
+    )
   end
 
   @doc """

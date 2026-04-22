@@ -80,11 +80,14 @@ defmodule Reencodarr.Services do
 
   """
   def create_config(attrs \\ %{}) do
-    DbWriter.run(fn ->
-      %Config{}
-      |> Config.changeset(attrs)
-      |> Repo.insert()
-    end)
+    DbWriter.run(
+      fn ->
+        %Config{}
+        |> Config.changeset(attrs)
+        |> Repo.insert()
+      end,
+      label: :service_config_create
+    )
   end
 
   @doc """
@@ -100,11 +103,14 @@ defmodule Reencodarr.Services do
 
   """
   def update_config(%Config{} = config, attrs) do
-    DbWriter.run(fn ->
-      config
-      |> Config.changeset(attrs)
-      |> Repo.update()
-    end)
+    DbWriter.run(
+      fn ->
+        config
+        |> Config.changeset(attrs)
+        |> Repo.update()
+      end,
+      label: :service_config_update
+    )
   end
 
   @doc """
@@ -120,7 +126,7 @@ defmodule Reencodarr.Services do
 
   """
   def delete_config(%Config{} = config) do
-    DbWriter.run(fn -> Repo.delete(config) end)
+    DbWriter.run(fn -> Repo.delete(config) end, label: :service_config_delete)
   end
 
   @doc """
