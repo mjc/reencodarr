@@ -500,16 +500,15 @@ defmodule Reencodarr.Sync do
 
     # Store in database.
     # VideoUpsert will automatically set state to needs_analysis for missing bitrate.
-    {:ok,
-     VideoUpsert.upsert(%{
-       "path" => file["path"],
-       "size" => file["size"],
-       "service_id" => to_string(file["id"]),
-       "service_type" => to_string(service_type),
-       "mediainfo" => mediainfo,
-       "bitrate" => file["overallBitrate"] || 0,
-       "dateAdded" => file["dateAdded"]
-     })}
+    VideoUpsert.upsert(%{
+      "path" => file["path"],
+      "size" => file["size"],
+      "service_id" => to_string(file["id"]),
+      "service_type" => to_string(service_type),
+      "mediainfo" => mediainfo,
+      "bitrate" => file["overallBitrate"] || 0,
+      "dateAdded" => file["dateAdded"]
+    })
   end
 
   defp build_video_file_info(file, _media_info, service_type) do

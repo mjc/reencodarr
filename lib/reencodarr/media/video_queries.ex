@@ -8,7 +8,6 @@ defmodule Reencodarr.Media.VideoQueries do
 
   import Ecto.Query
   alias Reencodarr.{DbWriter, Media.Video, Media.Vmaf, Repo}
-  require Logger
 
   @doc """
   Gets videos ready for CRF search (state: analyzed).
@@ -137,8 +136,7 @@ defmodule Reencodarr.Media.VideoQueries do
         claimed
 
       {:error, reason} ->
-        Logger.warning("Failed to claim videos for analysis: #{inspect(reason)}")
-        []
+        raise "Failed to claim videos for analysis: #{inspect(reason)}"
     end
   end
 
