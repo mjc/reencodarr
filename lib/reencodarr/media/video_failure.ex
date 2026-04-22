@@ -2,6 +2,7 @@ defmodule Reencodarr.Media.VideoFailure do
   use Ecto.Schema
   import Ecto.Changeset
   import Ecto.Query, warn: false
+  alias Reencodarr.DbWriter
   alias Reencodarr.Media.Video
 
   @moduledoc """
@@ -143,16 +144,20 @@ defmodule Reencodarr.Media.VideoFailure do
       retry_count: retry_count
     }
 
-    Reencodarr.Repo.insert(changeset(%__MODULE__{}, attrs))
+    DbWriter.run(fn ->
+      Reencodarr.Repo.insert(changeset(%__MODULE__{}, attrs))
+    end)
   end
 
   @doc """
   Marks a failure as resolved.
   """
   def resolve_failure(%__MODULE__{} = failure) do
-    failure
-    |> changeset(%{resolved: true, resolved_at: DateTime.utc_now()})
-    |> Reencodarr.Repo.update()
+    DbWriter.run(fn ->
+      failure
+      |> changeset(%{resolved: true, resolved_at: DateTime.utc_now()})
+      |> Reencodarr.Repo.update()
+    end)
   end
 
   @doc """

@@ -10,7 +10,7 @@ defmodule Reencodarr.Media.VideoUpsert do
   require Logger
   import Ecto.Query
   alias Reencodarr.Core.Retry
-  alias Reencodarr.{Media.Library, Media.Video, Media.VideoValidator, Media.Vmaf, Repo}
+  alias Reencodarr.{DbWriter, Media.Library, Media.Video, Media.VideoValidator, Media.Vmaf, Repo}
   alias Reencodarr.Media.VideoStateMachine
 
   @type attrs :: %{String.t() => any()} | %{atom() => any()}
@@ -21,6 +21,49 @@ defmodule Reencodarr.Media.VideoUpsert do
   """
   @spec upsert(attrs()) :: upsert_result()
   def upsert(attrs) do
+    DbWriter.transaction(
+      fn ->
+        case do_upsert(attrs) do
+          {:ok, video} ->
+            video
+
+          {:error, reason} ->
+            Repo.rollback(reason)
+        end
+      end,
+      label: "perform video upsert"
+    )
+    |> case do
+      {:ok, video} -> {:ok, video}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Batch upsert multiple videos using per-video transactions.
+  Returns a list of results, one for each video in the same order.
+  """
+  @spec batch_upsert([attrs()]) :: [upsert_result()]
+  def batch_upsert(video_attrs_list) when is_list(video_attrs_list) do
+    batch_upsert(video_attrs_list, [])
+  end
+
+  @spec batch_upsert([attrs()], keyword()) :: [upsert_result()]
+  def batch_upsert(video_attrs_list, opts) when is_list(video_attrs_list) and is_list(opts) do
+    writer_opts =
+      [label: :video_batch_upsert, max_attempts: 1]
+      |> Keyword.merge(opts)
+
+    DbWriter.run(
+      fn ->
+        Logger.debug("VideoUpsert batch processing #{length(video_attrs_list)} videos")
+        Enum.map(video_attrs_list, &process_single_video_in_batch/1)
+      end,
+      writer_opts
+    )
+  end
+
+  defp do_upsert(attrs) do
     Logger.debug("VideoUpsert processing: #{inspect(Map.get(attrs, "path"))}")
 
     normalized_attrs = attrs |> normalize_keys_to_strings() |> ensure_library_id()
@@ -34,22 +77,6 @@ defmodule Reencodarr.Media.VideoUpsert do
     |> insert_or_update_video(old_video)
   end
 
-  @doc """
-  Batch upsert multiple videos using per-video transactions.
-  Returns a list of results, one for each video in the same order.
-  """
-  @spec batch_upsert([attrs()]) :: [upsert_result()]
-  def batch_upsert(video_attrs_list) when is_list(video_attrs_list) do
-    Logger.debug("VideoUpsert batch processing #{length(video_attrs_list)} videos")
-
-    Enum.map(video_attrs_list, &process_single_video_in_batch/1)
-  end
-
-  # Retry transaction with exponential backoff for "Database busy" errors
-  defp retry_transaction(fun) do
-    Retry.retry_on_db_busy(fn -> Repo.transaction(fun) end, label: "video upsert transaction")
-  end
-
   @spec process_single_video_in_batch(attrs()) :: upsert_result()
   defp process_single_video_in_batch(attrs) do
     normalized_attrs =
@@ -61,11 +88,16 @@ defmodule Reencodarr.Media.VideoUpsert do
     old_video =
       Reencodarr.Media.fetch_dashboard_video_snapshot_by_path(Map.get(normalized_attrs, "path"))
 
-    retry_transaction(fn ->
-      normalized_attrs
-      |> handle_vmaf_deletion_and_bitrate_preservation()
-      |> perform_single_upsert_in_batch(old_video)
-    end)
+    Retry.retry_on_db_busy(
+      fn ->
+        Repo.transaction(fn ->
+          normalized_attrs
+          |> handle_vmaf_deletion_and_bitrate_preservation()
+          |> perform_single_upsert_in_batch(old_video)
+        end)
+      end,
+      label: "video upsert transaction"
+    )
     |> case do
       {:ok, result} ->
         result
@@ -212,7 +244,7 @@ defmodule Reencodarr.Media.VideoUpsert do
     on_conflict_query = build_on_conflict_query(attrs, conflict_except)
 
     attrs
-    |> perform_video_upsert_with_retry(on_conflict_query)
+    |> perform_video_upsert(on_conflict_query)
     |> handle_upsert_result(attrs, old_video)
   end
 
@@ -293,19 +325,6 @@ defmodule Reencodarr.Media.VideoUpsert do
         ) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
   defp perform_video_upsert(attrs, on_conflict_query) do
     do_insert(attrs, on_conflict_query)
-  end
-
-  @spec perform_video_upsert_with_retry(
-          %{String.t() => any()},
-          {:replace_all_except, [atom()]} | Ecto.Query.t()
-        ) :: {:ok, Video.t()} | {:error, Ecto.Changeset.t()}
-  defp perform_video_upsert_with_retry(attrs, on_conflict_query) do
-    Retry.retry_on_db_busy(
-      fn ->
-        perform_video_upsert(attrs, on_conflict_query)
-      end,
-      label: "perform video upsert"
-    )
   end
 
   @spec perform_single_upsert_in_batch(%{String.t() => any()}, map() | nil) ::
