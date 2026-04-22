@@ -11,9 +11,10 @@ defmodule Reencodarr.Sync do
   alias Reencodarr.Media.{MediaInfoExtractor, VideoFileInfo, VideoUpsert}
   alias Reencodarr.Media.Video.MediaInfoConverter
 
-  @default_batch_size 50
+  @default_batch_size 10
+  @default_write_batch_size 100
   @default_fetch_timeout_ms 90_000
-  @default_fetch_concurrency 8
+  @default_fetch_concurrency 2
   # Sync every 6 hours by default; override via :sync_interval_ms app env
   @default_sync_interval_ms :timer.hours(6)
 
@@ -34,12 +35,13 @@ defmodule Reencodarr.Sync do
   end
 
   def handle_cast(action, state) when action in [:sync_episodes, :sync_movies] do
-    {get_items, get_files, service_type} = resolve_action(action)
+    sync_config = resolve_action(action)
+    service_type = sync_config.service_type
 
     Events.broadcast_event(:sync_started, %{service_type: service_type})
 
     try do
-      sync_items(get_items, get_files, service_type)
+      sync_items(sync_config)
     rescue
       e ->
         Logger.error("Sync #{service_type} crashed: #{Exception.message(e)}")
@@ -68,12 +70,24 @@ defmodule Reencodarr.Sync do
 
   # Private Functions
   defp resolve_action(:sync_episodes),
-    do: {&Services.get_shows/0, &Services.get_episode_files/1, :sonarr}
+    do: %{
+      get_items: &Services.get_shows/0,
+      get_files: &Services.get_episode_files/1,
+      service_type: :sonarr
+    }
 
   defp resolve_action(:sync_movies),
-    do: {&Services.get_movies/0, &Services.get_movie_files/1, :radarr}
+    do: %{
+      get_items: &Services.get_movies/0,
+      get_files: &Services.get_movie_files/1,
+      service_type: :radarr
+    }
 
-  defp sync_items(get_items, get_files, service_type) do
+  defp sync_items(%{
+         get_items: get_items,
+         get_files: get_files,
+         service_type: service_type
+       }) do
     case get_items.() do
       {:ok, %Req.Response{body: items}} when is_list(items) ->
         process_items_in_batches(items, get_files, service_type)
@@ -84,63 +98,112 @@ defmodule Reencodarr.Sync do
   end
 
   defp process_items_in_batches(items, get_files, service_type) do
+    total_items = length(items)
+    library_mappings = preload_library_mappings()
+
     items
     |> Stream.chunk_every(sync_batch_size())
     |> Stream.with_index()
-    |> Stream.each(&process_batch(&1, get_files, service_type, length(items)))
+    |> Stream.each(&process_batch(&1, get_files, service_type, total_items, library_mappings))
     |> Stream.run()
   end
 
-  defp process_batch({batch, batch_index}, get_files, service_type, total_items) do
+  defp process_batch({batch, batch_index}, get_files, service_type, total_items, library_mappings) do
     batch_start_time = System.monotonic_time(:millisecond)
 
-    # Collect all files from all items in this batch
-    all_files =
-      batch
-      |> Task.async_stream(&fetch_and_upsert_files(&1["id"], get_files, service_type),
+    stats =
+      Task.Supervisor.async_stream_nolink(
+        Reencodarr.TaskSupervisor,
+        batch,
+        &fetch_item_files(&1, get_files),
         max_concurrency: sync_fetch_concurrency(),
         timeout: sync_fetch_timeout_ms(),
-        on_timeout: :kill_task
+        on_timeout: :kill_task,
+        ordered: false
       )
-      |> Enum.flat_map(fn
-        {:ok, files} when is_list(files) ->
-          files
-
-        {:error, reason} ->
-          Logger.warning("Sync: Task failed in batch #{batch_index}: #{inspect(reason)}")
-          []
-
-        _ ->
-          []
+      |> Enum.reduce(%{items_processed: 0, files_seen: 0, files_written: 0}, fn result, acc ->
+        process_item_fetch_result(result, service_type, library_mappings, batch_index, acc)
       end)
 
-    # Process all files in a single batch operation
-    files_processed =
-      if Enum.empty?(all_files) do
-        0
-      else
-        batch_upsert_videos(all_files, service_type)
-        length(all_files)
-      end
-
-    # Log batch performance metrics
     batch_duration = System.monotonic_time(:millisecond) - batch_start_time
 
     Logger.info(
-      "Sync: Batch #{batch_index} processed #{files_processed} files in #{batch_duration}ms"
+      "Sync: Batch #{batch_index} processed #{stats.items_processed} items, " <>
+        "saw #{stats.files_seen} files, wrote #{stats.files_written} files in #{batch_duration}ms"
     )
 
-    # Update progress
-    progress = div((batch_index + 1) * sync_batch_size() * 100, total_items)
-
     Events.broadcast_event(:sync_progress, %{
-      progress: min(progress, 100),
+      progress: progress_percent(batch_index, sync_batch_size(), total_items),
       service_type: service_type
     })
   end
 
+  defp process_item_fetch_result(
+         {:ok, {:ok, item_id, files}},
+         service_type,
+         library_mappings,
+         _batch_index,
+         acc
+       ) do
+    files_written = write_item_files(files, service_type, library_mappings)
+
+    Logger.info(
+      "Sync: Item #{inspect(item_id)} fetched #{length(files)} files, wrote #{files_written} files"
+    )
+
+    %{
+      items_processed: acc.items_processed + 1,
+      files_seen: acc.files_seen + length(files),
+      files_written: acc.files_written + files_written
+    }
+  end
+
+  defp process_item_fetch_result(
+         {:ok, {:error, item_id, reason}},
+         _service_type,
+         _library_mappings,
+         _batch_index,
+         acc
+       ) do
+    Logger.warning("Sync: Failed to fetch files for item #{inspect(item_id)}: #{inspect(reason)}")
+    %{acc | items_processed: acc.items_processed + 1}
+  end
+
+  defp process_item_fetch_result(
+         {:exit, reason},
+         _service_type,
+         _library_mappings,
+         batch_index,
+         acc
+       ) do
+    Logger.warning("Sync: Task failed in batch #{batch_index}: #{inspect(reason)}")
+    %{acc | items_processed: acc.items_processed + 1}
+  end
+
+  defp write_item_files([], _service_type, _library_mappings), do: 0
+
+  defp write_item_files(files, service_type, library_mappings) do
+    files
+    |> Enum.chunk_every(sync_write_batch_size())
+    |> Enum.reduce(0, fn chunk, written ->
+      written + batch_upsert_videos(chunk, service_type, library_mappings)
+    end)
+  end
+
   defp sync_batch_size do
     Application.get_env(:reencodarr, :sync_batch_size, @default_batch_size)
+  end
+
+  defp sync_write_batch_size do
+    Application.get_env(:reencodarr, :sync_write_batch_size) ||
+      Application.get_env(:reencodarr, :sync_file_batch_size, @default_write_batch_size)
+  end
+
+  defp progress_percent(_batch_index, _batch_size, 0), do: 100
+
+  defp progress_percent(batch_index, batch_size, total_count) do
+    processed_count = min((batch_index + 1) * batch_size, total_count)
+    div(processed_count * 100, total_count)
   end
 
   defp sync_fetch_timeout_ms do
@@ -157,6 +220,12 @@ defmodule Reencodarr.Sync do
   """
   def batch_upsert_videos(files, service_type) do
     library_mappings = preload_library_mappings()
+
+    batch_upsert_videos(files, service_type, library_mappings)
+    :ok
+  end
+
+  defp batch_upsert_videos(files, service_type, library_mappings) do
     file_refs = extract_file_refs(files)
 
     # Pre-filter: only look up rows for paths in this batch instead of loading the
@@ -181,7 +250,7 @@ defmodule Reencodarr.Sync do
       Logger.info("Sync: Processing #{length(video_attrs_list)} changed videos in batch")
       perform_batch_transaction(video_attrs_list)
     else
-      :ok
+      0
     end
   end
 
@@ -232,7 +301,7 @@ defmodule Reencodarr.Sync do
       Logger.info("Sync: Successfully processed #{success_count} videos")
     end
 
-    :ok
+    success_count
   end
 
   defp preload_library_mappings do
@@ -301,17 +370,27 @@ defmodule Reencodarr.Sync do
     end
   end
 
-  defp fetch_and_upsert_files(id, get_files, _service_type) do
+  defp fetch_item_files(item, get_files) do
+    id = item_id(item)
+
     case get_files.(id) do
       {:ok, %Req.Response{body: files}} when is_list(files) ->
-        # Collect all files for batch processing instead of individual upserts
-        files
+        {:ok, id, files}
 
-      _ ->
-        Logger.error("Fetch files error for id #{inspect(id)}")
-        []
+      response ->
+        {:error, id, response}
     end
+  rescue
+    error ->
+      {:error, item_id(item), Exception.message(error)}
+  catch
+    kind, reason ->
+      {:error, item_id(item), {kind, reason}}
   end
+
+  defp item_id(%{"id" => id}), do: id
+  defp item_id(%{id: id}), do: id
+  defp item_id(_), do: nil
 
   # Keep these functions for individual file processing (used by webhooks)
   def upsert_video_from_file(%VideoFileInfo{size: nil} = file, service_type) do
@@ -335,13 +414,8 @@ defmodule Reencodarr.Sync do
     # Check if video exists and file size hasn't changed
     existing_video = Media.get_video_by_path(info.path)
 
-    result =
-      Repo.transaction(fn ->
-        handle_video_upsert(existing_video, info)
-      end)
-
     # VideoUpsert will automatically set state to needs_analysis for zero bitrate
-    result
+    {:ok, handle_video_upsert(existing_video, info)}
   end
 
   defp handle_video_upsert({:ok, video}, info) do
@@ -424,22 +498,18 @@ defmodule Reencodarr.Sync do
     # Convert directly to MediaInfo format
     mediainfo = MediaInfoConverter.from_service_file(file, service_type)
 
-    # Store in database
-    result =
-      Repo.transaction(fn ->
-        VideoUpsert.upsert(%{
-          "path" => file["path"],
-          "size" => file["size"],
-          "service_id" => to_string(file["id"]),
-          "service_type" => to_string(service_type),
-          "mediainfo" => mediainfo,
-          "bitrate" => file["overallBitrate"] || 0,
-          "dateAdded" => file["dateAdded"]
-        })
-      end)
-
-    # VideoUpsert will automatically set state to needs_analysis for missing bitrate
-    result
+    # Store in database.
+    # VideoUpsert will automatically set state to needs_analysis for missing bitrate.
+    {:ok,
+     VideoUpsert.upsert(%{
+       "path" => file["path"],
+       "size" => file["size"],
+       "service_id" => to_string(file["id"]),
+       "service_type" => to_string(service_type),
+       "mediainfo" => mediainfo,
+       "bitrate" => file["overallBitrate"] || 0,
+       "dateAdded" => file["dateAdded"]
+     })}
   end
 
   defp build_video_file_info(file, _media_info, service_type) do
