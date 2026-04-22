@@ -7,6 +7,45 @@ defmodule Reencodarr.Media.DeleteBusyTest do
   alias Reencodarr.Media.{Video, Vmaf}
   alias Reencodarr.Repo
 
+  test "delete_videos_with_nonexistent_paths/1 deletes missing videos under available libraries" do
+    library_path = Path.join(System.tmp_dir!(), "library_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(library_path)
+    on_exit(fn -> File.rm_rf(library_path) end)
+
+    library = Fixtures.library_fixture(%{path: library_path})
+    missing_path = Path.join(library_path, "missing.mkv")
+    {:ok, video} = Fixtures.video_fixture(%{path: missing_path, library_id: library.id})
+
+    assert {:ok, 1} =
+             Media.delete_videos_with_nonexistent_paths(
+               scan_batch_size: 1,
+               delete_batch_size: 1,
+               file_check_concurrency: 1,
+               batch_pause_ms: 0
+             )
+
+    assert Repo.get(Video, video.id) == nil
+  end
+
+  test "delete_videos_with_nonexistent_paths/1 skips videos when the library root is unavailable" do
+    library_path =
+      Path.join(System.tmp_dir!(), "missing_library_#{System.unique_integer([:positive])}")
+
+    library = Fixtures.library_fixture(%{path: library_path})
+    missing_path = Path.join(library_path, "missing.mkv")
+    {:ok, video} = Fixtures.video_fixture(%{path: missing_path, library_id: library.id})
+
+    assert {:ok, 0} =
+             Media.delete_videos_with_nonexistent_paths(
+               scan_batch_size: 1,
+               delete_batch_size: 1,
+               file_check_concurrency: 1,
+               batch_pause_ms: 0
+             )
+
+    assert Repo.get(Video, video.id) != nil
+  end
+
   test "delete_videos_with_nonexistent_paths/0 uses the database busy retry wrapper" do
     :meck.new(Retry, [:passthrough])
 
@@ -26,7 +65,7 @@ defmodule Reencodarr.Media.DeleteBusyTest do
 
     :meck.expect(Retry, :retry_on_db_busy, fn fun, opts ->
       send(self(), :retry_on_db_busy_called)
-      assert opts[:label] == "delete videos and vmafs"
+      assert opts[:label] == :media_delete_videos_and_vmafs
       fun.()
     end)
 
