@@ -100,12 +100,31 @@ defmodule Reencodarr.Sync do
   defp process_items_in_batches(items, get_files, service_type) do
     total_items = length(items)
     library_mappings = preload_library_mappings()
+    started_at = System.monotonic_time(:millisecond)
 
-    items
-    |> Stream.chunk_every(sync_batch_size())
-    |> Stream.with_index()
-    |> Stream.each(&process_batch(&1, get_files, service_type, total_items, library_mappings))
-    |> Stream.run()
+    summary =
+      items
+      |> Stream.chunk_every(sync_batch_size())
+      |> Stream.with_index()
+      |> Enum.reduce(%{batches: 0, items_processed: 0, files_seen: 0, files_written: 0}, fn batch,
+                                                                                            acc ->
+        stats = process_batch(batch, get_files, service_type, total_items, library_mappings)
+
+        %{
+          batches: acc.batches + 1,
+          items_processed: acc.items_processed + stats.items_processed,
+          files_seen: acc.files_seen + stats.files_seen,
+          files_written: acc.files_written + stats.files_written
+        }
+      end)
+
+    duration = System.monotonic_time(:millisecond) - started_at
+
+    Logger.info(
+      "Sync: #{service_type} completed #{summary.items_processed}/#{total_items} items " <>
+        "across #{summary.batches} batches, saw #{summary.files_seen} files, " <>
+        "wrote #{summary.files_written} files in #{duration}ms"
+    )
   end
 
   defp process_batch({batch, batch_index}, get_files, service_type, total_items, library_mappings) do
@@ -127,7 +146,7 @@ defmodule Reencodarr.Sync do
 
     batch_duration = System.monotonic_time(:millisecond) - batch_start_time
 
-    Logger.info(
+    Logger.debug(
       "Sync: Batch #{batch_index} processed #{stats.items_processed} items, " <>
         "saw #{stats.files_seen} files, wrote #{stats.files_written} files in #{batch_duration}ms"
     )
@@ -136,6 +155,8 @@ defmodule Reencodarr.Sync do
       progress: progress_percent(batch_index, sync_batch_size(), total_items),
       service_type: service_type
     })
+
+    stats
   end
 
   defp process_item_fetch_result(
@@ -147,7 +168,7 @@ defmodule Reencodarr.Sync do
        ) do
     files_written = write_item_files(files, service_type, library_mappings)
 
-    Logger.info(
+    Logger.debug(
       "Sync: Item #{inspect(item_id)} fetched #{length(files)} files, wrote #{files_written} files"
     )
 
@@ -247,7 +268,7 @@ defmodule Reencodarr.Sync do
       |> Enum.reject(&is_nil/1)
 
     if video_attrs_list != [] do
-      Logger.info("Sync: Processing #{length(video_attrs_list)} changed videos in batch")
+      Logger.debug("Sync: Processing #{length(video_attrs_list)} changed videos in batch")
       perform_batch_transaction(video_attrs_list)
     else
       0
@@ -298,7 +319,7 @@ defmodule Reencodarr.Sync do
         "Sync: Batch completed with #{error_count} errors out of #{length(results)} videos"
       )
     else
-      Logger.info("Sync: Successfully processed #{success_count} videos")
+      Logger.debug("Sync: Successfully processed #{success_count} videos")
     end
 
     success_count
