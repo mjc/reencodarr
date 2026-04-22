@@ -474,19 +474,5 @@ defmodule Reencodarr.Media.VideoQueriesTest do
       assert preview.path == video.path
       assert Map.keys(preview) |> Enum.sort() == [:id, :path]
     end
-
-    test "excludes crf_searched videos without a chosen VMAF" do
-      {:ok, video} =
-        Fixtures.video_fixture(%{
-          path: "/test/encoding_preview_without_chosen_vmaf.mkv",
-          state: :crf_searched,
-          video_codecs: ["h264"],
-          audio_codecs: ["aac"]
-        })
-
-      previews = VideoQueries.videos_ready_for_encoding_preview(100)
-
-      refute Enum.any?(previews, &(&1.id == video.id))
-    end
   end
 end

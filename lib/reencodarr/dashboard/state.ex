@@ -19,7 +19,7 @@ defmodule Reencodarr.Dashboard.State do
 
   @queue_refresh_interval 5_000
   @chart_refresh_interval 300_000
-  @default_queue_query_timeout 1_000
+  @default_queue_query_timeout 5_000
   @progress_debounce_ms 500
   @tracked_video_states [
     :needs_analysis,

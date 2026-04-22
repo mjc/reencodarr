@@ -43,7 +43,7 @@ defmodule Reencodarr.DbWriter do
   @spec enqueue((-> any()), keyword()) :: :ok
   def enqueue(fun, opts \\ []) when is_function(fun, 0) do
     if inline_mode?(opts) or in_writer?() do
-      execute_enqueue(fun, opts)
+      _ = execute_inline(fun, opts)
       :ok
     else
       GenServer.cast(__MODULE__, {:enqueue, fun, opts})
@@ -65,7 +65,13 @@ defmodule Reencodarr.DbWriter do
 
   @impl true
   def handle_cast({:enqueue, fun, opts}, state) do
-    execute_enqueue(fun, opts)
+    case execute(fun, opts) do
+      {:ok, _result} ->
+        :ok
+
+      {:raised, kind, reason, stacktrace} ->
+        log_async_failure(kind, reason, stacktrace, opts)
+    end
 
     {:noreply, state}
   end
@@ -81,16 +87,6 @@ defmodule Reencodarr.DbWriter do
   defp execute_inline(fun, opts) do
     execute(fun, opts)
     |> unwrap_result()
-  end
-
-  defp execute_enqueue(fun, opts) do
-    case execute(fun, opts) do
-      {:ok, _result} ->
-        :ok
-
-      {:raised, kind, reason, stacktrace} ->
-        log_async_failure(kind, reason, stacktrace, opts)
-    end
   end
 
   defp execute(fun, opts) do

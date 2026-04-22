@@ -296,7 +296,7 @@ defmodule Reencodarr.SyncTest do
       }
 
       capture_log(fn ->
-        assert {:ok, video} = Sync.upsert_video_from_service_file(file, :sonarr)
+        assert {:ok, {:ok, video}} = Sync.upsert_video_from_service_file(file, :sonarr)
         assert video.path == file["path"]
         assert video.bitrate == 4_000_000
         assert video.service_type == :sonarr
@@ -323,7 +323,7 @@ defmodule Reencodarr.SyncTest do
       }
 
       capture_log(fn ->
-        assert {:ok, video} = Sync.upsert_video_from_service_file(file, :radarr)
+        assert {:ok, {:ok, video}} = Sync.upsert_video_from_service_file(file, :radarr)
         assert video.service_type == :radarr
         assert video.size == 4_000_000_000
       end)
@@ -347,35 +347,9 @@ defmodule Reencodarr.SyncTest do
       }
 
       capture_log(fn ->
-        assert {:ok, video} = Sync.upsert_video_from_service_file(file, :sonarr)
+        assert {:ok, {:ok, video}} = Sync.upsert_video_from_service_file(file, :sonarr)
         # Zero bitrate is stored as nil and triggers needs_analysis
         assert video.state == :needs_analysis
-      end)
-    end
-
-    test "returns upsert errors directly instead of wrapping them", %{library: _library} do
-      unique_id = System.unique_integer([:positive])
-
-      file = %{
-        "path" => "/test/service/invalid_#{unique_id}.mkv",
-        "size" => nil,
-        "id" => "svc_invalid_#{unique_id}",
-        "overallBitrate" => 4_000_000,
-        "dateAdded" => "2024-01-01T00:00:00Z",
-        "mediaInfo" => %{
-          "audioCodec" => "AAC",
-          "videoCodec" => "H.264",
-          "width" => 1280,
-          "height" => 720,
-          "audioLanguages" => ["eng"]
-        }
-      }
-
-      capture_log(fn ->
-        assert {:error, %Ecto.Changeset{} = changeset} =
-                 Sync.upsert_video_from_service_file(file, :sonarr)
-
-        assert {"can't be blank", _} = changeset.errors[:size]
       end)
     end
   end

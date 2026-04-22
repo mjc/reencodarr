@@ -29,11 +29,6 @@ defmodule Reencodarr.Media do
 
   @moduledoc "Handles media-related operations and database interactions."
   @queueable_states [:needs_analysis, :analyzed, :crf_searched]
-  @missing_file_scan_batch_size 50
-  @missing_file_delete_batch_size 25
-  @missing_file_check_concurrency 2
-  @missing_file_check_timeout_ms 2_000
-  @missing_file_batch_pause_ms 25
 
   defp write(fun, opts) when is_function(fun, 0), do: DbWriter.run(fun, opts)
   defp write_transaction(fun, opts) when is_function(fun, 0), do: DbWriter.transaction(fun, opts)
@@ -1152,32 +1147,22 @@ defmodule Reencodarr.Media do
     end
   end
 
-  @doc """
-  Deletes videos whose files are confirmed missing.
-
-  Cleanup is intentionally throttled so it does not compete aggressively with
-  SQLite or remote filesystem I/O. Videos under unavailable library roots are
-  skipped instead of being treated as deleted files.
-  """
-  def delete_videos_with_nonexistent_paths(opts \\ []) do
+  def delete_videos_with_nonexistent_paths do
     Logger.info("Starting cleanup of videos with nonexistent paths...")
 
-    cleanup_opts = missing_file_cleanup_opts(opts)
-    log_unavailable_libraries(cleanup_opts.unavailable_libraries)
-
-    deleted_count = delete_missing_files_batched(0, 0, cleanup_opts)
+    deleted_count = delete_missing_files_batched(0, 0)
 
     Logger.info("Cleanup complete: deleted #{deleted_count} videos with nonexistent paths")
     {:ok, deleted_count}
   end
 
-  defp delete_missing_files_batched(last_id, total_deleted, cleanup_opts) do
+  defp delete_missing_files_batched(last_id, total_deleted) do
     batch =
       from(v in Video,
         where: v.id > ^last_id,
         order_by: [asc: v.id],
-        limit: ^cleanup_opts.scan_batch_size,
-        select: %{id: v.id, path: v.path, library_id: v.library_id}
+        limit: 500,
+        select: %{id: v.id, path: v.path}
       )
       |> Repo.all()
 
@@ -1186,30 +1171,19 @@ defmodule Reencodarr.Media do
         total_deleted
 
       videos ->
-        last_video_id = List.last(videos).id
-        missing_ids = find_missing_file_ids(videos, cleanup_opts)
-
-        new_total =
-          missing_ids
-          |> Enum.chunk_every(cleanup_opts.delete_batch_size)
-          |> Enum.reduce(total_deleted, fn ids, acc ->
-            delete_missing_batch(ids, acc, last_video_id)
-          end)
-
-        pause_missing_file_cleanup(cleanup_opts)
-        delete_missing_files_batched(last_video_id, new_total, cleanup_opts)
+        missing_ids = find_missing_file_ids(videos)
+        new_total = delete_missing_batch(missing_ids, total_deleted, List.last(videos).id)
+        delete_missing_files_batched(List.last(videos).id, new_total)
     end
   end
 
-  defp find_missing_file_ids(videos, cleanup_opts) do
+  defp find_missing_file_ids(videos) do
     videos
-    |> Enum.filter(&library_available?(&1, cleanup_opts.available_library_ids))
     |> Task.async_stream(
       fn video -> {video.id, file_missing?(video)} end,
-      max_concurrency: cleanup_opts.file_check_concurrency,
-      timeout: cleanup_opts.file_check_timeout_ms,
-      on_timeout: :kill_task,
-      ordered: false
+      max_concurrency: 20,
+      timeout: 10_000,
+      on_timeout: :kill_task
     )
     |> Enum.flat_map(fn
       {:ok, {id, true}} -> [id]
@@ -1255,118 +1229,7 @@ defmodule Reencodarr.Media do
     )
   end
 
-  defp missing_file_cleanup_opts(opts) do
-    libraries = Repo.all(from(l in Library, select: %{id: l.id, path: l.path}))
-
-    {available_library_ids, unavailable_libraries} =
-      Enum.reduce(libraries, {MapSet.new(), []}, fn library, {available, unavailable} ->
-        if library_root_available?(library.path) do
-          {MapSet.put(available, library.id), unavailable}
-        else
-          {available, [library | unavailable]}
-        end
-      end)
-
-    %{
-      scan_batch_size:
-        positive_cleanup_integer(
-          opts,
-          :scan_batch_size,
-          :missing_file_cleanup_scan_batch_size,
-          @missing_file_scan_batch_size
-        ),
-      delete_batch_size:
-        positive_cleanup_integer(
-          opts,
-          :delete_batch_size,
-          :missing_file_cleanup_delete_batch_size,
-          @missing_file_delete_batch_size
-        ),
-      file_check_concurrency:
-        positive_cleanup_integer(
-          opts,
-          :file_check_concurrency,
-          :missing_file_cleanup_file_check_concurrency,
-          @missing_file_check_concurrency
-        ),
-      file_check_timeout_ms:
-        positive_cleanup_integer(
-          opts,
-          :file_check_timeout_ms,
-          :missing_file_cleanup_file_check_timeout_ms,
-          @missing_file_check_timeout_ms
-        ),
-      batch_pause_ms:
-        non_negative_cleanup_integer(
-          opts,
-          :batch_pause_ms,
-          :missing_file_cleanup_batch_pause_ms,
-          @missing_file_batch_pause_ms
-        ),
-      available_library_ids: available_library_ids,
-      unavailable_libraries: Enum.reverse(unavailable_libraries)
-    }
-  end
-
-  defp positive_cleanup_integer(opts, opt_key, config_key, default) do
-    case Keyword.get(opts, opt_key, Application.get_env(:reencodarr, config_key, default)) do
-      value when is_integer(value) and value > 0 -> value
-      _invalid -> default
-    end
-  end
-
-  defp non_negative_cleanup_integer(opts, opt_key, config_key, default) do
-    case Keyword.get(opts, opt_key, Application.get_env(:reencodarr, config_key, default)) do
-      value when is_integer(value) and value >= 0 -> value
-      _invalid -> default
-    end
-  end
-
-  defp library_available?(%{library_id: nil}, _available_library_ids), do: true
-
-  defp library_available?(%{library_id: library_id}, available_library_ids) do
-    MapSet.member?(available_library_ids, library_id)
-  end
-
-  defp library_root_available?(path) when is_binary(path) do
-    case File.stat(path, time: :posix) do
-      {:ok, %File.Stat{type: :directory}} -> true
-      {:ok, _} -> false
-      {:error, _reason} -> false
-    end
-  end
-
-  defp library_root_available?(_path), do: false
-
-  defp log_unavailable_libraries([]), do: :ok
-
-  defp log_unavailable_libraries(libraries) do
-    paths = Enum.map_join(libraries, ", ", & &1.path)
-
-    Logger.warning(
-      "Skipping missing-path cleanup for #{length(libraries)} unavailable libraries: #{paths}"
-    )
-  end
-
-  defp pause_missing_file_cleanup(%{batch_pause_ms: 0}), do: :ok
-
-  defp pause_missing_file_cleanup(%{batch_pause_ms: batch_pause_ms}) do
-    Process.sleep(batch_pause_ms)
-  end
-
-  defp file_missing?(%{path: path}) do
-    case File.stat(path, time: :posix) do
-      {:ok, _stat} ->
-        false
-
-      {:error, reason} when reason in [:enoent, :enotdir] ->
-        true
-
-      {:error, reason} ->
-        Logger.debug("Skipping missing-path deletion for #{path}: #{inspect(reason)}")
-        false
-    end
-  end
+  defp file_missing?(%{path: path}), do: not File.exists?(path)
 
   # --- Library-related functions ---
   def list_libraries do

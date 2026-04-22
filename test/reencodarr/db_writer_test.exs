@@ -41,23 +41,6 @@ defmodule Reencodarr.DbWriterTest do
     assert_receive :enqueued
   end
 
-  test "inline enqueue logs failures without crashing the caller" do
-    log =
-      capture_log(fn ->
-        assert :ok =
-                 DbWriter.enqueue(
-                   fn ->
-                     raise "boom"
-                   end,
-                   label: :inline_failing_job
-                 )
-      end)
-
-    assert log =~ "DbWriter async task failed for :inline_failing_job"
-    assert log =~ "RuntimeError"
-    assert log =~ "boom"
-  end
-
   test "transaction preserves Repo.transaction semantics" do
     assert {:ok, :committed} =
              DbWriter.transaction(fn ->
