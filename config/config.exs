@@ -31,10 +31,8 @@ config :reencodarr, Reencodarr.Repo,
     temp_store: "MEMORY",
     # Enable full mutex mode for better concurrency
     locking_mode: "NORMAL",
-    # Allow reads during page writes
-    read_uncommitted: true,
-    # Increase busy timeout for concurrent operations (2 minutes)
-    busy_timeout: 120_000,
+    # Keep busy timeout modest now that writes are serialized in-process
+    busy_timeout: 5_000,
     # Large cache size (256MB) for better performance
     cache_size: -256_000,
     # Large memory mapping (512MB) for better I/O performance

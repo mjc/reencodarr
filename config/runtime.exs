@@ -34,8 +34,8 @@ if config_env() == :prod do
 
   config :reencodarr, Reencodarr.Repo,
     database: database_path,
-    # Production pool size - can be overridden by DATABASE_POOL_SIZE env var
-    pool_size: String.to_integer(System.get_env("DATABASE_POOL_SIZE") || "20")
+    # Keep the read pool modest; writes are serialized through DbWriter
+    pool_size: String.to_integer(System.get_env("DATABASE_POOL_SIZE") || "5")
 
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
