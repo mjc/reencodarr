@@ -17,6 +17,7 @@ defmodule Reencodarr.AbAv1.CrfSearcher do
   require Logger
 
   @max_buffered_lines 1024
+  @completed_without_subscriber_ttl_ms 100
 
   # ---------------------------------------------------------------------------
   # Public API
@@ -129,7 +130,8 @@ defmodule Reencodarr.AbAv1.CrfSearcher do
            os_pid: os_pid,
            metadata: metadata,
            output_lines: [],
-           subscriber: nil
+           subscriber: nil,
+           pending_exit_status: nil
          }}
 
       {:error, reason} ->
@@ -144,6 +146,11 @@ defmodule Reencodarr.AbAv1.CrfSearcher do
     count = length(buffered)
     Enum.each(buffered, fn msg -> send(pid, msg) end)
     Logger.debug("CrfSearcher: subscribed #{inspect(pid)}, replayed #{count} lines")
+
+    if state.pending_exit_status do
+      Process.send_after(self(), :deliver_pending_exit_status, 0)
+    end
+
     {:reply, {:ok, count}, %{state | subscriber: pid}}
   end
 
@@ -158,6 +165,10 @@ defmodule Reencodarr.AbAv1.CrfSearcher do
   end
 
   @impl true
+  def handle_call(:kill, _from, %{port: :none} = state) do
+    {:stop, :normal, :ok, state}
+  end
+
   def handle_call(:kill, _from, state) do
     Logger.info("CrfSearcher: kill() called, killing OS process #{state.os_pid}")
     Helper.kill_os_process(state.os_pid)
@@ -170,15 +181,8 @@ defmodule Reencodarr.AbAv1.CrfSearcher do
   def handle_info({port, {:data, {:eol, line}}}, %{port: port} = state) do
     msg = {__MODULE__, {:line, line}}
 
-    new_lines =
-      if length(state.output_lines) < @max_buffered_lines do
-        [msg | state.output_lines]
-      else
-        [msg | Enum.take(state.output_lines, @max_buffered_lines - 1)]
-      end
-
     if state.subscriber, do: send(state.subscriber, msg)
-    {:noreply, %{state | output_lines: new_lines}}
+    {:noreply, buffer_output(state, msg)}
   end
 
   # noeol partial chunk — forward but do not buffer
@@ -194,8 +198,7 @@ defmodule Reencodarr.AbAv1.CrfSearcher do
   def handle_info({port, {:exit_status, code}}, %{port: port} = state) do
     Logger.info("CrfSearcher: port exited with status #{code}")
     msg = {__MODULE__, {:exit_status, code}}
-    if state.subscriber, do: send(state.subscriber, msg)
-    {:stop, :normal, state}
+    handle_port_exit_message(state, msg)
   end
 
   # Port closed / died without exit_status
@@ -203,14 +206,32 @@ defmodule Reencodarr.AbAv1.CrfSearcher do
   def handle_info({:EXIT, port, reason}, %{port: port} = state) do
     Logger.error("CrfSearcher: port died unexpectedly: #{inspect(reason)}")
     msg = {__MODULE__, {:exit_status, {:port_died, reason}}}
-    if state.subscriber, do: send(state.subscriber, msg)
-    {:stop, :normal, state}
+    handle_port_exit_message(state, msg)
   end
 
   # Normal port EXIT after exit_status already handled — ignore
   @impl true
   def handle_info({:EXIT, _port, :normal}, state) do
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:stop_completed_without_subscriber, %{subscriber: nil} = state) do
+    {:stop, :normal, state}
+  end
+
+  def handle_info(:stop_completed_without_subscriber, state) do
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:deliver_pending_exit_status, %{pending_exit_status: nil} = state) do
+    {:noreply, state}
+  end
+
+  def handle_info(:deliver_pending_exit_status, state) do
+    if state.subscriber, do: send(state.subscriber, state.pending_exit_status)
+    {:stop, :normal, %{state | pending_exit_status: nil}}
   end
 
   @impl true
@@ -233,5 +254,31 @@ defmodule Reencodarr.AbAv1.CrfSearcher do
     Logger.debug("CrfSearcher: terminating (#{inspect(reason)}), closing port")
     Helper.close_port(state.port)
     :ok
+  end
+
+  defp handle_port_exit_message(state, msg) do
+    if state.subscriber do
+      send(state.subscriber, msg)
+      {:stop, :normal, state}
+    else
+      Process.send_after(
+        self(),
+        :stop_completed_without_subscriber,
+        @completed_without_subscriber_ttl_ms
+      )
+
+      {:noreply, %{state | port: :none, os_pid: nil, pending_exit_status: msg}}
+    end
+  end
+
+  defp buffer_output(state, msg) do
+    new_lines =
+      if length(state.output_lines) < @max_buffered_lines do
+        [msg | state.output_lines]
+      else
+        [msg | Enum.take(state.output_lines, @max_buffered_lines - 1)]
+      end
+
+    %{state | output_lines: new_lines}
   end
 end
