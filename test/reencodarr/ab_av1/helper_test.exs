@@ -574,10 +574,15 @@ defmodule Reencodarr.AbAv1.HelperTest do
 
       # Find a real executable to use as a stand-in for ab-av1
       cat_path = System.find_executable("cat")
+      ffprobe_path = System.find_executable("ffprobe")
 
       # Mock System.find_executable to return a valid executable path (use cat as a stand-in)
       :meck.new(System, [:passthrough])
-      :meck.expect(System, :find_executable, fn "ab-av1" -> cat_path end)
+
+      :meck.expect(System, :find_executable, fn
+        "ab-av1" -> cat_path
+        "ffprobe" -> ffprobe_path
+      end)
 
       args = ["crf-search", "--input", test_file]
 
@@ -595,9 +600,15 @@ defmodule Reencodarr.AbAv1.HelperTest do
 
     test "returns {:error, :not_found} when ab-av1 executable is missing" do
       capture_log(fn ->
+        ffprobe_path = System.find_executable("ffprobe")
+
         # Mock System.find_executable to return nil
         :meck.new(System, [:passthrough])
-        :meck.expect(System, :find_executable, fn "ab-av1" -> nil end)
+
+        :meck.expect(System, :find_executable, fn
+          "ab-av1" -> nil
+          "ffprobe" -> ffprobe_path
+        end)
 
         args = ["crf-search", "--input", "/tmp/test.mkv"]
 

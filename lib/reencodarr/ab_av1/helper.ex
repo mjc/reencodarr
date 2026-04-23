@@ -88,16 +88,20 @@ defmodule Reencodarr.AbAv1.Helper do
 
   @spec detect_attached_pictures(String.t()) :: {:ok, list(map())} | {:error, term()}
   defp detect_attached_pictures(file_path) do
-    case System.cmd(
-           "ffprobe",
-           ["-v", "quiet", "-print_format", "json", "-show_streams", file_path],
-           stderr_to_stdout: true
-         ) do
-      {output, 0} ->
-        parse_attached_pictures(output)
+    if is_nil(System.find_executable("ffprobe")) do
+      {:error, :ffprobe_missing}
+    else
+      case System.cmd(
+             "ffprobe",
+             ["-v", "error", "-print_format", "json", "-show_streams", file_path],
+             stderr_to_stdout: true
+           ) do
+        {output, 0} ->
+          parse_attached_pictures(output)
 
-      {_output, _exit_code} ->
-        {:error, :ffprobe_failed}
+        {output, exit_code} ->
+          {:error, {:ffprobe_failed, exit_code, String.slice(String.trim(output), -500..-1//1)}}
+      end
     end
   end
 

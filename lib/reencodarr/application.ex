@@ -39,6 +39,8 @@ defmodule Reencodarr.Application do
           :"reencodarr@#{host}"
         end
 
+      ensure_epmd_started()
+
       case Node.start(name, :shortnames) do
         {:ok, _} ->
           Node.set_cookie(cookie)
@@ -50,6 +52,47 @@ defmodule Reencodarr.Application do
           Logger.warning("Failed to start distribution as #{name}: #{inspect(reason)}")
       end
     end
+  end
+
+  defp ensure_epmd_started do
+    case epmd_executable() do
+      nil ->
+        :ok
+
+      epmd ->
+        case System.cmd(epmd, ["-daemon"], stderr_to_stdout: true) do
+          {_output, 0} ->
+            :ok
+
+          {output, exit_code} ->
+            require Logger
+
+            Logger.warning(
+              "Failed to start epmd before Erlang distribution: exit #{exit_code}, " <>
+                "output: #{String.trim(output)}"
+            )
+        end
+    end
+  rescue
+    error ->
+      require Logger
+      Logger.warning("Failed to start epmd before Erlang distribution: #{inspect(error)}")
+  end
+
+  defp epmd_executable do
+    System.find_executable("epmd") || bundled_epmd_executable()
+  end
+
+  defp bundled_epmd_executable do
+    path =
+      Path.join([
+        to_string(:code.root_dir()),
+        "erts-#{to_string(:erlang.system_info(:version))}",
+        "bin",
+        "epmd"
+      ])
+
+    if File.exists?(path), do: path
   end
 
   defp children do
