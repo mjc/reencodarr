@@ -2146,10 +2146,12 @@ defmodule Reencodarr.MediaTest do
 
     test "upsert_video/1 preserves timestamps on upsert" do
       {:ok, existing} = Fixtures.video_fixture()
-      original_inserted_at = existing.inserted_at
+      original_inserted_at = ~U[2025-01-01 00:00:00Z]
 
-      # Sleep to ensure timestamp would change if it were being updated
-      Process.sleep(10)
+      Repo.update_all(
+        from(v in Media.Video, where: v.id == ^existing.id),
+        set: [inserted_at: original_inserted_at]
+      )
 
       attrs = %{
         "path" => existing.path,

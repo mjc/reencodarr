@@ -29,6 +29,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   require Logger
 
   @max_crf_search_retries 3
+  @max_output_lines 1024
+  @header_lines 50
+  @max_partial_line_bytes 16_384
 
   defp parse_line_with_types(line) do
     OutputParser.parse_line(line)
@@ -292,7 +295,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         label: "process CRF search output line"
       )
 
-      new_output_buffer = [full_line | output_buffer]
+      new_output_buffer = append_output_line(full_line, output_buffer)
       {:noreply, %{state | partial_line_buffer: "", output_buffer: new_output_buffer}}
     rescue
       e ->
@@ -300,7 +303,12 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           crash_reason: {e, __STACKTRACE__}
         )
 
-        {:noreply, %{state | partial_line_buffer: "", output_buffer: [full_line | output_buffer]}}
+        {:noreply,
+         %{
+           state
+           | partial_line_buffer: "",
+             output_buffer: append_output_line(full_line, output_buffer)
+         }}
     end
   end
 
@@ -310,7 +318,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
         %{current_task: %{video: video}, partial_line_buffer: buffer} = state
       ) do
     Logger.debug("Received partial data chunk for video #{video.id}, buffering.")
-    {:noreply, %{state | partial_line_buffer: buffer <> chunk}}
+    {:noreply, %{state | partial_line_buffer: append_partial_chunk(buffer, chunk)}}
   end
 
   # Success exit
@@ -457,7 +465,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       has_current_task: state.current_task != :none,
       current_task_video_id:
         if(state.current_task != :none, do: state.current_task.video.id, else: nil),
-      os_pid: state.os_pid
+      os_pid: state.os_pid,
+      output_buffer_count: length(state.output_buffer),
+      partial_line_buffer_bytes: byte_size(state.partial_line_buffer)
     }
 
     {:reply, debug_state, state}
@@ -726,6 +736,32 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
       true ->
         :final_failure
+    end
+  end
+
+  defp append_output_line(line, output_buffer) do
+    count = length(output_buffer)
+
+    if count < @max_output_lines do
+      [line | output_buffer]
+    else
+      recent_count = @max_output_lines - @header_lines - 1
+
+      [
+        line
+        | Enum.take(output_buffer, recent_count) ++ Enum.slice(output_buffer, -@header_lines..-1)
+      ]
+    end
+  end
+
+  defp append_partial_chunk(buffer, chunk) do
+    combined = buffer <> chunk
+    size = byte_size(combined)
+
+    if size <= @max_partial_line_bytes do
+      combined
+    else
+      binary_part(combined, size - @max_partial_line_bytes, @max_partial_line_bytes)
     end
   end
 

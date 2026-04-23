@@ -87,7 +87,7 @@
               pkgs.tailwindcss
               pkgs.git
               pkgs.gh
-              pkgs.nodePackages.cspell
+              pkgs.cspell
               pkgs.alejandra
               pkgs.nil
               ffmpeg-svt-hdr

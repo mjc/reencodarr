@@ -164,7 +164,7 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
         end
       end)
 
-      # No siblings → standard range {8, 40} used on first attempt
+      # No siblings → standard range {5, 70} used on first attempt
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/movies/vmaf_retry_test.mkv",

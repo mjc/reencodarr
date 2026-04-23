@@ -84,12 +84,14 @@ defmodule Reencodarr.AbAv1.EncodeTest do
       assert Map.has_key?(state, :video_id)
       assert Map.has_key?(state, :os_pid)
       assert Map.has_key?(state, :output_lines_count)
+      assert Map.has_key?(state, :partial_line_buffer_bytes)
 
       assert state.port_status == :available
       assert state.has_video == false
       assert state.video_id == nil
       assert state.os_pid == nil
       assert state.output_lines_count == 0
+      assert state.partial_line_buffer_bytes == 0
     end
   end
 
@@ -239,6 +241,32 @@ defmodule Reencodarr.AbAv1.EncodeTest do
   end
 
   describe "partial chunk buffering" do
+    test "caps retained output lines", %{pid: pid} do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+      video = Fixtures.choose_vmaf(video, vmaf)
+      {:ok, video} = Media.mark_as_encoding(video)
+      vmaf = %{vmaf | video: video}
+
+      :sys.replace_state(pid, fn state ->
+        %{state | video: video, vmaf: vmaf, output_lines: [], partial_line_buffer: ""}
+      end)
+
+      Enum.each(1..1100, fn index ->
+        send(pid, {Reencodarr.AbAv1.Encoder, {:line, "unmatched encode output #{index}"}})
+      end)
+
+      wait_until(fn ->
+        :sys.get_state(pid).output_lines |> length() == 1024
+      end)
+
+      state = :sys.get_state(pid)
+      assert length(state.output_lines) == 1024
+      assert hd(state.output_lines) == "unmatched encode output 1100"
+      assert "unmatched encode output 1" in state.output_lines
+      assert "unmatched encode output 75" not in state.output_lines
+    end
+
     test "accumulates partial line chunks into buffer", %{pid: pid} do
       {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
       vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
@@ -256,5 +284,37 @@ defmodule Reencodarr.AbAv1.EncodeTest do
       state = :sys.get_state(pid)
       assert state.partial_line_buffer == "start_more_data"
     end
+
+    test "caps retained partial line bytes", %{pid: pid} do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+      video = Fixtures.choose_vmaf(video, vmaf)
+      {:ok, video} = Media.mark_as_encoding(video)
+      vmaf = %{vmaf | video: video}
+
+      :sys.replace_state(pid, fn state ->
+        %{state | video: video, vmaf: vmaf, partial_line_buffer: ""}
+      end)
+
+      send(pid, {Reencodarr.AbAv1.Encoder, {:partial, String.duplicate("a", 20_000)}})
+      Process.sleep(50)
+
+      state = :sys.get_state(pid)
+      assert byte_size(state.partial_line_buffer) == 16_384
+      assert Encode.get_state().partial_line_buffer_bytes == 16_384
+    end
   end
+
+  defp wait_until(fun, attempts \\ 50)
+
+  defp wait_until(fun, attempts) when attempts > 0 do
+    if fun.() do
+      :ok
+    else
+      Process.sleep(10)
+      wait_until(fun, attempts - 1)
+    end
+  end
+
+  defp wait_until(_fun, 0), do: flunk("condition was not met before timeout")
 end

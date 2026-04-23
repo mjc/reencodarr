@@ -75,10 +75,11 @@ defmodule ReencodarrWeb.ChartHelpers do
 
   Each result is expected to have a `:crf` key. Pads the range by 2
   on each side so dots don't sit exactly on the axis edges.
-  Falls back to {8, 40} for empty results.
+  Falls back to {5, 70} for empty results, matching the current
+  default svt-av1 search range used by ab-av1.
   """
   @spec crf_range_from_results([map()]) :: {number(), number()}
-  def crf_range_from_results([]), do: {8, 40}
+  def crf_range_from_results([]), do: {5, 70}
 
   def crf_range_from_results(results) do
     crfs = Enum.map(results, & &1.crf)

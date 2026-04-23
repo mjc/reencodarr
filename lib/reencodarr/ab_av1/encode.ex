@@ -21,6 +21,8 @@ defmodule Reencodarr.AbAv1.Encode do
 
   require Logger
 
+  @max_partial_line_bytes 16_384
+
   # ---------------------------------------------------------------------------
   # Public API
   # ---------------------------------------------------------------------------
@@ -149,7 +151,8 @@ defmodule Reencodarr.AbAv1.Encode do
       has_video: state.video != :none,
       video_id: if(state.video != :none, do: state.video.id, else: nil),
       os_pid: state.os_pid,
-      output_lines_count: length(state.output_lines)
+      output_lines_count: length(state.output_lines),
+      partial_line_buffer_bytes: byte_size(state.partial_line_buffer)
     }
 
     {:reply, debug_state, state}
@@ -194,7 +197,12 @@ defmodule Reencodarr.AbAv1.Encode do
           "AbAv1.Encode: Error processing line '#{full_line}': #{Exception.message(e)}"
         )
 
-        {:noreply, %{state | partial_line_buffer: "", output_lines: [full_line | output_lines]}}
+        {:noreply,
+         %{
+           state
+           | partial_line_buffer: "",
+             output_lines: append_output_line(full_line, output_lines)
+         }}
     end
   end
 
@@ -202,7 +210,7 @@ defmodule Reencodarr.AbAv1.Encode do
   @impl true
   def handle_info({Encoder, {:partial, chunk}}, %{partial_line_buffer: buffer} = state)
       when state.video != :none do
-    {:noreply, %{state | partial_line_buffer: buffer <> chunk}}
+    {:noreply, %{state | partial_line_buffer: append_partial_chunk(buffer, chunk)}}
   end
 
   # port exited
@@ -520,6 +528,17 @@ defmodule Reencodarr.AbAv1.Encode do
       # Drop the middle, keep [ newest … | oldest @header_lines ].
       tail_count = @max_output_lines - @header_lines - 1
       [line | Enum.take(output_lines, tail_count) ++ Enum.slice(output_lines, -@header_lines..-1)]
+    end
+  end
+
+  defp append_partial_chunk(buffer, chunk) do
+    combined = buffer <> chunk
+    size = byte_size(combined)
+
+    if size <= @max_partial_line_bytes do
+      combined
+    else
+      binary_part(combined, size - @max_partial_line_bytes, @max_partial_line_bytes)
     end
   end
 

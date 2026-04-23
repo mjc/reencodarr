@@ -338,12 +338,69 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       assert Map.has_key?(state, :has_current_task)
       assert Map.has_key?(state, :current_task_video_id)
       assert Map.has_key?(state, :os_pid)
+      assert Map.has_key?(state, :output_buffer_count)
+      assert Map.has_key?(state, :partial_line_buffer_bytes)
 
       # Initial state should be available
       assert state.port_status == :available
       assert state.has_current_task == false
       assert state.current_task_video_id == nil
       assert state.os_pid == nil
+      assert state.output_buffer_count == 0
+      assert state.partial_line_buffer_bytes == 0
+    end
+
+    test "caps retained CRF output lines", %{pid: pid} do
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | current_task: %{
+              video: %{id: 99, path: "/tmp/video.mkv"},
+              args: [],
+              target_vmaf: 95
+            }
+        }
+      end)
+
+      capture_log(fn ->
+        Enum.each(1..1100, fn index ->
+          send(pid, {CrfSearcher, {:line, "unmatched output line #{index}"}})
+        end)
+
+        wait_until(fn ->
+          :sys.get_state(pid).output_buffer |> length() == 1024
+        end)
+      end)
+
+      state = :sys.get_state(pid)
+      assert length(state.output_buffer) == 1024
+      assert hd(state.output_buffer) == "unmatched output line 1100"
+      assert "unmatched output line 1" in state.output_buffer
+      assert "unmatched output line 75" not in state.output_buffer
+
+      debug_state = CrfSearch.get_state()
+      assert debug_state.output_buffer_count == 1024
+    end
+
+    test "caps retained partial line bytes", %{pid: pid} do
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | current_task: %{
+              video: %{id: 99, path: "/tmp/video.mkv"},
+              args: [],
+              target_vmaf: 95
+            }
+        }
+      end)
+
+      send(pid, {CrfSearcher, {:partial, String.duplicate("a", 20_000)}})
+
+      wait_until(fn ->
+        byte_size(:sys.get_state(pid).partial_line_buffer) == 16_384
+      end)
+
+      assert CrfSearch.get_state().partial_line_buffer_bytes == 16_384
     end
 
     test "reset_if_stuck/0 resets state to available", %{pid: _pid} do
@@ -372,6 +429,19 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       assert CrfSearch.available?() == :busy
     end
   end
+
+  defp wait_until(fun, attempts \\ 50)
+
+  defp wait_until(fun, attempts) when attempts > 0 do
+    if fun.() do
+      :ok
+    else
+      Process.sleep(10)
+      wait_until(fun, attempts - 1)
+    end
+  end
+
+  defp wait_until(_fun, 0), do: flunk("condition was not met before timeout")
 
   describe "crf_search/2 guard clauses" do
     test "returns :error for video with nil id" do

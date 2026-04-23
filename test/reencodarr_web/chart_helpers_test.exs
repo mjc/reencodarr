@@ -119,7 +119,7 @@ defmodule ReencodarrWeb.ChartHelpersTest do
 
     test "provides reasonable defaults for empty results" do
       {crf_min, crf_max} = ChartHelpers.crf_range_from_results([])
-      assert crf_min < crf_max
+      assert {crf_min, crf_max} == {5, 70}
     end
 
     test "pads range so dots aren't on the axis edges" do
@@ -129,6 +129,16 @@ defmodule ReencodarrWeb.ChartHelpersTest do
       # Single result shouldn't map to exact edges
       assert crf_min < 25
       assert crf_max > 25
+    end
+
+    test "preserves fractional CRF values from modern ab-av1 searches" do
+      results = [%{crf: 25.25, score: 95.8}, %{crf: 26.75, score: 94.1}]
+      {crf_min, crf_max} = ChartHelpers.crf_range_from_results(results)
+
+      assert crf_min <= 25.25
+      assert crf_max >= 26.75
+      assert is_float(ChartHelpers.crf_to_x(25.25, crf_min, crf_max))
+      assert is_float(ChartHelpers.crf_to_x(26.75, crf_min, crf_max))
     end
   end
 end

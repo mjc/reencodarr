@@ -107,7 +107,8 @@ defmodule Reencodarr.Media do
         |> Video.changeset(attrs)
         |> Repo.insert(
           on_conflict: {:replace_all_except, [:id, :inserted_at, :updated_at]},
-          conflict_target: :path
+          conflict_target: :path,
+          returning: true
         )
         |> tap(&broadcast_upserted_video(&1, old_video))
       end,
