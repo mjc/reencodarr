@@ -47,16 +47,16 @@
     text = ''
       runner=()
       if [ "$(id -u)" -ne 0 ]; then
-        if [ -x /run/wrappers/bin/doas ]; then
+        if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+          runner=(sudo)
+        elif [ -x /run/wrappers/bin/doas ]; then
           runner=(/run/wrappers/bin/doas)
         elif [ -x /run/wrappers/bin/sudo ]; then
           runner=(/run/wrappers/bin/sudo)
         elif command -v doas >/dev/null 2>&1; then
           runner=("$(command -v doas)")
-        elif command -v sudo >/dev/null 2>&1; then
-          runner=("$(command -v sudo)")
         else
-          echo "reencodarr-remote requires root, doas, or sudo" >&2
+          echo "reencodarr-remote requires root, sudo, or doas" >&2
           exit 1
         fi
       fi
@@ -85,16 +85,16 @@
 
       runner=()
       if [ "$(id -u)" -ne 0 ]; then
-        if [ -x /run/wrappers/bin/doas ]; then
+        if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
+          runner=(sudo)
+        elif [ -x /run/wrappers/bin/doas ]; then
           runner=(/run/wrappers/bin/doas)
         elif [ -x /run/wrappers/bin/sudo ]; then
           runner=(/run/wrappers/bin/sudo)
         elif command -v doas >/dev/null 2>&1; then
           runner=("$(command -v doas)")
-        elif command -v sudo >/dev/null 2>&1; then
-          runner=("$(command -v sudo)")
         else
-          echo "reencodarr-rpc requires root, doas, or sudo" >&2
+          echo "reencodarr-rpc requires root, sudo, or doas" >&2
           exit 1
         fi
       fi
