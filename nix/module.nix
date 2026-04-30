@@ -43,9 +43,21 @@
 
   remoteScript = pkgs.writeShellApplication {
     name = "reencodarr-remote";
-    runtimeInputs = [pkgs.systemd];
+    runtimeInputs = [pkgs.doas pkgs.sudo pkgs.systemd];
     text = ''
-      exec systemd-run \
+      runner=()
+      if [ "$(id -u)" -ne 0 ]; then
+        if command -v doas >/dev/null 2>&1; then
+          runner=(doas)
+        elif command -v sudo >/dev/null 2>&1; then
+          runner=(sudo)
+        else
+          echo "reencodarr-remote requires root, doas, or sudo" >&2
+          exit 1
+        fi
+      fi
+
+      exec "''${runner[@]}" systemd-run \
         --quiet \
         --wait \
         --collect \
@@ -60,14 +72,26 @@
 
   rpcScript = pkgs.writeShellApplication {
     name = "reencodarr-rpc";
-    runtimeInputs = [pkgs.systemd];
+    runtimeInputs = [pkgs.doas pkgs.sudo pkgs.systemd];
     text = ''
       if [ "$#" -eq 0 ]; then
         echo "usage: reencodarr-rpc 'Elixir.expression()'" >&2
         exit 64
       fi
 
-      exec systemd-run \
+      runner=()
+      if [ "$(id -u)" -ne 0 ]; then
+        if command -v doas >/dev/null 2>&1; then
+          runner=(doas)
+        elif command -v sudo >/dev/null 2>&1; then
+          runner=(sudo)
+        else
+          echo "reencodarr-rpc requires root, doas, or sudo" >&2
+          exit 1
+        fi
+      fi
+
+      exec "''${runner[@]}" systemd-run \
         --quiet \
         --wait \
         --collect \
