@@ -14,6 +14,7 @@
       PORT = toString cfg.port;
       DATABASE_PATH = cfg.databasePath;
       REENCODARR_DATA_DIR = toString cfg.dataDir;
+      REENCODARR_TMPDIR = toString cfg.cacheDir;
     }
     // cfg.extraEnvironment;
 
@@ -138,6 +139,12 @@ in {
       default = "/var/lib/reencodarr";
     };
 
+    cacheDir = mkOption {
+      type = types.path;
+      default = "/var/cache/reencodarr";
+      description = "Directory for temporary working files and caches.";
+    };
+
     databasePath = mkOption {
       type = types.str;
       default = "/var/lib/reencodarr/reencodarr.db";
@@ -217,6 +224,7 @@ in {
 
     systemd.tmpfiles.rules = [
       "d ${cfg.dataDir} 0750 ${cfg.user} ${cfg.group} - -"
+      "d ${cfg.cacheDir} 0750 ${cfg.user} ${cfg.group} - -"
       "d ${builtins.dirOf cfg.databasePath} 0750 ${cfg.user} ${cfg.group} - -"
     ];
 
@@ -239,6 +247,7 @@ in {
         User = cfg.user;
         Group = cfg.group;
         WorkingDirectory = cfg.dataDir;
+        ReadWritePaths = [cfg.cacheDir cfg.dataDir (builtins.dirOf cfg.databasePath)];
         LoadCredential = lib.optional (cfg.secretKeyBaseFile != null) "secret_key_base:${cfg.secretKeyBaseFile}";
         Nice = cfg.nice;
         IOSchedulingClass = cfg.ioSchedulingClass;
