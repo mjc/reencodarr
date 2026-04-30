@@ -43,14 +43,18 @@
 
   remoteScript = pkgs.writeShellApplication {
     name = "reencodarr-remote";
-    runtimeInputs = [pkgs.doas pkgs.sudo pkgs.systemd];
+    runtimeInputs = [pkgs.systemd];
     text = ''
       runner=()
       if [ "$(id -u)" -ne 0 ]; then
-        if command -v doas >/dev/null 2>&1; then
-          runner=(doas)
+        if [ -x /run/wrappers/bin/doas ]; then
+          runner=(/run/wrappers/bin/doas)
+        elif [ -x /run/wrappers/bin/sudo ]; then
+          runner=(/run/wrappers/bin/sudo)
+        elif command -v doas >/dev/null 2>&1; then
+          runner=("$(command -v doas)")
         elif command -v sudo >/dev/null 2>&1; then
-          runner=(sudo)
+          runner=("$(command -v sudo)")
         else
           echo "reencodarr-remote requires root, doas, or sudo" >&2
           exit 1
@@ -72,7 +76,7 @@
 
   rpcScript = pkgs.writeShellApplication {
     name = "reencodarr-rpc";
-    runtimeInputs = [pkgs.doas pkgs.sudo pkgs.systemd];
+    runtimeInputs = [pkgs.systemd];
     text = ''
       if [ "$#" -eq 0 ]; then
         echo "usage: reencodarr-rpc 'Elixir.expression()'" >&2
@@ -81,10 +85,14 @@
 
       runner=()
       if [ "$(id -u)" -ne 0 ]; then
-        if command -v doas >/dev/null 2>&1; then
-          runner=(doas)
+        if [ -x /run/wrappers/bin/doas ]; then
+          runner=(/run/wrappers/bin/doas)
+        elif [ -x /run/wrappers/bin/sudo ]; then
+          runner=(/run/wrappers/bin/sudo)
+        elif command -v doas >/dev/null 2>&1; then
+          runner=("$(command -v doas)")
         elif command -v sudo >/dev/null 2>&1; then
-          runner=(sudo)
+          runner=("$(command -v sudo)")
         else
           echo "reencodarr-rpc requires root, doas, or sudo" >&2
           exit 1
