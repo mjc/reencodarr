@@ -32,10 +32,16 @@ if config_env() == :prod do
     System.get_env("DATABASE_PATH") ||
       "priv/reencodarr_prod.db"
 
+  temp_dir =
+    System.get_env("REENCODARR_TMPDIR") ||
+      Path.join(System.get_env("REENCODARR_DATA_DIR") || System.tmp_dir!(), "tmp")
+
   config :reencodarr, Reencodarr.Repo,
     database: database_path,
     # Keep the read pool modest; writes are serialized through DbWriter
     pool_size: String.to_integer(System.get_env("DATABASE_POOL_SIZE") || "5")
+
+  config :reencodarr, :temp_dir, temp_dir
 
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
