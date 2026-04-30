@@ -69,7 +69,7 @@ defmodule Reencodarr.AbAv1.HelperTest do
     test "detects streams with attached_pic disposition" do
       file_path = "/media/movie_with_cover.mkv"
 
-      ffprobe_response =
+      ffprobe_with_images =
         Jason.encode!(%{
           "streams" => [
             %{
@@ -86,11 +86,30 @@ defmodule Reencodarr.AbAv1.HelperTest do
           ]
         })
 
+      ffprobe_clean =
+        Jason.encode!(%{
+          "streams" => [
+            %{
+              "codec_name" => "hevc",
+              "codec_type" => "video",
+              "disposition" => %{"attached_pic" => 0}
+            }
+          ]
+        })
+
+      counter = :counters.new(1, [:atomics])
       :meck.new(System, [:passthrough])
 
       :meck.expect(System, :cmd, fn
-        "ffprobe", _, _ -> {ffprobe_response, 0}
-        "mkvpropedit", _, _ -> {"Done.\n", 0}
+        "ffprobe", _, _ ->
+          :counters.add(counter, 1, 1)
+
+          if :counters.get(counter, 1) == 1,
+            do: {ffprobe_with_images, 0},
+            else: {ffprobe_clean, 0}
+
+        "mkvpropedit", _, _ ->
+          {"Done.\n", 0}
       end)
 
       assert {:ok, ^file_path} = Helper.clean_attachments(file_path)
@@ -135,7 +154,7 @@ defmodule Reencodarr.AbAv1.HelperTest do
     test "calls mkvpropedit in-place for MKV with image attachments" do
       file_path = "/media/movie.mkv"
 
-      ffprobe_response =
+      ffprobe_with_images =
         Jason.encode!(%{
           "streams" => [
             %{
@@ -152,11 +171,30 @@ defmodule Reencodarr.AbAv1.HelperTest do
           ]
         })
 
+      ffprobe_clean =
+        Jason.encode!(%{
+          "streams" => [
+            %{
+              "codec_name" => "hevc",
+              "codec_type" => "video",
+              "disposition" => %{"attached_pic" => 0}
+            }
+          ]
+        })
+
+      counter = :counters.new(1, [:atomics])
       :meck.new(System, [:passthrough])
 
       :meck.expect(System, :cmd, fn
-        "ffprobe", _, _ -> {ffprobe_response, 0}
-        "mkvpropedit", [^file_path | _], _ -> {"Done.\n", 0}
+        "ffprobe", _, _ ->
+          :counters.add(counter, 1, 1)
+
+          if :counters.get(counter, 1) == 1,
+            do: {ffprobe_with_images, 0},
+            else: {ffprobe_clean, 0}
+
+        "mkvpropedit", [^file_path | _], _ ->
+          {"Done.\n", 0}
       end)
 
       assert {:ok, ^file_path} = Helper.clean_attachments(file_path)
@@ -171,7 +209,7 @@ defmodule Reencodarr.AbAv1.HelperTest do
     test "does not create temp files for MKV attachment-only case" do
       file_path = "/media/movie.MKV"
 
-      ffprobe_response =
+      ffprobe_with_images =
         Jason.encode!(%{
           "streams" => [
             %{"codec_name" => "hevc", "codec_type" => "video"},
@@ -184,11 +222,30 @@ defmodule Reencodarr.AbAv1.HelperTest do
           ]
         })
 
+      ffprobe_clean =
+        Jason.encode!(%{
+          "streams" => [
+            %{
+              "codec_name" => "hevc",
+              "codec_type" => "video",
+              "disposition" => %{"attached_pic" => 0}
+            }
+          ]
+        })
+
+      counter = :counters.new(1, [:atomics])
       :meck.new(System, [:passthrough])
 
       :meck.expect(System, :cmd, fn
-        "ffprobe", _, _ -> {ffprobe_response, 0}
-        "mkvpropedit", _, _ -> {"Done.\n", 0}
+        "ffprobe", _, _ ->
+          :counters.add(counter, 1, 1)
+
+          if :counters.get(counter, 1) == 1,
+            do: {ffprobe_with_images, 0},
+            else: {ffprobe_clean, 0}
+
+        "mkvpropedit", _, _ ->
+          {"Done.\n", 0}
       end)
 
       {:ok, result_path} = Helper.clean_attachments(file_path)

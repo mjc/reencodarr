@@ -107,13 +107,30 @@ defmodule Reencodarr.AbAv1.Helper do
 
   @spec parse_attached_pictures(String.t()) :: {:ok, list(map())}
   defp parse_attached_pictures(output) do
-    case Jason.decode(output) do
-      {:ok, %{"streams" => streams}} ->
-        pics = Enum.filter(streams, &attached_picture?/1)
-        {:ok, pics}
+    case extract_ffprobe_json(output) do
+      {:ok, json} ->
+        case Jason.decode(json) do
+          {:ok, %{"streams" => streams}} ->
+            pics = Enum.filter(streams, &attached_picture?/1)
+            {:ok, pics}
 
-      _ ->
+          _ ->
+            {:ok, []}
+        end
+
+      :error ->
         {:ok, []}
+    end
+  end
+
+  defp extract_ffprobe_json(output) do
+    case :binary.match(output, "{") do
+      {idx, _len} ->
+        json = binary_part(output, idx, byte_size(output) - idx) |> String.trim()
+        {:ok, json}
+
+      :nomatch ->
+        :error
     end
   end
 
@@ -135,23 +152,42 @@ defmodule Reencodarr.AbAv1.Helper do
 
   @spec clean_mkv_in_place(String.t(), list(map())) :: {:ok, String.t()}
   defp clean_mkv_in_place(file_path, attached_pics) do
-    # Step 1: Delete image attachments via mkvpropedit (in-place, fast)
-    delete_image_attachments(file_path)
-
-    # Step 2: Check if any are actual MJPEG video tracks (not just attachments)
     has_mjpeg_tracks =
       Enum.any?(attached_pics, fn s ->
         s["codec_type"] == "video" and s["codec_name"] == "mjpeg" and
           get_in(s, ["disposition", "attached_pic"]) != 1
       end)
 
-    if has_mjpeg_tracks do
-      # mkvpropedit can't delete tracks — fall back to ffmpeg remux
-      Logger.info("Found MJPEG video tracks in #{file_path}, using ffmpeg remux")
-      clean_via_ffmpeg_remux(file_path)
-    else
-      Logger.info("Successfully cleaned image attachments from #{file_path} (in-place)")
-      {:ok, file_path}
+    # Step 1: Delete image attachments via mkvpropedit (in-place, fast)
+    delete_image_attachments(file_path)
+
+    case detect_attached_pictures(file_path) do
+      {:ok, []} when has_mjpeg_tracks ->
+        # mkvpropedit only handles attachments, not real tracks.
+        Logger.info("Found MJPEG video tracks in #{file_path}, using ffmpeg remux")
+        clean_via_ffmpeg_remux(file_path)
+
+      {:ok, []} ->
+        Logger.info("Successfully cleaned image attachments from #{file_path} (in-place)")
+        {:ok, file_path}
+
+      {:ok, remaining} ->
+        Logger.warning(
+          "mkvpropedit left #{length(remaining)} image stream(s) in #{file_path}; falling back to ffmpeg remux"
+        )
+
+        clean_via_ffmpeg_remux(file_path)
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to verify MKV attachment cleanup for #{file_path}: #{inspect(reason)}"
+        )
+
+        if has_mjpeg_tracks do
+          clean_via_ffmpeg_remux(file_path)
+        else
+          {:ok, file_path}
+        end
     end
   end
 
