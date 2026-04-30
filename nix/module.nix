@@ -123,6 +123,18 @@ in {
       default = "reencodarr";
     };
 
+    nice = mkOption {
+      type = types.int;
+      default = 19;
+      description = "CPU niceness for the Reencodarr service.";
+    };
+
+    ioSchedulingClass = mkOption {
+      type = types.enum ["realtime" "best-effort" "idle"];
+      default = "idle";
+      description = "I/O scheduling class for the Reencodarr service.";
+    };
+
     openFirewall = mkOption {
       type = types.bool;
       default = false;
@@ -196,6 +208,8 @@ in {
         Group = cfg.group;
         WorkingDirectory = cfg.dataDir;
         LoadCredential = lib.optional (cfg.secretKeyBaseFile != null) "secret_key_base:${cfg.secretKeyBaseFile}";
+        Nice = cfg.nice;
+        IOSchedulingClass = cfg.ioSchedulingClass;
         Restart = "on-failure";
         RestartSec = 5;
       };
