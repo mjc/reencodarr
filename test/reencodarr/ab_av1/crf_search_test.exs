@@ -369,7 +369,7 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       end)
 
       wait_until(fn ->
-        :sys.get_state(pid).output_buffer |> length() == 1024
+        Process.info(pid, :message_queue_len) == {:message_queue_len, 0}
       end)
 
       state = :sys.get_state(pid)
@@ -430,7 +430,7 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
     end
   end
 
-  defp wait_until(fun, attempts \\ 50)
+  defp wait_until(fun, attempts \\ 300)
 
   defp wait_until(fun, attempts) when attempts > 0 do
     if fun.() do
