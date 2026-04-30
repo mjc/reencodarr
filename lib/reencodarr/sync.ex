@@ -168,7 +168,7 @@ defmodule Reencodarr.Sync do
        ) do
     files_written = write_item_files(files, service_type, library_mappings)
 
-    Logger.debug(
+    Logger.info(
       "Sync: Item #{inspect(item_id)} fetched #{length(files)} files, wrote #{files_written} files"
     )
 

@@ -366,10 +366,10 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
         Enum.each(1..1100, fn index ->
           send(pid, {CrfSearcher, {:line, "unmatched output line #{index}"}})
         end)
+      end)
 
-        wait_until(fn ->
-          :sys.get_state(pid).output_buffer |> length() == 1024
-        end)
+      wait_until(fn ->
+        :sys.get_state(pid).output_buffer |> length() == 1024
       end)
 
       state = :sys.get_state(pid)
