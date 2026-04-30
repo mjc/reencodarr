@@ -368,11 +368,7 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
         end)
       end)
 
-      wait_until(fn ->
-        Process.info(pid, :message_queue_len) == {:message_queue_len, 0}
-      end)
-
-      state = :sys.get_state(pid)
+      state = :sys.get_state(pid, 20_000)
       assert length(state.output_buffer) == 1024
       assert hd(state.output_buffer) == "unmatched output line 1100"
       assert "unmatched output line 1" in state.output_buffer
@@ -396,9 +392,8 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
 
       send(pid, {CrfSearcher, {:partial, String.duplicate("a", 20_000)}})
 
-      wait_until(fn ->
-        byte_size(:sys.get_state(pid).partial_line_buffer) == 16_384
-      end)
+      state = :sys.get_state(pid, 20_000)
+      assert byte_size(state.partial_line_buffer) == 16_384
 
       assert CrfSearch.get_state().partial_line_buffer_bytes == 16_384
     end
@@ -429,19 +424,6 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       assert CrfSearch.available?() == :busy
     end
   end
-
-  defp wait_until(fun, attempts \\ 300)
-
-  defp wait_until(fun, attempts) when attempts > 0 do
-    if fun.() do
-      :ok
-    else
-      Process.sleep(10)
-      wait_until(fun, attempts - 1)
-    end
-  end
-
-  defp wait_until(_fun, 0), do: flunk("condition was not met before timeout")
 
   describe "crf_search/2 guard clauses" do
     test "returns :error for video with nil id" do
