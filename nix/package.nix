@@ -22,6 +22,13 @@
         substituteInPlace libavcodec/libsvtav1.c \
           --replace-fail "param->enable_adaptive_quantization = 0;" ""
       '';
+
+    preConfigure =
+      (old.preConfigure or "")
+      + ''
+        export TMPDIR="/tmp/ffmpeg-configure-tmp"
+        mkdir -p "$TMPDIR"
+      '';
   });
 
   erlang = beam_minimal.interpreters.erlang_28;
@@ -84,6 +91,18 @@ in
 
     postInstall = ''
       wrapProgram "$out/bin/reencodarr" \
+        --run '
+          if [ -z "''${TZDATA_DATA_DIR:-}" ]; then
+            if [ -n "''${REENCODARR_DATA_DIR:-}" ]; then
+              export TZDATA_DATA_DIR="$REENCODARR_DATA_DIR/tzdata"
+            elif [ -n "''${HOME:-}" ]; then
+              export TZDATA_DATA_DIR="$HOME/tzdata"
+            else
+              export TZDATA_DATA_DIR=/tmp/elixir_tzdata
+            fi
+          fi
+          mkdir -p "$TZDATA_DATA_DIR"
+        ' \
         --prefix PATH : "${runtimePath}"
     '';
 

@@ -13,6 +13,7 @@
       PHX_HOST = cfg.host;
       PORT = toString cfg.port;
       DATABASE_PATH = cfg.databasePath;
+      REENCODARR_DATA_DIR = toString cfg.dataDir;
     }
     // cfg.extraEnvironment;
 
@@ -24,7 +25,7 @@
       set +a
     ''}
     ${lib.optionalString (cfg.secretKeyBaseFile != null) ''
-      export SECRET_KEY_BASE="$(< ${cfg.secretKeyBaseFile})"
+      export SECRET_KEY_BASE="$(< "$CREDENTIALS_DIRECTORY/secret_key_base")"
     ''}
   '';
 
@@ -39,6 +40,45 @@
     . ${envScript}
     exec ${lib.getExe cfg.package} start
   '';
+
+  remoteScript = pkgs.writeShellApplication {
+    name = "reencodarr-remote";
+    runtimeInputs = [pkgs.systemd];
+    text = ''
+      exec systemd-run \
+        --quiet \
+        --wait \
+        --collect \
+        --pty \
+        --uid=${cfg.user} \
+        --gid=${cfg.group} \
+        --working-directory=${cfg.dataDir} \
+        --setenv=REENCODARR_DATA_DIR=${cfg.dataDir} \
+        ${lib.getExe cfg.package} remote
+    '';
+  };
+
+  rpcScript = pkgs.writeShellApplication {
+    name = "reencodarr-rpc";
+    runtimeInputs = [pkgs.systemd];
+    text = ''
+      if [ "$#" -eq 0 ]; then
+        echo "usage: reencodarr-rpc 'Elixir.expression()'" >&2
+        exit 64
+      fi
+
+      exec systemd-run \
+        --quiet \
+        --wait \
+        --collect \
+        --pipe \
+        --uid=${cfg.user} \
+        --gid=${cfg.group} \
+        --working-directory=${cfg.dataDir} \
+        --setenv=REENCODARR_DATA_DIR=${cfg.dataDir} \
+        ${lib.getExe cfg.package} rpc "$@"
+    '';
+  };
 in {
   options.services.reencodarr = {
     enable = mkEnableOption "Reencodarr";
@@ -136,6 +176,11 @@ in {
       "d ${builtins.dirOf cfg.databasePath} 0750 ${cfg.user} ${cfg.group} - -"
     ];
 
+    environment.systemPackages = [
+      remoteScript
+      rpcScript
+    ];
+
     systemd.services.reencodarr = {
       description = "Reencodarr";
       wantedBy = ["multi-user.target"];
@@ -150,6 +195,7 @@ in {
         User = cfg.user;
         Group = cfg.group;
         WorkingDirectory = cfg.dataDir;
+        LoadCredential = lib.optional (cfg.secretKeyBaseFile != null) "secret_key_base:${cfg.secretKeyBaseFile}";
         Restart = "on-failure";
         RestartSec = 5;
       };
