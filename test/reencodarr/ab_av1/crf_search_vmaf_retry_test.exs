@@ -246,6 +246,56 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
     end
   end
 
+  describe "partially reduced target retries again" do
+    setup do
+      setup_meck()
+      {:ok, _pid} = CrfSearch.start_link([])
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/movies/partially_reduced.mkv",
+          height: 1080,
+          width: 1920,
+          state: :analyzed,
+          size: 2_147_483_648
+        })
+
+      # Simulates a previous 95 -> 94 retry marker still being present.
+      {:ok, _failure} =
+        VideoFailure.record_failure(video, :crf_search, :vmaf_calculation,
+          code: "VMAF_CALC",
+          message: "Prior target reduction retry marker"
+        )
+
+      %{video: video}
+    end
+
+    test "target 94 can still retry to target 93 when retry budget remains", %{video: video} do
+      capture_log(fn ->
+        test_pid = self()
+        original_target = Rules.vmaf_target(video)
+        partially_reduced_target = original_target - 1
+        _call_count = mock_port_failure(test_pid)
+
+        GenServer.cast(CrfSearch, {:crf_search, video, partially_reduced_target})
+        Process.sleep(1200)
+
+        assert_received {:open_port_call, 1, first_args}
+        assert find_arg(first_args, "--min-vmaf") == Integer.to_string(partially_reduced_target)
+        assert find_arg(first_args, "--min-crf") == "5"
+        assert find_arg(first_args, "--max-crf") == "70"
+
+        assert_received {:open_port_call, 2, retry_args}
+        assert find_arg(retry_args, "--min-vmaf") == Integer.to_string(original_target - 2)
+        assert find_arg(retry_args, "--min-crf") == "5"
+        assert find_arg(retry_args, "--max-crf") == "70"
+
+        assert_received :marked_as_failed
+        refute_received {:open_port_call, 3, _}
+      end)
+    end
+  end
+
   describe "narrowed range retry takes precedence" do
     setup do
       setup_meck()
