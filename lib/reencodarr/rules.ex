@@ -397,8 +397,9 @@ defmodule Reencodarr.Rules do
   @doc """
   The lowest VMAF target we'll accept after retry reduction.
 
-  Always 1 point below `vmaf_target/1` for the same video — this caps
-  the retry cascade at a single 1-point reduction.
+  Up to 2 points below `vmaf_target/1` for the same video, with an
+  absolute floor of 90. This gives CRF search room to recover when a
+  source misses the initial target by a small amount.
 
   ## Examples
 
@@ -409,5 +410,5 @@ defmodule Reencodarr.Rules do
       94
   """
   @spec min_vmaf_target(map()) :: integer()
-  def min_vmaf_target(video), do: vmaf_target(video) - 1
+  def min_vmaf_target(video), do: max(90, vmaf_target(video) - 2)
 end

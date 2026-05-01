@@ -16,7 +16,7 @@ defmodule Reencodarr.RulesPropertyTest do
   @moduletag :property
 
   @valid_vmaf_targets [91, 92, 94, 95]
-  @valid_min_vmaf_targets [90, 91, 93, 94]
+  @valid_min_vmaf_targets [90, 92, 93]
 
   # Generator for non-negative video sizes (0 to ~186 GiB)
   defp video_size_gen do
@@ -76,10 +76,10 @@ defmodule Reencodarr.RulesPropertyTest do
   end
 
   describe "min_vmaf_target/1 properties" do
-    property "is always exactly 1 below vmaf_target" do
+    property "is up to 2 below vmaf_target with floor of 90" do
       check all(size <- video_size_gen()) do
         video = %{size: size}
-        assert Rules.min_vmaf_target(video) == Rules.vmaf_target(video) - 1
+        assert Rules.min_vmaf_target(video) == max(90, Rules.vmaf_target(video) - 2)
       end
     end
 

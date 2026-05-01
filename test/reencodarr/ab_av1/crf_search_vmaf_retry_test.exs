@@ -9,7 +9,8 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
   Retry cascade:
     1. narrowed range + original target  → retry with standard range {5,70} + same target
     2. standard range + original target  → retry with standard range {5,70} + target - 1
-    3. standard range + reduced target   → final failure
+    3. standard range + reduced target   → retry with standard range {5,70} + target - 2
+    4. standard range + minimum target   → final failure
 
   Hard stop: when @max_crf_search_retries (3) unresolved crf_search failures already
   exist for the video, any further failure immediately records a final failure and
@@ -177,7 +178,7 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
       %{video: video}
     end
 
-    test "retries with target - 1 on CRF optimization error", %{video: video} do
+    test "keeps lowering target until min_vmaf_target on CRF optimization error", %{video: video} do
       capture_log(fn ->
         test_pid = self()
         original_target = Rules.vmaf_target(video)
@@ -198,9 +199,15 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
         assert find_arg(retry_args, "--min-crf") == "5"
         assert find_arg(retry_args, "--max-crf") == "70"
 
-        # Second attempt fails → final failure (target already reduced)
+        # Third call: standard range, minimum reduced target
+        assert_received {:open_port_call, 3, min_target_args}
+        assert find_arg(min_target_args, "--min-vmaf") == Integer.to_string(original_target - 2)
+        assert find_arg(min_target_args, "--min-crf") == "5"
+        assert find_arg(min_target_args, "--max-crf") == "70"
+
+        # Third attempt fails → final failure (target is at min_vmaf_target)
         assert_received :marked_as_failed
-        refute_received {:open_port_call, 3, _}
+        refute_received {:open_port_call, 4, _}
       end)
     end
   end
@@ -302,9 +309,15 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
         assert find_arg(reduced_args, "--max-crf") == "70"
         assert find_arg(reduced_args, "--min-vmaf") == Integer.to_string(original_target - 1)
 
-        # Third attempt fails → final failure (target already reduced)
+        # Call 4: standard range, minimum reduced target
+        assert_received {:open_port_call, 4, min_target_args}
+        assert find_arg(min_target_args, "--min-crf") == "5"
+        assert find_arg(min_target_args, "--max-crf") == "70"
+        assert find_arg(min_target_args, "--min-vmaf") == Integer.to_string(original_target - 2)
+
+        # Fourth attempt fails → final failure (target is at min_vmaf_target)
         assert_received :marked_as_failed
-        refute_received {:open_port_call, 4, _}
+        refute_received {:open_port_call, 5, _}
       end)
     end
   end

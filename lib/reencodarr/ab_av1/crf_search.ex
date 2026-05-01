@@ -731,7 +731,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       CrfSearchHints.narrowed_range?(crf_range) ->
         {:retry_wider_range}
 
-      crf_optimization_error?(output_lines) and target_vmaf >= Reencodarr.Rules.vmaf_target(video) ->
+      crf_optimization_error?(output_lines) and
+          target_vmaf > Reencodarr.Rules.min_vmaf_target(video) ->
         {:retry_lower_target, target_vmaf - 1}
 
       true ->
