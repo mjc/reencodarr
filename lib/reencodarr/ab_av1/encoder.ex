@@ -19,6 +19,7 @@ defmodule Reencodarr.AbAv1.Encoder do
   require Logger
 
   @max_buffered_lines 1024
+  @completed_without_subscriber_ttl_ms 100
 
   # ---------------------------------------------------------------------------
   # Public API
@@ -131,7 +132,8 @@ defmodule Reencodarr.AbAv1.Encoder do
            os_pid: os_pid,
            metadata: metadata,
            output_lines: [],
-           subscriber: nil
+           subscriber: nil,
+           pending_exit_status: nil
          }}
 
       {:error, reason} ->
@@ -147,6 +149,11 @@ defmodule Reencodarr.AbAv1.Encoder do
     count = length(buffered)
     Enum.each(buffered, fn msg -> send(pid, msg) end)
     Logger.debug("Encoder: subscribed #{inspect(pid)}, replayed #{count} lines")
+
+    if state.pending_exit_status do
+      Process.send_after(self(), :deliver_pending_exit_status, 0)
+    end
+
     {:reply, {:ok, count}, %{state | subscriber: pid}}
   end
 
@@ -197,8 +204,7 @@ defmodule Reencodarr.AbAv1.Encoder do
   def handle_info({port, {:exit_status, code}}, %{port: port} = state) do
     Logger.info("Encoder: port exited with status #{code}")
     msg = {__MODULE__, {:exit_status, code}}
-    if state.subscriber, do: send(state.subscriber, msg)
-    {:stop, :normal, state}
+    handle_port_exit_message(state, msg)
   end
 
   # Port closed / died without exit_status (safety net)
@@ -206,8 +212,7 @@ defmodule Reencodarr.AbAv1.Encoder do
   def handle_info({:EXIT, port, reason}, %{port: port} = state) do
     Logger.error("Encoder: port died unexpectedly: #{inspect(reason)}")
     msg = {__MODULE__, {:exit_status, {:port_died, reason}}}
-    if state.subscriber, do: send(state.subscriber, msg)
-    {:stop, :normal, state}
+    handle_port_exit_message(state, msg)
   end
 
   # Normal port EXIT after exit_status already handled — ignore
@@ -217,9 +222,43 @@ defmodule Reencodarr.AbAv1.Encoder do
   end
 
   @impl true
+  def handle_info(:stop_completed_without_subscriber, %{subscriber: nil} = state) do
+    {:stop, :normal, state}
+  end
+
+  def handle_info(:stop_completed_without_subscriber, state) do
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info(:deliver_pending_exit_status, %{pending_exit_status: nil} = state) do
+    {:noreply, state}
+  end
+
+  def handle_info(:deliver_pending_exit_status, state) do
+    if state.subscriber, do: send(state.subscriber, state.pending_exit_status)
+    {:stop, :normal, %{state | pending_exit_status: nil}}
+  end
+
+  @impl true
   def handle_info(msg, state) do
     Logger.warning("Encoder: unexpected message: #{inspect(msg)}")
     {:noreply, state}
+  end
+
+  defp handle_port_exit_message(state, msg) do
+    if state.subscriber do
+      send(state.subscriber, msg)
+      {:stop, :normal, state}
+    else
+      Process.send_after(
+        self(),
+        :stop_completed_without_subscriber,
+        @completed_without_subscriber_ttl_ms
+      )
+
+      {:noreply, %{state | pending_exit_status: msg}}
+    end
   end
 
   # :normal  → port exited naturally or kill() already cleaned up

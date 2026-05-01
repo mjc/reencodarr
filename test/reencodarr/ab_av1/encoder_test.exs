@@ -77,4 +77,51 @@ defmodule Reencodarr.AbAv1.EncoderTest do
       assert :ok = Encoder.kill()
     end
   end
+
+  describe "pending exit status replay" do
+    test "keeps an exit status briefly when the subscriber arrives late" do
+      port = Port.open({:spawn, "cat"}, [:binary, :exit_status])
+
+      state = %{
+        port: port,
+        os_pid: nil,
+        metadata: %{},
+        output_lines: [],
+        subscriber: nil,
+        pending_exit_status: nil
+      }
+
+      assert {:noreply, pending_state} =
+               Encoder.handle_info({port, {:exit_status, 7}}, state)
+
+      assert pending_state.pending_exit_status == {Encoder, {:exit_status, 7}}
+
+      assert {:reply, {:ok, 0}, subscribed_state} =
+               Encoder.handle_call({:subscribe, self()}, {self(), make_ref()}, pending_state)
+
+      assert subscribed_state.subscriber == self()
+
+      assert {:stop, :normal, stopped_state} =
+               Encoder.handle_info(:deliver_pending_exit_status, subscribed_state)
+
+      assert stopped_state.pending_exit_status == nil
+      assert_received {Encoder, {:exit_status, 7}}
+
+      Port.close(port)
+    end
+
+    test "stops completed encoders that never receive a subscriber" do
+      state = %{
+        port: nil,
+        os_pid: nil,
+        metadata: %{},
+        output_lines: [],
+        subscriber: nil,
+        pending_exit_status: {Encoder, {:exit_status, 0}}
+      }
+
+      assert {:stop, :normal, ^state} =
+               Encoder.handle_info(:stop_completed_without_subscriber, state)
+    end
+  end
 end

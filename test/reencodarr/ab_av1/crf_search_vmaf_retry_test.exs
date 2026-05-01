@@ -23,6 +23,7 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
   alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.AbAv1.CrfSearcher
   alias Reencodarr.AbAv1.Helper
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
   alias Reencodarr.Media.VideoFailure
   alias Reencodarr.Rules
@@ -180,6 +181,7 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
 
     test "keeps lowering target until min_vmaf_target on CRF optimization error", %{video: video} do
       capture_log(fn ->
+        Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
         test_pid = self()
         original_target = Rules.vmaf_target(video)
         _call_count = mock_port_failure(test_pid)
@@ -194,6 +196,12 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
         assert find_arg(first_args, "--max-crf") == "70"
 
         # Second call: standard range, reduced target
+        assert_received {:crf_search_completed,
+                         %{video_id: video_id, result: {:retry, retry_target}}}
+
+        assert video_id == video.id
+        assert retry_target == original_target - 1
+
         assert_received {:open_port_call, 2, retry_args}
         assert find_arg(retry_args, "--min-vmaf") == Integer.to_string(original_target - 1)
         assert find_arg(retry_args, "--min-crf") == "5"
@@ -231,6 +239,7 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
 
     test "no retry when target is already below vmaf_target", %{video: video} do
       capture_log(fn ->
+        Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
         test_pid = self()
         reduced_target = Rules.min_vmaf_target(video)
         _call_count = mock_port_failure(test_pid)
@@ -241,8 +250,99 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
         # Only one call — no retry
         assert_received {:open_port_call, 1, _args}
         assert_received :marked_as_failed
+        assert_received {:crf_search_completed, %{video_id: video_id, result: {:error, :failed}}}
+        assert video_id == video.id
         refute_received {:open_port_call, 2, _}
       end)
+    end
+  end
+
+  describe "successful CRF search without a chosen VMAF" do
+    setup do
+      setup_meck()
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/movies/auto_choose_vmaf.mkv",
+          height: 1080,
+          width: 1920,
+          state: :crf_searching,
+          size: 2_147_483_648
+        })
+
+      %{video: video}
+    end
+
+    test "auto-selects the best VMAF and marks the video crf_searched", %{video: video} do
+      target = Rules.vmaf_target(video)
+
+      larger_vmaf =
+        Fixtures.vmaf_fixture(%{
+          video_id: video.id,
+          crf: 18.0,
+          score: target + 1.0,
+          percent: 82.0
+        })
+
+      smaller_qualifying_vmaf =
+        Fixtures.vmaf_fixture(%{
+          video_id: video.id,
+          crf: 22.0,
+          score: target * 1.0,
+          percent: 74.0
+        })
+
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+
+      state = %{
+        current_task: %{video: video, args: [], target_vmaf: target, crf_range: {5, 70}},
+        partial_line_buffer: "",
+        output_buffer: [],
+        searcher_monitor: nil,
+        os_pid: nil
+      }
+
+      assert {:noreply, clean_state} =
+               CrfSearch.handle_info({CrfSearcher, {:exit_status, 0}}, state)
+
+      assert clean_state.current_task == :none
+
+      reloaded = Repo.get!(Media.Video, video.id)
+      assert reloaded.state == :crf_searched
+      assert reloaded.chosen_vmaf_id == smaller_qualifying_vmaf.id
+      refute reloaded.chosen_vmaf_id == larger_vmaf.id
+
+      assert_received {:crf_search_completed, %{video_id: video_id, result: :ok}}
+      assert video_id == video.id
+    end
+
+    test "marks failed and broadcasts an error when success produced no VMAFs", %{video: video} do
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+
+      state = %{
+        current_task: %{
+          video: video,
+          args: [],
+          target_vmaf: Rules.vmaf_target(video),
+          crf_range: {5, 70}
+        },
+        partial_line_buffer: "",
+        output_buffer: [],
+        searcher_monitor: nil,
+        os_pid: nil
+      }
+
+      assert {:noreply, clean_state} =
+               CrfSearch.handle_info({CrfSearcher, {:exit_status, 0}}, state)
+
+      assert clean_state.current_task == :none
+
+      assert Repo.get!(Media.Video, video.id).state == :failed
+
+      assert_received {:crf_search_completed,
+                       %{video_id: video_id, result: {:error, :no_vmaf_results}}}
+
+      assert video_id == video.id
     end
   end
 

@@ -169,6 +169,39 @@ defmodule Reencodarr.PostProcessorTest do
       failures = Media.get_video_failures(video.id)
       assert failures != []
     end
+
+    test "final rename failure does not mark video encoded and leaves intermediate file", %{
+      tmp: tmp
+    } do
+      video_path = Path.join(tmp, "blocked_final.mkv")
+      output_file = Path.join(tmp, "blocked_output.mkv")
+
+      File.mkdir_p!(video_path)
+      File.write!(output_file, "encoded")
+
+      {:ok, video} = Fixtures.video_fixture(%{path: video_path, size: 8, state: :encoding})
+      intermediate_path = Reencodarr.FileOperations.calculate_intermediate_path(video)
+
+      log =
+        capture_log(fn ->
+          assert {:error, :failed_to_finalize} =
+                   PostProcessor.process_encoding_success(video, output_file)
+        end)
+
+      refute File.exists?(output_file)
+      assert File.exists?(intermediate_path)
+      assert File.dir?(video_path)
+
+      updated = Media.get_video!(video.id)
+      assert updated.state == :failed
+      refute updated.state == :encoded
+
+      [failure | _] = Media.get_video_failures(video.id)
+      assert failure.failure_stage == :post_process
+      assert failure.failure_category == :file_operations
+      assert failure.failure_code == "FILE_OP_FINALIZE"
+      assert log =~ "Failed to finalize"
+    end
   end
 
   # ---------------------------------------------------------------------------

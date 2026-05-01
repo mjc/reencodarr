@@ -20,11 +20,17 @@ defmodule Reencodarr.PostProcessor do
     with :ok <- verify_encoded_output(video, output_file),
          intermediate_path = FileOperations.calculate_intermediate_path(video),
          _ = store_original_size(video),
-         {:ok, actual_path} <- move_to_intermediate(output_file, intermediate_path, video) do
-      process_intermediate_success(video, actual_path)
+         {:ok, actual_path} <- move_to_intermediate(output_file, intermediate_path, video),
+         {:ok, _sync_result} <- process_intermediate_success(video, actual_path) do
       {:ok, :success}
     else
       {:error, :failed_to_move_to_intermediate} = error ->
+        error
+
+      {:error, :failed_to_finalize} = error ->
+        error
+
+      {:error, :failed_to_mark_encoded} = error ->
         error
 
       {:error, reason} ->
@@ -91,11 +97,18 @@ defmodule Reencodarr.PostProcessor do
     case Repo.reload(video) do
       nil ->
         Logger.error(
-          "Failed to reload video #{video.id}: Video not found. Still attempting sync."
+          "Failed to reload video #{video.id}: Video not found. Keeping encoded output at #{actual_path}."
         )
 
-        # File was moved successfully, still try to notify Sonarr with original video data
-        finalize_and_sync(video, actual_path)
+        Reencodarr.FailureTracker.record_file_operation_failure(
+          video,
+          :finalize,
+          actual_path,
+          video.path,
+          :video_missing
+        )
+
+        {:error, :failed_to_finalize}
 
       reloaded ->
         process_reloaded_video(reloaded, actual_path)
@@ -105,40 +118,63 @@ defmodule Reencodarr.PostProcessor do
   @spec process_reloaded_video(any(), String.t()) :: {:ok, String.t()} | {:error, any()}
 
   defp process_reloaded_video(video, actual_path) do
-    case Media.mark_as_reencoded(video) do
-      {:ok, updated_video} ->
-        Logger.info("Successfully marked video #{video.id} as re-encoded")
-        finalize_and_sync(updated_video, actual_path)
+    with :ok <- finalize_encoded_file(video, actual_path),
+         {:ok, updated_video} <- mark_finalized_video_as_encoded(video) do
+      update_encoded_file_size(updated_video)
+      spawn_refresh_and_rename_task(updated_video)
+    else
+      {:error, :failed_to_finalize} = error ->
+        error
 
-      {:error, reason} ->
-        Logger.error(
-          "Failed to mark video #{video.id} as re-encoded: #{inspect(reason)}. Still attempting sync."
-        )
-
-        # DB update failed but file was moved, still try to finalize and notify Sonarr
-        finalize_and_sync(video, actual_path)
+      {:error, _reason} ->
+        {:error, :failed_to_mark_encoded}
     end
   end
 
-  @spec finalize_and_sync(any(), String.t()) :: {:ok, binary()} | {:error, any()}
+  @spec finalize_encoded_file(any(), String.t()) :: :ok | {:error, :failed_to_finalize}
 
-  defp finalize_and_sync(video, intermediate_path) do
+  defp finalize_encoded_file(video, intermediate_path) do
     case FileOperations.move_file(intermediate_path, video.path, "FinalRename", video) do
       :ok ->
         Logger.info(
           "[FinalRename] Successfully finalized re-encoded file from #{intermediate_path} to #{video.path} for video #{video.id}"
         )
 
-        update_encoded_file_size(video)
+        :ok
 
-      {:error, _reason} ->
+      {:error, reason} ->
         Logger.error(
           "[FinalRename] Failed to finalize re-encoded file from #{intermediate_path} to #{video.path} for video #{video.id}. " <>
-            "The file may remain at #{intermediate_path}. Sync will still be called."
+            "The file may remain at #{intermediate_path}. Marking as failed."
         )
-    end
 
-    spawn_refresh_and_rename_task(video)
+        Reencodarr.FailureTracker.record_file_operation_failure(
+          video,
+          :finalize,
+          intermediate_path,
+          video.path,
+          reason
+        )
+
+        {:error, :failed_to_finalize}
+    end
+  end
+
+  defp mark_finalized_video_as_encoded(video) do
+    case Media.mark_as_reencoded(video) do
+      {:ok, updated_video} ->
+        Logger.info("Successfully marked video #{video.id} as re-encoded")
+        {:ok, updated_video}
+
+      {:error, reason} ->
+        Logger.error("Failed to mark video #{video.id} as re-encoded: #{inspect(reason)}")
+
+        Reencodarr.FailureTracker.record_process_failure(video, 0,
+          context: %{post_process_error: "failed_to_mark_encoded", reason: inspect(reason)}
+        )
+
+        {:error, reason}
+    end
   end
 
   # Update video.size with actual encoded file size so space saved can use actual data

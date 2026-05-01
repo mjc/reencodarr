@@ -329,33 +329,41 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       ) do
     Logger.info("AbAv1: CRF search completed for video #{video.id}")
 
-    try do
-      if Media.vmaf_records_exist?(video) do
-        ensure_chosen_vmaf_and_transition(video, state)
-      else
-        Logger.error(
-          "CRF search completed for video #{video.id} but no VMAF records were created"
-        )
+    result =
+      try do
+        if Media.vmaf_records_exist?(video) do
+          ensure_chosen_vmaf_and_transition(video, state)
+        else
+          Logger.error(
+            "CRF search completed for video #{video.id} but no VMAF records were created"
+          )
 
-        Media.record_video_failure(video, :crf_search, :validation,
-          code: "no_vmaf_results",
-          message: "CRF search process completed but produced no VMAF results",
-          context: %{
-            video_id: video.id,
-            note: "Process exited with status 0 but no output lines were parsed into VMAF records"
-          }
-        )
+          Media.record_video_failure(video, :crf_search, :validation,
+            code: "no_vmaf_results",
+            message: "CRF search process completed but produced no VMAF results",
+            context: %{
+              video_id: video.id,
+              note:
+                "Process exited with status 0 but no output lines were parsed into VMAF records"
+            }
+          )
 
-        Media.mark_as_failed(video)
+          Media.mark_as_failed(video)
+          {:error, :no_vmaf_results}
+        end
+      rescue
+        e ->
+          Logger.error("CrfSearch: Error in exit_status=0 handler: #{Exception.message(e)}",
+            crash_reason: {e, __STACKTRACE__}
+          )
+
+          {:error, :exception}
       end
-    rescue
-      e ->
-        Logger.error("CrfSearch: Error in exit_status=0 handler: #{Exception.message(e)}",
-          crash_reason: {e, __STACKTRACE__}
-        )
-    end
 
-    perform_crf_search_cleanup(state)
+    case result do
+      {:noreply, _state} = reply -> reply
+      cleanup_result -> perform_crf_search_cleanup(state, cleanup_result || :ok)
+    end
   end
 
   # Failure exit
@@ -380,7 +388,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           crash_reason: {e, __STACKTRACE__}
         )
 
-        perform_crf_search_cleanup(state)
+        perform_crf_search_cleanup(state, {:error, :exception})
     end
   end
 
@@ -543,18 +551,32 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     if Media.chosen_vmaf_exists?(video) do
       transition_to_crf_searched(video)
     else
-      Logger.error(
-        "CrfSearch: No chosen VMAF for video #{video.id} after successful CRF search — marking as failed"
-      )
+      choose_best_vmaf_and_transition(video)
+    end
+  end
 
-      Media.record_video_failure(video, :crf_search, :validation,
-        code: "no_chosen_vmaf",
-        message: "CRF search completed but no VMAF was marked as chosen",
-        context: %{video_id: video.id}
-      )
+  defp choose_best_vmaf_and_transition(video) do
+    Logger.warning(
+      "CrfSearch: No chosen VMAF for video #{video.id} after successful CRF search; auto-selecting best candidate"
+    )
 
-      Media.mark_as_failed(video)
-      :ok
+    case Media.choose_best_vmaf(video) do
+      {:ok, _chosen_vmaf} ->
+        transition_to_crf_searched(video)
+
+      {:error, :no_vmafs} ->
+        Logger.error(
+          "CrfSearch: Could not auto-select VMAF for video #{video.id}; no records exist"
+        )
+
+        Media.record_video_failure(video, :crf_search, :validation,
+          code: "no_chosen_vmaf",
+          message: "CRF search completed but no VMAF was marked as chosen",
+          context: %{video_id: video.id}
+        )
+
+        Media.mark_as_failed(video)
+        {:error, :no_chosen_vmaf}
     end
   end
 
@@ -635,10 +657,10 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  defp perform_crf_search_cleanup(%{current_task: %{video: video}} = state) do
+  defp perform_crf_search_cleanup(%{current_task: %{video: video}} = state, result) do
     Events.broadcast_event(:crf_search_completed, %{
       video_id: video.id,
-      result: :ok
+      result: result
     })
 
     if state.searcher_monitor, do: Process.demonitor(state.searcher_monitor, [:flush])
@@ -783,7 +805,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     case Media.mark_as_analyzed(video) do
       {:ok, updated_video} ->
-        {:noreply, clean_state} = perform_crf_search_cleanup(state)
+        {:noreply, clean_state} = perform_crf_search_cleanup(state, {:retry, new_target})
         GenServer.cast(__MODULE__, {:crf_search_retry, updated_video, new_target})
         {:noreply, clean_state}
 
@@ -817,7 +839,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
 
     Media.mark_as_failed(video)
-    perform_crf_search_cleanup(state)
+    perform_crf_search_cleanup(state, {:error, :failed})
   end
 
   def process_line(line, video, args, target_vmaf) do

@@ -405,8 +405,8 @@ defmodule Reencodarr.AbAv1.Encode do
 
   defp prepare_encode_state(vmaf, state) do
     case Media.mark_as_encoding(vmaf.video) do
-      {:ok, _updated_video} ->
-        start_encoder(vmaf, state)
+      {:ok, updated_video} ->
+        start_encoder(%{vmaf | video: updated_video}, state)
 
       {:error, reason} ->
         Logger.error(
@@ -459,6 +459,17 @@ defmodule Reencodarr.AbAv1.Encode do
 
       {:error, reason} ->
         Logger.error("Failed to start Encoder for video #{vmaf.video.id}: #{inspect(reason)}")
+
+        FailureTracker.record_process_failure(vmaf.video, :port_error,
+          context: %{
+            reason: inspect(reason),
+            command: "ab-av1 #{Enum.join(args, " ")}",
+            args: args,
+            output_file: output_file
+          }
+        )
+
+        Producer.dispatch_available()
 
         state
     end

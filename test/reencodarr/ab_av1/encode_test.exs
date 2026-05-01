@@ -240,6 +240,44 @@ defmodule Reencodarr.AbAv1.EncodeTest do
     end
   end
 
+  describe "encoder start failures" do
+    test "records failure and does not leave video stuck in encoding", %{pid: _pid} do
+      :meck.new(Reencodarr.AbAv1.Encoder, [:passthrough])
+
+      on_exit(fn ->
+        try do
+          :meck.unload(Reencodarr.AbAv1.Encoder)
+        rescue
+          ErlangError -> :ok
+        catch
+          :exit, _ -> :ok
+        end
+      end)
+
+      :meck.expect(Reencodarr.AbAv1.Encoder, :start, fn _args, _metadata ->
+        {:error, :enoent}
+      end)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+      video = Fixtures.choose_vmaf(video, vmaf)
+      vmaf = %{vmaf | video: video}
+
+      GenServer.cast(Encode, {:encode, vmaf})
+
+      wait_until(fn ->
+        Media.get_video!(video.id).state == :failed
+      end)
+
+      state = :sys.get_state(Encode)
+      assert state.video == :none
+      assert Encode.available?() == :available
+
+      failures = Media.get_video_failures(video.id)
+      assert [%{failure_stage: :encoding, failure_code: "EXIT_port_error"} | _] = failures
+    end
+  end
+
   describe "partial chunk buffering" do
     test "caps retained output lines", %{pid: pid} do
       {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
