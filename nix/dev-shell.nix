@@ -53,6 +53,7 @@ in
         pkgs.pinentry-curses
         pkgs.ab-av1
         pkgs.mediainfo
+        pkgs.mkvtoolnix
         pkgs.gpac
         pkgs.act
       ]

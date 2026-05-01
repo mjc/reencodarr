@@ -18,7 +18,7 @@ An Elixir/Phoenix web application for bulk video transcoding using the `ab-av1` 
 
 1. **Install Dependencies**:
    - Elixir/Erlang (via asdf, mise, or your package manager)
-   - Required binaries: `ab-av1`, `ffmpeg`, `mediainfo`
+   - Required binaries: `ab-av1`, `ffmpeg`, `mediainfo`, `mkvpropedit`
 
 2. **Setup Application**:
    ```bash

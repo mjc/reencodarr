@@ -40,6 +40,7 @@
     ffmpeg-svt-hdr
     pkgs.gpac
     pkgs.mediainfo
+    pkgs.mkvtoolnix
     pkgs.procps
     pkgs.coreutils
   ];
