@@ -41,6 +41,11 @@ config :reencodarr, Reencodarr.Repo,
 
 config :reencodarr, :temp_dir, Path.join(System.tmp_dir!(), "ab-av1")
 
+config :reencodarr, Reencodarr.AbAv1.ProcessControl,
+  auto_resume_hour: 2,
+  auto_resume_after_ms: 4 * 60 * 60 * 1000,
+  auto_resume_timezone: "America/Denver"
+
 # Configure file exclude patterns for video filtering
 config :reencodarr, :exclude_patterns, [
   # Sample patterns - can be configured per environment
