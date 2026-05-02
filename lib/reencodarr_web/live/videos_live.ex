@@ -908,7 +908,7 @@ defmodule ReencodarrWeb.VideosLive do
                               data-confirm={"Stop #{Path.basename(video.path)}?"}
                               title="Stop job"
                               aria-label="Stop job"
-                              class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-red-800/60 bg-red-950/40 text-[11px] font-semibold leading-none text-red-300 hover:border-red-500 hover:bg-red-900/70 hover:text-white"
+                              class="text-red-500 hover:text-red-400 text-xs font-semibold"
                             >
                               x
                             </button>

@@ -634,7 +634,7 @@ defmodule ReencodarrWeb.DashboardLive do
                 phx-value-stage="crf_search"
                 title="Remove from queue"
                 aria-label="Remove from queue"
-                class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-red-800/60 bg-red-950/40 text-[11px] font-semibold leading-none text-red-300 hover:border-red-500 hover:bg-red-900/70 hover:text-white"
+                class="shrink-0 text-xs font-medium text-red-500 hover:text-red-400"
               >
                 x
               </button>
@@ -744,7 +744,7 @@ defmodule ReencodarrWeb.DashboardLive do
                 phx-value-stage="encoding"
                 title="Remove from queue"
                 aria-label="Remove from queue"
-                class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-red-800/60 bg-red-950/40 text-[11px] font-semibold leading-none text-red-300 hover:border-red-500 hover:bg-red-900/70 hover:text-white"
+                class="shrink-0 text-xs font-medium text-red-500 hover:text-red-400"
               >
                 x
               </button>
@@ -764,26 +764,27 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp active_job_controls(assigns) do
     ~H"""
-    <div class="flex gap-1.5 pt-1">
+    <div class="flex items-center gap-2 pt-1 text-xs">
       <%= if @status == :paused do %>
         <button
           phx-click={@resume_event}
-          class="inline-flex h-7 items-center rounded border border-cyan-700/70 bg-cyan-950/60 px-2.5 text-xs font-medium text-cyan-200 hover:border-cyan-500 hover:bg-cyan-900/70 hover:text-white"
+          class="font-medium text-cyan-400 hover:text-cyan-300"
         >
           Resume
         </button>
       <% else %>
         <button
           phx-click={@suspend_event}
-          class="inline-flex h-7 items-center rounded border border-yellow-700/70 bg-yellow-950/60 px-2.5 text-xs font-medium text-yellow-200 hover:border-yellow-500 hover:bg-yellow-900/70 hover:text-white"
+          class="font-medium text-yellow-400 hover:text-yellow-300"
         >
           Pause
         </button>
       <% end %>
+      <span class="text-gray-700">|</span>
       <button
         phx-click={@fail_event}
         data-confirm="Stop the active job?"
-        class="inline-flex h-7 items-center rounded border border-red-800/70 bg-red-950/60 px-2.5 text-xs font-medium text-red-200 hover:border-red-500 hover:bg-red-900/70 hover:text-white"
+        class="font-medium text-red-500 hover:text-red-400"
       >
         Stop
       </button>
