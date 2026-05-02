@@ -85,6 +85,7 @@ defmodule Reencodarr.AbAv1 do
   @doc false
   def init(:ok) do
     children = [
+      Reencodarr.AbAv1.ProcessControl,
       Reencodarr.AbAv1.Encode
     ]
 

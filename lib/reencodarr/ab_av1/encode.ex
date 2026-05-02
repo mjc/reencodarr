@@ -13,6 +13,7 @@ defmodule Reencodarr.AbAv1.Encode do
   alias Reencodarr.AbAv1.Encoder
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.AbAv1.OutputParser
+  alias Reencodarr.AbAv1.ProcessControl
   alias Reencodarr.Core.Retry
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Encoder.Broadway.Producer
@@ -78,6 +79,38 @@ defmodule Reencodarr.AbAv1.Encode do
     case safe_call(:current_video_id) do
       {:ok, id} when is_integer(id) -> id
       _ -> nil
+    end
+  end
+
+  @spec suspend_current() :: :ok | {:error, term()}
+  def suspend_current do
+    case safe_call(:suspend_current, 5_000) do
+      {:ok, result} -> result
+      error -> error
+    end
+  end
+
+  @spec resume_current() :: :ok | {:error, term()}
+  def resume_current do
+    case safe_call(:resume_current, 5_000) do
+      {:ok, result} -> result
+      error -> error
+    end
+  end
+
+  @spec fail_current() :: :ok | {:error, term()}
+  def fail_current do
+    case safe_call(:fail_current, 5_000) do
+      {:ok, result} -> result
+      error -> error
+    end
+  end
+
+  @spec control_status() :: map() | {:error, :not_running | :timeout}
+  def control_status do
+    case safe_call(:control_status) do
+      {:ok, result} -> result
+      error -> error
     end
   end
 
@@ -156,6 +189,79 @@ defmodule Reencodarr.AbAv1.Encode do
     }
 
     {:reply, debug_state, state}
+  end
+
+  @impl true
+  def handle_call(:control_status, _from, state) do
+    {:reply,
+     %{
+       active?: state.video != :none,
+       suspended?: ProcessControl.suspended?(:encoder),
+       video_id: if(state.video != :none, do: state.video.id, else: nil),
+       os_pid: state.os_pid
+     }, state}
+  end
+
+  @impl true
+  def handle_call(:suspend_current, _from, %{video: :none} = state) do
+    {:reply, {:error, :not_running}, state}
+  end
+
+  def handle_call(:suspend_current, _from, state) do
+    result = Encoder.suspend()
+
+    if result == :ok do
+      ProcessControl.suspend(:encoder)
+      Events.broadcast_event(:process_control_changed, %{service: :encoder, status: :paused})
+    end
+
+    {:reply, result, state}
+  end
+
+  @impl true
+  def handle_call(:resume_current, _from, state) do
+    result = Encoder.resume()
+    ProcessControl.resume(:encoder)
+
+    Events.broadcast_event(:process_control_changed, %{
+      service: :encoder,
+      status: if(state.video == :none, do: :idle, else: :processing)
+    })
+
+    Producer.dispatch_available()
+    {:reply, result, state}
+  end
+
+  @impl true
+  def handle_call(:fail_current, _from, %{video: :none} = state) do
+    {:reply, {:error, :not_running}, state}
+  end
+
+  def handle_call(:fail_current, _from, state) do
+    Logger.warning("Operator requested encode failure for video #{state.video.id}")
+    suspended_before? = ProcessControl.suspended?(:encoder)
+
+    cleanup_monitor(state)
+    Encoder.fail()
+
+    if !suspended_before? do
+      ProcessControl.resume(:encoder)
+    end
+
+    Media.fail_video_by_operator(state.video, :encoding)
+
+    Events.broadcast_event(:encoding_completed, %{
+      video_id: state.video.id,
+      result: {:error, :operator_failed}
+    })
+
+    if suspended_before? do
+      Events.broadcast_event(:process_control_changed, %{service: :encoder, status: :paused})
+    end
+
+    Producer.dispatch_available()
+
+    {:reply, :ok, clear_state(state)}
   end
 
   @impl true

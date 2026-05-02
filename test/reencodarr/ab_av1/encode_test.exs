@@ -74,6 +74,43 @@ defmodule Reencodarr.AbAv1.EncodeTest do
     end
   end
 
+  describe "operator controls" do
+    test "fail_current marks active video failed and clears state", %{pid: pid} do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+      video = Fixtures.choose_vmaf(video, vmaf)
+      {:ok, video} = Media.mark_as_encoding(video)
+      vmaf = %{vmaf | video: video}
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | video: video,
+            vmaf: vmaf,
+            output_file: "/tmp/#{video.id}.mkv",
+            encode_args: ["encode", "--input", video.path],
+            output_lines: [],
+            encoder_monitor: nil,
+            os_pid: nil
+        }
+      end)
+
+      assert :ok = Encode.fail_current()
+      assert Media.get_video!(video.id).state == :failed
+      assert Encode.available?() == :available
+
+      state = :sys.get_state(Encode)
+      assert state.video == :none
+      assert state.vmaf == :none
+    end
+
+    test "suspend and resume return not_running when no encode is active" do
+      assert {:error, :not_running} = Encode.suspend_current()
+      assert {:error, :not_running} = Encode.resume_current()
+      assert {:error, :not_running} = Encode.fail_current()
+    end
+  end
+
   describe "get_state/0" do
     test "returns debug info about current state", %{pid: _pid} do
       state = Encode.get_state()

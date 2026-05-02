@@ -108,6 +108,29 @@ defmodule Reencodarr.AbAv1.Encoder do
     end
   end
 
+  @spec suspend() :: :ok | {:error, :not_running}
+  def suspend do
+    call_if_running(:suspend)
+  end
+
+  @spec resume() :: :ok | {:error, :not_running}
+  def resume do
+    call_if_running(:resume)
+  end
+
+  @spec fail() :: :ok | {:error, :not_running}
+  def fail do
+    call_if_running(:fail, 5_000)
+  end
+
+  @spec suspended?() :: boolean()
+  def suspended? do
+    case call_if_running(:suspended?) do
+      {:ok, value} -> value
+      _ -> false
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # GenServer callbacks
   # ---------------------------------------------------------------------------
@@ -133,7 +156,8 @@ defmodule Reencodarr.AbAv1.Encoder do
            metadata: metadata,
            output_lines: [],
            subscriber: nil,
-           pending_exit_status: nil
+           pending_exit_status: nil,
+           suspended?: false
          }}
 
       {:error, reason} ->
@@ -168,11 +192,53 @@ defmodule Reencodarr.AbAv1.Encoder do
   end
 
   @impl true
+  def handle_call(:kill, _from, %{port: :none} = state) do
+    {:stop, :normal, :ok, state}
+  end
+
+  @impl true
   def handle_call(:kill, _from, state) do
     Logger.info("Encoder: kill() called, killing OS process #{state.os_pid}")
     Helper.kill_os_process(state.os_pid)
     Helper.close_port(state.port)
     {:stop, :normal, :ok, %{state | os_pid: nil, port: :none}}
+  end
+
+  @impl true
+  def handle_call(:suspend, _from, %{port: :none} = state) do
+    {:reply, {:error, :not_running}, state}
+  end
+
+  def handle_call(:suspend, _from, state) do
+    Helper.suspend_os_process_tree(state.os_pid)
+    {:reply, :ok, %{state | suspended?: true}}
+  end
+
+  @impl true
+  def handle_call(:resume, _from, %{port: :none} = state) do
+    {:reply, {:error, :not_running}, state}
+  end
+
+  def handle_call(:resume, _from, state) do
+    Helper.resume_os_process_tree(state.os_pid)
+    {:reply, :ok, %{state | suspended?: false}}
+  end
+
+  @impl true
+  def handle_call(:fail, _from, %{port: :none} = state) do
+    {:stop, :normal, :ok, state}
+  end
+
+  def handle_call(:fail, _from, state) do
+    Logger.info("Encoder: fail() called, terminating OS process #{state.os_pid}")
+    Helper.kill_os_process(state.os_pid)
+    Helper.close_port(state.port)
+    {:stop, :normal, :ok, %{state | os_pid: nil, port: :none, suspended?: false}}
+  end
+
+  @impl true
+  def handle_call(:suspended?, _from, state) do
+    {:reply, state.suspended?, state}
   end
 
   # eol data line from port
@@ -259,6 +325,15 @@ defmodule Reencodarr.AbAv1.Encoder do
 
       {:noreply, %{state | pending_exit_status: msg}}
     end
+  end
+
+  defp call_if_running(message, timeout \\ 1_000) do
+    case GenServer.whereis(__MODULE__) do
+      nil -> {:error, :not_running}
+      server -> GenServer.call(server, message, timeout)
+    end
+  catch
+    :exit, _ -> {:error, :not_running}
   end
 
   # :normal  → port exited naturally or kill() already cleaned up

@@ -18,6 +18,7 @@ defmodule ReencodarrWeb.VideosLive do
 
   use ReencodarrWeb, :live_view
 
+  alias Reencodarr.AbAv1.{CrfSearch, Encode}
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
@@ -350,6 +351,25 @@ defmodule ReencodarrWeb.VideosLive do
   end
 
   @impl true
+  def handle_event("fail_video", %{"id" => id_str}, socket) do
+    result =
+      with {:ok, id} <- Parsers.parse_integer_exact(id_str) do
+        fail_video_by_id(id)
+      end
+
+    case result do
+      :ok ->
+        {:noreply, socket |> put_flash(:info, "Video failed") |> load_data()}
+
+      {:error, :active_mismatch} ->
+        {:noreply, socket |> put_flash(:error, "That video is not the active job") |> load_data()}
+
+      _ ->
+        {:noreply, socket |> put_flash(:error, "Fail failed") |> load_data()}
+    end
+  end
+
+  @impl true
   def handle_event("prioritize_season_visible", %{"id" => id_str}, socket) do
     with {:ok, id} <- Parsers.parse_integer_exact(id_str),
          {:ok, season_dir} <- visible_season_directory(socket.assigns.videos, id) do
@@ -473,6 +493,43 @@ defmodule ReencodarrWeb.VideosLive do
   end
 
   defp queueable_video?(video), do: video.state in @queueable_states
+
+  defp fail_action_video?(video),
+    do: video.state in [:analyzed, :crf_searched, :crf_searching, :encoding]
+
+  defp fail_video_by_id(id) do
+    with {:ok, video} <- Media.fetch_video(id) do
+      fail_video(video)
+    end
+  end
+
+  defp fail_video(%{state: :analyzed} = video) do
+    Media.fail_video_by_operator(video, :crf_search)
+    :ok
+  end
+
+  defp fail_video(%{state: :crf_searched} = video) do
+    Media.fail_video_by_operator(video, :encoding)
+    :ok
+  end
+
+  defp fail_video(%{state: :crf_searching, id: id}) do
+    if CrfSearch.current_video_id() == id do
+      CrfSearch.fail_current()
+    else
+      {:error, :active_mismatch}
+    end
+  end
+
+  defp fail_video(%{state: :encoding, id: id}) do
+    if Encode.current_video_id() == id do
+      Encode.fail_current()
+    else
+      {:error, :active_mismatch}
+    end
+  end
+
+  defp fail_video(_video), do: {:error, :not_fail_actionable}
 
   defp visible_season_directory(videos, id) do
     case Enum.find(videos, &(&1.id == id)) do
@@ -842,6 +899,17 @@ defmodule ReencodarrWeb.VideosLive do
                               class="text-emerald-300 hover:text-emerald-200 text-xs"
                             >
                               prioritize season
+                            </button>
+                          <% end %>
+                          <%= if fail_action_video?(video) do %>
+                            <button
+                              phx-click="fail_video"
+                              phx-value-id={video.id}
+                              data-confirm={"Fail #{Path.basename(video.path)}?"}
+                              title="Fail this job"
+                              class="text-red-400 hover:text-red-300 text-xs font-semibold"
+                            >
+                              x
                             </button>
                           <% end %>
                           <button

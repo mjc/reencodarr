@@ -1,0 +1,35 @@
+defmodule Reencodarr.AbAv1.ProcessControlTest do
+  use Reencodarr.UnitCase, async: false
+
+  alias Reencodarr.AbAv1.ProcessControl
+
+  setup do
+    start_supervised!(ProcessControl)
+    :ok
+  end
+
+  test "services are not suspended by default" do
+    refute ProcessControl.suspended?(:crf_searcher)
+    refute ProcessControl.suspended?(:encoder)
+  end
+
+  test "tracks CRF searcher suspension independently from encoder" do
+    assert :ok = ProcessControl.suspend(:crf_searcher)
+
+    assert ProcessControl.suspended?(:crf_searcher)
+    refute ProcessControl.suspended?(:encoder)
+
+    assert :ok = ProcessControl.resume(:crf_searcher)
+    refute ProcessControl.suspended?(:crf_searcher)
+  end
+
+  test "tracks encoder suspension independently from CRF searcher" do
+    assert :ok = ProcessControl.suspend(:encoder)
+
+    assert ProcessControl.suspended?(:encoder)
+    refute ProcessControl.suspended?(:crf_searcher)
+
+    assert :ok = ProcessControl.resume(:encoder)
+    refute ProcessControl.suspended?(:encoder)
+  end
+end

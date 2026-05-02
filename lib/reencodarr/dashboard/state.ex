@@ -120,6 +120,14 @@ defmodule Reencodarr.Dashboard.State do
     {:noreply, state}
   end
 
+  @impl true
+  def handle_cast(:refresh_queues_now, state) do
+    items = fetch_queue_items(state.queue_items)
+    state = %{state | queue_items: items}
+    broadcast_state(state)
+    {:noreply, state}
+  end
+
   # CRF Search Events
 
   @impl true
@@ -260,6 +268,15 @@ defmodule Reencodarr.Dashboard.State do
         service_status: service_status
     }
 
+    broadcast_state(state)
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_info({:process_control_changed, %{service: service, status: status}}, state)
+      when service in [:crf_searcher, :encoder] and is_atom(status) do
+    service_status = Map.put(state.service_status, service, status)
+    state = %{state | service_status: service_status}
     broadcast_state(state)
     {:noreply, state}
   end

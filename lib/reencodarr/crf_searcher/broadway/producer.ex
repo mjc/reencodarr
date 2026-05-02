@@ -8,6 +8,7 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   require Logger
 
   alias Reencodarr.AbAv1.CrfSearch
+  alias Reencodarr.AbAv1.ProcessControl
   alias Reencodarr.Media
 
   # Poll every 2 seconds to check for new work
@@ -59,8 +60,10 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
   defp dispatch(demand, state) when demand > 0 do
     status = CrfSearch.available?()
 
+    suspended? = ProcessControl.suspended?(:crf_searcher)
+
     videos =
-      if status == :available do
+      if status == :available and not suspended? do
         Media.get_videos_for_crf_search(1)
       else
         []

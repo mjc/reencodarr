@@ -365,24 +365,69 @@ defmodule Reencodarr.AbAv1.Helper do
   end
 
   @doc """
-  Send SIGTERM to an OS process by PID.
+  Send SIGTERM to an OS process tree by PID.
 
   Port.close/1 only closes the Erlang-side file descriptors — it does NOT
   signal the OS process. Since ab-av1 reads from video files (not stdin),
   it never notices the closed pipe and keeps running as an orphan.
 
-  This function sends SIGTERM so the process actually terminates.
+  This function sends SIGTERM so the process actually terminates. Child
+  processes are signaled too so ffmpeg/SVT workers do not keep running.
   Returns :ok unconditionally (process may already be dead).
   """
   @spec kill_os_process(integer() | nil) :: :ok
   def kill_os_process(nil), do: :ok
 
   def kill_os_process(os_pid) when is_integer(os_pid) do
-    Logger.info("Sending SIGTERM to OS process #{os_pid}")
-    System.cmd("kill", ["-TERM", to_string(os_pid)], stderr_to_stdout: true)
+    signal_os_process_tree(os_pid, "TERM")
+  end
+
+  @spec suspend_os_process_tree(integer() | nil) :: :ok
+  def suspend_os_process_tree(nil), do: :ok
+
+  def suspend_os_process_tree(os_pid) when is_integer(os_pid) do
+    signal_os_process_tree(os_pid, "STOP")
+  end
+
+  @spec resume_os_process_tree(integer() | nil) :: :ok
+  def resume_os_process_tree(nil), do: :ok
+
+  def resume_os_process_tree(os_pid) when is_integer(os_pid) do
+    signal_os_process_tree(os_pid, "CONT")
+  end
+
+  defp signal_os_process_tree(os_pid, signal) do
+    pids = descendant_pids(os_pid) ++ [os_pid]
+    Logger.info("Sending SIG#{signal} to OS process tree #{inspect(pids)}")
+
+    Enum.each(pids, fn pid ->
+      System.cmd("kill", ["-#{signal}", to_string(pid)], stderr_to_stdout: true)
+    end)
+
     :ok
   rescue
     _ -> :ok
+  end
+
+  defp descendant_pids(os_pid) do
+    case System.cmd("pgrep", ["-P", to_string(os_pid)], stderr_to_stdout: true) do
+      {output, 0} ->
+        output
+        |> String.split()
+        |> Enum.flat_map(&descendant_pids_from_text/1)
+
+      _ ->
+        []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp descendant_pids_from_text(pid_text) do
+    case Integer.parse(pid_text) do
+      {pid, ""} -> descendant_pids(pid) ++ [pid]
+      _ -> []
+    end
   end
 
   @spec preprocess_input_file([String.t()]) :: {:ok, [String.t()]}

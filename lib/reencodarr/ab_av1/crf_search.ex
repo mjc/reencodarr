@@ -15,6 +15,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.AbAv1.CrfSearcher
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.AbAv1.OutputParser
+  alias Reencodarr.AbAv1.ProcessControl
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Core.Retry
   alias Reencodarr.Core.Time
@@ -119,6 +120,18 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   def reset_if_stuck, do: safe_call(:reset_if_stuck, 5_000)
+
+  def suspend_current, do: control_call(:suspend_current)
+  def resume_current, do: control_call(:resume_current)
+  def fail_current, do: control_call(:fail_current)
+  def control_status, do: safe_call(:control_status)
+
+  defp control_call(message) do
+    case safe_call(message, 5_000) do
+      {:error, _} = error -> error
+      result -> result
+    end
+  end
 
   defp safe_call(message, timeout \\ 1_000) do
     case GenServer.whereis(__MODULE__) do
@@ -479,6 +492,81 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     }
 
     {:reply, debug_state, state}
+  end
+
+  @impl true
+  def handle_call(:control_status, _from, state) do
+    {:reply,
+     %{
+       active?: state.current_task != :none,
+       suspended?: ProcessControl.suspended?(:crf_searcher),
+       video_id: if(state.current_task != :none, do: state.current_task.video.id, else: nil),
+       os_pid: state.os_pid
+     }, state}
+  end
+
+  @impl true
+  def handle_call(:suspend_current, _from, %{current_task: :none} = state) do
+    {:reply, {:error, :not_running}, state}
+  end
+
+  def handle_call(:suspend_current, _from, state) do
+    result = CrfSearcher.suspend()
+
+    if result == :ok do
+      ProcessControl.suspend(:crf_searcher)
+
+      Events.broadcast_event(:process_control_changed, %{
+        service: :crf_searcher,
+        status: :paused
+      })
+    end
+
+    {:reply, result, state}
+  end
+
+  @impl true
+  def handle_call(:resume_current, _from, state) do
+    result = CrfSearcher.resume()
+    ProcessControl.resume(:crf_searcher)
+
+    Events.broadcast_event(:process_control_changed, %{
+      service: :crf_searcher,
+      status: if(state.current_task == :none, do: :idle, else: :processing)
+    })
+
+    {:reply, result, state}
+  end
+
+  @impl true
+  def handle_call(:fail_current, _from, %{current_task: :none} = state) do
+    {:reply, {:error, :not_running}, state}
+  end
+
+  def handle_call(:fail_current, _from, state) do
+    video = state.current_task.video
+    Logger.warning("Operator requested CRF search failure for video #{video.id}")
+    suspended_before? = ProcessControl.suspended?(:crf_searcher)
+
+    if state.searcher_monitor, do: Process.demonitor(state.searcher_monitor, [:flush])
+    CrfSearcher.fail()
+
+    if !suspended_before? do
+      ProcessControl.resume(:crf_searcher)
+    end
+
+    Media.fail_video_by_operator(video, :crf_search)
+
+    Events.broadcast_event(:crf_search_completed, %{
+      video_id: video.id,
+      result: {:error, :operator_failed}
+    })
+
+    if suspended_before? do
+      Events.broadcast_event(:process_control_changed, %{service: :crf_searcher, status: :paused})
+    end
+
+    {:reply, :ok, clean_state()}
   end
 
   @impl true

@@ -8,10 +8,13 @@ defmodule ReencodarrWeb.DashboardLive do
   """
   use ReencodarrWeb, :live_view
 
+  alias Reencodarr.AbAv1.{CrfSearch, Encode}
+  alias Reencodarr.Core.Parsers
   alias Reencodarr.CrfSearcher.Broadway, as: CrfSearcherBroadway
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Dashboard.State, as: DashboardState
   alias Reencodarr.Formatters
+  alias Reencodarr.Media
 
   import ReencodarrWeb.ChartComponents
 
@@ -262,6 +265,55 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def handle_event("sync_" <> service, _params, socket) do
     {:noreply, put_flash(socket, :error, "Unknown sync service: #{service}")}
+  end
+
+  @impl true
+  def handle_event("suspend_crf_search", _params, socket) do
+    handle_control_result(socket, CrfSearch.suspend_current(), "CRF search suspended")
+  end
+
+  @impl true
+  def handle_event("resume_crf_search", _params, socket) do
+    handle_control_result(socket, CrfSearch.resume_current(), "CRF search resumed")
+  end
+
+  @impl true
+  def handle_event("fail_crf_search", _params, socket) do
+    handle_control_result(socket, CrfSearch.fail_current(), "CRF search failed")
+  end
+
+  @impl true
+  def handle_event("suspend_encode", _params, socket) do
+    handle_control_result(socket, Encode.suspend_current(), "Encode suspended")
+  end
+
+  @impl true
+  def handle_event("resume_encode", _params, socket) do
+    handle_control_result(socket, Encode.resume_current(), "Encode resumed")
+  end
+
+  @impl true
+  def handle_event("fail_encode", _params, socket) do
+    handle_control_result(socket, Encode.fail_current(), "Encode failed")
+  end
+
+  @impl true
+  def handle_event("fail_queue_video", %{"id" => id_str, "stage" => stage}, socket) do
+    result =
+      with {:ok, id} <- Parsers.parse_integer_exact(id_str),
+           {:ok, video} <- Media.fetch_video(id),
+           {:ok, failure_stage} <- queue_failure_stage(stage, video) do
+        Media.fail_video_by_operator(video, failure_stage)
+      end
+
+    case result do
+      {:ok, _} ->
+        GenServer.cast(DashboardState, :refresh_queues_now)
+        {:noreply, put_flash(socket, :info, "Queued video failed")}
+
+      _ ->
+        {:noreply, put_flash(socket, :error, "Unable to fail queued video")}
+    end
   end
 
   # Row 1: Stats Bar Component
@@ -521,6 +573,12 @@ defmodule ReencodarrWeb.DashboardLive do
               Sample {@sample.sample_num}/{@sample.total_samples} — CRF {@sample.crf}
             </div>
           <% end %>
+          <.active_job_controls
+            status={@status}
+            suspend_event="suspend_crf_search"
+            resume_event="resume_crf_search"
+            fail_event="fail_crf_search"
+          />
           
     <!-- SVG scatter plot showing convergence -->
           <%= if length(@results) > 0 or @sample do %>
@@ -569,7 +627,18 @@ defmodule ReencodarrWeb.DashboardLive do
         <div class="text-xs text-gray-500 space-y-0.5 mt-2 pt-2 border-t border-gray-800">
           <div class="text-gray-600 mb-0.5">Next up ({@queue_count}):</div>
           <%= for video <- Enum.take(@queue_items, 5) do %>
-            <div class="truncate">{Path.basename(video.path)}</div>
+            <div class="flex items-center gap-2">
+              <button
+                phx-click="fail_queue_video"
+                phx-value-id={video.id}
+                phx-value-stage="crf_search"
+                title="Fail queued video"
+                class="text-red-400 hover:text-red-300 font-semibold"
+              >
+                x
+              </button>
+              <div class="truncate">{Path.basename(video.path)}</div>
+            </div>
           <% end %>
         </div>
       <% end %>
@@ -645,6 +714,12 @@ defmodule ReencodarrWeb.DashboardLive do
               </div>
             </div>
           <% end %>
+          <.active_job_controls
+            status={@status}
+            suspend_event="suspend_encode"
+            resume_event="resume_encode"
+            fail_event="fail_encode"
+          />
         </div>
       <% else %>
         <!-- Idle: Show compact status -->
@@ -661,10 +736,55 @@ defmodule ReencodarrWeb.DashboardLive do
         <div class="text-xs text-gray-500 space-y-0.5 mt-2 pt-2 border-t border-gray-800">
           <div class="text-gray-600 mb-0.5">Next up ({@queue_count}):</div>
           <%= for video <- Enum.take(@queue_items, 5) do %>
-            <div class="truncate">{Path.basename(video.path)}</div>
+            <div class="flex items-center gap-2">
+              <button
+                phx-click="fail_queue_video"
+                phx-value-id={video.id}
+                phx-value-stage="encoding"
+                title="Fail queued video"
+                class="text-red-400 hover:text-red-300 font-semibold"
+              >
+                x
+              </button>
+              <div class="truncate">{Path.basename(video.path)}</div>
+            </div>
           <% end %>
         </div>
       <% end %>
+    </div>
+    """
+  end
+
+  attr :status, :atom, required: true
+  attr :suspend_event, :string, required: true
+  attr :resume_event, :string, required: true
+  attr :fail_event, :string, required: true
+
+  defp active_job_controls(assigns) do
+    ~H"""
+    <div class="flex gap-2 pt-1">
+      <%= if @status == :paused do %>
+        <button
+          phx-click={@resume_event}
+          class="px-3 py-1 text-xs rounded bg-cyan-700 hover:bg-cyan-600 text-white"
+        >
+          Resume
+        </button>
+      <% else %>
+        <button
+          phx-click={@suspend_event}
+          class="px-3 py-1 text-xs rounded bg-yellow-700 hover:bg-yellow-600 text-white"
+        >
+          Suspend
+        </button>
+      <% end %>
+      <button
+        phx-click={@fail_event}
+        data-confirm="Fail the active job?"
+        class="px-3 py-1 text-xs rounded bg-red-700 hover:bg-red-600 text-white"
+      >
+        Fail
+      </button>
     </div>
     """
   end
@@ -1099,6 +1219,22 @@ defmodule ReencodarrWeb.DashboardLive do
   defp schedule_periodic_update do
     Process.send_after(self(), :update_dashboard_data, 5_000)
   end
+
+  defp handle_control_result(socket, :ok, message) do
+    {:noreply, put_flash(socket, :info, message)}
+  end
+
+  defp handle_control_result(socket, {:error, _reason}, _message) do
+    {:noreply, put_flash(socket, :error, "No active job to control")}
+  end
+
+  defp handle_control_result(socket, _result, _message) do
+    {:noreply, put_flash(socket, :error, "Job control failed")}
+  end
+
+  defp queue_failure_stage("crf_search", %{state: :analyzed}), do: {:ok, :crf_search}
+  defp queue_failure_stage("encoding", %{state: :crf_searched}), do: {:ok, :encoding}
+  defp queue_failure_stage(_, _), do: {:error, :invalid_queue_item}
 
   # Helper functions to reduce duplication
   defp calculate_progress_percent(data) do

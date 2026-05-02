@@ -10,6 +10,15 @@ defmodule Reencodarr.Encoder do
   @doc "Force dispatch of available work"
   def dispatch_available, do: Producer.dispatch_available()
 
+  @doc "Suspend the active encode OS process and gate future dispatch"
+  def suspend_current, do: Encode.suspend_current()
+
+  @doc "Resume the active encode OS process and ungate dispatch"
+  def resume_current, do: Encode.resume_current()
+
+  @doc "Fail the active encode job"
+  def fail_current, do: Encode.fail_current()
+
   @doc "Check if the encoder is actively processing work"
   def actively_running?, do: available?() != :available
 

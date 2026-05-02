@@ -229,6 +229,15 @@ defmodule Reencodarr.Media do
 
   def mark_as_encoded(%Video{} = video), do: VideoStateMachine.mark_as_encoded(video)
 
+  @spec fail_video_by_operator(Video.t(), atom()) :: {:ok, VideoFailure.t()} | {:error, term()}
+  def fail_video_by_operator(%Video{} = video, stage) when stage in [:crf_search, :encoding] do
+    record_video_failure(video, stage, :process_failure,
+      code: "OPERATOR_FAILED",
+      message: "Manually failed by operator",
+      context: %{operator_action: "fail", previous_state: video.state}
+    )
+  end
+
   # --- Bad File Issue Functions ---
 
   @resolved_bad_file_issue_statuses [:replaced_clean, :dismissed]

@@ -7,6 +7,7 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   use GenStage
   require Logger
   alias Reencodarr.AbAv1.Encode
+  alias Reencodarr.AbAv1.ProcessControl
   alias Reencodarr.Media
   alias Reencodarr.TempCleaner
 
@@ -66,14 +67,16 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
   defp dispatch(demand, state) when demand > 0 do
     status = Encode.available?()
 
+    suspended? = ProcessControl.suspended?(:encoder)
+
     vmaf_list =
-      if status == :available and TempCleaner.sufficient_disk_space?() do
+      if status == :available and not suspended? and TempCleaner.sufficient_disk_space?() do
         case Media.get_next_for_encoding(1) do
           [%Reencodarr.Media.Vmaf{} = vmaf] -> [vmaf]
           [] -> []
         end
       else
-        if status == :available do
+        if status == :available and not suspended? do
           Logger.warning("Encoder: insufficient disk space, skipping dispatch")
         end
 

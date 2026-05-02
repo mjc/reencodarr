@@ -525,6 +525,36 @@ defmodule ReencodarrWeb.VideosLiveTest do
     end
   end
 
+  describe "fail_video event" do
+    test "shows x for queued CRF videos and marks them failed", %{conn: conn} do
+      {:ok, video} =
+        Fixtures.video_fixture(%{path: "/media/fail_queued_crf.mkv", state: :analyzed})
+
+      {:ok, view, _} = live(conn, ~p"/videos")
+
+      html =
+        view
+        |> element("button[phx-click='fail_video'][phx-value-id='#{video.id}']")
+        |> render_click()
+
+      assert html =~ "Video failed"
+      assert Reencodarr.Media.get_video!(video.id).state == :failed
+    end
+
+    test "does not show x for encoded or failed videos", %{conn: conn} do
+      {:ok, _encoded} =
+        Fixtures.encoded_video_fixture(%{path: "/media/no_fail_encoded.mkv"})
+
+      {:ok, _failed} =
+        Fixtures.failed_video_fixture(%{path: "/media/no_fail_failed.mkv"})
+
+      {:ok, view, _} = live(conn, ~p"/videos?search=no_fail_")
+      html = render(view)
+
+      refute html =~ "phx-click=\"fail_video\""
+    end
+  end
+
   describe "delete_video event" do
     test "deletes video and shows success flash", %{conn: conn} do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/delete_me.mkv"})

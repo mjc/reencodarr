@@ -78,6 +78,15 @@ defmodule Reencodarr.AbAv1.EncoderTest do
     end
   end
 
+  describe "operator control API when not started" do
+    test "returns not_running or false" do
+      assert {:error, :not_running} = Encoder.suspend()
+      assert {:error, :not_running} = Encoder.resume()
+      assert {:error, :not_running} = Encoder.fail()
+      refute Encoder.suspended?()
+    end
+  end
+
   describe "pending exit status replay" do
     test "keeps an exit status briefly when the subscriber arrives late" do
       port = Port.open({:spawn, "cat"}, [:binary, :exit_status])

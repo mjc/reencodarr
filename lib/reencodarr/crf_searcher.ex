@@ -21,6 +21,15 @@ defmodule Reencodarr.CrfSearcher do
   @doc "Resume the CRF searcher pipeline (alias for start)"
   def resume, do: Broadway.resume()
 
+  @doc "Suspend the active CRF search OS process and gate future dispatch"
+  def suspend_current, do: CrfSearch.suspend_current()
+
+  @doc "Resume the active CRF search OS process and ungate dispatch"
+  def resume_current, do: CrfSearch.resume_current()
+
+  @doc "Fail the active CRF search job"
+  def fail_current, do: CrfSearch.fail_current()
+
   # Status functions
 
   @doc "Check if the CRF searcher is running"
