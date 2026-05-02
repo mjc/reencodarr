@@ -269,7 +269,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def handle_event("suspend_crf_search", _params, socket) do
-    handle_control_result(socket, CrfSearch.suspend_current(), "CRF search suspended")
+    handle_control_result(socket, CrfSearch.suspend_current(), "CRF search paused")
   end
 
   @impl true
@@ -279,12 +279,12 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def handle_event("fail_crf_search", _params, socket) do
-    handle_control_result(socket, CrfSearch.fail_current(), "CRF search failed")
+    handle_control_result(socket, CrfSearch.fail_current(), "CRF search stopped")
   end
 
   @impl true
   def handle_event("suspend_encode", _params, socket) do
-    handle_control_result(socket, Encode.suspend_current(), "Encode suspended")
+    handle_control_result(socket, Encode.suspend_current(), "Encode paused")
   end
 
   @impl true
@@ -294,7 +294,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def handle_event("fail_encode", _params, socket) do
-    handle_control_result(socket, Encode.fail_current(), "Encode failed")
+    handle_control_result(socket, Encode.fail_current(), "Encode stopped")
   end
 
   @impl true
@@ -309,10 +309,10 @@ defmodule ReencodarrWeb.DashboardLive do
     case result do
       {:ok, _} ->
         GenServer.cast(DashboardState, :refresh_queues_now)
-        {:noreply, put_flash(socket, :info, "Queued video failed")}
+        {:noreply, put_flash(socket, :info, "Queued item removed")}
 
       _ ->
-        {:noreply, put_flash(socket, :error, "Unable to fail queued video")}
+        {:noreply, put_flash(socket, :error, "Unable to remove queued item")}
     end
   end
 
@@ -632,8 +632,9 @@ defmodule ReencodarrWeb.DashboardLive do
                 phx-click="fail_queue_video"
                 phx-value-id={video.id}
                 phx-value-stage="crf_search"
-                title="Fail queued video"
-                class="text-red-400 hover:text-red-300 font-semibold"
+                title="Remove from queue"
+                aria-label="Remove from queue"
+                class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-red-800/60 bg-red-950/40 text-[11px] font-semibold leading-none text-red-300 hover:border-red-500 hover:bg-red-900/70 hover:text-white"
               >
                 x
               </button>
@@ -741,8 +742,9 @@ defmodule ReencodarrWeb.DashboardLive do
                 phx-click="fail_queue_video"
                 phx-value-id={video.id}
                 phx-value-stage="encoding"
-                title="Fail queued video"
-                class="text-red-400 hover:text-red-300 font-semibold"
+                title="Remove from queue"
+                aria-label="Remove from queue"
+                class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-red-800/60 bg-red-950/40 text-[11px] font-semibold leading-none text-red-300 hover:border-red-500 hover:bg-red-900/70 hover:text-white"
               >
                 x
               </button>
@@ -762,28 +764,28 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp active_job_controls(assigns) do
     ~H"""
-    <div class="flex gap-2 pt-1">
+    <div class="flex gap-1.5 pt-1">
       <%= if @status == :paused do %>
         <button
           phx-click={@resume_event}
-          class="px-3 py-1 text-xs rounded bg-cyan-700 hover:bg-cyan-600 text-white"
+          class="inline-flex h-7 items-center rounded border border-cyan-700/70 bg-cyan-950/60 px-2.5 text-xs font-medium text-cyan-200 hover:border-cyan-500 hover:bg-cyan-900/70 hover:text-white"
         >
           Resume
         </button>
       <% else %>
         <button
           phx-click={@suspend_event}
-          class="px-3 py-1 text-xs rounded bg-yellow-700 hover:bg-yellow-600 text-white"
+          class="inline-flex h-7 items-center rounded border border-yellow-700/70 bg-yellow-950/60 px-2.5 text-xs font-medium text-yellow-200 hover:border-yellow-500 hover:bg-yellow-900/70 hover:text-white"
         >
-          Suspend
+          Pause
         </button>
       <% end %>
       <button
         phx-click={@fail_event}
-        data-confirm="Fail the active job?"
-        class="px-3 py-1 text-xs rounded bg-red-700 hover:bg-red-600 text-white"
+        data-confirm="Stop the active job?"
+        class="inline-flex h-7 items-center rounded border border-red-800/70 bg-red-950/60 px-2.5 text-xs font-medium text-red-200 hover:border-red-500 hover:bg-red-900/70 hover:text-white"
       >
-        Fail
+        Stop
       </button>
     </div>
     """

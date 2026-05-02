@@ -525,8 +525,8 @@ defmodule ReencodarrWeb.VideosLiveTest do
     end
   end
 
-  describe "fail_video event" do
-    test "shows x for queued CRF videos and marks them failed", %{conn: conn} do
+  describe "stop job event" do
+    test "shows x for queued CRF videos and marks them failed internally", %{conn: conn} do
       {:ok, video} =
         Fixtures.video_fixture(%{path: "/media/fail_queued_crf.mkv", state: :analyzed})
 
@@ -537,7 +537,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
         |> element("button[phx-click='fail_video'][phx-value-id='#{video.id}']")
         |> render_click()
 
-      assert html =~ "Video failed"
+      assert html =~ "Job stopped"
       assert Reencodarr.Media.get_video!(video.id).state == :failed
     end
 

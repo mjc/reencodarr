@@ -11,6 +11,7 @@ defmodule Reencodarr.Dashboard.State do
   use GenServer
   require Logger
 
+  alias Reencodarr.AbAv1.ProcessControl
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media.ChartQueries
   alias Reencodarr.Media.VideoQueries
@@ -111,7 +112,7 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_call(:get_state, _from, state) do
-    {:reply, Map.delete(state, :progress_debounce_ref), state}
+    {:reply, state |> current_control_state() |> Map.delete(:progress_debounce_ref), state}
   end
 
   @impl true
@@ -368,7 +369,17 @@ defmodule Reencodarr.Dashboard.State do
   # Private Helpers
 
   defp broadcast_state(state) do
+    state = current_control_state(state)
     Phoenix.PubSub.broadcast(Reencodarr.PubSub, @state_channel, {:dashboard_state_changed, state})
+  end
+
+  defp current_control_state(state) do
+    service_status =
+      state.service_status
+      |> Map.update(:crf_searcher, :idle, &ProcessControl.service_status(:crf_searcher, &1))
+      |> Map.update(:encoder, :idle, &ProcessControl.service_status(:encoder, &1))
+
+    %{state | service_status: service_status}
   end
 
   defp fetch_queue_items(current_items) do

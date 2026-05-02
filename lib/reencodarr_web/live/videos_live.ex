@@ -359,13 +359,13 @@ defmodule ReencodarrWeb.VideosLive do
 
     case result do
       :ok ->
-        {:noreply, socket |> put_flash(:info, "Video failed") |> load_data()}
+        {:noreply, socket |> put_flash(:info, "Job stopped") |> load_data()}
 
       {:error, :active_mismatch} ->
         {:noreply, socket |> put_flash(:error, "That video is not the active job") |> load_data()}
 
       _ ->
-        {:noreply, socket |> put_flash(:error, "Fail failed") |> load_data()}
+        {:noreply, socket |> put_flash(:error, "Unable to stop job") |> load_data()}
     end
   end
 
@@ -905,9 +905,10 @@ defmodule ReencodarrWeb.VideosLive do
                             <button
                               phx-click="fail_video"
                               phx-value-id={video.id}
-                              data-confirm={"Fail #{Path.basename(video.path)}?"}
-                              title="Fail this job"
-                              class="text-red-400 hover:text-red-300 text-xs font-semibold"
+                              data-confirm={"Stop #{Path.basename(video.path)}?"}
+                              title="Stop job"
+                              aria-label="Stop job"
+                              class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-red-800/60 bg-red-950/40 text-[11px] font-semibold leading-none text-red-300 hover:border-red-500 hover:bg-red-900/70 hover:text-white"
                             >
                               x
                             </button>

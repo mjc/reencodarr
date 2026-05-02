@@ -239,6 +239,59 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert html =~ ~s(<svg viewBox="0 0 320 140")
     end
 
+    test "active job controls use pause, resume, and stop labels", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      active_state = %{
+        crf_search_video: %{
+          video_id: 1,
+          filename: "controls-test.mkv",
+          target_vmaf: 95,
+          video_size: 1_000_000_000,
+          width: 1920,
+          height: 1080,
+          hdr: nil
+        },
+        crf_search_results: [],
+        crf_search_sample: nil,
+        crf_progress: :none,
+        encoding_video: nil,
+        encoding_vmaf: nil,
+        encoding_progress: :none,
+        service_status: %{analyzer: :idle, crf_searcher: :processing, encoder: :idle},
+        stats: Reencodarr.Media.get_default_stats(),
+        queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
+        queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
+        vmaf_distribution: [],
+        resolution_distribution: [],
+        codec_distribution: []
+      }
+
+      send(view.pid, {:dashboard_state_changed, active_state})
+      :timer.sleep(50)
+
+      html = render(view)
+      assert html =~ "Pause"
+      assert html =~ "Stop"
+      refute html =~ ">Fail<"
+      refute html =~ "Suspend"
+
+      send(
+        view.pid,
+        {:dashboard_state_changed,
+         %{
+           active_state
+           | service_status: %{analyzer: :idle, crf_searcher: :paused, encoder: :idle}
+         }}
+      )
+
+      :timer.sleep(50)
+
+      html = render(view)
+      assert html =~ "Resume"
+      assert html =~ "Stop"
+    end
+
     test "renders CRF search chart before first result when sample is active", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/")
 

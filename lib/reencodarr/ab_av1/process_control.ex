@@ -20,6 +20,11 @@ defmodule Reencodarr.AbAv1.ProcessControl do
     call_or_default({:suspended?, service}, false)
   end
 
+  @spec service_status(atom(), atom()) :: atom()
+  def service_status(service, fallback) when service in @services and is_atom(fallback) do
+    if suspended?(service), do: :paused, else: fallback
+  end
+
   @spec suspend(atom()) :: :ok
   def suspend(service) when service in @services do
     cast_or_default({:set, service, true})

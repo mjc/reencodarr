@@ -397,13 +397,30 @@ defmodule Reencodarr.AbAv1.Helper do
   end
 
   defp signal_os_process_tree(os_pid, signal) do
-    pids = descendant_pids(os_pid) ++ [os_pid]
+    pids = signal_os_processes(os_pid, signal)
     Logger.info("Sending SIG#{signal} to OS process tree #{inspect(pids)}")
+    :ok
+  rescue
+    _ -> :ok
+  end
 
-    Enum.each(pids, fn pid ->
-      System.cmd("kill", ["-#{signal}", to_string(pid)], stderr_to_stdout: true)
-    end)
+  defp signal_os_processes(os_pid, "STOP") do
+    # Stop the parent first so ab-av1 cannot spawn or swap an ffmpeg child while
+    # descendants are being discovered.
+    signal_os_pid(os_pid, "STOP")
+    descendants = descendant_pids(os_pid)
+    Enum.each(descendants, &signal_os_pid(&1, "STOP"))
+    [os_pid | descendants]
+  end
 
+  defp signal_os_processes(os_pid, signal) do
+    pids = [os_pid | descendant_pids(os_pid)] |> Enum.uniq()
+    Enum.each(pids, &signal_os_pid(&1, signal))
+    pids
+  end
+
+  defp signal_os_pid(pid, signal) do
+    System.cmd("kill", ["-#{signal}", to_string(pid)], stderr_to_stdout: true)
     :ok
   rescue
     _ -> :ok

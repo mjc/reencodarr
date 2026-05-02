@@ -2,6 +2,7 @@ defmodule Reencodarr.Dashboard.StateTest do
   use Reencodarr.DataCase
   @moduletag capture_log: true
 
+  alias Reencodarr.AbAv1.ProcessControl
   alias Reencodarr.Dashboard.{Events, State}
   alias Reencodarr.Fixtures
   alias Reencodarr.Media.Vmaf
@@ -11,7 +12,8 @@ defmodule Reencodarr.Dashboard.StateTest do
     prev = Application.get_env(:reencodarr, :dashboard_queue_refresh_enabled)
     Application.put_env(:reencodarr, :dashboard_queue_refresh_enabled, false)
 
-    # Start the State GenServer for each test
+    # Start state holders for each test.
+    start_supervised!(ProcessControl)
     start_supervised!(State)
 
     on_exit(fn ->
@@ -712,6 +714,30 @@ defmodule Reencodarr.Dashboard.StateTest do
       Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :paused})
       :timer.sleep(10)
       assert State.get_state().service_status.encoder == :paused
+    end
+
+    test "operator suspension overrides later processing updates" do
+      ProcessControl.suspend(:encoder)
+
+      Phoenix.PubSub.broadcast(
+        Reencodarr.PubSub,
+        Events.channel(),
+        {:encoding_progress, %{video_id: 1, filename: "test.mkv", percent: 42}}
+      )
+
+      :timer.sleep(10)
+      assert State.get_state().service_status.encoder == :paused
+
+      ProcessControl.resume(:encoder)
+
+      Phoenix.PubSub.broadcast(
+        Reencodarr.PubSub,
+        Events.channel(),
+        {:encoding_progress, %{video_id: 1, filename: "test.mkv", percent: 43}}
+      )
+
+      :timer.sleep(10)
+      assert State.get_state().service_status.encoder == :processing
     end
 
     test "encoding_started persists video and vmaf data for page reload" do
