@@ -14,7 +14,8 @@
       PORT = toString cfg.port;
       DATABASE_PATH = cfg.databasePath;
       REENCODARR_DATA_DIR = toString cfg.dataDir;
-      REENCODARR_TMPDIR = toString cfg.cacheDir;
+      REENCODARR_TMPDIR = "${toString cfg.cacheDir}/tmp";
+      TMPDIR = "${toString cfg.cacheDir}/tmp";
     }
     // cfg.extraEnvironment;
 
@@ -225,6 +226,7 @@ in {
     systemd.tmpfiles.rules = [
       "d ${cfg.dataDir} 0750 ${cfg.user} ${cfg.group} - -"
       "d ${cfg.cacheDir} 0750 ${cfg.user} ${cfg.group} - -"
+      "d ${cfg.cacheDir}/tmp 0750 ${cfg.user} ${cfg.group} - -"
       "d ${builtins.dirOf cfg.databasePath} 0750 ${cfg.user} ${cfg.group} - -"
     ];
 
@@ -247,7 +249,7 @@ in {
         User = cfg.user;
         Group = cfg.group;
         WorkingDirectory = cfg.dataDir;
-        ReadWritePaths = [cfg.cacheDir cfg.dataDir (builtins.dirOf cfg.databasePath)];
+        ReadWritePaths = [cfg.cacheDir "${cfg.cacheDir}/tmp" cfg.dataDir (builtins.dirOf cfg.databasePath)];
         LoadCredential = lib.optional (cfg.secretKeyBaseFile != null) "secret_key_base:${cfg.secretKeyBaseFile}";
         Nice = cfg.nice;
         IOSchedulingClass = cfg.ioSchedulingClass;
