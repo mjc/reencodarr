@@ -176,6 +176,55 @@ defmodule Reencodarr.Media.Video.MediaInfoConverterTest do
       assert general["OverallBitRate"] == 5000
     end
 
+    test "does not use audio bitrate as overall bitrate when video bitrate is missing" do
+      file =
+        minimal_service_file(%{
+          "runTime" => nil,
+          "overallBitrate" => nil,
+          "mediaInfo" => %{
+            "width" => 1920,
+            "height" => 1080,
+            "videoCodec" => "x264",
+            "audioCodec" => "DTS",
+            "audioChannels" => 5.1,
+            "audioLanguages" => "eng",
+            "subtitles" => "",
+            "videoBitrate" => 0,
+            "audioBitrate" => 1_536_000,
+            "runTime" => "42:39"
+          }
+        })
+
+      %{"media" => %{"track" => tracks}} = MediaInfoConverter.from_service_file(file, :sonarr)
+      general = Enum.find(tracks, &(&1["@type"] == "General"))
+
+      assert general["OverallBitRate"] == 0
+      assert general["Duration"] == 2559
+    end
+
+    test "sums video and audio bitrate only when video bitrate is positive" do
+      file =
+        minimal_service_file(%{
+          "overallBitrate" => nil,
+          "mediaInfo" => %{
+            "width" => 1920,
+            "height" => 1080,
+            "videoCodec" => "HEVC",
+            "audioCodec" => "AAC",
+            "audioChannels" => 2,
+            "audioLanguages" => "eng",
+            "subtitles" => "",
+            "videoBitrate" => 4_000_000,
+            "audioBitrate" => 192_000
+          }
+        })
+
+      %{"media" => %{"track" => tracks}} = MediaInfoConverter.from_service_file(file, :sonarr)
+      general = Enum.find(tracks, &(&1["@type"] == "General"))
+
+      assert general["OverallBitRate"] == 4_192_000
+    end
+
     test "handles missing mediaInfo gracefully" do
       file = Map.delete(minimal_service_file(), "mediaInfo")
       result = MediaInfoConverter.from_service_file(file, :sonarr)

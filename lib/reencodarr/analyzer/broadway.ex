@@ -253,10 +253,17 @@ defmodule Reencodarr.Analyzer.Broadway do
 
   # Helper function to check if MediaInfo is valid and complete
   defp has_valid_mediainfo?(video) do
-    # Check for required fields that indicate complete MediaInfo
-    is_number(video.duration) && video.duration > 0 &&
+    # Service APIs provide partial mediaInfo that can look complete enough to
+    # pass field checks while still missing the container-level bitrate. Only
+    # skip the MediaInfo command when the stored payload came from MediaInfo.
+    real_mediainfo_payload?(video.mediainfo) &&
+      is_number(video.duration) && video.duration > 0 &&
       is_number(video.bitrate) && video.bitrate > 0
   end
+
+  defp real_mediainfo_payload?(%{"creatingLibrary" => _}), do: true
+  defp real_mediainfo_payload?(%{"media" => %{"@ref" => ref}}) when is_binary(ref), do: true
+  defp real_mediainfo_payload?(_), do: false
 
   # Process videos that have MediaInfo but unchanged file size by transitioning to analyzed
   defp process_unchanged_mediainfo_videos([]), do: :ok

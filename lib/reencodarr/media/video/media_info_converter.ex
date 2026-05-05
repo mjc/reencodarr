@@ -171,11 +171,23 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
   end
 
   defp calculate_overall_bitrate(file, media_info) do
-    case {file["overallBitrate"], media_info["videoBitrate"], media_info["audioBitrate"]} do
-      {overall, _, _} when is_integer(overall) and overall > 0 -> overall
-      {_, video, audio} when is_integer(video) and is_integer(audio) -> video + audio
-      {_, video, _} when is_integer(video) -> video
-      _ -> 0
+    overall = file["overallBitrate"] || media_info["overallBitrate"]
+    calculate_overall_bitrate(overall, media_info["videoBitrate"], media_info["audioBitrate"])
+  end
+
+  defp calculate_overall_bitrate(overall, video_bitrate, audio_bitrate) do
+    case {overall, video_bitrate, audio_bitrate} do
+      {overall, _, _} when is_integer(overall) and overall > 0 ->
+        overall
+
+      {_, video, audio} when is_integer(video) and video > 0 and is_integer(audio) ->
+        video + audio
+
+      {_, video, _} when is_integer(video) and video > 0 ->
+        video
+
+      _ ->
+        0
     end
   end
 
@@ -196,7 +208,8 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
   end
 
   defp build_general_track(file, overall_bitrate, subtitles, audio_languages) do
-    duration = normalize_duration(file["runTime"])
+    media_info = file["mediaInfo"] || %{}
+    duration = normalize_duration(file["runTime"] || media_info["runTime"])
     final_bitrate = normalize_bitrate(overall_bitrate)
 
     %{
@@ -217,10 +230,9 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
       nil -> 3600.0
       # Default to 1 hour if zero
       0 -> 3600.0
-      # Convert seconds to milliseconds
-      time when is_integer(time) -> time * 1000.0
-      # Convert seconds to milliseconds
-      time when is_float(time) -> time * 1000.0
+      time when is_integer(time) -> time * 1.0
+      time when is_float(time) -> time
+      time when is_binary(time) -> Parsers.parse_duration(time)
       _ -> 3600.0
     end
   end
