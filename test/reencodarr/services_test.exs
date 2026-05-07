@@ -2,6 +2,12 @@ defmodule Reencodarr.ServicesTest do
   use Reencodarr.DataCase
 
   alias Reencodarr.Services
+  alias Reencodarr.Services.WebhookSync
+
+  setup do
+    :meck.unload()
+    :ok
+  end
 
   describe "configs" do
     alias Reencodarr.Services.Config
@@ -21,6 +27,16 @@ defmodule Reencodarr.ServicesTest do
     end
 
     test "create_config/1 with valid data creates a config" do
+      original = Application.get_env(:reencodarr, :auto_reconcile_managed_webhooks, true)
+      Application.put_env(:reencodarr, :auto_reconcile_managed_webhooks, true)
+
+      on_exit(fn ->
+        Application.put_env(:reencodarr, :auto_reconcile_managed_webhooks, original)
+      end)
+
+      :meck.new(WebhookSync, [:passthrough])
+      :meck.expect(WebhookSync, :reconcile_for_service, fn :sonarr -> :ok end)
+
       valid_attrs = %{
         api_key: "some api_key",
         enabled: true,
@@ -40,6 +56,20 @@ defmodule Reencodarr.ServicesTest do
     end
 
     test "update_config/2 with valid data updates the config" do
+      original = Application.get_env(:reencodarr, :auto_reconcile_managed_webhooks, true)
+      Application.put_env(:reencodarr, :auto_reconcile_managed_webhooks, true)
+
+      on_exit(fn ->
+        Application.put_env(:reencodarr, :auto_reconcile_managed_webhooks, original)
+      end)
+
+      :meck.new(WebhookSync, [:passthrough])
+
+      :meck.expect(WebhookSync, :reconcile_for_service, fn service_type
+                                                           when service_type in [:sonarr, :radarr] ->
+        :ok
+      end)
+
       config = config_fixture()
 
       update_attrs = %{

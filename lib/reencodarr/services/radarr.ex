@@ -32,6 +32,26 @@ defmodule Reencodarr.Services.Radarr do
     request(url: "/api/v3/movie?includeImages=false", method: :get)
   end
 
+  @spec list_notifications() :: {:ok, Req.Response.t()} | {:error, any()}
+  def list_notifications do
+    request(url: "/api/v3/notification", method: :get)
+  end
+
+  @spec get_notification_schemas() :: {:ok, Req.Response.t()} | {:error, any()}
+  def get_notification_schemas do
+    request(url: "/api/v3/notification/schema", method: :get)
+  end
+
+  @spec create_notification(map()) :: {:ok, Req.Response.t()} | {:error, any()}
+  def create_notification(attrs) when is_map(attrs) do
+    request(url: "/api/v3/notification", method: :post, json: attrs)
+  end
+
+  @spec update_notification(integer(), map()) :: {:ok, Req.Response.t()} | {:error, any()}
+  def update_notification(id, attrs) when is_integer(id) and id > 0 and is_map(attrs) do
+    request(url: "/api/v3/notification/#{id}", method: :put, json: attrs)
+  end
+
   @spec get_movie_files(integer()) :: {:ok, Req.Response.t()} | {:error, any()}
   def get_movie_files(movie_id) do
     request(url: "/api/v3/moviefile?movieId=#{movie_id}", method: :get)

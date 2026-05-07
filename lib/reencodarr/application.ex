@@ -4,6 +4,7 @@ defmodule Reencodarr.Application do
   @moduledoc false
 
   use Application
+  alias Reencodarr.Services.WebhookSync
 
   @impl true
   def start(_type, _args) do
@@ -17,7 +18,11 @@ defmodule Reencodarr.Application do
     maybe_start_distribution()
 
     opts = [strategy: :one_for_one, name: Reencodarr.Supervisor]
-    Supervisor.start_link(children(), opts)
+
+    with {:ok, pid} <- Supervisor.start_link(children(), opts) do
+      maybe_start_webhook_sync()
+      {:ok, pid}
+    end
   end
 
   defp setup_file_logging do
@@ -146,6 +151,12 @@ defmodule Reencodarr.Application do
         broadway_workers
     else
       base_workers
+    end
+  end
+
+  defp maybe_start_webhook_sync do
+    if Application.get_env(:reencodarr, :env) != :test do
+      Task.start(fn -> WebhookSync.reconcile_all() end)
     end
   end
 

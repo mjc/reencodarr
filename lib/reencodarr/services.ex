@@ -2,11 +2,13 @@ defmodule Reencodarr.Services do
   @moduledoc """
   This module is responsible for communicating with external services.
   """
+  require Logger
   alias Reencodarr.DbWriter
   alias Reencodarr.Repo
   alias Reencodarr.Services.Config
   alias Reencodarr.Services.Radarr
   alias Reencodarr.Services.Sonarr
+  alias Reencodarr.Services.WebhookSync
 
   @doc """
   Returns the list of configs.
@@ -80,14 +82,21 @@ defmodule Reencodarr.Services do
 
   """
   def create_config(attrs \\ %{}) do
-    DbWriter.run(
-      fn ->
-        %Config{}
-        |> Config.changeset(attrs)
-        |> Repo.insert()
-      end,
-      label: :service_config_create
-    )
+    case DbWriter.run(
+           fn ->
+             %Config{}
+             |> Config.changeset(attrs)
+             |> Repo.insert()
+           end,
+           label: :service_config_create
+         ) do
+      {:ok, config} = result ->
+        maybe_reconcile_managed_webhook(config)
+        result
+
+      error ->
+        error
+    end
   end
 
   @doc """
@@ -103,14 +112,21 @@ defmodule Reencodarr.Services do
 
   """
   def update_config(%Config{} = config, attrs) do
-    DbWriter.run(
-      fn ->
-        config
-        |> Config.changeset(attrs)
-        |> Repo.update()
-      end,
-      label: :service_config_update
-    )
+    case DbWriter.run(
+           fn ->
+             config
+             |> Config.changeset(attrs)
+             |> Repo.update()
+           end,
+           label: :service_config_update
+         ) do
+      {:ok, updated_config} = result ->
+        maybe_reconcile_managed_webhook(updated_config)
+        result
+
+      error ->
+        error
+    end
   end
 
   @doc """
@@ -157,4 +173,28 @@ defmodule Reencodarr.Services do
 
   @doc "Fetches all movie files for a given movie."
   def get_movie_files(movie_id), do: Radarr.get_movie_files(movie_id)
+
+  defp maybe_reconcile_managed_webhook(%Config{service_type: service_type})
+       when service_type in [:sonarr, :radarr] do
+    if Application.get_env(:reencodarr, :auto_reconcile_managed_webhooks, true) do
+      case WebhookSync.reconcile_for_service(service_type) do
+        :ok ->
+          :ok
+
+        :skipped ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning(
+            "Services: failed to reconcile #{service_type} webhook after config change: #{inspect(reason)}"
+          )
+
+          :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp maybe_reconcile_managed_webhook(_config), do: :ok
 end
