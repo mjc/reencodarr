@@ -109,6 +109,20 @@ defmodule ReencodarrWeb.FailuresLive do
   end
 
   @impl true
+  def handle_event("retry_failure_code", %{"code" => failure_code}, socket) do
+    result = Media.retry_failed_videos_by_failure_code(failure_code)
+
+    socket = load_failures_data(socket)
+
+    {:noreply,
+     put_flash(
+       socket,
+       :info,
+       "Queued retry for #{result.videos_retried} failed videos with #{failure_code}"
+     )}
+  end
+
+  @impl true
   def handle_event("toggle_details", %{"video_id" => video_id}, socket) do
     video_id = Parsers.parse_int(video_id)
     expanded = socket.assigns.expanded_details
@@ -392,6 +406,33 @@ defmodule ReencodarrWeb.FailuresLive do
               </div>
             </div>
           </div>
+
+          <%= if @failure_code_actions != [] do %>
+            <div class="bg-gray-800 rounded-lg shadow-lg p-4 border border-gray-700">
+              <div class="flex flex-col gap-3">
+                <div>
+                  <h2 class="text-sm font-semibold text-white">Retry By Error Code</h2>
+                  <p class="text-xs text-gray-400">
+                    Retry all failed videos whose unresolved failures include the selected code by sending them back to analysis.
+                  </p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <%= for action <- @failure_code_actions do %>
+                    <button
+                      phx-click="retry_failure_code"
+                      phx-value-code={action.code}
+                      class="inline-flex items-center gap-2 rounded-lg border border-gray-600 bg-gray-750 px-3 py-2 text-xs font-medium text-gray-200 transition-colors hover:bg-gray-700"
+                    >
+                      <span>{action.code}</span>
+                      <span class="rounded bg-gray-900 px-1.5 py-0.5 text-[11px] text-gray-300">
+                        {action.count}
+                      </span>
+                    </button>
+                  <% end %>
+                </div>
+              </div>
+            </div>
+          <% end %>
           
     <!-- Failed Videos Table -->
           <div class="bg-gray-800 rounded-lg shadow-lg overflow-hidden border border-gray-700">
@@ -741,6 +782,7 @@ defmodule ReencodarrWeb.FailuresLive do
     |> assign(:video_failures, %{})
     |> assign(:failure_stats, %{recent_count: 0})
     |> assign(:failure_patterns, [])
+    |> assign(:failure_code_actions, [])
     |> assign(:total_count, 0)
     |> assign(:total_pages, 0)
   end
@@ -763,6 +805,7 @@ defmodule ReencodarrWeb.FailuresLive do
     # Get failure statistics and patterns
     failure_stats = Media.get_failure_statistics(days_back: 7)
     failure_patterns = Media.get_common_failure_patterns(5)
+    failure_code_actions = Media.list_failed_video_failure_codes()
 
     # Calculate pagination info
     total_pages = ceil(total_count / per_page)
@@ -773,6 +816,7 @@ defmodule ReencodarrWeb.FailuresLive do
     |> assign(:video_failures, video_failures)
     |> assign(:failure_stats, summarize_failure_stats(failure_stats))
     |> assign(:failure_patterns, failure_patterns)
+    |> assign(:failure_code_actions, failure_code_actions)
     |> assign(:total_count, total_count)
     |> assign(:total_pages, total_pages)
   end

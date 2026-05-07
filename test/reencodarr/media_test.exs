@@ -1173,6 +1173,70 @@ defmodule Reencodarr.MediaTest do
       assert reloaded1.state == :needs_analysis
       assert reloaded2.state == :needs_analysis
     end
+
+    test "list_failed_video_failure_codes/1 groups unresolved failure codes for failed videos" do
+      {:ok, exit_143} = Fixtures.video_fixture(%{state: :failed})
+      {:ok, timeout} = Fixtures.video_fixture(%{state: :failed})
+      {:ok, resolved_video} = Fixtures.video_fixture(%{state: :failed})
+
+      Media.record_video_failure(exit_143, :encoding, :resource_exhaustion,
+        code: "EXIT_143",
+        message: "Killed"
+      )
+
+      Media.record_video_failure(timeout, :encoding, :timeout,
+        code: "TIMEOUT",
+        message: "Timed out"
+      )
+
+      Media.record_video_failure(resolved_video, :encoding, :resource_exhaustion,
+        code: "EXIT_143",
+        message: "Should be excluded because it is resolved"
+      )
+
+      Media.resolve_video_failures(resolved_video.id)
+
+      assert Media.list_failed_video_failure_codes()
+             |> Enum.map(& &1.code) == ["EXIT_143", "TIMEOUT"]
+    end
+
+    test "retry_failed_videos_by_failure_code/1 retries matching failed videos only" do
+      {:ok, exit_143_a} = Fixtures.video_fixture(%{state: :failed, bitrate: 5_000_000})
+      {:ok, exit_143_b} = Fixtures.video_fixture(%{state: :failed, bitrate: 6_000_000})
+      {:ok, timeout} = Fixtures.video_fixture(%{state: :failed, bitrate: 7_000_000})
+
+      Media.record_video_failure(exit_143_a, :encoding, :resource_exhaustion,
+        code: "EXIT_143",
+        message: "Killed"
+      )
+
+      Media.record_video_failure(exit_143_b, :encoding, :resource_exhaustion,
+        code: "EXIT_143",
+        message: "Killed again"
+      )
+
+      Media.record_video_failure(timeout, :encoding, :timeout,
+        code: "TIMEOUT",
+        message: "Timed out"
+      )
+
+      result = Media.retry_failed_videos_by_failure_code("EXIT_143")
+
+      assert result.videos_retried == 2
+      assert result.failures_resolved == 2
+
+      assert Media.get_video!(exit_143_a.id).state == :needs_analysis
+      assert Media.get_video!(exit_143_b.id).state == :needs_analysis
+      assert Media.get_video!(timeout.id).state == :failed
+
+      assert Media.get_video!(exit_143_a.id).bitrate == nil
+      assert Media.get_video!(exit_143_b.id).bitrate == nil
+      assert Media.get_video!(timeout.id).bitrate == 7_000_000
+
+      assert Media.get_video_failures(exit_143_a.id) == []
+      assert Media.get_video_failures(exit_143_b.id) == []
+      assert length(Media.get_video_failures(timeout.id)) == 1
+    end
   end
 
   describe "test helpers" do

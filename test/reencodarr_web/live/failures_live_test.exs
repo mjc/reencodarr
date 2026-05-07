@@ -157,6 +157,42 @@ defmodule ReencodarrWeb.FailuresLiveTest do
     end
   end
 
+  describe "retry_failure_code event" do
+    test "renders retry-by-code actions and retries matching failures", %{conn: conn} do
+      {:ok, exit_143_video} =
+        Fixtures.video_fixture(%{path: "/media/exit_143_video.mkv", state: :failed})
+
+      {:ok, timeout_video} =
+        Fixtures.video_fixture(%{path: "/media/timeout_video.mkv", state: :failed})
+
+      Media.record_video_failure(exit_143_video, :encoding, :resource_exhaustion,
+        code: "EXIT_143",
+        message: "Killed"
+      )
+
+      Media.record_video_failure(timeout_video, :encoding, :timeout,
+        code: "TIMEOUT",
+        message: "Timed out"
+      )
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      html = loaded_html(view)
+
+      assert html =~ "Retry By Error Code"
+      assert html =~ "EXIT_143"
+      assert html =~ "TIMEOUT"
+
+      html =
+        view
+        |> element("button[phx-click='retry_failure_code'][phx-value-code='EXIT_143']")
+        |> render_click()
+
+      assert html =~ "Failures"
+      assert Media.get_video!(exit_143_video.id).state == :needs_analysis
+      assert Media.get_video!(timeout_video.id).state == :failed
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Row interactions (requires at least one failure in DB)
   # ---------------------------------------------------------------------------

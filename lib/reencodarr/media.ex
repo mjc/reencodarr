@@ -1105,6 +1105,84 @@ defmodule Reencodarr.Media do
     end
   end
 
+  @doc """
+  Lists distinct unresolved failure codes for videos currently in the failed state.
+
+  Intended for operator bulk-retry actions in the failures UI.
+  """
+  @spec list_failed_video_failure_codes(non_neg_integer()) :: [
+          %{code: String.t(), count: integer()}
+        ]
+  def list_failed_video_failure_codes(limit \\ 12) do
+    from(v in Video,
+      join: f in VideoFailure,
+      on: f.video_id == v.id,
+      where: v.state == :failed and f.resolved == false and not is_nil(f.failure_code),
+      group_by: f.failure_code,
+      order_by: [desc: count(f.id), asc: f.failure_code],
+      limit: ^limit,
+      select: %{code: f.failure_code, count: count(f.id)}
+    )
+    |> Repo.all()
+  end
+
+  @doc """
+  Retries failed videos whose unresolved failures include the given failure code.
+
+  Videos are moved back to `:needs_analysis`, their bitrate is cleared to force
+  re-analysis, and all unresolved failure records for those videos are resolved.
+  """
+  @spec retry_failed_videos_by_failure_code(String.t()) :: %{
+          videos_retried: integer(),
+          failures_resolved: integer()
+        }
+  def retry_failed_videos_by_failure_code(failure_code) when is_binary(failure_code) do
+    trimmed_code = String.trim(failure_code)
+
+    if trimmed_code == "" do
+      %{videos_retried: 0, failures_resolved: 0}
+    else
+      write_transaction(
+        fn ->
+          video_ids =
+            from(v in Video,
+              join: f in VideoFailure,
+              on: f.video_id == v.id,
+              where:
+                v.state == :failed and f.resolved == false and f.failure_code == ^trimmed_code,
+              group_by: v.id,
+              order_by: [asc: v.id],
+              select: v.id
+            )
+            |> Repo.all()
+
+          videos_retried_count = length(video_ids)
+
+          now = DateTime.utc_now()
+
+          {failures_resolved_count, _} =
+            from(f in VideoFailure,
+              where: f.video_id in ^video_ids and f.resolved == false
+            )
+            |> Repo.update_all(set: [resolved: true, resolved_at: now])
+
+          from(v in Video, where: v.id in ^video_ids)
+          |> Repo.update_all(set: [state: :needs_analysis, bitrate: nil, updated_at: now])
+
+          %{
+            videos_retried: videos_retried_count,
+            failures_resolved: failures_resolved_count
+          }
+        end,
+        label: :media_retry_failed_videos_by_failure_code
+      )
+      |> case do
+        {:ok, result} -> result
+        {:error, _reason} -> %{videos_retried: 0, failures_resolved: 0}
+      end
+    end
+  end
+
   # Consolidated shared logic for video deletion
   defp delete_videos_by_ids(video_ids) do
     deleted_videos = fetch_dashboard_video_snapshots_by_ids(video_ids)
