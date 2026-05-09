@@ -160,6 +160,37 @@ defmodule Reencodarr.Diagnostics do
   end
 
   @doc """
+  Lists 1080p Dolby Vision rerip candidates missing HDR10 fallback metadata,
+  grouped by show and season.
+  """
+  @spec dv_1080_missing_hdr_fallback() :: String.t()
+  def dv_1080_missing_hdr_fallback do
+    groups = Reencodarr.Media.list_dolby_vision_1080_missing_hdr_fallback_candidates()
+
+    if Enum.empty?(groups) do
+      "No 1080p Dolby Vision rerip candidates missing HDR fallback metadata"
+    else
+      total_matches = Enum.reduce(groups, 0, &(&1.count + &2))
+
+      grouped_output =
+        groups
+        |> Enum.group_by(& &1.show)
+        |> Enum.sort_by(fn {show, _seasons} -> String.downcase(show) end)
+        |> Enum.map_join("\n\n", &format_dv_missing_hdr_fallback_show/1)
+
+      """
+      #{section("1080p Dolby Vision Missing HDR Fallback Metadata")}
+
+      Total matches: #{total_matches}
+
+      #{grouped_output}
+      """
+    end
+  rescue
+    e -> "Error in dv_1080_missing_hdr_fallback/0: #{Exception.message(e)}"
+  end
+
+  @doc """
   Recent unresolved failures, optionally filtered by stage.
   """
   @spec failures(atom() | nil) :: String.t()
@@ -477,6 +508,18 @@ defmodule Reencodarr.Diagnostics do
     Enum.map_join(states, "\n", fn {state, count} ->
       "    #{pad(to_string(state), 20)} #{count}"
     end)
+  end
+
+  defp format_dv_missing_hdr_fallback_show({show, seasons}) do
+    season_rows =
+      seasons
+      |> Enum.map_join("\n", &format_dv_missing_hdr_fallback_season/1)
+
+    "#{show}\n#{season_rows}"
+  end
+
+  defp format_dv_missing_hdr_fallback_season(%{season: season, count: count}) do
+    "  #{season} (#{count})"
   end
 
   defp format_cache_stats({:error, _}), do: "Cache: unavailable"

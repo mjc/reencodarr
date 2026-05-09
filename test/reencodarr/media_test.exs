@@ -306,6 +306,88 @@ defmodule Reencodarr.MediaTest do
       # Third should remain
       assert Media.get_video!(v3.id)
     end
+
+    test "list_dolby_vision_1080_missing_hdr_fallback_candidates/0 groups matching shows and seasons" do
+      season_1_path_1 =
+        "/mnt/tv/comedy/Only Murders in the Building/Season 1/Only Murders in the Building - S01E01 - True Crime WEBDL-1080p DV HDR10 x265 EAC3 5.1.mkv"
+
+      season_1_path_2 =
+        "/mnt/tv/comedy/Only Murders in the Building/Season 1/Only Murders in the Building - S01E02 - Who Is Tim Kono WEBDL-1080p DV HDR10 x265 EAC3 5.1.mkv"
+
+      season_2_path =
+        "/mnt/tv/comedy/Only Murders in the Building/Season 2/Only Murders in the Building - S02E01 - Persons of Interest WEBDL-1080p DV HDR10 x265 EAC3 5.1.mkv"
+
+      {:ok, _} =
+        Fixtures.video_fixture(%{
+          path: season_1_path_1,
+          state: :analyzed,
+          hdr: "Dolby Vision, HDR10",
+          mediainfo: dolby_vision_missing_hdr_fallback_mediainfo()
+        })
+
+      {:ok, _} =
+        Fixtures.video_fixture(%{
+          path: season_1_path_2,
+          state: :analyzed,
+          hdr: "Dolby Vision, HDR10",
+          mediainfo: dolby_vision_missing_hdr_fallback_mediainfo()
+        })
+
+      {:ok, _} =
+        Fixtures.video_fixture(%{
+          path: season_2_path,
+          state: :analyzed,
+          hdr: "Dolby Vision, HDR10",
+          mediainfo: dolby_vision_missing_hdr_fallback_mediainfo()
+        })
+
+      {:ok, _} =
+        Fixtures.video_fixture(%{
+          path:
+            "/mnt/tv/comedy/Only Murders in the Building/Season 3/Only Murders in the Building - S03E01 - The Show Goes On WEBDL-2160p DV HDR10 x265 EAC3 5.1.mkv",
+          state: :analyzed,
+          hdr: "Dolby Vision, HDR10",
+          mediainfo:
+            dolby_vision_missing_hdr_fallback_mediainfo(%{"Width" => 3840, "Height" => 2160})
+        })
+
+      {:ok, _} =
+        Fixtures.video_fixture(%{
+          path:
+            "/mnt/tv/comedy/Only Murders in the Building/Season 4/Only Murders in the Building - S04E01 - Once Upon a Time in the West HDR10 x265 EAC3 5.1.mkv",
+          state: :analyzed,
+          hdr: "HDR10",
+          mediainfo: dolby_vision_missing_hdr_fallback_mediainfo(%{"HDR_Format" => "HDR10"})
+        })
+
+      {:ok, _} =
+        Fixtures.video_fixture(%{
+          path:
+            "/mnt/tv/comedy/Only Murders in the Building/Season 5/Only Murders in the Building - S05E01 - Missing Fields WEBDL-1080p DV HDR10 x265 EAC3 5.1.mkv",
+          state: :analyzed,
+          hdr: "Dolby Vision, HDR10",
+          mediainfo:
+            dolby_vision_missing_hdr_fallback_mediainfo(%{
+              "MaxCLL" => "1000",
+              "MaxFALL" => "400"
+            })
+        })
+
+      assert Media.list_dolby_vision_1080_missing_hdr_fallback_candidates() == [
+               %{
+                 count: 2,
+                 paths: Enum.sort([season_1_path_1, season_1_path_2]),
+                 season: "Season 1",
+                 show: "Only Murders in the Building"
+               },
+               %{
+                 count: 1,
+                 paths: [season_2_path],
+                 season: "Season 2",
+                 show: "Only Murders in the Building"
+               }
+             ]
+    end
   end
 
   describe "libraries" do
@@ -3180,5 +3262,49 @@ defmodule Reencodarr.MediaTest do
         assert Media.get_video_failures(video.id) == []
       end)
     end
+  end
+
+  defp dolby_vision_missing_hdr_fallback_mediainfo(video_overrides \\ %{}) do
+    video_track =
+      Map.merge(
+        %{
+          "@type" => "Video",
+          "Width" => 1920,
+          "Height" => 1080,
+          "FrameRate" => 23.976,
+          "CodecID" => "V_MPEGH/ISO/HEVC",
+          "HDR_Format" => "Dolby Vision",
+          "HDR_Format_Profile" => "dvhe.08",
+          "HDR_Format_Compatibility" => "HDR10",
+          "MasteringDisplay_ColorPrimaries" => "",
+          "MasteringDisplay_Luminance" => "",
+          "MaxCLL" => "",
+          "MaxFALL" => ""
+        },
+        video_overrides
+      )
+
+    %{
+      "media" => %{
+        "track" => [
+          %{
+            "@type" => "General",
+            "AudioCount" => 1,
+            "OverallBitRate" => 3_500_000,
+            "Duration" => 1800.0,
+            "FileSize" => 1_000_000_000,
+            "TextCount" => 0,
+            "VideoCount" => 1,
+            "Title" => "Test Episode"
+          },
+          video_track,
+          %{
+            "@type" => "Audio",
+            "CodecID" => "A_EAC3",
+            "Channels" => 6
+          }
+        ]
+      }
+    }
   end
 end

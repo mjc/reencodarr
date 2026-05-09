@@ -55,10 +55,89 @@ defmodule Reencodarr.Media do
     end
   end
 
+  @doc """
+  Lists 1080p Dolby Vision TV episodes whose MediaInfo video track is missing
+  HDR10 fallback metadata fields, grouped by show and season.
+  """
+  @spec list_dolby_vision_1080_missing_hdr_fallback_candidates() :: [
+          %{
+            show: String.t(),
+            season: String.t(),
+            count: pos_integer(),
+            paths: [String.t()]
+          }
+        ]
+  def list_dolby_vision_1080_missing_hdr_fallback_candidates do
+    Repo.query!("""
+    SELECT DISTINCT v.path
+    FROM videos AS v
+    JOIN json_each(json_extract(v.mediainfo, '$.media.track')) AS track
+    WHERE v.mediainfo IS NOT NULL
+      AND lower(v.path) LIKE '%1080%'
+      AND lower(v.path) LIKE '%dv%'
+      AND lower(coalesce(v.hdr, '')) LIKE '%dolby vision%'
+      AND json_extract(track.value, '$."@type"') = 'Video'
+      AND (
+        lower(coalesce(json_extract(track.value, '$.HDR_Format'), '')) LIKE '%dolby vision%'
+        OR lower(coalesce(json_extract(track.value, '$.HDR_Format_Profile'), '')) LIKE 'dvhe.%'
+        OR lower(coalesce(json_extract(track.value, '$.HDR_Format_Profile'), '')) LIKE 'dvh1.%'
+      )
+      AND trim(coalesce(json_extract(track.value, '$.MasteringDisplay_ColorPrimaries'), '')) = ''
+      AND trim(coalesce(json_extract(track.value, '$.MasteringDisplay_Luminance'), '')) = ''
+      AND trim(coalesce(json_extract(track.value, '$.MaxCLL'), '')) = ''
+      AND trim(coalesce(json_extract(track.value, '$.MaxFALL'), '')) = ''
+    ORDER BY v.path
+    """).rows
+    |> Enum.map(fn [path] -> %{path: path} end)
+    |> Enum.map(&candidate_group_entry/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.group_by(fn %{show: show, season: season} -> {show, season} end)
+    |> Enum.map(fn {{show, season}, entries} ->
+      %{
+        show: show,
+        season: season,
+        count: length(entries),
+        paths: entries |> Enum.map(& &1.path) |> Enum.sort()
+      }
+    end)
+    |> Enum.sort_by(fn %{show: show, season: season} ->
+      {String.downcase(show), season_sort_key(season)}
+    end)
+  end
+
   def video_exists?(path), do: Repo.exists?(from v in Video, where: v.path == ^path)
 
   def find_videos_by_path_wildcard(pattern),
     do: Repo.all(from v in Video, where: like(v.path, ^pattern))
+
+  defp candidate_group_entry(%{path: path}) do
+    case extract_show_and_season(path) do
+      {show, season} -> %{show: show, season: season, path: path}
+      nil -> nil
+    end
+  end
+
+  defp extract_show_and_season(path) do
+    parts = Path.split(path)
+
+    case Enum.find_index(parts, &String.match?(&1, ~r/^Season \d+$/i)) do
+      nil ->
+        nil
+
+      0 ->
+        nil
+
+      season_index ->
+        {Enum.at(parts, season_index - 1), Enum.at(parts, season_index)}
+    end
+  end
+
+  defp season_sort_key(season) do
+    case Regex.run(~r/(\d+)/, season) do
+      [_, number] -> {String.to_integer(number), String.downcase(season)}
+      _ -> {9_999, String.downcase(season)}
+    end
+  end
 
   def get_videos_for_crf_search(limit \\ 10) do
     VideoQueries.videos_for_crf_search(limit)
