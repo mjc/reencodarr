@@ -100,7 +100,28 @@ defmodule Reencodarr.Dashboard.State do
     stats = load_initial_dashboard_stats(state.stats)
     queue_counts = refresh_queue_counts(state.queue_counts, stats)
 
-    state = %{state | stats: stats, queue_counts: queue_counts}
+    state =
+      try do
+        charts = load_chart_data()
+
+        Process.send_after(self(), :refresh_charts, @chart_refresh_interval)
+
+        %{
+          state
+          | stats: stats,
+            queue_counts: queue_counts,
+            vmaf_distribution: charts.vmaf,
+            resolution_distribution: charts.resolution,
+            codec_distribution: charts.codec,
+            charts_loaded: true
+        }
+      rescue
+        error ->
+          Logger.warning("Dashboard.State initial chart load failed: #{inspect(error)}")
+          Process.send_after(self(), :load_charts, 2_000)
+          %{state | stats: stats, queue_counts: queue_counts}
+      end
+
     broadcast_state(state)
     {:noreply, state}
   end
@@ -129,20 +150,6 @@ defmodule Reencodarr.Dashboard.State do
   @impl true
   def handle_cast(:load_queue_previews_now, state) do
     {:noreply, refresh_queue_previews(state)}
-  end
-
-  @impl true
-  def handle_cast(:load_charts_now, %{charts_loaded: true} = state) do
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_cast(:load_charts_now, state) do
-    {:noreply, load_and_schedule_charts(state)}
-  rescue
-    error ->
-      Logger.warning("Dashboard.State load_charts_now failed: #{inspect(error)}")
-      {:noreply, state}
   end
 
   # CRF Search Events

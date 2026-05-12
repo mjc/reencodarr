@@ -70,36 +70,6 @@ Hooks.RangeSelectCheckboxes = {
   }
 }
 
-Hooks.LazyLoadCharts = {
-  mounted() {
-    if (this.el.dataset.loaded === "true") return
-
-    this.observer = new IntersectionObserver((entries) => {
-      if (!entries.some((entry) => entry.isIntersecting)) return
-
-      this.pushEvent("load_charts", {})
-      this.observer?.disconnect()
-      this.observer = null
-    }, {
-      rootMargin: "300px 0px"
-    })
-
-    this.observer.observe(this.el)
-  },
-
-  updated() {
-    if (this.el.dataset.loaded === "true") {
-      this.observer?.disconnect()
-      this.observer = null
-    }
-  },
-
-  destroyed() {
-    this.observer?.disconnect()
-    this.observer = null
-  }
-}
-
 Hooks.LazyLoadQueuePreviews = {
   mounted() {
     if (this.el.dataset.loaded === "true" && this.el.dataset.detailsLoaded === "true") return

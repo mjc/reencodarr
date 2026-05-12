@@ -58,7 +58,7 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert is_list(state.resolution_distribution)
       assert Map.has_key?(state, :codec_distribution)
       assert is_list(state.codec_distribution)
-      assert state.charts_loaded == false
+      assert state.charts_loaded == true
     end
   end
 
@@ -971,19 +971,17 @@ defmodule Reencodarr.Dashboard.StateTest do
   end
 
   describe "initial stats load" do
-    test "handle_continue broadcasts initial state but defers chart loading" do
+    test "handle_continue broadcasts initial state with chart data" do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
 
-      # Receive initial_data broadcast
       receive do
         {:dashboard_state_changed, state} ->
-          assert state.charts_loaded == false
+          assert state.charts_loaded == true
           assert state.queue_previews_loaded == false
       after
         500 -> flunk("handle_continue should broadcast initial state but didn't")
       end
 
-      refute_receive {:dashboard_state_changed, %{charts_loaded: true}}, 200
       refute_receive {:dashboard_state_changed, %{queue_previews_loaded: true}}, 200
     end
   end

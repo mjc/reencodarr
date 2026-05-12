@@ -313,19 +313,6 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_event("load_charts", _params, socket) do
-    if socket.assigns.charts_loaded do
-      {:noreply, socket}
-    else
-      if Process.whereis(DashboardState) do
-        GenServer.cast(DashboardState, :load_charts_now)
-      end
-
-      {:noreply, socket}
-    end
-  end
-
-  @impl true
   def handle_event("load_queue_previews", _params, socket) do
     if socket.assigns.queue_previews_loaded do
       {:noreply, socket}
@@ -391,17 +378,6 @@ defmodule ReencodarrWeb.DashboardLive do
       <div class="text-xs text-gray-400 mb-1">{@label}</div>
       <div class="text-2xl font-mono text-white">{@value}</div>
       <div class="text-xs text-gray-500">{@sublabel}</div>
-    </div>
-    """
-  end
-
-  attr :title, :string, required: true
-
-  defp chart_placeholder(assigns) do
-    ~H"""
-    <div class="chart-container bg-gray-800 rounded-lg border border-gray-700 p-4">
-      <h3 class="text-sm font-semibold text-gray-300 mb-3">{@title}</h3>
-      <div class="h-[220px] rounded bg-gray-900/40 border border-gray-800" />
     </div>
     """
   end
@@ -1196,36 +1172,25 @@ defmodule ReencodarrWeb.DashboardLive do
         />
         
     <!-- Row 4: Analytics Charts -->
-        <div
-          id="dashboard-charts"
-          phx-hook="LazyLoadCharts"
-          data-loaded={to_string(@charts_loaded)}
-          class="grid grid-cols-1 lg:grid-cols-3 gap-4"
-        >
-          <%= if @charts_loaded do %>
-            <.bar_chart
-              data={@vmaf_distribution}
-              title="VMAF Score Distribution"
-              width={400}
-              height={220}
-            />
-            <.bar_chart
-              data={@resolution_distribution}
-              title="Resolution Breakdown"
-              width={400}
-              height={220}
-            />
-            <.bar_chart
-              data={@codec_distribution}
-              title="Codec Distribution"
-              width={400}
-              height={220}
-            />
-          <% else %>
-            <.chart_placeholder title="VMAF Score Distribution" />
-            <.chart_placeholder title="Resolution Breakdown" />
-            <.chart_placeholder title="Codec Distribution" />
-          <% end %>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <.bar_chart
+            data={@vmaf_distribution}
+            title="VMAF Score Distribution"
+            width={400}
+            height={220}
+          />
+          <.bar_chart
+            data={@resolution_distribution}
+            title="Resolution Breakdown"
+            width={400}
+            height={220}
+          />
+          <.bar_chart
+            data={@codec_distribution}
+            title="Codec Distribution"
+            width={400}
+            height={220}
+          />
         </div>
         
     <!-- Row 5: Sync Controls -->
