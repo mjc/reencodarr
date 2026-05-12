@@ -885,6 +885,11 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert state.service_status.encoder == :running
     end
 
+    test "does not broadcast when pipeline state refresh repeats the current status" do
+      Phoenix.PubSub.broadcast(Reencodarr.PubSub, "encoder", {:encoder, :idle})
+      refute_receive {:dashboard_state_changed, _}, 100
+    end
+
     test "broadcasts after crf_search_vmaf_result" do
       Phoenix.PubSub.broadcast(
         Reencodarr.PubSub,

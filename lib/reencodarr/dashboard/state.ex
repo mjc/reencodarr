@@ -276,10 +276,7 @@ defmodule Reencodarr.Dashboard.State do
   @impl true
   def handle_info({:process_control_changed, %{service: service, status: status}}, state)
       when service in [:crf_searcher, :encoder] and is_atom(status) do
-    service_status = Map.put(state.service_status, service, status)
-    state = %{state | service_status: service_status}
-    broadcast_state(state)
-    {:noreply, state}
+    update_service_status(state, service, status)
   end
 
   # Service Status Events from PipelineStateMachine
@@ -290,10 +287,7 @@ defmodule Reencodarr.Dashboard.State do
   @impl true
   def handle_info({service, status}, state)
       when service in @pipeline_services and is_atom(status) do
-    service_status = Map.put(state.service_status, service, status)
-    state = %{state | service_status: service_status}
-    broadcast_state(state)
-    {:noreply, state}
+    update_service_status(state, service, status)
   end
 
   @impl true
@@ -381,6 +375,26 @@ defmodule Reencodarr.Dashboard.State do
 
     %{state | service_status: service_status}
   end
+
+  defp update_service_status(state, service, status) do
+    status = normalize_service_status(service, status)
+    current_status = state |> current_control_state() |> get_in([:service_status, service])
+
+    if current_status == status do
+      {:noreply, state}
+    else
+      service_status = Map.put(state.service_status, service, status)
+      state = %{state | service_status: service_status}
+      broadcast_state(state)
+      {:noreply, state}
+    end
+  end
+
+  defp normalize_service_status(service, status)
+       when service in [:crf_searcher, :encoder],
+       do: ProcessControl.service_status(service, status)
+
+  defp normalize_service_status(_service, status), do: status
 
   defp fetch_queue_items(current_items) do
     query_opts = queue_query_opts()
