@@ -517,6 +517,7 @@ defmodule ReencodarrWeb.DashboardLive do
           fill="none"
           stroke="#60a5fa"
           stroke-width="1.5"
+          class="dashboard-crf-beacon"
         />
         <text
           x={ChartHelpers.crf_to_x(@testing_crf, @crf_min, @crf_max)}
@@ -1239,7 +1240,7 @@ defmodule ReencodarrWeb.DashboardLive do
     processing: "bg-blue-100 text-blue-800",
     pausing: "bg-orange-100 text-orange-800",
     idle: "bg-cyan-100 text-cyan-800",
-    checking: "bg-gray-100 text-gray-600",
+    checking: "bg-gray-100 text-gray-600 dashboard-soft-pulse",
     stopped: "bg-red-100 text-red-800",
     unknown: "bg-gray-100 text-gray-800"
   }

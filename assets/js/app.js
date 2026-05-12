@@ -159,6 +159,30 @@ topbar.config({barColors: {0: "#29d"}, shadowColor: "rgba(0, 0, 0, .3)"})
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))
 window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
 
+const dashboardAnimationsReadyClass = "dashboard-animations-ready"
+
+const scheduleDashboardAnimationsReady = () => {
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(() => {
+      document.documentElement.classList.add(dashboardAnimationsReadyClass)
+    })
+  })
+}
+
+if (document.readyState === "complete") {
+  scheduleDashboardAnimationsReady()
+} else {
+  window.addEventListener("load", scheduleDashboardAnimationsReady, {once: true})
+}
+
+window.addEventListener("phx:page-loading-start", () => {
+  document.documentElement.classList.remove(dashboardAnimationsReadyClass)
+})
+
+window.addEventListener("phx:page-loading-stop", () => {
+  scheduleDashboardAnimationsReady()
+})
+
 // connect if there are any LiveViews on the page
 liveSocket.connect()
 

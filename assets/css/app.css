@@ -45,6 +45,47 @@
   stroke: #4b5563;
 }
 
+.dashboard-soft-pulse,
+.dashboard-crf-beacon {
+  animation: none;
+}
+
+.dashboard-animations-ready .dashboard-soft-pulse {
+  animation: dashboard-soft-pulse 1.8s ease-in-out infinite;
+  will-change: opacity;
+}
+
+.dashboard-animations-ready .dashboard-crf-beacon {
+  animation: dashboard-crf-beacon 1.4s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+
+@keyframes dashboard-soft-pulse {
+  0%,
+  100% {
+    opacity: 0.82;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes dashboard-crf-beacon {
+  0%,
+  100% {
+    opacity: 0.72;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1.14);
+  }
+}
+
 .chart-container svg .exc-barlabel-in {
   fill: #F9FAFB;
 }
