@@ -51,6 +51,7 @@ defmodule ReencodarrWeb.DashboardLive do
         service_type: nil,
         # New dashboard stats
         stats: Reencodarr.Media.get_default_stats(),
+        stats_display: stats_display(Reencodarr.Media.get_default_stats()),
         # CRF Search active work
         crf_search_video: nil,
         crf_search_results: [],
@@ -342,6 +343,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   # Row 1: Stats Bar Component
   attr :stats, :map, required: true
+  attr :stats_display, :map, required: true
   attr :service_status, :map, required: true
 
   defp stats_bar(assigns) do
@@ -349,28 +351,28 @@ defmodule ReencodarrWeb.DashboardLive do
     <div class="grid grid-cols-2 md:grid-cols-6 gap-4">
       <.stat_box
         label="Total Videos"
-        value={format_number(@stats && @stats.total_videos)}
+        value={@stats_display.total_videos}
         sublabel="tracked"
       />
       <.stat_box
         label="Completed"
-        value={format_completed(@stats)}
+        value={@stats_display.completed}
         sublabel="encoded"
       />
       <.stat_box
         label="Space Saved"
-        value={format_savings(@stats && @stats.total_savings_gb)}
+        value={@stats_display.savings}
         sublabel="TiB"
       />
       <.pipeline_status_box service_status={@service_status} />
       <.stat_box
         label="Failures"
-        value={format_number(@stats && @stats.failed)}
+        value={@stats_display.failures}
         sublabel="unresolved"
       />
       <.stat_box
         label="Library Size"
-        value={format_size_gb(@stats && @stats.total_size_gb)}
+        value={@stats_display.library_size}
         sublabel="TiB"
       />
     </div>
@@ -836,6 +838,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   # Row 3: Pipeline Overview Component
   attr :stats, :map, required: true
+  attr :stats_display, :map, required: true
   attr :service_status, :map, required: true
   attr :queue_counts, :map, required: true
   attr :analyzer_throughput, :any, required: true
@@ -847,7 +850,7 @@ defmodule ReencodarrWeb.DashboardLive do
       
     <!-- State distribution bar -->
       <%= if @stats do %>
-        <.state_distribution_bar stats={@stats} />
+        <.state_distribution_bar stats={@stats} stats_display={@stats_display} />
       <% end %>
       
     <!-- Compact pipeline rows -->
@@ -911,6 +914,7 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   attr :stats, :map, required: true
+  attr :stats_display, :map, required: true
 
   defp state_distribution_bar(assigns) do
     total = assigns.stats.total_videos || 1
@@ -965,9 +969,9 @@ defmodule ReencodarrWeb.DashboardLive do
         <% end %>
       </div>
       <div class="flex justify-between text-xs text-gray-400">
-        <span>Needs Analysis: {format_number(@stats.needs_analysis)}</span>
-        <span>Analyzed: {format_number(@stats.analyzed)}</span>
-        <span>Encoded: {format_number(@stats.encoded)}</span>
+        <span>Needs Analysis: {@stats_display.needs_analysis}</span>
+        <span>Analyzed: {@stats_display.analyzed}</span>
+        <span>Encoded: {@stats_display.encoded}</span>
       </div>
     </div>
     """
@@ -1138,7 +1142,11 @@ defmodule ReencodarrWeb.DashboardLive do
     <div class="min-h-screen bg-gray-950 p-6">
       <div class="max-w-7xl mx-auto space-y-4">
         <!-- Row 1: Stats Bar -->
-        <.stats_bar stats={@stats} service_status={@service_status} />
+        <.stats_bar
+          stats={@stats}
+          stats_display={@stats_display}
+          service_status={@service_status}
+        />
         
     <!-- Row 2: Active Work Panels -->
         <div
@@ -1175,6 +1183,7 @@ defmodule ReencodarrWeb.DashboardLive do
     <!-- Row 3: Pipeline Overview -->
         <.pipeline_overview
           stats={@stats}
+          stats_display={@stats_display}
           service_status={@service_status}
           queue_counts={@queue_counts}
           analyzer_throughput={@analyzer_throughput}
@@ -1297,6 +1306,7 @@ defmodule ReencodarrWeb.DashboardLive do
       encoding_progress: state.encoding_progress,
       service_status: state.service_status,
       stats: state.stats,
+      stats_display: stats_display(state.stats),
       queue_counts: state.queue_counts,
       queue_items: merged_queue_items,
       queue_previews_loaded: Map.get(state, :queue_previews_loaded, false),
@@ -1309,6 +1319,32 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp schedule_periodic_update do
     Process.send_after(self(), :update_dashboard_data, 5_000)
+  end
+
+  defp stats_display(nil) do
+    %{
+      total_videos: "—",
+      completed: "—",
+      savings: "—",
+      failures: "—",
+      library_size: "—",
+      needs_analysis: "—",
+      analyzed: "—",
+      encoded: "—"
+    }
+  end
+
+  defp stats_display(stats) do
+    %{
+      total_videos: format_number(stats.total_videos),
+      completed: format_completed(stats),
+      savings: format_savings(stats.total_savings_gb),
+      failures: format_number(stats.failed),
+      library_size: format_size_gb(stats.total_size_gb),
+      needs_analysis: format_number(stats.needs_analysis),
+      analyzed: format_number(stats.analyzed),
+      encoded: format_number(stats.encoded)
+    }
   end
 
   defp handle_control_result(socket, :ok, message) do
