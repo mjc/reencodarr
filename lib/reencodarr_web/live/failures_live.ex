@@ -26,26 +26,22 @@ defmodule ReencodarrWeb.FailuresLive do
   alias Reencodarr.Media.SharedQueries
   alias Reencodarr.Repo
 
+  @update_interval 30_000
+
   @impl true
   def mount(_params, _session, socket) do
     socket =
       socket
       |> setup_failures_data()
       |> assign_placeholder_data()
+      |> load_failures_data()
 
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
       schedule_periodic_update()
-      # Load data asynchronously to avoid blocking mount
-      send(self(), :load_initial_data)
     end
 
     {:ok, socket}
-  end
-
-  @impl true
-  def handle_info(:load_initial_data, socket) do
-    {:noreply, load_failures_data(socket)}
   end
 
   @impl true
@@ -918,6 +914,10 @@ defmodule ReencodarrWeb.FailuresLive do
     |> Repo.one()
   end
 
+  defp schedule_periodic_update do
+    Process.send_after(self(), :update_failures_data, @update_interval)
+  end
+
   defp get_failures_by_video(videos) do
     import Ecto.Query
     video_ids = Enum.map(videos, & &1.id)
@@ -963,11 +963,6 @@ defmodule ReencodarrWeb.FailuresLive do
     output = Map.get(system_context || %{}, "full_output", "")
 
     !is_nil(command) or output != ""
-  end
-
-  # Private helper to schedule periodic data updates
-  defp schedule_periodic_update do
-    Process.send_after(self(), :update_failures_data, 5_000)
   end
 
   # Compact relative time formatting for table view

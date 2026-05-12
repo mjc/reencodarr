@@ -28,62 +28,66 @@ defmodule ReencodarrWeb.BadFilesLive do
   @active_statuses [:open, :queued, :processing, :waiting_for_replacement, :failed]
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
+    filters = parse_params(params)
+
+    socket =
+      socket
+      |> assign(
+        per_page_options: @per_page_options,
+        status_filter_values: @status_filter_values,
+        service_filter_values: @service_filter_values,
+        kind_filter_values: @kind_filter_values,
+        page: 1,
+        per_page: @default_per_page,
+        status_filter: "all",
+        service_filter: "all",
+        kind_filter: "all",
+        search_query: "",
+        loading_issues: true,
+        show_resolved: false,
+        loaded_once: false,
+        issues: [],
+        tracked_count: 0,
+        active_total: 0,
+        active_issues: [],
+        replacement_issues: [],
+        resolved_issues: [],
+        issue_summary: %{
+          open: 0,
+          queued: 0,
+          processing: 0,
+          waiting_for_replacement: 0,
+          failed: 0,
+          resolved: 0
+        }
+      )
+      |> assign(filters)
+      |> load_initial_snapshot()
+
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
       Process.send_after(self(), :periodic_update, @update_interval)
-      send(self(), :load_initial_data)
     end
 
-    {:ok,
-     assign(socket,
-       per_page_options: @per_page_options,
-       status_filter_values: @status_filter_values,
-       service_filter_values: @service_filter_values,
-       kind_filter_values: @kind_filter_values,
-       page: 1,
-       per_page: @default_per_page,
-       status_filter: "all",
-       service_filter: "all",
-       kind_filter: "all",
-       search_query: "",
-       loading_issues: true,
-       show_resolved: false,
-       loaded_once: false,
-       issues: [],
-       tracked_count: 0,
-       active_total: 0,
-       active_issues: [],
-       replacement_issues: [],
-       resolved_issues: [],
-       issue_summary: %{
-         open: 0,
-         queued: 0,
-         processing: 0,
-         waiting_for_replacement: 0,
-         failed: 0,
-         resolved: 0
-       }
-     )}
+    {:ok, socket}
   end
 
   @impl true
   def handle_params(params, _uri, socket) do
     filters = parse_params(params)
+    filters_changed? = filters_changed?(socket.assigns, filters)
 
     socket =
       socket
       |> assign(filters)
       |> then(fn s ->
-        if connected?(s) and s.assigns.loaded_once, do: async_load_issues(s), else: s
+        if connected?(s) and s.assigns.loaded_once and filters_changed?,
+          do: async_load_issues(s),
+          else: s
       end)
 
     {:noreply, socket}
-  end
-
-  @impl true
-  def handle_info(:load_initial_data, socket) do
-    {:noreply, socket |> assign(:loaded_once, true) |> async_load_issues()}
   end
 
   @impl true
@@ -353,6 +357,12 @@ defmodule ReencodarrWeb.BadFilesLive do
     assign(socket, Map.put(issue_payload, :loading_issues, false))
   end
 
+  defp load_initial_snapshot(socket) do
+    socket
+    |> apply_issue_payload(fetch_issue_payload(socket.assigns))
+    |> assign(:loaded_once, true)
+  end
+
   defp issue_reason(issue) do
     case issue.manual_reason do
       nil -> to_string(issue.classification)
@@ -454,6 +464,10 @@ defmodule ReencodarrWeb.BadFilesLive do
 
   defp pagination_label(page, per_page, total),
     do: ListPagination.pagination_label(page, per_page, total)
+
+  defp filters_changed?(assigns, filters) do
+    Enum.any?(filters, fn {key, value} -> Map.get(assigns, key) != value end)
+  end
 
   defp render_issue_rows(assigns) do
     ~H"""

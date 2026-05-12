@@ -40,36 +40,45 @@ defmodule ReencodarrWeb.VideosLive do
   # ---------------------------------------------------------------------------
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
+    filters = parse_params(params)
+
+    socket =
+      socket
+      |> assign(
+        videos: [],
+        total: 0,
+        state_counts: %{},
+        selected: MapSet.new(),
+        expanded_bad_forms: [],
+        loading: true,
+        loaded_once: false,
+        per_page_options: @per_page_options,
+        valid_states: @valid_states
+      )
+      |> assign(filters)
+      |> load_initial_snapshot()
+
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
       Process.send_after(self(), :periodic_update, @update_interval)
-      send(self(), :load_initial_data)
     end
 
-    {:ok,
-     assign(socket,
-       videos: [],
-       total: 0,
-       state_counts: %{},
-       selected: MapSet.new(),
-       expanded_bad_forms: [],
-       loading: true,
-       loaded_once: false,
-       per_page_options: @per_page_options,
-       valid_states: @valid_states
-     )}
+    {:ok, socket}
   end
 
   @impl true
   def handle_params(params, _uri, socket) do
     filters = parse_params(params)
+    filters_changed? = filters_changed?(socket.assigns, filters)
 
     socket =
       socket
       |> assign(filters)
       |> then(fn s ->
-        if connected?(s) and s.assigns.loaded_once, do: load_data(s), else: s
+        if connected?(s) and s.assigns.loaded_once and filters_changed?,
+          do: load_data(s),
+          else: s
       end)
 
     {:noreply, socket}
@@ -78,11 +87,6 @@ defmodule ReencodarrWeb.VideosLive do
   # ---------------------------------------------------------------------------
   # PubSub / periodic refresh
   # ---------------------------------------------------------------------------
-
-  @impl true
-  def handle_info(:load_initial_data, socket) do
-    {:noreply, socket |> load_data() |> assign(:loaded_once, true)}
-  end
 
   @impl true
   def handle_info(:periodic_update, socket) do
@@ -466,6 +470,12 @@ defmodule ReencodarrWeb.VideosLive do
     assign(socket, Map.put(page_state, :loading, false))
   end
 
+  defp load_initial_snapshot(socket) do
+    socket
+    |> load_data()
+    |> assign(:loaded_once, true)
+  end
+
   defp reset_video_by_id(id) do
     case Media.get_video(id) do
       nil -> :ok
@@ -639,6 +649,10 @@ defmodule ReencodarrWeb.VideosLive do
 
   defp pagination_label(page, per_page, total),
     do: ListPagination.pagination_label(page, per_page, total)
+
+  defp filters_changed?(assigns, filters) do
+    Enum.any?(filters, fn {key, value} -> Map.get(assigns, key) != value end)
+  end
 
   # ---------------------------------------------------------------------------
   # Render

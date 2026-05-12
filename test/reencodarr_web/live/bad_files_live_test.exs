@@ -34,6 +34,23 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       assert html =~ "bad_queue.mkv"
     end
 
+    test "hydrates bad-file issues in the first HTML response", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/first_bad_issue.mkv"})
+
+      {:ok, _issue} =
+        Media.create_bad_file_issue(video, %{
+          origin: :manual,
+          issue_kind: :manual,
+          classification: :manual_bad,
+          manual_reason: "first response issue"
+        })
+
+      {:ok, _view, html} = live(conn, ~p"/bad-files")
+
+      assert html =~ "first response issue"
+      assert html =~ "first_bad_issue.mkv"
+    end
+
     test "renders status summary and separates active from resolved issues", %{conn: conn} do
       {:ok, active_video} = Fixtures.video_fixture(%{path: "/media/active_issue.mkv"})
       {:ok, resolved_video} = Fixtures.video_fixture(%{path: "/media/resolved_issue.mkv"})

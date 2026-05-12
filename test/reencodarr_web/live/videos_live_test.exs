@@ -45,6 +45,12 @@ defmodule ReencodarrWeb.VideosLiveTest do
       html = render(view)
       assert html =~ video.path
     end
+
+    test "hydrates video rows in the first HTML response", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/first_render_video.mkv"})
+      {:ok, _view, html} = live(conn, ~p"/videos")
+      assert html =~ video.path
+    end
   end
 
   # ---------------------------------------------------------------------------

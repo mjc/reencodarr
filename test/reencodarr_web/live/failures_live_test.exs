@@ -43,6 +43,15 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       html = loaded_html(view)
       assert html =~ "broken.mkv"
     end
+
+    test "hydrates failures in the first HTML response", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/first_failure.mkv", state: :failed})
+      Media.record_video_failure(video, :encoding, :timeout, message: "first response failure")
+
+      {:ok, _view, html} = live(conn, ~p"/failures")
+
+      assert html =~ "first_failure.mkv"
+    end
   end
 
   # ---------------------------------------------------------------------------
