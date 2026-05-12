@@ -81,6 +81,29 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
       assert html =~ "initial-queue-preview.mkv"
     end
+
+    test "includes chart data in the initial html response", %{conn: conn} do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/media/initial-chart-preview.mkv",
+          state: :crf_searched,
+          width: 1920,
+          height: 1080,
+          video_codecs: ["AV1"]
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, score: 95.1, crf: 24.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      html =
+        conn
+        |> get(~p"/")
+        |> html_response(200)
+
+      assert html =~ "AV1"
+      assert html =~ "1080p"
+      assert html =~ "94-96"
+    end
   end
 
   describe "event handling" do

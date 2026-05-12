@@ -15,6 +15,7 @@ defmodule ReencodarrWeb.DashboardLive do
   alias Reencodarr.Dashboard.State, as: DashboardState
   alias Reencodarr.Formatters
   alias Reencodarr.Media
+  alias Reencodarr.Media.ChartQueries
   alias Reencodarr.Media.VideoQueries
 
   import ReencodarrWeb.ChartComponents
@@ -78,7 +79,10 @@ defmodule ReencodarrWeb.DashboardLive do
           assign_dashboard_state(socket, state)
       end
 
-    socket = maybe_hydrate_initial_queue_previews(socket)
+    socket =
+      socket
+      |> maybe_hydrate_initial_dashboard_data()
+      |> maybe_hydrate_initial_queue_previews()
 
     # Setup subscriptions and processes if connected
     socket =
@@ -1078,6 +1082,10 @@ defmodule ReencodarrWeb.DashboardLive do
     [timeout: timeout, pool_timeout: timeout]
   end
 
+  defp dashboard_mount_query_timeout do
+    Application.get_env(:reencodarr, :dashboard_queue_query_timeout_ms, 1_000)
+  end
+
   attr :service_status, :map, required: true
 
   defp pipeline_status_box(assigns) do
@@ -1252,6 +1260,28 @@ defmodule ReencodarrWeb.DashboardLive do
     do: @service_status_labels[status] || @service_status_labels.unknown
 
   defp request_analyzer_throughput, do: :ok
+
+  defp maybe_hydrate_initial_dashboard_data(socket) do
+    if connected?(socket) or socket.assigns.charts_loaded do
+      socket
+    else
+      stats = Media.get_dashboard_stats(dashboard_mount_query_timeout())
+
+      assign(socket,
+        stats: stats,
+        stats_display: stats_display(stats),
+        state_distribution_display: state_distribution_display(stats),
+        vmaf_distribution: ChartQueries.vmaf_score_distribution(),
+        resolution_distribution: ChartQueries.resolution_distribution(),
+        codec_distribution: ChartQueries.codec_distribution(),
+        charts_loaded: true
+      )
+    end
+  rescue
+    error ->
+      Logger.warning("DashboardLive initial dashboard hydration failed: #{inspect(error)}")
+      socket
+  end
 
   defp maybe_hydrate_initial_queue_previews(socket) do
     if connected?(socket) or not queue_preview_hydration_enabled?() do
