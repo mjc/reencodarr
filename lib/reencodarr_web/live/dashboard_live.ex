@@ -39,6 +39,7 @@ defmodule ReencodarrWeb.DashboardLive do
         # Queue data
         queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
         queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
+        queue_previews_loaded: false,
         # Service status
         service_status: get_optimistic_service_status(),
         # Sync status
@@ -57,7 +58,8 @@ defmodule ReencodarrWeb.DashboardLive do
         # Chart data (loaded when connected)
         vmaf_distribution: [],
         resolution_distribution: [],
-        codec_distribution: []
+        codec_distribution: [],
+        charts_loaded: false
       })
 
     # Setup subscriptions and processes if connected
@@ -303,6 +305,32 @@ defmodule ReencodarrWeb.DashboardLive do
     end
   end
 
+  @impl true
+  def handle_event("load_charts", _params, socket) do
+    if socket.assigns.charts_loaded do
+      {:noreply, socket}
+    else
+      if Process.whereis(DashboardState) do
+        GenServer.cast(DashboardState, :load_charts_now)
+      end
+
+      {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def handle_event("load_queue_previews", _params, socket) do
+    if socket.assigns.queue_previews_loaded do
+      {:noreply, socket}
+    else
+      if Process.whereis(DashboardState) do
+        GenServer.cast(DashboardState, :load_queue_previews_now)
+      end
+
+      {:noreply, socket}
+    end
+  end
+
   # Row 1: Stats Bar Component
   attr :stats, :map, required: true
   attr :service_status, :map, required: true
@@ -350,6 +378,17 @@ defmodule ReencodarrWeb.DashboardLive do
       <div class="text-xs text-gray-400 mb-1">{@label}</div>
       <div class="text-2xl font-mono text-white">{@value}</div>
       <div class="text-xs text-gray-500">{@sublabel}</div>
+    </div>
+    """
+  end
+
+  attr :title, :string, required: true
+
+  defp chart_placeholder(assigns) do
+    ~H"""
+    <div class="chart-container bg-gray-800 rounded-lg border border-gray-700 p-4">
+      <h3 class="text-sm font-semibold text-gray-300 mb-3">{@title}</h3>
+      <div class="h-[220px] rounded bg-gray-900/40 border border-gray-800" />
     </div>
     """
   end
@@ -1086,7 +1125,12 @@ defmodule ReencodarrWeb.DashboardLive do
         <.stats_bar stats={@stats} service_status={@service_status} />
         
     <!-- Row 2: Active Work Panels -->
-        <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <div
+          id="dashboard-active-work"
+          phx-hook="LazyLoadQueuePreviews"
+          data-loaded={to_string(@queue_previews_loaded)}
+          class="grid grid-cols-1 lg:grid-cols-5 gap-4"
+        >
           <div class="lg:col-span-3">
             <.crf_search_panel
               video={@crf_search_video}
@@ -1119,25 +1163,36 @@ defmodule ReencodarrWeb.DashboardLive do
         />
         
     <!-- Row 4: Analytics Charts -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <.bar_chart
-            data={@vmaf_distribution}
-            title="VMAF Score Distribution"
-            width={400}
-            height={220}
-          />
-          <.bar_chart
-            data={@resolution_distribution}
-            title="Resolution Breakdown"
-            width={400}
-            height={220}
-          />
-          <.bar_chart
-            data={@codec_distribution}
-            title="Codec Distribution"
-            width={400}
-            height={220}
-          />
+        <div
+          id="dashboard-charts"
+          phx-hook="LazyLoadCharts"
+          data-loaded={to_string(@charts_loaded)}
+          class="grid grid-cols-1 lg:grid-cols-3 gap-4"
+        >
+          <%= if @charts_loaded do %>
+            <.bar_chart
+              data={@vmaf_distribution}
+              title="VMAF Score Distribution"
+              width={400}
+              height={220}
+            />
+            <.bar_chart
+              data={@resolution_distribution}
+              title="Resolution Breakdown"
+              width={400}
+              height={220}
+            />
+            <.bar_chart
+              data={@codec_distribution}
+              title="Codec Distribution"
+              width={400}
+              height={220}
+            />
+          <% else %>
+            <.chart_placeholder title="VMAF Score Distribution" />
+            <.chart_placeholder title="Resolution Breakdown" />
+            <.chart_placeholder title="Codec Distribution" />
+          <% end %>
         </div>
         
     <!-- Row 5: Sync Controls -->
@@ -1226,9 +1281,11 @@ defmodule ReencodarrWeb.DashboardLive do
       stats: state.stats,
       queue_counts: state.queue_counts,
       queue_items: merged_queue_items,
+      queue_previews_loaded: Map.get(state, :queue_previews_loaded, false),
       vmaf_distribution: state.vmaf_distribution,
       resolution_distribution: state.resolution_distribution,
-      codec_distribution: state.codec_distribution
+      codec_distribution: state.codec_distribution,
+      charts_loaded: Map.get(state, :charts_loaded, false)
     )
   end
 

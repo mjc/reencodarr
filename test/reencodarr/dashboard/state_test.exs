@@ -46,6 +46,7 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert state.stats.total_videos == 0
       assert state.queue_counts == %{analyzer: 0, crf_searcher: 0, encoder: 0}
       assert state.queue_items == %{analyzer: [], crf_searcher: [], encoder: []}
+      assert state.queue_previews_loaded == false
     end
 
     test "returns chart data fields in state" do
@@ -57,6 +58,7 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert is_list(state.resolution_distribution)
       assert Map.has_key?(state, :codec_distribution)
       assert is_list(state.codec_distribution)
+      assert state.charts_loaded == false
     end
   end
 
@@ -779,13 +781,7 @@ defmodule Reencodarr.Dashboard.StateTest do
     setup do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
 
-      # Drain the initial broadcasts from handle_continue(:fetch_initial_data) and handle_continue(:fetch_chart_data)
-      receive do
-        {:dashboard_state_changed, _} -> :ok
-      after
-        500 -> :ok
-      end
-
+      # Drain the initial broadcast from handle_continue(:fetch_initial_data)
       receive do
         {:dashboard_state_changed, _} -> :ok
       after
@@ -932,12 +928,10 @@ defmodule Reencodarr.Dashboard.StateTest do
     end
 
     test "handles :refresh_charts message and broadcasts updated state with chart data" do
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
+
       # Send :refresh_charts message to the GenServer
       send(Process.whereis(State), :refresh_charts)
-      :timer.sleep(50)
-
-      # Subscribe after sending to get the broadcast
-      Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
 
       assert_receive {:dashboard_state_changed, state}
 
@@ -948,26 +942,49 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert is_list(state.resolution_distribution)
       assert Map.has_key?(state, :codec_distribution)
       assert is_list(state.codec_distribution)
+      assert state.charts_loaded == true
+    end
+
+    test "loads queue previews only when explicitly requested" do
+      previous_refresh_enabled =
+        Application.get_env(:reencodarr, :dashboard_queue_refresh_enabled)
+
+      Application.put_env(:reencodarr, :dashboard_queue_refresh_enabled, true)
+
+      on_exit(fn ->
+        Application.put_env(
+          :reencodarr,
+          :dashboard_queue_refresh_enabled,
+          previous_refresh_enabled
+        )
+      end)
+
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
+
+      GenServer.cast(State, :load_queue_previews_now)
+
+      assert_receive {:dashboard_state_changed, state}
+      assert state.queue_previews_loaded == true
+      assert Map.has_key?(state, :queue_items)
+      assert is_map(state.queue_items)
     end
   end
 
   describe "initial stats load" do
-    test "handle_continue broadcasts initial state to subscribers" do
+    test "handle_continue broadcasts initial state but defers chart loading" do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
 
       # Receive initial_data broadcast
       receive do
-        {:dashboard_state_changed, _} -> :ok
+        {:dashboard_state_changed, state} ->
+          assert state.charts_loaded == false
+          assert state.queue_previews_loaded == false
       after
         500 -> flunk("handle_continue should broadcast initial state but didn't")
       end
 
-      # Receive chart_data broadcast (deferred by 2 seconds)
-      receive do
-        {:dashboard_state_changed, _} -> :ok
-      after
-        3_000 -> flunk("handle_continue should broadcast chart data but didn't")
-      end
+      refute_receive {:dashboard_state_changed, %{charts_loaded: true}}, 200
+      refute_receive {:dashboard_state_changed, %{queue_previews_loaded: true}}, 200
     end
   end
 
@@ -985,13 +1002,7 @@ defmodule Reencodarr.Dashboard.StateTest do
     test "video mutation broadcasts updated state" do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
 
-      # Drain any existing broadcasts from startup (initial_data and chart_data)
-      receive do
-        {:dashboard_state_changed, _} -> :ok
-      after
-        500 -> :ok
-      end
-
+      # Drain any existing broadcast from startup (initial_data)
       receive do
         {:dashboard_state_changed, _} -> :ok
       after

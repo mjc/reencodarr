@@ -70,6 +70,81 @@ Hooks.RangeSelectCheckboxes = {
   }
 }
 
+Hooks.LazyLoadCharts = {
+  mounted() {
+    if (this.el.dataset.loaded === "true") return
+
+    this.observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return
+
+      this.pushEvent("load_charts", {})
+      this.observer?.disconnect()
+      this.observer = null
+    }, {
+      rootMargin: "300px 0px"
+    })
+
+    this.observer.observe(this.el)
+  },
+
+  updated() {
+    if (this.el.dataset.loaded === "true") {
+      this.observer?.disconnect()
+      this.observer = null
+    }
+  },
+
+  destroyed() {
+    this.observer?.disconnect()
+    this.observer = null
+  }
+}
+
+Hooks.LazyLoadQueuePreviews = {
+  mounted() {
+    if (this.el.dataset.loaded === "true") return
+
+    const load = () => {
+      if (this.el.dataset.loaded === "true") return
+      this.pushEvent("load_queue_previews", {})
+    }
+
+    this.observer = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return
+
+      if ("requestIdleCallback" in window) {
+        this.idleCallback = window.requestIdleCallback(load, {timeout: 1000})
+      } else {
+        setTimeout(load, 0)
+      }
+
+      this.observer?.disconnect()
+      this.observer = null
+    }, {
+      rootMargin: "150px 0px"
+    })
+
+    this.observer.observe(this.el)
+  },
+
+  updated() {
+    if (this.el.dataset.loaded === "true") {
+      this.observer?.disconnect()
+      this.observer = null
+    }
+  },
+
+  destroyed() {
+    this.observer?.disconnect()
+    this.observer = null
+
+    if (this.idleCallback && "cancelIdleCallback" in window) {
+      window.cancelIdleCallback(this.idleCallback)
+      this.idleCallback = null
+    }
+  }
+}
+
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 // Use embedded socket for iframe pages
 let socketUrl = window.location.pathname.startsWith("/embed/") ? "/embed/live" : "/live"

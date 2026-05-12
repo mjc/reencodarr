@@ -24,6 +24,13 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert html =~ "Media Library Sync"
       assert html =~ "Sonarr"
       assert html =~ "Radarr"
+      assert html =~ ~s(id="dashboard-active-work")
+      assert html =~ ~s(phx-hook="LazyLoadQueuePreviews")
+      assert html =~ ~s(data-loaded="false")
+      assert html =~ ~s(id="dashboard-charts")
+      assert html =~ ~s(phx-hook="LazyLoadCharts")
+      assert html =~ ~s(data-loaded="false")
+      refute html =~ "VMAF Score Distribution</h3>\n      <div class=\"overflow-x-auto\">"
     end
 
     @tag :expected_failure

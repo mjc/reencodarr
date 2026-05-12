@@ -48,9 +48,11 @@ defmodule Reencodarr.Dashboard.State do
     stats: Reencodarr.Media.get_default_stats(),
     queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
     queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
+    queue_previews_loaded: false,
     vmaf_distribution: [],
     resolution_distribution: [],
     codec_distribution: [],
+    charts_loaded: false,
     progress_debounce_ref: nil
   }
 
@@ -98,15 +100,8 @@ defmodule Reencodarr.Dashboard.State do
     stats = load_initial_dashboard_stats(state.stats)
     queue_counts = refresh_queue_counts(state.queue_counts, stats)
 
-    if queue_refresh_enabled?() do
-      send(self(), :refresh_queues)
-    end
-
     state = %{state | stats: stats, queue_counts: queue_counts}
     broadcast_state(state)
-
-    # Defer chart data loading to avoid database lock contention during startup
-    Process.send_after(self(), :load_charts, 2_000)
     {:noreply, state}
   end
 
@@ -123,10 +118,31 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_cast(:refresh_queues_now, state) do
-    items = fetch_queue_items(state.queue_items)
-    state = %{state | queue_items: items}
-    broadcast_state(state)
+    {:noreply, refresh_queue_previews(state)}
+  end
+
+  @impl true
+  def handle_cast(:load_queue_previews_now, %{queue_previews_loaded: true} = state) do
     {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast(:load_queue_previews_now, state) do
+    {:noreply, refresh_queue_previews(state)}
+  end
+
+  @impl true
+  def handle_cast(:load_charts_now, %{charts_loaded: true} = state) do
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_cast(:load_charts_now, state) do
+    {:noreply, load_and_schedule_charts(state)}
+  rescue
+    error ->
+      Logger.warning("Dashboard.State load_charts_now failed: #{inspect(error)}")
+      {:noreply, state}
   end
 
   # CRF Search Events
@@ -292,18 +308,7 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_info(:load_charts, state) do
-    charts = load_chart_data()
-
-    state = %{
-      state
-      | vmaf_distribution: charts.vmaf,
-        resolution_distribution: charts.resolution,
-        codec_distribution: charts.codec
-    }
-
-    broadcast_state(state)
-    Process.send_after(self(), :refresh_charts, @chart_refresh_interval)
-    {:noreply, state}
+    {:noreply, load_and_schedule_charts(state)}
   rescue
     error ->
       Logger.warning("Dashboard.State load_charts failed: #{inspect(error)}")
@@ -313,14 +318,7 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_info(:refresh_queues, state) do
-    if queue_refresh_enabled?() do
-      items = fetch_queue_items(state.queue_items)
-      state = %{state | queue_items: items}
-      broadcast_state(state)
-      Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
-    end
-
-    {:noreply, state}
+    {:noreply, refresh_queue_previews(state)}
   rescue
     error ->
       Logger.warning("Dashboard.State refresh_queues failed: #{inspect(error)}")
@@ -334,18 +332,7 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_info(:refresh_charts, state) do
-    charts = load_chart_data()
-
-    state = %{
-      state
-      | vmaf_distribution: charts.vmaf,
-        resolution_distribution: charts.resolution,
-        codec_distribution: charts.codec
-    }
-
-    broadcast_state(state)
-    Process.send_after(self(), :refresh_charts, @chart_refresh_interval)
-    {:noreply, state}
+    {:noreply, load_and_schedule_charts(state)}
   rescue
     error ->
       Logger.warning("Dashboard.State refresh_charts failed: #{inspect(error)}")
@@ -421,6 +408,18 @@ defmodule Reencodarr.Dashboard.State do
     }
   end
 
+  defp refresh_queue_previews(state) do
+    if queue_refresh_enabled?() do
+      items = fetch_queue_items(state.queue_items)
+      state = %{state | queue_items: items, queue_previews_loaded: true}
+      broadcast_state(state)
+      Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
+      state
+    else
+      state
+    end
+  end
+
   defp load_initial_dashboard_stats(current_stats) do
     current_stats |> Map.merge(Reencodarr.Media.get_dashboard_stats())
   rescue
@@ -492,6 +491,22 @@ defmodule Reencodarr.Dashboard.State do
       resolution: ChartQueries.resolution_distribution(),
       codec: ChartQueries.codec_distribution()
     }
+  end
+
+  defp load_and_schedule_charts(state) do
+    charts = load_chart_data()
+
+    state = %{
+      state
+      | vmaf_distribution: charts.vmaf,
+        resolution_distribution: charts.resolution,
+        codec_distribution: charts.codec,
+        charts_loaded: true
+    }
+
+    broadcast_state(state)
+    Process.send_after(self(), :refresh_charts, @chart_refresh_interval)
+    state
   end
 
   defp apply_video_mutation(state, %{action: action, old_video: old_video, new_video: new_video})
