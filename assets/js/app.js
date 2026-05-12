@@ -102,11 +102,16 @@ Hooks.LazyLoadCharts = {
 
 Hooks.LazyLoadQueuePreviews = {
   mounted() {
-    if (this.el.dataset.loaded === "true") return
+    if (this.el.dataset.loaded === "true" && this.el.dataset.detailsLoaded === "true") return
 
     const load = () => {
       if (this.el.dataset.loaded === "true") return
       this.pushEvent("load_queue_previews", {})
+    }
+
+    const loadDetails = () => {
+      if (this.el.dataset.detailsLoaded === "true") return
+      this.pushEvent("load_active_panel_details", {})
     }
 
     this.observer = new IntersectionObserver((entries) => {
@@ -114,8 +119,10 @@ Hooks.LazyLoadQueuePreviews = {
 
       if ("requestIdleCallback" in window) {
         this.idleCallback = window.requestIdleCallback(load, {timeout: 1000})
+        this.detailsIdleCallback = window.requestIdleCallback(loadDetails, {timeout: 1200})
       } else {
         setTimeout(load, 0)
+        setTimeout(loadDetails, 0)
       }
 
       this.observer?.disconnect()
@@ -128,7 +135,7 @@ Hooks.LazyLoadQueuePreviews = {
   },
 
   updated() {
-    if (this.el.dataset.loaded === "true") {
+    if (this.el.dataset.loaded === "true" && this.el.dataset.detailsLoaded === "true") {
       this.observer?.disconnect()
       this.observer = null
     }
@@ -141,6 +148,11 @@ Hooks.LazyLoadQueuePreviews = {
     if (this.idleCallback && "cancelIdleCallback" in window) {
       window.cancelIdleCallback(this.idleCallback)
       this.idleCallback = null
+    }
+
+    if (this.detailsIdleCallback && "cancelIdleCallback" in window) {
+      window.cancelIdleCallback(this.detailsIdleCallback)
+      this.detailsIdleCallback = null
     }
   }
 }
