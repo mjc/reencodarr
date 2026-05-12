@@ -311,19 +311,6 @@ defmodule ReencodarrWeb.DashboardLive do
     end
   end
 
-  @impl true
-  def handle_event("load_queue_previews", _params, socket) do
-    if socket.assigns.queue_previews_loaded do
-      {:noreply, socket}
-    else
-      if Process.whereis(DashboardState) do
-        GenServer.cast(DashboardState, :load_queue_previews_now)
-      end
-
-      {:noreply, socket}
-    end
-  end
-
   # Row 1: Stats Bar Component
   attr :stats, :map, required: true
   attr :stats_display, :map, required: true
@@ -1111,8 +1098,6 @@ defmodule ReencodarrWeb.DashboardLive do
     <!-- Row 2: Active Work Panels -->
         <div
           id="dashboard-active-work"
-          phx-hook="LazyLoadQueuePreviews"
-          data-loaded={to_string(@queue_previews_loaded)}
           class="dashboard-section grid grid-cols-1 lg:grid-cols-5 gap-4"
         >
           <div class="lg:col-span-3">

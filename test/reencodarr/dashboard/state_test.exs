@@ -945,7 +945,7 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert state.charts_loaded == true
     end
 
-    test "loads queue previews only when explicitly requested" do
+    test "loads queue previews in the initial state snapshot when enabled" do
       previous_refresh_enabled =
         Application.get_env(:reencodarr, :dashboard_queue_refresh_enabled)
 
@@ -959,9 +959,10 @@ defmodule Reencodarr.Dashboard.StateTest do
         )
       end)
 
-      Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
+      stop_supervised!(State)
+      start_supervised!(State)
 
-      GenServer.cast(State, :load_queue_previews_now)
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
 
       assert_receive {:dashboard_state_changed, state}
       assert state.queue_previews_loaded == true
@@ -981,8 +982,6 @@ defmodule Reencodarr.Dashboard.StateTest do
       after
         500 -> flunk("handle_continue should broadcast initial state but didn't")
       end
-
-      refute_receive {:dashboard_state_changed, %{queue_previews_loaded: true}}, 200
     end
   end
 

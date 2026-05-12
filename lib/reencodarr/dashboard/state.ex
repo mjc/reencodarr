@@ -100,16 +100,28 @@ defmodule Reencodarr.Dashboard.State do
     stats = load_initial_dashboard_stats(state.stats)
     queue_counts = refresh_queue_counts(state.queue_counts, stats)
 
+    initial_queue_items =
+      if queue_refresh_enabled?() do
+        fetch_queue_items(state.queue_items)
+      else
+        state.queue_items
+      end
+
     state =
       try do
         charts = load_chart_data()
 
         Process.send_after(self(), :refresh_charts, @chart_refresh_interval)
 
+        if queue_refresh_enabled?(),
+          do: Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
+
         %{
           state
           | stats: stats,
             queue_counts: queue_counts,
+            queue_items: initial_queue_items,
+            queue_previews_loaded: queue_refresh_enabled?(),
             vmaf_distribution: charts.vmaf,
             resolution_distribution: charts.resolution,
             codec_distribution: charts.codec,
@@ -119,7 +131,17 @@ defmodule Reencodarr.Dashboard.State do
         error ->
           Logger.warning("Dashboard.State initial chart load failed: #{inspect(error)}")
           Process.send_after(self(), :load_charts, 2_000)
-          %{state | stats: stats, queue_counts: queue_counts}
+
+          queue_refresh_enabled?() &&
+            Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
+
+          %{
+            state
+            | stats: stats,
+              queue_counts: queue_counts,
+              queue_items: initial_queue_items,
+              queue_previews_loaded: queue_refresh_enabled?()
+          }
       end
 
     broadcast_state(state)
@@ -139,16 +161,6 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_cast(:refresh_queues_now, state) do
-    {:noreply, refresh_queue_previews(state)}
-  end
-
-  @impl true
-  def handle_cast(:load_queue_previews_now, %{queue_previews_loaded: true} = state) do
-    {:noreply, state}
-  end
-
-  @impl true
-  def handle_cast(:load_queue_previews_now, state) do
     {:noreply, refresh_queue_previews(state)}
   end
 
