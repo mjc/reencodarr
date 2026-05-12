@@ -29,6 +29,8 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def mount(_params, _session, socket) do
+    dashboard_state_pid = Process.whereis(DashboardState)
+
     socket =
       assign(socket, %{
         # Legacy progress tracking (kept for compatibility)
@@ -62,28 +64,29 @@ defmodule ReencodarrWeb.DashboardLive do
         charts_loaded: false
       })
 
+    socket =
+      case dashboard_state_pid do
+        nil -> socket
+        _pid -> assign_dashboard_state(socket, DashboardState.get_state())
+      end
+
     # Setup subscriptions and processes if connected
     socket =
       if connected?(socket) do
         # Subscribe to dashboard events (for sync, analyzer, health alerts, etc.)
         Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
         # Subscribe to consolidated state changes from Dashboard.State
-        dashboard_state_pid = Process.whereis(DashboardState)
-
         if dashboard_state_pid do
           Phoenix.PubSub.subscribe(Reencodarr.PubSub, DashboardState.state_channel())
         end
 
-        # Read the current dashboard snapshot directly instead of forcing a
-        # global rebroadcast that immediately repatches every subscriber.
-        socket =
-          case dashboard_state_pid do
-            nil -> socket
-            _pid -> assign_dashboard_state(socket, DashboardState.get_state())
-          end
+        # Only force a status refresh when the consolidated state process is
+        # unavailable; otherwise the initial snapshot already reflects the
+        # current dashboard state.
+        if is_nil(dashboard_state_pid) do
+          Process.send_after(self(), :request_status, 100)
+        end
 
-        # Request current status from all services with a small delay to let services initialize
-        Process.send_after(self(), :request_status, 100)
         # Start periodic updates for queue counts and service status
         schedule_periodic_update()
         # Request throughput async
