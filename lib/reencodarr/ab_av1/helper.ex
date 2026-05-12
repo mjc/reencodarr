@@ -404,7 +404,18 @@ defmodule Reencodarr.AbAv1.Helper do
     _ -> :ok
   end
 
-  defp signal_os_processes(os_pid, "STOP") do
+  defp signal_os_processes(os_pid, signal) do
+    case process_group_id(os_pid) do
+      {:ok, pgid} ->
+        signal_os_process_group(pgid, signal)
+        [{:group, pgid, os_pid}]
+
+      :error ->
+        signal_os_processes_fallback(os_pid, signal)
+    end
+  end
+
+  defp signal_os_processes_fallback(os_pid, "STOP") do
     # Stop the parent first so ab-av1 cannot spawn or swap an ffmpeg child while
     # descendants are being discovered.
     signal_os_pid(os_pid, "STOP")
@@ -413,10 +424,17 @@ defmodule Reencodarr.AbAv1.Helper do
     [os_pid | descendants]
   end
 
-  defp signal_os_processes(os_pid, signal) do
+  defp signal_os_processes_fallback(os_pid, signal) do
     pids = [os_pid | descendant_pids(os_pid)] |> Enum.uniq()
     Enum.each(pids, &signal_os_pid(&1, signal))
     pids
+  end
+
+  defp signal_os_process_group(pgid, signal) do
+    System.cmd("kill", ["-#{signal}", "--", "-#{pgid}"], stderr_to_stdout: true)
+    :ok
+  rescue
+    _ -> :ok
   end
 
   defp signal_os_pid(pid, signal) do
@@ -424,6 +442,24 @@ defmodule Reencodarr.AbAv1.Helper do
     :ok
   rescue
     _ -> :ok
+  end
+
+  defp process_group_id(os_pid) do
+    case System.cmd("ps", ["-o", "pgid=", "-p", to_string(os_pid)], stderr_to_stdout: true) do
+      {output, 0} ->
+        output
+        |> String.trim()
+        |> Integer.parse()
+        |> case do
+          {pgid, ""} when pgid > 0 -> {:ok, pgid}
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
+  rescue
+    _ -> :error
   end
 
   defp descendant_pids(os_pid) do

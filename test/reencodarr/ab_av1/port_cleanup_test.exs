@@ -33,13 +33,14 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
       :meck.new(System, [:passthrough])
 
       :meck.expect(System, :cmd, fn
+        "ps", _args, _opts -> {"12345\n", 0}
         "pgrep", _args, _opts -> {"", 1}
         "kill", args, _opts -> {args, 0}
       end)
 
       assert :ok = Helper.kill_os_process(12_345)
 
-      assert :meck.called(System, :cmd, ["kill", ["-TERM", "12345"], :_])
+      assert :meck.called(System, :cmd, ["kill", ["-TERM", "--", "-12345"], :_])
 
       :meck.unload(System)
     end
@@ -48,6 +49,7 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
       :meck.new(System, [:passthrough])
 
       :meck.expect(System, :cmd, fn
+        "ps", _args, _opts -> {"12345\n", 0}
         "pgrep", _args, _opts -> {"", 1}
         "kill", _args, _opts -> {"No such process", 1}
       end)
@@ -63,6 +65,7 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
       :meck.new(System, [:passthrough])
 
       :meck.expect(System, :cmd, fn
+        "ps", _args, _opts -> {"12345\n", 0}
         "pgrep", _args, _opts -> {"", 1}
         "kill", args, _opts -> {args, 0}
       end)
@@ -70,8 +73,8 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
       assert :ok = Helper.suspend_os_process_tree(12_345)
       assert :ok = Helper.resume_os_process_tree(12_345)
 
-      assert :meck.called(System, :cmd, ["kill", ["-STOP", "12345"], :_])
-      assert :meck.called(System, :cmd, ["kill", ["-CONT", "12345"], :_])
+      assert :meck.called(System, :cmd, ["kill", ["-STOP", "--", "-12345"], :_])
+      assert :meck.called(System, :cmd, ["kill", ["-CONT", "--", "-12345"], :_])
 
       :meck.unload(System)
     end
@@ -82,6 +85,7 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
       :meck.new(System, [:passthrough])
 
       :meck.expect(System, :cmd, fn
+        "ps", _args, _opts -> {"99999\n", 0}
         "pgrep", _args, _opts -> {"", 1}
         "kill", _args, _opts -> {"", 0}
       end)
@@ -102,7 +106,7 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
         CrfSearcher.terminate(:shutdown, state)
       end)
 
-      assert :meck.called(System, :cmd, ["kill", ["-TERM", "99999"], :_])
+      assert :meck.called(System, :cmd, ["kill", ["-TERM", "--", "-99999"], :_])
 
       :meck.unload(System)
     end
@@ -113,6 +117,7 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
       :meck.new(System, [:passthrough])
 
       :meck.expect(System, :cmd, fn
+        "ps", _args, _opts -> {"42000\n", 0}
         "pgrep", _args, _opts -> {"", 1}
         "kill", _args, _opts -> {"", 0}
       end)
@@ -132,7 +137,7 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
 
       assert new_state.os_pid == nil
       assert new_state.port == :none
-      assert :meck.called(System, :cmd, ["kill", ["-TERM", "42000"], :_])
+      assert :meck.called(System, :cmd, ["kill", ["-TERM", "--", "-42000"], :_])
 
       :meck.unload(System)
     end
@@ -143,6 +148,7 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
       :meck.new(System, [:passthrough])
 
       :meck.expect(System, :cmd, fn
+        "ps", _args, _opts -> {"42001\n", 0}
         "pgrep", _args, _opts -> {"", 1}
         "kill", _args, _opts -> {"", 0}
       end)
@@ -163,20 +169,20 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
         CrfSearcher.handle_call(:suspend, {self(), make_ref()}, state)
 
       assert suspended_state.suspended?
-      assert :meck.called(System, :cmd, ["kill", ["-STOP", "42001"], :_])
+      assert :meck.called(System, :cmd, ["kill", ["-STOP", "--", "-42001"], :_])
 
       {:reply, :ok, resumed_state} =
         CrfSearcher.handle_call(:resume, {self(), make_ref()}, suspended_state)
 
       refute resumed_state.suspended?
-      assert :meck.called(System, :cmd, ["kill", ["-CONT", "42001"], :_])
+      assert :meck.called(System, :cmd, ["kill", ["-CONT", "--", "-42001"], :_])
 
       {:stop, :normal, :ok, failed_state} =
         CrfSearcher.handle_call(:fail, {self(), make_ref()}, resumed_state)
 
       assert failed_state.os_pid == nil
       assert failed_state.port == :none
-      assert :meck.called(System, :cmd, ["kill", ["-TERM", "42001"], :_])
+      assert :meck.called(System, :cmd, ["kill", ["-TERM", "--", "-42001"], :_])
 
       :meck.unload(System)
     end
@@ -187,6 +193,7 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
       :meck.new(System, [:passthrough])
 
       :meck.expect(System, :cmd, fn
+        "ps", _args, _opts -> {"99999\n", 0}
         "pgrep", _args, _opts -> {"", 1}
         "kill", _args, _opts -> {"", 0}
       end)
@@ -207,7 +214,7 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
         Encoder.terminate(:shutdown, state)
       end)
 
-      assert :meck.called(System, :cmd, ["kill", ["-TERM", "99999"], :_])
+      assert :meck.called(System, :cmd, ["kill", ["-TERM", "--", "-99999"], :_])
 
       :meck.unload(System)
     end
@@ -218,6 +225,7 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
       :meck.new(System, [:passthrough])
 
       :meck.expect(System, :cmd, fn
+        "ps", _args, _opts -> {"42000\n", 0}
         "pgrep", _args, _opts -> {"", 1}
         "kill", _args, _opts -> {"", 0}
       end)
@@ -237,7 +245,7 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
 
       assert new_state.os_pid == nil
       assert new_state.port == :none
-      assert :meck.called(System, :cmd, ["kill", ["-TERM", "42000"], :_])
+      assert :meck.called(System, :cmd, ["kill", ["-TERM", "--", "-42000"], :_])
 
       :meck.unload(System)
     end
@@ -248,6 +256,7 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
       :meck.new(System, [:passthrough])
 
       :meck.expect(System, :cmd, fn
+        "ps", _args, _opts -> {"42002\n", 0}
         "pgrep", _args, _opts -> {"", 1}
         "kill", _args, _opts -> {"", 0}
       end)
@@ -268,20 +277,20 @@ defmodule Reencodarr.AbAv1.PortCleanupTest do
         Encoder.handle_call(:suspend, {self(), make_ref()}, state)
 
       assert suspended_state.suspended?
-      assert :meck.called(System, :cmd, ["kill", ["-STOP", "42002"], :_])
+      assert :meck.called(System, :cmd, ["kill", ["-STOP", "--", "-42002"], :_])
 
       {:reply, :ok, resumed_state} =
         Encoder.handle_call(:resume, {self(), make_ref()}, suspended_state)
 
       refute resumed_state.suspended?
-      assert :meck.called(System, :cmd, ["kill", ["-CONT", "42002"], :_])
+      assert :meck.called(System, :cmd, ["kill", ["-CONT", "--", "-42002"], :_])
 
       {:stop, :normal, :ok, failed_state} =
         Encoder.handle_call(:fail, {self(), make_ref()}, resumed_state)
 
       assert failed_state.os_pid == nil
       assert failed_state.port == :none
-      assert :meck.called(System, :cmd, ["kill", ["-TERM", "42002"], :_])
+      assert :meck.called(System, :cmd, ["kill", ["-TERM", "--", "-42002"], :_])
 
       :meck.unload(System)
     end
