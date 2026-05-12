@@ -344,8 +344,10 @@ defmodule ReencodarrWeb.BadFilesLive do
       show_resolved: socket.assigns.show_resolved
     }
 
+    show_loading? = socket.assigns.issues == []
+
     socket
-    |> assign(:loading_issues, true)
+    |> assign(:loading_issues, show_loading?)
     |> start_async(:load_issues, fn -> fetch_issue_payload(load_assigns) end)
   end
 
