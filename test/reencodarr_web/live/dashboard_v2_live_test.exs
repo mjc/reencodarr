@@ -31,6 +31,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert html =~ ~s(id="dashboard-charts")
       assert html =~ ~s(phx-hook="LazyLoadCharts")
       assert html =~ ~s(data-loaded="false")
+      assert html =~ "Loading pipeline distribution..."
       refute html =~ "VMAF Score Distribution</h3>\n      <div class=\"overflow-x-auto\">"
     end
 

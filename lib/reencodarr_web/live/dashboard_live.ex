@@ -845,6 +845,7 @@ defmodule ReencodarrWeb.DashboardLive do
   attr :service_status, :map, required: true
   attr :queue_counts, :map, required: true
   attr :analyzer_throughput, :any, required: true
+  attr :details_loaded, :boolean, required: true
 
   defp pipeline_overview(assigns) do
     ~H"""
@@ -852,12 +853,14 @@ defmodule ReencodarrWeb.DashboardLive do
       <h3 class="font-semibold text-white mb-3">Processing Pipeline</h3>
       
     <!-- State distribution bar -->
-      <%= if @stats do %>
+      <%= if @details_loaded and @stats do %>
         <.state_distribution_bar
           stats={@stats}
           stats_display={@stats_display}
           state_distribution_display={@state_distribution_display}
         />
+      <% else %>
+        <div class="text-xs text-gray-500">Loading pipeline distribution...</div>
       <% end %>
       
     <!-- Compact pipeline rows -->
@@ -1189,6 +1192,7 @@ defmodule ReencodarrWeb.DashboardLive do
           service_status={@service_status}
           queue_counts={@queue_counts}
           analyzer_throughput={@analyzer_throughput}
+          details_loaded={@active_panel_details_loaded}
         />
         
     <!-- Row 4: Analytics Charts -->
