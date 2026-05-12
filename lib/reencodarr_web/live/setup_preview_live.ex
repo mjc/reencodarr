@@ -16,29 +16,13 @@ defmodule ReencodarrWeb.SetupPreviewLive do
   ]
 
   @impl true
-  def mount(_params, _session, socket) do
-    {:ok,
-     assign(socket,
-       page_title: "Setup Preview",
-       variants: @variants,
-       variant: "guided",
-       mode: :first_run,
-       preview: build_preview(:first_run)
-     )}
+  def mount(params, _session, socket) do
+    {:ok, assign_preview(socket, params)}
   end
 
   @impl true
   def handle_params(params, _url, socket) do
-    variant = normalize_variant(params["variant"])
-    mode = normalize_mode(params["mode"])
-
-    {:noreply,
-     assign(socket,
-       variants: @variants,
-       variant: variant,
-       mode: mode,
-       preview: build_preview(mode)
-     )}
+    {:noreply, assign_preview(socket, params)}
   end
 
   @impl true
@@ -168,6 +152,18 @@ defmodule ReencodarrWeb.SetupPreviewLive do
       </div>
     </div>
     """
+  end
+
+  defp assign_preview(socket, params) do
+    variant = normalize_variant(params["variant"])
+    mode = normalize_mode(params["mode"])
+
+    socket
+    |> assign(:page_title, "Setup Preview")
+    |> assign(:variants, @variants)
+    |> assign(:variant, variant)
+    |> assign(:mode, mode)
+    |> assign(:preview, build_preview(mode))
   end
 
   defp render_variant(%{variant: "guided"} = assigns) do

@@ -1,6 +1,7 @@
 defmodule ReencodarrWeb.SetupPreviewLiveTest do
   use ReencodarrWeb.ConnCase, async: true
 
+  import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
   describe "setup preview route" do
@@ -25,6 +26,17 @@ defmodule ReencodarrWeb.SetupPreviewLiveTest do
       assert html =~ "Repair your Radarr connection without stopping the rest of the app"
       assert html =~ "Radarr needs attention"
       assert html =~ "Open repair flow"
+    end
+
+    test "renders the requested preview in the first HTTP response", %{conn: conn} do
+      html =
+        conn
+        |> get(~p"/setup-preview?variant=minimal&mode=repair")
+        |> html_response(200)
+
+      assert html =~ "Minimal calm"
+      assert html =~ "Repair your Radarr connection without stopping the rest of the app"
+      assert html =~ "Radarr needs attention"
     end
   end
 end
