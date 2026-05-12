@@ -728,7 +728,7 @@ defmodule ReencodarrWeb.DashboardLive do
             <div>
               <div class="w-full bg-gray-800 rounded-full h-2 mb-1">
                 <div
-                  class="bg-gradient-to-r from-amber-400 to-amber-500 h-2 rounded-full transition-all"
+                  class="bg-gradient-to-r from-amber-400 to-amber-500 h-2 rounded-full transition-[width] duration-150 ease-out"
                   style={"width: #{@progress.percent}%"}
                 >
                 </div>
@@ -1021,7 +1021,7 @@ defmodule ReencodarrWeb.DashboardLive do
         <div class="mt-3">
           <div class="w-full bg-gray-800 rounded-full h-2">
             <div
-              class="bg-blue-500 h-2 rounded-full transition-all"
+              class="bg-blue-500 h-2 rounded-full transition-[width] duration-150 ease-out"
               style={"width: #{@sync_progress}%"}
             >
             </div>
