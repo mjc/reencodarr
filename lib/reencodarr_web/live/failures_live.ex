@@ -806,15 +806,16 @@ defmodule ReencodarrWeb.FailuresLive do
     # Calculate pagination info
     total_pages = ceil(total_count / per_page)
 
-    socket
-    |> assign(:loading, false)
-    |> assign(:failed_videos, failed_videos)
-    |> assign(:video_failures, video_failures)
-    |> assign(:failure_stats, summarize_failure_stats(failure_stats))
-    |> assign(:failure_patterns, failure_patterns)
-    |> assign(:failure_code_actions, failure_code_actions)
-    |> assign(:total_count, total_count)
-    |> assign(:total_pages, total_pages)
+    assign_changed(socket, %{
+      loading: false,
+      failed_videos: failed_videos,
+      video_failures: video_failures,
+      failure_stats: summarize_failure_stats(failure_stats),
+      failure_patterns: failure_patterns,
+      failure_code_actions: failure_code_actions,
+      total_count: total_count,
+      total_pages: total_pages
+    })
   end
 
   defp get_failed_videos_paginated(page, per_page, stage_filter, category_filter, search_term) do
@@ -916,6 +917,16 @@ defmodule ReencodarrWeb.FailuresLive do
 
   defp schedule_periodic_update do
     Process.send_after(self(), :update_failures_data, @update_interval)
+  end
+
+  defp assign_changed(socket, attrs) do
+    Enum.reduce(attrs, socket, fn {key, value}, acc ->
+      if Map.get(acc.assigns, key) == value do
+        acc
+      else
+        assign(acc, key, value)
+      end
+    end)
   end
 
   defp get_failures_by_video(videos) do

@@ -467,7 +467,7 @@ defmodule ReencodarrWeb.VideosLive do
         sort_dir: socket.assigns.sort_dir
       })
 
-    assign(socket, Map.put(page_state, :loading, false))
+    assign_changed(socket, Map.put(page_state, :loading, false))
   end
 
   defp load_initial_snapshot(socket) do
@@ -652,6 +652,16 @@ defmodule ReencodarrWeb.VideosLive do
 
   defp filters_changed?(assigns, filters) do
     Enum.any?(filters, fn {key, value} -> Map.get(assigns, key) != value end)
+  end
+
+  defp assign_changed(socket, attrs) do
+    Enum.reduce(attrs, socket, fn {key, value}, acc ->
+      if Map.get(acc.assigns, key) == value do
+        acc
+      else
+        assign(acc, key, value)
+      end
+    end)
   end
 
   # ---------------------------------------------------------------------------

@@ -354,7 +354,7 @@ defmodule ReencodarrWeb.BadFilesLive do
   end
 
   defp apply_issue_payload(socket, issue_payload) do
-    assign(socket, Map.put(issue_payload, :loading_issues, false))
+    assign_changed(socket, Map.put(issue_payload, :loading_issues, false))
   end
 
   defp load_initial_snapshot(socket) do
@@ -467,6 +467,16 @@ defmodule ReencodarrWeb.BadFilesLive do
 
   defp filters_changed?(assigns, filters) do
     Enum.any?(filters, fn {key, value} -> Map.get(assigns, key) != value end)
+  end
+
+  defp assign_changed(socket, attrs) do
+    Enum.reduce(attrs, socket, fn {key, value}, acc ->
+      if Map.get(acc.assigns, key) == value do
+        acc
+      else
+        assign(acc, key, value)
+      end
+    end)
   end
 
   defp render_issue_rows(assigns) do
