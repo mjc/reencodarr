@@ -42,7 +42,6 @@ defmodule ReencodarrWeb.DashboardLive do
         queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
         queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
         queue_previews_loaded: false,
-        active_panel_details_loaded: false,
         # Service status
         service_status: get_optimistic_service_status(),
         # Sync status
@@ -325,11 +324,6 @@ defmodule ReencodarrWeb.DashboardLive do
     end
   end
 
-  @impl true
-  def handle_event("load_active_panel_details", _params, socket) do
-    {:noreply, assign(socket, :active_panel_details_loaded, true)}
-  end
-
   # Row 1: Stats Bar Component
   attr :stats, :map, required: true
   attr :stats_display, :map, required: true
@@ -555,7 +549,6 @@ defmodule ReencodarrWeb.DashboardLive do
   attr :queue_count, :integer, required: true
   attr :queue_items, :list, required: true
   attr :status, :atom, required: true
-  attr :details_loaded, :boolean, required: true
 
   defp crf_search_panel(assigns) do
     ~H"""
@@ -597,7 +590,7 @@ defmodule ReencodarrWeb.DashboardLive do
           />
           
     <!-- SVG scatter plot showing convergence -->
-          <%= if @details_loaded and (length(@results) > 0 or @sample) do %>
+          <%= if length(@results) > 0 or @sample do %>
             <div class="space-y-2">
               <.crf_search_chart
                 results={@results}
@@ -626,12 +619,6 @@ defmodule ReencodarrWeb.DashboardLive do
                 </div>
               <% end %>
             </div>
-          <% else %>
-            <%= if length(@results) > 0 or @sample do %>
-              <div class="text-xs text-gray-500 px-1">
-                Loading convergence details...
-              </div>
-            <% end %>
           <% end %>
         </div>
       <% else %>
@@ -821,23 +808,16 @@ defmodule ReencodarrWeb.DashboardLive do
   attr :service_status, :map, required: true
   attr :queue_counts, :map, required: true
   attr :analyzer_throughput, :any, required: true
-  attr :details_loaded, :boolean, required: true
 
   defp pipeline_overview(assigns) do
     ~H"""
     <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
       <h3 class="font-semibold text-white mb-3">Processing Pipeline</h3>
-      
-    <!-- State distribution bar -->
-      <%= if @details_loaded and @stats do %>
-        <.state_distribution_bar
-          stats={@stats}
-          stats_display={@stats_display}
-          state_distribution_display={@state_distribution_display}
-        />
-      <% else %>
-        <div class="text-xs text-gray-500">Loading pipeline distribution...</div>
-      <% end %>
+      <.state_distribution_bar
+        stats={@stats}
+        stats_display={@stats_display}
+        state_distribution_display={@state_distribution_display}
+      />
       
     <!-- Compact pipeline rows -->
       <div class="space-y-2 mt-4">
@@ -1133,7 +1113,6 @@ defmodule ReencodarrWeb.DashboardLive do
           id="dashboard-active-work"
           phx-hook="LazyLoadQueuePreviews"
           data-loaded={to_string(@queue_previews_loaded)}
-          data-details-loaded={to_string(@active_panel_details_loaded)}
           class="grid grid-cols-1 lg:grid-cols-5 gap-4"
         >
           <div class="lg:col-span-3">
@@ -1145,7 +1124,6 @@ defmodule ReencodarrWeb.DashboardLive do
               queue_count={@queue_counts.crf_searcher}
               queue_items={@queue_items.crf_searcher}
               status={@service_status.crf_searcher}
-              details_loaded={@active_panel_details_loaded}
             />
           </div>
           <div class="lg:col-span-2">
@@ -1168,7 +1146,6 @@ defmodule ReencodarrWeb.DashboardLive do
           service_status={@service_status}
           queue_counts={@queue_counts}
           analyzer_throughput={@analyzer_throughput}
-          details_loaded={@active_panel_details_loaded}
         />
         
     <!-- Row 4: Analytics Charts -->

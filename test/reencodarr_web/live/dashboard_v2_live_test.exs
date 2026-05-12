@@ -29,8 +29,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert html =~ ~s(id="dashboard-active-work")
       assert html =~ ~s(phx-hook="LazyLoadQueuePreviews")
       assert html =~ ~s(data-loaded="false")
-      assert html =~ ~s(data-details-loaded="false")
-      assert html =~ "Loading pipeline distribution..."
+      assert html =~ "Needs Analysis:"
       assert html =~ "VMAF Score Distribution"
     end
 
@@ -242,11 +241,6 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       html = render(view)
       assert html =~ "chart-test.mkv"
       assert html =~ "Target: 95 VMAF"
-      assert html =~ "Loading convergence details..."
-
-      render_hook(view, "load_active_panel_details", %{})
-
-      html = render(view)
       assert html =~ "CRF 24"
       assert html =~ "CRF 28"
       assert html =~ ~s(<svg viewBox="0 0 320 140")
@@ -339,11 +333,6 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       html = render(view)
       assert html =~ "chart-pending.mkv"
       assert html =~ "Sample 6/8"
-      assert html =~ "Loading convergence details..."
-
-      render_hook(view, "load_active_panel_details", %{})
-
-      html = render(view)
       assert html =~ "Sampling CRF 15"
       assert html =~ "waiting for first completed VMAF result"
       assert html =~ ~s(<svg viewBox="0 0 320 140")
