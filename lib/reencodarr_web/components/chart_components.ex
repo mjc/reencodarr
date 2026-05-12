@@ -52,6 +52,7 @@ defmodule ReencodarrWeb.ChartComponents do
     svg =
       iodata
       |> IO.iodata_to_binary()
+      |> String.replace(~r/<style type="text\/css"><!\[CDATA\[.*?\]\]><\/style>/s, "")
       |> String.replace("text {fill: black}", "text {fill: #9CA3AF}")
       |> String.replace("line {stroke: black}", "line {stroke: #4B5563}")
       |> String.replace(~s|stroke="#000"|, ~s|stroke="#4B5563"|)

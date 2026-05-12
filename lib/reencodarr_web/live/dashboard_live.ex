@@ -66,9 +66,19 @@ defmodule ReencodarrWeb.DashboardLive do
         # Subscribe to dashboard events (for sync, analyzer, health alerts, etc.)
         Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
         # Subscribe to consolidated state changes from Dashboard.State
-        Phoenix.PubSub.subscribe(Reencodarr.PubSub, DashboardState.state_channel())
-        # Request current state immediately (subscribe-then-cast ensures ordering)
-        GenServer.cast(DashboardState, :broadcast_state)
+        dashboard_state_pid = Process.whereis(DashboardState)
+
+        if dashboard_state_pid do
+          Phoenix.PubSub.subscribe(Reencodarr.PubSub, DashboardState.state_channel())
+        end
+
+        # Read the current dashboard snapshot directly instead of forcing a
+        # global rebroadcast that immediately repatches every subscriber.
+        socket =
+          case dashboard_state_pid do
+            nil -> socket
+            _pid -> assign_dashboard_state(socket, DashboardState.get_state())
+          end
 
         # Request current status from all services with a small delay to let services initialize
         Process.send_after(self(), :request_status, 100)
@@ -96,30 +106,7 @@ defmodule ReencodarrWeb.DashboardLive do
   # Replaces independent handlers for encoding/CRF/service-status events.
   @impl true
   def handle_info({:dashboard_state_changed, state}, socket) do
-    merged_queue_items =
-      merge_queue_items_for_display(
-        socket.assigns.queue_items,
-        state.queue_items,
-        state.queue_counts
-      )
-
-    {:noreply,
-     assign(socket,
-       crf_search_video: state.crf_search_video,
-       crf_search_results: state.crf_search_results,
-       crf_search_sample: state.crf_search_sample,
-       crf_progress: state.crf_progress,
-       encoding_video: state.encoding_video,
-       encoding_vmaf: state.encoding_vmaf,
-       encoding_progress: state.encoding_progress,
-       service_status: state.service_status,
-       stats: state.stats,
-       queue_counts: state.queue_counts,
-       queue_items: merged_queue_items,
-       vmaf_distribution: state.vmaf_distribution,
-       resolution_distribution: state.resolution_distribution,
-       codec_distribution: state.codec_distribution
-     )}
+    {:noreply, assign_dashboard_state(socket, state)}
   end
 
   @impl true
@@ -1218,6 +1205,32 @@ defmodule ReencodarrWeb.DashboardLive do
     do: @service_status_labels[status] || @service_status_labels.unknown
 
   defp request_analyzer_throughput, do: :ok
+
+  defp assign_dashboard_state(socket, state) do
+    merged_queue_items =
+      merge_queue_items_for_display(
+        socket.assigns.queue_items,
+        state.queue_items,
+        state.queue_counts
+      )
+
+    assign(socket,
+      crf_search_video: state.crf_search_video,
+      crf_search_results: state.crf_search_results,
+      crf_search_sample: state.crf_search_sample,
+      crf_progress: state.crf_progress,
+      encoding_video: state.encoding_video,
+      encoding_vmaf: state.encoding_vmaf,
+      encoding_progress: state.encoding_progress,
+      service_status: state.service_status,
+      stats: state.stats,
+      queue_counts: state.queue_counts,
+      queue_items: merged_queue_items,
+      vmaf_distribution: state.vmaf_distribution,
+      resolution_distribution: state.resolution_distribution,
+      codec_distribution: state.codec_distribution
+    )
+  end
 
   defp schedule_periodic_update do
     Process.send_after(self(), :update_dashboard_data, 5_000)

@@ -33,6 +33,18 @@
 }
 
 /* Dark theme overrides for Contex SVG charts */
+.chart-container svg text {
+  fill: #9ca3af;
+}
+
+.chart-container svg line {
+  stroke: #4b5563;
+}
+
+.chart-container svg .exc-domain {
+  stroke: #4b5563;
+}
+
 .chart-container svg .exc-barlabel-in {
   fill: #F9FAFB;
 }
