@@ -15,6 +15,7 @@ defmodule ReencodarrWeb.DashboardLive do
   alias Reencodarr.Dashboard.State, as: DashboardState
   alias Reencodarr.Formatters
   alias Reencodarr.Media
+  alias Reencodarr.Media.VideoQueries
 
   import ReencodarrWeb.ChartComponents
 
@@ -69,9 +70,15 @@ defmodule ReencodarrWeb.DashboardLive do
 
     socket =
       case dashboard_state_pid do
-        nil -> socket
-        _pid -> assign_dashboard_state(socket, DashboardState.get_state())
+        nil ->
+          socket
+
+        _pid ->
+          state = DashboardState.get_state()
+          assign_dashboard_state(socket, state)
       end
+
+    socket = maybe_hydrate_initial_queue_previews(socket)
 
     # Setup subscriptions and processes if connected
     socket =
@@ -1048,6 +1055,29 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp format_size_gb(_), do: "—"
 
+  defp queue_preview_hydration_enabled? do
+    Application.get_env(:reencodarr, :dashboard_queue_refresh_enabled, true) != false
+  end
+
+  defp fetch_initial_queue_previews do
+    query_opts = queue_query_opts()
+
+    %{
+      analyzer: VideoQueries.videos_needing_analysis_preview(5, query_opts),
+      crf_searcher: VideoQueries.videos_for_crf_search_preview(5, query_opts),
+      encoder: VideoQueries.videos_ready_for_encoding_preview(5, query_opts)
+    }
+  rescue
+    error ->
+      Logger.warning("DashboardLive initial queue preview hydration failed: #{inspect(error)}")
+      %{analyzer: [], crf_searcher: [], encoder: []}
+  end
+
+  defp queue_query_opts do
+    timeout = Application.get_env(:reencodarr, :dashboard_queue_query_timeout_ms, 1_000)
+    [timeout: timeout, pool_timeout: timeout]
+  end
+
   attr :service_status, :map, required: true
 
   defp pipeline_status_box(assigns) do
@@ -1222,6 +1252,17 @@ defmodule ReencodarrWeb.DashboardLive do
     do: @service_status_labels[status] || @service_status_labels.unknown
 
   defp request_analyzer_throughput, do: :ok
+
+  defp maybe_hydrate_initial_queue_previews(socket) do
+    if connected?(socket) or not queue_preview_hydration_enabled?() do
+      socket
+    else
+      assign(socket,
+        queue_items: fetch_initial_queue_previews(),
+        queue_previews_loaded: true
+      )
+    end
+  end
 
   defp assign_dashboard_state(socket, state) do
     merged_queue_items =

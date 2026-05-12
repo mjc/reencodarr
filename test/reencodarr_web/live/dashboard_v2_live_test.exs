@@ -56,6 +56,31 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       # If we get here, the buttons are present in the template
       assert true
     end
+
+    test "includes queue previews in the initial html response", %{conn: conn} do
+      previous_refresh_enabled =
+        Application.get_env(:reencodarr, :dashboard_queue_refresh_enabled)
+
+      Application.put_env(:reencodarr, :dashboard_queue_refresh_enabled, true)
+
+      on_exit(fn ->
+        Application.put_env(
+          :reencodarr,
+          :dashboard_queue_refresh_enabled,
+          previous_refresh_enabled
+        )
+      end)
+
+      {:ok, _video} =
+        Fixtures.video_fixture(%{path: "/media/initial-queue-preview.mkv", state: :analyzed})
+
+      html =
+        conn
+        |> get(~p"/")
+        |> html_response(200)
+
+      assert html =~ "initial-queue-preview.mkv"
+    end
   end
 
   describe "event handling" do
