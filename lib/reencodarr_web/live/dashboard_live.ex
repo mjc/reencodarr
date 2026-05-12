@@ -52,6 +52,8 @@ defmodule ReencodarrWeb.DashboardLive do
         # New dashboard stats
         stats: Reencodarr.Media.get_default_stats(),
         stats_display: stats_display(Reencodarr.Media.get_default_stats()),
+        state_distribution_display:
+          state_distribution_display(Reencodarr.Media.get_default_stats()),
         # CRF Search active work
         crf_search_video: nil,
         crf_search_results: [],
@@ -839,6 +841,7 @@ defmodule ReencodarrWeb.DashboardLive do
   # Row 3: Pipeline Overview Component
   attr :stats, :map, required: true
   attr :stats_display, :map, required: true
+  attr :state_distribution_display, :map, required: true
   attr :service_status, :map, required: true
   attr :queue_counts, :map, required: true
   attr :analyzer_throughput, :any, required: true
@@ -850,7 +853,11 @@ defmodule ReencodarrWeb.DashboardLive do
       
     <!-- State distribution bar -->
       <%= if @stats do %>
-        <.state_distribution_bar stats={@stats} stats_display={@stats_display} />
+        <.state_distribution_bar
+          stats={@stats}
+          stats_display={@stats_display}
+          state_distribution_display={@state_distribution_display}
+        />
       <% end %>
       
     <!-- Compact pipeline rows -->
@@ -915,56 +922,50 @@ defmodule ReencodarrWeb.DashboardLive do
 
   attr :stats, :map, required: true
   attr :stats_display, :map, required: true
+  attr :state_distribution_display, :map, required: true
 
   defp state_distribution_bar(assigns) do
-    total = assigns.stats.total_videos || 1
-
-    assigns =
-      assign(assigns,
-        needs_analysis_pct: percent(assigns.stats.needs_analysis, total),
-        analyzed_pct: percent(assigns.stats.analyzed, total),
-        crf_pct: percent(assigns.stats.crf_searching + assigns.stats.crf_searched, total),
-        encoded_pct: percent(assigns.stats.encoded, total),
-        failed_pct: percent(assigns.stats.failed, total)
-      )
-
     ~H"""
     <div class="space-y-1">
       <div class="flex h-4 rounded overflow-hidden">
-        <%= if @needs_analysis_pct > 0 do %>
+        <%= if @state_distribution_display.needs_analysis_pct > 0 do %>
           <div
             class="bg-gray-600"
-            style={"width: #{@needs_analysis_pct}%"}
-            title={"Needs Analysis: #{@stats.needs_analysis}"}
+            style={"width: #{@state_distribution_display.needs_analysis_pct}%"}
+            title={@state_distribution_display.needs_analysis_title}
           >
           </div>
         <% end %>
-        <%= if @analyzed_pct > 0 do %>
+        <%= if @state_distribution_display.analyzed_pct > 0 do %>
           <div
             class="bg-blue-500"
-            style={"width: #{@analyzed_pct}%"}
-            title={"Analyzed: #{@stats.analyzed}"}
+            style={"width: #{@state_distribution_display.analyzed_pct}%"}
+            title={@state_distribution_display.analyzed_title}
           >
           </div>
         <% end %>
-        <%= if @crf_pct > 0 do %>
+        <%= if @state_distribution_display.crf_pct > 0 do %>
           <div
             class="bg-amber-500"
-            style={"width: #{@crf_pct}%"}
-            title={"CRF Search: #{@stats.crf_searching + @stats.crf_searched}"}
+            style={"width: #{@state_distribution_display.crf_pct}%"}
+            title={@state_distribution_display.crf_title}
           >
           </div>
         <% end %>
-        <%= if @encoded_pct > 0 do %>
+        <%= if @state_distribution_display.encoded_pct > 0 do %>
           <div
             class="bg-green-500"
-            style={"width: #{@encoded_pct}%"}
-            title={"Encoded: #{@stats.encoded}"}
+            style={"width: #{@state_distribution_display.encoded_pct}%"}
+            title={@state_distribution_display.encoded_title}
           >
           </div>
         <% end %>
-        <%= if @failed_pct > 0 do %>
-          <div class="bg-red-500" style={"width: #{@failed_pct}%"} title={"Failed: #{@stats.failed}"}>
+        <%= if @state_distribution_display.failed_pct > 0 do %>
+          <div
+            class="bg-red-500"
+            style={"width: #{@state_distribution_display.failed_pct}%"}
+            title={@state_distribution_display.failed_title}
+          >
           </div>
         <% end %>
       </div>
@@ -1184,6 +1185,7 @@ defmodule ReencodarrWeb.DashboardLive do
         <.pipeline_overview
           stats={@stats}
           stats_display={@stats_display}
+          state_distribution_display={@state_distribution_display}
           service_status={@service_status}
           queue_counts={@queue_counts}
           analyzer_throughput={@analyzer_throughput}
@@ -1307,6 +1309,7 @@ defmodule ReencodarrWeb.DashboardLive do
       service_status: state.service_status,
       stats: state.stats,
       stats_display: stats_display(state.stats),
+      state_distribution_display: state_distribution_display(state.stats),
       queue_counts: state.queue_counts,
       queue_items: merged_queue_items,
       queue_previews_loaded: Map.get(state, :queue_previews_loaded, false),
@@ -1344,6 +1347,39 @@ defmodule ReencodarrWeb.DashboardLive do
       needs_analysis: format_number(stats.needs_analysis),
       analyzed: format_number(stats.analyzed),
       encoded: format_number(stats.encoded)
+    }
+  end
+
+  defp state_distribution_display(nil) do
+    %{
+      needs_analysis_pct: 0,
+      analyzed_pct: 0,
+      crf_pct: 0,
+      encoded_pct: 0,
+      failed_pct: 0,
+      needs_analysis_title: "Needs Analysis: 0",
+      analyzed_title: "Analyzed: 0",
+      crf_title: "CRF Search: 0",
+      encoded_title: "Encoded: 0",
+      failed_title: "Failed: 0"
+    }
+  end
+
+  defp state_distribution_display(stats) do
+    total = stats.total_videos || 1
+    crf_total = (stats.crf_searching || 0) + (stats.crf_searched || 0)
+
+    %{
+      needs_analysis_pct: percent(stats.needs_analysis, total),
+      analyzed_pct: percent(stats.analyzed, total),
+      crf_pct: percent(crf_total, total),
+      encoded_pct: percent(stats.encoded, total),
+      failed_pct: percent(stats.failed, total),
+      needs_analysis_title: "Needs Analysis: #{stats.needs_analysis}",
+      analyzed_title: "Analyzed: #{stats.analyzed}",
+      crf_title: "CRF Search: #{crf_total}",
+      encoded_title: "Encoded: #{stats.encoded}",
+      failed_title: "Failed: #{stats.failed}"
     }
   end
 
