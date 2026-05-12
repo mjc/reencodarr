@@ -1302,26 +1302,38 @@ defmodule ReencodarrWeb.DashboardLive do
         state.queue_counts
       )
 
-    assign(socket,
-      crf_search_video: state.crf_search_video,
-      crf_search_results: state.crf_search_results,
-      crf_search_sample: state.crf_search_sample,
-      crf_progress: state.crf_progress,
-      encoding_video: state.encoding_video,
-      encoding_vmaf: state.encoding_vmaf,
-      encoding_progress: state.encoding_progress,
-      service_status: state.service_status,
-      stats: state.stats,
-      stats_display: stats_display(state.stats),
-      state_distribution_display: state_distribution_display(state.stats),
-      queue_counts: state.queue_counts,
-      queue_items: merged_queue_items,
-      queue_previews_loaded: Map.get(state, :queue_previews_loaded, false),
-      vmaf_distribution: state.vmaf_distribution,
-      resolution_distribution: state.resolution_distribution,
-      codec_distribution: state.codec_distribution,
-      charts_loaded: Map.get(state, :charts_loaded, false)
-    )
+    stats_display = stats_display(state.stats)
+    state_distribution_display = state_distribution_display(state.stats)
+    queue_previews_loaded = Map.get(state, :queue_previews_loaded, false)
+    charts_loaded = Map.get(state, :charts_loaded, false)
+
+    socket
+    |> assign_if_changed(:crf_search_video, state.crf_search_video)
+    |> assign_if_changed(:crf_search_results, state.crf_search_results)
+    |> assign_if_changed(:crf_search_sample, state.crf_search_sample)
+    |> assign_if_changed(:crf_progress, state.crf_progress)
+    |> assign_if_changed(:encoding_video, state.encoding_video)
+    |> assign_if_changed(:encoding_vmaf, state.encoding_vmaf)
+    |> assign_if_changed(:encoding_progress, state.encoding_progress)
+    |> assign_if_changed(:service_status, state.service_status)
+    |> assign_if_changed(:stats, state.stats)
+    |> assign_if_changed(:stats_display, stats_display)
+    |> assign_if_changed(:state_distribution_display, state_distribution_display)
+    |> assign_if_changed(:queue_counts, state.queue_counts)
+    |> assign_if_changed(:queue_items, merged_queue_items)
+    |> assign_if_changed(:queue_previews_loaded, queue_previews_loaded)
+    |> assign_if_changed(:vmaf_distribution, state.vmaf_distribution)
+    |> assign_if_changed(:resolution_distribution, state.resolution_distribution)
+    |> assign_if_changed(:codec_distribution, state.codec_distribution)
+    |> assign_if_changed(:charts_loaded, charts_loaded)
+  end
+
+  defp assign_if_changed(socket, key, value) do
+    if Map.get(socket.assigns, key) == value do
+      socket
+    else
+      assign(socket, key, value)
+    end
   end
 
   defp schedule_periodic_update do
