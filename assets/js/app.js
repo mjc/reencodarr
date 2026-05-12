@@ -127,6 +127,73 @@ Hooks.LazyLoadQueuePreviews = {
   }
 }
 
+Hooks.DashboardAnimations = {
+  mounted() {
+    this.readyClass = "dashboard-animations-ready"
+
+    this.onWindowLoad = () => this.scheduleReady()
+    this.onPageLoadingStart = () => this.clearReady()
+    this.onPageLoadingStop = () => this.scheduleReady()
+
+    if (document.readyState === "complete") {
+      this.scheduleReady()
+    } else {
+      window.addEventListener("load", this.onWindowLoad, {once: true})
+    }
+
+    window.addEventListener("phx:page-loading-start", this.onPageLoadingStart)
+    window.addEventListener("phx:page-loading-stop", this.onPageLoadingStop)
+  },
+
+  scheduleReady() {
+    if (this.idleCallback && "cancelIdleCallback" in window) {
+      window.cancelIdleCallback(this.idleCallback)
+    }
+
+    if (this.readyTimeout) {
+      clearTimeout(this.readyTimeout)
+    }
+
+    const markReady = () => {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          if (this.el.isConnected) {
+            this.el.classList.add(this.readyClass)
+          }
+        })
+      })
+    }
+
+    if ("requestIdleCallback" in window) {
+      this.idleCallback = window.requestIdleCallback(markReady, {timeout: 1500})
+    } else {
+      this.readyTimeout = setTimeout(markReady, 150)
+    }
+  },
+
+  clearReady() {
+    this.el.classList.remove(this.readyClass)
+  },
+
+  destroyed() {
+    this.clearReady()
+
+    window.removeEventListener("phx:page-loading-start", this.onPageLoadingStart)
+    window.removeEventListener("phx:page-loading-stop", this.onPageLoadingStop)
+    window.removeEventListener("load", this.onWindowLoad)
+
+    if (this.idleCallback && "cancelIdleCallback" in window) {
+      window.cancelIdleCallback(this.idleCallback)
+      this.idleCallback = null
+    }
+
+    if (this.readyTimeout) {
+      clearTimeout(this.readyTimeout)
+      this.readyTimeout = null
+    }
+  }
+}
+
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 // Use embedded socket for iframe pages
 let socketUrl = window.location.pathname.startsWith("/embed/") ? "/embed/live" : "/live"
@@ -140,30 +207,6 @@ let liveSocket = new LiveSocket(socketUrl, Socket, {
 topbar.config({barColors: {0: "#29d"}, shadowColor: "rgba(0, 0, 0, .3)"})
 window.addEventListener("phx:page-loading-start", _info => topbar.show(300))
 window.addEventListener("phx:page-loading-stop", _info => topbar.hide())
-
-const dashboardAnimationsReadyClass = "dashboard-animations-ready"
-
-const scheduleDashboardAnimationsReady = () => {
-  window.requestAnimationFrame(() => {
-    window.requestAnimationFrame(() => {
-      document.documentElement.classList.add(dashboardAnimationsReadyClass)
-    })
-  })
-}
-
-if (document.readyState === "complete") {
-  scheduleDashboardAnimationsReady()
-} else {
-  window.addEventListener("load", scheduleDashboardAnimationsReady, {once: true})
-}
-
-window.addEventListener("phx:page-loading-start", () => {
-  document.documentElement.classList.remove(dashboardAnimationsReadyClass)
-})
-
-window.addEventListener("phx:page-loading-stop", () => {
-  scheduleDashboardAnimationsReady()
-})
 
 // connect if there are any LiveViews on the page
 liveSocket.connect()

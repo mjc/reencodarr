@@ -1119,7 +1119,7 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="min-h-screen bg-gray-950 p-6">
+    <div id="dashboard-root" phx-hook="DashboardAnimations" class="min-h-screen bg-gray-950 p-6">
       <div class="max-w-7xl mx-auto space-y-4">
         <!-- Row 1: Stats Bar -->
         <.stats_bar

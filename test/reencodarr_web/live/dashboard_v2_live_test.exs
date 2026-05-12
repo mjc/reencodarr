@@ -24,6 +24,8 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert html =~ "Media Library Sync"
       assert html =~ "Sonarr"
       assert html =~ "Radarr"
+      assert html =~ ~s(id="dashboard-root")
+      assert html =~ ~s(phx-hook="DashboardAnimations")
       assert html =~ ~s(id="dashboard-active-work")
       assert html =~ ~s(phx-hook="LazyLoadQueuePreviews")
       assert html =~ ~s(data-loaded="false")
