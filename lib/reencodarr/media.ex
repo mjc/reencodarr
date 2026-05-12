@@ -76,7 +76,7 @@ defmodule Reencodarr.Media do
       AND lower(v.path) LIKE '%1080%'
       AND lower(v.path) LIKE '%dv%'
       AND lower(coalesce(v.hdr, '')) LIKE '%dolby vision%'
-      AND json_extract(track.value, '$."@type"') = 'Video'
+        AND json_extract(track.value, '$.@type') = 'Video'
       AND (
         lower(coalesce(json_extract(track.value, '$.HDR_Format'), '')) LIKE '%dolby vision%'
         OR lower(coalesce(json_extract(track.value, '$.HDR_Format_Profile'), '')) LIKE 'dvhe.%'
