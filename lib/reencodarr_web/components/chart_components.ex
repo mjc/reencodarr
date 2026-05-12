@@ -1,12 +1,20 @@
 defmodule ReencodarrWeb.ChartComponents do
-  @moduledoc "Contex-based SVG chart components for the dashboard."
+  @moduledoc "Lightweight dashboard chart components."
 
   use Phoenix.Component
 
-  # Palette: purple/blue tones matching dark theme (hex without #)
-  @colour_palette ["8B5CF6", "6366F1", "3B82F6", "06B6D4", "10B981", "F59E0B", "EF4444", "EC4899"]
+  @colour_palette [
+    "bg-violet-500",
+    "bg-indigo-500",
+    "bg-blue-500",
+    "bg-cyan-500",
+    "bg-emerald-500",
+    "bg-amber-500",
+    "bg-red-500",
+    "bg-pink-500"
+  ]
 
-  @doc "Renders a bar chart inside a dark-themed card."
+  @doc "Renders a compact dashboard bar chart without SVG layout overhead."
   attr :data, :list, required: true
   attr :title, :string, default: ""
   attr :width, :integer, default: 500
@@ -14,59 +22,78 @@ defmodule ReencodarrWeb.ChartComponents do
   attr :orientation, :atom, default: :horizontal
 
   def bar_chart(assigns) do
-    chart_svg = build_bar_chart(assigns.data, assigns.width, assigns.height, assigns.orientation)
-    assigns = assign(assigns, :chart_svg, chart_svg)
+    rows = chart_rows(assigns.data)
+
+    assigns =
+      assigns
+      |> assign(:rows, rows)
+      |> assign(:empty?, rows == [])
 
     ~H"""
     <div class="chart-container dashboard-card dashboard-chart-card bg-gray-800 rounded-lg border border-gray-700 p-4">
       <h3 :if={@title != ""} class="text-sm font-semibold text-gray-300 mb-3">{@title}</h3>
-      <div class="overflow-x-auto">
-        {@chart_svg}
-      </div>
+
+      <%= if @empty? do %>
+        <div class="flex h-[220px] items-center justify-center text-sm text-gray-500">
+          No data available
+        </div>
+      <% else %>
+        <div class="space-y-3">
+          <%= for row <- @rows do %>
+            <div class="grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)_auto] items-center gap-3">
+              <div class="truncate text-xs text-gray-400" title={row.label}>{row.label}</div>
+              <div class="h-3 overflow-hidden rounded-full bg-gray-900">
+                <div
+                  class={["h-full rounded-full", row.colour_class]}
+                  style={"width: #{row.width_percent}%"}
+                  title={row.title}
+                >
+                </div>
+              </div>
+              <div class="text-xs font-mono text-gray-300">{row.value}</div>
+            </div>
+          <% end %>
+        </div>
+      <% end %>
     </div>
     """
   end
 
-  defp build_bar_chart(data, width, height, orientation) do
-    if Enum.empty?(data) or Enum.all?(data, fn {_, v} -> v == 0 end) do
-      empty_svg(width, height)
-    else
-      dataset = Contex.Dataset.new(data, ["Category", "Count"])
+  defp chart_rows(data) do
+    cleaned =
+      data
+      |> Enum.filter(fn
+        {_, value} when is_number(value) -> value > 0
+        _ -> false
+      end)
 
-      Contex.Plot.new(dataset, Contex.BarChart, width, height,
-        orientation: orientation,
-        colour_palette: @colour_palette,
-        data_labels: true,
-        padding: 3,
-        legend_setting: :legend_none
-      )
-      |> Contex.Plot.axis_labels("", "")
-      |> Contex.Plot.to_svg()
-      |> apply_dark_theme()
+    case cleaned do
+      [] ->
+        []
+
+      _ ->
+        max_value =
+          cleaned
+          |> Enum.map(fn {_, value} -> value end)
+          |> Enum.max()
+
+        cleaned
+        |> Enum.with_index()
+        |> Enum.map(fn {{label, value}, index} ->
+          %{
+            label: to_string(label),
+            value: format_value(value),
+            width_percent: width_percent(value, max_value),
+            colour_class: Enum.at(@colour_palette, rem(index, length(@colour_palette))),
+            title: "#{label}: #{value}"
+          }
+        end)
     end
   end
 
-  # Contex embeds `text {fill: black}` and `line {stroke: black}` inside the SVG.
-  # Replace with dark theme colors since external CSS can't override in-SVG styles.
-  defp apply_dark_theme({:safe, iodata}) do
-    svg =
-      iodata
-      |> IO.iodata_to_binary()
-      |> String.replace(~r/<style type="text\/css"><!\[CDATA\[.*?\]\]><\/style>/s, "")
-      |> String.replace("text {fill: black}", "text {fill: #9CA3AF}")
-      |> String.replace("line {stroke: black}", "line {stroke: #4B5563}")
-      |> String.replace(~s|stroke="#000"|, ~s|stroke="#4B5563"|)
+  defp width_percent(_value, 0), do: 0
+  defp width_percent(value, max_value), do: Float.round(value / max_value * 100.0, 1)
 
-    {:safe, svg}
-  end
-
-  defp empty_svg(width, height) do
-    cx = div(width, 2)
-    cy = div(height, 2)
-
-    {:safe,
-     "<svg width='#{width}' height='#{height}'>" <>
-       "<text x='#{cx}' y='#{cy}' text-anchor='middle' fill='#6B7280' font-size='14'>No data available</text>" <>
-       "</svg>"}
-  end
+  defp format_value(value) when is_integer(value), do: Integer.to_string(value)
+  defp format_value(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
 end

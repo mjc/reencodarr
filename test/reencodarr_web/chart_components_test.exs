@@ -3,7 +3,7 @@ defmodule ReencodarrWeb.ChartComponentsTest do
 
   import Phoenix.LiveViewTest
 
-  test "bar_chart strips embedded svg stylesheet output from Contex" do
+  test "bar_chart renders lightweight html rows" do
     html =
       render_component(&ReencodarrWeb.ChartComponents.bar_chart/1,
         data: [{"HEVC", 12}, {"AV1", 8}],
@@ -12,8 +12,9 @@ defmodule ReencodarrWeb.ChartComponentsTest do
         height: 220
       )
 
-    refute html =~ ~s(<style type="text/css">)
-    assert html =~ ~s(class="chart")
-    assert html =~ ~s(stroke="#4B5563")
+    assert html =~ "Codec Distribution"
+    assert html =~ "HEVC"
+    assert html =~ "AV1"
+    refute html =~ "<svg"
   end
 end
