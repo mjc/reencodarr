@@ -75,34 +75,53 @@ Hooks.RangeSelectCheckboxes = {
 Hooks.DashboardAnimations = {
   mounted() {
     this.readyClass = "dashboard-animations-ready"
+    this.hasInteracted = false
 
-    this.onWindowLoad = () => this.scheduleReady()
     this.onPageLoadingStart = (event) => {
       if (isInitialPageLoadEvent(event)) return
       this.clearReady()
     }
     this.onPageLoadingStop = (event) => {
       if (isInitialPageLoadEvent(event)) return
-      this.scheduleReady()
+      this.scheduleReady({timeout: 1500})
+    }
+    this.onFirstInteraction = () => {
+      this.hasInteracted = true
+      this.removeInteractionListeners()
+      this.scheduleReady({timeout: 250})
     }
 
-    if (document.readyState === "complete") {
-      this.scheduleReady()
-    } else {
-      window.addEventListener("load", this.onWindowLoad, {once: true})
-    }
+    this.addInteractionListeners()
+    this.fallbackReadyTimeout = setTimeout(() => this.scheduleReady({timeout: 8000}), 8000)
 
     window.addEventListener("phx:page-loading-start", this.onPageLoadingStart)
     window.addEventListener("phx:page-loading-stop", this.onPageLoadingStop)
   },
 
-  scheduleReady() {
+  addInteractionListeners() {
+    for (const eventName of ["pointerdown", "keydown", "wheel", "touchstart"]) {
+      window.addEventListener(eventName, this.onFirstInteraction, {once: true, passive: true})
+    }
+  },
+
+  removeInteractionListeners() {
+    for (const eventName of ["pointerdown", "keydown", "wheel", "touchstart"]) {
+      window.removeEventListener(eventName, this.onFirstInteraction)
+    }
+  },
+
+  scheduleReady({timeout} = {}) {
     if (this.idleCallback && "cancelIdleCallback" in window) {
       window.cancelIdleCallback(this.idleCallback)
     }
 
     if (this.readyTimeout) {
       clearTimeout(this.readyTimeout)
+    }
+
+    if (this.fallbackReadyTimeout) {
+      clearTimeout(this.fallbackReadyTimeout)
+      this.fallbackReadyTimeout = null
     }
 
     const markReady = () => {
@@ -116,9 +135,9 @@ Hooks.DashboardAnimations = {
     }
 
     if ("requestIdleCallback" in window) {
-      this.idleCallback = window.requestIdleCallback(markReady, {timeout: 1500})
+      this.idleCallback = window.requestIdleCallback(markReady, {timeout: timeout ?? 1500})
     } else {
-      this.readyTimeout = setTimeout(markReady, 150)
+      this.readyTimeout = setTimeout(markReady, timeout ?? 150)
     }
   },
 
@@ -128,10 +147,10 @@ Hooks.DashboardAnimations = {
 
   destroyed() {
     this.clearReady()
+    this.removeInteractionListeners()
 
     window.removeEventListener("phx:page-loading-start", this.onPageLoadingStart)
     window.removeEventListener("phx:page-loading-stop", this.onPageLoadingStop)
-    window.removeEventListener("load", this.onWindowLoad)
 
     if (this.idleCallback && "cancelIdleCallback" in window) {
       window.cancelIdleCallback(this.idleCallback)
@@ -141,6 +160,11 @@ Hooks.DashboardAnimations = {
     if (this.readyTimeout) {
       clearTimeout(this.readyTimeout)
       this.readyTimeout = null
+    }
+
+    if (this.fallbackReadyTimeout) {
+      clearTimeout(this.fallbackReadyTimeout)
+      this.fallbackReadyTimeout = null
     }
   }
 }
