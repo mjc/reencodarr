@@ -368,7 +368,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp stat_box(assigns) do
     ~H"""
-    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
+    <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-4">
       <div class="text-xs text-gray-400 mb-1">{@label}</div>
       <div class="text-2xl font-mono text-white">{@value}</div>
       <div class="text-xs text-gray-500">{@sublabel}</div>
@@ -552,7 +552,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp crf_search_panel(assigns) do
     ~H"""
-    <div class="bg-gray-900 border border-gray-700 rounded-lg p-4 h-full">
+    <div class="dashboard-card bg-gray-900 border border-gray-700 rounded-lg p-4 h-full">
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-semibold text-white">CRF Search</h3>
         <span class={"px-2 py-1 text-xs rounded-full #{service_status_class(@status)}"}>
@@ -666,7 +666,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp encoding_panel(assigns) do
     ~H"""
-    <div class="bg-gray-900 border border-gray-700 rounded-lg p-4 h-full">
+    <div class="dashboard-card bg-gray-900 border border-gray-700 rounded-lg p-4 h-full">
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-semibold text-white">Encoding</h3>
         <span class={"px-2 py-1 text-xs rounded-full #{service_status_class(@status)}"}>
@@ -811,7 +811,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp pipeline_overview(assigns) do
     ~H"""
-    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
+    <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-4">
       <h3 class="font-semibold text-white mb-3">Processing Pipeline</h3>
       <.state_distribution_bar
         stats={@stats}
@@ -968,7 +968,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp sync_controls(assigns) do
     ~H"""
-    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
+    <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-4">
       <div class="flex items-center justify-between">
         <h3 class="font-semibold text-white">Media Library Sync</h3>
 
@@ -1065,7 +1065,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp pipeline_status_box(assigns) do
     ~H"""
-    <div class="bg-gray-900 border border-gray-800 rounded-lg p-4">
+    <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-4">
       <div class="text-xs text-gray-400 mb-1">Pipeline</div>
       <div class="flex gap-1.5 items-center mt-1">
         <.pipeline_dot status={@service_status.analyzer} label="A" />
@@ -1113,7 +1113,7 @@ defmodule ReencodarrWeb.DashboardLive do
           id="dashboard-active-work"
           phx-hook="LazyLoadQueuePreviews"
           data-loaded={to_string(@queue_previews_loaded)}
-          class="grid grid-cols-1 lg:grid-cols-5 gap-4"
+          class="dashboard-section grid grid-cols-1 lg:grid-cols-5 gap-4"
         >
           <div class="lg:col-span-3">
             <.crf_search_panel
@@ -1149,7 +1149,7 @@ defmodule ReencodarrWeb.DashboardLive do
         />
         
     <!-- Row 4: Analytics Charts -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="dashboard-section grid grid-cols-1 lg:grid-cols-3 gap-4">
           <.bar_chart
             data={@vmaf_distribution}
             title="VMAF Score Distribution"

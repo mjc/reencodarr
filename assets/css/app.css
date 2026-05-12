@@ -45,6 +45,18 @@
   stroke: #4b5563;
 }
 
+.dashboard-section {
+  contain: layout paint;
+}
+
+.dashboard-card {
+  contain: layout paint;
+}
+
+.dashboard-chart-card {
+  contain: layout paint;
+}
+
 .dashboard-soft-pulse,
 .dashboard-crf-beacon {
   animation: none;

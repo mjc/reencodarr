@@ -18,7 +18,7 @@ defmodule ReencodarrWeb.ChartComponents do
     assigns = assign(assigns, :chart_svg, chart_svg)
 
     ~H"""
-    <div class="chart-container bg-gray-800 rounded-lg border border-gray-700 p-4">
+    <div class="chart-container dashboard-card dashboard-chart-card bg-gray-800 rounded-lg border border-gray-700 p-4">
       <h3 :if={@title != ""} class="text-sm font-semibold text-gray-300 mb-3">{@title}</h3>
       <div class="overflow-x-auto">
         {@chart_svg}
