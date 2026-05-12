@@ -1134,7 +1134,7 @@ defmodule ReencodarrWeb.DashboardLive do
         />
         
     <!-- Row 4: Analytics Charts -->
-        <div class="dashboard-section grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="dashboard-section dashboard-deferred-section dashboard-chart-section grid grid-cols-1 lg:grid-cols-3 gap-4">
           <.bar_chart
             data={@vmaf_distribution}
             title="VMAF Score Distribution"
@@ -1156,11 +1156,13 @@ defmodule ReencodarrWeb.DashboardLive do
         </div>
         
     <!-- Row 5: Sync Controls -->
-        <.sync_controls
-          syncing={@syncing}
-          sync_progress={@sync_progress}
-          service_type={@service_type}
-        />
+        <div class="dashboard-section dashboard-deferred-section dashboard-sync-section">
+          <.sync_controls
+            syncing={@syncing}
+            sync_progress={@sync_progress}
+            service_type={@service_type}
+          />
+        </div>
       </div>
     </div>
     """

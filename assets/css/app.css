@@ -46,15 +46,27 @@
 }
 
 .dashboard-section {
-  contain: layout paint;
+  contain: content;
 }
 
 .dashboard-card {
-  contain: layout paint;
+  contain: content;
 }
 
 .dashboard-chart-card {
-  contain: layout paint;
+  contain: content;
+}
+
+.dashboard-deferred-section {
+  content-visibility: auto;
+}
+
+.dashboard-chart-section {
+  contain-intrinsic-size: 860px 320px;
+}
+
+.dashboard-sync-section {
+  contain-intrinsic-size: 860px 120px;
 }
 
 .dashboard-soft-pulse,
