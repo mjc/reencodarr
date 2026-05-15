@@ -98,7 +98,7 @@ defmodule ReencodarrWeb.BadFilesLive do
 
   @impl true
   def handle_info({event, _data}, socket)
-      when event in [:sync_started, :sync_progress, :sync_completed] do
+      when event in [:sync_started, :sync_progress, :sync_completed, :bad_file_issue_updated] do
     {:noreply, if(socket.assigns.loaded_once, do: async_load_issues(socket), else: socket)}
   end
 

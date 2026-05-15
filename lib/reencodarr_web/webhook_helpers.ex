@@ -41,8 +41,9 @@ defmodule ReencodarrWeb.WebhookHelpers do
     end
   end
 
-  def handle_update_result({:ok, _}, _video, old_path, new_path, _file, _source) do
+  def handle_update_result({:ok, video}, _video, old_path, new_path, _file, _source) do
     Logger.info("Updated video path from #{old_path} to #{new_path}")
+    {:ok, video}
   end
 
   def handle_update_result(
@@ -71,5 +72,7 @@ defmodule ReencodarrWeb.WebhookHelpers do
     Logger.error(
       "Failed to update video path from #{old_path} to #{new_path}: #{inspect(changeset.errors)}"
     )
+
+    {:error, changeset}
   end
 end

@@ -39,8 +39,8 @@ defmodule Reencodarr.BadFileRemediation do
     end
   end
 
-  defp complete_remediation_transition(:ok, issue_id),
-    do: transition_issue(issue_id, :waiting_for_replacement)
+  defp complete_remediation_transition({:ok, replacement_ref}, issue_id),
+    do: transition_issue(issue_id, :waiting_for_replacement, replacement_ref)
 
   defp complete_remediation_transition({:error, reason}, issue_id) do
     transition_issue(issue_id, :failed) |> tag_error(reason)
@@ -54,7 +54,7 @@ defmodule Reencodarr.BadFileRemediation do
          {:ok, _response} <- Sonarr.set_episodes_monitored(episode_ids, true),
          {:ok, _response} <- Sonarr.delete_episode_file(episode_file["id"] || file_id),
          {:ok, _response} <- Sonarr.trigger_episode_search(episode_ids) do
-      :ok
+      {:ok, %{service_type: :sonarr, deleted_file_id: file_id, episode_ids: episode_ids}}
     end
   end
 
@@ -65,7 +65,13 @@ defmodule Reencodarr.BadFileRemediation do
          {:ok, _response} <- Radarr.set_movie_monitored(movie_id, true),
          {:ok, _response} <- Radarr.delete_movie_file(file_id),
          {:ok, _response} <- Radarr.trigger_movie_search(movie_id) do
-      :ok
+      {:ok,
+       %{
+         service_type: :radarr,
+         deleted_file_id: file_id,
+         movie_id: movie_id,
+         edition: movie_file["edition"]
+       }}
     end
   end
 
@@ -110,11 +116,33 @@ defmodule Reencodarr.BadFileRemediation do
   defp ensure_processing_issue(%BadFileIssue{} = issue),
     do: transition_issue(issue.id, :processing)
 
-  defp transition_issue(issue_id, status) when is_integer(issue_id) do
+  defp transition_issue(issue_id, status, replacement_ref \\ nil) when is_integer(issue_id) do
     with {:ok, current_issue} <- refresh_issue(issue_id) do
-      Media.update_bad_file_issue_status(current_issue, status)
+      Media.update_bad_file_issue_status(
+        current_issue,
+        status,
+        replacement_attrs(current_issue, replacement_ref)
+      )
     end
   end
+
+  defp replacement_attrs(%BadFileIssue{} = issue, replacement_ref) when is_map(replacement_ref) do
+    details =
+      issue.details
+      |> Kernel.||(%{})
+      |> Map.put("replacement", stringify_replacement_ref(replacement_ref))
+
+    %{details: details}
+  end
+
+  defp replacement_attrs(_issue, _replacement_ref), do: %{}
+
+  defp stringify_replacement_ref(ref) do
+    Map.new(ref, fn {key, value} -> {to_string(key), stringify_replacement_value(value)} end)
+  end
+
+  defp stringify_replacement_value(value) when is_atom(value), do: to_string(value)
+  defp stringify_replacement_value(value), do: value
 
   defp tag_error({:ok, issue}, reason), do: {:error, {issue, reason}}
   defp tag_error({:error, error}, reason), do: {:error, {error, reason}}

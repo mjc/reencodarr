@@ -166,7 +166,7 @@ defmodule Reencodarr.Sync do
          _batch_index,
          acc
        ) do
-    files_written = write_item_files(files, service_type, library_mappings)
+    files_written = write_item_files(files, service_type, library_mappings, item_id)
 
     Logger.info(
       "Sync: Item #{inspect(item_id)} fetched #{length(files)} files, wrote #{files_written} files"
@@ -201,13 +201,13 @@ defmodule Reencodarr.Sync do
     %{acc | items_processed: acc.items_processed + 1}
   end
 
-  defp write_item_files([], _service_type, _library_mappings), do: 0
+  defp write_item_files([], _service_type, _library_mappings, _item_id), do: 0
 
-  defp write_item_files(files, service_type, library_mappings) do
+  defp write_item_files(files, service_type, library_mappings, item_id) do
     files
     |> Enum.chunk_every(sync_write_batch_size())
     |> Enum.reduce(0, fn chunk, written ->
-      written + batch_upsert_videos(chunk, service_type, library_mappings)
+      written + batch_upsert_videos(chunk, service_type, library_mappings, item_id)
     end)
   end
 
@@ -242,11 +242,11 @@ defmodule Reencodarr.Sync do
   def batch_upsert_videos(files, service_type) do
     library_mappings = preload_library_mappings()
 
-    batch_upsert_videos(files, service_type, library_mappings)
+    batch_upsert_videos(files, service_type, library_mappings, nil)
     :ok
   end
 
-  defp batch_upsert_videos(files, service_type, library_mappings) do
+  defp batch_upsert_videos(files, service_type, library_mappings, item_id) do
     file_refs = extract_file_refs(files)
 
     # Pre-filter: only look up rows for paths in this batch instead of loading the
@@ -262,14 +262,19 @@ defmodule Reencodarr.Sync do
       Logger.debug("Sync: Skipped #{length(skipped)} unchanged files")
     end
 
-    video_attrs_list =
+    video_attrs_with_refs =
       new_or_changed
-      |> Enum.map(&prepare_video_attrs(&1, service_type, library_mappings))
+      |> Enum.map(fn file ->
+        with attrs when not is_nil(attrs) <-
+               prepare_video_attrs(file, service_type, library_mappings) do
+          {attrs, Media.bad_file_replacement_ref_from_arr_file(file, service_type, item_id)}
+        end
+      end)
       |> Enum.reject(&is_nil/1)
 
-    if video_attrs_list != [] do
-      Logger.debug("Sync: Processing #{length(video_attrs_list)} changed videos in batch")
-      perform_batch_transaction(video_attrs_list)
+    if video_attrs_with_refs != [] do
+      Logger.debug("Sync: Processing #{length(video_attrs_with_refs)} changed videos in batch")
+      perform_batch_transaction(video_attrs_with_refs)
     else
       0
     end
@@ -306,13 +311,16 @@ defmodule Reencodarr.Sync do
     |> Enum.reject(fn {path, _id} -> is_nil(path) end)
   end
 
-  defp perform_batch_transaction(video_attrs_list) do
+  defp perform_batch_transaction(video_attrs_with_refs) do
+    video_attrs_list = Enum.map(video_attrs_with_refs, &elem(&1, 0))
+
     # Use the new batch upsert function which handles its own transaction
     results = Media.batch_upsert_videos(video_attrs_list)
 
     # Count successes and failures
     success_count = Enum.count(results, &match?({:ok, _}, &1))
     error_count = length(results) - success_count
+    reconcile_waiting_bad_file_replacements(results, video_attrs_with_refs)
 
     if error_count > 0 do
       Logger.warning(
@@ -323,6 +331,18 @@ defmodule Reencodarr.Sync do
     end
 
     success_count
+  end
+
+  defp reconcile_waiting_bad_file_replacements(results, video_attrs_with_refs) do
+    results
+    |> Enum.zip(video_attrs_with_refs)
+    |> Enum.each(fn
+      {{:ok, video}, {_attrs, replacement_ref}} ->
+        Media.resolve_waiting_bad_file_issues_for_replacement(video, replacement_ref)
+
+      _other ->
+        :ok
+    end)
   end
 
   defp preload_library_mappings do

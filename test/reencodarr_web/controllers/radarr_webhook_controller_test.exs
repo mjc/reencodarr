@@ -271,6 +271,46 @@ defmodule ReencodarrWeb.RadarrWebhookControllerTest do
       assert {:error, :not_found} = Media.get_video_by_path(old_path)
       assert {:ok, _} = Media.get_video_by_path(new_path)
     end
+
+    test "marks a waiting bad-file issue replaced_clean when rename updates the file", %{
+      conn: conn
+    } do
+      uid = System.unique_integer([:positive])
+      old_path = "/test/movies/bad_old_movie_#{uid}.mkv"
+      new_path = "/test/movies/good_new_movie_#{uid}.mkv"
+
+      {:ok, video} = Fixtures.video_fixture(%{path: old_path, service_type: :radarr})
+
+      {:ok, issue} =
+        Media.create_bad_file_issue(video, %{
+          origin: :manual,
+          issue_kind: :manual,
+          classification: :manual_bad,
+          manual_reason: "bad release"
+        })
+
+      {:ok, _waiting_issue} = Media.update_bad_file_issue_status(issue, :waiting_for_replacement)
+
+      capture_log(fn ->
+        conn =
+          radarr_post(conn, %{
+            "eventType" => "Rename",
+            "renamedMovieFiles" => [
+              %{
+                "previousPath" => old_path,
+                "path" => new_path,
+                "id" => uid,
+                "size" => 10_000_000,
+                "mediaInfo" => @minimal_media_info
+              }
+            ]
+          })
+
+        assert conn.status == 204
+      end)
+
+      assert Media.get_bad_file_issue!(issue.id).status == :replaced_clean
+    end
   end
 
   describe "MovieAdd event" do

@@ -28,7 +28,7 @@ defmodule ReencodarrWeb.RadarrWebhookController do
 
   defp handle_download(conn, %{"eventType" => "Download"} = params) do
     Logger.debug("Received download event from Radarr for #{inspect(params)}!")
-    movie_files = params["movieFiles"] || [params["movieFile"]]
+    movie_files = movie_files_from_download(params)
     ReencodarrWeb.WebhookProcessor.queue(fn -> process_movie_downloads(movie_files) end)
     send_resp(conn, :no_content, "")
   end
@@ -103,6 +103,17 @@ defmodule ReencodarrWeb.RadarrWebhookController do
 
   defp validate_movie_file(_), do: {:error, "movie file must be a map"}
 
+  defp movie_files_from_download(params) do
+    movie_id = get_in(params, ["movie", "id"])
+
+    (params["movieFiles"] || [params["movieFile"]])
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(fn
+      file when is_map(file) and not is_nil(movie_id) -> Map.put_new(file, "movieId", movie_id)
+      file -> file
+    end)
+  end
+
   defp process_valid_movie_file(%{path: path, size: size, id: id, raw_file: file}) do
     scene_name = file["sceneName"] || Path.basename(path)
     Logger.info("Processing file #{scene_name}...")
@@ -142,9 +153,18 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   defp process_validated_movie_file(file) do
     case validate_movie_file(file) do
       {:ok, validated_file} ->
+        replacement_ref =
+          Reencodarr.Media.bad_file_replacement_ref_from_arr_file(
+            validated_file.raw_file,
+            :radarr
+          )
+
         validated_file
         |> process_valid_movie_file()
-        |> ReencodarrWeb.WebhookProcessor.reconcile_waiting_bad_file_issues(:radarr)
+        |> ReencodarrWeb.WebhookProcessor.reconcile_waiting_bad_file_issues(
+          :radarr,
+          replacement_ref
+        )
 
       {:error, reason} ->
         Logger.error("Invalid movie file data from Radarr: #{reason}")
@@ -162,13 +182,24 @@ defmodule ReencodarrWeb.RadarrWebhookController do
   end
 
   defp process_movie_renames(files) do
-    Enum.each(files, &WebhookHelpers.update_or_upsert_video(&1, :radarr))
+    Enum.each(files, fn file ->
+      replacement_ref = Reencodarr.Media.bad_file_replacement_ref_from_arr_file(file, :radarr)
+
+      file
+      |> WebhookHelpers.update_or_upsert_video(:radarr)
+      |> ReencodarrWeb.WebhookProcessor.reconcile_waiting_bad_file_issues(
+        :radarr,
+        replacement_ref
+      )
+    end)
   end
 
   defp process_movie_file(file) do
+    replacement_ref = Reencodarr.Media.bad_file_replacement_ref_from_arr_file(file, :radarr)
+
     file
     |> Reencodarr.Sync.upsert_video_from_file(:radarr)
-    |> ReencodarrWeb.WebhookProcessor.reconcile_waiting_bad_file_issues(:radarr)
+    |> ReencodarrWeb.WebhookProcessor.reconcile_waiting_bad_file_issues(:radarr, replacement_ref)
   end
 
   defp process_movie_folder_delete(movie_path, _movie_title)

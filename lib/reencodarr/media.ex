@@ -443,11 +443,14 @@ defmodule Reencodarr.Media do
     update_bad_file_issue_status(issue, :dismissed)
   end
 
-  @spec update_bad_file_issue_status(BadFileIssue.t(), atom()) ::
+  @spec update_bad_file_issue_status(BadFileIssue.t(), atom(), map()) ::
           {:ok, BadFileIssue.t()} | {:error, Ecto.Changeset.t()}
-  def update_bad_file_issue_status(%BadFileIssue{} = issue, status) when is_atom(status) do
+  def update_bad_file_issue_status(%BadFileIssue{} = issue, status, extra_attrs \\ %{})
+      when is_atom(status) and is_map(extra_attrs) do
     attrs =
-      %{status: status}
+      extra_attrs
+      |> normalize_bad_file_issue_attrs()
+      |> Map.merge(%{status: status})
       |> maybe_put_bad_file_issue_timestamps(status)
 
     write(
@@ -455,10 +458,21 @@ defmodule Reencodarr.Media do
         issue
         |> BadFileIssue.changeset(attrs)
         |> Repo.update()
+        |> tap(&broadcast_bad_file_issue_status_update/1)
       end,
       label: :media_update_bad_file_issue_status
     )
   end
+
+  defp broadcast_bad_file_issue_status_update({:ok, %BadFileIssue{} = issue}) do
+    Events.broadcast_event(:bad_file_issue_updated, %{
+      issue_id: issue.id,
+      video_id: issue.video_id,
+      status: issue.status
+    })
+  end
+
+  defp broadcast_bad_file_issue_status_update(_result), do: :ok
 
   @spec next_queued_bad_file_issue() :: BadFileIssue.t() | nil
   def next_queued_bad_file_issue do
@@ -545,10 +559,27 @@ defmodule Reencodarr.Media do
     {:ok, length(issues)}
   end
 
-  @spec reconcile_replacement_video(Video.t(), atom()) :: {:ok, Video.t()}
-  def reconcile_replacement_video(%Video{} = video, service_type)
+  @spec resolve_waiting_bad_file_issues_for_replacement(Video.t(), map()) ::
+          {:ok, non_neg_integer()}
+  def resolve_waiting_bad_file_issues_for_replacement(%Video{} = replacement_video, ref \\ %{}) do
+    ref = normalize_bad_file_replacement_ref(ref)
+
+    issues =
+      waiting_bad_file_replacement_candidates(replacement_video.service_type)
+      |> Enum.filter(&replacement_matches_waiting_issue?(replacement_video, ref, &1))
+
+    Enum.each(issues, fn issue ->
+      {:ok, _updated_issue} = update_bad_file_issue_status(issue, :replaced_clean)
+    end)
+
+    {:ok, length(issues)}
+  end
+
+  @spec reconcile_replacement_video(Video.t(), atom(), map()) :: {:ok, Video.t()}
+  def reconcile_replacement_video(%Video{} = video, service_type, replacement_ref \\ %{})
       when service_type in [:sonarr, :radarr] do
-    {:ok, _resolved_count} = resolve_waiting_bad_file_issues_for_video(video)
+    {:ok, _resolved_count} =
+      resolve_waiting_bad_file_issues_for_replacement(video, replacement_ref)
 
     Events.broadcast_event(:sync_completed, %{
       service_type: service_type,
@@ -558,6 +589,222 @@ defmodule Reencodarr.Media do
 
     {:ok, video}
   end
+
+  defp waiting_bad_file_replacement_candidates(service_type)
+       when service_type in [:sonarr, :radarr] do
+    Repo.all(
+      from i in BadFileIssue,
+        join: v in assoc(i, :video),
+        where: i.status == :waiting_for_replacement and v.service_type == ^service_type,
+        preload: [video: v],
+        order_by: [asc: i.id]
+    )
+  end
+
+  defp waiting_bad_file_replacement_candidates(_service_type), do: []
+
+  defp replacement_matches_waiting_issue?(%Video{id: id}, _ref, %BadFileIssue{video_id: id}),
+    do: true
+
+  defp replacement_matches_waiting_issue?(
+         %Video{service_type: :sonarr},
+         %{service_type: :sonarr, episode_ids: replacement_episode_ids},
+         %BadFileIssue{} = issue
+       )
+       when is_list(replacement_episode_ids) and replacement_episode_ids != [] do
+    issue
+    |> bad_file_issue_replacement_ref()
+    |> Map.get(:episode_ids, [])
+    |> MapSet.new()
+    |> MapSet.disjoint?(MapSet.new(replacement_episode_ids))
+    |> Kernel.not()
+  end
+
+  defp replacement_matches_waiting_issue?(
+         %Video{service_type: :radarr},
+         %{service_type: :radarr, movie_id: movie_id} = replacement_ref,
+         %BadFileIssue{} = issue
+       )
+       when is_integer(movie_id) do
+    issue_ref = bad_file_issue_replacement_ref(issue)
+
+    Map.get(issue_ref, :movie_id) == movie_id and
+      radarr_edition_matches?(issue_ref, replacement_ref)
+  end
+
+  defp replacement_matches_waiting_issue?(_replacement_video, _ref, _issue), do: false
+
+  @spec bad_file_replacement_ref_from_arr_file(map() | struct(), atom(), term()) :: map()
+  def bad_file_replacement_ref_from_arr_file(file, service_type, fallback_item_id \\ nil)
+
+  def bad_file_replacement_ref_from_arr_file(file, :sonarr, _fallback_item_id)
+      when is_map(file) do
+    episode_ids =
+      file
+      |> extract_sonarr_episode_ids()
+      |> Enum.uniq()
+
+    if episode_ids == [] do
+      %{}
+    else
+      %{service_type: :sonarr, episode_ids: episode_ids}
+    end
+  end
+
+  def bad_file_replacement_ref_from_arr_file(file, :radarr, fallback_item_id) when is_map(file) do
+    movie_id =
+      file
+      |> get_any(["movieId", :movieId, "movie_id", :movie_id])
+      |> coerce_positive_integer()
+      |> case do
+        nil -> coerce_positive_integer(fallback_item_id)
+        id -> id
+      end
+
+    edition =
+      file
+      |> get_any(["edition", :edition])
+      |> normalize_edition()
+
+    if is_integer(movie_id) do
+      %{}
+      |> Map.put(:service_type, :radarr)
+      |> Map.put(:movie_id, movie_id)
+      |> maybe_put(:edition, edition)
+    else
+      %{}
+    end
+  end
+
+  def bad_file_replacement_ref_from_arr_file(_file, _service_type, _fallback_item_id), do: %{}
+
+  defp bad_file_issue_replacement_ref(%BadFileIssue{details: details}) when is_map(details) do
+    details
+    |> get_any(["replacement", :replacement])
+    |> normalize_bad_file_replacement_ref()
+  end
+
+  defp bad_file_issue_replacement_ref(_issue), do: %{}
+
+  defp normalize_bad_file_replacement_ref(ref) when is_map(ref) do
+    service_type =
+      ref
+      |> get_any(["service_type", :service_type])
+      |> normalize_service_type()
+
+    %{}
+    |> maybe_put(:service_type, service_type)
+    |> maybe_put(
+      :episode_ids,
+      normalize_positive_integer_list(
+        get_any(ref, ["episode_ids", :episode_ids, "episodeIds", :episodeIds])
+      )
+    )
+    |> maybe_put(
+      :movie_id,
+      coerce_positive_integer(get_any(ref, ["movie_id", :movie_id, "movieId", :movieId]))
+    )
+    |> maybe_put(
+      :deleted_file_id,
+      coerce_positive_integer(
+        get_any(ref, ["deleted_file_id", :deleted_file_id, "deletedFileId", :deletedFileId])
+      )
+    )
+    |> maybe_put(:edition, normalize_edition(get_any(ref, ["edition", :edition])))
+  end
+
+  defp normalize_bad_file_replacement_ref(_ref), do: %{}
+
+  defp radarr_edition_matches?(issue_ref, replacement_ref) do
+    case Map.get(issue_ref, :edition) do
+      nil -> true
+      edition -> edition == Map.get(replacement_ref, :edition)
+    end
+  end
+
+  defp extract_sonarr_episode_ids(file) do
+    direct_ids =
+      file
+      |> get_any(["episodeIds", :episodeIds, "episode_ids", :episode_ids])
+      |> normalize_positive_integer_list()
+
+    single_ids =
+      file
+      |> get_any(["episodeId", :episodeId, "episode_id", :episode_id])
+      |> List.wrap()
+      |> normalize_positive_integer_list()
+
+    nested_ids =
+      file
+      |> get_any(["episodes", :episodes])
+      |> extract_nested_ids()
+
+    direct_ids ++ single_ids ++ nested_ids
+  end
+
+  defp extract_nested_ids(items) when is_list(items) do
+    items
+    |> Enum.flat_map(fn
+      item when is_map(item) -> [get_any(item, ["id", :id])]
+      _other -> []
+    end)
+    |> normalize_positive_integer_list()
+  end
+
+  defp extract_nested_ids(_items), do: []
+
+  defp normalize_positive_integer_list(value) when is_list(value) do
+    value
+    |> Enum.map(&coerce_positive_integer/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp normalize_positive_integer_list(value),
+    do: normalize_positive_integer_list(List.wrap(value))
+
+  defp coerce_positive_integer(value) when is_integer(value) and value > 0, do: value
+
+  defp coerce_positive_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int_value, ""} when int_value > 0 -> int_value
+      _other -> nil
+    end
+  end
+
+  defp coerce_positive_integer(_value), do: nil
+
+  defp normalize_service_type(value) when value in [:sonarr, :radarr], do: value
+
+  defp normalize_service_type(value) when is_binary(value) do
+    case String.downcase(value) do
+      "sonarr" -> :sonarr
+      "radarr" -> :radarr
+      _other -> nil
+    end
+  end
+
+  defp normalize_service_type(_value), do: nil
+
+  defp normalize_edition(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> nil
+      edition -> String.downcase(edition)
+    end
+  end
+
+  defp normalize_edition(_value), do: nil
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, _key, []), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp get_any(map, keys) when is_map(map) do
+    Enum.find_value(keys, fn key -> Map.get(map, key) end)
+  end
+
+  defp get_any(_map, _keys), do: nil
 
   defp normalize_bad_file_issue_attrs(attrs) do
     Enum.reduce(attrs, %{}, fn

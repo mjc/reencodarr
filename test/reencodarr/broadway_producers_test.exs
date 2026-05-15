@@ -74,6 +74,24 @@ defmodule Reencodarr.BroadwayProducersTest do
       assert refreshed.state == :analyzing
     end
 
+    test "atomic claim broadcasts video mutation for dashboard counts" do
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
+      {:ok, video} = video_fixture(%{state: :needs_analysis})
+
+      state = init_state(AnalyzerProducer)
+      {:noreply, [_claimed], _state2} = AnalyzerProducer.handle_demand(1, state)
+
+      assert_receive {:video_mutated,
+                      %{
+                        action: :update,
+                        old_video: %{id: old_id, state: :needs_analysis},
+                        new_video: %{id: new_id, state: :analyzing}
+                      }}
+
+      assert old_id == video.id
+      assert new_id == video.id
+    end
+
     test "claimed videos are not dispatched again" do
       {:ok, _video} = video_fixture(%{state: :needs_analysis})
 

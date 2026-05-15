@@ -56,6 +56,9 @@ defmodule Reencodarr.BadFileRemediationTest do
     assert {:ok, updated_issue} = BadFileRemediation.process_next_issue()
     assert updated_issue.id == queued_issue.id
     assert updated_issue.status == :waiting_for_replacement
+    assert updated_issue.details["replacement"]["service_type"] == "sonarr"
+    assert updated_issue.details["replacement"]["episode_ids"] == [101, 102]
+    assert updated_issue.details["replacement"]["deleted_file_id"] == 55
   end
 
   test "process_next_issue/1 moves a Radarr issue into waiting_for_replacement after delete/search" do
@@ -79,7 +82,7 @@ defmodule Reencodarr.BadFileRemediationTest do
     :meck.new(Reencodarr.Services.Radarr, [:passthrough])
 
     :meck.expect(Reencodarr.Services.Radarr, :get_movie_file, fn 88 ->
-      {:ok, %{body: %{"movieId" => 77}}}
+      {:ok, %{body: %{"movieId" => 77, "edition" => "Director's Cut"}}}
     end)
 
     :meck.expect(Reencodarr.Services.Radarr, :set_movie_monitored, fn 77, true ->
@@ -96,6 +99,10 @@ defmodule Reencodarr.BadFileRemediationTest do
 
     assert {:ok, updated_issue} = BadFileRemediation.process_next_issue()
     assert updated_issue.status == :waiting_for_replacement
+    assert updated_issue.details["replacement"]["service_type"] == "radarr"
+    assert updated_issue.details["replacement"]["movie_id"] == 77
+    assert updated_issue.details["replacement"]["deleted_file_id"] == 88
+    assert updated_issue.details["replacement"]["edition"] == "Director's Cut"
   end
 
   test "process_next_issue/1 can process the next queued issue for a specific service" do

@@ -175,6 +175,29 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       assert Media.get_bad_file_issue!(failed_issue.id).status == :queued
     end
 
+    test "refreshes when bad-file status changes outside the LiveView action", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/external_status_update.mkv"})
+
+      {:ok, issue} =
+        Media.create_bad_file_issue(video, %{
+          origin: :manual,
+          issue_kind: :manual,
+          classification: :manual_bad,
+          manual_reason: "external update"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      html = render_async(view)
+      assert html =~ "Open: 1"
+
+      {:ok, _updated_issue} = Media.update_bad_file_issue_status(issue, :waiting_for_replacement)
+      html = render_async(view)
+
+      assert html =~ "Open: 0"
+      assert html =~ "Waiting: 1"
+      assert html =~ "waiting_for_replacement"
+    end
+
     test "replace now processes only the selected issue", %{conn: conn} do
       {:ok, selected_video} =
         Fixtures.video_fixture(%{path: "/shows/Show/Season 01/selected.mkv"})

@@ -65,7 +65,16 @@ defmodule ReencodarrWeb.SonarrWebhookController do
   end
 
   defp process_episode_renames(files) do
-    Enum.each(files, &WebhookHelpers.update_or_upsert_video(&1, :sonarr))
+    Enum.each(files, fn file ->
+      replacement_ref = Reencodarr.Media.bad_file_replacement_ref_from_arr_file(file, :sonarr)
+
+      file
+      |> WebhookHelpers.update_or_upsert_video(:sonarr)
+      |> ReencodarrWeb.WebhookProcessor.reconcile_waiting_bad_file_issues(
+        :sonarr,
+        replacement_ref
+      )
+    end)
   end
 
   defp handle_episodefile(conn, %{"episodeFile" => episode_file}) do
@@ -133,9 +142,18 @@ defmodule ReencodarrWeb.SonarrWebhookController do
         scene_name = validated_file.scene_name
         Logger.info("Received download event from Sonarr for #{scene_name}!")
 
+        replacement_ref =
+          Reencodarr.Media.bad_file_replacement_ref_from_arr_file(
+            validated_file.raw_file,
+            :sonarr
+          )
+
         validated_file.raw_file
         |> Reencodarr.Sync.upsert_video_from_file(:sonarr)
-        |> ReencodarrWeb.WebhookProcessor.reconcile_waiting_bad_file_issues(:sonarr)
+        |> ReencodarrWeb.WebhookProcessor.reconcile_waiting_bad_file_issues(
+          :sonarr,
+          replacement_ref
+        )
 
       {:error, reason} ->
         Logger.error("Invalid episode file data from Sonarr: #{reason}")
@@ -143,9 +161,11 @@ defmodule ReencodarrWeb.SonarrWebhookController do
   end
 
   defp process_episode_file(file) do
+    replacement_ref = Reencodarr.Media.bad_file_replacement_ref_from_arr_file(file, :sonarr)
+
     file
     |> Reencodarr.Sync.upsert_video_from_file(:sonarr)
-    |> ReencodarrWeb.WebhookProcessor.reconcile_waiting_bad_file_issues(:sonarr)
+    |> ReencodarrWeb.WebhookProcessor.reconcile_waiting_bad_file_issues(:sonarr, replacement_ref)
   end
 
   defp process_series_delete(series_path, _series_title)

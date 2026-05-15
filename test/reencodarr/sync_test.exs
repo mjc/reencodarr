@@ -233,6 +233,226 @@ defmodule Reencodarr.SyncTest do
 
       assert log =~ "Unknown file format"
     end
+
+    test "resolves waiting Sonarr bad-file issue when sync sees matching episode IDs", %{
+      library: _library
+    } do
+      old_path = "/test/shows/Example/Season 01/Example - S01E02 - Bad.mkv"
+      new_path = "/test/shows/Example/Season 01/Renamed Completely.mkv"
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: old_path,
+          service_type: :sonarr,
+          service_id: "old-file-id"
+        })
+
+      {:ok, issue} =
+        Media.create_bad_file_issue(video, %{
+          origin: :manual,
+          issue_kind: :manual,
+          classification: :manual_bad,
+          manual_reason: "bad source"
+        })
+
+      {:ok, _waiting_issue} =
+        Media.update_bad_file_issue_status(issue, :waiting_for_replacement, %{
+          details: %{
+            "replacement" => %{
+              "service_type" => "sonarr",
+              "episode_ids" => [102],
+              "deleted_file_id" => 55
+            }
+          }
+        })
+
+      file = %{
+        "path" => new_path,
+        "size" => 2_000_000_000,
+        "id" => "new-file-id",
+        "episodeIds" => [102],
+        "overallBitrate" => 6_000_000,
+        "mediaInfo" => %{
+          "audioCodec" => "AAC",
+          "audioChannels" => 2,
+          "videoCodec" => "H264",
+          "width" => 1920,
+          "height" => 1080
+        }
+      }
+
+      capture_log(fn ->
+        assert :ok = Sync.batch_upsert_videos([file], :sonarr)
+      end)
+
+      assert Media.get_bad_file_issue!(issue.id).status == :replaced_clean
+    end
+
+    test "does not resolve waiting Sonarr issue when sync sees different episode IDs", %{
+      library: _library
+    } do
+      old_path = "/test/shows/Example/Season 01/Example - S01E02 - Bad.mkv"
+      new_path = "/test/shows/Example/Season 01/Example - S01E02 - Repack.mkv"
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: old_path,
+          service_type: :sonarr,
+          service_id: "old-file-id"
+        })
+
+      {:ok, issue} =
+        Media.create_bad_file_issue(video, %{
+          origin: :manual,
+          issue_kind: :manual,
+          classification: :manual_bad,
+          manual_reason: "bad source"
+        })
+
+      {:ok, _waiting_issue} =
+        Media.update_bad_file_issue_status(issue, :waiting_for_replacement, %{
+          details: %{
+            "replacement" => %{
+              "service_type" => "sonarr",
+              "episode_ids" => [102],
+              "deleted_file_id" => 55
+            }
+          }
+        })
+
+      file = %{
+        "path" => new_path,
+        "size" => 2_000_000_000,
+        "id" => "different-file-id",
+        "episodeIds" => [103],
+        "overallBitrate" => 6_000_000,
+        "mediaInfo" => %{
+          "audioCodec" => "AAC",
+          "audioChannels" => 2,
+          "videoCodec" => "H264",
+          "width" => 1920,
+          "height" => 1080
+        }
+      }
+
+      capture_log(fn ->
+        assert :ok = Sync.batch_upsert_videos([file], :sonarr)
+      end)
+
+      assert Media.get_bad_file_issue!(issue.id).status == :waiting_for_replacement
+    end
+
+    test "resolves waiting Radarr bad-file issue when sync sees matching movie ID and edition", %{
+      library: _library
+    } do
+      old_path = "/test/movies/Example Movie (2024)/Example Movie (2024) - Bad.mkv"
+      new_path = "/test/movies/Example Movie (2024)/Renamed Completely.mkv"
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: old_path,
+          service_type: :radarr,
+          service_id: "old-file-id"
+        })
+
+      {:ok, issue} =
+        Media.create_bad_file_issue(video, %{
+          origin: :manual,
+          issue_kind: :manual,
+          classification: :manual_bad,
+          manual_reason: "bad source"
+        })
+
+      {:ok, _waiting_issue} =
+        Media.update_bad_file_issue_status(issue, :waiting_for_replacement, %{
+          details: %{
+            "replacement" => %{
+              "service_type" => "radarr",
+              "movie_id" => 77,
+              "edition" => "director's cut",
+              "deleted_file_id" => 88
+            }
+          }
+        })
+
+      file = %{
+        "path" => new_path,
+        "size" => 8_000_000_000,
+        "id" => "new-file-id",
+        "movieId" => 77,
+        "edition" => "Director's Cut",
+        "overallBitrate" => 12_000_000,
+        "mediaInfo" => %{
+          "audioCodec" => "DTS",
+          "audioChannels" => 6,
+          "videoCodec" => "HEVC",
+          "width" => 3840,
+          "height" => 2160
+        }
+      }
+
+      capture_log(fn ->
+        assert :ok = Sync.batch_upsert_videos([file], :radarr)
+      end)
+
+      assert Media.get_bad_file_issue!(issue.id).status == :replaced_clean
+    end
+
+    test "does not resolve waiting Radarr issue for a different edition of the same movie", %{
+      library: _library
+    } do
+      old_path = "/test/movies/Example Movie (2024)/Example Movie (2024) - Bad.mkv"
+      new_path = "/test/movies/Example Movie (2024)/Example Movie (2024) Theatrical.mkv"
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: old_path,
+          service_type: :radarr,
+          service_id: "old-file-id"
+        })
+
+      {:ok, issue} =
+        Media.create_bad_file_issue(video, %{
+          origin: :manual,
+          issue_kind: :manual,
+          classification: :manual_bad,
+          manual_reason: "bad source"
+        })
+
+      {:ok, _waiting_issue} =
+        Media.update_bad_file_issue_status(issue, :waiting_for_replacement, %{
+          details: %{
+            "replacement" => %{
+              "service_type" => "radarr",
+              "movie_id" => 77,
+              "edition" => "director's cut",
+              "deleted_file_id" => 88
+            }
+          }
+        })
+
+      file = %{
+        "path" => new_path,
+        "size" => 8_000_000_000,
+        "id" => "new-file-id",
+        "movieId" => 77,
+        "edition" => "Theatrical",
+        "overallBitrate" => 12_000_000,
+        "mediaInfo" => %{
+          "audioCodec" => "DTS",
+          "audioChannels" => 6,
+          "videoCodec" => "HEVC",
+          "width" => 3840,
+          "height" => 2160
+        }
+      }
+
+      capture_log(fn ->
+        assert :ok = Sync.batch_upsert_videos([file], :radarr)
+      end)
+
+      assert Media.get_bad_file_issue!(issue.id).status == :waiting_for_replacement
+    end
   end
 
   # ── delete_video_and_vmafs/1 ──

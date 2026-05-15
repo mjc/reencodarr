@@ -105,7 +105,7 @@ defmodule Reencodarr.Media.VideoQueries do
   def claim_videos_for_analysis(limit, opts \\ []) do
     DbWriter.transaction(
       fn ->
-        candidates =
+        candidate_ids =
           from(v in Video,
             where: v.state == :needs_analysis,
             order_by: [desc: v.priority, desc: v.size, desc: v.inserted_at],
@@ -114,11 +114,16 @@ defmodule Reencodarr.Media.VideoQueries do
           )
           |> Repo.all(opts)
 
-        case candidates do
+        case candidate_ids do
           [] ->
-            []
+            {[], %{}}
 
           ids ->
+            old_snapshots_by_id =
+              ids
+              |> Reencodarr.Media.fetch_dashboard_video_snapshots_by_ids()
+              |> Map.new(&{&1.id, &1})
+
             {_count, claimed} =
               from(v in Video,
                 where: v.id in ^ids and v.state == :needs_analysis,
@@ -126,18 +131,29 @@ defmodule Reencodarr.Media.VideoQueries do
               )
               |> Repo.update_all([set: [state: :analyzing, updated_at: DateTime.utc_now()]], opts)
 
-            claimed
+            {claimed, old_snapshots_by_id}
         end
       end,
       label: :video_queries_claim_videos_for_analysis
     )
     |> case do
-      {:ok, claimed} ->
+      {:ok, {claimed, old_snapshots_by_id}} ->
+        broadcast_analysis_claims(old_snapshots_by_id, claimed)
         claimed
 
       {:error, reason} ->
         raise "Failed to claim videos for analysis: #{inspect(reason)}"
     end
+  end
+
+  defp broadcast_analysis_claims(old_snapshots_by_id, claimed) do
+    Enum.each(claimed, fn video ->
+      Reencodarr.Media.broadcast_video_mutation(
+        :update,
+        Map.get(old_snapshots_by_id, video.id),
+        Reencodarr.Media.fetch_dashboard_video_snapshot_by_id(video.id)
+      )
+    end)
   end
 
   @doc """

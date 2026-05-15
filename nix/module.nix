@@ -43,9 +43,11 @@
     exec ${lib.getExe cfg.package} start
   '';
 
+  iexDotFile = pkgs.writeText "reencodarr-iex.exs" (builtins.readFile ../.iex.exs);
+
   remoteScript = pkgs.writeShellApplication {
     name = "reencodarr-remote";
-    runtimeInputs = [pkgs.systemd];
+    runtimeInputs = [pkgs.bash pkgs.coreutils pkgs.systemd];
     text = ''
       runner=()
       if [ "$(id -u)" -ne 0 ]; then
@@ -72,7 +74,10 @@
         --gid=${cfg.group} \
         --working-directory=${cfg.dataDir} \
         --setenv=REENCODARR_DATA_DIR=${cfg.dataDir} \
-        ${lib.getExe cfg.package} remote
+        --setenv=HOME=${cfg.dataDir} \
+        --setenv=ERL_AFLAGS="-kernel shell_history enabled" \
+        ${pkgs.bash}/bin/bash -lc \
+          'cp ${iexDotFile} .iex.exs && exec ${lib.getExe cfg.package} remote'
     '';
   };
 
@@ -83,6 +88,11 @@
       if [ "$#" -eq 0 ]; then
         echo "usage: reencodarr-rpc 'Elixir.expression()'" >&2
         exit 64
+      fi
+
+      expr="$1"
+      if [[ "$expr" != *"IO.puts"* && "$expr" != *"IO.inspect"* ]]; then
+        expr="$expr |> IO.puts()"
       fi
 
       runner=()
@@ -110,7 +120,7 @@
         --gid=${cfg.group} \
         --working-directory=${cfg.dataDir} \
         --setenv=REENCODARR_DATA_DIR=${cfg.dataDir} \
-        ${lib.getExe cfg.package} rpc "$@"
+        ${lib.getExe cfg.package} rpc "$expr"
     '';
   };
 in {
