@@ -12,7 +12,6 @@ defmodule ReencodarrWeb.CoreComponents do
   See the [Tailwind CSS documentation](https://tailwindcss.com) to learn
   how to customize them or feel free to swap in another framework altogether.
 
-  Icons are provided by [heroicons](https://heroicons.com). See `icon/1` for usage.
   """
   use Phoenix.Component
 
@@ -80,7 +79,7 @@ defmodule ReencodarrWeb.CoreComponents do
                   class="-m-3 flex-none p-3 opacity-20 hover:opacity-40"
                   aria-label={gettext("close")}
                 >
-                  <.icon name="hero-x-mark-solid" class="h-5 w-5" />
+                  <span aria-hidden="true" class="text-lg leading-none">&times;</span>
                 </button>
               </div>
               <div id={"#{@id}-content"}>
@@ -126,14 +125,14 @@ defmodule ReencodarrWeb.CoreComponents do
       ]}
       {@rest}
     >
-      <p :if={@title} class="flex items-center gap-1.5 text-sm font-semibold leading-6">
-        <.icon :if={@kind == :info} name="hero-information-circle-mini" class="h-4 w-4" />
-        <.icon :if={@kind == :error} name="hero-exclamation-circle-mini" class="h-4 w-4" />
+      <p :if={@title} class="text-sm font-semibold leading-6">
         {@title}
       </p>
       <p class="mt-2 text-sm leading-5">{msg}</p>
       <button type="button" class="group absolute top-1 right-1 p-2" aria-label={gettext("close")}>
-        <.icon name="hero-x-mark-solid" class="h-5 w-5 opacity-40 group-hover:opacity-70" />
+        <span aria-hidden="true" class="text-lg leading-none opacity-40 group-hover:opacity-70">
+          &times;
+        </span>
       </button>
     </div>
     """
@@ -163,7 +162,6 @@ defmodule ReencodarrWeb.CoreComponents do
         hidden
       >
         {gettext("Attempting to reconnect")}
-        <.icon name="hero-arrow-path" class="ml-1 h-3 w-3 animate-spin" />
       </.flash>
 
       <.flash
@@ -175,7 +173,6 @@ defmodule ReencodarrWeb.CoreComponents do
         hidden
       >
         {gettext("Hang in there while we get back on track")}
-        <.icon name="hero-arrow-path" class="ml-1 h-3 w-3 animate-spin" />
       </.flash>
     </div>
     """
@@ -414,8 +411,7 @@ defmodule ReencodarrWeb.CoreComponents do
 
   def error(assigns) do
     ~H"""
-    <p class="mt-3 flex gap-3 text-sm leading-6 text-rose-600">
-      <.icon name="hero-exclamation-circle-mini" class="mt-0.5 h-5 w-5 flex-none" />
+    <p class="mt-3 text-sm leading-6 text-rose-600">
       {render_slot(@inner_block)}
     </p>
     """
@@ -568,37 +564,10 @@ defmodule ReencodarrWeb.CoreComponents do
         navigate={@navigate}
         class="text-sm font-semibold leading-6 text-gray-300 hover:text-white"
       >
-        <.icon name="hero-arrow-left-solid" class="h-3 w-3" />
+        <span aria-hidden="true">&larr;</span>
         {render_slot(@inner_block)}
       </.link>
     </div>
-    """
-  end
-
-  @doc """
-  Renders a [Heroicon](https://heroicons.com).
-
-  Heroicons come in three styles – outline, solid, and mini.
-  By default, the outline style is used, but solid and mini may
-  be applied by using the `-solid` and `-mini` suffix.
-
-  You can customize the size and colors of the icons by setting
-  width, height, and background color classes.
-
-  Icons are extracted from the `deps/heroicons` directory and bundled within
-  your compiled app.css by the plugin in your `assets/tailwind.config.js`.
-
-  ## Examples
-
-      <.icon name="hero-x-mark-solid" />
-      <.icon name="hero-arrow-path" class="ml-1 w-3 h-3 animate-spin" />
-  """
-  attr :name, :string, required: true
-  attr :class, :string, default: nil
-
-  def icon(%{name: "hero-" <> _} = assigns) do
-    ~H"""
-    <span class={[@name, @class]} />
     """
   end
 

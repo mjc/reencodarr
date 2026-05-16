@@ -53,7 +53,7 @@ in
     mixFodDeps = beamPackages.fetchMixDeps {
       pname = "${pname}-mix-deps";
       inherit src version;
-      hash = "sha256-lcGB36nWKa9XOiGIRqgACOVX5Ln9MDoeeQIyK19gZJs=";
+      hash = "sha256-Uf6Z0cQCJskkmA6qMz/CJDMxJmDX/IofUhgsSQ9qwxg=";
     };
 
     removeCookie = false;

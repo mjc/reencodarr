@@ -175,13 +175,63 @@ Hooks.DashboardAnimations = {
   }
 }
 
+const clearStoredLongPollFallback = () => {
+  for (const store of [window.sessionStorage, window.localStorage]) {
+    try {
+      store?.removeItem("phx:fallback:LongPoll")
+    } catch (_) {
+    }
+  }
+}
+
+const shouldPersistLongPollFallback = async () => {
+  try {
+    const response = await fetch("/", {
+      cache: "no-store",
+      credentials: "same-origin",
+      redirect: "manual"
+    })
+
+    if (response.type === "opaqueredirect") return false
+    if ([401, 403, 407, 419, 440].includes(response.status)) return false
+    if (response.status >= 300 && response.status < 400) return false
+
+    return response.ok
+  } catch (_) {
+    return false
+  }
+}
+
+const sessionStorageWithoutTransportFallback = {
+  getItem(key) {
+    return key.startsWith("phx:fallback:") ? null : window.sessionStorage.getItem(key)
+  },
+  setItem(key, value) {
+    if (key.startsWith("phx:fallback:")) {
+      shouldPersistLongPollFallback().then(shouldStore => {
+        if (shouldStore) {
+          window.sessionStorage.setItem(key, value)
+        }
+      })
+    } else {
+      window.sessionStorage.setItem(key, value)
+    }
+  },
+  removeItem(key) {
+    window.sessionStorage.removeItem(key)
+  }
+}
+
+clearStoredLongPollFallback()
+
 let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 // Use embedded socket for iframe pages
 let socketUrl = window.location.pathname.startsWith("/embed/") ? "/embed/live" : "/live"
 let liveSocket = new LiveSocket(socketUrl, Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: Hooks
+  hooks: Hooks,
+  sessionStorage: sessionStorageWithoutTransportFallback
 })
 
 // connect if there are any LiveViews on the page
