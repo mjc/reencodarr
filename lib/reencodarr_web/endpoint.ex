@@ -25,7 +25,8 @@ defmodule ReencodarrWeb.Endpoint do
   plug Plug.Static,
     at: "/",
     from: :reencodarr,
-    gzip: false,
+    brotli: true,
+    gzip: true,
     only: ReencodarrWeb.static_paths()
 
   # Code reloading can be explicitly enabled under the

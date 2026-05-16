@@ -78,7 +78,6 @@ defmodule Reencodarr.MixProject do
       {:exqlite, github: "mjc/exqlite", branch: "fix/deadlock-investigation", override: true},
       {:req, "~> 0.5"},
       {:stream_data, "~> 1.2.0", only: :test},
-      {:swoosh, "~> 1.22.0"},
       {:tailwind, "~> 0.2", runtime: Mix.env() == :dev},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_poller, "~> 1.0"},

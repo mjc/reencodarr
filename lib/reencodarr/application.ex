@@ -107,7 +107,7 @@ defmodule Reencodarr.Application do
       Reencodarr.DbWriter,
       {DNSCluster, query: Application.get_env(:reencodarr, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Reencodarr.PubSub},
-      # Start the Finch HTTP client for sending emails
+      # Start the Finch HTTP client for outbound API requests.
       {Finch, name: Reencodarr.Finch},
       # Start to serve requests, typically the last entry
       ReencodarrWeb.Endpoint,

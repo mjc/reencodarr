@@ -53,12 +53,13 @@ in
     mixFodDeps = beamPackages.fetchMixDeps {
       pname = "${pname}-mix-deps";
       inherit src version;
-      hash = "sha256-JVWQYieiSMbkDbiMmO8OWC4iRDVXo12ZPTdZFqXeYFU=";
+      hash = "sha256-lcGB36nWKa9XOiGIRqgACOVX5Ln9MDoeeQIyK19gZJs=";
     };
 
     removeCookie = false;
 
     nativeBuildInputs = [
+      pkgs.brotli
       pkgs.tailwindcss
       pkgs.esbuild
     ];
@@ -88,6 +89,15 @@ in
 
     postBuild = ''
       mix do deps.loadpaths --no-deps-check, assets.deploy
+
+      find priv/static -type f \( \
+        -name '*.css' -o \
+        -name '*.js' -o \
+        -name '*.json' -o \
+        -name '*.svg' -o \
+        -name '*.txt' \
+      \) ! -name '*.gz' ! -name '*.br' \
+        -exec ${lib.getExe pkgs.brotli} --best --keep --force {} \;
     '';
 
     postInstall = ''

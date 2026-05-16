@@ -23,16 +23,10 @@ config :reencodarr, ReencodarrWeb.Endpoint,
   secret_key_base: "A4oKjY781OHfIZq4JFru4uL2Z6REsXa7Y+0txG2z4wrWGsYYtMwXv/nFfqnqKTKo",
   server: false
 
-# In test we don't send emails
-config :reencodarr, Reencodarr.Mailer, adapter: Swoosh.Adapters.Test
-
-# Disable swoosh api client as it is only required for production adapters
-config :swoosh, :api_client, false
-
 # Print only warnings and errors during test
 config :logger, level: :warning
 
-# Disable dev routes (LiveDashboard, mailbox preview) during test
+# Disable dev routes during test
 config :reencodarr, dev_routes: false
 
 # Initialize plugs at runtime for faster test compilation

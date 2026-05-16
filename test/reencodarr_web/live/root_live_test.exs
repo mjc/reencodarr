@@ -1,4 +1,4 @@
-defmodule ReencodarrWeb.PageControllerTest do
+defmodule ReencodarrWeb.RootLiveTest do
   use ReencodarrWeb.ConnCase
   import ExUnit.CaptureLog
 
