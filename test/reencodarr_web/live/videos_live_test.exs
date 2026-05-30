@@ -57,7 +57,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
   # Search
   # ---------------------------------------------------------------------------
 
-  describe "search event" do
+  describe "set_filters event" do
     test "filters list to matching videos", %{conn: conn} do
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/unique_alpha_xyz/ep.mkv"})
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/unique_beta_xyz/ep.mkv"})
@@ -66,7 +66,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       html =
         view
-        |> form("form[phx-change='search']", %{search: "unique_alpha_xyz"})
+        |> form("#videos-filters", %{search: "unique_alpha_xyz"})
         |> render_change()
 
       assert html =~ "unique_alpha_xyz"
@@ -78,10 +78,27 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       html =
         view
-        |> form("form[phx-change='search']", %{search: ""})
+        |> form("#videos-filters", %{search: ""})
         |> render_change()
 
       assert html =~ "show"
+    end
+
+    test "applies search and state filters together", %{conn: conn} do
+      {:ok, _} = Fixtures.video_fixture(%{path: "/media/combo_filter_hit.mkv", state: :encoded})
+      {:ok, _} = Fixtures.video_fixture(%{path: "/media/combo_filter_hit_2.mkv", state: :failed})
+      {:ok, _} = Fixtures.video_fixture(%{path: "/media/combo_filter_miss.mkv", state: :encoded})
+
+      {:ok, view, _html} = live(conn, ~p"/videos")
+
+      html =
+        view
+        |> form("#videos-filters", %{search: "/media/combo_filter_hit.mkv", state: "encoded"})
+        |> render_change()
+
+      assert html =~ "combo_filter_hit.mkv"
+      refute html =~ "combo_filter_hit_2.mkv"
+      refute html =~ "combo_filter_miss.mkv"
     end
   end
 
@@ -93,9 +110,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
     test "fires filter_state event and patches URL to include state param", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/videos")
 
-      view
-      |> form("form[phx-change='filter_state']", %{state: "encoded"})
-      |> render_change()
+      view |> form("#videos-filters", %{state: "encoded"}) |> render_change()
 
       # The event pushes a patch — after render, the select should keep the chosen value
       html = render(view)
@@ -107,7 +122,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       html =
         view
-        |> form("form[phx-change='filter_state']", %{state: "encoded"})
+        |> form("#videos-filters", %{state: "encoded"})
         |> render_change()
 
       assert html =~ "Videos"
@@ -120,7 +135,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       html =
         view
-        |> form("form[phx-change='filter_state']", %{state: "encoded"})
+        |> form("#videos-filters", %{state: "encoded"})
         |> render_change()
 
       assert html =~ "only_encoded.mkv"
@@ -397,8 +412,8 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       html =
         view
-        |> element("form[phx-change='filter_service']")
-        |> render_change(%{"service" => "sonarr"})
+        |> form("#videos-filters", %{service: "sonarr"})
+        |> render_change()
 
       assert html =~ "Videos"
     end
@@ -408,13 +423,13 @@ defmodule ReencodarrWeb.VideosLiveTest do
       {:ok, view, _} = live(conn, ~p"/videos")
 
       view
-      |> element("form[phx-change='filter_service']")
-      |> render_change(%{"service" => "sonarr"})
+      |> form("#videos-filters", %{service: "sonarr"})
+      |> render_change()
 
       html =
         view
-        |> element("form[phx-change='filter_service']")
-        |> render_change(%{"service" => ""})
+        |> form("#videos-filters", %{service: ""})
+        |> render_change()
 
       assert html =~ "Videos"
     end
@@ -434,8 +449,8 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       html =
         view
-        |> element("form[phx-change='filter_hdr']")
-        |> render_change(%{"hdr" => "true"})
+        |> form("#videos-filters", %{hdr: "true"})
+        |> render_change()
 
       assert html =~ "Videos"
     end

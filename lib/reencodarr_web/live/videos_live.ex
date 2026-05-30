@@ -77,7 +77,7 @@ defmodule ReencodarrWeb.VideosLive do
       |> assign(filters)
       |> then(fn s ->
         if connected?(s) and s.assigns.loaded_once and filters_changed?,
-          do: load_data(s),
+          do: load_data(s, include_state_counts: false),
           else: s
       end)
 
@@ -114,33 +114,20 @@ defmodule ReencodarrWeb.VideosLive do
   # ---------------------------------------------------------------------------
 
   @impl true
-  def handle_event("search", %{"search" => q}, socket) do
-    {:noreply, push_patch(socket, to: patch_path(socket.assigns, search: q, page: 1))}
-  end
+  def handle_event("set_filters", params, socket) do
+    search = Map.get(params, "search", socket.assigns.search)
+    state = params |> Map.get("state") |> nilify_empty()
+    service = params |> Map.get("service") |> nilify_empty()
+    hdr = params |> Map.get("hdr") |> nilify_empty() |> parse_hdr_param() |> hdr_to_param()
 
-  @impl true
-  def handle_event("filter_state", %{"state" => state}, socket) do
-    {:noreply,
-     push_patch(socket,
-       to: patch_path(socket.assigns, state: nilify_empty(state), page: 1)
-     )}
-  end
-
-  @impl true
-  def handle_event("filter_service", %{"service" => svc}, socket) do
-    {:noreply,
-     push_patch(socket,
-       to: patch_path(socket.assigns, service: nilify_empty(svc), page: 1)
-     )}
-  end
-
-  @impl true
-  def handle_event("filter_hdr", %{"hdr" => hdr}, socket) do
     {:noreply,
      push_patch(socket,
        to:
          patch_path(socket.assigns,
-           hdr: hdr_to_param(parse_hdr_param(nilify_empty(hdr))),
+           search: search,
+           state: state,
+           service: service,
+           hdr: hdr,
            page: 1
          )
      )}
@@ -281,8 +268,8 @@ defmodule ReencodarrWeb.VideosLive do
   def handle_event("reset_selected", _params, socket) do
     ids = MapSet.to_list(socket.assigns.selected)
     Enum.each(ids, &reset_video_by_id/1)
-
-    socket = socket |> assign(selected: MapSet.new()) |> load_data()
+    videos = apply_video_state_on_page(socket.assigns.videos, ids, :needs_analysis)
+    socket = socket |> assign(selected: MapSet.new(), videos: videos)
     {:noreply, put_flash(socket, :info, "Reset #{length(ids)} video(s) to needs_analysis")}
   end
 
@@ -299,7 +286,7 @@ defmodule ReencodarrWeb.VideosLive do
          put_flash(socket, :error, "No selected videos were eligible for queue prioritization")}
 
       {:ok, count} ->
-        socket = socket |> assign(selected: MapSet.new()) |> load_data()
+        socket = socket |> assign(selected: MapSet.new())
         {:noreply, put_flash(socket, :info, "Prioritized #{count} video(s)")}
 
       {:error, _reason} ->
@@ -316,7 +303,8 @@ defmodule ReencodarrWeb.VideosLive do
     with {:ok, id} <- Parsers.parse_integer_exact(id_str),
          video when not is_nil(video) <- Media.get_video(id),
          {:ok, _} <- Media.mark_as_needs_analysis(video) do
-      {:noreply, socket |> put_flash(:info, "Reset to needs_analysis") |> load_data()}
+      videos = apply_video_state_on_page(socket.assigns.videos, [id], :needs_analysis)
+      {:noreply, socket |> assign(:videos, videos) |> put_flash(:info, "Reset to needs_analysis")}
     else
       nil ->
         {:noreply, put_flash(socket, :error, "Video not found")}
@@ -333,7 +321,10 @@ defmodule ReencodarrWeb.VideosLive do
     case Parsers.parse_integer_exact(id_str) do
       {:ok, id} ->
         Media.force_reanalyze_video(id)
-        {:noreply, socket |> put_flash(:info, "Queued for re-analysis") |> load_data()}
+        videos = apply_video_state_on_page(socket.assigns.videos, [id], :needs_analysis)
+
+        {:noreply,
+         socket |> assign(:videos, videos) |> put_flash(:info, "Queued for re-analysis")}
 
       _ ->
         {:noreply, socket}
@@ -345,7 +336,7 @@ defmodule ReencodarrWeb.VideosLive do
     with {:ok, id} <- Parsers.parse_integer_exact(id_str),
          {:ok, count} <- Media.prioritize_video(id),
          true <- count > 0 do
-      {:noreply, socket |> put_flash(:info, "Prioritized video") |> load_data()}
+      {:noreply, socket |> put_flash(:info, "Prioritized video")}
     else
       {:ok, 0} -> {:noreply, put_flash(socket, :error, "Video is not currently queueable")}
       false -> {:noreply, put_flash(socket, :error, "Video is not currently queueable")}
@@ -356,20 +347,22 @@ defmodule ReencodarrWeb.VideosLive do
 
   @impl true
   def handle_event("fail_video", %{"id" => id_str}, socket) do
-    result =
-      with {:ok, id} <- Parsers.parse_integer_exact(id_str) do
-        fail_video_by_id(id)
-      end
+    case Parsers.parse_integer_exact(id_str) do
+      {:ok, id} ->
+        case fail_video_by_id(id) do
+          :ok ->
+            videos = apply_video_state_on_page(socket.assigns.videos, [id], :failed)
+            {:noreply, socket |> assign(:videos, videos) |> put_flash(:info, "Job stopped")}
 
-    case result do
-      :ok ->
-        {:noreply, socket |> put_flash(:info, "Job stopped") |> load_data()}
+          {:error, :active_mismatch} ->
+            {:noreply, socket |> put_flash(:error, "That video is not the active job")}
 
-      {:error, :active_mismatch} ->
-        {:noreply, socket |> put_flash(:error, "That video is not the active job") |> load_data()}
+          _ ->
+            {:noreply, socket |> put_flash(:error, "Unable to stop job")}
+        end
 
       _ ->
-        {:noreply, socket |> put_flash(:error, "Unable to stop job") |> load_data()}
+        {:noreply, socket |> put_flash(:error, "Unable to stop job")}
     end
   end
 
@@ -398,8 +391,7 @@ defmodule ReencodarrWeb.VideosLive do
            |> put_flash(
              :info,
              "Prioritized #{count} #{Path.basename(season_dir)} video(s)"
-           )
-           |> load_data()}
+           )}
 
         {:error, _reason} ->
           {:noreply, put_flash(socket, :error, "Failed to prioritize season videos")}
@@ -420,7 +412,11 @@ defmodule ReencodarrWeb.VideosLive do
     with {:ok, id} <- Parsers.parse_integer_exact(id_str),
          {:ok, video} <- Media.fetch_video(id),
          {:ok, _} <- Media.delete_video(video) do
-      {:noreply, socket |> put_flash(:info, "Video deleted") |> load_data()}
+      videos = Enum.reject(socket.assigns.videos, &(&1.id == id))
+      total = max(socket.assigns.total - 1, 0)
+
+      {:noreply,
+       socket |> assign(videos: videos, total: total) |> put_flash(:info, "Video deleted")}
     else
       :not_found -> {:noreply, put_flash(socket, :error, "Video not found")}
       {:error, _} -> {:noreply, put_flash(socket, :error, "Delete failed")}
@@ -442,8 +438,7 @@ defmodule ReencodarrWeb.VideosLive do
       {:noreply,
        socket
        |> assign(:expanded_bad_forms, List.delete(socket.assigns.expanded_bad_forms, id))
-       |> put_flash(:info, "Marked as bad")
-       |> load_data()}
+       |> put_flash(:info, "Marked as bad")}
     else
       :not_found -> {:noreply, put_flash(socket, :error, "Video not found")}
       {:error, _} -> {:noreply, put_flash(socket, :error, "Mark bad failed")}
@@ -455,18 +450,22 @@ defmodule ReencodarrWeb.VideosLive do
   # Private helpers
   # ---------------------------------------------------------------------------
 
-  defp load_data(socket) do
+  defp load_data(socket, opts \\ []) do
     page_state =
-      VideosState.load(%{
-        page: socket.assigns.page,
-        per_page: socket.assigns.per_page,
-        state_filter: socket.assigns.state_filter,
-        service_filter: socket.assigns.service_filter,
-        hdr_filter: socket.assigns.hdr_filter,
-        search: socket.assigns.search,
-        sort_by: socket.assigns.sort_by,
-        sort_dir: socket.assigns.sort_dir
-      })
+      VideosState.load(
+        %{
+          state_counts: socket.assigns.state_counts,
+          page: socket.assigns.page,
+          per_page: socket.assigns.per_page,
+          state_filter: socket.assigns.state_filter,
+          service_filter: socket.assigns.service_filter,
+          hdr_filter: socket.assigns.hdr_filter,
+          search: socket.assigns.search,
+          sort_by: socket.assigns.sort_by,
+          sort_dir: socket.assigns.sort_dir
+        },
+        opts
+      )
 
     assign_changed(socket, Map.put(page_state, :loading, false))
   end
@@ -475,6 +474,14 @@ defmodule ReencodarrWeb.VideosLive do
     socket
     |> load_data()
     |> assign(:loaded_once, true)
+  end
+
+  defp apply_video_state_on_page(videos, ids, new_state) do
+    ids = MapSet.new(ids)
+
+    Enum.map(videos, fn video ->
+      if MapSet.member?(ids, video.id), do: %{video | state: new_state}, else: video
+    end)
   end
 
   defp reset_video_by_id(id) do
@@ -750,18 +757,17 @@ defmodule ReencodarrWeb.VideosLive do
     <!-- Toolbar -->
         <div class="bg-gray-800 rounded-lg border border-gray-700 p-3">
           <div class="flex flex-wrap gap-3 items-center">
-            <form phx-change="search" class="flex-1 min-w-[180px]">
-              <input
-                type="text"
-                name="search"
-                value={@search}
-                placeholder="Search by path..."
-                phx-debounce="300"
-                class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 placeholder-gray-400"
-              />
-            </form>
-
-            <form phx-change="filter_state">
+            <form id="videos-filters" phx-change="set_filters" class="contents">
+              <div class="flex-1 min-w-[180px]">
+                <input
+                  type="text"
+                  name="search"
+                  value={@search}
+                  placeholder="Search by path..."
+                  phx-debounce="300"
+                  class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 placeholder-gray-400"
+                />
+              </div>
               <select
                 name="state"
                 value={@state_filter || ""}
@@ -772,9 +778,6 @@ defmodule ReencodarrWeb.VideosLive do
                   <option value={s}>{s}</option>
                 <% end %>
               </select>
-            </form>
-
-            <form phx-change="filter_service">
               <select
                 name="service"
                 value={@service_filter || ""}
@@ -784,9 +787,6 @@ defmodule ReencodarrWeb.VideosLive do
                 <option value="sonarr">Sonarr (TV)</option>
                 <option value="radarr">Radarr (Movies)</option>
               </select>
-            </form>
-
-            <form phx-change="filter_hdr">
               <select
                 name="hdr"
                 value={hdr_to_param(@hdr_filter) || ""}

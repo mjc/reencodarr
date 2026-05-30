@@ -2353,7 +2353,6 @@ defmodule Reencodarr.Media do
 
     case Flop.validate_and_run(base_query, flop_params, for: Video) do
       {:ok, {videos, meta}} ->
-        videos = Repo.preload(videos, :chosen_vmaf)
         {videos, meta}
 
       {:error, _meta} ->
