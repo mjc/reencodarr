@@ -48,7 +48,38 @@ in
   beamPackages.mixRelease rec {
     pname = "reencodarr";
     version = "0.1.0";
-    src = lib.cleanSource ../.;
+    src = lib.cleanSourceWith {
+      src = ../.;
+
+      filter = path: type:
+        let
+          root = toString ../.;
+          pathStr = toString path;
+          relPath =
+            if pathStr == root
+            then ""
+            else lib.removePrefix "${root}/" pathStr;
+
+          excludedDirs = [
+            "_build"
+            "deps"
+            "node_modules"
+            "logs"
+            ".elixir_ls"
+            ".direnv"
+            ".git"
+          ];
+
+          isExcludedDir = dir: lib.hasInfix "/${dir}/" "/${relPath}/";
+
+          excluded =
+            lib.any isExcludedDir excludedDirs
+            || builtins.match "priv/reencodarr_(dev|prod|test).*\\.db(-shm|-wal|-journal)?"
+              relPath
+              != null;
+        in
+          lib.cleanSourceFilter path type && !excluded;
+    };
 
     mixFodDeps = beamPackages.fetchMixDeps {
       pname = "${pname}-mix-deps";

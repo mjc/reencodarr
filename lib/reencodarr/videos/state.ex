@@ -3,8 +3,10 @@ defmodule Reencodarr.Videos.State do
 
   alias Reencodarr.Media
 
-  @spec load(map()) :: map()
-  def load(assigns) do
+  @spec load(map(), keyword()) :: map()
+  def load(assigns, opts \\ []) do
+    include_state_counts? = Keyword.get(opts, :include_state_counts, true)
+
     {videos, meta} =
       Media.list_videos_paginated(
         page: assigns.page,
@@ -17,13 +19,20 @@ defmodule Reencodarr.Videos.State do
         sort_dir: assigns.sort_dir
       )
 
+    state_counts =
+      if include_state_counts? do
+        Media.count_videos_by_state()
+      else
+        Map.get(assigns, :state_counts, %{})
+      end
+
     %{
       videos: videos,
       meta: meta,
       total: meta.total_count || 0,
       page: meta.current_page || assigns.page,
       per_page: meta.page_size || assigns.per_page,
-      state_counts: Media.count_videos_by_state()
+      state_counts: state_counts
     }
   end
 end

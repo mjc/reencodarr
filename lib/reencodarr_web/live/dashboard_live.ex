@@ -620,13 +620,24 @@ defmodule ReencodarrWeb.DashboardLive do
           <% end %>
         </div>
       <% else %>
-        <!-- Idle: Show compact status -->
+        <!-- Idle/Paused: Show compact status and allow resume when paused -->
         <div class="text-sm text-gray-400">
           <span>Queue: {@queue_count}</span>
           <%= if @status == :idle do %>
             <span class="ml-2">• Idle</span>
           <% end %>
         </div>
+
+        <%= if @status == :paused do %>
+          <div class="mt-2">
+            <.active_job_controls
+              status={@status}
+              suspend_event="suspend_crf_search"
+              resume_event="resume_crf_search"
+              fail_event="fail_crf_search"
+            />
+          </div>
+        <% end %>
       <% end %>
       
     <!-- Always show next-up videos -->
@@ -730,13 +741,24 @@ defmodule ReencodarrWeb.DashboardLive do
           />
         </div>
       <% else %>
-        <!-- Idle: Show compact status -->
+        <!-- Idle/Paused: Show compact status and allow resume when paused -->
         <div class="text-sm text-gray-400">
           <span>Queue: {@queue_count}</span>
           <%= if @status == :idle do %>
             <span class="ml-2">• Idle</span>
           <% end %>
         </div>
+
+        <%= if @status == :paused do %>
+          <div class="mt-2">
+            <.active_job_controls
+              status={@status}
+              suspend_event="suspend_encode"
+              resume_event="resume_encode"
+              fail_event="fail_encode"
+            />
+          </div>
+        <% end %>
       <% end %>
       
     <!-- Always show next-up videos -->
