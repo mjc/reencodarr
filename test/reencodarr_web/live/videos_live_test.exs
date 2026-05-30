@@ -621,7 +621,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
       assert Reencodarr.Media.get_video!(second.id).priority > 0
     end
 
-    test "prioritize_season_visible only updates matching visible season rows", %{conn: conn} do
+    test "prioritize_season_visible updates the whole season", %{conn: conn} do
       {:ok, season_one_first} =
         Fixtures.video_fixture(%{
           path: "/media/Show/Season 01/Show - S01E01.mkv",
@@ -640,7 +640,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
           state: :needs_analysis
         })
 
-      {:ok, view, _html} = live(conn, ~p"/videos?search=Season%2001")
+      {:ok, view, _html} = live(conn, ~p"/videos?search=Season%2001&per_page=1")
 
       html =
         view
@@ -649,7 +649,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
         )
         |> render_click()
 
-      assert html =~ "Prioritized 2 visible Season 01 video(s)"
+      assert html =~ "Prioritized 2 Season 01 video(s)"
       assert Reencodarr.Media.get_video!(season_one_first.id).priority > 0
       assert Reencodarr.Media.get_video!(season_one_second.id).priority > 0
       assert Reencodarr.Media.get_video!(other_season.id).priority == 0

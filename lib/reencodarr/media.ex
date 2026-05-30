@@ -108,7 +108,7 @@ defmodule Reencodarr.Media do
   def video_exists?(path), do: Repo.exists?(from v in Video, where: v.path == ^path)
 
   def find_videos_by_path_wildcard(pattern),
-    do: Repo.all(from v in Video, where: like(v.path, ^pattern))
+    do: Repo.all(from v in Video, where: fragment("? LIKE ? ESCAPE ?", v.path, ^pattern, ^"\\"))
 
   defp candidate_group_entry(%{path: path}) do
     case extract_show_and_season(path) do

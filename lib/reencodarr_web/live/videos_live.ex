@@ -378,8 +378,9 @@ defmodule ReencodarrWeb.VideosLive do
     with {:ok, id} <- Parsers.parse_integer_exact(id_str),
          {:ok, season_dir} <- visible_season_directory(socket.assigns.videos, id) do
       ordered_ids =
-        socket.assigns.videos
-        |> Enum.filter(&(season_directory(&1.path) == season_dir))
+        season_dir
+        |> season_videos()
+        |> Enum.sort_by(& &1.path)
         |> Enum.map(& &1.id)
 
       case Media.prioritize_videos(ordered_ids) do
@@ -388,7 +389,7 @@ defmodule ReencodarrWeb.VideosLive do
            put_flash(
              socket,
              :error,
-             "No visible videos in that season were eligible for prioritization"
+             "No videos in that season were eligible for prioritization"
            )}
 
         {:ok, count} ->
@@ -396,12 +397,12 @@ defmodule ReencodarrWeb.VideosLive do
            socket
            |> put_flash(
              :info,
-             "Prioritized #{count} visible #{Path.basename(season_dir)} video(s)"
+             "Prioritized #{count} #{Path.basename(season_dir)} video(s)"
            )
            |> load_data()}
 
         {:error, _reason} ->
-          {:noreply, put_flash(socket, :error, "Failed to prioritize visible season videos")}
+          {:noreply, put_flash(socket, :error, "Failed to prioritize season videos")}
       end
     else
       _ ->
@@ -409,7 +410,7 @@ defmodule ReencodarrWeb.VideosLive do
          put_flash(
            socket,
            :error,
-           "Season prioritization is only available for visible season rows"
+           "Season prioritization is only available for season rows"
          )}
     end
   end
@@ -565,6 +566,19 @@ defmodule ReencodarrWeb.VideosLive do
   end
 
   defp season_directory(_path), do: nil
+
+  defp season_videos(season_dir) do
+    Media.find_videos_by_path_wildcard("#{escape_like(season_dir)}/%")
+  end
+
+  defp escape_like(value) when is_binary(value) do
+    value
+    |> String.replace("\\", "\\\\")
+    |> String.replace("%", "\\%")
+    |> String.replace("_", "\\_")
+  end
+
+  defp escape_like(value), do: value
 
   defp parse_params(params) do
     %{
@@ -919,7 +933,7 @@ defmodule ReencodarrWeb.VideosLive do
                             <button
                               phx-click="prioritize_season_visible"
                               phx-value-id={video.id}
-                              title="Move visible videos from this season to the top"
+                              title="Move all videos from this season to the top"
                               class="text-emerald-300 hover:text-emerald-200 text-xs"
                             >
                               prioritize season
