@@ -60,22 +60,21 @@ in
             then ""
             else lib.removePrefix "${root}/" pathStr;
 
+          excludedDirs = [
+            "_build"
+            "deps"
+            "node_modules"
+            "logs"
+            ".elixir_ls"
+            ".direnv"
+            ".git"
+          ];
+
+          isExcludedDir = dir: relPath == dir || lib.hasPrefix "${dir}/" relPath;
+
           excluded =
-            relPath == "_build"
-            || lib.hasPrefix "_build/" relPath
-            || relPath == "deps"
-            || lib.hasPrefix "deps/" relPath
-            || relPath == "node_modules"
-            || lib.hasPrefix "node_modules/" relPath
-            || relPath == "logs"
-            || lib.hasPrefix "logs/" relPath
-            || relPath == ".elixir_ls"
-            || lib.hasPrefix ".elixir_ls/" relPath
-            || relPath == ".direnv"
-            || lib.hasPrefix ".direnv/" relPath
-            || relPath == ".git"
-            || lib.hasPrefix ".git/" relPath
-            || builtins.match "priv/reencodarr_(dev|prod|test).*\\.db(-shm|-wal)?"
+            lib.any isExcludedDir excludedDirs
+            || builtins.match "priv/reencodarr_(dev|prod|test).*\\.db(-shm|-wal|-journal)?"
               relPath
               != null;
         in

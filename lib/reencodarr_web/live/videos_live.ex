@@ -268,8 +268,8 @@ defmodule ReencodarrWeb.VideosLive do
   def handle_event("reset_selected", _params, socket) do
     ids = MapSet.to_list(socket.assigns.selected)
     Enum.each(ids, &reset_video_by_id/1)
-    videos = apply_video_state_on_page(socket.assigns.videos, ids, :needs_analysis)
-    socket = socket |> assign(selected: MapSet.new(), videos: videos)
+    socket = socket |> assign(selected: MapSet.new()) |> load_data()
+
     {:noreply, put_flash(socket, :info, "Reset #{length(ids)} video(s) to needs_analysis")}
   end
 
@@ -303,8 +303,7 @@ defmodule ReencodarrWeb.VideosLive do
     with {:ok, id} <- Parsers.parse_integer_exact(id_str),
          video when not is_nil(video) <- Media.get_video(id),
          {:ok, _} <- Media.mark_as_needs_analysis(video) do
-      videos = apply_video_state_on_page(socket.assigns.videos, [id], :needs_analysis)
-      {:noreply, socket |> assign(:videos, videos) |> put_flash(:info, "Reset to needs_analysis")}
+      {:noreply, socket |> put_flash(:info, "Reset to needs_analysis") |> load_data()}
     else
       nil ->
         {:noreply, put_flash(socket, :error, "Video not found")}
@@ -321,10 +320,7 @@ defmodule ReencodarrWeb.VideosLive do
     case Parsers.parse_integer_exact(id_str) do
       {:ok, id} ->
         Media.force_reanalyze_video(id)
-        videos = apply_video_state_on_page(socket.assigns.videos, [id], :needs_analysis)
-
-        {:noreply,
-         socket |> assign(:videos, videos) |> put_flash(:info, "Queued for re-analysis")}
+        {:noreply, socket |> put_flash(:info, "Queued for re-analysis") |> load_data()}
 
       _ ->
         {:noreply, socket}
@@ -351,8 +347,7 @@ defmodule ReencodarrWeb.VideosLive do
       {:ok, id} ->
         case fail_video_by_id(id) do
           :ok ->
-            videos = apply_video_state_on_page(socket.assigns.videos, [id], :failed)
-            {:noreply, socket |> assign(:videos, videos) |> put_flash(:info, "Job stopped")}
+            {:noreply, socket |> put_flash(:info, "Job stopped") |> load_data()}
 
           {:error, :active_mismatch} ->
             {:noreply, socket |> put_flash(:error, "That video is not the active job")}
@@ -412,11 +407,7 @@ defmodule ReencodarrWeb.VideosLive do
     with {:ok, id} <- Parsers.parse_integer_exact(id_str),
          {:ok, video} <- Media.fetch_video(id),
          {:ok, _} <- Media.delete_video(video) do
-      videos = Enum.reject(socket.assigns.videos, &(&1.id == id))
-      total = max(socket.assigns.total - 1, 0)
-
-      {:noreply,
-       socket |> assign(videos: videos, total: total) |> put_flash(:info, "Video deleted")}
+      {:noreply, socket |> put_flash(:info, "Video deleted") |> load_data()}
     else
       :not_found -> {:noreply, put_flash(socket, :error, "Video not found")}
       {:error, _} -> {:noreply, put_flash(socket, :error, "Delete failed")}
@@ -474,14 +465,6 @@ defmodule ReencodarrWeb.VideosLive do
     socket
     |> load_data()
     |> assign(:loaded_once, true)
-  end
-
-  defp apply_video_state_on_page(videos, ids, new_state) do
-    ids = MapSet.new(ids)
-
-    Enum.map(videos, fn video ->
-      if MapSet.member?(ids, video.id), do: %{video | state: new_state}, else: video
-    end)
   end
 
   defp reset_video_by_id(id) do

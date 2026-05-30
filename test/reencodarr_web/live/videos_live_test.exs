@@ -530,6 +530,22 @@ defmodule ReencodarrWeb.VideosLiveTest do
       html = view |> render_click("reset_video", %{"id" => "999999"})
       assert html =~ "Video not found"
     end
+
+    test "removes a row from failed filter and updates badge counts", %{conn: conn} do
+      {:ok, video} = Fixtures.failed_video_fixture(%{path: "/media/failed_filtered_reset.mkv"})
+      {:ok, view, _} = live(conn, ~p"/videos?state=failed")
+
+      html =
+        view
+        |> element("button[phx-click='reset_video'][phx-value-id='#{video.id}']")
+        |> render_click()
+
+      assert html =~ "Reset to needs_analysis"
+      assert html =~ "0 total"
+      refute html =~ "failed_filtered_reset.mkv"
+      assert_state_badge_count(html, "failed", 0)
+      assert_state_badge_count(html, "needs_analysis", 1)
+    end
   end
 
   describe "force_reanalyze event" do
@@ -543,6 +559,21 @@ defmodule ReencodarrWeb.VideosLiveTest do
         |> render_click()
 
       assert html =~ "Queued for re-analysis"
+    end
+
+    test "keeps the row visible until state transition occurs", %{conn: conn} do
+      {:ok, video} =
+        Fixtures.video_fixture(%{path: "/media/reanalyze_filtered.mkv", state: :analyzed})
+
+      {:ok, view, _} = live(conn, ~p"/videos?state=analyzed")
+
+      html =
+        view
+        |> element("button[phx-click='force_reanalyze'][phx-value-id='#{video.id}']")
+        |> render_click()
+
+      assert html =~ "Queued for re-analysis"
+      assert html =~ "reanalyze_filtered.mkv"
     end
   end
 
@@ -594,6 +625,21 @@ defmodule ReencodarrWeb.VideosLiveTest do
       html = view |> render_click("delete_video", %{"id" => "999999"})
       assert html =~ "Video not found"
     end
+
+    test "updates counts after deleting a filtered row", %{conn: conn} do
+      {:ok, video} = Fixtures.failed_video_fixture(%{path: "/media/delete_failed_filtered.mkv"})
+      {:ok, view, _} = live(conn, ~p"/videos?state=failed")
+
+      html =
+        view
+        |> element("button[phx-click='delete_video'][phx-value-id='#{video.id}']")
+        |> render_click()
+
+      assert html =~ "Video deleted"
+      assert html =~ "0 total"
+      refute html =~ "delete_failed_filtered.mkv"
+      assert_state_badge_count(html, "failed", 0)
+    end
   end
 
   # ---------------------------------------------------------------------------
@@ -609,6 +655,20 @@ defmodule ReencodarrWeb.VideosLiveTest do
       html = view |> element("button[phx-click='reset_selected']") |> render_click()
 
       assert html =~ "Reset 1 video(s) to needs_analysis"
+    end
+
+    test "removes selected rows that no longer match the active state filter", %{conn: conn} do
+      {:ok, _} = Fixtures.failed_video_fixture(%{path: "/media/bulk_reset_filtered.mkv"})
+      {:ok, view, _} = live(conn, ~p"/videos?state=failed")
+
+      view |> element("[phx-click='select_all']") |> render_click()
+      html = view |> element("button[phx-click='reset_selected']") |> render_click()
+
+      assert html =~ "Reset 1 video(s) to needs_analysis"
+      assert html =~ "0 total"
+      refute html =~ "bulk_reset_filtered.mkv"
+      assert_state_badge_count(html, "failed", 0)
+      assert_state_badge_count(html, "needs_analysis", 1)
     end
   end
 
@@ -701,5 +761,12 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       assert html =~ "Videos"
     end
+  end
+
+  defp assert_state_badge_count(html, state, count) do
+    assert Regex.match?(
+             ~r/phx-value-state="#{state}".*?font-mono">#{count}<\/span>/s,
+             html
+           )
   end
 end
