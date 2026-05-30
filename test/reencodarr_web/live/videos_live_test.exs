@@ -764,9 +764,13 @@ defmodule ReencodarrWeb.VideosLiveTest do
   end
 
   defp assert_state_badge_count(html, state, count) do
-    assert Regex.match?(
-             ~r/phx-value-state="#{state}".*?font-mono">#{count}<\/span>/s,
-             html
-           )
+    case Regex.run(~r/phx-value-state="#{state}".*?font-mono">(\d+)<\/span>/s, html) do
+      [_, actual] ->
+        assert actual == Integer.to_string(count),
+               "expected #{state} badge count #{count}, got #{actual}"
+
+      nil ->
+        flunk("no #{state} badge found in rendered HTML")
+    end
   end
 end

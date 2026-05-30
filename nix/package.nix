@@ -70,7 +70,7 @@ in
             ".git"
           ];
 
-          isExcludedDir = dir: relPath == dir || lib.hasPrefix "${dir}/" relPath;
+          isExcludedDir = dir: lib.hasInfix "/${dir}/" "/${relPath}/";
 
           excluded =
             lib.any isExcludedDir excludedDirs
