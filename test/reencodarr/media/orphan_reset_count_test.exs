@@ -10,7 +10,7 @@ defmodule Reencodarr.Media.OrphanResetCountTest do
     :meck.new(Repo, [:passthrough])
 
     on_exit(fn ->
-      Agent.stop(calls)
+      if Process.alive?(calls), do: Agent.stop(calls)
 
       try do
         :meck.unload(Repo)

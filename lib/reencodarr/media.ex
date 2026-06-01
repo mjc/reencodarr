@@ -2402,14 +2402,10 @@ defmodule Reencodarr.Media do
 
   defp update_priorities(prioritized_ids, max_priority, total) do
     case_clauses =
-      prioritized_ids
-      |> Enum.map(fn _id -> "WHEN ? THEN ?" end)
-      |> Enum.join(" ")
+      Enum.map_join(prioritized_ids, " ", fn _id -> "WHEN ? THEN ?" end)
 
     placeholders =
-      prioritized_ids
-      |> Enum.map(fn _id -> "?" end)
-      |> Enum.join(", ")
+      Enum.map_join(prioritized_ids, ", ", fn _id -> "?" end)
 
     priority_params =
       prioritized_ids
