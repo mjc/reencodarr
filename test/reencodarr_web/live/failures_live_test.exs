@@ -26,6 +26,16 @@ defmodule ReencodarrWeb.FailuresLiveTest do
     end
   end
 
+  defp total_pages_from_html(html) do
+    case Regex.run(
+           ~r/of\s*<span class="font-medium text-white">(\d+)<\/span>/,
+           html
+         ) do
+      [_, total] -> String.to_integer(total)
+      _ -> nil
+    end
+  end
+
   # ---------------------------------------------------------------------------
   # Mount / basic render
   # ---------------------------------------------------------------------------
@@ -406,6 +416,117 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       html = render_async(view)
 
       assert current_page_from_html(html) == 1
+    end
+
+    test "shows Page 1 of 2 with 21 failures at per_page 20", %{conn: conn} do
+      Enum.each(1..21, fn n ->
+        {:ok, video} = Fixtures.video_fixture(%{path: "/media/paginate_#{n}.mkv"})
+        Media.record_video_failure(video, :encoding, :timeout, message: "p #{n}")
+      end)
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      html = loaded_html(view)
+
+      assert current_page_from_html(html) == 1
+      assert total_pages_from_html(html) == 2
+    end
+
+    test "navigating to page 2 shows the 21st failure", %{conn: conn} do
+      {:ok, first_video} = Fixtures.video_fixture(%{path: "/media/first_on_page_one.mkv"})
+      Media.record_video_failure(first_video, :encoding, :timeout, message: "first")
+
+      Enum.each(2..20, fn n ->
+        {:ok, v} = Fixtures.video_fixture(%{path: "/media/filler_#{n}.mkv"})
+        Media.record_video_failure(v, :encoding, :timeout, message: "filler #{n}")
+      end)
+
+      {:ok, last_video} = Fixtures.video_fixture(%{path: "/media/last_on_page_two.mkv"})
+      Media.record_video_failure(last_video, :encoding, :timeout, message: "last")
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      loaded_html(view)
+
+      view
+      |> element("button[phx-click='change_page'][title='Next page']")
+      |> render_click()
+
+      html = render_async(view)
+
+      assert current_page_from_html(html) == 2
+      assert html =~ "last_on_page_two"
+      refute html =~ "first_on_page_one"
+    end
+
+    test "filter resets page to 1 when on page 2", %{conn: conn} do
+      Enum.each(1..21, fn n ->
+        {:ok, video} = Fixtures.video_fixture(%{path: "/media/filter_reset_#{n}.mkv"})
+        Media.record_video_failure(video, :encoding, :timeout, message: "filter #{n}")
+      end)
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      loaded_html(view)
+
+      view
+      |> element("button[phx-click='change_page'][title='Next page']")
+      |> render_click()
+
+      render_async(view)
+
+      view
+      |> element("button[phx-click='filter_failures'][phx-value-filter='encoding']")
+      |> render_click()
+
+      html = render_async(view)
+
+      assert current_page_from_html(html) == 1
+    end
+
+    test "change_page clamps to total_pages when page exceeds total", %{conn: conn} do
+      Enum.each(1..21, fn n ->
+        {:ok, video} = Fixtures.video_fixture(%{path: "/media/clamp_#{n}.mkv"})
+        Media.record_video_failure(video, :encoding, :timeout, message: "clamp #{n}")
+      end)
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      loaded_html(view)
+
+      render_click(view, "change_page", %{"page" => "999"})
+      html = render_async(view)
+
+      # page should be clamped to total_pages (2), not left at 999
+      assert current_page_from_html(html) == 2
+    end
+
+    test "reset_all_failures resets page to 1", %{conn: conn} do
+      Enum.each(1..21, fn n ->
+        {:ok, video} = Fixtures.video_fixture(%{path: "/media/reset_page_#{n}.mkv"})
+        Media.record_video_failure(video, :encoding, :timeout, message: "reset #{n}")
+      end)
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      loaded_html(view)
+
+      view
+      |> element("button[phx-click='change_page'][title='Next page']")
+      |> render_click()
+
+      render_async(view)
+
+      view
+      |> element("button[phx-click='reset_all_failures']")
+      |> render_click()
+
+      render_async(view)
+
+      # Add a new failure after the reset — it will land on page 1
+      {:ok, new_video} = Fixtures.video_fixture(%{path: "/media/new_after_reset.mkv"})
+      Media.record_video_failure(new_video, :encoding, :timeout, message: "after reset")
+
+      send(view.pid, :update_failures_data)
+      html = render_async(view)
+
+      # If page was not reset to 1, we'd be on page 2 and the new failure would be invisible
+      assert html =~ "new_after_reset"
     end
   end
 end

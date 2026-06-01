@@ -102,9 +102,10 @@ defmodule ReencodarrWeb.FailuresLive do
     # Reset all failed videos
     Media.reset_failed_videos()
 
-    # Reload the failures data
+    # Reload the failures data, returning to page 1 (avoid stale page state)
     {:noreply,
      socket
+     |> assign(:page, 1)
      |> put_flash(:info, "All failed videos have been reset")
      |> async_load_failures()}
   end
@@ -227,7 +228,8 @@ defmodule ReencodarrWeb.FailuresLive do
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    page = page |> Parsers.parse_int(1) |> max(1)
+    total_pages = max(1, socket.assigns.total_pages)
+    page = page |> Parsers.parse_int(1) |> max(1) |> min(total_pages)
 
     socket =
       socket
