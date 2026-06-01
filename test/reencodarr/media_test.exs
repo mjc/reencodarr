@@ -251,6 +251,43 @@ defmodule Reencodarr.MediaTest do
       assert Media.count_videos() == 2
     end
 
+    test "count_videos_by_state/0 reads the dashboard stats cache" do
+      Reencodarr.Repo.update_all(Reencodarr.Media.DashboardStatsCache,
+        set: [
+          needs_analysis: 2,
+          analyzed: 3,
+          crf_searching: 4,
+          crf_searched: 5,
+          encoding: 6,
+          encoded: 7,
+          failed: 8
+        ]
+      )
+
+      assert Media.count_videos_by_state() == %{
+               needs_analysis: 2,
+               analyzed: 3,
+               crf_searching: 4,
+               crf_searched: 5,
+               encoding: 6,
+               encoded: 7,
+               failed: 8
+             }
+    end
+
+    test "list_videos_paginated/1 uses cached total count when unfiltered" do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/test/cached_count.mkv"})
+
+      Reencodarr.Repo.update_all(Reencodarr.Media.DashboardStatsCache,
+        set: [total_videos: 42]
+      )
+
+      {videos, meta} = Media.list_videos_paginated(page: 1, per_page: 1)
+
+      assert Enum.map(videos, & &1.id) == [video.id]
+      assert meta.total_count == 42
+    end
+
     test "get_video/1 returns video when found" do
       {:ok, video} = Fixtures.video_fixture()
 

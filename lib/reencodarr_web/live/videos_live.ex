@@ -382,8 +382,8 @@ defmodule ReencodarrWeb.VideosLive do
 
         {:ok, count} ->
           {:noreply,
-           socket
-           |> put_flash(
+           put_flash(
+             socket,
              :info,
              "Prioritized #{count} #{Path.basename(season_dir)} video(s)"
            )}

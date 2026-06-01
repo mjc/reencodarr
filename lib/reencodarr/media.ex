@@ -13,6 +13,7 @@ defmodule Reencodarr.Media do
 
   alias Reencodarr.Media.{
     BadFileIssue,
+    DashboardStatsCache,
     Library,
     SharedQueries,
     Video,
@@ -234,22 +235,22 @@ defmodule Reencodarr.Media do
 
     write_transaction(
       fn ->
-        queueable_by_id =
+        queueable_ids =
           from(v in Video,
             where: v.id in ^ordered_ids and v.state in ^@queueable_states,
-            select: {v.id, v}
+            select: v.id
           )
           |> Repo.all()
-          |> Map.new()
+          |> MapSet.new()
 
         prioritized_ids =
           ordered_ids
-          |> Enum.filter(&Map.has_key?(queueable_by_id, &1))
+          |> Enum.filter(&MapSet.member?(queueable_ids, &1))
 
         max_priority = highest_queue_priority()
         total = length(prioritized_ids)
 
-        assign_priorities(prioritized_ids, queueable_by_id, max_priority, total)
+        update_priorities(prioritized_ids, max_priority, total)
 
         total
       end,
@@ -1109,15 +1110,32 @@ defmodule Reencodarr.Media do
         label: :media_reset_orphaned_encoding
       )
 
-    total = with_vmaf + without_vmaf
+    case {with_vmaf, without_vmaf} do
+      {with_vmaf, without_vmaf} when is_integer(with_vmaf) and is_integer(without_vmaf) ->
+        total = with_vmaf + without_vmaf
 
-    if total > 0 do
-      Logger.info(
-        "Reset #{total} orphaned encoding videos (#{with_vmaf} → crf_searched, #{without_vmaf} → analyzed)"
-      )
+        if total > 0 do
+          Logger.info(
+            "Reset #{total} orphaned encoding videos (#{with_vmaf} → crf_searched, #{without_vmaf} → analyzed)"
+          )
+        end
+
+      _ ->
+        :ok
     end
 
     :ok
+  end
+
+  @doc """
+  Reclaims encoder-owned orphaned work.
+
+  Called by the Encoder Broadway producer on startup and periodically.
+  """
+  @spec reset_encoder_orphans() :: :ok
+  def reset_encoder_orphans do
+    reset_orphaned_encoding()
+    reset_crf_searched_without_vmaf()
   end
 
   @doc """
@@ -1147,7 +1165,11 @@ defmodule Reencodarr.Media do
         label: :media_reset_videos
       )
 
-    if count > 0, do: Logger.info("Reset #{count} #{log_message}")
+    case count do
+      count when is_integer(count) and count > 0 -> Logger.info("Reset #{count} #{log_message}")
+      _ -> :ok
+    end
+
     :ok
   end
 
@@ -2351,7 +2373,11 @@ defmodule Reencodarr.Media do
 
     base_query = from(v in Video) |> maybe_filter_hdr(hdr)
 
-    case Flop.validate_and_run(base_query, flop_params, for: Video) do
+    flop_opts =
+      [for: Video]
+      |> maybe_put_count(cached_video_count(state_filter, search, service_type, hdr))
+
+    case Flop.validate_and_run(base_query, flop_params, flop_opts) do
       {:ok, {videos, meta}} ->
         {videos, meta}
 
@@ -2363,26 +2389,44 @@ defmodule Reencodarr.Media do
   @doc "Returns a map of %{state => count} for all video states."
   @spec count_videos_by_state() :: %{atom() => non_neg_integer()}
   def count_videos_by_state do
-    from(v in Video, group_by: v.state, select: {v.state, count(v.id)})
-    |> Repo.all()
-    |> Map.new()
-  end
+    case Repo.get(DashboardStatsCache, 1) do
+      %DashboardStatsCache{} = stats ->
+        state_counts_from_stats(stats)
 
-  defp assign_priorities(prioritized_ids, queueable_by_id, max_priority, total) do
-    prioritized_ids
-    |> Enum.with_index(1)
-    |> Enum.each(fn {id, index} ->
-      video = Map.fetch!(queueable_by_id, id)
-      new_priority = max_priority + (total - index + 1)
-      persist_priority(video, new_priority)
-    end)
-  end
-
-  defp persist_priority(video, new_priority) do
-    case update_video(video, %{priority: new_priority}) do
-      {:ok, _updated_video} -> :ok
-      {:error, changeset} -> Repo.rollback(changeset)
+      nil ->
+        %{}
     end
+  end
+
+  defp update_priorities([], _max_priority, _total), do: :ok
+
+  defp update_priorities(prioritized_ids, max_priority, total) do
+    case_clauses =
+      prioritized_ids
+      |> Enum.map(fn _id -> "WHEN ? THEN ?" end)
+      |> Enum.join(" ")
+
+    placeholders =
+      prioritized_ids
+      |> Enum.map(fn _id -> "?" end)
+      |> Enum.join(", ")
+
+    priority_params =
+      prioritized_ids
+      |> Enum.with_index(1)
+      |> Enum.flat_map(fn {id, index} ->
+        [id, max_priority + (total - index + 1)]
+      end)
+
+    sql = """
+    UPDATE videos
+    SET priority = CASE id #{case_clauses} END,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id IN (#{placeholders})
+    """
+
+    Repo.query!(sql, priority_params ++ prioritized_ids)
+    :ok
   end
 
   defp highest_queue_priority do
@@ -2392,6 +2436,51 @@ defmodule Reencodarr.Media do
     )
     |> Repo.one()
     |> Kernel.||(0)
+  end
+
+  defp cached_video_count(state_filter, search, service_type, hdr)
+       when search in [nil, ""] and is_nil(service_type) and is_nil(hdr) do
+    case Repo.get(DashboardStatsCache, 1) do
+      %DashboardStatsCache{} = stats -> cached_video_count(stats, state_filter)
+      nil -> nil
+    end
+  end
+
+  defp cached_video_count(_state_filter, _search, _service_type, _hdr), do: nil
+
+  defp cached_video_count(%DashboardStatsCache{total_videos: count}, nil), do: count
+
+  defp cached_video_count(%DashboardStatsCache{} = stats, state_filter) do
+    with state when not is_nil(state) <- find_video_state(state_filter) do
+      stats
+      |> state_counts_from_stats()
+      |> Map.get(state)
+    end
+  end
+
+  defp maybe_put_count(opts, count) when is_integer(count), do: Keyword.put(opts, :count, count)
+  defp maybe_put_count(opts, _count), do: opts
+
+  defp find_video_state(state_filter) when is_atom(state_filter) do
+    Enum.find(VideoStateMachine.valid_states(), &(&1 == state_filter))
+  end
+
+  defp find_video_state(state_filter) when is_binary(state_filter) do
+    Enum.find(VideoStateMachine.valid_states(), &(Atom.to_string(&1) == state_filter))
+  end
+
+  defp find_video_state(_state_filter), do: nil
+
+  defp state_counts_from_stats(%DashboardStatsCache{} = stats) do
+    %{
+      needs_analysis: stats.needs_analysis,
+      analyzed: stats.analyzed,
+      crf_searching: stats.crf_searching,
+      crf_searched: stats.crf_searched,
+      encoding: stats.encoding,
+      encoded: stats.encoded,
+      failed: stats.failed
+    }
   end
 
   defp build_flop_filters(state_filter, search, service_type) do
