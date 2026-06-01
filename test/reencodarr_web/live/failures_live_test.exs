@@ -5,8 +5,8 @@ defmodule ReencodarrWeb.FailuresLiveTest do
   NOTE: async: false required — the LiveView process is a separate BEAM process
   that needs shared DB sandbox access to see test-inserted data.
 
-  FailuresLive loads data asynchronously (send(self(), :load_initial_data) during
-  mount), so render(view) is called after live() to flush the pending message.
+  FailuresLive loads the initial snapshot during mount and refreshes through async
+  reloads, so render(view) is called after live() to flush pending work.
   """
   use ReencodarrWeb.ConnCase, async: false
 
@@ -18,6 +18,13 @@ defmodule ReencodarrWeb.FailuresLiveTest do
   # Flush the LiveView process mailbox (processes :load_initial_data) and return
   # the fully-loaded HTML.
   defp loaded_html(view), do: render(view)
+
+  defp current_page_from_html(html) do
+    case Regex.run(~r/Page\s*<span class="font-medium text-white">(-?\d+)<\/span>/, html) do
+      [_, page] -> String.to_integer(page)
+      _ -> nil
+    end
+  end
 
   # ---------------------------------------------------------------------------
   # Mount / basic render
@@ -80,6 +87,8 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       |> element("button[phx-click='filter_failures'][phx-value-filter='crf_search']")
       |> render_click()
 
+      render_async(view)
+
       html =
         view
         |> element("button[phx-click='filter_failures'][phx-value-filter='all']")
@@ -100,6 +109,83 @@ defmodule ReencodarrWeb.FailuresLiveTest do
         |> render_click()
 
       assert html =~ "Failures"
+    end
+  end
+
+  describe "filter behavior with real data" do
+    test "stage filter shows only matching stage failures", %{conn: conn} do
+      {:ok, analysis_video} = Fixtures.video_fixture(%{path: "/media/filter_analysis_match.mkv"})
+      {:ok, encoding_video} = Fixtures.video_fixture(%{path: "/media/filter_encoding_other.mkv"})
+
+      Media.record_video_failure(analysis_video, :analysis, :timeout, message: "analysis failure")
+      Media.record_video_failure(encoding_video, :encoding, :timeout, message: "encoding failure")
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      loaded_html(view)
+
+      view
+      |> element("button[phx-click='filter_failures'][phx-value-filter='analysis']")
+      |> render_click()
+
+      html = render_async(view)
+
+      assert html =~ "filter_analysis_match.mkv"
+      refute html =~ "filter_encoding_other.mkv"
+    end
+
+    test "category filter shows only matching categories", %{conn: conn} do
+      {:ok, process_video} = Fixtures.video_fixture(%{path: "/media/filter_process_match.mkv"})
+      {:ok, timeout_video} = Fixtures.video_fixture(%{path: "/media/filter_timeout_other.mkv"})
+
+      Media.record_video_failure(process_video, :encoding, :process_failure,
+        message: "process failure"
+      )
+
+      Media.record_video_failure(timeout_video, :encoding, :timeout, message: "timeout failure")
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      loaded_html(view)
+
+      view
+      |> element("button[phx-click='filter_category'][phx-value-category='process_failure']")
+      |> render_click()
+
+      html = render_async(view)
+
+      assert html =~ "filter_process_match.mkv"
+      refute html =~ "filter_timeout_other.mkv"
+    end
+
+    test "invalid stage filter falls back to all results", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/invalid_stage_fallback.mkv"})
+      Media.record_video_failure(video, :encoding, :timeout, message: "timeout failure")
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      loaded_html(view)
+
+      view
+      |> element("button[phx-click='filter_failures'][phx-value-filter='all']")
+      |> render_click(%{"filter" => "definitely_invalid_stage"})
+
+      html = render_async(view)
+
+      assert html =~ "invalid_stage_fallback.mkv"
+    end
+
+    test "invalid category filter falls back to all results", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/invalid_category_fallback.mkv"})
+      Media.record_video_failure(video, :encoding, :timeout, message: "timeout failure")
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      loaded_html(view)
+
+      view
+      |> element("button[phx-click='filter_category'][phx-value-category='all']")
+      |> render_click(%{"category" => "definitely_invalid_category"})
+
+      html = render_async(view)
+
+      assert html =~ "invalid_category_fallback.mkv"
     end
   end
 
@@ -127,12 +213,29 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, view, _} = live(conn, ~p"/failures")
       loaded_html(view)
 
-      html =
-        view
-        |> form("form[phx-change='search']", %{search: "unique_broken_film"})
-        |> render_change()
+      view
+      |> form("form[phx-change='search']", %{search: "unique_broken_film"})
+      |> render_change()
+
+      html = render_async(view)
 
       assert html =~ "unique_broken_film"
+    end
+
+    test "search trims surrounding whitespace", %{conn: conn} do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/trimmed_search_hit.mkv"})
+      Media.record_video_failure(video, :encoding, :process_failure, message: "encode fail")
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      loaded_html(view)
+
+      view
+      |> form("form[phx-change='search']", %{search: "   trimmed_search_hit   "})
+      |> render_change()
+
+      html = render_async(view)
+
+      assert html =~ "trimmed_search_hit"
     end
   end
 
@@ -277,6 +380,32 @@ defmodule ReencodarrWeb.FailuresLiveTest do
         |> render_click()
 
       assert html =~ "Failures"
+    end
+  end
+
+  describe "pagination behavior" do
+    test "change_page with invalid low page clamps to page 1", %{conn: conn} do
+      Enum.each(1..21, fn n ->
+        {:ok, video} = Fixtures.video_fixture(%{path: "/media/page_item_#{n}.mkv"})
+        Media.record_video_failure(video, :encoding, :timeout, message: "failure #{n}")
+      end)
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      loaded_html(view)
+
+      view
+      |> element("button[phx-click='change_page'][title='Next page']")
+      |> render_click()
+
+      render_async(view)
+
+      view
+      |> element("button[phx-click='change_page'][title='First page']")
+      |> render_click(%{"page" => "0"})
+
+      html = render_async(view)
+
+      assert current_page_from_html(html) == 1
     end
   end
 end

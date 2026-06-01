@@ -27,6 +27,8 @@ defmodule ReencodarrWeb.FailuresLive do
   alias Reencodarr.Repo
 
   @update_interval 30_000
+  @stage_filter_values ["all", "analysis", "crf_search", "encoding", "post_process"]
+  @category_filter_values ["all", "file_access", "process_failure", "timeout", "codec_issues"]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -47,7 +49,7 @@ defmodule ReencodarrWeb.FailuresLive do
   @impl true
   def handle_info(:update_failures_data, socket) do
     schedule_periodic_update()
-    {:noreply, load_failures_data(socket)}
+    {:noreply, async_load_failures(socket)}
   end
 
   # Handle events that might affect failures (video state changes, encoding completion, etc.)
@@ -60,8 +62,7 @@ defmodule ReencodarrWeb.FailuresLive do
              :video_failed
            ] do
     # Reload failures when pipeline events occur that might change failure state
-    socket = load_failures_data(socket)
-    {:noreply, socket}
+    {:noreply, async_load_failures(socket)}
   end
 
   # Catch-all for other Events we don't need to handle
@@ -85,8 +86,10 @@ defmodule ReencodarrWeb.FailuresLive do
             Media.resolve_video_failures(video.id)
 
             # Reload the failures data
-            socket = load_failures_data(socket)
-            {:noreply, put_flash(socket, :info, "Video #{video.id} marked for retry")}
+            {:noreply,
+             socket
+             |> put_flash(:info, "Video #{video.id} marked for retry")
+             |> async_load_failures()}
         end
 
       {:error, _} ->
@@ -100,22 +103,23 @@ defmodule ReencodarrWeb.FailuresLive do
     Media.reset_failed_videos()
 
     # Reload the failures data
-    socket = load_failures_data(socket)
-    {:noreply, put_flash(socket, :info, "All failed videos have been reset")}
+    {:noreply,
+     socket
+     |> put_flash(:info, "All failed videos have been reset")
+     |> async_load_failures()}
   end
 
   @impl true
   def handle_event("retry_failure_code", %{"code" => failure_code}, socket) do
     result = Media.retry_failed_videos_by_failure_code(failure_code)
 
-    socket = load_failures_data(socket)
-
     {:noreply,
-     put_flash(
-       socket,
+     socket
+     |> put_flash(
        :info,
        "Queued retry for #{result.videos_retried} failed videos with #{failure_code}"
-     )}
+     )
+     |> async_load_failures()}
   end
 
   @impl true
@@ -173,7 +177,7 @@ defmodule ReencodarrWeb.FailuresLive do
       socket =
         socket
         |> assign(:selected_videos, MapSet.new())
-        |> load_failures_data()
+        |> async_load_failures()
 
       count = Enum.count(selected_ids)
       {:noreply, put_flash(socket, :info, "Retrying #{count} selected videos")}
@@ -182,24 +186,28 @@ defmodule ReencodarrWeb.FailuresLive do
 
   @impl true
   def handle_event("filter_failures", %{"filter" => filter}, socket) do
+    normalized_filter = if filter in @stage_filter_values, do: filter, else: "all"
+
     socket =
       socket
-      |> assign(:failure_filter, filter)
+      |> assign(:failure_filter, normalized_filter)
       # Reset to first page when filtering
       |> assign(:page, 1)
-      |> load_failures_data()
+      |> async_load_failures()
 
     {:noreply, socket}
   end
 
   @impl true
   def handle_event("filter_category", %{"category" => category}, socket) do
+    normalized_category = if category in @category_filter_values, do: category, else: "all"
+
     socket =
       socket
-      |> assign(:category_filter, category)
+      |> assign(:category_filter, normalized_category)
       # Reset to first page when filtering
       |> assign(:page, 1)
-      |> load_failures_data()
+      |> async_load_failures()
 
     {:noreply, socket}
   end
@@ -212,19 +220,19 @@ defmodule ReencodarrWeb.FailuresLive do
       |> assign(:category_filter, "all")
       |> assign(:search_term, "")
       |> assign(:page, 1)
-      |> load_failures_data()
+      |> async_load_failures()
 
     {:noreply, socket}
   end
 
   @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    page = Parsers.parse_int(page, 1)
+    page = page |> Parsers.parse_int(1) |> max(1)
 
     socket =
       socket
       |> assign(:page, page)
-      |> load_failures_data()
+      |> async_load_failures()
 
     {:noreply, socket}
   end
@@ -233,12 +241,22 @@ defmodule ReencodarrWeb.FailuresLive do
   def handle_event("search", %{"search" => search_term}, socket) do
     socket =
       socket
-      |> assign(:search_term, search_term)
+      |> assign(:search_term, normalize_search_term(search_term))
       # Reset to first page when searching
       |> assign(:page, 1)
-      |> load_failures_data()
+      |> async_load_failures()
 
     {:noreply, socket}
+  end
+
+  @impl true
+  def handle_async(:load_failures, {:ok, payload}, socket) do
+    {:noreply, assign_failure_payload(socket, payload)}
+  end
+
+  @impl true
+  def handle_async(:load_failures, {:exit, _reason}, socket) do
+    {:noreply, socket |> assign(:loading, false) |> put_flash(:error, "Failed to load failures")}
   end
 
   # Private helper functions
@@ -784,12 +802,32 @@ defmodule ReencodarrWeb.FailuresLive do
   end
 
   defp load_failures_data(socket) do
+    assign_failure_payload(socket, fetch_failure_payload(socket.assigns))
+  end
+
+  defp async_load_failures(socket) do
+    load_assigns = %{
+      page: socket.assigns.page,
+      per_page: socket.assigns.per_page,
+      failure_filter: socket.assigns.failure_filter,
+      category_filter: socket.assigns.category_filter,
+      search_term: socket.assigns.search_term
+    }
+
+    show_loading? = socket.assigns.failed_videos == []
+
+    socket
+    |> assign(:loading, show_loading?)
+    |> start_async(:load_failures, fn -> fetch_failure_payload(load_assigns) end)
+  end
+
+  defp fetch_failure_payload(assigns) do
     # Get pagination info
-    page = socket.assigns.page
-    per_page = socket.assigns.per_page
-    filter = socket.assigns.failure_filter
-    category_filter = socket.assigns.category_filter
-    search_term = socket.assigns.search_term
+    page = assigns.page
+    per_page = assigns.per_page
+    filter = assigns.failure_filter
+    category_filter = assigns.category_filter
+    search_term = assigns.search_term
 
     # Get failed videos with pagination and filtering
     {failed_videos, total_count} =
@@ -806,7 +844,7 @@ defmodule ReencodarrWeb.FailuresLive do
     # Calculate pagination info
     total_pages = ceil(total_count / per_page)
 
-    assign_changed(socket, %{
+    %{
       loading: false,
       failed_videos: failed_videos,
       video_failures: video_failures,
@@ -815,7 +853,11 @@ defmodule ReencodarrWeb.FailuresLive do
       failure_code_actions: failure_code_actions,
       total_count: total_count,
       total_pages: total_pages
-    })
+    }
+  end
+
+  defp assign_failure_payload(socket, payload) do
+    assign_changed(socket, payload)
   end
 
   defp get_failed_videos_paginated(page, per_page, stage_filter, category_filter, search_term) do
@@ -894,6 +936,11 @@ defmodule ReencodarrWeb.FailuresLive do
     case_insensitive_like_condition = SharedQueries.case_insensitive_like(:path, search_pattern)
     from v in query, where: ^case_insensitive_like_condition
   end
+
+  defp normalize_search_term(search_term) when is_binary(search_term),
+    do: String.trim(search_term)
+
+  defp normalize_search_term(_search_term), do: ""
 
   defp apply_ordering(query) do
     from v in query, order_by: [desc: v.inserted_at]
