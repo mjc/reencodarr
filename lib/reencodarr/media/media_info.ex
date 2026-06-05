@@ -17,9 +17,14 @@ defmodule Reencodarr.Media.MediaInfo do
     "CodecID" => :codec_id
   }
 
+  @type mediainfo_track :: %{String.t() => term()}
+  @type mediainfo_json :: %{String.t() => term()}
+
   @doc """
   Parses HDR format information from a list of format strings.
   """
+  @spec parse_hdr([String.t() | nil]) :: String.t()
+  @spec parse_hdr([String.t() | nil]) :: String.t()
   def parse_hdr(formats) do
     formats
     |> Enum.reduce([], fn format, acc ->
@@ -78,7 +83,7 @@ defmodule Reencodarr.Media.MediaInfo do
   @doc """
   Checks whether an audio track exposes explicit Atmos/JOC markers.
   """
-  @spec track_has_atmos_markers?(map()) :: boolean()
+  @spec track_has_atmos_markers?(mediainfo_track()) :: boolean()
   def track_has_atmos_markers?(track) when is_map(track) do
     [
       get_track_field(track, "Format_Commercial_IfAny"),
@@ -94,6 +99,7 @@ defmodule Reencodarr.Media.MediaInfo do
   @doc """
   Converts VideoFileInfo struct to MediaInfo JSON format for legacy compatibility.
   """
+  @spec from_video_file_info(VideoFileInfo.t()) :: mediainfo_json()
   def from_video_file_info(%VideoFileInfo{} = info) do
     %{
       "media" => %{
@@ -131,6 +137,7 @@ defmodule Reencodarr.Media.MediaInfo do
   @doc """
   Converts raw Sonarr/Radarr file data to VideoFileInfo for legacy compatibility.
   """
+  @spec video_file_info_from_file(map(), VideoFileInfo.service_type()) :: VideoFileInfo.t()
   def video_file_info_from_file(file, service_type) do
     media = file["mediaInfo"] || %{}
     {width, height} = DataConverters.parse_resolution_with_fallback(media["resolution"])

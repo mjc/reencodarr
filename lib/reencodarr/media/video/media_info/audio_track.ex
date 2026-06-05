@@ -38,6 +38,27 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
     field :raw_data, :map, virtual: true
   end
 
+  @type t() :: %__MODULE__{
+          format: String.t() | nil,
+          format_profile: String.t() | nil,
+          format_commercial_if_any: String.t() | nil,
+          format_additionalfeatures: String.t() | nil,
+          codec_id: String.t() | nil,
+          channels: integer() | nil,
+          channel_layout: String.t() | nil,
+          bit_rate: integer() | nil,
+          sampling_rate: integer() | nil,
+          duration: float() | nil,
+          language: String.t() | nil,
+          title: String.t() | nil,
+          default: boolean() | nil,
+          forced: boolean() | nil,
+          compression_mode: String.t() | nil,
+          service_kind: String.t() | nil,
+          raw_data: map() | nil
+        }
+
+  @spec changeset(t() | map() | nil, map()) :: Ecto.Changeset.t()
   def changeset(track, attrs) do
     track
     |> cast(attrs, [])
@@ -45,6 +66,30 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
     |> convert_and_cast_fields(attrs)
     |> validate_required_fields()
     |> validate_channel_consistency()
+  end
+
+  @spec atmos?(t()) :: boolean()
+  def atmos?(%__MODULE__{} = track) do
+    MediaInfo.track_has_atmos_markers?(atmos_marker_fields(track))
+  end
+
+  @spec atmos_marker_fields(t()) :: map()
+  def atmos_marker_fields(%__MODULE__{} = track) do
+    %{
+      "Format" => track.format,
+      "CodecID" => nil,
+      "Format_Commercial_IfAny" => track.format_commercial_if_any,
+      "Format_AdditionalFeatures" => track.format_additionalfeatures
+    }
+  end
+
+  @spec commercial_format(t()) :: String.t() | nil
+  def commercial_format(%__MODULE__{} = track) do
+    case track.format_commercial_if_any do
+      nil -> track.format
+      "" -> track.format
+      commercial -> commercial
+    end
   end
 
   defp put_raw_data(changeset, attrs) do
@@ -189,36 +234,6 @@ defmodule Reencodarr.Media.Video.MediaInfo.AudioTrack do
           :base,
           "invalid audio track: channels=#{inspect(channels)}, format=#{inspect(format)}"
         )
-    end
-  end
-
-  @doc """
-  Detects if this audio track represents Atmos content.
-
-  Checks for explicit Atmos or JOC markers on the track metadata.
-  """
-  def atmos?(%__MODULE__{} = track) do
-    MediaInfo.track_has_atmos_markers?(atmos_marker_fields(track))
-  end
-
-  @doc false
-  def atmos_marker_fields(%__MODULE__{} = track) do
-    %{
-      "Format" => track.format,
-      "CodecID" => nil,
-      "Format_Commercial_IfAny" => track.format_commercial_if_any,
-      "Format_AdditionalFeatures" => track.format_additionalfeatures
-    }
-  end
-
-  @doc """
-  Gets the commercial format name if available, falling back to the main format.
-  """
-  def commercial_format(%__MODULE__{} = track) do
-    case track.format_commercial_if_any do
-      nil -> track.format
-      "" -> track.format
-      commercial -> commercial
     end
   end
 end

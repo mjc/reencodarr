@@ -1,7 +1,17 @@
 defmodule Reencodarr.Media.AudioTrackInfo do
   @moduledoc false
 
-  @spec primary_from_mediainfo(map()) :: map() | :error
+  @type audio_track :: %{
+          codec: String.t(),
+          codec_id: String.t(),
+          channels: non_neg_integer(),
+          channel_layout: String.t(),
+          bitrate: non_neg_integer() | nil,
+          format_commercial_if_any: String.t(),
+          format_additionalfeatures: String.t()
+        }
+
+  @spec primary_from_mediainfo(map()) :: audio_track() | :error
   def primary_from_mediainfo(%{"media" => %{"track" => tracks}}) when is_list(tracks) do
     audio_tracks =
       Enum.filter(tracks, fn track ->
@@ -23,7 +33,7 @@ defmodule Reencodarr.Media.AudioTrackInfo do
   Returns all audio tracks with their ffmpeg audio stream index (0-based).
   The index corresponds to the -c:a:N stream selector in ffmpeg.
   """
-  @spec all_from_mediainfo(map()) :: list({non_neg_integer(), map()})
+  @spec all_from_mediainfo(map()) :: list({non_neg_integer(), audio_track()})
   def all_from_mediainfo(%{"media" => %{"track" => tracks}}) when is_list(tracks) do
     tracks
     |> Enum.filter(fn track -> Map.get(track, "@type") == "Audio" end)
@@ -33,6 +43,7 @@ defmodule Reencodarr.Media.AudioTrackInfo do
 
   def all_from_mediainfo(_mediainfo), do: []
 
+  @spec build_track_info(map()) :: audio_track()
   defp build_track_info(track) do
     %{
       codec: Map.get(track, "Format", ""),

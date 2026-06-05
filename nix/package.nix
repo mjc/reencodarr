@@ -33,7 +33,7 @@
 
   erlang = beam_minimal.interpreters.erlang_28;
   beamPackages = beam_minimal.packagesWith erlang;
-  elixir = beamPackages.elixir_1_19;
+  elixir = beamPackages.elixir_1_20;
 
   runtimePath = lib.makeBinPath [
     pkgs.ab-av1

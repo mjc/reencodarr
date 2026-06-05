@@ -19,6 +19,12 @@ defmodule Reencodarr.Media.Video.MediaInfo do
     embeds_many :audio_tracks, AudioTrack
   end
 
+  @type t() :: %__MODULE__{
+          general: GeneralTrack.t() | nil,
+          video_tracks: [VideoTrack.t()],
+          audio_tracks: [AudioTrack.t()]
+        }
+
   @doc """
   Creates a MediaInfo struct from parsed MediaInfo JSON data.
 
@@ -29,6 +35,7 @@ defmodule Reencodarr.Media.Video.MediaInfo do
       iex> MediaInfo.from_json(invalid_data)
       {:error, %Ecto.Changeset{...}}
   """
+  @spec from_json(map()) :: {:ok, t()} | {:error, String.t()}
   def from_json(json_data) do
     case extract_tracks_from_json(json_data) do
       {:ok, tracks} ->
@@ -70,6 +77,7 @@ defmodule Reencodarr.Media.Video.MediaInfo do
 
   This replaces the complex manual extraction in the main MediaInfo module.
   """
+  @spec to_video_params(t()) :: {:ok, map()} | {:error, String.t()}
   def to_video_params(%__MODULE__{} = media_info) do
     with {:ok, basic_params} <- extract_basic_params(media_info),
          {:ok, video_params} <- extract_video_params(media_info),
@@ -86,6 +94,7 @@ defmodule Reencodarr.Media.Video.MediaInfo do
   end
 
   # Private functions for parameter extraction
+  @spec extract_basic_params(t()) :: {:ok, map()} | {:error, String.t()}
   defp extract_basic_params(%{general: nil}), do: {:error, "Missing general track"}
 
   defp extract_basic_params(%{general: general}) do
@@ -98,6 +107,7 @@ defmodule Reencodarr.Media.Video.MediaInfo do
     {:ok, params}
   end
 
+  @spec extract_video_params(t()) :: {:ok, map()} | {:error, String.t()}
   defp extract_video_params(%{video_tracks: []}), do: {:error, "No video tracks found"}
 
   defp extract_video_params(%{video_tracks: video_tracks}) do
@@ -115,6 +125,7 @@ defmodule Reencodarr.Media.Video.MediaInfo do
     {:ok, params}
   end
 
+  @spec extract_audio_params(t()) :: {:ok, map()} | {:error, String.t()}
   defp extract_audio_params(%{audio_tracks: audio_tracks}) do
     params = %{
       "audio_codecs" => extract_audio_codecs(audio_tracks),
@@ -204,6 +215,7 @@ defmodule Reencodarr.Media.Video.MediaInfo do
   end
 
   # Changeset for validation
+  @spec changeset(t() | map(), map()) :: Ecto.Changeset.t()
   def changeset(media_info, attrs) do
     media_info
     |> cast(attrs, [])
@@ -213,12 +225,14 @@ defmodule Reencodarr.Media.Video.MediaInfo do
     |> validate_track_consistency()
   end
 
+  @spec validate_track_consistency(Ecto.Changeset.t()) :: Ecto.Changeset.t()
   defp validate_track_consistency(changeset) do
     changeset
     |> validate_video_tracks_present()
     |> validate_audio_track_consistency()
   end
 
+  @spec validate_video_tracks_present(Ecto.Changeset.t()) :: Ecto.Changeset.t()
   defp validate_video_tracks_present(changeset) do
     video_tracks = get_field(changeset, :video_tracks) || []
 
@@ -231,6 +245,7 @@ defmodule Reencodarr.Media.Video.MediaInfo do
     end
   end
 
+  @spec validate_audio_track_consistency(Ecto.Changeset.t()) :: Ecto.Changeset.t()
   defp validate_audio_track_consistency(changeset) do
     audio_tracks = get_field(changeset, :audio_tracks) || []
 
@@ -249,6 +264,7 @@ defmodule Reencodarr.Media.Video.MediaInfo do
 
   # Helper functions for track extraction and parsing
 
+  @spec extract_tracks_from_json(map()) :: {:ok, list(map())} | {:error, String.t()}
   defp extract_tracks_from_json(%{"media" => %{"track" => tracks}}) when is_list(tracks) do
     {:ok, tracks}
   end

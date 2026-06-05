@@ -6,6 +6,9 @@ defmodule Reencodarr.Core.Progress do
   into the Core namespace with better organization.
   """
 
+  @type progress_map :: %{optional(atom()) => term()}
+  @type progress_opts :: keyword()
+
   @doc """
   Updates progress tracking with new measurements.
 
@@ -14,7 +17,7 @@ defmodule Reencodarr.Core.Progress do
       iex> Progress.update_progress(%{active_jobs: []}, %{job_id: 1, percent: 50})
       %{active_jobs: [%{job_id: 1, percent: 50}]}
   """
-  @spec update_progress(map(), map()) :: map()
+  @spec update_progress(progress_map(), progress_map()) :: progress_map()
   def update_progress(current_progress, measurements) do
     # Extract job identifier (could be filename, job_id, etc.)
     job_key = get_job_key(measurements)
@@ -36,7 +39,7 @@ defmodule Reencodarr.Core.Progress do
       iex> Progress.calculate_percentage(completed: 50, total: 100)
       50.0
   """
-  @spec calculate_percentage(keyword()) :: float()
+  @spec calculate_percentage(progress_opts()) :: float()
   def calculate_percentage(opts) do
     completed = Keyword.get(opts, :completed, 0)
     total = Keyword.get(opts, :total, 1)
@@ -56,7 +59,7 @@ defmodule Reencodarr.Core.Progress do
       iex> Progress.format_progress(%{percent: 75.5, eta: "5 minutes"})
       "75.5% complete (ETA: 5 minutes)"
   """
-  @spec format_progress(map()) :: String.t()
+  @spec format_progress(progress_map()) :: String.t()
   def format_progress(progress) do
     percent = Map.get(progress, :percent, 0)
     eta = Map.get(progress, :eta, "unknown")

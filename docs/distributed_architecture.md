@@ -1068,7 +1068,7 @@ The project includes a `flake.nix` that provides cross-platform development envi
 - **Windows**: Not directly supported by Nix, use manual binary installation
 
 **Development Environment Features:**
-- Erlang/OTP 27 and Elixir 1.19.0-rc.0
+- Erlang/OTP 28 and Elixir 1.20.0
 - FFmpeg (full build) with libvmaf and AV1 support
 - Platform-specific dependencies (inotify-tools on Linux, terminal-notifier on macOS)
 - Development tools (git, gh, alejandra, nil, cspell)

@@ -26,6 +26,7 @@ defmodule Reencodarr.Services.Config do
   end
 
   @doc false
+  @spec changeset(t() | map(), map()) :: Ecto.Changeset.t()
   def changeset(config, attrs) do
     config
     |> cast(attrs, [:url, :api_key, :enabled, :service_type])

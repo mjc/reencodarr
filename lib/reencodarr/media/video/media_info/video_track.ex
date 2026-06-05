@@ -39,6 +39,29 @@ defmodule Reencodarr.Media.Video.MediaInfo.VideoTrack do
     field :raw_data, :map, virtual: true
   end
 
+  @type t() :: %__MODULE__{
+          format: String.t() | nil,
+          format_profile: String.t() | nil,
+          format_level: String.t() | nil,
+          width: integer() | nil,
+          height: integer() | nil,
+          frame_rate: float() | nil,
+          bit_rate: integer() | nil,
+          duration: float() | nil,
+          color_space: String.t() | nil,
+          color_primaries: String.t() | nil,
+          transfer_characteristics: String.t() | nil,
+          matrix_coefficients: String.t() | nil,
+          hdr_format: String.t() | nil,
+          hdr_format_commercial: String.t() | nil,
+          scan_type: String.t() | nil,
+          display_aspect_ratio: String.t() | nil,
+          pixel_aspect_ratio: String.t() | nil,
+          frame_rate_mode: String.t() | nil,
+          raw_data: map() | nil
+        }
+
+  @spec changeset(t() | map(), map()) :: Ecto.Changeset.t()
   def changeset(track, attrs) do
     track
     |> cast(attrs, [])

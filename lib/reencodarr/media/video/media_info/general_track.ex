@@ -25,6 +25,19 @@ defmodule Reencodarr.Media.Video.MediaInfo.GeneralTrack do
     field :raw_data, :map, virtual: true
   end
 
+  @type t() :: %__MODULE__{
+          duration: float() | nil,
+          file_size: integer() | nil,
+          overall_bit_rate: integer() | nil,
+          format: String.t() | nil,
+          format_profile: String.t() | nil,
+          file_extension: String.t() | nil,
+          movie_name: String.t() | nil,
+          track_name: String.t() | nil,
+          raw_data: map() | nil
+        }
+
+  @spec changeset(t() | map(), map()) :: Ecto.Changeset.t()
   def changeset(track, attrs) do
     track
     |> cast(attrs, [])

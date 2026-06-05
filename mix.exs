@@ -5,7 +5,7 @@ defmodule Reencodarr.MixProject do
     [
       app: :reencodarr,
       version: "0.1.0",
-      elixir: "~> 1.19",
+      elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
@@ -68,7 +68,7 @@ defmodule Reencodarr.MixProject do
       {:phoenix_live_reload, "~> 1.6.2", only: :dev},
       {:phoenix_live_view, "~> 1.1.18"},
       {:ecto_sqlite3, "~> 0.17"},
-      {:exqlite, github: "mjc/exqlite", branch: "fix/deadlock-investigation", override: true},
+      {:exqlite, "~> 0.37.0"},
       {:req, "~> 0.5"},
       {:stream_data, "~> 1.2.0", only: :test},
       {:tailwind, "~> 0.2", runtime: Mix.env() == :dev},

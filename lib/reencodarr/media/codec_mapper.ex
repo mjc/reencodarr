@@ -3,6 +3,9 @@ defmodule Reencodarr.Media.CodecMapper do
 
   alias Reencodarr.Core.Parsers
 
+  @type codec_id_result :: String.t() | atom()
+  @type channel_input :: String.t() | float() | integer()
+
   @codec_id_map %{
     "AV1" => "V_AV1",
     "x265" => "V_MPEGH/ISO/HEVC",
@@ -66,12 +69,12 @@ defmodule Reencodarr.Media.CodecMapper do
     "0" => 0
   }
 
-  @spec map_codec_id(String.t() | nil) :: String.t() | integer() | atom()
+  @spec map_codec_id(String.t() | nil) :: codec_id_result()
   def map_codec_id(codec) do
     Map.get(@codec_id_map, codec, :unknown)
   end
 
-  @spec has_av1_codec?(list(String.t()) | nil) :: boolean()
+  @spec has_av1_codec?([String.t()] | nil) :: boolean()
   def has_av1_codec?(nil), do: false
   def has_av1_codec?(video_codecs), do: "V_AV1" in video_codecs || "AV1" in video_codecs
 
@@ -92,7 +95,7 @@ defmodule Reencodarr.Media.CodecMapper do
   def audio_track_is_opus?(%{"@type" => "Audio", "CodecID" => "A_OPUS"}), do: true
   def audio_track_is_opus?(_), do: false
 
-  @spec map_channels(String.t() | float() | integer()) :: integer()
+  @spec map_channels(channel_input()) :: integer()
   def map_channels(channel) do
     channel_str = to_string(channel)
 
@@ -109,7 +112,7 @@ defmodule Reencodarr.Media.CodecMapper do
     end
   end
 
-  @spec map_channels_with_context(String.t() | float() | integer(), map()) :: integer()
+  @spec map_channels_with_context(channel_input(), map()) :: integer()
   def map_channels_with_context(channel, audio_track \\ %{}) do
     channel_str = to_string(channel)
 
@@ -138,7 +141,7 @@ defmodule Reencodarr.Media.CodecMapper do
     end
   end
 
-  @spec format_commercial_if_any(String.t() | any) :: String.t()
+  @spec format_commercial_if_any(String.t() | atom() | nil) :: String.t()
   def format_commercial_if_any(atmos) when is_binary(atmos) do
     lower_atmos = String.downcase(atmos)
 

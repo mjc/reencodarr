@@ -5,7 +5,45 @@ defmodule Reencodarr.Media.Video do
 
   @moduledoc "Represents video metadata and schema."
 
-  @type t() :: %__MODULE__{}
+  @type service_type :: :sonarr | :radarr
+  @type state ::
+          :needs_analysis
+          | :analyzing
+          | :analyzed
+          | :crf_searching
+          | :crf_searched
+          | :encoding
+          | :encoded
+          | :failed
+
+  @type t() :: %__MODULE__{
+          id: integer() | nil,
+          path: String.t() | nil,
+          state: state(),
+          size: integer() | nil,
+          bitrate: integer() | nil,
+          width: integer() | nil,
+          height: integer() | nil,
+          frame_rate: float() | nil,
+          video_count: integer() | nil,
+          audio_count: integer() | nil,
+          text_count: integer() | nil,
+          video_codecs: [String.t()],
+          audio_codecs: [String.t()],
+          text_codecs: [String.t()],
+          hdr: String.t() | nil,
+          title: String.t() | nil,
+          content_year: integer() | nil,
+          priority: integer(),
+          original_size: integer() | nil,
+          max_audio_channels: integer() | nil,
+          atmos: boolean() | nil,
+          service_id: String.t() | nil,
+          service_type: service_type() | nil,
+          mediainfo: map() | nil,
+          inserted_at: DateTime.t() | nil,
+          updated_at: DateTime.t() | nil
+        }
 
   @mediainfo_params [
     :duration,

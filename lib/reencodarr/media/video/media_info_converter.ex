@@ -11,6 +11,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
   @doc """
   Validates and processes MediaInfo JSON data.
   """
+  @spec from_mediainfo_json(map()) :: {:ok, map()} | {:error, String.t()}
   def from_mediainfo_json(mediainfo) when is_map(mediainfo) do
     # Just pass through the mediainfo - this is a compatibility function
     # for any remaining legacy calls
@@ -24,6 +25,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
   @doc """
   Converts VideoFileInfo struct to MediaInfo JSON format.
   """
+  @spec from_video_file_info(VideoFileInfo.t()) :: map()
   def from_video_file_info(%VideoFileInfo{} = info) do
     {width, height} = parse_resolution(info.resolution)
 
@@ -63,6 +65,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
   @doc """
   Converts raw Sonarr/Radarr file data directly to MediaInfo JSON format.
   """
+  @spec from_service_file(map(), VideoFileInfo.service_type()) :: map()
   def from_service_file(file, service_type) when service_type in [:sonarr, :radarr] do
     media_info = file["mediaInfo"] || %{}
 
@@ -85,6 +88,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
   @doc """
   Creates a VideoFileInfo struct from service file data.
   """
+  @spec video_file_info_from_file(map(), VideoFileInfo.service_type()) :: VideoFileInfo.t()
   def video_file_info_from_file(file, service_type) do
     media_info = file["mediaInfo"] || %{}
 
@@ -131,6 +135,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
 
   # Private helper functions
 
+  @spec parse_resolution(term()) :: {non_neg_integer(), non_neg_integer()}
   defp parse_resolution({width, height}) when is_integer(width) and is_integer(height) do
     {width, height}
   end
@@ -152,6 +157,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
 
   defp parse_resolution(_), do: {0, 0}
 
+  @spec parse_resolution_from_service(map()) :: {non_neg_integer(), non_neg_integer()}
   defp parse_resolution_from_service(media_info) do
     case {media_info["width"], media_info["height"]} do
       {w, h} when is_integer(w) and is_integer(h) ->
@@ -170,11 +176,13 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
     end
   end
 
+  @spec calculate_overall_bitrate(map(), map()) :: non_neg_integer()
   defp calculate_overall_bitrate(file, media_info) do
     overall = file["overallBitrate"] || media_info["overallBitrate"]
     calculate_overall_bitrate(overall, media_info["videoBitrate"], media_info["audioBitrate"])
   end
 
+  @spec calculate_overall_bitrate(term(), term(), term()) :: non_neg_integer()
   defp calculate_overall_bitrate(overall, video_bitrate, audio_bitrate) do
     case {overall, video_bitrate, audio_bitrate} do
       {overall, _, _} when is_integer(overall) and overall > 0 ->
@@ -191,6 +199,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
     end
   end
 
+  @spec parse_subtitles_from_service(map()) :: [String.t()]
   defp parse_subtitles_from_service(media_info) do
     case media_info["subtitles"] do
       list when is_list(list) -> list
@@ -199,6 +208,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
     end
   end
 
+  @spec parse_audio_languages_from_service(map()) :: [String.t()]
   defp parse_audio_languages_from_service(media_info) do
     case media_info["audioLanguages"] do
       list when is_list(list) -> list
@@ -207,6 +217,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
     end
   end
 
+  @spec build_general_track(map(), non_neg_integer(), [String.t()], [String.t()]) :: map()
   defp build_general_track(file, overall_bitrate, subtitles, audio_languages) do
     media_info = file["mediaInfo"] || %{}
     duration = normalize_duration(file["runTime"] || media_info["runTime"])
@@ -224,6 +235,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
     }
   end
 
+  @spec normalize_duration(term()) :: float()
   defp normalize_duration(run_time) do
     case run_time do
       # Default to 1 hour if missing
@@ -237,6 +249,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
     end
   end
 
+  @spec normalize_bitrate(term()) :: non_neg_integer()
   defp normalize_bitrate(overall_bitrate) do
     case overall_bitrate do
       rate when is_integer(rate) and rate > 0 -> rate
@@ -245,6 +258,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
     end
   end
 
+  @spec build_video_track(map(), map(), non_neg_integer(), non_neg_integer()) :: map()
   defp build_video_track(file, media_info, width, height) do
     {final_width, final_height} = normalize_resolution(width, height)
     video_codec = media_info["videoCodec"] || "Unknown"
@@ -264,6 +278,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
     }
   end
 
+  @spec normalize_resolution(term(), term()) :: {non_neg_integer(), non_neg_integer()}
   defp normalize_resolution(width, height) do
     case {width, height} do
       {w, h} when is_integer(w) and w > 0 and is_integer(h) and h > 0 ->
@@ -275,10 +290,12 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
     end
   end
 
+  @spec determine_frame_rate(map(), map()) :: number()
   defp determine_frame_rate(file, media_info) do
     file["videoFps"] || media_info["videoFps"] || 23.976
   end
 
+  @spec build_audio_track(map()) :: map()
   defp build_audio_track(media_info) do
     audio_codec = media_info["audioCodec"] || "Unknown"
 
@@ -293,6 +310,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
     }
   end
 
+  @spec calculate_bitrate(map()) :: non_neg_integer()
   defp calculate_bitrate(media_info) do
     case media_info["videoBitrate"] || 0 do
       0 -> 0
@@ -300,6 +318,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
     end
   end
 
+  @spec parse_list_or_binary(term()) :: [String.t()]
   defp parse_list_or_binary(value) do
     cond do
       is_list(value) -> value
@@ -309,6 +328,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
   end
 
   # Extract year information from API file data
+  @spec extract_year_from_file(map(), VideoFileInfo.service_type()) :: integer() | nil
   defp extract_year_from_file(file, service_type) do
     case service_type do
       :sonarr ->
@@ -326,6 +346,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
   end
 
   # Extract year from episode air date
+  @spec parse_episode_air_year(map()) :: integer() | nil
   defp parse_episode_air_year(file) do
     air_date_str = file["airDateUtc"] || file["airDate"]
 
@@ -336,6 +357,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
   end
 
   # Parse date string to Date struct
+  @spec parse_date_string(term()) :: Date.t() | nil
   defp parse_date_string(nil), do: nil
   defp parse_date_string(""), do: nil
 
@@ -349,6 +371,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
   defp parse_date_string(_), do: nil
 
   # Extract year from filename as fallback using high-performance Parsers function
+  @spec extract_year_from_filename(String.t() | nil) :: integer() | nil
   defp extract_year_from_filename(path) do
     Parsers.extract_year_from_text(path)
   end
