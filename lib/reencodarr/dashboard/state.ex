@@ -675,7 +675,6 @@ defmodule Reencodarr.Dashboard.State do
   end
 
   defp newer_timestamp?(candidate, nil), do: not is_nil(candidate)
-  defp newer_timestamp?(nil, _current), do: false
 
   defp newer_timestamp?(%DateTime{} = candidate, %DateTime{} = current) do
     DateTime.compare(candidate, current) == :gt

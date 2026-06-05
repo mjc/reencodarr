@@ -316,12 +316,13 @@ defmodule Reencodarr.Media.VideoStateMachine do
       is_list(audio_codecs) and not Enum.empty?(audio_codecs)
   end
 
-  defp has_vmaf_data?(%Video{} = _video) do
-    # This would check if the video has associated VMAF records
-    # For now, we'll assume it's handled elsewhere
-    # In a real implementation, this might query the vmafs association
-    false
-  end
+  defp has_vmaf_data?(%Video{chosen_vmaf_id: chosen_vmaf_id}) when not is_nil(chosen_vmaf_id),
+    do: true
+
+  defp has_vmaf_data?(%Video{id: id}) when is_integer(id) and id > 0,
+    do: chosen_vmaf_exists_for_video(id)
+
+  defp has_vmaf_data?(%Video{}), do: false
 
   # Only accepts a persisted video id — nil or any other type is a bug and will crash.
   @spec chosen_vmaf_exists_for_video(pos_integer()) :: boolean()

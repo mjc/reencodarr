@@ -6,8 +6,6 @@ defmodule Reencodarr.Core.Parsers do
   for common data transformations needed throughout the application.
   """
 
-  require Logger
-
   @doc """
   Parses duration string in various formats to seconds.
 

@@ -334,10 +334,8 @@ defmodule ReencodarrWeb.VideosLive do
          true <- count > 0 do
       {:noreply, socket |> put_flash(:info, "Prioritized video")}
     else
-      {:ok, 0} -> {:noreply, put_flash(socket, :error, "Video is not currently queueable")}
       false -> {:noreply, put_flash(socket, :error, "Video is not currently queueable")}
       {:error, _} -> {:noreply, put_flash(socket, :error, "Failed to prioritize video")}
-      _ -> {:noreply, put_flash(socket, :error, "Video not found")}
     end
   end
 

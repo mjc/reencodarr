@@ -31,7 +31,7 @@
       '';
   });
 
-  erlang = beam_minimal.interpreters.erlang_28;
+  erlang = beam_minimal.interpreters.erlang_29;
   beamPackages = beam_minimal.packagesWith erlang;
   elixir = beamPackages.elixir_1_20;
 

@@ -12,7 +12,6 @@ defmodule Reencodarr.Analyzer.Core.FileOperations do
   - Storage-aware concurrency
   """
 
-  require Logger
   alias Reencodarr.Analyzer.{Core.FileStatCache, Optimization.BulkFileChecker}
 
   @doc """

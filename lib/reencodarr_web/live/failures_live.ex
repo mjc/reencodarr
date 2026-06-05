@@ -18,8 +18,6 @@ defmodule ReencodarrWeb.FailuresLive do
 
   import Ecto.Query
 
-  require Logger
-
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media

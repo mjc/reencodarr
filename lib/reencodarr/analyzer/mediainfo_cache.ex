@@ -195,7 +195,9 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
   end
 
   defp execute_batch_if_needed([]), do: {:ok, %{}}
-  defp execute_batch_if_needed(existing_paths), do: execute_batch_mediainfo(existing_paths)
+
+  defp execute_batch_if_needed([_ | _] = existing_paths),
+    do: execute_batch_mediainfo(existing_paths)
 
   defp process_bulk_mediainfo_results(paths, file_stats, path_to_mtime, batch_results) do
     case batch_results do
@@ -250,9 +252,7 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
     end
   end
 
-  defp execute_batch_mediainfo([]), do: {:ok, %{}}
-
-  defp execute_batch_mediainfo(paths) when is_list(paths) and paths != [] do
+  defp execute_batch_mediainfo([_ | _] = paths) do
     Logger.debug("MediaInfoCache: Executing batch mediainfo for #{length(paths)} files")
 
     case System.cmd("mediainfo", ["--Output=JSON" | paths], stderr_to_stdout: true) do

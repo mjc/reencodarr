@@ -1,8 +1,6 @@
 defmodule ReencodarrWeb.BadFilesLive do
   use ReencodarrWeb, :live_view
 
-  require Logger
-
   alias Reencodarr.BadFileRemediation
   alias Reencodarr.BadFiles.State, as: BadFilesState
   alias Reencodarr.Core.Parsers

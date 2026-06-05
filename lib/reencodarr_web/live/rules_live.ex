@@ -18,8 +18,6 @@ defmodule ReencodarrWeb.RulesLive do
 
   import ReencodarrWeb.RulesLive.Sections
 
-  require Logger
-
   @valid_sections ~w(overview video_rules audio_rules hdr_support resolution_scaling helper_rules crf_search command_examples)a
 
   @impl true

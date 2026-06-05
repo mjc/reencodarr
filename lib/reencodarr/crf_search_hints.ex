@@ -34,8 +34,6 @@ defmodule Reencodarr.CrfSearchHints do
   alias Reencodarr.Media.Vmaf
   alias Reencodarr.Repo
 
-  require Logger
-
   @default_min_crf 5
   @default_max_crf 70
   @default_range {@default_min_crf, @default_max_crf}

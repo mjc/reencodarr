@@ -1047,8 +1047,6 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp format_number(_), do: "—"
 
-  defp format_completed(nil), do: "—"
-
   defp format_completed(stats) do
     total = stats.total_videos || 0
     encoded = stats.encoded || 0

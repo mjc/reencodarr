@@ -21,9 +21,12 @@
           --replace-fail "param->enable_adaptive_quantization = 0;" ""
       '';
   });
-  erlang = beam_minimal.interpreters.erlang_28;
+  erlang = beam_minimal.interpreters.erlang_29;
   beamPackages = beam_minimal.packagesWith erlang;
   elixir = beamPackages.elixir_1_20;
+  rebar3 = beamPackages.rebar3.overrideAttrs (_old: {
+    doCheck = false;
+  });
 in
   pkgs.mkShell {
     buildInputs = [
@@ -37,7 +40,7 @@ in
         beamPackages.ex_doc
         beamPackages.hex
         beamPackages.rebar
-        beamPackages.rebar3
+        rebar3
         beamPackages.rebar3-nix
         pkgs.tailwindcss
         pkgs.git
