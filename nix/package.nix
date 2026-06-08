@@ -31,7 +31,7 @@
       '';
   });
 
-  erlang = beam_minimal.interpreters.erlang_29;
+  erlang = beam_minimal.interpreters.erlang_28;
   beamPackages = beam_minimal.packagesWith erlang;
   elixir = beamPackages.elixir_1_20;
 
@@ -84,7 +84,7 @@ in
     mixFodDeps = beamPackages.fetchMixDeps {
       pname = "${pname}-mix-deps";
       inherit src version;
-      hash = "sha256-Uf6Z0cQCJskkmA6qMz/CJDMxJmDX/IofUhgsSQ9qwxg=";
+      hash = "sha256-Z4rdQlv9qy6W1quO4tBH0GNe9bowxFiKt321+jHUsmM=";
     };
 
     removeCookie = false;
