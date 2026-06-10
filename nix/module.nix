@@ -11,6 +11,7 @@
     {
       PHX_SERVER = "true";
       PHX_HOST = cfg.host;
+      CHECK_ORIGIN = "https://${cfg.host}";
       PORT = toString cfg.port;
       DATABASE_PATH = cfg.databasePath;
       REENCODARR_DATA_DIR = toString cfg.dataDir;
