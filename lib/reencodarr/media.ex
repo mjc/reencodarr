@@ -35,6 +35,21 @@ defmodule Reencodarr.Media do
   @missing_file_check_concurrency 2
   @missing_file_check_timeout_ms 2_000
   @missing_file_batch_pause_ms 25
+  @video_list_fields [
+    :id,
+    :path,
+    :title,
+    :state,
+    :size,
+    :updated_at,
+    :width,
+    :height,
+    :bitrate,
+    :hdr,
+    :service_type,
+    :original_size,
+    :content_year
+  ]
 
   defp write(fun, opts) when is_function(fun, 0), do: DbWriter.run(fun, opts)
   defp write_transaction(fun, opts) when is_function(fun, 0), do: DbWriter.transaction(fun, opts)
@@ -2395,6 +2410,7 @@ defmodule Reencodarr.Media do
       from(v in Video)
       |> maybe_filter_hdr(hdr)
       |> maybe_filter_search(search)
+      |> select([v], struct(v, ^@video_list_fields))
 
     flop_opts =
       [for: Video]
