@@ -34,14 +34,24 @@ defmodule ReencodarrWeb.DashboardLiveTitleTest do
       assert DashboardLive.dashboard_page_title(state) == "1/8 30fps 67.2%"
     end
 
-    test "renders paused when both services are paused" do
+    test "omits paused crf search from the title while encoding is active" do
+      state = %{
+        crf_search_sample: %{sample_num: 4, total_samples: 12},
+        encoding_progress: %{percent: 12.0, fps: 24.0},
+        service_status: %{crf_searcher: :paused, encoder: :processing}
+      }
+
+      assert DashboardLive.dashboard_page_title(state) == "24fps 12%"
+    end
+
+    test "renders nil when all services are paused or idle" do
       state = %{
         crf_search_sample: %{sample_num: 4, total_samples: 12},
         encoding_progress: %{percent: 12.0, fps: 24.0},
         service_status: %{crf_searcher: :paused, encoder: :paused}
       }
 
-      assert DashboardLive.dashboard_page_title(state) == "Paused"
+      assert DashboardLive.dashboard_page_title(state) == nil
     end
 
     test "renders nil when nothing active" do

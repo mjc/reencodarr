@@ -1360,15 +1360,14 @@ defmodule ReencodarrWeb.DashboardLive do
   def dashboard_page_title(state) when is_map(state) do
     service_status = Map.get(state, :service_status, %{})
 
-    if paused_all?(service_status) do
-      "Paused"
-    else
-      [crf_title(state), encoding_title(state)]
-      |> Enum.reject(&is_nil/1)
-      |> case do
-        [] -> nil
-        titles -> Enum.join(titles, " ")
-      end
+    [
+      active_crf_title(state, Map.get(service_status, :crf_searcher)),
+      active_encoding_title(state, Map.get(service_status, :encoder))
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] -> nil
+      titles -> Enum.join(titles, " ")
     end
   end
 
@@ -1485,8 +1484,17 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp encoding_title(_), do: nil
 
-  defp paused_all?(%{crf_searcher: :paused, encoder: :paused}), do: true
-  defp paused_all?(_), do: false
+  defp active_crf_title(state, status) when status in [:running, :processing, :pausing] do
+    crf_title(state)
+  end
+
+  defp active_crf_title(_state, _status), do: nil
+
+  defp active_encoding_title(state, status) when status in [:running, :processing, :pausing] do
+    encoding_title(state)
+  end
+
+  defp active_encoding_title(_state, _status), do: nil
 
   defp format_title_number(value) when is_integer(value), do: Integer.to_string(value)
 
