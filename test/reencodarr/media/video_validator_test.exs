@@ -5,6 +5,7 @@ defmodule Reencodarr.Media.VideoValidatorTest do
   describe "extract_comparison_values/1" do
     test "extracts values from string key attrs" do
       attrs = %{
+        "service_id" => "abc-123",
         "size" => 1000,
         "bitrate" => 5000,
         "duration" => 3600.0,
@@ -15,6 +16,7 @@ defmodule Reencodarr.Media.VideoValidatorTest do
       result = VideoValidator.extract_comparison_values(attrs)
 
       assert result == %{
+               service_id: "abc-123",
                size: 1000,
                bitrate: 5000,
                duration: 3600.0,
@@ -25,6 +27,7 @@ defmodule Reencodarr.Media.VideoValidatorTest do
 
     test "extracts values from atom key attrs" do
       attrs = %{
+        service_id: "abc-123",
         size: 1000,
         bitrate: 5000,
         duration: 3600.0,
@@ -35,6 +38,7 @@ defmodule Reencodarr.Media.VideoValidatorTest do
       result = VideoValidator.extract_comparison_values(attrs)
 
       assert result == %{
+               service_id: "abc-123",
                size: 1000,
                bitrate: 5000,
                duration: 3600.0,
@@ -49,6 +53,7 @@ defmodule Reencodarr.Media.VideoValidatorTest do
       result = VideoValidator.extract_comparison_values(attrs)
 
       assert result == %{
+               service_id: nil,
                size: 1000,
                bitrate: nil,
                duration: nil,
@@ -167,6 +172,7 @@ defmodule Reencodarr.Media.VideoValidatorTest do
 
     test "returns false when no significant changes" do
       existing = %{
+        service_id: "file-1",
         size: 1000,
         bitrate: 5000,
         duration: 3600.0,
@@ -177,6 +183,28 @@ defmodule Reencodarr.Media.VideoValidatorTest do
       new_values = %{size: nil, bitrate: nil, duration: nil, video_codecs: nil, audio_codecs: nil}
 
       assert VideoValidator.should_delete_vmafs?(existing, new_values) == false
+    end
+
+    test "returns true when service_id changes even if size stays the same" do
+      existing = %{
+        service_id: "file-1",
+        size: 1000,
+        bitrate: 5000,
+        duration: 3600.0,
+        video_codecs: ["H.264"],
+        audio_codecs: ["AAC"]
+      }
+
+      new_values = %{
+        service_id: "file-2",
+        size: 1000,
+        bitrate: 6000,
+        duration: nil,
+        video_codecs: nil,
+        audio_codecs: nil
+      }
+
+      assert VideoValidator.should_delete_vmafs?(existing, new_values) == true
     end
   end
 
@@ -195,6 +223,7 @@ defmodule Reencodarr.Media.VideoValidatorTest do
 
     test "returns true when size unchanged and has valid bitrate" do
       existing = %{
+        service_id: "file-1",
         size: 1000,
         bitrate: 5000,
         duration: 3600.0,
@@ -213,8 +242,31 @@ defmodule Reencodarr.Media.VideoValidatorTest do
       assert VideoValidator.should_preserve_bitrate?(existing, new_values) == true
     end
 
+    test "returns false when service_id changes even if size stays the same" do
+      existing = %{
+        service_id: "file-1",
+        size: 1000,
+        bitrate: 5000,
+        duration: 3600.0,
+        video_codecs: ["H.264"],
+        audio_codecs: ["AAC"]
+      }
+
+      new_values = %{
+        service_id: "file-2",
+        size: 1000,
+        bitrate: 6000,
+        duration: nil,
+        video_codecs: nil,
+        audio_codecs: nil
+      }
+
+      assert VideoValidator.should_preserve_bitrate?(existing, new_values) == false
+    end
+
     test "returns true when size is nil (not being updated) and has valid bitrate" do
       existing = %{
+        service_id: "file-1",
         size: 1000,
         bitrate: 5000,
         duration: 3600.0,
@@ -235,6 +287,7 @@ defmodule Reencodarr.Media.VideoValidatorTest do
 
     test "returns false when size changes" do
       existing = %{
+        service_id: "file-1",
         size: 1000,
         bitrate: 5000,
         duration: 3600.0,
@@ -255,6 +308,7 @@ defmodule Reencodarr.Media.VideoValidatorTest do
 
     test "returns false when no existing bitrate" do
       existing = %{
+        service_id: "file-1",
         size: 1000,
         bitrate: nil,
         duration: 3600.0,
@@ -275,6 +329,7 @@ defmodule Reencodarr.Media.VideoValidatorTest do
 
     test "returns false when existing bitrate is zero" do
       existing = %{
+        service_id: "file-1",
         size: 1000,
         bitrate: 0,
         duration: 3600.0,
@@ -295,6 +350,7 @@ defmodule Reencodarr.Media.VideoValidatorTest do
 
     test "returns false when new bitrate is explicitly zero" do
       existing = %{
+        service_id: "file-1",
         size: 1000,
         bitrate: 5000,
         duration: 3600.0,

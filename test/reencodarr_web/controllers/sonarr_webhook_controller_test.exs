@@ -143,6 +143,47 @@ defmodule ReencodarrWeb.SonarrWebhookControllerTest do
       assert_receive {:sync_completed, %{service_type: :sonarr, source: :webhook, path: ^path}}
     end
 
+    test "refreshes an existing video when Sonarr replaces it with a different copy but same size",
+         %{
+           conn: conn
+         } do
+      unique = System.unique_integer([:positive])
+      path = "/test/shows/replace_refresh_#{unique}/episode.mkv"
+
+      {:ok, _video} =
+        Fixtures.video_fixture(%{
+          path: path,
+          size: 2_000_000_000,
+          bitrate: 8_000_000,
+          service_type: :sonarr,
+          service_id: Integer.to_string(unique)
+        })
+
+      capture_log(fn ->
+        conn =
+          sonarr_post(conn, %{
+            "eventType" => "Download",
+            "episodeFile" => %{
+              "id" => unique + 1,
+              "path" => path,
+              "size" => 2_000_000_000,
+              "sceneName" => "Show.S01E01.REPACK",
+              "overallBitrate" => 10_000_000,
+              "mediaInfo" => %{
+                @minimal_media_info
+                | "videoCodec" => "H265"
+              }
+            }
+          })
+
+        assert conn.status == 204
+      end)
+
+      assert {:ok, video} = Media.get_video_by_path(path)
+      assert video.service_id == Integer.to_string(unique + 1)
+      assert video.bitrate == 10_000_000
+    end
+
     test "returns 204 for episodeFile with invalid/missing size", %{conn: conn} do
       capture_log(fn ->
         conn =

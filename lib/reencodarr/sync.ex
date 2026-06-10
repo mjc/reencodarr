@@ -452,7 +452,7 @@ defmodule Reencodarr.Sync do
   end
 
   defp process_single_video_file(%VideoFileInfo{} = info, _service_type) do
-    # Check if video exists and file size hasn't changed
+    # Check if video exists and the file still looks like the same source copy.
     existing_video = Media.get_video_by_path(info.path)
 
     # VideoUpsert will automatically set state to needs_analysis for zero bitrate
@@ -472,7 +472,14 @@ defmodule Reencodarr.Sync do
   end
 
   defp should_preserve_file_metadata?(existing_video, info) do
-    existing_video.size == info.size && info.bitrate != 0
+    existing_video.size == info.size &&
+      service_id_unchanged?(existing_video.service_id, info.service_id) &&
+      info.bitrate != 0
+  end
+
+  defp service_id_unchanged?(existing_service_id, new_service_id) do
+    not (is_binary(existing_service_id) and is_binary(new_service_id) and
+           existing_service_id != new_service_id)
   end
 
   defp update_api_metadata_only(existing_video, info) do

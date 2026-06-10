@@ -40,7 +40,7 @@ defmodule Reencodarr.MixProject do
   # Type `mix help deps` for examples and options.
   defp deps do
     [
-      {:bandit, "~> 1.5"},
+      {:bandit, "~> 1.12"},
       {:broadway, "~> 1.1"},
       {:broadway_dashboard, "~> 0.4.0"},
       {:cachex, "~> 4.0"},
@@ -61,7 +61,7 @@ defmodule Reencodarr.MixProject do
       {:jason, "~> 1.2"},
       {:logger_backends, "~> 1.0"},
       {:logger_file_backend, "~> 0.0.13"},
-      {:phoenix, "~> 1.8.3"},
+      {:phoenix, "~> 1.8.8"},
       {:phoenix_ecto, "~> 4.5"},
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_dashboard, "~> 0.8.3"},
@@ -69,7 +69,7 @@ defmodule Reencodarr.MixProject do
       {:phoenix_live_view, "~> 1.1.18"},
       {:ecto_sqlite3, "~> 0.17"},
       {:exqlite, "~> 0.37.0"},
-      {:req, "~> 0.5"},
+      {:req, "~> 0.6.1"},
       {:stream_data, "~> 1.2.0", only: :test},
       {:tailwind, "~> 0.2", runtime: Mix.env() == :dev},
       {:telemetry_metrics, "~> 1.0"},

@@ -10,6 +10,7 @@ defmodule Reencodarr.Media.VideoValidator do
   @type video_attrs :: %{String.t() => any()} | %{atom() => any()}
   @type video_metadata :: %{
           id: integer(),
+          service_id: String.t() | nil,
           size: integer() | nil,
           bitrate: integer() | nil,
           duration: float() | nil,
@@ -18,6 +19,7 @@ defmodule Reencodarr.Media.VideoValidator do
         }
 
   @type comparison_values :: %{
+          service_id: String.t() | nil,
           size: integer() | nil,
           bitrate: integer() | nil,
           duration: float() | nil,
@@ -33,6 +35,7 @@ defmodule Reencodarr.Media.VideoValidator do
   @spec extract_comparison_values(video_attrs()) :: comparison_values()
   def extract_comparison_values(attrs) do
     %{
+      service_id: get_attr_value(attrs, "service_id"),
       size: get_attr_value(attrs, "size"),
       bitrate: get_attr_value(attrs, "bitrate"),
       duration: get_attr_value(attrs, "duration"),
@@ -50,31 +53,38 @@ defmodule Reencodarr.Media.VideoValidator do
   def should_delete_vmafs?(nil, _new_values), do: false
 
   def should_delete_vmafs?(existing, new_values) do
-    # Only check fields that have non-nil values in the new attributes
-    # This avoids false positives when a field isn't being updated
-    #
-    # For bitrate: Only consider it changed if file size also changed or if bitrate is explicitly 0
-    # This prevents sync from resetting analyzed bitrate when file content hasn't changed
-    size_changed =
-      is_integer(Map.get(new_values, :size)) and
-        Map.get(new_values, :size) != Map.get(existing, :size)
+    service_id_changed? =
+      service_id_changed?(existing, new_values)
 
-    bitrate_explicitly_zero = Map.get(new_values, :bitrate) == 0
-    should_check_bitrate = size_changed or bitrate_explicitly_zero
+    if service_id_changed? do
+      true
+    else
+      # Only check fields that have non-nil values in the new attributes
+      # This avoids false positives when a field isn't being updated
+      #
+      # For bitrate: Only consider it changed if file size also changed or if bitrate is explicitly 0
+      # This prevents sync from resetting analyzed bitrate when file content hasn't changed
+      size_changed =
+        is_integer(Map.get(new_values, :size)) and
+          Map.get(new_values, :size) != Map.get(existing, :size)
 
-    comparison_pairs = [
-      {Map.get(new_values, :size), Map.get(existing, :size)},
-      # Only compare bitrate if size changed or bitrate is 0
-      {should_check_bitrate && Map.get(new_values, :bitrate),
-       should_check_bitrate && Map.get(existing, :bitrate)},
-      {Map.get(new_values, :duration), Map.get(existing, :duration)},
-      {Map.get(new_values, :video_codecs), Map.get(existing, :video_codecs)},
-      {Map.get(new_values, :audio_codecs), Map.get(existing, :audio_codecs)}
-    ]
+      bitrate_explicitly_zero = Map.get(new_values, :bitrate) == 0
+      should_check_bitrate = size_changed or bitrate_explicitly_zero
 
-    Enum.any?(comparison_pairs, fn {new_val, old_val} ->
-      (is_integer(new_val) or is_list(new_val) or is_number(new_val)) and new_val != old_val
-    end)
+      comparison_pairs = [
+        {Map.get(new_values, :size), Map.get(existing, :size)},
+        # Only compare bitrate if size changed or bitrate is 0
+        {should_check_bitrate && Map.get(new_values, :bitrate),
+         should_check_bitrate && Map.get(existing, :bitrate)},
+        {Map.get(new_values, :duration), Map.get(existing, :duration)},
+        {Map.get(new_values, :video_codecs), Map.get(existing, :video_codecs)},
+        {Map.get(new_values, :audio_codecs), Map.get(existing, :audio_codecs)}
+      ]
+
+      Enum.any?(comparison_pairs, fn {new_val, old_val} ->
+        (is_integer(new_val) or is_list(new_val) or is_number(new_val)) and new_val != old_val
+      end)
+    end
   end
 
   @doc """
@@ -87,8 +97,12 @@ defmodule Reencodarr.Media.VideoValidator do
   def should_preserve_bitrate?(nil, _new_values), do: false
 
   def should_preserve_bitrate?(existing, new_values) do
+    service_id_unchanged? =
+      not service_id_changed?(existing, new_values)
+
     # Preserve existing analyzed bitrate when:
     # 1. File size hasn't changed (same file content)
+    # 1a. The service file identifier hasn't changed, which indicates a replacement
     # 2. We have a valid existing bitrate
     # 3. New bitrate is not explicitly 0 (which indicates need for re-analysis)
     size_unchanged =
@@ -100,7 +114,8 @@ defmodule Reencodarr.Media.VideoValidator do
 
     new_bitrate_not_zero = Map.get(new_values, :bitrate) != 0
 
-    size_unchanged and has_valid_existing_bitrate and new_bitrate_not_zero
+    size_unchanged and service_id_unchanged? and has_valid_existing_bitrate and
+      new_bitrate_not_zero
   end
 
   @doc """
@@ -109,5 +124,12 @@ defmodule Reencodarr.Media.VideoValidator do
   @spec get_attr_value(video_attrs(), String.t()) :: any()
   def get_attr_value(attrs, key) when is_binary(key) do
     Map.get(attrs, key) || Map.get(attrs, String.to_existing_atom(key))
+  end
+
+  defp service_id_changed?(existing, new_values) do
+    new_service_id = Map.get(new_values, :service_id)
+    existing_service_id = Map.get(existing, :service_id)
+
+    is_binary(new_service_id) and new_service_id != existing_service_id
   end
 end
