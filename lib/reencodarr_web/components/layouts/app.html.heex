@@ -1,6 +1,6 @@
-<nav class="bg-gray-900 border-b border-gray-700">
+<nav class="relative z-50 bg-gray-900 border-b border-gray-700">
   <div class="mx-auto max-w-7xl px-3 sm:px-4">
-    <div class="flex items-center justify-between gap-3 py-3 sm:h-14 sm:py-0">
+    <div class="flex flex-wrap items-center justify-between gap-3 py-3 sm:h-14 sm:flex-nowrap sm:py-0">
       <div class="flex items-center gap-2">
         <img src="/images/favicon.svg" alt="Reencodarr" class="w-8 h-8" />
         <.link
@@ -10,16 +10,25 @@
           Reencodarr
         </.link>
       </div>
-      <details class="relative sm:hidden">
+      <details class="relative z-50 sm:hidden">
         <summary class="list-none flex cursor-pointer items-center gap-2 rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 transition-colors hover:bg-gray-700 [&::-webkit-details-marker]:hidden">
-          <span class="flex flex-col gap-1" aria-hidden="true">
-            <span class="block h-0.5 w-4 rounded bg-current"></span>
-            <span class="block h-0.5 w-4 rounded bg-current"></span>
-            <span class="block h-0.5 w-4 rounded bg-current"></span>
-          </span>
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="h-5 w-5 shrink-0"
+          >
+            <path d="M4 6h16"></path>
+            <path d="M4 12h16"></path>
+            <path d="M4 18h16"></path>
+          </svg>
           <span>Menu</span>
         </summary>
-        <div class="absolute right-0 z-20 mt-2 w-48 overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-xl">
+        <div class="absolute right-0 top-full z-[60] mt-2 w-56 overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-xl">
           <div class="flex flex-col p-2">
             <.link
               navigate={~p"/"}
