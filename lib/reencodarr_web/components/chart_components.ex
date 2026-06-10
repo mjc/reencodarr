@@ -30,8 +30,10 @@ defmodule ReencodarrWeb.ChartComponents do
       |> assign(:empty?, rows == [])
 
     ~H"""
-    <div class="chart-container dashboard-card dashboard-chart-card bg-gray-800 rounded-lg border border-gray-700 p-4">
-      <h3 :if={@title != ""} class="text-sm font-semibold text-gray-300 mb-3">{@title}</h3>
+    <div class="chart-container dashboard-card dashboard-chart-card bg-gray-800 rounded-lg border border-gray-700 p-3 sm:p-4">
+      <h3 :if={@title != ""} class="mb-3 text-sm font-semibold text-gray-300 sm:text-base">
+        {@title}
+      </h3>
 
       <%= if @empty? do %>
         <div class="flex h-[220px] items-center justify-center text-sm text-gray-500">

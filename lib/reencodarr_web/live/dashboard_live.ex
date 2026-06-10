@@ -329,7 +329,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp stats_bar(assigns) do
     ~H"""
-    <div class="grid grid-cols-2 md:grid-cols-6 gap-4">
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-6">
       <.stat_box
         label="Total Videos"
         value={@stats_display.total_videos}
@@ -366,10 +366,10 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp stat_box(assigns) do
     ~H"""
-    <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-4">
-      <div class="text-xs text-gray-400 mb-1">{@label}</div>
-      <div class="text-2xl font-mono text-white">{@value}</div>
-      <div class="text-xs text-gray-500">{@sublabel}</div>
+    <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-3 sm:p-4">
+      <div class="text-[11px] sm:text-xs uppercase tracking-wide text-gray-400 mb-1">{@label}</div>
+      <div class="text-xl sm:text-2xl font-mono text-white">{@value}</div>
+      <div class="text-[11px] sm:text-xs text-gray-500">{@sublabel}</div>
     </div>
     """
   end
@@ -550,8 +550,8 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp crf_search_panel(assigns) do
     ~H"""
-    <div class="dashboard-card bg-gray-900 border border-gray-700 rounded-lg p-4 h-full">
-      <div class="flex items-center justify-between mb-3">
+    <div class="dashboard-card bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-4">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
         <h3 class="font-semibold text-white">CRF Search</h3>
         <span class={"px-2 py-1 text-xs rounded-full #{service_status_class(@status)}"}>
           {service_status_text(@status)}
@@ -642,10 +642,10 @@ defmodule ReencodarrWeb.DashboardLive do
       
     <!-- Always show next-up videos -->
       <%= if length(@queue_items) > 0 do %>
-        <div class="text-xs text-gray-500 space-y-0.5 mt-2 pt-2 border-t border-gray-800">
+        <div class="text-xs text-gray-500 space-y-1 mt-3 pt-2 border-t border-gray-800">
           <div class="text-gray-600 mb-0.5">Next up ({@queue_count}):</div>
           <%= for video <- Enum.take(@queue_items, 5) do %>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 min-w-0">
               <button
                 phx-click="fail_queue_video"
                 phx-value-id={video.id}
@@ -656,7 +656,7 @@ defmodule ReencodarrWeb.DashboardLive do
               >
                 x
               </button>
-              <div class="truncate">{Path.basename(video.path)}</div>
+              <div class="min-w-0 truncate">{Path.basename(video.path)}</div>
             </div>
           <% end %>
         </div>
@@ -675,8 +675,8 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp encoding_panel(assigns) do
     ~H"""
-    <div class="dashboard-card bg-gray-900 border border-gray-700 rounded-lg p-4 h-full">
-      <div class="flex items-center justify-between mb-3">
+    <div class="dashboard-card bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-4">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
         <h3 class="font-semibold text-white">Encoding</h3>
         <span class={"px-2 py-1 text-xs rounded-full #{service_status_class(@status)}"}>
           {service_status_text(@status)}
@@ -763,10 +763,10 @@ defmodule ReencodarrWeb.DashboardLive do
       
     <!-- Always show next-up videos -->
       <%= if length(@queue_items) > 0 do %>
-        <div class="text-xs text-gray-500 space-y-0.5 mt-2 pt-2 border-t border-gray-800">
+        <div class="text-xs text-gray-500 space-y-1 mt-3 pt-2 border-t border-gray-800">
           <div class="text-gray-600 mb-0.5">Next up ({@queue_count}):</div>
           <%= for video <- Enum.take(@queue_items, 5) do %>
-            <div class="flex items-center gap-2">
+            <div class="flex items-center gap-2 min-w-0">
               <button
                 phx-click="fail_queue_video"
                 phx-value-id={video.id}
@@ -777,7 +777,7 @@ defmodule ReencodarrWeb.DashboardLive do
               >
                 x
               </button>
-              <div class="truncate">{Path.basename(video.path)}</div>
+              <div class="min-w-0 truncate">{Path.basename(video.path)}</div>
             </div>
           <% end %>
         </div>
@@ -793,7 +793,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp active_job_controls(assigns) do
     ~H"""
-    <div class="flex items-center gap-2 pt-1 text-xs">
+    <div class="flex flex-wrap items-center gap-2 pt-1 text-xs">
       <%= if @status == :paused do %>
         <button
           phx-click={@resume_event}
@@ -831,7 +831,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp pipeline_overview(assigns) do
     ~H"""
-    <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-4">
+    <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-3 sm:p-4">
       <h3 class="font-semibold text-white mb-3">Processing Pipeline</h3>
       <.state_distribution_bar
         stats={@stats}
@@ -906,7 +906,7 @@ defmodule ReencodarrWeb.DashboardLive do
   defp state_distribution_bar(assigns) do
     ~H"""
     <div class="space-y-1">
-      <div class="flex h-4 rounded overflow-hidden">
+      <div class="flex h-3 sm:h-4 rounded overflow-hidden">
         <%= if @state_distribution_display.needs_analysis_pct > 0 do %>
           <div
             class="bg-gray-600"
@@ -948,7 +948,7 @@ defmodule ReencodarrWeb.DashboardLive do
           </div>
         <% end %>
       </div>
-      <div class="flex justify-between text-xs text-gray-400">
+      <div class="grid grid-cols-1 gap-1 text-xs text-gray-400 sm:grid-cols-3 sm:gap-2">
         <span>Needs Analysis: {@stats_display.needs_analysis}</span>
         <span>Analyzed: {@stats_display.analyzed}</span>
         <span>Encoded: {@stats_display.encoded}</span>
@@ -964,14 +964,14 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp pipeline_row(assigns) do
     ~H"""
-    <div class="flex items-center justify-between py-2 px-3 bg-gray-800/50 rounded">
-      <div class="flex items-center gap-3">
+    <div class="flex flex-col gap-2 rounded bg-gray-800/50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+      <div class="flex flex-wrap items-center gap-2 sm:gap-3">
         <span class="text-sm text-gray-300">{@name}</span>
         <span class={"px-2 py-0.5 text-xs rounded-full #{service_status_class(@status)}"}>
           {service_status_text(@status)}
         </span>
       </div>
-      <div class="flex items-center gap-4 text-sm">
+      <div class="flex flex-wrap items-center gap-2 text-sm sm:justify-end sm:gap-4">
         <%= if @metric do %>
           <span class="text-gray-400">{@metric}</span>
         <% end %>
@@ -988,16 +988,16 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp sync_controls(assigns) do
     ~H"""
-    <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-4">
-      <div class="flex items-center justify-between">
+    <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-3 sm:p-4">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h3 class="font-semibold text-white">Media Library Sync</h3>
 
-        <div class="flex gap-2">
+        <div class="flex flex-col gap-2 sm:flex-row">
           <button
             phx-click="sync_sonarr"
             disabled={@syncing}
             class={
-              "px-4 py-2 text-sm rounded #{if @syncing, do: "bg-gray-700 text-gray-500 cursor-not-allowed", else: "bg-blue-600 hover:bg-blue-700 text-white"}"
+              "w-full px-4 py-2 text-sm rounded sm:w-auto #{if @syncing, do: "bg-gray-700 text-gray-500 cursor-not-allowed", else: "bg-blue-600 hover:bg-blue-700 text-white"}"
             }
           >
             Sync Sonarr
@@ -1006,7 +1006,7 @@ defmodule ReencodarrWeb.DashboardLive do
             phx-click="sync_radarr"
             disabled={@syncing}
             class={
-              "px-4 py-2 text-sm rounded #{if @syncing, do: "bg-gray-700 text-gray-500 cursor-not-allowed", else: "bg-blue-600 hover:bg-blue-700 text-white"}"
+              "w-full px-4 py-2 text-sm rounded sm:w-auto #{if @syncing, do: "bg-gray-700 text-gray-500 cursor-not-allowed", else: "bg-blue-600 hover:bg-blue-700 text-white"}"
             }
           >
             Sync Radarr
@@ -1110,7 +1110,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp pipeline_status_box(assigns) do
     ~H"""
-    <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-4">
+    <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-3 sm:p-4">
       <div class="text-xs text-gray-400 mb-1">Pipeline</div>
       <div class="flex gap-1.5 items-center mt-1">
         <.pipeline_dot status={@service_status.analyzer} label="A" />
@@ -1144,8 +1144,12 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div id="dashboard-root" phx-hook="DashboardAnimations" class="min-h-screen bg-gray-950 p-6">
-      <div class="max-w-7xl mx-auto space-y-4">
+    <div
+      id="dashboard-root"
+      phx-hook="DashboardAnimations"
+      class="min-h-[calc(100dvh-3.5rem)] bg-gray-950 px-3 py-4 sm:px-4 sm:py-6 lg:px-6"
+    >
+      <div class="mx-auto max-w-7xl space-y-3 sm:space-y-4">
         <!-- Row 1: Stats Bar -->
         <.stats_bar
           stats={@stats}
@@ -1156,7 +1160,7 @@ defmodule ReencodarrWeb.DashboardLive do
     <!-- Row 2: Active Work Panels -->
         <div
           id="dashboard-active-work"
-          class="dashboard-section grid grid-cols-1 lg:grid-cols-5 gap-4"
+          class="dashboard-section grid grid-cols-1 gap-3 lg:grid-cols-5 lg:gap-4"
         >
           <div class="lg:col-span-3">
             <.crf_search_panel
@@ -1192,7 +1196,7 @@ defmodule ReencodarrWeb.DashboardLive do
         />
         
     <!-- Row 4: Analytics Charts -->
-        <div class="dashboard-section dashboard-deferred-section dashboard-chart-section grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="dashboard-section dashboard-deferred-section dashboard-chart-section grid grid-cols-1 gap-3 lg:grid-cols-3 lg:gap-4">
           <.bar_chart
             data={@vmaf_distribution}
             title="VMAF Score Distribution"

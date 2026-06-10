@@ -1,6 +1,6 @@
 <nav class="bg-gray-900 border-b border-gray-700">
-  <div class="mx-auto max-w-7xl px-4">
-    <div class="flex items-center justify-between h-14">
+  <div class="mx-auto max-w-7xl px-3 sm:px-4">
+    <div class="flex items-center justify-between gap-3 py-3 sm:h-14 sm:py-0">
       <div class="flex items-center gap-2">
         <img src="/images/favicon.svg" alt="Reencodarr" class="w-8 h-8" />
         <.link
@@ -10,46 +10,102 @@
           Reencodarr
         </.link>
       </div>
-      <div class="flex items-center gap-1">
+      <details class="relative sm:hidden">
+        <summary class="list-none flex cursor-pointer items-center gap-2 rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 transition-colors hover:bg-gray-700 [&::-webkit-details-marker]:hidden">
+          <span class="flex flex-col gap-1" aria-hidden="true">
+            <span class="block h-0.5 w-4 rounded bg-current"></span>
+            <span class="block h-0.5 w-4 rounded bg-current"></span>
+            <span class="block h-0.5 w-4 rounded bg-current"></span>
+          </span>
+          <span>Menu</span>
+        </summary>
+        <div class="absolute right-0 z-20 mt-2 w-48 overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-xl">
+          <div class="flex flex-col p-2">
+            <.link
+              navigate={~p"/"}
+              class="rounded px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
+            >
+              Dashboard
+            </.link>
+            <.link
+              navigate={~p"/bad-files"}
+              class="rounded px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
+            >
+              Bad Files
+            </.link>
+            <.link
+              navigate={~p"/failures"}
+              class="rounded px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
+            >
+              Failures
+            </.link>
+            <.link
+              navigate={~p"/videos"}
+              class="rounded px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
+            >
+              Videos
+            </.link>
+            <.link
+              navigate={~p"/rules"}
+              class="rounded px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
+            >
+              Rules
+            </.link>
+            <.link
+              navigate={~p"/libraries"}
+              class="rounded px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
+            >
+              Libraries
+            </.link>
+            <.link
+              navigate={~p"/configs"}
+              class="rounded px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
+            >
+              Configs
+            </.link>
+          </div>
+        </div>
+      </details>
+      <div class="hidden items-center gap-1 sm:flex">
         <.link
           navigate={~p"/"}
-          class="text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-2 rounded text-sm transition-colors"
+          class="rounded px-2 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white sm:px-3 sm:py-2 sm:text-sm"
         >
           Dashboard
         </.link>
         <.link
           navigate={~p"/bad-files"}
-          class="text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-2 rounded text-sm transition-colors"
+          class="rounded px-2 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white sm:px-3 sm:py-2 sm:text-sm"
         >
           Bad Files
         </.link>
         <.link
           navigate={~p"/failures"}
-          class="text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-2 rounded text-sm transition-colors"
+          class="rounded px-2 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white sm:px-3 sm:py-2 sm:text-sm"
         >
           Failures
         </.link>
         <.link
           navigate={~p"/videos"}
-          class="text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-2 rounded text-sm transition-colors"
+          class="rounded px-2 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white sm:px-3 sm:py-2 sm:text-sm"
         >
           Videos
         </.link>
         <.link
           navigate={~p"/rules"}
-          class="text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-2 rounded text-sm transition-colors"
+          class="rounded px-2 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white sm:px-3 sm:py-2 sm:text-sm"
         >
           Rules
         </.link>
         <.link
           navigate={~p"/libraries"}
-          class="text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-2 rounded text-sm transition-colors"
+          class="rounded px-2 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white sm:px-3 sm:py-2 sm:text-sm"
         >
           Libraries
         </.link>
         <.link
           navigate={~p"/configs"}
-          class="text-gray-300 hover:text-white hover:bg-gray-700 px-3 py-2 rounded text-sm transition-colors"
+          class="rounded px-2 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white sm:px-3 sm:py-2 sm:text-sm"
         >
           Configs
         </.link>
@@ -58,7 +114,7 @@
   </div>
 </nav>
 
-<main class="flex-1 overflow-y-auto">
+<main class="flex-1 overflow-x-hidden">
   <.flash_group flash={@flash} />
   {@inner_content}
 </main>
