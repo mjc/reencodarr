@@ -680,31 +680,31 @@ defmodule ReencodarrWeb.VideosLive do
       )
 
     ~H"""
-    <div class="min-h-screen bg-gray-900 p-6">
-      <div class="max-w-full mx-auto space-y-4">
+    <div class="min-h-[calc(100dvh-3.5rem)] bg-gray-900 px-3 py-4 sm:px-4 sm:py-6 lg:px-6">
+      <div class="mx-auto max-w-full space-y-3 sm:space-y-4">
         <!-- Header -->
-        <div class="flex justify-between items-start flex-wrap gap-3">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 class="text-3xl font-bold text-white">Videos</h1>
+            <h1 class="text-2xl font-bold text-white sm:text-3xl">Videos</h1>
             <p class="text-gray-400">{@total} total</p>
           </div>
-          <div class="flex gap-2 flex-wrap">
+          <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             <%= if @select_count > 0 do %>
               <button
                 phx-click="prioritize_selected"
-                class="px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors"
+                class="w-full px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg transition-colors hover:bg-emerald-700 sm:w-auto"
               >
                 Prioritize {@select_count} selected
               </button>
               <button
                 phx-click="reset_selected"
-                class="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 transition-colors"
+                class="w-full px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg transition-colors hover:bg-purple-700 sm:w-auto"
               >
                 Reset {@select_count} selected
               </button>
               <button
                 phx-click="deselect_all"
-                class="px-4 py-2 text-sm font-medium text-gray-300 bg-gray-700 rounded-lg hover:bg-gray-600 transition-colors"
+                class="w-full px-4 py-2 text-sm font-medium text-gray-300 bg-gray-700 rounded-lg transition-colors hover:bg-gray-600 sm:w-auto"
               >
                 Clear selection
               </button>
@@ -712,7 +712,7 @@ defmodule ReencodarrWeb.VideosLive do
             <%= if @filters_active do %>
               <button
                 phx-click="clear_filters"
-                class="px-4 py-2 text-sm font-medium text-gray-300 bg-gray-700 rounded-lg hover:bg-gray-600 transition-colors"
+                class="w-full px-4 py-2 text-sm font-medium text-gray-300 bg-gray-700 rounded-lg transition-colors hover:bg-gray-600 sm:w-auto"
               >
                 Clear filters
               </button>
@@ -736,10 +736,10 @@ defmodule ReencodarrWeb.VideosLive do
         </div>
         
     <!-- Toolbar -->
-        <div class="bg-gray-800 rounded-lg border border-gray-700 p-3">
-          <div class="flex flex-wrap gap-3 items-center">
+        <div class="bg-gray-800 rounded-lg border border-gray-700 p-3 sm:p-4">
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
             <form id="videos-filters" phx-change="set_filters" class="contents">
-              <div class="flex-1 min-w-[180px]">
+              <div class="min-w-0 flex-1">
                 <input
                   type="text"
                   name="search"
@@ -752,7 +752,7 @@ defmodule ReencodarrWeb.VideosLive do
               <select
                 name="state"
                 value={@state_filter || ""}
-                class="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500"
+                class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 lg:w-auto"
               >
                 <option value="">All states</option>
                 <%= for s <- @valid_states do %>
@@ -762,7 +762,7 @@ defmodule ReencodarrWeb.VideosLive do
               <select
                 name="service"
                 value={@service_filter || ""}
-                class="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500"
+                class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 lg:w-auto"
               >
                 <option value="">All sources</option>
                 <option value="sonarr">Sonarr (TV)</option>
@@ -771,7 +771,7 @@ defmodule ReencodarrWeb.VideosLive do
               <select
                 name="hdr"
                 value={hdr_to_param(@hdr_filter) || ""}
-                class="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500"
+                class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 lg:w-auto"
               >
                 <option value="">Any HDR</option>
                 <option value="true">HDR only</option>
@@ -783,7 +783,7 @@ defmodule ReencodarrWeb.VideosLive do
               <select
                 name="per_page"
                 value={@per_page}
-                class="bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500"
+                class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 sm:w-auto"
               >
                 <%= for n <- @per_page_options do %>
                   <option value={n}>{n} / page</option>

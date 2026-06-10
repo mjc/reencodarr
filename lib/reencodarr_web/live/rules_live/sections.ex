@@ -11,9 +11,9 @@ defmodule ReencodarrWeb.RulesLive.Sections do
   # Navigation Component
   def rules_navigation(assigns) do
     ~H"""
-    <div class="bg-gray-800 rounded-lg shadow-lg p-4 border border-gray-700 sticky top-6">
-      <h2 class="text-lg font-semibold text-white mb-4">Navigation</h2>
-      <div class="space-y-1">
+    <div class="bg-gray-800 rounded-lg shadow-lg p-3 border border-gray-700 lg:sticky lg:top-6 sm:p-4">
+      <h2 class="mb-3 text-base font-semibold text-white sm:text-lg">Navigation</h2>
+      <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1">
         <.section_nav_button
           section={:overview}
           selected={@selected_section}
@@ -85,7 +85,7 @@ defmodule ReencodarrWeb.RulesLive.Sections do
       phx-click="select_section"
       phx-value-section={@section}
       class={[
-        "w-full text-left p-3 rounded-lg border transition-colors",
+        "w-full text-left p-2.5 rounded-lg border transition-colors sm:p-3",
         if(@active,
           do: "bg-blue-600 border-blue-600 text-white shadow-md",
           else: "bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600 hover:border-gray-500"
@@ -110,8 +110,8 @@ defmodule ReencodarrWeb.RulesLive.Sections do
   def rules_overview(assigns) do
     ~H"""
     <div class="space-y-6">
-      <div class="bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-700">
-        <h2 class="text-2xl font-bold text-white mb-4 flex items-center gap-2">
+      <div class="bg-gray-800 rounded-lg shadow-lg p-4 border border-gray-700 sm:p-6">
+        <h2 class="mb-4 flex items-center gap-2 text-xl font-bold text-white sm:text-2xl">
           <span class="text-orange-500">📚</span> Encoding Rules Overview
         </h2>
         <div class="space-y-4 text-gray-300">
@@ -121,7 +121,7 @@ defmodule ReencodarrWeb.RulesLive.Sections do
             automatically.
           </p>
 
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+          <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div class="bg-orange-900/20 p-4 rounded-lg border border-orange-800/50">
               <h3 class="text-orange-400 font-bold mb-2">🎬 VIDEO ANALYSIS</h3>
               <ul class="space-y-1 text-sm text-gray-300">
@@ -145,8 +145,8 @@ defmodule ReencodarrWeb.RulesLive.Sections do
         </div>
       </div>
 
-      <div class="bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-700">
-        <h2 class="text-2xl font-bold text-white mb-4 flex items-center gap-2">
+      <div class="bg-gray-800 rounded-lg shadow-lg p-4 border border-gray-700 sm:p-6">
+        <h2 class="mb-4 flex items-center gap-2 text-xl font-bold text-white sm:text-2xl">
           <span class="text-blue-500">🎯</span> Rule Priority System
         </h2>
         <div class="space-y-3 text-gray-300">
@@ -209,8 +209,8 @@ defmodule ReencodarrWeb.RulesLive.Sections do
   def video_rules_section(assigns) do
     ~H"""
     <div class="space-y-6">
-      <div class="bg-gray-800 rounded-lg shadow-lg p-6 border border-gray-700">
-        <h2 class="text-2xl font-bold text-white mb-4 flex items-center gap-2">
+      <div class="bg-gray-800 rounded-lg shadow-lg p-4 border border-gray-700 sm:p-6">
+        <h2 class="mb-4 flex items-center gap-2 text-xl font-bold text-white sm:text-2xl">
           <span class="text-orange-500">🎬</span> VIDEO ENCODING STANDARDS
         </h2>
         <div class="space-y-4 text-gray-300">

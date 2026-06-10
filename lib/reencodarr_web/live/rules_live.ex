@@ -42,17 +42,17 @@ defmodule ReencodarrWeb.RulesLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="min-h-screen bg-gray-900 p-6">
-      <div class="max-w-7xl mx-auto space-y-6">
+    <div class="min-h-[calc(100dvh-3.5rem)] bg-gray-900 px-3 py-4 sm:px-4 sm:py-6 lg:px-6">
+      <div class="mx-auto max-w-7xl space-y-4 sm:space-y-6">
         <!-- Header -->
         <div>
-          <h1 class="text-3xl font-bold text-white">Encoding Rules Documentation</h1>
+          <h1 class="text-2xl font-bold text-white sm:text-3xl">Encoding Rules Documentation</h1>
           <p class="text-gray-400">
             Learn how Reencodarr automatically optimizes video encoding
           </p>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-4 lg:gap-6">
           <!-- Sidebar Navigation -->
           <div class="lg:col-span-1">
             <.rules_navigation selected_section={@selected_section} />

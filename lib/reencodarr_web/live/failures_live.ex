@@ -276,28 +276,28 @@ defmodule ReencodarrWeb.FailuresLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="min-h-screen bg-gray-900 p-6">
-      <div class="max-w-7xl mx-auto space-y-6">
+    <div class="min-h-[calc(100dvh-3.5rem)] bg-gray-900 px-3 py-4 sm:px-4 sm:py-6 lg:px-6">
+      <div class="mx-auto max-w-7xl space-y-4 sm:space-y-6">
         <!-- Header -->
-        <div class="flex justify-between items-start">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 class="text-3xl font-bold text-white">
+            <h1 class="text-2xl font-bold text-white sm:text-3xl">
               Failures ({@total_count})
             </h1>
             <p class="text-gray-400">Monitor and manage failed video processing operations</p>
           </div>
-          <div class="flex gap-2">
+          <div class="flex flex-col gap-2 sm:flex-row">
             <%= if MapSet.size(@selected_videos) > 0 do %>
               <button
                 phx-click="retry_selected"
-                class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+                class="w-full px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg transition-colors hover:bg-blue-700 sm:w-auto"
               >
                 Retry Selected ({MapSet.size(@selected_videos)})
               </button>
             <% end %>
             <button
               phx-click="reset_all_failures"
-              class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+              class="w-full px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg transition-colors hover:bg-red-700 sm:w-auto"
             >
               Reset All
             </button>
@@ -329,9 +329,9 @@ defmodule ReencodarrWeb.FailuresLive do
               </form>
               
     <!-- Compact Filters -->
-              <div class="flex flex-col sm:flex-row gap-3">
+              <div class="flex flex-col gap-3 sm:flex-row">
                 <!-- Stage Filter -->
-                <div class="flex items-center gap-2">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <span class="text-sm font-medium text-gray-300 whitespace-nowrap">Stage:</span>
                   <div class="inline-flex flex-wrap gap-1" role="group" aria-label="Filter by stage">
                     <button
@@ -373,7 +373,7 @@ defmodule ReencodarrWeb.FailuresLive do
                 </div>
                 
     <!-- Category Filter -->
-                <div class="flex items-center gap-2">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <span class="text-sm font-medium text-gray-300 whitespace-nowrap">Type:</span>
                   <div
                     class="inline-flex flex-wrap gap-1"
@@ -466,7 +466,7 @@ defmodule ReencodarrWeb.FailuresLive do
               <!-- Table -->
               <div class="divide-y divide-gray-700">
                 <!-- Table Header -->
-                <div class="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-4 px-4 py-3 bg-gray-750 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                <div class="grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto_auto] gap-3 px-3 py-3 bg-gray-750 text-xs font-semibold text-gray-400 uppercase tracking-wider sm:gap-4 sm:px-4">
                   <div class="flex items-center">
                     <%= if MapSet.size(@selected_videos) == length(@failed_videos) and length(@failed_videos) > 0 do %>
                       <input
@@ -504,7 +504,7 @@ defmodule ReencodarrWeb.FailuresLive do
                     <div
                       phx-click="toggle_details"
                       phx-value-video_id={video.id}
-                      class="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-4 px-4 py-3 cursor-pointer"
+                      class="grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto_auto] gap-3 px-3 py-3 cursor-pointer sm:gap-4 sm:px-4"
                     >
                       <!-- Column 1: Checkbox -->
                       <div
