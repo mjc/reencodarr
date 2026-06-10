@@ -72,14 +72,41 @@ defmodule ReencodarrWeb.VideosLive do
     filters = parse_params(params)
     filters_changed? = filters_changed?(socket.assigns, filters)
 
+    socket = assign(socket, filters)
+
     socket =
-      socket
-      |> assign(filters)
-      |> then(fn s ->
-        if connected?(s) and s.assigns.loaded_once and filters_changed?,
-          do: load_data(s, include_state_counts: false),
-          else: s
-      end)
+      if connected?(socket) and socket.assigns.loaded_once and filters_changed? do
+        state_counts = socket.assigns.state_counts
+        page = socket.assigns.page
+        per_page = socket.assigns.per_page
+        state_filter = socket.assigns.state_filter
+        service_filter = socket.assigns.service_filter
+        hdr_filter = socket.assigns.hdr_filter
+        search = socket.assigns.search
+        sort_by = socket.assigns.sort_by
+        sort_dir = socket.assigns.sort_dir
+
+        socket
+        |> assign(:loading, true)
+        |> start_async(:load_videos, fn ->
+          fetch_video_payload(
+            %{
+              state_counts: state_counts,
+              page: page,
+              per_page: per_page,
+              state_filter: state_filter,
+              service_filter: service_filter,
+              hdr_filter: hdr_filter,
+              search: search,
+              sort_by: sort_by,
+              sort_dir: sort_dir
+            },
+            include_state_counts: false
+          )
+        end)
+      else
+        socket
+      end
 
     {:noreply, socket}
   end
@@ -91,7 +118,39 @@ defmodule ReencodarrWeb.VideosLive do
   @impl true
   def handle_info(:periodic_update, socket) do
     Process.send_after(self(), :periodic_update, @update_interval)
-    {:noreply, if(socket.assigns.loaded_once, do: load_data(socket), else: socket)}
+
+    if socket.assigns.loaded_once do
+      state_counts = socket.assigns.state_counts
+      page = socket.assigns.page
+      per_page = socket.assigns.per_page
+      state_filter = socket.assigns.state_filter
+      service_filter = socket.assigns.service_filter
+      hdr_filter = socket.assigns.hdr_filter
+      search = socket.assigns.search
+      sort_by = socket.assigns.sort_by
+      sort_dir = socket.assigns.sort_dir
+
+      socket =
+        socket
+        |> assign(:loading, true)
+        |> start_async(:load_videos, fn ->
+          fetch_video_payload(%{
+            state_counts: state_counts,
+            page: page,
+            per_page: per_page,
+            state_filter: state_filter,
+            service_filter: service_filter,
+            hdr_filter: hdr_filter,
+            search: search,
+            sort_by: sort_by,
+            sort_dir: sort_dir
+          })
+        end)
+
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -103,11 +162,52 @@ defmodule ReencodarrWeb.VideosLive do
              :crf_search_started,
              :analyzer_progress
            ] do
-    {:noreply, if(socket.assigns.loaded_once, do: load_data(socket), else: socket)}
+    if socket.assigns.loaded_once do
+      state_counts = socket.assigns.state_counts
+      page = socket.assigns.page
+      per_page = socket.assigns.per_page
+      state_filter = socket.assigns.state_filter
+      service_filter = socket.assigns.service_filter
+      hdr_filter = socket.assigns.hdr_filter
+      search = socket.assigns.search
+      sort_by = socket.assigns.sort_by
+      sort_dir = socket.assigns.sort_dir
+
+      socket =
+        socket
+        |> assign(:loading, true)
+        |> start_async(:load_videos, fn ->
+          fetch_video_payload(%{
+            state_counts: state_counts,
+            page: page,
+            per_page: per_page,
+            state_filter: state_filter,
+            service_filter: service_filter,
+            hdr_filter: hdr_filter,
+            search: search,
+            sort_by: sort_by,
+            sort_dir: sort_dir
+          })
+        end)
+
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
   def handle_info({_event, _data}, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_async(:load_videos, {:ok, page_state}, socket) do
+    {:noreply, assign_changed(socket, Map.put(page_state, :loading, false))}
+  end
+
+  @impl true
+  def handle_async(:load_videos, {:exit, _reason}, socket) do
+    {:noreply, assign(socket, :loading, false)}
+  end
 
   # ---------------------------------------------------------------------------
   # Filter / sort / pagination events (push_patch keeps URL in sync)
@@ -287,10 +387,10 @@ defmodule ReencodarrWeb.VideosLive do
   @impl true
   def handle_event("reset_selected", _params, socket) do
     ids = MapSet.to_list(socket.assigns.selected)
-    Enum.each(ids, &reset_video_by_id/1)
+    reset_count = Media.reset_videos_to_needs_analysis(ids)
     socket = socket |> assign(selected: MapSet.new()) |> load_data()
 
-    {:noreply, put_flash(socket, :info, "Reset #{length(ids)} video(s) to needs_analysis")}
+    {:noreply, put_flash(socket, :info, "Reset #{reset_count} video(s) to needs_analysis")}
   end
 
   @impl true
@@ -460,36 +560,34 @@ defmodule ReencodarrWeb.VideosLive do
   # ---------------------------------------------------------------------------
 
   defp load_data(socket, opts \\ []) do
-    page_state =
-      VideosState.load(
-        %{
-          state_counts: socket.assigns.state_counts,
-          page: socket.assigns.page,
-          per_page: socket.assigns.per_page,
-          state_filter: socket.assigns.state_filter,
-          service_filter: socket.assigns.service_filter,
-          hdr_filter: socket.assigns.hdr_filter,
-          search: socket.assigns.search,
-          sort_by: socket.assigns.sort_by,
-          sort_dir: socket.assigns.sort_dir
-        },
-        opts
-      )
+    page_state = fetch_video_payload(socket.assigns, opts)
 
     assign_changed(socket, Map.put(page_state, :loading, false))
+  end
+
+  defp fetch_video_payload(assigns), do: fetch_video_payload(assigns, [])
+
+  defp fetch_video_payload(assigns, opts) do
+    VideosState.load(
+      %{
+        state_counts: assigns.state_counts,
+        page: assigns.page,
+        per_page: assigns.per_page,
+        state_filter: assigns.state_filter,
+        service_filter: assigns.service_filter,
+        hdr_filter: assigns.hdr_filter,
+        search: assigns.search,
+        sort_by: assigns.sort_by,
+        sort_dir: assigns.sort_dir
+      },
+      opts
+    )
   end
 
   defp load_initial_snapshot(socket) do
     socket
     |> load_data()
     |> assign(:loaded_once, true)
-  end
-
-  defp reset_video_by_id(id) do
-    case Media.get_video(id) do
-      nil -> :ok
-      video -> Media.mark_as_needs_analysis(video)
-    end
   end
 
   defp apply_range_selection(selected_set, ids, true) do
@@ -771,42 +869,38 @@ defmodule ReencodarrWeb.VideosLive do
               </div>
               <select
                 name="state"
-                value={@state_filter || ""}
                 class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 lg:w-auto"
               >
                 <option value="">All states</option>
                 <%= for s <- @valid_states do %>
-                  <option value={s}>{s}</option>
+                  <option value={s} selected={@state_filter == s}>{s}</option>
                 <% end %>
               </select>
               <select
                 name="service"
-                value={@service_filter || ""}
                 class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 lg:w-auto"
               >
                 <option value="">All sources</option>
-                <option value="sonarr">Sonarr (TV)</option>
-                <option value="radarr">Radarr (Movies)</option>
+                <option value="sonarr" selected={@service_filter == "sonarr"}>Sonarr (TV)</option>
+                <option value="radarr" selected={@service_filter == "radarr"}>Radarr (Movies)</option>
               </select>
               <select
                 name="hdr"
-                value={hdr_to_param(@hdr_filter) || ""}
                 class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 lg:w-auto"
               >
                 <option value="">Any HDR</option>
-                <option value="true">HDR only</option>
-                <option value="false">SDR only</option>
+                <option value="true" selected={@hdr_filter == true}>HDR only</option>
+                <option value="false" selected={@hdr_filter == false}>SDR only</option>
               </select>
             </form>
 
             <form phx-change="set_per_page">
               <select
                 name="per_page"
-                value={@per_page}
                 class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 sm:w-auto"
               >
                 <%= for n <- @per_page_options do %>
-                  <option value={n}>{n} / page</option>
+                  <option value={n} selected={@per_page == n}>{n} / page</option>
                 <% end %>
               </select>
             </form>
@@ -814,13 +908,16 @@ defmodule ReencodarrWeb.VideosLive do
         </div>
         
     <!-- Loading / table -->
-        <%= if @loading do %>
+        <%= if @loading and @videos == [] do %>
           <div class="bg-gray-800 rounded-lg border border-gray-700 p-16 text-center">
             <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-purple-500 mx-auto mb-3">
             </div>
             <p class="text-gray-400">Loading...</p>
           </div>
         <% else %>
+          <%= if @loading do %>
+            <p class="px-1 text-sm text-gray-400">Refreshing results...</p>
+          <% end %>
           <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-700 text-sm">
               <thead class="bg-gray-700/80">

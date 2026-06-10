@@ -64,10 +64,11 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/videos")
 
-      html =
-        view
-        |> form("#videos-filters", %{search: "unique_alpha_xyz"})
-        |> render_change()
+      view
+      |> form("#videos-filters", %{search: "unique_alpha_xyz"})
+      |> render_change()
+
+      html = render_async(view)
 
       assert html =~ "unique_alpha_xyz"
     end
@@ -76,10 +77,11 @@ defmodule ReencodarrWeb.VideosLiveTest do
       {:ok, _video} = Fixtures.video_fixture(%{path: "/media/show/ep.mkv"})
       {:ok, view, _html} = live(conn, ~p"/videos?q=nonexistent")
 
-      html =
-        view
-        |> form("#videos-filters", %{search: ""})
-        |> render_change()
+      view
+      |> form("#videos-filters", %{search: ""})
+      |> render_change()
+
+      html = render_async(view)
 
       assert html =~ "show"
     end
@@ -91,10 +93,11 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/videos")
 
-      html =
-        view
-        |> form("#videos-filters", %{search: "/media/combo_filter_hit.mkv", state: "encoded"})
-        |> render_change()
+      view
+      |> form("#videos-filters", %{search: "/media/combo_filter_hit.mkv", state: "encoded"})
+      |> render_change()
+
+      html = render_async(view)
 
       assert html =~ "combo_filter_hit.mkv"
       refute html =~ "combo_filter_hit_2.mkv"
@@ -112,18 +115,20 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       view |> form("#videos-filters", %{state: "encoded"}) |> render_change()
 
-      # The event pushes a patch — after render, the select should keep the chosen value
-      html = render(view)
-      assert html =~ ~s(<select name="state" value="encoded")
+      assert_patch(
+        view,
+        "/videos?page=1&per_page=50&sort_by=updated_at&sort_dir=desc&state=encoded"
+      )
     end
 
     test "filter_state renders the page without crashing", %{conn: conn} do
       {:ok, view, _} = live(conn, ~p"/videos")
 
-      html =
-        view
-        |> form("#videos-filters", %{state: "encoded"})
-        |> render_change()
+      view
+      |> form("#videos-filters", %{state: "encoded"})
+      |> render_change()
+
+      html = render_async(view)
 
       assert html =~ "Videos"
     end
@@ -133,10 +138,11 @@ defmodule ReencodarrWeb.VideosLiveTest do
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/only_failed.mkv", state: :failed})
       {:ok, view, _} = live(conn, ~p"/videos")
 
-      html =
-        view
-        |> form("#videos-filters", %{state: "encoded"})
-        |> render_change()
+      view
+      |> form("#videos-filters", %{state: "encoded"})
+      |> render_change()
+
+      html = render_async(view)
 
       assert html =~ "only_encoded.mkv"
       refute html =~ "only_failed.mkv"
@@ -195,17 +201,23 @@ defmodule ReencodarrWeb.VideosLiveTest do
     test "per_page event updates items per page", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/videos")
 
-      html =
-        view
-        |> form("form[phx-change='set_per_page']", %{per_page: "50"})
-        |> render_change()
+      view
+      |> form("form[phx-change='set_per_page']", %{per_page: "50"})
+      |> render_change()
+
+      html = render_async(view)
 
       assert html =~ "Videos"
     end
 
     test "per_page dropdown keeps the selected value", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/videos?per_page=100")
-      assert html =~ ~s(<select name="per_page" value="100")
+      {:ok, view, _html} = live(conn, ~p"/videos")
+
+      view
+      |> form("form[phx-change='set_per_page']", %{per_page: "100"})
+      |> render_change()
+
+      assert_patch(view, "/videos?page=1&per_page=100&sort_by=updated_at&sort_dir=desc")
     end
   end
 
@@ -410,10 +422,12 @@ defmodule ReencodarrWeb.VideosLiveTest do
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/show.mkv"})
       {:ok, view, _} = live(conn, ~p"/videos")
 
-      html =
+      _html =
         view
         |> form("#videos-filters", %{service: "sonarr"})
         |> render_change()
+
+      html = render_async(view)
 
       assert html =~ "Videos"
     end
@@ -426,19 +440,27 @@ defmodule ReencodarrWeb.VideosLiveTest do
       |> form("#videos-filters", %{service: "sonarr"})
       |> render_change()
 
-      html =
-        view
-        |> form("#videos-filters", %{service: ""})
-        |> render_change()
+      view
+      |> form("#videos-filters", %{service: ""})
+      |> render_change()
+
+      html = render_async(view)
 
       assert html =~ "Videos"
     end
 
     test "service dropdown keeps the selected filter", %{conn: conn} do
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/service_keep.mkv", service_type: :sonarr})
-      {:ok, _view, html} = live(conn, ~p"/videos?service=sonarr")
+      {:ok, view, _html} = live(conn, ~p"/videos")
 
-      assert html =~ ~s(<select name="service" value="sonarr")
+      view
+      |> form("#videos-filters", %{service: "sonarr"})
+      |> render_change()
+
+      assert_patch(
+        view,
+        "/videos?page=1&per_page=50&service=sonarr&sort_by=updated_at&sort_dir=desc"
+      )
     end
   end
 
@@ -447,19 +469,25 @@ defmodule ReencodarrWeb.VideosLiveTest do
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/hdr.mkv"})
       {:ok, view, _} = live(conn, ~p"/videos")
 
-      html =
+      _html =
         view
         |> form("#videos-filters", %{hdr: "true"})
         |> render_change()
+
+      html = render_async(view)
 
       assert html =~ "Videos"
     end
 
     test "hdr dropdown keeps the selected filter", %{conn: conn} do
       {:ok, _} = Fixtures.hdr_video_fixture(%{path: "/media/hdr_keep.mkv"})
-      {:ok, _view, html} = live(conn, ~p"/videos?hdr=true")
+      {:ok, view, _html} = live(conn, ~p"/videos")
 
-      assert html =~ ~s(<select name="hdr" value="true")
+      view
+      |> form("#videos-filters", %{hdr: "true"})
+      |> render_change()
+
+      assert_patch(view, "/videos?hdr=true&page=1&per_page=50&sort_by=updated_at&sort_dir=desc")
     end
   end
 

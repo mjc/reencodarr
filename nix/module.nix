@@ -32,12 +32,6 @@
     ''}
   '';
 
-  migrateScript = pkgs.writeShellScript "reencodarr-migrate" ''
-    set -euo pipefail
-    . ${envScript}
-    exec ${lib.getExe cfg.package} eval "Reencodarr.Release.migrate()"
-  '';
-
   startScript = pkgs.writeShellScript "reencodarr-start" ''
     set -euo pipefail
     . ${envScript}
@@ -253,7 +247,6 @@ in {
       wants = ["network-online.target"];
       environment = serviceEnv;
       path = [pkgs.bash];
-      preStart = "${migrateScript}";
       script = "${startScript}";
       serviceConfig = {
         Type = "exec";

@@ -309,6 +309,21 @@ defmodule Reencodarr.Media do
 
   def mark_as_encoded(%Video{} = video), do: VideoStateMachine.mark_as_encoded(video)
 
+  @spec reset_videos_to_needs_analysis([integer()]) :: non_neg_integer()
+  def reset_videos_to_needs_analysis(ids) when is_list(ids) do
+    ids = Enum.uniq(ids)
+
+    if ids == [] do
+      0
+    else
+      {count, _} =
+        from(v in Video, where: v.id in ^ids)
+        |> Repo.update_all(set: [state: :needs_analysis, updated_at: DateTime.utc_now()])
+
+      count
+    end
+  end
+
   @spec fail_video_by_operator(Video.t(), atom()) :: {:ok, VideoFailure.t()} | {:error, term()}
   def fail_video_by_operator(%Video{} = video, stage) when stage in [:crf_search, :encoding] do
     record_video_failure(video, stage, :process_failure,
@@ -2322,6 +2337,11 @@ defmodule Reencodarr.Media do
     Repo.get(Video, id)
   end
 
+  def get_videos_by_ids(ids) when is_list(ids) do
+    from(v in Video, where: v.id in ^ids)
+    |> Repo.all()
+  end
+
   @spec fetch_video(integer()) :: {:ok, Video.t()} | :not_found
   def fetch_video(id) when is_integer(id) do
     case Repo.get(Video, id) do
@@ -2503,9 +2523,34 @@ defmodule Reencodarr.Media do
   defp maybe_filter_search(query, ""), do: query
 
   defp maybe_filter_search(query, search) when is_binary(search) do
-    pattern = "%#{search}%"
-    condition = SharedQueries.case_insensitive_like(:path, pattern)
-    from(v in query, where: ^condition)
+    case search_to_fts_query(search) do
+      nil ->
+        query
+
+      fts_query ->
+        from(v in query,
+          where:
+            fragment(
+              "? IN (SELECT rowid FROM videos_search WHERE videos_search MATCH ?)",
+              v.id,
+              ^fts_query
+            )
+        )
+    end
+  end
+
+  defp search_to_fts_query(search) when is_binary(search) do
+    terms =
+      search
+      |> String.downcase()
+      |> String.replace(~r/[^[:alnum:]]+/u, " ")
+      |> String.split(" ", trim: true)
+      |> Enum.reject(&(&1 == ""))
+
+    case terms do
+      [] -> nil
+      _ -> Enum.map_join(terms, " ", &"#{&1}*")
+    end
   end
 
   defp normalize_video_filter(nil, _field), do: nil

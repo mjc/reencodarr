@@ -139,30 +139,44 @@ in
     '';
 
     postInstall = ''
-      wrapProgram "$out/bin/reencodarr" \
-        --run '
-          if [ -z "''${TMPDIR:-}" ]; then
-            if [ -n "''${REENCODARR_TMPDIR:-}" ]; then
-              export TMPDIR="$REENCODARR_TMPDIR"
-            elif [ -n "''${REENCODARR_DATA_DIR:-}" ]; then
-              export TMPDIR="$REENCODARR_DATA_DIR/tmp"
-            else
-              export TMPDIR=/tmp/reencodarr_tmp
-            fi
-          fi
-          mkdir -p "$TMPDIR"
-          if [ -z "''${TZDATA_DATA_DIR:-}" ]; then
-            if [ -n "''${REENCODARR_DATA_DIR:-}" ]; then
-              export TZDATA_DATA_DIR="$REENCODARR_DATA_DIR/tzdata"
-            elif [ -n "''${HOME:-}" ]; then
-              export TZDATA_DATA_DIR="$HOME/tzdata"
-            else
-              export TZDATA_DATA_DIR=/tmp/elixir_tzdata
-            fi
-          fi
-          mkdir -p "$TZDATA_DATA_DIR"
-        ' \
-        --prefix PATH : "${runtimePath}"
+      mv "$out/bin/reencodarr" "$out/bin/reencodarr-real"
+
+      cat > "$out/bin/reencodarr" <<'EOF'
+#!${pkgs.bash}/bin/bash
+set -euo pipefail
+
+if [ -z "''${TMPDIR:-}" ]; then
+  if [ -n "''${REENCODARR_TMPDIR:-}" ]; then
+    export TMPDIR="$REENCODARR_TMPDIR"
+  elif [ -n "''${REENCODARR_DATA_DIR:-}" ]; then
+    export TMPDIR="$REENCODARR_DATA_DIR/tmp"
+  else
+    export TMPDIR=/tmp/reencodarr_tmp
+  fi
+fi
+mkdir -p "$TMPDIR"
+
+if [ -z "''${TZDATA_DATA_DIR:-}" ]; then
+  if [ -n "''${REENCODARR_DATA_DIR:-}" ]; then
+    export TZDATA_DATA_DIR="$REENCODARR_DATA_DIR/tzdata"
+  elif [ -n "''${HOME:-}" ]; then
+    export TZDATA_DATA_DIR="$HOME/tzdata"
+  else
+    export TZDATA_DATA_DIR=/tmp/elixir_tzdata
+  fi
+fi
+mkdir -p "$TZDATA_DATA_DIR"
+
+export PATH="${runtimePath}:$PATH"
+
+real_bin="$(dirname "$0")/reencodarr-real"
+if [ "''${1:-}" = "start" ]; then
+  "$real_bin" eval "Reencodarr.Release.migrate()"
+fi
+
+exec "$real_bin" "$@"
+EOF
+      chmod +x "$out/bin/reencodarr"
     '';
 
     meta = {
