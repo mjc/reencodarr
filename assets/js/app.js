@@ -228,7 +228,6 @@ let csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("
 // Use embedded socket for iframe pages
 let socketUrl = window.location.pathname.startsWith("/embed/") ? "/embed/live" : "/live"
 let liveSocket = new LiveSocket(socketUrl, Socket, {
-  longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
   hooks: Hooks,
   sessionStorage: sessionStorageWithoutTransportFallback
