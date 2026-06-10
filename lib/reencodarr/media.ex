@@ -2354,14 +2354,14 @@ defmodule Reencodarr.Media do
   def list_videos_paginated(opts \\ []) do
     page = Keyword.get(opts, :page, 1)
     per_page = Keyword.get(opts, :per_page, 50)
-    state_filter = Keyword.get(opts, :state, nil)
+    state_filter = Keyword.get(opts, :state, nil) |> normalize_video_filter(:state)
     search = Keyword.get(opts, :search, nil)
     sort_by = Keyword.get(opts, :sort_by, :updated_at)
     sort_dir = Keyword.get(opts, :sort_dir, :desc)
-    service_type = Keyword.get(opts, :service_type, nil)
+    service_type = Keyword.get(opts, :service_type, nil) |> normalize_video_filter(:service_type)
     hdr = Keyword.get(opts, :hdr, nil)
 
-    filters = build_flop_filters(state_filter, search, service_type)
+    filters = build_flop_filters(state_filter, service_type)
 
     flop_params = %{
       page: page,
@@ -2371,7 +2371,10 @@ defmodule Reencodarr.Media do
       filters: filters
     }
 
-    base_query = from(v in Video) |> maybe_filter_hdr(hdr)
+    base_query =
+      from(v in Video)
+      |> maybe_filter_hdr(hdr)
+      |> maybe_filter_search(search)
 
     flop_opts =
       [for: Video]
@@ -2479,10 +2482,9 @@ defmodule Reencodarr.Media do
     }
   end
 
-  defp build_flop_filters(state_filter, search, service_type) do
+  defp build_flop_filters(state_filter, service_type) do
     []
     |> maybe_add_flop_filter(:state, :==, state_filter)
-    |> maybe_add_flop_filter(:path, :like, search)
     |> maybe_add_flop_filter(:service_type, :==, service_type)
   end
 
@@ -2496,6 +2498,42 @@ defmodule Reencodarr.Media do
   defp maybe_filter_hdr(query, nil), do: query
   defp maybe_filter_hdr(query, true), do: from(v in query, where: not is_nil(v.hdr))
   defp maybe_filter_hdr(query, false), do: from(v in query, where: is_nil(v.hdr))
+
+  defp maybe_filter_search(query, nil), do: query
+  defp maybe_filter_search(query, ""), do: query
+
+  defp maybe_filter_search(query, search) when is_binary(search) do
+    pattern = "%#{search}%"
+    condition = SharedQueries.case_insensitive_like(:path, pattern)
+    from(v in query, where: ^condition)
+  end
+
+  defp normalize_video_filter(nil, _field), do: nil
+  defp normalize_video_filter(value, _field) when is_atom(value), do: value
+
+  defp normalize_video_filter(value, :state) when is_binary(value) do
+    case value do
+      "needs_analysis" -> :needs_analysis
+      "analyzing" -> :analyzing
+      "analyzed" -> :analyzed
+      "crf_searching" -> :crf_searching
+      "crf_searched" -> :crf_searched
+      "encoding" -> :encoding
+      "encoded" -> :encoded
+      "failed" -> :failed
+      _ -> nil
+    end
+  end
+
+  defp normalize_video_filter(value, :service_type) when is_binary(value) do
+    case value do
+      "sonarr" -> :sonarr
+      "radarr" -> :radarr
+      _ -> nil
+    end
+  end
+
+  defp normalize_video_filter(_value, _field), do: nil
 
   def get_videos_in_library(library_id) do
     Repo.all(from v in Video, where: v.library_id == ^library_id)

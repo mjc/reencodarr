@@ -115,10 +115,30 @@ defmodule ReencodarrWeb.VideosLive do
 
   @impl true
   def handle_event("set_filters", params, socket) do
-    search = Map.get(params, "search", socket.assigns.search)
-    state = params |> Map.get("state") |> nilify_empty()
-    service = params |> Map.get("service") |> nilify_empty()
-    hdr = params |> Map.get("hdr") |> nilify_empty() |> parse_hdr_param() |> hdr_to_param()
+    search =
+      params
+      |> Map.get("search", socket.assigns.search)
+      |> nilify_empty()
+      |> then(&(&1 || ""))
+
+    state =
+      params
+      |> Map.get("state", socket.assigns.state_filter)
+      |> nilify_empty()
+      |> coerce_in(@valid_states)
+
+    service =
+      params
+      |> Map.get("service", socket.assigns.service_filter)
+      |> nilify_empty()
+      |> coerce_in(@valid_service_types)
+
+    hdr =
+      params
+      |> Map.get("hdr", hdr_to_param(socket.assigns.hdr_filter))
+      |> nilify_empty()
+      |> parse_hdr_param()
+      |> hdr_to_param()
 
     {:noreply,
      push_patch(socket,
@@ -745,7 +765,7 @@ defmodule ReencodarrWeb.VideosLive do
                   name="search"
                   value={@search}
                   placeholder="Search by path..."
-                  phx-debounce="300"
+                  phx-debounce="700"
                   class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 placeholder-gray-400"
                 />
               </div>

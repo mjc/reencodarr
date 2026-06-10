@@ -288,6 +288,101 @@ defmodule Reencodarr.MediaTest do
       assert meta.total_count == 42
     end
 
+    test "list_videos_paginated/1 combines search with service filter" do
+      {:ok, matching_video} =
+        Fixtures.video_fixture(%{
+          path: "/test/query_combo/sonarr_match.mkv",
+          state: :encoded,
+          service_type: :sonarr
+        })
+
+      {:ok, _} =
+        Fixtures.video_fixture(%{
+          path: "/test/query_combo/radarr_miss.mkv",
+          state: :encoded,
+          service_type: :radarr
+        })
+
+      {:ok, sonarr_miss} =
+        Fixtures.video_fixture(%{
+          path: "/test/query_combo/sonarr_other_state.mkv",
+          state: :failed,
+          service_type: :sonarr
+        })
+
+      {videos, meta} =
+        Media.list_videos_paginated(
+          page: 1,
+          per_page: 10,
+          search: "query_combo",
+          service_type: "sonarr"
+        )
+
+      assert Enum.map(videos, & &1.id) |> Enum.sort() ==
+               Enum.sort([matching_video.id, sonarr_miss.id])
+
+      assert meta.total_count == 2
+    end
+
+    test "list_videos_paginated/1 combines search with state filter" do
+      {:ok, matching_video} =
+        Fixtures.video_fixture(%{
+          path: "/test/query_state_combo/match.mkv",
+          state: :encoded
+        })
+
+      {:ok, _} =
+        Fixtures.video_fixture(%{
+          path: "/test/query_state_combo/miss.mkv",
+          state: :failed
+        })
+
+      {videos, meta} =
+        Media.list_videos_paginated(
+          page: 1,
+          per_page: 10,
+          search: "query_state_combo",
+          state: "encoded"
+        )
+
+      assert Enum.map(videos, & &1.id) == [matching_video.id]
+      assert meta.total_count == 1
+    end
+
+    test "list_videos_paginated/1 combines service and state filters" do
+      {:ok, matching_video} =
+        Fixtures.video_fixture(%{
+          path: "/test/query_state_service_combo/match.mkv",
+          state: :encoded,
+          service_type: :sonarr
+        })
+
+      {:ok, _} =
+        Fixtures.video_fixture(%{
+          path: "/test/query_state_service_combo/service_miss.mkv",
+          state: :encoded,
+          service_type: :radarr
+        })
+
+      {:ok, _} =
+        Fixtures.video_fixture(%{
+          path: "/test/query_state_service_combo/state_miss.mkv",
+          state: :failed,
+          service_type: :sonarr
+        })
+
+      {videos, meta} =
+        Media.list_videos_paginated(
+          page: 1,
+          per_page: 10,
+          state: "encoded",
+          service_type: "sonarr"
+        )
+
+      assert Enum.map(videos, & &1.id) == [matching_video.id]
+      assert meta.total_count == 1
+    end
+
     test "get_video/1 returns video when found" do
       {:ok, video} = Fixtures.video_fixture()
 
