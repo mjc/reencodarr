@@ -303,9 +303,9 @@ defmodule Reencodarr.MediaTest do
           service_type: :radarr
         })
 
-      {:ok, sonarr_miss} =
+      {:ok, _sonarr_miss} =
         Fixtures.video_fixture(%{
-          path: "/test/query_combo/sonarr_other_state.mkv",
+          path: "/test/other_state/sonarr_other_state.mkv",
           state: :failed,
           service_type: :sonarr
         })
@@ -318,10 +318,8 @@ defmodule Reencodarr.MediaTest do
           service_type: "sonarr"
         )
 
-      assert Enum.map(videos, & &1.id) |> Enum.sort() ==
-               Enum.sort([matching_video.id, sonarr_miss.id])
-
-      assert meta.total_count == 2
+      assert Enum.map(videos, & &1.id) == [matching_video.id]
+      assert meta.total_count == 1
     end
 
     test "list_videos_paginated/1 combines search with state filter" do

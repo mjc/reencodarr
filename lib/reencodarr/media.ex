@@ -2511,29 +2511,28 @@ defmodule Reencodarr.Media do
   defp normalize_video_filter(nil, _field), do: nil
   defp normalize_video_filter(value, _field) when is_atom(value), do: value
 
-  defp normalize_video_filter(value, :state) when is_binary(value) do
-    case value do
-      "needs_analysis" -> :needs_analysis
-      "analyzing" -> :analyzing
-      "analyzed" -> :analyzed
-      "crf_searching" -> :crf_searching
-      "crf_searched" -> :crf_searched
-      "encoding" -> :encoding
-      "encoded" -> :encoded
-      "failed" -> :failed
-      _ -> nil
-    end
-  end
-
-  defp normalize_video_filter(value, :service_type) when is_binary(value) do
-    case value do
-      "sonarr" -> :sonarr
-      "radarr" -> :radarr
-      _ -> nil
-    end
-  end
+  defp normalize_video_filter(value, field) when is_binary(value),
+    do: normalize_video_filter_value(field, value)
 
   defp normalize_video_filter(_value, _field), do: nil
+
+  defp normalize_video_filter_value(:state, value), do: normalize_video_state(value)
+  defp normalize_video_filter_value(:service_type, value), do: normalize_video_service_type(value)
+  defp normalize_video_filter_value(_field, _value), do: nil
+
+  defp normalize_video_state("needs_analysis"), do: :needs_analysis
+  defp normalize_video_state("analyzing"), do: :analyzing
+  defp normalize_video_state("analyzed"), do: :analyzed
+  defp normalize_video_state("crf_searching"), do: :crf_searching
+  defp normalize_video_state("crf_searched"), do: :crf_searched
+  defp normalize_video_state("encoding"), do: :encoding
+  defp normalize_video_state("encoded"), do: :encoded
+  defp normalize_video_state("failed"), do: :failed
+  defp normalize_video_state(_value), do: nil
+
+  defp normalize_video_service_type("sonarr"), do: :sonarr
+  defp normalize_video_service_type("radarr"), do: :radarr
+  defp normalize_video_service_type(_value), do: nil
 
   def get_videos_in_library(library_id) do
     Repo.all(from v in Video, where: v.library_id == ^library_id)
