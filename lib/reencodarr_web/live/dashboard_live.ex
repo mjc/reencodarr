@@ -50,6 +50,7 @@ defmodule ReencodarrWeb.DashboardLive do
         syncing: false,
         sync_progress: 0,
         service_type: nil,
+        page_title: nil,
         # New dashboard stats
         stats: Reencodarr.Media.get_default_stats(),
         stats_display: stats_display(Reencodarr.Media.get_default_stats()),
@@ -1319,6 +1320,8 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   defp assign_dashboard_state(socket, state) do
+    page_title = dashboard_page_title(state)
+
     merged_queue_items =
       merge_queue_items_for_display(
         socket.assigns.queue_items,
@@ -1350,7 +1353,26 @@ defmodule ReencodarrWeb.DashboardLive do
     |> assign_if_changed(:resolution_distribution, state.resolution_distribution)
     |> assign_if_changed(:codec_distribution, state.codec_distribution)
     |> assign_if_changed(:charts_loaded, charts_loaded)
+    |> assign_if_changed(:page_title, page_title)
   end
+
+  @doc false
+  def dashboard_page_title(state) when is_map(state) do
+    service_status = Map.get(state, :service_status, %{})
+
+    if paused_all?(service_status) do
+      "Paused"
+    else
+      [crf_title(state), encoding_title(state)]
+      |> Enum.reject(&is_nil/1)
+      |> case do
+        [] -> nil
+        titles -> Enum.join(titles, " ")
+      end
+    end
+  end
+
+  def dashboard_page_title(_), do: nil
 
   defp assign_if_changed(socket, key, value) do
     if Map.get(socket.assigns, key) == value do
@@ -1447,4 +1469,33 @@ defmodule ReencodarrWeb.DashboardLive do
       data[:percent] || 0
     end
   end
+
+  defp crf_title(%{crf_search_sample: %{sample_num: sample_num, total_samples: total_samples}})
+       when is_integer(sample_num) and is_integer(total_samples) and sample_num > 0 and
+              total_samples > 0 do
+    "#{sample_num}/#{total_samples}"
+  end
+
+  defp crf_title(_), do: nil
+
+  defp encoding_title(%{encoding_progress: %{percent: percent, fps: fps}})
+       when not is_nil(percent) and not is_nil(fps) do
+    "#{format_title_number(fps)}fps #{format_title_number(percent)}%"
+  end
+
+  defp encoding_title(_), do: nil
+
+  defp paused_all?(%{crf_searcher: :paused, encoder: :paused}), do: true
+  defp paused_all?(_), do: false
+
+  defp format_title_number(value) when is_integer(value), do: Integer.to_string(value)
+
+  defp format_title_number(value) when is_float(value) do
+    value
+    |> Formatters.rate()
+    |> String.replace(~r/\.0$/, "")
+  end
+
+  defp format_title_number(value) when is_binary(value), do: value
+  defp format_title_number(value), do: to_string(value)
 end
