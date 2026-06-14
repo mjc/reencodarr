@@ -1,8 +1,5 @@
 defmodule Reencodarr.ServicesFixtures do
-  @moduledoc """
-  This module defines test helpers for creating
-  entities via the `Reencodarr.Services` context.
-  """
+  @moduledoc false
 
   @doc """
   Generate a config.

@@ -193,7 +193,7 @@ defmodule Reencodarr.Media do
   end
 
   def upsert_video(attrs) do
-    path = Map.get(attrs, :path) || Map.get(attrs, "path")
+    path = get_any(attrs, [:path, "path"])
     old_video = if is_binary(path), do: fetch_dashboard_video_snapshot_by_path(path)
 
     write(
@@ -1889,7 +1889,7 @@ defmodule Reencodarr.Media do
   end
 
   defp vmaf_operation(attrs, opts) do
-    video_id = Map.get(attrs, "video_id") || Map.get(attrs, :video_id)
+    video_id = get_any(attrs, ["video_id", :video_id])
 
     with {:ok, video_id} <- validate_video_id(video_id),
          %Video{} = video <- get_video(video_id) do

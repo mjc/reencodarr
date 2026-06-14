@@ -1,12 +1,5 @@
 defmodule Reencodarr.UnitCase do
-  @moduledoc """
-  This module defines the setup for pure unit tests.
-
-  Use this for tests that:
-  - Test pure functions with no external dependencies
-  - Don't need database or connection setup
-  - Test utility functions, formatters, parsers, etc.
-  """
+  @moduledoc false
 
   use ExUnit.CaseTemplate
 

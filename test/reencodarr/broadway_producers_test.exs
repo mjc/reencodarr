@@ -22,7 +22,7 @@ defmodule Reencodarr.BroadwayProducersTest do
       {:noreply, videos, _new_state} = AnalyzerProducer.handle_demand(1, state)
 
       assert is_list(videos)
-      assert length(videos) <= 1
+      assert Enum.count_until(videos, 2) <= 1
     end
 
     test "handle_demand returns empty when no videos" do
@@ -40,8 +40,8 @@ defmodule Reencodarr.BroadwayProducersTest do
       {:producer, state} = AnalyzerProducer.init([])
       {:noreply, videos, _new_state} = AnalyzerProducer.handle_demand(100, state)
 
-      assert length(videos) <= 100
-      assert length(videos) == 10
+      assert Enum.count_until(videos, 101) <= 100
+      assert Enum.count(videos) == 10
     end
 
     test "poll wakes up Broadway when work available" do
@@ -66,7 +66,7 @@ defmodule Reencodarr.BroadwayProducersTest do
       state = init_state(AnalyzerProducer)
       {:noreply, videos, _state2} = AnalyzerProducer.handle_demand(5, state)
 
-      assert length(videos) == 1
+      assert Enum.count(videos) == 1
       assert hd(videos).id == video.id
 
       # Video should now be in :analyzing state in the DB
@@ -97,7 +97,7 @@ defmodule Reencodarr.BroadwayProducersTest do
 
       state = init_state(AnalyzerProducer)
       {:noreply, videos1, state2} = AnalyzerProducer.handle_demand(5, state)
-      assert length(videos1) == 1
+      assert Enum.count(videos1) == 1
 
       # Second demand should return nothing — video already claimed
       {:noreply, videos2, _state3} = AnalyzerProducer.handle_demand(5, state2)

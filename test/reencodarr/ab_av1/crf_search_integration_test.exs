@@ -133,7 +133,7 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
 
       # Verify VMAF records were created
       vmafs = Repo.all(from v in Vmaf, where: v.video_id == ^video.id, order_by: v.crf)
-      assert length(vmafs) == 3
+      assert Enum.count(vmafs) == 3
 
       # Verify CRF values are correct
       crf_values = Enum.map(vmafs, & &1.crf)

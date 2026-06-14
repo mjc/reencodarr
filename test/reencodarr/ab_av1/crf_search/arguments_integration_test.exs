@@ -53,7 +53,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.ArgumentsIntegrationTest do
       args = CrfSearch.build_crf_search_args(video, 95, crf_range: {14, 30})
 
       # More than just the basic args
-      assert length(args) > 8
+      assert Enum.count_until(args, 9) > 8
     end
   end
 

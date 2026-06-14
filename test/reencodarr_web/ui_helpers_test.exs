@@ -218,7 +218,7 @@ defmodule ReencodarrWeb.UIHelpersTest do
 
     test "contains 4 operations" do
       result = UIHelpers.dashboard_operations()
-      assert length(result) == 4
+      assert Enum.count(result) == 4
     end
 
     test "each operation has title, key, and color fields" do
@@ -236,7 +236,7 @@ defmodule ReencodarrWeb.UIHelpersTest do
     test "returns a list of 3 configs" do
       result = UIHelpers.queue_configs()
       assert is_list(result)
-      assert length(result) == 3
+      assert Enum.count(result) == 3
     end
 
     test "each config has required keys" do
@@ -967,7 +967,7 @@ defmodule ReencodarrWeb.UIHelpersTest do
     test "returns a list of 4 stat configs" do
       result = UIHelpers.stats_config()
       assert is_list(result)
-      assert length(result) == 4
+      assert Enum.count(result) == 4
     end
 
     test "each config has label and key" do

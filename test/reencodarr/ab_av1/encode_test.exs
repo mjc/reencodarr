@@ -336,7 +336,7 @@ defmodule Reencodarr.AbAv1.EncodeTest do
       end)
 
       state = :sys.get_state(pid)
-      assert length(state.output_lines) == 1024
+      assert Enum.count(state.output_lines) == 1024
       assert hd(state.output_lines) == "unmatched encode output 1100"
       assert "unmatched encode output 1" in state.output_lines
       assert "unmatched encode output 75" not in state.output_lines

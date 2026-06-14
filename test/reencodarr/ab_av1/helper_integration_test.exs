@@ -159,7 +159,7 @@ defmodule Reencodarr.AbAv1.HelperIntegrationTest do
       refute has_image_stream?(result_path)
       codecs = stream_codecs(result_path)
       assert Enum.any?(codecs, &(&1.codec == "h264"))
-      assert length(codecs) == 1
+      assert Enum.count(codecs) == 1
     end
 
     test "two_real_tracks.mp4 — both tracks removed regardless of order", %{tmp_dir: tmp_dir} do
@@ -212,7 +212,7 @@ defmodule Reencodarr.AbAv1.HelperIntegrationTest do
       refute has_image_stream?(result_path)
       result_codecs = stream_codecs(result_path)
       assert Enum.any?(result_codecs, &(&1.codec == "h264"))
-      assert length(result_codecs) == 1
+      assert Enum.count(result_codecs) == 1
     end
   end
 

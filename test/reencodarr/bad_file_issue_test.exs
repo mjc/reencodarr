@@ -86,7 +86,7 @@ defmodule Reencodarr.BadFileIssueTest do
       assert first_issue.id == second_issue.id
       assert second_issue.manual_reason == "updated"
       assert second_issue.manual_note == "reproduces consistently"
-      assert length(Media.list_bad_file_issues()) == 1
+      assert Enum.count(Media.list_bad_file_issues()) == 1
     end
   end
 

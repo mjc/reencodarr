@@ -23,7 +23,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
         )
 
       results = Repo.all(query)
-      assert length(results) == 1
+      assert Enum.count(results) == 1
       assert hd(results).path == "/media/UPPERCASE.mkv"
     end
 
@@ -38,7 +38,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
         )
 
       results = Repo.all(query)
-      assert length(results) == 2
+      assert Enum.count(results) == 2
     end
 
     test "works with different field types" do
@@ -50,7 +50,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
         )
 
       results = Repo.all(query)
-      assert length(results) == 1
+      assert Enum.count(results) == 1
       assert hd(results).id == video.id
     end
   end
@@ -66,7 +66,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
 
       # With no patterns configured, all videos should be returned
       result = SharedQueries.videos_not_matching_exclude_patterns(videos)
-      assert length(result) == 3
+      assert Enum.count(result) == 3
       assert Enum.map(result, & &1.id) == Enum.map(videos, & &1.id)
     end
 
@@ -87,7 +87,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       result = SharedQueries.videos_not_matching_exclude_patterns(videos)
 
       # With no patterns configured, should return all videos
-      assert length(result) == 3
+      assert Enum.count(result) == 3
     end
 
     test "small lists use optimized path" do
@@ -100,7 +100,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
 
       # Should use the optimized small list function
       result = SharedQueries.videos_not_matching_exclude_patterns(videos)
-      assert length(result) == 10
+      assert Enum.count(result) == 10
     end
 
     test "large lists use different path" do
@@ -113,7 +113,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
 
       # Should use the large list function (which currently falls back to memory filtering)
       result = SharedQueries.videos_not_matching_exclude_patterns(videos)
-      assert length(result) == 60
+      assert Enum.count(result) == 60
     end
 
     test "filters videos matching exclude patterns in small lists" do
@@ -129,7 +129,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       result = SharedQueries.videos_not_matching_exclude_patterns(videos)
 
       # Should only return normal_video
-      assert length(result) == 1
+      assert Enum.count(result) == 1
       assert hd(result).id == normal_video.id
 
       # Clean up
@@ -158,7 +158,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       result = SharedQueries.videos_not_matching_exclude_patterns(all_videos)
 
       # Should only return the 45 normal videos
-      assert length(result) == 45
+      assert Enum.count(result) == 45
       assert Enum.all?(result, fn v -> not String.contains?(v.path, "/sample/") end)
 
       # Clean up
@@ -187,7 +187,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       query = SharedQueries.videos_with_no_chosen_vmafs_query()
       video_ids = Repo.all(query)
 
-      assert length(video_ids) == 1
+      assert Enum.count(video_ids) == 1
       assert video1.id in video_ids
       refute video2.id in video_ids
       refute video3.id in video_ids
@@ -204,7 +204,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
       query = SharedQueries.videos_with_no_chosen_vmafs_query()
       video_ids = Repo.all(query)
 
-      assert length(video_ids) == 1
+      assert Enum.count(video_ids) == 1
       assert video.id in video_ids
     end
 

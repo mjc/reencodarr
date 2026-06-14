@@ -152,7 +152,7 @@ defmodule Reencodarr.RulesTest do
       # Should keep the additional param value (first occurrence)
       pix_indices = find_flag_indices(args, "--pix-format")
       # Should only appear once
-      assert length(pix_indices) == 1
+      assert Enum.count(pix_indices) == 1
 
       pix_index = hd(pix_indices)
       # Additional param wins

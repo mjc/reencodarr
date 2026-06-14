@@ -370,7 +370,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
             crash_reason: {e, __STACKTRACE__}
           )
 
-          {:error, :exception}
+          {:error, {:exception, e, __STACKTRACE__}}
       end
 
     case result do
@@ -760,9 +760,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp maybe_upsert_vmaf_with_video(data) do
-    service_id = data["service_id"] || data[:service_id]
-    service_type = data["service_type"] || data[:service_type]
-    path = data["path"] || data[:path]
+    service_id = get_any(data, ["service_id", :service_id])
+    service_type = get_any(data, ["service_type", :service_type])
+    path = get_any(data, ["path", :path])
 
     video =
       if service_id && service_type do
@@ -1146,7 +1146,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       [] ->
         "#{base_msg}. No VMAF scores were recorded - this suggests the encoding samples failed completely. Check if ffmpeg and ab-av1 are properly installed and the video file is accessible."
 
-      scores when length(scores) < 3 ->
+      [_, _] = scores ->
         max_score = scores |> Enum.map(fn %{score: score} -> score end) |> Enum.max()
 
         "#{base_msg}. Only #{length(scores)} VMAF score(s) were tested (highest: #{Reencodarr.Formatters.vmaf_score(max_score, 2)}). The search space may be too limited - try using a wider CRF range or different encoder settings."
@@ -1348,4 +1348,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   end
 
   defp calculate_savings(_, _), do: nil
+
+  defp get_any(map, keys) when is_map(map) do
+    Enum.find_value(keys, &Map.get(map, &1))
+  end
 end

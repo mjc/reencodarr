@@ -12,7 +12,7 @@ defmodule Reencodarr.MediaTest do
       {:ok, video} = Fixtures.video_fixture()
       videos = Media.list_videos()
 
-      assert length(videos) == 1
+      assert Enum.count(videos) == 1
       assert hd(videos).id == video.id
     end
 
@@ -222,7 +222,7 @@ defmodule Reencodarr.MediaTest do
 
       results = Media.find_videos_by_path_wildcard("/media/movies/%")
 
-      assert length(results) == 2
+      assert Enum.count(results) == 2
       assert Enum.all?(results, fn v -> String.starts_with?(v.path, "/media/movies/") end)
     end
 
@@ -527,7 +527,7 @@ defmodule Reencodarr.MediaTest do
       library = Fixtures.library_fixture()
       libraries = Media.list_libraries()
 
-      assert length(libraries) == 1
+      assert Enum.count(libraries) == 1
       assert hd(libraries).id == library.id
     end
 
@@ -592,7 +592,7 @@ defmodule Reencodarr.MediaTest do
     test "create multiple libraries with fixture helper" do
       libraries = Fixtures.libraries_fixture(3, %{monitor: false})
 
-      assert length(libraries) == 3
+      assert Enum.count(libraries) == 3
 
       Enum.each(libraries, fn library ->
         assert library.monitor == false
@@ -612,7 +612,7 @@ defmodule Reencodarr.MediaTest do
 
       videos_in_lib1 = Media.get_videos_in_library(library1.id)
 
-      assert length(videos_in_lib1) == 2
+      assert Enum.count(videos_in_lib1) == 2
       assert v1.id in Enum.map(videos_in_lib1, & &1.id)
       assert v2.id in Enum.map(videos_in_lib1, & &1.id)
     end
@@ -654,7 +654,7 @@ defmodule Reencodarr.MediaTest do
       results = Media.batch_upsert_videos(video_attrs_list)
 
       # Verify all upserts succeeded
-      assert length(results) == 3
+      assert Enum.count(results) == 3
       assert Enum.all?(results, &match?({:ok, _}, &1))
 
       # Extract the videos
@@ -714,7 +714,7 @@ defmodule Reencodarr.MediaTest do
       results = Media.batch_upsert_videos(video_attrs_list)
 
       # Verify results
-      assert length(results) == 2
+      assert Enum.count(results) == 2
       assert Enum.all?(results, &match?({:ok, _}, &1))
 
       # Check updated existing video
@@ -762,7 +762,7 @@ defmodule Reencodarr.MediaTest do
         results = Media.batch_upsert_videos(video_attrs_list)
 
         # Should have one success and one error
-        assert length(results) == 2
+        assert Enum.count(results) == 2
         assert match?({:ok, _}, Enum.at(results, 0))
         assert match?({:error, _}, Enum.at(results, 1))
       end)
@@ -776,7 +776,7 @@ defmodule Reencodarr.MediaTest do
       vmaf = Fixtures.vmaf_fixture()
       vmafs = Media.list_vmafs()
 
-      assert length(vmafs) == 1
+      assert Enum.count(vmafs) == 1
       assert hd(vmafs).id == vmaf.id
     end
 
@@ -853,7 +853,7 @@ defmodule Reencodarr.MediaTest do
       {:ok, video} = Fixtures.video_fixture()
       vmafs = Fixtures.vmaf_series_fixture(video, [24, 26, 28, 30, 32])
 
-      assert length(vmafs) == 5
+      assert Enum.count(vmafs) == 5
 
       # Should have decreasing quality scores with higher CRF
       sorted_vmafs = Enum.sort_by(vmafs, & &1.crf)
@@ -879,7 +879,7 @@ defmodule Reencodarr.MediaTest do
 
       vmafs = Media.get_vmafs_for_video(video.id)
 
-      assert length(vmafs) == 2
+      assert Enum.count(vmafs) == 2
       assert vmaf1.id in Enum.map(vmafs, & &1.id)
       assert vmaf2.id in Enum.map(vmafs, & &1.id)
     end
@@ -1025,7 +1025,7 @@ defmodule Reencodarr.MediaTest do
       {:ok, _video3} = Fixtures.video_fixture(%{path: "/media/tv/show/episode.mkv"})
 
       action_videos = Media.find_videos_by_path_wildcard("%/action/%")
-      assert length(action_videos) == 2
+      assert Enum.count(action_videos) == 2
       assert Enum.all?(action_videos, &String.contains?(&1.path, "/action/"))
     end
 
@@ -1038,7 +1038,7 @@ defmodule Reencodarr.MediaTest do
       {:ok, _} = Media.mark_as_analyzed(video2)
 
       videos = Media.get_videos_for_crf_search(5)
-      assert length(videos) >= 2
+      assert Enum.count_until(videos, 2) == 2
       assert Enum.all?(videos, &(&1.state == :analyzed))
     end
 
@@ -1058,7 +1058,7 @@ defmodule Reencodarr.MediaTest do
       {:ok, _video2} = Fixtures.video_fixture()
 
       videos = Media.get_videos_needing_analysis(10)
-      assert length(videos) >= 2
+      assert Enum.count_until(videos, 2) == 2
       assert Enum.all?(videos, &(&1.state == :needs_analysis))
     end
 
@@ -1447,7 +1447,7 @@ defmodule Reencodarr.MediaTest do
 
       assert Media.get_video_failures(exit_143_a.id) == []
       assert Media.get_video_failures(exit_143_b.id) == []
-      assert length(Media.get_video_failures(timeout.id)) == 1
+      assert Enum.count(Media.get_video_failures(timeout.id)) == 1
     end
   end
 
@@ -1554,7 +1554,7 @@ defmodule Reencodarr.MediaTest do
 
       # Returns list of results
       assert is_list(results)
-      assert length(results) == 2
+      assert Enum.count(results) == 2
       # Check successful upserts
       successful =
         Enum.count(results, fn
@@ -1783,7 +1783,7 @@ defmodule Reencodarr.MediaTest do
 
       failures = Media.get_video_failures(video.id)
 
-      assert length(failures) == 2
+      assert Enum.count(failures) == 2
       stages = Enum.map(failures, & &1.failure_stage)
       assert :encoding in stages
       assert :crf_search in stages
@@ -2343,7 +2343,7 @@ defmodule Reencodarr.MediaTest do
 
       assert vmaf1.id in vmaf_ids
       assert vmaf2.id in vmaf_ids
-      assert length(vmafs) >= 2
+      assert Enum.count_until(vmafs, 2) == 2
     end
 
     test "delete_vmafs_for_video/1 with no VMAFs returns zero" do
@@ -2562,7 +2562,7 @@ defmodule Reencodarr.MediaTest do
 
       result = Media.get_next_for_encoding_by_time()
 
-      assert length(result) == 1
+      assert Enum.count(result) == 1
       # Should return the one with higher savings
       assert hd(result).savings == 5_000_000
     end
@@ -2611,7 +2611,7 @@ defmodule Reencodarr.MediaTest do
       video_ids = Enum.map(result, & &1.id)
       assert v1.id in video_ids
       assert v2.id in video_ids
-      assert length(result) >= 2
+      assert Enum.count_until(result, 2) == 2
     end
 
     test "count_videos/0 returns accurate count" do
@@ -2763,7 +2763,7 @@ defmodule Reencodarr.MediaTest do
 
       # Video 1 should keep all VMAFs
       vmafs1 = Media.get_vmafs_for_video(video1.id)
-      assert length(vmafs1) == 2
+      assert Enum.count(vmafs1) == 2
       assert vmaf1.id in Enum.map(vmafs1, & &1.id)
       assert vmaf2.id in Enum.map(vmafs1, & &1.id)
 
@@ -3017,7 +3017,7 @@ defmodule Reencodarr.MediaTest do
       results = Media.get_next_for_encoding(3)
 
       # Should get at most 3 results
-      assert length(results) <= 3
+      assert Enum.count_until(results, 4) <= 3
     end
 
     test "list_videos_by_estimated_percent/1 orders by highest percent first" do
@@ -3033,7 +3033,7 @@ defmodule Reencodarr.MediaTest do
       results = Media.list_videos_by_estimated_percent(10)
 
       # Should be ordered by percent descending
-      if length(results) >= 3 do
+      if Enum.count_until(results, 3) == 3 do
         percentages = Enum.map(results, fn r -> r.estimated_space_saved_percent end)
         assert Enum.sort(percentages, :desc) == percentages
       end
@@ -3056,7 +3056,7 @@ defmodule Reencodarr.MediaTest do
 
       result = Media.get_next_for_encoding_by_time()
 
-      assert length(result) == 1
+      assert Enum.count(result) == 1
       assert hd(result).id == vmaf.id
     end
 
@@ -3080,7 +3080,7 @@ defmodule Reencodarr.MediaTest do
       result = Media.get_next_for_encoding_by_time()
 
       # Should return the one with highest savings first
-      assert length(result) == 1
+      assert Enum.count(result) == 1
       assert hd(result).savings == 100_000
     end
   end
@@ -3165,7 +3165,7 @@ defmodule Reencodarr.MediaTest do
 
       results = Media.find_videos_by_path_wildcard("%#{unique}%")
 
-      assert length(results) == 1
+      assert Enum.count(results) == 1
       assert hd(results).id == v1.id
     end
 
@@ -3175,7 +3175,7 @@ defmodule Reencodarr.MediaTest do
 
       results = Media.find_videos_by_path_wildcard("%#{unique}%")
 
-      assert length(results) == 1
+      assert Enum.count(results) == 1
     end
   end
 
@@ -3217,11 +3217,11 @@ defmodule Reencodarr.MediaTest do
           v
         end
 
-      assert length(videos) == 3
+      assert Enum.count(videos) == 3
 
       results = Media.list_videos_by_estimated_percent(2)
 
-      assert length(results) <= 2
+      assert Enum.count_until(results, 3) <= 2
     end
 
     test "default limit does not crash with few videos" do
@@ -3289,7 +3289,7 @@ defmodule Reencodarr.MediaTest do
         assert count == 1
 
         remaining = Media.get_video_failures(video.id)
-        assert length(remaining) == 1
+        assert Enum.count(remaining) == 1
         assert hd(remaining).failure_stage == :encoding
       end)
     end
@@ -3353,7 +3353,7 @@ defmodule Reencodarr.MediaTest do
         assert count == 1
 
         remaining = Media.get_video_failures(video.id)
-        assert length(remaining) == 1
+        assert Enum.count(remaining) == 1
         assert hd(remaining).failure_stage == :encoding
       end)
     end
@@ -3370,7 +3370,7 @@ defmodule Reencodarr.MediaTest do
         {0, nil} = Media.resolve_crf_search_failures(video.id)
 
         remaining = Media.get_video_failures(video.id)
-        assert length(remaining) == 1
+        assert Enum.count(remaining) == 1
       end)
     end
 

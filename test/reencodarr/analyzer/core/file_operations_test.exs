@@ -95,7 +95,7 @@ defmodule Reencodarr.Analyzer.Core.FileOperationsTest do
       on_exit(fn -> Enum.each(paths, &File.rm/1) end)
 
       result = FileOperations.filter_existing_files(paths)
-      assert length(result) == 3
+      assert Enum.count(result) == 3
     end
 
     test "returns empty list for empty input" do

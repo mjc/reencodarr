@@ -46,7 +46,7 @@ defmodule Reencodarr.FailureTrackingIntegrationTest do
           # Verify stage breakdown
           by_stage = report.by_stage
           assert is_list(by_stage)
-          assert length(by_stage) >= 3
+          assert Enum.count_until(by_stage, 3) == 3
 
           # Find each stage in the list
           analysis_stage = Enum.find(by_stage, &(&1.stage == :analysis))

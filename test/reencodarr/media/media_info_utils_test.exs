@@ -225,7 +225,7 @@ defmodule Reencodarr.Media.MediaInfoUtilsTest do
 
       assert is_map(result["media"])
       tracks = result["media"]["track"]
-      assert length(tracks) == 3
+      assert Enum.count(tracks) == 3
 
       video = Enum.find(tracks, &(&1["@type"] == "Video"))
       assert video["Width"] == 1920

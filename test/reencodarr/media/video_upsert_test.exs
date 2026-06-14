@@ -299,7 +299,7 @@ defmodule Reencodarr.Media.VideoUpsertTest do
 
       results = VideoUpsert.batch_upsert(video_attrs_list)
 
-      assert length(results) == 2
+      assert Enum.count(results) == 2
       assert Enum.all?(results, fn result -> match?({:ok, %Video{}}, result) end)
 
       [result1, result2] = results
@@ -332,7 +332,7 @@ defmodule Reencodarr.Media.VideoUpsertTest do
       capture_log(fn ->
         results = VideoUpsert.batch_upsert(video_attrs_list)
 
-        assert length(results) == 2
+        assert Enum.count(results) == 2
         [result1, result2] = results
 
         assert {:ok, %Video{}} = result1
@@ -363,7 +363,7 @@ defmodule Reencodarr.Media.VideoUpsertTest do
       ]
 
       results = VideoUpsert.batch_upsert(batch_attrs)
-      assert length(results) == 1
+      assert Enum.count(results) == 1
 
       [result] = results
       # Should succeed and return existing video (not an error)
@@ -388,7 +388,7 @@ defmodule Reencodarr.Media.VideoUpsertTest do
 
       capture_log(fn ->
         results = VideoUpsert.batch_upsert(invalid_attrs_list)
-        assert length(results) == 1
+        assert Enum.count(results) == 1
         [result] = results
         assert {:error, _} = result
       end)
@@ -925,7 +925,7 @@ defmodule Reencodarr.Media.VideoUpsertTest do
       ]
 
       results = VideoUpsert.batch_upsert(batch_attrs)
-      assert length(results) == 2
+      assert Enum.count(results) == 2
 
       [result1, result2] = results
       assert {:ok, %Video{id: id1, size: 2_000_000}} = result1

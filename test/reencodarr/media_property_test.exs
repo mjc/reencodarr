@@ -238,7 +238,7 @@ defmodule Reencodarr.Media.PropertyTest do
       check all(codecs <- audio_codecs_generator()) do
         assert is_list(codecs)
         assert not Enum.empty?(codecs)
-        assert length(codecs) <= 3
+        assert Enum.count_until(codecs, 4) <= 3
 
         Enum.each(codecs, fn codec ->
           assert codec in ["aac", "ac3", "dts", "truehd", "flac", "opus"]

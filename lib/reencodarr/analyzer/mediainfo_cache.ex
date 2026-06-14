@@ -279,7 +279,7 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
   end
 
   defp handle_single_mediainfo_result(single_result, paths) do
-    if length(paths) == 1 do
+    if Enum.count(paths) == 1 do
       {:ok, %{List.first(paths) => single_result}}
     else
       {:error, {:unexpected_single_result, length(paths)}}

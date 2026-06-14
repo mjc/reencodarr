@@ -60,27 +60,27 @@ defmodule Reencodarr.Core.ProgressTest do
 
     test "adds a new job when no active_jobs key exists" do
       result = Progress.update_progress(%{}, %{job_id: 1, percent: 10})
-      assert length(result.active_jobs) == 1
+      assert Enum.count(result.active_jobs) == 1
     end
 
     test "updates an existing job with matching job_id" do
       initial = %{active_jobs: [%{job_id: 1, percent: 10}]}
       updated = Progress.update_progress(initial, %{job_id: 1, percent: 80})
-      assert length(updated.active_jobs) == 1
+      assert Enum.count(updated.active_jobs) == 1
       assert hd(updated.active_jobs).percent == 80
     end
 
     test "adds a new job when job_id differs" do
       initial = %{active_jobs: [%{job_id: 1, percent: 10}]}
       updated = Progress.update_progress(initial, %{job_id: 2, percent: 20})
-      assert length(updated.active_jobs) == 2
+      assert Enum.count(updated.active_jobs) == 2
     end
 
     test "falls back to 'default' key when no identifier field" do
       result1 = Progress.update_progress(%{active_jobs: []}, %{percent: 10})
       result2 = Progress.update_progress(result1, %{percent: 50})
       # Both keyed as "default" — update in place
-      assert length(result2.active_jobs) == 1
+      assert Enum.count(result2.active_jobs) == 1
       assert hd(result2.active_jobs).percent == 50
     end
 
@@ -88,7 +88,7 @@ defmodule Reencodarr.Core.ProgressTest do
       job1 = %{filename: "video1.mkv", percent: 10}
       job2 = %{filename: "video2.mkv", percent: 20}
       result = Progress.update_progress(%{active_jobs: [job1]}, job2)
-      assert length(result.active_jobs) == 2
+      assert Enum.count(result.active_jobs) == 2
     end
   end
 end

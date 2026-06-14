@@ -316,7 +316,7 @@ defmodule ReencodarrWeb.FailuresLive do
           <div class="bg-gray-800 rounded-lg shadow-lg p-4 border border-gray-700">
             <div class="flex flex-col gap-3">
               <!-- Search Bar -->
-              <form phx-change="search">
+              <form id="failures-search" phx-change="search">
                 <input
                   type="text"
                   name="search"

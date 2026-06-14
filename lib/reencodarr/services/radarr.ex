@@ -1,6 +1,6 @@
 defmodule Reencodarr.Services.Radarr do
   @moduledoc """
-  This module is responsible for communicating with the Radarr API.
+  Client for Radarr movie metadata, file actions, and sync requests.
   """
   require Logger
   alias Reencodarr.Core.Parsers

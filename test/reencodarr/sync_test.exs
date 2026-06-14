@@ -481,7 +481,7 @@ defmodule Reencodarr.SyncTest do
       Fixtures.vmaf_fixture(%{video_id: video.id, crf: 24.0, score: 96.0})
       Fixtures.vmaf_fixture(%{video_id: video.id, crf: 28.0, score: 93.0})
 
-      assert length(Media.get_vmafs_for_video(video.id)) == 2
+      assert Enum.count(Media.get_vmafs_for_video(video.id)) == 2
 
       assert :ok = Sync.delete_video_and_vmafs(video.path)
 

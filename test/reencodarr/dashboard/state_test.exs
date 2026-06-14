@@ -285,7 +285,7 @@ defmodule Reencodarr.Dashboard.StateTest do
       :timer.sleep(10)
 
       state = State.get_state()
-      assert length(state.crf_search_results) == 1
+      assert Enum.count(state.crf_search_results) == 1
       assert hd(state.crf_search_results).vmaf_score == 95.5
     end
 
@@ -903,7 +903,7 @@ defmodule Reencodarr.Dashboard.StateTest do
       )
 
       assert_receive {:dashboard_state_changed, state}
-      assert length(state.crf_search_results) == 1
+      assert Enum.count(state.crf_search_results) == 1
     end
 
     test "broadcasts contain full state snapshot (LiveView can hydrate from it)" do

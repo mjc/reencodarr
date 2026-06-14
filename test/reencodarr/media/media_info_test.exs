@@ -189,7 +189,7 @@ defmodule Reencodarr.Media.MediaInfoTest do
       assert is_map(result)
       assert is_map(result["media"])
       assert is_list(result["media"]["track"])
-      assert length(result["media"]["track"]) == 3
+      assert Enum.count(result["media"]["track"]) == 3
     end
 
     test "general track has correct fields" do

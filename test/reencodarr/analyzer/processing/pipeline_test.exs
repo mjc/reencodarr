@@ -148,7 +148,7 @@ defmodule Reencodarr.Analyzer.Processing.PipelineTest do
       end)
 
       assert {:ok, results} = Pipeline.process_video_batch(videos, %{})
-      assert length(results) == 2
+      assert Enum.count(results) == 2
       assert Enum.all?(results, fn result -> match?({:error, _}, result) end)
     end
 

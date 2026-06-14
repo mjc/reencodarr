@@ -1,6 +1,6 @@
 defmodule Reencodarr.Services.Sonarr do
   @moduledoc """
-  This module is responsible for communicating with the Sonarr API.
+  Client for Sonarr series metadata, episode files, and sync requests.
   """
   require Logger
   alias Reencodarr.Core.Parsers

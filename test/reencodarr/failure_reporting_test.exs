@@ -52,7 +52,7 @@ defmodule Reencodarr.FailureReportingTest do
 
           by_stage = FailureReporting.get_failures_by_stage(7)
 
-          assert length(by_stage) == 3
+          assert Enum.count(by_stage) == 3
 
           # Find each stage
           analysis_stage = Enum.find(by_stage, &(&1.stage == :analysis))
@@ -155,9 +155,9 @@ defmodule Reencodarr.FailureReportingTest do
           report = FailureReporting.generate_failure_report(days_back: 7, limit: 5)
 
           assert report.summary.total_failures == 3
-          assert length(report.by_stage) == 3
-          assert length(report.by_category) == 3
-          assert length(report.common_patterns) <= 5
+          assert Enum.count(report.by_stage) == 3
+          assert Enum.count(report.by_category) == 3
+          assert Enum.count_until(report.common_patterns, 6) <= 5
           assert is_list(report.recent_failures)
           assert is_number(report.resolution_rate) or is_nil(report.resolution_rate)
           assert is_list(report.recommendations)
@@ -177,7 +177,7 @@ defmodule Reencodarr.FailureReportingTest do
 
           critical = FailureReporting.get_critical_failures()
 
-          assert length(critical) == 2
+          assert Enum.count(critical) == 2
           assert Enum.any?(critical, &(&1.category == :resource_exhaustion))
           assert Enum.any?(critical, &(&1.category == :timeout))
           refute Enum.any?(critical, &(&1.category == :file_access))
@@ -224,7 +224,7 @@ defmodule Reencodarr.FailureReportingTest do
         end)
 
       result = FailureReporting.get_recent_failures(2)
-      assert length(result) <= 2
+      assert Enum.count_until(result, 3) <= 2
     end
   end
 

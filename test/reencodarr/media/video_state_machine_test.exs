@@ -932,7 +932,7 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
 
     test "returns exactly 8 states" do
       states = VideoStateMachine.valid_states()
-      assert length(states) == 8
+      assert Enum.count(states) == 8
     end
   end
 

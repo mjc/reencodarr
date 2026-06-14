@@ -33,9 +33,7 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizerTest do
       end)
 
       :meck.expect(BulkFileChecker, :check_files_exist, fn paths ->
-        Enum.reduce(paths, %{}, fn path, acc ->
-          Map.put(acc, path, false)
-        end)
+        Map.new(paths, &{&1, false})
       end)
 
       paths = ["/tmp/1.mkv", "/tmp/2.mkv", "/tmp/3.mkv"]

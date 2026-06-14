@@ -63,7 +63,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.ArgumentsTest do
     test "includes video encoding rules", %{video: video} do
       args = CrfSearch.build_crf_search_args(video, 95, crf_range: {14, 30})
 
-      assert length(args) > 10
+      assert Enum.count_until(args, 11) > 10
     end
   end
 
@@ -96,8 +96,8 @@ defmodule Reencodarr.AbAv1.CrfSearch.ArgumentsTest do
 
       assert is_list(args)
       assert Enum.all?(args, &is_binary/1)
-      assert length(args) > 5
-      assert length(args) < 100
+      assert Enum.count_until(args, 6) > 5
+      assert Enum.count_until(args, 100) < 100
     end
 
     test "handles different VMAF targets with custom range", %{video: video} do

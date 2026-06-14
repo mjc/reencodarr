@@ -44,13 +44,13 @@ defmodule Reencodarr.Media.Video.MediaInfoSchemaTest do
 
     test "video tracks are parsed" do
       {:ok, mi} = MediaInfo.from_json(valid_json())
-      assert length(mi.video_tracks) == 1
+      assert Enum.count(mi.video_tracks) == 1
       assert hd(mi.video_tracks).format == "HEVC"
     end
 
     test "audio tracks are parsed" do
       {:ok, mi} = MediaInfo.from_json(valid_json())
-      assert length(mi.audio_tracks) == 1
+      assert Enum.count(mi.audio_tracks) == 1
       assert hd(mi.audio_tracks).format == "AAC"
       assert hd(mi.audio_tracks).channels == 2
     end
@@ -93,7 +93,7 @@ defmodule Reencodarr.Media.Video.MediaInfoSchemaTest do
         end)
 
       {:ok, mi} = MediaInfo.from_json(json)
-      assert length(mi.video_tracks) == 2
+      assert Enum.count(mi.video_tracks) == 2
     end
 
     test "handles multiple audio tracks" do
@@ -103,7 +103,7 @@ defmodule Reencodarr.Media.Video.MediaInfoSchemaTest do
         end)
 
       {:ok, mi} = MediaInfo.from_json(json)
-      assert length(mi.audio_tracks) == 2
+      assert Enum.count(mi.audio_tracks) == 2
     end
 
     test "parses batch format with track key at top level" do

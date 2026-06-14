@@ -369,7 +369,7 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
       end)
 
       state = :sys.get_state(pid, 20_000)
-      assert length(state.output_buffer) == 1024
+      assert Enum.count(state.output_buffer) == 1024
       assert hd(state.output_buffer) == "unmatched output line 1100"
       assert "unmatched output line 1" in state.output_buffer
       assert "unmatched output line 75" not in state.output_buffer

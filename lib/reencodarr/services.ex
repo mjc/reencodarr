@@ -1,6 +1,6 @@
 defmodule Reencodarr.Services do
   @moduledoc """
-  This module is responsible for communicating with external services.
+  Stores service configuration and coordinates Sonarr/Radarr sync operations.
   """
   require Logger
   alias Reencodarr.DbWriter

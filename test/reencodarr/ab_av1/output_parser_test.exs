@@ -358,7 +358,7 @@ defmodule Reencodarr.AbAv1.OutputParserTest do
       """
 
       results = OutputParser.parse_output(output)
-      assert length(results) == 2
+      assert Enum.count(results) == 2
       types = Enum.map(results, & &1.type)
       assert :vmaf_result in types
       assert :success in types
@@ -372,7 +372,7 @@ defmodule Reencodarr.AbAv1.OutputParserTest do
     test "parses a single-line string" do
       output = "crf 30 VMAF 95.0 (100%)\n"
       results = OutputParser.parse_output(output)
-      assert length(results) == 1
+      assert Enum.count(results) == 1
       assert hd(results).type == :vmaf_result
     end
   end
@@ -388,7 +388,7 @@ defmodule Reencodarr.AbAv1.OutputParserTest do
       ]
 
       results = OutputParser.parse_output(lines)
-      assert length(results) == 3
+      assert Enum.count(results) == 3
       types = Enum.map(results, & &1.type)
       assert :encoding_sample in types
       assert :vmaf_result in types

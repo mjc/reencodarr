@@ -115,7 +115,7 @@ defmodule Reencodarr.SyncPerformanceTest do
       # Verify all videos were created with correct library associations
       for lib <- all_libraries do
         videos_in_lib = Media.get_videos_in_library(lib.id)
-        assert length(videos_in_lib) == 10
+        assert Enum.count(videos_in_lib) == 10
 
         # Verify all videos have correct library_id
         Enum.each(videos_in_lib, fn video ->
@@ -262,8 +262,8 @@ defmodule Reencodarr.SyncPerformanceTest do
       videos_lib1 = Media.get_videos_in_library(library1.id)
       videos_lib2 = Media.get_videos_in_library(library2.id)
 
-      assert length(videos_lib1) == 25
-      assert length(videos_lib2) == 25
+      assert Enum.count(videos_lib1) == 25
+      assert Enum.count(videos_lib2) == 25
 
       # Verify no data corruption between concurrent operations
       Enum.each(videos_lib1, fn video ->

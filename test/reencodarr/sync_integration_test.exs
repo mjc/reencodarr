@@ -334,7 +334,7 @@ defmodule Reencodarr.SyncIntegrationTest do
 
       # Verify VMAFs exist
       vmafs_before = Media.get_vmafs_for_video(video.id)
-      assert length(vmafs_before) == 2
+      assert Enum.count(vmafs_before) == 2
 
       # Delete video and VMAFs
       result = Sync.delete_video_and_vmafs(video.path)

@@ -96,8 +96,6 @@ defmodule ReencodarrWeb.RadarrWebhookController do
          {:ok, size} <- WebhookHelpers.validate_file_size(file["size"]),
          {:ok, id} <- WebhookHelpers.validate_file_id(file["id"] || file["movieFileId"]) do
       {:ok, %{path: path, size: size, id: id, raw_file: file}}
-    else
-      {:error, reason} -> {:error, reason}
     end
   end
 

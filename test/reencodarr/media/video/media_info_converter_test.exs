@@ -65,7 +65,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverterTest do
 
       assert %{"media" => %{"track" => tracks}} = result
       assert is_list(tracks)
-      assert length(tracks) == 3
+      assert Enum.count(tracks) == 3
     end
 
     test "General track has @type General" do
@@ -142,13 +142,13 @@ defmodule Reencodarr.Media.Video.MediaInfoConverterTest do
     test "returns a map with media.track structure for :sonarr" do
       result = MediaInfoConverter.from_service_file(minimal_service_file(), :sonarr)
       assert %{"media" => %{"track" => tracks}} = result
-      assert length(tracks) == 3
+      assert Enum.count(tracks) == 3
     end
 
     test "returns a map with media.track structure for :radarr" do
       result = MediaInfoConverter.from_service_file(minimal_service_file(), :radarr)
       assert %{"media" => %{"track" => tracks}} = result
-      assert length(tracks) == 3
+      assert Enum.count(tracks) == 3
     end
 
     test "General track includes file size" do

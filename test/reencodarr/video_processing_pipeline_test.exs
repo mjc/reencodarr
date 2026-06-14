@@ -90,7 +90,7 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
           vmaf
         end)
 
-      assert length(vmafs) == 4
+      assert Enum.count(vmafs) == 4
 
       # Step 3: Mark one VMAF as chosen (simulating CRF search completion)
       chosen_vmaf = Enum.find(vmafs, &(&1.crf == 22.0))

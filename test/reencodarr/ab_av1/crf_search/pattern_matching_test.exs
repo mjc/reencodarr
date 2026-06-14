@@ -229,7 +229,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
       end)
 
       vmafs = Repo.all(Vmaf) |> Enum.sort_by(& &1.crf)
-      assert length(vmafs) == 3
+      assert Enum.count(vmafs) == 3
       assert Enum.at(vmafs, 0).crf == 17.2
       assert Enum.at(vmafs, 1).crf == 22.7
       assert Enum.at(vmafs, 2).crf == 28.0
@@ -312,7 +312,7 @@ defmodule Reencodarr.AbAv1.CrfSearch.PatternMatchingTest do
       end)
 
       vmafs = Repo.all(Vmaf) |> Enum.sort_by(& &1.crf)
-      assert length(vmafs) == 4
+      assert Enum.count(vmafs) == 4
 
       # Verify each VMAF was created correctly
       assert Enum.at(vmafs, 0).crf == 17.2

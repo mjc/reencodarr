@@ -334,7 +334,7 @@ defmodule Reencodarr.Media.CodecsTest do
 
     test "returns all codecs when all are video" do
       result = Codecs.video_codecs_only(["HEVC", "VP9", "AV1"])
-      assert length(result) == 3
+      assert Enum.count(result) == 3
     end
 
     test "returns empty list for empty input" do
@@ -357,7 +357,7 @@ defmodule Reencodarr.Media.CodecsTest do
 
     test "returns all codecs when all are audio" do
       result = Codecs.audio_codecs_only(["AAC", "AC3", "Opus", "FLAC"])
-      assert length(result) == 4
+      assert Enum.count(result) == 4
     end
 
     test "returns empty list for empty input" do

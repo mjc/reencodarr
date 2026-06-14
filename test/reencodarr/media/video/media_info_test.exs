@@ -103,13 +103,13 @@ defmodule Reencodarr.Media.Video.MediaInfoTest do
     test "accepts multiple video tracks" do
       extra = video_track(%{"Format" => "HEVC", "Width" => "3840", "Height" => "2160"})
       {:ok, media_info} = MediaInfo.from_json(valid_json([extra]))
-      assert length(media_info.video_tracks) == 2
+      assert Enum.count(media_info.video_tracks) == 2
     end
 
     test "accepts multiple audio tracks" do
       extra = audio_track(%{"Format" => "AC-3", "Channels" => 6})
       {:ok, media_info} = MediaInfo.from_json(valid_json([extra]))
-      assert length(media_info.audio_tracks) == 2
+      assert Enum.count(media_info.audio_tracks) == 2
     end
 
     test "accepts tracks without audio (audio_tracks can be empty)" do

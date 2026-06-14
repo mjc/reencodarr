@@ -88,8 +88,6 @@ defmodule Reencodarr.Media.Video.MediaInfo do
         |> Map.merge(audio_params)
 
       validate_extracted_params(combined_params)
-    else
-      {:error, reason} -> {:error, reason}
     end
   end
 

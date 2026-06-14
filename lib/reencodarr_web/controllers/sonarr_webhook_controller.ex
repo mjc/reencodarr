@@ -123,8 +123,6 @@ defmodule ReencodarrWeb.SonarrWebhookController do
          {:ok, id} <- WebhookHelpers.validate_file_id(file["id"]) do
       scene_name = file["sceneName"] || Path.basename(path)
       {:ok, %{path: path, size: size, id: id, scene_name: scene_name, raw_file: file}}
-    else
-      {:error, reason} -> {:error, reason}
     end
   end
 

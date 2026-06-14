@@ -55,7 +55,7 @@ defmodule Reencodarr.Media.SharedQueriesTest do
       ]
 
       result = SharedQueries.videos_not_matching_exclude_patterns(videos)
-      assert length(result) == 1
+      assert Enum.count(result) == 1
       assert hd(result).path == "/media/show/S01/ep1.mkv"
     end
 
@@ -74,7 +74,7 @@ defmodule Reencodarr.Media.SharedQueriesTest do
     test "handles large list (>= 50 items) returning all when no patterns" do
       videos = Enum.map(1..60, fn i -> video("/media/show/S01/ep#{i}.mkv") end)
       result = SharedQueries.videos_not_matching_exclude_patterns(videos)
-      assert length(result) == 60
+      assert Enum.count(result) == 60
     end
 
     test "handles large list (>= 50 items) with an exclude pattern" do
@@ -85,7 +85,7 @@ defmodule Reencodarr.Media.SharedQueriesTest do
       videos = regular ++ extra
 
       result = SharedQueries.videos_not_matching_exclude_patterns(videos)
-      assert length(result) == 55
+      assert Enum.count(result) == 55
     end
   end
 

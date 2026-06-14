@@ -116,7 +116,7 @@ defmodule Reencodarr.MediaSavingsSortTest do
       encoding_queue = Media.list_videos_by_estimated_percent(3)
 
       # Should be ordered: video2 (500MB), video3 (300MB), video1 (100MB)
-      assert length(encoding_queue) == 3
+      assert Enum.count(encoding_queue) == 3
       assert Enum.at(encoding_queue, 0).video.id == video2.id
       assert Enum.at(encoding_queue, 1).video.id == video3.id
       assert Enum.at(encoding_queue, 2).video.id == video1.id
@@ -154,7 +154,7 @@ defmodule Reencodarr.MediaSavingsSortTest do
 
       # Should return video2 with higher savings first
       next_encodings = Media.get_next_for_encoding()
-      assert length(next_encodings) == 1
+      assert Enum.count(next_encodings) == 1
 
       [next_encoding] = next_encodings
       assert next_encoding.video.id == video2.id
@@ -196,7 +196,7 @@ defmodule Reencodarr.MediaSavingsSortTest do
 
       # Should return video2 with higher savings despite longer time
       next_encodings = Media.get_next_for_encoding_by_time()
-      assert length(next_encodings) == 1
+      assert Enum.count(next_encodings) == 1
 
       [next_encoding] = next_encodings
       assert next_encoding.video.id == video2.id
@@ -230,7 +230,7 @@ defmodule Reencodarr.MediaSavingsSortTest do
 
       # Should prioritize the one with savings
       encoding_queue = Media.list_videos_by_estimated_percent(2)
-      assert length(encoding_queue) == 2
+      assert Enum.count(encoding_queue) == 2
 
       # Video with savings should come first
       first_vmaf = Enum.at(encoding_queue, 0)

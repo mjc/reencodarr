@@ -226,7 +226,7 @@ defmodule Reencodarr.CrfSearchHintsTest do
       add_vmaf_records(video, [{8.0, 93.65, false}, {20.0, 95.0, true}, {24.0, 89.60, false}])
 
       records = CrfSearchHints.own_vmaf_records(video)
-      assert length(records) == 3
+      assert Enum.count(records) == 3
       crfs = Enum.map(records, &elem(&1, 0)) |> Enum.sort()
       assert crfs == [8.0, 20.0, 24.0]
     end
@@ -267,7 +267,7 @@ defmodule Reencodarr.CrfSearchHintsTest do
         })
 
       records = CrfSearchHints.sibling_vmaf_records(target)
-      assert length(records) == 3
+      assert Enum.count(records) == 3
       crfs = Enum.map(records, &elem(&1, 0)) |> Enum.sort()
       assert crfs == [18.0, 22.0, 25.0]
     end
@@ -295,7 +295,7 @@ defmodule Reencodarr.CrfSearchHintsTest do
         })
 
       records = CrfSearchHints.sibling_vmaf_records(target)
-      assert length(records) == 2
+      assert Enum.count(records) == 2
       refute Enum.any?(records, fn {crf, _} -> crf == 10.0 end)
     end
 
@@ -326,7 +326,7 @@ defmodule Reencodarr.CrfSearchHintsTest do
         })
 
       records = CrfSearchHints.sibling_vmaf_records(target)
-      assert length(records) == 2
+      assert Enum.count(records) == 2
       refute Enum.any?(records, fn {crf, _} -> crf == 12.0 end)
     end
 

@@ -72,8 +72,6 @@ defmodule Reencodarr.Analyzer.Core.FileOperations do
     with {:ok, stats} <- get_file_stats(path),
          :ok <- validate_file_accessibility(path, stats) do
       {:ok, stats}
-    else
-      error -> error
     end
   end
 
