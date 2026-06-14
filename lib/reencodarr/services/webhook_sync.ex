@@ -188,7 +188,7 @@ defmodule Reencodarr.Services.WebhookSync do
   defp upsert_field(fields, target_name, target_value) do
     case Enum.find_index(fields, &field_named?(&1, target_name)) do
       nil ->
-        fields ++ [%{"name" => target_name, "value" => target_value}]
+        List.insert_at(fields, -1, %{"name" => target_name, "value" => target_value})
 
       index ->
         List.update_at(fields, index, fn

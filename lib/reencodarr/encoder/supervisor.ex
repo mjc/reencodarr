@@ -4,7 +4,7 @@ defmodule Reencodarr.Encoder.Supervisor do
   @moduledoc "Supervises encoding-related processes."
 
   def start_link(opts \\ []) do
-    Supervisor.start_link(__MODULE__, :ok, opts ++ [name: __MODULE__])
+    Supervisor.start_link(__MODULE__, :ok, Keyword.put_new(opts, :name, __MODULE__))
   end
 
   @impl true

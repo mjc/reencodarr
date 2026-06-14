@@ -477,7 +477,7 @@ defmodule Reencodarr.AbAv1.Helper do
 
   defp descendant_pids_from_text(pid_text) do
     case Integer.parse(pid_text) do
-      {pid, ""} -> descendant_pids(pid) ++ [pid]
+      {pid, ""} -> List.insert_at(descendant_pids(pid), -1, pid)
       _ -> []
     end
   end

@@ -115,11 +115,14 @@ defmodule Reencodarr.Rules.Audio do
       {"--enc", "b:a:#{idx}=#{target_bitrate}k"}
     ]
 
-    if needs_layout_normalization?(channel_layout) do
-      base ++ [{"--enc", "filter:a:#{idx}=aformat=channel_layouts=5.1|7.1|stereo"}]
-    else
-      base
-    end
+    layout_args =
+      if needs_layout_normalization?(channel_layout) do
+        [{"--enc", "filter:a:#{idx}=aformat=channel_layouts=5.1|7.1|stereo"}]
+      else
+        []
+      end
+
+    base ++ layout_args
   end
 
   defp opus_target_for_track(track, channels) do

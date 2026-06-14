@@ -14,7 +14,17 @@
           {ExSlop.Check.Readability.DocFalseOnPublicFunction, []},
           {ExSlop.Check.Readability.ObviousComment, [additional_keywords: []]},
           {ExSlop.Check.Readability.StepComment, []},
-          {ExSlop.Check.Readability.UnaliasedModuleUse, []}
+          {ExSlop.Check.Readability.UnaliasedModuleUse, []},
+          {Credo.Check.Warning.ExpensiveEmptyEnumCheck, []},
+          {Credo.Check.Refactor.AppendSingleItem, []},
+          {Credo.Check.Refactor.DoubleBooleanNegation, []},
+          {Credo.Check.Refactor.CondStatements, []},
+          {Credo.Check.Refactor.MapMap, []},
+          {Credo.Check.Refactor.FilterFilter, []},
+          {Credo.Check.Refactor.RejectReject, []},
+          {Credo.Check.Refactor.FilterCount, []},
+          {Credo.Check.Refactor.NegatedConditionsInUnless, []},
+          {Credo.Check.Refactor.UnlessWithElse, []}
         ]
       }
     }

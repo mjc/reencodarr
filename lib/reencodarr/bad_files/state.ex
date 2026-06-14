@@ -52,7 +52,7 @@ defmodule Reencodarr.BadFiles.State do
   defp fetch_active_total(_filters, []), do: 0
 
   defp fetch_active_total(filters, active_statuses) do
-    Media.count_bad_file_issues(filters ++ [statuses: active_statuses])
+    Media.count_bad_file_issues(Keyword.put_new(filters, :statuses, active_statuses))
   end
 
   defp fetch_resolved_issues(_filters, _resolved_statuses, false), do: []

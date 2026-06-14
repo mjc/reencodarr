@@ -300,8 +300,7 @@ defmodule Reencodarr.Services.Sonarr do
   @spec parse_renameable_file_ids(list(map())) :: {:ok, list(integer())} | {:error, String.t()}
   defp parse_renameable_file_ids(renameable_files) do
     renameable_files
-    |> Enum.map(& &1["episodeFileId"])
-    |> Enum.map(&parse_file_id/1)
+    |> Enum.map(&parse_file_id(&1["episodeFileId"]))
     |> collect_results()
   end
 

@@ -104,8 +104,7 @@ defmodule Reencodarr.Media do
       AND trim(coalesce(json_extract(track.value, '$.MaxFALL'), '')) = ''
     ORDER BY v.path
     """).rows
-    |> Enum.map(fn [path] -> %{path: path} end)
-    |> Enum.map(&candidate_group_entry/1)
+    |> Enum.map(fn [path] -> candidate_group_entry(%{path: path}) end)
     |> Enum.reject(&is_nil/1)
     |> Enum.group_by(fn %{show: show, season: season} -> {show, season} end)
     |> Enum.map(fn {{show, season}, entries} ->

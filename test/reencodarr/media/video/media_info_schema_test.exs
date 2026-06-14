@@ -88,8 +88,12 @@ defmodule Reencodarr.Media.Video.MediaInfoSchemaTest do
     test "handles multiple video tracks" do
       json =
         update_in(valid_json(), ["media", "track"], fn tracks ->
-          tracks ++
-            [%{"@type" => "Video", "Format" => "AVC", "Width" => 1280, "Height" => 720}]
+          List.insert_at(tracks, -1, %{
+            "@type" => "Video",
+            "Format" => "AVC",
+            "Width" => 1280,
+            "Height" => 720
+          })
         end)
 
       {:ok, mi} = MediaInfo.from_json(json)
@@ -99,7 +103,7 @@ defmodule Reencodarr.Media.Video.MediaInfoSchemaTest do
     test "handles multiple audio tracks" do
       json =
         update_in(valid_json(), ["media", "track"], fn tracks ->
-          tracks ++ [%{"@type" => "Audio", "Format" => "DTS", "Channels" => 6}]
+          List.insert_at(tracks, -1, %{"@type" => "Audio", "Format" => "DTS", "Channels" => 6})
         end)
 
       {:ok, mi} = MediaInfo.from_json(json)

@@ -133,16 +133,13 @@ defmodule Reencodarr.Media.MediaInfoExtractorTest do
     test "handles audio track with Atmos format" do
       mediainfo =
         update_in(valid_mediainfo(), ["media", "track"], fn tracks ->
-          tracks ++
-            [
-              %{
-                "@type" => "Audio",
-                "CodecID" => "ec-3",
-                "Format" => "E-AC-3",
-                "Format_AdditionalFeatures" => "JOC / Atmos",
-                "Channels" => "16"
-              }
-            ]
+          List.insert_at(tracks, -1, %{
+            "@type" => "Audio",
+            "CodecID" => "ec-3",
+            "Format" => "E-AC-3",
+            "Format_AdditionalFeatures" => "JOC / Atmos",
+            "Channels" => "16"
+          })
         end)
 
       result = MediaInfoExtractor.extract_video_params(mediainfo, "/media/atmos.mkv")
@@ -153,15 +150,12 @@ defmodule Reencodarr.Media.MediaInfoExtractorTest do
     test "detects Atmos from raw CodecID JOC markers" do
       mediainfo =
         update_in(valid_mediainfo(), ["media", "track"], fn tracks ->
-          tracks ++
-            [
-              %{
-                "@type" => "Audio",
-                "CodecID" => "A_EAC3/JOC",
-                "Format" => "AAC",
-                "Channels" => "6"
-              }
-            ]
+          List.insert_at(tracks, -1, %{
+            "@type" => "Audio",
+            "CodecID" => "A_EAC3/JOC",
+            "Format" => "AAC",
+            "Channels" => "6"
+          })
         end)
 
       result = MediaInfoExtractor.extract_video_params(mediainfo, "/media/joc.mkv")

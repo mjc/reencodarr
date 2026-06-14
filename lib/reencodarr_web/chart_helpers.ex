@@ -65,7 +65,7 @@ defmodule ReencodarrWeb.ChartHelpers do
       |> Stream.iterate(&(&1 + step))
       |> Enum.take_while(&(&1 < crf_max))
 
-    ([crf_min] ++ interior ++ [crf_max])
+    [crf_min, crf_max | interior]
     |> Enum.uniq()
     |> Enum.sort()
   end

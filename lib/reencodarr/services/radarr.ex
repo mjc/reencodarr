@@ -252,8 +252,7 @@ defmodule Reencodarr.Services.Radarr do
   @spec parse_renameable_file_ids(list(map())) :: {:ok, list(integer())} | {:error, String.t()}
   defp parse_renameable_file_ids(renameable_files) do
     renameable_files
-    |> Enum.map(& &1["movieFileId"])
-    |> Enum.map(&parse_file_id/1)
+    |> Enum.map(&parse_file_id(&1["movieFileId"]))
     |> collect_results()
   end
 
