@@ -22,6 +22,7 @@ defmodule Mix.Tasks.SetupPrecommit do
     IO.puts("\n✅ Git hooks have been set up successfully!")
     IO.puts("The following checks will run before each commit:")
     IO.puts("  • mix credo --strict")
+    IO.puts("  • mix ex_dna --max-clones 0")
     IO.puts("  • mix format --check-formatted")
     IO.puts("  • mix format --migrate --check-formatted")
   end

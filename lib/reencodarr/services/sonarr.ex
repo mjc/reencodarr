@@ -6,6 +6,7 @@ defmodule Reencodarr.Services.Sonarr do
   alias Reencodarr.Core.Parsers
   alias Reencodarr.ErrorHelpers
   alias Reencodarr.Services
+  alias Reencodarr.Services.CommandPolling
 
   use CarReq,
     pool_timeout: 100,
@@ -108,10 +109,7 @@ defmodule Reencodarr.Services.Sonarr do
   """
   @spec get_command_status(integer()) :: {:ok, map()} | {:error, any()}
   def get_command_status(command_id) do
-    case request(url: "/api/v3/command/#{command_id}", method: :get) do
-      {:ok, %{body: body}} -> {:ok, body}
-      error -> error
-    end
+    CommandPolling.get_status(command_id, &request/1)
   end
 
   @doc """
@@ -119,37 +117,7 @@ defmodule Reencodarr.Services.Sonarr do
   """
   @spec wait_for_command(integer(), integer(), integer()) :: {:ok, map()} | {:error, any()}
   def wait_for_command(command_id, max_attempts \\ 60, poll_interval \\ 1000) do
-    do_wait_for_command(command_id, max_attempts, poll_interval, 0)
-  end
-
-  defp do_wait_for_command(_command_id, max_attempts, _poll_interval, attempts)
-       when attempts >= max_attempts do
-    Logger.warning("Timeout waiting for command to complete after #{max_attempts} attempts")
-    {:error, :timeout}
-  end
-
-  defp do_wait_for_command(command_id, max_attempts, poll_interval, attempts) do
-    case get_command_status(command_id) do
-      {:ok, %{"status" => "completed"} = response} ->
-        Logger.info("Command #{command_id} completed successfully")
-        {:ok, response}
-
-      {:ok, %{"status" => "failed", "message" => message}} ->
-        Logger.error("Command #{command_id} failed: #{message}")
-        {:error, {:command_failed, message}}
-
-      {:ok, %{"status" => status}} ->
-        Logger.debug(
-          "Command #{command_id} status: #{status} (attempt #{attempts + 1}/#{max_attempts})"
-        )
-
-        Process.sleep(poll_interval)
-        do_wait_for_command(command_id, max_attempts, poll_interval, attempts + 1)
-
-      {:error, reason} ->
-        Logger.error("Failed to get command status: #{inspect(reason)}")
-        {:error, reason}
-    end
+    CommandPolling.wait(command_id, max_attempts, poll_interval, &request/1)
   end
 
   @spec set_episodes_monitored([integer()], boolean()) ::

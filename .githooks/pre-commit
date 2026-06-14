@@ -22,6 +22,12 @@ if ! mix credo --strict; then
     exit 1
 fi
 
+echo "Checking duplicate code..."
+if ! mix ex_dna --max-clones 0; then
+    echo "❌ Duplicate code check failed. Please remove duplicates and try again."
+    exit 1
+fi
+
 echo "Checking code formatting..."
 if ! mix format --check-formatted; then
     echo "❌ Code is not properly formatted. Run 'mix format' and try again."

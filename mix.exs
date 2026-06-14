@@ -51,6 +51,7 @@ defmodule Reencodarr.MixProject do
       {:dns_cluster, "~> 0.2.0"},
       {:ecto_sql, "~> 3.13.3"},
       {:esbuild, "~> 0.8", runtime: Mix.env() == :dev},
+      {:ex_dna, "~> 1.5", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.4.2", only: [:dev, :test], runtime: false},
       {:finch, "~> 0.13"},
       {:flop, "~> 0.26"},
