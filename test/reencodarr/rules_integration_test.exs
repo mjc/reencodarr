@@ -132,7 +132,6 @@ defmodule Reencodarr.RulesIntegrationTest do
       # This tests the actual bug from the original error message
       # The issue is that Encode.build_encode_args combines base_args (with -i) and rule args (potentially with -i)
 
-      # Create a VMAF record like the real system would have
       video =
         Fixtures.create_test_video(%{
           id: 8_443_455,
@@ -151,7 +150,6 @@ defmodule Reencodarr.RulesIntegrationTest do
         params: ["-i", video.path, "--svt", "tune=0", "--svt", "dolbyvision=1"]
       }
 
-      # Build the command like Encode module would
       encode_args = Encode.build_encode_args_for_test(vmaf)
 
       # Count how many times the input path appears

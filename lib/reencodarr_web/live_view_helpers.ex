@@ -74,7 +74,6 @@ defmodule ReencodarrWeb.LiveViewHelpers do
   Handles the stardate update message for LiveViews that update stardate periodically.
   """
   def handle_stardate_update(socket) do
-    # Update the stardate and schedule the next update
     Process.send_after(self(), :update_stardate, 5000)
     assign(socket, :current_stardate, calculate_stardate(DateTime.utc_now()))
   end

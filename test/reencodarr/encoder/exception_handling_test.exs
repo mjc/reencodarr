@@ -34,7 +34,6 @@ defmodule Reencodarr.Encoder.ExceptionHandlingTest do
         capture_log(fn ->
           {:ok, failure} = FailureTracker.record_exception_failure(video, exception_context)
 
-          # Verify the failure was recorded with detailed context
           failure = Repo.get!(VideoFailure, failure.id)
 
           assert failure.failure_stage == :encoding

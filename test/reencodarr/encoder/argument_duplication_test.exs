@@ -5,7 +5,6 @@ defmodule Reencodarr.Encoder.ArgumentDuplicationTest do
 
   describe "build_encode_args/1" do
     test "does not duplicate input/output arguments when present in vmaf params" do
-      # Create a VMAF struct with params that include input/output
       vmaf = %{
         video: %{path: "/path/to/input.mkv", id: 123},
         crf: 23.0,
@@ -32,7 +31,6 @@ defmodule Reencodarr.Encoder.ArgumentDuplicationTest do
       assert output_count == 1,
              "Expected 1 --output flag, got #{output_count}. Args: #{inspect(args)}"
 
-      # Verify the correct base structure is preserved
       assert Enum.at(args, 0) == "encode"
       assert Enum.at(args, 1) == "--crf"
       assert Enum.at(args, 2) == "23.0"

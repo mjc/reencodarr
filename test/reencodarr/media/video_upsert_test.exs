@@ -6,7 +6,6 @@ defmodule Reencodarr.Media.VideoUpsertTest do
   alias Reencodarr.Repo
 
   setup do
-    # Create a library for testing
     library =
       %Library{
         path: "/mnt/test",

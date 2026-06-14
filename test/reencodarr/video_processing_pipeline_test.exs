@@ -41,7 +41,6 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
       encoded_output: encoded_output,
       library: library
     } do
-      # Step 1: Create video record (simulating analyzer output)
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: original_video,
@@ -67,7 +66,6 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
       assert video.state != :encoded
       assert video.state != :failed
 
-      # Step 2: Create VMAF records (simulating CRF search results)
       vmaf_data = [
         %{crf: 20.0, score: 96.5, percent: 85.0},
         %{crf: 22.0, score: 95.0, percent: 80.0},
@@ -92,17 +90,14 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
 
       assert Enum.count(vmafs) == 4
 
-      # Step 3: Mark one VMAF as chosen (simulating CRF search completion)
       chosen_vmaf = Enum.find(vmafs, &(&1.crf == 22.0))
       Fixtures.choose_vmaf(video, chosen_vmaf)
 
-      # Step 4: Test encoding success scenario
       capture_log(fn ->
         result = PostProcessor.process_encoding_success(video, encoded_output)
         assert {:ok, :success} = result
       end)
 
-      # Verify the complete pipeline worked correctly
       updated_video = Media.get_video!(video.id)
       assert updated_video.state == :encoded
 
@@ -131,12 +126,10 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
       # Note: Logger.info messages might not be captured in test environment
       # The key verification is that the PostProcessor returned success and DB state is correct
 
-      # Step 5: Test that re-encoded video is not selected for further processing
       candidates = Media.get_videos_for_crf_search(10)
       video_ids = Enum.map(candidates, & &1.id)
       refute video.id in video_ids, "Re-encoded video should not be in CRF search candidates"
 
-      # Step 6: Test encoding failure scenario with a new video
       {:ok, failing_video} =
         Fixtures.video_fixture(%{
           path: Path.join(Path.dirname(original_video), "failing_video.mkv"),
@@ -161,7 +154,6 @@ defmodule Reencodarr.VideoProcessingPipelineTest do
       assert failure_log =~ "Encoding failed for video #{failing_video.id}"
       assert failure_log =~ "Marking as failed"
 
-      # Step 7: Test that failed video is not selected for further processing
       candidates_after_failure = Media.get_videos_for_crf_search(10)
       failed_video_ids = Enum.map(candidates_after_failure, & &1.id)
 

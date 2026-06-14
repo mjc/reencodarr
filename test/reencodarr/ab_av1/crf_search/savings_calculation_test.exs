@@ -8,7 +8,6 @@ defmodule Reencodarr.AbAv1.CrfSearch.SavingsCalculationTest do
 
   describe "calculate_savings/2" do
     test "calculates savings correctly for valid inputs through VMAF upsert" do
-      # Create a test video
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/savings_test.mkv",

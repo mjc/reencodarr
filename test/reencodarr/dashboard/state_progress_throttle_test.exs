@@ -64,7 +64,7 @@ defmodule Reencodarr.Dashboard.StateProgressThrottleTest do
 
       # The final state should reflect the last progress value
       if messages != [] do
-        last_state = List.last(messages)
+        last_state = messages |> Enum.reverse() |> hd()
         assert last_state.crf_progress.percent == 20
       end
     end

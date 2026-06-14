@@ -19,6 +19,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   alias Reencodarr.Core.Retry
   alias Reencodarr.CrfSearcher.Broadway.Producer, as: CrfProducer
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.FailureTracker
   alias Reencodarr.Media
   alias Reencodarr.Media.{Codecs, Video}
 
@@ -113,7 +114,6 @@ defmodule Reencodarr.Analyzer.Broadway do
     batch_metrics = start_batch_processing(messages)
     video_infos = extract_video_infos(messages)
 
-    # Process the batch using optimized batch mediainfo fetching
     _result = process_batch_with_single_mediainfo(video_infos, context)
 
     result = finish_batch_processing(batch_metrics, video_infos)
@@ -695,19 +695,19 @@ defmodule Reencodarr.Analyzer.Broadway do
   defp record_analysis_failure(video, reason) do
     cond do
       String.contains?(reason, "MediaInfo") or String.contains?(reason, "mediainfo") ->
-        Reencodarr.FailureTracker.record_mediainfo_failure(video, reason)
+        FailureTracker.record_mediainfo_failure(video, reason)
 
       String.contains?(reason, "file") or String.contains?(reason, "access") ->
-        Reencodarr.FailureTracker.record_file_access_failure(video, reason)
+        FailureTracker.record_file_access_failure(video, reason)
 
       String.contains?(reason, "validation") or String.contains?(reason, "changeset") ->
-        Reencodarr.FailureTracker.record_validation_failure(video, [], context: %{reason: reason})
+        FailureTracker.record_validation_failure(video, [], context: %{reason: reason})
 
       String.contains?(reason, "Exception") ->
-        Reencodarr.FailureTracker.record_unknown_failure(video, :analysis, reason)
+        FailureTracker.record_unknown_failure(video, :analysis, reason)
 
       true ->
-        Reencodarr.FailureTracker.record_unknown_failure(video, :analysis, reason)
+        FailureTracker.record_unknown_failure(video, :analysis, reason)
     end
   end
 end

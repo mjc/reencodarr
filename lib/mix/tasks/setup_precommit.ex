@@ -17,7 +17,6 @@ defmodule Mix.Tasks.SetupPrecommit do
   def run(_) do
     # Configure git to use .githooks directory
     {_, 0} = System.cmd("git", ["config", "core.hooksPath", ".githooks"])
-    # Ensure the pre-commit hook is executable
     File.chmod!(".githooks/pre-commit", 0o755)
 
     IO.puts("\n✅ Git hooks have been set up successfully!")

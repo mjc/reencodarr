@@ -22,7 +22,6 @@ defmodule Reencodarr.Analyzer.Broadway.ErrorHandlingTest do
     test "handles missing files gracefully" do
       nonexistent_file = "/nonexistent/video.mkv"
 
-      # Create a video record that doesn't exist on disk
       _video =
         Reencodarr.Fixtures.video_fixture(%{
           path: nonexistent_file,

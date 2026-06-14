@@ -143,18 +143,23 @@ defmodule Reencodarr.Rules do
     Enum.reverse(result)
   end
 
-  # Public for testing
-  @doc false
+  @doc """
+  Returns whether an argument token is a command-line flag.
+  """
   def flag?(param) do
     String.starts_with?(param, "--") or String.starts_with?(param, "-")
   end
 
-  @doc false
+  @doc """
+  Returns whether an argument token looks like a file path.
+  """
   def file_path?(param) do
     String.starts_with?(param, "/") and String.contains?(param, ".")
   end
 
-  @doc false
+  @doc """
+  Returns whether an argument token is a standalone ab-av1 subcommand.
+  """
   def standalone_value?(param) do
     param in ["crf-search", "encode"]
   end

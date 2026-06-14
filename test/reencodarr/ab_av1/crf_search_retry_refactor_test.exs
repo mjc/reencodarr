@@ -154,7 +154,6 @@ defmodule Reencodarr.AbAv1.CrfSearchRetryRefactorTest do
         end
       end)
 
-      # Create a test video
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/tv/Test Show/Season 01/Test.Show.S01E02.mkv",

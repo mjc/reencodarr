@@ -57,7 +57,6 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
 
   describe "exclude patterns functionality" do
     test "videos_not_matching_exclude_patterns/1 with no patterns configured" do
-      # Create a few test videos
       {:ok, video1} = video_fixture(%{path: "/path/to/movie.mkv"})
       {:ok, video2} = video_fixture(%{path: "/path/to/sample/trailer.mkv"})
       {:ok, video3} = video_fixture(%{path: "/media/show/episode.mp4"})

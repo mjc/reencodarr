@@ -49,7 +49,6 @@ defmodule Reencodarr.AbAv1.CrfSearch.GenServerTest do
     end
 
     test "skips CRF search when chosen VMAF already exists", %{video: video} do
-      # Create a chosen VMAF record
       {:ok, _vmaf} =
         Media.create_vmaf(%{
           video_id: video.id,

@@ -134,7 +134,6 @@ defmodule Reencodarr.AbAv1.EncodeTest do
 
   describe "DOWN handler resets video state" do
     test "resets video from encoding back to crf_searched when encoder dies", %{pid: pid} do
-      # Create a video in encoding state with a chosen VMAF
       {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
       vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
       video = Fixtures.choose_vmaf(video, vmaf)

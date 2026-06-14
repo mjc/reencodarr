@@ -271,7 +271,6 @@ defmodule Reencodarr.Media.MediaInfoUtils do
     |> Enum.reject(&(&1 == ""))
   end
 
-  # Calculate the maximum audio channels across all tracks
   defp calculate_max_audio_channels(audio_tracks) do
     audio_tracks
     |> Enum.map(fn track ->

@@ -142,7 +142,6 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
       # Simulate success line to mark one as chosen
       CrfSearch.process_line("crf 28 successful", video, [], 95)
 
-      # Verify the correct VMAF was marked as chosen
       chosen_vmaf = Repo.get_by(Vmaf, video_id: video.id, chosen: true)
       assert chosen_vmaf.crf == 28.0
       assert chosen_vmaf.score == 92.1
@@ -170,7 +169,6 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
       # Transition video to crf_searching (simulating active search)
       {:ok, video} = Media.update_video(video, %{state: :crf_searching})
 
-      # Process an eta_vmaf line (has predicted size info)
       eta_line =
         "crf 28 VMAF 90.52 predicted video stream size 253.42 MiB (3%) taking 30 minutes"
 
@@ -307,7 +305,6 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
       final_video = Repo.get(Media.Video, video.id)
       assert final_video.state == :failed
 
-      # Verify the VMAF is still there and marked as chosen
       vmaf = Repo.one(Vmaf)
       assert vmaf.chosen == true
       assert vmaf.crf == 23.0
@@ -318,7 +315,6 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
       eta_line = "crf 25 VMAF 95.0 predicted video stream size 8.2 GB (60%) taking 2 hours"
       CrfSearch.process_line(eta_line, video, [], 95)
 
-      # Process the success line
       success_line = "crf 25 successful"
       CrfSearch.process_line(success_line, video, [], 95)
 
@@ -373,7 +369,6 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
       final_video = Repo.get(Media.Video, video.id)
       assert final_video.state != :failed
 
-      # Verify the correct VMAF is chosen
       chosen_vmaf = Repo.one(from v in Vmaf, where: v.chosen == true)
       assert chosen_vmaf.crf == 24.0
     end
@@ -413,7 +408,6 @@ defmodule Reencodarr.AbAv1.CrfSearchIntegrationTest do
       final_video = Repo.get(Media.Video, video.id)
       assert final_video.state == :failed
 
-      # Verify the correct VMAF is chosen
       chosen_vmaf = Repo.one(from v in Vmaf, where: v.chosen == true)
       assert chosen_vmaf.crf == 22.0
     end

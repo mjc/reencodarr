@@ -59,7 +59,6 @@ defmodule Reencodarr.FailureTracker.CommandOutputTest do
           {:ok, failure} =
             FailureTracker.record_process_failure(video, 137, context: enhanced_context)
 
-          # Verify the failure was recorded with full context
           failure = Reencodarr.Repo.get!(Reencodarr.Media.VideoFailure, failure.id)
 
           assert failure.failure_code == "EXIT_137"
@@ -225,7 +224,6 @@ defmodule Reencodarr.FailureTracker.CommandOutputTest do
 
           failure = Reencodarr.Repo.get!(Reencodarr.Media.VideoFailure, failure.id)
 
-          # Verify the tested_scores are stored as maps, not tuples
           assert is_list(failure.system_context["tested_scores"])
 
           if not Enum.empty?(failure.system_context["tested_scores"]) do

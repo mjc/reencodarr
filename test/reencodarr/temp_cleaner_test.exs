@@ -43,7 +43,6 @@ defmodule Reencodarr.TempCleanerTest do
     end
 
     test "removes files older than max age", %{tmp: tmp} do
-      # Create a file
       file_path = Path.join(tmp, "old_encode.mkv.tmp")
       File.write!(file_path, "data")
 

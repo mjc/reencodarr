@@ -619,7 +619,6 @@ defmodule Reencodarr.MediaTest do
 
     @tag :batch_upsert
     test "batch_upsert_videos/1 creates or updates multiple videos in one transaction" do
-      # Create a library first
       library = Fixtures.library_fixture()
 
       # Prepare batch video data
@@ -657,7 +656,6 @@ defmodule Reencodarr.MediaTest do
       assert Enum.count(results) == 3
       assert Enum.all?(results, &match?({:ok, _}, &1))
 
-      # Extract the videos
       videos = Enum.map(results, fn {:ok, video} -> video end)
 
       # Verify videos were created correctly
@@ -734,7 +732,6 @@ defmodule Reencodarr.MediaTest do
     end
 
     test "batch_upsert_videos/1 handles errors gracefully" do
-      # Create a library first
       library = Fixtures.library_fixture()
 
       # Test with invalid data - valid path but missing required size
@@ -1164,7 +1161,6 @@ defmodule Reencodarr.MediaTest do
       {:ok, video} = Fixtures.video_fixture()
       video_id = video.id
 
-      # Delete the video first
       Media.delete_video(video)
 
       # Should not crash when trying to record failure - will raise constraint error
@@ -1453,7 +1449,6 @@ defmodule Reencodarr.MediaTest do
 
   describe "test helpers" do
     test "test_insert_path/2 creates video for testing" do
-      # Create a library to match the path
       _library = Fixtures.library_fixture(%{path: "/test"})
 
       path = "/test/video_#{:erlang.unique_integer([:positive])}.mkv"
@@ -2471,7 +2466,6 @@ defmodule Reencodarr.MediaTest do
     end
 
     test "reset_videos_with_invalid_audio_args/0 with no problematic videos" do
-      # Create a video with valid audio metadata
       {:ok, _video} =
         Fixtures.video_fixture(%{
           audio_codecs: ["aac"],
@@ -3304,7 +3298,6 @@ defmodule Reencodarr.MediaTest do
         # Resolve once
         {1, nil} = Media.resolve_video_failures(video.id)
 
-        # Create a new failure
         {:ok, _} =
           Media.record_video_failure(video, :encoding, :process_failure, message: "Second fail")
 

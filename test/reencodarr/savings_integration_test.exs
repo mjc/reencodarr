@@ -8,10 +8,8 @@ defmodule Reencodarr.SavingsIntegrationTest do
 
   describe "savings integration" do
     test "savings flow from CRF search to encoding queue" do
-      # Create a test library first
       {:ok, library} = Media.create_library(%{path: "/test/library", monitor: true})
 
-      # Create a test video
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/library/integration_video_#{System.unique_integer([:positive])}.mkv",
@@ -118,7 +116,6 @@ defmodule Reencodarr.SavingsIntegrationTest do
     end
 
     test "savings calculation handles edge cases" do
-      # Create a test library first
       {:ok, library} = Media.create_library(%{path: "/test/library", monitor: true})
 
       # Test with very small file
@@ -201,7 +198,6 @@ defmodule Reencodarr.SavingsIntegrationTest do
     end
 
     test "explicit savings override calculation" do
-      # Create a test library first
       {:ok, library} = Media.create_library(%{path: "/test/library", monitor: true})
 
       # Create test video

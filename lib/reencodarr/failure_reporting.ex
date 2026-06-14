@@ -1,4 +1,5 @@
 defmodule Reencodarr.FailureReporting do
+  alias IO.ANSI
   alias Reencodarr.Media
   alias Reencodarr.Media.VideoFailure
 
@@ -273,15 +274,13 @@ defmodule Reencodarr.FailureReporting do
   def print_failure_report(opts \\ []) do
     report = generate_failure_report(opts)
 
-    IO.puts(
-      "\n" <> IO.ANSI.bright() <> "=== Video Processing Failure Report ===" <> IO.ANSI.reset()
-    )
+    IO.puts("\n" <> ANSI.bright() <> "=== Video Processing Failure Report ===" <> ANSI.reset())
 
     IO.puts("Period: Last #{report.summary.period_days} days")
     IO.puts("")
 
     # Summary
-    IO.puts(IO.ANSI.bright() <> "Summary:" <> IO.ANSI.reset())
+    IO.puts(ANSI.bright() <> "Summary:" <> ANSI.reset())
     IO.puts("  Total Failures: #{report.summary.total_failures}")
     IO.puts("  Resolved: #{report.summary.resolved_failures}")
     IO.puts("  Unresolved: #{report.summary.unresolved_failures}")
@@ -290,7 +289,7 @@ defmodule Reencodarr.FailureReporting do
 
     # By Stage
     if not Enum.empty?(report.by_stage) do
-      IO.puts(IO.ANSI.bright() <> "Failures by Stage:" <> IO.ANSI.reset())
+      IO.puts(ANSI.bright() <> "Failures by Stage:" <> ANSI.reset())
 
       Enum.each(report.by_stage, fn stage ->
         IO.puts(
@@ -309,7 +308,7 @@ defmodule Reencodarr.FailureReporting do
   defp print_common_patterns([]), do: :ok
 
   defp print_common_patterns(patterns) do
-    IO.puts(IO.ANSI.bright() <> "Most Common Failure Patterns:" <> IO.ANSI.reset())
+    IO.puts(ANSI.bright() <> "Most Common Failure Patterns:" <> ANSI.reset())
 
     Enum.each(patterns, fn pattern ->
       IO.puts(
@@ -327,18 +326,18 @@ defmodule Reencodarr.FailureReporting do
   defp print_recommendations([]), do: :ok
 
   defp print_recommendations(recommendations) do
-    IO.puts(IO.ANSI.bright() <> "Recommendations:" <> IO.ANSI.reset())
+    IO.puts(ANSI.bright() <> "Recommendations:" <> ANSI.reset())
 
     Enum.each(recommendations, fn rec ->
       priority_color =
         case rec.priority do
-          :high -> IO.ANSI.red()
-          :medium -> IO.ANSI.yellow()
-          :low -> IO.ANSI.green()
+          :high -> ANSI.red()
+          :medium -> ANSI.yellow()
+          :low -> ANSI.green()
         end
 
       IO.puts(
-        "  #{priority_color}[#{String.upcase(to_string(rec.priority))}]#{IO.ANSI.reset()} #{rec.title}"
+        "  #{priority_color}[#{String.upcase(to_string(rec.priority))}]#{ANSI.reset()} #{rec.title}"
       )
 
       IO.puts("    #{rec.description}")

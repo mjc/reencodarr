@@ -11,7 +11,6 @@ defmodule Reencodarr.SyncBitratePreservationTest do
     end
 
     test "preserves analyzed bitrate when file size doesn't change", %{library: library} do
-      # Create a video with analyzed bitrate
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/movie.mkv",
@@ -63,7 +62,6 @@ defmodule Reencodarr.SyncBitratePreservationTest do
     end
 
     test "resets bitrate when file size changes", %{library: library} do
-      # Create a video with analyzed bitrate
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/movie2.mkv",
@@ -115,7 +113,6 @@ defmodule Reencodarr.SyncBitratePreservationTest do
     end
 
     test "allows bitrate reset when explicitly set to 0", %{library: library} do
-      # Create a video with analyzed bitrate
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/movie3.mkv",

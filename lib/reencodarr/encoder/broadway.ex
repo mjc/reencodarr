@@ -186,15 +186,17 @@ defmodule Reencodarr.Encoder.Broadway do
   if Mix.env() == :test do
     alias Reencodarr.AbAv1.Encode
 
-    @doc false
+    @doc """
+    Builds encode arguments through the encoder GenServer for tests.
+    """
     def build_encode_args_for_test(vmaf) do
-      # Delegate to Encode GenServer's test function
       Encode.build_encode_args_for_test(vmaf)
     end
 
-    @doc false
+    @doc """
+    Removes input and output path arguments from an encode command for assertions.
+    """
     def filter_input_output_args_for_test(args) do
-      # Simple implementation for filtering input/output args
       {filtered, _expecting_value} =
         Enum.reduce(args, {[], nil}, fn arg, {acc, expecting_value} ->
           cond do

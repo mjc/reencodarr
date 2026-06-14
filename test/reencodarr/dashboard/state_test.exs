@@ -907,7 +907,6 @@ defmodule Reencodarr.Dashboard.StateTest do
     end
 
     test "broadcasts contain full state snapshot (LiveView can hydrate from it)" do
-      # Verify the broadcast contains all the fields LiveView needs
       Phoenix.PubSub.broadcast(
         Reencodarr.PubSub,
         Events.channel(),

@@ -33,16 +33,16 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
     execute_chunked_with_optimal_settings(paths, batch_size)
   end
 
-  defp execute_chunked_with_optimal_settings(paths, batch_size)
-       when length(paths) <= batch_size do
-    # Small batch - execute directly
-    execute_single_batch_optimized(paths)
+  defp execute_chunked_with_optimal_settings(paths, batch_size) do
+    if Enum.count_until(paths, batch_size + 1) <= batch_size do
+      execute_single_batch_optimized(paths)
+    else
+      execute_chunked_concurrently(paths, batch_size)
+    end
   end
 
-  defp execute_chunked_with_optimal_settings(paths, batch_size) do
-    # Large batch - use concurrent chunk processing
+  defp execute_chunked_concurrently(paths, batch_size) do
     chunk_concurrency = get_optimal_chunk_concurrency(length(paths))
-
     Logger.debug("Using chunk concurrency: #{chunk_concurrency} for #{length(paths)} files")
 
     paths

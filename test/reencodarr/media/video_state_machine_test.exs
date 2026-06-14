@@ -35,7 +35,6 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
     end
 
     test "can transition to analyzed state with valid duration" do
-      # Create a video with duration and HIGH bitrate
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/with_duration_video.mkv",
@@ -115,7 +114,6 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
     end
 
     test "requires bitrate, width, height for analyzed state" do
-      # Create a video missing required fields
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/missing_required_video.mkv",
@@ -208,7 +206,6 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
     end
 
     test "transitions video with nil bitrate to analyzed state normally" do
-      # Create a video with nil bitrate
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/nil_bitrate_video.mkv",

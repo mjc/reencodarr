@@ -191,14 +191,12 @@ defmodule Reencodarr.Media.MediaInfoExtractor do
     channels_string = get_string_field(track, "Channel(s)/String", "")
 
     # Check if this is 5.1 surround by looking for LFE in channel positions
-    case contains_lfe_or_surround?(channel_positions) or
-           contains_lfe_or_surround?(channel_layout) or
-           contains_lfe_or_surround?(channels_string) do
-      true ->
-        detect_surround_channel_count(channel_positions, channel_layout, channels_string)
-
-      false ->
-        get_int_field(track, "Channels", 0)
+    if contains_lfe_or_surround?(channel_positions) or
+         contains_lfe_or_surround?(channel_layout) or
+         contains_lfe_or_surround?(channels_string) do
+      detect_surround_channel_count(channel_positions, channel_layout, channels_string)
+    else
+      get_int_field(track, "Channels", 0)
     end
   end
 

@@ -11,6 +11,7 @@ defmodule Reencodarr.Dashboard.State do
   use GenServer
   require Logger
 
+  alias Phoenix.PubSub
   alias Reencodarr.AbAv1.ProcessControl
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media.ChartQueries
@@ -83,14 +84,14 @@ defmodule Reencodarr.Dashboard.State do
   @impl true
   def init(_opts) do
     # Subscribe to dashboard events
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
+    PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+    PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
 
     # Subscribe to pipeline state changes (same channels as DashboardLive)
     # PipelineStateMachine broadcasts on these via Events.pipeline_state_changed/3
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "analyzer")
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
-    Phoenix.PubSub.subscribe(Reencodarr.PubSub, "encoder")
+    PubSub.subscribe(Reencodarr.PubSub, "analyzer")
+    PubSub.subscribe(Reencodarr.PubSub, "crf_searcher")
+    PubSub.subscribe(Reencodarr.PubSub, "encoder")
 
     {:ok, @default_state, {:continue, :fetch_initial_data}}
   end
@@ -370,7 +371,7 @@ defmodule Reencodarr.Dashboard.State do
 
   defp broadcast_state(state) do
     state = current_control_state(state)
-    Phoenix.PubSub.broadcast(Reencodarr.PubSub, @state_channel, {:dashboard_state_changed, state})
+    PubSub.broadcast(Reencodarr.PubSub, @state_channel, {:dashboard_state_changed, state})
   end
 
   defp current_control_state(state) do

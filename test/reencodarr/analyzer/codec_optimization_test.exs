@@ -30,7 +30,6 @@ defmodule Reencodarr.Analyzer.CodecOptimizationTest do
     end
 
     test "Opus audio videos can be marked as reencoded, not analyzed" do
-      # Create a video with Opus audio and all required fields
       {:ok, video} =
         Fixtures.video_fixture(%{
           state: :needs_analysis,

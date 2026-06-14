@@ -88,16 +88,16 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     Process.send_after(self(), :poll, @poll_interval_ms)
   end
 
-  # Public for testing
-  @doc false
-  # :available means CRF searcher responded and is free — reset counter
-  # :busy means CRF searcher responded but is searching — reset counter (it's alive)
-  # :timeout means CRF searcher didn't respond — increment toward recovery
+  @doc """
+  Updates the CRF searcher health-check timeout counter.
+  """
   def update_consecutive_count(_current, :available), do: 0
   def update_consecutive_count(_current, :busy), do: 0
   def update_consecutive_count(current, :timeout), do: current + 1
 
-  @doc false
+  @doc """
+  Returns whether the timeout counter has reached a recovery interval.
+  """
   def should_attempt_recovery?(count) when count >= @recovery_threshold do
     rem(count, @recovery_threshold) == 0
   end

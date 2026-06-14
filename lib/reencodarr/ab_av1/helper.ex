@@ -158,7 +158,6 @@ defmodule Reencodarr.AbAv1.Helper do
           get_in(s, ["disposition", "attached_pic"]) != 1
       end)
 
-    # Step 1: Delete image attachments via mkvpropedit (in-place, fast)
     delete_image_attachments(file_path)
 
     case detect_attached_pictures(file_path) do

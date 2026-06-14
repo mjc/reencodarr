@@ -49,9 +49,10 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
   """
   @spec execute_single_mediainfo(String.t()) :: {:ok, map()} | {:error, term()}
   def execute_single_mediainfo(path) when is_binary(path) do
-    case File.exists?(path) do
-      true -> execute_mediainfo_command([path])
-      false -> {:error, "file does not exist: #{path}"}
+    if File.exists?(path) do
+      execute_mediainfo_command([path])
+    else
+      {:error, "file does not exist: #{path}"}
     end
   end
 

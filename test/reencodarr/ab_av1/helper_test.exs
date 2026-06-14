@@ -625,7 +625,6 @@ defmodule Reencodarr.AbAv1.HelperTest do
 
   describe "open_port/1" do
     test "returns {:ok, port} when ab-av1 executable exists" do
-      # Create a temp file for testing
       test_file = Path.join(System.tmp_dir!(), "test_open_port_#{:rand.uniform(1000)}.mkv")
       File.write!(test_file, "test content")
 

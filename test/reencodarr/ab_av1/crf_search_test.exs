@@ -172,7 +172,6 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
         {:ok, Map.put(v, :state, :crf_searching)}
       end)
 
-      # Create a complete video object with all required fields
       video = %{
         id: 456,
         path: "/test/video.mkv",
@@ -240,7 +239,6 @@ defmodule Reencodarr.AbAv1.CrfSearchTest do
   describe "mark_as_crf_searched error handling" do
     test "records failure when mark_as_crf_searched fails permanently" do
       # This test verifies Fix 5: don't silently swallow failures
-      # Create a mock video
       video = %Video{id: 999, path: "/test/video.mkv"}
 
       # Mock Media.mark_as_crf_searched to fail

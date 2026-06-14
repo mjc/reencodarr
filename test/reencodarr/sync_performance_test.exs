@@ -365,7 +365,6 @@ defmodule Reencodarr.SyncPerformanceTest do
       # Test memory stability during processing
       initial_memory = :erlang.memory(:total)
 
-      # Process a large number of files
       large_batch =
         for i <- 1..500 do
           %{

@@ -7,6 +7,7 @@ defmodule Reencodarr.Sync do
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.{Media, Repo, Services}
+  alias Reencodarr.Services.{Radarr, Sonarr}
 
   alias Reencodarr.Media.{MediaInfoExtractor, VideoFileInfo, VideoUpsert}
   alias Reencodarr.Media.Video.MediaInfoConverter
@@ -30,7 +31,7 @@ defmodule Reencodarr.Sync do
   end
 
   def handle_cast(:refresh_and_rename_series, state) do
-    Services.Sonarr.refresh_and_rename_all_series()
+    Sonarr.refresh_and_rename_all_series()
     {:noreply, state}
   end
 
@@ -565,19 +566,19 @@ defmodule Reencodarr.Sync do
   end
 
   def refresh_operations(file_id, :sonarr) do
-    with {:ok, %Req.Response{body: episode_file}} <- Services.Sonarr.get_episode_file(file_id),
+    with {:ok, %Req.Response{body: episode_file}} <- Sonarr.get_episode_file(file_id),
          {:ok, series_id} <- validate_series_id(episode_file["seriesId"]),
-         {:ok, _} <- Services.Sonarr.refresh_series_and_wait(series_id),
-         {:ok, _} <- Services.Sonarr.rename_files(series_id) do
+         {:ok, _} <- Sonarr.refresh_series_and_wait(series_id),
+         {:ok, _} <- Sonarr.rename_files(series_id) do
       {:ok, "Refresh and rename triggered"}
     end
   end
 
   def refresh_operations(file_id, :radarr) do
-    with {:ok, %Req.Response{body: movie_file}} <- Services.Radarr.get_movie_file(file_id),
+    with {:ok, %Req.Response{body: movie_file}} <- Radarr.get_movie_file(file_id),
          {:ok, movie_id} <- validate_movie_id(movie_file["movieId"]),
-         {:ok, _} <- Services.Radarr.refresh_movie_and_wait(movie_id),
-         {:ok, _} <- Services.Radarr.rename_movie_files(movie_id) do
+         {:ok, _} <- Radarr.refresh_movie_and_wait(movie_id),
+         {:ok, _} <- Radarr.rename_movie_files(movie_id) do
       {:ok, "Refresh and rename triggered for Radarr"}
     end
   end

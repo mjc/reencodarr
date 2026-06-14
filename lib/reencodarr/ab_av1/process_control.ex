@@ -142,12 +142,16 @@ defmodule Reencodarr.AbAv1.ProcessControl do
   defp resume_service(:encoder), do: Encode.resume_current()
 
   if Mix.env() == :test do
-    @doc false
+    @doc """
+    Forces a service suspension timestamp for auto-resume tests.
+    """
     def force_suspend_at(service, suspended_at) when service in @services do
       GenServer.cast(__MODULE__, {:force_suspend_at, service, suspended_at})
     end
 
-    @doc false
+    @doc """
+    Triggers the auto-resume check loop for tests.
+    """
     def auto_resume_check do
       send(__MODULE__, :auto_resume_check)
     end

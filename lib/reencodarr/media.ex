@@ -942,9 +942,10 @@ defmodule Reencodarr.Media do
   defp maybe_offset_bad_file_issues(query, _offset), do: query
 
   defp ensure_bad_file_issue_video_join(%Ecto.Query{aliases: aliases} = query) do
-    case Map.has_key?(aliases, :video) do
-      true -> query
-      false -> join(query, :inner, [i], v in assoc(i, :video), as: :video)
+    if Map.has_key?(aliases, :video) do
+      query
+    else
+      join(query, :inner, [i], v in assoc(i, :video), as: :video)
     end
   end
 
@@ -1652,7 +1653,7 @@ defmodule Reencodarr.Media do
         total_deleted
 
       videos ->
-        last_video_id = List.last(videos).id
+        last_video_id = Enum.reduce(videos, 0, fn video, id -> max(video.id, id) end)
         missing_ids = find_missing_file_ids(videos, cleanup_opts)
 
         new_total =
@@ -2119,7 +2120,9 @@ defmodule Reencodarr.Media do
     if result, do: [result], else: []
   end
 
-  @doc false
+  @doc """
+  Builds the compact dashboard snapshot used for mutation broadcasts.
+  """
   def dashboard_video_snapshot(nil), do: nil
 
   def dashboard_video_snapshot(%Video{} = video) do
@@ -2137,7 +2140,9 @@ defmodule Reencodarr.Media do
     }
   end
 
-  @doc false
+  @doc """
+  Fetches a compact dashboard video snapshot by path.
+  """
   def fetch_dashboard_video_snapshot_by_path(path) when is_binary(path) do
     Repo.one(
       from(v in Video,
@@ -2162,7 +2167,9 @@ defmodule Reencodarr.Media do
 
   def fetch_dashboard_video_snapshot_by_path(_), do: nil
 
-  @doc false
+  @doc """
+  Fetches a compact dashboard video snapshot by id.
+  """
   def fetch_dashboard_video_snapshot_by_id(id) when is_integer(id) do
     Repo.one(
       from(v in Video,
@@ -2187,7 +2194,9 @@ defmodule Reencodarr.Media do
 
   def fetch_dashboard_video_snapshot_by_id(_), do: nil
 
-  @doc false
+  @doc """
+  Fetches compact dashboard video snapshots for a list of ids.
+  """
   def fetch_dashboard_video_snapshots_by_ids(video_ids) when is_list(video_ids) do
     Repo.all(
       from(v in Video,
@@ -2210,7 +2219,9 @@ defmodule Reencodarr.Media do
     )
   end
 
-  @doc false
+  @doc """
+  Broadcasts a video mutation when dashboard-visible fields changed.
+  """
   def broadcast_video_mutation(action, old_video, new_video)
       when action in [:insert, :update, :delete] do
     if action != :update or old_video != new_video do
@@ -2224,7 +2235,9 @@ defmodule Reencodarr.Media do
     :ok
   end
 
-  @doc false
+  @doc """
+  Broadcasts that VMAF records were inserted or deleted.
+  """
   def broadcast_vmaf_mutation(action, count)
       when action in [:insert, :delete] and is_integer(count) and count > 0 do
     Phoenix.PubSub.broadcast(

@@ -13,7 +13,6 @@ defmodule Reencodarr.Media.VideoQueriesTest do
           audio_codecs: ["aac"]
         })
 
-      # Create a video that should be excluded (already reencoded)
       {:ok, _excluded_video} =
         Fixtures.video_fixture(%{
           path: "/test/sample_excluded.mkv",

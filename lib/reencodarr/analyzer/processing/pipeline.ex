@@ -158,7 +158,6 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
   defp handle_empty_file(video_info) do
     Logger.warning("File is empty, cleaning up: #{video_info.path}")
 
-    # Delete the empty file
     case File.rm(video_info.path) do
       :ok ->
         Logger.info("Successfully deleted empty file: #{video_info.path}")
@@ -176,7 +175,6 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
         # Trigger rescan in Sonarr/Radarr before deleting the record
         trigger_service_rescan(video)
 
-        # Delete the video record
         case Media.delete_video_with_vmafs(video) do
           {:ok, _} ->
             Logger.info("Successfully deleted video record for empty file: #{video_info.path}")

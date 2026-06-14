@@ -129,7 +129,6 @@ defmodule Reencodarr.AbAv1.CrfSearch.LineProcessingTest do
     end
 
     test "handles ab-av1 error line", %{video: video} do
-      # Create a VMAF record first to test retry logic
       {:ok, _vmaf} =
         Media.create_vmaf(%{
           video_id: video.id,

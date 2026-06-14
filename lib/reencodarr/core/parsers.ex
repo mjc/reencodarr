@@ -267,18 +267,16 @@ defmodule Reencodarr.Core.Parsers do
 
   @spec convert_value(String.t(), :float) :: float()
   defp convert_value(value, :float) do
-    case String.contains?(value, ".") do
-      true ->
-        case Float.parse(value) do
-          {float, ""} -> float
-          _ -> 0.0
-        end
-
-      false ->
-        case Integer.parse(value) do
-          {int, ""} -> int * 1.0
-          _ -> 0.0
-        end
+    if String.contains?(value, ".") do
+      case Float.parse(value) do
+        {float, ""} -> float
+        _ -> 0.0
+      end
+    else
+      case Integer.parse(value) do
+        {int, ""} -> int * 1.0
+        _ -> 0.0
+      end
     end
   end
 

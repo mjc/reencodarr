@@ -27,19 +27,17 @@ defmodule Reencodarr.Media.SharedQueries do
 
   Optimized with early pattern matching.
   """
-  def videos_not_matching_exclude_patterns(video_list)
-      when length(video_list) < @large_list_threshold do
-    patterns = Reencodarr.Config.exclude_patterns()
-
-    case patterns do
-      [] -> video_list
-      patterns -> filter_videos_by_patterns(video_list, patterns)
-    end
-  end
-
   def videos_not_matching_exclude_patterns(video_list) do
-    # For large lists, use database filtering for better performance
-    filter_large_video_list_by_patterns(video_list)
+    if Enum.count_until(video_list, @large_list_threshold) < @large_list_threshold do
+      patterns = Reencodarr.Config.exclude_patterns()
+
+      case patterns do
+        [] -> video_list
+        patterns -> filter_videos_by_patterns(video_list, patterns)
+      end
+    else
+      filter_large_video_list_by_patterns(video_list)
+    end
   end
 
   # Pattern matching for smaller video lists

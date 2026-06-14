@@ -4,7 +4,6 @@ defmodule Reencodarr.MediaSavingsSortTest do
 
   describe "encoding queue sorting by savings" do
     setup do
-      # Create a test library first
       {:ok, library} = Media.create_library(%{path: "/test/library", monitor: true})
 
       # Create test videos with same size but different savings

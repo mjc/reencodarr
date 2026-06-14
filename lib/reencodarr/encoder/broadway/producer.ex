@@ -117,16 +117,16 @@ defmodule Reencodarr.Encoder.Broadway.Producer do
       :ok
   end
 
-  # Public for testing
-  @doc false
-  # :available means encoder responded and is free — reset counter
-  # :busy means encoder responded but is encoding — reset counter (it's alive)
-  # :timeout means encoder didn't respond — increment toward recovery
+  @doc """
+  Updates the encoder health-check timeout counter.
+  """
   def update_consecutive_count(_current, :available), do: 0
   def update_consecutive_count(_current, :busy), do: 0
   def update_consecutive_count(current, :timeout), do: current + 1
 
-  @doc false
+  @doc """
+  Returns whether the timeout counter has reached a recovery interval.
+  """
   def should_attempt_recovery?(count) when count >= @recovery_threshold do
     rem(count, @recovery_threshold) == 0
   end

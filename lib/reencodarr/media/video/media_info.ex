@@ -39,7 +39,6 @@ defmodule Reencodarr.Media.Video.MediaInfo do
   def from_json(json_data) do
     case extract_tracks_from_json(json_data) do
       {:ok, tracks} ->
-        # Build the embedded schema
         attrs = %{
           "general" => find_track_by_type(tracks, "General"),
           "video_tracks" => find_tracks_by_type(tracks, "Video"),
