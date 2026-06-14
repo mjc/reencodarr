@@ -449,8 +449,8 @@ defmodule ReencodarrWeb.DashboardLive do
           opacity="0.3"
         />
       <% end %>
-      
-    <!-- Target VMAF line (dashed, amber) -->
+
+      <!-- Target VMAF line (dashed, amber) -->
       <line
         x1="30"
         y1={@target_y}
@@ -463,8 +463,8 @@ defmodule ReencodarrWeb.DashboardLive do
       <text x="312" y={@target_y + 3} fill="#f59e0b" font-size="9" font-family="monospace">
         {@target_vmaf}
       </text>
-      
-    <!-- Result dots -->
+
+      <!-- Result dots -->
       <%= for dot <- @dots do %>
         <circle
           cx={dot.x}
@@ -486,8 +486,8 @@ defmodule ReencodarrWeb.DashboardLive do
           </text>
         <% end %>
       <% end %>
-      
-    <!-- Currently-testing CRF indicator (pulsing ring at bottom) -->
+
+      <!-- Currently-testing CRF indicator (pulsing ring at bottom) -->
       <%= if @testing_crf do %>
         <circle
           cx={ChartHelpers.crf_to_x(@testing_crf, @crf_min, @crf_max)}
@@ -509,15 +509,15 @@ defmodule ReencodarrWeb.DashboardLive do
           CRF {Formatters.crf(@testing_crf)}
         </text>
       <% end %>
-      
-    <!-- Y-axis labels (VMAF values) -->
+
+      <!-- Y-axis labels (VMAF values) -->
       <%= for tick <- @y_ticks do %>
         <text x="2" y={tick.y + 3} fill="#9ca3af" font-size="9" font-family="monospace">
           {tick.value}
         </text>
       <% end %>
-      
-    <!-- X-axis labels (CRF ticks) -->
+
+      <!-- X-axis labels (CRF ticks) -->
       <%= for tick <- @x_ticks do %>
         <text
           x={tick.x}
@@ -530,8 +530,8 @@ defmodule ReencodarrWeb.DashboardLive do
           {tick.value}
         </text>
       <% end %>
-      
-    <!-- Axis lines -->
+
+      <!-- Axis lines -->
       <line x1="30" y1="10" x2="30" y2="110" stroke="#4b5563" stroke-width="1" />
       <line x1="30" y1="110" x2="310" y2="110" stroke="#4b5563" stroke-width="1" />
     </svg>
@@ -574,8 +574,8 @@ defmodule ReencodarrWeb.DashboardLive do
               <span>Target: {@video.target_vmaf} VMAF</span>
             </div>
           </div>
-          
-    <!-- Sample progress if active -->
+
+          <!-- Sample progress if active -->
           <%= if @sample do %>
             <div class="text-xs text-gray-400">
               Sample {@sample.sample_num}/{@sample.total_samples} — CRF {@sample.crf}
@@ -587,8 +587,8 @@ defmodule ReencodarrWeb.DashboardLive do
             resume_event="resume_crf_search"
             fail_event="fail_crf_search"
           />
-          
-    <!-- SVG scatter plot showing convergence -->
+
+          <!-- SVG scatter plot showing convergence -->
           <%= if length(@results) > 0 or @sample do %>
             <div class="space-y-2">
               <.crf_search_chart
@@ -596,8 +596,8 @@ defmodule ReencodarrWeb.DashboardLive do
                 target_vmaf={@video.target_vmaf}
                 testing_crf={@sample && @sample.crf}
               />
-              
-    <!-- Compact results list (exact numbers) -->
+
+              <!-- Compact results list (exact numbers) -->
               <%= if length(@results) > 0 do %>
                 <div class="text-xs font-mono text-gray-400 space-y-0.5 max-h-24 overflow-y-auto">
                   <%= for result <- @results do %>
@@ -640,8 +640,8 @@ defmodule ReencodarrWeb.DashboardLive do
           </div>
         <% end %>
       <% end %>
-      
-    <!-- Always show next-up videos -->
+
+      <!-- Always show next-up videos -->
       <%= if length(@queue_items) > 0 do %>
         <div class="text-xs text-gray-500 space-y-1 mt-3 pt-2 border-t border-gray-800">
           <div class="text-gray-600 mb-0.5">Next up ({@queue_count}):</div>
@@ -698,8 +698,8 @@ defmodule ReencodarrWeb.DashboardLive do
               <% end %>
             </div>
           </div>
-          
-    <!-- VMAF info + savings -->
+
+          <!-- VMAF info + savings -->
           <%= if @vmaf do %>
             <div class="space-y-1">
               <div class="text-xs text-gray-400">
@@ -712,8 +712,8 @@ defmodule ReencodarrWeb.DashboardLive do
               <% end %>
             </div>
           <% end %>
-          
-    <!-- Progress bar -->
+
+          <!-- Progress bar -->
           <%= if @progress != :none && Map.get(@progress, :percent) != nil do %>
             <div>
               <div class="w-full bg-gray-800 rounded-full h-2 mb-1">
@@ -761,8 +761,8 @@ defmodule ReencodarrWeb.DashboardLive do
           </div>
         <% end %>
       <% end %>
-      
-    <!-- Always show next-up videos -->
+
+      <!-- Always show next-up videos -->
       <%= if length(@queue_items) > 0 do %>
         <div class="text-xs text-gray-500 space-y-1 mt-3 pt-2 border-t border-gray-800">
           <div class="text-gray-600 mb-0.5">Next up ({@queue_count}):</div>
@@ -839,8 +839,8 @@ defmodule ReencodarrWeb.DashboardLive do
         stats_display={@stats_display}
         state_distribution_display={@state_distribution_display}
       />
-      
-    <!-- Compact pipeline rows -->
+
+      <!-- Compact pipeline rows -->
       <div class="space-y-2 mt-4">
         <.pipeline_row
           name="Analysis"
@@ -1157,8 +1157,8 @@ defmodule ReencodarrWeb.DashboardLive do
           stats_display={@stats_display}
           service_status={@service_status}
         />
-        
-    <!-- Row 2: Active Work Panels -->
+
+        <!-- Row 2: Active Work Panels -->
         <div
           id="dashboard-active-work"
           class="dashboard-section grid grid-cols-1 gap-3 lg:grid-cols-5 lg:gap-4"
@@ -1185,8 +1185,8 @@ defmodule ReencodarrWeb.DashboardLive do
             />
           </div>
         </div>
-        
-    <!-- Row 3: Pipeline Overview -->
+
+        <!-- Row 3: Pipeline Overview -->
         <.pipeline_overview
           stats={@stats}
           stats_display={@stats_display}
@@ -1195,8 +1195,8 @@ defmodule ReencodarrWeb.DashboardLive do
           queue_counts={@queue_counts}
           analyzer_throughput={@analyzer_throughput}
         />
-        
-    <!-- Row 4: Analytics Charts -->
+
+        <!-- Row 4: Analytics Charts -->
         <div class="dashboard-section dashboard-deferred-section dashboard-chart-section grid grid-cols-1 gap-3 lg:grid-cols-3 lg:gap-4">
           <.bar_chart
             data={@vmaf_distribution}
@@ -1217,8 +1217,8 @@ defmodule ReencodarrWeb.DashboardLive do
             height={220}
           />
         </div>
-        
-    <!-- Row 5: Sync Controls -->
+
+        <!-- Row 5: Sync Controls -->
         <div class="dashboard-section dashboard-deferred-section dashboard-sync-section">
           <.sync_controls
             syncing={@syncing}

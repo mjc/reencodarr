@@ -987,8 +987,8 @@ defmodule ReencodarrWeb.RulesLive.Sections do
                 </div>
               </div>
             </div>
-            
-    <!-- Grain Rule -->
+
+            <!-- Grain Rule -->
             <div class="bg-gray-800 p-4 rounded border border-indigo-500">
               <h3 class="text-indigo-400 font-bold mb-3">🎬 Film Grain Synthesis</h3>
 
@@ -1376,8 +1376,8 @@ defmodule ReencodarrWeb.RulesLive.Sections do
                 ⚙️ Rules applied: video/1 (10-bit format) + hdr/1 (SDR tune) + audio/1 (copy original)
               </div>
             </div>
-            
-    <!-- 4K HDR Example -->
+
+            <!-- 4K HDR Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">🎬 4K HDR Movie</h3>
               <div class="text-sm mb-2 text-yellow-200">
@@ -1407,8 +1407,8 @@ defmodule ReencodarrWeb.RulesLive.Sections do
                 ⚙️ Rules applied: video/1 (10-bit) + hdr/1 (SDR tune) + audio/1 (copy original Atmos)
               </div>
             </div>
-            
-    <!-- 2.1 Upmix Example -->
+
+            <!-- 2.1 Upmix Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">⭐ TV Show with 2.1 Audio</h3>
               <div class="text-sm mb-2 text-yellow-200">
@@ -1438,8 +1438,8 @@ defmodule ReencodarrWeb.RulesLive.Sections do
                 ✅ Audio copied as-is (already Opus)
               </div>
             </div>
-            
-    <!-- DVD Upscale Example -->
+
+            <!-- DVD Upscale Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">📼 DVD Collection</h3>
               <div class="text-sm mb-2 text-yellow-200">Properties: 720x480, SDR, AC3 5.1 Audio</div>
@@ -1465,8 +1465,8 @@ defmodule ReencodarrWeb.RulesLive.Sections do
                 🎮 Downscaled from 3440×1440 to 1920×800 (maintains 21:9), audio copied as-is
               </div>
             </div>
-            
-    <!-- Mixed Series Example -->
+
+            <!-- Mixed Series Example -->
             <div class="bg-gray-800 p-4 rounded border border-yellow-500">
               <h3 class="text-yellow-400 font-bold mb-2">📺 Modern TV Series (Mixed HDR/SDR)</h3>
               <div class="text-sm mb-2 text-yellow-200">

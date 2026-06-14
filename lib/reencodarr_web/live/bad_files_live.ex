@@ -722,7 +722,7 @@ defmodule ReencodarrWeb.BadFilesLive do
           <div class="flex items-center justify-between text-sm text-gray-400">
             <span>{pagination_label(@page, @per_page, @active_total)}</span>
             <div class="flex items-center gap-2">
-              <form phx-change="set_per_page">
+              <form id="bad-files-per-page" phx-change="set_per_page">
                 <select
                   name="per_page"
                   value={@per_page}

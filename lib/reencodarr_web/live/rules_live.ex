@@ -57,8 +57,8 @@ defmodule ReencodarrWeb.RulesLive do
           <div class="lg:col-span-1">
             <.rules_navigation selected_section={@selected_section} />
           </div>
-          
-    <!-- Main Content -->
+
+          <!-- Main Content -->
           <div class="lg:col-span-3">
             <%= case @selected_section do %>
               <% :overview -> %>

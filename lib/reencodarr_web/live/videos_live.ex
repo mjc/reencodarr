@@ -837,8 +837,8 @@ defmodule ReencodarrWeb.VideosLive do
             <% end %>
           </div>
         </div>
-        
-    <!-- State stats bar -->
+
+        <!-- State stats bar -->
         <div class="flex flex-wrap gap-2">
           <%= for state <- @valid_states do %>
             <% count = Map.get(@state_counts, String.to_existing_atom(state), 0) %>
@@ -852,8 +852,8 @@ defmodule ReencodarrWeb.VideosLive do
             </button>
           <% end %>
         </div>
-        
-    <!-- Toolbar -->
+
+        <!-- Toolbar -->
         <div class="bg-gray-800 rounded-lg border border-gray-700 p-3 sm:p-4">
           <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
             <form id="videos-filters" phx-change="set_filters" class="contents">
@@ -894,7 +894,7 @@ defmodule ReencodarrWeb.VideosLive do
               </select>
             </form>
 
-            <form phx-change="set_per_page">
+            <form id="videos-per-page" phx-change="set_per_page">
               <select
                 name="per_page"
                 class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 sm:w-auto"
@@ -906,8 +906,8 @@ defmodule ReencodarrWeb.VideosLive do
             </form>
           </div>
         </div>
-        
-    <!-- Loading / table -->
+
+        <!-- Loading / table -->
         <%= if @loading and @videos == [] do %>
           <div class="bg-gray-800 rounded-lg border border-gray-700 p-16 text-center">
             <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-purple-500 mx-auto mb-3">
@@ -1136,8 +1136,8 @@ defmodule ReencodarrWeb.VideosLive do
               </tbody>
             </table>
           </div>
-          
-    <!-- Pagination -->
+
+          <!-- Pagination -->
           <div class="flex justify-between items-center text-sm text-gray-400">
             <span>{pagination_label(@page, @per_page, @total)}</span>
             <div class="flex gap-2">
