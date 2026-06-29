@@ -44,3 +44,5 @@ config/dev.overrides.exs
 # Log files
 /logs/
 .expert/
+
+.envrc

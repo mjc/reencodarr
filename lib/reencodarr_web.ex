@@ -85,6 +85,7 @@ defmodule ReencodarrWeb do
       import Phoenix.HTML
       # Core UI components and translation
       import ReencodarrWeb.CoreComponents
+      import ReencodarrWeb.Live.FlopList
       import Flop.Phoenix, except: [table: 1]
       use Gettext, backend: ReencodarrWeb.Gettext
 

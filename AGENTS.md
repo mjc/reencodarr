@@ -62,6 +62,10 @@
 - Use `meck` where the current test suite already uses it for external command mocking.
 - When changing sync, parser, state-machine, or LiveView behavior, add or update tests near the affected module.
 
+## List LiveViews (Flop)
+- Paginated list pages (`VideosLive`, `FailuresLive`, `BadFilesLive`) use `handle_params`, URL query params, and `ReencodarrWeb.Live.FlopList` (`flop_pagination`, `patch_with_page`, `parse_page`).
+- List APIs return `{items, %Flop.Meta{}}`: `Media.list_videos_paginated/1`, `Media.list_failures/1`, `Media.list_bad_file_issues/2`.
+
 ## File/Module Pointers
 - `lib/reencodarr/sync.ex` - Sonarr/Radarr sync and batch upserts.
 - `lib/reencodarr/media/video_upsert.ex` - guarded upsert logic, bitrate/VMAF handling.
