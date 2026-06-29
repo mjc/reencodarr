@@ -7,7 +7,7 @@ defmodule ReencodarrWeb.BadFilesLive do
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
   alias Reencodarr.Media.BadFileIssue
-  alias ReencodarrWeb.Live.ListPagination
+  alias ReencodarrWeb.Live.FlopList
 
   @update_interval 30_000
   @per_page_options [25, 50, 100, 250]
@@ -23,15 +23,12 @@ defmodule ReencodarrWeb.BadFilesLive do
   ]
   @service_filter_values ["all", "sonarr", "radarr"]
   @kind_filter_values ["all" | Enum.map(BadFileIssue.issue_kind_values(), &to_string/1)]
-  @active_statuses [:open, :queued, :processing, :waiting_for_replacement, :failed]
+  @param_keys [:status_filter, :service_filter, :kind_filter, :search_query, :page, :per_page]
 
   @impl true
-  def mount(params, _session, socket) do
-    filters = parse_params(params)
-
+  def mount(_params, _session, socket) do
     socket =
-      socket
-      |> assign(
+      assign(socket,
         per_page_options: @per_page_options,
         status_filter_values: @status_filter_values,
         service_filter_values: @service_filter_values,
@@ -46,6 +43,8 @@ defmodule ReencodarrWeb.BadFilesLive do
         show_resolved: false,
         loaded_once: false,
         issues: [],
+        meta: %Flop.Meta{},
+        url_query: %{},
         tracked_count: 0,
         active_total: 0,
         active_issues: [],
@@ -60,8 +59,6 @@ defmodule ReencodarrWeb.BadFilesLive do
           resolved: 0
         }
       )
-      |> assign(filters)
-      |> load_initial_snapshot()
 
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
@@ -79,11 +76,8 @@ defmodule ReencodarrWeb.BadFilesLive do
     socket =
       socket
       |> assign(filters)
-      |> then(fn s ->
-        if connected?(s) and s.assigns.loaded_once and filters_changed?,
-          do: async_load_issues(s),
-          else: s
-      end)
+      |> assign_url_query()
+      |> reload_issues_for_params(filters_changed?)
 
     {:noreply, socket}
   end
@@ -144,33 +138,6 @@ defmodule ReencodarrWeb.BadFilesLive do
      push_patch(socket,
        to: patch_path(socket.assigns, search: normalize_search_query(query), page: 1)
      )}
-  end
-
-  @impl true
-  def handle_event("set_per_page", %{"per_page" => n}, socket) do
-    per_page = Parsers.parse_int(n, @default_per_page)
-    per_page = if per_page in @per_page_options, do: per_page, else: @default_per_page
-    {:noreply, push_patch(socket, to: patch_path(socket.assigns, per_page: per_page, page: 1))}
-  end
-
-  @impl true
-  def handle_event("prev_page", _params, socket) do
-    if socket.assigns.page > 1 do
-      {:noreply,
-       push_patch(socket, to: patch_path(socket.assigns, page: socket.assigns.page - 1))}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  @impl true
-  def handle_event("next_page", _params, socket) do
-    if socket.assigns.page < max_page(socket.assigns.active_total, socket.assigns.per_page) do
-      {:noreply,
-       push_patch(socket, to: patch_path(socket.assigns, page: socket.assigns.page + 1))}
-    else
-      {:noreply, socket}
-    end
   end
 
   @impl true
@@ -331,36 +298,51 @@ defmodule ReencodarrWeb.BadFilesLive do
      socket |> assign(:show_resolved, !socket.assigns.show_resolved) |> async_load_issues()}
   end
 
+  defp async_load_issues(%{assigns: %{loaded_once: false}} = socket), do: socket
+
   defp async_load_issues(socket) do
-    load_assigns = %{
-      page: socket.assigns.page,
-      per_page: socket.assigns.per_page,
-      status_filter: socket.assigns.status_filter,
-      service_filter: socket.assigns.service_filter,
-      kind_filter: socket.assigns.kind_filter,
-      search_query: socket.assigns.search_query,
-      show_resolved: socket.assigns.show_resolved
-    }
+    if connected?(socket) do
+      load_assigns = issue_load_assigns(socket.assigns)
 
-    show_loading? = socket.assigns.issues == []
+      show_loading? = socket.assigns.issues == []
 
+      socket
+      |> assign(:loading_issues, show_loading?)
+      |> start_async(:load_issues, fn -> fetch_issue_payload(load_assigns) end)
+    else
+      socket
+    end
+  end
+
+  defp reload_issues_for_params(%{assigns: %{loaded_once: false}} = socket, _changed?) do
     socket
-    |> assign(:loading_issues, show_loading?)
-    |> start_async(:load_issues, fn -> fetch_issue_payload(load_assigns) end)
+    |> apply_issue_payload(fetch_issue_payload(issue_load_assigns(socket.assigns)))
+    |> assign(:loaded_once, true)
+  end
+
+  defp reload_issues_for_params(socket, false), do: socket
+
+  defp reload_issues_for_params(socket, _changed?) do
+    socket
+    |> apply_issue_payload(fetch_issue_payload(issue_load_assigns(socket.assigns)))
   end
 
   defp fetch_issue_payload(assigns) do
-    BadFilesState.load(assigns)
+    payload = BadFilesState.load(assigns)
+
+    {payload, page} =
+      payload
+      |> clamped_page_for(assigns)
+      |> maybe_reload_page(payload, assigns)
+
+    payload
+    |> Map.put(:page, page)
+    |> Map.put(:url_query, bad_files_url_query(%{assigns | page: page}))
   end
 
   defp apply_issue_payload(socket, issue_payload) do
-    assign_changed(socket, Map.put(issue_payload, :loading_issues, false))
-  end
-
-  defp load_initial_snapshot(socket) do
     socket
-    |> apply_issue_payload(fetch_issue_payload(socket.assigns))
-    |> assign(:loaded_once, true)
+    |> assign(Map.put(issue_payload, :loading_issues, false))
   end
 
   defp issue_reason(issue) do
@@ -380,50 +362,29 @@ defmodule ReencodarrWeb.BadFilesLive do
   defp normalize_search_query(_query), do: ""
 
   defp parse_params(params) do
-    %{
-      status_filter:
-        params
-        |> Map.get("status", "all")
-        |> then(&if(&1 in @status_filter_values, do: &1, else: "all")),
-      service_filter:
-        params
-        |> Map.get("service", "all")
-        |> then(&if(&1 in @service_filter_values, do: &1, else: "all")),
-      kind_filter:
-        params
-        |> Map.get("kind", "all")
-        |> then(&if(&1 in @kind_filter_values, do: &1, else: "all")),
-      search_query: params |> Map.get("search", "") |> normalize_search_query(),
-      page: params |> Map.get("page", "1") |> Parsers.parse_int(1) |> max(1),
-      per_page:
-        params
-        |> Map.get("per_page", "#{@default_per_page}")
-        |> Parsers.parse_int(@default_per_page)
-        |> then(&if(&1 in @per_page_options, do: &1, else: @default_per_page))
-    }
+    Map.merge(
+      %{
+        status_filter: valid_param(params, "status", @status_filter_values),
+        service_filter: valid_param(params, "service", @service_filter_values),
+        kind_filter: valid_param(params, "kind", @kind_filter_values),
+        search_query: params |> Map.get("search", "") |> normalize_search_query()
+      },
+      FlopList.pagination_assigns(params, @default_per_page, @per_page_options)
+    )
+  end
+
+  defp filters_changed?(assigns, filters) do
+    Enum.any?(@param_keys, fn key -> Map.get(assigns, key) != Map.get(filters, key) end)
   end
 
   defp patch_path(assigns, overrides) do
-    overrides_map = Enum.into(overrides, %{}, fn {k, v} -> {to_string(k), v} end)
-
     query =
-      %{
-        "status" => assigns.status_filter,
-        "service" => assigns.service_filter,
-        "kind" => assigns.kind_filter,
-        "search" => assigns.search_query,
-        "page" => assigns.page,
-        "per_page" => assigns.per_page
-      }
-      |> Map.merge(overrides_map)
-      |> Enum.reject(fn {_, v} -> is_nil(v) or v == "" or v == "all" end)
-      |> Enum.map(fn {k, v} -> {k, to_string(v)} end)
-      |> URI.encode_query()
+      assigns
+      |> bad_files_url_query()
+      |> Map.merge(url_overrides(overrides))
+      |> drop_default_query_values()
 
-    case query do
-      "" -> "/bad-files"
-      _ -> "/bad-files?#{query}"
-    end
+    FlopList.patch_with_page("/bad-files", query, page_override(assigns, overrides))
   end
 
   defp normalize_service("sonarr"), do: :sonarr
@@ -431,27 +392,9 @@ defmodule ReencodarrWeb.BadFilesLive do
   defp normalize_service(_service), do: :all
 
   defp filtered_active_issues(socket) do
-    filters = [
-      service: socket.assigns.service_filter,
-      kind: socket.assigns.kind_filter,
-      search: socket.assigns.search_query,
-      statuses: active_statuses_for_filter(socket.assigns.status_filter)
-    ]
-
-    case Keyword.get(filters, :statuses) do
-      [] -> []
-      _statuses -> Media.list_bad_file_issues(filters)
-    end
-  end
-
-  defp active_statuses_for_filter(status_filter) do
-    case status_filter do
-      "all" -> @active_statuses
-      "resolved" -> []
-      other -> [String.to_existing_atom(other)]
-    end
-  rescue
-    ArgumentError -> @active_statuses
+    socket.assigns
+    |> issue_load_assigns()
+    |> BadFilesState.list_active_issues()
   end
 
   defp start_service_replacements do
@@ -460,24 +403,302 @@ defmodule ReencodarrWeb.BadFilesLive do
     |> Enum.count(&match?({:ok, _issue}, &1))
   end
 
-  defp max_page(total, per_page), do: ListPagination.max_page(total, per_page)
-
-  defp pagination_label(page, per_page, total),
-    do: ListPagination.pagination_label(page, per_page, total)
-
-  defp filters_changed?(assigns, filters) do
-    Enum.any?(filters, fn {key, value} -> Map.get(assigns, key) != value end)
+  defp bad_files_url_query(assigns) do
+    %{
+      "status" => assigns.status_filter,
+      "service" => assigns.service_filter,
+      "kind" => assigns.kind_filter,
+      "search" => assigns.search_query,
+      "per_page" => assigns.per_page
+    }
+    |> drop_default_query_values()
   end
 
-  defp assign_changed(socket, attrs) do
-    Enum.reduce(attrs, socket, fn {key, value}, acc ->
-      if Map.get(acc.assigns, key) == value do
-        acc
-      else
-        assign(acc, key, value)
-      end
-    end)
+  defp assign_url_query(socket) do
+    assign(socket, :url_query, bad_files_url_query(socket.assigns))
   end
+
+  defp issue_load_assigns(assigns) do
+    Map.take(assigns, [
+      :page,
+      :per_page,
+      :status_filter,
+      :service_filter,
+      :kind_filter,
+      :search_query,
+      :show_resolved
+    ])
+  end
+
+  defp valid_param(params, key, allowed) do
+    value = Map.get(params, key, "all")
+    if value in allowed, do: value, else: "all"
+  end
+
+  defp clamped_page_for(payload, assigns) do
+    per_page = payload.meta.page_size || assigns.per_page
+    total_pages = FlopList.total_pages(payload.active_total, per_page)
+
+    assigns.page
+    |> max(1)
+    |> min(total_pages)
+  end
+
+  defp maybe_reload_page(page, payload, assigns) do
+    if page == assigns.page or payload.active_total == 0 do
+      {payload, payload_page(payload, page)}
+    else
+      reloaded_payload = assigns |> Map.put(:page, page) |> BadFilesState.load()
+      {reloaded_payload, payload_page(reloaded_payload, page)}
+    end
+  end
+
+  defp payload_page(payload, fallback_page) do
+    payload.meta.current_page || fallback_page
+  end
+
+  defp url_overrides(overrides) do
+    Map.new(overrides, fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp page_override(assigns, overrides) do
+    overrides
+    |> Keyword.get(:page, assigns.page)
+    |> Parsers.parse_int(assigns.page)
+    |> max(1)
+  end
+
+  defp drop_default_query_values(query) do
+    Map.reject(query, fn {_key, value} -> value in [nil, "", "all"] end)
+  end
+
+  attr :status_filter_values, :list, required: true
+  attr :service_filter_values, :list, required: true
+  attr :kind_filter_values, :list, required: true
+  attr :status_filter, :string, required: true
+  attr :service_filter, :string, required: true
+  attr :kind_filter, :string, required: true
+  attr :search_query, :string, required: true
+
+  defp bad_files_toolbar(assigns) do
+    ~H"""
+    <div class="flex gap-3">
+      <button
+        id="replace-next-queued"
+        phx-click="replace_next_queued"
+        class="rounded bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-600"
+      >
+        replace next queued
+      </button>
+      <button
+        id="replace-queued-now"
+        phx-click="replace_queued_now"
+        class="rounded bg-cyan-700 px-3 py-2 text-sm font-medium text-white hover:bg-cyan-600"
+      >
+        replace queued now
+      </button>
+      <button
+        id="replace-next-sonarr"
+        phx-click="replace_next_queued_service"
+        phx-value-service="sonarr"
+        class="rounded bg-sky-700 px-3 py-2 text-sm font-medium text-white hover:bg-sky-600"
+      >
+        replace next sonarr
+      </button>
+      <button
+        id="replace-next-radarr"
+        phx-click="replace_next_queued_service"
+        phx-value-service="radarr"
+        class="rounded bg-violet-700 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600"
+      >
+        replace next radarr
+      </button>
+      <button
+        id="queue-filtered-issues"
+        phx-click="queue_filtered_issues"
+        class="rounded bg-amber-700 px-3 py-2 text-sm font-medium text-white hover:bg-amber-600"
+      >
+        queue filtered
+      </button>
+      <button
+        id="replace-filtered-now"
+        phx-click="replace_filtered_now"
+        class="rounded bg-orange-700 px-3 py-2 text-sm font-medium text-white hover:bg-orange-600"
+      >
+        replace filtered now
+      </button>
+      <form id="bad-files-status-filter" phx-change="filter_status">
+        <select
+          name="status"
+          aria-label="Filter by status"
+          class="rounded border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white"
+          data-role="list-filter-select"
+        >
+          <%= for value <- @status_filter_values do %>
+            <option value={value} selected={value == @status_filter}>{value}</option>
+          <% end %>
+        </select>
+      </form>
+      <form id="bad-files-service-filter" phx-change="filter_service">
+        <select
+          name="service"
+          aria-label="Filter by service"
+          class="rounded border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white"
+          data-role="list-filter-select"
+        >
+          <%= for value <- @service_filter_values do %>
+            <option value={value} selected={value == @service_filter}>{value}</option>
+          <% end %>
+        </select>
+      </form>
+      <form id="bad-files-kind-filter" phx-change="filter_kind">
+        <select
+          name="kind"
+          aria-label="Filter by kind"
+          class="rounded border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white"
+          data-role="list-filter-select"
+        >
+          <%= for value <- @kind_filter_values do %>
+            <option value={value} selected={value == @kind_filter}>{value}</option>
+          <% end %>
+        </select>
+      </form>
+      <form id="bad-files-search-filter" phx-change="search_issues" class="flex-1">
+        <input
+          id="bad-files-search"
+          type="search"
+          name="query"
+          value={@search_query}
+          aria-label="Search bad files by path, reason, or note"
+          placeholder="search path, reason, note"
+          class="w-full rounded border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white placeholder:text-gray-500"
+          data-role="list-search-input"
+        />
+      </form>
+    </div>
+    """
+  end
+
+  attr :issue_summary, :map, required: true
+
+  defp bad_files_summary(assigns) do
+    ~H"""
+    <div class="grid gap-3 md:grid-cols-6">
+      <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
+        Open: {@issue_summary.open}
+      </div>
+      <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
+        Queued: {@issue_summary.queued}
+      </div>
+      <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
+        Processing: {@issue_summary.processing}
+      </div>
+      <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
+        Waiting: {@issue_summary.waiting_for_replacement}
+      </div>
+      <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
+        Failed: {@issue_summary.failed}
+      </div>
+      <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
+        Resolved: {@issue_summary.resolved}
+      </div>
+    </div>
+    """
+  end
+
+  attr :replacement_issues, :list, required: true
+
+  defp active_replacements(assigns) do
+    ~H"""
+    <%= if @replacement_issues != [] do %>
+      <section class="space-y-2">
+        <h2 class="text-lg font-semibold text-white">Active Replacements</h2>
+        <div class="grid gap-3 md:grid-cols-2">
+          <%= for issue <- @replacement_issues do %>
+            <div class="rounded border border-emerald-700/60 bg-emerald-950/30 p-3 text-sm text-emerald-100">
+              <div class="font-medium">{Path.basename(issue.video.path)}</div>
+              <div class="mt-1 text-xs uppercase tracking-wide text-emerald-300">
+                {issue.video.service_type} • {issue.status}
+              </div>
+              <div class="mt-1 text-xs text-emerald-200/80">{issue_reason(issue)}</div>
+            </div>
+          <% end %>
+        </div>
+      </section>
+    <% end %>
+    """
+  end
+
+  attr :title, :string, required: true
+  attr :issues, :list, required: true
+  attr :meta, Flop.Meta, default: nil
+  attr :url_query, :map, default: %{}
+  attr :paginate?, :boolean, default: false
+
+  defp bad_files_issue_table(assigns) do
+    ~H"""
+    <section class="space-y-2">
+      <h2 class="text-lg font-semibold text-white">{@title}</h2>
+      <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+        <table class="min-w-full divide-y divide-gray-700 text-sm">
+          <thead class="bg-gray-700/80">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                File
+              </th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                Reason
+              </th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                Status
+              </th>
+              <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <.render_issue_rows issues={@issues} />
+        </table>
+      </div>
+      <.flop_pagination
+        :if={@paginate?}
+        id="bad-files-flop-pagination"
+        meta={@meta}
+        base_path="/bad-files"
+        query={@url_query}
+        mode={:simple}
+      />
+    </section>
+    """
+  end
+
+  attr :show_resolved, :boolean, required: true
+  attr :issues, :list, required: true
+
+  defp resolved_issues_section(assigns) do
+    ~H"""
+    <section class="space-y-2">
+      <h2 class="text-lg font-semibold text-white">Resolved Issues</h2>
+      <div class="flex items-center justify-between">
+        <p class="text-sm text-gray-400">Recent resolved issues are loaded on demand.</p>
+        <button
+          id="toggle-resolved-issues"
+          phx-click="toggle_resolved"
+          class="rounded bg-gray-700 px-3 py-2 text-sm font-medium text-white hover:bg-gray-600"
+        >
+          <%= if @show_resolved do %>
+            hide resolved
+          <% else %>
+            show resolved
+          <% end %>
+        </button>
+      </div>
+      <.bad_files_issue_table :if={@show_resolved} title="Resolved Issues" issues={@issues} />
+    </section>
+    """
+  end
+
+  attr :issues, :list, required: true
 
   defp render_issue_rows(assigns) do
     ~H"""
@@ -569,231 +790,25 @@ defmodule ReencodarrWeb.BadFilesLive do
           <p :if={not @loading_issues} class="text-gray-400">{@tracked_count} tracked</p>
         </div>
 
-        <div class="grid gap-3 md:grid-cols-6">
-          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
-            Open: {@issue_summary.open}
-          </div>
-          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
-            Queued: {@issue_summary.queued}
-          </div>
-          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
-            Processing: {@issue_summary.processing}
-          </div>
-          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
-            Waiting: {@issue_summary.waiting_for_replacement}
-          </div>
-          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
-            Failed: {@issue_summary.failed}
-          </div>
-          <div class="rounded border border-gray-700 bg-gray-800 p-3 text-sm text-gray-300">
-            Resolved: {@issue_summary.resolved}
-          </div>
-        </div>
-
-        <%= if @replacement_issues != [] do %>
-          <section class="space-y-2">
-            <h2 class="text-lg font-semibold text-white">Active Replacements</h2>
-            <div class="grid gap-3 md:grid-cols-2">
-              <%= for issue <- @replacement_issues do %>
-                <div class="rounded border border-emerald-700/60 bg-emerald-950/30 p-3 text-sm text-emerald-100">
-                  <div class="font-medium">{Path.basename(issue.video.path)}</div>
-                  <div class="mt-1 text-xs uppercase tracking-wide text-emerald-300">
-                    {issue.video.service_type} • {issue.status}
-                  </div>
-                  <div class="mt-1 text-xs text-emerald-200/80">{issue_reason(issue)}</div>
-                </div>
-              <% end %>
-            </div>
-          </section>
-        <% end %>
-
-        <div class="flex gap-3">
-          <button
-            id="replace-next-queued"
-            phx-click="replace_next_queued"
-            class="rounded bg-emerald-700 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-600"
-          >
-            replace next queued
-          </button>
-          <button
-            id="replace-queued-now"
-            phx-click="replace_queued_now"
-            class="rounded bg-cyan-700 px-3 py-2 text-sm font-medium text-white hover:bg-cyan-600"
-          >
-            replace queued now
-          </button>
-          <button
-            id="replace-next-sonarr"
-            phx-click="replace_next_queued_service"
-            phx-value-service="sonarr"
-            class="rounded bg-sky-700 px-3 py-2 text-sm font-medium text-white hover:bg-sky-600"
-          >
-            replace next sonarr
-          </button>
-          <button
-            id="replace-next-radarr"
-            phx-click="replace_next_queued_service"
-            phx-value-service="radarr"
-            class="rounded bg-violet-700 px-3 py-2 text-sm font-medium text-white hover:bg-violet-600"
-          >
-            replace next radarr
-          </button>
-          <button
-            id="queue-filtered-issues"
-            phx-click="queue_filtered_issues"
-            class="rounded bg-amber-700 px-3 py-2 text-sm font-medium text-white hover:bg-amber-600"
-          >
-            queue filtered
-          </button>
-          <button
-            id="replace-filtered-now"
-            phx-click="replace_filtered_now"
-            class="rounded bg-orange-700 px-3 py-2 text-sm font-medium text-white hover:bg-orange-600"
-          >
-            replace filtered now
-          </button>
-          <form id="bad-files-status-filter" phx-change="filter_status">
-            <select
-              name="status"
-              value={@status_filter}
-              class="rounded border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white"
-            >
-              <%= for status <- @status_filter_values do %>
-                <option value={status}>{status}</option>
-              <% end %>
-            </select>
-          </form>
-          <form id="bad-files-service-filter" phx-change="filter_service">
-            <select
-              name="service"
-              value={@service_filter}
-              class="rounded border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white"
-            >
-              <%= for service <- @service_filter_values do %>
-                <option value={service}>{service}</option>
-              <% end %>
-            </select>
-          </form>
-          <form id="bad-files-kind-filter" phx-change="filter_kind">
-            <select
-              name="kind"
-              value={@kind_filter}
-              class="rounded border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white"
-            >
-              <%= for kind <- @kind_filter_values do %>
-                <option value={kind}>{kind}</option>
-              <% end %>
-            </select>
-          </form>
-          <form id="bad-files-search-filter" phx-change="search_issues" class="flex-1">
-            <input
-              type="text"
-              name="query"
-              value={@search_query}
-              placeholder="search path, reason, note"
-              class="w-full rounded border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white placeholder:text-gray-500"
-            />
-          </form>
-        </div>
-
-        <section class="space-y-2">
-          <h2 class="text-lg font-semibold text-white">Active Issues</h2>
-          <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-            <table class="min-w-full divide-y divide-gray-700 text-sm">
-              <thead class="bg-gray-700/80">
-                <tr>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                    File
-                  </th>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                    Reason
-                  </th>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <.render_issue_rows issues={@active_issues} />
-            </table>
-          </div>
-          <div class="flex items-center justify-between text-sm text-gray-400">
-            <span>{pagination_label(@page, @per_page, @active_total)}</span>
-            <div class="flex items-center gap-2">
-              <form id="bad-files-per-page" phx-change="set_per_page">
-                <select
-                  name="per_page"
-                  value={@per_page}
-                  class="rounded border border-gray-600 bg-gray-800 px-3 py-2 text-sm text-white"
-                >
-                  <%= for n <- @per_page_options do %>
-                    <option value={n}>{n} / page</option>
-                  <% end %>
-                </select>
-              </form>
-              <button
-                phx-click="prev_page"
-                disabled={@page <= 1}
-                class="px-3 py-1 bg-gray-700 rounded text-gray-300 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Previous
-              </button>
-              <span class="px-3 py-1">{@page} / {max_page(@active_total, @per_page)}</span>
-              <button
-                phx-click="next_page"
-                disabled={@page >= max_page(@active_total, @per_page)}
-                class="px-3 py-1 bg-gray-700 rounded text-gray-300 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section class="space-y-2">
-          <h2 class="text-lg font-semibold text-white">Resolved Issues</h2>
-          <div class="flex items-center justify-between">
-            <p class="text-sm text-gray-400">
-              Recent resolved issues are loaded on demand.
-            </p>
-            <button
-              id="toggle-resolved-issues"
-              phx-click="toggle_resolved"
-              class="rounded bg-gray-700 px-3 py-2 text-sm font-medium text-white hover:bg-gray-600"
-            >
-              <%= if @show_resolved do %>
-                hide resolved
-              <% else %>
-                show resolved
-              <% end %>
-            </button>
-          </div>
-          <%= if @show_resolved do %>
-            <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-              <table class="min-w-full divide-y divide-gray-700 text-sm">
-                <thead class="bg-gray-700/80">
-                  <tr>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                      File
-                    </th>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                      Reason
-                    </th>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                      Status
-                    </th>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <.render_issue_rows issues={@resolved_issues} />
-              </table>
-            </div>
-          <% end %>
-        </section>
+        <.bad_files_summary issue_summary={@issue_summary} />
+        <.active_replacements replacement_issues={@replacement_issues} />
+        <.bad_files_toolbar
+          status_filter_values={@status_filter_values}
+          service_filter_values={@service_filter_values}
+          kind_filter_values={@kind_filter_values}
+          status_filter={@status_filter}
+          service_filter={@service_filter}
+          kind_filter={@kind_filter}
+          search_query={@search_query}
+        />
+        <.bad_files_issue_table
+          title="Active Issues"
+          issues={@active_issues}
+          meta={@meta}
+          url_query={@url_query}
+          paginate?
+        />
+        <.resolved_issues_section show_resolved={@show_resolved} issues={@resolved_issues} />
       </div>
     </div>
     """

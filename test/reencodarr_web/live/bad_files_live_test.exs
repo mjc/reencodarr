@@ -3,6 +3,8 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
 
   import Phoenix.LiveViewTest
 
+  import ReencodarrWeb.FlopListTestHelpers
+
   alias Reencodarr.BadFileRemediation
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Fixtures
@@ -562,7 +564,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       |> form("#bad-files-status-filter", %{"status" => "queued"})
       |> render_change()
 
-      assert_patch(view, ~p"/bad-files?page=1&per_page=50&status=queued")
+      assert_patch(view, ~p"/bad-files?per_page=50&status=queued")
       html = render_async(view)
       assert html =~ "filter_queued.mkv"
       refute html =~ "filter_open.mkv"
@@ -598,7 +600,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       |> form("#bad-files-service-filter", %{"service" => "radarr"})
       |> render_change()
 
-      assert_patch(view, ~p"/bad-files?page=1&per_page=50&service=radarr")
+      assert_patch(view, ~p"/bad-files?per_page=50&service=radarr")
       html = render_async(view)
       assert html =~ "filter_radarr.mkv"
       refute html =~ "filter_sonarr.mkv"
@@ -630,7 +632,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       |> form("#bad-files-kind-filter", %{"kind" => "audio"})
       |> render_change()
 
-      assert_patch(view, ~p"/bad-files?kind=audio&page=1&per_page=50")
+      assert_patch(view, ~p"/bad-files?kind=audio&per_page=50")
       html = render_async(view)
       assert html =~ "filter_audio_kind.mkv"
       refute html =~ "filter_manual_kind.mkv"
@@ -663,7 +665,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       |> form("#bad-files-search-filter", %{"query" => "search_this"})
       |> render_change()
 
-      assert_patch(view, ~p"/bad-files?page=1&per_page=50&search=search_this")
+      assert_patch(view, ~p"/bad-files?per_page=50&search=search_this")
       by_path_html = render_async(view)
       assert by_path_html =~ "search_this_title.mkv"
       refute by_path_html =~ "other_title.mkv"
@@ -672,10 +674,96 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       |> form("#bad-files-search-filter", %{"query" => "blocky"})
       |> render_change()
 
-      assert_patch(view, ~p"/bad-files?page=1&per_page=50&search=blocky")
+      assert_patch(view, ~p"/bad-files?per_page=50&search=blocky")
       by_reason_html = render_async(view)
       assert by_reason_html =~ "other_title.mkv"
       refute by_reason_html =~ "search_this_title.mkv"
+    end
+  end
+
+  describe "URL state" do
+    test "direct navigation hydrates filters from query string", %{conn: conn} do
+      {:ok, open_video} = Fixtures.video_fixture(%{path: "/media/url_open.mkv"})
+      {:ok, queued_video} = Fixtures.video_fixture(%{path: "/media/url_queued.mkv"})
+
+      {:ok, _open_issue} =
+        Media.create_bad_file_issue(open_video, %{
+          origin: :manual,
+          issue_kind: :manual,
+          classification: :manual_bad,
+          manual_reason: "open"
+        })
+
+      {:ok, queued_issue} =
+        Media.create_bad_file_issue(queued_video, %{
+          origin: :manual,
+          issue_kind: :manual,
+          classification: :manual_bad,
+          manual_reason: "queued"
+        })
+
+      {:ok, _queued_issue} = Media.enqueue_bad_file_issue(queued_issue)
+
+      {:ok, view, _html} =
+        live(conn, ~p"/bad-files?status=queued&page=1&per_page=25")
+
+      html = render_async(view)
+      assert html =~ "url_queued.mkv"
+      refute html =~ "url_open.mkv"
+    end
+
+    test "invalid filter params coerce to safe defaults", %{conn: conn} do
+      {:ok, view, _html} =
+        live(conn, ~p"/bad-files?status=not-a-status&service=bogus&page=0")
+
+      html = render_async(view)
+
+      assert has_element?(view, "#bad-files-status-filter select option[value='all'][selected]")
+      assert has_element?(view, "#bad-files-service-filter select option[value='all'][selected]")
+      assert current_page_from_html(html) == 1
+    end
+
+    test "page beyond total clamps to last page", %{conn: conn} do
+      Enum.each(1..26, fn n ->
+        {:ok, video} = Fixtures.video_fixture(%{path: "/media/bad_clamp_#{n}.mkv"})
+
+        {:ok, _issue} =
+          Media.create_bad_file_issue(video, %{
+            origin: :manual,
+            issue_kind: :manual,
+            classification: :manual_bad,
+            manual_reason: "clamp #{n}"
+          })
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bad-files?page=999&per_page=25")
+      html = render_async(view)
+
+      assert pagination_label_from_html(html) == "26-26 of 26"
+      assert html =~ "bad_clamp_1.mkv"
+      refute html =~ "bad_clamp_26.mkv"
+    end
+
+    test "combined filters in query string", %{conn: conn} do
+      {:ok, sonarr_video} =
+        Fixtures.video_fixture(%{path: "/media/url_combo.mkv", service_type: :sonarr})
+
+      {:ok, _issue} =
+        Media.create_bad_file_issue(sonarr_video, %{
+          origin: :manual,
+          issue_kind: :manual,
+          classification: :manual_bad,
+          manual_reason: "combo search target"
+        })
+
+      {:ok, view, _html} =
+        live(
+          conn,
+          ~p"/bad-files?service=sonarr&kind=manual&search=combo&page=1&per_page=50"
+        )
+
+      html = render_async(view)
+      assert html =~ "url_combo.mkv"
     end
   end
 end
