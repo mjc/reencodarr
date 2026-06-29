@@ -378,7 +378,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
   describe "URL bookmarks" do
     test "stage and search params load from URL", %{conn: conn} do
       {:ok, analysis_video} = Fixtures.video_fixture(%{path: "/media/url_analysis.mkv"})
-      {:ok, encoding_video} = Fixtures.video_fixture(%{path: "/media/url_encoding_other.mkv"})
+      {:ok, encoding_video} = Fixtures.video_fixture(%{path: "/media/url_analysis_encoding.mkv"})
 
       Media.record_video_failure(analysis_video, :analysis, :timeout, message: "analysis")
       Media.record_video_failure(encoding_video, :encoding, :timeout, message: "encoding")
@@ -386,7 +386,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, _view, html} = live(conn, ~p"/failures?stage=analysis&search=url_analysis")
 
       assert html =~ "url_analysis.mkv"
-      refute html =~ "url_encoding_other.mkv"
+      refute html =~ "url_analysis_encoding.mkv"
     end
   end
 

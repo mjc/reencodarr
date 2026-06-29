@@ -30,7 +30,7 @@ defmodule ReencodarrWeb.VideosLive do
   @update_interval 30_000
   @queueable_states [:needs_analysis, :analyzed, :crf_searched]
 
-  @valid_states ~w(needs_analysis analyzed crf_searching crf_searched encoding encoded failed)
+  @valid_states ~w(needs_analysis analyzing analyzed crf_searching crf_searched encoding encoded failed)
   @valid_service_types ~w(sonarr radarr)
   @valid_sort_fields ~w(path state size width bitrate updated_at)
   @valid_sort_dirs ~w(asc desc)
@@ -111,7 +111,7 @@ defmodule ReencodarrWeb.VideosLive do
 
   @impl true
   def handle_async(:load_videos, {:ok, page_state}, socket) do
-    {:noreply, assign(socket, Map.put(page_state, :loading, false))}
+    {:noreply, assign_video_payload(socket, page_state)}
   end
 
   @impl true
@@ -472,7 +472,7 @@ defmodule ReencodarrWeb.VideosLive do
   defp load_data(socket, opts \\ []) do
     page_state = fetch_video_payload(socket.assigns, opts)
 
-    assign(socket, Map.put(page_state, :loading, false))
+    assign_video_payload(socket, page_state)
   end
 
   defp reload_videos_for_params(%{assigns: %{loaded_once: false}} = socket, _changed?) do
@@ -508,6 +508,7 @@ defmodule ReencodarrWeb.VideosLive do
       video_load_assigns(assigns),
       opts
     )
+    |> Map.put(:request, video_request_assigns(assigns))
   end
 
   defp video_load_assigns(assigns) do
@@ -522,6 +523,32 @@ defmodule ReencodarrWeb.VideosLive do
       :sort_by,
       :sort_dir
     ])
+  end
+
+  defp video_request_assigns(assigns) do
+    Map.take(assigns, [
+      :page,
+      :per_page,
+      :state_filter,
+      :service_filter,
+      :hdr_filter,
+      :search,
+      :sort_by,
+      :sort_dir
+    ])
+  end
+
+  defp assign_video_payload(socket, %{request: request} = page_state) do
+    if video_request_assigns(socket.assigns) == request do
+      page_state =
+        page_state
+        |> Map.delete(:request)
+        |> Map.put(:loading, false)
+
+      assign(socket, page_state)
+    else
+      socket
+    end
   end
 
   defp apply_range_selection(selected_set, ids, true) do
@@ -853,11 +880,13 @@ defmodule ReencodarrWeb.VideosLive do
               value={@search}
               placeholder="Search by path..."
               phx-debounce="700"
+              aria-label="Search videos by path"
               class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 placeholder-gray-400"
             />
           </div>
           <select
             name="state"
+            aria-label="Filter videos by state"
             class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 lg:w-auto"
           >
             <option value="">All states</option>
@@ -867,6 +896,7 @@ defmodule ReencodarrWeb.VideosLive do
           </select>
           <select
             name="service"
+            aria-label="Filter videos by source"
             class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 lg:w-auto"
           >
             <option value="">All sources</option>
@@ -875,6 +905,7 @@ defmodule ReencodarrWeb.VideosLive do
           </select>
           <select
             name="hdr"
+            aria-label="Filter videos by HDR"
             class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 lg:w-auto"
           >
             <option value="">Any HDR</option>
@@ -886,6 +917,7 @@ defmodule ReencodarrWeb.VideosLive do
         <form id="videos-per-page" phx-change="set_per_page">
           <select
             name="per_page"
+            aria-label="Videos per page"
             class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 sm:w-auto"
           >
             <%= for n <- @per_page_options do %>
@@ -966,6 +998,11 @@ defmodule ReencodarrWeb.VideosLive do
                       do: "Deselect all",
                       else: "Select all on page"
                   }
+                  aria-label={
+                    if @select_count == length(@videos),
+                      do: "Deselect all videos on this page",
+                      else: "Select all videos on this page"
+                  }
                   class="rounded border-gray-500 bg-gray-700 text-purple-500 focus:ring-purple-500 focus:ring-offset-gray-800 cursor-pointer"
                 />
               <% end %>
@@ -1024,6 +1061,7 @@ defmodule ReencodarrWeb.VideosLive do
           checked={MapSet.member?(@selected, @video.id)}
           data-range-select="video"
           data-id={@video.id}
+          aria-label={"Select video #{Path.basename(@video.path)}"}
           class="rounded border-gray-500 bg-gray-700 text-purple-500 focus:ring-purple-500 focus:ring-offset-gray-800 cursor-pointer"
         />
       </td>

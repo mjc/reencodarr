@@ -13,7 +13,10 @@ defmodule Reencodarr.BadFiles.State do
     {active_issues, meta} = fetch_active_issues(active_statuses, assigns)
     active_total = meta.total_count || 0
     issue_summary = Media.bad_file_issue_summary()
-    resolved_issues = fetch_resolved_issues(assigns, resolved_statuses, assigns.show_resolved)
+
+    resolved_issues =
+      fetch_resolved_issues(assigns, resolved_statuses, show_resolved_issues?(assigns))
+
     issues = active_issues ++ resolved_issues
 
     %{
@@ -43,11 +46,13 @@ defmodule Reencodarr.BadFiles.State do
   end
 
   def list_active_issues(assigns, opts \\ []) do
-    assigns
-    |> Map.put(:page, Keyword.get(opts, :page, 1))
-    |> Map.put(:per_page, Keyword.get(opts, :per_page, 250))
-    |> list_issues(active_statuses_for_filter(assigns.status_filter))
-    |> elem(0)
+    page_size = Keyword.get(opts, :per_page, 250)
+
+    fetch_all_issues(
+      assigns,
+      active_statuses_for_filter(assigns.status_filter),
+      page_size
+    )
   end
 
   def flop_params(assigns) do
@@ -60,12 +65,33 @@ defmodule Reencodarr.BadFiles.State do
     }
   end
 
-  defp list_issues(assigns, active_statuses), do: fetch_active_issues(active_statuses, assigns)
-
   defp fetch_active_issues([], _assigns), do: {[], %Flop.Meta{}}
 
   defp fetch_active_issues(active_statuses, assigns) do
     Media.list_bad_file_issues(flop_params(assigns), statuses: active_statuses)
+  end
+
+  defp fetch_all_issues(_assigns, [], _page_size), do: []
+
+  defp fetch_all_issues(assigns, statuses, page_size) do
+    assigns
+    |> Map.put(:page, 1)
+    |> Map.put(:per_page, page_size)
+    |> fetch_all_issues(statuses, page_size, [])
+  end
+
+  defp fetch_all_issues(assigns, statuses, page_size, acc) do
+    {issues, meta} = fetch_active_issues(statuses, assigns)
+    acc = acc ++ issues
+
+    if meta.current_page && meta.total_pages && meta.current_page < meta.total_pages do
+      assigns
+      |> Map.put(:page, meta.current_page + 1)
+      |> Map.put(:per_page, page_size)
+      |> fetch_all_issues(statuses, page_size, acc)
+    else
+      acc
+    end
   end
 
   defp fetch_resolved_issues(_assigns, _resolved_statuses, false), do: []
@@ -98,4 +124,10 @@ defmodule Reencodarr.BadFiles.State do
   rescue
     ArgumentError -> {@active_statuses, @resolved_statuses}
   end
+
+  defp show_resolved_issues?(%{status_filter: status_filter})
+       when status_filter in ["resolved", "replaced_clean", "dismissed"],
+       do: true
+
+  defp show_resolved_issues?(assigns), do: assigns.show_resolved
 end

@@ -577,16 +577,10 @@ defmodule Reencodarr.Media do
         {:error, :not_series_scoped}
 
       group_key ->
-        {issues, _} =
-          list_bad_file_issues(%{"page" => "1", "page_size" => "250"},
-            statuses: BadFileIssue.status_values() -- @resolved_bad_file_issue_statuses
-          )
-
         issues =
-          issues
+          unresolved_bad_file_issues()
           |> Enum.filter(fn candidate ->
-            unresolved_bad_file_issue?(candidate) and
-              series_group_key(candidate.video) == group_key
+            series_group_key(candidate.video) == group_key
           end)
 
         Enum.each(issues, &enqueue_bad_file_issue/1)
@@ -1039,8 +1033,22 @@ defmodule Reencodarr.Media do
   defp failure_category_atom("codec_issues"), do: {:ok, :codec_issues}
   defp failure_category_atom(_), do: :error
 
-  defp unresolved_bad_file_issue?(issue) do
-    issue.status not in [:replaced_clean, :dismissed]
+  defp unresolved_bad_file_issues do
+    statuses = BadFileIssue.status_values() -- @resolved_bad_file_issue_statuses
+    collect_bad_file_issues(%{"page" => "1", "page_size" => "250"}, statuses, [])
+  end
+
+  defp collect_bad_file_issues(params, statuses, acc) do
+    {issues, meta} = list_bad_file_issues(params, statuses: statuses)
+    acc = acc ++ issues
+
+    if meta.current_page && meta.total_pages && meta.current_page < meta.total_pages do
+      params
+      |> Map.put("page", to_string(meta.current_page + 1))
+      |> collect_bad_file_issues(statuses, acc)
+    else
+      acc
+    end
   end
 
   defp series_group_key(%Video{service_type: :sonarr, path: path}) when is_binary(path) do

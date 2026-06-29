@@ -748,12 +748,33 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       {:ok, sonarr_video} =
         Fixtures.video_fixture(%{path: "/media/url_combo.mkv", service_type: :sonarr})
 
+      {:ok, radarr_video} =
+        Fixtures.video_fixture(%{path: "/media/wrong_service_combo.mkv", service_type: :radarr})
+
+      {:ok, audio_video} =
+        Fixtures.video_fixture(%{path: "/media/wrong_kind_combo.mkv", service_type: :sonarr})
+
       {:ok, _issue} =
         Media.create_bad_file_issue(sonarr_video, %{
           origin: :manual,
           issue_kind: :manual,
           classification: :manual_bad,
           manual_reason: "combo search target"
+        })
+
+      {:ok, _wrong_service} =
+        Media.create_bad_file_issue(radarr_video, %{
+          origin: :manual,
+          issue_kind: :manual,
+          classification: :manual_bad,
+          manual_reason: "combo wrong service"
+        })
+
+      {:ok, _wrong_kind} =
+        Media.create_bad_file_issue(audio_video, %{
+          origin: :manual,
+          issue_kind: :audio,
+          classification: :confirmed_bad_audio_layout
         })
 
       {:ok, view, _html} =
@@ -764,6 +785,8 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
 
       html = render_async(view)
       assert html =~ "url_combo.mkv"
+      refute html =~ "wrong_service_combo.mkv"
+      refute html =~ "wrong_kind_combo.mkv"
     end
   end
 end

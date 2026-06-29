@@ -53,6 +53,7 @@ defmodule ReencodarrWeb.FailuresLive do
     socket =
       socket
       |> assign(filters)
+      |> maybe_clear_selection(filters_changed?)
       |> assign_url_query()
       |> reload_failures_for_params(filters_changed?)
 
@@ -359,6 +360,7 @@ defmodule ReencodarrWeb.FailuresLive do
                 <button
                   phx-click="filter_failures"
                   phx-value-filter={value}
+                  aria-pressed={@failure_filter == value}
                   class={failure_filter_button_class(@failure_filter == value, active_class)}
                 >
                   {label}
@@ -374,6 +376,7 @@ defmodule ReencodarrWeb.FailuresLive do
                 <button
                   phx-click="filter_category"
                   phx-value-category={value}
+                  aria-pressed={@category_filter == value}
                   class={
                     failure_filter_button_class(@category_filter == value, "bg-green-600 text-white")
                   }
@@ -460,12 +463,14 @@ defmodule ReencodarrWeb.FailuresLive do
                   type="checkbox"
                   checked
                   phx-click="deselect_all"
+                  aria-label="Deselect all failed videos on this page"
                   class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 cursor-pointer"
                 />
               <% else %>
                 <input
                   type="checkbox"
                   phx-click="select_all"
+                  aria-label="Select all failed videos on this page"
                   class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 cursor-pointer"
                 />
               <% end %>
@@ -494,6 +499,7 @@ defmodule ReencodarrWeb.FailuresLive do
                   <input
                     type="checkbox"
                     checked={MapSet.member?(@selected_videos, video.id)}
+                    aria-label={"Select failed video #{Path.basename(video.path)}"}
                     class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 cursor-pointer pointer-events-none"
                   />
                 </div>
@@ -737,12 +743,27 @@ defmodule ReencodarrWeb.FailuresLive do
 
   defp fetch_failure_payload(assigns) do
     payload = Media.load_failures_page(flop_params(assigns))
-    Map.put(payload, :url_query, failures_url_query(%{assigns | page: payload.page}))
+
+    payload
+    |> Map.put(:request, assigns)
+    |> Map.put(:url_query, failures_url_query(%{assigns | page: payload.page}))
+  end
+
+  defp assign_failure_payload(socket, %{request: request} = payload) do
+    if flop_list_assigns(socket.assigns) == request do
+      payload = Map.delete(payload, :request)
+      assign(socket, payload)
+    else
+      socket
+    end
   end
 
   defp assign_failure_payload(socket, payload) do
     assign(socket, payload)
   end
+
+  defp maybe_clear_selection(socket, true), do: assign(socket, :selected_videos, MapSet.new())
+  defp maybe_clear_selection(socket, false), do: socket
 
   defp filters_changed?(assigns, filters) do
     Enum.any?(@param_keys, fn key -> Map.get(assigns, key) != Map.get(filters, key) end)
@@ -803,7 +824,7 @@ defmodule ReencodarrWeb.FailuresLive do
       "stage" => assigns.failure_filter,
       "category" => assigns.category_filter,
       "search" => assigns.search_term,
-      "page_size" => to_string(assigns.per_page)
+      "per_page" => to_string(assigns.per_page)
     }
     |> Enum.reject(fn
       {"stage", "all"} -> true

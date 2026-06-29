@@ -95,13 +95,17 @@ defmodule ReencodarrWeb.Live.FlopListTest do
 
   describe "patch_with_page/3" do
     test "omits page param on first page" do
-      assert FlopList.patch_with_page("/videos", %{"per_page" => 50}, 1) ==
-               "/videos?per_page=50"
+      url = FlopList.patch_with_page("/videos", %{"per_page" => 50}, 1)
+
+      assert %URI{path: "/videos", query: query} = URI.parse(url)
+      assert URI.decode_query(query) == %{"per_page" => "50"}
     end
 
     test "includes page param when not on first page" do
-      assert FlopList.patch_with_page("/videos", %{"per_page" => 50}, 2) ==
-               "/videos?page=2&per_page=50"
+      url = FlopList.patch_with_page("/videos", %{"per_page" => 50}, 2)
+
+      assert %URI{path: "/videos", query: query} = URI.parse(url)
+      assert URI.decode_query(query) == %{"page" => "2", "per_page" => "50"}
     end
 
     test "returns bare path when merged query is empty" do
