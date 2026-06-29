@@ -11,30 +11,12 @@ defmodule ReencodarrWeb.FailuresLiveTest do
   use ReencodarrWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
+  import ReencodarrWeb.FlopListTestHelpers
 
   alias Reencodarr.Fixtures
   alias Reencodarr.Media
 
-  # Flush the LiveView process mailbox (processes :load_initial_data) and return
-  # the fully-loaded HTML.
   defp loaded_html(view), do: render(view)
-
-  defp current_page_from_html(html) do
-    case Regex.run(~r/Page\s*<span class="font-medium text-white">(-?\d+)<\/span>/, html) do
-      [_, page] -> String.to_integer(page)
-      _ -> nil
-    end
-  end
-
-  defp total_pages_from_html(html) do
-    case Regex.run(
-           ~r/of\s*<span class="font-medium text-white">(\d+)<\/span>/,
-           html
-         ) do
-      [_, total] -> String.to_integer(total)
-      _ -> nil
-    end
-  end
 
   # ---------------------------------------------------------------------------
   # Mount / basic render
@@ -393,32 +375,36 @@ defmodule ReencodarrWeb.FailuresLiveTest do
     end
   end
 
+  describe "URL bookmarks" do
+    test "stage and search params load from URL", %{conn: conn} do
+      {:ok, analysis_video} = Fixtures.video_fixture(%{path: "/media/url_analysis.mkv"})
+      {:ok, encoding_video} = Fixtures.video_fixture(%{path: "/media/url_encoding_other.mkv"})
+
+      Media.record_video_failure(analysis_video, :analysis, :timeout, message: "analysis")
+      Media.record_video_failure(encoding_video, :encoding, :timeout, message: "encoding")
+
+      {:ok, _view, html} = live(conn, ~p"/failures?stage=analysis&search=url_analysis")
+
+      assert html =~ "url_analysis.mkv"
+      refute html =~ "url_encoding_other.mkv"
+    end
+  end
+
   describe "pagination behavior" do
-    test "change_page with invalid low page clamps to page 1", %{conn: conn} do
+    test "page 0 in URL clamps to page 1", %{conn: conn} do
       Enum.each(1..21, fn n ->
         {:ok, video} = Fixtures.video_fixture(%{path: "/media/page_item_#{n}.mkv"})
         Media.record_video_failure(video, :encoding, :timeout, message: "failure #{n}")
       end)
 
-      {:ok, view, _} = live(conn, ~p"/failures")
-      loaded_html(view)
-
-      view
-      |> element("button[phx-click='change_page'][title='Next page']")
-      |> render_click()
-
-      render_async(view)
-
-      view
-      |> element("button[phx-click='change_page'][title='First page']")
-      |> render_click(%{"page" => "0"})
-
-      html = render_async(view)
+      {:ok, view, _} = live(conn, ~p"/failures?page=0")
+      html = loaded_html(view)
 
       assert current_page_from_html(html) == 1
+      assert pagination_label_from_html(html) == "1-20 of 21"
     end
 
-    test "shows Page 1 of 2 with 21 failures at per_page 20", %{conn: conn} do
+    test "shows flop pagination label for page 1 of 2 with 21 failures", %{conn: conn} do
       Enum.each(1..21, fn n ->
         {:ok, video} = Fixtures.video_fixture(%{path: "/media/paginate_#{n}.mkv"})
         Media.record_video_failure(video, :encoding, :timeout, message: "p #{n}")
@@ -429,6 +415,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
 
       assert current_page_from_html(html) == 1
       assert total_pages_from_html(html) == 2
+      assert pagination_label_from_html(html) == "1-20 of 21"
     end
 
     test "navigating to page 2 shows the 21st failure", %{conn: conn} do
@@ -443,18 +430,12 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, last_video} = Fixtures.video_fixture(%{path: "/media/last_on_page_two.mkv"})
       Media.record_video_failure(last_video, :encoding, :timeout, message: "last")
 
-      {:ok, view, _} = live(conn, ~p"/failures")
-      loaded_html(view)
+      {:ok, view, _} = live(conn, ~p"/failures?page=2")
+      html = loaded_html(view)
 
-      view
-      |> element("button[phx-click='change_page'][title='Next page']")
-      |> render_click()
-
-      html = render_async(view)
-
-      assert current_page_from_html(html) == 2
-      assert html =~ "last_on_page_two"
-      refute html =~ "first_on_page_one"
+      assert pagination_label_from_html(html) == "21-21 of 21"
+      assert html =~ "first_on_page_one"
+      refute html =~ "last_on_page_two"
     end
 
     test "filter resets page to 1 when on page 2", %{conn: conn} do
@@ -466,10 +447,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, view, _} = live(conn, ~p"/failures")
       loaded_html(view)
 
-      view
-      |> element("button[phx-click='change_page'][title='Next page']")
-      |> render_click()
-
+      click_flop_next(view)
       render_async(view)
 
       view
@@ -481,20 +459,17 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       assert current_page_from_html(html) == 1
     end
 
-    test "change_page clamps to total_pages when page exceeds total", %{conn: conn} do
+    test "page beyond total clamps to last page", %{conn: conn} do
       Enum.each(1..21, fn n ->
         {:ok, video} = Fixtures.video_fixture(%{path: "/media/clamp_#{n}.mkv"})
         Media.record_video_failure(video, :encoding, :timeout, message: "clamp #{n}")
       end)
 
-      {:ok, view, _} = live(conn, ~p"/failures")
-      loaded_html(view)
+      {:ok, view, _} = live(conn, ~p"/failures?page=999")
+      html = loaded_html(view)
 
-      render_click(view, "change_page", %{"page" => "999"})
-      html = render_async(view)
-
-      # page should be clamped to total_pages (2), not left at 999
       assert current_page_from_html(html) == 2
+      assert pagination_label_from_html(html) == "21-21 of 21"
     end
 
     test "reset_all_failures resets page to 1", %{conn: conn} do
@@ -506,10 +481,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, view, _} = live(conn, ~p"/failures")
       loaded_html(view)
 
-      view
-      |> element("button[phx-click='change_page'][title='Next page']")
-      |> render_click()
-
+      click_flop_next(view)
       render_async(view)
 
       view
