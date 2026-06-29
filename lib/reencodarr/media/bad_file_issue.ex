@@ -24,6 +24,18 @@ defmodule Reencodarr.Media.BadFileIssue do
 
   @type t() :: %__MODULE__{}
 
+  @derive {
+    Flop.Schema,
+    filterable: [:status, :issue_kind, :origin, :classification],
+    sortable: [:inserted_at, :updated_at],
+    default_order: %{
+      order_by: [:updated_at],
+      order_directions: [:desc]
+    },
+    default_limit: 50,
+    max_limit: 250
+  }
+
   schema "bad_file_issues" do
     belongs_to :video, Video
 

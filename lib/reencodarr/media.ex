@@ -350,28 +350,44 @@ defmodule Reencodarr.Media do
   # --- Bad File Issue Functions ---
 
   @resolved_bad_file_issue_statuses [:replaced_clean, :dismissed]
+  @bad_file_video_fields [:id, :path, :service_type, :service_id]
+  @failure_stage_values ~w(all analysis crf_search encoding post_process)
+  @failure_category_values ~w(all file_access process_failure timeout codec_issues)
 
-  @spec list_bad_file_issues(keyword()) :: [BadFileIssue.t()]
-  def list_bad_file_issues(opts \\ []) do
-    video_preload_query =
-      from v in Video,
-        select: struct(v, [:id, :path, :service_type, :service_id])
+  @doc """
+  Returns bad file issues with Flop pagination and optional service/kind/search filters.
 
-    BadFileIssue
-    |> bad_file_issue_filters_query(opts)
-    |> order_by([i], desc: i.updated_at, desc: i.id)
-    |> maybe_limit_bad_file_issues(Keyword.get(opts, :limit))
-    |> maybe_offset_bad_file_issues(Keyword.get(opts, :offset))
-    |> Repo.all()
-    |> Repo.preload(video: video_preload_query)
-  end
+  Pass `statuses:` in opts to restrict issue statuses (required for meaningful results).
+  """
+  @spec list_bad_file_issues(map(), keyword()) :: {[BadFileIssue.t()], Flop.Meta.t()}
+  def list_bad_file_issues(params \\ %{}, opts \\ []) when is_map(params) do
+    statuses = Keyword.get_lazy(opts, :statuses, &BadFileIssue.status_values/0)
+    service = bad_file_service_param(Map.get(params, "service", "all"))
+    kind = bad_file_kind_param(Map.get(params, "kind", "all"))
+    search = params |> Map.get("search", "") |> bad_file_normalize_search()
 
-  @spec count_bad_file_issues(keyword()) :: non_neg_integer()
-  def count_bad_file_issues(opts \\ []) do
-    BadFileIssue
-    |> bad_file_issue_filters_query(opts)
-    |> select([i], count(i.id))
-    |> Repo.one()
+    flop_params =
+      params
+      |> Map.take(["page", "page_size", "filters", "order_by", "order_directions"])
+      |> Map.put_new("page", "1")
+      |> Map.put_new("page_size", "50")
+
+    base_query =
+      from(i in BadFileIssue)
+      |> bad_file_status_filter(statuses)
+      |> bad_file_service_filter(service)
+      |> bad_file_kind_filter(kind)
+      |> bad_file_search_filter(search)
+
+    video_preload_query = from(v in Video, select: struct(v, ^@bad_file_video_fields))
+
+    case Flop.validate_and_run(base_query, flop_params, for: BadFileIssue) do
+      {:ok, {issues, meta}} ->
+        {Repo.preload(issues, video: video_preload_query), meta}
+
+      {:error, %Flop.Meta{} = meta} ->
+        {[], meta}
+    end
   end
 
   @spec bad_file_issue_summary() :: %{
@@ -561,8 +577,13 @@ defmodule Reencodarr.Media do
         {:error, :not_series_scoped}
 
       group_key ->
+        {issues, _} =
+          list_bad_file_issues(%{"page" => "1", "page_size" => "250"},
+            statuses: BadFileIssue.status_values() -- @resolved_bad_file_issue_statuses
+          )
+
         issues =
-          list_bad_file_issues()
+          issues
           |> Enum.filter(fn candidate ->
             unresolved_bad_file_issue?(candidate) and
               series_group_key(candidate.video) == group_key
@@ -878,75 +899,145 @@ defmodule Reencodarr.Media do
 
   defp maybe_put_last_attempted_at(attrs, _status), do: attrs
 
-  defp bad_file_issue_filters_query(queryable, opts) do
-    queryable
-    |> maybe_filter_bad_file_issue_statuses(Keyword.get(opts, :statuses, :all))
-    |> maybe_filter_bad_file_issue_service(Keyword.get(opts, :service, "all"))
-    |> maybe_filter_bad_file_issue_kind(Keyword.get(opts, :kind, "all"))
-    |> maybe_filter_bad_file_issue_search(Keyword.get(opts, :search, ""))
-  end
+  defp bad_file_status_filter(query, statuses), do: from(i in query, where: i.status in ^statuses)
 
-  defp maybe_filter_bad_file_issue_statuses(query, :all), do: query
+  defp bad_file_service_filter(query, "all"), do: query
 
-  defp maybe_filter_bad_file_issue_statuses(query, statuses) when is_list(statuses) do
-    from i in query, where: i.status in ^statuses
-  end
-
-  defp maybe_filter_bad_file_issue_service(query, "all"), do: query
-
-  defp maybe_filter_bad_file_issue_service(query, service) when service in ["sonarr", "radarr"] do
+  defp bad_file_service_filter(query, service) when service in ["sonarr", "radarr"] do
     service_type = String.to_existing_atom(service)
-    query = ensure_bad_file_issue_video_join(query)
-    from [i, video: v] in query, where: v.service_type == ^service_type
+
+    query
+    |> bad_file_ensure_video_join()
+    |> then(&from([i, video: v] in &1, where: v.service_type == ^service_type))
   end
 
-  defp maybe_filter_bad_file_issue_service(query, _service), do: query
+  defp bad_file_service_filter(query, _service), do: query
 
-  defp maybe_filter_bad_file_issue_kind(query, "all"), do: query
+  defp bad_file_kind_filter(query, "all"), do: query
 
-  defp maybe_filter_bad_file_issue_kind(query, kind) when kind in ["audio", "manual"] do
+  defp bad_file_kind_filter(query, kind) when kind in ["audio", "manual"] do
     issue_kind = String.to_existing_atom(kind)
-    from i in query, where: i.issue_kind == ^issue_kind
+    from(i in query, where: i.issue_kind == ^issue_kind)
   end
 
-  defp maybe_filter_bad_file_issue_kind(query, _kind), do: query
+  defp bad_file_kind_filter(query, _kind), do: query
 
-  defp maybe_filter_bad_file_issue_search(query, ""), do: query
+  defp bad_file_search_filter(query, ""), do: query
 
-  defp maybe_filter_bad_file_issue_search(query, search) when is_binary(search) do
-    pattern = "%" <> String.downcase(search) <> "%"
-    query = ensure_bad_file_issue_video_join(query)
+  defp bad_file_search_filter(query, search) do
+    pattern = "%" <> search <> "%"
 
-    from [i, video: v] in query,
-      where:
-        fragment("lower(?) like ?", v.path, ^pattern) or
-          fragment("lower(coalesce(?, '')) like ?", i.manual_reason, ^pattern) or
-          fragment("lower(coalesce(?, '')) like ?", i.manual_note, ^pattern) or
-          fragment("lower(?) like ?", i.classification, ^pattern) or
-          fragment("lower(?) like ?", i.issue_kind, ^pattern)
+    query
+    |> bad_file_ensure_video_join()
+    |> then(
+      &from([i, video: v] in &1,
+        where:
+          fragment("lower(?) like ?", v.path, ^pattern) or
+            fragment("lower(coalesce(?, '')) like ?", i.manual_reason, ^pattern) or
+            fragment("lower(coalesce(?, '')) like ?", i.manual_note, ^pattern) or
+            fragment("lower(?) like ?", i.classification, ^pattern) or
+            fragment("lower(?) like ?", i.issue_kind, ^pattern)
+      )
+    )
   end
 
-  defp maybe_filter_bad_file_issue_search(query, _search), do: query
-
-  defp maybe_limit_bad_file_issues(query, limit) when is_integer(limit) and limit > 0 do
-    from i in query, limit: ^limit
-  end
-
-  defp maybe_limit_bad_file_issues(query, _limit), do: query
-
-  defp maybe_offset_bad_file_issues(query, offset) when is_integer(offset) and offset >= 0 do
-    from i in query, offset: ^offset
-  end
-
-  defp maybe_offset_bad_file_issues(query, _offset), do: query
-
-  defp ensure_bad_file_issue_video_join(%Ecto.Query{aliases: aliases} = query) do
-    if Map.has_key?(aliases, :video) do
+  defp bad_file_ensure_video_join(query) do
+    if has_named_binding?(query, :video) do
       query
     else
-      join(query, :inner, [i], v in assoc(i, :video), as: :video)
+      from(i in query, join: v in assoc(i, :video), as: :video)
     end
   end
+
+  defp bad_file_service_param(service) when service in ~w(all sonarr radarr), do: service
+  defp bad_file_service_param(_service), do: "all"
+
+  defp bad_file_kind_param(kind) when kind in ~w(all audio manual), do: kind
+  defp bad_file_kind_param(_kind), do: "all"
+
+  defp bad_file_normalize_search(search) when is_binary(search),
+    do: search |> String.trim() |> String.downcase()
+
+  defp bad_file_normalize_search(_search), do: ""
+
+  defp failure_search_filter(query, ""), do: query
+
+  defp failure_search_filter(query, search) do
+    pattern = "%#{search}%"
+    condition = SharedQueries.case_insensitive_like(:path, pattern)
+    from(v in query, where: ^condition)
+  end
+
+  defp failure_stage_param(stage) when stage in @failure_stage_values, do: stage
+  defp failure_stage_param(_stage), do: "all"
+
+  defp failure_category_param(category) when category in @failure_category_values, do: category
+  defp failure_category_param(_category), do: "all"
+
+  defp failure_normalize_search(search) when is_binary(search), do: String.trim(search)
+  defp failure_normalize_search(_search), do: ""
+
+  defp failures_by_video(videos) do
+    video_ids = Enum.map(videos, & &1.id)
+
+    from(f in VideoFailure,
+      where: f.video_id in ^video_ids and f.resolved == false,
+      order_by: [desc: f.inserted_at]
+    )
+    |> Repo.all()
+    |> Enum.group_by(& &1.video_id)
+  end
+
+  defp summarize_failure_stats(stats) do
+    recent_count = Enum.reduce(stats, 0, fn stat, acc -> acc + (stat.count || 0) end)
+    %{recent_count: recent_count}
+  end
+
+  defp total_pages(total, _per_page) when total <= 0, do: 1
+  defp total_pages(total, per_page), do: max(ceil(total / per_page), 1)
+
+  defp failure_join_filters(query, "all", "all"), do: query
+
+  defp failure_join_filters(query, stage, category) do
+    from(v in query,
+      join: f in VideoFailure,
+      on: f.video_id == v.id,
+      where: f.resolved == false,
+      distinct: true
+    )
+    |> failure_stage_filter(stage)
+    |> failure_category_filter(category)
+  end
+
+  defp failure_stage_filter(query, "all"), do: query
+
+  defp failure_stage_filter(query, stage) do
+    case failure_stage_atom(stage) do
+      {:ok, atom} -> from [v, f] in query, where: f.failure_stage == ^atom
+      :error -> from [v, f] in query, where: false
+    end
+  end
+
+  defp failure_category_filter(query, "all"), do: query
+
+  defp failure_category_filter(query, category) do
+    case failure_category_atom(category) do
+      {:ok, atom} -> from [v, f] in query, where: f.failure_category == ^atom
+      :error -> from [v, f] in query, where: false
+    end
+  end
+
+  defp failure_stage_atom("analysis"), do: {:ok, :analysis}
+  defp failure_stage_atom("crf_search"), do: {:ok, :crf_search}
+  defp failure_stage_atom("encoding"), do: {:ok, :encoding}
+  defp failure_stage_atom("post_process"), do: {:ok, :post_process}
+  defp failure_stage_atom(_), do: :error
+
+  defp failure_category_atom("file_access"), do: {:ok, :file_access}
+  defp failure_category_atom("process_failure"), do: {:ok, :process_failure}
+  defp failure_category_atom("timeout"), do: {:ok, :timeout}
+  defp failure_category_atom("codec_issues"), do: {:ok, :codec_issues}
+  defp failure_category_atom(_), do: :error
 
   defp unresolved_bad_file_issue?(issue) do
     issue.status not in [:replaced_clean, :dismissed]
@@ -1074,6 +1165,73 @@ defmodule Reencodarr.Media do
   """
   def get_common_failure_patterns(limit \\ 10),
     do: VideoFailure.get_common_failure_patterns(limit)
+
+  @doc """
+  Returns failed videos with Flop pagination and optional stage/category/search filters.
+  """
+  @spec list_failures(map()) :: {[Video.t()], Flop.Meta.t()}
+  def list_failures(params) when is_map(params) do
+    stage = failure_stage_param(Map.get(params, "stage", "all"))
+    category = failure_category_param(Map.get(params, "category", "all"))
+    search = params |> Map.get("search", "") |> failure_normalize_search()
+
+    flop_params =
+      params
+      |> Map.take(["page", "page_size", "filters", "order_by", "order_directions"])
+      |> Map.put_new("page", "1")
+      |> Map.put_new("page_size", "20")
+
+    base_query =
+      from(v in Video, where: v.state == :failed)
+      |> failure_join_filters(stage, category)
+      |> failure_search_filter(search)
+
+    case Flop.validate_and_run(base_query, flop_params, for: Video) do
+      {:ok, {videos, meta}} -> {videos, meta}
+      {:error, %Flop.Meta{} = meta} -> {[], meta}
+    end
+  end
+
+  @doc """
+  Loads the full failures LiveView page payload from URL params.
+
+  This wraps `list_failures/1` with clamped pagination and the supporting failure
+  maps, summary stats, common patterns, and remediation actions needed by the UI.
+  """
+  @spec load_failures_page(map()) :: map()
+  def load_failures_page(params) when is_map(params) do
+    {failed_videos, meta} = list_failures(params)
+
+    total_count = meta.total_count || 0
+    per_page = meta.page_size || params |> Map.get("page_size", "20") |> Parsers.parse_int(20)
+    requested_page = params |> Map.get("page", "1") |> Parsers.parse_int(1) |> max(1)
+    clamped_page = min(requested_page, total_pages(total_count, per_page))
+
+    {failed_videos, meta} =
+      if clamped_page != requested_page and total_count > 0 do
+        params
+        |> Map.put("page", to_string(clamped_page))
+        |> list_failures()
+      else
+        {failed_videos, meta}
+      end
+
+    page = meta.current_page || clamped_page
+
+    %{
+      loading: false,
+      failed_videos: failed_videos,
+      video_failures: failures_by_video(failed_videos),
+      failure_stats: summarize_failure_stats(get_failure_statistics(days_back: 7)),
+      failure_patterns: get_common_failure_patterns(5),
+      failure_code_actions: list_failed_video_failure_codes(),
+      total_count: total_count,
+      total_pages: total_pages(total_count, per_page),
+      page: page,
+      per_page: per_page,
+      meta: meta
+    }
+  end
 
   @doc """
   Resets videos stuck in `:analyzing` back to `:needs_analysis`.
