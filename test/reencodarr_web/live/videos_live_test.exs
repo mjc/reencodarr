@@ -190,12 +190,13 @@ defmodule ReencodarrWeb.VideosLiveTest do
   # ---------------------------------------------------------------------------
 
   describe "pagination" do
-    test "prev_page button is disabled on page 1", %{conn: conn} do
+    test "renders flop pagination on page 1", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/videos?page=1")
       html = render(view)
-      # Button is rendered as disabled when already on first page
-      assert html =~ "phx-click=\"prev_page\""
-      assert html =~ "disabled"
+
+      assert html =~ ~s(data-role="flop-pagination")
+      assert html =~ ~s(data-role="flop-pagination-label")
+      assert html =~ "0 results"
     end
 
     test "per_page event updates items per page", %{conn: conn} do
@@ -339,7 +340,8 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       assert html =~ "Marked as bad"
 
-      [issue] = Reencodarr.Media.list_bad_file_issues()
+      {issues, _} = Reencodarr.Media.list_bad_file_issues(%{"page_size" => "250"})
+      [issue] = issues
       assert issue.video_id == video.id
       assert issue.issue_kind == :manual
       assert issue.classification == :manual_bad
@@ -366,7 +368,8 @@ defmodule ReencodarrWeb.VideosLiveTest do
         |> render_submit()
 
       assert html =~ "Mark bad failed"
-      assert Reencodarr.Media.list_bad_file_issues() == []
+      {issues, _} = Reencodarr.Media.list_bad_file_issues(%{"page_size" => "250"})
+      assert issues == []
     end
   end
 
