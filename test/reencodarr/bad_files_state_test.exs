@@ -87,4 +87,45 @@ defmodule Reencodarr.BadFiles.StateTest do
 
     assert Enum.count(issues) == 251
   end
+
+  test "replacement_issues includes matching replacement issues outside current page" do
+    Enum.each(1..25, fn n ->
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/replacement_page_open_#{n}.mkv"})
+
+      {:ok, _issue} =
+        Media.create_bad_file_issue(video, %{
+          origin: :manual,
+          issue_kind: :manual,
+          classification: :manual_bad,
+          manual_reason: "replacement page"
+        })
+    end)
+
+    {:ok, replacement_video} =
+      Fixtures.video_fixture(%{path: "/media/replacement_page_waiting.mkv"})
+
+    {:ok, issue} =
+      Media.create_bad_file_issue(replacement_video, %{
+        origin: :manual,
+        issue_kind: :manual,
+        classification: :manual_bad,
+        manual_reason: "replacement page"
+      })
+
+    {:ok, issue} = Media.update_bad_file_issue_status(issue, :waiting_for_replacement)
+
+    payload =
+      State.load(%{
+        page: 1,
+        per_page: 25,
+        status_filter: "open",
+        service_filter: "all",
+        kind_filter: "all",
+        search_query: "replacement_page",
+        show_resolved: false
+      })
+
+    refute Enum.any?(payload.issues, &(&1.id == issue.id))
+    assert Enum.any?(payload.replacement_issues, &(&1.id == issue.id))
+  end
 end

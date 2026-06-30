@@ -46,6 +46,25 @@ defmodule Reencodarr.Media.ListBadFileIssuesTest do
     assert hd(issues).video.path =~ "searchable_bad"
   end
 
+  test "search treats percent and underscore literally" do
+    {:ok, percent_video} = Fixtures.video_fixture(%{path: "/media/literal_percent_%_bad.mkv"})
+    {:ok, plain_video} = Fixtures.video_fixture(%{path: "/media/literal_percent_x_bad.mkv"})
+
+    for video <- [percent_video, plain_video] do
+      {:ok, _} =
+        Media.create_bad_file_issue(video, %{
+          origin: :manual,
+          issue_kind: :manual,
+          classification: :manual_bad,
+          manual_reason: "literal wildcard"
+        })
+    end
+
+    assert {issues, meta} = Media.list_bad_file_issues(%{"search" => "%_"})
+    assert meta.total_count == 1
+    assert hd(issues).video.path == "/media/literal_percent_%_bad.mkv"
+  end
+
   test "queue_bad_file_issue_series does not stop at the first bad-file page" do
     {:ok, series_video} =
       Fixtures.video_fixture(%{

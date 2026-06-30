@@ -497,7 +497,7 @@ defmodule ReencodarrWeb.VideosLive do
       |> assign(:loading, true)
       |> start_async(:load_videos, fn -> fetch_video_payload(load_assigns) end)
     else
-      socket
+      assign(socket, :loading, false)
     end
   end
 
@@ -547,7 +547,7 @@ defmodule ReencodarrWeb.VideosLive do
 
       assign(socket, page_state)
     else
-      socket
+      assign(socket, :loading, false)
     end
   end
 
@@ -680,28 +680,34 @@ defmodule ReencodarrWeb.VideosLive do
       "service" => assigns.service_filter,
       "hdr" => hdr_to_param(assigns.hdr_filter)
     }
+    |> drop_default_query_values()
   end
 
   defp patch_path(assigns, overrides) do
     overrides_map = Enum.into(overrides, %{}, fn {k, v} -> {to_string(k), v} end)
 
     query =
-      %{
-        "sort_by" => to_string(assigns.sort_by),
-        "sort_dir" => to_string(assigns.sort_dir),
-        "page" => assigns.page,
-        "per_page" => assigns.per_page,
-        "search" => assigns.search,
-        "state" => assigns.state_filter,
-        "service" => assigns.service_filter,
-        "hdr" => hdr_to_param(assigns.hdr_filter)
-      }
+      assigns
+      |> videos_url_query()
       |> Map.merge(overrides_map)
-      |> Enum.reject(fn {_, v} -> is_nil(v) || v == "" end)
-      |> Enum.map(fn {k, v} -> {k, to_string(v)} end)
-      |> URI.encode_query()
+      |> drop_default_query_values()
 
-    "/videos?#{query}"
+    page =
+      overrides
+      |> Keyword.get(:page, assigns.page)
+      |> Parsers.parse_int(assigns.page)
+      |> max(1)
+
+    FlopList.patch_with_page("/videos", query, page)
+  end
+
+  defp drop_default_query_values(query) do
+    Map.reject(query, fn
+      {"sort_by", value} -> value in [:updated_at, "updated_at"]
+      {"sort_dir", value} -> value in [:desc, "desc"]
+      {"per_page", value} -> value in [@default_per_page, to_string(@default_per_page)]
+      {_key, value} -> value in [nil, ""]
+    end)
   end
 
   defp max_page(%{total: total, per_page: per_page}), do: FlopList.total_pages(total, per_page)

@@ -18,8 +18,20 @@ defmodule Reencodarr.Media.SharedQueries do
   Returns a dynamic query fragment that can be used in where clauses.
   """
   def case_insensitive_like(field, pattern) do
-    # SQLite: Use LIKE with UPPER() on both sides
-    dynamic([q], fragment("UPPER(?) LIKE UPPER(?)", field(q, ^field), ^pattern))
+    dynamic([q], fragment("UPPER(?) LIKE UPPER(?) ESCAPE '\\'", field(q, ^field), ^pattern))
+  end
+
+  def like_contains_pattern(value) when is_binary(value) do
+    "%" <> escape_like(value) <> "%"
+  end
+
+  def like_contains_pattern(_value), do: "%"
+
+  defp escape_like(value) do
+    value
+    |> String.replace("\\", "\\\\")
+    |> String.replace("%", "\\%")
+    |> String.replace("_", "\\_")
   end
 
   @doc """

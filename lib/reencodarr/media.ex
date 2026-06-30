@@ -919,18 +919,18 @@ defmodule Reencodarr.Media do
   defp bad_file_search_filter(query, ""), do: query
 
   defp bad_file_search_filter(query, search) do
-    pattern = "%" <> search <> "%"
+    pattern = SharedQueries.like_contains_pattern(search)
 
     query
     |> bad_file_ensure_video_join()
     |> then(
       &from([i, video: v] in &1,
         where:
-          fragment("lower(?) like ?", v.path, ^pattern) or
-            fragment("lower(coalesce(?, '')) like ?", i.manual_reason, ^pattern) or
-            fragment("lower(coalesce(?, '')) like ?", i.manual_note, ^pattern) or
-            fragment("lower(?) like ?", i.classification, ^pattern) or
-            fragment("lower(?) like ?", i.issue_kind, ^pattern)
+          fragment("lower(?) like ? escape '\\'", v.path, ^pattern) or
+            fragment("lower(coalesce(?, '')) like ? escape '\\'", i.manual_reason, ^pattern) or
+            fragment("lower(coalesce(?, '')) like ? escape '\\'", i.manual_note, ^pattern) or
+            fragment("lower(?) like ? escape '\\'", i.classification, ^pattern) or
+            fragment("lower(?) like ? escape '\\'", i.issue_kind, ^pattern)
       )
     )
   end
@@ -957,7 +957,7 @@ defmodule Reencodarr.Media do
   defp failure_search_filter(query, ""), do: query
 
   defp failure_search_filter(query, search) do
-    pattern = "%#{search}%"
+    pattern = SharedQueries.like_contains_pattern(search)
     condition = SharedQueries.case_insensitive_like(:path, pattern)
     from(v in query, where: ^condition)
   end
@@ -971,13 +971,15 @@ defmodule Reencodarr.Media do
   defp failure_normalize_search(search) when is_binary(search), do: String.trim(search)
   defp failure_normalize_search(_search), do: ""
 
-  defp failures_by_video(videos) do
+  defp failures_by_video(videos, stage, category) do
     video_ids = Enum.map(videos, & &1.id)
 
     from(f in VideoFailure,
       where: f.video_id in ^video_ids and f.resolved == false,
       order_by: [desc: f.inserted_at]
     )
+    |> video_failure_stage_filter(stage)
+    |> video_failure_category_filter(category)
     |> Repo.all()
     |> Enum.group_by(& &1.video_id)
   end
@@ -1018,6 +1020,24 @@ defmodule Reencodarr.Media do
     case failure_category_atom(category) do
       {:ok, atom} -> from [v, f] in query, where: f.failure_category == ^atom
       :error -> from [v, f] in query, where: false
+    end
+  end
+
+  defp video_failure_stage_filter(query, "all"), do: query
+
+  defp video_failure_stage_filter(query, stage) do
+    case failure_stage_atom(stage) do
+      {:ok, atom} -> from(f in query, where: f.failure_stage == ^atom)
+      :error -> from(f in query, where: false)
+    end
+  end
+
+  defp video_failure_category_filter(query, "all"), do: query
+
+  defp video_failure_category_filter(query, category) do
+    case failure_category_atom(category) do
+      {:ok, atom} -> from(f in query, where: f.failure_category == ^atom)
+      :error -> from(f in query, where: false)
     end
   end
 
@@ -1224,18 +1244,17 @@ defmodule Reencodarr.Media do
         {failed_videos, meta}
       end
 
-    page = meta.current_page || clamped_page
-
     %{
       loading: false,
       failed_videos: failed_videos,
-      video_failures: failures_by_video(failed_videos),
+      video_failures:
+        failures_by_video(failed_videos, params["stage"] || "all", params["category"] || "all"),
       failure_stats: summarize_failure_stats(get_failure_statistics(days_back: 7)),
       failure_patterns: get_common_failure_patterns(5),
       failure_code_actions: list_failed_video_failure_codes(),
       total_count: total_count,
       total_pages: total_pages(total_count, per_page),
-      page: page,
+      page: clamped_page,
       per_page: per_page,
       meta: meta
     }

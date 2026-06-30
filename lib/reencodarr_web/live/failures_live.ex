@@ -113,15 +113,12 @@ defmodule ReencodarrWeb.FailuresLive do
 
   @impl true
   def handle_event("reset_all_failures", _params, socket) do
-    # Reset all failed videos
-    Media.reset_failed_videos()
+    Media.reset_all_failures()
 
-    # Reload the failures data, returning to page 1 (avoid stale page state)
     {:noreply,
      socket
      |> push_patch(to: patch_path(socket.assigns, page: 1))
-     |> put_flash(:info, "All failed videos have been reset")
-     |> async_load_failures()}
+     |> put_flash(:info, "All failures have been reset")}
   end
 
   @impl true
@@ -754,7 +751,7 @@ defmodule ReencodarrWeb.FailuresLive do
       payload = Map.delete(payload, :request)
       assign(socket, payload)
     else
-      socket
+      assign(socket, :loading, false)
     end
   end
 
@@ -829,6 +826,7 @@ defmodule ReencodarrWeb.FailuresLive do
     |> Enum.reject(fn
       {"stage", "all"} -> true
       {"category", "all"} -> true
+      {"per_page", value} -> value in [@default_per_page, to_string(@default_per_page)]
       {_, value} -> value in [nil, ""]
     end)
     |> Map.new()
@@ -847,6 +845,7 @@ defmodule ReencodarrWeb.FailuresLive do
       |> Enum.reject(fn
         {"stage", "all"} -> true
         {"category", "all"} -> true
+        {"per_page", value} -> value in [@default_per_page, to_string(@default_per_page)]
         {_, value} -> value in [nil, ""]
       end)
       |> Map.new()

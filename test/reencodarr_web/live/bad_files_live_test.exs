@@ -564,7 +564,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       |> form("#bad-files-status-filter", %{"status" => "queued"})
       |> render_change()
 
-      assert_patch(view, ~p"/bad-files?per_page=50&status=queued")
+      assert_patch(view, ~p"/bad-files?status=queued")
       html = render_async(view)
       assert html =~ "filter_queued.mkv"
       refute html =~ "filter_open.mkv"
@@ -600,7 +600,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       |> form("#bad-files-service-filter", %{"service" => "radarr"})
       |> render_change()
 
-      assert_patch(view, ~p"/bad-files?per_page=50&service=radarr")
+      assert_patch(view, ~p"/bad-files?service=radarr")
       html = render_async(view)
       assert html =~ "filter_radarr.mkv"
       refute html =~ "filter_sonarr.mkv"
@@ -632,7 +632,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       |> form("#bad-files-kind-filter", %{"kind" => "audio"})
       |> render_change()
 
-      assert_patch(view, ~p"/bad-files?kind=audio&per_page=50")
+      assert_patch(view, ~p"/bad-files?kind=audio")
       html = render_async(view)
       assert html =~ "filter_audio_kind.mkv"
       refute html =~ "filter_manual_kind.mkv"
@@ -665,7 +665,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       |> form("#bad-files-search-filter", %{"query" => "search_this"})
       |> render_change()
 
-      assert_patch(view, ~p"/bad-files?per_page=50&search=search_this")
+      assert_patch(view, ~p"/bad-files?search=search_this")
       by_path_html = render_async(view)
       assert by_path_html =~ "search_this_title.mkv"
       refute by_path_html =~ "other_title.mkv"
@@ -674,7 +674,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       |> form("#bad-files-search-filter", %{"query" => "blocky"})
       |> render_change()
 
-      assert_patch(view, ~p"/bad-files?per_page=50&search=blocky")
+      assert_patch(view, ~p"/bad-files?search=blocky")
       by_reason_html = render_async(view)
       assert by_reason_html =~ "other_title.mkv"
       refute by_reason_html =~ "search_this_title.mkv"

@@ -3,11 +3,24 @@ defmodule Reencodarr.Media.ListFailuresTest do
 
   alias Reencodarr.Fixtures
   alias Reencodarr.Media
+  alias Reencodarr.Media.VideoFailure
+  alias Reencodarr.Repo
 
   defp failed_video!(attrs) do
     {:ok, video} = Fixtures.video_fixture(attrs)
     Media.record_video_failure(video, :encoding, :timeout, message: "test failure")
     video
+  end
+
+  defp failure!(video, stage, category, message) do
+    %VideoFailure{}
+    |> VideoFailure.changeset(%{
+      video_id: video.id,
+      failure_stage: stage,
+      failure_category: category,
+      failure_message: message
+    })
+    |> Repo.insert!()
   end
 
   describe "list_failures/1" do
@@ -48,6 +61,26 @@ defmodule Reencodarr.Media.ListFailuresTest do
       assert {videos, meta} = Media.list_failures(%{"search" => "findme"})
       assert meta.total_count == 1
       assert hd(videos).path =~ "FindMe"
+    end
+
+    test "search treats percent and underscore literally" do
+      failed_video!(%{path: "/media/failure_%_literal.mkv"})
+      failed_video!(%{path: "/media/failure_x_literal.mkv"})
+
+      assert {videos, meta} = Media.list_failures(%{"search" => "%_"})
+      assert meta.total_count == 1
+      assert hd(videos).path == "/media/failure_%_literal.mkv"
+    end
+
+    test "load_failures_page displays failures matching active filters" do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/mixed_failures.mkv", state: :failed})
+      failure!(video, :analysis, :file_access, "analysis failure")
+      failure!(video, :encoding, :timeout, "encoding failure")
+
+      payload = Media.load_failures_page(%{"stage" => "analysis"})
+
+      assert [%{failure_stage: :analysis, failure_message: "analysis failure"}] =
+               payload.video_failures[video.id]
     end
 
     test "pagination returns page 2 slice" do

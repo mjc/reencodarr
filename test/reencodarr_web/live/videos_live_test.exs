@@ -117,7 +117,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       assert_patch(
         view,
-        "/videos?page=1&per_page=50&sort_by=updated_at&sort_dir=desc&state=encoded"
+        "/videos?state=encoded"
       )
     end
 
@@ -218,7 +218,25 @@ defmodule ReencodarrWeb.VideosLiveTest do
       |> form("form[phx-change='set_per_page']", %{per_page: "100"})
       |> render_change()
 
-      assert_patch(view, "/videos?page=1&per_page=100&sort_by=updated_at&sort_dir=desc")
+      assert_patch(view, "/videos?per_page=100")
+    end
+
+    test "page beyond total clamps to last page", %{conn: conn} do
+      Enum.each(1..26, fn n ->
+        {:ok, _video} = Fixtures.video_fixture(%{path: "/media/videos_clamp_#{n}.mkv"})
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/videos?page=999&per_page=25")
+      html = render_async(view)
+
+      assert html =~ "26-26 of 26"
+    end
+
+    test "empty search clamps impossible page to page 1", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/videos?q=no_such_video&page=999")
+      html = render_async(view)
+
+      assert html =~ "0 results"
     end
   end
 
@@ -460,10 +478,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
       |> form("#videos-filters", %{service: "sonarr"})
       |> render_change()
 
-      assert_patch(
-        view,
-        "/videos?page=1&per_page=50&service=sonarr&sort_by=updated_at&sort_dir=desc"
-      )
+      assert_patch(view, "/videos?service=sonarr")
     end
   end
 
@@ -490,7 +505,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
       |> form("#videos-filters", %{hdr: "true"})
       |> render_change()
 
-      assert_patch(view, "/videos?hdr=true&page=1&per_page=50&sort_by=updated_at&sort_dir=desc")
+      assert_patch(view, "/videos?hdr=true")
     end
   end
 

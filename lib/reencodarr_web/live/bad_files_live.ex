@@ -337,7 +337,21 @@ defmodule ReencodarrWeb.BadFilesLive do
 
     payload
     |> Map.put(:page, page)
+    |> Map.put(:request, assigns)
     |> Map.put(:url_query, bad_files_url_query(%{assigns | page: page}))
+  end
+
+  defp apply_issue_payload(socket, %{request: request} = issue_payload) do
+    if issue_load_assigns(socket.assigns) == request do
+      issue_payload =
+        issue_payload
+        |> Map.delete(:request)
+        |> Map.put(:loading_issues, false)
+
+      assign(socket, issue_payload)
+    else
+      assign(socket, :loading_issues, false)
+    end
   end
 
   defp apply_issue_payload(socket, issue_payload) do
@@ -397,6 +411,8 @@ defmodule ReencodarrWeb.BadFilesLive do
     |> BadFilesState.list_active_issues()
   end
 
+  defp filtered_active_total(assigns), do: assigns.active_total || 0
+
   defp start_service_replacements do
     [:sonarr, :radarr]
     |> Enum.map(&BadFileRemediation.process_next_issue(service_type: &1))
@@ -446,15 +462,11 @@ defmodule ReencodarrWeb.BadFilesLive do
 
   defp maybe_reload_page(page, payload, assigns) do
     if page == assigns.page or payload.active_total == 0 do
-      {payload, payload_page(payload, page)}
+      {payload, page}
     else
       reloaded_payload = assigns |> Map.put(:page, page) |> BadFilesState.load()
-      {reloaded_payload, payload_page(reloaded_payload, page)}
+      {reloaded_payload, page}
     end
-  end
-
-  defp payload_page(payload, fallback_page) do
-    payload.meta.current_page || fallback_page
   end
 
   defp url_overrides(overrides) do
@@ -469,7 +481,10 @@ defmodule ReencodarrWeb.BadFilesLive do
   end
 
   defp drop_default_query_values(query) do
-    Map.reject(query, fn {_key, value} -> value in [nil, "", "all"] end)
+    Map.reject(query, fn
+      {"per_page", value} -> value in [@default_per_page, to_string(@default_per_page)]
+      {_key, value} -> value in [nil, "", "all"]
+    end)
   end
 
   attr :status_filter_values, :list, required: true
@@ -479,10 +494,14 @@ defmodule ReencodarrWeb.BadFilesLive do
   attr :service_filter, :string, required: true
   attr :kind_filter, :string, required: true
   attr :search_query, :string, required: true
+  attr :active_total, :integer, default: 0
 
   defp bad_files_toolbar(assigns) do
     ~H"""
     <div class="flex gap-3">
+      <div class="flex items-center text-xs text-gray-400">
+        Bulk actions apply to all {@active_total} matching active issues.
+      </div>
       <button
         id="replace-next-queued"
         phx-click="replace_next_queued"
@@ -518,14 +537,14 @@ defmodule ReencodarrWeb.BadFilesLive do
         phx-click="queue_filtered_issues"
         class="rounded bg-amber-700 px-3 py-2 text-sm font-medium text-white hover:bg-amber-600"
       >
-        queue filtered
+        queue all {@active_total} matching active issues
       </button>
       <button
         id="replace-filtered-now"
         phx-click="replace_filtered_now"
         class="rounded bg-orange-700 px-3 py-2 text-sm font-medium text-white hover:bg-orange-600"
       >
-        replace filtered now
+        replace all {@active_total} matching active issues now
       </button>
       <form id="bad-files-status-filter" phx-change="filter_status">
         <select
@@ -800,6 +819,7 @@ defmodule ReencodarrWeb.BadFilesLive do
           service_filter={@service_filter}
           kind_filter={@kind_filter}
           search_query={@search_query}
+          active_total={filtered_active_total(assigns)}
         />
         <.bad_files_issue_table
           title="Active Issues"

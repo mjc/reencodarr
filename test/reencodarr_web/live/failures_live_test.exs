@@ -15,6 +15,8 @@ defmodule ReencodarrWeb.FailuresLiveTest do
 
   alias Reencodarr.Fixtures
   alias Reencodarr.Media
+  alias Reencodarr.Media.VideoFailure
+  alias Reencodarr.Repo
 
   defp loaded_html(view), do: render(view)
 
@@ -258,6 +260,23 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, view, _} = live(conn, ~p"/failures")
       html = view |> element("button[phx-click='reset_all_failures']") |> render_click()
       assert html =~ "Failures"
+    end
+
+    test "reset_all_failures deletes unresolved failures and requeues failed videos", %{
+      conn: conn
+    } do
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/reset_all_semantics.mkv"})
+      Media.record_video_failure(video, :encoding, :timeout, message: "reset me")
+
+      {:ok, view, _} = live(conn, ~p"/failures")
+      loaded_html(view)
+
+      view
+      |> element("button[phx-click='reset_all_failures']")
+      |> render_click()
+
+      assert Media.get_video!(video.id).state == :needs_analysis
+      assert Repo.get_by(VideoFailure, video_id: video.id) == nil
     end
   end
 
