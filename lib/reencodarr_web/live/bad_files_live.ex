@@ -822,13 +822,17 @@ defmodule ReencodarrWeb.BadFilesLive do
           active_total={filtered_active_total(assigns)}
         />
         <.bad_files_issue_table
-          title="Active Issues"
+          title={if @status_filter == "resolved", do: "Resolved Issues", else: "Active Issues"}
           issues={@active_issues}
           meta={@meta}
           url_query={@url_query}
           paginate?
         />
-        <.resolved_issues_section show_resolved={@show_resolved} issues={@resolved_issues} />
+        <.resolved_issues_section
+          :if={@status_filter != "resolved"}
+          show_resolved={@show_resolved}
+          issues={@resolved_issues}
+        />
       </div>
     </div>
     """

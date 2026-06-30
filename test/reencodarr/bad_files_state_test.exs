@@ -57,8 +57,42 @@ defmodule Reencodarr.BadFiles.StateTest do
         show_resolved: false
       })
 
-    assert Enum.any?(payload.resolved_issues, &(&1.video_id == video.id))
+    assert Enum.any?(payload.active_issues, &(&1.video_id == video.id))
     assert Enum.any?(payload.issues, &(&1.video_id == video.id))
+    assert payload.resolved_issues == []
+    assert payload.meta.total_count == 1
+  end
+
+  test "resolved filter is a paginated primary list" do
+    Enum.each(1..26, fn n ->
+      {:ok, video} = Fixtures.video_fixture(%{path: "/media/resolved_page_#{n}.mkv"})
+
+      {:ok, issue} =
+        Media.create_bad_file_issue(video, %{
+          origin: :manual,
+          issue_kind: :manual,
+          classification: :manual_bad,
+          manual_reason: "resolved page"
+        })
+
+      {:ok, _issue} = Media.dismiss_bad_file_issue(issue)
+    end)
+
+    payload =
+      State.load(%{
+        page: 2,
+        per_page: 25,
+        status_filter: "resolved",
+        service_filter: "all",
+        kind_filter: "all",
+        search_query: "resolved_page",
+        show_resolved: false
+      })
+
+    assert payload.meta.total_count == 26
+    assert payload.meta.current_page == 2
+    assert Enum.map(payload.active_issues, & &1.video.path) == ["/media/resolved_page_26.mkv"]
+    assert payload.resolved_issues == []
   end
 
   test "list_active_issues returns all matching pages for bulk actions" do

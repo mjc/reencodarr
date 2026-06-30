@@ -744,6 +744,30 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       refute html =~ "bad_clamp_26.mkv"
     end
 
+    test "resolved status is paginated as the primary list", %{conn: conn} do
+      Enum.each(1..26, fn n ->
+        {:ok, video} = Fixtures.video_fixture(%{path: "/media/resolved_url_#{n}.mkv"})
+
+        {:ok, issue} =
+          Media.create_bad_file_issue(video, %{
+            origin: :manual,
+            issue_kind: :manual,
+            classification: :manual_bad,
+            manual_reason: "resolved url"
+          })
+
+        {:ok, _issue} = Media.dismiss_bad_file_issue(issue)
+      end)
+
+      {:ok, view, _html} = live(conn, ~p"/bad-files?status=resolved&page=2&per_page=25")
+      html = render_async(view)
+
+      assert pagination_label_from_html(html) == "26-26 of 26"
+      assert html =~ "Resolved Issues"
+      assert html =~ "resolved_url_"
+      refute html =~ "Recent resolved issues are loaded on demand."
+    end
+
     test "combined filters in query string", %{conn: conn} do
       {:ok, sonarr_video} =
         Fixtures.video_fixture(%{path: "/media/url_combo.mkv", service_type: :sonarr})
