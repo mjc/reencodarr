@@ -91,7 +91,11 @@ defmodule ReencodarrWeb.BadFilesLive do
   @impl true
   def handle_info({event, _data}, socket)
       when event in [:sync_started, :sync_progress, :sync_completed, :bad_file_issue_updated] do
-    {:noreply, if(socket.assigns.loaded_once, do: async_load_issues(socket), else: socket)}
+    {:noreply,
+     if(socket.assigns.loaded_once,
+       do: async_load_issues(socket, include_summary: true),
+       else: socket
+     )}
   end
 
   @impl true
@@ -298,17 +302,24 @@ defmodule ReencodarrWeb.BadFilesLive do
      socket |> assign(:show_resolved, !socket.assigns.show_resolved) |> async_load_issues()}
   end
 
-  defp async_load_issues(%{assigns: %{loaded_once: false}} = socket), do: socket
+  defp async_load_issues(socket, opts \\ [])
+  defp async_load_issues(%{assigns: %{loaded_once: false}} = socket, _opts), do: socket
 
-  defp async_load_issues(socket) do
+  defp async_load_issues(socket, opts) do
     if connected?(socket) do
       load_assigns = issue_load_assigns(socket.assigns)
+      issue_summary = socket.assigns.issue_summary
 
       show_loading? = socket.assigns.issues == []
 
       socket
       |> assign(:loading_issues, show_loading?)
-      |> start_async(:load_issues, fn -> fetch_issue_payload(load_assigns) end)
+      |> start_async(:load_issues, fn ->
+        fetch_issue_payload(
+          load_assigns,
+          Keyword.merge([include_summary: false, issue_summary: issue_summary], opts)
+        )
+      end)
     else
       socket
     end
@@ -324,16 +335,21 @@ defmodule ReencodarrWeb.BadFilesLive do
 
   defp reload_issues_for_params(socket, _changed?) do
     socket
-    |> apply_issue_payload(fetch_issue_payload(issue_load_assigns(socket.assigns)))
+    |> apply_issue_payload(
+      fetch_issue_payload(issue_load_assigns(socket.assigns),
+        include_summary: false,
+        issue_summary: socket.assigns.issue_summary
+      )
+    )
   end
 
-  defp fetch_issue_payload(assigns) do
-    payload = BadFilesState.load(assigns)
+  defp fetch_issue_payload(assigns, opts \\ []) do
+    payload = BadFilesState.load(assigns, opts)
 
     {payload, page} =
       payload
       |> clamped_page_for(assigns)
-      |> maybe_reload_page(payload, assigns)
+      |> maybe_reload_page(payload, assigns, opts)
 
     payload
     |> Map.put(:page, page)
@@ -460,11 +476,11 @@ defmodule ReencodarrWeb.BadFilesLive do
     |> min(total_pages)
   end
 
-  defp maybe_reload_page(page, payload, assigns) do
+  defp maybe_reload_page(page, payload, assigns, opts) do
     if page == assigns.page or payload.active_total == 0 do
       {payload, page}
     else
-      reloaded_payload = assigns |> Map.put(:page, page) |> BadFilesState.load()
+      reloaded_payload = assigns |> Map.put(:page, page) |> BadFilesState.load(opts)
       {reloaded_payload, page}
     end
   end

@@ -390,6 +390,27 @@ defmodule Reencodarr.Media do
     end
   end
 
+  @doc false
+  @spec list_bad_file_issue_previews(map(), keyword()) :: [BadFileIssue.t()]
+  def list_bad_file_issue_previews(params \\ %{}, opts \\ []) when is_map(params) do
+    statuses = Keyword.get_lazy(opts, :statuses, &BadFileIssue.status_values/0)
+    limit = opts |> Keyword.get(:limit, 50) |> Parsers.parse_int(50) |> max(1)
+    service = bad_file_service_param(Map.get(params, "service", "all"))
+    kind = bad_file_kind_param(Map.get(params, "kind", "all"))
+    search = params |> Map.get("search", "") |> bad_file_normalize_search()
+    video_preload_query = from(v in Video, select: struct(v, ^@bad_file_video_fields))
+
+    BadFileIssue
+    |> bad_file_status_filter(statuses)
+    |> bad_file_service_filter(service)
+    |> bad_file_kind_filter(kind)
+    |> bad_file_search_filter(search)
+    |> order_by([i], desc: i.updated_at, desc: i.id)
+    |> limit(^limit)
+    |> Repo.all()
+    |> Repo.preload(video: video_preload_query)
+  end
+
   @spec bad_file_issue_summary() :: %{
           open: non_neg_integer(),
           queued: non_neg_integer(),
@@ -1223,11 +1244,13 @@ defmodule Reencodarr.Media do
   @doc """
   Loads the full failures LiveView page payload from URL params.
 
-  This wraps `list_failures/1` with clamped pagination and the supporting failure
-  maps, summary stats, common patterns, and remediation actions needed by the UI.
+  This wraps `list_failures/1` with clamped pagination and the failure maps
+  needed by the UI. Pass `include_support: false` to skip summary/pattern/action
+  queries on hot reload paths.
   """
-  @spec load_failures_page(map()) :: map()
-  def load_failures_page(params) when is_map(params) do
+  @spec load_failures_page(map(), keyword()) :: map()
+  def load_failures_page(params, opts \\ []) when is_map(params) do
+    include_support? = Keyword.get(opts, :include_support, true)
     {failed_videos, meta} = list_failures(params)
 
     total_count = meta.total_count || 0
@@ -1244,19 +1267,30 @@ defmodule Reencodarr.Media do
         {failed_videos, meta}
       end
 
-    %{
+    payload = %{
       loading: false,
       failed_videos: failed_videos,
       video_failures:
         failures_by_video(failed_videos, params["stage"] || "all", params["category"] || "all"),
-      failure_stats: summarize_failure_stats(get_failure_statistics(days_back: 7)),
-      failure_patterns: get_common_failure_patterns(5),
-      failure_code_actions: list_failed_video_failure_codes(),
       total_count: total_count,
       total_pages: total_pages(total_count, per_page),
       page: clamped_page,
       per_page: per_page,
       meta: meta
+    }
+
+    if include_support? do
+      Map.merge(payload, failure_support_payload())
+    else
+      payload
+    end
+  end
+
+  defp failure_support_payload do
+    %{
+      failure_stats: summarize_failure_stats(get_failure_statistics(days_back: 7)),
+      failure_patterns: get_common_failure_patterns(5),
+      failure_code_actions: list_failed_video_failure_codes()
     }
   end
 

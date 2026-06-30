@@ -8,11 +8,12 @@ defmodule Reencodarr.BadFiles.State do
   @active_status_filters Map.new(@active_statuses, &{Atom.to_string(&1), &1})
   @replacement_statuses [:processing, :waiting_for_replacement]
 
-  @spec load(map()) :: map()
-  def load(assigns) do
+  @spec load(map(), keyword()) :: map()
+  def load(assigns, opts \\ []) do
+    include_summary? = Keyword.get(opts, :include_summary, true)
     statuses = statuses_for_filter(assigns.status_filter)
     {issues, meta} = fetch_issues(statuses, assigns)
-    issue_summary = Media.bad_file_issue_summary()
+    issue_summary = issue_summary(assigns, opts, include_summary?)
 
     %{
       issues: issues,
@@ -85,7 +86,18 @@ defmodule Reencodarr.BadFiles.State do
   end
 
   defp list_replacement_issues(assigns) do
-    fetch_all_issues(assigns, @replacement_statuses, assigns.per_page)
+    assigns
+    |> flop_params()
+    |> Media.list_bad_file_issue_previews(
+      statuses: @replacement_statuses,
+      limit: assigns.per_page
+    )
+  end
+
+  defp issue_summary(_assigns, _opts, true), do: Media.bad_file_issue_summary()
+
+  defp issue_summary(assigns, opts, false) do
+    Keyword.get(opts, :issue_summary) || assigns[:issue_summary] || Media.bad_file_issue_summary()
   end
 
   defp fetch_issues([], %{per_page: per_page}), do: {[], empty_meta(per_page)}

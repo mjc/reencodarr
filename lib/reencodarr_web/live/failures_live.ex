@@ -722,7 +722,9 @@ defmodule ReencodarrWeb.FailuresLive do
 
     socket
     |> assign(:loading, show_loading?)
-    |> start_async(:load_failures, fn -> fetch_failure_payload(load_assigns) end)
+    |> start_async(:load_failures, fn ->
+      fetch_failure_payload(load_assigns, include_support: false)
+    end)
   end
 
   defp reload_failures_for_params(%{assigns: %{loaded_once: false}} = socket, _changed?),
@@ -735,11 +737,13 @@ defmodule ReencodarrWeb.FailuresLive do
 
   defp reload_failures_for_params(socket, _changed?) do
     socket
-    |> assign_failure_payload(fetch_failure_payload(flop_list_assigns(socket.assigns)))
+    |> assign_failure_payload(
+      fetch_failure_payload(flop_list_assigns(socket.assigns), include_support: false)
+    )
   end
 
-  defp fetch_failure_payload(assigns) do
-    payload = Media.load_failures_page(flop_params(assigns))
+  defp fetch_failure_payload(assigns, opts \\ []) do
+    payload = Media.load_failures_page(flop_params(assigns), opts)
 
     payload
     |> Map.put(:request, assigns)

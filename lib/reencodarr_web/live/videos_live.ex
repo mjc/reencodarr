@@ -495,13 +495,13 @@ defmodule ReencodarrWeb.VideosLive do
 
       socket
       |> assign(:loading, true)
-      |> start_async(:load_videos, fn -> fetch_video_payload(load_assigns) end)
+      |> start_async(:load_videos, fn ->
+        fetch_video_payload(load_assigns, include_state_counts: false)
+      end)
     else
       assign(socket, :loading, false)
     end
   end
-
-  defp fetch_video_payload(assigns), do: fetch_video_payload(assigns, [])
 
   defp fetch_video_payload(assigns, opts) do
     VideosState.load(
