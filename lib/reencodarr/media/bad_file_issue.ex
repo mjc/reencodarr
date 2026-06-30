@@ -27,10 +27,10 @@ defmodule Reencodarr.Media.BadFileIssue do
   @derive {
     Flop.Schema,
     filterable: [:status, :issue_kind, :origin, :classification],
-    sortable: [:inserted_at, :updated_at],
+    sortable: [:id, :inserted_at, :updated_at],
     default_order: %{
-      order_by: [:updated_at],
-      order_directions: [:desc]
+      order_by: [:updated_at, :id],
+      order_directions: [:desc, :desc]
     },
     default_limit: 50,
     max_limit: 250

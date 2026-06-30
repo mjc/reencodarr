@@ -371,6 +371,8 @@ defmodule Reencodarr.Media do
       |> Map.take(["page", "page_size", "filters", "order_by", "order_directions"])
       |> Map.put_new("page", "1")
       |> Map.put_new("page_size", "50")
+      |> Map.put_new("order_by", ["updated_at", "id"])
+      |> Map.put_new("order_directions", bad_file_order_directions(statuses))
 
     base_query =
       from(i in BadFileIssue)
@@ -387,6 +389,14 @@ defmodule Reencodarr.Media do
 
       {:error, %Flop.Meta{} = meta} ->
         {[], meta}
+    end
+  end
+
+  defp bad_file_order_directions(statuses) do
+    if Enum.all?(statuses, &(&1 in @resolved_bad_file_issue_statuses)) do
+      ["desc", "asc"]
+    else
+      ["desc", "desc"]
     end
   end
 
@@ -937,22 +947,39 @@ defmodule Reencodarr.Media do
 
   defp bad_file_kind_filter(query, _kind), do: query
 
-  defp bad_file_search_filter(query, ""), do: query
-
   defp bad_file_search_filter(query, search) do
-    pattern = SharedQueries.like_contains_pattern(search)
-
-    query
-    |> bad_file_ensure_video_join()
-    |> then(
-      &from([i, video: v] in &1,
-        where:
-          fragment("lower(?) like ? escape '\\'", v.path, ^pattern) or
-            fragment("lower(coalesce(?, '')) like ? escape '\\'", i.manual_reason, ^pattern) or
-            fragment("lower(coalesce(?, '')) like ? escape '\\'", i.manual_note, ^pattern) or
-            fragment("lower(?) like ? escape '\\'", i.classification, ^pattern) or
-            fragment("lower(?) like ? escape '\\'", i.issue_kind, ^pattern)
-      )
+    fts_search_filter(
+      query,
+      search,
+      fn query, fts_query ->
+        from(i in query,
+          where:
+            fragment(
+              "? IN (SELECT rowid FROM bad_file_issues_search WHERE bad_file_issues_search MATCH ?)",
+              i.id,
+              ^fts_query
+            ) or
+              fragment(
+                "? IN (SELECT rowid FROM videos_search WHERE videos_search MATCH ?)",
+                i.video_id,
+                ^fts_query
+              )
+        )
+      end,
+      fn query, pattern ->
+        query
+        |> bad_file_ensure_video_join()
+        |> then(
+          &from([i, video: v] in &1,
+            where:
+              fragment("lower(?) like ? escape '\\'", v.path, ^pattern) or
+                fragment("lower(coalesce(?, '')) like ? escape '\\'", i.manual_reason, ^pattern) or
+                fragment("lower(coalesce(?, '')) like ? escape '\\'", i.manual_note, ^pattern) or
+                fragment("lower(?) like ? escape '\\'", i.classification, ^pattern) or
+                fragment("lower(?) like ? escape '\\'", i.issue_kind, ^pattern)
+          )
+        )
+      end
     )
   end
 
@@ -975,12 +1002,38 @@ defmodule Reencodarr.Media do
 
   defp bad_file_normalize_search(_search), do: ""
 
-  defp failure_search_filter(query, ""), do: query
-
   defp failure_search_filter(query, search) do
-    pattern = SharedQueries.like_contains_pattern(search)
-    condition = SharedQueries.case_insensitive_like(:path, pattern)
-    from(v in query, where: ^condition)
+    fts_search_filter(
+      query,
+      search,
+      fn query, fts_query ->
+        from(v in query,
+          where:
+            fragment(
+              "? IN (SELECT rowid FROM videos_search WHERE videos_search MATCH ?)",
+              v.id,
+              ^fts_query
+            ) or
+              fragment(
+                "? IN (SELECT video_id FROM video_failures_search WHERE video_failures_search MATCH ?)",
+                v.id,
+                ^fts_query
+              )
+        )
+      end,
+      fn query, pattern ->
+        from(v in query,
+          where:
+            fragment("lower(?) like ? escape '\\'", v.path, ^pattern) or
+              fragment(
+                "? IN (SELECT video_id FROM video_failures WHERE lower(coalesce(failure_code, '')) like ? escape '\\' OR lower(coalesce(failure_message, '')) like ? escape '\\')",
+                v.id,
+                ^pattern,
+                ^pattern
+              )
+        )
+      end
+    )
   end
 
   defp failure_stage_param(stage) when stage in @failure_stage_values, do: stage
@@ -2766,15 +2819,11 @@ defmodule Reencodarr.Media do
   defp maybe_filter_hdr(query, true), do: from(v in query, where: not is_nil(v.hdr))
   defp maybe_filter_hdr(query, false), do: from(v in query, where: is_nil(v.hdr))
 
-  defp maybe_filter_search(query, nil), do: query
-  defp maybe_filter_search(query, ""), do: query
-
   defp maybe_filter_search(query, search) when is_binary(search) do
-    case search_to_fts_query(search) do
-      nil ->
-        query
-
-      fts_query ->
+    fts_search_filter(
+      query,
+      search,
+      fn query, fts_query ->
         from(v in query,
           where:
             fragment(
@@ -2783,6 +2832,30 @@ defmodule Reencodarr.Media do
               ^fts_query
             )
         )
+      end,
+      fn query, pattern ->
+        from(v in query,
+          where:
+            fragment("lower(?) like ? escape '\\'", v.path, ^pattern) or
+              fragment("lower(coalesce(?, '')) like ? escape '\\'", v.title, ^pattern)
+        )
+      end
+    )
+  end
+
+  defp maybe_filter_search(query, _search), do: query
+
+  defp fts_search_filter(query, search, _apply_search, _apply_literal) when search in [nil, ""],
+    do: query
+
+  defp fts_search_filter(query, search, apply_search, apply_literal)
+       when is_function(apply_search, 2) and is_function(apply_literal, 2) do
+    case search_to_fts_query(search) do
+      nil ->
+        apply_literal.(query, SharedQueries.like_contains_pattern(String.downcase(search)))
+
+      fts_query ->
+        apply_search.(query, fts_query)
     end
   end
 
