@@ -126,7 +126,8 @@ in
     '';
 
     postBuild = ''
-      mix do deps.loadpaths --no-deps-check, assets.deploy
+      MIX_DEPS_PATH="$PWD/deps" MIX_BUILD_PATH="$PWD/_build/prod" \
+        mix do deps.loadpaths --no-deps-check, assets.deploy
 
       find priv/static -type f \( \
         -name '*.css' -o \
