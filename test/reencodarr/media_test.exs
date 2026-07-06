@@ -347,6 +347,56 @@ defmodule Reencodarr.MediaTest do
       assert meta.total_count == 1
     end
 
+    test "list_videos_paginated/1 keeps search filters and ordering together" do
+      {:ok, narrow} =
+        Fixtures.video_fixture(%{
+          path: "/test/fast_search_combo/narrow.mkv",
+          service_type: :sonarr,
+          hdr: "HDR10",
+          width: 1280
+        })
+
+      {:ok, wide} =
+        Fixtures.video_fixture(%{
+          path: "/test/fast_search_combo/wide.mkv",
+          service_type: :sonarr,
+          hdr: "HDR10",
+          width: 3840
+        })
+
+      {:ok, _sdr} =
+        Fixtures.video_fixture(%{
+          path: "/test/fast_search_combo/sdr.mkv",
+          service_type: :sonarr,
+          hdr: nil,
+          width: 1920
+        })
+
+      {:ok, _radarr} =
+        Fixtures.video_fixture(%{
+          path: "/test/fast_search_combo/radarr.mkv",
+          service_type: :radarr,
+          hdr: "HDR10",
+          width: 1920
+        })
+
+      {videos, meta} =
+        Media.list_videos_paginated(
+          page: 1,
+          per_page: 10,
+          search: "fast_search_combo",
+          service_type: "sonarr",
+          hdr: true,
+          sort_by: :width,
+          sort_dir: :asc
+        )
+
+      assert Enum.map(videos, & &1.id) == [narrow.id, wide.id]
+      assert meta.total_count == 2
+      assert meta.flop.order_by == [:width]
+      assert meta.flop.order_directions == [:asc]
+    end
+
     test "list_videos_paginated/1 combines service and state filters" do
       {:ok, matching_video} =
         Fixtures.video_fixture(%{

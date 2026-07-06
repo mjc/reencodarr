@@ -2680,6 +2680,43 @@ defmodule Reencodarr.Media do
     service_type = Keyword.get(opts, :service_type, nil) |> normalize_video_filter(:service_type)
     hdr = Keyword.get(opts, :hdr, nil)
 
+    with search when is_binary(search) <- search,
+         fts_query when not is_nil(fts_query) <- search_to_fts_query(search) do
+      list_videos_search_paginated(
+        page,
+        per_page,
+        state_filter,
+        fts_query,
+        sort_by,
+        sort_dir,
+        service_type,
+        hdr
+      )
+    else
+      _ ->
+        list_videos_paginated_query(
+          page,
+          per_page,
+          state_filter,
+          search,
+          sort_by,
+          sort_dir,
+          service_type,
+          hdr
+        )
+    end
+  end
+
+  defp list_videos_paginated_query(
+         page,
+         per_page,
+         state_filter,
+         search,
+         sort_by,
+         sort_dir,
+         service_type,
+         hdr
+       ) do
     filters = build_flop_filters(state_filter, service_type)
 
     flop_params = %{
@@ -2779,6 +2816,130 @@ defmodule Reencodarr.Media do
 
   defp maybe_put_count(opts, count) when is_integer(count), do: Keyword.put(opts, :count, count)
   defp maybe_put_count(opts, _count), do: opts
+
+  defp list_videos_search_paginated(
+         page,
+         per_page,
+         state_filter,
+         fts_query,
+         sort_by,
+         sort_dir,
+         service_type,
+         hdr
+       ) do
+    {sort_column, sort_direction, sort_atom, direction_atom} =
+      video_search_sort(sort_by, sort_dir)
+
+    {where_sql, params} =
+      video_search_where(state_filter, service_type, hdr, ["videos_search MATCH ?"], [fts_query])
+
+    total_count =
+      Repo.query!(
+        "SELECT count(*) FROM videos_search JOIN videos v ON v.id = videos_search.rowid #{where_sql}",
+        params
+      ).rows
+      |> List.first()
+      |> List.first()
+
+    offset = (page - 1) * per_page
+
+    ids =
+      Repo.query!(
+        """
+        SELECT v.id
+        FROM videos_search
+        JOIN videos v ON v.id = videos_search.rowid
+        #{where_sql}
+        ORDER BY #{sort_column} #{sort_direction}, v.id #{sort_direction}
+        LIMIT ? OFFSET ?
+        """,
+        params ++ [per_page, offset]
+      ).rows
+      |> List.flatten()
+
+    videos_by_id =
+      Video
+      |> where([v], v.id in ^ids)
+      |> select([v], struct(v, ^@video_list_fields))
+      |> Repo.all()
+      |> Map.new(&{&1.id, &1})
+
+    videos = Enum.map(ids, &Map.fetch!(videos_by_id, &1))
+    {videos, video_search_meta(page, per_page, total_count, sort_atom, direction_atom)}
+  end
+
+  defp video_search_sort(sort_by, sort_dir) do
+    sort_columns = %{
+      path: "v.path",
+      state: "v.state",
+      size: "v.size",
+      updated_at: "v.updated_at",
+      width: "v.width",
+      bitrate: "v.bitrate",
+      priority: "v.priority"
+    }
+
+    {sort_atom, sort_column} =
+      if Map.has_key?(sort_columns, sort_by) do
+        {sort_by, Map.fetch!(sort_columns, sort_by)}
+      else
+        {:updated_at, "v.updated_at"}
+      end
+
+    direction_atom = if sort_dir == :asc, do: :asc, else: :desc
+    sort_direction = if direction_atom == :asc, do: "ASC", else: "DESC"
+
+    {sort_column, sort_direction, sort_atom, direction_atom}
+  end
+
+  defp video_search_where(state_filter, service_type, hdr, clauses, params) do
+    {clauses, params} =
+      if is_nil(state_filter) do
+        {clauses, params}
+      else
+        {["v.state = ?" | clauses], [Atom.to_string(state_filter) | params]}
+      end
+
+    {clauses, params} =
+      if is_nil(service_type) do
+        {clauses, params}
+      else
+        {["v.service_type = ?" | clauses], [Atom.to_string(service_type) | params]}
+      end
+
+    clauses =
+      case hdr do
+        true -> ["v.hdr IS NOT NULL" | clauses]
+        false -> ["v.hdr IS NULL" | clauses]
+        _ -> clauses
+      end
+
+    {"WHERE " <> Enum.join(Enum.reverse(clauses), " AND "), Enum.reverse(params)}
+  end
+
+  defp video_search_meta(page, per_page, total_count, sort_by, sort_dir) do
+    total_pages = if total_count == 0, do: 0, else: div(total_count + per_page - 1, per_page)
+
+    %Flop.Meta{
+      schema: Video,
+      current_page: page,
+      page_size: per_page,
+      total_count: total_count,
+      total_pages: total_pages,
+      previous_page: if(page > 1, do: page - 1),
+      next_page: if(page < total_pages, do: page + 1),
+      has_previous_page?: page > 1,
+      has_next_page?: page < total_pages,
+      flop: %Flop{
+        offset: (page - 1) * per_page,
+        limit: per_page,
+        page: page,
+        page_size: per_page,
+        order_by: [sort_by],
+        order_directions: [sort_dir]
+      }
+    }
+  end
 
   defp find_video_state(state_filter) when is_atom(state_filter) do
     Enum.find(VideoStateMachine.valid_states(), &(&1 == state_filter))
