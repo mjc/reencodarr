@@ -562,7 +562,7 @@ defmodule ReencodarrWeb.BadFilesLive do
       >
         replace all {@active_total} matching active issues now
       </button>
-      <form id="bad-files-status-filter" phx-change="filter_status">
+      <form id="bad-files-status-filter" phx-change="filter_status" phx-no-unused-field>
         <select
           name="status"
           aria-label="Filter by status"
@@ -574,7 +574,7 @@ defmodule ReencodarrWeb.BadFilesLive do
           <% end %>
         </select>
       </form>
-      <form id="bad-files-service-filter" phx-change="filter_service">
+      <form id="bad-files-service-filter" phx-change="filter_service" phx-no-unused-field>
         <select
           name="service"
           aria-label="Filter by service"
@@ -586,7 +586,7 @@ defmodule ReencodarrWeb.BadFilesLive do
           <% end %>
         </select>
       </form>
-      <form id="bad-files-kind-filter" phx-change="filter_kind">
+      <form id="bad-files-kind-filter" phx-change="filter_kind" phx-no-unused-field>
         <select
           name="kind"
           aria-label="Filter by kind"
@@ -598,7 +598,12 @@ defmodule ReencodarrWeb.BadFilesLive do
           <% end %>
         </select>
       </form>
-      <form id="bad-files-search-filter" phx-change="search_issues" class="flex-1">
+      <form
+        id="bad-files-search-filter"
+        phx-change="search_issues"
+        phx-no-unused-field
+        class="flex-1"
+      >
         <input
           id="bad-files-search"
           type="search"

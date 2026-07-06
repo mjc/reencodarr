@@ -371,7 +371,7 @@ defmodule Reencodarr.Media do
       |> Map.take(["page", "page_size", "filters", "order_by", "order_directions"])
       |> Map.put_new("page", "1")
       |> Map.put_new("page_size", "50")
-      |> Map.put_new("order_by", ["updated_at", "id"])
+      |> Map.put_new("order_by", bad_file_order_by(statuses))
       |> Map.put_new("order_directions", bad_file_order_directions(statuses))
 
     base_query =
@@ -394,9 +394,17 @@ defmodule Reencodarr.Media do
 
   defp bad_file_order_directions(statuses) do
     if Enum.all?(statuses, &(&1 in @resolved_bad_file_issue_statuses)) do
-      ["desc", "asc"]
+      ["asc"]
     else
       ["desc", "desc"]
+    end
+  end
+
+  defp bad_file_order_by(statuses) do
+    if Enum.all?(statuses, &(&1 in @resolved_bad_file_issue_statuses)) do
+      ["id"]
+    else
+      ["updated_at", "id"]
     end
   end
 

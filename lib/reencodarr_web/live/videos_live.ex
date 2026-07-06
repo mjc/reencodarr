@@ -878,7 +878,7 @@ defmodule ReencodarrWeb.VideosLive do
     ~H"""
     <div class="bg-gray-800 rounded-lg border border-gray-700 p-3 sm:p-4">
       <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
-        <form id="videos-filters" phx-change="set_filters" class="contents">
+        <form id="videos-filters" phx-change="set_filters" phx-no-unused-field class="contents">
           <div class="min-w-0 flex-1">
             <input
               type="text"
@@ -920,7 +920,7 @@ defmodule ReencodarrWeb.VideosLive do
           </select>
         </form>
 
-        <form id="videos-per-page" phx-change="set_per_page">
+        <form id="videos-per-page" phx-change="set_per_page" phx-no-unused-field>
           <select
             name="per_page"
             aria-label="Videos per page"
