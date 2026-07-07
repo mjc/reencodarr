@@ -43,10 +43,10 @@
   remoteIexScript = pkgs.writeShellScript "reencodarr-remote-iex" ''
     set -euo pipefail
 
-    tmp_dir="$(mktemp -d ${cfg.cacheDir}/tmp/reencodarr-remote.XXXXXX)"
-    trap 'rm -rf "$tmp_dir"' EXIT
+    tmp_dir="$(${pkgs.coreutils}/bin/mktemp -d ${cfg.cacheDir}/tmp/reencodarr-remote.XXXXXX)"
+    trap '${pkgs.coreutils}/bin/rm -rf "$tmp_dir"' EXIT
 
-    cp ${iexDotFile} "$tmp_dir/.iex.exs"
+    ${pkgs.coreutils}/bin/cp ${iexDotFile} "$tmp_dir/.iex.exs"
     export HOME="$tmp_dir"
     cd "$tmp_dir"
 
