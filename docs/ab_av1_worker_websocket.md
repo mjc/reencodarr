@@ -42,4 +42,20 @@ Current first-pass reply when no distributed job is available:
 {"status": "no_work"}
 ```
 
+Current assigned-work reply:
+
+```json
+{
+  "status": "job_assigned",
+  "job_id": "123",
+  "video_id": 123,
+  "source_name": "movie.mkv",
+  "size_bytes": 987654,
+  "chunk_size_bytes": 1048576,
+  "target_vmaf": 96.5
+}
+```
+
+Workers only run one CRF search or encode at a time.
+
 File transfer, chunk checksums, progress, result reporting, and requeue/failure handling are still pending REENC-133 follow-up slices.

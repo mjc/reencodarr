@@ -1,11 +1,12 @@
-# credo:disable-for-this-file
-
 defmodule Reencodarr.AbAv1.WorkerSessions do
   @moduledoc """
   Tracks connected ab-av1 worker websocket sessions.
   """
 
   use GenServer
+
+  @by_server_table :reencodarr_worker_sessions_by_server
+  @by_client_table :reencodarr_worker_sessions_by_client
 
   @type session :: %{
           server_worker_id: String.t(),
@@ -60,8 +61,10 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   @impl GenServer
   def init(_opts) do
+    :ets.new(@by_server_table, [:named_table, :set, :private])
+    :ets.new(@by_client_table, [:named_table, :set, :private])
     schedule_expire_stale()
-    {:ok, %{by_server: %{}, by_client: %{}}}
+    {:ok, :ok}
   end
 
   @impl GenServer
@@ -70,18 +73,22 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     server_worker_id = Map.fetch!(attrs, :server_worker_id)
     client_worker_id = Map.fetch!(attrs, :client_worker_id)
 
-    case Map.get(state.by_client, client_worker_id) do
+    case lookup_client(client_worker_id) do
       nil ->
         session = build_session(attrs, now)
-        {:reply, {:ok, session}, put_session(state, session)}
+        :ok = put_session(session)
+        {:reply, {:ok, session}, state}
 
       ^server_worker_id ->
+        connected_at = lookup_session!(server_worker_id).connected_at
+
         session =
           attrs
           |> build_session(now)
-          |> Map.put(:connected_at, state.by_server[server_worker_id].connected_at)
+          |> Map.put(:connected_at, connected_at)
 
-        {:reply, {:ok, session}, put_session(state, session)}
+        :ok = put_session(session)
+        {:reply, {:ok, session}, state}
 
       _other_server_worker_id ->
         {:reply, {:error, :duplicate_worker_id}, state}
@@ -89,10 +96,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   def handle_call({:touch, server_worker_id}, _from, state) do
-    case Map.fetch(state.by_server, server_worker_id) do
+    case lookup_session(server_worker_id) do
       {:ok, session} ->
         updated_session = %{session | last_seen_at: now()}
-        {:reply, {:ok, updated_session}, put_session(state, updated_session)}
+        :ok = put_session(updated_session)
+        {:reply, {:ok, updated_session}, state}
 
       :error ->
         {:reply, {:error, :unknown_worker_session}, state}
@@ -100,14 +108,16 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   def handle_call({:unregister, server_worker_id}, _from, state) do
-    {:reply, :ok, drop_session(state, server_worker_id)}
+    :ok = drop_session(server_worker_id)
+    {:reply, :ok, state}
   end
 
   def handle_call({:assign_video, server_worker_id, video_id}, _from, state) do
-    case Map.fetch(state.by_server, server_worker_id) do
+    case lookup_session(server_worker_id) do
       {:ok, session} ->
         updated_session = %{session | active_video_id: video_id}
-        {:reply, {:ok, updated_session}, put_session(state, updated_session)}
+        :ok = put_session(updated_session)
+        {:reply, {:ok, updated_session}, state}
 
       :error ->
         {:reply, {:error, :unknown_worker_session}, state}
@@ -115,10 +125,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   def handle_call({:clear_video, server_worker_id}, _from, state) do
-    case Map.fetch(state.by_server, server_worker_id) do
+    case lookup_session(server_worker_id) do
       {:ok, session} ->
         updated_session = %{session | active_video_id: nil}
-        {:reply, {:ok, updated_session}, put_session(state, updated_session)}
+        :ok = put_session(updated_session)
+        {:reply, {:ok, updated_session}, state}
 
       :error ->
         {:reply, {:error, :unknown_worker_session}, state}
@@ -126,32 +137,29 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   def handle_call({:get, server_worker_id}, _from, state) do
-    {:reply, Map.get(state.by_server, server_worker_id), state}
+    {:reply, session_or_nil(lookup_session(server_worker_id)), state}
   end
 
   def handle_call({:expire_stale, timeout_seconds}, _from, state) do
-    {expired_sessions, next_state} = expire_stale_sessions(state, timeout_seconds)
-    {:reply, {:ok, expired_sessions}, next_state}
+    {expired_sessions, _} = expire_stale_sessions(timeout_seconds)
+    {:reply, {:ok, expired_sessions}, state}
   end
 
   def handle_call(:list, _from, state) do
-    sessions =
-      state.by_server
-      |> Map.values()
-      |> Enum.sort_by(& &1.client_worker_id)
-
+    sessions = list_sessions()
     {:reply, sessions, state}
   end
 
-  def handle_call(:reset, _from, _state) do
-    {:reply, :ok, %{by_server: %{}, by_client: %{}}}
+  def handle_call(:reset, _from, state) do
+    :ok = reset_tables()
+    {:reply, :ok, state}
   end
 
   @impl GenServer
   def handle_info(:expire_stale, state) do
-    {_expired_sessions, next_state} = expire_stale_sessions(state, timeout_seconds())
+    _ = expire_stale_sessions(timeout_seconds())
     schedule_expire_stale()
-    {:noreply, next_state}
+    {:noreply, state}
   end
 
   defp build_session(attrs, now) do
@@ -167,51 +175,81 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     }
   end
 
-  defp put_session(state, session) do
-    state
-    |> drop_session(session.server_worker_id)
-    |> then(fn state ->
-      %{
-        by_server: Map.put(state.by_server, session.server_worker_id, session),
-        by_client: Map.put(state.by_client, session.client_worker_id, session.server_worker_id)
-      }
-    end)
+  defp put_session(session) do
+    :ok = drop_session(session.server_worker_id)
+    true = :ets.insert(@by_server_table, {session.server_worker_id, session})
+    true = :ets.insert(@by_client_table, {session.client_worker_id, session.server_worker_id})
+    :ok
   end
 
-  defp drop_session(state, server_worker_id) do
-    case Map.pop(state.by_server, server_worker_id) do
-      {nil, by_server} ->
-        %{state | by_server: by_server}
+  defp drop_session(server_worker_id) do
+    case lookup_session(server_worker_id) do
+      {:ok, session} ->
+        true = :ets.delete(@by_server_table, server_worker_id)
+        true = :ets.delete(@by_client_table, session.client_worker_id)
+        :ok
 
-      {session, by_server} ->
-        %{
-          by_server: by_server,
-          by_client: Map.delete(state.by_client, session.client_worker_id)
-        }
+      :error ->
+        :ok
     end
   end
 
-  defp expire_stale_sessions(state, timeout_seconds) do
+  defp expire_stale_sessions(timeout_seconds) do
     now = now()
 
-    Enum.reduce(state.by_server, {[], state}, fn {server_worker_id, session},
-                                                 {expired, acc_state} ->
-      age_seconds = DateTime.diff(now, session.last_seen_at, :second)
+    expired_sessions =
+      @by_server_table
+      |> :ets.tab2list()
+      |> Enum.map(fn {_server_worker_id, session} -> session end)
+      |> Enum.filter(fn session ->
+        DateTime.diff(now, session.last_seen_at, :second) >= timeout_seconds
+      end)
 
-      if age_seconds >= timeout_seconds do
-        {[session | expired], drop_session(acc_state, server_worker_id)}
-      else
-        {expired, acc_state}
-      end
+    Enum.each(expired_sessions, fn session ->
+      :ok = drop_session(session.server_worker_id)
     end)
-    |> then(fn {expired_sessions, next_state} ->
-      {Enum.reverse(expired_sessions), next_state}
-    end)
+
+    {expired_sessions, :ok}
   end
 
   defp schedule_expire_stale do
     Process.send_after(self(), :expire_stale, sweep_interval_ms())
   end
+
+  defp reset_tables do
+    true = :ets.delete_all_objects(@by_server_table)
+    true = :ets.delete_all_objects(@by_client_table)
+    :ok
+  end
+
+  defp list_sessions do
+    @by_server_table
+    |> :ets.tab2list()
+    |> Enum.map(fn {_server_worker_id, session} -> session end)
+    |> Enum.sort_by(& &1.client_worker_id)
+  end
+
+  defp lookup_session(server_worker_id) do
+    case :ets.lookup(@by_server_table, server_worker_id) do
+      [{^server_worker_id, session}] -> {:ok, session}
+      [] -> :error
+    end
+  end
+
+  defp lookup_session!(server_worker_id) do
+    {:ok, session} = lookup_session(server_worker_id)
+    session
+  end
+
+  defp lookup_client(client_worker_id) do
+    case :ets.lookup(@by_client_table, client_worker_id) do
+      [{^client_worker_id, server_worker_id}] -> server_worker_id
+      [] -> nil
+    end
+  end
+
+  defp session_or_nil({:ok, session}), do: session
+  defp session_or_nil(:error), do: nil
 
   defp timeout_seconds do
     Application.get_env(:reencodarr, :worker_session_timeout_seconds, 120)

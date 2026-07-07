@@ -79,9 +79,15 @@ defmodule ReencodarrWeb.WorkerChannel do
         claim_work(worker_id, socket)
 
       video_id ->
-        {:reply,
-         {:ok, WorkerProtocol.work_assigned(video_id, socket.assigns[:current_vmaf_target])},
-         socket}
+        case Media.get_video(video_id) do
+          %Media.Video{} = video ->
+            {:reply,
+             {:ok, WorkerProtocol.work_assigned(video, socket.assigns[:current_vmaf_target])},
+             socket}
+
+          nil ->
+            {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
+        end
     end
   end
 
@@ -105,7 +111,7 @@ defmodule ReencodarrWeb.WorkerChannel do
           |> assign(:current_video_id, video.id)
           |> assign(:current_vmaf_target, target_vmaf)
 
-        {:reply, {:ok, WorkerProtocol.work_assigned(video.id, target_vmaf)}, socket}
+        {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf)}, socket}
 
       {:error, reason} ->
         _ = Media.mark_as_analyzed(video)

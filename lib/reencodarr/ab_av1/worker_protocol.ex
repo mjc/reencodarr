@@ -39,12 +39,17 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
   def no_work, do: %{status: "no_work"}
 
-  def work_assigned(%{id: video_id, target_vmaf: target_vmaf}) when is_integer(video_id) do
-    %{status: "assigned", video_id: video_id, target_vmaf: target_vmaf}
-  end
-
-  def work_assigned(video_id, target_vmaf) when is_integer(video_id) do
-    %{status: "assigned", video_id: video_id, target_vmaf: target_vmaf}
+  def work_assigned(%{id: video_id, path: path, size: size}, target_vmaf)
+      when is_integer(video_id) and is_binary(path) do
+    %{
+      status: "job_assigned",
+      job_id: Integer.to_string(video_id),
+      video_id: video_id,
+      source_name: Path.basename(path),
+      size_bytes: size || 0,
+      chunk_size_bytes: 1_048_576,
+      target_vmaf: target_vmaf
+    }
   end
 
   def heartbeat_ack(last_seen_at),

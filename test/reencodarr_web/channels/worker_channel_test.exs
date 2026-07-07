@@ -53,9 +53,19 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert_reply push(socket, "pull_work", %{}),
                    :ok,
-                   %{status: "assigned", video_id: assigned_video_id}
+                   %{
+                     status: "job_assigned",
+                     job_id: job_id,
+                     video_id: assigned_video_id,
+                     source_name: source_name,
+                     size_bytes: size_bytes,
+                     chunk_size_bytes: 1_048_576
+                   }
 
+      assert job_id == Integer.to_string(video.id)
       assert assigned_video_id == video.id
+      assert source_name == Path.basename(video.path)
+      assert size_bytes == video.size
       assert Media.get_video(video.id).state == :crf_searching
       assert [session] = WorkerSessions.list()
       assert session.active_video_id == video.id
@@ -127,7 +137,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert_reply push(socket1, "pull_work", %{}),
                    :ok,
-                   %{status: "assigned", video_id: assigned_video_id}
+                   %{status: "job_assigned", video_id: assigned_video_id}
 
       assert assigned_video_id == video.id
 
@@ -184,7 +194,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert_reply push(socket, "pull_work", %{}),
                    :ok,
-                   %{status: "assigned", video_id: assigned_video_id}
+                   %{status: "job_assigned", video_id: assigned_video_id}
 
       assert assigned_video_id == video.id
       assert Media.get_video(video.id).state == :crf_searching
