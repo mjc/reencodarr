@@ -206,19 +206,16 @@ defmodule Reencodarr.Media.VideoQueries do
   defp claim_next_video_for_crf_search_in_tx([video_id | rest], opts) do
     old_snapshot = Reencodarr.Media.fetch_dashboard_video_snapshot_by_id(video_id)
 
-    {updated_count, _} =
+    {updated_count, updated_rows} =
       from(v in Video,
         where: v.id == ^video_id and v.state == :analyzed,
         select: v
       )
       |> Repo.update_all([set: [state: :crf_searching, updated_at: DateTime.utc_now()]], opts)
 
-    case updated_count do
-      1 ->
-        case Repo.get(Video, video_id, opts) do
-          %Video{} = video -> {:claimed, video, old_snapshot}
-          nil -> :none
-        end
+    case {updated_count, updated_rows} do
+      {1, [video]} ->
+        {:claimed, video, old_snapshot}
 
       _ ->
         claim_next_video_for_crf_search_in_tx(rest, opts)
