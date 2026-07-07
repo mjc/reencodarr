@@ -144,7 +144,12 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   @impl GenServer
   def handle_info(:expire_stale, state) do
-    _ = expire_stale_sessions(timeout_seconds())
+    {expired_sessions, _} = expire_stale_sessions(timeout_seconds())
+
+    if expired_sessions != [] do
+      broadcast_sessions()
+    end
+
     schedule_expire_stale()
     {:noreply, state}
   end

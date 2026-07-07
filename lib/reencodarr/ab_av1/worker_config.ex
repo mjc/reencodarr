@@ -7,7 +7,7 @@ defmodule Reencodarr.AbAv1.WorkerConfig do
 
   @spec enabled?() :: boolean()
   def enabled? do
-    Application.get_env(:reencodarr, :distributed_worker_enabled, true)
+    Application.get_env(:reencodarr, :distributed_worker_enabled, false)
   end
 
   @spec chunk_size_bytes() :: pos_integer()

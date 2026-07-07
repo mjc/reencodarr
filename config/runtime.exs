@@ -57,7 +57,7 @@ end
 
 config :reencodarr,
   distributed_worker_enabled:
-    parse_bool_env.(System.get_env("REENCODARR_DISTRIBUTED_WORKERS", "true")),
+    parse_bool_env.(System.get_env("REENCODARR_DISTRIBUTED_WORKERS", "false")),
   worker_chunk_size_bytes: parse_int_env.("REENCODARR_WORKER_CHUNK_SIZE_BYTES", 1_048_576),
   worker_transfer_window: parse_int_env.("REENCODARR_WORKER_TRANSFER_WINDOW", 1),
   worker_retry_limit: parse_int_env.("REENCODARR_WORKER_RETRY_LIMIT", 3),

@@ -2,6 +2,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
   use Reencodarr.DataCase, async: false
 
   alias Reencodarr.AbAv1.WorkerSessions
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Diagnostics
 
   setup do
@@ -40,10 +41,11 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
       Application.put_env(:reencodarr, :worker_session_timeout_seconds, previous_timeout)
     end)
 
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
 
     send(Process.whereis(WorkerSessions), :expire_stale)
-    :timer.sleep(25)
+    assert_receive {:worker_sessions_updated, %{sessions: []}}
 
     assert WorkerSessions.list() == []
   end

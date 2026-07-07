@@ -51,7 +51,7 @@ defmodule ReencodarrWeb.DashboardLive do
         sync_progress: 0,
         service_type: nil,
         page_title: nil,
-        worker_token: Application.get_env(:reencodarr, :worker_token),
+        worker_token_state: worker_token_state(),
         worker_socket_url: worker_socket_url(),
         # New dashboard stats
         stats: Reencodarr.Media.get_default_stats(),
@@ -988,7 +988,7 @@ defmodule ReencodarrWeb.DashboardLive do
   attr :syncing, :boolean, required: true
   attr :sync_progress, :integer, required: true
   attr :service_type, :atom, required: true
-  attr :worker_token, :string, default: nil
+  attr :worker_token_state, :any, required: true
   attr :worker_socket_url, :string, required: true
 
   defp sync_controls(assigns) do
@@ -1053,10 +1053,11 @@ defmodule ReencodarrWeb.DashboardLive do
           <div>
             <div class="text-[11px] uppercase tracking-wide text-gray-500">Token fingerprint</div>
             <div class="mt-1 overflow-x-auto rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
-              <%= if @worker_token do %>
-                {worker_token_fingerprint(@worker_token)}
-              <% else %>
-                not configured
+              <%= case @worker_token_state do %>
+                <% {:ok, fingerprint} -> %>
+                  {fingerprint}
+                <% :error -> %>
+                  not configured
               <% end %>
             </div>
           </div>
@@ -1091,13 +1092,19 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp format_number(_), do: "—"
 
-  defp worker_token_fingerprint(token) when is_binary(token) do
-    digest =
-      :crypto.hash(:sha256, token)
-      |> Base.encode16(case: :lower)
-      |> String.slice(0, 12)
+  defp worker_token_state do
+    case Application.get_env(:reencodarr, :worker_token) do
+      token when is_binary(token) ->
+        digest =
+          :crypto.hash(:sha256, token)
+          |> Base.encode16(case: :lower)
+          |> String.slice(0, 12)
 
-    "sha256:#{digest}"
+        {:ok, "sha256:#{digest}"}
+
+      _ ->
+        :error
+    end
   end
 
   defp format_completed(stats) do
@@ -1276,7 +1283,7 @@ defmodule ReencodarrWeb.DashboardLive do
             syncing={@syncing}
             sync_progress={@sync_progress}
             service_type={@service_type}
-            worker_token={@worker_token}
+            worker_token_state={@worker_token_state}
             worker_socket_url={@worker_socket_url}
           />
         </div>

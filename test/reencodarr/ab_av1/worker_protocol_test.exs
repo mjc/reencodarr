@@ -110,6 +110,30 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
                "result" => "ok",
                "chosen_crf" => 28
              })
+
+    assert {:ok,
+            %CrfSearchResult{
+              results: [%{chosen: false}]
+            }} =
+             WorkerProtocol.parse_crf_search_result(%{
+               "video_id" => 123,
+               "crf" => 28,
+               "score" => 95.4,
+               "percent" => 94,
+               "chosen" => false
+             })
+
+    assert {:ok,
+            %FailureReport{
+              retriable: false
+            }} =
+             WorkerProtocol.parse_failure_report(%{
+               "video_id" => 123,
+               "stage" => "crf_search",
+               "category" => "timeout",
+               "message" => "timed out",
+               "retriable" => false
+             })
   end
 
   test "parses typed failure reports" do

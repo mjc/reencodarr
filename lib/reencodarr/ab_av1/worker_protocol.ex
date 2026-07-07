@@ -660,6 +660,12 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   end
 
   defp fetch_any(payload, keys) do
-    Enum.find_value(keys, fn key -> Map.get(payload, key) end)
+    Enum.find_value(keys, fn key ->
+      if Map.has_key?(payload, key), do: {:ok, Map.fetch!(payload, key)}
+    end)
+    |> case do
+      {:ok, value} -> value
+      nil -> nil
+    end
   end
 end

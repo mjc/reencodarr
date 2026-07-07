@@ -11,7 +11,18 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
   describe "ab-av1 worker websocket" do
     setup do
+      previous_enabled = Application.get_env(:reencodarr, :distributed_worker_enabled)
+      Application.put_env(:reencodarr, :distributed_worker_enabled, true)
       WorkerSessions.reset()
+
+      on_exit(fn ->
+        if is_nil(previous_enabled) do
+          Application.delete_env(:reencodarr, :distributed_worker_enabled)
+        else
+          Application.put_env(:reencodarr, :distributed_worker_enabled, previous_enabled)
+        end
+      end)
+
       :ok
     end
 
