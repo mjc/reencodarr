@@ -5,6 +5,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   use GenServer
 
+  alias Reencodarr.Dashboard.Events
+
   @by_server_table :reencodarr_worker_sessions_by_server
   @by_client_table :reencodarr_worker_sessions_by_client
 
@@ -99,6 +101,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def handle_call({:unregister, server_worker_id}, _from, state) do
     :ok = drop_session(server_worker_id)
+    broadcast_sessions()
     {:reply, :ok, state}
   end
 
@@ -120,6 +123,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def handle_call({:expire_stale, timeout_seconds}, _from, state) do
     {expired_sessions, _} = expire_stale_sessions(timeout_seconds)
+
+    if expired_sessions != [] do
+      broadcast_sessions()
+    end
+
     {:reply, {:ok, expired_sessions}, state}
   end
 
@@ -130,6 +138,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def handle_call(:reset, _from, state) do
     :ok = reset_tables()
+    broadcast_sessions()
     {:reply, :ok, state}
   end
 
@@ -224,10 +233,15 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end
   end
 
+  defp broadcast_sessions do
+    Events.broadcast_event(:worker_sessions_updated, %{sessions: list_sessions()})
+  end
+
   defp put_session(session) do
     :ok = drop_session(session.server_worker_id)
     true = :ets.insert(@by_server_table, {session.server_worker_id, session})
     true = :ets.insert(@by_client_table, {session.client_worker_id, session.server_worker_id})
+    broadcast_sessions()
     :ok
   end
 

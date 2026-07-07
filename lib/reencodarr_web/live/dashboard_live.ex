@@ -1060,6 +1060,16 @@ defmodule ReencodarrWeb.DashboardLive do
               <% end %>
             </div>
           </div>
+
+          <div class="flex items-center justify-between gap-2 pt-1">
+            <div class="text-[11px] uppercase tracking-wide text-gray-500">Worker sessions</div>
+            <.link
+              navigate={~p"/workers"}
+              class="rounded-full border border-cyan-900 bg-cyan-950 px-3 py-1 text-xs text-cyan-300 hover:border-cyan-700 hover:text-white"
+            >
+              Open workers
+            </.link>
+          </div>
         </div>
       </div>
     </div>
