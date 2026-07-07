@@ -663,7 +663,9 @@ defmodule Reencodarr.Diagnostics do
 
   defp format_worker_sessions(worker_sessions) when is_list(worker_sessions) do
     Enum.map_join(worker_sessions, "\n", fn session ->
-      "  #{session.client_worker_id} protocol=#{session.protocol_version} version=#{session.version} capabilities=#{inspect(session.capabilities)} last_seen=#{DateTime.to_iso8601(session.last_seen_at)}"
+      active_video_id = session.active_video_id || "none"
+
+      "  #{session.client_worker_id} protocol=#{session.protocol_version} version=#{session.version} video=#{active_video_id} capabilities=#{inspect(session.capabilities)} last_seen=#{DateTime.to_iso8601(session.last_seen_at)}"
     end)
   end
 

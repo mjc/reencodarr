@@ -66,4 +66,21 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert output =~ "protocol=1"
     assert output =~ "version=0.10.0"
   end
+
+  test "tracks an assigned video on the session" do
+    assert {:ok, _session} =
+             WorkerSessions.register(%{
+               server_worker_id: "worker-server-1",
+               client_worker_id: "worker-client-1",
+               protocol_version: 1,
+               version: "0.10.0",
+               capabilities: %{"crf_search" => true}
+             })
+
+    assert {:ok, session} = WorkerSessions.assign_video("worker-server-1", 123)
+    assert session.active_video_id == 123
+
+    [listed_session] = WorkerSessions.list()
+    assert listed_session.active_video_id == 123
+  end
 end

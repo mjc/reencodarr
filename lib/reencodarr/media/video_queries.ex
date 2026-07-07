@@ -47,6 +47,38 @@ defmodule Reencodarr.Media.VideoQueries do
   end
 
   @doc """
+  Atomically claims the next video ready for CRF search.
+
+  Returns `nil` when the queue is empty. The claim transitions the selected
+  video from `:analyzed` to `:crf_searching` so only one worker can receive it.
+  """
+  @spec claim_next_video_for_crf_search(keyword()) :: Video.t() | nil
+  def claim_next_video_for_crf_search(opts \\ []) do
+    DbWriter.transaction(
+      fn ->
+        claim_next_video_for_crf_search_in_tx(opts)
+      end,
+      label: :video_queries_claim_next_video_for_crf_search
+    )
+    |> case do
+      {:ok, {:claimed, video, old_snapshot}} ->
+        Reencodarr.Media.broadcast_video_mutation(
+          :update,
+          old_snapshot,
+          Reencodarr.Media.fetch_dashboard_video_snapshot_by_id(video.id)
+        )
+
+        video
+
+      {:ok, :none} ->
+        nil
+
+      {:error, reason} ->
+        raise "Failed to claim video for CRF search: #{inspect(reason)}"
+    end
+  end
+
+  @doc """
   Gets videos needing analysis (state: needs_analysis).
 
   These videos lack required metadata and need MediaInfo analysis.
@@ -154,6 +186,43 @@ defmodule Reencodarr.Media.VideoQueries do
         Reencodarr.Media.fetch_dashboard_video_snapshot_by_id(video.id)
       )
     end)
+  end
+
+  defp claim_next_video_for_crf_search_in_tx(opts) do
+    candidate_ids =
+      from(v in Video,
+        where: v.state == :analyzed,
+        order_by: [desc: v.priority, desc: v.bitrate, desc: v.size, asc: v.updated_at],
+        limit: 1,
+        select: v.id
+      )
+      |> Repo.all(opts)
+
+    claim_next_video_for_crf_search_in_tx(candidate_ids, opts)
+  end
+
+  defp claim_next_video_for_crf_search_in_tx([], _opts), do: :none
+
+  defp claim_next_video_for_crf_search_in_tx([video_id | rest], opts) do
+    old_snapshot = Reencodarr.Media.fetch_dashboard_video_snapshot_by_id(video_id)
+
+    {updated_count, _} =
+      from(v in Video,
+        where: v.id == ^video_id and v.state == :analyzed,
+        select: v
+      )
+      |> Repo.update_all([set: [state: :crf_searching, updated_at: DateTime.utc_now()]], opts)
+
+    case updated_count do
+      1 ->
+        case Repo.get(Video, video_id, opts) do
+          %Video{} = video -> {:claimed, video, old_snapshot}
+          nil -> :none
+        end
+
+      _ ->
+        claim_next_video_for_crf_search_in_tx(rest, opts)
+    end
   end
 
   @doc """

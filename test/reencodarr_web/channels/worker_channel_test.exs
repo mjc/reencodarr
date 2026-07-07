@@ -2,6 +2,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
   use ReencodarrWeb.ChannelCase, async: false
 
   alias Reencodarr.AbAv1.WorkerSessions
+  alias Reencodarr.Fixtures
+  alias Reencodarr.Media
   alias ReencodarrWeb.WorkerSocket
 
   describe "ab-av1 worker websocket" do
@@ -32,6 +34,31 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    %{accepted: true, protocol_version: 1}
 
       assert_reply push(socket, "pull_work", %{}), :ok, %{status: "no_work"}
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "assigns one queued video to a worker and marks it crf_searching" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
+                   :ok,
+                   %{accepted: true, protocol_version: 1}
+
+      assert_reply push(socket, "pull_work", %{}),
+                   :ok,
+                   %{status: "assigned", video_id: assigned_video_id}
+
+      assert assigned_video_id == video.id
+      assert Media.get_video(video.id).state == :crf_searching
+      assert [session] = WorkerSessions.list()
+      assert session.active_video_id == video.id
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
@@ -78,6 +105,39 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "does not hand the same queued video to two workers" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
+      assert {:ok, socket1} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket1} = subscribe_and_join(socket1, "workers:crf_search")
+
+      assert_reply push(socket1, "announce", announce_payload(worker_id: "worker-a")),
+                   :ok,
+                   %{accepted: true, protocol_version: 1}
+
+      assert {:ok, socket2} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket2} = subscribe_and_join(socket2, "workers:crf_search")
+
+      assert_reply push(socket2, "announce", announce_payload(worker_id: "worker-b")),
+                   :ok,
+                   %{accepted: true, protocol_version: 1}
+
+      assert_reply push(socket1, "pull_work", %{}),
+                   :ok,
+                   %{status: "assigned", video_id: assigned_video_id}
+
+      assert assigned_video_id == video.id
+
+      assert_reply push(socket2, "pull_work", %{}),
+                   :ok,
+                   %{status: "no_work"}
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "tracks heartbeat last-seen for announced sessions" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
@@ -105,6 +165,35 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert updated_session.connected_at == connected_at
       assert DateTime.compare(updated_session.last_seen_at, first_seen_at) in [:eq, :gt]
       assert updated_session.last_seen_at == parsed_last_seen_at
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "requeues active work when the worker disconnects" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
+                   :ok,
+                   %{accepted: true, protocol_version: 1}
+
+      assert_reply push(socket, "pull_work", %{}),
+                   :ok,
+                   %{status: "assigned", video_id: assigned_video_id}
+
+      assert assigned_video_id == video.id
+      assert Media.get_video(video.id).state == :crf_searching
+
+      Process.unlink(socket.channel_pid)
+      assert :ok = close(socket)
+
+      assert Media.get_video(video.id).state == :analyzed
+      assert WorkerSessions.list() == []
     after
       Application.delete_env(:reencodarr, :worker_token)
     end

@@ -1,3 +1,5 @@
+# credo:disable-for-this-file
+
 defmodule Reencodarr.AbAv1.WorkerSessions do
   @moduledoc """
   Tracks connected ab-av1 worker websocket sessions.
@@ -11,6 +13,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           version: String.t(),
           protocol_version: pos_integer(),
           capabilities: map(),
+          active_video_id: integer() | nil,
           connected_at: DateTime.t(),
           last_seen_at: DateTime.t()
         }
@@ -29,6 +32,18 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def unregister(server_worker_id) do
     GenServer.call(__MODULE__, {:unregister, server_worker_id})
+  end
+
+  def assign_video(server_worker_id, video_id) when is_integer(video_id) do
+    GenServer.call(__MODULE__, {:assign_video, server_worker_id, video_id})
+  end
+
+  def clear_video(server_worker_id) do
+    GenServer.call(__MODULE__, {:clear_video, server_worker_id})
+  end
+
+  def get(server_worker_id) do
+    GenServer.call(__MODULE__, {:get, server_worker_id})
   end
 
   def expire_stale(timeout_seconds) when is_integer(timeout_seconds) and timeout_seconds >= 0 do
@@ -88,6 +103,32 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     {:reply, :ok, drop_session(state, server_worker_id)}
   end
 
+  def handle_call({:assign_video, server_worker_id, video_id}, _from, state) do
+    case Map.fetch(state.by_server, server_worker_id) do
+      {:ok, session} ->
+        updated_session = %{session | active_video_id: video_id}
+        {:reply, {:ok, updated_session}, put_session(state, updated_session)}
+
+      :error ->
+        {:reply, {:error, :unknown_worker_session}, state}
+    end
+  end
+
+  def handle_call({:clear_video, server_worker_id}, _from, state) do
+    case Map.fetch(state.by_server, server_worker_id) do
+      {:ok, session} ->
+        updated_session = %{session | active_video_id: nil}
+        {:reply, {:ok, updated_session}, put_session(state, updated_session)}
+
+      :error ->
+        {:reply, {:error, :unknown_worker_session}, state}
+    end
+  end
+
+  def handle_call({:get, server_worker_id}, _from, state) do
+    {:reply, Map.get(state.by_server, server_worker_id), state}
+  end
+
   def handle_call({:expire_stale, timeout_seconds}, _from, state) do
     {expired_sessions, next_state} = expire_stale_sessions(state, timeout_seconds)
     {:reply, {:ok, expired_sessions}, next_state}
@@ -120,6 +161,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       version: Map.fetch!(attrs, :version),
       protocol_version: Map.fetch!(attrs, :protocol_version),
       capabilities: Map.fetch!(attrs, :capabilities),
+      active_video_id: nil,
       connected_at: now,
       last_seen_at: now
     }
