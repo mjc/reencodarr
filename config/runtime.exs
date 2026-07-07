@@ -20,6 +20,10 @@ if System.get_env("PHX_SERVER") do
   config :reencodarr, ReencodarrWeb.Endpoint, server: true
 end
 
+if worker_token = System.get_env("REENCODARR_WORKER_TOKEN") do
+  config :reencodarr, :worker_token, worker_token
+end
+
 if config_env() == :prod do
   # Parse CHECK_ORIGIN env var: "false" disables, otherwise comma-separated origin list
   parse_check_origin = fn
