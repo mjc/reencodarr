@@ -15,6 +15,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
 
     assert html =~ "Workers"
     assert html =~ "No workers connected."
+    assert html =~ ~s(href="/workers")
   end
 
   test "renders connected worker details and refreshes on session updates", %{conn: conn} do
