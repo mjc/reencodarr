@@ -18,6 +18,8 @@ defmodule ReencodarrWeb.Endpoint do
   # Socket for embedded LiveViews (like Broadway Dashboard in iframe)
   socket "/embed/live", Phoenix.LiveView.Socket, websocket: true, longpoll: true
 
+  # ab-av1 workers connect through the main Phoenix endpoint on the same
+  # host/port as the rest of the app.
   socket "/workers/socket", ReencodarrWeb.WorkerSocket,
     websocket: true,
     longpoll: false

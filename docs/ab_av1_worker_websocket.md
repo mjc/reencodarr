@@ -5,6 +5,7 @@ First REENC-133 server contract for CRF-search workers.
 ## Connection
 
 - Websocket URL: `/workers/socket/websocket?token=<worker-token>`
+- This is served by the main Phoenix app endpoint on the same host/port as the dashboard and API. It is not a separate service port.
 - Runtime token env: `REENCODARR_WORKER_TOKEN`
 - Phoenix channel topic: `workers:crf_search`
 
