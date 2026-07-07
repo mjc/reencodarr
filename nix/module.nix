@@ -69,10 +69,15 @@
         --gid=${cfg.group} \
         --working-directory=${cfg.dataDir} \
         --setenv=REENCODARR_DATA_DIR=${cfg.dataDir} \
-        --setenv=HOME=${cfg.dataDir} \
         --setenv=ERL_AFLAGS="-kernel shell_history enabled" \
-        ${pkgs.bash}/bin/bash -lc \
-          'cp ${iexDotFile} .iex.exs && exec ${lib.getExe cfg.package} remote'
+        ${pkgs.bash}/bin/bash -lc ${lib.escapeShellArg ''
+        tmp_dir="$(mktemp -d ${cfg.cacheDir}/tmp/reencodarr-remote.XXXXXX)"
+        trap 'rm -rf "$tmp_dir"' EXIT
+        cp ${iexDotFile} "$tmp_dir/.iex.exs"
+        export HOME="$tmp_dir"
+        cd "$tmp_dir"
+        ${lib.getExe cfg.package} remote
+      ''}
     '';
   };
 
