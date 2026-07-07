@@ -46,3 +46,5 @@ config/dev.overrides.exs
 .expert/
 
 .envrc
+
+.serena/cache/
