@@ -8,7 +8,7 @@ defmodule Reencodarr.Diagnostics do
 
   import Ecto.Query
 
-  alias Reencodarr.AbAv1.{CrfSearch, Encode}
+  alias Reencodarr.AbAv1.{CrfSearch, Encode, WorkerSessions}
   alias Reencodarr.Analyzer
   alias Reencodarr.Analyzer.MediaInfoCache
   alias Reencodarr.Core.Time
@@ -306,6 +306,7 @@ defmodule Reencodarr.Diagnostics do
     encode_state = safe_get_state(Reencodarr.AbAv1.Encode, 2000)
     health_state = safe_get_state(Reencodarr.Encoder.HealthCheck, 2000)
     cache_stats = safe_call(fn -> MediaInfoCache.get_stats() end)
+    worker_sessions = safe_call(fn -> WorkerSessions.list() end)
 
     """
     #{section("Live Process State")}
@@ -318,6 +319,9 @@ defmodule Reencodarr.Diagnostics do
 
     Health Check:
     #{format_health_check_state(health_state)}
+
+    Worker Sessions:
+    #{format_worker_sessions(worker_sessions)}
 
     MediaInfo Cache:
     #{format_cache_stats(cache_stats)}
@@ -653,6 +657,17 @@ defmodule Reencodarr.Diagnostics do
   end
 
   defp format_health_check_state(_), do: "  Unknown state"
+
+  defp format_worker_sessions({:error, _}), do: "  Unavailable"
+  defp format_worker_sessions([]), do: "  none"
+
+  defp format_worker_sessions(worker_sessions) when is_list(worker_sessions) do
+    Enum.map_join(worker_sessions, "\n", fn session ->
+      "  #{session.client_worker_id} protocol=#{session.protocol_version} version=#{session.version} capabilities=#{inspect(session.capabilities)} last_seen=#{DateTime.to_iso8601(session.last_seen_at)}"
+    end)
+  end
+
+  defp format_worker_sessions(_), do: "  Unknown state"
 
   defp video_active_in_state?({:error, _}, _video_id), do: false
 

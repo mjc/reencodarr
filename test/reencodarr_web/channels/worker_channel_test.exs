@@ -1,5 +1,5 @@
 defmodule ReencodarrWeb.WorkerChannelTest do
-  use ReencodarrWeb.ChannelCase, async: true
+  use ReencodarrWeb.ChannelCase, async: false
 
   alias Reencodarr.AbAv1.WorkerSessions
   alias ReencodarrWeb.WorkerSocket

@@ -31,6 +31,10 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.call(__MODULE__, {:unregister, server_worker_id})
   end
 
+  def expire_stale(timeout_seconds) when is_integer(timeout_seconds) and timeout_seconds >= 0 do
+    GenServer.call(__MODULE__, {:expire_stale, timeout_seconds})
+  end
+
   def list do
     GenServer.call(__MODULE__, :list)
   end
@@ -41,6 +45,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   @impl GenServer
   def init(_opts) do
+    schedule_expire_stale()
     {:ok, %{by_server: %{}, by_client: %{}}}
   end
 
@@ -83,6 +88,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     {:reply, :ok, drop_session(state, server_worker_id)}
   end
 
+  def handle_call({:expire_stale, timeout_seconds}, _from, state) do
+    {expired_sessions, next_state} = expire_stale_sessions(state, timeout_seconds)
+    {:reply, {:ok, expired_sessions}, next_state}
+  end
+
   def handle_call(:list, _from, state) do
     sessions =
       state.by_server
@@ -94,6 +104,13 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def handle_call(:reset, _from, _state) do
     {:reply, :ok, %{by_server: %{}, by_client: %{}}}
+  end
+
+  @impl GenServer
+  def handle_info(:expire_stale, state) do
+    {_expired_sessions, next_state} = expire_stale_sessions(state, timeout_seconds())
+    schedule_expire_stale()
+    {:noreply, next_state}
   end
 
   defp build_session(attrs, now) do
@@ -130,6 +147,36 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           by_client: Map.delete(state.by_client, session.client_worker_id)
         }
     end
+  end
+
+  defp expire_stale_sessions(state, timeout_seconds) do
+    now = now()
+
+    Enum.reduce(state.by_server, {[], state}, fn {server_worker_id, session},
+                                                 {expired, acc_state} ->
+      age_seconds = DateTime.diff(now, session.last_seen_at, :second)
+
+      if age_seconds >= timeout_seconds do
+        {[session | expired], drop_session(acc_state, server_worker_id)}
+      else
+        {expired, acc_state}
+      end
+    end)
+    |> then(fn {expired_sessions, next_state} ->
+      {Enum.reverse(expired_sessions), next_state}
+    end)
+  end
+
+  defp schedule_expire_stale do
+    Process.send_after(self(), :expire_stale, sweep_interval_ms())
+  end
+
+  defp timeout_seconds do
+    Application.get_env(:reencodarr, :worker_session_timeout_seconds, 120)
+  end
+
+  defp sweep_interval_ms do
+    Application.get_env(:reencodarr, :worker_session_sweep_interval_ms, 30_000)
   end
 
   defp now do
