@@ -32,6 +32,87 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
     assert WorkerProtocol.error(:unsupported_event) == %{reason: "unsupported_event"}
   end
 
+  test "parses transfer progress into a typed payload" do
+    assert {:ok,
+            %{
+              video_id: 123,
+              transfer_id: "transfer-1",
+              percent: 42.5,
+              bytes_sent: 1_048_576,
+              total_bytes: 2_097_152,
+              chunk_index: 3,
+              total_chunks: 8
+            }} =
+             WorkerProtocol.parse_transfer_progress(%{
+               "video_id" => 123,
+               "transfer_id" => "transfer-1",
+               "percent" => 42.5,
+               "bytes_sent" => 1_048_576,
+               "total_bytes" => 2_097_152,
+               "chunk_index" => 3,
+               "total_chunks" => 8
+             })
+  end
+
+  test "parses structured CRF results and completion payloads" do
+    assert {:ok,
+            %{
+              video_id: 123,
+              results: [
+                %{
+                  crf: 28,
+                  score: 95.4,
+                  percent: 94,
+                  size: "512 MB",
+                  time: 3600,
+                  params: ["--preset", "4"],
+                  chosen: true
+                }
+              ]
+            }} =
+             WorkerProtocol.parse_crf_search_result(%{
+               "video_id" => 123,
+               "crf" => 28,
+               "score" => 95.4,
+               "percent" => 94,
+               "size" => "512 MB",
+               "time" => 3600,
+               "params" => ["--preset", "4"],
+               "chosen" => true
+             })
+
+    assert {:ok, %{video_id: 123, result: :ok, chosen_crf: 28}} =
+             WorkerProtocol.parse_completion(%{
+               "video_id" => 123,
+               "result" => "ok",
+               "chosen_crf" => 28
+             })
+  end
+
+  test "parses typed failure reports" do
+    assert {:ok,
+            %{
+              video_id: 123,
+              stage: :crf_search,
+              category: :timeout,
+              message: "timed out",
+              code: "EXIT_137",
+              context: %{node: "worker@host"},
+              retriable: true,
+              stderr_excerpt: "ab-av1 timed out"
+            }} =
+             WorkerProtocol.parse_failure_report(%{
+               "video_id" => 123,
+               "stage" => "crf_search",
+               "category" => "timeout",
+               "message" => "timed out",
+               "code" => "EXIT_137",
+               "context" => %{node: "worker@host"},
+               "retriable" => true,
+               "stderr_excerpt" => "ab-av1 timed out"
+             })
+  end
+
   test "builds a job_assigned payload from the claimed video" do
     payload =
       WorkerProtocol.work_assigned(

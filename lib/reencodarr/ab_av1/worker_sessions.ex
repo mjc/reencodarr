@@ -92,15 +92,9 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   def handle_call({:touch, server_worker_id}, _from, state) do
-    case lookup_session(server_worker_id) do
-      {:ok, session} ->
-        updated_session = %{session | last_seen_at: now()}
-        :ok = put_session(updated_session)
-        {:reply, {:ok, updated_session}, state}
-
-      :error ->
-        {:reply, {:error, :unknown_worker_session}, state}
-    end
+    update_session_reply(server_worker_id, state, fn session ->
+      %{session | last_seen_at: now()}
+    end)
   end
 
   def handle_call({:unregister, server_worker_id}, _from, state) do
@@ -109,27 +103,15 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   def handle_call({:assign_video, server_worker_id, video_id}, _from, state) do
-    case lookup_session(server_worker_id) do
-      {:ok, session} ->
-        updated_session = %{session | active_video_id: video_id}
-        :ok = put_session(updated_session)
-        {:reply, {:ok, updated_session}, state}
-
-      :error ->
-        {:reply, {:error, :unknown_worker_session}, state}
-    end
+    update_session_reply(server_worker_id, state, fn session ->
+      %{session | active_video_id: video_id}
+    end)
   end
 
   def handle_call({:clear_video, server_worker_id}, _from, state) do
-    case lookup_session(server_worker_id) do
-      {:ok, session} ->
-        updated_session = %{session | active_video_id: nil}
-        :ok = put_session(updated_session)
-        {:reply, {:ok, updated_session}, state}
-
-      :error ->
-        {:reply, {:error, :unknown_worker_session}, state}
-    end
+    update_session_reply(server_worker_id, state, fn session ->
+      %{session | active_video_id: nil}
+    end)
   end
 
   def handle_call({:get, server_worker_id}, _from, state) do
@@ -229,6 +211,18 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   defp required_attr(attrs, key), do: Map.fetch(attrs, key)
+
+  defp update_session_reply(server_worker_id, state, update_fun) do
+    case lookup_session(server_worker_id) do
+      {:ok, session} ->
+        updated_session = update_fun.(session)
+        :ok = put_session(updated_session)
+        {:reply, {:ok, updated_session}, state}
+
+      :error ->
+        {:reply, {:error, :unknown_worker_session}, state}
+    end
+  end
 
   defp put_session(session) do
     :ok = drop_session(session.server_worker_id)

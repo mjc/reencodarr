@@ -22,6 +22,20 @@ end
 
 worker_token =
   System.get_env("REENCODARR_WORKER_TOKEN")
+  |> case do
+    nil ->
+      case System.get_env("SECRET_KEY_BASE") do
+        nil ->
+          nil
+
+        secret_key_base ->
+          :crypto.mac(:hmac, :sha256, secret_key_base, "ab-av1-worker-token")
+          |> Base.url_encode64(padding: false)
+      end
+
+    worker_token ->
+      worker_token
+  end
 
 if worker_token do
   config :reencodarr, :worker_token, worker_token

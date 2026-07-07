@@ -7,6 +7,7 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   alias Reencodarr.AbAv1.{WorkerProtocol, WorkerSessions}
   alias Reencodarr.AbAv1.WorkerProtocol.Announcement
+  alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
 
   @crf_search_topic WorkerProtocol.crf_search_topic()
@@ -64,6 +65,21 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   def handle_in("pull_work", payload, socket), do: handle_work_request(payload, socket)
 
+  def handle_in("transfer_progress", payload, socket),
+    do: handle_transfer_progress(payload, socket)
+
+  def handle_in("crf_search_progress", payload, socket),
+    do: handle_crf_search_progress(payload, socket)
+
+  def handle_in("crf_search_result", payload, socket),
+    do: handle_crf_search_result(payload, socket)
+
+  def handle_in("crf_search_completed", payload, socket),
+    do: handle_crf_search_completed(payload, socket)
+
+  def handle_in("video_failed", payload, socket),
+    do: handle_video_failed(payload, socket)
+
   def handle_in(_event, _payload, socket) do
     {:reply, {:error, WorkerProtocol.error(:unsupported_event)}, socket}
   end
@@ -98,6 +114,73 @@ defmodule ReencodarrWeb.WorkerChannel do
           nil ->
             {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
         end
+    end
+  end
+
+  defp handle_transfer_progress(payload, %{assigns: %{worker_id: worker_id}} = socket) do
+    with {:ok, progress} <- WorkerProtocol.parse_transfer_progress(payload),
+         :ok <- ensure_active_video(socket, progress.video_id) do
+      Events.broadcast_event(:transfer_progress, Map.put(progress, :worker_id, worker_id))
+      {:reply, {:ok, WorkerProtocol.event_ack("transfer_progress")}, socket}
+    else
+      {:error, reason} ->
+        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+    end
+  end
+
+  defp handle_crf_search_progress(payload, socket) do
+    with {:ok, progress} <- WorkerProtocol.parse_crf_search_progress(payload),
+         :ok <- ensure_active_video(socket, progress.video_id) do
+      Events.broadcast_event(:crf_search_progress, progress)
+      {:reply, {:ok, WorkerProtocol.event_ack("crf_search_progress")}, socket}
+    else
+      {:error, reason} ->
+        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+    end
+  end
+
+  defp handle_crf_search_result(payload, socket) do
+    with {:ok, result} <- WorkerProtocol.parse_crf_search_result(payload),
+         :ok <- ensure_active_video(socket, result.video_id) do
+      handle_valid_crf_search_result(socket, result)
+    else
+      {:error, reason} ->
+        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+    end
+  end
+
+  defp handle_crf_search_completed(payload, %{assigns: %{worker_id: worker_id}} = socket) do
+    with {:ok, completion} <- WorkerProtocol.parse_completion(payload),
+         :ok <- ensure_active_video(socket, completion.video_id) do
+      handle_valid_crf_search_completion(worker_id, socket, completion)
+    else
+      {:error, reason} ->
+        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+    end
+  end
+
+  defp handle_video_failed(payload, %{assigns: %{worker_id: worker_id}} = socket) do
+    with {:ok, failure} <- WorkerProtocol.parse_failure_report(payload),
+         :ok <- ensure_active_video(socket, failure.video_id) do
+      video = Media.get_video(failure.video_id)
+
+      if is_nil(video) do
+        {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
+      else
+        _ =
+          Media.record_video_failure(video, failure.stage, failure.category,
+            code: failure.code,
+            message: failure.message,
+            context: Map.put(failure.context, :stderr_excerpt, failure.stderr_excerpt)
+          )
+
+        socket = clear_assigned_video(worker_id, socket)
+        Events.broadcast_event(:video_failed, failure)
+        {:reply, {:ok, WorkerProtocol.event_ack("video_failed")}, socket}
+      end
+    else
+      {:error, reason} ->
+        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
   end
 
@@ -144,5 +227,156 @@ defmodule ReencodarrWeb.WorkerChannel do
             :ok
         end
     end
+  end
+
+  defp handle_valid_crf_search_result(socket, %{video_id: video_id, results: results}) do
+    case Media.get_video(video_id) do
+      nil ->
+        {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
+
+      video ->
+        persist_crf_results(video, results)
+
+        if Enum.any?(results, &Map.get(&1, :chosen, false)) do
+          choose_result_from_report(video, results)
+        end
+
+        {:reply, {:ok, WorkerProtocol.event_ack("crf_search_result")}, socket}
+    end
+  end
+
+  defp handle_valid_crf_search_completion(worker_id, socket, completion) do
+    case Media.get_video(completion.video_id) do
+      nil ->
+        {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
+
+      video ->
+        socket =
+          apply_completion_result(
+            worker_id,
+            socket,
+            video,
+            completion.result,
+            completion.chosen_crf
+          )
+
+        Events.broadcast_event(:crf_search_completed, %{
+          video_id: completion.video_id,
+          result: completion.result,
+          chosen_crf: completion.chosen_crf
+        })
+
+        {:reply, {:ok, WorkerProtocol.event_ack("crf_search_completed")}, socket}
+    end
+  end
+
+  defp apply_completion_result(worker_id, socket, video, :ok, chosen_crf) do
+    finish_successful_crf_search(worker_id, socket, video, chosen_crf)
+  end
+
+  defp apply_completion_result(worker_id, socket, video, :cancelled, _chosen_crf) do
+    finish_cancelled_crf_search(worker_id, socket, video, :cancelled)
+  end
+
+  defp apply_completion_result(worker_id, socket, video, :shutdown, _chosen_crf) do
+    finish_cancelled_crf_search(worker_id, socket, video, :shutdown)
+  end
+
+  defp apply_completion_result(worker_id, socket, video, :failed, _chosen_crf) do
+    record_completion_failure(worker_id, socket, video, "failed")
+  end
+
+  defp apply_completion_result(worker_id, socket, video, {:error, reason}, _chosen_crf) do
+    record_completion_failure(worker_id, socket, video, inspect(reason))
+  end
+
+  defp record_completion_failure(worker_id, socket, video, code) do
+    _ =
+      Media.record_video_failure(video, :crf_search, :crf_optimization,
+        code: code,
+        message: "CRF search failed"
+      )
+
+    clear_assigned_video(worker_id, socket)
+  end
+
+  defp ensure_active_video(socket, video_id) do
+    case socket.assigns[:current_video_id] do
+      nil -> {:error, :unknown_worker_session}
+      ^video_id -> :ok
+      _other -> {:error, :unknown_worker_session}
+    end
+  end
+
+  defp persist_crf_results(video, results) do
+    Enum.each(results, fn result ->
+      attrs =
+        result
+        |> Map.put(:video_id, video.id)
+        |> Map.delete(:chosen)
+
+      case Media.upsert_vmaf(attrs) do
+        {:ok, :skipped} -> :ok
+        {:ok, vmaf} -> Events.broadcast_event(:crf_search_vmaf_result, vmaf_to_event(vmaf))
+        {:error, _} -> :ok
+      end
+    end)
+  end
+
+  defp choose_result_from_report(video, results) do
+    chosen_crf =
+      Enum.find_value(results, fn result ->
+        if Map.get(result, :chosen, false), do: Map.get(result, :crf)
+      end) || Map.get(List.first(results) || %{}, :crf)
+
+    case chosen_crf do
+      nil -> :ok
+      crf -> _ = Media.mark_vmaf_as_chosen(video.id, crf)
+    end
+
+    _ = Media.mark_as_crf_searched(video)
+    _ = Media.resolve_crf_search_failures(video.id)
+    :ok
+  end
+
+  defp finish_successful_crf_search(worker_id, socket, video, chosen_crf) do
+    case chosen_crf do
+      nil ->
+        case Media.choose_best_vmaf(video) do
+          {:ok, _vmaf} -> :ok
+          {:error, _} -> :ok
+        end
+
+      crf ->
+        _ = Media.mark_vmaf_as_chosen(video.id, crf)
+    end
+
+    _ = Media.mark_as_crf_searched(video)
+    _ = Media.resolve_crf_search_failures(video.id)
+    clear_assigned_video(worker_id, socket)
+  end
+
+  defp finish_cancelled_crf_search(worker_id, socket, video, _reason) do
+    _ = Media.mark_as_analyzed(video)
+    clear_assigned_video(worker_id, socket)
+  end
+
+  defp clear_assigned_video(worker_id, socket) do
+    _ = WorkerSessions.clear_video(worker_id)
+
+    assign(socket, :current_video_id, nil)
+    |> assign(:current_vmaf_target, nil)
+  end
+
+  defp vmaf_to_event(%Reencodarr.Media.Vmaf{} = vmaf) do
+    %{
+      video_id: vmaf.video_id,
+      crf: vmaf.crf,
+      score: vmaf.score,
+      percent: vmaf.percent,
+      size: vmaf.size,
+      time: vmaf.time,
+      params: vmaf.params || []
+    }
   end
 end

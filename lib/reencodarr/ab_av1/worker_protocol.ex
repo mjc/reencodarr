@@ -22,6 +22,51 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
           }
   end
 
+  @type video_id :: pos_integer()
+  @type percentage :: number()
+  @type crf_result :: %{
+          required(:crf) => number(),
+          required(:score) => number(),
+          required(:percent) => number(),
+          optional(:size) => String.t() | nil,
+          optional(:time) => non_neg_integer() | nil,
+          optional(:params) => [String.t()],
+          optional(:target) => integer() | nil,
+          optional(:chosen) => boolean()
+        }
+  @type crf_search_progress :: %{
+          required(:video_id) => video_id(),
+          required(:percent) => percentage(),
+          optional(:filename) => String.t() | nil,
+          optional(:eta) => non_neg_integer() | nil,
+          optional(:fps) => number() | nil
+        }
+  @type transfer_progress :: %{
+          required(:video_id) => video_id(),
+          required(:transfer_id) => String.t(),
+          required(:percent) => percentage(),
+          required(:bytes_sent) => non_neg_integer(),
+          required(:total_bytes) => non_neg_integer(),
+          optional(:chunk_index) => non_neg_integer() | nil,
+          optional(:total_chunks) => non_neg_integer() | nil
+        }
+  @type failure_report :: %{
+          required(:video_id) => video_id(),
+          required(:stage) => atom(),
+          required(:category) => atom(),
+          required(:message) => String.t(),
+          optional(:code) => String.t() | nil,
+          optional(:context) => map(),
+          optional(:retriable) => boolean() | nil,
+          optional(:stderr_excerpt) => String.t() | nil
+        }
+  @type completion_result :: :ok | :cancelled | :shutdown | {:error, term()}
+  @type crf_search_completed :: %{
+          required(:video_id) => video_id(),
+          required(:result) => completion_result(),
+          optional(:chosen_crf) => number() | nil
+        }
+
   @spec crf_search_topic() :: String.t()
   def crf_search_topic, do: @crf_search_topic
 
@@ -56,8 +101,111 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
   def parse_announcement(_payload), do: {:error, :invalid_announcement}
 
+  @spec parse_transfer_progress(map()) :: {:ok, transfer_progress()} | {:error, atom()}
+  def parse_transfer_progress(payload) when is_map(payload) do
+    with {:ok, video_id} <-
+           required_integer(payload, [:video_id, "video_id"], :invalid_transfer_progress),
+         {:ok, transfer_id} <-
+           required_string(payload, [:transfer_id, "transfer_id"], :invalid_transfer_progress),
+         {:ok, percent} <-
+           required_number(payload, [:percent, "percent"], :invalid_transfer_progress) do
+      {:ok,
+       %{
+         video_id: video_id,
+         transfer_id: transfer_id,
+         percent: percent,
+         bytes_sent:
+           optional_integer(payload, [
+             :bytes_sent,
+             "bytes_sent",
+             :transferred_bytes,
+             "transferred_bytes"
+           ]) || 0,
+         total_bytes: optional_integer(payload, [:total_bytes, "total_bytes"]) || 0,
+         chunk_index: optional_integer(payload, [:chunk_index, "chunk_index"]),
+         total_chunks: optional_integer(payload, [:total_chunks, "total_chunks"])
+       }}
+    end
+  end
+
+  def parse_transfer_progress(_payload), do: {:error, :invalid_transfer_progress}
+
+  @spec parse_crf_search_progress(map()) :: {:ok, crf_search_progress()} | {:error, atom()}
+  def parse_crf_search_progress(payload) when is_map(payload) do
+    with {:ok, video_id} <-
+           required_integer(payload, [:video_id, "video_id"], :invalid_crf_search_progress),
+         {:ok, percent} <-
+           required_number(payload, [:percent, "percent"], :invalid_crf_search_progress) do
+      {:ok,
+       %{
+         video_id: video_id,
+         percent: percent,
+         filename: optional_string(payload, [:filename, "filename"]),
+         eta: optional_integer(payload, [:eta, "eta"]),
+         fps: optional_number(payload, [:fps, "fps"])
+       }}
+    end
+  end
+
+  def parse_crf_search_progress(_payload), do: {:error, :invalid_crf_search_progress}
+
+  @spec parse_crf_search_result(map()) ::
+          {:ok, %{video_id: video_id(), results: [crf_result()]}} | {:error, atom()}
+  def parse_crf_search_result(payload) when is_map(payload) do
+    with {:ok, video_id} <-
+           required_integer(payload, [:video_id, "video_id"], :invalid_crf_search_result),
+         {:ok, results} <- parse_result_batch(payload) do
+      {:ok, %{video_id: video_id, results: results}}
+    end
+  end
+
+  def parse_crf_search_result(_payload), do: {:error, :invalid_crf_search_result}
+
+  @spec parse_failure_report(map()) :: {:ok, failure_report()} | {:error, atom()}
+  def parse_failure_report(payload) when is_map(payload) do
+    with {:ok, video_id} <-
+           required_integer(payload, [:video_id, "video_id"], :invalid_failure_report),
+         {:ok, stage} <- parse_failure_stage(payload),
+         {:ok, category} <- parse_failure_category(payload),
+         {:ok, message} <-
+           required_string(payload, [:message, "message"], :invalid_failure_report) do
+      {:ok,
+       %{
+         video_id: video_id,
+         stage: stage,
+         category: category,
+         message: message,
+         code: optional_string(payload, [:code, "code"]),
+         context: optional_map(payload, [:context, "context"]) || %{},
+         retriable: optional_boolean(payload, [:retriable, "retriable"]),
+         stderr_excerpt: optional_string(payload, [:stderr_excerpt, "stderr_excerpt"])
+       }}
+    end
+  end
+
+  def parse_failure_report(_payload), do: {:error, :invalid_failure_report}
+
+  @spec parse_completion(map()) :: {:ok, crf_search_completed()} | {:error, atom()}
+  def parse_completion(payload) when is_map(payload) do
+    with {:ok, video_id} <-
+           required_integer(payload, [:video_id, "video_id"], :invalid_completion_result),
+         {:ok, result} <- parse_completion_result(payload) do
+      {:ok,
+       %{
+         video_id: video_id,
+         result: result,
+         chosen_crf: optional_number(payload, [:chosen_crf, "chosen_crf"])
+       }}
+    end
+  end
+
+  def parse_completion(_payload), do: {:error, :invalid_completion_result}
+
   @spec accepted(pos_integer()) :: map()
   def accepted(protocol_version), do: %{accepted: true, protocol_version: protocol_version}
+
+  @spec event_ack(String.t()) :: map()
+  def event_ack(event_name), do: %{accepted: true, event: event_name}
 
   @spec no_work() :: map()
   def no_work, do: %{status: "no_work"}
@@ -84,6 +232,11 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
           :duplicate_worker_id
           | :invalid_announcement
           | :invalid_session_attrs
+          | :invalid_transfer_progress
+          | :invalid_crf_search_progress
+          | :invalid_crf_search_result
+          | :invalid_failure_report
+          | :invalid_completion_result
           | :unsupported_protocol_version
           | :unsupported_event
           | :unknown_worker_session
@@ -93,6 +246,11 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
   def error(:invalid_announcement), do: %{reason: "invalid_announcement"}
   def error(:invalid_session_attrs), do: %{reason: "invalid_session_attrs"}
+  def error(:invalid_transfer_progress), do: %{reason: "invalid_transfer_progress"}
+  def error(:invalid_crf_search_progress), do: %{reason: "invalid_crf_search_progress"}
+  def error(:invalid_crf_search_result), do: %{reason: "invalid_crf_search_result"}
+  def error(:invalid_failure_report), do: %{reason: "invalid_failure_report"}
+  def error(:invalid_completion_result), do: %{reason: "invalid_completion_result"}
 
   def error(:unsupported_protocol_version) do
     %{
@@ -104,4 +262,255 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   def error(:unsupported_event), do: %{reason: "unsupported_event"}
   def error(:unknown_worker_session), do: %{reason: "unknown_worker_session"}
   def error(:unauthorized), do: %{reason: "unauthorized"}
+
+  defp parse_single_crf_result(payload) when is_map(payload) do
+    with {:ok, crf} <- required_number(payload, [:crf, "crf"], :invalid_crf_search_result),
+         {:ok, score} <-
+           required_number(
+             payload,
+             [:score, "score", :vmaf_score, "vmaf_score"],
+             :invalid_crf_search_result
+           ),
+         {:ok, percent} <-
+           required_number(
+             payload,
+             [:percent, "percent", :vmaf_percentile, "vmaf_percentile"],
+             :invalid_crf_search_result
+           ) do
+      {:ok,
+       %{
+         crf: crf,
+         score: score,
+         percent: percent,
+         size: optional_size(payload),
+         time: optional_time(payload),
+         params: optional_params(payload),
+         target: optional_integer(payload, [:target, "target"]),
+         chosen: optional_boolean(payload, [:chosen, "chosen"])
+       }}
+    end
+  end
+
+  defp parse_single_crf_result(_payload), do: {:error, :invalid_crf_search_result}
+
+  defp parse_result_batch(payload) do
+    case fetch_any(payload, [:results, "results"]) do
+      nil ->
+        parse_single_crf_result(payload)
+        |> wrap_single_result()
+
+      results when is_list(results) ->
+        parse_result_list(results)
+
+      _ ->
+        {:error, :invalid_crf_search_result}
+    end
+  end
+
+  defp parse_result_list(results) do
+    results
+    |> Enum.reduce_while({:ok, []}, fn result, {:ok, acc} ->
+      case parse_single_crf_result(result) do
+        {:ok, parsed_result} -> {:cont, {:ok, [parsed_result | acc]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, parsed_results} -> {:ok, Enum.reverse(parsed_results)}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp wrap_single_result({:ok, result}), do: {:ok, [result]}
+  defp wrap_single_result({:error, _} = error), do: error
+
+  defp parse_completion_result(payload) do
+    case Map.get(payload, :result, Map.get(payload, "result")) do
+      value when value in [:ok, "ok"] -> {:ok, :ok}
+      value when value in [:cancelled, :canceled, "cancelled", "canceled"] -> {:ok, :cancelled}
+      value when value in [:shutdown, "shutdown"] -> {:ok, :shutdown}
+      value when value in [:failed, "failed"] -> {:ok, :failed}
+      {:error, _} = error -> {:ok, error}
+      %{"error" => reason} -> {:ok, {:error, reason}}
+      %{error: reason} -> {:ok, {:error, reason}}
+      _ -> {:error, :invalid_completion_result}
+    end
+  end
+
+  defp parse_failure_stage(payload) do
+    case normalize_stage(Map.get(payload, :stage, Map.get(payload, "stage"))) do
+      {:ok, stage} -> {:ok, stage}
+      :error -> {:error, :invalid_failure_report}
+    end
+  end
+
+  defp parse_failure_category(payload) do
+    case normalize_category(Map.get(payload, :category, Map.get(payload, "category"))) do
+      {:ok, category} -> {:ok, category}
+      :error -> {:error, :invalid_failure_report}
+    end
+  end
+
+  defp normalize_stage(stage) when stage in [:analysis, :crf_search, :encoding, :post_process],
+    do: {:ok, stage}
+
+  defp normalize_stage("analysis"), do: {:ok, :analysis}
+  defp normalize_stage("crf_search"), do: {:ok, :crf_search}
+  defp normalize_stage("encoding"), do: {:ok, :encoding}
+  defp normalize_stage("post_process"), do: {:ok, :post_process}
+  defp normalize_stage(_), do: :error
+
+  defp normalize_category(category)
+       when category in [
+              :file_access,
+              :mediainfo_parsing,
+              :validation,
+              :vmaf_calculation,
+              :crf_optimization,
+              :size_limits,
+              :preset_retry,
+              :process_failure,
+              :resource_exhaustion,
+              :codec_issues,
+              :timeout,
+              :file_operations,
+              :sync_integration,
+              :cleanup,
+              :configuration,
+              :system_environment,
+              :unknown
+            ],
+       do: {:ok, category}
+
+  defp normalize_category("file_access"), do: {:ok, :file_access}
+  defp normalize_category("mediainfo_parsing"), do: {:ok, :mediainfo_parsing}
+  defp normalize_category("validation"), do: {:ok, :validation}
+  defp normalize_category("vmaf_calculation"), do: {:ok, :vmaf_calculation}
+  defp normalize_category("crf_optimization"), do: {:ok, :crf_optimization}
+  defp normalize_category("size_limits"), do: {:ok, :size_limits}
+  defp normalize_category("preset_retry"), do: {:ok, :preset_retry}
+  defp normalize_category("process_failure"), do: {:ok, :process_failure}
+  defp normalize_category("resource_exhaustion"), do: {:ok, :resource_exhaustion}
+  defp normalize_category("codec_issues"), do: {:ok, :codec_issues}
+  defp normalize_category("timeout"), do: {:ok, :timeout}
+  defp normalize_category("file_operations"), do: {:ok, :file_operations}
+  defp normalize_category("sync_integration"), do: {:ok, :sync_integration}
+  defp normalize_category("cleanup"), do: {:ok, :cleanup}
+  defp normalize_category("configuration"), do: {:ok, :configuration}
+  defp normalize_category("system_environment"), do: {:ok, :system_environment}
+  defp normalize_category("unknown"), do: {:ok, :unknown}
+  defp normalize_category(_), do: :error
+
+  defp required_integer(payload, keys, error) do
+    case fetch_any(payload, keys) do
+      value when is_integer(value) and value > 0 -> {:ok, value}
+      _ -> {:error, error}
+    end
+  end
+
+  defp required_number(payload, keys, error) do
+    case fetch_any(payload, keys) do
+      value when is_number(value) -> {:ok, value}
+      _ -> {:error, error}
+    end
+  end
+
+  defp required_string(payload, keys, error) do
+    case fetch_any(payload, keys) do
+      value when is_binary(value) and value != "" -> {:ok, value}
+      _ -> {:error, error}
+    end
+  end
+
+  defp optional_string(payload, keys) do
+    case fetch_any(payload, keys) do
+      value when is_binary(value) -> value
+      _ -> nil
+    end
+  end
+
+  defp optional_number(payload, keys) do
+    case fetch_any(payload, keys) do
+      value when is_number(value) -> value
+      _ -> nil
+    end
+  end
+
+  defp optional_integer(payload, keys) do
+    case fetch_any(payload, keys) do
+      value when is_integer(value) and value >= 0 -> value
+      _ -> nil
+    end
+  end
+
+  defp optional_boolean(payload, keys) do
+    case fetch_any(payload, keys) do
+      value when is_boolean(value) -> value
+      _ -> nil
+    end
+  end
+
+  defp optional_map(payload, keys) do
+    case fetch_any(payload, keys) do
+      value when is_map(value) -> value
+      _ -> nil
+    end
+  end
+
+  defp optional_params(payload) do
+    case fetch_any(payload, [:params, "params"]) do
+      value when is_list(value) -> Enum.map(value, &to_string/1)
+      value when is_binary(value) -> [value]
+      _ -> []
+    end
+  end
+
+  defp optional_size(payload) do
+    case fetch_any(payload, [:size, "size"]) do
+      value when is_binary(value) -> value
+      value when is_number(value) -> format_size(value, payload)
+      _ -> optional_predicted_size(payload)
+    end
+  end
+
+  defp format_size(size, payload) do
+    case optional_size_unit(payload) do
+      nil -> "#{size}"
+      unit -> "#{size} #{unit}"
+    end
+  end
+
+  defp optional_predicted_size(payload) do
+    case optional_number(payload, [:predicted_size, "predicted_size"]) do
+      nil -> nil
+      size -> format_size(size, payload)
+    end
+  end
+
+  defp optional_size_unit(payload) do
+    optional_string(payload, [:size_unit, "size_unit"]) ||
+      optional_string(payload, [:unit, "unit"])
+  end
+
+  defp optional_time(payload) do
+    case fetch_any(payload, [:time, "time"]) do
+      value when is_integer(value) and value >= 0 ->
+        value
+
+      value when is_number(value) ->
+        round(value)
+
+      _ ->
+        case {optional_number(payload, [:time_taken, "time_taken"]),
+              optional_string(payload, [:time_unit, "time_unit"])} do
+          {nil, _} -> nil
+          {time_taken, unit} when unit in [nil, ""] -> round(time_taken)
+          {time_taken, unit} -> round(Reencodarr.Core.Time.to_seconds(time_taken, unit))
+        end
+    end
+  end
+
+  defp fetch_any(payload, keys) do
+    Enum.find_value(keys, fn key -> Map.get(payload, key) end)
+  end
 end
