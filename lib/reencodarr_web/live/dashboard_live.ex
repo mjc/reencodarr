@@ -1051,10 +1051,22 @@ defmodule ReencodarrWeb.DashboardLive do
           </div>
 
           <div>
+            <div class="text-[11px] uppercase tracking-wide text-gray-500">Token</div>
+            <div class="mt-1 overflow-x-auto rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
+              <%= case @worker_token_state do %>
+                <% {:ok, token, _fingerprint} -> %>
+                  {token}
+                <% :error -> %>
+                  not configured
+              <% end %>
+            </div>
+          </div>
+
+          <div>
             <div class="text-[11px] uppercase tracking-wide text-gray-500">Token fingerprint</div>
             <div class="mt-1 overflow-x-auto rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
               <%= case @worker_token_state do %>
-                <% {:ok, fingerprint} -> %>
+                <% {:ok, _token, fingerprint} -> %>
                   {fingerprint}
                 <% :error -> %>
                   not configured
@@ -1100,7 +1112,7 @@ defmodule ReencodarrWeb.DashboardLive do
           |> Base.encode16(case: :lower)
           |> String.slice(0, 12)
 
-        {:ok, "sha256:#{digest}"}
+        {:ok, token, "sha256:#{digest}"}
 
       _ ->
         :error

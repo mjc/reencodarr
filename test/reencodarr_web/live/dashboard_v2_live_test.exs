@@ -99,6 +99,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       expected_fingerprint = worker_token_fingerprint("deploy-test-worker-token")
 
       assert html =~ "Worker WebSocket"
+      assert html =~ "deploy-test-worker-token"
       assert html =~ expected_fingerprint
       assert html =~ "/workers/socket/websocket?token="
     end
