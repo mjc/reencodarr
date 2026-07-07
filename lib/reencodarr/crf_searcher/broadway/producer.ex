@@ -64,7 +64,10 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
 
     videos =
       if status == :available and not suspended? do
-        Media.get_videos_for_crf_search(1)
+        case Media.claim_next_video_for_crf_search() do
+          nil -> []
+          video -> [video]
+        end
       else
         []
       end

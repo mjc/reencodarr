@@ -116,6 +116,34 @@ defmodule Reencodarr.BroadwayProducersTest do
       assert is_list(videos)
     end
 
+    test "atomic claim transitions video to :crf_searching" do
+      expect_crf_available()
+
+      {:ok, video} = video_fixture(%{state: :analyzed})
+
+      state = init_state(CrfProducer)
+      {:noreply, videos, _state2} = CrfProducer.handle_demand(1, state)
+
+      assert Enum.count(videos) == 1
+      assert hd(videos).id == video.id
+
+      refreshed = Reencodarr.Repo.get!(Reencodarr.Media.Video, video.id)
+      assert refreshed.state == :crf_searching
+    end
+
+    test "claimed CRF videos are not dispatched again" do
+      expect_crf_available()
+
+      {:ok, _video} = video_fixture(%{state: :analyzed})
+
+      state = init_state(CrfProducer)
+      {:noreply, videos1, state2} = CrfProducer.handle_demand(1, state)
+      assert Enum.count(videos1) == 1
+
+      {:noreply, videos2, _state3} = CrfProducer.handle_demand(1, state2)
+      assert videos2 == []
+    end
+
     test "poll returns list when called" do
       {:ok, _video} = video_fixture(%{state: :analyzed})
 
@@ -167,5 +195,18 @@ defmodule Reencodarr.BroadwayProducersTest do
       state = init_state(EncoderProducer)
       assert {:noreply, [], ^state} = EncoderProducer.handle_info(:unknown, state)
     end
+  end
+
+  defp expect_crf_available do
+    :meck.new(Reencodarr.AbAv1.CrfSearch, [:passthrough])
+    :meck.expect(Reencodarr.AbAv1.CrfSearch, :available?, fn -> :available end)
+
+    on_exit(fn ->
+      try do
+        :meck.unload(Reencodarr.AbAv1.CrfSearch)
+      catch
+        :error, {:not_mocked, Reencodarr.AbAv1.CrfSearch} -> :ok
+      end
+    end)
   end
 end
