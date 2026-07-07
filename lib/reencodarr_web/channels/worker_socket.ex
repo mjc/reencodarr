@@ -5,7 +5,9 @@ defmodule ReencodarrWeb.WorkerSocket do
 
   use Phoenix.Socket
 
-  channel "workers:crf_search", ReencodarrWeb.WorkerChannel
+  alias Reencodarr.AbAv1.WorkerProtocol
+
+  channel WorkerProtocol.crf_search_topic(), ReencodarrWeb.WorkerChannel
 
   @impl true
   def connect(%{"token" => token}, socket, _connect_info) do
