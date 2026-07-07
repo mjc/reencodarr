@@ -12,7 +12,13 @@ config :reencodarr,
   generators: [timestamp_type: :utc_datetime],
   env: config_env(),
   dashboard_stats_query_timeout_ms: 500,
-  dashboard_queue_query_timeout_ms: 5_000
+  dashboard_queue_query_timeout_ms: 5_000,
+  distributed_worker_enabled: true,
+  worker_chunk_size_bytes: 1_048_576,
+  worker_transfer_window: 1,
+  worker_retry_limit: 3,
+  worker_transfer_timeout_ms: 60_000,
+  worker_max_concurrent_transfers: 1
 
 # Shared database configuration - SQLite performance tuning
 config :reencodarr, Reencodarr.Repo,

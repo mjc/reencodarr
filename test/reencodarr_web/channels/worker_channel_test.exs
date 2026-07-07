@@ -502,6 +502,30 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "rejects worker connections when distributed workers are disabled" do
+      previous_enabled = Application.get_env(:reencodarr, :distributed_worker_enabled)
+      previous_token = Application.get_env(:reencodarr, :worker_token)
+
+      on_exit(fn ->
+        if is_nil(previous_enabled) do
+          Application.delete_env(:reencodarr, :distributed_worker_enabled)
+        else
+          Application.put_env(:reencodarr, :distributed_worker_enabled, previous_enabled)
+        end
+
+        if is_nil(previous_token) do
+          Application.delete_env(:reencodarr, :worker_token)
+        else
+          Application.put_env(:reencodarr, :worker_token, previous_token)
+        end
+      end)
+
+      Application.put_env(:reencodarr, :distributed_worker_enabled, false)
+      Application.put_env(:reencodarr, :worker_token, "test-worker-token")
+
+      assert :error = connect(WorkerSocket, %{"token" => "test-worker-token"})
+    end
+
     test "rejects invalid topics without crashing" do
       assert {:error, %{reason: "unauthorized"}} =
                WorkerChannel.join("workers:other", %{}, %{assigns: %{worker_id: "worker-1"}})

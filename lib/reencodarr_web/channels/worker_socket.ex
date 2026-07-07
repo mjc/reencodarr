@@ -5,22 +5,20 @@ defmodule ReencodarrWeb.WorkerSocket do
 
   use Phoenix.Socket
 
+  alias Reencodarr.AbAv1.WorkerConfig
   alias Reencodarr.AbAv1.WorkerProtocol
 
   channel WorkerProtocol.crf_search_topic(), ReencodarrWeb.WorkerChannel
 
   @impl true
   def connect(%{"token" => token}, socket, _connect_info) when is_binary(token) do
-    case Application.fetch_env(:reencodarr, :worker_token) do
-      {:ok, configured_token} when is_binary(configured_token) ->
-        if Plug.Crypto.secure_compare(configured_token, token) do
-          {:ok, assign(socket, :worker_id, worker_id())}
-        else
-          :error
-        end
-
-      _ ->
-        :error
+    with true <- WorkerConfig.enabled?(),
+         {:ok, configured_token} when is_binary(configured_token) <-
+           Application.fetch_env(:reencodarr, :worker_token),
+         true <- Plug.Crypto.secure_compare(configured_token, token) do
+      {:ok, assign(socket, :worker_id, worker_id())}
+    else
+      _ -> :error
     end
   end
 

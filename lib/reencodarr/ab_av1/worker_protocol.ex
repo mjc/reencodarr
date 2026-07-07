@@ -3,11 +3,11 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   Server-side helpers for the ab-av1 worker websocket protocol.
   """
 
+  alias Reencodarr.AbAv1.WorkerConfig
   alias Reencodarr.Media.Video
 
   @crf_search_topic "workers:crf_search"
   @supported_protocol_versions [1]
-  @default_chunk_size_bytes 1_048_576
 
   defmodule Announcement do
     @moduledoc false
@@ -110,7 +110,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
     @type t :: %__MODULE__{
             video_id: pos_integer(),
-            result: :ok | :cancelled | :shutdown | {:error, term()},
+            result: :ok | :cancelled | :shutdown | :failed | {:error, term()},
             chosen_crf: number() | nil
           }
   end
@@ -127,7 +127,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
           optional(:target) => integer() | nil,
           optional(:chosen) => boolean()
         }
-  @type completion_result :: :ok | :cancelled | :shutdown | {:error, term()}
+  @type completion_result :: :ok | :cancelled | :shutdown | :failed | {:error, term()}
 
   @spec crf_search_topic() :: String.t()
   def crf_search_topic, do: @crf_search_topic
@@ -136,7 +136,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   def supported_protocol_versions, do: @supported_protocol_versions
 
   @spec chunk_size_bytes() :: pos_integer()
-  def chunk_size_bytes, do: @default_chunk_size_bytes
+  def chunk_size_bytes, do: WorkerConfig.chunk_size_bytes()
 
   @spec valid_topic?(String.t()) :: boolean()
   def valid_topic?(@crf_search_topic), do: true

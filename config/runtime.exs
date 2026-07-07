@@ -20,6 +20,20 @@ if System.get_env("PHX_SERVER") do
   config :reencodarr, ReencodarrWeb.Endpoint, server: true
 end
 
+parse_bool_env = fn
+  "false" -> false
+  "0" -> false
+  "no" -> false
+  _ -> true
+end
+
+parse_int_env = fn name, default ->
+  case System.get_env(name) do
+    nil -> default
+    value -> String.to_integer(value)
+  end
+end
+
 worker_token =
   System.get_env("REENCODARR_WORKER_TOKEN")
   |> case do
@@ -40,6 +54,15 @@ worker_token =
 if worker_token do
   config :reencodarr, :worker_token, worker_token
 end
+
+config :reencodarr,
+  distributed_worker_enabled:
+    parse_bool_env.(System.get_env("REENCODARR_DISTRIBUTED_WORKERS", "true")),
+  worker_chunk_size_bytes: parse_int_env.("REENCODARR_WORKER_CHUNK_SIZE_BYTES", 1_048_576),
+  worker_transfer_window: parse_int_env.("REENCODARR_WORKER_TRANSFER_WINDOW", 1),
+  worker_retry_limit: parse_int_env.("REENCODARR_WORKER_RETRY_LIMIT", 3),
+  worker_transfer_timeout_ms: parse_int_env.("REENCODARR_WORKER_TRANSFER_TIMEOUT_MS", 60_000),
+  worker_max_concurrent_transfers: parse_int_env.("REENCODARR_WORKER_MAX_CONCURRENT_TRANSFERS", 1)
 
 if config_env() == :prod do
   # Parse CHECK_ORIGIN env var: "false" disables, otherwise comma-separated origin list

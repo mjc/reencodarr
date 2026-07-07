@@ -157,4 +157,19 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
              target_vmaf: 96.5
            }
   end
+
+  test "reads chunk size from configuration" do
+    previous = Application.get_env(:reencodarr, :worker_chunk_size_bytes)
+    Application.put_env(:reencodarr, :worker_chunk_size_bytes, 2_097_152)
+
+    try do
+      assert WorkerProtocol.chunk_size_bytes() == 2_097_152
+    after
+      if is_nil(previous) do
+        Application.delete_env(:reencodarr, :worker_chunk_size_bytes)
+      else
+        Application.put_env(:reencodarr, :worker_chunk_size_bytes, previous)
+      end
+    end
+  end
 end
