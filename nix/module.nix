@@ -40,6 +40,19 @@
 
   iexDotFile = pkgs.writeText "reencodarr-iex.exs" (builtins.readFile ../.iex.exs);
 
+  remoteIexScript = pkgs.writeShellScript "reencodarr-remote-iex" ''
+    set -euo pipefail
+
+    tmp_dir="$(mktemp -d ${cfg.cacheDir}/tmp/reencodarr-remote.XXXXXX)"
+    trap 'rm -rf "$tmp_dir"' EXIT
+
+    cp ${iexDotFile} "$tmp_dir/.iex.exs"
+    export HOME="$tmp_dir"
+    cd "$tmp_dir"
+
+    exec ${lib.getExe cfg.package} remote
+  '';
+
   remoteScript = pkgs.writeShellApplication {
     name = "reencodarr-remote";
     runtimeInputs = [pkgs.bash pkgs.coreutils pkgs.systemd];
@@ -70,14 +83,7 @@
         --working-directory=${cfg.dataDir} \
         --setenv=REENCODARR_DATA_DIR=${cfg.dataDir} \
         --setenv=ERL_AFLAGS="-kernel shell_history enabled" \
-        ${pkgs.bash}/bin/bash -lc ${lib.escapeShellArg ''
-        tmp_dir="$(mktemp -d ${cfg.cacheDir}/tmp/reencodarr-remote.XXXXXX)"
-        trap 'rm -rf "$tmp_dir"' EXIT
-        cp ${iexDotFile} "$tmp_dir/.iex.exs"
-        export HOME="$tmp_dir"
-        cd "$tmp_dir"
-        ${lib.getExe cfg.package} remote
-      ''}
+        ${remoteIexScript}
     '';
   };
 
