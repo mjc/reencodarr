@@ -131,6 +131,25 @@ defmodule Reencodarr.BroadwayProducersTest do
       assert refreshed.state == :crf_searching
     end
 
+    test "atomic claim broadcasts video mutation for dashboard counts" do
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, "video_state_transitions")
+      expect_crf_available()
+      {:ok, video} = video_fixture(%{state: :analyzed})
+
+      state = init_state(CrfProducer)
+      {:noreply, [_claimed], _state2} = CrfProducer.handle_demand(1, state)
+
+      assert_receive {:video_mutated,
+                      %{
+                        action: :update,
+                        old_video: %{id: old_id, state: :analyzed},
+                        new_video: %{id: new_id, state: :crf_searching}
+                      }}
+
+      assert old_id == video.id
+      assert new_id == video.id
+    end
+
     test "claimed CRF videos are not dispatched again" do
       expect_crf_available()
 
