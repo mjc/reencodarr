@@ -7,6 +7,7 @@ defmodule ReencodarrWeb.WorkersLive do
 
   alias Reencodarr.AbAv1.WorkerSessions
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.Media
 
   @refresh_interval 5_000
 
@@ -67,7 +68,7 @@ defmodule ReencodarrWeb.WorkersLive do
             <thead class="bg-gray-950/60 text-xs uppercase tracking-wide text-gray-500">
               <tr>
                 <th class="px-4 py-3 text-left font-medium">Worker</th>
-                <th class="px-4 py-3 text-left font-medium">Status</th>
+                <th class="px-4 py-3 text-left font-medium">State</th>
                 <th class="px-4 py-3 text-left font-medium">Video</th>
                 <th class="px-4 py-3 text-left font-medium">Protocol</th>
                 <th class="px-4 py-3 text-left font-medium">Version</th>
@@ -123,7 +124,13 @@ defmodule ReencodarrWeb.WorkersLive do
   end
 
   defp worker_status(%{active_video_id: nil}), do: "Idle"
-  defp worker_status(%{active_video_id: _video_id}), do: "Working"
+
+  defp worker_status(%{active_video_id: video_id}) do
+    case Media.get_video(video_id) do
+      %Media.Video{state: state} -> Atom.to_string(state)
+      nil -> "missing"
+    end
+  end
 
   defp worker_video(%{active_video_id: nil}), do: "none"
   defp worker_video(%{active_video_id: video_id}), do: "video ##{video_id}"

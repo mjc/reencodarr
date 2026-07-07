@@ -4,6 +4,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
   alias Reencodarr.AbAv1.WorkerSessions
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Diagnostics
+  alias Reencodarr.Fixtures
 
   setup do
     WorkerSessions.reset()
@@ -52,6 +53,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
 
   test "includes worker sessions in diagnostics output" do
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+    {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", video.id)
 
     output = Diagnostics.processes()
 
@@ -59,6 +62,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert output =~ "worker-client-1"
     assert output =~ "protocol=1"
     assert output =~ "version=0.10.0"
+    assert output =~ "state=analyzed"
   end
 
   test "tracks an assigned video on the session" do

@@ -4,6 +4,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
   import Phoenix.LiveViewTest
 
   alias Reencodarr.AbAv1.WorkerSessions
+  alias Reencodarr.Fixtures
 
   setup do
     WorkerSessions.reset()
@@ -28,14 +29,17 @@ defmodule ReencodarrWeb.WorkersLiveTest do
         capabilities: %{"crf_search" => true}
       })
 
+    {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
     assert {:ok, view, html} = live(conn, ~p"/workers")
     assert html =~ "worker-client-1"
     assert html =~ "Idle"
 
-    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", 123)
+    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", video.id)
 
+    send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
     html = render(view)
-    assert html =~ "Working"
-    assert html =~ "video #123"
+    assert html =~ "analyzed"
+    assert html =~ "video ##{video.id}"
   end
 end
