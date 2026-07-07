@@ -8,6 +8,9 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
   @crf_search_topic "workers:crf_search"
   @supported_protocol_versions [1]
+  @transfer_chunk_magic "RAV1"
+  @transfer_chunk_frame_version 1
+  @transfer_chunk_frame_type 1
 
   defmodule Announcement do
     @moduledoc false
@@ -304,7 +307,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
           non_neg_integer(),
           non_neg_integer(),
           binary()
-        ) :: map()
+        ) :: {:binary, binary()}
   def transfer_chunk(
         %Video{id: video_id},
         transfer_id,
@@ -317,17 +320,77 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
       when is_integer(video_id) and is_binary(transfer_id) and is_integer(chunk_index) and
              is_integer(total_chunks) and is_integer(bytes_sent) and is_integer(total_bytes) and
              is_binary(chunk) do
-    %{
-      status: "transfer_chunk",
-      video_id: video_id,
-      transfer_id: transfer_id,
-      chunk_index: chunk_index,
-      total_chunks: total_chunks,
-      bytes_sent: bytes_sent,
-      total_bytes: total_bytes,
-      crc32: :erlang.crc32(chunk),
-      data: Base.encode64(chunk)
-    }
+    {:binary,
+     transfer_chunk_frame(
+       video_id,
+       transfer_id,
+       chunk_index,
+       total_chunks,
+       bytes_sent,
+       total_bytes,
+       chunk
+     )}
+  end
+
+  @spec parse_transfer_chunk_frame(binary()) :: {:ok, map()} | {:error, atom()}
+  def parse_transfer_chunk_frame(
+        <<@transfer_chunk_magic, @transfer_chunk_frame_version, @transfer_chunk_frame_type,
+          transfer_id_size::16, video_id::64, chunk_index::64, total_chunks::64, bytes_sent::64,
+          total_bytes::64, crc32::32, transfer_id::binary-size(transfer_id_size), data::binary>>
+      ) do
+    if :erlang.crc32(data) == crc32 do
+      {:ok,
+       %{
+         video_id: video_id,
+         transfer_id: transfer_id,
+         chunk_index: chunk_index,
+         total_chunks: total_chunks,
+         bytes_sent: bytes_sent,
+         total_bytes: total_bytes,
+         crc32: crc32,
+         data: data
+       }}
+    else
+      {:error, :crc_mismatch}
+    end
+  end
+
+  def parse_transfer_chunk_frame(
+        <<@transfer_chunk_magic, @transfer_chunk_frame_version, _frame_type, _rest::binary>>
+      ),
+      do: {:error, :unsupported_transfer_chunk_frame_type}
+
+  def parse_transfer_chunk_frame(<<@transfer_chunk_magic, _version, _rest::binary>>),
+    do: {:error, :unsupported_transfer_chunk_frame_version}
+
+  def parse_transfer_chunk_frame(_frame), do: {:error, :invalid_transfer_chunk_frame}
+
+  defp transfer_chunk_frame(
+         video_id,
+         transfer_id,
+         chunk_index,
+         total_chunks,
+         bytes_sent,
+         total_bytes,
+         chunk
+       ) do
+    transfer_id_size = byte_size(transfer_id)
+    crc32 = :erlang.crc32(chunk)
+
+    <<
+      @transfer_chunk_magic,
+      @transfer_chunk_frame_version,
+      @transfer_chunk_frame_type,
+      transfer_id_size::16,
+      video_id::64,
+      chunk_index::64,
+      total_chunks::64,
+      bytes_sent::64,
+      total_bytes::64,
+      crc32::32,
+      transfer_id::binary,
+      chunk::binary
+    >>
   end
 
   @spec transfer_complete(Video.t(), String.t(), non_neg_integer(), non_neg_integer()) :: map()

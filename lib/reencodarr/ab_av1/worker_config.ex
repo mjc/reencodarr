@@ -3,7 +3,7 @@ defmodule Reencodarr.AbAv1.WorkerConfig do
   Runtime configuration for distributed ab-av1 workers.
   """
 
-  @default_chunk_size_bytes 1_048_576
+  @default_chunk_size_bytes 134_217_728
 
   @spec enabled?() :: boolean()
   def enabled? do

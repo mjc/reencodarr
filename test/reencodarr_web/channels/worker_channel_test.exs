@@ -1,6 +1,7 @@
 defmodule ReencodarrWeb.WorkerChannelTest do
   use ReencodarrWeb.ChannelCase, async: false
 
+  alias Reencodarr.AbAv1.WorkerProtocol
   alias Reencodarr.AbAv1.WorkerSessions
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Fixtures
@@ -73,7 +74,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                      video_id: assigned_video_id,
                      source_name: source_name,
                      size_bytes: size_bytes,
-                     chunk_size_bytes: 1_048_576
+                     chunk_size_bytes: 134_217_728
                    }
 
       assert job_id == Integer.to_string(video.id)
@@ -263,16 +264,25 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
     test "streams assigned media in ordered chunks with integrity data" do
       token = "test-worker-token"
+      previous_chunk_size = Application.get_env(:reencodarr, :worker_chunk_size_bytes)
       Application.put_env(:reencodarr, :worker_token, token)
+      Application.put_env(:reencodarr, :worker_chunk_size_bytes, 4)
 
-      content = :binary.copy("abcd", 262_145)
+      on_exit(fn ->
+        if is_nil(previous_chunk_size) do
+          Application.delete_env(:reencodarr, :worker_chunk_size_bytes)
+        else
+          Application.put_env(:reencodarr, :worker_chunk_size_bytes, previous_chunk_size)
+        end
+      end)
+
+      chunk_size = 4
+      content = "abcdefgh"
       content_size = byte_size(content)
-      first_chunk = binary_part(content, 0, 1_048_576)
-      second_chunk = binary_part(content, 1_048_576, content_size - 1_048_576)
+      first_chunk = binary_part(content, 0, chunk_size)
+      second_chunk = binary_part(content, chunk_size, content_size - chunk_size)
       first_crc32 = :erlang.crc32(first_chunk)
       second_crc32 = :erlang.crc32(second_chunk)
-      first_encoded = Base.encode64(first_chunk)
-      second_encoded = Base.encode64(second_chunk)
 
       with_temp_file(content, ".mkv", fn path ->
         {:ok, video} =
@@ -294,7 +304,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                      %{
                        status: "job_assigned",
                        video_id: assigned_video_id,
-                       chunk_size_bytes: 1_048_576
+                       chunk_size_bytes: ^chunk_size
                      }
 
         assert assigned_video_id == video.id
@@ -304,34 +314,38 @@ defmodule ReencodarrWeb.WorkerChannelTest do
           video_id: ^assigned_video_id,
           transfer_id: transfer_id,
           size_bytes: content_size,
-          chunk_size_bytes: 1_048_576,
+          chunk_size_bytes: ^chunk_size,
           total_bytes: content_size,
           total_chunks: 2
         }
 
-        assert_push "transfer_chunk", %{
-          status: "transfer_chunk",
-          video_id: ^assigned_video_id,
-          transfer_id: ^transfer_id,
-          chunk_index: 0,
-          total_chunks: 2,
-          bytes_sent: 1_048_576,
-          total_bytes: ^content_size,
-          crc32: ^first_crc32,
-          data: ^first_encoded
-        }
+        assert_push "transfer_chunk", {:binary, first_frame}
 
-        assert_push "transfer_chunk", %{
-          status: "transfer_chunk",
-          video_id: ^assigned_video_id,
-          transfer_id: ^transfer_id,
-          chunk_index: 1,
-          total_chunks: 2,
-          bytes_sent: ^content_size,
-          total_bytes: ^content_size,
-          crc32: ^second_crc32,
-          data: ^second_encoded
-        }
+        assert {:ok,
+                %{
+                  video_id: ^assigned_video_id,
+                  transfer_id: ^transfer_id,
+                  chunk_index: 0,
+                  total_chunks: 2,
+                  bytes_sent: ^chunk_size,
+                  total_bytes: ^content_size,
+                  crc32: ^first_crc32,
+                  data: ^first_chunk
+                }} = WorkerProtocol.parse_transfer_chunk_frame(first_frame)
+
+        assert_push "transfer_chunk", {:binary, second_frame}
+
+        assert {:ok,
+                %{
+                  video_id: ^assigned_video_id,
+                  transfer_id: ^transfer_id,
+                  chunk_index: 1,
+                  total_chunks: 2,
+                  bytes_sent: ^content_size,
+                  total_bytes: ^content_size,
+                  crc32: ^second_crc32,
+                  data: ^second_chunk
+                }} = WorkerProtocol.parse_transfer_chunk_frame(second_frame)
 
         assert_push "transfer_complete", %{
           status: "transfer_complete",

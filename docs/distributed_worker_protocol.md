@@ -41,7 +41,7 @@ Server reply:
 - `chunk_size_bytes`
 - `target_vmaf`
 
-The current chunk size is `1_048_576` bytes.
+The default chunk size is `134_217_728` bytes (128 MiB).
 
 ## Media Transfer
 
@@ -62,23 +62,29 @@ Fields:
 
 ### `transfer_chunk`
 
-Fields:
+`transfer_chunk` is a binary Phoenix channel payload. It is not JSON and does
+not base64-encode media bytes.
 
-- `status: "transfer_chunk"`
-- `video_id`
-- `transfer_id`
-- `chunk_index`
-- `total_chunks`
-- `bytes_sent`
-- `total_bytes`
-- `crc32`
-- `data`
+Frame layout:
+
+- `magic`: 4 bytes, `RAV1`
+- `version`: 1 byte, currently `1`
+- `type`: 1 byte, currently `1` for transfer chunk
+- `transfer_id_size`: 16-bit unsigned integer
+- `video_id`: 64-bit unsigned integer
+- `chunk_index`: 64-bit unsigned integer
+- `total_chunks`: 64-bit unsigned integer
+- `bytes_sent`: 64-bit unsigned integer
+- `total_bytes`: 64-bit unsigned integer
+- `crc32`: 32-bit unsigned integer
+- `transfer_id`: `transfer_id_size` bytes
+- `data`: raw chunk bytes
 
 Notes:
 
 - `chunk_index` starts at `0` and increments monotonically.
 - `crc32` is computed from the raw chunk bytes.
-- `data` is base64-encoded chunk data.
+- `data` is the raw file data for that chunk.
 
 ### `transfer_complete`
 
@@ -118,4 +124,3 @@ The channel also accepts these client-to-server events:
 - `crf_search_completed` with `cancelled` or `shutdown` returns the video to `analyzed`.
 - `video_failed` records a structured failure and clears the active assignment.
 - Disconnecting a worker with active CRF-search work requeues the video.
-

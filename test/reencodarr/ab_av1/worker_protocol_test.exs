@@ -177,9 +177,38 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
              video_id: 123,
              source_name: "movie.mkv",
              size_bytes: 987_654,
-             chunk_size_bytes: 1_048_576,
+             chunk_size_bytes: 134_217_728,
              target_vmaf: 96.5
            }
+  end
+
+  test "builds binary transfer chunk frames with ordered metadata and raw data" do
+    chunk = "raw video bytes"
+
+    assert {:binary, frame} =
+             WorkerProtocol.transfer_chunk(
+               %Reencodarr.Media.Video{id: 123},
+               "transfer-123",
+               7,
+               9,
+               1_024,
+               2_048,
+               chunk
+             )
+
+    assert {:ok,
+            %{
+              video_id: 123,
+              transfer_id: "transfer-123",
+              chunk_index: 7,
+              total_chunks: 9,
+              bytes_sent: 1_024,
+              total_bytes: 2_048,
+              crc32: crc32,
+              data: ^chunk
+            }} = WorkerProtocol.parse_transfer_chunk_frame(frame)
+
+    assert crc32 == :erlang.crc32(chunk)
   end
 
   test "reads chunk size from configuration" do
