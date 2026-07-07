@@ -30,6 +30,15 @@
     ${lib.optionalString (cfg.secretKeyBaseFile != null) ''
       export SECRET_KEY_BASE="$(< "$CREDENTIALS_DIRECTORY/secret_key_base")"
     ''}
+    if [ -z "''${REENCODARR_WORKER_TOKEN:-}" ] && [ -n "''${SECRET_KEY_BASE:-}" ]; then
+      export REENCODARR_WORKER_TOKEN="$(
+        printf '%s' "''${SECRET_KEY_BASE}:ab-av1-worker-token" \
+          | ${pkgs.openssl}/bin/openssl dgst -sha256 -binary \
+          | ${pkgs.coreutils}/bin/base64 -w 0 \
+          | ${pkgs.coreutils}/bin/tr '+/' '-_' \
+          | ${pkgs.coreutils}/bin/tr -d '='
+      )"
+    fi
   '';
 
   startScript = pkgs.writeShellScript "reencodarr-start" ''

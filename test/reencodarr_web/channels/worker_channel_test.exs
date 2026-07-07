@@ -4,6 +4,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
   alias Reencodarr.AbAv1.WorkerSessions
   alias Reencodarr.Fixtures
   alias Reencodarr.Media
+  alias ReencodarrWeb.WorkerChannel
   alias ReencodarrWeb.WorkerSocket
 
   describe "ab-av1 worker websocket" do
@@ -213,6 +214,13 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert :error = connect(WorkerSocket, %{})
       assert :error = connect(WorkerSocket, %{"token" => "wrong"})
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "rejects invalid topics without crashing" do
+      assert {:error, %{reason: "unauthorized"}} =
+               WorkerChannel.join("workers:other", %{}, %{assigns: %{worker_id: "worker-1"}})
     after
       Application.delete_env(:reencodarr, :worker_token)
     end

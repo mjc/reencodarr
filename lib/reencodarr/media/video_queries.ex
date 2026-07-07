@@ -193,7 +193,7 @@ defmodule Reencodarr.Media.VideoQueries do
       from(v in Video,
         where: v.state == :analyzed,
         order_by: [desc: v.priority, desc: v.bitrate, desc: v.size, asc: v.updated_at],
-        limit: 1,
+        limit: 10,
         select: v.id
       )
       |> Repo.all(opts)

@@ -21,15 +21,7 @@ if System.get_env("PHX_SERVER") do
 end
 
 worker_token =
-  System.get_env("REENCODARR_WORKER_TOKEN") ||
-    case System.get_env("SECRET_KEY_BASE") do
-      nil ->
-        nil
-
-      secret_key_base ->
-        :crypto.hash(:sha256, secret_key_base <> ":ab-av1-worker-token")
-        |> Base.url_encode64(padding: false)
-    end
+  System.get_env("REENCODARR_WORKER_TOKEN")
 
 if worker_token do
   config :reencodarr, :worker_token, worker_token

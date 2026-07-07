@@ -72,6 +72,11 @@ in
       export MIX_OS_DEPS_COMPILE_PARTITION_COUNT=$(( $(nproc) / 2 ))
       export ERL_AFLAGS="-kernel shell_history enabled"
       export SECRET_KEY_BASE="WEWsPGIpK/OgJA2ZcwzsgZxWKSAp35IsqWPYsvSUmm5awBUGpvsVOcG2kkDteXR1"
+      export REENCODARR_WORKER_TOKEN="$(printf '%s' "''${SECRET_KEY_BASE}:ab-av1-worker-token" \
+        | ${pkgs.openssl}/bin/openssl dgst -sha256 -binary \
+        | ${pkgs.coreutils}/bin/base64 -w 0 \
+        | ${pkgs.coreutils}/bin/tr '+/' '-_' \
+        | ${pkgs.coreutils}/bin/tr -d '=')"
       export COMPOSE_BAKE=true
 
       export GPG_TTY=$(tty)

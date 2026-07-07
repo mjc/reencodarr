@@ -6,6 +6,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   use ReencodarrWeb, :channel
 
   alias Reencodarr.AbAv1.{WorkerProtocol, WorkerSessions}
+  alias Reencodarr.AbAv1.WorkerProtocol.Announcement
   alias Reencodarr.Media
 
   @crf_search_topic WorkerProtocol.crf_search_topic()
@@ -15,18 +16,18 @@ defmodule ReencodarrWeb.WorkerChannel do
     {:ok, %{worker_id: worker_id}, socket}
   end
 
-  def join(_topic, _payload, socket), do: {:error, WorkerProtocol.error(:unauthorized), socket}
+  def join(_topic, _payload, _socket), do: {:error, WorkerProtocol.error(:unauthorized)}
 
   @impl true
   def handle_in("announce", payload, %{assigns: %{worker_id: server_worker_id}} = socket) do
     with {:ok,
-          %{
+          %Announcement{
             worker_id: client_worker_id,
             protocol_version: protocol_version,
             version: version,
             capabilities: capabilities
           }} <- WorkerProtocol.parse_announcement(payload),
-         true <- WorkerProtocol.supported_protocol_version?(protocol_version),
+         :ok <- ensure_supported_protocol_version(protocol_version),
          {:ok, _session} <-
            WorkerSessions.register(%{
              server_worker_id: server_worker_id,
@@ -44,9 +45,6 @@ defmodule ReencodarrWeb.WorkerChannel do
 
       {:reply, {:ok, WorkerProtocol.accepted(protocol_version)}, socket}
     else
-      false ->
-        {:reply, {:error, WorkerProtocol.error(:unsupported_protocol_version)}, socket}
-
       {:error, reason} ->
         {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
@@ -65,6 +63,14 @@ defmodule ReencodarrWeb.WorkerChannel do
   def handle_in("request_work", payload, socket), do: handle_work_request(payload, socket)
 
   def handle_in("pull_work", payload, socket), do: handle_work_request(payload, socket)
+
+  defp ensure_supported_protocol_version(protocol_version) do
+    if WorkerProtocol.supported_protocol_version?(protocol_version) do
+      :ok
+    else
+      {:error, :unsupported_protocol_version}
+    end
+  end
 
   @impl true
   def terminate(_reason, %{assigns: %{worker_id: worker_id}} = socket) do

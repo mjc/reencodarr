@@ -308,6 +308,13 @@ defmodule Reencodarr.Diagnostics do
     cache_stats = safe_call(fn -> MediaInfoCache.get_stats() end)
     worker_sessions = safe_call(fn -> WorkerSessions.list() end)
 
+    worker_sessions_section =
+      case worker_sessions do
+        {:error, _} -> "  Unavailable"
+        sessions when is_list(sessions) -> format_worker_sessions(sessions)
+        _ -> "  Unknown state"
+      end
+
     """
     #{section("Live Process State")}
 
@@ -321,7 +328,7 @@ defmodule Reencodarr.Diagnostics do
     #{format_health_check_state(health_state)}
 
     Worker Sessions:
-    #{format_worker_sessions(worker_sessions)}
+    #{worker_sessions_section}
 
     MediaInfo Cache:
     #{format_cache_stats(cache_stats)}
@@ -658,7 +665,6 @@ defmodule Reencodarr.Diagnostics do
 
   defp format_health_check_state(_), do: "  Unknown state"
 
-  defp format_worker_sessions({:error, _}), do: "  Unavailable"
   defp format_worker_sessions([]), do: "  none"
 
   defp format_worker_sessions(worker_sessions) when is_list(worker_sessions) do
@@ -668,8 +674,6 @@ defmodule Reencodarr.Diagnostics do
       "  #{session.client_worker_id} protocol=#{session.protocol_version} version=#{session.version} video=#{active_video_id} capabilities=#{inspect(session.capabilities)} last_seen=#{DateTime.to_iso8601(session.last_seen_at)}"
     end)
   end
-
-  defp format_worker_sessions(_), do: "  Unknown state"
 
   defp video_active_in_state?({:error, _}, _video_id), do: false
 
