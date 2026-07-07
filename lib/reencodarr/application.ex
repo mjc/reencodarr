@@ -109,6 +109,7 @@ defmodule Reencodarr.Application do
       {Phoenix.PubSub, name: Reencodarr.PubSub},
       # Start the Finch HTTP client for outbound API requests.
       {Finch, name: Reencodarr.Finch},
+      Reencodarr.AbAv1.WorkerSessions,
       # Start to serve requests, typically the last entry
       ReencodarrWeb.Endpoint,
       # DynamicSupervisor for port-holder processes (AbAv1.Encoder, AbAv1.CrfSearcher).
