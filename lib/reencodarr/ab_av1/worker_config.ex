@@ -10,6 +10,18 @@ defmodule Reencodarr.AbAv1.WorkerConfig do
     Application.get_env(:reencodarr, :distributed_worker_enabled, false)
   end
 
+  @spec enable() :: :ok
+  def enable do
+    Application.put_env(:reencodarr, :distributed_worker_enabled, true)
+    :ok
+  end
+
+  @spec disable() :: :ok
+  def disable do
+    Application.put_env(:reencodarr, :distributed_worker_enabled, false)
+    :ok
+  end
+
   @spec chunk_size_bytes() :: pos_integer()
   def chunk_size_bytes do
     Application.get_env(:reencodarr, :worker_chunk_size_bytes, @default_chunk_size_bytes)

@@ -5,6 +5,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Diagnostics
   alias Reencodarr.Fixtures
+  alias Reencodarr.Media
 
   setup do
     WorkerSessions.reset()
@@ -73,6 +74,33 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
 
     [listed_session] = WorkerSessions.list()
     assert listed_session.active_video_id == 123
+  end
+
+  test "cancels and drains active distributed work" do
+    {:ok, video_one} = Fixtures.video_fixture(%{state: :analyzed})
+    {:ok, video_two} = Fixtures.video_fixture(%{state: :analyzed})
+
+    assert {:ok, _session} =
+             WorkerSessions.register(worker_session_attrs(server_worker_id: "worker-server-1"))
+
+    assert {:ok, _session} =
+             WorkerSessions.register(
+               worker_session_attrs(
+                 server_worker_id: "worker-server-2",
+                 client_worker_id: "worker-client-2"
+               )
+             )
+
+    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", video_one.id)
+    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-2", video_two.id)
+
+    assert {:ok, _session} = WorkerSessions.cancel("worker-server-1")
+    assert Media.get_video(video_one.id).state == :analyzed
+
+    assert {:ok, drained_sessions} = WorkerSessions.drain()
+    assert Enum.map(drained_sessions, & &1.server_worker_id) == ["worker-server-2"]
+    assert Media.get_video(video_two.id).state == :analyzed
+    assert WorkerSessions.list() == []
   end
 
   defp worker_session_attrs(overrides \\ []) do

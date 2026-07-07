@@ -136,6 +136,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp handle_transfer_progress(payload, %{assigns: %{worker_id: worker_id}} = socket) do
     with {:ok, progress} <- WorkerProtocol.parse_transfer_progress(payload),
          :ok <- ensure_active_video(socket, progress.video_id) do
+      _ = WorkerSessions.set_transfer_progress(worker_id, progress)
       Events.broadcast_event(:transfer_progress, Map.put(progress, :worker_id, worker_id))
       {:reply, {:ok, WorkerProtocol.event_ack("transfer_progress")}, socket}
     else
@@ -147,6 +148,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp handle_crf_search_progress(payload, socket) do
     with {:ok, progress} <- WorkerProtocol.parse_crf_search_progress(payload),
          :ok <- ensure_active_video(socket, progress.video_id) do
+      _ = WorkerSessions.set_crf_search_progress(socket.assigns.worker_id, progress)
       Events.broadcast_event(:crf_search_progress, progress)
       {:reply, {:ok, WorkerProtocol.event_ack("crf_search_progress")}, socket}
     else

@@ -203,6 +203,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
       assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+      server_worker_id = socket.assigns.worker_id
 
       assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
                    :ok,
@@ -253,6 +254,9 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                       }}
 
       assert filename == Path.basename(video.path)
+      session = WorkerSessions.get(server_worker_id)
+      assert session.transfer_progress.percent == 25.5
+      assert session.crf_search_progress.percent == 62.0
     after
       Application.delete_env(:reencodarr, :worker_token)
     end

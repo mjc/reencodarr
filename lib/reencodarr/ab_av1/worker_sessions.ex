@@ -17,6 +17,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           protocol_version: pos_integer(),
           capabilities: map(),
           active_video_id: integer() | nil,
+          transfer_progress: map() | nil,
+          crf_search_progress: map() | nil,
           connected_at: DateTime.t(),
           last_seen_at: DateTime.t()
         }
@@ -43,6 +45,22 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def clear_video(server_worker_id) do
     GenServer.call(__MODULE__, {:clear_video, server_worker_id})
+  end
+
+  def set_transfer_progress(server_worker_id, progress) when is_map(progress) do
+    GenServer.call(__MODULE__, {:set_transfer_progress, server_worker_id, progress})
+  end
+
+  def set_crf_search_progress(server_worker_id, progress) when is_map(progress) do
+    GenServer.call(__MODULE__, {:set_crf_search_progress, server_worker_id, progress})
+  end
+
+  def cancel(server_worker_id) do
+    GenServer.call(__MODULE__, {:cancel, server_worker_id})
+  end
+
+  def drain do
+    GenServer.call(__MODULE__, :drain)
   end
 
   def get(server_worker_id) do
@@ -107,14 +125,39 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def handle_call({:assign_video, server_worker_id, video_id}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
-      %{session | active_video_id: video_id}
+      %{session | active_video_id: video_id, transfer_progress: nil, crf_search_progress: nil}
     end)
   end
 
   def handle_call({:clear_video, server_worker_id}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
-      %{session | active_video_id: nil}
+      %{session | active_video_id: nil, transfer_progress: nil, crf_search_progress: nil}
     end)
+  end
+
+  def handle_call({:set_transfer_progress, server_worker_id, progress}, _from, state) do
+    update_session_reply(server_worker_id, state, fn session ->
+      %{session | transfer_progress: progress}
+    end)
+  end
+
+  def handle_call({:set_crf_search_progress, server_worker_id, progress}, _from, state) do
+    update_session_reply(server_worker_id, state, fn session ->
+      %{session | crf_search_progress: progress}
+    end)
+  end
+
+  def handle_call({:cancel, server_worker_id}, _from, state) do
+    case lookup_session(server_worker_id) do
+      {:ok, session} ->
+        requeue_active_video(session)
+        :ok = drop_session(server_worker_id)
+        broadcast_sessions()
+        {:reply, {:ok, session}, state}
+
+      :error ->
+        {:reply, {:error, :unknown_worker_session}, state}
+    end
   end
 
   def handle_call({:get, server_worker_id}, _from, state) do
@@ -140,6 +183,23 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     :ok = reset_tables()
     broadcast_sessions()
     {:reply, :ok, state}
+  end
+
+  def handle_call(:drain, _from, state) do
+    drained_sessions =
+      list_sessions()
+      |> Enum.filter(&(&1.active_video_id != nil))
+      |> Enum.map(fn session ->
+        requeue_active_video(session)
+        :ok = drop_session(session.server_worker_id)
+        session
+      end)
+
+    if drained_sessions != [] do
+      broadcast_sessions()
+    end
+
+    {:reply, {:ok, drained_sessions}, state}
   end
 
   @impl GenServer
@@ -169,6 +229,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       protocol_version: protocol_version,
       capabilities: capabilities,
       active_video_id: nil,
+      transfer_progress: nil,
+      crf_search_progress: nil,
       connected_at: now,
       last_seen_at: now
     }
@@ -240,6 +302,19 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   defp broadcast_sessions do
     Events.broadcast_event(:worker_sessions_updated, %{sessions: list_sessions()})
+  end
+
+  defp requeue_active_video(%{active_video_id: nil}), do: :ok
+
+  defp requeue_active_video(%{active_video_id: video_id}) do
+    case Reencodarr.Media.get_video(video_id) do
+      %Reencodarr.Media.Video{} = video ->
+        _ = Reencodarr.Media.mark_as_analyzed(video)
+        :ok
+
+      nil ->
+        :ok
+    end
   end
 
   defp put_session(session) do

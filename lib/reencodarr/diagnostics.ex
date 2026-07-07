@@ -671,8 +671,10 @@ defmodule Reencodarr.Diagnostics do
     Enum.map_join(worker_sessions, "\n", fn session ->
       active_video_id = session.active_video_id || "none"
       active_video_state = worker_session_state(session.active_video_id)
+      transfer_progress = format_worker_progress(session.transfer_progress, "transfer")
+      crf_search_progress = format_worker_progress(session.crf_search_progress, "crf")
 
-      "  #{session.client_worker_id} protocol=#{session.protocol_version} version=#{session.version} video=#{active_video_id} state=#{active_video_state} capabilities=#{inspect(session.capabilities)} last_seen=#{DateTime.to_iso8601(session.last_seen_at)}"
+      "  #{session.client_worker_id} protocol=#{session.protocol_version} version=#{session.version} video=#{active_video_id} state=#{active_video_state} transfer=#{transfer_progress} crf=#{crf_search_progress} capabilities=#{inspect(session.capabilities)} last_seen=#{DateTime.to_iso8601(session.last_seen_at)}"
     end)
   end
 
@@ -683,6 +685,16 @@ defmodule Reencodarr.Diagnostics do
       %Video{state: state} -> Atom.to_string(state)
       nil -> "missing"
     end
+  end
+
+  defp format_worker_progress(nil, _label), do: "none"
+
+  defp format_worker_progress(progress, label) when is_map(progress) do
+    percent = Map.get(progress, :percent, Map.get(progress, "percent"))
+    bytes_sent = Map.get(progress, :bytes_sent, Map.get(progress, "bytes_sent"))
+    total_bytes = Map.get(progress, :total_bytes, Map.get(progress, "total_bytes"))
+
+    "#{label}(percent=#{percent || "?"}, bytes_sent=#{bytes_sent || "?"}, total_bytes=#{total_bytes || "?"})"
   end
 
   defp video_active_in_state?({:error, _}, _video_id), do: false
