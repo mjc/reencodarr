@@ -51,6 +51,8 @@ defmodule ReencodarrWeb.DashboardLive do
         sync_progress: 0,
         service_type: nil,
         page_title: nil,
+        worker_token: Application.get_env(:reencodarr, :worker_token),
+        worker_socket_url: worker_socket_url(),
         # New dashboard stats
         stats: Reencodarr.Media.get_default_stats(),
         stats_display: stats_display(Reencodarr.Media.get_default_stats()),
@@ -986,49 +988,80 @@ defmodule ReencodarrWeb.DashboardLive do
   attr :syncing, :boolean, required: true
   attr :sync_progress, :integer, required: true
   attr :service_type, :atom, required: true
+  attr :worker_token, :string, default: nil
+  attr :worker_socket_url, :string, required: true
 
   defp sync_controls(assigns) do
     ~H"""
-    <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-3 sm:p-4">
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h3 class="font-semibold text-white">Media Library Sync</h3>
+    <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-3 sm:p-4">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h3 class="font-semibold text-white">Media Library Sync</h3>
 
-        <div class="flex flex-col gap-2 sm:flex-row">
-          <button
-            phx-click="sync_sonarr"
-            disabled={@syncing}
-            class={
-              "w-full px-4 py-2 text-sm rounded sm:w-auto #{if @syncing, do: "bg-gray-700 text-gray-500 cursor-not-allowed", else: "bg-blue-600 hover:bg-blue-700 text-white"}"
-            }
-          >
-            Sync Sonarr
-          </button>
-          <button
-            phx-click="sync_radarr"
-            disabled={@syncing}
-            class={
-              "w-full px-4 py-2 text-sm rounded sm:w-auto #{if @syncing, do: "bg-gray-700 text-gray-500 cursor-not-allowed", else: "bg-blue-600 hover:bg-blue-700 text-white"}"
-            }
-          >
-            Sync Radarr
-          </button>
-        </div>
-      </div>
-
-      <%= if @syncing do %>
-        <div class="mt-3">
-          <div class="w-full bg-gray-800 rounded-full h-2">
-            <div
-              class="bg-blue-500 h-2 rounded-full transition-[width] duration-150 ease-out"
-              style={"width: #{@sync_progress}%"}
+          <div class="flex flex-col gap-2 sm:flex-row">
+            <button
+              phx-click="sync_sonarr"
+              disabled={@syncing}
+              class={
+                "w-full px-4 py-2 text-sm rounded sm:w-auto #{if @syncing, do: "bg-gray-700 text-gray-500 cursor-not-allowed", else: "bg-blue-600 hover:bg-blue-700 text-white"}"
+              }
             >
+              Sync Sonarr
+            </button>
+            <button
+              phx-click="sync_radarr"
+              disabled={@syncing}
+              class={
+                "w-full px-4 py-2 text-sm rounded sm:w-auto #{if @syncing, do: "bg-gray-700 text-gray-500 cursor-not-allowed", else: "bg-blue-600 hover:bg-blue-700 text-white"}"
+              }
+            >
+              Sync Radarr
+            </button>
+          </div>
+        </div>
+
+        <%= if @syncing do %>
+          <div class="mt-3">
+            <div class="w-full bg-gray-800 rounded-full h-2">
+              <div
+                class="bg-blue-500 h-2 rounded-full transition-[width] duration-150 ease-out"
+                style={"width: #{@sync_progress}%"}
+              >
+              </div>
+            </div>
+            <div class="text-xs text-gray-400 mt-1">
+              Syncing {@service_type}... {@sync_progress}%
             </div>
           </div>
-          <div class="text-xs text-gray-400 mt-1">
-            Syncing {@service_type}... {@sync_progress}%
+        <% end %>
+      </div>
+
+      <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-3 sm:p-4">
+        <div class="flex items-center justify-between gap-2">
+          <h3 class="font-semibold text-white">Worker WebSocket</h3>
+          <span class="rounded-full bg-cyan-950 px-2 py-1 text-[11px] text-cyan-300">ab-av1</span>
+        </div>
+
+        <div class="mt-3 space-y-3 text-sm">
+          <div>
+            <div class="text-[11px] uppercase tracking-wide text-gray-500">URL</div>
+            <div class="mt-1 overflow-x-auto rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
+              {@worker_socket_url}?token=&lt;worker-token&gt;
+            </div>
+          </div>
+
+          <div>
+            <div class="text-[11px] uppercase tracking-wide text-gray-500">Token</div>
+            <div class="mt-1 overflow-x-auto rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
+              <%= if @worker_token do %>
+                {@worker_token}
+              <% else %>
+                not configured
+              <% end %>
+            </div>
           </div>
         </div>
-      <% end %>
+      </div>
     </div>
     """
   end
@@ -1224,6 +1257,8 @@ defmodule ReencodarrWeb.DashboardLive do
             syncing={@syncing}
             sync_progress={@sync_progress}
             service_type={@service_type}
+            worker_token={@worker_token}
+            worker_socket_url={@worker_socket_url}
           />
         </div>
       </div>
@@ -1383,6 +1418,13 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp schedule_periodic_update do
     Process.send_after(self(), :update_dashboard_data, 5_000)
+  end
+
+  defp worker_socket_url do
+    ReencodarrWeb.Endpoint.url()
+    |> String.replace_prefix("https://", "wss://")
+    |> String.replace_prefix("http://", "ws://")
+    |> Kernel.<>("/workers/socket/websocket")
   end
 
   defp stats_display(nil) do

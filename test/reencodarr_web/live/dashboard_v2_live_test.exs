@@ -82,6 +82,25 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert html =~ "initial-queue-preview.mkv"
     end
 
+    test "shows the worker websocket token when configured", %{conn: conn} do
+      previous_token = Application.get_env(:reencodarr, :worker_token)
+      Application.put_env(:reencodarr, :worker_token, "deploy-test-worker-token")
+
+      on_exit(fn ->
+        if previous_token do
+          Application.put_env(:reencodarr, :worker_token, previous_token)
+        else
+          Application.delete_env(:reencodarr, :worker_token)
+        end
+      end)
+
+      {:ok, _view, html} = live(conn, ~p"/")
+
+      assert html =~ "Worker WebSocket"
+      assert html =~ "deploy-test-worker-token"
+      assert html =~ "/workers/socket/websocket?token="
+    end
+
     test "includes chart data in the initial html response", %{conn: conn} do
       {:ok, video} =
         Fixtures.video_fixture(%{

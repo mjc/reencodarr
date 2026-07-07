@@ -43,12 +43,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
       assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
 
-      assert_reply push(socket, "announce", %{
-                     "worker_id" => "abav1-dev",
-                     "protocol_version" => 99,
-                     "version" => "0.10.0",
-                     "capabilities" => %{"crf_search" => true}
-                   }),
+      assert_reply push(socket, "announce", announce_payload(protocol_version: 99)),
                    :error,
                    %{reason: "unsupported_protocol_version", supported_protocol_versions: [1]}
     after
@@ -62,38 +57,54 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert {:ok, socket1} = connect(WorkerSocket, %{"token" => token})
       assert {:ok, _join_payload, socket1} = subscribe_and_join(socket1, "workers:crf_search")
 
-      assert_reply push(socket1, "announce", %{
-                     "worker_id" => "abav1-dev",
-                     "protocol_version" => 1,
-                     "version" => "0.10.0",
-                     "capabilities" => %{"crf_search" => true}
-                   }),
+      assert_reply push(socket1, "announce", announce_payload()),
                    :ok,
                    %{accepted: true, protocol_version: 1}
 
       assert {:ok, socket2} = connect(WorkerSocket, %{"token" => token})
       assert {:ok, _join_payload, socket2} = subscribe_and_join(socket2, "workers:crf_search")
 
-      assert_reply push(socket2, "announce", %{
-                     "worker_id" => "abav1-dev",
-                     "protocol_version" => 1,
-                     "version" => "0.10.0",
-                     "capabilities" => %{"crf_search" => true}
-                   }),
+      assert_reply push(socket2, "announce", announce_payload()),
                    :error,
                    %{reason: "duplicate_worker_id"}
 
       Process.unlink(socket1.channel_pid)
       assert :ok = close(socket1)
 
-      assert_reply push(socket2, "announce", %{
-                     "worker_id" => "abav1-dev",
-                     "protocol_version" => 1,
-                     "version" => "0.10.0",
-                     "capabilities" => %{"crf_search" => true}
-                   }),
+      assert_reply push(socket2, "announce", announce_payload()),
                    :ok,
                    %{accepted: true, protocol_version: 1}
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "tracks heartbeat last-seen for announced sessions" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(socket, "announce", announce_payload()), :ok, %{
+        accepted: true,
+        protocol_version: 1
+      }
+
+      [session] = WorkerSessions.list()
+      connected_at = session.connected_at
+      first_seen_at = session.last_seen_at
+
+      assert_reply push(socket, "heartbeat", %{}), :ok, %{
+        accepted: true,
+        last_seen_at: last_seen_at
+      }
+
+      assert {:ok, parsed_last_seen_at, 0} = DateTime.from_iso8601(last_seen_at)
+
+      [updated_session] = WorkerSessions.list()
+      assert updated_session.connected_at == connected_at
+      assert DateTime.compare(updated_session.last_seen_at, first_seen_at) in [:eq, :gt]
+      assert updated_session.last_seen_at == parsed_last_seen_at
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
@@ -106,5 +117,25 @@ defmodule ReencodarrWeb.WorkerChannelTest do
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
+  end
+
+  defp announce_payload(overrides \\ []) do
+    override_map =
+      overrides
+      |> Enum.into(%{})
+      |> Map.new(fn
+        {key, value} when is_atom(key) -> {Atom.to_string(key), value}
+        pair -> pair
+      end)
+
+    Map.merge(
+      %{
+        "worker_id" => "abav1-dev",
+        "protocol_version" => 1,
+        "version" => "0.10.0",
+        "capabilities" => %{"crf_search" => true}
+      },
+      override_map
+    )
   end
 end
