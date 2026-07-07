@@ -7,6 +7,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
   @crf_search_topic "workers:crf_search"
   @supported_protocol_versions [1]
+  @default_chunk_size_bytes 1_048_576
 
   defmodule Announcement do
     @moduledoc false
@@ -133,6 +134,9 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
   @spec supported_protocol_versions() :: [pos_integer()]
   def supported_protocol_versions, do: @supported_protocol_versions
+
+  @spec chunk_size_bytes() :: pos_integer()
+  def chunk_size_bytes, do: @default_chunk_size_bytes
 
   @spec valid_topic?(String.t()) :: boolean()
   def valid_topic?(@crf_search_topic), do: true
@@ -264,6 +268,91 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   @spec accepted(pos_integer()) :: map()
   def accepted(protocol_version), do: %{accepted: true, protocol_version: protocol_version}
 
+  @spec transfer_started(
+          Video.t(),
+          String.t(),
+          pos_integer(),
+          non_neg_integer(),
+          non_neg_integer()
+        ) ::
+          map()
+  def transfer_started(
+        %Video{id: video_id, path: path, size: size},
+        transfer_id,
+        chunk_size_bytes,
+        total_bytes,
+        total_chunks
+      )
+      when is_integer(video_id) and is_binary(path) do
+    %{
+      status: "transfer_started",
+      video_id: video_id,
+      transfer_id: transfer_id,
+      source_name: Path.basename(path),
+      size_bytes: size || 0,
+      chunk_size_bytes: chunk_size_bytes,
+      total_bytes: total_bytes,
+      total_chunks: total_chunks
+    }
+  end
+
+  @spec transfer_chunk(
+          Video.t(),
+          String.t(),
+          non_neg_integer(),
+          non_neg_integer(),
+          non_neg_integer(),
+          non_neg_integer(),
+          binary()
+        ) :: map()
+  def transfer_chunk(
+        %Video{id: video_id},
+        transfer_id,
+        chunk_index,
+        total_chunks,
+        bytes_sent,
+        total_bytes,
+        chunk
+      )
+      when is_integer(video_id) and is_binary(transfer_id) and is_integer(chunk_index) and
+             is_integer(total_chunks) and is_integer(bytes_sent) and is_integer(total_bytes) and
+             is_binary(chunk) do
+    %{
+      status: "transfer_chunk",
+      video_id: video_id,
+      transfer_id: transfer_id,
+      chunk_index: chunk_index,
+      total_chunks: total_chunks,
+      bytes_sent: bytes_sent,
+      total_bytes: total_bytes,
+      crc32: :erlang.crc32(chunk),
+      data: Base.encode64(chunk)
+    }
+  end
+
+  @spec transfer_complete(Video.t(), String.t(), non_neg_integer(), non_neg_integer()) :: map()
+  def transfer_complete(%Video{id: video_id}, transfer_id, total_bytes, total_chunks)
+      when is_integer(video_id) and is_binary(transfer_id) do
+    %{
+      status: "transfer_complete",
+      video_id: video_id,
+      transfer_id: transfer_id,
+      total_bytes: total_bytes,
+      total_chunks: total_chunks
+    }
+  end
+
+  @spec transfer_failed(Video.t(), String.t(), String.t()) :: map()
+  def transfer_failed(%Video{id: video_id}, transfer_id, reason)
+      when is_integer(video_id) and is_binary(transfer_id) and is_binary(reason) do
+    %{
+      status: "transfer_failed",
+      video_id: video_id,
+      transfer_id: transfer_id,
+      reason: reason
+    }
+  end
+
   @spec event_ack(String.t()) :: map()
   def event_ack(event_name), do: %{accepted: true, event: event_name}
 
@@ -279,7 +368,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
       video_id: video_id,
       source_name: Path.basename(path),
       size_bytes: size || 0,
-      chunk_size_bytes: 1_048_576,
+      chunk_size_bytes: chunk_size_bytes(),
       target_vmaf: target_vmaf
     }
   end

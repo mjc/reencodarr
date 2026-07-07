@@ -7,6 +7,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
   alias Reencodarr.Media
   alias ReencodarrWeb.WorkerChannel
   alias ReencodarrWeb.WorkerSocket
+  import Reencodarr.TestHelpers
 
   describe "ab-av1 worker websocket" do
     setup do
@@ -241,6 +242,90 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                       }}
 
       assert filename == Path.basename(video.path)
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "streams assigned media in ordered chunks with integrity data" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      content = :binary.copy("abcd", 262_145)
+      content_size = byte_size(content)
+      first_chunk = binary_part(content, 0, 1_048_576)
+      second_chunk = binary_part(content, 1_048_576, content_size - 1_048_576)
+      first_crc32 = :erlang.crc32(first_chunk)
+      second_crc32 = :erlang.crc32(second_chunk)
+      first_encoded = Base.encode64(first_chunk)
+      second_encoded = Base.encode64(second_chunk)
+
+      with_temp_file(content, ".mkv", fn path ->
+        {:ok, video} =
+          Fixtures.video_fixture(%{
+            path: path,
+            size: content_size,
+            state: :analyzed
+          })
+
+        assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+        assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+        assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
+                     :ok,
+                     %{accepted: true, protocol_version: 1}
+
+        assert_reply push(socket, "pull_work", %{}),
+                     :ok,
+                     %{
+                       status: "job_assigned",
+                       video_id: assigned_video_id,
+                       chunk_size_bytes: 1_048_576
+                     }
+
+        assert assigned_video_id == video.id
+
+        assert_push "transfer_started", %{
+          status: "transfer_started",
+          video_id: ^assigned_video_id,
+          transfer_id: transfer_id,
+          size_bytes: content_size,
+          chunk_size_bytes: 1_048_576,
+          total_bytes: content_size,
+          total_chunks: 2
+        }
+
+        assert_push "transfer_chunk", %{
+          status: "transfer_chunk",
+          video_id: ^assigned_video_id,
+          transfer_id: ^transfer_id,
+          chunk_index: 0,
+          total_chunks: 2,
+          bytes_sent: 1_048_576,
+          total_bytes: ^content_size,
+          crc32: ^first_crc32,
+          data: ^first_encoded
+        }
+
+        assert_push "transfer_chunk", %{
+          status: "transfer_chunk",
+          video_id: ^assigned_video_id,
+          transfer_id: ^transfer_id,
+          chunk_index: 1,
+          total_chunks: 2,
+          bytes_sent: ^content_size,
+          total_bytes: ^content_size,
+          crc32: ^second_crc32,
+          data: ^second_encoded
+        }
+
+        assert_push "transfer_complete", %{
+          status: "transfer_complete",
+          video_id: ^assigned_video_id,
+          transfer_id: ^transfer_id,
+          total_bytes: ^content_size,
+          total_chunks: 2
+        }
+      end)
     after
       Application.delete_env(:reencodarr, :worker_token)
     end

@@ -84,6 +84,22 @@ defmodule ReencodarrWeb.WorkerChannel do
     {:reply, {:error, WorkerProtocol.error(:unsupported_event)}, socket}
   end
 
+  @impl true
+  def handle_info(:stream_transfer_chunk, %{assigns: %{transfer_io_device: nil}} = socket) do
+    case open_transfer_stream(socket) do
+      {:ok, socket} ->
+        push_transfer_start(socket)
+
+      {:error, socket} ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_info(:stream_transfer_chunk, %{assigns: %{transfer_io_device: io_device}} = socket)
+      when not is_nil(io_device) do
+    read_transfer_chunk(socket, io_device)
+  end
+
   defp ensure_supported_protocol_version(protocol_version) do
     if WorkerProtocol.supported_protocol_version?(protocol_version) do
       :ok
@@ -196,6 +212,10 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp assign_claimed_work(worker_id, socket, video) do
     target_vmaf = Reencodarr.Rules.vmaf_target(video)
+    transfer_id = Integer.to_string(video.id)
+    total_bytes = video.size || 0
+    chunk_size_bytes = WorkerProtocol.chunk_size_bytes()
+    total_chunks = total_chunks(total_bytes, chunk_size_bytes)
 
     case WorkerSessions.assign_video(worker_id, video.id) do
       {:ok, _session} ->
@@ -203,6 +223,18 @@ defmodule ReencodarrWeb.WorkerChannel do
           socket
           |> assign(:current_video_id, video.id)
           |> assign(:current_vmaf_target, target_vmaf)
+          |> assign(:transfer_io_device, nil)
+          |> assign(:transfer_path, video.path)
+          |> assign(:transfer_id, transfer_id)
+          |> assign(:transfer_chunk_size_bytes, chunk_size_bytes)
+          |> assign(:transfer_total_bytes, total_bytes)
+          |> assign(:transfer_total_chunks, total_chunks)
+          |> assign(:transfer_bytes_sent, 0)
+          |> assign(:transfer_chunk_index, 0)
+
+        if File.exists?(video.path) do
+          send(self(), :stream_transfer_chunk)
+        end
 
         {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf)}, socket}
 
@@ -366,7 +398,169 @@ defmodule ReencodarrWeb.WorkerChannel do
 
     assign(socket, :current_video_id, nil)
     |> assign(:current_vmaf_target, nil)
+    |> assign(:transfer_io_device, nil)
+    |> assign(:transfer_path, nil)
+    |> assign(:transfer_id, nil)
+    |> assign(:transfer_chunk_size_bytes, nil)
+    |> assign(:transfer_total_bytes, nil)
+    |> assign(:transfer_total_chunks, nil)
+    |> assign(:transfer_bytes_sent, nil)
+    |> assign(:transfer_chunk_index, nil)
+    |> assign(:transfer_started_sent, nil)
   end
+
+  defp open_transfer_stream(
+         %{assigns: %{current_video_id: video_id, transfer_path: path}} = socket
+       ) do
+    case File.open(path, [:read, :binary]) do
+      {:ok, io_device} ->
+        socket =
+          socket
+          |> assign(:transfer_io_device, io_device)
+          |> assign(:transfer_started_sent, false)
+
+        {:ok, socket}
+
+      {:error, reason} ->
+        socket = handle_transfer_failure(socket, video_id, reason)
+        {:error, socket}
+    end
+  end
+
+  defp push_transfer_start(%{assigns: %{current_video_id: video_id}} = socket) do
+    video = Media.get_video(video_id)
+
+    if is_nil(video) do
+      {:noreply, handle_transfer_failure(socket, video_id, :enoent)}
+    else
+      socket =
+        socket
+        |> assign(:transfer_started_sent, true)
+
+      push(
+        socket,
+        "transfer_started",
+        WorkerProtocol.transfer_started(
+          video,
+          socket.assigns.transfer_id,
+          socket.assigns.transfer_chunk_size_bytes,
+          socket.assigns.transfer_total_bytes,
+          socket.assigns.transfer_total_chunks
+        )
+      )
+
+      send(self(), :stream_transfer_chunk)
+      {:noreply, socket}
+    end
+  end
+
+  defp read_transfer_chunk(%{assigns: %{current_video_id: video_id}} = socket, io_device) do
+    video = Media.get_video(video_id)
+
+    if is_nil(video) do
+      close_transfer_stream(io_device)
+      {:noreply, socket}
+    else
+      case IO.binread(io_device, socket.assigns.transfer_chunk_size_bytes) do
+        chunk when is_binary(chunk) ->
+          chunk_index = socket.assigns.transfer_chunk_index
+          bytes_sent = socket.assigns.transfer_bytes_sent + byte_size(chunk)
+
+          push(
+            socket,
+            "transfer_chunk",
+            WorkerProtocol.transfer_chunk(
+              video,
+              socket.assigns.transfer_id,
+              chunk_index,
+              socket.assigns.transfer_total_chunks,
+              bytes_sent,
+              socket.assigns.transfer_total_bytes,
+              chunk
+            )
+          )
+
+          send(self(), :stream_transfer_chunk)
+
+          {:noreply,
+           socket
+           |> assign(:transfer_bytes_sent, bytes_sent)
+           |> assign(:transfer_chunk_index, chunk_index + 1)}
+
+        :eof ->
+          close_transfer_stream(io_device)
+
+          push(
+            socket,
+            "transfer_complete",
+            WorkerProtocol.transfer_complete(
+              video,
+              socket.assigns.transfer_id,
+              socket.assigns.transfer_total_bytes,
+              socket.assigns.transfer_total_chunks
+            )
+          )
+
+          {:noreply,
+           socket
+           |> assign(:transfer_io_device, nil)
+           |> assign(:transfer_path, nil)
+           |> assign(:transfer_id, nil)
+           |> assign(:transfer_chunk_size_bytes, nil)
+           |> assign(:transfer_total_bytes, nil)
+           |> assign(:transfer_total_chunks, nil)
+           |> assign(:transfer_bytes_sent, nil)
+           |> assign(:transfer_chunk_index, nil)
+           |> assign(:transfer_started_sent, nil)}
+
+        {:error, reason} ->
+          close_transfer_stream(io_device)
+          {:noreply, handle_transfer_failure(socket, video_id, reason)}
+      end
+    end
+  end
+
+  defp handle_transfer_failure(socket, video_id, reason) do
+    case Media.get_video(video_id) do
+      nil ->
+        clear_assigned_video(socket.assigns.worker_id, socket)
+
+      video ->
+        message = format_file_error(reason)
+
+        _ =
+          Media.record_video_failure(video, :crf_search, :file_access,
+            message: "Transfer failed: #{message}",
+            context: %{
+              transfer_id: socket.assigns[:transfer_id],
+              path: socket.assigns[:transfer_path]
+            }
+          )
+
+        socket = clear_assigned_video(socket.assigns.worker_id, socket)
+
+        _ =
+          push(
+            socket,
+            "transfer_failed",
+            WorkerProtocol.transfer_failed(video, Integer.to_string(video.id), message)
+          )
+
+        socket
+    end
+  end
+
+  defp close_transfer_stream(nil), do: :ok
+  defp close_transfer_stream(io_device), do: File.close(io_device)
+
+  defp format_file_error(reason) do
+    reason |> :file.format_error() |> List.to_string()
+  end
+
+  defp total_chunks(0, _chunk_size_bytes), do: 0
+
+  defp total_chunks(total_bytes, chunk_size_bytes),
+    do: div(total_bytes + chunk_size_bytes - 1, chunk_size_bytes)
 
   defp vmaf_to_event(%Reencodarr.Media.Vmaf{} = vmaf) do
     %{
