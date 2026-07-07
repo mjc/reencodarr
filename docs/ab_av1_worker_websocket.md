@@ -18,6 +18,7 @@ After joining `workers:crf_search`, send:
   "event": "announce",
   "payload": {
     "worker_id": "abav1-dev",
+    "protocol_version": 1,
     "version": "0.10.0",
     "capabilities": {"crf_search": true}
   }
@@ -57,5 +58,7 @@ Current assigned-work reply:
 ```
 
 Workers only run one CRF search or encode at a time.
+
+The dashboard shows a token fingerprint instead of the raw worker token.
 
 File transfer, chunk checksums, progress, result reporting, and requeue/failure handling are still pending REENC-133 follow-up slices.

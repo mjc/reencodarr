@@ -95,9 +95,10 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       end)
 
       {:ok, _view, html} = live(conn, ~p"/")
+      expected_fingerprint = worker_token_fingerprint("deploy-test-worker-token")
 
       assert html =~ "Worker WebSocket"
-      assert html =~ "deploy-test-worker-token"
+      assert html =~ expected_fingerprint
       assert html =~ "/workers/socket/websocket?token="
     end
 
@@ -512,5 +513,12 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
       assert html =~ "Unknown sync service"
     end
+  end
+
+  defp worker_token_fingerprint(token) do
+    :crypto.hash(:sha256, token)
+    |> Base.encode16(case: :lower)
+    |> String.slice(0, 12)
+    |> then(&"sha256:#{&1}")
   end
 end
