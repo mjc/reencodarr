@@ -4,6 +4,13 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
   alias Reencodarr.AbAv1.WorkerProtocol
   alias Reencodarr.AbAv1.WorkerProtocol.Announcement
 
+  test "rejects invalid announcement payloads" do
+    assert {:error, :invalid_announcement} = WorkerProtocol.parse_announcement(%{})
+
+    assert {:error, :invalid_announcement} =
+             WorkerProtocol.parse_announcement(%{"worker_id" => "x"})
+  end
+
   test "parses a worker announcement into a typed struct" do
     assert {:ok,
             %Announcement{
@@ -18,6 +25,11 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
                "version" => "0.10.0",
                "capabilities" => %{"crf_search" => true}
              })
+  end
+
+  test "maps protocol errors to wire payloads" do
+    assert WorkerProtocol.error(:unauthorized) == %{reason: "unauthorized"}
+    assert WorkerProtocol.error(:unsupported_event) == %{reason: "unsupported_event"}
   end
 
   test "builds a job_assigned payload from the claimed video" do

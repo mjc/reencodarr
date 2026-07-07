@@ -70,28 +70,24 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   @impl GenServer
   def handle_call({:register, attrs}, _from, state) do
     now = now()
-    server_worker_id = Map.fetch!(attrs, :server_worker_id)
-    client_worker_id = Map.fetch!(attrs, :client_worker_id)
 
-    case lookup_client(client_worker_id) do
-      nil ->
-        session = build_session(attrs, now)
-        :ok = put_session(session)
-        {:reply, {:ok, session}, state}
-
-      ^server_worker_id ->
-        connected_at = lookup_session!(server_worker_id).connected_at
-
-        session =
-          attrs
-          |> build_session(now)
-          |> Map.put(:connected_at, connected_at)
-
-        :ok = put_session(session)
-        {:reply, {:ok, session}, state}
-
-      _other_server_worker_id ->
-        {:reply, {:error, :duplicate_worker_id}, state}
+    with {:ok, server_worker_id} <- required_attr(attrs, :server_worker_id),
+         {:ok, client_worker_id} <- required_attr(attrs, :client_worker_id),
+         {:ok, version} <- required_attr(attrs, :version),
+         {:ok, protocol_version} <- required_attr(attrs, :protocol_version),
+         {:ok, capabilities} <- required_attr(attrs, :capabilities) do
+      register_session(
+        server_worker_id,
+        client_worker_id,
+        version,
+        protocol_version,
+        capabilities,
+        now,
+        state
+      )
+    else
+      :error ->
+        {:reply, {:error, :invalid_session_attrs}, state}
     end
   end
 
@@ -162,18 +158,77 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     {:noreply, state}
   end
 
-  defp build_session(attrs, now) do
+  defp build_session(
+         server_worker_id,
+         client_worker_id,
+         version,
+         protocol_version,
+         capabilities,
+         now
+       ) do
     %{
-      server_worker_id: Map.fetch!(attrs, :server_worker_id),
-      client_worker_id: Map.fetch!(attrs, :client_worker_id),
-      version: Map.fetch!(attrs, :version),
-      protocol_version: Map.fetch!(attrs, :protocol_version),
-      capabilities: Map.fetch!(attrs, :capabilities),
+      server_worker_id: server_worker_id,
+      client_worker_id: client_worker_id,
+      version: version,
+      protocol_version: protocol_version,
+      capabilities: capabilities,
       active_video_id: nil,
       connected_at: now,
       last_seen_at: now
     }
   end
+
+  defp register_session(
+         server_worker_id,
+         client_worker_id,
+         version,
+         protocol_version,
+         capabilities,
+         now,
+         state
+       ) do
+    case lookup_session(server_worker_id) do
+      :error ->
+        case lookup_client(client_worker_id) do
+          nil ->
+            session =
+              build_session(
+                server_worker_id,
+                client_worker_id,
+                version,
+                protocol_version,
+                capabilities,
+                now
+              )
+
+            :ok = put_session(session)
+            {:reply, {:ok, session}, state}
+
+          _existing_server_worker_id ->
+            {:reply, {:error, :duplicate_worker_id}, state}
+        end
+
+      {:ok, %{client_worker_id: ^client_worker_id, connected_at: connected_at}} ->
+        session =
+          build_session(
+            server_worker_id,
+            client_worker_id,
+            version,
+            protocol_version,
+            capabilities,
+            now
+          )
+          |> Map.put(:connected_at, connected_at)
+
+        :ok = put_session(session)
+        {:reply, {:ok, session}, state}
+
+      {:ok, _existing_session} ->
+        {:reply, {:error, :duplicate_worker_id}, state}
+    end
+  end
+
+  defp required_attr(attrs, key), do: Map.fetch(attrs, key)
 
   defp put_session(session) do
     :ok = drop_session(session.server_worker_id)
@@ -234,11 +289,6 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       [{^server_worker_id, session}] -> {:ok, session}
       [] -> :error
     end
-  end
-
-  defp lookup_session!(server_worker_id) do
-    {:ok, session} = lookup_session(server_worker_id)
-    session
   end
 
   defp lookup_client(client_worker_id) do

@@ -83,13 +83,16 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   @spec error(
           :duplicate_worker_id
           | :invalid_announcement
+          | :invalid_session_attrs
           | :unsupported_protocol_version
+          | :unsupported_event
           | :unknown_worker_session
           | :unauthorized
         ) :: map()
   def error(:duplicate_worker_id), do: %{reason: "duplicate_worker_id"}
 
   def error(:invalid_announcement), do: %{reason: "invalid_announcement"}
+  def error(:invalid_session_attrs), do: %{reason: "invalid_session_attrs"}
 
   def error(:unsupported_protocol_version) do
     %{
@@ -98,6 +101,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     }
   end
 
+  def error(:unsupported_event), do: %{reason: "unsupported_event"}
   def error(:unknown_worker_session), do: %{reason: "unknown_worker_session"}
   def error(:unauthorized), do: %{reason: "unauthorized"}
 end

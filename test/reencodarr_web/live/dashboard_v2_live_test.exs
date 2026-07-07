@@ -7,7 +7,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
   - Button interactions without internal state checking
   - Event handling for service communication
   """
-  use ReencodarrWeb.ConnCase, async: true
+  use ReencodarrWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
 

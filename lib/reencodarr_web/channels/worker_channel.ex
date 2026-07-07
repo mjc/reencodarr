@@ -64,6 +64,10 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   def handle_in("pull_work", payload, socket), do: handle_work_request(payload, socket)
 
+  def handle_in(_event, _payload, socket) do
+    {:reply, {:error, WorkerProtocol.error(:unsupported_event)}, socket}
+  end
+
   defp ensure_supported_protocol_version(protocol_version) do
     if WorkerProtocol.supported_protocol_version?(protocol_version) do
       :ok
