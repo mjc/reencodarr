@@ -63,13 +63,12 @@ defmodule Reencodarr.CrfSearcher.Broadway.Producer do
     suspended? = ProcessControl.suspended?(:crf_searcher)
 
     videos =
-      if status == :available and not suspended? do
-        case Media.claim_next_video_for_crf_search() do
-          nil -> []
-          video -> [video]
-        end
+      with :available <- status,
+           false <- suspended?,
+           video when not is_nil(video) <- Media.claim_next_video_for_crf_search() do
+        [video]
       else
-        []
+        _ -> []
       end
 
     remaining_demand = demand - length(videos)

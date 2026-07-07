@@ -22,6 +22,98 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
           }
   end
 
+  defmodule TransferProgress do
+    @moduledoc false
+
+    @enforce_keys [:video_id, :transfer_id, :percent, :bytes_sent, :total_bytes]
+    defstruct [
+      :video_id,
+      :transfer_id,
+      :percent,
+      :bytes_sent,
+      :total_bytes,
+      :chunk_index,
+      :total_chunks
+    ]
+
+    @type t :: %__MODULE__{
+            video_id: pos_integer(),
+            transfer_id: String.t(),
+            percent: number(),
+            bytes_sent: non_neg_integer(),
+            total_bytes: non_neg_integer(),
+            chunk_index: non_neg_integer() | nil,
+            total_chunks: non_neg_integer() | nil
+          }
+  end
+
+  defmodule CrfSearchProgress do
+    @moduledoc false
+
+    @enforce_keys [:video_id, :percent]
+    defstruct [:video_id, :percent, :filename, :eta, :fps]
+
+    @type t :: %__MODULE__{
+            video_id: pos_integer(),
+            percent: number(),
+            filename: String.t() | nil,
+            eta: non_neg_integer() | nil,
+            fps: number() | nil
+          }
+  end
+
+  defmodule CrfSearchResult do
+    @moduledoc false
+
+    @enforce_keys [:video_id, :results]
+    defstruct [:video_id, :results]
+
+    @type t :: %__MODULE__{
+            video_id: pos_integer(),
+            results: [map()]
+          }
+  end
+
+  defmodule FailureReport do
+    @moduledoc false
+
+    @enforce_keys [:video_id, :stage, :category, :message]
+    defstruct [
+      :video_id,
+      :stage,
+      :category,
+      :message,
+      :code,
+      :context,
+      :retriable,
+      :stderr_excerpt
+    ]
+
+    @type t :: %__MODULE__{
+            video_id: pos_integer(),
+            stage: atom(),
+            category: atom(),
+            message: String.t(),
+            code: String.t() | nil,
+            context: map(),
+            retriable: boolean() | nil,
+            stderr_excerpt: String.t() | nil
+          }
+  end
+
+  defmodule Completion do
+    @moduledoc false
+
+    @enforce_keys [:video_id, :result]
+    defstruct [:video_id, :result, :chosen_crf]
+
+    @type t :: %__MODULE__{
+            video_id: pos_integer(),
+            result: :ok | :cancelled | :shutdown | {:error, term()},
+            chosen_crf: number() | nil
+          }
+  end
+
   @type video_id :: pos_integer()
   @type percentage :: number()
   @type crf_result :: %{
@@ -34,38 +126,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
           optional(:target) => integer() | nil,
           optional(:chosen) => boolean()
         }
-  @type crf_search_progress :: %{
-          required(:video_id) => video_id(),
-          required(:percent) => percentage(),
-          optional(:filename) => String.t() | nil,
-          optional(:eta) => non_neg_integer() | nil,
-          optional(:fps) => number() | nil
-        }
-  @type transfer_progress :: %{
-          required(:video_id) => video_id(),
-          required(:transfer_id) => String.t(),
-          required(:percent) => percentage(),
-          required(:bytes_sent) => non_neg_integer(),
-          required(:total_bytes) => non_neg_integer(),
-          optional(:chunk_index) => non_neg_integer() | nil,
-          optional(:total_chunks) => non_neg_integer() | nil
-        }
-  @type failure_report :: %{
-          required(:video_id) => video_id(),
-          required(:stage) => atom(),
-          required(:category) => atom(),
-          required(:message) => String.t(),
-          optional(:code) => String.t() | nil,
-          optional(:context) => map(),
-          optional(:retriable) => boolean() | nil,
-          optional(:stderr_excerpt) => String.t() | nil
-        }
   @type completion_result :: :ok | :cancelled | :shutdown | {:error, term()}
-  @type crf_search_completed :: %{
-          required(:video_id) => video_id(),
-          required(:result) => completion_result(),
-          optional(:chosen_crf) => number() | nil
-        }
 
   @spec crf_search_topic() :: String.t()
   def crf_search_topic, do: @crf_search_topic
@@ -101,7 +162,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
   def parse_announcement(_payload), do: {:error, :invalid_announcement}
 
-  @spec parse_transfer_progress(map()) :: {:ok, transfer_progress()} | {:error, atom()}
+  @spec parse_transfer_progress(map()) :: {:ok, TransferProgress.t()} | {:error, atom()}
   def parse_transfer_progress(payload) when is_map(payload) do
     with {:ok, video_id} <-
            required_integer(payload, [:video_id, "video_id"], :invalid_transfer_progress),
@@ -110,7 +171,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
          {:ok, percent} <-
            required_number(payload, [:percent, "percent"], :invalid_transfer_progress) do
       {:ok,
-       %{
+       %TransferProgress{
          video_id: video_id,
          transfer_id: transfer_id,
          percent: percent,
@@ -130,14 +191,14 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
   def parse_transfer_progress(_payload), do: {:error, :invalid_transfer_progress}
 
-  @spec parse_crf_search_progress(map()) :: {:ok, crf_search_progress()} | {:error, atom()}
+  @spec parse_crf_search_progress(map()) :: {:ok, CrfSearchProgress.t()} | {:error, atom()}
   def parse_crf_search_progress(payload) when is_map(payload) do
     with {:ok, video_id} <-
            required_integer(payload, [:video_id, "video_id"], :invalid_crf_search_progress),
          {:ok, percent} <-
            required_number(payload, [:percent, "percent"], :invalid_crf_search_progress) do
       {:ok,
-       %{
+       %CrfSearchProgress{
          video_id: video_id,
          percent: percent,
          filename: optional_string(payload, [:filename, "filename"]),
@@ -149,19 +210,18 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
   def parse_crf_search_progress(_payload), do: {:error, :invalid_crf_search_progress}
 
-  @spec parse_crf_search_result(map()) ::
-          {:ok, %{video_id: video_id(), results: [crf_result()]}} | {:error, atom()}
+  @spec parse_crf_search_result(map()) :: {:ok, CrfSearchResult.t()} | {:error, atom()}
   def parse_crf_search_result(payload) when is_map(payload) do
     with {:ok, video_id} <-
            required_integer(payload, [:video_id, "video_id"], :invalid_crf_search_result),
          {:ok, results} <- parse_result_batch(payload) do
-      {:ok, %{video_id: video_id, results: results}}
+      {:ok, %CrfSearchResult{video_id: video_id, results: results}}
     end
   end
 
   def parse_crf_search_result(_payload), do: {:error, :invalid_crf_search_result}
 
-  @spec parse_failure_report(map()) :: {:ok, failure_report()} | {:error, atom()}
+  @spec parse_failure_report(map()) :: {:ok, FailureReport.t()} | {:error, atom()}
   def parse_failure_report(payload) when is_map(payload) do
     with {:ok, video_id} <-
            required_integer(payload, [:video_id, "video_id"], :invalid_failure_report),
@@ -170,7 +230,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
          {:ok, message} <-
            required_string(payload, [:message, "message"], :invalid_failure_report) do
       {:ok,
-       %{
+       %FailureReport{
          video_id: video_id,
          stage: stage,
          category: category,
@@ -185,13 +245,13 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
   def parse_failure_report(_payload), do: {:error, :invalid_failure_report}
 
-  @spec parse_completion(map()) :: {:ok, crf_search_completed()} | {:error, atom()}
+  @spec parse_completion(map()) :: {:ok, Completion.t()} | {:error, atom()}
   def parse_completion(payload) when is_map(payload) do
     with {:ok, video_id} <-
            required_integer(payload, [:video_id, "video_id"], :invalid_completion_result),
          {:ok, result} <- parse_completion_result(payload) do
       {:ok,
-       %{
+       %Completion{
          video_id: video_id,
          result: result,
          chosen_crf: optional_number(payload, [:chosen_crf, "chosen_crf"])

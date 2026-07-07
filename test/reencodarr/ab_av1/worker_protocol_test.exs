@@ -3,6 +3,11 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
 
   alias Reencodarr.AbAv1.WorkerProtocol
   alias Reencodarr.AbAv1.WorkerProtocol.Announcement
+  alias Reencodarr.AbAv1.WorkerProtocol.Completion
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchResult
+  alias Reencodarr.AbAv1.WorkerProtocol.FailureReport
+  alias Reencodarr.AbAv1.WorkerProtocol.TransferProgress
 
   test "rejects invalid announcement payloads" do
     assert {:error, :invalid_announcement} = WorkerProtocol.parse_announcement(%{})
@@ -34,7 +39,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
 
   test "parses transfer progress into a typed payload" do
     assert {:ok,
-            %{
+            %TransferProgress{
               video_id: 123,
               transfer_id: "transfer-1",
               percent: 42.5,
@@ -54,9 +59,27 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
              })
   end
 
+  test "parses CRF search progress into a typed payload" do
+    assert {:ok,
+            %CrfSearchProgress{
+              video_id: 123,
+              percent: 78.5,
+              filename: "movie.mkv",
+              eta: 42,
+              fps: 23.97
+            }} =
+             WorkerProtocol.parse_crf_search_progress(%{
+               "video_id" => 123,
+               "percent" => 78.5,
+               "filename" => "movie.mkv",
+               "eta" => 42,
+               "fps" => 23.97
+             })
+  end
+
   test "parses structured CRF results and completion payloads" do
     assert {:ok,
-            %{
+            %CrfSearchResult{
               video_id: 123,
               results: [
                 %{
@@ -81,7 +104,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
                "chosen" => true
              })
 
-    assert {:ok, %{video_id: 123, result: :ok, chosen_crf: 28}} =
+    assert {:ok, %Completion{video_id: 123, result: :ok, chosen_crf: 28}} =
              WorkerProtocol.parse_completion(%{
                "video_id" => 123,
                "result" => "ok",
@@ -91,7 +114,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
 
   test "parses typed failure reports" do
     assert {:ok,
-            %{
+            %FailureReport{
               video_id: 123,
               stage: :crf_search,
               category: :timeout,
