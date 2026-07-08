@@ -33,7 +33,7 @@ defmodule ReencodarrWeb.WorkerChannel do
             capabilities: capabilities
           }} <- WorkerProtocol.parse_announcement(payload),
          :ok <- ensure_supported_protocol_version(protocol_version),
-         {:ok, _session} <-
+         {:ok, session} <-
            WorkerSessions.register(%{
              server_worker_id: server_worker_id,
              client_worker_id: client_worker_id,
@@ -47,6 +47,7 @@ defmodule ReencodarrWeb.WorkerChannel do
         |> assign(:client_version, version)
         |> assign(:protocol_version, protocol_version)
         |> assign(:capabilities, capabilities)
+        |> attach_announced_work(client_worker_id, session)
 
       {:reply, {:ok, WorkerProtocol.accepted(protocol_version)}, socket}
     else
@@ -149,6 +150,34 @@ defmodule ReencodarrWeb.WorkerChannel do
           nil ->
             {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
         end
+    end
+  end
+
+  defp attach_announced_work(socket, _client_worker_id, %{active_video_id: video_id})
+       when is_integer(video_id) do
+    attach_active_video(socket, video_id)
+  end
+
+  defp attach_announced_work(socket, client_worker_id, _session) do
+    case Media.get_worker_crf_searching_video(client_worker_id) do
+      %Media.Video{} = video ->
+        _ = WorkerSessions.assign_video(socket.assigns.worker_id, video.id)
+        attach_active_video(socket, video.id)
+
+      nil ->
+        socket
+    end
+  end
+
+  defp attach_active_video(socket, video_id) do
+    case Media.get_video(video_id) do
+      %Media.Video{} = video ->
+        socket
+        |> assign(:current_video_id, video.id)
+        |> assign(:current_vmaf_target, Reencodarr.Rules.vmaf_target(video))
+
+      nil ->
+        socket
     end
   end
 

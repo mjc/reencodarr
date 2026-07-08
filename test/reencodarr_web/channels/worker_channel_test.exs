@@ -104,12 +104,13 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
-    test "rejects duplicate worker ids until the first session disconnects" do
+    test "replaces reconnecting worker sessions with the same client id" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
 
       assert {:ok, socket1} = connect(WorkerSocket, %{"token" => token})
       assert {:ok, _join_payload, socket1} = subscribe_and_join(socket1, "workers:crf_search")
+      server_worker_id1 = socket1.assigns.worker_id
 
       assert_reply push(socket1, "announce", announce_payload()),
                    :ok,
@@ -117,17 +118,14 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert {:ok, socket2} = connect(WorkerSocket, %{"token" => token})
       assert {:ok, _join_payload, socket2} = subscribe_and_join(socket2, "workers:crf_search")
-
-      assert_reply push(socket2, "announce", announce_payload()),
-                   :error,
-                   %{reason: "duplicate_worker_id"}
-
-      Process.unlink(socket1.channel_pid)
-      assert :ok = close(socket1)
+      server_worker_id2 = socket2.assigns.worker_id
 
       assert_reply push(socket2, "announce", announce_payload()),
                    :ok,
                    %{accepted: true, protocol_version: 1}
+
+      assert is_nil(WorkerSessions.get(server_worker_id1))
+      assert WorkerSessions.get(server_worker_id2).client_worker_id == "abav1-dev"
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
@@ -318,6 +316,9 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
                    :ok,
                    %{accepted: true, protocol_version: 1}
+
+      session = WorkerSessions.get(server_worker_id)
+      assert session.active_video_id == video_id
 
       assert_reply push(socket, "crf_search_progress", %{
                      "video_id" => video_id,

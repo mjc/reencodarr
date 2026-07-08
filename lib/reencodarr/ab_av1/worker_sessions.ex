@@ -146,6 +146,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def handle_call({:set_crf_search_progress, server_worker_id, progress}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
+      progress = merge_crf_search_progress(session.crf_search_progress, progress)
+
       %{session | transfer_progress: nil, crf_search_progress: progress}
     end)
   end
@@ -240,6 +242,20 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     }
   end
 
+  defp merge_crf_search_progress(
+         %{video_id: video_id} = previous,
+         %{video_id: video_id} = progress
+       ) do
+    Enum.reduce([:crf, :sample_num, :total_samples], progress, fn key, merged ->
+      case Map.get(merged, key) do
+        nil -> Map.put(merged, key, Map.get(previous, key))
+        _value -> merged
+      end
+    end)
+  end
+
+  defp merge_crf_search_progress(_previous, progress), do: progress
+
   defp register_session(
          server_worker_id,
          client_worker_id,
@@ -266,8 +282,17 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
             :ok = put_session(session)
             {:reply, {:ok, session}, state}
 
-          _existing_server_worker_id ->
-            {:reply, {:error, :duplicate_worker_id}, state}
+          existing_server_worker_id ->
+            replace_client_session(
+              existing_server_worker_id,
+              server_worker_id,
+              client_worker_id,
+              version,
+              protocol_version,
+              capabilities,
+              now,
+              state
+            )
         end
 
       {:ok, %{client_worker_id: ^client_worker_id, connected_at: connected_at}} ->
@@ -286,6 +311,42 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
         {:reply, {:ok, session}, state}
 
       {:ok, _existing_session} ->
+        {:reply, {:error, :duplicate_worker_id}, state}
+    end
+  end
+
+  defp replace_client_session(
+         existing_server_worker_id,
+         server_worker_id,
+         client_worker_id,
+         version,
+         protocol_version,
+         capabilities,
+         now,
+         state
+       ) do
+    case lookup_session(existing_server_worker_id) do
+      {:ok, existing_session} ->
+        session =
+          build_session(
+            server_worker_id,
+            client_worker_id,
+            version,
+            protocol_version,
+            capabilities,
+            now
+          )
+          |> Map.put(:connected_at, existing_session.connected_at)
+          |> Map.put(:active_video_id, existing_session.active_video_id)
+          |> Map.put(:transfer_progress, existing_session.transfer_progress)
+          |> Map.put(:crf_search_progress, existing_session.crf_search_progress)
+          |> Map.put(:resource_usage, existing_session.resource_usage)
+
+        :ok = drop_session(existing_server_worker_id)
+        :ok = put_session(session)
+        {:reply, {:ok, session}, state}
+
+      :error ->
         {:reply, {:error, :duplicate_worker_id}, state}
     end
   end

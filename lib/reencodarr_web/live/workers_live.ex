@@ -124,6 +124,7 @@ defmodule ReencodarrWeb.WorkersLive do
                       status={worker_crf_status(worker)}
                       show_controls={true}
                       show_queue={false}
+                      show_empty_chart={true}
                       suspend_event="pause_worker_crf_search"
                       resume_event="resume_worker_crf_search"
                       fail_event="stop_worker_crf_search"

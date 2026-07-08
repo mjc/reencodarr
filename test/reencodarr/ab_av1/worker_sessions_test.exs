@@ -76,6 +76,79 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert listed_session.active_video_id == 123
   end
 
+  test "keeps CRF sample metadata when later progress omits it" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, session} =
+             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+               video_id: 123,
+               percent: 10.0,
+               fps: 24.0,
+               crf: 28.0,
+               sample_num: 3,
+               total_samples: 5
+             })
+
+    assert session.crf_search_progress.crf == 28.0
+    assert session.crf_search_progress.sample_num == 3
+    assert session.crf_search_progress.total_samples == 5
+
+    assert {:ok, session} =
+             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+               video_id: 123,
+               percent: 25.0,
+               fps: 25.0,
+               crf: nil,
+               sample_num: nil,
+               total_samples: nil
+             })
+
+    assert session.crf_search_progress.percent == 25.0
+    assert session.crf_search_progress.fps == 25.0
+    assert session.crf_search_progress.crf == 28.0
+    assert session.crf_search_progress.sample_num == 3
+    assert session.crf_search_progress.total_samples == 5
+  end
+
+  test "replaces reconnecting client sessions without dropping active state" do
+    assert {:ok, _session} =
+             WorkerSessions.register(
+               worker_session_attrs(
+                 server_worker_id: "worker-server-1",
+                 client_worker_id: "worker-client-1"
+               )
+             )
+
+    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", 123)
+
+    assert {:ok, session} =
+             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+               video_id: 123,
+               percent: 25.0,
+               fps: 24.0,
+               crf: 28.0,
+               sample_num: 2,
+               total_samples: 5
+             })
+
+    assert session.active_video_id == 123
+
+    assert {:ok, session} =
+             WorkerSessions.register(
+               worker_session_attrs(
+                 server_worker_id: "worker-server-2",
+                 client_worker_id: "worker-client-1"
+               )
+             )
+
+    assert session.server_worker_id == "worker-server-2"
+    assert session.client_worker_id == "worker-client-1"
+    assert session.active_video_id == 123
+    assert session.crf_search_progress.video_id == 123
+    assert session.crf_search_progress.sample_num == 2
+    assert is_nil(WorkerSessions.get("worker-server-1"))
+  end
+
   test "cancels and drains active distributed work" do
     {:ok, video_one} = Fixtures.video_fixture(%{state: :analyzed})
     {:ok, video_two} = Fixtures.video_fixture(%{state: :analyzed})

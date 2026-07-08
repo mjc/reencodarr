@@ -183,6 +183,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   attr :status, :atom, required: true
   attr :show_controls, :boolean, default: true
   attr :show_queue, :boolean, default: true
+  attr :show_empty_chart, :boolean, default: false
   attr :suspend_event, :string, default: "suspend_crf_search"
   attr :resume_event, :string, default: "resume_crf_search"
   attr :fail_event, :string, default: "fail_crf_search"
@@ -227,7 +228,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
             worker_id={@worker_id}
           />
 
-          <%= if length(@results) > 0 or @sample do %>
+          <%= if @show_empty_chart or length(@results) > 0 or @sample do %>
             <div class="space-y-2">
               <.crf_search_chart
                 results={@results}
@@ -251,7 +252,11 @@ defmodule ReencodarrWeb.CrfSearchComponents do
                 </div>
               <% else %>
                 <div class="px-1 text-xs text-gray-500">
-                  Sampling CRF {Formatters.crf(@sample.crf)}... waiting for first completed VMAF result.
+                  <%= if @sample do %>
+                    Sampling CRF {Formatters.crf(@sample.crf)}... waiting for first completed VMAF result.
+                  <% else %>
+                    Waiting for first CRF sample.
+                  <% end %>
                 </div>
               <% end %>
             </div>
