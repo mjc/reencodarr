@@ -140,17 +140,30 @@ defmodule ReencodarrWeb.WorkerChannel do
         resume_or_claim_work(worker_id, socket, request_mode)
 
       video_id ->
-        case Media.get_video(video_id) do
-          %Media.Video{state: :crf_searching} = video ->
-            reply_for_active_work(worker_id, socket, video, request_mode)
+        handle_active_video_work_request(worker_id, socket, video_id, request_mode)
+    end
+  end
 
-          %Media.Video{} ->
-            socket = clear_assigned_video(worker_id, socket)
-            resume_or_claim_work(worker_id, socket, request_mode)
+  defp handle_active_video_work_request(worker_id, socket, video_id, request_mode) do
+    case Media.get_video(video_id) do
+      %Media.Video{state: :crf_searching} = video ->
+        request_mode =
+          case WorkerSessions.get(worker_id) do
+            %{active_video_id: ^video_id} = session ->
+              maybe_resume_mode(session, request_mode)
 
-          nil ->
-            {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
-        end
+            _ ->
+              request_mode
+          end
+
+        reply_for_active_work(worker_id, socket, video, request_mode)
+
+      %Media.Video{} ->
+        socket = clear_assigned_video(worker_id, socket)
+        resume_or_claim_work(worker_id, socket, request_mode)
+
+      nil ->
+        {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
     end
   end
 
