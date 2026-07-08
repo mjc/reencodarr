@@ -1174,7 +1174,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       "--input",
       video.path,
       "--min-vmaf",
-      Integer.to_string(vmaf_percent),
+      to_string(vmaf_percent),
       "--min-crf",
       to_string(min_crf),
       "--max-crf",

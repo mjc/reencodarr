@@ -132,17 +132,17 @@ defmodule ReencodarrWeb.WorkerChannel do
     :ok
   end
 
-  defp handle_work_request(_payload, %{assigns: %{worker_id: worker_id}} = socket) do
+  defp handle_work_request(payload, %{assigns: %{worker_id: worker_id}} = socket) do
+    request_mode = work_request_mode(payload)
+
     case socket.assigns[:current_video_id] do
       nil ->
-        resume_or_claim_work(worker_id, socket)
+        resume_or_claim_work(worker_id, socket, request_mode)
 
       video_id ->
         case Media.get_video(video_id) do
           %Media.Video{} = video ->
-            {:reply,
-             {:ok, WorkerProtocol.work_in_progress(video, socket.assigns[:current_vmaf_target])},
-             socket}
+            reply_for_active_work(worker_id, socket, video, request_mode)
 
           nil ->
             {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
@@ -150,27 +150,25 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
-  defp resume_or_claim_work(worker_id, socket) do
-    case resume_session_work(worker_id, socket) do
+  defp resume_or_claim_work(worker_id, socket, request_mode) do
+    case resume_session_work(worker_id, socket, request_mode) do
       {:reply, reply, socket} ->
         {:reply, reply, socket}
 
       :none ->
-        case resume_dispatched_work(socket) do
+        case resume_dispatched_work(worker_id, socket, request_mode) do
           {:reply, reply, socket} -> {:reply, reply, socket}
           :none -> claim_work(worker_id, socket)
         end
     end
   end
 
-  defp resume_session_work(worker_id, socket) do
+  defp resume_session_work(worker_id, socket, request_mode) do
     case WorkerSessions.get(worker_id) do
       %{active_video_id: video_id} when is_integer(video_id) ->
         with {:ok, socket} <- ensure_resumable_active_video(socket, video_id),
              %Media.Video{} = video <- Media.get_video(video_id) do
-          {:reply,
-           {:ok, WorkerProtocol.work_in_progress(video, socket.assigns[:current_vmaf_target])},
-           socket}
+          reply_for_active_work(worker_id, socket, video, request_mode)
         else
           _ -> :none
         end
@@ -208,13 +206,11 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
-  defp resume_dispatched_work(socket) do
+  defp resume_dispatched_work(worker_id, socket, request_mode) do
     case Media.get_worker_crf_searching_video(worker_dispatch_id(socket)) do
       %Media.Video{} = video ->
         with {:ok, socket} <- ensure_resumable_active_video(socket, video.id) do
-          {:reply,
-           {:ok, WorkerProtocol.work_in_progress(video, socket.assigns[:current_vmaf_target])},
-           socket}
+          reply_for_active_work(worker_id, socket, video, request_mode)
         end
 
       nil ->
@@ -303,30 +299,10 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp assign_claimed_work(worker_id, socket, video) do
     target_vmaf = Reencodarr.Rules.vmaf_target(video)
-    transfer_id = Integer.to_string(video.id)
-    total_bytes = video.size || 0
-    chunk_size_bytes = WorkerProtocol.chunk_size_bytes()
-    total_chunks = total_chunks(total_bytes, chunk_size_bytes)
 
     with {:ok, _video} <- Media.mark_as_worker_crf_searching(video, worker_dispatch_id(socket)),
          {:ok, _session} <- WorkerSessions.assign_video(worker_id, video.id) do
-      socket =
-        socket
-        |> assign(:current_video_id, video.id)
-        |> assign(:current_vmaf_target, target_vmaf)
-        |> assign(:transfer_io_device, nil)
-        |> assign(:transfer_path, video.path)
-        |> assign(:transfer_id, transfer_id)
-        |> assign(:transfer_chunk_size_bytes, chunk_size_bytes)
-        |> assign(:transfer_total_bytes, total_bytes)
-        |> assign(:transfer_total_chunks, total_chunks)
-        |> assign(:transfer_bytes_sent, 0)
-        |> assign(:transfer_chunk_index, 0)
-
-      if File.exists?(video.path) do
-        send(self(), :stream_transfer_chunk)
-      end
-
+      socket = prepare_transfer(socket, video, target_vmaf)
       {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf)}, socket}
     else
       {:error, reason} ->
@@ -334,6 +310,79 @@ defmodule ReencodarrWeb.WorkerChannel do
         {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
   end
+
+  defp reply_for_active_work(worker_id, socket, video, :resend_input) do
+    target_vmaf = socket.assigns[:current_vmaf_target] || Reencodarr.Rules.vmaf_target(video)
+
+    case WorkerSessions.assign_video(worker_id, video.id) do
+      {:ok, _session} ->
+        socket = prepare_transfer(socket, video, target_vmaf)
+        {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf)}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+    end
+  end
+
+  defp reply_for_active_work(_worker_id, socket, video, :resume_only) do
+    {:reply, {:ok, WorkerProtocol.work_in_progress(video, socket.assigns[:current_vmaf_target])},
+     socket}
+  end
+
+  defp prepare_transfer(socket, video, target_vmaf) do
+    transfer_id = Integer.to_string(video.id)
+    total_bytes = video.size || 0
+    chunk_size_bytes = WorkerProtocol.chunk_size_bytes()
+    total_chunks = total_chunks(total_bytes, chunk_size_bytes)
+
+    socket =
+      socket
+      |> assign(:current_video_id, video.id)
+      |> assign(:current_vmaf_target, target_vmaf)
+      |> assign(:transfer_io_device, nil)
+      |> assign(:transfer_path, video.path)
+      |> assign(:transfer_id, transfer_id)
+      |> assign(:transfer_chunk_size_bytes, chunk_size_bytes)
+      |> assign(:transfer_total_bytes, total_bytes)
+      |> assign(:transfer_total_chunks, total_chunks)
+      |> assign(:transfer_bytes_sent, 0)
+      |> assign(:transfer_chunk_index, 0)
+      |> assign(:transfer_started_sent, nil)
+
+    if File.exists?(video.path) do
+      send(self(), :stream_transfer_chunk)
+    end
+
+    socket
+  end
+
+  defp work_request_mode(payload) when is_map(payload) do
+    if Enum.any?(
+         [
+           "input_missing",
+           :input_missing,
+           "needs_input",
+           :needs_input,
+           "request_transfer",
+           :request_transfer,
+           "resend_input",
+           :resend_input
+         ],
+         &truthy?(Map.get(payload, &1))
+       ) do
+      :resend_input
+    else
+      :resume_only
+    end
+  end
+
+  defp work_request_mode(_payload), do: :resume_only
+
+  defp truthy?(true), do: true
+  defp truthy?("true"), do: true
+  defp truthy?("1"), do: true
+  defp truthy?(1), do: true
+  defp truthy?(_value), do: false
 
   defp maybe_requeue_active_video(socket) do
     case socket.assigns[:current_video_id] do

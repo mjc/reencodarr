@@ -203,15 +203,26 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
         96.5
       )
 
-    assert payload == %{
+    assert %{
              status: "job_assigned",
              job_id: "123",
              video_id: 123,
              source_name: "movie.mkv",
              size_bytes: 987_654,
              chunk_size_bytes: 134_217_728,
-             target_vmaf: 96.5
-           }
+             target_vmaf: 96.5,
+             crf_search_args: crf_search_args
+           } = payload
+
+    assert [
+             "crf-search",
+             "--input",
+             "/videos/movie.mkv",
+             "--min-vmaf",
+             "96.5" | _rest
+           ] = crf_search_args
+
+    assert "--temp-dir" in crf_search_args
   end
 
   test "builds binary transfer chunk frames with ordered metadata and raw data" do

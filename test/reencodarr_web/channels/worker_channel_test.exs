@@ -390,6 +390,73 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "resends active worker input when the worker reports it missing" do
+      token = "test-worker-token"
+      previous_chunk_size = Application.get_env(:reencodarr, :worker_chunk_size_bytes)
+      Application.put_env(:reencodarr, :worker_token, token)
+      Application.put_env(:reencodarr, :worker_chunk_size_bytes, 4)
+
+      on_exit(fn ->
+        if is_nil(previous_chunk_size) do
+          Application.delete_env(:reencodarr, :worker_chunk_size_bytes)
+        else
+          Application.put_env(:reencodarr, :worker_chunk_size_bytes, previous_chunk_size)
+        end
+      end)
+
+      content = "abcdefgh"
+      content_size = byte_size(content)
+
+      with_temp_file(content, ".mkv", fn path ->
+        {:ok, video} =
+          Fixtures.video_fixture(%{
+            path: path,
+            size: content_size,
+            state: :crf_searching,
+            crf_search_worker_id: "worker-a"
+          })
+
+        video_id = video.id
+
+        assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+        assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+        assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
+                     :ok,
+                     %{accepted: true, protocol_version: 1}
+
+        assert_reply push(socket, "pull_work", %{}),
+                     :ok,
+                     %{status: "job_in_progress", video_id: ^video_id}
+
+        refute_push "transfer_started", _, 50
+
+        assert_reply push(socket, "pull_work", %{"input_missing" => true}),
+                     :ok,
+                     %{
+                       status: "job_assigned",
+                       video_id: ^video_id,
+                       chunk_size_bytes: 4
+                     }
+
+        assert_push "transfer_started", %{
+          status: "transfer_started",
+          video_id: ^video_id,
+          size_bytes: ^content_size,
+          chunk_size_bytes: 4,
+          total_bytes: ^content_size,
+          total_chunks: 2
+        }
+
+        assert_push "transfer_chunk", {:binary, first_frame}
+
+        assert {:ok, %{video_id: ^video_id, chunk_index: 0, data: "abcd"}} =
+                 WorkerProtocol.parse_transfer_chunk_frame(first_frame)
+      end)
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "returns in-progress work when an assigned worker asks again" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
