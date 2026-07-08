@@ -185,29 +185,30 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp maybe_resume_mode(
-         %{transfer_progress: transfer_progress, crf_search_progress: crf_search_progress},
+         %{transfer_progress: transfer_progress, crf_search_progress: _crf_search_progress},
          request_mode
        ) do
-    if should_resend_transfer?(transfer_progress, crf_search_progress),
+    if should_resend_transfer?(transfer_progress),
       do: :resend_input,
       else: request_mode
   end
 
-  defp should_resend_transfer?(_transfer_progress, crf_search_progress)
-       when is_map(crf_search_progress),
-       do: false
+  defp should_resend_transfer?(nil), do: true
 
-  defp should_resend_transfer?(nil, _), do: true
-
-  defp should_resend_transfer?(%{bytes_sent: bytes_sent, total_bytes: total_bytes}, _)
+  defp should_resend_transfer?(%{bytes_sent: bytes_sent, total_bytes: total_bytes})
        when is_integer(bytes_sent) and is_integer(total_bytes) and total_bytes > 0 do
     bytes_sent < total_bytes
   end
 
-  defp should_resend_transfer?(%{percent: percent}, _) when is_number(percent),
+  defp should_resend_transfer?(%{percent: percent}) when is_number(percent),
     do: percent < 100.0
 
-  defp should_resend_transfer?(_, _), do: true
+  defp should_resend_transfer?(%{chunk_index: chunk_index, total_chunks: total_chunks})
+       when is_integer(chunk_index) and is_integer(total_chunks) and total_chunks > 0 do
+    chunk_index < total_chunks
+  end
+
+  defp should_resend_transfer?(_), do: true
 
   defp attach_announced_work(socket, _client_worker_id, %{active_video_id: video_id})
        when is_integer(video_id) do
@@ -237,7 +238,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
-  defp resume_dispatched_work(worker_id, socket, request_mode) do
+  defp resume_dispatched_work(worker_id, socket, _request_mode) do
     case Media.get_worker_crf_searching_video(worker_dispatch_id(socket)) do
       %Media.Video{} = video ->
         with {:ok, socket} <- ensure_resumable_active_video(socket, video.id) do

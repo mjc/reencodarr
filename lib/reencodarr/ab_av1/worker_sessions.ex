@@ -150,7 +150,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     update_session_reply(server_worker_id, state, fn session ->
       progress = merge_crf_search_progress(session.crf_search_progress, progress)
 
-      %{session | transfer_progress: nil, crf_search_progress: progress}
+      %{session | crf_search_progress: progress}
     end)
   end
 

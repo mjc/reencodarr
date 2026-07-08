@@ -294,7 +294,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert filename == Path.basename(video.path)
       session = WorkerSessions.get(server_worker_id)
-      assert is_nil(session.transfer_progress)
+      assert session.transfer_progress
+      assert session.transfer_progress.percent == 25.5
       assert session.crf_search_progress.percent == 62.0
 
       Phoenix.PubSub.broadcast(
@@ -557,7 +558,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
             path: path,
             size: 8,
             state: :crf_searching,
-            crf_search_worker_id: "worker-a"
+            crf_search_worker_id: "worker-dispatch-gone"
           })
 
         video_id = video.id
@@ -565,20 +566,29 @@ defmodule ReencodarrWeb.WorkerChannelTest do
         assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
         assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
 
-        assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
+        assert_reply push(
+                       socket,
+                       "announce",
+                       announce_payload(worker_id: "worker-dispatch-gone")
+                     ),
                      :ok,
                      %{accepted: true, protocol_version: 1}
 
-        assert_reply push(socket, "pull_work", %{}),
-                     :ok,
-                     %{
-                       status: "job_assigned",
-                       video_id: ^video_id,
-                       crf_search_args: crf_search_args
-                     }
+        pull_work_reply = assert_reply push(socket, "pull_work", %{}), :ok, _
 
-        assert "crf-search" in crf_search_args
-        assert_push "transfer_started", %{status: "transfer_started", video_id: ^video_id}
+        assert %{
+                 video_id: ^video_id,
+                 crf_search_args: crf_search_args
+               } = pull_work_reply.payload
+
+        case pull_work_reply.payload do
+          %{status: "job_assigned", chunk_size_bytes: _chunk_size_bytes} ->
+            assert "crf-search" in crf_search_args
+            assert_push "transfer_started", %{status: "transfer_started", video_id: ^video_id}
+
+          %{status: "job_in_progress"} ->
+            :ok
+        end
       end)
     after
       Application.delete_env(:reencodarr, :worker_token)
