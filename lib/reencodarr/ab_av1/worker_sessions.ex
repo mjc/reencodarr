@@ -144,7 +144,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def handle_call({:set_crf_search_progress, server_worker_id, progress}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
-      %{session | crf_search_progress: progress}
+      %{session | transfer_progress: nil, crf_search_progress: progress}
     end)
   end
 

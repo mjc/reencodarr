@@ -9,6 +9,9 @@ defmodule ReencodarrWeb.WorkersLive do
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Formatters
   alias Reencodarr.Media
+  alias Reencodarr.Rules
+
+  import ReencodarrWeb.CrfSearchComponents
 
   @refresh_interval 5_000
 
@@ -38,6 +41,19 @@ defmodule ReencodarrWeb.WorkersLive do
   def handle_info({_event, _data}, socket), do: {:noreply, socket}
 
   @impl true
+  def handle_event("pause_worker_crf_search", %{"worker-id" => worker_id}, socket) do
+    control_worker(socket, worker_id, :pause, "Worker pause requested")
+  end
+
+  def handle_event("resume_worker_crf_search", %{"worker-id" => worker_id}, socket) do
+    control_worker(socket, worker_id, :resume, "Worker resume requested")
+  end
+
+  def handle_event("stop_worker_crf_search", %{"worker-id" => worker_id}, socket) do
+    control_worker(socket, worker_id, :stop, "Worker stop requested")
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <div class="min-h-[calc(100dvh-3.5rem)] bg-gray-950 px-3 py-4 sm:px-4 sm:py-6 lg:px-6">
@@ -64,134 +80,96 @@ defmodule ReencodarrWeb.WorkersLive do
           </div>
         </div>
 
-        <%= if active_workers(@workers) != [] do %>
-          <section class="rounded-lg border border-cyan-900/40 bg-cyan-950/10">
-            <div class="border-b border-cyan-900/30 px-4 py-3">
-              <h2 class="text-sm font-semibold text-cyan-200">Active Transfers</h2>
-              <p class="mt-0.5 text-xs text-cyan-100/60">
-                Live transfer progress while the worker is receiving the video.
-              </p>
-            </div>
-
-            <div class="divide-y divide-cyan-950/40">
-              <%= for worker <- active_workers(@workers) do %>
-                <% progress = worker_transfer_progress(worker) %>
-                <div class="px-4 py-3">
-                  <div class="flex items-start justify-between gap-4">
-                    <div class="min-w-0">
-                      <div class="truncate text-sm font-medium text-white">
-                        {worker.client_worker_id}
+        <%= if @workers == [] do %>
+          <div class="rounded-lg border border-gray-800 bg-gray-900 px-4 py-8 text-center text-sm text-gray-500">
+            No workers connected.
+          </div>
+        <% else %>
+          <div class="space-y-3">
+            <%= for worker <- @workers do %>
+              <section class="rounded-lg border border-gray-800 bg-gray-900 p-3 sm:p-4">
+                <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                  <div class="min-w-0 space-y-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                      <div class="min-w-0">
+                        <div class="truncate font-medium text-white">{worker.client_worker_id}</div>
+                        <div class="mt-1 text-xs text-gray-500">
+                          server: {worker.server_worker_id}
+                        </div>
                       </div>
-                      <div class="truncate text-xs text-gray-500">
-                        {worker_transfer_name(worker)}
+                      <span class={status_badge_class(worker)}>
+                        {worker_status(worker)}
+                      </span>
+                    </div>
+
+                    <.crf_search_panel
+                      video={worker_crf_video(worker)}
+                      results={worker_crf_results(worker)}
+                      sample={worker_crf_sample(worker)}
+                      progress={worker.crf_search_progress}
+                      status={worker_crf_status(worker)}
+                      show_controls={true}
+                      show_queue={false}
+                      suspend_event="pause_worker_crf_search"
+                      resume_event="resume_worker_crf_search"
+                      fail_event="stop_worker_crf_search"
+                      worker_id={worker.server_worker_id}
+                    />
+                  </div>
+
+                  <aside class="space-y-3 text-xs">
+                    <div>
+                      <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        Resources
+                      </h2>
+                      <div class="space-y-1 text-gray-300">
+                        <div>CPU {worker_cpu(worker)}</div>
+                        <div class="text-gray-500">Mem {worker_memory(worker)}</div>
+                        <div class="text-gray-500">Disk {worker_disk(worker)}</div>
                       </div>
                     </div>
 
-                    <div class="shrink-0 text-right text-sm font-semibold text-cyan-300">
-                      {format_number(progress.percent)}%
-                    </div>
-                  </div>
-
-                  <div class="mt-2 h-2 overflow-hidden rounded-full bg-gray-800">
-                    <div
-                      class="h-full rounded-full bg-cyan-500 transition-[width] duration-300"
-                      style={"width: #{format_number(progress.percent)}%;"}
-                    >
-                    </div>
-                  </div>
-
-                  <div class="mt-2 grid gap-x-4 gap-y-1 text-xs text-gray-400 sm:grid-cols-4">
-                    <div>Bytes {format_transfer_bytes(progress)}</div>
-                    <div>Throughput {format_throughput(progress.bytes_per_second)}</div>
-                    <div>ETA {format_eta(progress.eta)}</div>
-                    <div>Chunk {format_chunk_progress(progress)}</div>
-                  </div>
+                    <%= if worker.transfer_progress do %>
+                      <div>
+                        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          Input
+                        </h2>
+                        <div class="space-y-1 text-gray-500">
+                          <div>{format_transfer_bytes(worker.transfer_progress)}</div>
+                          <div>{format_number(worker.transfer_progress.percent)}%</div>
+                          <div>{format_throughput(worker.transfer_progress.bytes_per_second)}</div>
+                          <div>ETA {format_eta(worker.transfer_progress.eta)}</div>
+                          <div>Chunk {format_chunk_progress(worker.transfer_progress)}</div>
+                        </div>
+                      </div>
+                    <% end %>
+                  </aside>
                 </div>
-              <% end %>
-            </div>
-          </section>
+              </section>
+            <% end %>
+          </div>
         <% end %>
-
-        <div class="overflow-hidden rounded-lg border border-gray-800 bg-gray-900">
-          <table class="min-w-full divide-y divide-gray-800 text-sm">
-            <thead class="bg-gray-950/60 text-xs uppercase tracking-wide text-gray-500">
-              <tr>
-                <th class="px-4 py-3 text-left font-medium">Worker</th>
-                <th class="px-4 py-3 text-left font-medium">State</th>
-                <th class="px-4 py-3 text-left font-medium">Video</th>
-                <th class="px-4 py-3 text-left font-medium">Resources</th>
-                <th class="px-4 py-3 text-left font-medium">Live Progress</th>
-                <th class="px-4 py-3 text-left font-medium">CRF/VMAF Results</th>
-                <th class="px-4 py-3 text-left font-medium">Protocol</th>
-                <th class="px-4 py-3 text-left font-medium">Version</th>
-                <th class="px-4 py-3 text-left font-medium">Connected</th>
-                <th class="px-4 py-3 text-left font-medium">Last Seen</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-800">
-              <%= if @workers == [] do %>
-                <tr>
-                  <td colspan="10" class="px-4 py-8 text-center text-sm text-gray-500">
-                    No workers connected.
-                  </td>
-                </tr>
-              <% end %>
-
-              <%= for worker <- @workers do %>
-                <tr class="text-gray-200">
-                  <td class="px-4 py-3">
-                    <div class="font-medium text-white">{worker.client_worker_id}</div>
-                    <div class="mt-1 text-xs text-gray-500">
-                      server: {worker.server_worker_id}
-                    </div>
-                  </td>
-                  <td class="px-4 py-3">
-                    <span class={status_badge_class(worker)}>
-                      {worker_status(worker)}
-                    </span>
-                  </td>
-                  <td class="px-4 py-3 text-gray-300">
-                    {worker_video(worker)}
-                  </td>
-                  <td class="px-4 py-3 text-xs text-gray-300">
-                    <div>CPU {worker_cpu(worker)}</div>
-                    <div class="mt-1 text-gray-500">Mem {worker_memory(worker)}</div>
-                    <div class="mt-1 text-gray-500">Disk {worker_disk(worker)}</div>
-                  </td>
-                  <td class="px-4 py-3 text-xs text-gray-300">
-                    <div>{worker_progress(worker)}</div>
-                    <div class="mt-1 text-gray-500">{worker_transfer(worker)}</div>
-                  </td>
-                  <td class="px-4 py-3 text-xs text-gray-300">
-                    {worker_vmafs(worker)}
-                  </td>
-                  <td class="px-4 py-3 text-gray-300">
-                    {worker.protocol_version}
-                  </td>
-                  <td class="px-4 py-3 text-gray-300">
-                    {worker.version}
-                  </td>
-                  <td class="px-4 py-3 text-gray-300">
-                    {DateTime.to_iso8601(worker.connected_at)}
-                  </td>
-                  <td class="px-4 py-3 text-gray-300">
-                    {DateTime.to_iso8601(worker.last_seen_at)}
-                  </td>
-                </tr>
-              <% end %>
-            </tbody>
-          </table>
-        </div>
       </div>
     </div>
     """
   end
 
+  defp control_worker(socket, worker_id, action, message) do
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      ReencodarrWeb.WorkerChannel.worker_control_topic(worker_id),
+      {:worker_control, action}
+    )
+
+    {:noreply, put_flash(socket, :info, message)}
+  end
+
   defp worker_status(%{active_video_id: nil}), do: "Idle"
 
-  defp worker_status(%{transfer_progress: _progress}), do: "transferring"
+  defp worker_status(%{crf_search_progress: progress}) when not is_nil(progress), do: "CRF search"
 
-  defp worker_status(%{crf_search_progress: _progress}), do: "crf_searching"
+  defp worker_status(%{transfer_progress: progress}) when not is_nil(progress),
+    do: "Receiving input"
 
   defp worker_status(%{active_video_id: video_id}) do
     case Media.get_video(video_id) do
@@ -200,8 +178,59 @@ defmodule ReencodarrWeb.WorkersLive do
     end
   end
 
-  defp worker_video(%{active_video_id: nil}), do: "none"
-  defp worker_video(%{active_video_id: video_id}), do: "video ##{video_id}"
+  defp worker_crf_status(%{active_video_id: nil}), do: :idle
+
+  defp worker_crf_status(%{crf_search_progress: progress}) when not is_nil(progress),
+    do: :processing
+
+  defp worker_crf_status(%{active_video_id: _video_id}), do: :processing
+
+  defp worker_crf_video(worker) do
+    case active_video(worker) do
+      %Media.Video{} = video ->
+        %{
+          video_id: video.id,
+          filename: Path.basename(video.path),
+          video_size: video.size,
+          width: video.width,
+          height: video.height,
+          hdr: video.hdr,
+          target_vmaf: Rules.vmaf_target(video)
+        }
+
+      nil ->
+        nil
+    end
+  end
+
+  defp worker_crf_results(worker) do
+    case active_video_id(worker) do
+      nil ->
+        []
+
+      video_id ->
+        video_id
+        |> Media.get_vmafs_for_video()
+        |> Enum.sort_by(& &1.crf)
+        |> Enum.map(fn vmaf ->
+          %{crf: vmaf.crf, score: vmaf.score, percent: vmaf.percent}
+        end)
+    end
+  end
+
+  defp worker_crf_sample(_worker), do: nil
+
+  defp active_video(worker) do
+    case active_video_id(worker) do
+      nil -> nil
+      video_id -> Media.get_video(video_id)
+    end
+  end
+
+  defp active_video_id(%{active_video_id: video_id}) when is_integer(video_id), do: video_id
+  defp active_video_id(%{crf_search_progress: %{video_id: video_id}}), do: video_id
+  defp active_video_id(%{transfer_progress: %{video_id: video_id}}), do: video_id
+  defp active_video_id(_worker), do: nil
 
   defp worker_cpu(%{resource_usage: %{cpu_percent: cpu_percent}}) when is_number(cpu_percent),
     do: "#{format_number(cpu_percent)}%"
@@ -233,70 +262,6 @@ defmodule ReencodarrWeb.WorkersLive do
   end
 
   defp worker_disk(_worker), do: "-"
-
-  defp worker_progress(%{crf_search_progress: nil}), do: "CRF -"
-
-  defp worker_progress(%{crf_search_progress: progress}) do
-    [
-      {"CRF", progress.percent, &"#{format_number(&1)}%"},
-      {"FPS", progress.fps, &Formatters.fps/1},
-      {"ETA", progress.eta, &"#{&1}s"}
-    ]
-    |> format_parts()
-  end
-
-  defp worker_transfer(%{transfer_progress: nil}), do: "Transfer -"
-
-  defp worker_transfer(%{transfer_progress: progress}) do
-    parts = [
-      {"Transfer", progress.percent, &"#{format_number(&1)}%"},
-      {"Throughput", progress.bytes_per_second, &format_throughput/1},
-      {"ETA", progress.eta, &format_eta/1},
-      {"Bytes", progress.bytes_sent, &format_transfer_bytes(&1, progress.total_bytes)},
-      {"Chunk", progress.chunk_index, &to_string/1},
-      {"Total", progress.total_chunks, &to_string/1}
-    ]
-
-    case format_parts(parts) do
-      "-" -> "-"
-      details -> progress_filename(progress) <> details
-    end
-  end
-
-  defp worker_vmafs(%{active_video_id: nil}), do: "-"
-
-  defp worker_vmafs(%{active_video_id: video_id}) do
-    video_id
-    |> Media.get_vmafs_for_video()
-    |> Enum.sort_by(& &1.crf)
-    |> Enum.take(4)
-    |> case do
-      [] ->
-        "-"
-
-      vmafs ->
-        Enum.map_join(vmafs, " / ", &format_vmaf/1)
-    end
-  end
-
-  defp format_vmaf(vmaf) do
-    "CRF #{Formatters.crf(vmaf.crf)} -> #{Formatters.vmaf_score(vmaf.score, 1)} (#{format_number(vmaf.percent)}%)"
-  end
-
-  defp progress_filename(%{filename: nil}), do: ""
-  defp progress_filename(%{filename: filename}), do: "#{filename} - "
-
-  defp format_parts(parts) do
-    parts
-    |> Enum.reject(fn {_label, value, _formatter} -> is_nil(value) end)
-    |> Enum.map(fn {label, value, formatter} ->
-      "#{label} #{formatter.(value)}"
-    end)
-    |> case do
-      [] -> "-"
-      formatted -> Enum.join(formatted, " / ")
-    end
-  end
 
   defp format_number(number) when is_integer(number), do: Integer.to_string(number)
 
@@ -330,22 +295,6 @@ defmodule ReencodarrWeb.WorkersLive do
 
   defp format_transfer_bytes(%{bytes_sent: bytes_sent, total_bytes: total_bytes}),
     do: format_transfer_bytes(bytes_sent, total_bytes)
-
-  defp active_workers(workers) do
-    Enum.filter(workers, fn %{transfer_progress: progress} -> not is_nil(progress) end)
-  end
-
-  defp worker_transfer_progress(%{transfer_progress: progress}), do: progress
-  defp worker_transfer_progress(_worker), do: %{}
-
-  defp worker_transfer_name(%{transfer_progress: %{filename: filename}})
-       when is_binary(filename) and filename != "",
-       do: filename
-
-  defp worker_transfer_name(%{active_video_id: video_id}) when is_integer(video_id),
-    do: "video ##{video_id}"
-
-  defp worker_transfer_name(_worker), do: "transfer"
 
   defp format_chunk_progress(%{chunk_index: chunk_index, total_chunks: total_chunks})
        when is_integer(chunk_index) and is_integer(total_chunks) and total_chunks > 0 do

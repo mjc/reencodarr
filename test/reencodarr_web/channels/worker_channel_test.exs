@@ -280,8 +280,16 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert filename == Path.basename(video.path)
       session = WorkerSessions.get(server_worker_id)
-      assert session.transfer_progress.percent == 25.5
+      assert is_nil(session.transfer_progress)
       assert session.crf_search_progress.percent == 62.0
+
+      Phoenix.PubSub.broadcast(
+        Reencodarr.PubSub,
+        WorkerChannel.worker_control_topic(server_worker_id),
+        {:worker_control, :pause}
+      )
+
+      assert_push "control", %{action: "pause", video_id: ^video_id}
     after
       Application.delete_env(:reencodarr, :worker_token)
     end

@@ -47,13 +47,6 @@ defmodule ReencodarrWeb.WorkersLiveTest do
              })
 
     assert {:ok, _session} =
-             WorkerSessions.set_crf_search_progress("worker-server-1", %{
-               percent: 62.0,
-               fps: 12.5,
-               eta: 90
-             })
-
-    assert {:ok, _session} =
              WorkerSessions.set_transfer_progress("worker-server-1", %{
                job_id: "job-1",
                transfer_id: "job-1",
@@ -67,6 +60,14 @@ defmodule ReencodarrWeb.WorkersLiveTest do
                total_chunks: 8
              })
 
+    assert {:ok, _session} =
+             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+               video_id: video.id,
+               percent: 62.0,
+               fps: 12.5,
+               eta: 90
+             })
+
     Fixtures.vmaf_fixture(%{
       video_id: video.id,
       crf: 28.0,
@@ -76,20 +77,38 @@ defmodule ReencodarrWeb.WorkersLiveTest do
 
     send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
     html = render(view)
-    assert html =~ "Active Transfers"
-    assert html =~ "transferring"
-    assert html =~ "video ##{video.id}"
+    refute html =~ "Active Transfers"
+    refute html =~ "Protocol"
+    refute html =~ "Version"
+    assert html =~ "CRF Search"
+    assert html =~ "CRF search"
+    assert html =~ Path.basename(video.path)
+    assert html =~ "2.0 GiB"
+    assert html =~ "1920x1080"
+    assert html =~ "Target: 95 VMAF"
     assert html =~ "CPU 87.5%"
     assert html =~ "Mem 1.0 GiB / 4.0 GiB"
     assert html =~ "Disk 500.0 GiB free / 1.0 TiB"
-    assert html =~ "CRF 62.0%"
+    assert html =~ "Progress 62.0%"
     assert html =~ "FPS 12.5 fps"
     assert html =~ "ETA 90s"
-    assert html =~ "Transfer 25.5%"
-    assert html =~ "Throughput 1.0 MiB/s"
-    assert html =~ "ETA 15s"
-    assert html =~ "Bytes 2.5 MiB / 10.0 MiB"
-    assert html =~ "Chunk 3 / 8"
-    assert html =~ "CRF 28.0 -&gt; 95.4 (93.0%)"
+    refute html =~ "Input"
+    refute html =~ "2.5 MiB / 10.0 MiB"
+    refute html =~ "Chunk 3 / 8"
+    assert html =~ "CRF 28.0 -&gt; 95.4 VMAF"
+    assert html =~ "93.0%"
+    assert html =~ "Pause"
+    assert html =~ "Stop"
+
+    Phoenix.PubSub.subscribe(
+      Reencodarr.PubSub,
+      ReencodarrWeb.WorkerChannel.worker_control_topic("worker-server-1")
+    )
+
+    view
+    |> element("button[phx-click='pause_worker_crf_search']")
+    |> render_click()
+
+    assert_receive {:worker_control, :pause}
   end
 end

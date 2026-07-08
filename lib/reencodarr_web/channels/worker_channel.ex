@@ -11,9 +11,13 @@ defmodule ReencodarrWeb.WorkerChannel do
   alias Reencodarr.Media
 
   @crf_search_topic WorkerProtocol.crf_search_topic()
+  @worker_control_topic_prefix "worker_controls:"
+
+  def worker_control_topic(worker_id), do: @worker_control_topic_prefix <> worker_id
 
   @impl true
   def join(@crf_search_topic, _payload, %{assigns: %{worker_id: worker_id}} = socket) do
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, worker_control_topic(worker_id))
     {:ok, %{worker_id: worker_id}, socket}
   end
 
@@ -93,6 +97,15 @@ defmodule ReencodarrWeb.WorkerChannel do
       {:error, socket} ->
         {:noreply, socket}
     end
+  end
+
+  def handle_info({:worker_control, action}, socket) do
+    push(socket, "control", %{
+      action: Atom.to_string(action),
+      video_id: socket.assigns[:current_video_id]
+    })
+
+    {:noreply, socket}
   end
 
   def handle_info(:stream_transfer_chunk, %{assigns: %{transfer_io_device: io_device}} = socket)
