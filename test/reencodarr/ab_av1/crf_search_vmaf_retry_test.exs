@@ -97,7 +97,9 @@ defmodule Reencodarr.AbAv1.CrfSearchVmafRetryTest do
       send(test_pid, {:open_port_call, count, args})
 
       # Spawn a script that outputs lines then exits with failure
-      script = Enum.map_join(output_lines, "; ", &"echo '#{&1}'") <> "; exit 1"
+      # Keep the port alive briefly so CrfSearch can finish its startup call
+      # chain before the mocked failure process exits.
+      script = Enum.map_join(output_lines, "; ", &"echo '#{&1}'") <> "; sleep 0.1; exit 1"
       port = Port.open({:spawn, "sh -c \"#{script}\""}, [:exit_status, :binary, {:line, 1024}])
       {:ok, port}
     end)
