@@ -85,6 +85,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert Media.get_video(video.id).crf_search_worker_id == "worker-a"
       assert [session] = WorkerSessions.list()
       assert session.active_video_id == video.id
+      assert is_nil(session.transfer_progress)
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
@@ -429,6 +430,15 @@ defmodule ReencodarrWeb.WorkerChannelTest do
           total_bytes: content_size,
           total_chunks: 2
         }
+
+        session = WorkerSessions.get(socket.assigns.worker_id)
+        assert session.active_video_id == assigned_video_id
+        assert session.transfer_progress.video_id == assigned_video_id
+        assert session.transfer_progress.percent == 0.0
+        assert session.transfer_progress.bytes_sent == 0
+        assert session.transfer_progress.total_bytes == content_size
+        assert session.transfer_progress.chunk_index == 0
+        assert session.transfer_progress.total_chunks == 2
 
         assert_push "transfer_chunk", {:binary, first_frame}
 

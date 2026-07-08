@@ -508,6 +508,12 @@ defmodule ReencodarrWeb.WorkerChannel do
     if is_nil(video) do
       {:noreply, handle_transfer_failure(socket, video_id, :enoent)}
     else
+      _ =
+        WorkerSessions.set_transfer_progress(
+          socket.assigns.worker_id,
+          initial_transfer_progress(socket, video)
+        )
+
       socket =
         socket
         |> assign(:transfer_started_sent, true)
@@ -527,6 +533,22 @@ defmodule ReencodarrWeb.WorkerChannel do
       send(self(), :stream_transfer_chunk)
       {:noreply, socket}
     end
+  end
+
+  defp initial_transfer_progress(socket, video) do
+    %WorkerProtocol.TransferProgress{
+      job_id: socket.assigns.transfer_id,
+      video_id: video.id,
+      transfer_id: socket.assigns.transfer_id,
+      filename: Path.basename(video.path),
+      percent: 0.0,
+      bytes_sent: 0,
+      total_bytes: socket.assigns.transfer_total_bytes,
+      bytes_per_second: nil,
+      eta: nil,
+      chunk_index: 0,
+      total_chunks: socket.assigns.transfer_total_chunks
+    }
   end
 
   defp read_transfer_chunk(%{assigns: %{current_video_id: video_id}} = socket, io_device) do

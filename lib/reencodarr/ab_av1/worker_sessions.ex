@@ -138,7 +138,9 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def handle_call({:set_transfer_progress, server_worker_id, progress}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
-      %{session | transfer_progress: progress}
+      active_video_id = Map.get(progress, :video_id, session.active_video_id)
+
+      %{session | active_video_id: active_video_id, transfer_progress: progress}
     end)
   end
 
