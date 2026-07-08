@@ -82,6 +82,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert source_name == Path.basename(video.path)
       assert size_bytes == video.size
       assert Media.get_video(video.id).state == :crf_searching
+      assert Media.get_video(video.id).crf_search_worker_id == "worker-a"
       assert [session] = WorkerSessions.list()
       assert session.active_video_id == video.id
     after
@@ -264,7 +265,10 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                      "percent" => 62.0,
                      "filename" => Path.basename(video.path),
                      "eta" => 90,
-                     "fps" => 12.5
+                     "fps" => 12.5,
+                     "crf" => 28.0,
+                     "sample_num" => 3,
+                     "total_samples" => 8
                    }),
                    :ok,
                    %{accepted: true, event: "crf_search_progress"}
@@ -275,7 +279,10 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                         percent: 62.0,
                         filename: filename,
                         eta: 90,
-                        fps: 12.5
+                        fps: 12.5,
+                        crf: 28.0,
+                        sample_num: 3,
+                        total_samples: 8
                       }}
 
       assert filename == Path.basename(video.path)
@@ -290,6 +297,78 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       )
 
       assert_push "control", %{action: "pause", video_id: ^video_id}
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "accepts resumed CRF progress for already-searching video after reconnect" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{state: :crf_searching, crf_search_worker_id: "worker-a"})
+
+      video_id = video.id
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+      server_worker_id = socket.assigns.worker_id
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
+                   :ok,
+                   %{accepted: true, protocol_version: 1}
+
+      assert_reply push(socket, "crf_search_progress", %{
+                     "video_id" => video_id,
+                     "percent" => 16.4,
+                     "filename" => Path.basename(video.path),
+                     "fps" => 24.0,
+                     "crf" => 28.0,
+                     "sample_num" => 2,
+                     "total_samples" => 8
+                   }),
+                   :ok,
+                   %{accepted: true, event: "crf_search_progress"}
+
+      session = WorkerSessions.get(server_worker_id)
+      assert session.active_video_id == video_id
+      assert session.crf_search_progress.sample_num == 2
+      assert Media.get_video(video_id).state == :crf_searching
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "does not restart transfer when reconnected worker asks for work already in progress" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{state: :crf_searching, crf_search_worker_id: "worker-a"})
+
+      video_id = video.id
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+      server_worker_id = socket.assigns.worker_id
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
+                   :ok,
+                   %{accepted: true, protocol_version: 1}
+
+      assert_reply push(socket, "pull_work", %{}),
+                   :ok,
+                   %{
+                     status: "job_in_progress",
+                     video_id: ^video_id,
+                     target_vmaf: 95
+                   }
+
+      refute_push "transfer_started", _, 50
+      refute_push "transfer_chunk", _, 50
+
+      session = WorkerSessions.get(server_worker_id)
+      assert session.active_video_id == video_id
+      assert Media.get_video(video_id).state == :crf_searching
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
@@ -525,7 +604,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
-    test "requeues active work when the worker disconnects" do
+    test "keeps worker-dispatched active work when the worker disconnects" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
 
@@ -548,7 +627,9 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Process.unlink(socket.channel_pid)
       assert :ok = close(socket)
 
-      assert Media.get_video(video.id).state == :analyzed
+      refreshed = Media.get_video(video.id)
+      assert refreshed.state == :crf_searching
+      assert refreshed.crf_search_worker_id == "worker-a"
       assert WorkerSessions.list() == []
     after
       Application.delete_env(:reencodarr, :worker_token)

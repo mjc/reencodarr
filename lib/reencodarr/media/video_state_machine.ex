@@ -92,11 +92,17 @@ defmodule Reencodarr.Media.VideoStateMachine do
           video
           |> change(attrs)
           |> put_change(:state, to_state)
+          |> maybe_clear_crf_search_worker_id(to_state)
           |> validate_state_transition(from_state, to_state)
 
         {:ok, changeset}
     end
   end
+
+  defp maybe_clear_crf_search_worker_id(changeset, :crf_searching), do: changeset
+
+  defp maybe_clear_crf_search_worker_id(changeset, _to_state),
+    do: put_change(changeset, :crf_search_worker_id, nil)
 
   @doc """
   Transitions a video to a new state with automatic state-specific validations.

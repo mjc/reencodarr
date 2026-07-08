@@ -63,14 +63,17 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     @moduledoc false
 
     @enforce_keys [:video_id, :percent]
-    defstruct [:video_id, :percent, :filename, :eta, :fps]
+    defstruct [:video_id, :percent, :filename, :eta, :fps, :crf, :sample_num, :total_samples]
 
     @type t :: %__MODULE__{
             video_id: pos_integer(),
             percent: number(),
             filename: String.t() | nil,
             eta: non_neg_integer() | nil,
-            fps: number() | nil
+            fps: number() | nil,
+            crf: number() | nil,
+            sample_num: pos_integer() | nil,
+            total_samples: pos_integer() | nil
           }
   end
 
@@ -238,7 +241,10 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
          percent: percent,
          filename: optional_string(payload, [:filename, "filename"]),
          eta: optional_integer(payload, [:eta, "eta"]),
-         fps: optional_number(payload, [:fps, "fps"])
+         fps: optional_number(payload, [:fps, "fps"]),
+         crf: optional_number(payload, [:crf, "crf"]),
+         sample_num: optional_integer(payload, [:sample_num, "sample_num"]),
+         total_samples: optional_integer(payload, [:total_samples, "total_samples"])
        }}
     end
   end
@@ -460,6 +466,18 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
       source_name: Path.basename(path),
       size_bytes: size || 0,
       chunk_size_bytes: chunk_size_bytes(),
+      target_vmaf: target_vmaf
+    }
+  end
+
+  def work_in_progress(%Video{id: video_id, path: path, size: size}, target_vmaf)
+      when is_integer(video_id) and is_binary(path) do
+    %{
+      status: "job_in_progress",
+      job_id: Integer.to_string(video_id),
+      video_id: video_id,
+      source_name: Path.basename(path),
+      size_bytes: size || 0,
       target_vmaf: target_vmaf
     }
   end

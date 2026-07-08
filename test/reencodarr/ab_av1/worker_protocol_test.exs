@@ -73,14 +73,20 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
               percent: 78.5,
               filename: "movie.mkv",
               eta: 42,
-              fps: 23.97
+              fps: 23.97,
+              crf: 24.0,
+              sample_num: 2,
+              total_samples: 8
             }} =
              WorkerProtocol.parse_crf_search_progress(%{
                "video_id" => 123,
                "percent" => 78.5,
                "filename" => "movie.mkv",
                "eta" => 42,
-               "fps" => 23.97
+               "fps" => 23.97,
+               "crf" => 24.0,
+               "sample_num" => 2,
+               "total_samples" => 8
              })
   end
 

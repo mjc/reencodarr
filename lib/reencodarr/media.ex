@@ -312,6 +312,31 @@ defmodule Reencodarr.Media do
 
   def mark_as_crf_searching(%Video{} = video), do: VideoStateMachine.mark_as_crf_searching(video)
 
+  def mark_as_worker_crf_searching(%Video{id: video_id}, worker_id)
+      when is_integer(video_id) and is_binary(worker_id) do
+    write(
+      fn ->
+        from(v in Video, where: v.id == ^video_id and v.state == :crf_searching)
+        |> Repo.update_all(set: [crf_search_worker_id: worker_id, updated_at: DateTime.utc_now()])
+      end,
+      label: :media_mark_as_worker_crf_searching
+    )
+    |> case do
+      {1, _} -> {:ok, Repo.get(Video, video_id)}
+      _ -> {:error, :not_crf_searching}
+    end
+  end
+
+  def get_worker_crf_searching_video(worker_id) when is_binary(worker_id) do
+    Repo.one(
+      from(v in Video,
+        where: v.state == :crf_searching and v.crf_search_worker_id == ^worker_id,
+        order_by: [desc: v.updated_at],
+        limit: 1
+      )
+    )
+  end
+
   def mark_as_encoding(%Video{} = video), do: VideoStateMachine.mark_as_encoding(video)
 
   def mark_as_reencoded(%Video{} = video), do: VideoStateMachine.mark_as_reencoded(video)
@@ -1384,7 +1409,7 @@ defmodule Reencodarr.Media do
   def reset_orphaned_crf_searching do
     exclude_id = CrfSearch.current_video_id()
 
-    from(v in Video, where: v.state == :crf_searching)
+    from(v in Video, where: v.state == :crf_searching and is_nil(v.crf_search_worker_id))
     |> maybe_exclude_video(exclude_id)
     |> reset_videos("orphaned crf_searching videos → analyzed")
   end

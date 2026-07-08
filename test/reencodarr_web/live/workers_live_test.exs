@@ -65,7 +65,10 @@ defmodule ReencodarrWeb.WorkersLiveTest do
                video_id: video.id,
                percent: 62.0,
                fps: 12.5,
-               eta: 90
+               eta: 90,
+               crf: 28.0,
+               sample_num: 3,
+               total_samples: 8
              })
 
     Fixtures.vmaf_fixture(%{
@@ -89,9 +92,10 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert html =~ "CPU 87.5%"
     assert html =~ "Mem 1.0 GiB / 4.0 GiB"
     assert html =~ "Disk 500.0 GiB free / 1.0 TiB"
-    assert html =~ "Progress 62.0%"
-    assert html =~ "FPS 12.5 fps"
-    assert html =~ "ETA 90s"
+    assert html =~ "Sample 3/8 - CRF 28.0"
+    refute html =~ "Progress 62.0%"
+    refute html =~ "FPS 12.5 fps"
+    refute html =~ "ETA 90s"
     refute html =~ "Input"
     refute html =~ "2.5 MiB / 10.0 MiB"
     refute html =~ "Chunk 3 / 8"

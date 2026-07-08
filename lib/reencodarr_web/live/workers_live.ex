@@ -87,38 +87,22 @@ defmodule ReencodarrWeb.WorkersLive do
         <% else %>
           <div class="space-y-3">
             <%= for worker <- @workers do %>
-              <section class="rounded-lg border border-gray-800 bg-gray-900 p-3 sm:p-4">
-                <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
-                  <div class="min-w-0 space-y-3">
-                    <div class="flex flex-wrap items-center justify-between gap-2">
-                      <div class="min-w-0">
-                        <div class="truncate font-medium text-white">{worker.client_worker_id}</div>
-                        <div class="mt-1 text-xs text-gray-500">
-                          server: {worker.server_worker_id}
-                        </div>
+              <section class="grid gap-3 lg:grid-cols-[16rem_minmax(0,1fr)]">
+                <aside class="rounded-lg border border-gray-800 bg-gray-900 p-3 sm:p-4">
+                  <div class="flex flex-wrap items-center justify-between gap-2 lg:block">
+                    <div class="min-w-0">
+                      <div class="truncate font-medium text-white">{worker.client_worker_id}</div>
+                      <div class="mt-1 truncate text-xs text-gray-500">
+                        server: {worker.server_worker_id}
                       </div>
-                      <span class={status_badge_class(worker)}>
-                        {worker_status(worker)}
-                      </span>
                     </div>
-
-                    <.crf_search_panel
-                      video={worker_crf_video(worker)}
-                      results={worker_crf_results(worker)}
-                      sample={worker_crf_sample(worker)}
-                      progress={worker.crf_search_progress}
-                      status={worker_crf_status(worker)}
-                      show_controls={true}
-                      show_queue={false}
-                      suspend_event="pause_worker_crf_search"
-                      resume_event="resume_worker_crf_search"
-                      fail_event="stop_worker_crf_search"
-                      worker_id={worker.server_worker_id}
-                    />
+                    <span class={status_badge_class(worker)}>
+                      {worker_status(worker)}
+                    </span>
                   </div>
 
-                  <aside class="space-y-3 text-xs">
-                    <div>
+                  <%= if worker_resource_usage?(worker) do %>
+                    <div class="mt-4 text-xs">
                       <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
                         Resources
                       </h2>
@@ -128,22 +112,26 @@ defmodule ReencodarrWeb.WorkersLive do
                         <div class="text-gray-500">Disk {worker_disk(worker)}</div>
                       </div>
                     </div>
+                  <% end %>
+                </aside>
 
-                    <%= if worker.transfer_progress do %>
-                      <div>
-                        <h2 class="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                          Input
-                        </h2>
-                        <div class="space-y-1 text-gray-500">
-                          <div>{format_transfer_bytes(worker.transfer_progress)}</div>
-                          <div>{format_number(worker.transfer_progress.percent)}%</div>
-                          <div>{format_throughput(worker.transfer_progress.bytes_per_second)}</div>
-                          <div>ETA {format_eta(worker.transfer_progress.eta)}</div>
-                          <div>Chunk {format_chunk_progress(worker.transfer_progress)}</div>
-                        </div>
-                      </div>
-                    <% end %>
-                  </aside>
+                <div class="min-w-0">
+                  <%= if show_crf_panel?(worker) do %>
+                    <.crf_search_panel
+                      video={worker_crf_video(worker)}
+                      results={worker_crf_results(worker)}
+                      sample={worker_crf_sample(worker)}
+                      status={worker_crf_status(worker)}
+                      show_controls={true}
+                      show_queue={false}
+                      suspend_event="pause_worker_crf_search"
+                      resume_event="resume_worker_crf_search"
+                      fail_event="stop_worker_crf_search"
+                      worker_id={worker.server_worker_id}
+                    />
+                  <% else %>
+                    <.transfer_panel worker={worker} video={active_video(worker)} />
+                  <% end %>
                 </div>
               </section>
             <% end %>
@@ -162,6 +150,54 @@ defmodule ReencodarrWeb.WorkersLive do
     )
 
     {:noreply, put_flash(socket, :info, message)}
+  end
+
+  defp transfer_panel(assigns) do
+    ~H"""
+    <div class="dashboard-card rounded-lg border border-gray-700 bg-gray-900 p-3 sm:p-4">
+      <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <h3 class="font-semibold text-white">Receiving Input</h3>
+        <span class="rounded-full bg-blue-100 px-2 py-1 text-xs text-blue-800">
+          {format_number(@worker.transfer_progress && @worker.transfer_progress.percent)}%
+        </span>
+      </div>
+
+      <%= if @video do %>
+        <div class="text-sm text-gray-300">
+          <div class="truncate font-medium">{Path.basename(@video.path)}</div>
+          <div class="flex flex-wrap gap-2 text-xs text-gray-400">
+            <span>{Formatters.file_size(@video.size)}</span>
+            <span>{format_dimensions(@video)}</span>
+            <%= if @video.hdr do %>
+              <span class="text-amber-400">HDR</span>
+            <% end %>
+            <span>Target: {Rules.vmaf_target(@video)} VMAF</span>
+          </div>
+        </div>
+      <% end %>
+
+      <%= if @worker.transfer_progress do %>
+        <div class="mt-4 space-y-2">
+          <div class="h-2 overflow-hidden rounded-full bg-gray-800">
+            <div
+              class="h-full rounded-full bg-cyan-500 transition-[width] duration-300"
+              style={"width: #{progress_width(@worker.transfer_progress.percent)};"}
+            >
+            </div>
+          </div>
+
+          <div class="grid gap-x-4 gap-y-1 text-xs text-gray-400 sm:grid-cols-4">
+            <span>{format_transfer_bytes(@worker.transfer_progress)}</span>
+            <span>Chunk {format_chunk_progress(@worker.transfer_progress)}</span>
+            <span>{format_throughput(@worker.transfer_progress.bytes_per_second)}</span>
+            <span>ETA {format_eta(@worker.transfer_progress.eta)}</span>
+          </div>
+        </div>
+      <% else %>
+        <div class="mt-3 text-sm text-gray-500">Waiting for work.</div>
+      <% end %>
+    </div>
+    """
   end
 
   defp worker_status(%{active_video_id: nil}), do: "Idle"
@@ -184,6 +220,11 @@ defmodule ReencodarrWeb.WorkersLive do
     do: :processing
 
   defp worker_crf_status(%{active_video_id: _video_id}), do: :processing
+
+  defp show_crf_panel?(%{crf_search_progress: progress}) when not is_nil(progress), do: true
+  defp show_crf_panel?(%{transfer_progress: progress}) when not is_nil(progress), do: false
+  defp show_crf_panel?(%{active_video_id: video_id}) when is_integer(video_id), do: true
+  defp show_crf_panel?(_worker), do: false
 
   defp worker_crf_video(worker) do
     case active_video(worker) do
@@ -216,6 +257,13 @@ defmodule ReencodarrWeb.WorkersLive do
           %{crf: vmaf.crf, score: vmaf.score, percent: vmaf.percent}
         end)
     end
+  end
+
+  defp worker_crf_sample(%{
+         crf_search_progress: %{crf: crf, sample_num: sample_num, total_samples: total_samples}
+       })
+       when is_number(crf) and is_integer(sample_num) and is_integer(total_samples) do
+    %{crf: crf, sample_num: sample_num, total_samples: total_samples}
   end
 
   defp worker_crf_sample(_worker), do: nil
@@ -263,6 +311,11 @@ defmodule ReencodarrWeb.WorkersLive do
 
   defp worker_disk(_worker), do: "-"
 
+  defp worker_resource_usage?(%{resource_usage: usage}) when is_map(usage),
+    do: map_size(usage) > 0
+
+  defp worker_resource_usage?(_worker), do: false
+
   defp format_number(number) when is_integer(number), do: Integer.to_string(number)
 
   defp format_number(number) when is_float(number) do
@@ -270,6 +323,22 @@ defmodule ReencodarrWeb.WorkersLive do
   end
 
   defp format_number(nil), do: "-"
+
+  defp progress_width(percent) when is_number(percent) do
+    percent
+    |> max(0)
+    |> min(100)
+    |> format_number()
+    |> Kernel.<>("%")
+  end
+
+  defp progress_width(_percent), do: "0%"
+
+  defp format_dimensions(%{width: width, height: height})
+       when is_integer(width) and is_integer(height),
+       do: "#{width}x#{height}"
+
+  defp format_dimensions(_video), do: "unknown resolution"
 
   defp format_throughput(bytes_per_second)
        when is_integer(bytes_per_second) and bytes_per_second >= 0 do

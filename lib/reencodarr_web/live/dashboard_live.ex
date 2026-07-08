@@ -949,7 +949,6 @@ defmodule ReencodarrWeb.DashboardLive do
               video={@crf_search_video}
               results={@crf_search_results}
               sample={@crf_search_sample}
-              progress={@crf_progress}
               queue_count={@queue_counts.crf_searcher}
               queue_items={@queue_items.crf_searcher}
               status={@service_status.crf_searcher}

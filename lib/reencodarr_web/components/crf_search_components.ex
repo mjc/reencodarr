@@ -178,7 +178,6 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   attr :video, :map, required: true
   attr :results, :list, required: true
   attr :sample, :map, required: true
-  attr :progress, :any, required: true
   attr :queue_count, :integer, default: 0
   attr :queue_items, :list, default: []
   attr :status, :atom, required: true
@@ -218,8 +217,6 @@ defmodule ReencodarrWeb.CrfSearchComponents do
               Sample {@sample.sample_num}/{@sample.total_samples} - CRF {@sample.crf}
             </div>
           <% end %>
-
-          <.crf_progress progress={@progress} />
 
           <.active_job_controls
             :if={@show_controls}
@@ -305,33 +302,6 @@ defmodule ReencodarrWeb.CrfSearchComponents do
     """
   end
 
-  attr :progress, :any, required: true
-
-  defp crf_progress(%{progress: progress} = assigns) when is_map(progress) do
-    assigns =
-      assign(assigns,
-        percent: Map.get(progress, :percent),
-        fps: Map.get(progress, :fps),
-        eta: Map.get(progress, :eta)
-      )
-
-    ~H"""
-    <div class="space-y-1 text-xs text-gray-400">
-      <div class="flex flex-wrap gap-x-3 gap-y-1">
-        <span :if={@percent}>Progress {format_number(@percent)}%</span>
-        <span :if={@fps}>FPS {Formatters.fps(@fps)}</span>
-        <span :if={@eta}>ETA {@eta}s</span>
-      </div>
-      <div :if={@percent} class="h-1.5 overflow-hidden rounded-full bg-gray-800">
-        <div class="h-full rounded-full bg-cyan-500" style={"width: #{progress_width(@percent)};"}>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  defp crf_progress(assigns), do: ~H""
-
   attr :status, :atom, required: true
   attr :suspend_event, :string, required: true
   attr :resume_event, :string, required: true
@@ -376,19 +346,4 @@ defmodule ReencodarrWeb.CrfSearchComponents do
 
   defp service_status_text(status),
     do: @service_status_labels[status] || @service_status_labels.unknown
-
-  defp format_number(number) when is_integer(number), do: Integer.to_string(number)
-
-  defp format_number(number) when is_float(number),
-    do: :erlang.float_to_binary(number, decimals: 1)
-
-  defp progress_width(percent) when is_number(percent) do
-    percent
-    |> max(0)
-    |> min(100)
-    |> format_number()
-    |> Kernel.<>("%")
-  end
-
-  defp progress_width(_percent), do: "0%"
 end
