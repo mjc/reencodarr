@@ -64,6 +64,54 @@ defmodule ReencodarrWeb.WorkersLive do
           </div>
         </div>
 
+        <%= if active_workers(@workers) != [] do %>
+          <section class="rounded-lg border border-cyan-900/40 bg-cyan-950/10">
+            <div class="border-b border-cyan-900/30 px-4 py-3">
+              <h2 class="text-sm font-semibold text-cyan-200">Active Transfers</h2>
+              <p class="mt-0.5 text-xs text-cyan-100/60">
+                Live transfer progress while the worker is receiving the video.
+              </p>
+            </div>
+
+            <div class="divide-y divide-cyan-950/40">
+              <%= for worker <- active_workers(@workers) do %>
+                <% progress = worker_transfer_progress(worker) %>
+                <div class="px-4 py-3">
+                  <div class="flex items-start justify-between gap-4">
+                    <div class="min-w-0">
+                      <div class="truncate text-sm font-medium text-white">
+                        {worker.client_worker_id}
+                      </div>
+                      <div class="truncate text-xs text-gray-500">
+                        {worker_transfer_name(worker)}
+                      </div>
+                    </div>
+
+                    <div class="shrink-0 text-right text-sm font-semibold text-cyan-300">
+                      {format_number(progress.percent)}%
+                    </div>
+                  </div>
+
+                  <div class="mt-2 h-2 overflow-hidden rounded-full bg-gray-800">
+                    <div
+                      class="h-full rounded-full bg-cyan-500 transition-[width] duration-300"
+                      style={"width: #{format_number(progress.percent)}%;"}
+                    >
+                    </div>
+                  </div>
+
+                  <div class="mt-2 grid gap-x-4 gap-y-1 text-xs text-gray-400 sm:grid-cols-4">
+                    <div>Bytes {format_transfer_bytes(progress)}</div>
+                    <div>Throughput {format_throughput(progress.bytes_per_second)}</div>
+                    <div>ETA {format_eta(progress.eta)}</div>
+                    <div>Chunk {format_chunk_progress(progress)}</div>
+                  </div>
+                </div>
+              <% end %>
+            </div>
+          </section>
+        <% end %>
+
         <div class="overflow-hidden rounded-lg border border-gray-800 bg-gray-900">
           <table class="min-w-full divide-y divide-gray-800 text-sm">
             <thead class="bg-gray-950/60 text-xs uppercase tracking-wide text-gray-500">
@@ -140,6 +188,10 @@ defmodule ReencodarrWeb.WorkersLive do
   end
 
   defp worker_status(%{active_video_id: nil}), do: "Idle"
+
+  defp worker_status(%{transfer_progress: _progress}), do: "transferring"
+
+  defp worker_status(%{crf_search_progress: _progress}), do: "crf_searching"
 
   defp worker_status(%{active_video_id: video_id}) do
     case Media.get_video(video_id) do
@@ -275,6 +327,35 @@ defmodule ReencodarrWeb.WorkersLive do
        do: Formatters.file_size(bytes_sent)
 
   defp format_transfer_bytes(_bytes_sent, _total_bytes), do: "-"
+
+  defp format_transfer_bytes(%{bytes_sent: bytes_sent, total_bytes: total_bytes}),
+    do: format_transfer_bytes(bytes_sent, total_bytes)
+
+  defp active_workers(workers) do
+    Enum.filter(workers, fn %{transfer_progress: progress} -> not is_nil(progress) end)
+  end
+
+  defp worker_transfer_progress(%{transfer_progress: progress}), do: progress
+  defp worker_transfer_progress(_worker), do: %{}
+
+  defp worker_transfer_name(%{transfer_progress: %{filename: filename}})
+       when is_binary(filename) and filename != "",
+       do: filename
+
+  defp worker_transfer_name(%{active_video_id: video_id}) when is_integer(video_id),
+    do: "video ##{video_id}"
+
+  defp worker_transfer_name(_worker), do: "transfer"
+
+  defp format_chunk_progress(%{chunk_index: chunk_index, total_chunks: total_chunks})
+       when is_integer(chunk_index) and is_integer(total_chunks) and total_chunks > 0 do
+    "#{chunk_index + 1} / #{total_chunks}"
+  end
+
+  defp format_chunk_progress(%{chunk_index: chunk_index}) when is_integer(chunk_index),
+    do: Integer.to_string(chunk_index)
+
+  defp format_chunk_progress(_), do: "-"
 
   defp status_badge_class(%{active_video_id: nil}),
     do:

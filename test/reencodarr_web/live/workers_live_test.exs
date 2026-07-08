@@ -76,7 +76,8 @@ defmodule ReencodarrWeb.WorkersLiveTest do
 
     send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
     html = render(view)
-    assert html =~ "analyzed"
+    assert html =~ "Active Transfers"
+    assert html =~ "transferring"
     assert html =~ "video ##{video.id}"
     assert html =~ "CPU 87.5%"
     assert html =~ "Mem 1.0 GiB / 4.0 GiB"
@@ -88,7 +89,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert html =~ "Throughput 1.0 MiB/s"
     assert html =~ "ETA 15s"
     assert html =~ "Bytes 2.5 MiB / 10.0 MiB"
-    assert html =~ "Chunk 2"
+    assert html =~ "Chunk 3 / 8"
     assert html =~ "CRF 28.0 -&gt; 95.4 (93.0%)"
   end
 end
