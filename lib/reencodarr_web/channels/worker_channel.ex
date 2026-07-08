@@ -253,10 +253,10 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp handle_crf_search_completed(payload, %{assigns: %{worker_id: worker_id}} = socket) do
-    with {:ok, completion} <- WorkerProtocol.parse_completion(payload),
-         {:ok, socket} <- ensure_result_video(socket, completion.video_id) do
-      handle_valid_crf_search_completion(worker_id, socket, completion)
-    else
+    case WorkerProtocol.parse_completion(payload) do
+      {:ok, completion} ->
+        handle_parsed_crf_search_completed(worker_id, socket, completion)
+
       {:error, reason} ->
         {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
@@ -414,10 +414,10 @@ defmodule ReencodarrWeb.WorkerChannel do
         persist_crf_results(video, results)
 
         if Enum.any?(results, &Map.get(&1, :chosen, false)) do
-          choose_result_from_report(video, results)
+          finalize_chosen_result_from_report(socket.assigns.worker_id, socket, video, results)
+        else
+          {:reply, {:ok, WorkerProtocol.event_ack("crf_search_result")}, socket}
         end
-
-        {:reply, {:ok, WorkerProtocol.event_ack("crf_search_result")}, socket}
     end
   end
 
@@ -425,6 +425,10 @@ defmodule ReencodarrWeb.WorkerChannel do
     case Media.get_video(completion.video_id) do
       nil ->
         {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
+
+      %Media.Video{state: :crf_searched, chosen_vmaf_id: chosen_vmaf_id}
+      when not is_nil(chosen_vmaf_id) ->
+        {:reply, {:ok, WorkerProtocol.event_ack("crf_search_completed")}, socket}
 
       video ->
         socket =
@@ -443,6 +447,23 @@ defmodule ReencodarrWeb.WorkerChannel do
         })
 
         {:reply, {:ok, WorkerProtocol.event_ack("crf_search_completed")}, socket}
+    end
+  end
+
+  defp handle_parsed_crf_search_completed(worker_id, socket, completion) do
+    case Media.get_video(completion.video_id) do
+      %Media.Video{state: :crf_searched, chosen_vmaf_id: chosen_vmaf_id}
+      when not is_nil(chosen_vmaf_id) ->
+        {:reply, {:ok, WorkerProtocol.event_ack("crf_search_completed")}, socket}
+
+      _ ->
+        case ensure_result_video(socket, completion.video_id) do
+          {:ok, socket} ->
+            handle_valid_crf_search_completion(worker_id, socket, completion)
+
+          {:error, reason} ->
+            {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+        end
     end
   end
 
@@ -572,20 +593,39 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp result_target(video, result),
     do: Map.get(result, :target) || Reencodarr.Rules.vmaf_target(video)
 
-  defp choose_result_from_report(video, results) do
+  defp finalize_chosen_result_from_report(worker_id, socket, video, results) do
     chosen_crf =
       Enum.find_value(results, fn result ->
         if Map.get(result, :chosen, false), do: Map.get(result, :crf)
       end)
 
     case chosen_crf do
-      nil -> :ok
-      crf -> _ = Media.mark_vmaf_as_chosen(video.id, crf)
-    end
+      nil ->
+        {:reply, {:ok, WorkerProtocol.event_ack("crf_search_result")}, socket}
 
-    _ = Media.mark_as_crf_searched(video)
-    _ = Media.resolve_crf_search_failures(video.id)
-    :ok
+      crf ->
+        case Media.mark_vmaf_as_chosen(video.id, crf) do
+          {:ok, _} ->
+            _ = Media.mark_as_crf_searched(video)
+            _ = Media.resolve_crf_search_failures(video.id)
+
+            {:reply, {:ok, WorkerProtocol.event_ack("crf_search_result")},
+             clear_assigned_video(worker_id, socket)}
+
+          {:error, _reason} ->
+            _ =
+              Media.record_video_failure(video, :crf_search, :validation,
+                code: "no_chosen_vmaf",
+                message: "CRF search reported a chosen CRF but no matching VMAF row was found",
+                context: %{video_id: video.id, chosen_crf: crf}
+              )
+
+            _ = Media.mark_as_failed(video)
+
+            {:reply, {:error, WorkerProtocol.error(:invalid_crf_search_result)},
+             clear_assigned_video(worker_id, socket)}
+        end
+    end
   end
 
   defp finish_successful_crf_search(worker_id, socket, video, chosen_crf) do

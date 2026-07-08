@@ -631,30 +631,10 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert_receive {:crf_search_vmaf_result, %{video_id: ^video_id, crf: 26.0, score: 94.1}}
       assert_receive {:crf_search_vmaf_result, %{video_id: ^video_id, crf: 28.0, score: 96.4}}
 
-      assert_reply push(socket, "crf_search_result", %{
-                     "job_id" => Integer.to_string(video_id),
-                     "video_id" => video_id,
-                     "source_name" => Path.basename(video.path),
-                     "crf" => 30.0,
-                     "vmaf_score" => 95.8,
-                     "predicted_encode_size" => 123_456,
-                     "encode_percent" => 42.5,
-                     "predicted_encode_time_secs" => 87.5,
-                     "from_cache" => false
-                   }),
-                   :ok,
-                   %{accepted: true, event: "crf_search_result"}
-
-      assert_receive {:crf_search_vmaf_result, %{video_id: ^video_id, crf: 30.0, score: 95.8}}
-
       vmafs = Media.get_vmafs_for_video(video_id)
-      assert Enum.any?(vmafs, &(&1.crf == 30.0 and &1.score == 95.8))
-
-      worker_vmaf = Enum.find(vmafs, &(&1.crf == 30.0))
-      assert worker_vmaf.percent == 42.5
-      assert worker_vmaf.size == "123456"
-      assert worker_vmaf.time == 88
-      assert is_list(worker_vmaf.params)
+      assert Enum.any?(vmafs, &(&1.crf == 26.0 and &1.score == 94.1))
+      assert Enum.any?(vmafs, &(&1.crf == 28.0 and &1.score == 96.4))
+      assert WorkerSessions.get(socket.assigns.worker_id).active_video_id == nil
 
       assert_reply push(socket, "crf_search_completed", %{
                      "video_id" => video_id,
@@ -663,8 +643,6 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    }),
                    :ok,
                    %{accepted: true, event: "crf_search_completed"}
-
-      assert_receive {:crf_search_completed, %{video_id: ^video_id, result: :ok, chosen_crf: 28}}
 
       assert Media.get_video(video_id).state == :crf_searched
       assert Media.get_video(video_id).chosen_vmaf_id != nil
@@ -714,6 +692,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert Media.get_video(video_id).state == :crf_searched
       assert Media.get_video(video_id).chosen_vmaf_id != nil
+      assert WorkerSessions.get(socket.assigns.worker_id).active_video_id == nil
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
