@@ -135,10 +135,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp handle_work_request(_payload, %{assigns: %{worker_id: worker_id}} = socket) do
     case socket.assigns[:current_video_id] do
       nil ->
-        case resume_dispatched_work(socket) do
-          {:reply, reply, socket} -> {:reply, reply, socket}
-          :none -> claim_work(worker_id, socket)
-        end
+        resume_or_claim_work(worker_id, socket)
 
       video_id ->
         case Media.get_video(video_id) do
@@ -150,6 +147,36 @@ defmodule ReencodarrWeb.WorkerChannel do
           nil ->
             {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
         end
+    end
+  end
+
+  defp resume_or_claim_work(worker_id, socket) do
+    case resume_session_work(worker_id, socket) do
+      {:reply, reply, socket} ->
+        {:reply, reply, socket}
+
+      :none ->
+        case resume_dispatched_work(socket) do
+          {:reply, reply, socket} -> {:reply, reply, socket}
+          :none -> claim_work(worker_id, socket)
+        end
+    end
+  end
+
+  defp resume_session_work(worker_id, socket) do
+    case WorkerSessions.get(worker_id) do
+      %{active_video_id: video_id} when is_integer(video_id) ->
+        with {:ok, socket} <- ensure_resumable_active_video(socket, video_id),
+             %Media.Video{} = video <- Media.get_video(video_id) do
+          {:reply,
+           {:ok, WorkerProtocol.work_in_progress(video, socket.assigns[:current_vmaf_target])},
+           socket}
+        else
+          _ -> :none
+        end
+
+      _session ->
+        :none
     end
   end
 

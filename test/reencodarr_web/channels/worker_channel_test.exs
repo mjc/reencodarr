@@ -74,13 +74,21 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                      video_id: assigned_video_id,
                      source_name: source_name,
                      size_bytes: size_bytes,
-                     chunk_size_bytes: 134_217_728
+                     chunk_size_bytes: 134_217_728,
+                     crf_search_args: crf_search_args
                    }
 
       assert job_id == Integer.to_string(video.id)
       assert assigned_video_id == video.id
       assert source_name == Path.basename(video.path)
       assert size_bytes == video.size
+      assert "crf-search" in crf_search_args
+      assert "--input" in crf_search_args
+      assert video.path in crf_search_args
+      assert "--min-vmaf" in crf_search_args
+      assert "95" in crf_search_args
+      assert "--encoder" in crf_search_args
+      assert "svt-av1" in crf_search_args
       assert Media.get_video(video.id).state == :crf_searching
       assert Media.get_video(video.id).crf_search_worker_id == "worker-a"
       assert [session] = WorkerSessions.list()
@@ -362,8 +370,15 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    %{
                      status: "job_in_progress",
                      video_id: ^video_id,
-                     target_vmaf: 95
+                     target_vmaf: 95,
+                     crf_search_args: crf_search_args
                    }
+
+      assert "crf-search" in crf_search_args
+      assert "--input" in crf_search_args
+      assert video.path in crf_search_args
+      assert "--min-vmaf" in crf_search_args
+      assert "95" in crf_search_args
 
       refute_push "transfer_started", _, 50
       refute_push "transfer_chunk", _, 50
@@ -371,6 +386,38 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       session = WorkerSessions.get(server_worker_id)
       assert session.active_video_id == video_id
       assert Media.get_video(video_id).state == :crf_searching
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "returns in-progress work when an assigned worker asks again" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+      video_id = video.id
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
+                   :ok,
+                   %{accepted: true, protocol_version: 1}
+
+      assert_reply push(socket, "pull_work", %{}),
+                   :ok,
+                   %{status: "job_assigned", video_id: ^video_id, crf_search_args: assigned_args}
+
+      assert_reply push(socket, "pull_work", %{}),
+                   :ok,
+                   %{
+                     status: "job_in_progress",
+                     video_id: ^video_id,
+                     crf_search_args: in_progress_args
+                   }
+
+      assert assigned_args == in_progress_args
+      assert video.path in in_progress_args
     after
       Application.delete_env(:reencodarr, :worker_token)
     end

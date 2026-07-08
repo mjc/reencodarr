@@ -3,6 +3,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   Server-side helpers for the ab-av1 worker websocket protocol.
   """
 
+  alias Reencodarr.AbAv1.CrfSearch
   alias Reencodarr.AbAv1.WorkerConfig
   alias Reencodarr.Media.Video
 
@@ -457,7 +458,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   def no_work, do: %{status: "no_work"}
 
   @spec work_assigned(Video.t(), number()) :: map()
-  def work_assigned(%Video{id: video_id, path: path, size: size}, target_vmaf)
+  def work_assigned(%Video{id: video_id, path: path, size: size} = video, target_vmaf)
       when is_integer(video_id) and is_binary(path) do
     %{
       status: "job_assigned",
@@ -466,11 +467,12 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
       source_name: Path.basename(path),
       size_bytes: size || 0,
       chunk_size_bytes: chunk_size_bytes(),
-      target_vmaf: target_vmaf
+      target_vmaf: target_vmaf,
+      crf_search_args: CrfSearch.build_crf_search_args(video, target_vmaf)
     }
   end
 
-  def work_in_progress(%Video{id: video_id, path: path, size: size}, target_vmaf)
+  def work_in_progress(%Video{id: video_id, path: path, size: size} = video, target_vmaf)
       when is_integer(video_id) and is_binary(path) do
     %{
       status: "job_in_progress",
@@ -478,7 +480,8 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
       video_id: video_id,
       source_name: Path.basename(path),
       size_bytes: size || 0,
-      target_vmaf: target_vmaf
+      target_vmaf: target_vmaf,
+      crf_search_args: CrfSearch.build_crf_search_args(video, target_vmaf)
     }
   end
 
