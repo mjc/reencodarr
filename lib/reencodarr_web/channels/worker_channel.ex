@@ -454,7 +454,8 @@ defmodule ReencodarrWeb.WorkerChannel do
     case Media.get_video(completion.video_id) do
       %Media.Video{state: :crf_searched, chosen_vmaf_id: chosen_vmaf_id}
       when not is_nil(chosen_vmaf_id) ->
-        {:reply, {:ok, WorkerProtocol.event_ack("crf_search_completed")}, socket}
+        {:reply, {:ok, WorkerProtocol.event_ack("crf_search_completed")},
+         clear_assigned_video(worker_id, socket)}
 
       _ ->
         case ensure_result_video(socket, completion.video_id) do

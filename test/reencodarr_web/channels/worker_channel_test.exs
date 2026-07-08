@@ -646,6 +646,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert Media.get_video(video_id).state == :crf_searched
       assert Media.get_video(video_id).chosen_vmaf_id != nil
+      assert WorkerSessions.get(socket.assigns.worker_id).active_video_id == nil
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
