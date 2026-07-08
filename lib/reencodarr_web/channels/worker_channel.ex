@@ -244,7 +244,7 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp handle_crf_search_result(payload, socket) do
     with {:ok, result} <- WorkerProtocol.parse_crf_search_result(payload),
-         {:ok, socket} <- ensure_resumable_active_video(socket, result.video_id) do
+         {:ok, socket} <- ensure_result_video(socket, result.video_id) do
       handle_valid_crf_search_result(socket, result)
     else
       {:error, reason} ->
@@ -254,7 +254,7 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp handle_crf_search_completed(payload, %{assigns: %{worker_id: worker_id}} = socket) do
     with {:ok, completion} <- WorkerProtocol.parse_completion(payload),
-         {:ok, socket} <- ensure_resumable_active_video(socket, completion.video_id) do
+         {:ok, socket} <- ensure_result_video(socket, completion.video_id) do
       handle_valid_crf_search_completion(worker_id, socket, completion)
     else
       {:error, reason} ->
@@ -504,6 +504,30 @@ defmodule ReencodarrWeb.WorkerChannel do
         resume_active_video(socket, video_id)
 
       _other ->
+        {:error, :unknown_worker_session}
+    end
+  end
+
+  defp ensure_result_video(socket, video_id) do
+    case ensure_resumable_active_video(socket, video_id) do
+      {:ok, socket} ->
+        {:ok, socket}
+
+      {:error, :unknown_worker_session} ->
+        allow_dispatched_video_result(socket, video_id)
+    end
+  end
+
+  defp allow_dispatched_video_result(socket, video_id) do
+    case Media.get_video(video_id) do
+      %Media.Video{state: :crf_searching, crf_search_worker_id: dispatch_id} = video
+      when is_binary(dispatch_id) ->
+        {:ok,
+         socket
+         |> assign(:current_video_id, video.id)
+         |> assign(:current_vmaf_target, Reencodarr.Rules.vmaf_target(video))}
+
+      _ ->
         {:error, :unknown_worker_session}
     end
   end

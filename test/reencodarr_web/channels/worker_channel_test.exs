@@ -699,6 +699,48 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "accepts a CRF result for already dispatched work before the session is rebuilt" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :crf_searching,
+          crf_search_worker_id: "worker-a",
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      video_id = video.id
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(socket, "crf_search_result", %{
+                     "job_id" => Integer.to_string(video_id),
+                     "video_id" => video_id,
+                     "source_name" => Path.basename(video.path),
+                     "crf" => 31.0,
+                     "vmaf_score" => 96.2,
+                     "predicted_encode_size" => 123_456,
+                     "encode_percent" => 42.5,
+                     "predicted_encode_time_secs" => 87.5,
+                     "from_cache" => false
+                   }),
+                   :ok,
+                   %{accepted: true, event: "crf_search_result"}
+
+      assert_receive {:crf_search_vmaf_result, %{video_id: ^video_id, crf: 31.0, score: 96.2}}
+
+      assert Enum.any?(
+               Media.get_vmafs_for_video(video_id),
+               &(&1.crf == 31.0 and &1.score == 96.2)
+             )
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "records typed failures and cancels active work" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
