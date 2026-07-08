@@ -40,20 +40,27 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
   test "parses transfer progress into a typed payload" do
     assert {:ok,
             %TransferProgress{
+              job_id: "job-1",
               video_id: 123,
-              transfer_id: "transfer-1",
+              transfer_id: "job-1",
+              filename: "movie.mkv",
               percent: 42.5,
               bytes_sent: 1_048_576,
               total_bytes: 2_097_152,
+              bytes_per_second: 524_288,
+              eta: 12,
               chunk_index: 3,
               total_chunks: 8
             }} =
              WorkerProtocol.parse_transfer_progress(%{
                "video_id" => 123,
-               "transfer_id" => "transfer-1",
+               "job_id" => "job-1",
                "percent" => 42.5,
-               "bytes_sent" => 1_048_576,
-               "total_bytes" => 2_097_152,
+               "filename" => "movie.mkv",
+               "received_bytes" => 1_048_576,
+               "expected_bytes" => 2_097_152,
+               "bytes_per_second" => 524_288,
+               "eta" => 12,
                "chunk_index" => 3,
                "total_chunks" => 8
              })

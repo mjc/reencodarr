@@ -55,7 +55,14 @@ defmodule ReencodarrWeb.WorkersLiveTest do
 
     assert {:ok, _session} =
              WorkerSessions.set_transfer_progress("worker-server-1", %{
+               job_id: "job-1",
+               transfer_id: "job-1",
+               filename: Path.basename(video.path),
                percent: 25.5,
+               bytes_sent: 2_621_440,
+               total_bytes: 10_485_760,
+               bytes_per_second: 1_048_576,
+               eta: 15,
                chunk_index: 2,
                total_chunks: 8
              })
@@ -78,6 +85,9 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert html =~ "FPS 12.5 fps"
     assert html =~ "ETA 90s"
     assert html =~ "Transfer 25.5%"
+    assert html =~ "Throughput 1.0 MiB/s"
+    assert html =~ "ETA 15s"
+    assert html =~ "Bytes 2.5 MiB / 10.0 MiB"
     assert html =~ "Chunk 2"
     assert html =~ "CRF 28.0 -&gt; 95.4 (93.0%)"
   end

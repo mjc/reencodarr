@@ -196,12 +196,19 @@ defmodule ReencodarrWeb.WorkersLive do
   defp worker_transfer(%{transfer_progress: nil}), do: "Transfer -"
 
   defp worker_transfer(%{transfer_progress: progress}) do
-    [
+    parts = [
       {"Transfer", progress.percent, &"#{format_number(&1)}%"},
+      {"Throughput", progress.bytes_per_second, &format_throughput/1},
+      {"ETA", progress.eta, &format_eta/1},
+      {"Bytes", progress.bytes_sent, &format_transfer_bytes(&1, progress.total_bytes)},
       {"Chunk", progress.chunk_index, &to_string/1},
       {"Total", progress.total_chunks, &to_string/1}
     ]
-    |> format_parts()
+
+    case format_parts(parts) do
+      "-" -> "-"
+      details -> progress_filename(progress) <> details
+    end
   end
 
   defp worker_vmafs(%{active_video_id: nil}), do: "-"
@@ -224,6 +231,9 @@ defmodule ReencodarrWeb.WorkersLive do
     "CRF #{Formatters.crf(vmaf.crf)} -> #{Formatters.vmaf_score(vmaf.score, 1)} (#{format_number(vmaf.percent)}%)"
   end
 
+  defp progress_filename(%{filename: nil}), do: ""
+  defp progress_filename(%{filename: filename}), do: "#{filename} - "
+
   defp format_parts(parts) do
     parts
     |> Enum.reject(fn {_label, value, _formatter} -> is_nil(value) end)
@@ -243,6 +253,28 @@ defmodule ReencodarrWeb.WorkersLive do
   end
 
   defp format_number(nil), do: "-"
+
+  defp format_throughput(bytes_per_second)
+       when is_integer(bytes_per_second) and bytes_per_second >= 0 do
+    "#{Formatters.file_size(bytes_per_second)}/s"
+  end
+
+  defp format_throughput(_), do: "-"
+
+  defp format_eta(seconds) when is_integer(seconds) and seconds >= 0, do: "#{seconds}s"
+  defp format_eta(_), do: "-"
+
+  defp format_transfer_bytes(bytes_sent, total_bytes)
+       when is_integer(bytes_sent) and bytes_sent >= 0 and is_integer(total_bytes) and
+              total_bytes > 0 do
+    "#{Formatters.file_size(bytes_sent)} / #{Formatters.file_size(total_bytes)}"
+  end
+
+  defp format_transfer_bytes(bytes_sent, _total_bytes)
+       when is_integer(bytes_sent) and bytes_sent >= 0,
+       do: Formatters.file_size(bytes_sent)
+
+  defp format_transfer_bytes(_bytes_sent, _total_bytes), do: "-"
 
   defp status_badge_class(%{active_video_id: nil}),
     do:

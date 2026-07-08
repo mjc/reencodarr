@@ -31,21 +31,29 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
     @enforce_keys [:video_id, :transfer_id, :percent, :bytes_sent, :total_bytes]
     defstruct [
+      :job_id,
       :video_id,
       :transfer_id,
+      :filename,
       :percent,
       :bytes_sent,
       :total_bytes,
+      :bytes_per_second,
+      :eta,
       :chunk_index,
       :total_chunks
     ]
 
     @type t :: %__MODULE__{
+            job_id: String.t() | nil,
             video_id: pos_integer(),
             transfer_id: String.t(),
+            filename: String.t() | nil,
             percent: number(),
             bytes_sent: non_neg_integer(),
             total_bytes: non_neg_integer(),
+            bytes_per_second: non_neg_integer() | nil,
+            eta: non_neg_integer() | nil,
             chunk_index: non_neg_integer() | nil,
             total_chunks: non_neg_integer() | nil
           }
@@ -174,22 +182,42 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     with {:ok, video_id} <-
            required_integer(payload, [:video_id, "video_id"], :invalid_transfer_progress),
          {:ok, transfer_id} <-
-           required_string(payload, [:transfer_id, "transfer_id"], :invalid_transfer_progress),
+           required_string(
+             payload,
+             [:transfer_id, "transfer_id", :job_id, "job_id"],
+             :invalid_transfer_progress
+           ),
          {:ok, percent} <-
            required_number(payload, [:percent, "percent"], :invalid_transfer_progress) do
       {:ok,
        %TransferProgress{
+         job_id: optional_string(payload, [:job_id, "job_id"]),
          video_id: video_id,
          transfer_id: transfer_id,
+         filename: optional_string(payload, [:filename, "filename"]),
          percent: percent,
          bytes_sent:
            optional_integer(payload, [
              :bytes_sent,
              "bytes_sent",
+             :received_bytes,
+             "received_bytes",
              :transferred_bytes,
              "transferred_bytes"
            ]) || 0,
-         total_bytes: optional_integer(payload, [:total_bytes, "total_bytes"]) || 0,
+         total_bytes:
+           optional_integer(payload, [
+             :total_bytes,
+             "total_bytes",
+             :expected_bytes,
+             "expected_bytes"
+           ]) || 0,
+         bytes_per_second:
+           optional_integer(payload, [
+             :bytes_per_second,
+             "bytes_per_second"
+           ]),
+         eta: optional_integer(payload, [:eta, "eta"]),
          chunk_index: optional_integer(payload, [:chunk_index, "chunk_index"]),
          total_chunks: optional_integer(payload, [:total_chunks, "total_chunks"])
        }}
