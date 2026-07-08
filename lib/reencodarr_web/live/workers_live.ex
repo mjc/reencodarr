@@ -203,10 +203,11 @@ defmodule ReencodarrWeb.WorkersLive do
 
   defp worker_status(%{active_video_id: nil}), do: "Idle"
 
-  defp worker_status(%{crf_search_progress: progress}) when not is_nil(progress), do: "CRF search"
-
   defp worker_status(%{transfer_progress: progress}) when not is_nil(progress),
     do: "Receiving input"
+
+  defp worker_status(%{crf_search_progress: progress}) when not is_nil(progress),
+    do: "CRF search"
 
   defp worker_status(%{active_video_id: video_id}) do
     case Media.get_video(video_id) do
@@ -217,13 +218,16 @@ defmodule ReencodarrWeb.WorkersLive do
 
   defp worker_crf_status(%{active_video_id: nil}), do: :idle
 
+  defp worker_crf_status(%{transfer_progress: progress}) when not is_nil(progress),
+    do: :idle
+
   defp worker_crf_status(%{crf_search_progress: progress}) when not is_nil(progress),
     do: :processing
 
   defp worker_crf_status(%{active_video_id: _video_id}), do: :processing
 
-  defp show_crf_panel?(%{crf_search_progress: progress}) when not is_nil(progress), do: true
   defp show_crf_panel?(%{transfer_progress: progress}) when not is_nil(progress), do: false
+  defp show_crf_panel?(%{crf_search_progress: progress}) when not is_nil(progress), do: true
   defp show_crf_panel?(%{active_video_id: video_id}) when is_integer(video_id), do: true
   defp show_crf_panel?(_worker), do: false
 

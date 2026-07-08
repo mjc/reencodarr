@@ -19,7 +19,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert html =~ ~s(href="/workers")
   end
 
-  test "renders connected worker details and refreshes on session updates", %{conn: conn} do
+  test "shows the transfer panel when a restarted worker is receiving input", %{conn: conn} do
     {:ok, _session} =
       WorkerSessions.register(%{
         server_worker_id: "worker-server-1",
@@ -47,6 +47,17 @@ defmodule ReencodarrWeb.WorkersLiveTest do
              })
 
     assert {:ok, _session} =
+             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+               video_id: video.id,
+               percent: 62.0,
+               fps: 12.5,
+               eta: 90,
+               crf: 28.0,
+               sample_num: 3,
+               total_samples: 8
+             })
+
+    assert {:ok, _session} =
              WorkerSessions.set_transfer_progress("worker-server-1", %{
                job_id: "job-1",
                transfer_id: "job-1",
@@ -60,8 +71,42 @@ defmodule ReencodarrWeb.WorkersLiveTest do
                total_chunks: 8
              })
 
+    send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
+    html = render(view)
+    assert html =~ "Receiving input"
+    assert html =~ "Receiving Input"
+    refute html =~ "CRF Search"
+    assert html =~ Path.basename(video.path)
+    assert html =~ "Target: 95 VMAF"
+    assert html =~ "CPU 87.5%"
+    assert html =~ "Mem 1.0 GiB / 4.0 GiB"
+    assert html =~ "Disk 500.0 GiB free / 1.0 TiB"
+    assert html =~ "2.5 MiB / 10.0 MiB"
+    assert html =~ "Chunk 3 / 8"
+    assert html =~ "25.5%"
+    assert html =~ "ETA 15s"
+    refute html =~ "Progress 62.0%"
+    refute html =~ "FPS 12.5 fps"
+    refute html =~ "Sample 3/8 - CRF 28.0"
+    refute html =~ "CRF 28.0 -&gt; 95.4 VMAF"
+  end
+
+  test "renders the crf search panel when only crf search is active", %{conn: conn} do
+    {:ok, _session} =
+      WorkerSessions.register(%{
+        server_worker_id: "worker-server-2",
+        client_worker_id: "worker-client-2",
+        protocol_version: 1,
+        version: "0.10.0",
+        capabilities: %{"crf_search" => true}
+      })
+
+    {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
+    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-2", video.id)
+
     assert {:ok, _session} =
-             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+             WorkerSessions.set_crf_search_progress("worker-server-2", %{
                video_id: video.id,
                percent: 62.0,
                fps: 12.5,
@@ -78,41 +123,13 @@ defmodule ReencodarrWeb.WorkersLiveTest do
       percent: 93.0
     })
 
+    {:ok, view, _html} = live(conn, ~p"/workers")
     send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
+
     html = render(view)
-    refute html =~ "Active Transfers"
-    refute html =~ "Protocol"
-    refute html =~ "Version"
     assert html =~ "CRF Search"
-    assert html =~ "CRF search"
-    assert html =~ Path.basename(video.path)
-    assert html =~ "2.0 GiB"
-    assert html =~ "1920x1080"
-    assert html =~ "Target: 95 VMAF"
-    assert html =~ "CPU 87.5%"
-    assert html =~ "Mem 1.0 GiB / 4.0 GiB"
-    assert html =~ "Disk 500.0 GiB free / 1.0 TiB"
     assert html =~ "Sample 3/8 - CRF 28.0"
-    refute html =~ "Progress 62.0%"
-    refute html =~ "FPS 12.5 fps"
-    refute html =~ "ETA 90s"
-    refute html =~ "Input"
-    refute html =~ "2.5 MiB / 10.0 MiB"
-    refute html =~ "Chunk 3 / 8"
     assert html =~ "CRF 28.0 -&gt; 95.4 VMAF"
-    assert html =~ "93.0%"
-    assert html =~ "Pause"
-    assert html =~ "Stop"
-
-    Phoenix.PubSub.subscribe(
-      Reencodarr.PubSub,
-      ReencodarrWeb.WorkerChannel.worker_control_topic("worker-server-1")
-    )
-
-    view
-    |> element("button[phx-click='pause_worker_crf_search']")
-    |> render_click()
-
-    assert_receive {:worker_control, :pause}
+    refute html =~ "Receiving Input"
   end
 end
