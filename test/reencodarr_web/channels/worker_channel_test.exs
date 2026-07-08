@@ -480,6 +480,73 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "resends the input when a reconnecting worker still has transfer progress" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      with_temp_file("abcdefgh", ".mkv", fn path ->
+        {:ok, video} =
+          Fixtures.video_fixture(%{
+            state: :analyzed,
+            path: path,
+            size: 8
+          })
+
+        video_id = video.id
+
+        assert {:ok, _session} =
+                 WorkerSessions.register(%{
+                   server_worker_id: "worker-server-1",
+                   client_worker_id: "worker-a",
+                   protocol_version: 1,
+                   version: "0.10.0",
+                   capabilities: %{"crf_search" => true}
+                 })
+
+        assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", video_id)
+
+        assert {:ok, _session} =
+                 WorkerSessions.set_transfer_progress("worker-server-1", %{
+                   job_id: Integer.to_string(video_id),
+                   transfer_id: Integer.to_string(video_id),
+                   filename: Path.basename(video.path),
+                   percent: 50.0,
+                   bytes_sent: 4,
+                   total_bytes: 8,
+                   bytes_per_second: 256,
+                   eta: 2,
+                   chunk_index: 1,
+                   total_chunks: 2
+                 })
+
+        assert {:ok, socket2} = connect(WorkerSocket, %{"token" => token})
+        assert {:ok, _join_payload, socket2} = subscribe_and_join(socket2, "workers:crf_search")
+
+        assert_reply push(socket2, "announce", announce_payload(worker_id: "worker-a")),
+                     :ok,
+                     %{accepted: true, protocol_version: 1}
+
+        assert_reply push(socket2, "pull_work", %{}),
+                     :ok,
+                     %{
+                       status: "job_assigned",
+                       video_id: ^video_id,
+                       chunk_size_bytes: chunk_size_bytes
+                     }
+
+        assert_push "transfer_started", %{
+          status: "transfer_started",
+          video_id: ^video_id,
+          transfer_id: transfer_id,
+          chunk_size_bytes: ^chunk_size_bytes
+        }
+
+        assert transfer_id == Integer.to_string(video_id)
+      end)
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "streams assigned media in ordered chunks with integrity data" do
       token = "test-worker-token"
       previous_chunk_size = Application.get_env(:reencodarr, :worker_chunk_size_bytes)

@@ -169,10 +169,12 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp resume_session_work(worker_id, socket, request_mode) do
     case WorkerSessions.get(worker_id) do
-      %{active_video_id: video_id} when is_integer(video_id) ->
+      %{active_video_id: video_id, transfer_progress: transfer_progress}
+      when is_integer(video_id) ->
         with {:ok, socket} <- ensure_resumable_active_video(socket, video_id),
              %Media.Video{} = video <- Media.get_video(video_id) do
-          reply_for_active_work(worker_id, socket, video, request_mode)
+          reply_mode = if is_nil(transfer_progress), do: request_mode, else: :resend_input
+          reply_for_active_work(worker_id, socket, video, reply_mode)
         else
           _ -> :none
         end
