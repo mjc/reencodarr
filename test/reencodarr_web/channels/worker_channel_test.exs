@@ -402,63 +402,36 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
-    test "resends active worker input when active session has no progress yet" do
+    test "returns in-progress work when reconnecting worker asks again before any progress" do
       token = "test-worker-token"
-      previous_chunk_size = Application.get_env(:reencodarr, :worker_chunk_size_bytes)
       Application.put_env(:reencodarr, :worker_token, token)
-      Application.put_env(:reencodarr, :worker_chunk_size_bytes, 4)
 
-      on_exit(fn ->
-        if is_nil(previous_chunk_size) do
-          Application.delete_env(:reencodarr, :worker_chunk_size_bytes)
-        else
-          Application.put_env(:reencodarr, :worker_chunk_size_bytes, previous_chunk_size)
-        end
-      end)
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :crf_searching,
+          crf_search_worker_id: "worker-a"
+        })
 
-      content = "abcdefgh"
-      content_size = byte_size(content)
+      video_id = video.id
 
-      with_temp_file(content, ".mkv", fn path ->
-        {:ok, video} =
-          Fixtures.video_fixture(%{
-            path: path,
-            size: content_size,
-            state: :crf_searching,
-            crf_search_worker_id: "worker-a"
-          })
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
 
-        video_id = video.id
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
+                   :ok,
+                   %{accepted: true, protocol_version: 1}
 
-        assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
-        assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "pull_work", %{}),
+                   :ok,
+                   %{
+                     status: "job_in_progress",
+                     video_id: ^video_id,
+                     crf_search_args: crf_search_args
+                   }
 
-        assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
-                     :ok,
-                     %{accepted: true, protocol_version: 1}
-
-        assert_reply push(socket, "pull_work", %{}),
-                     :ok,
-                     %{
-                       status: "job_assigned",
-                       video_id: ^video_id,
-                       chunk_size_bytes: 4
-                     }
-
-        assert_push "transfer_started", %{
-          status: "transfer_started",
-          video_id: ^video_id,
-          size_bytes: ^content_size,
-          chunk_size_bytes: 4,
-          total_bytes: ^content_size,
-          total_chunks: 2
-        }
-
-        assert_push "transfer_chunk", {:binary, first_frame}
-
-        assert {:ok, %{video_id: ^video_id, chunk_index: 0, data: "abcd"}} =
-                 WorkerProtocol.parse_transfer_chunk_frame(first_frame)
-      end)
+      assert "crf-search" in crf_search_args
+      refute_push "transfer_started", _, 50
+      refute_push "transfer_chunk", _, 50
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
