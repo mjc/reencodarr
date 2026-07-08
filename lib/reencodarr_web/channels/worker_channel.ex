@@ -5,7 +5,7 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   use ReencodarrWeb, :channel
 
-  alias Reencodarr.AbAv1.{WorkerProtocol, WorkerSessions}
+  alias Reencodarr.AbAv1.{CrfSearch, WorkerProtocol, WorkerSessions}
   alias Reencodarr.AbAv1.WorkerProtocol.Announcement
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
@@ -537,9 +537,15 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp persist_crf_results(video, results) do
     Enum.each(results, fn result ->
+      params = CrfSearch.build_crf_search_args(video, result_target(video, result))
+
       attrs =
         result
         |> Map.put(:video_id, video.id)
+        |> Map.update(:params, params, fn
+          nil -> params
+          existing_params -> existing_params
+        end)
         |> Map.delete(:chosen)
 
       case Media.upsert_vmaf(attrs) do
@@ -549,6 +555,9 @@ defmodule ReencodarrWeb.WorkerChannel do
       end
     end)
   end
+
+  defp result_target(video, result),
+    do: Map.get(result, :target) || Reencodarr.Rules.vmaf_target(video)
 
   defp choose_result_from_report(video, results) do
     chosen_crf =

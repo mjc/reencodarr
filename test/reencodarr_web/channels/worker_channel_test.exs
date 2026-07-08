@@ -674,6 +674,15 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert_receive {:crf_search_vmaf_result, %{video_id: ^video_id, crf: 30.0, score: 95.8}}
 
+      vmafs = Media.get_vmafs_for_video(video_id)
+      assert Enum.any?(vmafs, &(&1.crf == 30.0 and &1.score == 95.8))
+
+      worker_vmaf = Enum.find(vmafs, &(&1.crf == 30.0))
+      assert worker_vmaf.percent == 42.5
+      assert worker_vmaf.size == "123456"
+      assert worker_vmaf.time == 88
+      assert is_list(worker_vmaf.params)
+
       assert_reply push(socket, "crf_search_completed", %{
                      "video_id" => video_id,
                      "result" => "ok",
