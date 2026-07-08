@@ -169,12 +169,12 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp resume_session_work(worker_id, socket, request_mode) do
     case WorkerSessions.get(worker_id) do
-      %{active_video_id: video_id, transfer_progress: transfer_progress}
-      when is_integer(video_id) ->
+      %{active_video_id: video_id} = session when is_integer(video_id) ->
         with {:ok, socket} <- ensure_resumable_active_video(socket, video_id),
              %Media.Video{} = video <- Media.get_video(video_id) do
-          reply_mode = if is_nil(transfer_progress), do: request_mode, else: :resend_input
-          reply_for_active_work(worker_id, socket, video, reply_mode)
+          session
+          |> maybe_resume_mode(request_mode)
+          |> then(&reply_for_active_work(worker_id, socket, video, &1))
         else
           _ -> :none
         end
@@ -183,6 +183,31 @@ defmodule ReencodarrWeb.WorkerChannel do
         :none
     end
   end
+
+  defp maybe_resume_mode(
+         %{transfer_progress: transfer_progress, crf_search_progress: crf_search_progress},
+         request_mode
+       ) do
+    if should_resend_transfer?(transfer_progress, crf_search_progress),
+      do: :resend_input,
+      else: request_mode
+  end
+
+  defp should_resend_transfer?(_transfer_progress, crf_search_progress)
+       when is_map(crf_search_progress),
+       do: false
+
+  defp should_resend_transfer?(nil, _), do: true
+
+  defp should_resend_transfer?(%{bytes_sent: bytes_sent, total_bytes: total_bytes}, _)
+       when is_integer(bytes_sent) and is_integer(total_bytes) and total_bytes > 0 do
+    bytes_sent < total_bytes
+  end
+
+  defp should_resend_transfer?(%{percent: percent}, _) when is_number(percent),
+    do: percent < 100.0
+
+  defp should_resend_transfer?(_, _), do: true
 
   defp attach_announced_work(socket, _client_worker_id, %{active_video_id: video_id})
        when is_integer(video_id) do
@@ -216,7 +241,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     case Media.get_worker_crf_searching_video(worker_dispatch_id(socket)) do
       %Media.Video{} = video ->
         with {:ok, socket} <- ensure_resumable_active_video(socket, video.id) do
-          reply_for_active_work(worker_id, socket, video, request_mode)
+          reply_for_active_work(worker_id, socket, video, :resend_input)
         end
 
       nil ->

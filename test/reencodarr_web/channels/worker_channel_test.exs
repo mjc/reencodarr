@@ -547,6 +547,43 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "resends input when the dispatched work is found but session state is gone" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      with_temp_file("abcdefgh", ".mkv", fn path ->
+        {:ok, video} =
+          Fixtures.video_fixture(%{
+            path: path,
+            size: 8,
+            state: :crf_searching,
+            crf_search_worker_id: "worker-a"
+          })
+
+        video_id = video.id
+
+        assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+        assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+        assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
+                     :ok,
+                     %{accepted: true, protocol_version: 1}
+
+        assert_reply push(socket, "pull_work", %{}),
+                     :ok,
+                     %{
+                       status: "job_assigned",
+                       video_id: ^video_id,
+                       crf_search_args: crf_search_args
+                     }
+
+        assert "crf-search" in crf_search_args
+        assert_push "transfer_started", %{status: "transfer_started", video_id: ^video_id}
+      end)
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "streams assigned media in ordered chunks with integrity data" do
       token = "test-worker-token"
       previous_chunk_size = Application.get_env(:reencodarr, :worker_chunk_size_bytes)
