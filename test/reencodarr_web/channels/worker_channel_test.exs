@@ -672,6 +672,96 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "uses an already chosen VMAF when completion omits chosen_crf" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+      video_id = video.id
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
+                   :ok,
+                   %{accepted: true, protocol_version: 1}
+
+      assert_reply push(socket, "pull_work", %{}),
+                   :ok,
+                   %{status: "job_assigned", video_id: ^video_id}
+
+      assert_reply push(socket, "crf_search_result", %{
+                     "video_id" => video_id,
+                     "results" => [
+                       %{
+                         "crf" => 24,
+                         "score" => 94.2,
+                         "percent" => 90.0,
+                         "chosen" => true
+                       }
+                     ]
+                   }),
+                   :ok,
+                   %{accepted: true, event: "crf_search_result"}
+
+      assert_reply push(socket, "crf_search_completed", %{
+                     "video_id" => video_id,
+                     "result" => "ok"
+                   }),
+                   :ok,
+                   %{accepted: true, event: "crf_search_completed"}
+
+      assert Media.get_video(video_id).state == :crf_searched
+      assert Media.get_video(video_id).chosen_vmaf_id != nil
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "fails a completed CRF search when nothing was chosen" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+      video_id = video.id
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
+                   :ok,
+                   %{accepted: true, protocol_version: 1}
+
+      assert_reply push(socket, "pull_work", %{}),
+                   :ok,
+                   %{status: "job_assigned", video_id: ^video_id}
+
+      assert_reply push(socket, "crf_search_result", %{
+                     "video_id" => video_id,
+                     "results" => [
+                       %{
+                         "crf" => 24,
+                         "score" => 94.2,
+                         "percent" => 90.0
+                       }
+                     ]
+                   }),
+                   :ok,
+                   %{accepted: true, event: "crf_search_result"}
+
+      assert_reply push(socket, "crf_search_completed", %{
+                     "video_id" => video_id,
+                     "result" => "ok"
+                   }),
+                   :ok,
+                   %{accepted: true, event: "crf_search_completed"}
+
+      assert Media.get_video(video_id).state == :failed
+      assert is_nil(Media.get_video(video_id).chosen_vmaf_id)
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "accepts a CRF result for already dispatched work before the session is rebuilt" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)

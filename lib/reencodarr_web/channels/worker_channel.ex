@@ -576,7 +576,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     chosen_crf =
       Enum.find_value(results, fn result ->
         if Map.get(result, :chosen, false), do: Map.get(result, :crf)
-      end) || Map.get(List.first(results) || %{}, :crf)
+      end)
 
     case chosen_crf do
       nil -> :ok
@@ -589,17 +589,28 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp finish_successful_crf_search(worker_id, socket, video, chosen_crf) do
-    case chosen_crf do
-      nil ->
-        case Media.choose_best_vmaf(video) do
-          {:ok, _vmaf} -> :ok
-          {:error, _} -> :ok
-        end
+    cond do
+      is_number(chosen_crf) ->
+        _ = Media.mark_vmaf_as_chosen(video.id, chosen_crf)
+        finalize_successful_crf_search(worker_id, socket, video)
 
-      crf ->
-        _ = Media.mark_vmaf_as_chosen(video.id, crf)
+      Media.chosen_vmaf_exists?(video) ->
+        finalize_successful_crf_search(worker_id, socket, video)
+
+      true ->
+        _ =
+          Media.record_video_failure(video, :crf_search, :validation,
+            code: "no_chosen_vmaf",
+            message: "CRF search completed successfully but no VMAF was marked as chosen",
+            context: %{video_id: video.id}
+          )
+
+        _ = Media.mark_as_failed(video)
+        clear_assigned_video(worker_id, socket)
     end
+  end
 
+  defp finalize_successful_crf_search(worker_id, socket, video) do
     _ = Media.mark_as_crf_searched(video)
     _ = Media.resolve_crf_search_failures(video.id)
     clear_assigned_video(worker_id, socket)
