@@ -365,6 +365,18 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    :ok,
                    %{accepted: true, protocol_version: 1}
 
+      assert_reply push(socket, "crf_search_progress", %{
+                     "video_id" => video_id,
+                     "percent" => 12.5,
+                     "filename" => Path.basename(video.path),
+                     "fps" => 24.0,
+                     "crf" => 28.0,
+                     "sample_num" => 1,
+                     "total_samples" => 8
+                   }),
+                   :ok,
+                   %{accepted: true, event: "crf_search_progress"}
+
       assert_reply push(socket, "pull_work", %{}),
                    :ok,
                    %{
@@ -390,7 +402,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
-    test "resends active worker input when the worker reports it missing" do
+    test "resends active worker input when active session has no progress yet" do
       token = "test-worker-token"
       previous_chunk_size = Application.get_env(:reencodarr, :worker_chunk_size_bytes)
       Application.put_env(:reencodarr, :worker_token, token)
@@ -426,12 +438,6 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                      %{accepted: true, protocol_version: 1}
 
         assert_reply push(socket, "pull_work", %{}),
-                     :ok,
-                     %{status: "job_in_progress", video_id: ^video_id}
-
-        refute_push "transfer_started", _, 50
-
-        assert_reply push(socket, "pull_work", %{"input_missing" => true}),
                      :ok,
                      %{
                        status: "job_assigned",
@@ -474,6 +480,18 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert_reply push(socket, "pull_work", %{}),
                    :ok,
                    %{status: "job_assigned", video_id: ^video_id, crf_search_args: assigned_args}
+
+      assert_reply push(socket, "crf_search_progress", %{
+                     "video_id" => video_id,
+                     "percent" => 12.5,
+                     "filename" => Path.basename(video.path),
+                     "fps" => 24.0,
+                     "crf" => 28.0,
+                     "sample_num" => 1,
+                     "total_samples" => 8
+                   }),
+                   :ok,
+                   %{accepted: true, event: "crf_search_progress"}
 
       assert_reply push(socket, "pull_work", %{}),
                    :ok,

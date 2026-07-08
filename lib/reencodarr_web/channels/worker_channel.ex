@@ -324,7 +324,15 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
-  defp reply_for_active_work(_worker_id, socket, video, :resume_only) do
+  defp reply_for_active_work(worker_id, socket, video, :resume_only) do
+    if initial_input_transfer_needed?(worker_id) do
+      reply_for_active_work(worker_id, socket, video, :resend_input)
+    else
+      resume_active_work(socket, video)
+    end
+  end
+
+  defp resume_active_work(socket, video) do
     {:reply, {:ok, WorkerProtocol.work_in_progress(video, socket.assigns[:current_vmaf_target])},
      socket}
   end
@@ -377,6 +385,13 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp work_request_mode(_payload), do: :resume_only
+
+  defp initial_input_transfer_needed?(worker_id) do
+    case WorkerSessions.get(worker_id) do
+      %{transfer_progress: nil, crf_search_progress: nil} -> true
+      _session -> false
+    end
+  end
 
   defp truthy?(true), do: true
   defp truthy?("true"), do: true
