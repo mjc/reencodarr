@@ -647,6 +647,53 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert Media.get_video(video_id).state == :crf_searched
       assert Media.get_video(video_id).chosen_vmaf_id != nil
       assert WorkerSessions.get(socket.assigns.worker_id).active_video_id == nil
+
+      assert_reply push(socket, "crf_search_result", %{
+                     "video_id" => video_id,
+                     "results" => [
+                       %{
+                         "crf" => 28,
+                         "score" => 96.4,
+                         "percent" => 95.0,
+                         "chosen" => true
+                       }
+                     ]
+                   }),
+                   :ok,
+                   %{accepted: true, event: "crf_search_result"}
+
+      assert WorkerSessions.get(socket.assigns.worker_id).active_video_id == nil
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "clears stale active work when a worker asks after the video completed elsewhere" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+      video_id = video.id
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
+                   :ok,
+                   %{accepted: true, protocol_version: 1}
+
+      assert_reply push(socket, "pull_work", %{}),
+                   :ok,
+                   %{status: "job_assigned", video_id: ^video_id}
+
+      _vmaf = Fixtures.vmaf_fixture(%{video_id: video_id, crf: 28.0, score: 96.4})
+      assert {:ok, _} = Media.mark_vmaf_as_chosen(video_id, 28.0)
+      assert {:ok, _} = Media.mark_as_crf_searched(Media.get_video(video_id))
+
+      assert_reply push(socket, "pull_work", %{}),
+                   :ok,
+                   %{status: "no_work"}
+
+      assert WorkerSessions.get(socket.assigns.worker_id).active_video_id == nil
     after
       Application.delete_env(:reencodarr, :worker_token)
     end

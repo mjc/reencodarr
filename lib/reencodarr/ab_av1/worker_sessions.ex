@@ -6,6 +6,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   use GenServer
 
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.Media
+  alias Reencodarr.Media.VideoStateMachine
 
   @by_server_table :reencodarr_worker_sessions_by_server
   @by_client_table :reencodarr_worker_sessions_by_client
@@ -327,6 +329,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
        ) do
     case lookup_session(existing_server_worker_id) do
       {:ok, existing_session} ->
+        active_video_id = resumable_active_video_id(existing_session.active_video_id)
+
         session =
           build_session(
             server_worker_id,
@@ -337,9 +341,15 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
             now
           )
           |> Map.put(:connected_at, existing_session.connected_at)
-          |> Map.put(:active_video_id, existing_session.active_video_id)
-          |> Map.put(:transfer_progress, existing_session.transfer_progress)
-          |> Map.put(:crf_search_progress, existing_session.crf_search_progress)
+          |> Map.put(:active_video_id, active_video_id)
+          |> Map.put(
+            :transfer_progress,
+            if(active_video_id, do: existing_session.transfer_progress)
+          )
+          |> Map.put(
+            :crf_search_progress,
+            if(active_video_id, do: existing_session.crf_search_progress)
+          )
           |> Map.put(:resource_usage, existing_session.resource_usage)
 
         :ok = drop_session(existing_server_worker_id)
@@ -372,13 +382,22 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   defp requeue_active_video(%{active_video_id: nil}), do: :ok
 
   defp requeue_active_video(%{active_video_id: video_id}) do
-    case Reencodarr.Media.get_video(video_id) do
-      %Reencodarr.Media.Video{} = video ->
-        _ = Reencodarr.Media.mark_as_analyzed(video)
+    case Media.get_video(video_id) do
+      %Media.Video{state: :crf_searching} = video ->
+        _ = VideoStateMachine.mark_as_analyzed(video)
         :ok
 
-      nil ->
+      _ ->
         :ok
+    end
+  end
+
+  defp resumable_active_video_id(nil), do: nil
+
+  defp resumable_active_video_id(video_id) do
+    case Media.get_video(video_id) do
+      %Media.Video{state: :crf_searching} -> video_id
+      _ -> nil
     end
   end
 
@@ -414,6 +433,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       end)
 
     Enum.each(expired_sessions, fn session ->
+      requeue_active_video(session)
       :ok = drop_session(session.server_worker_id)
     end)
 
