@@ -156,6 +156,32 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
              })
 
     assert {:ok,
+            %CrfSearchResult{
+              video_id: 123,
+              results: [
+                %{
+                  crf: 31.5,
+                  score: 96.2,
+                  percent: 42.5,
+                  size: "123456",
+                  time: 88
+                }
+              ]
+            }} =
+             WorkerProtocol.parse_crf_search_result(%{
+               "job_id" => "job-123",
+               "video_id" => 123,
+               "source_name" => "movie.mkv",
+               "crf" => 31.5,
+               "vmaf_score" => 96.2,
+               "xpsnr_score" => nil,
+               "predicted_encode_size" => 123_456,
+               "encode_percent" => 42.5,
+               "predicted_encode_time_secs" => 87.5,
+               "from_cache" => false
+             })
+
+    assert {:ok,
             %FailureReport{
               retriable: false
             }} =

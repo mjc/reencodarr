@@ -658,6 +658,22 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert_receive {:crf_search_vmaf_result, %{video_id: ^video_id, crf: 26.0, score: 94.1}}
       assert_receive {:crf_search_vmaf_result, %{video_id: ^video_id, crf: 28.0, score: 96.4}}
 
+      assert_reply push(socket, "crf_search_result", %{
+                     "job_id" => Integer.to_string(video_id),
+                     "video_id" => video_id,
+                     "source_name" => Path.basename(video.path),
+                     "crf" => 30.0,
+                     "vmaf_score" => 95.8,
+                     "predicted_encode_size" => 123_456,
+                     "encode_percent" => 42.5,
+                     "predicted_encode_time_secs" => 87.5,
+                     "from_cache" => false
+                   }),
+                   :ok,
+                   %{accepted: true, event: "crf_search_result"}
+
+      assert_receive {:crf_search_vmaf_result, %{video_id: ^video_id, crf: 30.0, score: 95.8}}
+
       assert_reply push(socket, "crf_search_completed", %{
                      "video_id" => video_id,
                      "result" => "ok",

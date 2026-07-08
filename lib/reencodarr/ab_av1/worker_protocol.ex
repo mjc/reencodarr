@@ -578,7 +578,14 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
          {:ok, percent} <-
            required_number(
              payload,
-             [:percent, "percent", :vmaf_percentile, "vmaf_percentile"],
+             [
+               :percent,
+               "percent",
+               :vmaf_percentile,
+               "vmaf_percentile",
+               :encode_percent,
+               "encode_percent"
+             ],
              :invalid_crf_search_result
            ) do
       {:ok,
@@ -785,7 +792,12 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   end
 
   defp optional_predicted_size(payload) do
-    case optional_number(payload, [:predicted_size, "predicted_size"]) do
+    case optional_number(payload, [
+           :predicted_size,
+           "predicted_size",
+           :predicted_encode_size,
+           "predicted_encode_size"
+         ]) do
       nil -> nil
       size -> format_size(size, payload)
     end
@@ -805,8 +817,12 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
         round(value)
 
       _ ->
-        case {optional_number(payload, [:time_taken, "time_taken"]),
-              optional_string(payload, [:time_unit, "time_unit"])} do
+        case {optional_number(payload, [
+                :time_taken,
+                "time_taken",
+                :predicted_encode_time_secs,
+                "predicted_encode_time_secs"
+              ]), optional_string(payload, [:time_unit, "time_unit"])} do
           {nil, _} -> nil
           {time_taken, unit} when unit in [nil, ""] -> round(time_taken)
           {time_taken, unit} -> round(Reencodarr.Core.Time.to_seconds(time_taken, unit))
