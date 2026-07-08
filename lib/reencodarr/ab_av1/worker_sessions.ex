@@ -19,6 +19,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           active_video_id: integer() | nil,
           transfer_progress: map() | nil,
           crf_search_progress: map() | nil,
+          resource_usage: map() | nil,
           connected_at: DateTime.t(),
           last_seen_at: DateTime.t()
         }
@@ -31,8 +32,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.call(__MODULE__, {:register, attrs})
   end
 
-  def touch(server_worker_id) do
-    GenServer.call(__MODULE__, {:touch, server_worker_id})
+  def touch(server_worker_id, resource_usage \\ nil) do
+    GenServer.call(__MODULE__, {:touch, server_worker_id, resource_usage})
   end
 
   def unregister(server_worker_id) do
@@ -111,9 +112,9 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end
   end
 
-  def handle_call({:touch, server_worker_id}, _from, state) do
+  def handle_call({:touch, server_worker_id, resource_usage}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
-      %{session | last_seen_at: now()}
+      %{session | last_seen_at: now(), resource_usage: resource_usage || session.resource_usage}
     end)
   end
 
@@ -231,6 +232,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       active_video_id: nil,
       transfer_progress: nil,
       crf_search_progress: nil,
+      resource_usage: nil,
       connected_at: now,
       last_seen_at: now
     }

@@ -7,6 +7,7 @@ defmodule ReencodarrWeb.WorkersLive do
 
   alias Reencodarr.AbAv1.WorkerSessions
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.Formatters
   alias Reencodarr.Media
 
   @refresh_interval 5_000
@@ -70,6 +71,9 @@ defmodule ReencodarrWeb.WorkersLive do
                 <th class="px-4 py-3 text-left font-medium">Worker</th>
                 <th class="px-4 py-3 text-left font-medium">State</th>
                 <th class="px-4 py-3 text-left font-medium">Video</th>
+                <th class="px-4 py-3 text-left font-medium">Resources</th>
+                <th class="px-4 py-3 text-left font-medium">Live Progress</th>
+                <th class="px-4 py-3 text-left font-medium">CRF/VMAF Results</th>
                 <th class="px-4 py-3 text-left font-medium">Protocol</th>
                 <th class="px-4 py-3 text-left font-medium">Version</th>
                 <th class="px-4 py-3 text-left font-medium">Connected</th>
@@ -79,7 +83,7 @@ defmodule ReencodarrWeb.WorkersLive do
             <tbody class="divide-y divide-gray-800">
               <%= if @workers == [] do %>
                 <tr>
-                  <td colspan="7" class="px-4 py-8 text-center text-sm text-gray-500">
+                  <td colspan="10" class="px-4 py-8 text-center text-sm text-gray-500">
                     No workers connected.
                   </td>
                 </tr>
@@ -100,6 +104,18 @@ defmodule ReencodarrWeb.WorkersLive do
                   </td>
                   <td class="px-4 py-3 text-gray-300">
                     {worker_video(worker)}
+                  </td>
+                  <td class="px-4 py-3 text-xs text-gray-300">
+                    <div>CPU {worker_cpu(worker)}</div>
+                    <div class="mt-1 text-gray-500">Mem {worker_memory(worker)}</div>
+                    <div class="mt-1 text-gray-500">Disk {worker_disk(worker)}</div>
+                  </td>
+                  <td class="px-4 py-3 text-xs text-gray-300">
+                    <div>{worker_progress(worker)}</div>
+                    <div class="mt-1 text-gray-500">{worker_transfer(worker)}</div>
+                  </td>
+                  <td class="px-4 py-3 text-xs text-gray-300">
+                    {worker_vmafs(worker)}
                   </td>
                   <td class="px-4 py-3 text-gray-300">
                     {worker.protocol_version}
@@ -134,6 +150,99 @@ defmodule ReencodarrWeb.WorkersLive do
 
   defp worker_video(%{active_video_id: nil}), do: "none"
   defp worker_video(%{active_video_id: video_id}), do: "video ##{video_id}"
+
+  defp worker_cpu(%{resource_usage: %{cpu_percent: cpu_percent}}) when is_number(cpu_percent),
+    do: "#{format_number(cpu_percent)}%"
+
+  defp worker_cpu(_worker), do: "-"
+
+  defp worker_memory(%{resource_usage: %{memory_bytes: memory_bytes} = usage})
+       when is_integer(memory_bytes) do
+    case Map.get(usage, :memory_total_bytes) do
+      total when is_integer(total) and total > 0 ->
+        "#{Formatters.file_size(memory_bytes)} / #{Formatters.file_size(total)}"
+
+      _ ->
+        Formatters.file_size(memory_bytes)
+    end
+  end
+
+  defp worker_memory(_worker), do: "-"
+
+  defp worker_disk(%{resource_usage: %{disk_free_bytes: disk_free_bytes} = usage})
+       when is_integer(disk_free_bytes) do
+    case Map.get(usage, :disk_total_bytes) do
+      total when is_integer(total) and total > 0 ->
+        "#{Formatters.file_size(disk_free_bytes)} free / #{Formatters.file_size(total)}"
+
+      _ ->
+        "#{Formatters.file_size(disk_free_bytes)} free"
+    end
+  end
+
+  defp worker_disk(_worker), do: "-"
+
+  defp worker_progress(%{crf_search_progress: nil}), do: "CRF -"
+
+  defp worker_progress(%{crf_search_progress: progress}) do
+    [
+      {"CRF", progress.percent, &"#{format_number(&1)}%"},
+      {"FPS", progress.fps, &Formatters.fps/1},
+      {"ETA", progress.eta, &"#{&1}s"}
+    ]
+    |> format_parts()
+  end
+
+  defp worker_transfer(%{transfer_progress: nil}), do: "Transfer -"
+
+  defp worker_transfer(%{transfer_progress: progress}) do
+    [
+      {"Transfer", progress.percent, &"#{format_number(&1)}%"},
+      {"Chunk", progress.chunk_index, &to_string/1},
+      {"Total", progress.total_chunks, &to_string/1}
+    ]
+    |> format_parts()
+  end
+
+  defp worker_vmafs(%{active_video_id: nil}), do: "-"
+
+  defp worker_vmafs(%{active_video_id: video_id}) do
+    video_id
+    |> Media.get_vmafs_for_video()
+    |> Enum.sort_by(& &1.crf)
+    |> Enum.take(4)
+    |> case do
+      [] ->
+        "-"
+
+      vmafs ->
+        Enum.map_join(vmafs, " / ", &format_vmaf/1)
+    end
+  end
+
+  defp format_vmaf(vmaf) do
+    "CRF #{Formatters.crf(vmaf.crf)} -> #{Formatters.vmaf_score(vmaf.score, 1)} (#{format_number(vmaf.percent)}%)"
+  end
+
+  defp format_parts(parts) do
+    parts
+    |> Enum.reject(fn {_label, value, _formatter} -> is_nil(value) end)
+    |> Enum.map(fn {label, value, formatter} ->
+      "#{label} #{formatter.(value)}"
+    end)
+    |> case do
+      [] -> "-"
+      formatted -> Enum.join(formatted, " / ")
+    end
+  end
+
+  defp format_number(number) when is_integer(number), do: Integer.to_string(number)
+
+  defp format_number(number) when is_float(number) do
+    :erlang.float_to_binary(number, decimals: 1)
+  end
+
+  defp format_number(nil), do: "-"
 
   defp status_badge_class(%{active_video_id: nil}),
     do:

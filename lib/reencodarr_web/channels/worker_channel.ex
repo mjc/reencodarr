@@ -51,8 +51,8 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
-  def handle_in("heartbeat", _payload, %{assigns: %{worker_id: worker_id}} = socket) do
-    case WorkerSessions.touch(worker_id) do
+  def handle_in("heartbeat", payload, %{assigns: %{worker_id: worker_id}} = socket) do
+    case WorkerSessions.touch(worker_id, WorkerProtocol.parse_resource_usage(payload)) do
       {:ok, session} ->
         {:reply, {:ok, WorkerProtocol.heartbeat_ack(session.last_seen_at)}, socket}
 

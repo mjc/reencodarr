@@ -77,6 +77,25 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
              })
   end
 
+  test "parses heartbeat resource usage" do
+    assert %{
+             cpu_percent: 87.5,
+             memory_bytes: 1_073_741_824,
+             memory_total_bytes: 4_294_967_296,
+             disk_free_bytes: 536_870_912_000,
+             disk_total_bytes: 1_099_511_627_776
+           } =
+             WorkerProtocol.parse_resource_usage(%{
+               "cpu_percent" => 87.5,
+               "memory_rss_bytes" => 1_073_741_824,
+               "total_memory_bytes" => 4_294_967_296,
+               "free_disk_bytes" => 536_870_912_000,
+               "total_disk_bytes" => 1_099_511_627_776
+             })
+
+    assert is_nil(WorkerProtocol.parse_resource_usage(%{}))
+  end
+
   test "parses structured CRF results and completion payloads" do
     assert {:ok,
             %CrfSearchResult{

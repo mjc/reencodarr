@@ -179,10 +179,18 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       connected_at = session.connected_at
       first_seen_at = session.last_seen_at
 
-      assert_reply push(socket, "heartbeat", %{}), :ok, %{
-        accepted: true,
-        last_seen_at: last_seen_at
-      }
+      assert_reply push(socket, "heartbeat", %{
+                     "cpu_percent" => 87.5,
+                     "memory_bytes" => 1_073_741_824,
+                     "memory_total_bytes" => 4_294_967_296,
+                     "disk_free_bytes" => 536_870_912_000,
+                     "disk_total_bytes" => 1_099_511_627_776
+                   }),
+                   :ok,
+                   %{
+                     accepted: true,
+                     last_seen_at: last_seen_at
+                   }
 
       assert {:ok, parsed_last_seen_at, 0} = DateTime.from_iso8601(last_seen_at)
 
@@ -190,6 +198,11 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert updated_session.connected_at == connected_at
       assert DateTime.compare(updated_session.last_seen_at, first_seen_at) in [:eq, :gt]
       assert updated_session.last_seen_at == parsed_last_seen_at
+      assert updated_session.resource_usage.cpu_percent == 87.5
+      assert updated_session.resource_usage.memory_bytes == 1_073_741_824
+      assert updated_session.resource_usage.memory_total_bytes == 4_294_967_296
+      assert updated_session.resource_usage.disk_free_bytes == 536_870_912_000
+      assert updated_session.resource_usage.disk_total_bytes == 1_099_511_627_776
     after
       Application.delete_env(:reencodarr, :worker_token)
     end

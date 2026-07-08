@@ -440,6 +440,49 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   def heartbeat_ack(last_seen_at),
     do: %{accepted: true, last_seen_at: DateTime.to_iso8601(last_seen_at)}
 
+  @spec parse_resource_usage(map()) :: map() | nil
+  def parse_resource_usage(payload) when is_map(payload) do
+    [
+      cpu_percent: optional_number(payload, [:cpu_percent, "cpu_percent"]),
+      memory_bytes:
+        optional_integer(payload, [
+          :memory_bytes,
+          "memory_bytes",
+          :memory_rss_bytes,
+          "memory_rss_bytes"
+        ]),
+      memory_total_bytes:
+        optional_integer(payload, [
+          :memory_total_bytes,
+          "memory_total_bytes",
+          :total_memory_bytes,
+          "total_memory_bytes"
+        ]),
+      disk_free_bytes:
+        optional_integer(payload, [
+          :disk_free_bytes,
+          "disk_free_bytes",
+          :free_disk_bytes,
+          "free_disk_bytes"
+        ]),
+      disk_total_bytes:
+        optional_integer(payload, [
+          :disk_total_bytes,
+          "disk_total_bytes",
+          :total_disk_bytes,
+          "total_disk_bytes"
+        ])
+    ]
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+    |> case do
+      usage when usage == %{} -> nil
+      usage -> usage
+    end
+  end
+
+  def parse_resource_usage(_payload), do: nil
+
   @spec error(
           :duplicate_worker_id
           | :invalid_announcement
