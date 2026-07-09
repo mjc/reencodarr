@@ -23,6 +23,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert {:error, :unknown_worker_session} = WorkerSessions.touch("missing-worker")
     assert {:error, :unknown_worker_session} = WorkerSessions.assign_video("missing-worker", 123)
     assert {:error, :unknown_worker_session} = WorkerSessions.clear_video("missing-worker")
+    assert {:error, :unknown_worker_session} = WorkerSessions.finish_transfer("missing-worker")
   end
 
   test "expires stale worker sessions" do
@@ -97,9 +98,39 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
 
     assert {:ok, session} = WorkerSessions.assign_video("worker-server-1", 123)
     assert session.active_video_id == 123
+    assert session.phase == :crf_searching
 
     [listed_session] = WorkerSessions.list()
     assert listed_session.active_video_id == 123
+    assert listed_session.phase == :crf_searching
+  end
+
+  test "moves from receiving input to CRF search without clearing the active video" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, session} = WorkerSessions.assign_video("worker-server-1", 123, :receiving_input)
+    assert session.active_video_id == 123
+    assert session.phase == :receiving_input
+
+    assert {:ok, session} =
+             WorkerSessions.set_transfer_progress("worker-server-1", %{
+               job_id: "job-1",
+               video_id: 123,
+               transfer_id: "job-1",
+               filename: "sample.mkv",
+               percent: 100.0,
+               bytes_sent: 10_485_760,
+               total_bytes: 10_485_760
+             })
+
+    assert session.active_video_id == 123
+    assert session.phase == :receiving_input
+    assert session.transfer_progress.percent == 100.0
+
+    assert {:ok, session} = WorkerSessions.finish_transfer("worker-server-1")
+    assert session.active_video_id == 123
+    assert session.phase == :crf_searching
+    assert is_nil(session.transfer_progress)
   end
 
   test "keeps CRF sample metadata when later progress omits it" do
@@ -207,6 +238,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
              })
 
     assert session.active_video_id == video.id
+    assert session.phase == :crf_searching
 
     assert {:ok, session} =
              WorkerSessions.register(
@@ -219,6 +251,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert session.server_worker_id == "worker-server-2"
     assert session.client_worker_id == "worker-client-1"
     assert session.active_video_id == video.id
+    assert session.phase == :crf_searching
     assert session.crf_search_progress.video_id == video.id
     assert session.crf_search_progress.sample_num == 2
     assert is_nil(WorkerSessions.get("worker-server-1"))
@@ -255,6 +288,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
              )
 
     assert is_nil(session.active_video_id)
+    assert session.phase == :idle
     assert is_nil(session.crf_search_progress)
     assert Media.get_video(video.id).state == :crf_searched
   end

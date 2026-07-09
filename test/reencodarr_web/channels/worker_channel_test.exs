@@ -327,8 +327,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert filename == Path.basename(video.path)
       session = WorkerSessions.get(server_worker_id)
-      assert session.transfer_progress
-      assert session.transfer_progress.percent == 25.5
+      assert session.phase == :crf_searching
+      assert is_nil(session.transfer_progress)
       assert session.crf_search_progress.percent == 62.0
 
       Phoenix.PubSub.broadcast(
@@ -695,6 +695,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
         session = WorkerSessions.get(socket.assigns.worker_id)
         assert session.active_video_id == assigned_video_id
+        assert session.phase == :receiving_input
         assert session.transfer_progress.video_id == assigned_video_id
         assert session.transfer_progress.percent == 0.0
         assert session.transfer_progress.bytes_sent == 0
@@ -737,6 +738,11 @@ defmodule ReencodarrWeb.WorkerChannelTest do
           total_bytes: ^content_size,
           total_chunks: 2
         }
+
+        session = WorkerSessions.get(socket.assigns.worker_id)
+        assert session.active_video_id == assigned_video_id
+        assert session.phase == :crf_searching
+        assert is_nil(session.transfer_progress)
       end)
     after
       Application.delete_env(:reencodarr, :worker_token)

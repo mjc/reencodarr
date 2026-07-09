@@ -233,7 +233,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp attach_announced_work(socket, client_worker_id, _session) do
     case Media.get_worker_crf_searching_video(client_worker_id) do
       %Media.Video{} = video ->
-        _ = WorkerSessions.assign_video(socket.assigns.worker_id, video.id)
+        _ = WorkerSessions.assign_video(socket.assigns.worker_id, video.id, :crf_searching)
         attach_active_video(socket, video.id)
 
       nil ->
@@ -348,7 +348,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     target_vmaf = Reencodarr.Rules.vmaf_target(video)
 
     with {:ok, _video} <- Media.mark_as_worker_crf_searching(video, worker_dispatch_id(socket)),
-         {:ok, _session} <- WorkerSessions.assign_video(worker_id, video.id) do
+         {:ok, _session} <- WorkerSessions.assign_video(worker_id, video.id, :receiving_input) do
       socket = prepare_transfer(socket, video, target_vmaf)
       {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf)}, socket}
     else
@@ -361,7 +361,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp reply_for_active_work(worker_id, socket, video, :resend_input) do
     target_vmaf = socket.assigns[:current_vmaf_target] || Reencodarr.Rules.vmaf_target(video)
 
-    case WorkerSessions.assign_video(worker_id, video.id) do
+    case WorkerSessions.assign_video(worker_id, video.id, :receiving_input) do
       {:ok, _session} ->
         socket = prepare_transfer(socket, video, target_vmaf)
         {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf)}, socket}
@@ -614,7 +614,7 @@ defmodule ReencodarrWeb.WorkerChannel do
          when is_binary(dispatch_id) <- Media.get_video(video_id),
          true <- dispatch_id == worker_dispatch_id(socket),
          false <- assigned_to_other_worker?(worker_id, video_id),
-         {:ok, _session} <- WorkerSessions.assign_video(worker_id, video_id) do
+         {:ok, _session} <- WorkerSessions.assign_video(worker_id, video_id, :crf_searching) do
       {:ok,
        socket
        |> assign(:current_video_id, video_id)
@@ -846,6 +846,7 @@ defmodule ReencodarrWeb.WorkerChannel do
 
         :eof ->
           close_transfer_stream(io_device)
+          _ = WorkerSessions.finish_transfer(socket.assigns.worker_id)
 
           push(
             socket,

@@ -18,6 +18,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           version: String.t(),
           protocol_version: pos_integer(),
           capabilities: map(),
+          phase: :idle | :receiving_input | :crf_searching,
           active_video_id: integer() | nil,
           transfer_progress: map() | nil,
           crf_search_progress: map() | nil,
@@ -42,8 +43,9 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.call(__MODULE__, {:unregister, server_worker_id})
   end
 
-  def assign_video(server_worker_id, video_id) when is_integer(video_id) do
-    GenServer.call(__MODULE__, {:assign_video, server_worker_id, video_id})
+  def assign_video(server_worker_id, video_id, phase \\ :crf_searching)
+      when is_integer(video_id) and phase in [:receiving_input, :crf_searching] do
+    GenServer.call(__MODULE__, {:assign_video, server_worker_id, video_id, phase})
   end
 
   def clear_video(server_worker_id) do
@@ -52,6 +54,10 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def set_transfer_progress(server_worker_id, progress) when is_map(progress) do
     GenServer.call(__MODULE__, {:set_transfer_progress, server_worker_id, progress})
+  end
+
+  def finish_transfer(server_worker_id) do
+    GenServer.call(__MODULE__, {:finish_transfer, server_worker_id})
   end
 
   def set_crf_search_progress(server_worker_id, progress) when is_map(progress) do
@@ -126,15 +132,27 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     {:reply, :ok, state}
   end
 
-  def handle_call({:assign_video, server_worker_id, video_id}, _from, state) do
+  def handle_call({:assign_video, server_worker_id, video_id, phase}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
-      %{session | active_video_id: video_id, transfer_progress: nil, crf_search_progress: nil}
+      %{
+        session
+        | phase: phase,
+          active_video_id: video_id,
+          transfer_progress: nil,
+          crf_search_progress: nil
+      }
     end)
   end
 
   def handle_call({:clear_video, server_worker_id}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
-      %{session | active_video_id: nil, transfer_progress: nil, crf_search_progress: nil}
+      %{
+        session
+        | phase: :idle,
+          active_video_id: nil,
+          transfer_progress: nil,
+          crf_search_progress: nil
+      }
     end)
   end
 
@@ -146,19 +164,41 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
       %{
         session
-        | active_video_id: active_video_id,
+        | phase: :receiving_input,
+          active_video_id: active_video_id,
           transfer_progress: progress,
+          crf_search_progress: nil,
           last_seen_at: now
       }
+    end)
+  end
+
+  def handle_call({:finish_transfer, server_worker_id}, _from, state) do
+    update_session_reply(server_worker_id, state, fn session ->
+      phase =
+        case session.active_video_id do
+          nil -> :idle
+          _video_id -> :crf_searching
+        end
+
+      %{session | phase: phase, transfer_progress: nil, last_seen_at: now()}
     end)
   end
 
   def handle_call({:set_crf_search_progress, server_worker_id, progress}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
       progress = merge_crf_search_progress(session.crf_search_progress, progress)
+      active_video_id = Map.get(progress, :video_id, session.active_video_id)
       now = now()
 
-      %{session | crf_search_progress: progress, last_seen_at: now}
+      %{
+        session
+        | phase: :crf_searching,
+          active_video_id: active_video_id,
+          transfer_progress: nil,
+          crf_search_progress: progress,
+          last_seen_at: now
+      }
     end)
   end
 
@@ -243,6 +283,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       version: version,
       protocol_version: protocol_version,
       capabilities: capabilities,
+      phase: :idle,
       active_video_id: nil,
       transfer_progress: nil,
       crf_search_progress: nil,
@@ -339,6 +380,9 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       {:ok, existing_session} ->
         active_video_id = resumable_active_video_id(existing_session.active_video_id)
 
+        phase =
+          if(active_video_id, do: Map.get(existing_session, :phase, :crf_searching), else: :idle)
+
         session =
           build_session(
             server_worker_id,
@@ -350,9 +394,12 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           )
           |> Map.put(:connected_at, existing_session.connected_at)
           |> Map.put(:active_video_id, active_video_id)
+          |> Map.put(:phase, phase)
           |> Map.put(
             :transfer_progress,
-            if(active_video_id, do: existing_session.transfer_progress)
+            if(active_video_id && phase == :receiving_input,
+              do: existing_session.transfer_progress
+            )
           )
           |> Map.put(
             :crf_search_progress,

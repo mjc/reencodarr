@@ -116,22 +116,25 @@ defmodule ReencodarrWeb.WorkersLive do
                 </aside>
 
                 <div class="min-w-0">
-                  <%= if show_crf_panel?(worker) do %>
-                    <.crf_search_panel
-                      video={worker_crf_video(worker)}
-                      results={worker_crf_results(worker)}
-                      sample={worker_crf_sample(worker)}
-                      status={worker_crf_status(worker)}
-                      show_controls={true}
-                      show_queue={false}
-                      show_empty_chart={true}
-                      suspend_event="pause_worker_crf_search"
-                      resume_event="resume_worker_crf_search"
-                      fail_event="stop_worker_crf_search"
-                      worker_id={worker.server_worker_id}
-                    />
-                  <% else %>
-                    <.transfer_panel worker={worker} video={active_video(worker)} />
+                  <%= case worker_phase(worker) do %>
+                    <% :receiving_input -> %>
+                      <.transfer_panel worker={worker} video={active_video(worker)} />
+                    <% :crf_searching -> %>
+                      <.crf_search_panel
+                        video={worker_crf_video(worker)}
+                        results={worker_crf_results(worker)}
+                        sample={worker_crf_sample(worker)}
+                        status={worker_crf_status(worker)}
+                        show_controls={true}
+                        show_queue={false}
+                        show_empty_chart={true}
+                        suspend_event="pause_worker_crf_search"
+                        resume_event="resume_worker_crf_search"
+                        fail_event="stop_worker_crf_search"
+                        worker_id={worker.server_worker_id}
+                      />
+                    <% :idle -> %>
+                      <.idle_panel />
                   <% end %>
                 </div>
               </section>
@@ -139,6 +142,15 @@ defmodule ReencodarrWeb.WorkersLive do
           </div>
         <% end %>
       </div>
+    </div>
+    """
+  end
+
+  defp idle_panel(assigns) do
+    ~H"""
+    <div class="dashboard-card rounded-lg border border-gray-800 bg-gray-900 p-3 sm:p-4">
+      <h3 class="font-semibold text-white">Idle</h3>
+      <div class="mt-3 text-sm text-gray-500">Waiting for work.</div>
     </div>
     """
   end
@@ -201,35 +213,37 @@ defmodule ReencodarrWeb.WorkersLive do
     """
   end
 
-  defp worker_status(%{active_video_id: nil}), do: "Idle"
+  defp worker_status(worker) do
+    case worker_phase(worker) do
+      :idle -> "Idle"
+      :receiving_input -> "Receiving input"
+      :crf_searching -> crf_search_status(worker)
+    end
+  end
 
-  defp worker_status(%{transfer_progress: progress}) when not is_nil(progress),
-    do: "Receiving input"
-
-  defp worker_status(%{crf_search_progress: progress}) when not is_nil(progress),
-    do: "CRF search"
-
-  defp worker_status(%{active_video_id: video_id}) do
+  defp crf_search_status(%{active_video_id: video_id}) when is_integer(video_id) do
     case Media.get_video(video_id) do
       %Media.Video{state: state} -> Atom.to_string(state)
       nil -> "missing"
     end
   end
 
-  defp worker_crf_status(%{active_video_id: nil}), do: :idle
+  defp crf_search_status(_worker), do: "CRF search"
 
-  defp worker_crf_status(%{transfer_progress: progress}) when not is_nil(progress),
-    do: :idle
+  defp worker_crf_status(%{phase: :crf_searching}), do: :processing
 
-  defp worker_crf_status(%{crf_search_progress: progress}) when not is_nil(progress),
-    do: :processing
+  defp worker_crf_status(_worker), do: :idle
 
-  defp worker_crf_status(%{active_video_id: _video_id}), do: :processing
+  defp worker_phase(%{phase: phase}) when phase in [:idle, :receiving_input, :crf_searching],
+    do: phase
 
-  defp show_crf_panel?(%{transfer_progress: progress}) when not is_nil(progress), do: false
-  defp show_crf_panel?(%{crf_search_progress: progress}) when not is_nil(progress), do: true
-  defp show_crf_panel?(%{active_video_id: video_id}) when is_integer(video_id), do: true
-  defp show_crf_panel?(_worker), do: false
+  defp worker_phase(%{active_video_id: nil}), do: :idle
+
+  defp worker_phase(%{transfer_progress: progress}) when not is_nil(progress),
+    do: :receiving_input
+
+  defp worker_phase(%{active_video_id: video_id}) when is_integer(video_id), do: :crf_searching
+  defp worker_phase(_worker), do: :idle
 
   defp worker_crf_video(worker) do
     case active_video(worker) do
@@ -380,11 +394,13 @@ defmodule ReencodarrWeb.WorkersLive do
 
   defp format_chunk_progress(_), do: "-"
 
-  defp status_badge_class(%{active_video_id: nil}),
-    do:
-      "inline-flex rounded-full border border-emerald-900 bg-emerald-950 px-2 py-1 text-xs font-medium text-emerald-300"
+  defp status_badge_class(worker) do
+    case worker_phase(worker) do
+      :idle ->
+        "inline-flex rounded-full border border-emerald-900 bg-emerald-950 px-2 py-1 text-xs font-medium text-emerald-300"
 
-  defp status_badge_class(%{active_video_id: _video_id}),
-    do:
-      "inline-flex rounded-full border border-cyan-900 bg-cyan-950 px-2 py-1 text-xs font-medium text-cyan-300"
+      _active ->
+        "inline-flex rounded-full border border-cyan-900 bg-cyan-950 px-2 py-1 text-xs font-medium text-cyan-300"
+    end
+  end
 end

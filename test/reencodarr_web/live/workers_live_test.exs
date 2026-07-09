@@ -34,8 +34,10 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert {:ok, view, html} = live(conn, ~p"/workers")
     assert html =~ "worker-client-1"
     assert html =~ "Idle"
+    refute html =~ "Receiving Input"
 
-    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", video.id)
+    assert {:ok, _session} =
+             WorkerSessions.assign_video("worker-server-1", video.id, :receiving_input)
 
     assert {:ok, _session} =
              WorkerSessions.touch("worker-server-1", %{
@@ -131,5 +133,44 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert html =~ "Sample 3/8 - CRF 28.0"
     assert html =~ "CRF 28.0 -&gt; 95.4 VMAF"
     refute html =~ "Receiving Input"
+  end
+
+  test "keeps the crf panel active after input transfer finishes", %{conn: conn} do
+    {:ok, _session} =
+      WorkerSessions.register(%{
+        server_worker_id: "worker-server-3",
+        client_worker_id: "worker-client-3",
+        protocol_version: 1,
+        version: "0.10.0",
+        capabilities: %{"crf_search" => true}
+      })
+
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_video("worker-server-3", video.id, :receiving_input)
+
+    assert {:ok, _session} =
+             WorkerSessions.set_transfer_progress("worker-server-3", %{
+               job_id: Integer.to_string(video.id),
+               video_id: video.id,
+               transfer_id: Integer.to_string(video.id),
+               filename: Path.basename(video.path),
+               percent: 100.0,
+               bytes_sent: video.size,
+               total_bytes: video.size
+             })
+
+    assert {:ok, _session} = WorkerSessions.finish_transfer("worker-server-3")
+
+    {:ok, view, _html} = live(conn, ~p"/workers")
+    send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
+
+    html = render(view)
+    assert html =~ "worker-client-3"
+    assert html =~ "crf_searching"
+    assert html =~ "CRF Search"
+    refute html =~ "Receiving Input"
+    refute html =~ "-%"
   end
 end
