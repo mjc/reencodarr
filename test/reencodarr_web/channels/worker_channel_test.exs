@@ -770,8 +770,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
         session = WorkerSessions.get(socket.assigns.worker_id)
         assert session.active_video_id == assigned_video_id
-        assert session.phase == :crf_searching
-        assert is_nil(session.transfer_progress)
+        assert session.phase == :receiving_input
+        assert session.transfer_progress.video_id == assigned_video_id
       end)
     after
       Application.delete_env(:reencodarr, :worker_token)

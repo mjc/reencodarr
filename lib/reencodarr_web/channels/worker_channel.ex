@@ -259,7 +259,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp resume_dispatched_work(worker_id, socket, video, :resend_input) do
-    with {:ok, socket} <- ensure_resumable_active_video(socket, video.id) do
+    with {:ok, socket} <- ensure_resumable_active_video(socket, video.id, :receiving_input) do
       reply_for_active_work(worker_id, socket, video, :resend_input)
     end
   end
@@ -591,13 +591,13 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
-  defp ensure_resumable_active_video(socket, video_id) do
+  defp ensure_resumable_active_video(socket, video_id, phase \\ :crf_searching) do
     case socket.assigns[:current_video_id] do
       ^video_id ->
         {:ok, socket}
 
       nil ->
-        resume_active_video(socket, video_id)
+        resume_active_video(socket, video_id, phase)
 
       _other ->
         {:error, :unknown_worker_session}
@@ -628,12 +628,16 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
-  defp resume_active_video(%{assigns: %{worker_id: worker_id}} = socket, video_id) do
+  defp resume_active_video(
+         %{assigns: %{worker_id: worker_id}} = socket,
+         video_id,
+         phase
+       ) do
     with %Media.Video{state: :crf_searching, crf_search_worker_id: dispatch_id} = video
          when is_binary(dispatch_id) <- Media.get_video(video_id),
          true <- dispatch_id == worker_dispatch_id(socket),
          false <- assigned_to_other_worker?(worker_id, video_id),
-         {:ok, _session} <- WorkerSessions.assign_video(worker_id, video_id, :crf_searching) do
+         {:ok, _session} <- WorkerSessions.assign_video(worker_id, video_id, phase) do
       {:ok,
        socket
        |> assign(:current_video_id, video_id)
@@ -889,7 +893,6 @@ defmodule ReencodarrWeb.WorkerChannel do
 
         :eof ->
           close_transfer_stream(io_device)
-          _ = WorkerSessions.finish_transfer(socket.assigns.worker_id)
 
           push(
             socket,
