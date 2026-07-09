@@ -211,7 +211,9 @@ defmodule ReencodarrWeb.WorkersLive do
 
           <div class="grid gap-x-4 gap-y-1 text-xs text-gray-400 sm:grid-cols-4">
             <span>{format_transfer_bytes(@worker.transfer_progress)}</span>
-            <span>Chunk {format_chunk_progress(@worker.transfer_progress)}</span>
+            <%= if chunk_progress = transfer_chunk_progress(@worker.transfer_progress) do %>
+              <span>Chunk {chunk_progress}</span>
+            <% end %>
             <span>{format_throughput(Map.get(@worker.transfer_progress, :bytes_per_second))}</span>
             <span>ETA {format_eta(Map.get(@worker.transfer_progress, :eta))}</span>
           </div>
@@ -387,15 +389,12 @@ defmodule ReencodarrWeb.WorkersLive do
   defp format_transfer_bytes(%{bytes_sent: bytes_sent, total_bytes: total_bytes}),
     do: format_transfer_bytes(bytes_sent, total_bytes)
 
-  defp format_chunk_progress(%{chunk_index: chunk_index, total_chunks: total_chunks})
+  defp transfer_chunk_progress(%{chunk_index: chunk_index, total_chunks: total_chunks})
        when is_integer(chunk_index) and is_integer(total_chunks) and total_chunks > 0 do
     "#{chunk_index + 1} / #{total_chunks}"
   end
 
-  defp format_chunk_progress(%{chunk_index: chunk_index}) when is_integer(chunk_index),
-    do: Integer.to_string(chunk_index)
-
-  defp format_chunk_progress(_), do: "-"
+  defp transfer_chunk_progress(_progress), do: nil
 
   defp status_badge_class(worker) do
     case worker_phase(worker) do

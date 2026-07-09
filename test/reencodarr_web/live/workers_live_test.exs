@@ -79,6 +79,46 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     refute html =~ "CRF 28.0 -&gt; 95.4 VMAF"
   end
 
+  test "shows HTTP transfer progress without chunk text", %{conn: conn} do
+    {:ok, _session} =
+      WorkerSessions.register(%{
+        server_worker_id: "worker-server-http",
+        client_worker_id: "worker-client-http",
+        protocol_version: 1,
+        version: "0.10.0",
+        capabilities: %{"crf_search" => true}
+      })
+
+    {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_video("worker-server-http", video.id, :receiving_input)
+
+    assert {:ok, _session} =
+             WorkerSessions.set_transfer_progress("worker-server-http", %{
+               job_id: "job-http",
+               transfer_id: "job-http",
+               filename: Path.basename(video.path),
+               percent: 50.0,
+               bytes_sent: 117_440_512,
+               total_bytes: 234_881_024,
+               bytes_per_second: 122_683_392,
+               eta: 1,
+               chunk_index: 0,
+               total_chunks: 0
+             })
+
+    {:ok, view, _html} = live(conn, ~p"/workers")
+    send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
+
+    html = render(view)
+    assert html =~ "Receiving Input"
+    assert html =~ "112.0 MiB / 224.0 MiB"
+    assert html =~ "117.0 MiB/s"
+    assert html =~ "ETA 1s"
+    refute html =~ "Chunk"
+  end
+
   test "renders the crf search panel when only crf search is active", %{conn: conn} do
     {:ok, _session} =
       WorkerSessions.register(%{

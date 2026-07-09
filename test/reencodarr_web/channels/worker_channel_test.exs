@@ -826,7 +826,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
         session = WorkerSessions.get(socket.assigns.worker_id)
         assert session.active_video_id == assigned_video_id
-        assert session.phase == :receiving_input
+        assert session.phase == :input_ready
         assert session.transfer_progress.video_id == assigned_video_id
         assert session.transfer_progress.bytes_sent == content_size
         assert session.transfer_progress.total_bytes == content_size
@@ -844,7 +844,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
         session = WorkerSessions.get(socket.assigns.worker_id)
         assert session.active_video_id == assigned_video_id
-        assert session.phase == :receiving_input
+        assert session.phase == :input_ready
         assert session.transfer_progress.video_id == assigned_video_id
       end)
     after

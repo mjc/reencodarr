@@ -290,6 +290,7 @@ defmodule ReencodarrWeb.WorkerChannel do
       {progress, socket} = fill_transfer_rate(socket, progress)
 
       _ = WorkerSessions.set_transfer_progress(worker_id, progress)
+      _ = maybe_finish_transfer(worker_id, progress)
       Events.broadcast_event(:transfer_progress, Map.put(progress, :worker_id, worker_id))
 
       socket = maybe_send_next_transfer_chunk(socket, progress)
@@ -1118,6 +1119,19 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp maybe_send_next_transfer_chunk(socket, _progress), do: socket
+
+  defp maybe_finish_transfer(worker_id, %{bytes_sent: bytes_sent, total_bytes: total_bytes})
+       when is_integer(bytes_sent) and is_integer(total_bytes) and total_bytes > 0 and
+              bytes_sent >= total_bytes do
+    WorkerSessions.finish_transfer(worker_id)
+  end
+
+  defp maybe_finish_transfer(worker_id, %{percent: percent})
+       when is_number(percent) and percent >= 100 do
+    WorkerSessions.finish_transfer(worker_id)
+  end
+
+  defp maybe_finish_transfer(_worker_id, _progress), do: :ok
 
   defp format_file_error(reason) do
     reason |> :file.format_error() |> List.to_string()
