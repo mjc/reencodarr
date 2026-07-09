@@ -670,17 +670,17 @@ defmodule Reencodarr.Diagnostics do
   defp format_worker_sessions(worker_sessions) when is_list(worker_sessions) do
     Enum.map_join(worker_sessions, "\n", fn session ->
       active_video_id = session.active_video_id || "none"
-      active_video_state = worker_session_state(session.active_video_id)
+      video_state = worker_session_video_state(session.active_video_id)
       transfer_progress = format_worker_progress(session.transfer_progress, "transfer")
       crf_search_progress = format_worker_progress(session.crf_search_progress, "crf")
 
-      "  #{session.client_worker_id} protocol=#{session.protocol_version} version=#{session.version} video=#{active_video_id} state=#{active_video_state} transfer=#{transfer_progress} crf=#{crf_search_progress} capabilities=#{inspect(session.capabilities)} last_seen=#{DateTime.to_iso8601(session.last_seen_at)}"
+      "  #{session.client_worker_id} protocol=#{session.protocol_version} version=#{session.version} video=#{active_video_id} phase=#{session.phase} video_state=#{video_state} transfer=#{transfer_progress} crf=#{crf_search_progress} capabilities=#{inspect(session.capabilities)} last_seen=#{DateTime.to_iso8601(session.last_seen_at)}"
     end)
   end
 
-  defp worker_session_state(nil), do: "idle"
+  defp worker_session_video_state(nil), do: "none"
 
-  defp worker_session_state(video_id) do
+  defp worker_session_video_state(video_id) do
     case Reencodarr.Media.get_video(video_id) do
       %Video{state: state} -> Atom.to_string(state)
       nil -> "missing"

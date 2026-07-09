@@ -118,7 +118,17 @@ defmodule ReencodarrWeb.WorkersLive do
                 <div class="min-w-0">
                   <%= case worker_phase(worker) do %>
                     <% :receiving_input -> %>
-                      <.transfer_panel worker={worker} video={active_video(worker)} />
+                      <.transfer_panel
+                        worker={worker}
+                        video={active_video(worker)}
+                        title="Receiving Input"
+                      />
+                    <% :input_ready -> %>
+                      <.transfer_panel
+                        worker={worker}
+                        video={active_video(worker)}
+                        title="Input Ready"
+                      />
                     <% :crf_searching -> %>
                       <.crf_search_panel
                         video={worker_crf_video(worker)}
@@ -169,7 +179,7 @@ defmodule ReencodarrWeb.WorkersLive do
     ~H"""
     <div class="dashboard-card rounded-lg border border-gray-700 bg-gray-900 p-3 sm:p-4">
       <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 class="font-semibold text-white">Receiving Input</h3>
+        <h3 class="font-semibold text-white">{@title}</h3>
         <span class="rounded-full bg-blue-100 px-2 py-1 text-xs text-blue-800">
           {format_number(@worker.transfer_progress && @worker.transfer_progress.percent)}%
         </span>
@@ -202,8 +212,8 @@ defmodule ReencodarrWeb.WorkersLive do
           <div class="grid gap-x-4 gap-y-1 text-xs text-gray-400 sm:grid-cols-4">
             <span>{format_transfer_bytes(@worker.transfer_progress)}</span>
             <span>Chunk {format_chunk_progress(@worker.transfer_progress)}</span>
-            <span>{format_throughput(@worker.transfer_progress.bytes_per_second)}</span>
-            <span>ETA {format_eta(@worker.transfer_progress.eta)}</span>
+            <span>{format_throughput(Map.get(@worker.transfer_progress, :bytes_per_second))}</span>
+            <span>ETA {format_eta(Map.get(@worker.transfer_progress, :eta))}</span>
           </div>
         </div>
       <% else %>
@@ -217,25 +227,18 @@ defmodule ReencodarrWeb.WorkersLive do
     case worker_phase(worker) do
       :idle -> "Idle"
       :receiving_input -> "Receiving input"
-      :crf_searching -> crf_search_status(worker)
+      :input_ready -> "Input ready"
+      :crf_searching -> "CRF search"
     end
   end
-
-  defp crf_search_status(%{active_video_id: video_id}) when is_integer(video_id) do
-    case Media.get_video(video_id) do
-      %Media.Video{state: state} -> Atom.to_string(state)
-      nil -> "missing"
-    end
-  end
-
-  defp crf_search_status(_worker), do: "CRF search"
 
   defp worker_crf_status(%{phase: :crf_searching}), do: :processing
 
   defp worker_crf_status(_worker), do: :idle
 
-  defp worker_phase(%{phase: phase}) when phase in [:idle, :receiving_input, :crf_searching],
-    do: phase
+  defp worker_phase(%{phase: phase})
+       when phase in [:idle, :receiving_input, :input_ready, :crf_searching],
+       do: phase
 
   defp worker_phase(%{active_video_id: nil}), do: :idle
 

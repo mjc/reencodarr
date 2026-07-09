@@ -104,7 +104,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert output =~ "worker-client-1"
     assert output =~ "protocol=1"
     assert output =~ "version=0.10.0"
-    assert output =~ "state=analyzed"
+    assert output =~ "phase=crf_searching"
+    assert output =~ "video_state=analyzed"
   end
 
   test "tracks an assigned video on the session" do
@@ -143,8 +144,31 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
 
     assert {:ok, session} = WorkerSessions.finish_transfer("worker-server-1")
     assert session.active_video_id == 123
-    assert session.phase == :crf_searching
+    assert session.phase == :input_ready
+    assert session.transfer_progress.percent == 100.0
+  end
+
+  test "rejects progress for a different active video" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", 123, :receiving_input)
+
+    assert {:error, :invalid_worker_phase} =
+             WorkerSessions.set_transfer_progress("worker-server-1", %{
+               video_id: 456,
+               percent: 25.0
+             })
+
+    assert {:error, :invalid_worker_phase} =
+             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+               video_id: 456,
+               percent: 25.0
+             })
+
+    session = WorkerSessions.get("worker-server-1")
+    assert session.active_video_id == 123
+    assert session.phase == :receiving_input
     assert is_nil(session.transfer_progress)
+    assert is_nil(session.crf_search_progress)
   end
 
   test "keeps CRF sample metadata when later progress omits it" do

@@ -210,6 +210,8 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp maybe_resume_mode(%{phase: :crf_searching}, :resend_input), do: :resend_input
   defp maybe_resume_mode(%{phase: :crf_searching}, _request_mode), do: :resume_only
+  defp maybe_resume_mode(%{phase: :input_ready}, :resend_input), do: :resend_input
+  defp maybe_resume_mode(%{phase: :input_ready}, _request_mode), do: :resume_only
   defp maybe_resume_mode(_session, request_mode), do: request_mode
 
   defp should_resend_transfer?(nil), do: true
@@ -265,15 +267,9 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp resume_dispatched_work(worker_id, socket, video, :resume_only) do
-    _ =
-      Media.record_video_failure(video, :crf_search, :crf_optimization,
-        code: "worker_disconnected",
-        message: "Worker disconnected before reporting CRF search completion",
-        context: %{video_id: video.id, worker_id: worker_dispatch_id(socket)}
-      )
-
-    socket = clear_assigned_video(worker_id, socket)
-    claim_work(worker_id, socket)
+    with {:ok, socket} <- ensure_resumable_active_video(socket, video.id, :crf_searching) do
+      reply_for_active_work(worker_id, socket, video, :resume_only)
+    end
   end
 
   defp handle_transfer_progress(payload, %{assigns: %{worker_id: worker_id}} = socket) do
@@ -473,6 +469,7 @@ defmodule ReencodarrWeb.WorkerChannel do
         {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
 
       video ->
+        mark_crf_search_active(socket.assigns.worker_id, video_id)
         persist_crf_results(video, results)
 
         if Enum.any?(results, &Map.get(&1, :chosen, false)) do
@@ -512,6 +509,8 @@ defmodule ReencodarrWeb.WorkerChannel do
          clear_assigned_video(worker_id, socket)}
 
       video ->
+        mark_crf_search_active(worker_id, completion.video_id)
+
         case apply_completion_result(
                worker_id,
                socket,
@@ -789,6 +788,11 @@ defmodule ReencodarrWeb.WorkerChannel do
     |> assign(:transfer_bytes_sent, nil)
     |> assign(:transfer_chunk_index, nil)
     |> assign(:transfer_started_sent, nil)
+  end
+
+  defp mark_crf_search_active(worker_id, video_id) do
+    _ = WorkerSessions.set_crf_search_progress(worker_id, %{video_id: video_id})
+    :ok
   end
 
   defp open_transfer_stream(

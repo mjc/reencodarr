@@ -93,6 +93,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert Media.get_video(video.id).crf_search_worker_id == "worker-a"
       assert [session] = WorkerSessions.list()
       assert session.active_video_id == video.id
+      assert session.phase == :receiving_input
       assert is_nil(session.transfer_progress)
     after
       Application.delete_env(:reencodarr, :worker_token)
@@ -411,7 +412,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    :ok,
                    %{accepted: true, event: "crf_search_progress"}
 
-      assert {:ok, _} =
+      assert {:error, :invalid_worker_phase} =
                WorkerSessions.set_transfer_progress(server_worker_id, %{
                  job_id: Integer.to_string(video_id),
                  video_id: video_id,
@@ -447,7 +448,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
-    test "fails orphaned dispatched work when reconnecting worker asks for new work" do
+    test "reattaches dispatched work when reconnecting worker asks for work" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
 
@@ -469,13 +470,13 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                      :ok,
                      %{accepted: true, protocol_version: 1}
 
-        assert_reply push(socket, "pull_work", %{}), :ok, %{status: "no_work"}
+        assert_reply push(socket, "pull_work", %{}),
+                     :ok,
+                     %{status: "job_in_progress", video_id: ^video_id}
 
-        assert Media.get_video(video_id).state == :failed
-        assert [failure] = Media.get_video_failures(video_id)
-        assert failure.failure_stage == :crf_search
-        assert failure.failure_category == :crf_optimization
-        assert failure.failure_code == "worker_disconnected"
+        assert Media.get_video(video_id).state == :crf_searching
+        assert Media.get_video_failures(video_id) == []
+        assert WorkerSessions.get(socket.assigns.worker_id).phase == :crf_searching
         refute_push "transfer_started", _, 50
       end)
     after
@@ -586,7 +587,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    capabilities: %{"crf_search" => true}
                  })
 
-        assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", video_id)
+        assert {:ok, _session} =
+                 WorkerSessions.assign_video("worker-server-1", video_id, :receiving_input)
 
         assert {:ok, _session} =
                  WorkerSessions.set_transfer_progress("worker-server-1", %{
@@ -630,7 +632,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
-    test "does not restart dispatched work when the session state is gone" do
+    test "reattaches dispatched work when the session state is gone" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
 
@@ -656,9 +658,12 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                      :ok,
                      %{accepted: true, protocol_version: 1}
 
-        assert_reply push(socket, "pull_work", %{}), :ok, %{status: "no_work"}
+        assert_reply push(socket, "pull_work", %{}),
+                     :ok,
+                     %{status: "job_in_progress", video_id: ^video_id}
 
-        assert Media.get_video(video_id).state == :failed
+        assert Media.get_video(video_id).state == :crf_searching
+        assert WorkerSessions.get(socket.assigns.worker_id).phase == :crf_searching
         refute_push "transfer_started", _, 50
       end)
     after

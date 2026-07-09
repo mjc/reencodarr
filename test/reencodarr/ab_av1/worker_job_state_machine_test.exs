@@ -20,9 +20,9 @@ defmodule Reencodarr.AbAv1.WorkerJobStateMachineTest do
     assert session.transfer_progress.percent == 100.0
 
     assert {:ok, session} = WorkerJobStateMachine.finish_transfer(session)
-    assert session.phase == :crf_searching
+    assert session.phase == :input_ready
     assert session.active_video_id == 123
-    assert is_nil(session.transfer_progress)
+    assert session.transfer_progress.percent == 100.0
   end
 
   test "CRF progress wins over stale transfer progress" do
@@ -44,6 +44,44 @@ defmodule Reencodarr.AbAv1.WorkerJobStateMachineTest do
     assert session.active_video_id == 123
     assert is_nil(session.transfer_progress)
     assert session.crf_search_progress.percent == 75.0
+  end
+
+  test "progress cannot move an active worker to a different video" do
+    session =
+      session()
+      |> Map.merge(%{
+        phase: :receiving_input,
+        active_video_id: 123,
+        transfer_progress: %{video_id: 123, percent: 50.0}
+      })
+
+    assert {:error, :invalid_worker_phase} =
+             WorkerJobStateMachine.set_transfer_progress(session, %{
+               video_id: 456,
+               percent: 75.0
+             })
+
+    assert {:error, :invalid_worker_phase} =
+             WorkerJobStateMachine.set_crf_search_progress(session, %{
+               video_id: 456,
+               percent: 10.0
+             })
+  end
+
+  test "stale transfer progress cannot move a CRF search back to receiving input" do
+    session =
+      session()
+      |> Map.merge(%{
+        phase: :crf_searching,
+        active_video_id: 123,
+        crf_search_progress: %{video_id: 123, percent: 25.0}
+      })
+
+    assert {:error, :invalid_worker_phase} =
+             WorkerJobStateMachine.set_transfer_progress(session, %{
+               video_id: 123,
+               percent: 100.0
+             })
   end
 
   test "clearing active work is the only transition that makes the worker idle" do

@@ -19,7 +19,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           version: String.t(),
           protocol_version: pos_integer(),
           capabilities: map(),
-          phase: :idle | :receiving_input | :crf_searching,
+          phase: :idle | :receiving_input | :input_ready | :crf_searching,
           active_video_id: integer() | nil,
           transfer_progress: map() | nil,
           crf_search_progress: map() | nil,
@@ -45,7 +45,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   def assign_video(server_worker_id, video_id, phase \\ :crf_searching)
-      when is_integer(video_id) and phase in [:receiving_input, :crf_searching] do
+      when is_integer(video_id) and phase in [:receiving_input, :input_ready, :crf_searching] do
     GenServer.call(__MODULE__, {:assign_video, server_worker_id, video_id, phase})
   end
 
@@ -350,7 +350,13 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
         active_video_id = resumable_active_video_id(existing_session.active_video_id)
 
         phase =
-          if(active_video_id, do: Map.get(existing_session, :phase, :crf_searching), else: :idle)
+          if active_video_id do
+            existing_session
+            |> Map.get(:phase, :crf_searching)
+            |> resumable_phase()
+          else
+            :idle
+          end
 
         session =
           build_session(
@@ -366,13 +372,15 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           |> Map.put(:phase, phase)
           |> Map.put(
             :transfer_progress,
-            if(active_video_id && phase == :receiving_input,
+            if(active_video_id && phase in [:receiving_input, :input_ready],
               do: existing_session.transfer_progress
             )
           )
           |> Map.put(
             :crf_search_progress,
-            if(active_video_id, do: existing_session.crf_search_progress)
+            if(active_video_id && phase == :crf_searching,
+              do: existing_session.crf_search_progress
+            )
           )
           |> Map.put(:resource_usage, existing_session.resource_usage)
 
@@ -386,6 +394,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   defp required_attr(attrs, key), do: Map.fetch(attrs, key)
+
+  defp resumable_phase(phase) when phase in [:receiving_input, :input_ready, :crf_searching],
+    do: phase
+
+  defp resumable_phase(_phase), do: :crf_searching
 
   defp update_session_reply(server_worker_id, state, update_fun) do
     case lookup_session(server_worker_id) do

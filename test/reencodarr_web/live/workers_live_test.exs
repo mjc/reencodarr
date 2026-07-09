@@ -49,17 +49,6 @@ defmodule ReencodarrWeb.WorkersLiveTest do
              })
 
     assert {:ok, _session} =
-             WorkerSessions.set_crf_search_progress("worker-server-1", %{
-               video_id: video.id,
-               percent: 62.0,
-               fps: 12.5,
-               eta: 90,
-               crf: 28.0,
-               sample_num: 3,
-               total_samples: 8
-             })
-
-    assert {:ok, _session} =
              WorkerSessions.set_transfer_progress("worker-server-1", %{
                job_id: "job-1",
                transfer_id: "job-1",
@@ -87,9 +76,6 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert html =~ "Chunk 3 / 8"
     assert html =~ "25.5%"
     assert html =~ "ETA 15s"
-    refute html =~ "Progress 62.0%"
-    refute html =~ "FPS 12.5 fps"
-    refute html =~ "Sample 3/8 - CRF 28.0"
     refute html =~ "CRF 28.0 -&gt; 95.4 VMAF"
   end
 
@@ -135,7 +121,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     refute html =~ "Receiving Input"
   end
 
-  test "keeps the crf panel active after input transfer finishes", %{conn: conn} do
+  test "shows input ready after input transfer finishes before CRF progress", %{conn: conn} do
     {:ok, _session} =
       WorkerSessions.register(%{
         server_worker_id: "worker-server-3",
@@ -168,9 +154,9 @@ defmodule ReencodarrWeb.WorkersLiveTest do
 
     html = render(view)
     assert html =~ "worker-client-3"
-    assert html =~ "crf_searching"
-    assert html =~ "CRF Search"
-    refute html =~ "Receiving Input"
+    assert html =~ "Input ready"
+    assert html =~ "Input Ready"
+    refute html =~ "CRF Search"
     refute html =~ "-%"
   end
 end
