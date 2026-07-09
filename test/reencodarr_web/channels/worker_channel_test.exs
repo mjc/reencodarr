@@ -751,6 +751,21 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                   data: ^first_chunk
                 }} = WorkerProtocol.parse_transfer_chunk_frame(first_frame)
 
+        refute_push "transfer_chunk", _, 50
+
+        assert_reply push(socket, "transfer_progress", %{
+                       "job_id" => transfer_id,
+                       "transfer_id" => transfer_id,
+                       "video_id" => assigned_video_id,
+                       "percent" => 50.0,
+                       "received_bytes" => chunk_size,
+                       "expected_bytes" => content_size,
+                       "chunk_index" => 0,
+                       "total_chunks" => 2
+                     }),
+                     :ok,
+                     %{accepted: true, event: "transfer_progress"}
+
         assert_push "transfer_chunk", {:binary, second_frame}
 
         assert {:ok,
@@ -765,13 +780,28 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                   data: ^second_chunk
                 }} = WorkerProtocol.parse_transfer_chunk_frame(second_frame)
 
+        refute_push "transfer_complete", _, 50
+
+        assert_reply push(socket, "transfer_progress", %{
+                       "job_id" => transfer_id,
+                       "transfer_id" => transfer_id,
+                       "video_id" => assigned_video_id,
+                       "percent" => 100.0,
+                       "received_bytes" => content_size,
+                       "expected_bytes" => content_size,
+                       "chunk_index" => 1,
+                       "total_chunks" => 2
+                     }),
+                     :ok,
+                     %{accepted: true, event: "transfer_progress"}
+
         session = WorkerSessions.get(socket.assigns.worker_id)
         assert session.active_video_id == assigned_video_id
         assert session.phase == :receiving_input
         assert session.transfer_progress.video_id == assigned_video_id
         assert session.transfer_progress.bytes_sent == content_size
         assert session.transfer_progress.total_bytes == content_size
-        assert session.transfer_progress.chunk_index == 2
+        assert session.transfer_progress.chunk_index == 1
         assert session.transfer_progress.total_chunks == 2
         assert session.transfer_progress.percent == 100.0
 

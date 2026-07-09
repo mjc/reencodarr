@@ -277,6 +277,9 @@ defmodule ReencodarrWeb.WorkerChannel do
          :ok <- ensure_active_video(socket, progress.video_id) do
       _ = WorkerSessions.set_transfer_progress(worker_id, progress)
       Events.broadcast_event(:transfer_progress, Map.put(progress, :worker_id, worker_id))
+
+      socket = maybe_send_next_transfer_chunk(socket, progress)
+
       {:reply, {:ok, WorkerProtocol.event_ack("transfer_progress")}, socket}
     else
       {:error, reason} ->
@@ -405,6 +408,7 @@ defmodule ReencodarrWeb.WorkerChannel do
       |> assign(:transfer_total_chunks, total_chunks)
       |> assign(:transfer_bytes_sent, 0)
       |> assign(:transfer_chunk_index, 0)
+      |> assign(:transfer_waiting_for_ack, false)
       |> assign(:transfer_started_sent, nil)
 
     if File.exists?(video.path) do
@@ -787,6 +791,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     |> assign(:transfer_total_chunks, nil)
     |> assign(:transfer_bytes_sent, nil)
     |> assign(:transfer_chunk_index, nil)
+    |> assign(:transfer_waiting_for_ack, nil)
     |> assign(:transfer_started_sent, nil)
   end
 
@@ -919,12 +924,11 @@ defmodule ReencodarrWeb.WorkerChannel do
             )
           )
 
-          send(self(), :stream_transfer_chunk)
-
           {:noreply,
            socket
            |> assign(:transfer_bytes_sent, bytes_sent)
-           |> assign(:transfer_chunk_index, chunk_index + 1)}
+           |> assign(:transfer_chunk_index, chunk_index + 1)
+           |> assign(:transfer_waiting_for_ack, true)}
 
         :eof ->
           close_transfer_stream(io_device)
@@ -950,6 +954,7 @@ defmodule ReencodarrWeb.WorkerChannel do
            |> assign(:transfer_total_chunks, nil)
            |> assign(:transfer_bytes_sent, nil)
            |> assign(:transfer_chunk_index, nil)
+           |> assign(:transfer_waiting_for_ack, nil)
            |> assign(:transfer_started_sent, nil)}
 
         {:error, reason} ->
@@ -991,6 +996,24 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp close_transfer_stream(nil), do: :ok
   defp close_transfer_stream(io_device), do: File.close(io_device)
+
+  defp maybe_send_next_transfer_chunk(
+         %{
+           assigns: %{
+             transfer_id: transfer_id,
+             transfer_bytes_sent: bytes_sent,
+             transfer_waiting_for_ack: true
+           }
+         } = socket,
+         %{transfer_id: transfer_id, bytes_sent: acknowledged_bytes}
+       )
+       when is_integer(bytes_sent) and is_integer(acknowledged_bytes) and
+              acknowledged_bytes >= bytes_sent do
+    send(self(), :stream_transfer_chunk)
+    assign(socket, :transfer_waiting_for_ack, false)
+  end
+
+  defp maybe_send_next_transfer_chunk(socket, _progress), do: socket
 
   defp format_file_error(reason) do
     reason |> :file.format_error() |> List.to_string()
