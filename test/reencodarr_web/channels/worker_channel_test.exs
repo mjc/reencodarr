@@ -760,6 +760,16 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                   data: ^second_chunk
                 }} = WorkerProtocol.parse_transfer_chunk_frame(second_frame)
 
+        session = WorkerSessions.get(socket.assigns.worker_id)
+        assert session.active_video_id == assigned_video_id
+        assert session.phase == :receiving_input
+        assert session.transfer_progress.video_id == assigned_video_id
+        assert session.transfer_progress.bytes_sent == content_size
+        assert session.transfer_progress.total_bytes == content_size
+        assert session.transfer_progress.chunk_index == 2
+        assert session.transfer_progress.total_chunks == 2
+        assert session.transfer_progress.percent == 100.0
+
         assert_push "transfer_complete", %{
           status: "transfer_complete",
           video_id: ^assigned_video_id,

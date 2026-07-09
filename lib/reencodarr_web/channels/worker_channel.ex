@@ -858,6 +858,31 @@ defmodule ReencodarrWeb.WorkerChannel do
     }
   end
 
+  defp outbound_transfer_progress(socket, video, bytes_sent, chunk_index) do
+    total_bytes = socket.assigns.transfer_total_bytes
+
+    %WorkerProtocol.TransferProgress{
+      job_id: socket.assigns.transfer_id,
+      video_id: video.id,
+      transfer_id: socket.assigns.transfer_id,
+      filename: Path.basename(video.path),
+      percent: transfer_percent(bytes_sent, total_bytes),
+      bytes_sent: bytes_sent,
+      total_bytes: total_bytes,
+      bytes_per_second: nil,
+      eta: nil,
+      chunk_index: chunk_index,
+      total_chunks: socket.assigns.transfer_total_chunks
+    }
+  end
+
+  defp transfer_percent(bytes_sent, total_bytes)
+       when is_integer(bytes_sent) and is_integer(total_bytes) and total_bytes > 0 do
+    bytes_sent / total_bytes * 100.0
+  end
+
+  defp transfer_percent(_bytes_sent, _total_bytes), do: 0.0
+
   defp read_transfer_chunk(%{assigns: %{current_video_id: video_id}} = socket, io_device) do
     video = Media.get_video(video_id)
 
@@ -869,6 +894,12 @@ defmodule ReencodarrWeb.WorkerChannel do
         chunk when is_binary(chunk) ->
           chunk_index = socket.assigns.transfer_chunk_index
           bytes_sent = socket.assigns.transfer_bytes_sent + byte_size(chunk)
+
+          _ =
+            WorkerSessions.set_transfer_progress(
+              socket.assigns.worker_id,
+              outbound_transfer_progress(socket, video, bytes_sent, chunk_index + 1)
+            )
 
           push(
             socket,
