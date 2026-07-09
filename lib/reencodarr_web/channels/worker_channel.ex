@@ -287,6 +287,8 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp handle_transfer_progress(payload, %{assigns: %{worker_id: worker_id}} = socket) do
     with {:ok, progress} <- WorkerProtocol.parse_transfer_progress(payload),
          :ok <- ensure_active_video(socket, progress.video_id) do
+      {progress, socket} = fill_transfer_rate(socket, progress)
+
       _ = WorkerSessions.set_transfer_progress(worker_id, progress)
       Events.broadcast_event(:transfer_progress, Map.put(progress, :worker_id, worker_id))
 
@@ -423,6 +425,8 @@ defmodule ReencodarrWeb.WorkerChannel do
       |> assign(:transfer_waiting_for_ack, false)
       |> assign(:transfer_started_sent, nil)
       |> assign(:transfer_complete_pending, nil)
+      |> assign(:transfer_last_progress_at, nil)
+      |> assign(:transfer_last_progress_bytes, nil)
 
     if File.exists?(video.path) do
       send(self(), :stream_transfer_chunk)
@@ -807,6 +811,8 @@ defmodule ReencodarrWeb.WorkerChannel do
     |> assign(:transfer_waiting_for_ack, nil)
     |> assign(:transfer_started_sent, nil)
     |> assign(:transfer_complete_pending, nil)
+    |> assign(:transfer_last_progress_at, nil)
+    |> assign(:transfer_last_progress_bytes, nil)
   end
 
   defp mark_crf_search_active(worker_id, video_id) do
@@ -824,6 +830,8 @@ defmodule ReencodarrWeb.WorkerChannel do
           |> assign(:transfer_io_device, io_device)
           |> assign(:transfer_started_sent, false)
           |> assign(:transfer_complete_pending, false)
+          |> assign(:transfer_last_progress_at, nil)
+          |> assign(:transfer_last_progress_bytes, nil)
 
         {:ok, socket}
 
@@ -954,7 +962,64 @@ defmodule ReencodarrWeb.WorkerChannel do
     |> assign(:transfer_waiting_for_ack, nil)
     |> assign(:transfer_started_sent, nil)
     |> assign(:transfer_complete_pending, nil)
+    |> assign(:transfer_last_progress_at, nil)
+    |> assign(:transfer_last_progress_bytes, nil)
   end
+
+  defp fill_transfer_rate(socket, progress) do
+    now = System.monotonic_time(:millisecond)
+
+    progress =
+      progress
+      |> maybe_fill_bytes_per_second(socket, now)
+      |> maybe_fill_eta()
+
+    socket =
+      socket
+      |> assign(:transfer_last_progress_at, now)
+      |> assign(:transfer_last_progress_bytes, progress.bytes_sent)
+
+    {progress, socket}
+  end
+
+  defp maybe_fill_bytes_per_second(%{bytes_per_second: rate} = progress, _socket, _now)
+       when is_integer(rate) and rate >= 0,
+       do: progress
+
+  defp maybe_fill_bytes_per_second(
+         %{bytes_sent: bytes_sent} = progress,
+         %{
+           assigns: %{
+             transfer_last_progress_at: last_at,
+             transfer_last_progress_bytes: last_bytes
+           }
+         },
+         now
+       )
+       when is_integer(bytes_sent) and is_integer(last_bytes) and is_integer(last_at) and
+              bytes_sent >= last_bytes and now > last_at do
+    elapsed_ms = now - last_at
+    bytes_delta = bytes_sent - last_bytes
+
+    if bytes_delta > 0 do
+      %{progress | bytes_per_second: div(bytes_delta * 1_000, elapsed_ms)}
+    else
+      progress
+    end
+  end
+
+  defp maybe_fill_bytes_per_second(progress, _socket, _now), do: progress
+
+  defp maybe_fill_eta(%{eta: eta} = progress) when is_integer(eta) and eta >= 0,
+    do: progress
+
+  defp maybe_fill_eta(%{bytes_per_second: rate, bytes_sent: sent, total_bytes: total} = progress)
+       when is_integer(rate) and rate > 0 and is_integer(sent) and is_integer(total) and
+              total > sent do
+    %{progress | eta: ceil((total - sent) / rate)}
+  end
+
+  defp maybe_fill_eta(progress), do: progress
 
   defp handle_transfer_failure(socket, video_id, reason) do
     case Media.get_video(video_id) do

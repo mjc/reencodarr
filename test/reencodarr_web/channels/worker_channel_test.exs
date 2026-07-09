@@ -301,6 +301,35 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert filename == Path.basename(video.path)
 
+      Process.sleep(10)
+
+      assert_reply push(socket, "transfer_progress", %{
+                     "video_id" => video_id,
+                     "job_id" => "job-1",
+                     "filename" => Path.basename(video.path),
+                     "percent" => 50.0,
+                     "received_bytes" => 5_242_880,
+                     "expected_bytes" => 10_485_760,
+                     "chunk_index" => 3,
+                     "total_chunks" => 8
+                   }),
+                   :ok,
+                   %{accepted: true, event: "transfer_progress"}
+
+      assert_receive {:transfer_progress,
+                      %{
+                        video_id: ^video_id,
+                        bytes_sent: 5_242_880,
+                        total_bytes: 10_485_760,
+                        bytes_per_second: derived_rate,
+                        eta: derived_eta
+                      }}
+
+      assert is_integer(derived_rate)
+      assert derived_rate > 0
+      assert is_integer(derived_eta)
+      assert derived_eta >= 0
+
       assert_reply push(socket, "crf_search_progress", %{
                      "video_id" => video_id,
                      "percent" => 62.0,
