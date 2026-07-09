@@ -18,16 +18,12 @@ defmodule Reencodarr.Media.VideoQueries do
   """
   @spec videos_for_crf_search(integer(), keyword()) :: [Video.t()]
   def videos_for_crf_search(limit \\ 10, opts \\ []) do
-    # Simplified query - just check state, let Rules filter codecs at encode time
-    Repo.all(
-      from(v in Video,
-        where: v.state == :analyzed,
-        order_by: [desc: v.priority, desc: v.bitrate, desc: v.size, asc: v.updated_at],
-        limit: ^limit,
-        select: v
-      ),
-      opts
-    )
+    ids = crf_search_queue_candidate_ids(limit, opts)
+
+    Video
+    |> where([v], v.id in ^ids)
+    |> Repo.all(opts)
+    |> sort_by_ids(ids)
   end
 
   @doc """
@@ -189,16 +185,7 @@ defmodule Reencodarr.Media.VideoQueries do
   end
 
   defp claim_next_video_for_crf_search_in_tx(opts) do
-    candidate_ids =
-      from(v in Video,
-        where: v.state == :analyzed,
-        order_by: [desc: v.priority, desc: v.bitrate, desc: v.size, asc: v.updated_at],
-        limit: 10,
-        select: v.id
-      )
-      |> Repo.all(opts)
-
-    claim_next_video_for_crf_search_in_tx(candidate_ids, opts)
+    claim_next_video_for_crf_search_in_tx(crf_search_queue_candidate_ids(10, opts), opts)
   end
 
   defp claim_next_video_for_crf_search_in_tx([], _opts), do: :none
@@ -241,15 +228,7 @@ defmodule Reencodarr.Media.VideoQueries do
   """
   @spec videos_for_crf_search_preview(integer(), keyword()) :: [map()]
   def videos_for_crf_search_preview(limit \\ 10, opts \\ []) do
-    Repo.all(
-      from(v in Video,
-        where: v.state == :analyzed,
-        order_by: [desc: v.priority, desc: v.bitrate, desc: v.size, asc: v.updated_at],
-        limit: ^limit,
-        select: %{id: v.id, path: v.path}
-      ),
-      opts
-    )
+    crf_search_queue_preview_rows(limit, opts)
   end
 
   @doc """
@@ -304,5 +283,33 @@ defmodule Reencodarr.Media.VideoQueries do
       ),
       opts
     )
+  end
+
+  defp crf_search_queue_candidate_ids(limit, opts) do
+    crf_search_queue_rows("id", limit, opts)
+    |> Enum.map(fn [id] -> id end)
+  end
+
+  defp crf_search_queue_preview_rows(limit, opts) do
+    crf_search_queue_rows("id, path", limit, opts)
+    |> Enum.map(fn [id, path] -> %{id: id, path: path} end)
+  end
+
+  defp crf_search_queue_rows(select, limit, opts) do
+    sql = """
+    SELECT #{select}
+    FROM videos INDEXED BY videos_crf_search_queue_index
+    WHERE state = 'analyzed'
+    ORDER BY priority DESC, bitrate DESC, size DESC, updated_at ASC
+    LIMIT ?
+    """
+
+    %{rows: rows} = Repo.query!(sql, [limit], opts)
+    rows
+  end
+
+  defp sort_by_ids(videos, ids) do
+    videos_by_id = Map.new(videos, &{&1.id, &1})
+    Enum.map(ids, &Map.fetch!(videos_by_id, &1))
   end
 end
