@@ -491,13 +491,27 @@ defmodule ReencodarrWeb.WorkerChannel do
 
       video ->
         mark_crf_search_active(socket.assigns.worker_id, video_id)
-        persist_crf_results(video, results)
 
-        if Enum.any?(results, &Map.get(&1, :chosen, false)) do
-          finalize_chosen_result_from_report(socket.assigns.worker_id, socket, video, results)
-        else
-          {:reply, {:ok, WorkerProtocol.event_ack("crf_search_result")}, socket}
+        case persist_crf_results(video, results) do
+          {:ok, persisted_results} ->
+            reply_after_persisted_crf_results(socket, video, persisted_results)
+
+          {:error, reason} ->
+            {:reply, {:error, WorkerProtocol.error(reason)}, socket}
         end
+    end
+  end
+
+  defp reply_after_persisted_crf_results(socket, video, persisted_results) do
+    if Enum.any?(persisted_results, &Map.get(&1, :chosen, false)) do
+      finalize_chosen_result_from_report(
+        socket.assigns.worker_id,
+        socket,
+        video,
+        persisted_results
+      )
+    else
+      {:reply, {:ok, WorkerProtocol.event_ack("crf_search_result")}, socket}
     end
   end
 
@@ -537,7 +551,8 @@ defmodule ReencodarrWeb.WorkerChannel do
                socket,
                video,
                completion.result,
-               completion.chosen_crf
+               completion.chosen_crf,
+               completion.results
              ) do
           {:ok, socket} ->
             Events.broadcast_event(:crf_search_completed, %{
@@ -572,23 +587,30 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
-  defp apply_completion_result(worker_id, socket, video, :ok, chosen_crf) do
-    finish_successful_crf_search(worker_id, socket, video, chosen_crf)
+  defp apply_completion_result(worker_id, socket, video, :ok, chosen_crf, results) do
+    case persist_crf_results(video, results) do
+      {:ok, persisted_results} ->
+        chosen_crf = chosen_crf || chosen_crf_from_results(persisted_results)
+        finish_successful_crf_search(worker_id, socket, video, chosen_crf)
+
+      {:error, reason} ->
+        fail_invalid_successful_crf_search(worker_id, socket, video, reason)
+    end
   end
 
-  defp apply_completion_result(worker_id, socket, video, :cancelled, _chosen_crf) do
+  defp apply_completion_result(worker_id, socket, video, :cancelled, _chosen_crf, _results) do
     finish_cancelled_crf_search(worker_id, socket, video, :cancelled)
   end
 
-  defp apply_completion_result(worker_id, socket, video, :shutdown, _chosen_crf) do
+  defp apply_completion_result(worker_id, socket, video, :shutdown, _chosen_crf, _results) do
     finish_cancelled_crf_search(worker_id, socket, video, :shutdown)
   end
 
-  defp apply_completion_result(worker_id, socket, video, :failed, _chosen_crf) do
+  defp apply_completion_result(worker_id, socket, video, :failed, _chosen_crf, _results) do
     record_completion_failure(worker_id, socket, video, "failed")
   end
 
-  defp apply_completion_result(worker_id, socket, video, {:error, reason}, _chosen_crf) do
+  defp apply_completion_result(worker_id, socket, video, {:error, reason}, _chosen_crf, _results) do
     record_completion_failure(worker_id, socket, video, inspect(reason))
   end
 
@@ -680,34 +702,42 @@ defmodule ReencodarrWeb.WorkerChannel do
     do: socket.assigns[:client_worker_id] || socket.assigns.worker_id
 
   defp persist_crf_results(video, results) do
-    Enum.each(results, fn result ->
+    Enum.reduce_while(results, {:ok, []}, fn result, {:ok, acc} ->
       params = CrfSearch.build_crf_search_args(video, result_target(video, result))
 
       attrs =
         result
         |> Map.put(:video_id, video.id)
         |> Map.update(:params, params, fn
+          [] -> params
           nil -> params
           existing_params -> existing_params
         end)
         |> Map.delete(:chosen)
 
       case Media.upsert_vmaf(attrs) do
-        {:ok, :skipped} -> :ok
-        {:ok, vmaf} -> Events.broadcast_event(:crf_search_vmaf_result, vmaf_to_event(vmaf))
-        {:error, _} -> :ok
+        {:ok, :skipped} ->
+          {:cont, {:ok, [result | acc]}}
+
+        {:ok, vmaf} ->
+          Events.broadcast_event(:crf_search_vmaf_result, vmaf_to_event(vmaf))
+          {:cont, {:ok, [result | acc]}}
+
+        {:error, _reason} ->
+          {:halt, {:error, :invalid_crf_search_result}}
       end
     end)
+    |> case do
+      {:ok, persisted_results} -> {:ok, Enum.reverse(persisted_results)}
+      {:error, _reason} = error -> error
+    end
   end
 
   defp result_target(video, result),
     do: Map.get(result, :target) || Reencodarr.Rules.vmaf_target(video)
 
   defp finalize_chosen_result_from_report(worker_id, socket, video, results) do
-    chosen_crf =
-      Enum.find_value(results, fn result ->
-        if Map.get(result, :chosen, false), do: Map.get(result, :crf)
-      end)
+    chosen_crf = chosen_crf_from_results(results)
 
     case chosen_crf do
       nil ->
@@ -716,6 +746,12 @@ defmodule ReencodarrWeb.WorkerChannel do
       crf ->
         mark_reported_chosen_crf(worker_id, socket, video, crf)
     end
+  end
+
+  defp chosen_crf_from_results(results) do
+    Enum.find_value(results, fn result ->
+      if Map.get(result, :chosen, false), do: Map.get(result, :crf)
+    end)
   end
 
   defp mark_reported_chosen_crf(worker_id, socket, video, crf) do

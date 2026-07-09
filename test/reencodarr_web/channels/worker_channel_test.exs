@@ -1014,6 +1014,64 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "persists completion VMAF results before completing the job" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+      video_id = video.id
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
+                   :ok,
+                   %{accepted: true, protocol_version: 1}
+
+      assert_reply push(socket, "pull_work", %{}),
+                   :ok,
+                   %{status: "job_assigned", video_id: ^video_id}
+
+      assert_reply push(socket, "crf_search_completed", %{
+                     "video_id" => video_id,
+                     "result" => "ok",
+                     "results" => [
+                       %{
+                         "crf" => 13,
+                         "vmaf_score" => 90.74086,
+                         "encode_percent" => 108.0,
+                         "predicted_encode_size" => 5_230_000_000,
+                         "predicted_encode_time_secs" => 5160
+                       },
+                       %{
+                         "crf" => 12,
+                         "vmaf_score" => 94.86,
+                         "encode_percent" => 8.0,
+                         "predicted_encode_size" => 263_590_000,
+                         "predicted_encode_time_secs" => 1260,
+                         "chosen" => true
+                       }
+                     ]
+                   }),
+                   :ok,
+                   %{accepted: true, event: "crf_search_completed"}
+
+      assert_receive {:crf_search_vmaf_result, %{video_id: ^video_id, crf: 13.0, score: 90.74086}}
+      assert_receive {:crf_search_vmaf_result, %{video_id: ^video_id, crf: 12.0, score: 94.86}}
+
+      vmafs = Media.get_vmafs_for_video(video_id)
+      assert Enum.any?(vmafs, &(&1.crf == 13.0 and &1.score == 90.74086))
+      assert Enum.any?(vmafs, &(&1.crf == 12.0 and &1.score == 94.86))
+
+      video = Media.get_video(video_id)
+      assert video.state == :crf_searched
+      assert video.chosen_vmaf_id != nil
+      assert WorkerSessions.get(socket.assigns.worker_id).active_video_id == nil
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "fails a completed CRF search when nothing was chosen" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)

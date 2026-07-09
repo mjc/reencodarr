@@ -121,12 +121,13 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     @moduledoc false
 
     @enforce_keys [:video_id, :result]
-    defstruct [:video_id, :result, :chosen_crf]
+    defstruct [:video_id, :result, :chosen_crf, results: []]
 
     @type t :: %__MODULE__{
             video_id: pos_integer(),
             result: :ok | :cancelled | :shutdown | :failed | {:error, term()},
-            chosen_crf: number() | nil
+            chosen_crf: number() | nil,
+            results: [map()]
           }
   end
 
@@ -296,7 +297,8 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
        %Completion{
          video_id: video_id,
          result: result,
-         chosen_crf: optional_number(payload, [:chosen_crf, "chosen_crf"])
+         chosen_crf: optional_number(payload, [:chosen_crf, "chosen_crf"]),
+         results: parse_optional_completion_results(payload)
        }}
     end
   end
@@ -615,6 +617,13 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
       _ ->
         {:error, :invalid_crf_search_result}
+    end
+  end
+
+  defp parse_optional_completion_results(payload) do
+    case parse_result_batch(payload) do
+      {:ok, results} -> results
+      {:error, _reason} -> []
     end
   end
 
