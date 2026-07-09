@@ -234,16 +234,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     attach_active_video(socket, video_id)
   end
 
-  defp attach_announced_work(socket, client_worker_id, _session) do
-    case Media.get_worker_crf_searching_video(client_worker_id) do
-      %Media.Video{} = video ->
-        _ = WorkerSessions.assign_video(socket.assigns.worker_id, video.id, :crf_searching)
-        attach_active_video(socket, video.id)
-
-      nil ->
-        socket
-    end
-  end
+  defp attach_announced_work(socket, _client_worker_id, _session), do: socket
 
   defp attach_active_video(socket, video_id) do
     case Media.get_video(video_id) do
@@ -260,13 +251,29 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp resume_dispatched_work(worker_id, socket, request_mode) do
     case Media.get_worker_crf_searching_video(worker_dispatch_id(socket)) do
       %Media.Video{} = video ->
-        with {:ok, socket} <- ensure_resumable_active_video(socket, video.id) do
-          reply_for_active_work(worker_id, socket, video, request_mode)
-        end
+        resume_dispatched_work(worker_id, socket, video, request_mode)
 
       nil ->
         :none
     end
+  end
+
+  defp resume_dispatched_work(worker_id, socket, video, :resend_input) do
+    with {:ok, socket} <- ensure_resumable_active_video(socket, video.id) do
+      reply_for_active_work(worker_id, socket, video, :resend_input)
+    end
+  end
+
+  defp resume_dispatched_work(worker_id, socket, video, :resume_only) do
+    _ =
+      Media.record_video_failure(video, :crf_search, :crf_optimization,
+        code: "worker_disconnected",
+        message: "Worker disconnected before reporting CRF search completion",
+        context: %{video_id: video.id, worker_id: worker_dispatch_id(socket)}
+      )
+
+    socket = clear_assigned_video(worker_id, socket)
+    claim_work(worker_id, socket)
   end
 
   defp handle_transfer_progress(payload, %{assigns: %{worker_id: worker_id}} = socket) do
