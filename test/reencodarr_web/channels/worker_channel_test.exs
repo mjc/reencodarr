@@ -810,6 +810,10 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert Media.get_video(video_id).chosen_vmaf_id != nil
       assert WorkerSessions.get(socket.assigns.worker_id).active_video_id == nil
 
+      assert_reply push(socket, "pull_work", %{}),
+                   :ok,
+                   %{status: "no_work"}
+
       assert_reply push(socket, "crf_search_result", %{
                      "video_id" => video_id,
                      "results" => [
@@ -942,11 +946,15 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                      "video_id" => video_id,
                      "result" => "ok"
                    }),
-                   :ok,
-                   %{accepted: true, event: "crf_search_completed"}
+                   :error,
+                   %{reason: "invalid_crf_search_result"}
 
       assert Media.get_video(video_id).state == :failed
       assert is_nil(Media.get_video(video_id).chosen_vmaf_id)
+
+      assert_reply push(socket, "pull_work", %{}),
+                   :ok,
+                   %{status: "no_work"}
     after
       Application.delete_env(:reencodarr, :worker_token)
     end

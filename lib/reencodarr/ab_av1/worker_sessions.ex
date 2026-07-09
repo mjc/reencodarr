@@ -5,6 +5,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   use GenServer
 
+  alias Reencodarr.AbAv1.WorkerJobStateMachine
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
   alias Reencodarr.Media.VideoStateMachine
@@ -134,71 +135,39 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def handle_call({:assign_video, server_worker_id, video_id, phase}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
-      %{
-        session
-        | phase: phase,
-          active_video_id: video_id,
-          transfer_progress: nil,
-          crf_search_progress: nil
-      }
+      WorkerJobStateMachine.assign_video(session, video_id, phase)
     end)
   end
 
   def handle_call({:clear_video, server_worker_id}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
-      %{
-        session
-        | phase: :idle,
-          active_video_id: nil,
-          transfer_progress: nil,
-          crf_search_progress: nil
-      }
+      WorkerJobStateMachine.clear_video(session)
     end)
   end
 
   def handle_call({:set_transfer_progress, server_worker_id, progress}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
-      active_video_id = Map.get(progress, :video_id, session.active_video_id)
-
-      now = now()
-
-      %{
-        session
-        | phase: :receiving_input,
-          active_video_id: active_video_id,
-          transfer_progress: progress,
-          crf_search_progress: nil,
-          last_seen_at: now
-      }
+      with {:ok, session} <- WorkerJobStateMachine.set_transfer_progress(session, progress) do
+        {:ok, %{session | last_seen_at: now()}}
+      end
     end)
   end
 
   def handle_call({:finish_transfer, server_worker_id}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
-      phase =
-        case session.active_video_id do
-          nil -> :idle
-          _video_id -> :crf_searching
-        end
-
-      %{session | phase: phase, transfer_progress: nil, last_seen_at: now()}
+      with {:ok, session} <- WorkerJobStateMachine.finish_transfer(session) do
+        {:ok, %{session | last_seen_at: now()}}
+      end
     end)
   end
 
   def handle_call({:set_crf_search_progress, server_worker_id, progress}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
       progress = merge_crf_search_progress(session.crf_search_progress, progress)
-      active_video_id = Map.get(progress, :video_id, session.active_video_id)
-      now = now()
 
-      %{
-        session
-        | phase: :crf_searching,
-          active_video_id: active_video_id,
-          transfer_progress: nil,
-          crf_search_progress: progress,
-          last_seen_at: now
-      }
+      with {:ok, session} <- WorkerJobStateMachine.set_crf_search_progress(session, progress) do
+        {:ok, %{session | last_seen_at: now()}}
+      end
     end)
   end
 
@@ -421,9 +390,18 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   defp update_session_reply(server_worker_id, state, update_fun) do
     case lookup_session(server_worker_id) do
       {:ok, session} ->
-        updated_session = update_fun.(session)
-        :ok = put_session(updated_session)
-        {:reply, {:ok, updated_session}, state}
+        case update_fun.(session) do
+          {:ok, updated_session} ->
+            :ok = put_session(updated_session)
+            {:reply, {:ok, updated_session}, state}
+
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
+
+          updated_session ->
+            :ok = put_session(updated_session)
+            {:reply, {:ok, updated_session}, state}
+        end
 
       :error ->
         {:reply, {:error, :unknown_worker_session}, state}

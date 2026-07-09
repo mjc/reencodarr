@@ -497,22 +497,25 @@ defmodule ReencodarrWeb.WorkerChannel do
          clear_assigned_video(worker_id, socket)}
 
       video ->
-        socket =
-          apply_completion_result(
-            worker_id,
-            socket,
-            video,
-            completion.result,
-            completion.chosen_crf
-          )
+        case apply_completion_result(
+               worker_id,
+               socket,
+               video,
+               completion.result,
+               completion.chosen_crf
+             ) do
+          {:ok, socket} ->
+            Events.broadcast_event(:crf_search_completed, %{
+              video_id: completion.video_id,
+              result: completion.result,
+              chosen_crf: completion.chosen_crf
+            })
 
-        Events.broadcast_event(:crf_search_completed, %{
-          video_id: completion.video_id,
-          result: completion.result,
-          chosen_crf: completion.chosen_crf
-        })
+            {:reply, {:ok, WorkerProtocol.event_ack("crf_search_completed")}, socket}
 
-        {:reply, {:ok, WorkerProtocol.event_ack("crf_search_completed")}, socket}
+          {:error, reason, socket} ->
+            {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+        end
     end
   end
 
@@ -561,7 +564,8 @@ defmodule ReencodarrWeb.WorkerChannel do
         message: "CRF search failed"
       )
 
-    clear_assigned_video(worker_id, socket)
+    _ = Media.mark_as_failed(video)
+    {:ok, clear_assigned_video(worker_id, socket)}
   end
 
   defp ensure_active_video(socket, video_id) do
@@ -671,61 +675,85 @@ defmodule ReencodarrWeb.WorkerChannel do
         {:reply, {:ok, WorkerProtocol.event_ack("crf_search_result")}, socket}
 
       crf ->
-        case Media.mark_vmaf_as_chosen(video.id, crf) do
-          {:ok, _} ->
-            _ = Media.mark_as_crf_searched(video)
-            _ = Media.resolve_crf_search_failures(video.id)
+        mark_reported_chosen_crf(worker_id, socket, video, crf)
+    end
+  end
 
-            {:reply, {:ok, WorkerProtocol.event_ack("crf_search_result")},
-             clear_assigned_video(worker_id, socket)}
+  defp mark_reported_chosen_crf(worker_id, socket, video, crf) do
+    case Media.mark_vmaf_as_chosen(video.id, crf) do
+      {:ok, _} ->
+        reply_after_successful_crf_search_result(worker_id, socket, video)
 
-          {:error, _reason} ->
-            _ =
-              Media.record_video_failure(video, :crf_search, :validation,
-                code: "no_chosen_vmaf",
-                message: "CRF search reported a chosen CRF but no matching VMAF row was found",
-                context: %{video_id: video.id, chosen_crf: crf}
-              )
+      {:error, _reason} ->
+        _ =
+          Media.record_video_failure(video, :crf_search, :validation,
+            code: "no_chosen_vmaf",
+            message: "CRF search reported a chosen CRF but no matching VMAF row was found",
+            context: %{video_id: video.id, chosen_crf: crf}
+          )
 
-            _ = Media.mark_as_failed(video)
+        _ = Media.mark_as_failed(video)
 
-            {:reply, {:error, WorkerProtocol.error(:invalid_crf_search_result)},
-             clear_assigned_video(worker_id, socket)}
-        end
+        {:reply, {:error, WorkerProtocol.error(:invalid_crf_search_result)},
+         clear_assigned_video(worker_id, socket)}
+    end
+  end
+
+  defp reply_after_successful_crf_search_result(worker_id, socket, video) do
+    case finalize_successful_crf_search(worker_id, socket, video) do
+      {:ok, socket} ->
+        {:reply, {:ok, WorkerProtocol.event_ack("crf_search_result")}, socket}
+
+      {:error, reason, socket} ->
+        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
   end
 
   defp finish_successful_crf_search(worker_id, socket, video, chosen_crf) do
     cond do
       is_number(chosen_crf) ->
-        _ = Media.mark_vmaf_as_chosen(video.id, chosen_crf)
-        finalize_successful_crf_search(worker_id, socket, video)
+        case Media.mark_vmaf_as_chosen(video.id, chosen_crf) do
+          {:ok, _vmaf_id} ->
+            finalize_successful_crf_search(worker_id, socket, video)
+
+          {:error, reason} ->
+            fail_invalid_successful_crf_search(worker_id, socket, video, reason)
+        end
 
       Media.chosen_vmaf_exists?(video) ->
         finalize_successful_crf_search(worker_id, socket, video)
 
       true ->
-        _ =
-          Media.record_video_failure(video, :crf_search, :validation,
-            code: "no_chosen_vmaf",
-            message: "CRF search completed successfully but no VMAF was marked as chosen",
-            context: %{video_id: video.id}
-          )
-
-        _ = Media.mark_as_failed(video)
-        clear_assigned_video(worker_id, socket)
+        fail_invalid_successful_crf_search(worker_id, socket, video, :no_chosen_vmaf)
     end
   end
 
   defp finalize_successful_crf_search(worker_id, socket, video) do
-    _ = Media.mark_as_crf_searched(video)
-    _ = Media.resolve_crf_search_failures(video.id)
-    clear_assigned_video(worker_id, socket)
+    case Media.mark_as_crf_searched(video) do
+      {:ok, _video} ->
+        _ = Media.resolve_crf_search_failures(video.id)
+        {:ok, clear_assigned_video(worker_id, socket)}
+
+      {:error, reason} ->
+        fail_invalid_successful_crf_search(worker_id, socket, video, reason)
+    end
+  end
+
+  defp fail_invalid_successful_crf_search(worker_id, socket, video, reason) do
+    _ =
+      Media.record_video_failure(video, :crf_search, :validation,
+        code: "invalid_successful_crf_search",
+        message: "CRF search completed successfully but could not choose a VMAF",
+        context: %{video_id: video.id, reason: inspect(reason)}
+      )
+
+    _ = Media.mark_as_failed(video)
+    {:error, :invalid_crf_search_result, clear_assigned_video(worker_id, socket)}
   end
 
   defp finish_cancelled_crf_search(worker_id, socket, video, _reason) do
     _ = Media.mark_as_analyzed(video)
-    clear_assigned_video(worker_id, socket)
+    {:ok, clear_assigned_video(worker_id, socket)}
   end
 
   defp clear_assigned_video(worker_id, socket) do
