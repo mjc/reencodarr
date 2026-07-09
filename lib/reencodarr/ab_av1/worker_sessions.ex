@@ -54,7 +54,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   def set_transfer_progress(server_worker_id, progress) when is_map(progress) do
-    GenServer.call(__MODULE__, {:set_transfer_progress, server_worker_id, progress})
+    record_transfer_progress(server_worker_id, progress)
+  end
+
+  def record_transfer_progress(server_worker_id, progress) when is_map(progress) do
+    GenServer.call(__MODULE__, {:record_transfer_progress, server_worker_id, progress})
   end
 
   def finish_transfer(server_worker_id) do
@@ -145,9 +149,9 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end)
   end
 
-  def handle_call({:set_transfer_progress, server_worker_id, progress}, _from, state) do
+  def handle_call({:record_transfer_progress, server_worker_id, progress}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
-      with {:ok, session} <- WorkerJobStateMachine.set_transfer_progress(session, progress) do
+      with {:ok, session} <- WorkerJobStateMachine.record_transfer_progress(session, progress) do
         {:ok, %{session | last_seen_at: now()}}
       end
     end)

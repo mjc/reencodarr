@@ -289,8 +289,7 @@ defmodule ReencodarrWeb.WorkerChannel do
          :ok <- ensure_active_video(socket, progress.video_id) do
       {progress, socket} = fill_transfer_rate(socket, progress)
 
-      _ = WorkerSessions.set_transfer_progress(worker_id, progress)
-      _ = maybe_finish_transfer(worker_id, progress)
+      _ = WorkerSessions.record_transfer_progress(worker_id, progress)
       Events.broadcast_event(:transfer_progress, Map.put(progress, :worker_id, worker_id))
 
       socket = maybe_send_next_transfer_chunk(socket, progress)
@@ -390,7 +389,9 @@ defmodule ReencodarrWeb.WorkerChannel do
 
     case WorkerSessions.assign_video(worker_id, video.id, :receiving_input) do
       {:ok, _session} ->
-        socket = prepare_transfer(socket, video, target_vmaf, stream?: true)
+        socket =
+          prepare_transfer(socket, video, target_vmaf, stream?: true, fail_if_missing?: true)
+
         {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf)}, socket}
 
       {:error, reason} ->
@@ -431,7 +432,8 @@ defmodule ReencodarrWeb.WorkerChannel do
       |> assign(:transfer_last_progress_at, nil)
       |> assign(:transfer_last_progress_bytes, nil)
 
-    if Keyword.get(opts, :stream?, true) and File.exists?(video.path) do
+    if Keyword.get(opts, :stream?, true) and
+         (File.exists?(video.path) or Keyword.get(opts, :fail_if_missing?, false)) do
       send(self(), :stream_transfer_chunk)
     end
 
@@ -890,7 +892,7 @@ defmodule ReencodarrWeb.WorkerChannel do
       {:noreply, handle_transfer_failure(socket, video_id, :enoent)}
     else
       _ =
-        WorkerSessions.set_transfer_progress(
+        WorkerSessions.record_transfer_progress(
           socket.assigns.worker_id,
           initial_transfer_progress(socket, video)
         )
@@ -1119,19 +1121,6 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp maybe_send_next_transfer_chunk(socket, _progress), do: socket
-
-  defp maybe_finish_transfer(worker_id, %{bytes_sent: bytes_sent, total_bytes: total_bytes})
-       when is_integer(bytes_sent) and is_integer(total_bytes) and total_bytes > 0 and
-              bytes_sent >= total_bytes do
-    WorkerSessions.finish_transfer(worker_id)
-  end
-
-  defp maybe_finish_transfer(worker_id, %{percent: percent})
-       when is_number(percent) and percent >= 100 do
-    WorkerSessions.finish_transfer(worker_id)
-  end
-
-  defp maybe_finish_transfer(_worker_id, _progress), do: :ok
 
   defp format_file_error(reason) do
     reason |> :file.format_error() |> List.to_string()

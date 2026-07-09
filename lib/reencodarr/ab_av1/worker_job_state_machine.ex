@@ -13,7 +13,7 @@ defmodule Reencodarr.AbAv1.WorkerJobStateMachine do
     idle: [:receiving_input, :crf_searching],
     receiving_input: [:receiving_input, :input_ready, :crf_searching, :idle],
     input_ready: [:receiving_input, :crf_searching, :idle],
-    crf_searching: [:crf_searching, :receiving_input, :idle]
+    crf_searching: [:crf_searching, :receiving_input, :input_ready, :idle]
   }
 
   @spec valid_phases() :: [phase()]
@@ -62,10 +62,15 @@ defmodule Reencodarr.AbAv1.WorkerJobStateMachine do
   end
 
   @spec set_transfer_progress(map(), map()) :: {:ok, map()} | {:error, :invalid_worker_phase}
-  def set_transfer_progress(%{phase: phase} = session, progress)
-      when phase in [:idle, :receiving_input, :input_ready] do
+  def set_transfer_progress(session, progress), do: record_transfer_progress(session, progress)
+
+  @spec record_transfer_progress(map(), map()) :: {:ok, map()} | {:error, :invalid_worker_phase}
+  def record_transfer_progress(%{phase: phase} = session, progress)
+      when phase in [:idle, :receiving_input, :input_ready, :crf_searching] do
     with {:ok, video_id} <- progress_video_id(session, progress) do
-      transition(session, :receiving_input, %{
+      phase = if transfer_complete?(progress), do: :input_ready, else: :receiving_input
+
+      transition(session, phase, %{
         active_video_id: video_id,
         transfer_progress: progress,
         crf_search_progress: nil
@@ -73,7 +78,7 @@ defmodule Reencodarr.AbAv1.WorkerJobStateMachine do
     end
   end
 
-  def set_transfer_progress(_session, _progress), do: {:error, :invalid_worker_phase}
+  def record_transfer_progress(_session, _progress), do: {:error, :invalid_worker_phase}
 
   @spec finish_transfer(map()) :: {:ok, map()} | {:error, :invalid_worker_phase}
   def finish_transfer(%{active_video_id: nil} = session), do: clear_video(session)
@@ -107,4 +112,11 @@ defmodule Reencodarr.AbAv1.WorkerJobStateMachine do
       _ -> {:error, :invalid_worker_phase}
     end
   end
+
+  defp transfer_complete?(%{bytes_sent: bytes_sent, total_bytes: total_bytes})
+       when is_integer(bytes_sent) and is_integer(total_bytes) and total_bytes > 0,
+       do: bytes_sent >= total_bytes
+
+  defp transfer_complete?(%{percent: percent}) when is_number(percent), do: percent >= 100
+  defp transfer_complete?(_progress), do: false
 end

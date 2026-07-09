@@ -119,6 +119,52 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     refute html =~ "Chunk"
   end
 
+  test "transfer progress wins over stale crf progress in the worker card", %{conn: conn} do
+    {:ok, _session} =
+      WorkerSessions.register(%{
+        server_worker_id: "worker-server-stale-crf",
+        client_worker_id: "worker-client-stale-crf",
+        protocol_version: 1,
+        version: "0.10.0",
+        capabilities: %{"crf_search" => true}
+      })
+
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_video("worker-server-stale-crf", video.id)
+
+    assert {:ok, _session} =
+             WorkerSessions.set_crf_search_progress("worker-server-stale-crf", %{
+               video_id: video.id,
+               percent: 62.0,
+               fps: 12.5,
+               eta: 90,
+               crf: 28.0,
+               sample_num: 3,
+               total_samples: 8
+             })
+
+    assert {:ok, _session} =
+             WorkerSessions.set_transfer_progress("worker-server-stale-crf", %{
+               job_id: Integer.to_string(video.id),
+               transfer_id: Integer.to_string(video.id),
+               video_id: video.id,
+               filename: Path.basename(video.path),
+               percent: 10.0,
+               bytes_sent: 1_048_576,
+               total_bytes: 10_485_760
+             })
+
+    {:ok, view, _html} = live(conn, ~p"/workers")
+    send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
+
+    html = render(view)
+    assert html =~ "Receiving Input"
+    refute html =~ "CRF Search"
+    refute html =~ "Sample 3/8 - CRF 28.0"
+  end
+
   test "renders the crf search panel when only crf search is active", %{conn: conn} do
     {:ok, _session} =
       WorkerSessions.register(%{

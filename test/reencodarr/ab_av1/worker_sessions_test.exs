@@ -120,7 +120,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert listed_session.phase == :crf_searching
   end
 
-  test "moves from receiving input to CRF search without clearing the active video" do
+  test "complete transfer progress moves to input ready without clearing the active video" do
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
 
     assert {:ok, session} = WorkerSessions.assign_video("worker-server-1", 123, :receiving_input)
@@ -139,7 +139,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
              })
 
     assert session.active_video_id == 123
-    assert session.phase == :receiving_input
+    assert session.phase == :input_ready
     assert session.transfer_progress.percent == 100.0
 
     assert {:ok, session} = WorkerSessions.finish_transfer("worker-server-1")

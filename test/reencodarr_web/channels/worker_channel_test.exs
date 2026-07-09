@@ -441,7 +441,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    :ok,
                    %{accepted: true, event: "crf_search_progress"}
 
-      assert {:error, :invalid_worker_phase} =
+      assert {:ok, session} =
                WorkerSessions.set_transfer_progress(server_worker_id, %{
                  job_id: Integer.to_string(video_id),
                  video_id: video_id,
@@ -451,6 +451,10 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                  bytes_sent: 8,
                  total_bytes: 8
                })
+
+      assert session.phase == :input_ready
+      assert session.active_video_id == video_id
+      assert is_nil(session.crf_search_progress)
 
       assert_reply push(socket, "pull_work", %{}),
                    :ok,
@@ -657,6 +661,46 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
         assert transfer_id == Integer.to_string(video_id)
       end)
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "reports transfer failure instead of silently waiting when resend input is unavailable" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      missing_path =
+        Path.join(System.tmp_dir!(), "missing-worker-input-#{System.unique_integer()}.mkv")
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :crf_searching,
+          path: missing_path,
+          size: 8,
+          crf_search_worker_id: "worker-a"
+        })
+
+      video_id = video.id
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")),
+                   :ok,
+                   %{accepted: true, protocol_version: 1}
+
+      assert_reply push(socket, "pull_work", %{"input_missing" => true}),
+                   :ok,
+                   %{status: "job_assigned", video_id: ^video_id}
+
+      assert_push "transfer_failed", %{
+        status: "transfer_failed",
+        video_id: ^video_id,
+        transfer_id: transfer_id
+      }
+
+      assert transfer_id == Integer.to_string(video_id)
+      refute_push "transfer_started", _, 50
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
