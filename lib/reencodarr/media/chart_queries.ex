@@ -1,8 +1,6 @@
 defmodule Reencodarr.Media.ChartQueries do
   @moduledoc "Database queries for dashboard chart data."
 
-  import Ecto.Query
-  alias Reencodarr.Media.Video
   alias Reencodarr.Repo
 
   @vmaf_bins [
@@ -133,22 +131,27 @@ defmodule Reencodarr.Media.ChartQueries do
 
   @doc "Get primary codec distribution across all videos (top 8)."
   def codec_distribution do
-    from(v in Video,
-      where: not is_nil(v.video_codecs) and v.video_codecs != [],
-      select: v.video_codecs
-    )
-    |> Repo.all()
-    |> Enum.reduce(%{}, fn codecs, acc ->
-      codec =
-        case codecs do
-          [first | _] -> normalize_codec(first)
-          _ -> "unknown"
-        end
+    case Repo.query(
+           """
+           SELECT json_extract(video_codecs, '$[0]') AS codec, COUNT(*)
+           FROM videos
+           WHERE video_codecs IS NOT NULL
+             AND json_array_length(video_codecs) > 0
+           GROUP BY codec
+           """,
+           []
+         ) do
+      {:ok, %{rows: rows}} ->
+        rows
+        |> Enum.reduce(%{}, fn [codec, count], acc ->
+          Map.update(acc, normalize_codec(codec), count, &(&1 + count))
+        end)
+        |> Enum.sort_by(fn {_, count} -> -count end)
+        |> Enum.take(8)
 
-      Map.update(acc, codec, 1, &(&1 + 1))
-    end)
-    |> Enum.sort_by(fn {_, count} -> -count end)
-    |> Enum.take(8)
+      {:error, error} ->
+        raise error
+    end
   end
 
   defp normalize_codec(codec) when is_binary(codec) do
