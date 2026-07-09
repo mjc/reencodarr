@@ -46,4 +46,18 @@ defmodule Reencodarr.AbAv1.WorkerConfig do
   def max_concurrent_transfers do
     Application.get_env(:reencodarr, :worker_max_concurrent_transfers, 1)
   end
+
+  @spec transfer_base_url() :: String.t() | nil
+  def transfer_base_url do
+    case Application.get_env(:reencodarr, :worker_transfer_base_url) do
+      url when is_binary(url) and url != "" -> String.trim_trailing(url, "/")
+      _ -> nil
+    end
+  end
+
+  @spec transfer_token() :: String.t() | nil
+  def transfer_token do
+    Application.get_env(:reencodarr, :worker_transfer_token) ||
+      Application.get_env(:reencodarr, :worker_token)
+  end
 end

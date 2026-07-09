@@ -34,8 +34,8 @@ parse_int_env = fn name, default ->
   end
 end
 
-worker_token =
-  System.get_env("REENCODARR_WORKER_TOKEN")
+derive_token = fn env_name, label ->
+  System.get_env(env_name)
   |> case do
     nil ->
       case System.get_env("SECRET_KEY_BASE") do
@@ -43,16 +43,26 @@ worker_token =
           nil
 
         secret_key_base ->
-          :crypto.mac(:hmac, :sha256, secret_key_base, "ab-av1-worker-token")
+          :crypto.mac(:hmac, :sha256, secret_key_base, label)
           |> Base.url_encode64(padding: false)
       end
 
-    worker_token ->
-      worker_token
+    token ->
+      token
   end
+end
+
+worker_token = derive_token.("REENCODARR_WORKER_TOKEN", "ab-av1-worker-token")
+
+worker_transfer_token =
+  derive_token.("REENCODARR_WORKER_TRANSFER_TOKEN", "ab-av1-worker-transfer-token")
 
 if worker_token do
   config :reencodarr, :worker_token, worker_token
+end
+
+if worker_transfer_token do
+  config :reencodarr, :worker_transfer_token, worker_transfer_token
 end
 
 config :reencodarr,
@@ -62,7 +72,9 @@ config :reencodarr,
   worker_transfer_window: parse_int_env.("REENCODARR_WORKER_TRANSFER_WINDOW", 1),
   worker_retry_limit: parse_int_env.("REENCODARR_WORKER_RETRY_LIMIT", 3),
   worker_transfer_timeout_ms: parse_int_env.("REENCODARR_WORKER_TRANSFER_TIMEOUT_MS", 60_000),
-  worker_max_concurrent_transfers: parse_int_env.("REENCODARR_WORKER_MAX_CONCURRENT_TRANSFERS", 1)
+  worker_max_concurrent_transfers:
+    parse_int_env.("REENCODARR_WORKER_MAX_CONCURRENT_TRANSFERS", 1),
+  worker_transfer_base_url: System.get_env("REENCODARR_WORKER_TRANSFER_BASE_URL")
 
 if config_env() == :prod do
   # Parse CHECK_ORIGIN env var: "false" disables, otherwise comma-separated origin list

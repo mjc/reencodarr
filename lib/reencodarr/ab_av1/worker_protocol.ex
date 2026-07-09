@@ -462,7 +462,8 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   @spec work_assigned(Video.t(), number()) :: map()
   def work_assigned(%Video{id: video_id, path: path, size: size} = video, target_vmaf)
       when is_integer(video_id) and is_binary(path) do
-    %{
+    video
+    |> maybe_put_transfer(%{
       status: "job_assigned",
       job_id: Integer.to_string(video_id),
       video_id: video_id,
@@ -471,12 +472,13 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
       chunk_size_bytes: chunk_size_bytes(),
       target_vmaf: target_vmaf,
       crf_search_args: CrfSearch.build_crf_search_args(video, target_vmaf)
-    }
+    })
   end
 
   def work_in_progress(%Video{id: video_id, path: path, size: size} = video, target_vmaf)
       when is_integer(video_id) and is_binary(path) do
-    %{
+    video
+    |> maybe_put_transfer(%{
       status: "job_in_progress",
       job_id: Integer.to_string(video_id),
       video_id: video_id,
@@ -484,7 +486,23 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
       size_bytes: size || 0,
       target_vmaf: target_vmaf,
       crf_search_args: CrfSearch.build_crf_search_args(video, target_vmaf)
-    }
+    })
+  end
+
+  defp maybe_put_transfer(%Video{id: video_id}, payload) do
+    with base_url when is_binary(base_url) <- WorkerConfig.transfer_base_url(),
+         token when is_binary(token) <- WorkerConfig.transfer_token() do
+      Map.put(payload, :transfer, %{
+        url: "#{base_url}/workers/files/#{video_id}",
+        auth: %{
+          scheme: "bearer",
+          header: "authorization",
+          value: "Bearer #{token}"
+        }
+      })
+    else
+      _ -> payload
+    end
   end
 
   @spec heartbeat_ack(DateTime.t()) :: map()

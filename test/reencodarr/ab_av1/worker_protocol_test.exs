@@ -1,5 +1,5 @@
 defmodule Reencodarr.AbAv1.WorkerProtocolTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Reencodarr.AbAv1.WorkerProtocol
   alias Reencodarr.AbAv1.WorkerProtocol.Announcement
@@ -250,6 +250,40 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
 
     assert "--temp-dir" in crf_search_args
   end
+
+  test "includes configured worker transfer URL in job payloads" do
+    previous_base_url = Application.get_env(:reencodarr, :worker_transfer_base_url)
+    previous_token = Application.get_env(:reencodarr, :worker_transfer_token)
+    Application.put_env(:reencodarr, :worker_transfer_base_url, "http://10.0.0.10:4000/")
+    Application.put_env(:reencodarr, :worker_transfer_token, "transfer-token")
+
+    on_exit(fn ->
+      restore_env(:worker_transfer_base_url, previous_base_url)
+      restore_env(:worker_transfer_token, previous_token)
+    end)
+
+    video = %Reencodarr.Media.Video{id: 123, path: "/videos/movie.mkv", size: 987_654}
+
+    assert %{transfer: transfer} = WorkerProtocol.work_assigned(video, 96.5)
+
+    assert transfer == %{
+             url: "http://10.0.0.10:4000/workers/files/123",
+             auth: %{
+               scheme: "bearer",
+               header: "authorization",
+               value: "Bearer transfer-token"
+             }
+           }
+
+    assert %{transfer: ^transfer} =
+             WorkerProtocol.work_assigned(video, 96.5)
+
+    assert %{transfer: ^transfer} =
+             WorkerProtocol.work_in_progress(video, 96.5)
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:reencodarr, key)
+  defp restore_env(key, value), do: Application.put_env(:reencodarr, key, value)
 
   test "builds binary transfer chunk frames with ordered metadata and raw data" do
     chunk = "raw video bytes"

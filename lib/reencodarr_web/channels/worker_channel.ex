@@ -5,7 +5,7 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   use ReencodarrWeb, :channel
 
-  alias Reencodarr.AbAv1.{CrfSearch, WorkerProtocol, WorkerSessions}
+  alias Reencodarr.AbAv1.{CrfSearch, WorkerConfig, WorkerProtocol, WorkerSessions}
   alias Reencodarr.AbAv1.WorkerProtocol.Announcement
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
@@ -373,7 +373,9 @@ defmodule ReencodarrWeb.WorkerChannel do
 
     with {:ok, _video} <- Media.mark_as_worker_crf_searching(video, worker_dispatch_id(socket)),
          {:ok, _session} <- WorkerSessions.assign_video(worker_id, video.id, :receiving_input) do
-      socket = prepare_transfer(socket, video, target_vmaf)
+      socket =
+        prepare_transfer(socket, video, target_vmaf, stream?: websocket_transfer_on_assign?())
+
       {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf)}, socket}
     else
       {:error, reason} ->
@@ -387,7 +389,7 @@ defmodule ReencodarrWeb.WorkerChannel do
 
     case WorkerSessions.assign_video(worker_id, video.id, :receiving_input) do
       {:ok, _session} ->
-        socket = prepare_transfer(socket, video, target_vmaf)
+        socket = prepare_transfer(socket, video, target_vmaf, stream?: true)
         {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf)}, socket}
 
       {:error, reason} ->
@@ -404,7 +406,7 @@ defmodule ReencodarrWeb.WorkerChannel do
      socket}
   end
 
-  defp prepare_transfer(socket, video, target_vmaf) do
+  defp prepare_transfer(socket, video, target_vmaf, opts) do
     transfer_id = Integer.to_string(video.id)
     total_bytes = video.size || 0
     chunk_size_bytes = WorkerProtocol.chunk_size_bytes()
@@ -428,12 +430,15 @@ defmodule ReencodarrWeb.WorkerChannel do
       |> assign(:transfer_last_progress_at, nil)
       |> assign(:transfer_last_progress_bytes, nil)
 
-    if File.exists?(video.path) do
+    if Keyword.get(opts, :stream?, true) and File.exists?(video.path) do
       send(self(), :stream_transfer_chunk)
     end
 
     socket
   end
+
+  defp websocket_transfer_on_assign?,
+    do: is_nil(WorkerConfig.transfer_base_url())
 
   defp work_request_mode(payload) when is_map(payload) do
     if Enum.any?(

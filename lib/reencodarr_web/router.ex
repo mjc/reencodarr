@@ -61,6 +61,10 @@ defmodule ReencodarrWeb.Router do
     post "/webhooks/radarr", RadarrWebhookController, :radarr
   end
 
+  scope "/workers", ReencodarrWeb do
+    get "/files/:id", WorkerFileController, :show
+  end
+
   # Other scopes may use custom stacks.
   # scope "/api", ReencodarrWeb do
   #   pipe_through :api

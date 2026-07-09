@@ -18,7 +18,9 @@ config :reencodarr,
   worker_transfer_window: 1,
   worker_retry_limit: 3,
   worker_transfer_timeout_ms: 60_000,
-  worker_max_concurrent_transfers: 1
+  worker_max_concurrent_transfers: 1,
+  worker_transfer_base_url: nil,
+  worker_transfer_token: nil
 
 # Shared database configuration - SQLite performance tuning
 config :reencodarr, Reencodarr.Repo,
