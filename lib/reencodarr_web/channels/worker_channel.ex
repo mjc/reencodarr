@@ -133,6 +133,8 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp handle_work_request(payload, %{assigns: %{worker_id: worker_id}} = socket) do
+    _ = WorkerSessions.touch(worker_id)
+
     request_mode = work_request_mode(payload)
 
     case socket.assigns[:current_video_id] do

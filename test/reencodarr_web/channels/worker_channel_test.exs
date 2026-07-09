@@ -215,6 +215,39 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "tracks last-seen for pull_work requests on active sessions" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+      video_id = video.id
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")), :ok, %{
+        accepted: true
+      }
+
+      assert_reply push(socket, "pull_work", %{}), :ok, %{
+        status: "job_assigned",
+        video_id: ^video_id
+      }
+
+      [session] = WorkerSessions.list()
+      first_seen_at = session.last_seen_at
+
+      Process.sleep(1_100)
+
+      assert_reply push(socket, "pull_work", %{}), :ok, %{status: status, video_id: ^video_id}
+      assert status in ["job_assigned", "job_in_progress"]
+
+      [updated_session] = WorkerSessions.list()
+      assert DateTime.compare(updated_session.last_seen_at, first_seen_at) == :gt
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "broadcasts transfer and CRF progress updates" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)

@@ -142,15 +142,23 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     update_session_reply(server_worker_id, state, fn session ->
       active_video_id = Map.get(progress, :video_id, session.active_video_id)
 
-      %{session | active_video_id: active_video_id, transfer_progress: progress}
+      now = now()
+
+      %{
+        session
+        | active_video_id: active_video_id,
+          transfer_progress: progress,
+          last_seen_at: now
+      }
     end)
   end
 
   def handle_call({:set_crf_search_progress, server_worker_id, progress}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
       progress = merge_crf_search_progress(session.crf_search_progress, progress)
+      now = now()
 
-      %{session | crf_search_progress: progress}
+      %{session | crf_search_progress: progress, last_seen_at: now}
     end)
   end
 

@@ -136,6 +136,53 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert session.crf_search_progress.total_samples == 5
   end
 
+  test "touches session when transfer progress is reported" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    initial_session = WorkerSessions.get("worker-server-1")
+    initial_last_seen = initial_session.last_seen_at
+
+    Process.sleep(1_100)
+
+    assert {:ok, session} =
+             WorkerSessions.set_transfer_progress("worker-server-1", %{
+               job_id: "job-1",
+               video_id: 123,
+               transfer_id: "job-1",
+               filename: "sample.mkv",
+               percent: 25.0,
+               bytes_sent: 2_621_440,
+               total_bytes: 10_485_760,
+               bytes_per_second: 1_048_576,
+               eta: 15,
+               chunk_index: 2,
+               total_chunks: 8
+             })
+
+    assert DateTime.compare(session.last_seen_at, initial_last_seen) == :gt
+  end
+
+  test "touches session when CRF search progress is reported" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    initial_session = WorkerSessions.get("worker-server-1")
+    initial_last_seen = initial_session.last_seen_at
+
+    Process.sleep(1_100)
+
+    assert {:ok, session} =
+             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+               video_id: 123,
+               percent: 25.0,
+               fps: 24.0,
+               crf: 28.0,
+               sample_num: 3,
+               total_samples: 5
+             })
+
+    assert DateTime.compare(session.last_seen_at, initial_last_seen) == :gt
+  end
+
   test "replaces reconnecting client sessions without dropping active state" do
     {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
 
