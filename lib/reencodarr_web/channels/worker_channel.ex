@@ -200,13 +200,17 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp maybe_resume_mode(
-         %{transfer_progress: transfer_progress, crf_search_progress: _crf_search_progress},
+         %{phase: :receiving_input, transfer_progress: transfer_progress},
          request_mode
        ) do
     if should_resend_transfer?(transfer_progress),
       do: :resend_input,
       else: request_mode
   end
+
+  defp maybe_resume_mode(%{phase: :crf_searching}, :resend_input), do: :resend_input
+  defp maybe_resume_mode(%{phase: :crf_searching}, _request_mode), do: :resume_only
+  defp maybe_resume_mode(_session, request_mode), do: request_mode
 
   defp should_resend_transfer?(nil), do: true
 
@@ -253,11 +257,11 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
-  defp resume_dispatched_work(worker_id, socket, _request_mode) do
+  defp resume_dispatched_work(worker_id, socket, request_mode) do
     case Media.get_worker_crf_searching_video(worker_dispatch_id(socket)) do
       %Media.Video{} = video ->
         with {:ok, socket} <- ensure_resumable_active_video(socket, video.id) do
-          reply_for_active_work(worker_id, socket, video, :resend_input)
+          reply_for_active_work(worker_id, socket, video, request_mode)
         end
 
       nil ->
@@ -442,6 +446,10 @@ defmodule ReencodarrWeb.WorkerChannel do
 
       video_id ->
         case Media.get_video(video_id) do
+          %Media.Video{state: :crf_searching, crf_search_worker_id: dispatch_id}
+          when is_binary(dispatch_id) ->
+            :ok
+
           %Media.Video{state: :crf_searching} = video ->
             _ = Media.mark_as_analyzed(video)
             :ok

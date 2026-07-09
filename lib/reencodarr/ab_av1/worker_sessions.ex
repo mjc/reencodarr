@@ -425,6 +425,23 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end
   end
 
+  defp preserve_dispatched_active_video(%{active_video_id: nil}), do: :ok
+
+  defp preserve_dispatched_active_video(%{active_video_id: video_id}) do
+    case Media.get_video(video_id) do
+      %Media.Video{state: :crf_searching, crf_search_worker_id: dispatch_id}
+      when is_binary(dispatch_id) ->
+        :ok
+
+      %Media.Video{state: :crf_searching} = video ->
+        _ = VideoStateMachine.mark_as_analyzed(video)
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
   defp resumable_active_video_id(nil), do: nil
 
   defp resumable_active_video_id(video_id) do
@@ -466,7 +483,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       end)
 
     Enum.each(expired_sessions, fn session ->
-      requeue_active_video(session)
+      preserve_dispatched_active_video(session)
       :ok = drop_session(session.server_worker_id)
     end)
 

@@ -38,6 +38,10 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
 
   test "expires stale active sessions by requeueing only in-progress videos" do
     {:ok, active_video} = Fixtures.video_fixture(%{state: :crf_searching})
+
+    {:ok, dispatched_video} =
+      Fixtures.video_fixture(%{state: :crf_searching, crf_search_worker_id: "worker-client-3"})
+
     {:ok, completed_video} = Fixtures.video_fixture(%{state: :crf_searched})
     _vmaf = Fixtures.vmaf_fixture(%{video_id: completed_video.id, crf: 28.0, score: 96.4})
     assert {:ok, _} = Media.mark_vmaf_as_chosen(completed_video.id, 28.0)
@@ -53,11 +57,21 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                )
              )
 
+    assert {:ok, _session} =
+             WorkerSessions.register(
+               worker_session_attrs(
+                 server_worker_id: "worker-server-3",
+                 client_worker_id: "worker-client-3"
+               )
+             )
+
     assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", active_video.id)
     assert {:ok, _session} = WorkerSessions.assign_video("worker-server-2", completed_video.id)
+    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-3", dispatched_video.id)
 
-    assert {:ok, [_session_one, _session_two]} = WorkerSessions.expire_stale(0)
+    assert {:ok, [_session_one, _session_two, _session_three]} = WorkerSessions.expire_stale(0)
     assert Media.get_video(active_video.id).state == :analyzed
+    assert Media.get_video(dispatched_video.id).state == :crf_searching
     assert Media.get_video(completed_video.id).state == :crf_searched
     assert WorkerSessions.list() == []
   end
