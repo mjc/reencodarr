@@ -114,6 +114,18 @@ defmodule ReencodarrWeb.WorkerChannel do
     read_transfer_chunk(socket, io_device)
   end
 
+  def handle_info(:complete_transfer, %{assigns: %{transfer_io_device: io_device}} = socket)
+      when not is_nil(io_device) do
+    case Media.get_video(socket.assigns.current_video_id) do
+      %Media.Video{} = video ->
+        {:noreply, complete_transfer(socket, video, io_device)}
+
+      nil ->
+        close_transfer_stream(io_device)
+        {:noreply, clear_assigned_video(socket.assigns.worker_id, socket)}
+    end
+  end
+
   defp ensure_supported_protocol_version(protocol_version) do
     if WorkerProtocol.supported_protocol_version?(protocol_version) do
       :ok
@@ -410,6 +422,7 @@ defmodule ReencodarrWeb.WorkerChannel do
       |> assign(:transfer_chunk_index, 0)
       |> assign(:transfer_waiting_for_ack, false)
       |> assign(:transfer_started_sent, nil)
+      |> assign(:transfer_complete_pending, nil)
 
     if File.exists?(video.path) do
       send(self(), :stream_transfer_chunk)
@@ -793,6 +806,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     |> assign(:transfer_chunk_index, nil)
     |> assign(:transfer_waiting_for_ack, nil)
     |> assign(:transfer_started_sent, nil)
+    |> assign(:transfer_complete_pending, nil)
   end
 
   defp mark_crf_search_active(worker_id, video_id) do
@@ -809,6 +823,7 @@ defmodule ReencodarrWeb.WorkerChannel do
           socket
           |> assign(:transfer_io_device, io_device)
           |> assign(:transfer_started_sent, false)
+          |> assign(:transfer_complete_pending, false)
 
         {:ok, socket}
 
@@ -867,31 +882,6 @@ defmodule ReencodarrWeb.WorkerChannel do
     }
   end
 
-  defp outbound_transfer_progress(socket, video, bytes_sent, chunk_index) do
-    total_bytes = socket.assigns.transfer_total_bytes
-
-    %WorkerProtocol.TransferProgress{
-      job_id: socket.assigns.transfer_id,
-      video_id: video.id,
-      transfer_id: socket.assigns.transfer_id,
-      filename: Path.basename(video.path),
-      percent: transfer_percent(bytes_sent, total_bytes),
-      bytes_sent: bytes_sent,
-      total_bytes: total_bytes,
-      bytes_per_second: nil,
-      eta: nil,
-      chunk_index: chunk_index,
-      total_chunks: socket.assigns.transfer_total_chunks
-    }
-  end
-
-  defp transfer_percent(bytes_sent, total_bytes)
-       when is_integer(bytes_sent) and is_integer(total_bytes) and total_bytes > 0 do
-    bytes_sent / total_bytes * 100.0
-  end
-
-  defp transfer_percent(_bytes_sent, _total_bytes), do: 0.0
-
   defp read_transfer_chunk(%{assigns: %{current_video_id: video_id}} = socket, io_device) do
     video = Media.get_video(video_id)
 
@@ -903,12 +893,6 @@ defmodule ReencodarrWeb.WorkerChannel do
         chunk when is_binary(chunk) ->
           chunk_index = socket.assigns.transfer_chunk_index
           bytes_sent = socket.assigns.transfer_bytes_sent + byte_size(chunk)
-
-          _ =
-            WorkerSessions.set_transfer_progress(
-              socket.assigns.worker_id,
-              outbound_transfer_progress(socket, video, bytes_sent, chunk_index + 1)
-            )
 
           push(
             socket,
@@ -928,40 +912,48 @@ defmodule ReencodarrWeb.WorkerChannel do
            socket
            |> assign(:transfer_bytes_sent, bytes_sent)
            |> assign(:transfer_chunk_index, chunk_index + 1)
-           |> assign(:transfer_waiting_for_ack, true)}
+           |> assign(:transfer_waiting_for_ack, true)
+           |> assign(
+             :transfer_complete_pending,
+             bytes_sent >= socket.assigns.transfer_total_bytes
+           )}
 
         :eof ->
-          close_transfer_stream(io_device)
-
-          push(
-            socket,
-            "transfer_complete",
-            WorkerProtocol.transfer_complete(
-              video,
-              socket.assigns.transfer_id,
-              socket.assigns.transfer_total_bytes,
-              socket.assigns.transfer_total_chunks
-            )
-          )
-
-          {:noreply,
-           socket
-           |> assign(:transfer_io_device, nil)
-           |> assign(:transfer_path, nil)
-           |> assign(:transfer_id, nil)
-           |> assign(:transfer_chunk_size_bytes, nil)
-           |> assign(:transfer_total_bytes, nil)
-           |> assign(:transfer_total_chunks, nil)
-           |> assign(:transfer_bytes_sent, nil)
-           |> assign(:transfer_chunk_index, nil)
-           |> assign(:transfer_waiting_for_ack, nil)
-           |> assign(:transfer_started_sent, nil)}
+          {:noreply, complete_transfer(socket, video, io_device)}
 
         {:error, reason} ->
           close_transfer_stream(io_device)
           {:noreply, handle_transfer_failure(socket, video_id, reason)}
       end
     end
+  end
+
+  defp complete_transfer(socket, video, io_device) do
+    close_transfer_stream(io_device)
+
+    push(
+      socket,
+      "transfer_complete",
+      WorkerProtocol.transfer_complete(
+        video,
+        socket.assigns.transfer_id,
+        socket.assigns.transfer_total_bytes,
+        socket.assigns.transfer_total_chunks
+      )
+    )
+
+    socket
+    |> assign(:transfer_io_device, nil)
+    |> assign(:transfer_path, nil)
+    |> assign(:transfer_id, nil)
+    |> assign(:transfer_chunk_size_bytes, nil)
+    |> assign(:transfer_total_bytes, nil)
+    |> assign(:transfer_total_chunks, nil)
+    |> assign(:transfer_bytes_sent, nil)
+    |> assign(:transfer_chunk_index, nil)
+    |> assign(:transfer_waiting_for_ack, nil)
+    |> assign(:transfer_started_sent, nil)
+    |> assign(:transfer_complete_pending, nil)
   end
 
   defp handle_transfer_failure(socket, video_id, reason) do
@@ -1002,14 +994,20 @@ defmodule ReencodarrWeb.WorkerChannel do
            assigns: %{
              transfer_id: transfer_id,
              transfer_bytes_sent: bytes_sent,
-             transfer_waiting_for_ack: true
+             transfer_waiting_for_ack: true,
+             transfer_complete_pending: complete_pending?
            }
          } = socket,
          %{transfer_id: transfer_id, bytes_sent: acknowledged_bytes}
        )
        when is_integer(bytes_sent) and is_integer(acknowledged_bytes) and
               acknowledged_bytes >= bytes_sent do
-    send(self(), :stream_transfer_chunk)
+    if complete_pending? do
+      send(self(), :complete_transfer)
+    else
+      send(self(), :stream_transfer_chunk)
+    end
+
     assign(socket, :transfer_waiting_for_ack, false)
   end
 
