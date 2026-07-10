@@ -178,6 +178,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   attr :video, :map, required: true
   attr :results, :list, required: true
   attr :sample, :map, required: true
+  attr :progress, :any, default: :none
   attr :queue_count, :integer, default: 0
   attr :queue_items, :list, default: []
   attr :status, :atom, required: true
@@ -216,6 +217,27 @@ defmodule ReencodarrWeb.CrfSearchComponents do
           <%= if @sample do %>
             <div class="text-xs text-gray-400">
               Sample {@sample.sample_num}/{@sample.total_samples} - CRF {@sample.crf}
+            </div>
+          <% end %>
+
+          <%= if @progress != :none && Map.get(@progress, :percent) != nil do %>
+            <div>
+              <div class="mb-1 h-2 w-full rounded-full bg-gray-800">
+                <div
+                  class="h-2 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 transition-[width] duration-150 ease-out"
+                  style={"width: #{@progress.percent}%"}
+                >
+                </div>
+              </div>
+              <div class="flex justify-between text-xs text-gray-400">
+                <span>{@progress.percent}%</span>
+                <%= if @progress[:fps] do %>
+                  <span>{@progress.fps} fps</span>
+                <% end %>
+                <%= if @progress[:eta] do %>
+                  <span>ETA: {@progress.eta}</span>
+                <% end %>
+              </div>
             </div>
           <% end %>
 

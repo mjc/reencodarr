@@ -134,6 +134,7 @@ defmodule ReencodarrWeb.WorkersLive do
                         video={worker_crf_video(worker)}
                         results={worker_crf_results(worker)}
                         sample={worker_crf_sample(worker)}
+                        progress={worker.crf_search_progress || :none}
                         status={worker_crf_status(worker)}
                         show_controls={true}
                         show_queue={false}
