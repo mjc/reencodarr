@@ -204,7 +204,15 @@ defmodule Reencodarr.Rules do
 
   defp filter_tuples_for_context(tuples, :encode) do
     Enum.filter(tuples, fn {flag, _value} ->
-      flag not in ["--temp-dir", "--min-vmaf", "--max-vmaf", "--min-crf", "--max-crf"]
+      flag not in [
+        "crf-search",
+        "encode",
+        "--temp-dir",
+        "--min-vmaf",
+        "--max-vmaf",
+        "--min-crf",
+        "--max-crf"
+      ]
     end)
   end
 

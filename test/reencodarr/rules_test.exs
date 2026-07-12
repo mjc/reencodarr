@@ -1338,6 +1338,20 @@ defmodule Reencodarr.RulesTest do
       refute "--min-vmaf" in result
       refute "--max-vmaf" in result
     end
+
+    test "encode context filters CRF-search subcommands from persisted params" do
+      video = Fixtures.create_test_video()
+
+      result =
+        Rules.build_args(video, :encode, ["crf-search", "--preset", "6"], [
+          "encode",
+          "--input",
+          video.path
+        ])
+
+      assert Enum.count(result, &(&1 == "encode")) == 1
+      refute "crf-search" in result
+    end
   end
 
   describe "parameter parsing helpers" do
