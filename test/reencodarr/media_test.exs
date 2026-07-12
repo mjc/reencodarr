@@ -1945,6 +1945,21 @@ defmodule Reencodarr.MediaTest do
       assert vmaf.savings == 2_000_000
     end
 
+    test "upsert_vmaf/1 calculates savings from worker-style atom keys" do
+      {:ok, video} = Fixtures.video_fixture(%{size: 10_000_000})
+
+      {:ok, vmaf} =
+        Media.upsert_vmaf(%{
+          video_id: video.id,
+          crf: 24.0,
+          score: 96.0,
+          percent: 80.0,
+          params: ["--preset", "6"]
+        })
+
+      assert vmaf.savings == 2_000_000
+    end
+
     test "upsert_vmaf/1 does not change video state" do
       {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
 
