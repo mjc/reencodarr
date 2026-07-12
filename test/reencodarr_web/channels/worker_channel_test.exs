@@ -99,6 +99,38 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "uses the current source size when assigning worker input" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      path =
+        Path.join(
+          System.tmp_dir!(),
+          "worker-transfer-size-#{System.unique_integer([:positive])}.mkv"
+        )
+
+      File.write!(path, :binary.copy(<<0>>, 64))
+      on_exit(fn -> File.rm(path) end)
+
+      {:ok, video} = Fixtures.video_fixture(%{path: path, size: 128, state: :analyzed})
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-size")),
+                   :ok,
+                   %{accepted: true}
+
+      assert_reply push(socket, "pull_work", %{}),
+                   :ok,
+                   %{video_id: video_id, size_bytes: 64}
+
+      assert video_id == video.id
+      assert Media.get_video(video.id).size == 64
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "rejects unsupported protocol versions" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
@@ -489,7 +521,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
         {:ok, video} =
           Fixtures.video_fixture(%{
             path: path,
-            size: 8,
+            size: 16,
             state: :crf_searching,
             crf_search_worker_id: "worker-a"
           })
@@ -505,8 +537,9 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
         assert_reply push(socket, "pull_work", %{}),
                      :ok,
-                     %{status: "job_in_progress", video_id: ^video_id}
+                     %{status: "job_in_progress", video_id: ^video_id, size_bytes: 8}
 
+        assert Media.get_video(video_id).size == 8
         assert Media.get_video(video_id).state == :crf_searching
         assert Media.get_video_failures(video_id) == []
         assert WorkerSessions.get(socket.assigns.worker_id).phase == :crf_searching

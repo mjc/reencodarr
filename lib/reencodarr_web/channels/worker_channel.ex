@@ -5,6 +5,8 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   use ReencodarrWeb, :channel
 
+  require Logger
+
   alias Reencodarr.AbAv1.{CrfSearch, WorkerConfig, WorkerProtocol, WorkerSessions}
   alias Reencodarr.AbAv1.WorkerProtocol.Announcement
   alias Reencodarr.Dashboard.Events
@@ -372,6 +374,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     target_vmaf = Reencodarr.Rules.vmaf_target(video)
 
     with {:ok, _video} <- Media.mark_as_worker_crf_searching(video, worker_dispatch_id(socket)),
+         {:ok, video} <- refresh_transfer_source(video),
          {:ok, _session} <- WorkerSessions.assign_video(worker_id, video.id, :receiving_input) do
       socket =
         prepare_transfer(socket, video, target_vmaf, stream?: websocket_transfer_on_assign?())
@@ -387,13 +390,16 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp reply_for_active_work(worker_id, socket, video, :resend_input) do
     target_vmaf = socket.assigns[:current_vmaf_target] || Reencodarr.Rules.vmaf_target(video)
 
-    case WorkerSessions.assign_video(worker_id, video.id, :receiving_input) do
-      {:ok, _session} ->
-        socket =
-          prepare_transfer(socket, video, target_vmaf, stream?: true, fail_if_missing?: true)
+    with {:ok, video} <- refresh_transfer_source(video),
+         {:ok, _session} <- WorkerSessions.assign_video(worker_id, video.id, :receiving_input) do
+      socket =
+        prepare_transfer(socket, video, target_vmaf,
+          stream?: websocket_transfer_on_assign?(),
+          fail_if_missing?: true
+        )
 
-        {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf)}, socket}
-
+      {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf)}, socket}
+    else
       {:error, reason} ->
         {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
@@ -404,6 +410,8 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp resume_active_work(socket, video) do
+    {:ok, video} = refresh_transfer_source(video)
+
     {:reply, {:ok, WorkerProtocol.work_in_progress(video, socket.assigns[:current_vmaf_target])},
      socket}
   end
@@ -439,6 +447,32 @@ defmodule ReencodarrWeb.WorkerChannel do
 
     socket
   end
+
+  defp refresh_transfer_source(video) do
+    case File.stat(video.path) do
+      {:ok, %{size: size}} when size != video.size ->
+        Logger.warning(
+          "Worker transfer size mismatch for video #{video.id}; syncing source metadata"
+        )
+
+        sync_source_service(video.service_type)
+
+        case Media.update_video(video, %{size: size}) do
+          {:ok, updated_video} -> {:ok, updated_video}
+          {:error, _reason} -> {:ok, %{video | size: size}}
+        end
+
+      {:ok, _stat} ->
+        {:ok, video}
+
+      {:error, _reason} ->
+        {:ok, video}
+    end
+  end
+
+  defp sync_source_service(:sonarr), do: Reencodarr.Sync.sync_episodes()
+  defp sync_source_service(:radarr), do: Reencodarr.Sync.sync_movies()
+  defp sync_source_service(_service_type), do: :ok
 
   defp websocket_transfer_on_assign?,
     do: is_nil(WorkerConfig.transfer_base_url())
