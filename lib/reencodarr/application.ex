@@ -4,6 +4,9 @@ defmodule Reencodarr.Application do
   @moduledoc false
 
   use Application
+
+  alias Reencodarr.AbAv1.{LocalWorker, WorkerConfig}
+  alias Reencodarr.CrfSearcher.Supervisor, as: CrfSearcherSupervisor
   alias Reencodarr.Services.WebhookSync
 
   @impl true
@@ -128,7 +131,8 @@ defmodule Reencodarr.Application do
     base_children
   end
 
-  defp worker_children do
+  @doc false
+  def worker_children(env \\ Application.get_env(:reencodarr, :env)) do
     base_workers = [
       Reencodarr.Sync,
       # Cache services for analyzer optimization
@@ -136,20 +140,22 @@ defmodule Reencodarr.Application do
       Reencodarr.Analyzer.MediaInfoCache
     ]
 
-    # Only start Broadway-based workers in non-test environments to avoid process kill issues
-    broadway_workers = [
+    shared_workers = [
       Reencodarr.AbAv1,
-      Reencodarr.CrfSearcher.Supervisor,
       Reencodarr.Encoder.Supervisor,
       Reencodarr.Encoder.HealthCheck,
       Reencodarr.Dashboard.State,
       Reencodarr.TempCleaner
     ]
 
-    # Only start Analyzer GenStage in non-test environments
-    if Application.get_env(:reencodarr, :env) != :test do
-      [Reencodarr.Analyzer.Supervisor | base_workers] ++
-        broadway_workers
+    if env != :test do
+      crf_worker =
+        case WorkerConfig.execution_mode() do
+          :broadway -> CrfSearcherSupervisor
+          :worker -> LocalWorker
+        end
+
+      Enum.concat([[Reencodarr.Analyzer.Supervisor | base_workers], shared_workers, [crf_worker]])
     else
       base_workers
     end

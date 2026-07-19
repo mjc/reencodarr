@@ -8,7 +8,7 @@ defmodule Reencodarr.Diagnostics do
 
   import Ecto.Query
 
-  alias Reencodarr.AbAv1.{CrfSearch, Encode, WorkerSessions}
+  alias Reencodarr.AbAv1.{CrfSearch, Encode, LocalWorker, WorkerConfig, WorkerSessions}
   alias Reencodarr.Analyzer
   alias Reencodarr.Analyzer.MediaInfoCache
   alias Reencodarr.Core.Time
@@ -29,6 +29,8 @@ defmodule Reencodarr.Diagnostics do
     analyzer_status = Analyzer.status()
     crf_status = CrfSearcher.status()
     encoder_status = Encoder.status()
+    execution_mode = WorkerConfig.execution_mode()
+    local_worker_status = safe_call(fn -> LocalWorker.status() end)
 
     # GenServer state
     crf_search_state = safe_call(fn -> CrfSearch.get_state() end)
@@ -54,7 +56,7 @@ defmodule Reencodarr.Diagnostics do
 
     Pipelines:
       Analyzer:     running=#{analyzer_status.running}, active=#{analyzer_status.actively_running}, queue=#{analyzer_status.queue_count}
-      CRF Searcher: running=#{crf_status.running}, active=#{crf_status.actively_running}, available=#{crf_status.available}, queue=#{crf_status.queue_count}
+      CRF Searcher: #{format_crf_executor(execution_mode, crf_status, local_worker_status)}
       Encoder:      running=#{encoder_status.running}, active=#{encoder_status.actively_running}, available=#{encoder_status.available}, queue=#{encoder_status.queue_count}
 
     GenServers:
@@ -307,6 +309,7 @@ defmodule Reencodarr.Diagnostics do
     health_state = safe_get_state(Reencodarr.Encoder.HealthCheck, 2000)
     cache_stats = safe_call(fn -> MediaInfoCache.get_stats() end)
     worker_sessions = safe_call(fn -> WorkerSessions.list() end)
+    local_worker = safe_call(fn -> LocalWorker.status() end)
 
     worker_sessions_section =
       case worker_sessions do
@@ -329,6 +332,9 @@ defmodule Reencodarr.Diagnostics do
 
     Worker Sessions:
     #{worker_sessions_section}
+
+    Local Worker Process:
+    #{format_local_worker(local_worker)}
 
     MediaInfo Cache:
     #{format_cache_stats(cache_stats)}
@@ -424,6 +430,20 @@ defmodule Reencodarr.Diagnostics do
   catch
     :exit, _ -> {:error, :unavailable}
   end
+
+  defp format_crf_executor(:broadway, status, _local_worker) do
+    "mode=broadway, running=#{status.running}, active=#{status.actively_running}, available=#{status.available}, queue=#{status.queue_count}"
+  end
+
+  defp format_crf_executor(:worker, status, local_worker) do
+    "mode=worker, #{format_local_worker(local_worker)}, queue=#{status.queue_count}"
+  end
+
+  defp format_local_worker(%{} = status) do
+    "running=#{status.running}, worker_id=#{status.worker_id}, pid=#{status.os_pid || "none"}, version=#{status.version}, restarts=#{status.restart_count}, last_exit=#{status.last_exit_status || "none"}"
+  end
+
+  defp format_local_worker(_), do: "unavailable"
 
   defp safe_get_state(name, timeout) do
     :sys.get_state(name, timeout)

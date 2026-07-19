@@ -8,7 +8,7 @@ defmodule ReencodarrWeb.DashboardLive do
   """
   use ReencodarrWeb, :live_view
 
-  alias Reencodarr.AbAv1.{CrfSearch, Encode}
+  alias Reencodarr.AbAv1.{CrfSearch, Encode, LocalWorker, WorkerConfig}
   alias Reencodarr.Core.Parsers
   alias Reencodarr.CrfSearcher.Broadway, as: CrfSearcherBroadway
   alias Reencodarr.Dashboard.Events
@@ -54,6 +54,8 @@ defmodule ReencodarrWeb.DashboardLive do
         page_title: nil,
         worker_token_state: worker_token_state(),
         worker_socket_url: worker_socket_url(),
+        worker_execution_mode: WorkerConfig.execution_mode(),
+        local_worker_status: local_worker_status(),
         # New dashboard stats
         stats: Reencodarr.Media.get_default_stats(),
         stats_display: stats_display(Reencodarr.Media.get_default_stats()),
@@ -700,6 +702,8 @@ defmodule ReencodarrWeb.DashboardLive do
   attr :service_type, :atom, required: true
   attr :worker_token_state, :any, required: true
   attr :worker_socket_url, :string, required: true
+  attr :worker_execution_mode, :atom, required: true
+  attr :local_worker_status, :any, required: true
 
   defp sync_controls(assigns) do
     ~H"""
@@ -749,10 +753,19 @@ defmodule ReencodarrWeb.DashboardLive do
       <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-3 sm:p-4">
         <div class="flex items-center justify-between gap-2">
           <h3 class="font-semibold text-white">Worker WebSocket</h3>
-          <span class="rounded-full bg-cyan-950 px-2 py-1 text-[11px] text-cyan-300">ab-av1</span>
+          <span class="rounded-full bg-cyan-950 px-2 py-1 text-[11px] text-cyan-300">
+            CRF: {@worker_execution_mode}
+          </span>
         </div>
 
         <div class="mt-3 space-y-3 text-sm">
+          <div>
+            <div class="text-[11px] uppercase tracking-wide text-gray-500">Local worker process</div>
+            <div class="mt-1 rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
+              {local_worker_status_label(@worker_execution_mode, @local_worker_status)}
+            </div>
+          </div>
+
           <div>
             <div class="text-[11px] uppercase tracking-wide text-gray-500">URL</div>
             <div class="mt-1 overflow-x-auto rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
@@ -1006,6 +1019,8 @@ defmodule ReencodarrWeb.DashboardLive do
             service_type={@service_type}
             worker_token_state={@worker_token_state}
             worker_socket_url={@worker_socket_url}
+            worker_execution_mode={@worker_execution_mode}
+            local_worker_status={@local_worker_status}
           />
         </div>
       </div>
@@ -1016,12 +1031,32 @@ defmodule ReencodarrWeb.DashboardLive do
   # Helper functions for real data
   # Simple service status - just check if processes are alive
   defp get_optimistic_service_status do
+    crf_searcher =
+      case WorkerConfig.execution_mode() do
+        :broadway -> if(CrfSearcherBroadway.running?(), do: :idle, else: :stopped)
+        :worker -> if(Process.whereis(LocalWorker), do: :idle, else: :stopped)
+      end
+
     %{
       analyzer: if(Process.whereis(@producer_modules.analyzer), do: :idle, else: :stopped),
-      crf_searcher: if(CrfSearcherBroadway.running?(), do: :idle, else: :stopped),
+      crf_searcher: crf_searcher,
       encoder: if(Process.whereis(@producer_modules.encoder), do: :idle, else: :stopped)
     }
   end
+
+  defp local_worker_status do
+    LocalWorker.status()
+  catch
+    :exit, _ -> :unavailable
+  end
+
+  defp local_worker_status_label(:broadway, _status), do: "disabled (Broadway active)"
+
+  defp local_worker_status_label(:worker, %{running: true} = status) do
+    "running pid=#{status.os_pid || "unknown"} version=#{status.version} restarts=#{status.restart_count}"
+  end
+
+  defp local_worker_status_label(:worker, _status), do: "unavailable"
 
   defp request_current_status do
     # Send cast to each producer to broadcast their current status

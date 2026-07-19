@@ -3,6 +3,33 @@
 This document describes the current Reencodarr websocket contract for distributed
 `ab-av1` CRF-search workers.
 
+## Local supervised worker rollout
+
+Reencodarr can replace its local CRF Broadway pipeline with one long-lived
+worker-capable `ab-av1` process. Analysis and encoding remain on their existing
+pipelines because worker protocol version 1 only advertises CRF-search work.
+
+Set `REENCODARR_CRF_EXECUTION_MODE=worker`. Reencodarr then starts:
+
+```text
+ab-av1 worker --connect <REENCODARR_WORKER_CONNECT_URL> \
+  --token <REENCODARR_WORKER_TOKEN> \
+  --worker-id <REENCODARR_WORKER_ID> \
+  --protocol-version 1
+```
+
+The process is supervised, logs are forwarded without printing the token, and
+unexpected exits restart with bounded exponential backoff. The CRF Broadway
+supervisor and local worker are mutually exclusive. Restore
+`REENCODARR_CRF_EXECUTION_MODE=broadway` and restart to roll back; Broadway code
+is intentionally retained during the rollout.
+
+Before switching modes, drain active CRF work. After switching, use
+`bin/rpc 'Reencodarr.Diagnostics.processes()'` to verify the process and websocket
+session, then run a representative SDR and HDR job. Worker-owned
+`:crf_searching` rows survive reconnects; only rows without a worker dispatch id
+are reclaimed as orphaned local work.
+
 ## Versioning
 
 - Protocol version: `1`

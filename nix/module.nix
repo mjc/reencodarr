@@ -17,6 +17,11 @@
       REENCODARR_DATA_DIR = toString cfg.dataDir;
       REENCODARR_TMPDIR = "${toString cfg.cacheDir}/tmp";
       TMPDIR = "${toString cfg.cacheDir}/tmp";
+      REENCODARR_CRF_EXECUTION_MODE = cfg.crfExecutionMode;
+      REENCODARR_WORKER_CONNECT_URL = cfg.workerConnectUrl;
+      REENCODARR_WORKER_EXECUTABLE = cfg.workerExecutable;
+      REENCODARR_WORKER_ID = cfg.workerId;
+      REENCODARR_WORKER_EXTRA_ARGS = lib.escapeShellArgs cfg.workerExtraArgs;
     }
     // cfg.extraEnvironment;
 
@@ -169,6 +174,38 @@ in {
       type = types.path;
       default = "/var/cache/reencodarr";
       description = "Directory for temporary working files and caches.";
+    };
+
+    crfExecutionMode = mkOption {
+      type = types.enum ["broadway" "worker"];
+      default = "broadway";
+      description = "CRF search executor. Worker mode disables the CRF Broadway supervisor and starts one local ab-av1 worker.";
+    };
+
+    workerConnectUrl = mkOption {
+      type = types.str;
+      default = "http://127.0.0.1:${toString cfg.port}";
+      defaultText = literalExpression ''"http://127.0.0.1:${toString config.services.reencodarr.port}"'';
+      description = "Reencodarr base URL used by the supervised local ab-av1 worker.";
+    };
+
+    workerExecutable = mkOption {
+      type = types.str;
+      default = "ab-av1";
+      description = "Path or executable name for the worker-capable ab-av1 binary.";
+    };
+
+    workerId = mkOption {
+      type = types.str;
+      default = config.networking.hostName;
+      defaultText = literalExpression "config.networking.hostName";
+      description = "Stable client id announced by the local ab-av1 worker.";
+    };
+
+    workerExtraArgs = mkOption {
+      type = types.listOf types.str;
+      default = [];
+      description = "Additional arguments appended to the ab-av1 worker command.";
     };
 
     databasePath = mkOption {

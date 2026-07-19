@@ -106,6 +106,26 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert output =~ "version=0.10.0"
     assert output =~ "phase=crf_searching"
     assert output =~ "video_state=analyzed"
+    assert output =~ "Local Worker Process:"
+  end
+
+  test "diagnostics identify worker execution mode without reporting Broadway as failed" do
+    previous = Application.get_env(:reencodarr, :crf_execution_mode)
+    Application.put_env(:reencodarr, :crf_execution_mode, :worker)
+
+    on_exit(fn ->
+      if is_nil(previous) do
+        Application.delete_env(:reencodarr, :crf_execution_mode)
+      else
+        Application.put_env(:reencodarr, :crf_execution_mode, previous)
+      end
+    end)
+
+    output = Diagnostics.status()
+
+    assert output =~ "CRF Searcher: mode=worker"
+    assert output =~ "unavailable"
+    refute output =~ "CRF Searcher: running=false"
   end
 
   test "tracks an assigned video on the session" do

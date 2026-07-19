@@ -66,8 +66,19 @@ if worker_transfer_token do
 end
 
 config :reencodarr,
+  crf_execution_mode: System.get_env("REENCODARR_CRF_EXECUTION_MODE", "broadway"),
   distributed_worker_enabled:
     parse_bool_env.(System.get_env("REENCODARR_DISTRIBUTED_WORKERS", "true")),
+  worker_connect_url:
+    System.get_env(
+      "REENCODARR_WORKER_CONNECT_URL",
+      "http://127.0.0.1:#{System.get_env("PORT", "4000")}"
+    ),
+  worker_executable: System.get_env("REENCODARR_WORKER_EXECUTABLE", "ab-av1"),
+  worker_id: System.get_env("REENCODARR_WORKER_ID"),
+  worker_extra_args: System.get_env("REENCODARR_WORKER_EXTRA_ARGS", "") |> OptionParser.split(),
+  worker_restart_base_ms: parse_int_env.("REENCODARR_WORKER_RESTART_BASE_MS", 1_000),
+  worker_restart_max_ms: parse_int_env.("REENCODARR_WORKER_RESTART_MAX_MS", 30_000),
   worker_chunk_size_bytes: parse_int_env.("REENCODARR_WORKER_CHUNK_SIZE_BYTES", 134_217_728),
   worker_transfer_window: parse_int_env.("REENCODARR_WORKER_TRANSFER_WINDOW", 1),
   worker_retry_limit: parse_int_env.("REENCODARR_WORKER_RETRY_LIMIT", 3),

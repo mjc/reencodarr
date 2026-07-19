@@ -25,11 +25,34 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert html =~ "Sonarr"
       assert html =~ "Radarr"
       assert html =~ "Open workers"
+      assert html =~ "CRF: broadway"
+      assert html =~ "disabled (Broadway active)"
       assert html =~ ~s(id="dashboard-root")
       assert html =~ ~s(phx-hook="DashboardAnimations")
       assert html =~ ~s(id="dashboard-active-work")
       assert html =~ "Needs Analysis:"
       assert html =~ "VMAF Score Distribution"
+    end
+
+    test "shows worker execution mode without calling stopped Broadway a worker failure", %{
+      conn: conn
+    } do
+      previous = Application.get_env(:reencodarr, :crf_execution_mode)
+      Application.put_env(:reencodarr, :crf_execution_mode, :worker)
+
+      on_exit(fn ->
+        if is_nil(previous) do
+          Application.delete_env(:reencodarr, :crf_execution_mode)
+        else
+          Application.put_env(:reencodarr, :crf_execution_mode, previous)
+        end
+      end)
+
+      {:ok, _view, html} = live(conn, ~p"/")
+
+      assert html =~ "CRF: worker"
+      assert html =~ "Local worker process"
+      assert html =~ "unavailable"
     end
 
     @tag :expected_failure
