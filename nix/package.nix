@@ -41,9 +41,10 @@
     });
   });
   elixir = beamPackages.elixir_1_20;
+  ab-av1-worker = pkgs.callPackage ./ab-av1-worker.nix {};
 
   runtimePath = lib.makeBinPath [
-    pkgs.ab-av1
+    ab-av1-worker
     ffmpeg-svt-hdr
     pkgs.gpac
     pkgs.mediainfo

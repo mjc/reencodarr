@@ -27,6 +27,7 @@
   rebar3 = beamPackages.rebar3.overrideAttrs (_old: {
     doCheck = false;
   });
+  ab-av1-worker = pkgs.callPackage ./ab-av1-worker.nix {};
 in
   pkgs.mkShell {
     buildInputs = [
@@ -54,7 +55,7 @@ in
         pkgs.docker-compose
         pkgs.gnupg
         pkgs.pinentry-curses
-        pkgs.ab-av1
+        ab-av1-worker
         pkgs.mediainfo
         pkgs.mkvtoolnix
         pkgs.gpac
