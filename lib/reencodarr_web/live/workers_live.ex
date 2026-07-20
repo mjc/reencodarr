@@ -17,7 +17,8 @@ defmodule ReencodarrWeb.WorkersLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    socket = assign(socket, :workers, WorkerSessions.list())
+    workers = WorkerSessions.list()
+    socket = assign(socket, workers: workers, crf_worker_data: load_worker_crf_data(workers))
 
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
@@ -30,12 +31,24 @@ defmodule ReencodarrWeb.WorkersLive do
   @impl true
   def handle_info(:refresh_workers, socket) do
     Process.send_after(self(), :refresh_workers, @refresh_interval)
-    {:noreply, assign(socket, :workers, WorkerSessions.list())}
+    {:noreply, assign_workers(socket, WorkerSessions.list())}
   end
 
   @impl true
   def handle_info({:worker_sessions_updated, %{sessions: sessions}}, socket) do
-    {:noreply, assign(socket, :workers, sessions)}
+    {:noreply, assign_workers(socket, sessions)}
+  end
+
+  def handle_info({:crf_search_result, %{video_id: video_id}}, socket) do
+    {:noreply,
+     assign(
+       socket,
+       :crf_worker_data,
+       load_worker_crf_data(
+         socket.assigns.workers,
+         Map.delete(socket.assigns.crf_worker_data, video_id)
+       )
+     )}
   end
 
   def handle_info({_event, _data}, socket), do: {:noreply, socket}
@@ -134,9 +147,9 @@ defmodule ReencodarrWeb.WorkersLive do
                         title="Input Ready"
                       />
                     <% :crf_searching -> %>
-                      <.worker_crf_search_panel worker={worker} />
+                      <.worker_crf_search_panel worker={worker} crf_data={@crf_worker_data} />
                     <% :idle -> %>
-                      <.worker_crf_search_panel worker={worker} />
+                      <.worker_crf_search_panel worker={worker} crf_data={@crf_worker_data} />
                   <% end %>
                 </div>
               </section>
@@ -156,6 +169,13 @@ defmodule ReencodarrWeb.WorkersLive do
     )
 
     {:noreply, put_flash(socket, :info, message)}
+  end
+
+  defp assign_workers(socket, workers) do
+    assign(socket,
+      workers: workers,
+      crf_worker_data: load_worker_crf_data(workers, socket.assigns.crf_worker_data)
+    )
   end
 
   defp transfer_panel(assigns) do

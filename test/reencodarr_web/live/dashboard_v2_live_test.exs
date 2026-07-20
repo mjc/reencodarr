@@ -12,6 +12,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
   import Phoenix.LiveViewTest
 
   alias Reencodarr.AbAv1.WorkerSessions
+  alias ReencodarrWeb.CrfSearchComponents
 
   setup do
     WorkerSessions.reset()
@@ -73,6 +74,16 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       refute has_element?(view, "#no-crf-workers")
     end
 
+    test "reuses loaded CRF worker data across progress updates" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+      workers = [%{active_video_id: video.id}]
+
+      cached = CrfSearchComponents.load_worker_crf_data(workers)
+      Reencodarr.Repo.delete!(video)
+
+      assert CrfSearchComponents.load_worker_crf_data(workers, cached) == cached
+    end
+
     test "shows worker execution mode without calling stopped Broadway a worker failure", %{
       conn: conn
     } do
@@ -91,7 +102,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
       assert html =~ "CRF: worker"
       assert html =~ "Local worker process"
-      assert html =~ "unavailable"
+      assert html =~ "no workers connected"
     end
 
     @tag :expected_failure
@@ -145,7 +156,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert html =~ "initial-queue-preview.mkv"
     end
 
-    test "shows the worker websocket token when configured", %{conn: conn} do
+    test "shows only the worker token fingerprint when configured", %{conn: conn} do
       previous_token = Application.get_env(:reencodarr, :worker_token)
       Application.put_env(:reencodarr, :worker_token, "deploy-test-worker-token")
 
@@ -161,7 +172,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       expected_fingerprint = worker_token_fingerprint("deploy-test-worker-token")
 
       assert html =~ "Worker WebSocket"
-      assert html =~ "deploy-test-worker-token"
+      refute html =~ "deploy-test-worker-token"
       assert html =~ expected_fingerprint
       assert html =~ "/workers/socket/websocket?token="
     end
@@ -467,6 +478,41 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert html =~ "waiting for first completed VMAF result"
       assert html =~ ~s(<svg viewBox="0 0 320 140")
       assert html =~ "CRF 15"
+    end
+
+    test "renders Broadway progress without optional fps or eta", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      send(view.pid, {
+        :dashboard_state_changed,
+        %{
+          crf_search_video: %{
+            video_id: 1,
+            filename: "partial-progress.mkv",
+            target_vmaf: 95,
+            video_size: 1_000,
+            width: 1920,
+            height: 1080,
+            hdr: nil
+          },
+          crf_search_results: [],
+          crf_search_sample: nil,
+          crf_progress: %{video_id: 1, percent: 37.0, filename: "partial-progress.mkv"},
+          encoding_video: nil,
+          encoding_vmaf: nil,
+          encoding_progress: :none,
+          service_status: %{analyzer: :idle, crf_searcher: :processing, encoder: :idle},
+          stats: Reencodarr.Media.get_default_stats(),
+          queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
+          queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
+          vmaf_distribution: [],
+          resolution_distribution: [],
+          codec_distribution: []
+        }
+      })
+
+      :timer.sleep(50)
+      assert render(view) =~ "37.0%"
     end
 
     test "handles throughput events without error", %{conn: conn} do

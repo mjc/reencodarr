@@ -31,6 +31,7 @@ defmodule Reencodarr.Diagnostics do
     encoder_status = Encoder.status()
     execution_mode = WorkerConfig.execution_mode()
     local_worker_status = safe_call(fn -> LocalWorker.status() end)
+    worker_sessions = safe_call(fn -> WorkerSessions.list() end)
 
     # GenServer state
     crf_search_state = safe_call(fn -> CrfSearch.get_state() end)
@@ -56,7 +57,7 @@ defmodule Reencodarr.Diagnostics do
 
     Pipelines:
       Analyzer:     running=#{analyzer_status.running}, active=#{analyzer_status.actively_running}, queue=#{analyzer_status.queue_count}
-      CRF Searcher: #{format_crf_executor(execution_mode, crf_status, local_worker_status)}
+      CRF Searcher: #{format_crf_executor(execution_mode, crf_status, local_worker_status, worker_sessions)}
       Encoder:      running=#{encoder_status.running}, active=#{encoder_status.actively_running}, available=#{encoder_status.available}, queue=#{encoder_status.queue_count}
 
     GenServers:
@@ -431,12 +432,17 @@ defmodule Reencodarr.Diagnostics do
     :exit, _ -> {:error, :unavailable}
   end
 
-  defp format_crf_executor(:broadway, status, _local_worker) do
+  defp format_crf_executor(:broadway, status, _local_worker, _worker_sessions) do
     "mode=broadway, running=#{status.running}, active=#{status.actively_running}, available=#{status.available}, queue=#{status.queue_count}"
   end
 
-  defp format_crf_executor(:worker, status, local_worker) do
-    "mode=worker, #{format_local_worker(local_worker)}, queue=#{status.queue_count}"
+  defp format_crf_executor(:worker, status, local_worker, worker_sessions) do
+    connected = if is_list(worker_sessions), do: length(worker_sessions), else: 0
+
+    active =
+      if is_list(worker_sessions), do: Enum.count(worker_sessions, & &1.active_video_id), else: 0
+
+    "mode=worker, connected=#{connected}, active=#{active}, #{format_local_worker(local_worker)}, queue=#{status.queue_count}"
   end
 
   defp format_local_worker(%{} = status) do

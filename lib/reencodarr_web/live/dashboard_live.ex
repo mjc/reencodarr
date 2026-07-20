@@ -33,6 +33,7 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def mount(_params, _session, socket) do
     dashboard_state_pid = Process.whereis(DashboardState)
+    crf_workers = crf_workers()
 
     socket =
       assign(socket, %{
@@ -56,7 +57,8 @@ defmodule ReencodarrWeb.DashboardLive do
         worker_socket_url: worker_socket_url(),
         worker_execution_mode: WorkerConfig.execution_mode(),
         local_worker_status: local_worker_status(),
-        crf_workers: crf_workers(),
+        crf_workers: crf_workers,
+        crf_worker_data: load_worker_crf_data(crf_workers),
         # New dashboard stats
         stats: Reencodarr.Media.get_default_stats(),
         stats_display: stats_display(Reencodarr.Media.get_default_stats()),
@@ -201,12 +203,25 @@ defmodule ReencodarrWeb.DashboardLive do
     # Schedule next update (recursive scheduling)
     schedule_periodic_update()
 
-    {:noreply, assign(socket, :crf_workers, crf_workers())}
+    {:noreply, assign_crf_workers(socket, crf_workers())}
   end
 
   @impl true
   def handle_info({:worker_sessions_updated, %{sessions: sessions}}, socket) do
-    {:noreply, assign(socket, :crf_workers, sessions)}
+    {:noreply, assign_crf_workers(socket, sessions)}
+  end
+
+  @impl true
+  def handle_info({:crf_search_result, %{video_id: video_id}}, socket) do
+    {:noreply,
+     assign(
+       socket,
+       :crf_worker_data,
+       load_worker_crf_data(
+         socket.assigns.crf_workers,
+         Map.delete(socket.assigns.crf_worker_data, video_id)
+       )
+     )}
   end
 
   @impl true
@@ -730,6 +745,7 @@ defmodule ReencodarrWeb.DashboardLive do
   attr :worker_socket_url, :string, required: true
   attr :worker_execution_mode, :atom, required: true
   attr :local_worker_status, :any, required: true
+  attr :crf_workers, :list, required: true
 
   defp sync_controls(assigns) do
     ~H"""
@@ -788,7 +804,11 @@ defmodule ReencodarrWeb.DashboardLive do
           <div>
             <div class="text-[11px] uppercase tracking-wide text-gray-500">Local worker process</div>
             <div class="mt-1 rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
-              {local_worker_status_label(@worker_execution_mode, @local_worker_status)}
+              {local_worker_status_label(
+                @worker_execution_mode,
+                @local_worker_status,
+                length(@crf_workers)
+              )}
             </div>
           </div>
 
@@ -803,8 +823,8 @@ defmodule ReencodarrWeb.DashboardLive do
             <div class="text-[11px] uppercase tracking-wide text-gray-500">Token</div>
             <div class="mt-1 overflow-x-auto rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
               <%= case @worker_token_state do %>
-                <% {:ok, token, _fingerprint} -> %>
-                  {token}
+                <% {:ok, _fingerprint} -> %>
+                  configured
                 <% :error -> %>
                   not configured
               <% end %>
@@ -815,7 +835,7 @@ defmodule ReencodarrWeb.DashboardLive do
             <div class="text-[11px] uppercase tracking-wide text-gray-500">Token fingerprint</div>
             <div class="mt-1 overflow-x-auto rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
               <%= case @worker_token_state do %>
-                <% {:ok, _token, fingerprint} -> %>
+                <% {:ok, fingerprint} -> %>
                   {fingerprint}
                 <% :error -> %>
                   not configured
@@ -861,7 +881,7 @@ defmodule ReencodarrWeb.DashboardLive do
           |> Base.encode16(case: :lower)
           |> String.slice(0, 12)
 
-        {:ok, token, "sha256:#{digest}"}
+        {:ok, "sha256:#{digest}"}
 
       _ ->
         :error
@@ -989,6 +1009,7 @@ defmodule ReencodarrWeb.DashboardLive do
               video={@crf_search_video}
               results={@crf_search_results}
               sample={@crf_search_sample}
+              progress={@crf_progress}
               queue_count={@queue_counts.crf_searcher}
               queue_items={@queue_items.crf_searcher}
               status={@service_status.crf_searcher}
@@ -1002,6 +1023,7 @@ defmodule ReencodarrWeb.DashboardLive do
             <.worker_crf_search_panel
               :for={{worker, index} <- Enum.with_index(@crf_workers)}
               worker={worker}
+              crf_data={@crf_worker_data}
               queue_count={@queue_counts.crf_searcher}
               queue_items={@queue_items.crf_searcher}
               show_queue={index == 0}
@@ -1068,6 +1090,7 @@ defmodule ReencodarrWeb.DashboardLive do
             worker_socket_url={@worker_socket_url}
             worker_execution_mode={@worker_execution_mode}
             local_worker_status={@local_worker_status}
+            crf_workers={@crf_workers}
           />
         </div>
       </div>
@@ -1081,7 +1104,7 @@ defmodule ReencodarrWeb.DashboardLive do
     crf_searcher =
       case WorkerConfig.execution_mode() do
         :broadway -> if(CrfSearcherBroadway.running?(), do: :idle, else: :stopped)
-        :worker -> if(Process.whereis(LocalWorker), do: :idle, else: :stopped)
+        :worker -> if(crf_workers() == [], do: :stopped, else: :idle)
       end
 
     %{
@@ -1097,13 +1120,17 @@ defmodule ReencodarrWeb.DashboardLive do
     :exit, _ -> :unavailable
   end
 
-  defp local_worker_status_label(:broadway, _status), do: "disabled (Broadway active)"
+  defp local_worker_status_label(:broadway, _status, _worker_count),
+    do: "disabled (Broadway active)"
 
-  defp local_worker_status_label(:worker, %{running: true} = status) do
+  defp local_worker_status_label(:worker, %{running: true} = status, _worker_count) do
     "running pid=#{status.os_pid || "unknown"} version=#{status.version} restarts=#{status.restart_count}"
   end
 
-  defp local_worker_status_label(:worker, _status), do: "unavailable"
+  defp local_worker_status_label(:worker, _status, worker_count) when worker_count > 0,
+    do: "#{worker_count} connected (independent)"
+
+  defp local_worker_status_label(:worker, _status, _worker_count), do: "no workers connected"
 
   defp request_current_status do
     # Send cast to each producer to broadcast their current status
@@ -1331,6 +1358,13 @@ defmodule ReencodarrWeb.DashboardLive do
     else
       []
     end
+  end
+
+  defp assign_crf_workers(socket, workers) do
+    assign(socket,
+      crf_workers: workers,
+      crf_worker_data: load_worker_crf_data(workers, socket.assigns.crf_worker_data)
+    )
   end
 
   defp handle_control_result(socket, :ok, message) do

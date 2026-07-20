@@ -134,10 +134,11 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
       end
     end)
 
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
     output = Diagnostics.status()
 
     assert output =~ "CRF Searcher: mode=worker"
-    assert output =~ "unavailable"
+    assert output =~ "connected=1"
     refute output =~ "CRF Searcher: running=false"
   end
 

@@ -234,10 +234,10 @@ defmodule ReencodarrWeb.CrfSearchComponents do
               </div>
               <div class="flex justify-between text-xs text-gray-400">
                 <span>{@progress.percent}%</span>
-                <%= if @progress.fps do %>
+                <%= if @progress[:fps] do %>
                   <span>{@progress.fps} fps</span>
                 <% end %>
-                <%= if @progress.eta do %>
+                <%= if @progress[:eta] do %>
                   <span>ETA: {@progress.eta}</span>
                 <% end %>
               </div>
@@ -335,17 +335,19 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   end
 
   attr :worker, :map, required: true
+  attr :crf_data, :map, default: %{}
   attr :queue_count, :integer, default: 0
   attr :queue_items, :list, default: []
   attr :show_queue, :boolean, default: false
 
   def worker_crf_search_panel(assigns) do
     worker = assigns.worker
+    crf_data = Map.get(assigns.crf_data, active_video_id(worker), %{})
 
     assigns =
       assign(assigns,
-        video: worker_crf_video(worker),
-        results: worker_crf_results(worker),
+        video: worker_crf_video(crf_data[:video]),
+        results: worker_crf_results(crf_data[:results]),
         sample: worker_crf_sample(worker),
         status: worker_crf_status(worker)
       )
@@ -380,38 +382,29 @@ defmodule ReencodarrWeb.CrfSearchComponents do
 
   defp worker_crf_status(_worker), do: :idle
 
-  defp worker_crf_video(worker) do
-    case active_video(worker) do
-      %Media.Video{} = video ->
-        %{
-          video_id: video.id,
-          filename: Path.basename(video.path),
-          video_size: video.size,
-          width: video.width,
-          height: video.height,
-          hdr: video.hdr,
-          target_vmaf: Rules.vmaf_target(video)
-        }
-
-      nil ->
-        nil
-    end
+  defp worker_crf_video(%Media.Video{} = video) do
+    %{
+      video_id: video.id,
+      filename: Path.basename(video.path),
+      video_size: video.size,
+      width: video.width,
+      height: video.height,
+      hdr: video.hdr,
+      target_vmaf: Rules.vmaf_target(video)
+    }
   end
 
-  defp worker_crf_results(worker) do
-    case active_video_id(worker) do
-      nil ->
-        []
+  defp worker_crf_video(_video), do: nil
 
-      video_id ->
-        video_id
-        |> Media.get_vmafs_for_video()
-        |> Enum.sort_by(& &1.crf)
-        |> Enum.map(fn vmaf ->
-          %{crf: vmaf.crf, score: vmaf.score, percent: vmaf.percent}
-        end)
-    end
+  defp worker_crf_results(results) when is_list(results) do
+    results
+    |> Enum.sort_by(& &1.crf)
+    |> Enum.map(fn vmaf ->
+      %{crf: vmaf.crf, score: vmaf.score, percent: vmaf.percent}
+    end)
   end
+
+  defp worker_crf_results(_results), do: []
 
   defp worker_crf_sample(%{
          crf_search_progress: %{crf: crf, sample_num: sample_num, total_samples: total_samples}
@@ -422,17 +415,20 @@ defmodule ReencodarrWeb.CrfSearchComponents do
 
   defp worker_crf_sample(_worker), do: nil
 
-  defp active_video(worker) do
-    case active_video_id(worker) do
-      nil -> nil
-      video_id -> Media.get_video(video_id)
-    end
-  end
-
   defp active_video_id(%{active_video_id: video_id}) when is_integer(video_id), do: video_id
   defp active_video_id(%{crf_search_progress: %{video_id: video_id}}), do: video_id
   defp active_video_id(%{transfer_progress: %{video_id: video_id}}), do: video_id
   defp active_video_id(_worker), do: nil
+
+  def load_worker_crf_data(workers, cached \\ %{}) do
+    video_ids = workers |> Enum.map(&active_video_id/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    Enum.reduce(video_ids, Map.take(cached, video_ids), fn video_id, data ->
+      Map.put_new_lazy(data, video_id, fn ->
+        %{video: Media.get_video(video_id), results: Media.get_vmafs_for_video(video_id)}
+      end)
+    end)
+  end
 
   attr :status, :atom, required: true
   attr :suspend_event, :string, required: true
