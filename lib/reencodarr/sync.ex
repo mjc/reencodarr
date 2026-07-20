@@ -16,6 +16,7 @@ defmodule Reencodarr.Sync do
   @default_write_batch_size 100
   @default_fetch_timeout_ms 90_000
   @default_fetch_concurrency 2
+  @known_file_query_batch_size 25
   # Sync every 6 hours by default; override via :sync_interval_ms app env
   @default_sync_interval_ms :timer.hours(6)
 
@@ -289,11 +290,15 @@ defmodule Reencodarr.Sync do
       |> Enum.map(&elem(&1, 0))
       |> Enum.uniq()
 
-    Repo.all(
-      from v in Media.Video,
-        where: v.service_type == ^service_type and v.path in ^paths,
-        select: {v.path, v.service_id}
-    )
+    paths
+    |> Enum.chunk_every(@known_file_query_batch_size)
+    |> Enum.flat_map(fn path_batch ->
+      Repo.all(
+        from v in Media.Video,
+          where: v.service_type == ^service_type and v.path in ^path_batch,
+          select: {v.path, v.service_id}
+      )
+    end)
     |> MapSet.new()
   end
 
