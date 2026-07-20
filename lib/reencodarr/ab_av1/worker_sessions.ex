@@ -74,9 +74,13 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.call(__MODULE__, {:cancel, server_worker_id})
   end
 
-  def set_control_state(server_worker_id, control_state)
-      when control_state in [:running, :paused, :stopped] do
-    GenServer.call(__MODULE__, {:set_control_state, server_worker_id, control_state})
+  def set_control_state(server_worker_id, control_state, active_video_id \\ nil)
+      when control_state in [:running, :paused, :stopped] and
+             (is_nil(active_video_id) or is_integer(active_video_id)) do
+    GenServer.call(
+      __MODULE__,
+      {:set_control_state, server_worker_id, control_state, active_video_id}
+    )
   end
 
   def drain do
@@ -181,14 +185,14 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end)
   end
 
-  def handle_call({:set_control_state, server_worker_id, control_state}, _from, state) do
+  def handle_call(
+        {:set_control_state, server_worker_id, control_state, active_video_id},
+        _from,
+        state
+      ) do
     update_session_reply(server_worker_id, state, fn session ->
-      if control_state == :stopped do
-        requeue_active_video(session)
-        {:ok, session} = WorkerJobStateMachine.clear_video(session)
-        %{session | control_state: control_state, last_seen_at: now()}
-      else
-        %{session | control_state: control_state, last_seen_at: now()}
+      with {:ok, session} <- restore_active_video(session, active_video_id) do
+        apply_control_state(session, control_state)
       end
     end)
   end
@@ -447,6 +451,25 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   defp broadcast_sessions do
     Events.broadcast_event(:worker_sessions_updated, %{sessions: list_sessions()})
   end
+
+  defp restore_active_video(session, nil), do: {:ok, session}
+
+  defp restore_active_video(%{active_video_id: nil} = session, video_id),
+    do: WorkerJobStateMachine.assign_video(session, video_id, :crf_searching)
+
+  defp restore_active_video(%{active_video_id: video_id} = session, video_id),
+    do: {:ok, session}
+
+  defp restore_active_video(_session, _video_id), do: {:error, :invalid_worker_phase}
+
+  defp apply_control_state(session, :stopped) do
+    requeue_active_video(session)
+    {:ok, session} = WorkerJobStateMachine.clear_video(session)
+    %{session | control_state: :stopped, last_seen_at: now()}
+  end
+
+  defp apply_control_state(session, control_state),
+    do: %{session | control_state: control_state, last_seen_at: now()}
 
   defp requeue_active_video(%{active_video_id: nil}), do: :ok
 

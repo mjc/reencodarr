@@ -124,13 +124,21 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
 
   test "diagnostics identify worker execution mode without reporting Broadway as failed" do
     previous = Application.get_env(:reencodarr, :crf_execution_mode)
+    previous_supervision = Application.get_env(:reencodarr, :supervise_local_worker)
     Application.put_env(:reencodarr, :crf_execution_mode, :worker)
+    Application.put_env(:reencodarr, :supervise_local_worker, false)
 
     on_exit(fn ->
       if is_nil(previous) do
         Application.delete_env(:reencodarr, :crf_execution_mode)
       else
         Application.put_env(:reencodarr, :crf_execution_mode, previous)
+      end
+
+      if is_nil(previous_supervision) do
+        Application.delete_env(:reencodarr, :supervise_local_worker)
+      else
+        Application.put_env(:reencodarr, :supervise_local_worker, previous_supervision)
       end
     end)
 
@@ -139,6 +147,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
 
     assert output =~ "CRF Searcher: mode=worker"
     assert output =~ "connected=1"
+    assert output =~ "executor=independent"
+    refute output =~ "CRF Searcher: mode=worker, connected=1, active=0, unavailable"
     refute output =~ "CRF Searcher: running=false"
   end
 

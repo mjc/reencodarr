@@ -30,7 +30,14 @@ defmodule Reencodarr.Diagnostics do
     crf_status = CrfSearcher.status()
     encoder_status = Encoder.status()
     execution_mode = WorkerConfig.execution_mode()
-    local_worker_status = safe_call(fn -> LocalWorker.status() end)
+
+    local_worker_status =
+      if execution_mode == :worker and not WorkerConfig.supervise_local_worker?() do
+        :independent
+      else
+        safe_call(fn -> LocalWorker.status() end)
+      end
+
     worker_sessions = safe_call(fn -> WorkerSessions.list() end)
 
     # GenServer state
@@ -448,6 +455,8 @@ defmodule Reencodarr.Diagnostics do
   defp format_local_worker(%{} = status) do
     "running=#{status.running}, worker_id=#{status.worker_id}, pid=#{status.os_pid || "none"}, version=#{status.version}, restarts=#{status.restart_count}, last_exit=#{status.last_exit_status || "none"}"
   end
+
+  defp format_local_worker(:independent), do: "executor=independent"
 
   defp format_local_worker(_), do: "unavailable"
 

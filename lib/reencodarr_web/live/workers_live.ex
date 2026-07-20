@@ -39,7 +39,7 @@ defmodule ReencodarrWeb.WorkersLive do
     {:noreply, assign_workers(socket, sessions)}
   end
 
-  def handle_info({:crf_search_result, %{video_id: video_id}}, socket) do
+  def handle_info({:crf_search_vmaf_result, %{video_id: video_id}}, socket) do
     {:noreply,
      assign(
        socket,

@@ -205,6 +205,11 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert html =~ "Sample 3/8 - CRF 28.0"
     assert html =~ "CRF 28.0 -&gt; 95.4 VMAF"
     refute html =~ "Receiving Input"
+
+    Fixtures.vmaf_fixture(%{video_id: video.id, crf: 26.0, score: 96.1, percent: 91.0})
+    send(view.pid, {:crf_search_vmaf_result, %{video_id: video.id}})
+
+    assert render(view) =~ "CRF 26.0 -&gt; 96.1 VMAF"
   end
 
   test "renders a start control for a stopped worker", %{conn: conn} do

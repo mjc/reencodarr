@@ -470,6 +470,41 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "restores paused work from a control acknowledgment after server state is lost" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{state: :crf_searching, crf_search_worker_id: "worker-a"})
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+      server_worker_id = socket.assigns.worker_id
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")), :ok
+      assert is_nil(WorkerSessions.get(server_worker_id).active_video_id)
+
+      assert_reply push(socket, "control_state", %{
+                     "state" => "paused",
+                     "active_video_id" => video.id
+                   }),
+                   :ok
+
+      session = WorkerSessions.get(server_worker_id)
+      assert session.control_state == :paused
+      assert session.active_video_id == video.id
+
+      assert_reply push(socket, "control_state", %{
+                     "state" => "stopped",
+                     "active_video_id" => video.id
+                   }),
+                   :ok
+
+      assert Media.get_video(video.id).state == :analyzed
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "does not restart transfer when reconnected worker asks for work already in progress" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)

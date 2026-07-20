@@ -70,7 +70,8 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   def handle_in("control_state", payload, %{assigns: %{worker_id: worker_id}} = socket) do
     with {:ok, control_state, active_video_id} <- WorkerProtocol.parse_control_state(payload),
-         {:ok, _session} <- WorkerSessions.set_control_state(worker_id, control_state) do
+         {:ok, _session} <-
+           WorkerSessions.set_control_state(worker_id, control_state, active_video_id) do
       socket =
         if control_state == :stopped do
           assign(socket, :current_video_id, nil)
