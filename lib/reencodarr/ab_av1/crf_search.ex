@@ -16,6 +16,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.AbAv1.Helper
   alias Reencodarr.AbAv1.OutputParser
   alias Reencodarr.AbAv1.ProcessControl
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Core.Retry
   alias Reencodarr.Core.Time
@@ -1029,9 +1030,9 @@ defmodule Reencodarr.AbAv1.CrfSearch do
           "CrfSearch Progress: #{progress_data.progress}, FPS: #{progress_data.fps}, ETA: #{progress_data.eta}"
         )
 
-        broadcast_crf_search_progress(video.path, %{
+        broadcast_crf_search_progress(%CrfSearchProgress{
           video_id: video.id,
-          filename: video.path,
+          filename: Path.basename(video.path),
           percent: progress_data.progress,
           eta: progress_data.eta,
           fps: progress_data.fps
@@ -1245,15 +1246,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     end
   end
 
-  defp broadcast_crf_search_progress(video_path, progress_data) do
-    filename = Path.basename(video_path)
-
-    Events.broadcast_event(:crf_search_progress, %{
-      video_id: progress_data[:video_id],
-      percent: progress_data[:percent] || 0,
-      filename: filename
-    })
-  end
+  defp broadcast_crf_search_progress(%CrfSearchProgress{} = progress),
+    do: Events.broadcast_event(:crf_search_progress, progress)
 
   defp broadcast_crf_search_encoding_sample(_video_path, sample_data) do
     Events.broadcast_event(:crf_search_encoding_sample, %{

@@ -1,6 +1,7 @@
 defmodule Reencodarr.AbAv1.WorkerSessionsTest do
   use Reencodarr.DataCase, async: false
 
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.AbAv1.WorkerSessions
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Diagnostics
@@ -203,7 +204,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
              })
 
     assert {:error, :invalid_worker_phase} =
-             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+             WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                video_id: 456,
                percent: 25.0
              })
@@ -219,7 +220,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
 
     assert {:ok, session} =
-             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+             WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                video_id: 123,
                percent: 10.0,
                fps: 24.0,
@@ -233,7 +234,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert session.crf_search_progress.total_samples == 5
 
     assert {:ok, session} =
-             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+             WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                video_id: 123,
                percent: 25.0,
                fps: 25.0,
@@ -284,7 +285,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     Process.sleep(1_100)
 
     assert {:ok, session} =
-             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+             WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                video_id: 123,
                percent: 25.0,
                fps: 24.0,
@@ -310,7 +311,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", video.id)
 
     assert {:ok, session} =
-             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+             WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                video_id: video.id,
                percent: 25.0,
                fps: 24.0,
@@ -355,7 +356,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", video.id)
 
     assert {:ok, _session} =
-             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+             WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                video_id: video.id,
                percent: 100.0,
                fps: 24.0

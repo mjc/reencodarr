@@ -2,6 +2,7 @@ defmodule Reencodarr.AbAv1.WorkerJobStateMachineTest do
   use ExUnit.Case, async: true
 
   alias Reencodarr.AbAv1.WorkerJobStateMachine
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
 
   test "complete transfer progress moves the worker to input ready" do
     session = session()
@@ -35,7 +36,7 @@ defmodule Reencodarr.AbAv1.WorkerJobStateMachineTest do
       })
 
     assert {:ok, session} =
-             WorkerJobStateMachine.set_crf_search_progress(session, %{
+             WorkerJobStateMachine.set_crf_search_progress(session, %CrfSearchProgress{
                video_id: 123,
                percent: 75.0
              })
@@ -62,7 +63,7 @@ defmodule Reencodarr.AbAv1.WorkerJobStateMachineTest do
              })
 
     assert {:error, :invalid_worker_phase} =
-             WorkerJobStateMachine.set_crf_search_progress(session, %{
+             WorkerJobStateMachine.set_crf_search_progress(session, %CrfSearchProgress{
                video_id: 456,
                percent: 10.0
              })
@@ -74,7 +75,7 @@ defmodule Reencodarr.AbAv1.WorkerJobStateMachineTest do
       |> Map.merge(%{
         phase: :crf_searching,
         active_video_id: 123,
-        crf_search_progress: %{video_id: 123, percent: 25.0}
+        crf_search_progress: %CrfSearchProgress{video_id: 123, percent: 25.0}
       })
 
     assert {:ok, session} =
@@ -95,7 +96,7 @@ defmodule Reencodarr.AbAv1.WorkerJobStateMachineTest do
       |> Map.merge(%{
         phase: :crf_searching,
         active_video_id: 123,
-        crf_search_progress: %{video_id: 123, percent: 75.0}
+        crf_search_progress: %CrfSearchProgress{video_id: 123, percent: 75.0}
       })
 
     assert {:ok, session} = WorkerJobStateMachine.clear_video(session)

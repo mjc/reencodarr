@@ -3,6 +3,7 @@ defmodule Reencodarr.Dashboard.StateTest do
   @moduletag capture_log: true
 
   alias Reencodarr.AbAv1.ProcessControl
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.Dashboard.{Events, State}
   alias Reencodarr.Fixtures
   alias Reencodarr.Media.Vmaf
@@ -30,7 +31,7 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert state.crf_search_video == nil
       assert state.crf_search_results == []
       assert state.crf_search_sample == nil
-      assert state.crf_progress == :none
+      assert is_nil(state.crf_progress)
       assert state.encoding_video == nil
       assert state.encoding_vmaf == nil
       assert state.encoding_progress == :none
@@ -195,7 +196,7 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert state.crf_search_video.id == video.id
       assert state.crf_search_results == []
       assert state.crf_search_sample == nil
-      assert state.crf_progress == :none
+      assert is_nil(state.crf_progress)
     end
 
     test ":crf_search_started sets service_status to processing" do
@@ -353,7 +354,12 @@ defmodule Reencodarr.Dashboard.StateTest do
         {:crf_search_started, video}
       )
 
-      progress = %{fps: 30.5, eta: "00:02:30", percent: 45.0}
+      progress = %CrfSearchProgress{
+        video_id: video.id,
+        fps: 30.5,
+        eta: "00:02:30",
+        percent: 45.0
+      }
 
       Phoenix.PubSub.broadcast(
         Reencodarr.PubSub,
@@ -405,7 +411,7 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert state.crf_search_video == nil
       assert state.crf_search_results == []
       assert state.crf_search_sample == nil
-      assert state.crf_progress == :none
+      assert is_nil(state.crf_progress)
     end
 
     test ":crf_search_failed clears all CRF state" do

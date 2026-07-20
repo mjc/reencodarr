@@ -955,7 +955,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp mark_crf_search_active(worker_id, video_id) do
-    _ = WorkerSessions.set_crf_search_progress(worker_id, %{video_id: video_id})
+    _ = WorkerSessions.assign_video(worker_id, video_id, :crf_searching)
     :ok
   end
 

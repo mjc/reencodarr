@@ -6,6 +6,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   use GenServer
 
   alias Reencodarr.AbAv1.WorkerJobStateMachine
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
   alias Reencodarr.Media.VideoStateMachine
@@ -23,7 +24,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           phase: :idle | :receiving_input | :input_ready | :crf_searching,
           active_video_id: integer() | nil,
           transfer_progress: map() | nil,
-          crf_search_progress: map() | nil,
+          crf_search_progress: CrfSearchProgress.t() | nil,
           resource_usage: map() | nil,
           connected_at: DateTime.t(),
           last_seen_at: DateTime.t()
@@ -66,7 +67,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.call(__MODULE__, {:finish_transfer, server_worker_id})
   end
 
-  def set_crf_search_progress(server_worker_id, progress) when is_map(progress) do
+  def set_crf_search_progress(server_worker_id, %CrfSearchProgress{} = progress) do
     GenServer.call(__MODULE__, {:set_crf_search_progress, server_worker_id, progress})
   end
 
@@ -175,7 +176,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end)
   end
 
-  def handle_call({:set_crf_search_progress, server_worker_id, progress}, _from, state) do
+  def handle_call(
+        {:set_crf_search_progress, server_worker_id, %CrfSearchProgress{} = progress},
+        _from,
+        state
+      ) do
     update_session_reply(server_worker_id, state, fn session ->
       progress = merge_crf_search_progress(session.crf_search_progress, progress)
 
@@ -290,18 +295,18 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   defp merge_crf_search_progress(
-         %{video_id: video_id} = previous,
-         %{video_id: video_id} = progress
+         %CrfSearchProgress{video_id: video_id} = previous,
+         %CrfSearchProgress{video_id: video_id} = progress
        ) do
-    Enum.reduce([:crf, :sample_num, :total_samples], progress, fn key, merged ->
-      case Map.get(merged, key) do
-        nil -> Map.put(merged, key, Map.get(previous, key))
-        _value -> merged
-      end
-    end)
+    %CrfSearchProgress{
+      progress
+      | crf: progress.crf || previous.crf,
+        sample_num: progress.sample_num || previous.sample_num,
+        total_samples: progress.total_samples || previous.total_samples
+    }
   end
 
-  defp merge_crf_search_progress(_previous, progress), do: progress
+  defp merge_crf_search_progress(_previous, %CrfSearchProgress{} = progress), do: progress
 
   defp register_session(
          server_worker_id,

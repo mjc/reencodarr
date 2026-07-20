@@ -10,6 +10,7 @@ defmodule ReencodarrWeb.DashboardV2StatusBroadcastTest do
   use ReencodarrWeb.ConnCase, async: true
 
   alias Phoenix.PubSub
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.Dashboard.Events
 
   setup do
@@ -24,7 +25,7 @@ defmodule ReencodarrWeb.DashboardV2StatusBroadcastTest do
       # the CRF searcher status is also broadcast to show it's running
 
       # Simulate the progress broadcast that happens during CRF search
-      Events.broadcast_event(:crf_search_progress, %{
+      Events.broadcast_event(:crf_search_progress, %CrfSearchProgress{
         video_id: 1,
         percent: 50,
         filename: "test_video.mkv"
@@ -42,7 +43,7 @@ defmodule ReencodarrWeb.DashboardV2StatusBroadcastTest do
       # to handle cases where the service was previously paused
 
       for percent <- [25, 50, 75, 100] do
-        Events.broadcast_event(:crf_search_progress, %{
+        Events.broadcast_event(:crf_search_progress, %CrfSearchProgress{
           video_id: 1,
           percent: percent,
           filename: "test_video.mkv"
@@ -103,7 +104,7 @@ defmodule ReencodarrWeb.DashboardV2StatusBroadcastTest do
       Events.broadcast_event(:analyzer_progress, %{count: 1, total: 3, percent: 33})
       Events.broadcast_event(:analyzer_started, %{})
 
-      Events.broadcast_event(:crf_search_progress, %{
+      Events.broadcast_event(:crf_search_progress, %CrfSearchProgress{
         video_id: 1,
         percent: 50,
         filename: "test.mkv"
@@ -148,7 +149,7 @@ defmodule ReencodarrWeb.DashboardV2StatusBroadcastTest do
       assert_receive {:analyzer_progress, %{percent: 50}}
 
       # Case 2: Progress before status
-      Events.broadcast_event(:crf_search_progress, %{
+      Events.broadcast_event(:crf_search_progress, %CrfSearchProgress{
         video_id: 1,
         percent: 30,
         filename: "test.mkv"

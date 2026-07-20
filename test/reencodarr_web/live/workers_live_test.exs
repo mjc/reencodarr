@@ -3,6 +3,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.AbAv1.WorkerSessions
   alias Reencodarr.Fixtures
 
@@ -135,15 +136,18 @@ defmodule ReencodarrWeb.WorkersLiveTest do
              WorkerSessions.assign_video("worker-server-stale-crf", video.id)
 
     assert {:ok, _session} =
-             WorkerSessions.set_crf_search_progress("worker-server-stale-crf", %{
-               video_id: video.id,
-               percent: 62.0,
-               fps: 12.5,
-               eta: 90,
-               crf: 28.0,
-               sample_num: 3,
-               total_samples: 8
-             })
+             WorkerSessions.set_crf_search_progress(
+               "worker-server-stale-crf",
+               %CrfSearchProgress{
+                 video_id: video.id,
+                 percent: 62.0,
+                 fps: 12.5,
+                 eta: 90,
+                 crf: 28.0,
+                 sample_num: 3,
+                 total_samples: 8
+               }
+             )
 
     assert {:ok, _session} =
              WorkerSessions.set_transfer_progress("worker-server-stale-crf", %{
@@ -180,7 +184,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert {:ok, _session} = WorkerSessions.assign_video("worker-server-2", video.id)
 
     assert {:ok, _session} =
-             WorkerSessions.set_crf_search_progress("worker-server-2", %{
+             WorkerSessions.set_crf_search_progress("worker-server-2", %CrfSearchProgress{
                video_id: video.id,
                percent: 62.0,
                fps: 12.5,

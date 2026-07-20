@@ -11,6 +11,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.AbAv1.WorkerSessions
   alias ReencodarrWeb.CrfSearchComponents
 
@@ -82,6 +83,28 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       Reencodarr.Repo.delete!(video)
 
       assert CrfSearchComponents.load_worker_crf_data(workers, cached) == cached
+    end
+
+    test "renders worker CRF progress structs" do
+      html =
+        render_component(&CrfSearchComponents.crf_search_panel/1,
+          video: %{
+            filename: "worker-progress.mkv",
+            video_size: 1_000,
+            width: 1920,
+            height: 1080,
+            hdr: nil,
+            target_vmaf: 95
+          },
+          results: [],
+          sample: nil,
+          progress: %CrfSearchProgress{video_id: 1, percent: 62.0, fps: 12.5, eta: 90},
+          status: :processing
+        )
+
+      assert html =~ "62.0%"
+      assert html =~ "12.5 fps"
+      assert html =~ "ETA: 90"
     end
 
     test "shows worker execution mode without calling stopped Broadway a worker failure", %{
@@ -294,7 +317,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
         crf_search_video: nil,
         crf_search_results: [],
         crf_search_sample: nil,
-        crf_progress: :none,
+        crf_progress: nil,
         encoding_video: nil,
         encoding_vmaf: nil,
         encoding_progress: :none,
@@ -324,7 +347,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
         crf_search_video: nil,
         crf_search_results: [],
         crf_search_sample: nil,
-        crf_progress: :none,
+        crf_progress: nil,
         encoding_video: nil,
         encoding_vmaf: nil,
         encoding_progress: :none,
@@ -363,7 +386,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
           %{crf: 28, score: 94.8, percent: 93.5}
         ],
         crf_search_sample: %{crf: 26, sample_num: 1, total_samples: 3},
-        crf_progress: :none,
+        crf_progress: nil,
         encoding_video: nil,
         encoding_vmaf: nil,
         encoding_progress: :none,
@@ -402,7 +425,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
         },
         crf_search_results: [],
         crf_search_sample: nil,
-        crf_progress: :none,
+        crf_progress: nil,
         encoding_video: nil,
         encoding_vmaf: nil,
         encoding_progress: :none,
@@ -455,7 +478,11 @@ defmodule ReencodarrWeb.DashboardLiveTest do
         },
         crf_search_results: [],
         crf_search_sample: %{crf: 15.0, sample_num: 6, total_samples: 8},
-        crf_progress: %{video_id: 1, percent: 37.0, filename: "chart-pending.mkv"},
+        crf_progress: %CrfSearchProgress{
+          video_id: 1,
+          percent: 37.0,
+          filename: "chart-pending.mkv"
+        },
         encoding_video: nil,
         encoding_vmaf: nil,
         encoding_progress: :none,
@@ -497,7 +524,11 @@ defmodule ReencodarrWeb.DashboardLiveTest do
           },
           crf_search_results: [],
           crf_search_sample: nil,
-          crf_progress: %{video_id: 1, percent: 37.0, filename: "partial-progress.mkv"},
+          crf_progress: %CrfSearchProgress{
+            video_id: 1,
+            percent: 37.0,
+            filename: "partial-progress.mkv"
+          },
           encoding_video: nil,
           encoding_vmaf: nil,
           encoding_progress: :none,

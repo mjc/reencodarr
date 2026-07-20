@@ -5,6 +5,7 @@ defmodule ReencodarrWeb.WorkersLive do
 
   use ReencodarrWeb, :live_view
 
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.AbAv1.WorkerSessions
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Formatters
@@ -257,7 +258,10 @@ defmodule ReencodarrWeb.WorkersLive do
   end
 
   defp active_video_id(%{active_video_id: video_id}) when is_integer(video_id), do: video_id
-  defp active_video_id(%{crf_search_progress: %{video_id: video_id}}), do: video_id
+
+  defp active_video_id(%{crf_search_progress: %CrfSearchProgress{video_id: video_id}}),
+    do: video_id
+
   defp active_video_id(%{transfer_progress: %{video_id: video_id}}), do: video_id
   defp active_video_id(_worker), do: nil
 

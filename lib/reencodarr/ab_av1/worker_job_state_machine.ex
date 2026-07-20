@@ -5,6 +5,8 @@ defmodule Reencodarr.AbAv1.WorkerJobStateMachine do
 
   require Logger
 
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
+
   @type phase :: :idle | :receiving_input | :input_ready | :crf_searching
 
   @valid_phases [:idle, :receiving_input, :input_ready, :crf_searching]
@@ -87,8 +89,9 @@ defmodule Reencodarr.AbAv1.WorkerJobStateMachine do
     transition(session, :input_ready)
   end
 
-  @spec set_crf_search_progress(map(), map()) :: {:ok, map()} | {:error, :invalid_worker_phase}
-  def set_crf_search_progress(session, progress) do
+  @spec set_crf_search_progress(map(), CrfSearchProgress.t()) ::
+          {:ok, map()} | {:error, :invalid_worker_phase}
+  def set_crf_search_progress(session, %CrfSearchProgress{} = progress) do
     with {:ok, video_id} <- progress_video_id(session, progress) do
       transition(session, :crf_searching, %{
         active_video_id: video_id,

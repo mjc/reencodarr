@@ -4,6 +4,7 @@ defmodule Reencodarr.Dashboard.StateProgressThrottleTest do
   """
   use Reencodarr.DataCase, async: false
 
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Dashboard.State
 
@@ -31,7 +32,7 @@ defmodule Reencodarr.Dashboard.StateProgressThrottleTest do
 
   describe "progress debounce" do
     test "first progress event is broadcast after debounce" do
-      Events.broadcast_event(:crf_search_progress, %{
+      Events.broadcast_event(:crf_search_progress, %CrfSearchProgress{
         video_id: 1,
         percent: 10,
         filename: "test.mkv"
@@ -45,7 +46,7 @@ defmodule Reencodarr.Dashboard.StateProgressThrottleTest do
     test "rapid progress events are debounced" do
       # Send many rapid progress events
       for percent <- 1..20 do
-        Events.broadcast_event(:crf_search_progress, %{
+        Events.broadcast_event(:crf_search_progress, %CrfSearchProgress{
           video_id: 1,
           percent: percent,
           filename: "test.mkv"

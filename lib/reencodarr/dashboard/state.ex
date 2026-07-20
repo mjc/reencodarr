@@ -13,6 +13,7 @@ defmodule Reencodarr.Dashboard.State do
 
   alias Phoenix.PubSub
   alias Reencodarr.AbAv1.ProcessControl
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media.ChartQueries
   alias Reencodarr.Media.VideoQueries
@@ -37,7 +38,7 @@ defmodule Reencodarr.Dashboard.State do
     crf_search_video: nil,
     crf_search_results: [],
     crf_search_sample: nil,
-    crf_progress: :none,
+    crf_progress: nil,
     encoding_video: nil,
     encoding_vmaf: nil,
     encoding_progress: :none,
@@ -176,7 +177,7 @@ defmodule Reencodarr.Dashboard.State do
       | crf_search_video: video,
         crf_search_results: [],
         crf_search_sample: nil,
-        crf_progress: :none,
+        crf_progress: nil,
         service_status: service_status
     }
 
@@ -220,7 +221,7 @@ defmodule Reencodarr.Dashboard.State do
   end
 
   @impl true
-  def handle_info({:crf_search_progress, progress}, state) do
+  def handle_info({:crf_search_progress, %CrfSearchProgress{} = progress}, state) do
     # Debounce: cancel any pending flush and schedule a new one
     if state.progress_debounce_ref, do: Process.cancel_timer(state.progress_debounce_ref)
     ref = Process.send_after(self(), :flush_progress, @progress_debounce_ms)
@@ -242,7 +243,7 @@ defmodule Reencodarr.Dashboard.State do
       | crf_search_video: nil,
         crf_search_results: [],
         crf_search_sample: nil,
-        crf_progress: :none,
+        crf_progress: nil,
         service_status: service_status
     }
 

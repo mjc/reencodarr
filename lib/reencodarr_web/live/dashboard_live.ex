@@ -37,8 +37,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
     socket =
       assign(socket, %{
-        # Legacy progress tracking (kept for compatibility)
-        crf_progress: :none,
+        crf_progress: nil,
         encoding_progress: :none,
         analyzer_progress: :none,
         analyzer_throughput: nil,

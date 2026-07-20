@@ -3,6 +3,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
 
   use Phoenix.Component
 
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.{Formatters, Media, Rules}
   alias ReencodarrWeb.ChartHelpers
 
@@ -180,7 +181,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   attr :sample, :map, required: true
   attr :id, :string, default: nil
   attr :title, :string, default: "CRF Search"
-  attr :progress, :any, default: :none
+  attr :progress, :map, default: nil
   attr :queue_count, :integer, default: 0
   attr :queue_items, :list, default: []
   attr :status, :atom, required: true
@@ -193,7 +194,8 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   attr :start_event, :string, default: nil
   attr :worker_id, :string, default: nil
 
-  def crf_search_panel(assigns) do
+  def crf_search_panel(%{progress: progress} = assigns)
+      when is_nil(progress) or is_struct(progress, CrfSearchProgress) do
     ~H"""
     <div id={@id} class="dashboard-card bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-4">
       <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -223,7 +225,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
             </div>
           <% end %>
 
-          <%= if @progress != :none && Map.get(@progress, :percent) != nil do %>
+          <%= if @progress do %>
             <div>
               <div class="mb-1 h-2 w-full rounded-full bg-gray-800">
                 <div
@@ -234,10 +236,10 @@ defmodule ReencodarrWeb.CrfSearchComponents do
               </div>
               <div class="flex justify-between text-xs text-gray-400">
                 <span>{@progress.percent}%</span>
-                <%= if @progress[:fps] do %>
+                <%= if @progress.fps do %>
                   <span>{@progress.fps} fps</span>
                 <% end %>
-                <%= if @progress[:eta] do %>
+                <%= if @progress.eta do %>
                   <span>ETA: {@progress.eta}</span>
                 <% end %>
               </div>
@@ -359,7 +361,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
       video={@video}
       results={@results}
       sample={@sample}
-      progress={@worker.crf_search_progress || :none}
+      progress={@worker.crf_search_progress}
       queue_count={@queue_count}
       queue_items={@queue_items}
       status={@status}
@@ -407,7 +409,11 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   defp worker_crf_results(_results), do: []
 
   defp worker_crf_sample(%{
-         crf_search_progress: %{crf: crf, sample_num: sample_num, total_samples: total_samples}
+         crf_search_progress: %CrfSearchProgress{
+           crf: crf,
+           sample_num: sample_num,
+           total_samples: total_samples
+         }
        })
        when is_number(crf) and is_integer(sample_num) and is_integer(total_samples) do
     %{crf: crf, sample_num: sample_num, total_samples: total_samples}
@@ -416,7 +422,10 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   defp worker_crf_sample(_worker), do: nil
 
   defp active_video_id(%{active_video_id: video_id}) when is_integer(video_id), do: video_id
-  defp active_video_id(%{crf_search_progress: %{video_id: video_id}}), do: video_id
+
+  defp active_video_id(%{crf_search_progress: %CrfSearchProgress{video_id: video_id}}),
+    do: video_id
+
   defp active_video_id(%{transfer_progress: %{video_id: video_id}}), do: video_id
   defp active_video_id(_worker), do: nil
 
