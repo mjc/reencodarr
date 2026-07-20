@@ -5,6 +5,7 @@
   ...
 }: let
   cfg = config.services.reencodarr;
+  workerPackage = pkgs.callPackage ./ab-av1-worker.nix {};
   inherit (lib) mkEnableOption mkIf mkOption literalExpression types;
 
   serviceEnv =
@@ -209,7 +210,8 @@ in {
 
     workerExecutable = mkOption {
       type = types.str;
-      default = "ab-av1";
+      default = lib.getExe workerPackage;
+      defaultText = literalExpression "lib.getExe (pkgs.callPackage ./ab-av1-worker.nix {})";
       description = "Path or executable name for the worker-capable ab-av1 binary.";
     };
 
