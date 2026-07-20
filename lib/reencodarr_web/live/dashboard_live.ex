@@ -8,7 +8,7 @@ defmodule ReencodarrWeb.DashboardLive do
   """
   use ReencodarrWeb, :live_view
 
-  alias Reencodarr.AbAv1.{CrfSearch, Encode, LocalWorker, WorkerConfig}
+  alias Reencodarr.AbAv1.{CrfSearch, Encode, LocalWorker, WorkerConfig, WorkerSessions}
   alias Reencodarr.Core.Parsers
   alias Reencodarr.CrfSearcher.Broadway, as: CrfSearcherBroadway
   alias Reencodarr.Dashboard.Events
@@ -56,6 +56,7 @@ defmodule ReencodarrWeb.DashboardLive do
         worker_socket_url: worker_socket_url(),
         worker_execution_mode: WorkerConfig.execution_mode(),
         local_worker_status: local_worker_status(),
+        crf_workers: crf_workers(),
         # New dashboard stats
         stats: Reencodarr.Media.get_default_stats(),
         stats_display: stats_display(Reencodarr.Media.get_default_stats()),
@@ -200,7 +201,12 @@ defmodule ReencodarrWeb.DashboardLive do
     # Schedule next update (recursive scheduling)
     schedule_periodic_update()
 
-    {:noreply, socket}
+    {:noreply, assign(socket, :crf_workers, crf_workers())}
+  end
+
+  @impl true
+  def handle_info({:worker_sessions_updated, %{sessions: sessions}}, socket) do
+    {:noreply, assign(socket, :crf_workers, sessions)}
   end
 
   @impl true
@@ -292,6 +298,21 @@ defmodule ReencodarrWeb.DashboardLive do
   @impl true
   def handle_event("fail_crf_search", _params, socket) do
     handle_control_result(socket, CrfSearch.fail_current(), "CRF search stopped")
+  end
+
+  @impl true
+  def handle_event("pause_worker_crf_search", %{"worker-id" => worker_id}, socket) do
+    control_worker(socket, worker_id, :pause, "Worker pause requested")
+  end
+
+  @impl true
+  def handle_event("resume_worker_crf_search", %{"worker-id" => worker_id}, socket) do
+    control_worker(socket, worker_id, :resume, "Worker resume requested")
+  end
+
+  @impl true
+  def handle_event("stop_worker_crf_search", %{"worker-id" => worker_id}, socket) do
+    control_worker(socket, worker_id, :stop, "Worker stop requested")
   end
 
   @impl true
@@ -957,8 +978,9 @@ defmodule ReencodarrWeb.DashboardLive do
           id="dashboard-active-work"
           class="dashboard-section grid grid-cols-1 gap-3 lg:grid-cols-5 lg:gap-4"
         >
-          <div class="lg:col-span-3">
+          <div :if={@worker_execution_mode == :broadway} class="lg:col-span-3">
             <.crf_search_panel
+              id="broadway-crf-search-panel"
               video={@crf_search_video}
               results={@crf_search_results}
               sample={@crf_search_sample}
@@ -966,6 +988,26 @@ defmodule ReencodarrWeb.DashboardLive do
               queue_items={@queue_items.crf_searcher}
               status={@service_status.crf_searcher}
             />
+          </div>
+          <div
+            :if={@worker_execution_mode == :worker}
+            id="crf-worker-panels"
+            class="space-y-3 lg:col-span-3"
+          >
+            <.worker_crf_search_panel
+              :for={{worker, index} <- Enum.with_index(@crf_workers)}
+              worker={worker}
+              queue_count={@queue_counts.crf_searcher}
+              queue_items={@queue_items.crf_searcher}
+              show_queue={index == 0}
+            />
+            <div
+              :if={@crf_workers == []}
+              id="no-crf-workers"
+              class="dashboard-card rounded-lg border border-gray-700 bg-gray-900 p-3 text-sm text-gray-400 sm:p-4"
+            >
+              No CRF search workers connected.
+            </div>
           </div>
           <div class="lg:col-span-2">
             <.encoding_panel
@@ -1266,6 +1308,24 @@ defmodule ReencodarrWeb.DashboardLive do
       encoded_title: "Encoded: #{stats.encoded}",
       failed_title: "Failed: #{stats.failed}"
     }
+  end
+
+  defp control_worker(socket, worker_id, action, message) do
+    Phoenix.PubSub.broadcast(
+      Reencodarr.PubSub,
+      ReencodarrWeb.WorkerChannel.worker_control_topic(worker_id),
+      {:worker_control, action}
+    )
+
+    {:noreply, put_flash(socket, :info, message)}
+  end
+
+  defp crf_workers do
+    if WorkerConfig.execution_mode() == :worker and Process.whereis(WorkerSessions) do
+      WorkerSessions.list()
+    else
+      []
+    end
   end
 
   defp handle_control_result(socket, :ok, message) do

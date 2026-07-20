@@ -3,7 +3,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
 
   use Phoenix.Component
 
-  alias Reencodarr.Formatters
+  alias Reencodarr.{Formatters, Media, Rules}
   alias ReencodarrWeb.ChartHelpers
 
   @service_status_styles %{
@@ -178,6 +178,8 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   attr :video, :map, required: true
   attr :results, :list, required: true
   attr :sample, :map, required: true
+  attr :id, :string, default: nil
+  attr :title, :string, default: "CRF Search"
   attr :progress, :any, default: :none
   attr :queue_count, :integer, default: 0
   attr :queue_items, :list, default: []
@@ -192,9 +194,9 @@ defmodule ReencodarrWeb.CrfSearchComponents do
 
   def crf_search_panel(assigns) do
     ~H"""
-    <div class="dashboard-card bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-4">
+    <div id={@id} class="dashboard-card bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-4">
       <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 class="font-semibold text-white">CRF Search</h3>
+        <h3 class="font-semibold text-white">{@title}</h3>
         <span class={"rounded-full px-2 py-1 text-xs #{service_status_class(@status)}"}>
           {service_status_text(@status)}
         </span>
@@ -328,6 +330,102 @@ defmodule ReencodarrWeb.CrfSearchComponents do
     </div>
     """
   end
+
+  attr :worker, :map, required: true
+  attr :queue_count, :integer, default: 0
+  attr :queue_items, :list, default: []
+  attr :show_queue, :boolean, default: false
+
+  def worker_crf_search_panel(assigns) do
+    worker = assigns.worker
+
+    assigns =
+      assign(assigns,
+        video: worker_crf_video(worker),
+        results: worker_crf_results(worker),
+        sample: worker_crf_sample(worker),
+        status: worker_crf_status(worker)
+      )
+
+    ~H"""
+    <.crf_search_panel
+      id={"crf-worker-#{@worker.server_worker_id}"}
+      title={"CRF Search · #{@worker.client_worker_id || @worker.server_worker_id}"}
+      video={@video}
+      results={@results}
+      sample={@sample}
+      progress={@worker.crf_search_progress || :none}
+      queue_count={@queue_count}
+      queue_items={@queue_items}
+      status={@status}
+      show_queue={@show_queue}
+      show_empty_chart={true}
+      suspend_event="pause_worker_crf_search"
+      resume_event="resume_worker_crf_search"
+      fail_event="stop_worker_crf_search"
+      worker_id={@worker.server_worker_id}
+    />
+    """
+  end
+
+  defp worker_crf_status(%{active_video_id: video_id}) when is_integer(video_id),
+    do: :processing
+
+  defp worker_crf_status(_worker), do: :idle
+
+  defp worker_crf_video(worker) do
+    case active_video(worker) do
+      %Media.Video{} = video ->
+        %{
+          video_id: video.id,
+          filename: Path.basename(video.path),
+          video_size: video.size,
+          width: video.width,
+          height: video.height,
+          hdr: video.hdr,
+          target_vmaf: Rules.vmaf_target(video)
+        }
+
+      nil ->
+        nil
+    end
+  end
+
+  defp worker_crf_results(worker) do
+    case active_video_id(worker) do
+      nil ->
+        []
+
+      video_id ->
+        video_id
+        |> Media.get_vmafs_for_video()
+        |> Enum.sort_by(& &1.crf)
+        |> Enum.map(fn vmaf ->
+          %{crf: vmaf.crf, score: vmaf.score, percent: vmaf.percent}
+        end)
+    end
+  end
+
+  defp worker_crf_sample(%{
+         crf_search_progress: %{crf: crf, sample_num: sample_num, total_samples: total_samples}
+       })
+       when is_number(crf) and is_integer(sample_num) and is_integer(total_samples) do
+    %{crf: crf, sample_num: sample_num, total_samples: total_samples}
+  end
+
+  defp worker_crf_sample(_worker), do: nil
+
+  defp active_video(worker) do
+    case active_video_id(worker) do
+      nil -> nil
+      video_id -> Media.get_video(video_id)
+    end
+  end
+
+  defp active_video_id(%{active_video_id: video_id}) when is_integer(video_id), do: video_id
+  defp active_video_id(%{crf_search_progress: %{video_id: video_id}}), do: video_id
+  defp active_video_id(%{transfer_progress: %{video_id: video_id}}), do: video_id
+  defp active_video_id(_worker), do: nil
 
   attr :status, :atom, required: true
   attr :suspend_event, :string, required: true

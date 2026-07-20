@@ -11,6 +11,13 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias Reencodarr.AbAv1.WorkerSessions
+
+  setup do
+    WorkerSessions.reset()
+    :ok
+  end
+
   describe "basic functionality" do
     test "mounts successfully and displays initial state", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/")
@@ -30,8 +37,40 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert html =~ ~s(id="dashboard-root")
       assert html =~ ~s(phx-hook="DashboardAnimations")
       assert html =~ ~s(id="dashboard-active-work")
+      assert html =~ ~s(id="broadway-crf-search-panel")
       assert html =~ "Needs Analysis:"
       assert html =~ "VMAF Score Distribution"
+    end
+
+    test "renders one CRF search panel per worker in worker mode", %{conn: conn} do
+      previous = Application.get_env(:reencodarr, :crf_execution_mode)
+      Application.put_env(:reencodarr, :crf_execution_mode, :worker)
+
+      on_exit(fn ->
+        if is_nil(previous) do
+          Application.delete_env(:reencodarr, :crf_execution_mode)
+        else
+          Application.put_env(:reencodarr, :crf_execution_mode, previous)
+        end
+      end)
+
+      for suffix <- ["one", "two"] do
+        assert {:ok, _session} =
+                 WorkerSessions.register(%{
+                   server_worker_id: "server-#{suffix}",
+                   client_worker_id: "worker-#{suffix}",
+                   protocol_version: 1,
+                   version: "0.11.4",
+                   capabilities: %{"crf_search" => true}
+                 })
+      end
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      assert has_element?(view, "#crf-worker-server-one", "CRF Search · worker-one")
+      assert has_element?(view, "#crf-worker-server-two", "CRF Search · worker-two")
+      refute has_element?(view, "#broadway-crf-search-panel")
+      refute has_element?(view, "#no-crf-workers")
     end
 
     test "shows worker execution mode without calling stopped Broadway a worker failure", %{

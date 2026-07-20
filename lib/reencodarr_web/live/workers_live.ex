@@ -130,20 +130,7 @@ defmodule ReencodarrWeb.WorkersLive do
                         title="Input Ready"
                       />
                     <% :crf_searching -> %>
-                      <.crf_search_panel
-                        video={worker_crf_video(worker)}
-                        results={worker_crf_results(worker)}
-                        sample={worker_crf_sample(worker)}
-                        progress={worker.crf_search_progress || :none}
-                        status={worker_crf_status(worker)}
-                        show_controls={true}
-                        show_queue={false}
-                        show_empty_chart={true}
-                        suspend_event="pause_worker_crf_search"
-                        resume_event="resume_worker_crf_search"
-                        fail_event="stop_worker_crf_search"
-                        worker_id={worker.server_worker_id}
-                      />
+                      <.worker_crf_search_panel worker={worker} />
                     <% :idle -> %>
                       <.idle_panel />
                   <% end %>
@@ -235,10 +222,6 @@ defmodule ReencodarrWeb.WorkersLive do
     end
   end
 
-  defp worker_crf_status(%{phase: :crf_searching}), do: :processing
-
-  defp worker_crf_status(_worker), do: :idle
-
   defp worker_phase(%{phase: phase})
        when phase in [:idle, :receiving_input, :input_ready, :crf_searching],
        do: phase
@@ -250,48 +233,6 @@ defmodule ReencodarrWeb.WorkersLive do
 
   defp worker_phase(%{active_video_id: video_id}) when is_integer(video_id), do: :crf_searching
   defp worker_phase(_worker), do: :idle
-
-  defp worker_crf_video(worker) do
-    case active_video(worker) do
-      %Media.Video{} = video ->
-        %{
-          video_id: video.id,
-          filename: Path.basename(video.path),
-          video_size: video.size,
-          width: video.width,
-          height: video.height,
-          hdr: video.hdr,
-          target_vmaf: Rules.vmaf_target(video)
-        }
-
-      nil ->
-        nil
-    end
-  end
-
-  defp worker_crf_results(worker) do
-    case active_video_id(worker) do
-      nil ->
-        []
-
-      video_id ->
-        video_id
-        |> Media.get_vmafs_for_video()
-        |> Enum.sort_by(& &1.crf)
-        |> Enum.map(fn vmaf ->
-          %{crf: vmaf.crf, score: vmaf.score, percent: vmaf.percent}
-        end)
-    end
-  end
-
-  defp worker_crf_sample(%{
-         crf_search_progress: %{crf: crf, sample_num: sample_num, total_samples: total_samples}
-       })
-       when is_number(crf) and is_integer(sample_num) and is_integer(total_samples) do
-    %{crf: crf, sample_num: sample_num, total_samples: total_samples}
-  end
-
-  defp worker_crf_sample(_worker), do: nil
 
   defp active_video(worker) do
     case active_video_id(worker) do
