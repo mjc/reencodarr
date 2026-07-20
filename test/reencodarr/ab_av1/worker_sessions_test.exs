@@ -26,6 +26,19 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert {:error, :unknown_worker_session} = WorkerSessions.finish_transfer("missing-worker")
   end
 
+  test "stopping a worker requeues active work without disconnecting its session" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", video.id)
+
+    assert {:ok, session} = WorkerSessions.set_control_state("worker-server-1", :stopped)
+    assert session.control_state == :stopped
+    assert session.phase == :idle
+    assert is_nil(session.active_video_id)
+    assert WorkerSessions.get("worker-server-1").client_worker_id == "worker-client-1"
+    assert Media.get_video(video.id).state == :analyzed
+  end
+
   test "expires stale worker sessions" do
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
 

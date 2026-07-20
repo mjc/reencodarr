@@ -400,6 +400,30 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       )
 
       assert_push "control", %{action: "pause", video_id: ^video_id}
+
+      assert_reply push(socket, "control_state", %{
+                     "state" => "paused",
+                     "active_video_id" => video_id
+                   }),
+                   :ok,
+                   %{accepted: true, state: "paused"}
+
+      assert WorkerSessions.get(server_worker_id).control_state == :paused
+
+      Phoenix.PubSub.broadcast(
+        Reencodarr.PubSub,
+        WorkerChannel.worker_control_topic(server_worker_id),
+        {:worker_control, :stop}
+      )
+
+      assert_push "control", %{action: "stop", video_id: ^video_id}
+
+      assert_reply push(socket, "control_state", %{"state" => "stopped"}),
+                   :ok,
+                   %{accepted: true, state: "stopped"}
+
+      assert WorkerSessions.get(server_worker_id).control_state == :stopped
+      assert Media.get_video(video_id).state == :analyzed
     after
       Application.delete_env(:reencodarr, :worker_token)
     end

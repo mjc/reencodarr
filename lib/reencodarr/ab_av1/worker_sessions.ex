@@ -19,6 +19,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           version: String.t(),
           protocol_version: pos_integer(),
           capabilities: map(),
+          control_state: :running | :paused | :stopped,
           phase: :idle | :receiving_input | :input_ready | :crf_searching,
           active_video_id: integer() | nil,
           transfer_progress: map() | nil,
@@ -71,6 +72,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def cancel(server_worker_id) do
     GenServer.call(__MODULE__, {:cancel, server_worker_id})
+  end
+
+  def set_control_state(server_worker_id, control_state)
+      when control_state in [:running, :paused, :stopped] do
+    GenServer.call(__MODULE__, {:set_control_state, server_worker_id, control_state})
   end
 
   def drain do
@@ -175,6 +181,18 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end)
   end
 
+  def handle_call({:set_control_state, server_worker_id, control_state}, _from, state) do
+    update_session_reply(server_worker_id, state, fn session ->
+      if control_state == :stopped do
+        requeue_active_video(session)
+        {:ok, session} = WorkerJobStateMachine.clear_video(session)
+        %{session | control_state: control_state, last_seen_at: now()}
+      else
+        %{session | control_state: control_state, last_seen_at: now()}
+      end
+    end)
+  end
+
   def handle_call({:cancel, server_worker_id}, _from, state) do
     case lookup_session(server_worker_id) do
       {:ok, session} ->
@@ -256,6 +274,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       version: version,
       protocol_version: protocol_version,
       capabilities: capabilities,
+      control_state: :running,
       phase: :idle,
       active_video_id: nil,
       transfer_progress: nil,

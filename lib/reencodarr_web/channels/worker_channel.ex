@@ -68,6 +68,22 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
+  def handle_in("control_state", payload, %{assigns: %{worker_id: worker_id}} = socket) do
+    with {:ok, control_state, active_video_id} <- WorkerProtocol.parse_control_state(payload),
+         {:ok, _session} <- WorkerSessions.set_control_state(worker_id, control_state) do
+      socket =
+        if control_state == :stopped do
+          assign(socket, :current_video_id, nil)
+        else
+          assign(socket, :current_video_id, active_video_id || socket.assigns[:current_video_id])
+        end
+
+      {:reply, {:ok, %{accepted: true, state: Atom.to_string(control_state)}}, socket}
+    else
+      {:error, reason} -> {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+    end
+  end
+
   def handle_in("request_work", payload, socket), do: handle_work_request(payload, socket)
 
   def handle_in("pull_work", payload, socket), do: handle_work_request(payload, socket)

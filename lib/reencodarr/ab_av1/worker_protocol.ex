@@ -182,6 +182,22 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
   def parse_announcement(_payload), do: {:error, :invalid_announcement}
 
+  @spec parse_control_state(map()) ::
+          {:ok, :running | :paused | :stopped, pos_integer() | nil}
+          | {:error, :invalid_control_state}
+  def parse_control_state(%{"state" => state} = payload)
+      when state in ["running", "paused", "stopped"] do
+    active_video_id = Map.get(payload, "active_video_id")
+
+    if is_nil(active_video_id) or (is_integer(active_video_id) and active_video_id > 0) do
+      {:ok, String.to_existing_atom(state), active_video_id}
+    else
+      {:error, :invalid_control_state}
+    end
+  end
+
+  def parse_control_state(_payload), do: {:error, :invalid_control_state}
+
   @spec parse_transfer_progress(map()) :: {:ok, TransferProgress.t()} | {:error, atom()}
   def parse_transfer_progress(payload) when is_map(payload) do
     with {:ok, video_id} <-
