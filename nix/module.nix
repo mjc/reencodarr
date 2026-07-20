@@ -345,7 +345,7 @@ in {
       after = ["network-online.target"];
       wants = ["network-online.target"];
       environment = serviceEnv;
-      path = [pkgs.bash];
+      path = [pkgs.bash pkgs.ffmpeg];
       script = "${workerStartScript}";
       serviceConfig = {
         Type = "exec";
