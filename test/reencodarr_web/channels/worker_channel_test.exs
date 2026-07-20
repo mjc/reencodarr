@@ -112,7 +112,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert {:ok, socket} =
                connect(WorkerSocket, %{"token" => token},
-                 connect_info: %{peer_data: %{address: {127, 0, 0, 1}}}
+                 connect_info: %{peer_data: %{address: {0, 0, 0, 0, 0, 65_535, 32_512, 1}}}
                )
 
       assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")

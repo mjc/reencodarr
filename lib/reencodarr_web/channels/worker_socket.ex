@@ -33,8 +33,11 @@ defmodule ReencodarrWeb.WorkerSocket do
 
   defp worker_id, do: "worker-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
 
-  defp local_peer?(%{peer_data: %{address: address}}),
-    do: address in [{127, 0, 0, 1}, {0, 0, 0, 0, 0, 0, 0, 1}]
+  defp local_peer?(%{peer_data: %{address: {127, _b, _c, _d}}}), do: true
+  defp local_peer?(%{peer_data: %{address: {0, 0, 0, 0, 0, 0, 0, 1}}}), do: true
+
+  defp local_peer?(%{peer_data: %{address: {0, 0, 0, 0, 0, 65_535, high, _low}}}),
+    do: div(high, 256) == 127
 
   defp local_peer?(_connect_info), do: false
 end
