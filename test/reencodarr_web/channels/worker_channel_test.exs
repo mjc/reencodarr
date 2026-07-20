@@ -138,6 +138,37 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "fails a local assignment whose source no longer exists" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      path = Path.join(System.tmp_dir!(), "missing-local-worker-#{System.unique_integer()}.mkv")
+      {:ok, video} = Fixtures.video_fixture(%{path: path, size: 4, state: :analyzed})
+
+      assert {:ok, socket} =
+               connect(WorkerSocket, %{"token" => token},
+                 connect_info: %{peer_data: %{address: {127, 0, 0, 1}}}
+               )
+
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(
+                     socket,
+                     "announce",
+                     announce_payload(
+                       worker_id: "local-worker",
+                       hostname: :inet.gethostname() |> elem(1) |> List.to_string()
+                     )
+                   ),
+                   :ok
+
+      assert_reply push(socket, "pull_work", %{}), :error, %{reason: "source_missing"}
+      assert Media.get_video(video.id).state == :failed
+      refute_receive :stream_transfer_chunk
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "uses the current source size when assigning worker input" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)

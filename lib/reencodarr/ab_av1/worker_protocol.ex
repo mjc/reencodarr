@@ -595,6 +595,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
           | :invalid_crf_search_result
           | :invalid_failure_report
           | :invalid_completion_result
+          | :source_missing
           | :unsupported_protocol_version
           | :unsupported_event
           | :unknown_worker_session
@@ -609,6 +610,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   def error(:invalid_crf_search_result), do: %{reason: "invalid_crf_search_result"}
   def error(:invalid_failure_report), do: %{reason: "invalid_failure_report"}
   def error(:invalid_completion_result), do: %{reason: "invalid_completion_result"}
+  def error(:source_missing), do: %{reason: "source_missing"}
 
   def error(:unsupported_protocol_version) do
     %{
