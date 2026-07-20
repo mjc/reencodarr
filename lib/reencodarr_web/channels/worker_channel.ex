@@ -468,10 +468,8 @@ defmodule ReencodarrWeb.WorkerChannel do
     case File.stat(video.path) do
       {:ok, %{size: size}} when size != video.size ->
         Logger.warning(
-          "Worker transfer size mismatch for video #{video.id}; syncing source metadata"
+          "Worker transfer size mismatch for video #{video.id}; updating source size"
         )
-
-        sync_source_service(video.service_type)
 
         case Media.update_video(video, %{size: size}) do
           {:ok, updated_video} -> {:ok, updated_video}
@@ -485,10 +483,6 @@ defmodule ReencodarrWeb.WorkerChannel do
         {:ok, video}
     end
   end
-
-  defp sync_source_service(:sonarr), do: Reencodarr.Sync.sync_episodes()
-  defp sync_source_service(:radarr), do: Reencodarr.Sync.sync_movies()
-  defp sync_source_service(_service_type), do: :ok
 
   defp websocket_transfer_on_assign?,
     do: is_nil(WorkerConfig.transfer_base_url())

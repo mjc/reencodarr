@@ -113,6 +113,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       on_exit(fn -> File.rm(path) end)
 
       {:ok, video} = Fixtures.video_fixture(%{path: path, size: 128, state: :analyzed})
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
 
       assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
       assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
@@ -127,6 +128,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert video_id == video.id
       assert Media.get_video(video.id).size == 64
+      refute_receive {:sync_started, _}, 50
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
