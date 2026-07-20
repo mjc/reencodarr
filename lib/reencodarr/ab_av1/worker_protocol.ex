@@ -17,10 +17,11 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     @moduledoc false
 
     @enforce_keys [:worker_id, :protocol_version, :version, :capabilities]
-    defstruct [:worker_id, :protocol_version, :version, :capabilities]
+    defstruct [:worker_id, :hostname, :protocol_version, :version, :capabilities]
 
     @type t :: %__MODULE__{
             worker_id: String.t(),
+            hostname: String.t() | nil,
             protocol_version: pos_integer(),
             version: String.t(),
             capabilities: map()
@@ -163,17 +164,20 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     do: protocol_version in @supported_protocol_versions
 
   @spec parse_announcement(map()) :: {:ok, Announcement.t()} | {:error, :invalid_announcement}
-  def parse_announcement(%{
-        "worker_id" => worker_id,
-        "protocol_version" => protocol_version,
-        "version" => version,
-        "capabilities" => capabilities
-      })
+  def parse_announcement(
+        %{
+          "worker_id" => worker_id,
+          "protocol_version" => protocol_version,
+          "version" => version,
+          "capabilities" => capabilities
+        } = payload
+      )
       when is_binary(worker_id) and is_integer(protocol_version) and is_binary(version) and
              is_map(capabilities) do
     {:ok,
      %Announcement{
        worker_id: worker_id,
+       hostname: optional_string(payload, [:hostname, "hostname"]),
        protocol_version: protocol_version,
        version: version,
        capabilities: capabilities

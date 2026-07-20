@@ -19,7 +19,8 @@ defmodule ReencodarrWeb.WorkerSocket do
       {:ok,
        socket
        |> assign(:worker_id, worker_id())
-       |> assign(:local_worker, local_peer?(connect_info))}
+       |> assign(:loopback_peer, local_peer?(connect_info))
+       |> assign(:local_worker, false)}
     else
       _ -> :error
     end

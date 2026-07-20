@@ -30,6 +30,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     with {:ok,
           %Announcement{
             worker_id: client_worker_id,
+            hostname: hostname,
             protocol_version: protocol_version,
             version: version,
             capabilities: capabilities
@@ -45,6 +46,7 @@ defmodule ReencodarrWeb.WorkerChannel do
            }) do
       socket =
         socket
+        |> assign(:local_worker, local_worker?(socket, hostname))
         |> assign(:client_worker_id, client_worker_id)
         |> assign(:client_version, version)
         |> assign(:protocol_version, protocol_version)
@@ -151,6 +153,16 @@ defmodule ReencodarrWeb.WorkerChannel do
     else
       {:error, :unsupported_protocol_version}
     end
+  end
+
+  defp local_worker?(socket, hostname) when is_binary(hostname),
+    do: socket.assigns[:loopback_peer] == true and hostname == local_hostname()
+
+  defp local_worker?(_socket, _hostname), do: false
+
+  defp local_hostname do
+    {:ok, hostname} = :inet.gethostname()
+    List.to_string(hostname)
   end
 
   @impl true

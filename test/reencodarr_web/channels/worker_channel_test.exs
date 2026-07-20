@@ -116,7 +116,16 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                )
 
       assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
-      assert_reply push(socket, "announce", announce_payload(worker_id: "local-worker")), :ok
+
+      assert_reply push(
+                     socket,
+                     "announce",
+                     announce_payload(
+                       worker_id: "local-worker",
+                       hostname: :inet.gethostname() |> elem(1) |> List.to_string()
+                     )
+                   ),
+                   :ok
 
       assert_reply push(socket, "pull_work", %{}),
                    :ok,
