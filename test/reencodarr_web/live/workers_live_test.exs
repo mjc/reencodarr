@@ -207,6 +207,27 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     refute html =~ "Receiving Input"
   end
 
+  test "renders a start control for a stopped worker", %{conn: conn} do
+    assert {:ok, _session} =
+             WorkerSessions.register(%{
+               server_worker_id: "worker-server-stopped",
+               client_worker_id: "worker-client-stopped",
+               protocol_version: 1,
+               version: "0.10.0",
+               capabilities: %{"crf_search" => true}
+             })
+
+    assert {:ok, _session} =
+             WorkerSessions.set_control_state("worker-server-stopped", :stopped)
+
+    {:ok, view, _html} = live(conn, ~p"/workers")
+    html = render(view)
+
+    assert html =~ "Stopped"
+    assert html =~ "Start"
+    assert has_element?(view, "button[phx-click=start_worker_crf_search]")
+  end
+
   test "shows input ready after input transfer finishes before CRF progress", %{conn: conn} do
     {:ok, _session} =
       WorkerSessions.register(%{

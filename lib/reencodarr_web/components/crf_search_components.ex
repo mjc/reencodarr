@@ -190,6 +190,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   attr :suspend_event, :string, default: "suspend_crf_search"
   attr :resume_event, :string, default: "resume_crf_search"
   attr :fail_event, :string, default: "fail_crf_search"
+  attr :start_event, :string, default: nil
   attr :worker_id, :string, default: nil
 
   def crf_search_panel(assigns) do
@@ -249,6 +250,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
             suspend_event={@suspend_event}
             resume_event={@resume_event}
             fail_event={@fail_event}
+            start_event={@start_event}
             worker_id={@worker_id}
           />
 
@@ -294,13 +296,14 @@ defmodule ReencodarrWeb.CrfSearchComponents do
           <% end %>
         </div>
 
-        <%= if @show_controls and @status == :paused do %>
+        <%= if @show_controls and (@status == :paused or (@status == :stopped and @start_event)) do %>
           <div class="mt-2">
             <.active_job_controls
               status={@status}
               suspend_event={@suspend_event}
               resume_event={@resume_event}
               fail_event={@fail_event}
+              start_event={@start_event}
               worker_id={@worker_id}
             />
           </div>
@@ -363,10 +366,14 @@ defmodule ReencodarrWeb.CrfSearchComponents do
       suspend_event="pause_worker_crf_search"
       resume_event="resume_worker_crf_search"
       fail_event="stop_worker_crf_search"
+      start_event="start_worker_crf_search"
       worker_id={@worker.server_worker_id}
     />
     """
   end
+
+  defp worker_crf_status(%{control_state: :paused}), do: :paused
+  defp worker_crf_status(%{control_state: :stopped}), do: :stopped
 
   defp worker_crf_status(%{active_video_id: video_id}) when is_integer(video_id),
     do: :processing
@@ -431,37 +438,50 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   attr :suspend_event, :string, required: true
   attr :resume_event, :string, required: true
   attr :fail_event, :string, required: true
+  attr :start_event, :string, default: nil
   attr :worker_id, :string, default: nil
 
   defp active_job_controls(assigns) do
     ~H"""
     <div class="flex flex-wrap items-center gap-2 pt-1 text-xs">
-      <%= if @status == :paused do %>
+      <%= if @status == :stopped and @start_event do %>
         <button
-          phx-click={@resume_event}
+          phx-click={@start_event}
           phx-value-worker-id={@worker_id}
-          class="font-medium text-cyan-400 hover:text-cyan-300"
+          class="font-medium text-green-400 hover:text-green-300"
         >
-          Resume
+          Start
         </button>
       <% else %>
+        <%= if @status == :paused do %>
+          <button
+            phx-click={@resume_event}
+            phx-value-worker-id={@worker_id}
+            class="font-medium text-cyan-400 hover:text-cyan-300"
+          >
+            Resume
+          </button>
+        <% else %>
+          <button
+            phx-click={@suspend_event}
+            phx-value-worker-id={@worker_id}
+            class="font-medium text-yellow-400 hover:text-yellow-300"
+          >
+            Pause
+          </button>
+        <% end %>
+      <% end %>
+      <%= unless @status == :stopped do %>
+        <span class="text-gray-700">|</span>
         <button
-          phx-click={@suspend_event}
+          phx-click={@fail_event}
           phx-value-worker-id={@worker_id}
-          class="font-medium text-yellow-400 hover:text-yellow-300"
+          data-confirm="Stop the active job?"
+          class="font-medium text-red-500 hover:text-red-400"
         >
-          Pause
+          Stop
         </button>
       <% end %>
-      <span class="text-gray-700">|</span>
-      <button
-        phx-click={@fail_event}
-        phx-value-worker-id={@worker_id}
-        data-confirm="Stop the active job?"
-        class="font-medium text-red-500 hover:text-red-400"
-      >
-        Stop
-      </button>
     </div>
     """
   end

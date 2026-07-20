@@ -53,6 +53,10 @@ defmodule ReencodarrWeb.WorkersLive do
     control_worker(socket, worker_id, :stop, "Worker stop requested")
   end
 
+  def handle_event("start_worker_crf_search", %{"worker-id" => worker_id}, socket) do
+    control_worker(socket, worker_id, :start, "Worker start requested")
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -132,7 +136,7 @@ defmodule ReencodarrWeb.WorkersLive do
                     <% :crf_searching -> %>
                       <.worker_crf_search_panel worker={worker} />
                     <% :idle -> %>
-                      <.idle_panel />
+                      <.worker_crf_search_panel worker={worker} />
                   <% end %>
                 </div>
               </section>
@@ -140,15 +144,6 @@ defmodule ReencodarrWeb.WorkersLive do
           </div>
         <% end %>
       </div>
-    </div>
-    """
-  end
-
-  defp idle_panel(assigns) do
-    ~H"""
-    <div class="dashboard-card rounded-lg border border-gray-800 bg-gray-900 p-3 sm:p-4">
-      <h3 class="font-semibold text-white">Idle</h3>
-      <div class="mt-3 text-sm text-gray-500">Waiting for work.</div>
     </div>
     """
   end

@@ -316,6 +316,11 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
+  def handle_event("start_worker_crf_search", %{"worker-id" => worker_id}, socket) do
+    control_worker(socket, worker_id, :start, "Worker start requested")
+  end
+
+  @impl true
   def handle_event("suspend_encode", _params, socket) do
     handle_control_result(socket, Encode.suspend_current(), "Encode paused")
   end
