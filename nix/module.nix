@@ -6,6 +6,24 @@
 }: let
   cfg = config.services.reencodarr;
   workerPackage = pkgs.callPackage ./ab-av1-worker.nix {};
+  svt-av1-hdr = pkgs.svt-av1.overrideAttrs (_old: {
+    pname = "svt-av1-hdr";
+    version = "4.0.1";
+    src = pkgs.fetchFromGitHub {
+      owner = "juliobbv-p";
+      repo = "svt-av1-hdr";
+      rev = "v4.0.1";
+      hash = "sha256-jfyolWcPcfMzxjBszg1KY9eHc6KRsp41h3lQKsrgiDU=";
+    };
+  });
+  ffmpeg-svt-hdr = (pkgs.ffmpeg-full.override {svt-av1 = svt-av1-hdr;}).overrideAttrs (old: {
+    postPatch =
+      (old.postPatch or "")
+      + ''
+        substituteInPlace libavcodec/libsvtav1.c \
+          --replace-fail "param->enable_adaptive_quantization = 0;" ""
+      '';
+  });
   inherit (lib) mkEnableOption mkIf mkOption literalExpression types;
 
   serviceEnv =
@@ -345,7 +363,7 @@ in {
       after = ["network-online.target"];
       wants = ["network-online.target"];
       environment = serviceEnv;
-      path = [pkgs.bash pkgs.ffmpeg];
+      path = [pkgs.bash ffmpeg-svt-hdr svt-av1-hdr];
       script = "${workerStartScript}";
       serviceConfig = {
         Type = "exec";
