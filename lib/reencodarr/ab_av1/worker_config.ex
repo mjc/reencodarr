@@ -20,6 +20,11 @@ defmodule Reencodarr.AbAv1.WorkerConfig do
     end
   end
 
+  @spec supervise_local_worker?() :: boolean()
+  def supervise_local_worker? do
+    Application.get_env(:reencodarr, :supervise_local_worker, true)
+  end
+
   @spec local_worker_config!() :: map()
   def local_worker_config! do
     %{

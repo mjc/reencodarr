@@ -152,13 +152,21 @@ defmodule Reencodarr.Application do
       crf_worker =
         case WorkerConfig.execution_mode() do
           :broadway -> CrfSearcherSupervisor
-          :worker -> LocalWorker
+          :worker -> local_worker_child()
         end
 
-      Enum.concat([[Reencodarr.Analyzer.Supervisor | base_workers], shared_workers, [crf_worker]])
+      Enum.concat([
+        [Reencodarr.Analyzer.Supervisor | base_workers],
+        shared_workers,
+        List.wrap(crf_worker)
+      ])
     else
       base_workers
     end
+  end
+
+  defp local_worker_child do
+    if WorkerConfig.supervise_local_worker?(), do: LocalWorker
   end
 
   defp maybe_start_webhook_sync do

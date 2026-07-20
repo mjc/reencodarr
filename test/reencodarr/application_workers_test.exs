@@ -5,6 +5,7 @@ defmodule Reencodarr.ApplicationWorkersTest do
 
   setup do
     previous = Application.get_env(:reencodarr, :crf_execution_mode)
+    previous_supervise = Application.get_env(:reencodarr, :supervise_local_worker)
 
     on_exit(fn ->
       if is_nil(previous) do
@@ -12,7 +13,23 @@ defmodule Reencodarr.ApplicationWorkersTest do
       else
         Application.put_env(:reencodarr, :crf_execution_mode, previous)
       end
+
+      if is_nil(previous_supervise) do
+        Application.delete_env(:reencodarr, :supervise_local_worker)
+      else
+        Application.put_env(:reencodarr, :supervise_local_worker, previous_supervise)
+      end
     end)
+  end
+
+  test "worker mode can leave the worker to an external service" do
+    Application.put_env(:reencodarr, :crf_execution_mode, :worker)
+    Application.put_env(:reencodarr, :supervise_local_worker, false)
+
+    children = Reencodarr.Application.worker_children(:dev)
+
+    refute LocalWorker in children
+    refute Reencodarr.CrfSearcher.Supervisor in children
   end
 
   test "Broadway mode starts the CRF pipeline but not the local worker" do

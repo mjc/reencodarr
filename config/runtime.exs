@@ -67,6 +67,8 @@ end
 
 config :reencodarr,
   crf_execution_mode: System.get_env("REENCODARR_CRF_EXECUTION_MODE", "broadway"),
+  supervise_local_worker:
+    parse_bool_env.(System.get_env("REENCODARR_SUPERVISE_LOCAL_WORKER", "true")),
   distributed_worker_enabled:
     parse_bool_env.(System.get_env("REENCODARR_DISTRIBUTED_WORKERS", "true")),
   worker_connect_url:

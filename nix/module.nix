@@ -18,6 +18,7 @@
       REENCODARR_TMPDIR = "${toString cfg.cacheDir}/tmp";
       TMPDIR = "${toString cfg.cacheDir}/tmp";
       REENCODARR_CRF_EXECUTION_MODE = cfg.crfExecutionMode;
+      REENCODARR_SUPERVISE_LOCAL_WORKER = lib.boolToString (!cfg.independentWorker);
       REENCODARR_WORKER_CONNECT_URL = cfg.workerConnectUrl;
       REENCODARR_WORKER_EXECUTABLE = cfg.workerExecutable;
       REENCODARR_WORKER_ID = cfg.workerId;
@@ -50,6 +51,17 @@
     set -euo pipefail
     . ${envScript}
     exec ${lib.getExe cfg.package} start
+  '';
+
+  workerStartScript = pkgs.writeShellScript "reencodarr-worker-start" ''
+    set -euo pipefail
+    . ${envScript}
+    cd ${lib.escapeShellArg "${cfg.cacheDir}/tmp"}
+    exec ${lib.escapeShellArg cfg.workerExecutable} worker \
+      --connect ${lib.escapeShellArg cfg.workerConnectUrl} \
+      --worker-id ${lib.escapeShellArg cfg.workerId} \
+      --protocol-version 1 \
+      ${lib.escapeShellArgs cfg.workerExtraArgs}
   '';
 
   iexDotFile = pkgs.writeText "reencodarr-iex.exs" (builtins.readFile ../.iex.exs);
@@ -179,7 +191,13 @@ in {
     crfExecutionMode = mkOption {
       type = types.enum ["broadway" "worker"];
       default = "broadway";
-      description = "CRF search executor. Worker mode disables the CRF Broadway supervisor and starts one local ab-av1 worker.";
+      description = "CRF search executor. Worker mode disables the CRF Broadway supervisor.";
+    };
+
+    independentWorker = mkOption {
+      type = types.bool;
+      default = true;
+      description = "Run the local ab-av1 worker as an independent systemd service so it survives Reencodarr restarts and stops.";
     };
 
     workerConnectUrl = mkOption {
@@ -315,6 +333,28 @@ in {
         Nice = cfg.nice;
         IOSchedulingClass = cfg.ioSchedulingClass;
         Restart = "on-failure";
+        RestartSec = 5;
+      };
+    };
+
+    systemd.services.reencodarr-worker = mkIf (cfg.crfExecutionMode == "worker" && cfg.independentWorker) {
+      description = "Reencodarr ab-av1 worker";
+      wantedBy = ["multi-user.target"];
+      after = ["network-online.target"];
+      wants = ["network-online.target"];
+      environment = serviceEnv;
+      path = [pkgs.bash];
+      script = "${workerStartScript}";
+      serviceConfig = {
+        Type = "exec";
+        User = cfg.user;
+        Group = cfg.group;
+        WorkingDirectory = "${cfg.cacheDir}/tmp";
+        ReadWritePaths = [cfg.cacheDir "${cfg.cacheDir}/tmp"];
+        LoadCredential = lib.optional (cfg.secretKeyBaseFile != null) "secret_key_base:${cfg.secretKeyBaseFile}";
+        Nice = cfg.nice;
+        IOSchedulingClass = cfg.ioSchedulingClass;
+        Restart = "always";
         RestartSec = 5;
       };
     };
