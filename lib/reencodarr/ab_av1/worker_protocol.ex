@@ -475,8 +475,8 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   @spec no_work() :: map()
   def no_work, do: %{status: "no_work"}
 
-  @spec work_assigned(Video.t(), number()) :: map()
-  def work_assigned(%Video{id: video_id, path: path, size: size} = video, target_vmaf)
+  @spec work_assigned(Video.t(), number(), keyword()) :: map()
+  def work_assigned(%Video{id: video_id, path: path, size: size} = video, target_vmaf, opts \\ [])
       when is_integer(video_id) and is_binary(path) do
     video
     |> maybe_put_transfer(%{
@@ -489,9 +489,14 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
       target_vmaf: target_vmaf,
       crf_search_args: CrfSearch.build_crf_search_args(video, target_vmaf)
     })
+    |> maybe_put_local_path(path, opts)
   end
 
-  def work_in_progress(%Video{id: video_id, path: path, size: size} = video, target_vmaf)
+  def work_in_progress(
+        %Video{id: video_id, path: path, size: size} = video,
+        target_vmaf,
+        opts \\ []
+      )
       when is_integer(video_id) and is_binary(path) do
     video
     |> maybe_put_transfer(%{
@@ -503,6 +508,15 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
       target_vmaf: target_vmaf,
       crf_search_args: CrfSearch.build_crf_search_args(video, target_vmaf)
     })
+    |> maybe_put_local_path(path, opts)
+  end
+
+  defp maybe_put_local_path(payload, path, opts) do
+    if Keyword.get(opts, :local?, false) do
+      payload |> Map.delete(:transfer) |> Map.put(:local_path, path)
+    else
+      payload
+    end
   end
 
   defp maybe_put_transfer(%Video{id: video_id}, payload) do

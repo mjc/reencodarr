@@ -21,7 +21,7 @@ defmodule ReencodarrWeb.Endpoint do
   # ab-av1 workers connect through the main Phoenix endpoint on the same
   # host/port as the rest of the app.
   socket "/workers/socket", ReencodarrWeb.WorkerSocket,
-    websocket: true,
+    websocket: [connect_info: [:peer_data]],
     longpoll: false
 
   # Serve at "/" the static files from "priv/static" directory.

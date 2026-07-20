@@ -251,6 +251,16 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
     assert "--temp-dir" in crf_search_args
   end
 
+  test "offers the source path to a local worker" do
+    video = %Reencodarr.Media.Video{id: 123, path: "/videos/movie.mkv", size: 987_654}
+
+    local_payload = WorkerProtocol.work_assigned(video, 96.5, local?: true)
+    assert %{local_path: "/videos/movie.mkv"} = local_payload
+    refute Map.has_key?(local_payload, :transfer)
+
+    refute Map.has_key?(WorkerProtocol.work_assigned(video, 96.5), :local_path)
+  end
+
   test "includes configured worker transfer URL in job payloads" do
     previous_base_url = Application.get_env(:reencodarr, :worker_transfer_base_url)
     previous_token = Application.get_env(:reencodarr, :worker_transfer_token)

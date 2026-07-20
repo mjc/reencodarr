@@ -11,12 +11,15 @@ defmodule ReencodarrWeb.WorkerSocket do
   channel WorkerProtocol.crf_search_topic(), ReencodarrWeb.WorkerChannel
 
   @impl true
-  def connect(%{"token" => token}, socket, _connect_info) when is_binary(token) do
+  def connect(%{"token" => token}, socket, connect_info) when is_binary(token) do
     with true <- WorkerConfig.enabled?(),
          {:ok, configured_token} when is_binary(configured_token) <-
            Application.fetch_env(:reencodarr, :worker_token),
          true <- Plug.Crypto.secure_compare(configured_token, token) do
-      {:ok, assign(socket, :worker_id, worker_id())}
+      {:ok,
+       socket
+       |> assign(:worker_id, worker_id())
+       |> assign(:local_worker, local_peer?(connect_info))}
     else
       _ -> :error
     end
@@ -29,4 +32,9 @@ defmodule ReencodarrWeb.WorkerSocket do
   def id(_socket), do: nil
 
   defp worker_id, do: "worker-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+
+  defp local_peer?(%{peer_data: %{address: address}}),
+    do: address in [{127, 0, 0, 1}, {0, 0, 0, 0, 0, 0, 0, 1}]
+
+  defp local_peer?(_connect_info), do: false
 end

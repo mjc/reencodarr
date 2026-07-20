@@ -10,7 +10,7 @@ defmodule Reencodarr.AbAv1.WorkerJobStateMachine do
   @valid_phases [:idle, :receiving_input, :input_ready, :crf_searching]
 
   @valid_transitions %{
-    idle: [:receiving_input, :crf_searching],
+    idle: [:receiving_input, :input_ready, :crf_searching],
     receiving_input: [:receiving_input, :input_ready, :crf_searching, :idle],
     input_ready: [:receiving_input, :crf_searching, :idle],
     crf_searching: [:crf_searching, :receiving_input, :input_ready, :idle]

@@ -99,6 +99,36 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "offers a loopback worker the local source instead of starting a transfer" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      path =
+        Path.join(System.tmp_dir!(), "local-worker-#{System.unique_integer([:positive])}.mkv")
+
+      File.write!(path, "data")
+      on_exit(fn -> File.rm(path) end)
+      {:ok, video} = Fixtures.video_fixture(%{path: path, size: 4, state: :analyzed})
+
+      assert {:ok, socket} =
+               connect(WorkerSocket, %{"token" => token},
+                 connect_info: %{peer_data: %{address: {127, 0, 0, 1}}}
+               )
+
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "local-worker")), :ok
+
+      assert_reply push(socket, "pull_work", %{}),
+                   :ok,
+                   %{status: "job_assigned", local_path: local_path}
+
+      assert local_path == video.path
+      assert WorkerSessions.get(socket.assigns.worker_id).phase == :input_ready
+      refute_receive :stream_transfer_chunk
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "uses the current source size when assigning worker input" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)

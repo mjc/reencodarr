@@ -389,14 +389,17 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp assign_claimed_work(worker_id, socket, video) do
     target_vmaf = Reencodarr.Rules.vmaf_target(video)
+    local? = local_source?(socket, video)
 
     with {:ok, _video} <- Media.mark_as_worker_crf_searching(video, worker_dispatch_id(socket)),
          {:ok, video} <- refresh_transfer_source(video),
-         {:ok, _session} <- WorkerSessions.assign_video(worker_id, video.id, :receiving_input) do
+         {:ok, _session} <- WorkerSessions.assign_video(worker_id, video.id, worker_phase(local?)) do
       socket =
-        prepare_transfer(socket, video, target_vmaf, stream?: websocket_transfer_on_assign?())
+        prepare_transfer(socket, video, target_vmaf,
+          stream?: not local? and websocket_transfer_on_assign?()
+        )
 
-      {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf)}, socket}
+      {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf, local?: local?)}, socket}
     else
       {:error, reason} ->
         _ = Media.mark_as_analyzed(video)
@@ -406,16 +409,17 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp reply_for_active_work(worker_id, socket, video, :resend_input) do
     target_vmaf = socket.assigns[:current_vmaf_target] || Reencodarr.Rules.vmaf_target(video)
+    local? = local_source?(socket, video)
 
     with {:ok, video} <- refresh_transfer_source(video),
-         {:ok, _session} <- WorkerSessions.assign_video(worker_id, video.id, :receiving_input) do
+         {:ok, _session} <- WorkerSessions.assign_video(worker_id, video.id, worker_phase(local?)) do
       socket =
         prepare_transfer(socket, video, target_vmaf,
-          stream?: websocket_transfer_on_assign?(),
+          stream?: not local? and websocket_transfer_on_assign?(),
           fail_if_missing?: true
         )
 
-      {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf)}, socket}
+      {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf, local?: local?)}, socket}
     else
       {:error, reason} ->
         {:reply, {:error, WorkerProtocol.error(reason)}, socket}
@@ -428,10 +432,19 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp resume_active_work(socket, video) do
     {:ok, video} = refresh_transfer_source(video)
+    local? = local_source?(socket, video)
 
-    {:reply, {:ok, WorkerProtocol.work_in_progress(video, socket.assigns[:current_vmaf_target])},
+    {:reply,
+     {:ok,
+      WorkerProtocol.work_in_progress(video, socket.assigns[:current_vmaf_target], local?: local?)},
      socket}
   end
+
+  defp worker_phase(true), do: :input_ready
+  defp worker_phase(false), do: :receiving_input
+
+  defp local_source?(socket, video),
+    do: (socket.assigns[:local_worker] || false) and File.regular?(video.path)
 
   defp prepare_transfer(socket, video, target_vmaf, opts) do
     transfer_id = Integer.to_string(video.id)
