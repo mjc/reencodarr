@@ -1,6 +1,8 @@
 defmodule ReencodarrWeb.WorkerFileControllerTest do
   use ReencodarrWeb.ConnCase, async: false
 
+  alias Reencodarr.AbAv1.Encode
+
   test "requires worker bearer token", %{conn: conn} do
     previous = Application.get_env(:reencodarr, :worker_token)
     previous_transfer = Application.get_env(:reencodarr, :worker_transfer_token)
@@ -42,6 +44,31 @@ defmodule ReencodarrWeb.WorkerFileControllerTest do
     assert conn.resp_body == "video bytes"
     assert [content_type] = get_resp_header(conn, "content-type")
     assert String.starts_with?(content_type, "application/octet-stream")
+  end
+
+  test "stores an authorized encode output for completion", %{conn: conn} do
+    previous_token = Application.get_env(:reencodarr, :worker_transfer_token)
+    previous_temp_dir = Application.get_env(:reencodarr, :temp_dir)
+    temp_dir = Path.join(System.tmp_dir!(), "reencodarr-worker-output-#{System.unique_integer()}")
+    Application.put_env(:reencodarr, :worker_transfer_token, "transfer-token")
+    Application.put_env(:reencodarr, :temp_dir, temp_dir)
+
+    on_exit(fn ->
+      restore_env(:worker_transfer_token, previous_token)
+      restore_env(:temp_dir, previous_temp_dir)
+      File.rm_rf(temp_dir)
+    end)
+
+    {:ok, video} = Fixtures.video_fixture(%{path: "/videos/movie.mkv", size: 1_000})
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer transfer-token")
+      |> put_req_header("content-type", "application/octet-stream")
+      |> put(~p"/workers/files/#{video.id}/output", "encoded bytes")
+
+    assert conn.status == 204
+    assert File.read!(Encode.output_file(video)) == "encoded bytes"
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:reencodarr, key)

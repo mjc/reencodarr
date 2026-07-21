@@ -581,6 +581,11 @@ defmodule Reencodarr.AbAv1.Encode do
     end
   end
 
+  @spec output_file(%{required(:id) => integer(), required(:path) => String.t()}) :: String.t()
+  def output_file(%{id: id, path: path}) do
+    Path.join(Helper.temp_dir(), "#{id}#{output_extension(path)}")
+  end
+
   defp output_extension(video_path) do
     case Path.extname(video_path) |> String.downcase() do
       ext when ext in [".mp4", ".m4v"] -> ".mp4"
@@ -588,15 +593,14 @@ defmodule Reencodarr.AbAv1.Encode do
     end
   end
 
-  defp build_encode_args(vmaf) do
-    ext = output_extension(vmaf.video.path)
-
+  @spec build_encode_args(Reencodarr.Media.Vmaf.t()) :: [String.t()]
+  def build_encode_args(vmaf) do
     base_args = [
       "encode",
       "--crf",
       to_string(vmaf.crf),
       "--output",
-      Path.join(Helper.temp_dir(), "#{vmaf.video.id}#{ext}"),
+      output_file(vmaf.video),
       "--input",
       vmaf.video.path
     ]

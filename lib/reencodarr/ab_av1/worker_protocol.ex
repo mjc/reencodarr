@@ -3,7 +3,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   Server-side helpers for the ab-av1 worker websocket protocol.
   """
 
-  alias Reencodarr.AbAv1.CrfSearch
+  alias Reencodarr.AbAv1.{CrfSearch, Encode}
   alias Reencodarr.AbAv1.WorkerConfig
   alias Reencodarr.Media.Video
 
@@ -65,7 +65,17 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     @moduledoc false
 
     @enforce_keys [:video_id, :percent]
-    defstruct [:video_id, :percent, :filename, :eta, :fps, :crf, :sample_num, :total_samples]
+    defstruct [
+      :job_id,
+      :video_id,
+      :percent,
+      :filename,
+      :eta,
+      :fps,
+      :crf,
+      :sample_num,
+      :total_samples
+    ]
 
     @type t :: %__MODULE__{
             video_id: pos_integer(),
@@ -96,6 +106,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
     @enforce_keys [:video_id, :stage, :category, :message]
     defstruct [
+      :job_id,
       :video_id,
       :stage,
       :category,
@@ -116,6 +127,29 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
             retriable: boolean() | nil,
             stderr_excerpt: String.t() | nil
           }
+  end
+
+  defmodule EncodeProgress do
+    @moduledoc false
+
+    @enforce_keys [:job_id, :video_id, :percent, :fps, :output_bytes, :output_percent]
+    defstruct [
+      :job_id,
+      :video_id,
+      :percent,
+      :fps,
+      :eta,
+      :output_bytes,
+      :output_percent,
+      :throughput
+    ]
+  end
+
+  defmodule EncodeCompletion do
+    @moduledoc false
+
+    @enforce_keys [:job_id, :video_id, :source_name, :output_path, :output_bytes, :output_percent]
+    defstruct [:job_id, :video_id, :source_name, :output_path, :output_bytes, :output_percent]
   end
 
   defmodule Completion do
@@ -259,6 +293,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
            required_number(payload, [:percent, "percent"], :invalid_crf_search_progress) do
       {:ok,
        %CrfSearchProgress{
+         job_id: optional_string(payload, [:job_id, "job_id"]),
          video_id: video_id,
          percent: percent,
          filename: optional_string(payload, [:filename, "filename"]),
@@ -294,6 +329,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
            required_string(payload, [:message, "message"], :invalid_failure_report) do
       {:ok,
        %FailureReport{
+         job_id: optional_string(payload, [:job_id, "job_id"]),
          video_id: video_id,
          stage: stage,
          category: category,
@@ -307,6 +343,73 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   end
 
   def parse_failure_report(_payload), do: {:error, :invalid_failure_report}
+
+  def parse_encode_progress(payload) when is_map(payload) do
+    with {:ok, job_id} <-
+           required_string(payload, [:job_id, "job_id"], :invalid_encode_progress),
+         {:ok, video_id} <-
+           required_integer(payload, [:video_id, "video_id"], :invalid_encode_progress),
+         {:ok, percent} <-
+           required_number(payload, [:percent, "percent"], :invalid_encode_progress),
+         {:ok, fps} <- required_number(payload, [:fps, "fps"], :invalid_encode_progress),
+         {:ok, output_bytes} <-
+           required_integer(payload, [:output_bytes, "output_bytes"], :invalid_encode_progress),
+         {:ok, output_percent} <-
+           required_number(
+             payload,
+             [:output_percent, "output_percent"],
+             :invalid_encode_progress
+           ) do
+      {:ok,
+       %EncodeProgress{
+         job_id: job_id,
+         video_id: video_id,
+         percent: percent,
+         fps: fps,
+         eta: optional_integer(payload, [:eta, "eta"]),
+         output_bytes: output_bytes,
+         output_percent: output_percent,
+         throughput: optional_string(payload, [:throughput, "throughput"])
+       }}
+    end
+  end
+
+  def parse_encode_progress(_payload), do: {:error, :invalid_encode_progress}
+
+  def parse_encode_completion(payload) when is_map(payload) do
+    with {:ok, job_id} <-
+           required_string(payload, [:job_id, "job_id"], :invalid_encode_completion),
+         {:ok, video_id} <-
+           required_integer(payload, [:video_id, "video_id"], :invalid_encode_completion),
+         {:ok, source_name} <-
+           required_string(payload, [:source_name, "source_name"], :invalid_encode_completion),
+         {:ok, output_path} <-
+           required_string(payload, [:output_path, "output_path"], :invalid_encode_completion),
+         {:ok, output_bytes} <-
+           required_integer(
+             payload,
+             [:output_bytes, "output_bytes"],
+             :invalid_encode_completion
+           ),
+         {:ok, output_percent} <-
+           required_number(
+             payload,
+             [:output_percent, "output_percent"],
+             :invalid_encode_completion
+           ) do
+      {:ok,
+       %EncodeCompletion{
+         job_id: job_id,
+         video_id: video_id,
+         source_name: source_name,
+         output_path: output_path,
+         output_bytes: output_bytes,
+         output_percent: output_percent
+       }}
+    end
+  end
+
+  def parse_encode_completion(_payload), do: {:error, :invalid_encode_completion}
 
   @spec parse_completion(map()) :: {:ok, Completion.t()} | {:error, atom()}
   def parse_completion(payload) when is_map(payload) do
@@ -485,6 +588,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     video
     |> maybe_put_transfer(%{
       status: "job_assigned",
+      job_type: "crf_search",
       job_id: Integer.to_string(video_id),
       video_id: video_id,
       source_name: Path.basename(path),
@@ -505,6 +609,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     video
     |> maybe_put_transfer(%{
       status: "job_in_progress",
+      job_type: "crf_search",
       job_id: Integer.to_string(video_id),
       video_id: video_id,
       source_name: Path.basename(path),
@@ -513,6 +618,45 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
       crf_search_args: CrfSearch.build_crf_search_args(video, target_vmaf)
     })
     |> maybe_put_local_path(path, opts)
+  end
+
+  def encode_work_assigned(%Video{} = video, vmaf, opts \\ []) do
+    payload = %{
+      status: Keyword.get(opts, :status, "job_assigned"),
+      job_type: "encode",
+      job_id: "encode-#{video.id}",
+      video_id: video.id,
+      source_name: Path.basename(video.path),
+      size_bytes: video.size || 0,
+      chunk_size_bytes: chunk_size_bytes(),
+      target_vmaf: 0.0,
+      encode_args: Encode.build_encode_args(%{vmaf | video: video})
+    }
+
+    video
+    |> maybe_put_transfer(payload)
+    |> maybe_put_local_path(video.path, opts)
+    |> put_output_delivery(video, opts)
+  end
+
+  defp put_output_delivery(payload, video, opts) do
+    if Keyword.get(opts, :local?, false) do
+      Map.put(payload, :output_shared_path, Encode.output_file(video))
+    else
+      maybe_put_output_transfer(payload, video)
+    end
+  end
+
+  defp maybe_put_output_transfer(payload, %Video{id: video_id}) do
+    with base_url when is_binary(base_url) <- WorkerConfig.transfer_base_url(),
+         token when is_binary(token) <- WorkerConfig.transfer_token() do
+      Map.put(payload, :output_transfer, %{
+        url: "#{String.trim_trailing(base_url, "/")}/workers/files/#{video_id}/output",
+        auth: %{scheme: "bearer", header: "authorization", value: "Bearer #{token}"}
+      })
+    else
+      _ -> payload
+    end
   end
 
   defp maybe_put_local_path(payload, path, opts) do
@@ -595,6 +739,8 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
           | :invalid_crf_search_result
           | :invalid_failure_report
           | :invalid_completion_result
+          | :invalid_encode_progress
+          | :invalid_encode_completion
           | :source_missing
           | :unsupported_protocol_version
           | :unsupported_event
@@ -610,6 +756,8 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   def error(:invalid_crf_search_result), do: %{reason: "invalid_crf_search_result"}
   def error(:invalid_failure_report), do: %{reason: "invalid_failure_report"}
   def error(:invalid_completion_result), do: %{reason: "invalid_completion_result"}
+  def error(:invalid_encode_progress), do: %{reason: "invalid_encode_progress"}
+  def error(:invalid_encode_completion), do: %{reason: "invalid_encode_completion"}
   def error(:source_missing), do: %{reason: "source_missing"}
 
   def error(:unsupported_protocol_version) do
