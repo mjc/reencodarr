@@ -684,7 +684,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
         {:worker_control, :pause}
       )
 
-      assert_push "control", %{action: "pause", video_id: ^video_id}
+      assert_push "control", %{action: "pause"}
 
       assert_reply push(socket, "control_state", %{
                      "state" => "paused",
@@ -701,7 +701,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
         {:worker_control, :stop}
       )
 
-      assert_push "control", %{action: "stop", video_id: ^video_id}
+      assert_push "control", %{action: "stop"}
 
       assert_reply push(socket, "control_state", %{"state" => "stopped"}),
                    :ok,

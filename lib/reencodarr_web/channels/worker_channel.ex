@@ -157,10 +157,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   def handle_info({:worker_control, action}, socket) do
-    push(socket, "control", %{
-      action: Atom.to_string(action),
-      video_id: socket.assigns[:current_video_id]
-    })
+    push(socket, "control", %{action: Atom.to_string(action)})
 
     {:noreply, socket}
   end

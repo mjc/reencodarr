@@ -337,7 +337,7 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_event(event, %{"worker-id" => worker_id, "job-id" => job_id}, socket)
+  def handle_event(event, %{"worker-id" => worker_id}, socket)
       when event in ["pause_worker_encode", "resume_worker_encode", "stop_worker_encode"] do
     action =
       %{
@@ -346,7 +346,7 @@ defmodule ReencodarrWeb.DashboardLive do
         "stop_worker_encode" => :stop
       }[event]
 
-    control_worker(socket, worker_id, action, "Worker encode #{action} requested", job_id)
+    control_worker(socket, worker_id, action, "Worker encode #{action} requested")
   end
 
   @impl true
