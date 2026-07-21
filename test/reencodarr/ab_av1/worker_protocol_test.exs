@@ -141,8 +141,9 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
                "chosen" => true
              })
 
-    assert {:ok, %Completion{video_id: 123, result: :ok, chosen_crf: 28}} =
+    assert {:ok, %Completion{job_id: "123", video_id: 123, result: :ok, chosen_crf: 28}} =
              WorkerProtocol.parse_completion(%{
+               "job_id" => "123",
                "video_id" => 123,
                "result" => "ok",
                "chosen_crf" => 28

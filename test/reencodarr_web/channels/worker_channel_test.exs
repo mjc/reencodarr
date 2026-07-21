@@ -1412,6 +1412,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert WorkerSessions.get(socket.assigns.worker_id).active_video_id == nil
 
       assert_reply push(socket, "crf_search_completed", %{
+                     "job_id" => Integer.to_string(video_id),
                      "video_id" => video_id,
                      "result" => "ok",
                      "chosen_crf" => 28

@@ -994,6 +994,13 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp handle_parsed_crf_search_completed(worker_id, socket, completion) do
+    case ensure_crf_job(completion) do
+      :ok -> handle_verified_crf_search_completed(worker_id, socket, completion)
+      {:error, reason} -> {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+    end
+  end
+
+  defp handle_verified_crf_search_completed(worker_id, socket, completion) do
     case Media.get_video(completion.video_id) do
       %Media.Video{state: :crf_searched, chosen_vmaf_id: chosen_vmaf_id}
       when not is_nil(chosen_vmaf_id) ->
@@ -1010,6 +1017,14 @@ defmodule ReencodarrWeb.WorkerChannel do
         end
     end
   end
+
+  defp ensure_crf_job(%{job_id: nil}), do: :ok
+
+  defp ensure_crf_job(%{job_id: job_id, video_id: video_id}) do
+    if job_id == Integer.to_string(video_id), do: :ok, else: {:error, :unknown_worker_session}
+  end
+
+  defp ensure_crf_job(_completion), do: {:error, :unknown_worker_session}
 
   defp apply_completion_result(worker_id, socket, video, :ok, chosen_crf, results) do
     case persist_crf_results(video, results) do

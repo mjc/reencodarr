@@ -178,9 +178,10 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     @moduledoc false
 
     @enforce_keys [:video_id, :result]
-    defstruct [:video_id, :result, :chosen_crf, results: []]
+    defstruct [:job_id, :video_id, :result, :chosen_crf, results: []]
 
     @type t :: %__MODULE__{
+            job_id: String.t() | nil,
             video_id: pos_integer(),
             result: :ok | :cancelled | :shutdown | :failed | {:error, term()},
             chosen_crf: number() | nil,
@@ -442,6 +443,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
          {:ok, result} <- parse_completion_result(payload) do
       {:ok,
        %Completion{
+         job_id: optional_string(payload, [:job_id, "job_id"]),
          video_id: video_id,
          result: result,
          chosen_crf: optional_number(payload, [:chosen_crf, "chosen_crf"]),
