@@ -433,6 +433,57 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert WorkerSessions.list() == []
   end
 
+  test "retains independent encode job state when a worker reconnects" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :encoding})
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", "encode-#{video.id}", %{
+               job_type: :encode,
+               video_id: video.id,
+               phase: :receiving_input
+             })
+
+    assert {:ok, _session} =
+             WorkerSessions.update_job("worker-server-1", "encode-#{video.id}", %{
+               phase: :encoding,
+               progress: %{percent: 42.0}
+             })
+
+    assert {:ok, reconnected} =
+             WorkerSessions.register(worker_session_attrs(server_worker_id: "worker-server-2"))
+
+    assert is_nil(WorkerSessions.get("worker-server-1"))
+
+    assert %{
+             job_type: :encode,
+             video_id: video_id,
+             phase: :encoding,
+             progress: %{percent: 42.0}
+           } = reconnected.jobs["encode-#{video.id}"]
+
+    assert video_id == video.id
+    assert {:ok, cleared} = WorkerSessions.clear_job("worker-server-2", "encode-#{video.id}")
+    assert cleared.jobs == %{}
+  end
+
+  test "requeues an encode when its retained worker session expires" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+    vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+    video = Fixtures.choose_vmaf(video, vmaf)
+    {:ok, video} = Media.mark_as_encoding(video)
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", "encode-#{video.id}", %{
+               job_type: :encode,
+               video_id: video.id
+             })
+
+    assert {:ok, [_session]} = WorkerSessions.expire_stale(0)
+    assert Media.get_video(video.id).state == :crf_searched
+  end
+
   defp worker_session_attrs(overrides \\ []) do
     %{
       server_worker_id: "worker-server-1",

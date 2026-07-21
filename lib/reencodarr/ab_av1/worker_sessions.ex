@@ -26,6 +26,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           transfer_progress: map() | nil,
           crf_search_progress: CrfSearchProgress.t() | nil,
           resource_usage: map() | nil,
+          jobs: %{optional(String.t()) => map()},
           connected_at: DateTime.t(),
           last_seen_at: DateTime.t()
         }
@@ -53,6 +54,18 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def clear_video(server_worker_id) do
     GenServer.call(__MODULE__, {:clear_video, server_worker_id})
+  end
+
+  def assign_job(server_worker_id, job_id, attrs) when is_binary(job_id) and is_map(attrs) do
+    GenServer.call(__MODULE__, {:assign_job, server_worker_id, job_id, attrs})
+  end
+
+  def update_job(server_worker_id, job_id, attrs) when is_binary(job_id) and is_map(attrs) do
+    GenServer.call(__MODULE__, {:update_job, server_worker_id, job_id, attrs})
+  end
+
+  def clear_job(server_worker_id, job_id) when is_binary(job_id) do
+    GenServer.call(__MODULE__, {:clear_job, server_worker_id, job_id})
   end
 
   def set_transfer_progress(server_worker_id, progress) when is_map(progress) do
@@ -160,6 +173,41 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end)
   end
 
+  def handle_call({:assign_job, server_worker_id, job_id, attrs}, _from, state) do
+    update_session_reply(server_worker_id, state, fn session ->
+      job =
+        attrs
+        |> Map.put(:job_id, job_id)
+        |> Map.put_new(:phase, :assigned)
+        |> Map.put_new(:transfer_progress, nil)
+        |> Map.put_new(:progress, nil)
+
+      %{session | jobs: Map.put(session.jobs, job_id, job), last_seen_at: now()}
+    end)
+  end
+
+  def handle_call({:update_job, server_worker_id, job_id, attrs}, _from, state) do
+    update_session_reply(server_worker_id, state, fn session ->
+      case Map.fetch(session.jobs, job_id) do
+        {:ok, job} ->
+          %{
+            session
+            | jobs: Map.put(session.jobs, job_id, Map.merge(job, attrs)),
+              last_seen_at: now()
+          }
+
+        :error ->
+          {:error, :unknown_worker_session}
+      end
+    end)
+  end
+
+  def handle_call({:clear_job, server_worker_id, job_id}, _from, state) do
+    update_session_reply(server_worker_id, state, fn session ->
+      %{session | jobs: Map.delete(session.jobs, job_id), last_seen_at: now()}
+    end)
+  end
+
   def handle_call({:record_transfer_progress, server_worker_id, progress}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
       with {:ok, session} <- WorkerJobStateMachine.record_transfer_progress(session, progress) do
@@ -206,6 +254,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     case lookup_session(server_worker_id) do
       {:ok, session} ->
         requeue_active_video(session)
+        requeue_jobs(session.jobs)
         :ok = drop_session(server_worker_id)
         broadcast_sessions()
         {:reply, {:ok, session}, state}
@@ -243,9 +292,10 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   def handle_call(:drain, _from, state) do
     drained_sessions =
       list_sessions()
-      |> Enum.filter(&(&1.active_video_id != nil))
+      |> Enum.filter(&(&1.active_video_id != nil or map_size(&1.jobs) > 0))
       |> Enum.map(fn session ->
         requeue_active_video(session)
+        requeue_jobs(session.jobs)
         :ok = drop_session(session.server_worker_id)
         session
       end)
@@ -289,6 +339,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       transfer_progress: nil,
       crf_search_progress: nil,
       resource_usage: nil,
+      jobs: %{},
       connected_at: now,
       last_seen_at: now
     }
@@ -415,6 +466,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
             )
           )
           |> Map.put(:resource_usage, existing_session.resource_usage)
+          |> Map.put(:jobs, resumable_jobs(existing_session.jobs))
 
         :ok = drop_session(existing_server_worker_id)
         :ok = put_session(session)
@@ -469,8 +521,9 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   defp apply_control_state(session, :stopped) do
     requeue_active_video(session)
+    requeue_jobs(session.jobs)
     {:ok, session} = WorkerJobStateMachine.clear_video(session)
-    %{session | control_state: :stopped, last_seen_at: now()}
+    %{session | control_state: :stopped, jobs: %{}, last_seen_at: now()}
   end
 
   defp apply_control_state(session, control_state),
@@ -506,6 +559,21 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end
   end
 
+  defp requeue_jobs(jobs) do
+    Enum.each(jobs, fn {_job_id, job} ->
+      case {job.job_type, Media.get_video(job.video_id)} do
+        {:encode, %Media.Video{state: :encoding} = video} ->
+          _ = VideoStateMachine.mark_as_crf_searched(video)
+
+        {:crf_search, %Media.Video{state: :crf_searching} = video} ->
+          _ = VideoStateMachine.mark_as_analyzed(video)
+
+        _ ->
+          :ok
+      end
+    end)
+  end
+
   defp resumable_active_video_id(nil), do: nil
 
   defp resumable_active_video_id(video_id) do
@@ -513,6 +581,16 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       %Media.Video{state: :crf_searching} -> video_id
       _ -> nil
     end
+  end
+
+  defp resumable_jobs(jobs) do
+    Map.filter(jobs, fn {_job_id, job} ->
+      case {job.job_type, Media.get_video(job.video_id)} do
+        {:crf_search, %Media.Video{state: :crf_searching}} -> true
+        {:encode, %Media.Video{state: :encoding}} -> true
+        _ -> false
+      end
+    end)
   end
 
   defp put_session(session) do
@@ -548,6 +626,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
     Enum.each(expired_sessions, fn session ->
       preserve_dispatched_active_video(session)
+      requeue_jobs(session.jobs)
       :ok = drop_session(session.server_worker_id)
     end)
 

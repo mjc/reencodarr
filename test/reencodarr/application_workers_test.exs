@@ -37,6 +37,8 @@ defmodule Reencodarr.ApplicationWorkersTest do
     children = Reencodarr.Application.worker_children(:dev)
 
     assert Reencodarr.CrfSearcher.Supervisor in children
+    assert Reencodarr.Encoder.Supervisor in children
+    assert Reencodarr.Encoder.HealthCheck in children
     refute LocalWorker in children
   end
 
@@ -48,7 +50,8 @@ defmodule Reencodarr.ApplicationWorkersTest do
     refute Reencodarr.CrfSearcher.Supervisor in children
 
     assert Reencodarr.Analyzer.Supervisor in children
-    assert Reencodarr.Encoder.Supervisor in children
+    refute Reencodarr.Encoder.Supervisor in children
+    refute Reencodarr.Encoder.HealthCheck in children
     assert Reencodarr.Dashboard.State in children
     assert Reencodarr.TempCleaner in children
   end

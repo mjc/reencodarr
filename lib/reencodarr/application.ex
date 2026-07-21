@@ -142,23 +142,24 @@ defmodule Reencodarr.Application do
 
     shared_workers = [
       Reencodarr.AbAv1,
-      Reencodarr.Encoder.Supervisor,
-      Reencodarr.Encoder.HealthCheck,
       Reencodarr.Dashboard.State,
       Reencodarr.TempCleaner
     ]
 
     if env != :test do
-      crf_worker =
+      mode_workers =
         case WorkerConfig.execution_mode() do
-          :broadway -> CrfSearcherSupervisor
-          :worker -> local_worker_child()
+          :broadway ->
+            [CrfSearcherSupervisor, Reencodarr.Encoder.Supervisor, Reencodarr.Encoder.HealthCheck]
+
+          :worker ->
+            local_worker_child()
         end
 
       Enum.concat([
         [Reencodarr.Analyzer.Supervisor | base_workers],
         shared_workers,
-        List.wrap(crf_worker)
+        List.wrap(mode_workers)
       ])
     else
       base_workers
