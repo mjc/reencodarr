@@ -21,15 +21,25 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     alias Reencodarr.AbAv1.WorkerProtocol.EncodeProgress
 
     @enforce_keys [:job_id, :job_type, :video_id]
-    defstruct [:job_id, :job_type, :video_id, :transfer_progress, :progress, phase: :assigned]
+    defstruct [
+      :job_id,
+      :job_type,
+      :video_id,
+      :transfer_progress,
+      :progress,
+      phase: :assigned,
+      control_state: :running
+    ]
 
     @type job_type :: :crf_search | :encode
     @type phase :: :assigned | :receiving_input | :input_ready | :encoding
+    @type control_state :: :running | :paused | :stopped
     @type t :: %__MODULE__{
             job_id: String.t(),
             job_type: job_type(),
             video_id: pos_integer(),
             phase: phase(),
+            control_state: control_state(),
             transfer_progress: map() | nil,
             progress: EncodeProgress.t() | nil
           }
@@ -105,6 +115,14 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   @spec clear_job(String.t(), String.t()) :: {:ok, session()} | {:error, atom()}
   def clear_job(server_worker_id, job_id) when is_binary(job_id) do
     GenServer.call(__MODULE__, {:clear_job, server_worker_id, job_id})
+  end
+
+  @spec set_job_control_state(String.t(), String.t(), Job.control_state()) ::
+          {:ok, session()} | {:error, atom()}
+  def set_job_control_state(server_worker_id, job_id, control_state)
+      when is_binary(server_worker_id) and is_binary(job_id) and
+             control_state in [:running, :paused, :stopped] do
+    GenServer.call(__MODULE__, {:set_job_control_state, server_worker_id, job_id, control_state})
   end
 
   def set_transfer_progress(server_worker_id, progress) when is_map(progress) do
@@ -270,6 +288,21 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   def handle_call({:clear_job, server_worker_id, job_id}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
       %{session | jobs: Map.delete(session.jobs, job_id), last_seen_at: now()}
+    end)
+  end
+
+  def handle_call({:set_job_control_state, server_worker_id, job_id, control_state}, _from, state) do
+    update_session_reply(server_worker_id, state, fn session ->
+      case Map.fetch(session.jobs, job_id) do
+        {:ok, %Job{} = job} ->
+          %{
+            session
+            | jobs: Map.put(session.jobs, job_id, %Job{job | control_state: control_state})
+          }
+
+        :error ->
+          {:error, :unknown_worker_session}
+      end
     end)
   end
 

@@ -41,6 +41,23 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert Media.get_video(video.id).state == :analyzed
   end
 
+  test "tracks control state for an individual worker job" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-1",
+               job_type: :encode,
+               video_id: 1
+             })
+
+    assert {:ok, session} =
+             WorkerSessions.set_job_control_state("worker-server-1", "encode-1", :paused)
+
+    assert session.control_state == :running
+    assert session.jobs["encode-1"].control_state == :paused
+  end
+
   test "expires stale worker sessions" do
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
 

@@ -139,6 +139,15 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert has_element?(view, "#encode-worker-server-encode", "worker.mkv")
       assert has_element?(view, "#encode-worker-server-encode", "42.0%")
       assert has_element?(view, "#encode-worker-server-encode", "12.5 fps")
+
+      assert {:ok, _session} =
+               WorkerSessions.set_job_control_state(
+                 "server-encode",
+                 "encode-#{video.id}",
+                 :paused
+               )
+
+      assert has_element?(view, "#encode-worker-server-encode", "Paused")
     end
 
     test "renders worker CRF progress structs" do

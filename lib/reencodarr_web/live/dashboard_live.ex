@@ -1491,7 +1491,8 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @spec worker_encode_status(WorkerSessions.session(), Job.t() | nil) ::
           :paused | :idle | :processing
-  defp worker_encode_status(%{control_state: :paused}, _job), do: :paused
+  defp worker_encode_status(_worker, %Job{control_state: :paused}), do: :paused
+  defp worker_encode_status(%{control_state: :paused}, nil), do: :paused
   defp worker_encode_status(_worker, nil), do: :idle
   defp worker_encode_status(_worker, _job), do: :processing
 

@@ -80,9 +80,10 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   def handle_in("control_state", payload, %{assigns: %{worker_id: worker_id}} = socket) do
-    with {:ok, control_state, active_video_id} <- WorkerProtocol.parse_control_state(payload),
+    with {:ok, control_state, active_video_id, job_id} <-
+           WorkerProtocol.parse_control_state(payload),
          {:ok, _session} <-
-           WorkerSessions.set_control_state(worker_id, control_state, active_video_id) do
+           set_worker_control_state(worker_id, job_id, control_state, active_video_id) do
       socket =
         if control_state == :stopped do
           assign(socket, :current_video_id, nil)
@@ -124,6 +125,12 @@ defmodule ReencodarrWeb.WorkerChannel do
   def handle_in(_event, _payload, socket) do
     {:reply, {:error, WorkerProtocol.error(:unsupported_event)}, socket}
   end
+
+  defp set_worker_control_state(worker_id, nil, control_state, active_video_id),
+    do: WorkerSessions.set_control_state(worker_id, control_state, active_video_id)
+
+  defp set_worker_control_state(worker_id, job_id, control_state, _active_video_id),
+    do: WorkerSessions.set_job_control_state(worker_id, job_id, control_state)
 
   @impl true
   def handle_info(:stream_transfer_chunk, %{assigns: %{transfer_io_device: nil}} = socket) do
