@@ -147,6 +147,16 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert video_id == video.id
       assert Media.get_video(video.id).state == :encoding
 
+      assert_receive {:encoding_started,
+                      %{
+                        video_id: ^video_id,
+                        filename: filename,
+                        crf: 30.0,
+                        video_size: 6
+                      }}
+
+      assert filename == Path.basename(path)
+
       Phoenix.PubSub.broadcast(
         Reencodarr.PubSub,
         WorkerChannel.worker_control_topic(socket.assigns.worker_id),

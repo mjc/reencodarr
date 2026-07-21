@@ -256,6 +256,8 @@ defmodule ReencodarrWeb.WorkerChannel do
             do: maybe_prepare_encode_transfer(socket, video, local?, "encode-#{video.id}"),
             else: socket
 
+        broadcast_encoding_started(video, vmaf)
+
         {:reply,
          {:ok,
           WorkerProtocol.encode_work_assigned(video, vmaf,
@@ -293,6 +295,8 @@ defmodule ReencodarrWeb.WorkerChannel do
         |> assign(:encode_video_id, video.id)
         |> assign(:encode_job_id, job_id)
         |> maybe_prepare_encode_transfer(video, local?, job_id)
+
+      broadcast_encoding_started(video, vmaf)
 
       {:reply, {:ok, WorkerProtocol.encode_work_assigned(video, vmaf, local?: local?)}, socket}
     else
@@ -601,6 +605,22 @@ defmodule ReencodarrWeb.WorkerChannel do
     socket
     |> assign(:encode_video_id, nil)
     |> assign(:encode_job_id, nil)
+  end
+
+  defp broadcast_encoding_started(video, vmaf) do
+    Events.broadcast_event(:encoding_started, %{
+      video_id: video.id,
+      filename: Path.basename(video.path),
+      video_size: video.size,
+      width: video.width,
+      height: video.height,
+      hdr: video.hdr,
+      video_codecs: video.video_codecs,
+      crf: vmaf.crf,
+      vmaf_score: vmaf.score,
+      predicted_percent: vmaf.percent,
+      predicted_savings: vmaf.savings
+    })
   end
 
   defp handle_video_failed(payload, %{assigns: %{worker_id: worker_id}} = socket) do

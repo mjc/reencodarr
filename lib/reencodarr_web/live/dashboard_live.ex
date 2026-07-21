@@ -58,6 +58,7 @@ defmodule ReencodarrWeb.DashboardLive do
         local_worker_status: local_worker_status(),
         crf_workers: crf_workers,
         crf_worker_data: load_worker_crf_data(crf_workers),
+        encode_worker_data: load_worker_encode_data(crf_workers),
         # New dashboard stats
         stats: Reencodarr.Media.get_default_stats(),
         stats_display: stats_display(Reencodarr.Media.get_default_stats()),
@@ -335,6 +336,19 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
+  def handle_event(event, %{"worker-id" => worker_id, "job-id" => job_id}, socket)
+      when event in ["pause_worker_encode", "resume_worker_encode", "stop_worker_encode"] do
+    action =
+      %{
+        "pause_worker_encode" => :pause,
+        "resume_worker_encode" => :resume,
+        "stop_worker_encode" => :stop
+      }[event]
+
+    control_worker(socket, worker_id, action, "Worker encode #{action} requested", job_id)
+  end
+
+  @impl true
   def handle_event("suspend_encode", _params, socket) do
     handle_control_result(socket, Encode.suspend_current(), "Encode paused")
   end
@@ -427,12 +441,20 @@ defmodule ReencodarrWeb.DashboardLive do
   attr :queue_count, :integer, required: true
   attr :queue_items, :list, required: true
   attr :status, :atom, required: true
+  attr :id, :string, default: nil
+  attr :title, :string, default: "Encoding"
+  attr :show_queue, :boolean, default: true
+  attr :suspend_event, :string, default: "suspend_encode"
+  attr :resume_event, :string, default: "resume_encode"
+  attr :fail_event, :string, default: "fail_encode"
+  attr :worker_id, :string, default: nil
+  attr :job_id, :string, default: nil
 
   defp encoding_panel(assigns) do
     ~H"""
-    <div class="dashboard-card bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-4">
+    <div id={@id} class="dashboard-card bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-4">
       <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <h3 class="font-semibold text-white">Encoding</h3>
+        <h3 class="font-semibold text-white">{@title}</h3>
         <span class={"px-2 py-1 text-xs rounded-full #{service_status_class(@status)}"}>
           {service_status_text(@status)}
         </span>
@@ -490,9 +512,11 @@ defmodule ReencodarrWeb.DashboardLive do
           <% end %>
           <.active_job_controls
             status={@status}
-            suspend_event="suspend_encode"
-            resume_event="resume_encode"
-            fail_event="fail_encode"
+            suspend_event={@suspend_event}
+            resume_event={@resume_event}
+            fail_event={@fail_event}
+            worker_id={@worker_id}
+            job_id={@job_id}
           />
         </div>
       <% else %>
@@ -508,16 +532,18 @@ defmodule ReencodarrWeb.DashboardLive do
           <div class="mt-2">
             <.active_job_controls
               status={@status}
-              suspend_event="suspend_encode"
-              resume_event="resume_encode"
-              fail_event="fail_encode"
+              suspend_event={@suspend_event}
+              resume_event={@resume_event}
+              fail_event={@fail_event}
+              worker_id={@worker_id}
+              job_id={@job_id}
             />
           </div>
         <% end %>
       <% end %>
 
       <!-- Always show next-up videos -->
-      <%= if length(@queue_items) > 0 do %>
+      <%= if @show_queue && length(@queue_items) > 0 do %>
         <div class="text-xs text-gray-500 space-y-1 mt-3 pt-2 border-t border-gray-800">
           <div class="text-gray-600 mb-0.5">Next up ({@queue_count}):</div>
           <%= for video <- Enum.take(@queue_items, 5) do %>
@@ -541,10 +567,50 @@ defmodule ReencodarrWeb.DashboardLive do
     """
   end
 
+  attr :worker, :map, required: true
+  attr :data, :map, required: true
+  attr :queue_count, :integer, required: true
+  attr :queue_items, :list, required: true
+  attr :show_queue, :boolean, default: false
+
+  defp worker_encoding_panel(assigns) do
+    job = worker_encode_job(assigns.worker)
+    data = if job, do: Map.get(assigns.data, job.video_id, %{}), else: %{}
+
+    assigns =
+      assign(assigns,
+        job: job,
+        video: encode_video(data[:video]),
+        vmaf: encode_vmaf(data[:vmaf]),
+        status: worker_encode_status(assigns.worker, job)
+      )
+
+    ~H"""
+    <.encoding_panel
+      id={"encode-worker-#{@worker.server_worker_id}"}
+      title={"Encoding · #{@worker.client_worker_id || @worker.server_worker_id}"}
+      video={@video}
+      vmaf={@vmaf}
+      progress={if(@job, do: @job.progress || :none, else: :none)}
+      queue_count={@queue_count}
+      queue_items={@queue_items}
+      status={@status}
+      show_queue={@show_queue}
+      suspend_event="pause_worker_encode"
+      resume_event="resume_worker_encode"
+      fail_event="stop_worker_encode"
+      worker_id={@worker.server_worker_id}
+      job_id={@job && @job.job_id}
+    />
+    """
+  end
+
   attr :status, :atom, required: true
   attr :suspend_event, :string, required: true
   attr :resume_event, :string, required: true
   attr :fail_event, :string, required: true
+  attr :worker_id, :string, default: nil
+  attr :job_id, :string, default: nil
 
   defp active_job_controls(assigns) do
     ~H"""
@@ -552,6 +618,8 @@ defmodule ReencodarrWeb.DashboardLive do
       <%= if @status == :paused do %>
         <button
           phx-click={@resume_event}
+          phx-value-worker-id={@worker_id}
+          phx-value-job-id={@job_id}
           class="font-medium text-cyan-400 hover:text-cyan-300"
         >
           Resume
@@ -559,6 +627,8 @@ defmodule ReencodarrWeb.DashboardLive do
       <% else %>
         <button
           phx-click={@suspend_event}
+          phx-value-worker-id={@worker_id}
+          phx-value-job-id={@job_id}
           class="font-medium text-yellow-400 hover:text-yellow-300"
         >
           Pause
@@ -567,6 +637,8 @@ defmodule ReencodarrWeb.DashboardLive do
       <span class="text-gray-700">|</span>
       <button
         phx-click={@fail_event}
+        phx-value-worker-id={@worker_id}
+        phx-value-job-id={@job_id}
         data-confirm="Stop the active job?"
         class="font-medium text-red-500 hover:text-red-400"
       >
@@ -1035,14 +1107,29 @@ defmodule ReencodarrWeb.DashboardLive do
               No CRF search workers connected.
             </div>
           </div>
-          <div class="lg:col-span-2">
+          <div :if={@worker_execution_mode == :broadway} class="lg:col-span-2">
             <.encoding_panel
+              id="broadway-encoding-panel"
               video={@encoding_video}
               vmaf={@encoding_vmaf}
               progress={@encoding_progress}
               queue_count={@queue_counts.encoder}
               queue_items={@queue_items.encoder}
               status={@service_status.encoder}
+            />
+          </div>
+          <div
+            :if={@worker_execution_mode == :worker}
+            id="encode-worker-panels"
+            class="space-y-3 lg:col-span-2"
+          >
+            <.worker_encoding_panel
+              :for={{worker, index} <- Enum.with_index(@crf_workers)}
+              worker={worker}
+              data={@encode_worker_data}
+              queue_count={@queue_counts.encoder}
+              queue_items={@queue_items.encoder}
+              show_queue={index == 0}
             />
           </div>
         </div>
@@ -1341,11 +1428,13 @@ defmodule ReencodarrWeb.DashboardLive do
     }
   end
 
-  defp control_worker(socket, worker_id, action, message) do
+  defp control_worker(socket, worker_id, action, message, job_id \\ nil) do
+    command = if job_id, do: {:worker_control, action, job_id}, else: {:worker_control, action}
+
     Phoenix.PubSub.broadcast(
       Reencodarr.PubSub,
       ReencodarrWeb.WorkerChannel.worker_control_topic(worker_id),
-      {:worker_control, action}
+      command
     )
 
     {:noreply, put_flash(socket, :info, message)}
@@ -1362,8 +1451,61 @@ defmodule ReencodarrWeb.DashboardLive do
   defp assign_crf_workers(socket, workers) do
     assign(socket,
       crf_workers: workers,
-      crf_worker_data: load_worker_crf_data(workers, socket.assigns.crf_worker_data)
+      crf_worker_data: load_worker_crf_data(workers, socket.assigns.crf_worker_data),
+      encode_worker_data: load_worker_encode_data(workers, socket.assigns.encode_worker_data)
     )
+  end
+
+  defp load_worker_encode_data(workers, cached \\ %{}) do
+    video_ids =
+      workers
+      |> Enum.map(&worker_encode_job/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(& &1.video_id)
+      |> Enum.uniq()
+
+    Enum.reduce(video_ids, Map.take(cached, video_ids), fn video_id, data ->
+      Map.put_new_lazy(data, video_id, fn ->
+        video = Media.get_video(video_id)
+        %{video: video, vmaf: video && Media.get_vmaf!(video.chosen_vmaf_id)}
+      end)
+    end)
+  end
+
+  defp worker_encode_job(%{jobs: jobs}) do
+    jobs
+    |> Map.values()
+    |> Enum.find(&(&1.job_type == :encode))
+  end
+
+  defp worker_encode_job(_worker), do: nil
+
+  defp worker_encode_status(%{control_state: :paused}, _job), do: :paused
+  defp worker_encode_status(_worker, nil), do: :idle
+  defp worker_encode_status(_worker, _job), do: :processing
+
+  defp encode_video(nil), do: nil
+
+  defp encode_video(video) do
+    %{
+      video_id: video.id,
+      filename: Path.basename(video.path),
+      video_size: video.size,
+      width: video.width,
+      height: video.height,
+      hdr: video.hdr
+    }
+  end
+
+  defp encode_vmaf(nil), do: nil
+
+  defp encode_vmaf(vmaf) do
+    %{
+      crf: vmaf.crf,
+      vmaf_score: vmaf.score,
+      predicted_percent: vmaf.percent,
+      predicted_savings: vmaf.savings
+    }
   end
 
   defp handle_control_result(socket, :ok, message) do
