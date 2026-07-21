@@ -8,7 +8,15 @@ defmodule ReencodarrWeb.WorkerChannel do
   require Logger
 
   alias Reencodarr.AbAv1.{CrfSearch, Encode, WorkerConfig, WorkerProtocol, WorkerSessions}
-  alias Reencodarr.AbAv1.WorkerProtocol.Announcement
+
+  alias Reencodarr.AbAv1.WorkerProtocol.{
+    Announcement,
+    EncodeCompletion,
+    EncodeProgress,
+    FailureReport
+  }
+
+  alias Reencodarr.AbAv1.WorkerSessions.Job
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
   alias Reencodarr.PostProcessor
@@ -283,7 +291,8 @@ defmodule ReencodarrWeb.WorkerChannel do
 
     with {:ok, video} <- Media.mark_as_encoding(video),
          {:ok, _session} <-
-           WorkerSessions.assign_job(socket.assigns.worker_id, job_id, %{
+           WorkerSessions.assign_job(socket.assigns.worker_id, %Job{
+             job_id: job_id,
              job_type: :encode,
              video_id: video.id,
              phase: if(local_source?(socket, video), do: :input_ready, else: :receiving_input)
@@ -486,11 +495,10 @@ defmodule ReencodarrWeb.WorkerChannel do
         socket.assigns[:encode_video_id] == progress.video_id
 
   defp handle_encode_transfer_progress(socket, worker_id, progress) do
+    phase = if progress.percent >= 100, do: :input_ready, else: :receiving_input
+
     _ =
-      WorkerSessions.update_job(worker_id, progress.job_id, %{
-        phase: if(progress.percent >= 100, do: :input_ready, else: :receiving_input),
-        transfer_progress: progress
-      })
+      WorkerSessions.set_job_transfer_progress(worker_id, progress.job_id, progress, phase)
 
     Events.broadcast_event(:transfer_progress, Map.put(progress, :worker_id, worker_id))
     transfer = socket.assigns.encode_transfer
@@ -541,7 +549,7 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp handle_encode_progress(payload, socket) do
     with {:ok, progress} <- WorkerProtocol.parse_encode_progress(payload),
-         :ok <- ensure_encode_job(socket, progress.job_id, progress.video_id) do
+         {:ok, socket} <- ensure_encode_job(socket, progress) do
       _ = WorkerSessions.set_encode_progress(socket.assigns.worker_id, progress)
 
       Events.broadcast_event(:encoding_progress, Map.from_struct(progress))
@@ -553,7 +561,7 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp handle_encode_completed(payload, socket) do
     with {:ok, completion} <- WorkerProtocol.parse_encode_completion(payload),
-         :ok <- ensure_encode_job(socket, completion.job_id, completion.video_id),
+         {:ok, socket} <- ensure_encode_job(socket, completion),
          %Media.Video{} = video <- Media.get_video(completion.video_id),
          output_path = Encode.output_file(video),
          :ok <- validate_encode_output(socket, completion, output_path),
@@ -581,10 +589,38 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
-  defp ensure_encode_job(socket, job_id, video_id) do
-    if socket.assigns[:encode_job_id] == job_id and socket.assigns[:encode_video_id] == video_id,
-      do: :ok,
-      else: {:error, :unknown_worker_session}
+  @spec ensure_encode_job(
+          Phoenix.Socket.t(),
+          EncodeProgress.t() | EncodeCompletion.t() | FailureReport.t()
+        ) ::
+          {:ok, Phoenix.Socket.t()} | {:error, :unknown_worker_session}
+  defp ensure_encode_job(socket, %{job_id: job_id, video_id: video_id}) do
+    if socket.assigns[:encode_job_id] == job_id and socket.assigns[:encode_video_id] == video_id do
+      {:ok, socket}
+    else
+      recover_encode_job(socket, job_id, video_id)
+    end
+  end
+
+  @spec recover_encode_job(Phoenix.Socket.t(), String.t(), pos_integer()) ::
+          {:ok, Phoenix.Socket.t()} | {:error, :unknown_worker_session}
+  defp recover_encode_job(socket, job_id, video_id) do
+    with ^job_id <- "encode-#{video_id}",
+         %Media.Video{state: :encoding} <- Media.get_video(video_id),
+         {:ok, _session} <-
+           WorkerSessions.assign_job(socket.assigns.worker_id, %Job{
+             job_id: job_id,
+             job_type: :encode,
+             video_id: video_id,
+             phase: :encoding
+           }) do
+      {:ok,
+       socket
+       |> assign(:encode_job_id, job_id)
+       |> assign(:encode_video_id, video_id)}
+    else
+      _ -> {:error, :unknown_worker_session}
+    end
   end
 
   defp validate_encode_output(socket, completion, output_path) do
@@ -633,10 +669,13 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
-  defp handle_encode_failure(worker_id, socket, failure) do
+  @spec handle_encode_failure(String.t(), Phoenix.Socket.t(), FailureReport.t()) ::
+          {:reply, {:ok | :error, map()}, Phoenix.Socket.t()}
+  defp handle_encode_failure(worker_id, socket, %FailureReport{} = failure) do
     job_id = failure.job_id || socket.assigns[:encode_job_id]
+    failure = %FailureReport{failure | job_id: job_id}
 
-    with :ok <- ensure_encode_job(socket, job_id, failure.video_id),
+    with {:ok, socket} <- ensure_encode_job(socket, failure),
          %Media.Video{} = video <- Media.get_video(failure.video_id) do
       record_worker_failure(video, failure)
       _ = Media.mark_as_failed(video)

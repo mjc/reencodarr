@@ -1,8 +1,9 @@
 defmodule Reencodarr.AbAv1.WorkerSessionsTest do
   use Reencodarr.DataCase, async: false
 
-  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
+  alias Reencodarr.AbAv1.WorkerProtocol.{CrfSearchProgress, EncodeProgress}
   alias Reencodarr.AbAv1.WorkerSessions
+  alias Reencodarr.AbAv1.WorkerSessions.Job
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Diagnostics
   alias Reencodarr.Fixtures
@@ -438,28 +439,35 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
 
     assert {:ok, _session} =
-             WorkerSessions.assign_job("worker-server-1", "encode-#{video.id}", %{
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-#{video.id}",
                job_type: :encode,
                video_id: video.id,
                phase: :receiving_input
              })
 
+    progress = %EncodeProgress{
+      job_id: "encode-#{video.id}",
+      video_id: video.id,
+      percent: 42.0,
+      fps: 12.5,
+      output_bytes: 1_000,
+      output_percent: 10.0
+    }
+
     assert {:ok, _session} =
-             WorkerSessions.update_job("worker-server-1", "encode-#{video.id}", %{
-               phase: :encoding,
-               progress: %{percent: 42.0}
-             })
+             WorkerSessions.set_encode_progress("worker-server-1", progress)
 
     assert {:ok, reconnected} =
              WorkerSessions.register(worker_session_attrs(server_worker_id: "worker-server-2"))
 
     assert is_nil(WorkerSessions.get("worker-server-1"))
 
-    assert %{
+    assert %Job{
              job_type: :encode,
              video_id: video_id,
              phase: :encoding,
-             progress: %{percent: 42.0}
+             progress: %EncodeProgress{percent: 42.0}
            } = reconnected.jobs["encode-#{video.id}"]
 
     assert video_id == video.id
@@ -475,7 +483,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
 
     assert {:ok, _session} =
-             WorkerSessions.assign_job("worker-server-1", "encode-#{video.id}", %{
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-#{video.id}",
                job_type: :encode,
                video_id: video.id
              })

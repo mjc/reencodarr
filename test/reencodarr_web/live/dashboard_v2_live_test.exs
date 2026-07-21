@@ -14,6 +14,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
   alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.AbAv1.WorkerProtocol.EncodeProgress
   alias Reencodarr.AbAv1.WorkerSessions
+  alias Reencodarr.AbAv1.WorkerSessions.Job
   alias Reencodarr.Media
   alias ReencodarrWeb.CrfSearchComponents
 
@@ -115,7 +116,8 @@ defmodule ReencodarrWeb.DashboardLiveTest do
         })
 
       {:ok, _session} =
-        WorkerSessions.assign_job("server-encode", "encode-#{video.id}", %{
+        WorkerSessions.assign_job("server-encode", %Job{
+          job_id: "encode-#{video.id}",
           job_type: :encode,
           video_id: video.id,
           phase: :encoding,

@@ -261,6 +261,57 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "recovers an active encode from typed progress after server state is lost" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      path =
+        Path.join(
+          System.tmp_dir!(),
+          "worker-encode-server-restart-#{System.unique_integer()}.mkv"
+        )
+
+      File.write!(path, "source")
+      on_exit(fn -> File.rm(path) end)
+
+      {:ok, video} = Fixtures.video_fixture(%{path: path, size: 6, state: :crf_searched})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, params: []})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      {:ok, socket1} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket1} = subscribe_and_join(socket1, "workers:crf_search")
+      assert_reply push(socket1, "announce", announce_payload(worker_id: "worker-restart")), :ok
+      assert_reply push(socket1, "pull_work", %{"job_type" => "encode"}), :ok
+      Process.unlink(socket1.channel_pid)
+      assert :ok = close(socket1)
+
+      :ok = WorkerSessions.reset()
+
+      {:ok, socket2} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket2} = subscribe_and_join(socket2, "workers:crf_search")
+      assert_reply push(socket2, "announce", announce_payload(worker_id: "worker-restart")), :ok
+
+      job_id = "encode-#{video.id}"
+
+      assert_reply push(socket2, "encode_progress", %{
+                     "job_id" => job_id,
+                     "video_id" => video.id,
+                     "percent" => 42.0,
+                     "fps" => 12.5,
+                     "eta" => 90,
+                     "output_bytes" => 1_000,
+                     "output_percent" => 10.0,
+                     "throughput" => "12.50 fps"
+                   }),
+                   :ok,
+                   %{accepted: true, event: "encode_progress"}
+
+      assert %WorkerProtocol.EncodeProgress{percent: 42.0} =
+               WorkerSessions.get(socket2.assigns.worker_id).jobs[job_id].progress
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "offers a loopback worker the local source instead of starting a transfer" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)

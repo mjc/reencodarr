@@ -9,6 +9,7 @@ defmodule ReencodarrWeb.DashboardLive do
   use ReencodarrWeb, :live_view
 
   alias Reencodarr.AbAv1.{CrfSearch, Encode, LocalWorker, WorkerConfig, WorkerSessions}
+  alias Reencodarr.AbAv1.WorkerSessions.Job
   alias Reencodarr.Core.Parsers
   alias Reencodarr.CrfSearcher.Broadway, as: CrfSearcherBroadway
   alias Reencodarr.Dashboard.Events
@@ -1456,6 +1457,15 @@ defmodule ReencodarrWeb.DashboardLive do
     )
   end
 
+  @type encode_worker_data :: %{
+          optional(pos_integer()) => %{
+            video: Reencodarr.Media.Video.t() | nil,
+            vmaf: Reencodarr.Media.Vmaf.t() | nil
+          }
+        }
+
+  @spec load_worker_encode_data([WorkerSessions.session()], encode_worker_data()) ::
+          encode_worker_data()
   defp load_worker_encode_data(workers, cached \\ %{}) do
     video_ids =
       workers
@@ -1472,14 +1482,15 @@ defmodule ReencodarrWeb.DashboardLive do
     end)
   end
 
+  @spec worker_encode_job(WorkerSessions.session()) :: Job.t() | nil
   defp worker_encode_job(%{jobs: jobs}) do
     jobs
     |> Map.values()
-    |> Enum.find(&(&1.job_type == :encode))
+    |> Enum.find(&match?(%Job{job_type: :encode}, &1))
   end
 
-  defp worker_encode_job(_worker), do: nil
-
+  @spec worker_encode_status(WorkerSessions.session(), Job.t() | nil) ::
+          :paused | :idle | :processing
   defp worker_encode_status(%{control_state: :paused}, _job), do: :paused
   defp worker_encode_status(_worker, nil), do: :idle
   defp worker_encode_status(_worker, _job), do: :processing

@@ -78,6 +78,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     ]
 
     @type t :: %__MODULE__{
+            job_id: String.t() | nil,
             video_id: pos_integer(),
             percent: number(),
             filename: String.t() | nil,
@@ -118,6 +119,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     ]
 
     @type t :: %__MODULE__{
+            job_id: String.t() | nil,
             video_id: pos_integer(),
             stage: atom(),
             category: atom(),
@@ -161,6 +163,15 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
     @enforce_keys [:job_id, :video_id, :source_name, :output_path, :output_bytes, :output_percent]
     defstruct [:job_id, :video_id, :source_name, :output_path, :output_bytes, :output_percent]
+
+    @type t :: %__MODULE__{
+            job_id: String.t(),
+            video_id: pos_integer(),
+            source_name: String.t(),
+            output_path: String.t(),
+            output_bytes: non_neg_integer(),
+            output_percent: number()
+          }
   end
 
   defmodule Completion do

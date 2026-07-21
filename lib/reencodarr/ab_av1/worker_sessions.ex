@@ -15,14 +15,27 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   @by_server_table :reencodarr_worker_sessions_by_server
   @by_client_table :reencodarr_worker_sessions_by_client
 
-  @type job :: %{
-          optional(:transfer_progress) => map() | nil,
-          job_id: String.t(),
-          job_type: :crf_search | :encode,
-          video_id: pos_integer(),
-          phase: atom(),
-          progress: EncodeProgress.t() | nil
-        }
+  defmodule Job do
+    @moduledoc false
+
+    alias Reencodarr.AbAv1.WorkerProtocol.EncodeProgress
+
+    @enforce_keys [:job_id, :job_type, :video_id]
+    defstruct [:job_id, :job_type, :video_id, :transfer_progress, :progress, phase: :assigned]
+
+    @type job_type :: :crf_search | :encode
+    @type phase :: :assigned | :receiving_input | :input_ready | :encoding
+    @type t :: %__MODULE__{
+            job_id: String.t(),
+            job_type: job_type(),
+            video_id: pos_integer(),
+            phase: phase(),
+            transfer_progress: map() | nil,
+            progress: EncodeProgress.t() | nil
+          }
+  end
+
+  @type job :: Job.t()
 
   @type session :: %{
           server_worker_id: String.t(),
@@ -45,6 +58,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
+  @spec register(map()) :: {:ok, session()} | {:error, atom()}
   def register(attrs) do
     GenServer.call(__MODULE__, {:register, attrs})
   end
@@ -66,20 +80,29 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.call(__MODULE__, {:clear_video, server_worker_id})
   end
 
-  def assign_job(server_worker_id, job_id, attrs) when is_binary(job_id) and is_map(attrs) do
-    GenServer.call(__MODULE__, {:assign_job, server_worker_id, job_id, attrs})
+  @spec assign_job(String.t(), Job.t()) :: {:ok, session()} | {:error, atom()}
+  def assign_job(server_worker_id, %Job{} = job) when is_binary(server_worker_id) do
+    GenServer.call(__MODULE__, {:assign_job, server_worker_id, job})
   end
 
-  def update_job(server_worker_id, job_id, attrs) when is_binary(job_id) and is_map(attrs) do
-    GenServer.call(__MODULE__, {:update_job, server_worker_id, job_id, attrs})
+  @spec set_job_transfer_progress(String.t(), String.t(), map(), Job.phase()) ::
+          {:ok, session()} | {:error, atom()}
+  def set_job_transfer_progress(server_worker_id, job_id, progress, phase)
+      when is_binary(server_worker_id) and is_binary(job_id) and is_map(progress) and
+             phase in [:receiving_input, :input_ready] do
+    GenServer.call(
+      __MODULE__,
+      {:set_job_transfer_progress, server_worker_id, job_id, progress, phase}
+    )
   end
 
   @spec set_encode_progress(String.t(), EncodeProgress.t()) ::
           {:ok, session()} | {:error, atom()}
   def set_encode_progress(server_worker_id, %EncodeProgress{} = progress) do
-    update_job(server_worker_id, progress.job_id, %{phase: :encoding, progress: progress})
+    GenServer.call(__MODULE__, {:set_encode_progress, server_worker_id, progress})
   end
 
+  @spec clear_job(String.t(), String.t()) :: {:ok, session()} | {:error, atom()}
   def clear_job(server_worker_id, job_id) when is_binary(job_id) do
     GenServer.call(__MODULE__, {:clear_job, server_worker_id, job_id})
   end
@@ -117,6 +140,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.call(__MODULE__, :drain)
   end
 
+  @spec get(String.t()) :: session() | nil
   def get(server_worker_id) do
     GenServer.call(__MODULE__, {:get, server_worker_id})
   end
@@ -125,6 +149,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.call(__MODULE__, {:expire_stale, timeout_seconds})
   end
 
+  @spec list() :: [session()]
   def list do
     GenServer.call(__MODULE__, :list)
   end
@@ -189,30 +214,54 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end)
   end
 
-  def handle_call({:assign_job, server_worker_id, job_id, attrs}, _from, state) do
+  def handle_call({:assign_job, server_worker_id, %Job{} = job}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
-      job =
-        attrs
-        |> Map.put(:job_id, job_id)
-        |> Map.put_new(:phase, :assigned)
-        |> Map.put_new(:transfer_progress, nil)
-        |> Map.put_new(:progress, nil)
-
-      %{session | jobs: Map.put(session.jobs, job_id, job), last_seen_at: now()}
+      %{session | jobs: Map.put(session.jobs, job.job_id, job), last_seen_at: now()}
     end)
   end
 
-  def handle_call({:update_job, server_worker_id, job_id, attrs}, _from, state) do
+  def handle_call(
+        {:set_job_transfer_progress, server_worker_id, job_id, progress, phase},
+        _from,
+        state
+      ) do
     update_session_reply(server_worker_id, state, fn session ->
       case Map.fetch(session.jobs, job_id) do
-        {:ok, job} ->
+        {:ok, %Job{} = job} ->
           %{
             session
-            | jobs: Map.put(session.jobs, job_id, Map.merge(job, attrs)),
+            | jobs:
+                Map.put(
+                  session.jobs,
+                  job_id,
+                  %Job{job | phase: phase, transfer_progress: progress}
+                ),
               last_seen_at: now()
           }
 
         :error ->
+          {:error, :unknown_worker_session}
+      end
+    end)
+  end
+
+  def handle_call(
+        {:set_encode_progress, server_worker_id, %EncodeProgress{} = progress},
+        _from,
+        state
+      ) do
+    update_session_reply(server_worker_id, state, fn session ->
+      case Map.fetch(session.jobs, progress.job_id) do
+        {:ok, %Job{job_type: :encode} = job} ->
+          updated = %Job{job | phase: :encoding, progress: progress}
+
+          %{
+            session
+            | jobs: Map.put(session.jobs, progress.job_id, updated),
+              last_seen_at: now()
+          }
+
+        _ ->
           {:error, :unknown_worker_session}
       end
     end)
