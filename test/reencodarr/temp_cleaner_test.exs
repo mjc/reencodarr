@@ -42,12 +42,11 @@ defmodule Reencodarr.TempCleanerTest do
       assert TempCleaner.cleanup_orphaned_files() == 0
     end
 
-    test "removes files older than max age", %{tmp: tmp} do
+    test "removes files unchanged for more than 12 hours", %{tmp: tmp} do
       file_path = Path.join(tmp, "old_encode.mkv.tmp")
       File.write!(file_path, "data")
 
-      # Set mtime to 25 hours ago (older than 24h threshold)
-      old_mtime = System.os_time(:second) - 25 * 3600
+      old_mtime = System.os_time(:second) - 13 * 3600
       File.touch!(file_path, old_mtime)
 
       capture_log(fn ->

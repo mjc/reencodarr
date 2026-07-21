@@ -13,8 +13,8 @@ defmodule Reencodarr.TempCleaner do
 
   # Clean every hour
   @cleanup_interval_ms :timer.hours(1)
-  # Files older than 24 hours are considered orphaned
-  @max_age_seconds 86_400
+  # Outputs are orphaned 12 hours after their final write.
+  @max_age_seconds 43_200
 
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
