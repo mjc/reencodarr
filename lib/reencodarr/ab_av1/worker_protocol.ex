@@ -143,6 +143,17 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
       :output_percent,
       :throughput
     ]
+
+    @type t :: %__MODULE__{
+            job_id: String.t(),
+            video_id: pos_integer(),
+            percent: number(),
+            fps: number(),
+            eta: non_neg_integer() | nil,
+            output_bytes: non_neg_integer(),
+            output_percent: number(),
+            throughput: String.t() | nil
+          }
   end
 
   defmodule EncodeCompletion do
@@ -344,6 +355,8 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
   def parse_failure_report(_payload), do: {:error, :invalid_failure_report}
 
+  @spec parse_encode_progress(map()) ::
+          {:ok, EncodeProgress.t()} | {:error, :invalid_encode_progress}
   def parse_encode_progress(payload) when is_map(payload) do
     with {:ok, job_id} <-
            required_string(payload, [:job_id, "job_id"], :invalid_encode_progress),

@@ -501,10 +501,10 @@ defmodule ReencodarrWeb.DashboardLive do
               </div>
               <div class="flex justify-between text-xs text-gray-400">
                 <span>{@progress.percent}%</span>
-                <%= if @progress[:fps] do %>
+                <%= if @progress.fps do %>
                   <span>{@progress.fps} fps</span>
                 <% end %>
-                <%= if @progress[:eta] do %>
+                <%= if @progress.eta do %>
                   <span>ETA: {@progress.eta}</span>
                 <% end %>
               </div>

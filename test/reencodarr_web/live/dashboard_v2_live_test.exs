@@ -12,6 +12,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
   import Phoenix.LiveViewTest
 
   alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
+  alias Reencodarr.AbAv1.WorkerProtocol.EncodeProgress
   alias Reencodarr.AbAv1.WorkerSessions
   alias Reencodarr.Media
   alias ReencodarrWeb.CrfSearchComponents
@@ -118,7 +119,16 @@ defmodule ReencodarrWeb.DashboardLiveTest do
           job_type: :encode,
           video_id: video.id,
           phase: :encoding,
-          progress: %{percent: 42.0, fps: 12.5, eta: 90}
+          progress: %EncodeProgress{
+            job_id: "encode-#{video.id}",
+            video_id: video.id,
+            percent: 42.0,
+            fps: 12.5,
+            eta: 90,
+            output_bytes: 1_000,
+            output_percent: 10.0,
+            throughput: "12.50 fps"
+          }
         })
 
       {:ok, view, _html} = live(conn, ~p"/")

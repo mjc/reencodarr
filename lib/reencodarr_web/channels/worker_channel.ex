@@ -542,11 +542,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp handle_encode_progress(payload, socket) do
     with {:ok, progress} <- WorkerProtocol.parse_encode_progress(payload),
          :ok <- ensure_encode_job(socket, progress.job_id, progress.video_id) do
-      _ =
-        WorkerSessions.update_job(socket.assigns.worker_id, progress.job_id, %{
-          phase: :encoding,
-          progress: progress
-        })
+      _ = WorkerSessions.set_encode_progress(socket.assigns.worker_id, progress)
 
       Events.broadcast_event(:encoding_progress, Map.from_struct(progress))
       {:reply, {:ok, WorkerProtocol.event_ack("encode_progress")}, socket}

@@ -7,12 +7,22 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   alias Reencodarr.AbAv1.WorkerJobStateMachine
   alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
+  alias Reencodarr.AbAv1.WorkerProtocol.EncodeProgress
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
   alias Reencodarr.Media.VideoStateMachine
 
   @by_server_table :reencodarr_worker_sessions_by_server
   @by_client_table :reencodarr_worker_sessions_by_client
+
+  @type job :: %{
+          optional(:transfer_progress) => map() | nil,
+          job_id: String.t(),
+          job_type: :crf_search | :encode,
+          video_id: pos_integer(),
+          phase: atom(),
+          progress: EncodeProgress.t() | nil
+        }
 
   @type session :: %{
           server_worker_id: String.t(),
@@ -26,7 +36,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           transfer_progress: map() | nil,
           crf_search_progress: CrfSearchProgress.t() | nil,
           resource_usage: map() | nil,
-          jobs: %{optional(String.t()) => map()},
+          jobs: %{optional(String.t()) => job()},
           connected_at: DateTime.t(),
           last_seen_at: DateTime.t()
         }
@@ -62,6 +72,12 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def update_job(server_worker_id, job_id, attrs) when is_binary(job_id) and is_map(attrs) do
     GenServer.call(__MODULE__, {:update_job, server_worker_id, job_id, attrs})
+  end
+
+  @spec set_encode_progress(String.t(), EncodeProgress.t()) ::
+          {:ok, session()} | {:error, atom()}
+  def set_encode_progress(server_worker_id, %EncodeProgress{} = progress) do
+    update_job(server_worker_id, progress.job_id, %{phase: :encoding, progress: progress})
   end
 
   def clear_job(server_worker_id, job_id) when is_binary(job_id) do
