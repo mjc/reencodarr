@@ -126,10 +126,9 @@ defmodule Reencodarr.Media.SharedQueries do
   Actual savings from persisted finalized-output measurements.
   """
   def encoded_video_savings_query do
-    from v in Video,
+    from c in dashboard_stats_cache_query(),
       select: %{
-        total_savings_gb:
-          fragment("CAST(COALESCE(SUM(?), 0) AS FLOAT) / 1073741824.0", v.space_saved_bytes)
+        total_savings_gb: fragment("CAST(? AS FLOAT) / 1073741824.0", c.encoded_savings_bytes)
       }
   end
 
