@@ -1037,6 +1037,17 @@ defmodule Reencodarr.Dashboard.StateTest do
       state = State.get_state()
       assert state.stats.total_vmafs == 0
     end
+
+    test "space savings mutations update the dashboard total" do
+      video = insert_video()
+
+      assert {:ok, _video} =
+               Reencodarr.Media.update_video(video, %{space_saved_bytes: 1_073_741_824})
+
+      :timer.sleep(50)
+
+      assert_in_delta State.get_state().stats.total_savings_gb, 1.0, 0.01
+    end
   end
 
   # Test helpers

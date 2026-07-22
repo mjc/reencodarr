@@ -143,9 +143,14 @@ defmodule Reencodarr.MediaTest do
       assert new_video.id == video.id
       assert new_video.state == :analyzed
       assert new_video.size == 2_000_000_000
+      assert new_video.space_saved_bytes == 0
 
       {:ok, updated_video} =
-        Media.update_video(video, %{size: 3_000_000_000, state: :crf_searched})
+        Media.update_video(video, %{
+          size: 3_000_000_000,
+          state: :crf_searched,
+          space_saved_bytes: 123
+        })
 
       assert_receive {:video_mutated,
                       %{action: :update, old_video: old_video, new_video: new_video}}
@@ -155,6 +160,8 @@ defmodule Reencodarr.MediaTest do
       assert new_video.id == updated_video.id
       assert new_video.state == :crf_searched
       assert new_video.size == 3_000_000_000
+      assert old_video.space_saved_bytes == 0
+      assert new_video.space_saved_bytes == 123
 
       assert {:ok, _} = Media.delete_video(updated_video)
 
