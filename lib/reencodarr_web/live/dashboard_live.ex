@@ -1009,7 +1009,7 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   defp fetch_initial_queue_previews do
-    query_opts = queue_query_opts()
+    query_opts = dashboard_mount_query_opts()
 
     %{
       analyzer: VideoQueries.videos_needing_analysis_preview(5, query_opts),
@@ -1022,13 +1022,13 @@ defmodule ReencodarrWeb.DashboardLive do
       %{analyzer: [], crf_searcher: [], encoder: []}
   end
 
-  defp queue_query_opts do
-    timeout = Application.get_env(:reencodarr, :dashboard_queue_query_timeout_ms, 1_000)
-    [timeout: timeout, pool_timeout: timeout]
+  defp dashboard_mount_query_timeout do
+    Application.get_env(:reencodarr, :dashboard_mount_query_timeout_ms, 1_000)
   end
 
-  defp dashboard_mount_query_timeout do
-    Application.get_env(:reencodarr, :dashboard_queue_query_timeout_ms, 1_000)
+  defp dashboard_mount_query_opts do
+    timeout = dashboard_mount_query_timeout()
+    [timeout: timeout, pool_timeout: timeout]
   end
 
   attr :service_status, :map, required: true
