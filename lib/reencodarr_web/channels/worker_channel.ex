@@ -610,7 +610,8 @@ defmodule ReencodarrWeb.WorkerChannel do
           {:ok, Phoenix.Socket.t()} | {:error, :unknown_worker_session}
   defp recover_encode_job(socket, job_id, video_id) do
     with ^job_id <- "encode-#{video_id}",
-         %Media.Video{state: :encoding} <- Media.get_video(video_id),
+         %Media.Video{} = video <- Media.get_video(video_id),
+         {:ok, _video} <- Media.mark_as_encoding(video),
          {:ok, _session} <-
            WorkerSessions.assign_job(socket.assigns.worker_id, %Job{
              job_id: job_id,

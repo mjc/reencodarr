@@ -286,6 +286,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert :ok = close(socket1)
 
       :ok = WorkerSessions.reset()
+      {:ok, _video} = video.id |> Media.get_video() |> Media.mark_as_crf_searched()
 
       {:ok, socket2} = connect(WorkerSocket, %{"token" => token})
       {:ok, _, socket2} = subscribe_and_join(socket2, "workers:crf_search")
@@ -308,6 +309,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert %WorkerProtocol.EncodeProgress{percent: 42.0} =
                WorkerSessions.get(socket2.assigns.worker_id).jobs[job_id].progress
+
+      assert Media.get_video(video.id).state == :encoding
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
