@@ -36,6 +36,7 @@ defmodule Reencodarr.Media.Video do
           content_year: integer() | nil,
           priority: integer(),
           original_size: integer() | nil,
+          space_saved_bytes: integer(),
           max_audio_channels: integer() | nil,
           atmos: boolean() | nil,
           service_id: String.t() | nil,
@@ -83,7 +84,8 @@ defmodule Reencodarr.Media.Video do
     :duration,
     :mediainfo,
     :chosen_vmaf_id,
-    :original_size
+    :original_size,
+    :space_saved_bytes
   ]
 
   @required [
@@ -128,6 +130,7 @@ defmodule Reencodarr.Media.Video do
     field :priority, :integer, default: 0
     field :size, :integer
     field :original_size, :integer
+    field :space_saved_bytes, :integer, default: 0
     field :text_codecs, {:array, :string}, default: []
     field :text_count, :integer
     field :video_codecs, {:array, :string}, default: []

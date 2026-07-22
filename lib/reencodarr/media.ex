@@ -48,6 +48,7 @@ defmodule Reencodarr.Media do
     :hdr,
     :service_type,
     :original_size,
+    :space_saved_bytes,
     :content_year
   ]
 
@@ -3311,11 +3312,7 @@ defmodule Reencodarr.Media do
         Repo.one(SharedQueries.encoded_video_savings_query(), timeout: timeout) ||
           %{total_savings_gb: 0.0}
 
-      predicted_savings =
-        Repo.one(SharedQueries.predicted_video_savings_query(), timeout: timeout) ||
-          %{total_savings_gb: 0.0}
-
-      (encoded_savings.total_savings_gb || 0.0) + (predicted_savings.total_savings_gb || 0.0)
+      encoded_savings.total_savings_gb || 0.0
     end)
   end
 

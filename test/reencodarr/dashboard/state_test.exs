@@ -1027,7 +1027,7 @@ defmodule Reencodarr.Dashboard.StateTest do
       state = State.get_state()
       assert state.stats.total_vmafs == 1
       assert state.stats.chosen_vmafs == 1
-      assert state.stats.total_savings_gb > 0.0
+      assert state.stats.total_savings_gb == 0.0
       assert state.stats.most_recent_video_update != nil
       assert state.stats.most_recent_inserted_video != nil
 

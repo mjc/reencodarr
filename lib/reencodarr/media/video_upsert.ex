@@ -250,9 +250,17 @@ defmodule Reencodarr.Media.VideoUpsert do
 
   @spec determine_conflict_except_fields(%{String.t() => any()}) :: [atom()]
   defp determine_conflict_except_fields(attrs) do
-    # Always protect state, failed, chosen_vmaf_id, and original_size from sync overwrites.
+    # Always protect state, failed, chosen_vmaf_id, original_size, and space_saved_bytes from sync overwrites.
     # These are set by the encoding pipeline and must never be reset by sync.
-    base = [:id, :inserted_at, :state, :failed, :chosen_vmaf_id, :original_size]
+    base = [
+      :id,
+      :inserted_at,
+      :state,
+      :failed,
+      :chosen_vmaf_id,
+      :original_size,
+      :space_saved_bytes
+    ]
 
     base =
       if preserve_saved_space_size?(attrs) do

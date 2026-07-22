@@ -57,6 +57,7 @@ defmodule Reencodarr.PostProcessorTest do
 
       updated = Media.get_video!(video.id)
       assert updated.original_size == 100
+      assert updated.space_saved_bytes == 93
     end
 
     test "does not overwrite original_size when already set", %{tmp: tmp} do

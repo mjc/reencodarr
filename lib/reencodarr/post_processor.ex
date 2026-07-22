@@ -177,11 +177,13 @@ defmodule Reencodarr.PostProcessor do
     end
   end
 
-  # Update video.size with actual encoded file size so space saved can use actual data
+  # Persist the exact savings from the finalized output.
   defp update_encoded_file_size(video) do
     case File.stat(video.path) do
       {:ok, %File.Stat{size: file_size}} when file_size > 0 ->
-        Media.update_video(video, %{size: file_size})
+        space_saved_bytes = max((video.original_size || video.size || 0) - file_size, 0)
+
+        Media.update_video(video, %{size: file_size, space_saved_bytes: space_saved_bytes})
         |> tap(fn
           {:ok, _} ->
             Logger.info(

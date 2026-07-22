@@ -649,13 +649,8 @@ defmodule Reencodarr.Dashboard.State do
   defp snapshot_size(%{size: size}) when is_number(size), do: size
   defp snapshot_size(_video), do: 0
 
-  defp snapshot_savings_bytes(%{state: :encoded, original_size: original_size, size: size})
-       when is_number(original_size) and is_number(size) and original_size > size do
-    original_size - size
-  end
-
-  defp snapshot_savings_bytes(%{state: state, chosen_vmaf_savings: savings})
-       when state != :encoded and is_number(savings) and savings > 0 do
+  defp snapshot_savings_bytes(%{space_saved_bytes: savings})
+       when is_number(savings) and savings > 0 do
     savings
   end
 
