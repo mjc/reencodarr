@@ -22,6 +22,7 @@ defmodule Reencodarr.Dashboard.State do
 
   @queue_refresh_interval 5_000
   @chart_refresh_interval 300_000
+  @default_state_query_timeout 1_000
   @default_queue_query_timeout 1_000
   @progress_debounce_ms 500
   @tracked_video_states [
@@ -67,8 +68,10 @@ defmodule Reencodarr.Dashboard.State do
   @doc """
   Returns the current dashboard state.
   """
-  def get_state do
-    GenServer.call(__MODULE__, :get_state)
+  def get_state(timeout \\ @default_state_query_timeout) do
+    GenServer.call(__MODULE__, :get_state, timeout)
+  catch
+    :exit, _ -> Map.delete(@default_state, :progress_debounce_ref)
   end
 
   @doc """
