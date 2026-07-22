@@ -55,16 +55,28 @@ defmodule ReencodarrWeb.WorkersLive do
   def handle_info({_event, _data}, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_event("pause_worker_crf_search", %{"worker-id" => worker_id}, socket) do
-    control_worker(socket, worker_id, :pause, "Worker pause requested")
+  def handle_event(
+        "pause_worker_crf_search",
+        %{"worker-id" => worker_id, "job-id" => job_id},
+        socket
+      ) do
+    control_worker(socket, worker_id, :pause, "Worker pause requested", job_id)
   end
 
-  def handle_event("resume_worker_crf_search", %{"worker-id" => worker_id}, socket) do
-    control_worker(socket, worker_id, :resume, "Worker resume requested")
+  def handle_event(
+        "resume_worker_crf_search",
+        %{"worker-id" => worker_id, "job-id" => job_id},
+        socket
+      ) do
+    control_worker(socket, worker_id, :resume, "Worker resume requested", job_id)
   end
 
-  def handle_event("stop_worker_crf_search", %{"worker-id" => worker_id}, socket) do
-    control_worker(socket, worker_id, :stop, "Worker stop requested")
+  def handle_event(
+        "stop_worker_crf_search",
+        %{"worker-id" => worker_id, "job-id" => job_id},
+        socket
+      ) do
+    control_worker(socket, worker_id, :stop, "Worker stop requested", job_id)
   end
 
   def handle_event("start_worker_crf_search", %{"worker-id" => worker_id}, socket) do
@@ -162,11 +174,11 @@ defmodule ReencodarrWeb.WorkersLive do
     """
   end
 
-  defp control_worker(socket, worker_id, action, message) do
+  defp control_worker(socket, worker_id, action, message, job_id \\ nil) do
     Phoenix.PubSub.broadcast(
       Reencodarr.PubSub,
       ReencodarrWeb.WorkerChannel.worker_control_topic(worker_id),
-      {:worker_control, action}
+      if(job_id, do: {:worker_control, action, job_id}, else: {:worker_control, action})
     )
 
     {:noreply, put_flash(socket, :info, message)}

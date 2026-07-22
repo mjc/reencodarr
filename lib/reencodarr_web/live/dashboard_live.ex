@@ -317,18 +317,30 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_event("pause_worker_crf_search", %{"worker-id" => worker_id}, socket) do
-    control_worker(socket, worker_id, :pause, "Worker pause requested")
+  def handle_event(
+        "pause_worker_crf_search",
+        %{"worker-id" => worker_id, "job-id" => job_id},
+        socket
+      ) do
+    control_worker(socket, worker_id, :pause, "Worker pause requested", job_id)
   end
 
   @impl true
-  def handle_event("resume_worker_crf_search", %{"worker-id" => worker_id}, socket) do
-    control_worker(socket, worker_id, :resume, "Worker resume requested")
+  def handle_event(
+        "resume_worker_crf_search",
+        %{"worker-id" => worker_id, "job-id" => job_id},
+        socket
+      ) do
+    control_worker(socket, worker_id, :resume, "Worker resume requested", job_id)
   end
 
   @impl true
-  def handle_event("stop_worker_crf_search", %{"worker-id" => worker_id}, socket) do
-    control_worker(socket, worker_id, :stop, "Worker stop requested")
+  def handle_event(
+        "stop_worker_crf_search",
+        %{"worker-id" => worker_id, "job-id" => job_id},
+        socket
+      ) do
+    control_worker(socket, worker_id, :stop, "Worker stop requested", job_id)
   end
 
   @impl true
@@ -337,33 +349,16 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_event("stop_worker_encode", %{"worker-id" => worker_id, "job-id" => job_id}, socket) do
-    with %{jobs: %{^job_id => %{video_id: video_id}}} <- WorkerSessions.get(worker_id),
-         {:ok, video} <- Media.fetch_video(video_id),
-         {:ok, _failure} <- Media.fail_video_by_operator(video, :encoding) do
-      WorkerSessions.clear_job(worker_id, job_id)
-
-      Phoenix.PubSub.broadcast(
-        Reencodarr.PubSub,
-        ReencodarrWeb.WorkerChannel.worker_control_topic(worker_id),
-        {:worker_cancel, job_id}
-      )
-
-      {:noreply, put_flash(socket, :info, "Encode stopped and marked failed")}
-    else
-      _ -> {:noreply, put_flash(socket, :error, "Unable to stop encode")}
-    end
-  end
-
-  def handle_event(event, %{"worker-id" => worker_id}, socket)
-      when event in ["pause_worker_encode", "resume_worker_encode"] do
+  def handle_event(event, %{"worker-id" => worker_id, "job-id" => job_id}, socket)
+      when event in ["pause_worker_encode", "resume_worker_encode", "stop_worker_encode"] do
     action =
       %{
         "pause_worker_encode" => :pause,
-        "resume_worker_encode" => :resume
+        "resume_worker_encode" => :resume,
+        "stop_worker_encode" => :stop
       }[event]
 
-    control_worker(socket, worker_id, action, "Worker encode #{action} requested")
+    control_worker(socket, worker_id, action, "Worker encode #{action} requested", job_id)
   end
 
   @impl true

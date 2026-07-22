@@ -651,6 +651,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert derived_eta >= 0
 
       assert_reply push(socket, "crf_search_progress", %{
+                     "job_id" => "crf-#{video_id}",
                      "video_id" => video_id,
                      "percent" => 62.0,
                      "filename" => Path.basename(video.path),
@@ -681,13 +682,19 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert is_nil(session.transfer_progress)
       assert session.crf_search_progress.percent == 62.0
 
+      job_id = "crf-#{video_id}"
+
       Phoenix.PubSub.broadcast(
         Reencodarr.PubSub,
         WorkerChannel.worker_control_topic(server_worker_id),
-        {:worker_control, :pause}
+        {:worker_control, :pause, job_id}
       )
 
-      assert_push "control", %{action: "pause"}
+      assert_push "control", %{
+        action: "pause",
+        job_id: ^job_id,
+        video_id: ^video_id
+      }
 
       assert_reply push(socket, "control_state", %{
                      "state" => "paused",
@@ -711,7 +718,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    %{accepted: true, state: "stopped"}
 
       assert WorkerSessions.get(server_worker_id).control_state == :stopped
-      assert Media.get_video(video_id).state == :analyzed
+      assert Media.get_video(video_id).state == :failed
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
@@ -786,7 +793,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    }),
                    :ok
 
-      assert Media.get_video(video.id).state == :analyzed
+      assert Media.get_video(video.id).state == :failed
     after
       Application.delete_env(:reencodarr, :worker_token)
     end

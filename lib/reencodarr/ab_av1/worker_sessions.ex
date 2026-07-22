@@ -626,8 +626,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   defp restore_active_video(_session, _video_id), do: {:error, :invalid_worker_phase}
 
   defp apply_control_state(session, :stopped) do
-    requeue_active_video(session)
-    requeue_jobs(session.jobs)
+    fail_active_video(session)
+    fail_jobs(session.jobs)
     {:ok, session} = WorkerJobStateMachine.clear_video(session)
     %{session | control_state: :stopped, jobs: %{}, last_seen_at: now()}
   end
@@ -645,6 +645,15 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
       _ ->
         :ok
+    end
+  end
+
+  defp fail_active_video(%{active_video_id: nil}), do: :ok
+
+  defp fail_active_video(%{active_video_id: video_id}) do
+    case Media.get_video(video_id) do
+      %Media.Video{} = video -> _ = Media.fail_video_by_operator(video, :crf_search)
+      nil -> :ok
     end
   end
 
@@ -673,6 +682,21 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
         {:crf_search, %Media.Video{state: :crf_searching} = video} ->
           _ = VideoStateMachine.mark_as_analyzed(video)
+
+        _ ->
+          :ok
+      end
+    end)
+  end
+
+  defp fail_jobs(jobs) do
+    Enum.each(jobs, fn {_job_id, job} ->
+      case {job.job_type, Media.get_video(job.video_id)} do
+        {:encode, %Media.Video{} = video} ->
+          _ = Media.fail_video_by_operator(video, :encoding)
+
+        {:crf_search, %Media.Video{} = video} ->
+          _ = Media.fail_video_by_operator(video, :crf_search)
 
         _ ->
           :ok

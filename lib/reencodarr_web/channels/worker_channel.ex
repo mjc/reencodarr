@@ -129,8 +129,42 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp set_worker_control_state(worker_id, nil, control_state, active_video_id),
     do: WorkerSessions.set_control_state(worker_id, control_state, active_video_id)
 
+  defp set_worker_control_state(worker_id, job_id, control_state, video_id)
+       when is_binary(job_id) and is_integer(video_id) do
+    case WorkerSessions.get(worker_id) do
+      %{jobs: %{^job_id => _}} ->
+        WorkerSessions.set_job_control_state(worker_id, job_id, control_state)
+
+      _ ->
+        with %Media.Video{} = video <- Media.get_video(video_id),
+             {:ok, _video} <- restore_worker_job_video(job_id, video),
+             {:ok, _session} <-
+               WorkerSessions.assign_job(worker_id, %Job{
+                 job_id: job_id,
+                 job_type:
+                   if(String.starts_with?(job_id, "encode-"), do: :encode, else: :crf_search),
+                 video_id: video_id,
+                 phase: :encoding,
+                 control_state: control_state
+               }) do
+          {:ok, WorkerSessions.get(worker_id)}
+        else
+          _ -> {:error, :unknown_worker_session}
+        end
+    end
+  end
+
   defp set_worker_control_state(worker_id, job_id, control_state, _active_video_id),
     do: WorkerSessions.set_job_control_state(worker_id, job_id, control_state)
+
+  defp restore_worker_job_video("encode-" <> _, %Media.Video{state: state} = video)
+       when state in [:crf_searched, :encoding],
+       do: Media.mark_as_encoding(video)
+
+  defp restore_worker_job_video(_job_id, %Media.Video{state: :crf_searching} = video),
+    do: {:ok, video}
+
+  defp restore_worker_job_video(_job_id, _video), do: {:error, :unknown_worker_session}
 
   @impl true
   def handle_info(:stream_transfer_chunk, %{assigns: %{transfer_io_device: nil}} = socket) do
@@ -171,15 +205,16 @@ defmodule ReencodarrWeb.WorkerChannel do
           video_id: video_id
         })
 
+      %{crf_search_progress: %{job_id: ^job_id, video_id: video_id}} ->
+        push(socket, "control", %{
+          action: Atom.to_string(action),
+          job_id: job_id,
+          video_id: video_id
+        })
+
       _ ->
         :ok
     end
-
-    {:noreply, socket}
-  end
-
-  def handle_info({:worker_cancel, job_id}, socket) when is_binary(job_id) do
-    push(socket, "cancel", %{job_id: job_id, reason: "stopped by operator"})
 
     {:noreply, socket}
   end
@@ -687,9 +722,9 @@ defmodule ReencodarrWeb.WorkerChannel do
     job_id = failure.job_id || socket.assigns[:encode_job_id]
     failure = %FailureReport{failure | job_id: job_id}
 
-    with %Media.Video{} = video <- Media.get_video(failure.video_id),
-         {:ok, socket} <- ensure_encode_failure_job(socket, failure, video) do
-      if video.state != :failed, do: record_worker_failure(video, failure)
+    with {:ok, socket} <- ensure_encode_job(socket, failure),
+         %Media.Video{} = video <- Media.get_video(failure.video_id) do
+      record_worker_failure(video, failure)
       _ = Media.mark_as_failed(video)
       _ = WorkerSessions.clear_job(worker_id, job_id)
       Events.broadcast_event(:video_failed, failure)
@@ -699,11 +734,6 @@ defmodule ReencodarrWeb.WorkerChannel do
       {:error, reason} -> {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
   end
-
-  defp ensure_encode_failure_job(socket, _failure, %Media.Video{state: :failed}),
-    do: {:ok, socket}
-
-  defp ensure_encode_failure_job(socket, failure, _video), do: ensure_encode_job(socket, failure)
 
   defp handle_crf_failure(worker_id, socket, failure) do
     with {:ok, socket} <- ensure_resumable_active_video(socket, failure.video_id),

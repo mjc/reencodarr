@@ -193,6 +193,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   attr :fail_event, :string, default: "fail_crf_search"
   attr :start_event, :string, default: nil
   attr :worker_id, :string, default: nil
+  attr :job_id, :string, default: nil
 
   def crf_search_panel(%{progress: progress} = assigns)
       when is_nil(progress) or is_struct(progress, CrfSearchProgress) do
@@ -254,6 +255,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
             fail_event={@fail_event}
             start_event={@start_event}
             worker_id={@worker_id}
+            job_id={@job_id}
           />
 
           <%= if @show_empty_chart or length(@results) > 0 or @sample do %>
@@ -307,6 +309,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
               fail_event={@fail_event}
               start_event={@start_event}
               worker_id={@worker_id}
+              job_id={@job_id}
             />
           </div>
         <% end %>
@@ -372,6 +375,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
       fail_event="stop_worker_crf_search"
       start_event="start_worker_crf_search"
       worker_id={@worker.server_worker_id}
+      job_id={@worker.crf_search_progress && @worker.crf_search_progress.job_id}
     />
     """
   end
@@ -445,6 +449,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   attr :fail_event, :string, required: true
   attr :start_event, :string, default: nil
   attr :worker_id, :string, default: nil
+  attr :job_id, :string, default: nil
 
   defp active_job_controls(assigns) do
     ~H"""
@@ -453,6 +458,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
         <button
           phx-click={@start_event}
           phx-value-worker-id={@worker_id}
+          phx-value-job-id={@job_id}
           class="font-medium text-green-400 hover:text-green-300"
         >
           Start
@@ -462,6 +468,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
           <button
             phx-click={@resume_event}
             phx-value-worker-id={@worker_id}
+            phx-value-job-id={@job_id}
             class="font-medium text-cyan-400 hover:text-cyan-300"
           >
             Resume
@@ -470,6 +477,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
           <button
             phx-click={@suspend_event}
             phx-value-worker-id={@worker_id}
+            phx-value-job-id={@job_id}
             class="font-medium text-yellow-400 hover:text-yellow-300"
           >
             Pause
@@ -481,6 +489,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
         <button
           phx-click={@fail_event}
           phx-value-worker-id={@worker_id}
+          phx-value-job-id={@job_id}
           data-confirm="Stop the active job?"
           class="font-medium text-red-500 hover:text-red-400"
         >
