@@ -492,6 +492,27 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert cleared.jobs == %{}
   end
 
+  test "restores an encode job from progress after the server restarts" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :encoding})
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    progress = %EncodeProgress{
+      job_id: "encode-#{video.id}",
+      video_id: video.id,
+      percent: 42.0,
+      fps: 12.5,
+      output_bytes: 1_000,
+      output_percent: 10.0
+    }
+
+    assert {:ok, session} = WorkerSessions.set_encode_progress("worker-server-1", progress)
+
+    assert %Job{job_type: :encode, video_id: video_id, phase: :encoding} =
+             session.jobs[progress.job_id]
+
+    assert video_id == video.id
+  end
+
   test "requeues an encode when its retained worker session expires" do
     {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
     vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})

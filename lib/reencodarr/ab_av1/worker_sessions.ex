@@ -280,7 +280,15 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           }
 
         _ ->
-          {:error, :unknown_worker_session}
+          job = %Job{
+            job_id: progress.job_id,
+            job_type: :encode,
+            video_id: progress.video_id,
+            phase: :encoding,
+            progress: progress
+          }
+
+          %{session | jobs: Map.put(session.jobs, progress.job_id, job), last_seen_at: now()}
       end
     end)
   end
