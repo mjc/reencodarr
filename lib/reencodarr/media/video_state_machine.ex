@@ -390,15 +390,18 @@ defmodule Reencodarr.Media.VideoStateMachine do
   def mark_as_analyzed(%Video{} = video),
     do: mark_video_state(video, &transition_to_analyzed/1)
 
-  @doc """
-  Marks a video as failed. Rescues `Ecto.StaleEntryError` for test cleanup races.
-  """
   @spec mark_as_failed(Video.t()) :: {:ok, Video.t()} | {:error, any()}
+  def mark_as_failed(%Video{state: :failed} = video), do: {:ok, video}
+
   def mark_as_failed(%Video{} = video) do
     mark_video_state(video, &transition_to_failed/1)
   rescue
     Ecto.StaleEntryError ->
-      {:ok, video}
+      case Reencodarr.Repo.get(Video, video.id) do
+        %Video{state: :failed} = current -> {:ok, current}
+        %Video{} = current -> mark_video_state(current, &transition_to_failed/1)
+        nil -> {:error, :not_found}
+      end
   end
 
   @spec mark_as_crf_searched(Video.t()) :: {:ok, Video.t()} | {:error, any()}

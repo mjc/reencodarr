@@ -178,6 +178,12 @@ defmodule ReencodarrWeb.WorkerChannel do
     {:noreply, socket}
   end
 
+  def handle_info({:worker_cancel, job_id}, socket) when is_binary(job_id) do
+    push(socket, "cancel", %{job_id: job_id, reason: "stopped by operator"})
+
+    {:noreply, socket}
+  end
+
   def handle_info(:stream_transfer_chunk, %{assigns: %{transfer_io_device: io_device}} = socket)
       when not is_nil(io_device) do
     read_transfer_chunk(socket, io_device)
@@ -610,7 +616,8 @@ defmodule ReencodarrWeb.WorkerChannel do
           {:ok, Phoenix.Socket.t()} | {:error, :unknown_worker_session}
   defp recover_encode_job(socket, job_id, video_id) do
     with ^job_id <- "encode-#{video_id}",
-         %Media.Video{} = video <- Media.get_video(video_id),
+         %Media.Video{state: state} = video <- Media.get_video(video_id),
+         true <- state in [:crf_searched, :encoding] || {:error, :unknown_worker_session},
          {:ok, _video} <- Media.mark_as_encoding(video),
          {:ok, _session} <-
            WorkerSessions.assign_job(socket.assigns.worker_id, %Job{
@@ -680,9 +687,9 @@ defmodule ReencodarrWeb.WorkerChannel do
     job_id = failure.job_id || socket.assigns[:encode_job_id]
     failure = %FailureReport{failure | job_id: job_id}
 
-    with {:ok, socket} <- ensure_encode_job(socket, failure),
-         %Media.Video{} = video <- Media.get_video(failure.video_id) do
-      record_worker_failure(video, failure)
+    with %Media.Video{} = video <- Media.get_video(failure.video_id),
+         {:ok, socket} <- ensure_encode_failure_job(socket, failure, video) do
+      if video.state != :failed, do: record_worker_failure(video, failure)
       _ = Media.mark_as_failed(video)
       _ = WorkerSessions.clear_job(worker_id, job_id)
       Events.broadcast_event(:video_failed, failure)
@@ -692,6 +699,11 @@ defmodule ReencodarrWeb.WorkerChannel do
       {:error, reason} -> {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
   end
+
+  defp ensure_encode_failure_job(socket, _failure, %Media.Video{state: :failed}),
+    do: {:ok, socket}
+
+  defp ensure_encode_failure_job(socket, failure, _video), do: ensure_encode_job(socket, failure)
 
   defp handle_crf_failure(worker_id, socket, failure) do
     with {:ok, socket} <- ensure_resumable_active_video(socket, failure.video_id),
