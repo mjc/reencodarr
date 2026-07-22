@@ -3,10 +3,10 @@ defmodule Reencodarr.Rules.Audio do
   Audio encoding rules for ab-av1 with codec-aware bitrate scaling.
 
   Determines the audio codec strategy:
-  - Copy if already Opus (no re-encoding needed)
+  - Copy only if every track is already Opus (no re-encoding needed)
   - Copy all if mediainfo unavailable
-  - Transcode all to Opus if no Atmos tracks present
-  - Per-stream encoding if Atmos tracks are present: copy Atmos, transcode others
+  - Transcode all to Opus if no copy-through tracks are present
+  - Per-stream encoding if Atmos, DTS:X, or Opus tracks are present: copy them, transcode others
     (ab-av1 uses -map 0 so --acodec applies to all; use --enc c:a:N= to override per-track)
   - Normalize non-standard layouts (5.1(side) → 5.1) for receiver compatibility
   """
@@ -42,7 +42,7 @@ defmodule Reencodarr.Rules.Audio do
 
   @spec rules(Media.Video.t() | map()) :: list()
   def rules(%Media.Video{audio_codecs: audio_codecs} = video) when is_list(audio_codecs) do
-    if already_opus?(audio_codecs) do
+    if audio_codecs != [] and all_opus?(audio_codecs) do
       @copy_audio
     else
       build_from_mediainfo(video)
@@ -56,20 +56,21 @@ defmodule Reencodarr.Rules.Audio do
        when is_map(mediainfo) and is_integer(channels) and channels > 0 do
     indexed_tracks = AudioTrackInfo.all_from_mediainfo(mediainfo)
 
-    {atmos, non_atmos} =
-      Enum.split_with(indexed_tracks, fn {_idx, t} -> track_possibly_atmos?(t) end)
+    {copy_through, non_copy_through} =
+      Enum.split_with(indexed_tracks, fn {_idx, t} -> track_should_copy?(t) end)
 
-    route_by_atmos(atmos, non_atmos, mediainfo)
+    route_by_copy_through(copy_through, non_copy_through, mediainfo)
   end
 
   defp build_from_mediainfo(_video), do: @copy_audio
 
-  defp route_by_atmos([], _non_atmos, mediainfo), do: encode_uniform(mediainfo)
-  defp route_by_atmos(_atmos, [], _mediainfo), do: @copy_audio
-  # Mixed Atmos + non-Atmos: apply per-stream rules to each non-Atmos track
-  defp route_by_atmos(_atmos, non_atmos, _mediainfo), do: encode_mixed(non_atmos)
+  defp route_by_copy_through([], _non_copy_through, mediainfo), do: encode_uniform(mediainfo)
+  defp route_by_copy_through(_copy_through, [], _mediainfo), do: @copy_audio
 
-  # No Atmos tracks: apply rules uniformly across all tracks
+  defp route_by_copy_through(_copy_through, non_copy_through, _mediainfo),
+    do: encode_mixed(non_copy_through)
+
+  # No copy-through tracks: apply rules uniformly across all tracks
   # Build per-stream overrides for each track, or copy if issues found
   defp encode_uniform(mediainfo) do
     indexed_tracks = AudioTrackInfo.all_from_mediainfo(mediainfo)
@@ -85,10 +86,10 @@ defmodule Reencodarr.Rules.Audio do
     end
   end
 
-  # Mixed Atmos + non-Atmos: base is --acodec copy, override non-Atmos tracks per-stream
-  defp encode_mixed(non_atmos_tracks) do
+  # Mixed copy-through + transcode tracks: base is --acodec copy, override transcode tracks per-stream
+  defp encode_mixed(non_copy_through_tracks) do
     overrides =
-      Enum.flat_map(non_atmos_tracks, fn {idx, track} ->
+      Enum.flat_map(non_copy_through_tracks, fn {idx, track} ->
         build_per_stream_overrides(idx, track)
       end)
 
@@ -157,17 +158,22 @@ defmodule Reencodarr.Rules.Audio do
     Enum.any?(["flac", "alac", "truehd", "mlp", "dtshd", "pcm"], &String.contains?(codec, &1))
   end
 
-  defp already_opus?(audio_codecs) do
-    Enum.any?(audio_codecs, fn codec ->
+  defp all_opus?(audio_codecs) do
+    Enum.all?(audio_codecs, fn codec ->
       codec |> normalize_codec_string() |> String.contains?("opus")
     end)
   end
 
-  defp track_possibly_atmos?(track) do
+  defp track_should_copy?(track) do
+    codec = track.codec |> normalize_codec_string()
+    codec_id = track.codec_id |> normalize_codec_string()
     commercial = track.format_commercial_if_any |> normalize_codec_string()
     additional = track.format_additionalfeatures |> normalize_codec_string()
 
-    String.contains?(commercial, "atmos") or
+    String.contains?(codec, "opus") or
+      String.contains?(codec_id, "opus") or
+      String.contains?(commercial, "atmos") or
+      Enum.any?([codec, codec_id, commercial, additional], &String.contains?(&1, "dtsx")) or
       String.contains?(additional, "joc") or
       String.contains?(additional, "atmos")
   end

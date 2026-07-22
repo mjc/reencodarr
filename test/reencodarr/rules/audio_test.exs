@@ -14,6 +14,22 @@ defmodule Reencodarr.Rules.AudioTest do
       assert Audio.rules(video) == [{"--acodec", "copy"}]
     end
 
+    test "transcodes non-Opus tracks when another track is already Opus" do
+      video =
+        raw_audio_video(
+          ["opus", "aac"],
+          multi_track_mediainfo([
+            {"Opus", 2, "L R", 128_000},
+            {"AAC", 2, "L R", 128_000}
+          ])
+        )
+
+      rules = Audio.rules(video)
+
+      refute {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "c:a:1=libopus"} in rules
+    end
+
     test "copies all audio when all tracks are Atmos" do
       video =
         raw_audio_video(
@@ -92,6 +108,22 @@ defmodule Reencodarr.Rules.AudioTest do
         )
 
       assert Audio.rules(video) == [{"--acodec", "copy"}]
+    end
+
+    test "copies DTS:X while transcoding the other tracks" do
+      video =
+        raw_audio_video(
+          ["dts", "aac"],
+          multi_track_mediainfo([
+            {"DTS", 6, "5.1", 768_000, %{"Format_Commercial_IfAny" => "DTS:X"}},
+            {"AAC", 2, "L R", 128_000}
+          ])
+        )
+
+      rules = Audio.rules(video)
+
+      refute {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "c:a:1=libopus"} in rules
     end
   end
 
@@ -330,21 +362,33 @@ defmodule Reencodarr.Rules.AudioTest do
   end
 
   # Helper to build mediainfo for multi-track files
-  # Takes list of {format, channels, layout, bitrate} tuples
+  # Takes {format, channels, layout, bitrate[, overrides]} tuples
   defp multi_track_mediainfo(tracks) do
     audio_tracks =
       tracks
       |> Enum.with_index()
-      |> Enum.map(fn {{format, channels, layout, bitrate}, idx} ->
-        %{
-          "@type" => "Audio",
-          "Format" => format,
-          "CodecID" => format,
-          "Channels" => Integer.to_string(channels),
-          "ChannelLayout" => layout,
-          "BitRate" => bitrate,
-          "Default" => if(idx == 0, do: "Yes", else: "No")
-        }
+      |> Enum.map(fn {track, idx} ->
+        {format, channels, layout, bitrate, overrides} =
+          case track do
+            {format, channels, layout, bitrate} ->
+              {format, channels, layout, bitrate, %{}}
+
+            {format, channels, layout, bitrate, overrides} ->
+              {format, channels, layout, bitrate, overrides}
+          end
+
+        Map.merge(
+          %{
+            "@type" => "Audio",
+            "Format" => format,
+            "CodecID" => format,
+            "Channels" => Integer.to_string(channels),
+            "ChannelLayout" => layout,
+            "BitRate" => bitrate,
+            "Default" => if(idx == 0, do: "Yes", else: "No")
+          },
+          overrides
+        )
       end)
 
     %{
