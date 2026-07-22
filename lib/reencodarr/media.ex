@@ -3277,7 +3277,8 @@ defmodule Reencodarr.Media do
   @spec fetch_dashboard_video_stats(integer()) :: {:ok, map()} | {:error, term()}
   def fetch_dashboard_video_stats(timeout \\ 15_000) do
     fetch_dashboard_component("video stats", fn ->
-      Repo.one(SharedQueries.video_stats_query(), timeout: timeout) || get_default_video_stats()
+      Repo.one(SharedQueries.video_stats_query(), dashboard_query_opts(timeout)) ||
+        get_default_video_stats()
     end)
   end
 
@@ -3287,7 +3288,7 @@ defmodule Reencodarr.Media do
   @spec fetch_dashboard_metadata_stats(integer()) :: {:ok, map()} | {:error, term()}
   def fetch_dashboard_metadata_stats(timeout \\ 15_000) do
     fetch_dashboard_component("metadata stats", fn ->
-      Repo.one(SharedQueries.dashboard_metadata_stats_query(), timeout: timeout) ||
+      Repo.one(SharedQueries.dashboard_metadata_stats_query(), dashboard_query_opts(timeout)) ||
         %{
           avg_duration_minutes: 0.0,
           most_recent_video_update: nil,
@@ -3302,7 +3303,7 @@ defmodule Reencodarr.Media do
   @spec fetch_dashboard_total_size_gb(integer()) :: {:ok, float()} | {:error, term()}
   def fetch_dashboard_total_size_gb(timeout \\ 15_000) do
     fetch_dashboard_component("total size", fn ->
-      Repo.one(SharedQueries.dashboard_total_size_query(), timeout: timeout) || 0.0
+      Repo.one(SharedQueries.dashboard_total_size_query(), dashboard_query_opts(timeout)) || 0.0
     end)
   end
 
@@ -3313,7 +3314,7 @@ defmodule Reencodarr.Media do
   def fetch_dashboard_savings_gb(timeout \\ 15_000) do
     fetch_dashboard_component("savings", fn ->
       encoded_savings =
-        Repo.one(SharedQueries.encoded_video_savings_query(), timeout: timeout) ||
+        Repo.one(SharedQueries.encoded_video_savings_query(), dashboard_query_opts(timeout)) ||
           %{total_savings_gb: 0.0}
 
       encoded_savings.total_savings_gb || 0.0
@@ -3326,7 +3327,8 @@ defmodule Reencodarr.Media do
   @spec fetch_dashboard_vmaf_stats(integer()) :: {:ok, map()} | {:error, term()}
   def fetch_dashboard_vmaf_stats(timeout \\ 15_000) do
     fetch_dashboard_component("vmaf stats", fn ->
-      Repo.one(SharedQueries.vmaf_stats_query(), timeout: timeout) || get_default_vmaf_stats()
+      Repo.one(SharedQueries.vmaf_stats_query(), dashboard_query_opts(timeout)) ||
+        get_default_vmaf_stats()
     end)
   end
 
@@ -3401,6 +3403,8 @@ defmodule Reencodarr.Media do
   defp interrupted_dashboard_query?(%Exqlite.Error{message: message}) do
     String.downcase(to_string(message)) == "interrupted"
   end
+
+  defp dashboard_query_opts(timeout), do: [timeout: timeout, pool_timeout: timeout]
 
   defp get_default_video_stats do
     %{
