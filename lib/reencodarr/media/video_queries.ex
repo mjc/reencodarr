@@ -7,7 +7,7 @@ defmodule Reencodarr.Media.VideoQueries do
   """
 
   import Ecto.Query
-  alias Reencodarr.{DbWriter, Media.Video, Media.Vmaf, Repo}
+  alias Reencodarr.{DbWriter, Media.DashboardQueueCache, Media.Video, Media.Vmaf, Repo}
 
   @doc """
   Gets videos ready for CRF search (state: analyzed).
@@ -259,13 +259,11 @@ defmodule Reencodarr.Media.VideoQueries do
   @spec videos_ready_for_encoding_preview(integer(), keyword()) :: [map()]
   def videos_ready_for_encoding_preview(limit, opts \\ []) do
     Repo.all(
-      from(vid in Video,
-        join: v in Vmaf,
-        on: vid.chosen_vmaf_id == v.id,
-        where: vid.state == :crf_searched,
-        order_by: [desc: vid.priority, desc: v.savings, desc: vid.updated_at],
+      from(c in DashboardQueueCache,
+        where: c.queue_type == :encoder,
+        order_by: [desc: c.priority, desc: c.savings, desc: c.updated_at],
         limit: ^limit,
-        select: %{id: vid.id, path: vid.path}
+        select: %{id: c.video_id, path: c.path}
       ),
       opts
     )

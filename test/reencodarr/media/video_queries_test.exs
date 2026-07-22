@@ -1,6 +1,7 @@
 defmodule Reencodarr.Media.VideoQueriesTest do
   use Reencodarr.DataCase, async: true
-  alias Reencodarr.Media.VideoQueries
+  alias Reencodarr.Media.{DashboardQueueCache, VideoQueries}
+  alias Reencodarr.Repo
 
   describe "videos_for_crf_search/1" do
     test "returns videos needing CRF search" do
@@ -466,6 +467,12 @@ defmodule Reencodarr.Media.VideoQueriesTest do
       vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 26.0})
       Fixtures.choose_vmaf(video, vmaf)
       {:ok, _} = Reencodarr.Media.update_video(video, %{state: :crf_searched})
+
+      Repo.insert!(%DashboardQueueCache{
+        queue_type: :encoder,
+        video_id: video.id,
+        path: video.path
+      })
 
       [preview | _] = VideoQueries.videos_ready_for_encoding_preview(10)
 
