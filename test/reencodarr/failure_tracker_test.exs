@@ -114,6 +114,24 @@ defmodule Reencodarr.FailureTrackerTest do
         end)
     end
 
+    test "records process exit failures for CRF search with the same exit-code mapping" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      _log =
+        with_captured_logs(fn ->
+          {:ok, failure} =
+            FailureTracker.record_process_exit_failure(video, :crf_search, 137,
+              context: %{command: "ab-av1 crf-search movie.mkv"}
+            )
+
+          assert failure.failure_stage == :crf_search
+          assert failure.failure_category == :resource_exhaustion
+          assert failure.failure_code == "EXIT_137"
+          assert failure.system_context.original_exit_code == 137
+          assert failure.system_context.classification == :resource_exhaustion
+        end)
+    end
+
     test "classifies different exit codes correctly" do
       {:ok, video} = Fixtures.video_fixture()
 

@@ -1774,7 +1774,49 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                       }}
 
       assert Media.get_video(video_id).state == :failed
-      assert [_failure] = Media.get_video_failures(video_id)
+
+      assert [
+               %{
+                 failure_stage: :crf_search,
+                 failure_category: :resource_exhaustion,
+                 failure_code: "EXIT_137"
+               }
+             ] = Media.get_video_failures(video_id)
+
+      {:ok, old_worker_video} = Fixtures.video_fixture(%{state: :analyzed})
+      old_worker_video_id = old_worker_video.id
+
+      assert {:ok, old_worker_socket} = connect(WorkerSocket, %{"token" => token})
+
+      assert {:ok, _join_payload, old_worker_socket} =
+               subscribe_and_join(old_worker_socket, "workers:crf_search")
+
+      assert_reply push(old_worker_socket, "announce", announce_payload(worker_id: "worker-old")),
+                   :ok,
+                   %{accepted: true, protocol_version: 1}
+
+      assert_reply push(old_worker_socket, "pull_work", %{}),
+                   :ok,
+                   %{status: "job_assigned", video_id: ^old_worker_video_id}
+
+      assert_reply push(old_worker_socket, "video_failed", %{
+                     "video_id" => old_worker_video_id,
+                     "stage" => "crf_search",
+                     "category" => "process_failure",
+                     "message" => "ab-av1 failed",
+                     "code" => "worker_crf_search_failed",
+                     "context" => %{}
+                   }),
+                   :ok,
+                   %{accepted: true, event: "video_failed"}
+
+      assert [
+               %{
+                 failure_stage: :crf_search,
+                 failure_category: :process_failure,
+                 failure_code: "EXIT_1"
+               }
+             ] = Media.get_video_failures(old_worker_video_id)
 
       {:ok, cancelled_video} = Fixtures.video_fixture(%{state: :analyzed})
       cancelled_video_id = cancelled_video.id

@@ -124,8 +124,14 @@ defmodule Reencodarr.FailureTracker do
     )
   end
 
-  # Encoding stage failures
   def record_process_failure(video, exit_code, opts \\ []) do
+    record_process_exit_failure(video, :encoding, exit_code, opts)
+  end
+
+  # Process-exit failures. Used by local ab-av1 ports and worker-mode job reports.
+  @spec record_process_exit_failure(any(), atom(), integer() | atom(), keyword()) ::
+          {:ok, Media.VideoFailure.t()} | {:error, Ecto.Changeset.t()}
+  def record_process_exit_failure(video, stage, exit_code, opts \\ []) do
     context = Keyword.get(opts, :context, %{})
 
     # Check if we can extract more specific FFmpeg error information from output
@@ -140,12 +146,14 @@ defmodule Reencodarr.FailureTracker do
       }
       |> Map.merge(context)
 
-    Media.record_video_failure(video, :encoding, category,
+    Media.record_video_failure(video, stage, category,
       code: "EXIT_#{actual_exit_code}",
       message: enhanced_message,
       context: enhanced_context
     )
   end
+
+  # Encoding stage failures
 
   def record_resource_exhaustion_failure(video, resource_type, details, opts \\ []) do
     context =
@@ -384,7 +392,7 @@ defmodule Reencodarr.FailureTracker do
     cond do
       # Handle negative exit codes as setup/exception errors
       exit_code < 0 ->
-        {:process_failure, "Exception during encoding setup (exit code: #{exit_code})"}
+        {:process_failure, "Exception during process setup (exit code: #{exit_code})"}
 
       resource_exhaustion_error?(exit_code) ->
         classify_resource_exhaustion_error(exit_code)
@@ -402,7 +410,7 @@ defmodule Reencodarr.FailureTracker do
         classify_special_atom_code(exit_code)
 
       exit_code == 1 ->
-        {:process_failure, "Standard encoding failure (corrupted/invalid input)"}
+        {:process_failure, "Standard process failure (corrupted/invalid input)"}
 
       true ->
         {:process_failure, "Unknown exit code: #{exit_code}"}

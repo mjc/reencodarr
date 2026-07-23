@@ -18,6 +18,7 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   alias Reencodarr.AbAv1.WorkerSessions.Job
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.FailureTracker
   alias Reencodarr.Media
   alias Reencodarr.PostProcessor
 
@@ -755,12 +756,35 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp record_worker_failure(video, failure) do
-    Media.record_video_failure(video, failure.stage, failure.category,
-      code: failure.code,
-      message: failure.message,
-      context: Map.put(failure.context, :stderr_excerpt, failure.stderr_excerpt)
-    )
+    context = Map.put(failure.context, :stderr_excerpt, failure.stderr_excerpt)
+
+    case worker_exit_code(failure) do
+      nil ->
+        Media.record_video_failure(video, failure.stage, failure.category,
+          code: failure.code,
+          message: failure.message,
+          context: context
+        )
+
+      exit_code ->
+        FailureTracker.record_process_exit_failure(video, failure.stage, exit_code,
+          context: context
+        )
+    end
   end
+
+  @spec worker_exit_code(FailureReport.t()) :: integer() | nil
+  defp worker_exit_code(%FailureReport{code: "worker_crf_search_failed"}), do: 1
+  defp worker_exit_code(%FailureReport{code: "worker_encode_failed"}), do: 1
+
+  defp worker_exit_code(%FailureReport{code: "EXIT_" <> code}) do
+    case Integer.parse(code) do
+      {exit_code, ""} -> exit_code
+      _ -> nil
+    end
+  end
+
+  defp worker_exit_code(_failure), do: nil
 
   defp claim_work(worker_id, socket) do
     case Media.claim_next_video_for_crf_search() do
