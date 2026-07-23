@@ -546,15 +546,20 @@ defmodule ReencodarrWeb.WorkerChannel do
       WorkerSessions.set_job_transfer_progress(worker_id, progress.job_id, progress, phase)
 
     Events.broadcast_event(:transfer_progress, Map.put(progress, :worker_id, worker_id))
-    transfer = socket.assigns.encode_transfer
 
     socket =
-      if progress.percent >= 100 or transfer.complete_pending do
-        complete_encode_transfer(socket, transfer)
-      else
-        transfer = %{transfer | waiting: false}
-        send(self(), {:stream_encode_transfer, transfer.job_id})
-        assign(socket, :encode_transfer, transfer)
+      case socket.assigns[:encode_transfer] do
+        nil ->
+          socket
+
+        transfer ->
+          if progress.percent >= 100 or transfer.complete_pending do
+            complete_encode_transfer(socket, transfer)
+          else
+            transfer = %{transfer | waiting: false}
+            send(self(), {:stream_encode_transfer, transfer.job_id})
+            assign(socket, :encode_transfer, transfer)
+          end
       end
 
     {:reply, {:ok, WorkerProtocol.event_ack("transfer_progress")}, socket}

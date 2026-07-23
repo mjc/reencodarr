@@ -1371,6 +1371,56 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "accepts encode transfer progress when no websocket transfer is assigned" do
+      server_worker_id = "worker-server-encode-progress"
+      video_id = System.unique_integer([:positive])
+      job_id = "encode-#{video_id}"
+
+      {:ok, _session} =
+        WorkerSessions.register(%{
+          server_worker_id: server_worker_id,
+          client_worker_id: "worker-client-encode-progress",
+          version: "0.11.4",
+          protocol_version: 1,
+          capabilities: %{"encode" => true}
+        })
+
+      {:ok, _session} =
+        WorkerSessions.assign_job(server_worker_id, %WorkerSessions.Job{
+          job_id: job_id,
+          job_type: :encode,
+          video_id: video_id,
+          phase: :receiving_input
+        })
+
+      socket = %Phoenix.Socket{
+        assigns: %{
+          worker_id: server_worker_id,
+          encode_job_id: job_id,
+          encode_video_id: video_id
+        }
+      }
+
+      assert {:reply, {:ok, %{accepted: true, event: "transfer_progress"}}, ^socket} =
+               WorkerChannel.handle_in(
+                 "transfer_progress",
+                 %{
+                   "job_id" => job_id,
+                   "transfer_id" => job_id,
+                   "video_id" => video_id,
+                   "percent" => 50.0,
+                   "received_bytes" => 1024,
+                   "expected_bytes" => 2048
+                 },
+                 socket
+               )
+
+      session = WorkerSessions.get(server_worker_id)
+      assert session.jobs[job_id].phase == :receiving_input
+      assert session.jobs[job_id].transfer_progress.percent == 50.0
+      assert session.jobs[job_id].transfer_progress.bytes_sent == 1024
+    end
+
     test "submits structured CRF results and completes the job" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
