@@ -511,13 +511,16 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
              session.jobs[progress.job_id]
 
     assert video_id == video.id
+    assert %{state: :encoding, encode_worker_id: "worker-client-1"} = Media.get_video(video.id)
+    assert {:ok, []} = WorkerSessions.expire_stale(999_999)
+    assert %{state: :encoding, encode_worker_id: "worker-client-1"} = Media.get_video(video.id)
   end
 
   test "requeues an encode when its retained worker session expires" do
     {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
     vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
     video = Fixtures.choose_vmaf(video, vmaf)
-    {:ok, video} = Media.mark_as_encoding(video)
+    {:ok, video} = Media.mark_as_encoding(video, %{encode_worker_id: "worker-client-1"})
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
 
     assert {:ok, _session} =
@@ -528,7 +531,35 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
              })
 
     assert {:ok, [_session]} = WorkerSessions.expire_stale(0)
-    assert Media.get_video(video.id).state == :crf_searched
+    assert %{state: :crf_searched, encode_worker_id: nil} = Media.get_video(video.id)
+  end
+
+  test "stale sweep resets persisted encoding work with no live encode job" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+    vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+    video = Fixtures.choose_vmaf(video, vmaf)
+    {:ok, video} = Media.mark_as_encoding(video, %{encode_worker_id: "dead-worker"})
+
+    assert {:ok, []} = WorkerSessions.expire_stale(0)
+    assert %{state: :crf_searched, encode_worker_id: nil} = Media.get_video(video.id)
+  end
+
+  test "stale sweep keeps persisted encoding work owned by a live encode job" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+    vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+    video = Fixtures.choose_vmaf(video, vmaf)
+    {:ok, _video} = Media.mark_as_encoding(video, %{encode_worker_id: "worker-client-1"})
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-#{video.id}",
+               job_type: :encode,
+               video_id: video.id
+             })
+
+    assert {:ok, []} = WorkerSessions.expire_stale(999_999)
+    assert %{state: :encoding, encode_worker_id: "worker-client-1"} = Media.get_video(video.id)
   end
 
   defp worker_session_attrs(overrides \\ []) do

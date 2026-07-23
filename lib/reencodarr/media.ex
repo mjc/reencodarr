@@ -338,7 +338,23 @@ defmodule Reencodarr.Media do
     )
   end
 
-  def mark_as_encoding(%Video{} = video), do: VideoStateMachine.mark_as_encoding(video)
+  def mark_as_encoding(%Video{} = video, attrs \\ %{}),
+    do: VideoStateMachine.mark_as_encoding(video, attrs)
+
+  def mark_as_worker_encoding(%Video{id: video_id}, worker_id)
+      when is_integer(video_id) and is_binary(worker_id) do
+    write(
+      fn ->
+        from(v in Video, where: v.id == ^video_id and v.state == :encoding)
+        |> Repo.update_all(set: [encode_worker_id: worker_id, updated_at: DateTime.utc_now()])
+      end,
+      label: :media_mark_as_worker_encoding
+    )
+    |> case do
+      {1, _} -> {:ok, Repo.get(Video, video_id)}
+      _ -> {:error, :not_encoding}
+    end
+  end
 
   def mark_as_reencoded(%Video{} = video), do: VideoStateMachine.mark_as_reencoded(video)
 
@@ -1425,9 +1441,10 @@ defmodule Reencodarr.Media do
       iex> Media.reset_orphaned_encoding()
       :ok
   """
-  @spec reset_orphaned_encoding() :: :ok
-  def reset_orphaned_encoding do
+  @spec reset_orphaned_encoding([String.t()]) :: :ok
+  def reset_orphaned_encoding(live_worker_ids \\ []) when is_list(live_worker_ids) do
     exclude_id = Encode.current_video_id()
+    live_worker_ids = Enum.filter(live_worker_ids, &is_binary/1)
 
     {with_vmaf, without_vmaf} =
       write(
@@ -1436,14 +1453,20 @@ defmodule Reencodarr.Media do
           {with_vmaf, _} =
             from(v in Video, where: v.state == :encoding, where: not is_nil(v.chosen_vmaf_id))
             |> maybe_exclude_video(exclude_id)
-            |> Repo.update_all(set: [state: :crf_searched, updated_at: DateTime.utc_now()])
+            |> maybe_exclude_encode_workers(live_worker_ids)
+            |> Repo.update_all(
+              set: [state: :crf_searched, encode_worker_id: nil, updated_at: DateTime.utc_now()]
+            )
 
           # Videos without a chosen VMAF must go back to analyzed — they were never
           # encodable in the first place and need CRF search to run first.
           {without_vmaf, _} =
             from(v in Video, where: v.state == :encoding, where: is_nil(v.chosen_vmaf_id))
             |> maybe_exclude_video(exclude_id)
-            |> Repo.update_all(set: [state: :analyzed, updated_at: DateTime.utc_now()])
+            |> maybe_exclude_encode_workers(live_worker_ids)
+            |> Repo.update_all(
+              set: [state: :analyzed, encode_worker_id: nil, updated_at: DateTime.utc_now()]
+            )
 
           {with_vmaf, without_vmaf}
         end,
@@ -1515,6 +1538,12 @@ defmodule Reencodarr.Media do
 
   defp maybe_exclude_video(query, nil), do: query
   defp maybe_exclude_video(query, video_id), do: from(v in query, where: v.id != ^video_id)
+
+  defp maybe_exclude_encode_workers(query, []), do: query
+
+  defp maybe_exclude_encode_workers(query, worker_ids),
+    do:
+      from(v in query, where: is_nil(v.encode_worker_id) or v.encode_worker_id not in ^worker_ids)
 
   @doc """
   Counts videos that would generate invalid audio encoding arguments (b:a=0k, ac=0).

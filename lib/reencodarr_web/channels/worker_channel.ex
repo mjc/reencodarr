@@ -335,7 +335,8 @@ defmodule ReencodarrWeb.WorkerChannel do
     video = vmaf.video
     job_id = "encode-#{video.id}"
 
-    with {:ok, video} <- Media.mark_as_encoding(video),
+    with {:ok, video} <-
+           Media.mark_as_encoding(video, %{encode_worker_id: socket.assigns.client_worker_id}),
          {:ok, _session} <-
            WorkerSessions.assign_job(socket.assigns.worker_id, %Job{
              job_id: job_id,
@@ -659,7 +660,8 @@ defmodule ReencodarrWeb.WorkerChannel do
     with ^job_id <- "encode-#{video_id}",
          %Media.Video{state: state} = video <- Media.get_video(video_id),
          true <- state in [:crf_searched, :encoding] || {:error, :unknown_worker_session},
-         {:ok, _video} <- Media.mark_as_encoding(video),
+         {:ok, _video} <-
+           mark_worker_encoding(video, socket.assigns.client_worker_id),
          {:ok, _session} <-
            WorkerSessions.assign_job(socket.assigns.worker_id, %Job{
              job_id: job_id,
@@ -675,6 +677,12 @@ defmodule ReencodarrWeb.WorkerChannel do
       _ -> {:error, :unknown_worker_session}
     end
   end
+
+  defp mark_worker_encoding(%Media.Video{state: :crf_searched} = video, worker_id),
+    do: Media.mark_as_encoding(video, %{encode_worker_id: worker_id})
+
+  defp mark_worker_encoding(%Media.Video{state: :encoding} = video, worker_id),
+    do: Media.mark_as_worker_encoding(video, worker_id)
 
   defp validate_encode_output(socket, completion, output_path) do
     with true <- not socket.assigns[:local_worker] or completion.output_path == output_path,

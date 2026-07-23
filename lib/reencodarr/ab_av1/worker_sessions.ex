@@ -271,6 +271,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     update_session_reply(server_worker_id, state, fn session ->
       case Map.fetch(session.jobs, progress.job_id) do
         {:ok, %Job{job_type: :encode} = job} ->
+          mark_encode_owner(session.client_worker_id, progress.video_id)
           updated = %Job{job | phase: :encoding, progress: progress}
 
           %{
@@ -280,6 +281,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           }
 
         _ ->
+          mark_encode_owner(session.client_worker_id, progress.video_id)
+
           job = %Job{
             job_id: progress.job_id,
             job_type: :encode,
@@ -376,6 +379,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def handle_call({:expire_stale, timeout_seconds}, _from, state) do
     {expired_sessions, _} = expire_stale_sessions(timeout_seconds)
+    :ok = Media.reset_orphaned_encoding(live_encode_worker_ids())
 
     if expired_sessions != [] do
       broadcast_sessions()
@@ -416,6 +420,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   @impl GenServer
   def handle_info(:expire_stale, state) do
     {expired_sessions, _} = expire_stale_sessions(timeout_seconds())
+    :ok = Media.reset_orphaned_encoding(live_encode_worker_ids())
 
     if expired_sessions != [] do
       broadcast_sessions()
@@ -423,6 +428,21 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
     schedule_expire_stale()
     {:noreply, state}
+  end
+
+  defp mark_encode_owner(client_worker_id, video_id) do
+    case Media.get_video(video_id) do
+      %Media.Video{state: :crf_searched} = video ->
+        _ = Media.mark_as_encoding(video, %{encode_worker_id: client_worker_id})
+        :ok
+
+      %Media.Video{state: :encoding} = video ->
+        _ = Media.mark_as_worker_encoding(video, client_worker_id)
+        :ok
+
+      _ ->
+        :ok
+    end
   end
 
   defp build_session(
@@ -761,6 +781,16 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end)
 
     {expired_sessions, :ok}
+  end
+
+  defp live_encode_worker_ids do
+    @by_server_table
+    |> :ets.tab2list()
+    |> Enum.map(fn {_server_worker_id, session} -> session end)
+    |> Enum.filter(fn session ->
+      Enum.any?(session.jobs, fn {_job_id, %Job{job_type: job_type}} -> job_type == :encode end)
+    end)
+    |> Enum.map(& &1.client_worker_id)
   end
 
   defp schedule_expire_stale do

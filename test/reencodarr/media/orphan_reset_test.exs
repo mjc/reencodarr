@@ -85,6 +85,46 @@ defmodule Reencodarr.Media.OrphanResetTest do
       assert Media.get_video(video.id).state == :crf_searched
     end
 
+    test "clears encode worker ownership when resetting orphaned encoding work" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/orphan_enc_owner.mkv",
+          state: :encoding,
+          encode_worker_id: "dead-worker",
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      assert :ok = Media.reset_orphaned_encoding([])
+
+      updated = Media.get_video(video.id)
+      assert updated.state == :crf_searched
+      assert is_nil(updated.encode_worker_id)
+    end
+
+    test "keeps encoding work owned by a live encode worker" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/live_enc_owner.mkv",
+          state: :encoding,
+          encode_worker_id: "live-worker",
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      assert :ok = Media.reset_orphaned_encoding(["live-worker"])
+
+      updated = Media.get_video(video.id)
+      assert updated.state == :encoding
+      assert updated.encode_worker_id == "live-worker"
+    end
+
     test "resets encoding video without chosen VMAF back to analyzed" do
       {:ok, video} =
         Fixtures.video_fixture(%{

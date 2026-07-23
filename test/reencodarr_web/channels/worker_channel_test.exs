@@ -145,7 +145,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    }
 
       assert video_id == video.id
-      assert Media.get_video(video.id).state == :encoding
+      assert %{state: :encoding, encode_worker_id: "worker-encode"} = Media.get_video(video.id)
 
       assert_receive {:encoding_started,
                       %{

@@ -93,6 +93,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
           |> change(attrs)
           |> put_change(:state, to_state)
           |> maybe_clear_crf_search_worker_id(to_state)
+          |> maybe_clear_encode_worker_id(to_state)
           |> validate_state_transition(from_state, to_state)
 
         {:ok, changeset}
@@ -103,6 +104,11 @@ defmodule Reencodarr.Media.VideoStateMachine do
 
   defp maybe_clear_crf_search_worker_id(changeset, _to_state),
     do: put_change(changeset, :crf_search_worker_id, nil)
+
+  defp maybe_clear_encode_worker_id(changeset, :encoding), do: changeset
+
+  defp maybe_clear_encode_worker_id(changeset, _to_state),
+    do: put_change(changeset, :encode_worker_id, nil)
 
   @doc """
   Transitions a video to a new state with automatic state-specific validations.
@@ -350,9 +356,9 @@ defmodule Reencodarr.Media.VideoStateMachine do
   def mark_as_crf_searching(%Video{} = video),
     do: mark_video_state(video, &transition_to_crf_searching/1)
 
-  @spec mark_as_encoding(Video.t()) :: {:ok, Video.t()} | {:error, any()}
-  def mark_as_encoding(%Video{} = video),
-    do: mark_video_state(video, &transition_to_encoding/1, broadcast: false)
+  @spec mark_as_encoding(Video.t(), map()) :: {:ok, Video.t()} | {:error, any()}
+  def mark_as_encoding(%Video{} = video, attrs \\ %{}),
+    do: mark_video_state(video, &transition_to_encoding(&1, attrs), broadcast: false)
 
   @spec mark_as_reencoded(Video.t()) :: {:ok, Video.t()} | {:error, any()}
   def mark_as_reencoded(%Video{} = video) do
