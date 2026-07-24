@@ -152,8 +152,17 @@ defmodule Reencodarr.Media.VideoStateMachine do
   @spec transition_to_encoding(Video.t(), map()) ::
           {:ok, Ecto.Changeset.t()} | {:error, String.t()}
   def transition_to_encoding(%Video{} = video, attrs \\ %{}) do
+    attrs = maybe_snapshot_original_size(video, attrs)
+
     transition(video, :encoding, attrs)
   end
+
+  defp maybe_snapshot_original_size(%Video{original_size: nil, size: size}, attrs)
+       when is_integer(size) and size > 0 do
+    Map.put_new(attrs, :original_size, size)
+  end
+
+  defp maybe_snapshot_original_size(_video, attrs), do: attrs
 
   @spec transition_to_encoded(Video.t(), map()) ::
           {:ok, Ecto.Changeset.t()} | {:error, String.t()}

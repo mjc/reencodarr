@@ -343,16 +343,30 @@ defmodule Reencodarr.Media do
 
   def mark_as_worker_encoding(%Video{id: video_id}, worker_id)
       when is_integer(video_id) and is_binary(worker_id) do
+    set_attrs =
+      [encode_worker_id: worker_id, updated_at: DateTime.utc_now()]
+      |> maybe_put_original_size(video_id)
+
     write(
       fn ->
         from(v in Video, where: v.id == ^video_id and v.state == :encoding)
-        |> Repo.update_all(set: [encode_worker_id: worker_id, updated_at: DateTime.utc_now()])
+        |> Repo.update_all(set: set_attrs)
       end,
       label: :media_mark_as_worker_encoding
     )
     |> case do
       {1, _} -> {:ok, Repo.get(Video, video_id)}
       _ -> {:error, :not_encoding}
+    end
+  end
+
+  defp maybe_put_original_size(set_attrs, video_id) do
+    case Repo.get(Video, video_id) do
+      %Video{original_size: nil, size: size} when is_integer(size) and size > 0 ->
+        Keyword.put(set_attrs, :original_size, size)
+
+      _ ->
+        set_attrs
     end
   end
 

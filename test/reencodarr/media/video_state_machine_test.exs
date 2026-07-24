@@ -882,6 +882,23 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
       {:ok, updated_video} = VideoStateMachine.mark_as_encoding(video)
       assert updated_video.state == :encoding
     end
+
+    test "snapshots original size before encoding can replace the file" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched, size: 1234})
+
+      {:ok, updated_video} = VideoStateMachine.mark_as_encoding(video)
+
+      assert updated_video.original_size == 1234
+    end
+
+    test "keeps existing original size" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{state: :crf_searched, size: 1234, original_size: 9999})
+
+      {:ok, updated_video} = VideoStateMachine.mark_as_encoding(video)
+
+      assert updated_video.original_size == 9999
+    end
   end
 
   describe "mark_as_encoded/1" do

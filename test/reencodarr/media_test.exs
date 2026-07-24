@@ -180,6 +180,15 @@ defmodule Reencodarr.MediaTest do
       assert changeset.data == video
     end
 
+    test "mark_as_worker_encoding snapshots missing original size" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :encoding, size: 1234})
+
+      assert {:ok, updated} = Media.mark_as_worker_encoding(video, "tina")
+
+      assert updated.encode_worker_id == "tina"
+      assert updated.original_size == 1234
+    end
+
     # Test factory pattern usage
     test "factory pattern creates videos with custom attributes" do
       {:ok, video} =

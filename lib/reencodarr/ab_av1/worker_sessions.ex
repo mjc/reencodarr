@@ -14,6 +14,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   @by_server_table :reencodarr_worker_sessions_by_server
   @by_client_table :reencodarr_worker_sessions_by_client
+  @orphan_reset_grace_seconds 600
 
   defmodule Job do
     @moduledoc false
@@ -181,7 +182,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     :ets.new(@by_server_table, [:named_table, :set, :private])
     :ets.new(@by_client_table, [:named_table, :set, :private])
     schedule_expire_stale()
-    {:ok, :ok}
+    {:ok, %{started_at: now()}}
   end
 
   @impl GenServer
@@ -379,7 +380,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def handle_call({:expire_stale, timeout_seconds}, _from, state) do
     {expired_sessions, _} = expire_stale_sessions(timeout_seconds)
-    :ok = Media.reset_orphaned_encoding(live_encode_worker_ids())
+    maybe_reset_orphaned_encoding(state.started_at)
 
     if expired_sessions != [] do
       broadcast_sessions()
@@ -420,7 +421,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   @impl GenServer
   def handle_info(:expire_stale, state) do
     {expired_sessions, _} = expire_stale_sessions(timeout_seconds())
-    :ok = Media.reset_orphaned_encoding(live_encode_worker_ids())
+    maybe_reset_orphaned_encoding(state.started_at)
 
     if expired_sessions != [] do
       broadcast_sessions()
@@ -788,9 +789,18 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     |> :ets.tab2list()
     |> Enum.map(fn {_server_worker_id, session} -> session end)
     |> Enum.filter(fn session ->
-      Enum.any?(session.jobs, fn {_job_id, %Job{job_type: job_type}} -> job_type == :encode end)
+      Map.get(session.capabilities, "encode") == true or
+        Enum.any?(session.jobs, fn {_job_id, %Job{job_type: job_type}} -> job_type == :encode end)
     end)
     |> Enum.map(& &1.client_worker_id)
+  end
+
+  defp maybe_reset_orphaned_encoding(started_at) do
+    if DateTime.diff(now(), started_at, :second) >= @orphan_reset_grace_seconds do
+      :ok = Media.reset_orphaned_encoding(live_encode_worker_ids())
+    end
+
+    :ok
   end
 
   defp schedule_expire_stale do

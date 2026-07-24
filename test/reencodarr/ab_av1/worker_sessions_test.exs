@@ -540,8 +540,20 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     video = Fixtures.choose_vmaf(video, vmaf)
     {:ok, video} = Media.mark_as_encoding(video, %{encode_worker_id: "dead-worker"})
 
+    age_worker_sessions_past_orphan_grace()
+
     assert {:ok, []} = WorkerSessions.expire_stale(0)
     assert %{state: :crf_searched, encode_worker_id: nil} = Media.get_video(video.id)
+  end
+
+  test "stale sweep gives persisted encoding work a reconnect grace period" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+    vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+    video = Fixtures.choose_vmaf(video, vmaf)
+    {:ok, _video} = Media.mark_as_encoding(video, %{encode_worker_id: "dead-worker"})
+
+    assert {:ok, []} = WorkerSessions.expire_stale(0)
+    assert %{state: :encoding, encode_worker_id: "dead-worker"} = Media.get_video(video.id)
   end
 
   test "stale sweep keeps persisted encoding work owned by a live encode job" do
@@ -562,6 +574,19 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert %{state: :encoding, encode_worker_id: "worker-client-1"} = Media.get_video(video.id)
   end
 
+  test "stale sweep keeps persisted encoding work owned by a connected encode worker" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+    vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+    video = Fixtures.choose_vmaf(video, vmaf)
+    {:ok, _video} = Media.mark_as_encoding(video, %{encode_worker_id: "worker-client-1"})
+
+    assert {:ok, _session} =
+             WorkerSessions.register(worker_session_attrs(capabilities: %{"encode" => true}))
+
+    assert {:ok, []} = WorkerSessions.expire_stale(999_999)
+    assert %{state: :encoding, encode_worker_id: "worker-client-1"} = Media.get_video(video.id)
+  end
+
   defp worker_session_attrs(overrides \\ []) do
     %{
       server_worker_id: "worker-server-1",
@@ -571,5 +596,11 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
       capabilities: %{"crf_search" => true}
     }
     |> Map.merge(Map.new(overrides))
+  end
+
+  defp age_worker_sessions_past_orphan_grace do
+    :sys.replace_state(WorkerSessions, fn state ->
+      %{state | started_at: DateTime.add(DateTime.utc_now(), -601, :second)}
+    end)
   end
 end
