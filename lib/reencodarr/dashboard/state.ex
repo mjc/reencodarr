@@ -166,7 +166,7 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_cast(:refresh_queues_now, state) do
-    {:noreply, refresh_queue_previews(state)}
+    {:noreply, refresh_queues(state)}
   end
 
   # CRF Search Events
@@ -342,7 +342,7 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_info(:refresh_queues, state) do
-    {:noreply, refresh_queue_previews(state)}
+    {:noreply, refresh_queues(state)}
   rescue
     error ->
       Logger.warning("Dashboard.State refresh_queues failed: #{inspect(error)}")
@@ -432,10 +432,19 @@ defmodule Reencodarr.Dashboard.State do
     }
   end
 
-  defp refresh_queue_previews(state) do
+  defp refresh_queues(state) do
     if queue_refresh_enabled?() do
+      stats = load_initial_dashboard_stats(state.stats)
       items = fetch_queue_items(state.queue_items)
-      state = %{state | queue_items: items, queue_previews_loaded: true}
+
+      state = %{
+        state
+        | stats: stats,
+          queue_counts: refresh_queue_counts(state.queue_counts, stats),
+          queue_items: items,
+          queue_previews_loaded: true
+      }
+
       broadcast_state(state)
       Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
       state

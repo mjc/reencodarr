@@ -112,6 +112,27 @@ defmodule Reencodarr.Dashboard.StateTest do
         assert Keyword.fetch!(opts, :pool_timeout) == 4_321
       end
     end
+
+    test "reconciles queue counts after a bulk update bypasses mutation events" do
+      Application.put_env(:reencodarr, :dashboard_queue_refresh_enabled, true)
+
+      video = insert_video()
+      vmaf = insert_vmaf(video)
+      State.get_state()
+
+      video
+      |> Ecto.Changeset.change(state: :crf_searched, chosen_vmaf_id: vmaf.id)
+      |> Repo.update!()
+
+      assert State.get_state().queue_counts.encoder == 0
+
+      send(Process.whereis(State), :refresh_queues)
+
+      state = State.get_state()
+      assert state.stats.encoding_queue_count == 1
+      assert state.queue_counts.crf_searcher == 0
+      assert state.queue_counts.encoder == 1
+    end
   end
 
   describe "video change events" do
