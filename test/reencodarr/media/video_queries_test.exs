@@ -472,6 +472,11 @@ defmodule Reencodarr.Media.VideoQueriesTest do
       assert preview.id == video.id
       assert preview.path == video.path
       assert Map.keys(preview) |> Enum.sort() == [:id, :path]
+
+      {:ok, _} = Reencodarr.Media.update_video(video, %{state: :encoded})
+
+      previews = VideoQueries.videos_ready_for_encoding_preview(10)
+      refute Enum.any?(previews, &(&1.id == video.id))
     end
 
     test "excludes crf_searched videos without a chosen VMAF" do
