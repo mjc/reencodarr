@@ -1071,18 +1071,18 @@ defmodule Reencodarr.RulesTest do
   end
 
   describe "preset/1" do
-    test "returns preset 4 for 1080p content" do
+    test "returns preset 6 for 1080p content" do
       video = Fixtures.create_test_video(%{height: 1080})
       result = Rules.preset(video)
 
-      assert result == [{"--preset", "4"}]
+      assert result == [{"--preset", "6"}]
     end
 
-    test "returns preset 4 for 4K content" do
+    test "returns preset 6 for 4K content" do
       video = Fixtures.create_test_video(%{height: 2160})
       result = Rules.preset(video)
 
-      assert result == [{"--preset", "4"}]
+      assert result == [{"--preset", "6"}]
     end
 
     test "returns preset 6 for 720p content" do

@@ -325,9 +325,6 @@ defmodule Reencodarr.Rules do
   def encoder(_), do: [{"--encoder", "svt-av1"}]
 
   @spec preset(Media.Video.t()) :: list()
-  def preset(%Media.Video{height: height}) when is_integer(height) and height >= 1080,
-    do: [{"--preset", "4"}]
-
   def preset(_), do: [{"--preset", "6"}]
 
   @doc """
