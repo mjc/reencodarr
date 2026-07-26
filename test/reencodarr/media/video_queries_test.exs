@@ -412,6 +412,9 @@ defmodule Reencodarr.Media.VideoQueriesTest do
       assert claimed.state == :encoding
       assert claimed.encode_worker_id == "worker-a"
       assert claimed.worker_attempt_id == "attempt-a"
+      assert claimed.worker_control_desired_state == :running
+      assert claimed.worker_control_acknowledged_state == :running
+      assert is_nil(claimed.worker_control_command_id)
     end
 
     test "does not claim a video that another worker already claimed" do

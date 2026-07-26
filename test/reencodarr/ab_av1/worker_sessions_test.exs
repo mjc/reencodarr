@@ -127,7 +127,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert %Job{job_type: :encode} = session.jobs["encode-456"]
   end
 
-  test "stopping CRF work clears its active state and preserves encode jobs" do
+  test "a stopped CRF acknowledgement clears only its session job" do
     {:ok, searching_video} = Fixtures.video_fixture(%{state: :crf_searching})
     {:ok, encoding_video} = Fixtures.video_fixture(%{state: :encoding})
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
@@ -153,11 +153,11 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert is_nil(session.crf_search_progress)
     refute Enum.any?(session.jobs, fn {_job_id, job} -> job.job_type == :crf_search end)
     assert %Job{job_type: :encode} = session.jobs["encode-#{encoding_video.id}"]
-    assert Media.get_video(searching_video.id).state == :failed
+    assert Media.get_video(searching_video.id).state == :crf_searching
     assert Media.get_video(encoding_video.id).state == :encoding
   end
 
-  test "stopping an individual worker job fails and clears only that job" do
+  test "a stopped encode acknowledgement clears only its session job" do
     {:ok, encoding_video} = Fixtures.video_fixture(%{state: :encoding})
     {:ok, searching_video} = Fixtures.video_fixture(%{state: :crf_searching})
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
@@ -185,7 +185,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
 
     refute Map.has_key?(session.jobs, "encode-#{encoding_video.id}")
     assert Map.has_key?(session.jobs, "crf-#{searching_video.id}")
-    assert Media.get_video(encoding_video.id).state == :failed
+    assert Media.get_video(encoding_video.id).state == :encoding
     assert Media.get_video(searching_video.id).state == :crf_searching
   end
 
@@ -287,6 +287,32 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
              crf_search_worker_id: "worker-client-2",
              worker_attempt_id: "crf-new"
            } = Media.get_video(video.id)
+  end
+
+  test "reconnect does not retain a superseded session job" do
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-1",
+        worker_attempt_id: "crf-new"
+      })
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_video(
+               "worker-server-1",
+               video.id,
+               :crf_searching,
+               "crf-old"
+             )
+
+    assert {:ok, reconnected} =
+             WorkerSessions.register(worker_session_attrs(server_worker_id: "worker-server-2"))
+
+    assert reconnected.jobs == %{}
+    assert is_nil(reconnected.active_video_id)
+    assert reconnected.phase == :idle
   end
 
   test "timer-driven stale expiry removes old sessions" do
@@ -497,7 +523,14 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
   end
 
   test "replaces reconnecting client sessions without dropping active state" do
-    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+    job_id = "crf-reconnect"
+
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-1",
+        worker_attempt_id: job_id
+      })
 
     assert {:ok, _session} =
              WorkerSessions.register(
@@ -507,10 +540,17 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                )
              )
 
-    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", video.id)
+    assert {:ok, _session} =
+             WorkerSessions.assign_video(
+               "worker-server-1",
+               video.id,
+               :crf_searching,
+               job_id
+             )
 
     assert {:ok, session} =
              WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
+               job_id: job_id,
                video_id: video.id,
                percent: 25.0,
                fps: 24.0,
@@ -633,19 +673,27 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
   end
 
   test "retains independent encode job state when a worker reconnects" do
-    {:ok, video} = Fixtures.video_fixture(%{state: :encoding})
+    job_id = "encode-reconnect"
+
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :encoding,
+        encode_worker_id: "worker-client-1",
+        worker_attempt_id: job_id
+      })
+
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
 
     assert {:ok, _session} =
              WorkerSessions.assign_job("worker-server-1", %Job{
-               job_id: "encode-#{video.id}",
+               job_id: job_id,
                job_type: :encode,
                video_id: video.id,
                phase: :receiving_input
              })
 
     progress = %EncodeProgress{
-      job_id: "encode-#{video.id}",
+      job_id: job_id,
       video_id: video.id,
       percent: 42.0,
       fps: 12.5,
@@ -666,10 +714,10 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
              video_id: video_id,
              phase: :encoding,
              progress: %EncodeProgress{percent: 42.0}
-           } = reconnected.jobs["encode-#{video.id}"]
+           } = reconnected.jobs[job_id]
 
     assert video_id == video.id
-    assert {:ok, cleared} = WorkerSessions.clear_job("worker-server-2", "encode-#{video.id}")
+    assert {:ok, cleared} = WorkerSessions.clear_job("worker-server-2", job_id)
     assert cleared.jobs == %{}
   end
 

@@ -29,7 +29,9 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       :transfer_progress,
       :progress,
       phase: :assigned,
-      control_state: :running
+      control_state: :running,
+      desired_control_state: :running,
+      control_command_id: nil
     ]
 
     @type job_type :: :crf_search | :encode
@@ -41,6 +43,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
             video_id: pos_integer(),
             phase: phase(),
             control_state: control_state(),
+            desired_control_state: control_state(),
+            control_command_id: String.t() | nil,
             transfer_progress: map() | nil,
             progress: EncodeProgress.t() | CrfSearchProgress.t() | nil
           }
@@ -124,6 +128,17 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       when is_binary(server_worker_id) and is_binary(job_id) and
              control_state in [:running, :paused, :stopped] do
     GenServer.call(__MODULE__, {:set_job_control_state, server_worker_id, job_id, control_state})
+  end
+
+  @spec request_job_control(String.t(), String.t(), Job.control_state(), String.t()) ::
+          {:ok, session()} | {:error, atom()}
+  def request_job_control(server_worker_id, job_id, desired_state, command_id)
+      when is_binary(server_worker_id) and is_binary(job_id) and
+             desired_state in [:running, :paused, :stopped] and is_binary(command_id) do
+    GenServer.call(
+      __MODULE__,
+      {:request_job_control, server_worker_id, job_id, desired_state, command_id}
+    )
   end
 
   def set_transfer_progress(server_worker_id, progress) when is_map(progress) do
@@ -314,9 +329,41 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
         {:ok, %Job{} = job} ->
           %{
             session
-            | jobs: Map.put(session.jobs, job_id, %Job{job | control_state: control_state}),
+            | jobs:
+                Map.put(
+                  session.jobs,
+                  job_id,
+                  %Job{
+                    job
+                    | control_state: control_state,
+                      desired_control_state: control_state,
+                      control_command_id: nil
+                  }
+                ),
               last_seen_at: now()
           }
+
+        :error ->
+          {:error, :unknown_worker_session}
+      end
+    end)
+  end
+
+  def handle_call(
+        {:request_job_control, server_worker_id, job_id, desired_state, command_id},
+        _from,
+        state
+      ) do
+    update_session_reply(server_worker_id, state, fn session ->
+      case Map.fetch(session.jobs, job_id) do
+        {:ok, %Job{} = job} ->
+          requested_job = %Job{
+            job
+            | desired_control_state: desired_state,
+              control_command_id: command_id
+          }
+
+          %{session | jobs: Map.put(session.jobs, job_id, requested_job)}
 
         :error ->
           {:error, :unknown_worker_session}
@@ -634,16 +681,12 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
        ) do
     case lookup_session(existing_server_worker_id) do
       {:ok, existing_session} ->
-        active_video_id = resumable_active_video_id(existing_session.active_video_id)
+        jobs = resumable_jobs(existing_session.jobs, client_worker_id)
+        crf_job = Enum.find(Map.values(jobs), &match?(%Job{job_type: :crf_search}, &1))
+        active_video_id = crf_job && crf_job.video_id
 
         phase =
-          if active_video_id do
-            existing_session
-            |> Map.get(:phase, :crf_searching)
-            |> resumable_phase()
-          else
-            :idle
-          end
+          if crf_job, do: resumable_phase(crf_job.phase), else: :idle
 
         session =
           build_session(
@@ -670,8 +713,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
             )
           )
           |> Map.put(:resource_usage, existing_session.resource_usage)
-          |> Map.put(:jobs, resumable_jobs(existing_session.jobs))
-          |> maybe_put_crf_job(active_video_id, phase)
+          |> Map.put(:jobs, jobs)
 
         :ok = drop_session(existing_server_worker_id)
         :ok = put_session(session)
@@ -766,18 +808,14 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   @spec stop_job(session(), String.t(), Job.t()) :: session() | {:error, term()}
-  defp stop_job(session, _job_id, %Job{job_type: :crf_search} = job) do
-    with {:ok, _failure} <- fail_job(job),
-         {:ok, session} <- clear_crf_work(session) do
+  defp stop_job(session, _job_id, %Job{job_type: :crf_search}) do
+    with {:ok, session} <- clear_crf_work(session) do
       %{session | last_seen_at: now()}
     end
   end
 
-  defp stop_job(session, job_id, %Job{} = job) do
-    with {:ok, _failure} <- fail_job(job) do
-      %{session | jobs: Map.delete(session.jobs, job_id), last_seen_at: now()}
-    end
-  end
+  defp stop_job(session, job_id, %Job{}),
+    do: %{session | jobs: Map.delete(session.jobs, job_id), last_seen_at: now()}
 
   @spec fail_job(Job.t()) :: {:ok, VideoFailure.t() | nil} | {:error, term()}
   defp fail_job(%Job{} = job) do
@@ -793,21 +831,27 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end
   end
 
-  defp resumable_active_video_id(nil), do: nil
-
-  defp resumable_active_video_id(video_id) do
-    case Media.get_video(video_id) do
-      %Media.Video{state: :crf_searching} -> video_id
-      _ -> nil
-    end
-  end
-
-  defp resumable_jobs(jobs) do
-    Map.filter(jobs, fn {_job_id, job} ->
+  defp resumable_jobs(jobs, client_worker_id) do
+    Map.filter(jobs, fn {job_id, job} ->
       case {job.job_type, Media.get_video(job.video_id)} do
-        {:crf_search, %Media.Video{state: :crf_searching}} -> true
-        {:encode, %Media.Video{state: :encoding}} -> true
-        _ -> false
+        {:crf_search,
+         %Media.Video{
+           state: :crf_searching,
+           crf_search_worker_id: ^client_worker_id,
+           worker_attempt_id: ^job_id
+         }} ->
+          true
+
+        {:encode,
+         %Media.Video{
+           state: :encoding,
+           encode_worker_id: ^client_worker_id,
+           worker_attempt_id: ^job_id
+         }} ->
+          true
+
+        _ ->
+          false
       end
     end)
   end

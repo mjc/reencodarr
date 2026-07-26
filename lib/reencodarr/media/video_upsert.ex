@@ -259,7 +259,13 @@ defmodule Reencodarr.Media.VideoUpsert do
       :failed,
       :chosen_vmaf_id,
       :original_size,
-      :space_saved_bytes
+      :space_saved_bytes,
+      :crf_search_worker_id,
+      :encode_worker_id,
+      :worker_attempt_id,
+      :worker_control_desired_state,
+      :worker_control_acknowledged_state,
+      :worker_control_command_id
     ]
 
     base =

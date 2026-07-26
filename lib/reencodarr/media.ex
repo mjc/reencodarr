@@ -369,6 +369,172 @@ defmodule Reencodarr.Media do
     end
   end
 
+  @worker_control_actions %{pause: :paused, resume: :running, stop: :stopped}
+
+  @spec request_worker_control(pos_integer(), String.t(), :pause | :resume | :stop) ::
+          {:ok,
+           %{
+             action: :pause | :resume | :stop,
+             command_id: String.t(),
+             job_id: String.t(),
+             video_id: pos_integer()
+           }}
+          | {:error, :stale_worker_attempt}
+  def request_worker_control(video_id, attempt_id, action)
+      when is_integer(video_id) and is_binary(attempt_id) and
+             action in [:pause, :resume, :stop] do
+    command_id = Ecto.UUID.generate()
+    desired_state = Map.fetch!(@worker_control_actions, action)
+
+    write_transaction(
+      fn ->
+        {count, _} =
+          from(v in Video,
+            where:
+              v.id == ^video_id and v.worker_attempt_id == ^attempt_id and
+                v.state in [:crf_searching, :encoding]
+          )
+          |> Repo.update_all(
+            set: [
+              worker_control_desired_state: desired_state,
+              worker_control_command_id: command_id,
+              updated_at: DateTime.utc_now()
+            ]
+          )
+
+        if count == 1 do
+          %{
+            action: action,
+            command_id: command_id,
+            job_id: attempt_id,
+            video_id: video_id
+          }
+        else
+          Repo.rollback(:stale_worker_attempt)
+        end
+      end,
+      label: :media_request_worker_control
+    )
+  end
+
+  @spec acknowledge_worker_control(
+          pos_integer(),
+          String.t(),
+          String.t(),
+          :running | :paused | :stopped,
+          :crf_search | :encode
+        ) :: {:ok, :applied | :duplicate} | {:error, :stale_worker_control | term()}
+  def acknowledge_worker_control(video_id, attempt_id, command_id, acknowledged_state, job_type)
+      when is_integer(video_id) and is_binary(attempt_id) and is_binary(command_id) and
+             acknowledged_state in [:running, :paused, :stopped] and
+             job_type in [:crf_search, :encode] do
+    write_transaction(
+      fn ->
+        acknowledge_worker_control_in_transaction(
+          video_id,
+          attempt_id,
+          command_id,
+          acknowledged_state,
+          job_type
+        )
+      end,
+      label: :media_acknowledge_worker_control
+    )
+  end
+
+  defp acknowledge_worker_control_in_transaction(
+         video_id,
+         attempt_id,
+         command_id,
+         acknowledged_state,
+         job_type
+       ) do
+    expected_state = worker_job_video_state(job_type)
+
+    query =
+      from(v in Video,
+        where:
+          v.id == ^video_id and v.state == ^expected_state and
+            v.worker_attempt_id == ^attempt_id and
+            v.worker_control_command_id == ^command_id and
+            v.worker_control_desired_state == ^acknowledged_state
+      )
+
+    if acknowledged_state == :stopped do
+      stop_worker_attempt(query, video_id, attempt_id, command_id, job_type)
+    else
+      acknowledge_running_worker_attempt(query, acknowledged_state)
+    end
+  end
+
+  defp acknowledge_running_worker_attempt(query, acknowledged_state) do
+    case Repo.update_all(query,
+           set: [
+             worker_control_acknowledged_state: acknowledged_state,
+             updated_at: DateTime.utc_now()
+           ]
+         ) do
+      {1, _} -> :applied
+      _ -> Repo.rollback(:stale_worker_control)
+    end
+  end
+
+  defp stop_worker_attempt(query, video_id, attempt_id, command_id, job_type) do
+    case Repo.update_all(query,
+           set: [
+             state: :failed,
+             worker_control_acknowledged_state: :stopped,
+             updated_at: DateTime.utc_now()
+           ]
+         ) do
+      {1, _} ->
+        insert_operator_failure(video_id, attempt_id, command_id, job_type)
+        :applied
+
+      _ ->
+        if stopped_worker_attempt?(video_id, attempt_id, command_id),
+          do: :duplicate,
+          else: Repo.rollback(:stale_worker_control)
+    end
+  end
+
+  defp stopped_worker_attempt?(video_id, attempt_id, command_id) do
+    Repo.exists?(
+      from(v in Video,
+        where:
+          v.id == ^video_id and v.state == :failed and
+            v.worker_attempt_id == ^attempt_id and
+            v.worker_control_command_id == ^command_id and
+            v.worker_control_desired_state == :stopped and
+            v.worker_control_acknowledged_state == :stopped
+      )
+    )
+  end
+
+  defp insert_operator_failure(video_id, attempt_id, command_id, job_type) do
+    attrs = %{
+      video_id: video_id,
+      failure_stage: worker_failure_stage(job_type),
+      failure_category: :process_failure,
+      failure_code: "OPERATOR_FAILED",
+      failure_message: "Manually failed by operator",
+      system_context: %{
+        operator_action: "fail",
+        worker_attempt_id: attempt_id,
+        worker_control_command_id: command_id
+      }
+    }
+
+    %VideoFailure{}
+    |> VideoFailure.changeset(attrs)
+    |> Repo.insert!()
+  end
+
+  defp worker_job_video_state(:crf_search), do: :crf_searching
+  defp worker_job_video_state(:encode), do: :encoding
+  defp worker_failure_stage(:crf_search), do: :crf_search
+  defp worker_failure_stage(:encode), do: :encoding
+
   @spec requeue_worker_attempt(pos_integer(), String.t(), :crf_search | :encode) :: :ok
   def requeue_worker_attempt(video_id, attempt_id, :crf_search)
       when is_integer(video_id) and is_binary(attempt_id) do
@@ -384,6 +550,9 @@ defmodule Reencodarr.Media do
             state: :analyzed,
             crf_search_worker_id: nil,
             worker_attempt_id: nil,
+            worker_control_desired_state: nil,
+            worker_control_acknowledged_state: nil,
+            worker_control_command_id: nil,
             updated_at: DateTime.utc_now()
           ]
         )
@@ -410,6 +579,9 @@ defmodule Reencodarr.Media do
             state: :crf_searched,
             encode_worker_id: nil,
             worker_attempt_id: nil,
+            worker_control_desired_state: nil,
+            worker_control_acknowledged_state: nil,
+            worker_control_command_id: nil,
             updated_at: now
           ]
         )
@@ -424,6 +596,9 @@ defmodule Reencodarr.Media do
             state: :analyzed,
             encode_worker_id: nil,
             worker_attempt_id: nil,
+            worker_control_desired_state: nil,
+            worker_control_acknowledged_state: nil,
+            worker_control_command_id: nil,
             updated_at: now
           ]
         )
@@ -1564,6 +1739,9 @@ defmodule Reencodarr.Media do
                 state: :crf_searched,
                 encode_worker_id: nil,
                 worker_attempt_id: nil,
+                worker_control_desired_state: nil,
+                worker_control_acknowledged_state: nil,
+                worker_control_command_id: nil,
                 updated_at: DateTime.utc_now()
               ]
             )
@@ -1579,6 +1757,9 @@ defmodule Reencodarr.Media do
                 state: :analyzed,
                 encode_worker_id: nil,
                 worker_attempt_id: nil,
+                worker_control_desired_state: nil,
+                worker_control_acknowledged_state: nil,
+                worker_control_command_id: nil,
                 updated_at: DateTime.utc_now()
               ]
             )
@@ -1659,6 +1840,9 @@ defmodule Reencodarr.Media do
             {:state, target_state},
             {worker_field, nil},
             {:worker_attempt_id, nil},
+            {:worker_control_desired_state, nil},
+            {:worker_control_acknowledged_state, nil},
+            {:worker_control_command_id, nil},
             {:updated_at, DateTime.utc_now()}
           ]
 

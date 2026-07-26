@@ -28,6 +28,20 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
           }
   end
 
+  defmodule ControlState do
+    @moduledoc false
+
+    @enforce_keys [:state]
+    defstruct [:state, :active_video_id, :job_id, :command_id]
+
+    @type t :: %__MODULE__{
+            state: :running | :paused | :stopped,
+            active_video_id: pos_integer() | nil,
+            job_id: String.t() | nil,
+            command_id: String.t() | nil
+          }
+  end
+
   defmodule TransferProgress do
     @moduledoc false
 
@@ -244,23 +258,33 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
   def parse_announcement(_payload), do: {:error, :invalid_announcement}
 
-  @spec parse_control_state(map()) ::
-          {:ok, :running | :paused | :stopped, pos_integer() | nil, String.t() | nil}
-          | {:error, :invalid_control_state}
+  @spec parse_control_state(map()) :: {:ok, ControlState.t()} | {:error, :invalid_control_state}
   def parse_control_state(%{"state" => state} = payload)
       when state in ["running", "paused", "stopped"] do
     active_video_id = Map.get(payload, "active_video_id")
     job_id = Map.get(payload, "job_id")
+    command_id = Map.get(payload, "command_id")
 
     if (is_nil(active_video_id) or (is_integer(active_video_id) and active_video_id > 0)) and
-         (is_nil(job_id) or is_binary(job_id)) do
-      {:ok, String.to_existing_atom(state), active_video_id, job_id}
+         valid_control_identity?(job_id, command_id) do
+      {:ok,
+       %ControlState{
+         state: String.to_existing_atom(state),
+         active_video_id: active_video_id,
+         job_id: job_id,
+         command_id: command_id
+       }}
     else
       {:error, :invalid_control_state}
     end
   end
 
   def parse_control_state(_payload), do: {:error, :invalid_control_state}
+
+  defp valid_control_identity?(nil, nil), do: true
+
+  defp valid_control_identity?(job_id, command_id),
+    do: is_binary(job_id) and job_id != "" and is_binary(command_id) and command_id != ""
 
   @spec parse_transfer_progress(map()) :: {:ok, TransferProgress.t()} | {:error, atom()}
   def parse_transfer_progress(payload) when is_map(payload) do
@@ -767,6 +791,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   @spec error(
           :duplicate_worker_id
           | :invalid_announcement
+          | :invalid_control_state
           | :invalid_session_attrs
           | :invalid_transfer_progress
           | :invalid_crf_search_progress
@@ -784,6 +809,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   def error(:duplicate_worker_id), do: %{reason: "duplicate_worker_id"}
 
   def error(:invalid_announcement), do: %{reason: "invalid_announcement"}
+  def error(:invalid_control_state), do: %{reason: "invalid_control_state"}
   def error(:invalid_session_attrs), do: %{reason: "invalid_session_attrs"}
   def error(:invalid_transfer_progress), do: %{reason: "invalid_transfer_progress"}
   def error(:invalid_crf_search_progress), do: %{reason: "invalid_crf_search_progress"}

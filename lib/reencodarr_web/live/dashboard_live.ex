@@ -1213,6 +1213,7 @@ defmodule ReencodarrWeb.DashboardLive do
     paused: "bg-yellow-100 text-yellow-800",
     processing: "bg-blue-100 text-blue-800",
     pausing: "bg-orange-100 text-orange-800",
+    pending: "bg-gray-100 text-gray-600 dashboard-soft-pulse",
     idle: "bg-cyan-100 text-cyan-800",
     checking: "bg-gray-100 text-gray-600 dashboard-soft-pulse",
     stopped: "bg-red-100 text-red-800",
@@ -1224,6 +1225,7 @@ defmodule ReencodarrWeb.DashboardLive do
     paused: "Paused",
     processing: "Processing",
     pausing: "Pausing",
+    pending: "Awaiting ACK",
     idle: "Idle",
     checking: "Checking...",
     stopped: "Stopped",
@@ -1452,7 +1454,18 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @spec worker_encode_status(WorkerSessions.session(), Job.t() | nil) ::
-          :paused | :idle | :processing
+          :paused | :pending | :idle | :processing
+  defp worker_encode_status(
+         _worker,
+         %Job{
+           control_state: acknowledged,
+           desired_control_state: desired,
+           control_command_id: command_id
+         }
+       )
+       when is_binary(command_id) and desired != acknowledged,
+       do: :pending
+
   defp worker_encode_status(_worker, %Job{control_state: :paused}), do: :paused
   defp worker_encode_status(%{control_state: :paused}, nil), do: :paused
   defp worker_encode_status(_worker, nil), do: :idle

@@ -11,6 +11,7 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   alias Reencodarr.AbAv1.WorkerProtocol.{
     Announcement,
+    ControlState,
     EncodeCompletion,
     EncodeProgress,
     FailureReport,
@@ -63,6 +64,7 @@ defmodule ReencodarrWeb.WorkerChannel do
         |> assign(:protocol_version, protocol_version)
         |> assign(:capabilities, capabilities)
         |> attach_announced_work(client_worker_id, session)
+        |> replay_pending_job_controls(session)
 
       {:reply, {:ok, WorkerProtocol.accepted(protocol_version)}, socket}
     else
@@ -82,12 +84,24 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   def handle_in("control_state", payload, %{assigns: %{worker_id: worker_id}} = socket) do
-    with {:ok, control_state, active_video_id, job_id} <-
-           WorkerProtocol.parse_control_state(payload),
+    with {:ok,
+          %ControlState{
+            state: control_state,
+            active_video_id: active_video_id,
+            job_id: job_id,
+            command_id: command_id
+          }} <- WorkerProtocol.parse_control_state(payload),
          {:ok, _session} <-
-           set_worker_control_state(worker_id, job_id, control_state, active_video_id) do
+           set_worker_control_state(
+             worker_id,
+             job_id,
+             command_id,
+             control_state,
+             active_video_id
+           ) do
       socket =
-        if control_state == :stopped and is_nil(job_id) do
+        if control_state == :stopped and
+             (is_nil(job_id) or socket.assigns[:current_video_id] == active_video_id) do
           assign(socket, :current_video_id, nil)
         else
           assign(socket, :current_video_id, active_video_id || socket.assigns[:current_video_id])
@@ -128,15 +142,23 @@ defmodule ReencodarrWeb.WorkerChannel do
     {:reply, {:error, WorkerProtocol.error(:unsupported_event)}, socket}
   end
 
-  defp set_worker_control_state(worker_id, nil, control_state, active_video_id),
+  defp set_worker_control_state(worker_id, nil, nil, control_state, active_video_id),
     do: WorkerSessions.set_control_state(worker_id, control_state, active_video_id)
 
-  defp set_worker_control_state(worker_id, job_id, control_state, video_id)
-       when is_binary(job_id) and is_integer(video_id) do
+  defp set_worker_control_state(worker_id, job_id, command_id, control_state, video_id)
+       when is_binary(job_id) and is_binary(command_id) and is_integer(video_id) do
     with %{client_worker_id: client_worker_id} = session <- WorkerSessions.get(worker_id),
          %Media.Video{} = video <- Media.get_video(video_id),
          {:ok, job_type, phase} <-
-           control_job(video, job_id, client_worker_id) do
+           control_job(video, job_id, client_worker_id),
+         {:ok, _result} <-
+           Media.acknowledge_worker_control(
+             video_id,
+             job_id,
+             command_id,
+             control_state,
+             job_type
+           ) do
       set_or_restore_job_control_state(
         session,
         job_id,
@@ -150,19 +172,31 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
-  defp set_worker_control_state(worker_id, job_id, control_state, nil)
-       when is_binary(job_id) do
+  defp set_worker_control_state(worker_id, job_id, command_id, control_state, nil)
+       when is_binary(job_id) and is_binary(command_id) do
     case WorkerSessions.get(worker_id) do
       %{jobs: %{^job_id => %Job{video_id: video_id}}} ->
-        set_worker_control_state(worker_id, job_id, control_state, video_id)
+        set_worker_control_state(
+          worker_id,
+          job_id,
+          command_id,
+          control_state,
+          video_id
+        )
 
       _ ->
         {:error, :unknown_worker_session}
     end
   end
 
-  defp set_worker_control_state(_worker_id, _job_id, _control_state, _active_video_id),
-    do: {:error, :unknown_worker_session}
+  defp set_worker_control_state(
+         _worker_id,
+         _job_id,
+         _command_id,
+         _control_state,
+         _active_video_id
+       ),
+       do: {:error, :unknown_worker_session}
 
   defp set_or_restore_job_control_state(
          %{server_worker_id: worker_id, jobs: jobs},
@@ -175,19 +209,26 @@ defmodule ReencodarrWeb.WorkerChannel do
     if Map.has_key?(jobs, job_id) do
       WorkerSessions.set_job_control_state(worker_id, job_id, control_state)
     else
-      job = %Job{
-        job_id: job_id,
-        job_type: job_type,
-        video_id: video_id,
-        phase: phase,
-        control_state: control_state
-      }
+      case restore_control_job(worker_id, job_id, job_type, video_id, phase) do
+        {:ok, _session} ->
+          WorkerSessions.set_job_control_state(worker_id, job_id, control_state)
 
-      case WorkerSessions.assign_job(worker_id, job) do
-        {:ok, _session} -> {:ok, WorkerSessions.get(worker_id)}
-        error -> error
+        error ->
+          error
       end
     end
+  end
+
+  defp restore_control_job(worker_id, job_id, :crf_search, video_id, phase),
+    do: WorkerSessions.assign_video(worker_id, video_id, phase, job_id)
+
+  defp restore_control_job(worker_id, job_id, :encode, video_id, phase) do
+    WorkerSessions.assign_job(worker_id, %Job{
+      job_id: job_id,
+      job_type: :encode,
+      video_id: video_id,
+      phase: phase
+    })
   end
 
   defp control_job(
@@ -214,6 +255,32 @@ defmodule ReencodarrWeb.WorkerChannel do
       do: {:ok, :crf_search, :crf_searching},
       else: {:error, :unknown_worker_session}
   end
+
+  defp control_job(
+         %Media.Video{
+           state: :failed,
+           encode_worker_id: worker_id,
+           worker_attempt_id: attempt_id,
+           worker_control_acknowledged_state: :stopped
+         },
+         job_id,
+         worker_id
+       )
+       when attempt_id == job_id,
+       do: {:ok, :encode, :encoding}
+
+  defp control_job(
+         %Media.Video{
+           state: :failed,
+           crf_search_worker_id: worker_id,
+           worker_attempt_id: attempt_id,
+           worker_control_acknowledged_state: :stopped
+         },
+         job_id,
+         worker_id
+       )
+       when attempt_id == job_id,
+       do: {:ok, :crf_search, :crf_searching}
 
   defp control_job(_video, _job_id, _worker_id), do: {:error, :unknown_worker_session}
 
@@ -247,11 +314,13 @@ defmodule ReencodarrWeb.WorkerChannel do
     {:noreply, socket}
   end
 
-  def handle_info({:worker_control, action, job_id}, socket) when is_binary(job_id) do
+  def handle_info({:worker_control, action, job_id, command_id}, socket)
+      when is_binary(job_id) and is_binary(command_id) do
     case WorkerSessions.get(socket.assigns.worker_id) do
       %{jobs: %{^job_id => %{video_id: video_id}}} ->
         push(socket, "control", %{
           action: Atom.to_string(action),
+          command_id: command_id,
           job_id: job_id,
           video_id: video_id
         })
@@ -521,6 +590,36 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp attach_encode_job(socket, _session), do: socket
+
+  defp replay_pending_job_controls(socket, %{jobs: jobs}) do
+    Enum.each(jobs, fn {job_id, job} ->
+      case Media.get_video(job.video_id) do
+        %Media.Video{
+          worker_attempt_id: ^job_id,
+          worker_control_desired_state: desired_state,
+          worker_control_acknowledged_state: acknowledged_state,
+          worker_control_command_id: command_id
+        }
+        when desired_state in [:running, :paused, :stopped] and
+               desired_state != acknowledged_state and is_binary(command_id) ->
+          push(socket, "control", %{
+            action: control_action(desired_state),
+            command_id: command_id,
+            job_id: job_id,
+            video_id: job.video_id
+          })
+
+        _ ->
+          :ok
+      end
+    end)
+
+    socket
+  end
+
+  defp control_action(:running), do: "resume"
+  defp control_action(:paused), do: "pause"
+  defp control_action(:stopped), do: "stop"
 
   defp attach_active_video(socket, video_id) do
     case Media.get_video(video_id) do

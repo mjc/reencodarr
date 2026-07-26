@@ -8,6 +8,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
   alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchResult
 
   alias Reencodarr.AbAv1.WorkerProtocol.{
+    ControlState,
     EncodeCompletion,
     EncodeProgress,
     FailureReport,
@@ -40,6 +41,31 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
   test "maps protocol errors to wire payloads" do
     assert WorkerProtocol.error(:unauthorized) == %{reason: "unauthorized"}
     assert WorkerProtocol.error(:unsupported_event) == %{reason: "unsupported_event"}
+  end
+
+  test "parses job control acknowledgements into a typed command identity" do
+    assert {:ok,
+            %ControlState{
+              state: :paused,
+              active_video_id: 123,
+              job_id: "job-123",
+              command_id: "command-123"
+            }} =
+             WorkerProtocol.parse_control_state(%{
+               "state" => "paused",
+               "active_video_id" => 123,
+               "job_id" => "job-123",
+               "command_id" => "command-123"
+             })
+
+    assert {:error, :invalid_control_state} =
+             WorkerProtocol.parse_control_state(%{
+               "state" => "paused",
+               "job_id" => "job-123"
+             })
+
+    assert {:ok, %ControlState{state: :running, job_id: nil, command_id: nil}} =
+             WorkerProtocol.parse_control_state(%{"state" => "running"})
   end
 
   test "parses transfer progress into a typed payload" do

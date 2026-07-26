@@ -93,6 +93,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert Media.get_video(video.id).state == :crf_searching
       assert Media.get_video(video.id).crf_search_worker_id == "worker-a"
       assert Media.get_video(video.id).worker_attempt_id == job_id
+      assert Media.get_video(video.id).worker_control_desired_state == :running
+      assert Media.get_video(video.id).worker_control_acknowledged_state == :running
       assert [session] = WorkerSessions.list()
       assert session.active_video_id == video.id
       assert session.phase == :receiving_input
@@ -251,17 +253,22 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert filename == Path.basename(path)
 
+      assert {:ok, command} = Media.request_worker_control(video.id, job_id, :pause)
+
       Phoenix.PubSub.broadcast(
         Reencodarr.PubSub,
         WorkerChannel.worker_control_topic(socket.assigns.worker_id),
-        {:worker_control, :pause, job_id}
+        {:worker_control, :pause, job_id, command.command_id}
       )
 
       assert_push "control", %{
         action: "pause",
+        command_id: command_id,
         job_id: "encode-" <> _,
         video_id: ^video_id
       }
+
+      assert command_id == command.command_id
 
       assert_reply push(socket, "encode_progress", %{
                      "job_id" => job_id,
@@ -572,7 +579,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert_reply push(socket, "control_state", %{
                      "state" => "stopped",
-                     "job_id" => "encode-old"
+                     "job_id" => "encode-old",
+                     "command_id" => "stale-command"
                    }),
                    :error,
                    %{reason: "unknown_worker_session"}
@@ -994,26 +1002,34 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert is_nil(session.transfer_progress)
       assert session.crf_search_progress.percent == 62.0
 
+      assert {:ok, command} = Media.request_worker_control(video_id, job_id, :pause)
+
       Phoenix.PubSub.broadcast(
         Reencodarr.PubSub,
         WorkerChannel.worker_control_topic(server_worker_id),
-        {:worker_control, :pause, job_id}
+        {:worker_control, :pause, job_id, command.command_id}
       )
 
       assert_push "control", %{
         action: "pause",
+        command_id: command_id,
         job_id: ^job_id,
         video_id: ^video_id
       }
 
+      assert command_id == command.command_id
+
       assert_reply push(socket, "control_state", %{
                      "state" => "paused",
-                     "active_video_id" => video_id
+                     "active_video_id" => video_id,
+                     "job_id" => job_id,
+                     "command_id" => command.command_id
                    }),
                    :ok,
                    %{accepted: true, state: "paused"}
 
-      assert WorkerSessions.get(server_worker_id).control_state == :paused
+      assert WorkerSessions.get(server_worker_id).jobs[job_id].control_state == :paused
+      assert WorkerSessions.get(server_worker_id).control_state == :running
 
       Phoenix.PubSub.broadcast(
         Reencodarr.PubSub,
@@ -1077,8 +1093,16 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
 
+      job_id = "crf-restored-control"
+
       {:ok, video} =
-        Fixtures.video_fixture(%{state: :crf_searching, crf_search_worker_id: "worker-a"})
+        Fixtures.video_fixture(%{
+          state: :crf_searching,
+          crf_search_worker_id: "worker-a",
+          worker_attempt_id: job_id,
+          worker_control_desired_state: :running,
+          worker_control_acknowledged_state: :running
+        })
 
       assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
       assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
@@ -1087,23 +1111,112 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")), :ok
       assert is_nil(WorkerSessions.get(server_worker_id).active_video_id)
 
+      assert {:ok, pause_command} = Media.request_worker_control(video.id, job_id, :pause)
+
       assert_reply push(socket, "control_state", %{
                      "state" => "paused",
-                     "active_video_id" => video.id
+                     "active_video_id" => video.id,
+                     "job_id" => job_id,
+                     "command_id" => pause_command.command_id
                    }),
                    :ok
 
       session = WorkerSessions.get(server_worker_id)
-      assert session.control_state == :paused
+      assert session.control_state == :running
       assert session.active_video_id == video.id
+      assert session.jobs[job_id].control_state == :paused
+
+      assert {:ok, stop_command} = Media.request_worker_control(video.id, job_id, :stop)
 
       assert_reply push(socket, "control_state", %{
                      "state" => "stopped",
-                     "active_video_id" => video.id
+                     "active_video_id" => video.id,
+                     "job_id" => job_id,
+                     "command_id" => stop_command.command_id
+                   }),
+                   :ok
+
+      assert_reply push(socket, "control_state", %{
+                     "state" => "stopped",
+                     "active_video_id" => video.id,
+                     "job_id" => job_id,
+                     "command_id" => stop_command.command_id
                    }),
                    :ok
 
       assert Media.get_video(video.id).state == :failed
+      assert [_failure] = Media.get_video_failures(video.id)
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "replays a persisted unacknowledged job control after reconnect" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+      job_id = "encode-reconnect-control"
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :encoding,
+          encode_worker_id: "worker-reconnect",
+          worker_attempt_id: job_id,
+          worker_control_desired_state: :running,
+          worker_control_acknowledged_state: :running
+        })
+
+      assert {:ok, _session} =
+               WorkerSessions.register(%{
+                 server_worker_id: "disconnected-server-id",
+                 client_worker_id: "worker-reconnect",
+                 protocol_version: 1,
+                 version: "0.11.4",
+                 capabilities: %{"crf_search" => true, "encode" => true}
+               })
+
+      assert {:ok, _session} =
+               WorkerSessions.assign_job("disconnected-server-id", %WorkerSessions.Job{
+                 job_id: job_id,
+                 job_type: :encode,
+                 video_id: video.id,
+                 phase: :encoding
+               })
+
+      assert {:ok, command} = Media.request_worker_control(video.id, job_id, :pause)
+
+      assert {:ok, _session} =
+               WorkerSessions.request_job_control(
+                 "disconnected-server-id",
+                 job_id,
+                 :paused,
+                 command.command_id
+               )
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-reconnect")),
+                   :ok
+
+      assert_push "control", %{
+        action: "pause",
+        command_id: command_id,
+        job_id: ^job_id,
+        video_id: video_id
+      }
+
+      assert command_id == command.command_id
+      assert video_id == video.id
+
+      assert_reply push(socket, "control_state", %{
+                     "state" => "paused",
+                     "active_video_id" => video.id,
+                     "job_id" => job_id,
+                     "command_id" => command.command_id
+                   }),
+                   :ok
+
+      assert Media.get_video(video.id).worker_control_acknowledged_state == :paused
+      assert WorkerSessions.get(socket.assigns.worker_id).jobs[job_id].control_state == :paused
     after
       Application.delete_env(:reencodarr, :worker_token)
     end

@@ -160,8 +160,16 @@ defmodule ReencodarrWeb.DashboardLiveTest do
           else: Application.put_env(:reencodarr, :crf_execution_mode, previous)
       end)
 
-      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
-      job_id = Integer.to_string(video.id)
+      job_id = "crf-dashboard"
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :crf_searching,
+          crf_search_worker_id: "worker-crf",
+          worker_attempt_id: job_id,
+          worker_control_desired_state: :running,
+          worker_control_acknowledged_state: :running
+        })
 
       {:ok, _session} =
         WorkerSessions.register(%{
@@ -210,8 +218,16 @@ defmodule ReencodarrWeb.DashboardLiveTest do
           else: Application.put_env(:reencodarr, :crf_execution_mode, previous)
       end)
 
-      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
-      job_id = Integer.to_string(video.id)
+      job_id = "crf-dashboard-control"
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :crf_searching,
+          crf_search_worker_id: "worker-crf",
+          worker_attempt_id: job_id,
+          worker_control_desired_state: :running,
+          worker_control_acknowledged_state: :running
+        })
 
       {:ok, _session} =
         WorkerSessions.register(%{
@@ -242,7 +258,13 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       )
       |> render_click()
 
-      assert_receive {:worker_control, :pause, ^job_id}
+      assert_receive {:worker_control, :pause, ^job_id, command_id}
+      assert is_binary(command_id)
+
+      updated = Media.get_video(video.id)
+      assert updated.worker_control_desired_state == :paused
+      assert updated.worker_control_acknowledged_state == :running
+      assert has_element?(view, "#crf-worker-server-crf", "Awaiting ACK")
     end
 
     test "rejects a stale CRF control without crashing", %{conn: conn} do

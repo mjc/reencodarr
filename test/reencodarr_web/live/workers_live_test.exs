@@ -179,12 +179,28 @@ defmodule ReencodarrWeb.WorkersLiveTest do
         capabilities: %{"crf_search" => true}
       })
 
-    {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+    job_id = "crf-workers-page"
 
-    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-2", video.id)
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-2",
+        worker_attempt_id: job_id,
+        worker_control_desired_state: :running,
+        worker_control_acknowledged_state: :running
+      })
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_video(
+               "worker-server-2",
+               video.id,
+               :crf_searching,
+               job_id
+             )
 
     assert {:ok, _session} =
              WorkerSessions.set_crf_search_progress("worker-server-2", %CrfSearchProgress{
+               job_id: job_id,
                video_id: video.id,
                percent: 62.0,
                fps: 12.5,
@@ -210,8 +226,6 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert html =~ "CRF 28.0 -&gt; 95.4 VMAF"
     refute html =~ "Receiving Input"
 
-    job_id = Integer.to_string(video.id)
-
     Phoenix.PubSub.subscribe(
       Reencodarr.PubSub,
       ReencodarrWeb.WorkerChannel.worker_control_topic("worker-server-2")
@@ -223,7 +237,9 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     )
     |> render_click()
 
-    assert_receive {:worker_control, :pause, ^job_id}
+    assert_receive {:worker_control, :pause, ^job_id, command_id}
+    assert is_binary(command_id)
+    assert has_element?(view, "#crf-worker-worker-server-2", "Awaiting ACK")
 
     Fixtures.vmaf_fixture(%{video_id: video.id, crf: 26.0, score: 96.1, percent: 91.0})
     send(view.pid, {:crf_search_vmaf_result, %{video_id: video.id}})

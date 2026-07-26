@@ -222,7 +222,10 @@ defmodule Reencodarr.Media.VideoQueries do
       {worker_id, attempt_id} when is_binary(worker_id) and is_binary(attempt_id) ->
         Keyword.merge(fields,
           crf_search_worker_id: worker_id,
-          worker_attempt_id: attempt_id
+          worker_attempt_id: attempt_id,
+          worker_control_desired_state: :running,
+          worker_control_acknowledged_state: :running,
+          worker_control_command_id: nil
         )
 
       _ ->
@@ -365,6 +368,9 @@ defmodule Reencodarr.Media.VideoQueries do
             state: :encoding,
             encode_worker_id: worker_id,
             worker_attempt_id: attempt_id,
+            worker_control_desired_state: :running,
+            worker_control_acknowledged_state: :running,
+            worker_control_command_id: nil,
             original_size: original_size,
             updated_at: DateTime.utc_now()
           ]

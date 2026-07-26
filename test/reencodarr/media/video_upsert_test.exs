@@ -609,6 +609,41 @@ defmodule Reencodarr.Media.VideoUpsertTest do
       assert updated_video.state == original_state
     end
 
+    test "preserves active worker ownership and control lease on sync update", %{library: library} do
+      attrs = %{
+        "path" => "/mnt/test/show/worker-owned.mkv",
+        "size" => 1_000_000,
+        "duration" => 3600.0,
+        "video_codecs" => ["h264"],
+        "audio_codecs" => ["aac"],
+        "library_id" => library.id
+      }
+
+      {:ok, video} = VideoUpsert.upsert(attrs)
+
+      _video =
+        video
+        |> Ecto.Changeset.change(%{
+          state: :encoding,
+          encode_worker_id: "worker-a",
+          worker_attempt_id: "encode-active",
+          worker_control_desired_state: :paused,
+          worker_control_acknowledged_state: :running,
+          worker_control_command_id: "command-active"
+        })
+        |> Repo.update!()
+
+      assert {:ok, updated_video} =
+               VideoUpsert.upsert(Map.put(attrs, "duration", 3601.0))
+
+      assert updated_video.state == :encoding
+      assert updated_video.encode_worker_id == "worker-a"
+      assert updated_video.worker_attempt_id == "encode-active"
+      assert updated_video.worker_control_desired_state == :paused
+      assert updated_video.worker_control_acknowledged_state == :running
+      assert updated_video.worker_control_command_id == "command-active"
+    end
+
     test "handles update when video is in encoded state", %{library: library} do
       # Create video in encoded state
       attrs = %{
