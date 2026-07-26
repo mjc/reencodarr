@@ -1,5 +1,5 @@
 {pkgs}: let
-  version = "0.11.4-worker-f657b91";
+  version = "0.11.4-worker-491fe32";
 in
   pkgs.rustPlatform.buildRustPackage {
     pname = "ab-av1";
@@ -8,8 +8,8 @@ in
     src = pkgs.fetchFromGitHub {
       owner = "mjc";
       repo = "ab-av1";
-      rev = "f657b91a820f1a8940f2e5223d6cd5b3d17e1c24";
-      hash = "sha256-CYfBN3OI9rB1Ec2GNGJnMZWFA3sZGt9Zg3TkAOr7Vx8=";
+      rev = "491fe32006bbcf670b72ded24665195624cb56c0";
+      hash = "sha256-vTO78z8LK+1ZUxUdCKSy/vgH2NS4iMDq+4ndiX6gEPg=";
     };
 
     cargoHash = "sha256-QAIyQbUoLaZZd4K1PjIJodEZqGUbrcKnuCnitlNRVYA=";
