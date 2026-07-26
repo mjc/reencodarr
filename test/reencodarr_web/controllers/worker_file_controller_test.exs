@@ -59,16 +59,53 @@ defmodule ReencodarrWeb.WorkerFileControllerTest do
       File.rm_rf(temp_dir)
     end)
 
-    {:ok, video} = Fixtures.video_fixture(%{path: "/videos/movie.mkv", size: 1_000})
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        path: "/videos/movie.mkv",
+        size: 1_000,
+        state: :encoding,
+        worker_attempt_id: "encode-current"
+      })
 
     conn =
       conn
       |> put_req_header("authorization", "Bearer transfer-token")
       |> put_req_header("content-type", "application/octet-stream")
-      |> put(~p"/workers/files/#{video.id}/output", "encoded bytes")
+      |> put(~p"/workers/files/#{video.id}/output/encode-current", "encoded bytes")
 
     assert conn.status == 204
     assert File.read!(Encode.output_file(video)) == "encoded bytes"
+  end
+
+  test "rejects output from a superseded encode attempt", %{conn: conn} do
+    previous_token = Application.get_env(:reencodarr, :worker_transfer_token)
+    previous_temp_dir = Application.get_env(:reencodarr, :temp_dir)
+    temp_dir = Path.join(System.tmp_dir!(), "reencodarr-worker-output-#{System.unique_integer()}")
+    Application.put_env(:reencodarr, :worker_transfer_token, "transfer-token")
+    Application.put_env(:reencodarr, :temp_dir, temp_dir)
+
+    on_exit(fn ->
+      restore_env(:worker_transfer_token, previous_token)
+      restore_env(:temp_dir, previous_temp_dir)
+      File.rm_rf(temp_dir)
+    end)
+
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        path: "/videos/movie.mkv",
+        size: 1_000,
+        state: :encoding,
+        worker_attempt_id: "encode-current"
+      })
+
+    conn =
+      conn
+      |> put_req_header("authorization", "Bearer transfer-token")
+      |> put_req_header("content-type", "application/octet-stream")
+      |> put(~p"/workers/files/#{video.id}/output/encode-expired", "stale bytes")
+
+    assert conn.status == 409
+    refute File.exists?(Encode.output_file(video))
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:reencodarr, key)

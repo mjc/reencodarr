@@ -20,31 +20,41 @@ defmodule ReencodarrWeb.WorkerFileController do
     end
   end
 
-  def upload(conn, %{"id" => id}) do
+  def upload(conn, %{"id" => id, "attempt_id" => attempt_id}) do
     with :ok <- authorize(conn),
          {video_id, ""} <- Integer.parse(id),
-         %Media.Video{} = video <- Media.get_video(video_id),
-         :ok <- receive_output(conn, Encode.output_file(video)) do
+         %Media.Video{state: :encoding, worker_attempt_id: ^attempt_id} = video <-
+           Media.get_video(video_id),
+         :ok <- receive_output(conn, video, attempt_id) do
       send_resp(conn, 204, "")
     else
       {:error, :unauthorized} -> send_resp(conn, 401, "unauthorized")
+      {:error, :stale_worker_attempt} -> send_resp(conn, 409, "stale worker attempt")
+      %Media.Video{} -> send_resp(conn, 409, "stale worker attempt")
       _ -> send_resp(conn, 404, "not found")
     end
   end
 
-  defp receive_output(conn, output_path) do
-    partial_path = output_path <> ".upload"
+  defp receive_output(conn, video, attempt_id) do
+    output_path = Encode.output_file(video)
+    partial_path = output_path <> "." <> upload_suffix(attempt_id) <> ".upload"
     File.mkdir_p!(Path.dirname(output_path))
     File.rm(partial_path)
 
     result =
       with {:ok, file} <- File.open(partial_path, [:write, :binary, :exclusive]),
            :ok <- copy_and_close(conn, file) do
-        File.rename(partial_path, output_path)
+        Media.commit_worker_output_upload(video.id, attempt_id, partial_path, output_path)
       end
 
     if result != :ok, do: File.rm(partial_path)
     result
+  end
+
+  defp upload_suffix(attempt_id) do
+    :sha256
+    |> :crypto.hash(attempt_id)
+    |> Base.url_encode64(padding: false)
   end
 
   defp copy_and_close(conn, file) do

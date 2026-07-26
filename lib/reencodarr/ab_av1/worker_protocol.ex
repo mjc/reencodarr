@@ -705,17 +705,21 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     end
   end
 
-  defp maybe_put_output_transfer(payload, %Video{id: video_id}) do
+  defp maybe_put_output_transfer(%{job_id: attempt_id} = payload, %Video{id: video_id})
+       when is_binary(attempt_id) do
     with base_url when is_binary(base_url) <- WorkerConfig.transfer_base_url(),
          token when is_binary(token) <- WorkerConfig.transfer_token() do
       Map.put(payload, :output_transfer, %{
-        url: "#{String.trim_trailing(base_url, "/")}/workers/files/#{video_id}/output",
+        url:
+          "#{String.trim_trailing(base_url, "/")}/workers/files/#{video_id}/output/#{attempt_id}",
         auth: %{scheme: "bearer", header: "authorization", value: "Bearer #{token}"}
       })
     else
       _ -> payload
     end
   end
+
+  defp maybe_put_output_transfer(payload, %Video{}), do: payload
 
   defp maybe_put_local_path(payload, path, opts) do
     if Keyword.get(opts, :local?, false) do

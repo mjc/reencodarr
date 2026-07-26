@@ -63,7 +63,7 @@ defmodule ReencodarrWeb.Router do
 
   scope "/workers", ReencodarrWeb do
     get "/files/:id", WorkerFileController, :show
-    put "/files/:id/output", WorkerFileController, :upload
+    put "/files/:id/output/:attempt_id", WorkerFileController, :upload
   end
 
   # Other scopes may use custom stacks.

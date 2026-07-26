@@ -344,7 +344,13 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
 
     remote = WorkerProtocol.encode_work_assigned(video, vmaf)
     assert %{job_type: "encode", job_id: "encode-123", encode_args: ["encode" | _]} = remote
-    assert %{output_transfer: %{url: "http://server:4000/workers/files/123/output"}} = remote
+
+    assert %{
+             output_transfer: %{
+               url: "http://server:4000/workers/files/123/output/encode-123"
+             }
+           } = remote
+
     refute Map.has_key?(remote, :output_shared_path)
 
     local = WorkerProtocol.encode_work_assigned(video, vmaf, local?: true)

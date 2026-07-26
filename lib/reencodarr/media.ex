@@ -535,6 +535,30 @@ defmodule Reencodarr.Media do
   defp worker_failure_stage(:crf_search), do: :crf_search
   defp worker_failure_stage(:encode), do: :encoding
 
+  @spec commit_worker_output_upload(
+          pos_integer(),
+          String.t(),
+          Path.t(),
+          Path.t()
+        ) :: :ok | {:error, :stale_worker_attempt | File.posix()}
+  def commit_worker_output_upload(video_id, attempt_id, partial_path, output_path)
+      when is_integer(video_id) and is_binary(attempt_id) and is_binary(partial_path) and
+             is_binary(output_path) do
+    write(
+      fn ->
+        case Repo.get_by(Video,
+               id: video_id,
+               state: :encoding,
+               worker_attempt_id: attempt_id
+             ) do
+          %Video{} -> File.rename(partial_path, output_path)
+          nil -> {:error, :stale_worker_attempt}
+        end
+      end,
+      label: :media_commit_worker_output_upload
+    )
+  end
+
   @spec claim_worker_terminal(pos_integer(), String.t(), :crf_search | :encode) ::
           {:ok, :claimed} | {:error, :terminal_busy | :stale_worker_attempt | term()}
   def claim_worker_terminal(video_id, attempt_id, job_type)
