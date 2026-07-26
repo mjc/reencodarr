@@ -369,6 +369,71 @@ defmodule Reencodarr.Media do
     end
   end
 
+  @spec requeue_worker_attempt(pos_integer(), String.t(), :crf_search | :encode) :: :ok
+  def requeue_worker_attempt(video_id, attempt_id, :crf_search)
+      when is_integer(video_id) and is_binary(attempt_id) do
+    write(
+      fn ->
+        from(v in Video,
+          where:
+            v.id == ^video_id and v.state == :crf_searching and
+              v.worker_attempt_id == ^attempt_id
+        )
+        |> Repo.update_all(
+          set: [
+            state: :analyzed,
+            crf_search_worker_id: nil,
+            worker_attempt_id: nil,
+            updated_at: DateTime.utc_now()
+          ]
+        )
+      end,
+      label: :media_requeue_crf_worker_attempt
+    )
+
+    :ok
+  end
+
+  def requeue_worker_attempt(video_id, attempt_id, :encode)
+      when is_integer(video_id) and is_binary(attempt_id) do
+    write(
+      fn ->
+        now = DateTime.utc_now()
+
+        from(v in Video,
+          where:
+            v.id == ^video_id and v.state == :encoding and
+              v.worker_attempt_id == ^attempt_id and not is_nil(v.chosen_vmaf_id)
+        )
+        |> Repo.update_all(
+          set: [
+            state: :crf_searched,
+            encode_worker_id: nil,
+            worker_attempt_id: nil,
+            updated_at: now
+          ]
+        )
+
+        from(v in Video,
+          where:
+            v.id == ^video_id and v.state == :encoding and
+              v.worker_attempt_id == ^attempt_id and is_nil(v.chosen_vmaf_id)
+        )
+        |> Repo.update_all(
+          set: [
+            state: :analyzed,
+            encode_worker_id: nil,
+            worker_attempt_id: nil,
+            updated_at: now
+          ]
+        )
+      end,
+      label: :media_requeue_encode_worker_attempt
+    )
+
+    :ok
+  end
+
   defp maybe_put_original_size(set_attrs, video_id) do
     case Repo.get(Video, video_id) do
       %Video{original_size: nil, size: size} when is_integer(size) and size > 0 ->
@@ -1465,9 +1530,9 @@ defmodule Reencodarr.Media do
       :ok
   """
   @spec reset_orphaned_encoding([String.t()]) :: :ok
-  def reset_orphaned_encoding(live_worker_ids \\ []) when is_list(live_worker_ids) do
+  def reset_orphaned_encoding(live_attempt_ids \\ []) when is_list(live_attempt_ids) do
     exclude_id = Encode.current_video_id()
-    live_worker_ids = Enum.filter(live_worker_ids, &is_binary/1)
+    live_attempt_ids = Enum.filter(live_attempt_ids, &is_binary/1)
 
     {with_vmaf, without_vmaf} =
       write(
@@ -1476,9 +1541,14 @@ defmodule Reencodarr.Media do
           {with_vmaf, _} =
             from(v in Video, where: v.state == :encoding, where: not is_nil(v.chosen_vmaf_id))
             |> maybe_exclude_video(exclude_id)
-            |> maybe_exclude_encode_workers(live_worker_ids)
+            |> maybe_exclude_worker_attempts(live_attempt_ids)
             |> Repo.update_all(
-              set: [state: :crf_searched, encode_worker_id: nil, updated_at: DateTime.utc_now()]
+              set: [
+                state: :crf_searched,
+                encode_worker_id: nil,
+                worker_attempt_id: nil,
+                updated_at: DateTime.utc_now()
+              ]
             )
 
           # Videos without a chosen VMAF must go back to analyzed — they were never
@@ -1486,9 +1556,14 @@ defmodule Reencodarr.Media do
           {without_vmaf, _} =
             from(v in Video, where: v.state == :encoding, where: is_nil(v.chosen_vmaf_id))
             |> maybe_exclude_video(exclude_id)
-            |> maybe_exclude_encode_workers(live_worker_ids)
+            |> maybe_exclude_worker_attempts(live_attempt_ids)
             |> Repo.update_all(
-              set: [state: :analyzed, encode_worker_id: nil, updated_at: DateTime.utc_now()]
+              set: [
+                state: :analyzed,
+                encode_worker_id: nil,
+                worker_attempt_id: nil,
+                updated_at: DateTime.utc_now()
+              ]
             )
 
           {with_vmaf, without_vmaf}
@@ -1562,11 +1637,13 @@ defmodule Reencodarr.Media do
   defp maybe_exclude_video(query, nil), do: query
   defp maybe_exclude_video(query, video_id), do: from(v in query, where: v.id != ^video_id)
 
-  defp maybe_exclude_encode_workers(query, []), do: query
+  defp maybe_exclude_worker_attempts(query, []), do: query
 
-  defp maybe_exclude_encode_workers(query, worker_ids),
+  defp maybe_exclude_worker_attempts(query, attempt_ids),
     do:
-      from(v in query, where: is_nil(v.encode_worker_id) or v.encode_worker_id not in ^worker_ids)
+      from(v in query,
+        where: is_nil(v.worker_attempt_id) or v.worker_attempt_id not in ^attempt_ids
+      )
 
   @doc """
   Counts videos that would generate invalid audio encoding arguments (b:a=0k, ac=0).

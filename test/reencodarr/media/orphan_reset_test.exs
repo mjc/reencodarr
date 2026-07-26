@@ -91,6 +91,7 @@ defmodule Reencodarr.Media.OrphanResetTest do
           path: "/test/orphan_enc_owner.mkv",
           state: :encoding,
           encode_worker_id: "dead-worker",
+          worker_attempt_id: "encode-dead",
           video_codecs: ["h264"],
           audio_codecs: ["aac"]
         })
@@ -103,14 +104,16 @@ defmodule Reencodarr.Media.OrphanResetTest do
       updated = Media.get_video(video.id)
       assert updated.state == :crf_searched
       assert is_nil(updated.encode_worker_id)
+      assert is_nil(updated.worker_attempt_id)
     end
 
-    test "keeps encoding work owned by a live encode worker" do
+    test "keeps only the exact active encoding attempt" do
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/live_enc_owner.mkv",
           state: :encoding,
           encode_worker_id: "live-worker",
+          worker_attempt_id: "encode-active",
           video_codecs: ["h264"],
           audio_codecs: ["aac"]
         })
@@ -118,11 +121,34 @@ defmodule Reencodarr.Media.OrphanResetTest do
       vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
       Fixtures.choose_vmaf(video, vmaf)
 
-      assert :ok = Media.reset_orphaned_encoding(["live-worker"])
+      assert :ok = Media.reset_orphaned_encoding(["encode-active"])
 
       updated = Media.get_video(video.id)
       assert updated.state == :encoding
       assert updated.encode_worker_id == "live-worker"
+      assert updated.worker_attempt_id == "encode-active"
+    end
+
+    test "does not protect an orphan merely because its worker is connected" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/live_worker_orphan.mkv",
+          state: :encoding,
+          encode_worker_id: "live-worker",
+          worker_attempt_id: "encode-orphan",
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      assert :ok = Media.reset_orphaned_encoding(["encode-other"])
+
+      updated = Media.get_video(video.id)
+      assert updated.state == :crf_searched
+      assert is_nil(updated.encode_worker_id)
+      assert is_nil(updated.worker_attempt_id)
     end
 
     test "resets encoding video without chosen VMAF back to analyzed" do

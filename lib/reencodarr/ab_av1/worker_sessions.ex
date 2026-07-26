@@ -425,7 +425,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   def handle_call(:reset, _from, state) do
     :ok = reset_tables()
     broadcast_sessions()
-    {:reply, :ok, state}
+    {:reply, :ok, %{state | started_at: now()}}
   end
 
   def handle_call(:drain, _from, state) do
@@ -781,14 +781,12 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   defp requeue_encode_jobs(jobs) do
-    Enum.each(jobs, fn {_job_id, job} ->
-      case {job.job_type, Media.get_video(job.video_id)} do
-        {:encode, %Media.Video{state: :encoding} = video} ->
-          _ = VideoStateMachine.mark_as_crf_searched(video)
+    Enum.each(jobs, fn
+      {job_id, %Job{job_type: :encode, video_id: video_id}} ->
+        Media.requeue_worker_attempt(video_id, job_id, :encode)
 
-        _ ->
-          :ok
-      end
+      _ ->
+        :ok
     end)
   end
 
@@ -886,20 +884,20 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     {expired_sessions, :ok}
   end
 
-  defp live_encode_worker_ids do
+  defp live_encode_attempt_ids do
     @by_server_table
     |> :ets.tab2list()
-    |> Enum.map(fn {_server_worker_id, session} -> session end)
-    |> Enum.filter(fn session ->
-      Map.get(session.capabilities, "encode") == true or
-        Enum.any?(session.jobs, fn {_job_id, %Job{job_type: job_type}} -> job_type == :encode end)
+    |> Enum.flat_map(fn {_server_worker_id, session} ->
+      Enum.flat_map(session.jobs, fn
+        {job_id, %Job{job_type: :encode}} -> [job_id]
+        _ -> []
+      end)
     end)
-    |> Enum.map(& &1.client_worker_id)
   end
 
   defp maybe_reset_orphaned_encoding(started_at) do
     if DateTime.diff(now(), started_at, :second) >= @orphan_reset_grace_seconds do
-      :ok = Media.reset_orphaned_encoding(live_encode_worker_ids())
+      :ok = Media.reset_orphaned_encoding(live_encode_attempt_ids())
     end
 
     :ok
