@@ -210,10 +210,34 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert html =~ "CRF 28.0 -&gt; 95.4 VMAF"
     refute html =~ "Receiving Input"
 
+    job_id = Integer.to_string(video.id)
+
+    Phoenix.PubSub.subscribe(
+      Reencodarr.PubSub,
+      ReencodarrWeb.WorkerChannel.worker_control_topic("worker-server-2")
+    )
+
+    view
+    |> element(
+      ~s(#crf-worker-worker-server-2 button[phx-click="pause_worker_crf_search"][phx-value-job-id="#{job_id}"])
+    )
+    |> render_click()
+
+    assert_receive {:worker_control, :pause, ^job_id}
+
     Fixtures.vmaf_fixture(%{video_id: video.id, crf: 26.0, score: 96.1, percent: 91.0})
     send(view.pid, {:crf_search_vmaf_result, %{video_id: video.id}})
 
     assert render(view) =~ "CRF 26.0 -&gt; 96.1 VMAF"
+  end
+
+  test "rejects a stale CRF control without crashing", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/workers")
+
+    assert render_hook(view, "pause_worker_crf_search", %{"worker-id" => "stale-worker"}) =~
+             "Worker job is no longer available"
+
+    assert Process.alive?(view.pid)
   end
 
   test "renders a start control for a stopped worker", %{conn: conn} do

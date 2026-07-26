@@ -206,13 +206,6 @@ defmodule ReencodarrWeb.WorkerChannel do
           video_id: video_id
         })
 
-      %{crf_search_progress: %{job_id: ^job_id, video_id: video_id}} ->
-        push(socket, "control", %{
-          action: Atom.to_string(action),
-          job_id: job_id,
-          video_id: video_id
-        })
-
       _ ->
         :ok
     end

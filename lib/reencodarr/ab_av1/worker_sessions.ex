@@ -20,7 +20,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   defmodule Job do
     @moduledoc false
 
-    alias Reencodarr.AbAv1.WorkerProtocol.EncodeProgress
+    alias Reencodarr.AbAv1.WorkerProtocol.{CrfSearchProgress, EncodeProgress}
 
     @enforce_keys [:job_id, :job_type, :video_id]
     defstruct [
@@ -34,7 +34,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     ]
 
     @type job_type :: :crf_search | :encode
-    @type phase :: :assigned | :receiving_input | :input_ready | :encoding
+    @type phase :: :assigned | :receiving_input | :input_ready | :crf_searching | :encoding
     @type control_state :: :running | :paused | :stopped
     @type t :: %__MODULE__{
             job_id: String.t(),
@@ -43,7 +43,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
             phase: phase(),
             control_state: control_state(),
             transfer_progress: map() | nil,
-            progress: EncodeProgress.t() | nil
+            progress: EncodeProgress.t() | CrfSearchProgress.t() | nil
           }
   end
 
@@ -224,13 +224,15 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def handle_call({:assign_video, server_worker_id, video_id, phase}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
-      WorkerJobStateMachine.assign_video(session, video_id, phase)
+      with {:ok, session} <- WorkerJobStateMachine.assign_video(session, video_id, phase) do
+        {:ok, put_crf_job(session, video_id, phase, progress: nil)}
+      end
     end)
   end
 
   def handle_call({:clear_video, server_worker_id}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
-      WorkerJobStateMachine.clear_video(session)
+      clear_crf_work(session)
     end)
   end
 
@@ -326,7 +328,16 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   def handle_call({:record_transfer_progress, server_worker_id, progress}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
       with {:ok, session} <- WorkerJobStateMachine.record_transfer_progress(session, progress) do
-        {:ok, %{session | last_seen_at: now()}}
+        job_id = Map.get(progress, :job_id) || Integer.to_string(session.active_video_id)
+
+        {:ok,
+         session
+         |> put_crf_job(session.active_video_id, session.phase,
+           job_id: job_id,
+           transfer_progress: progress,
+           progress: nil
+         )
+         |> Map.put(:last_seen_at, now())}
       end
     end)
   end
@@ -334,7 +345,10 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   def handle_call({:finish_transfer, server_worker_id}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
       with {:ok, session} <- WorkerJobStateMachine.finish_transfer(session) do
-        {:ok, %{session | last_seen_at: now()}}
+        {:ok,
+         session
+         |> maybe_put_crf_job(session.active_video_id, :input_ready)
+         |> Map.put(:last_seen_at, now())}
       end
     end)
   end
@@ -348,7 +362,16 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       progress = merge_crf_search_progress(session.crf_search_progress, progress)
 
       with {:ok, session} <- WorkerJobStateMachine.set_crf_search_progress(session, progress) do
-        {:ok, %{session | last_seen_at: now()}}
+        job_id = progress.job_id || Integer.to_string(progress.video_id)
+
+        {:ok,
+         session
+         |> put_crf_job(progress.video_id, :crf_searching,
+           job_id: job_id,
+           progress: progress,
+           transfer_progress: nil
+         )
+         |> Map.put(:last_seen_at, now())}
       end
     end)
   end
@@ -369,7 +392,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     case lookup_session(server_worker_id) do
       {:ok, session} ->
         requeue_active_video(session)
-        requeue_jobs(session.jobs)
+        requeue_encode_jobs(session.jobs)
         :ok = drop_session(server_worker_id)
         broadcast_sessions()
         {:reply, {:ok, session}, state}
@@ -411,7 +434,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       |> Enum.filter(&(&1.active_video_id != nil or map_size(&1.jobs) > 0))
       |> Enum.map(fn session ->
         requeue_active_video(session)
-        requeue_jobs(session.jobs)
+        requeue_encode_jobs(session.jobs)
         :ok = drop_session(session.server_worker_id)
         session
       end)
@@ -490,6 +513,58 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   defp merge_crf_search_progress(_previous, %CrfSearchProgress{} = progress), do: progress
+
+  @spec put_crf_job(session(), pos_integer(), Job.phase(), keyword()) :: session()
+  defp put_crf_job(session, video_id, phase, opts \\ []) when is_integer(video_id) do
+    job_id = Keyword.get(opts, :job_id, Integer.to_string(video_id))
+
+    job =
+      case Enum.find(
+             Map.values(session.jobs),
+             &match?(%Job{job_type: :crf_search, video_id: ^video_id}, &1)
+           ) do
+        %Job{} = job ->
+          job
+
+        nil ->
+          %Job{
+            job_id: job_id,
+            job_type: :crf_search,
+            video_id: video_id,
+            control_state: session.control_state
+          }
+      end
+
+    job = %Job{
+      job
+      | job_id: job_id,
+        phase: phase,
+        transfer_progress: Keyword.get(opts, :transfer_progress, job.transfer_progress),
+        progress: Keyword.get(opts, :progress, job.progress)
+    }
+
+    jobs =
+      session.jobs
+      |> Map.reject(fn {_job_id, job} -> job.job_type == :crf_search end)
+      |> Map.put(job_id, job)
+
+    %{session | jobs: jobs}
+  end
+
+  @spec maybe_put_crf_job(session(), pos_integer() | nil, Job.phase()) :: session()
+  defp maybe_put_crf_job(session, nil, _phase), do: session
+  defp maybe_put_crf_job(session, video_id, phase), do: put_crf_job(session, video_id, phase)
+
+  @spec clear_crf_work(session()) :: {:ok, session()}
+  defp clear_crf_work(session) do
+    with {:ok, session} <- WorkerJobStateMachine.clear_video(session) do
+      {:ok,
+       %{
+         session
+         | jobs: Map.reject(session.jobs, fn {_job_id, job} -> job.job_type == :crf_search end)
+       }}
+    end
+  end
 
   defp register_session(
          server_worker_id,
@@ -599,6 +674,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           )
           |> Map.put(:resource_usage, existing_session.resource_usage)
           |> Map.put(:jobs, resumable_jobs(existing_session.jobs))
+          |> maybe_put_crf_job(active_video_id, phase)
 
         :ok = drop_session(existing_server_worker_id)
         :ok = put_session(session)
@@ -643,8 +719,12 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   defp restore_active_video(session, nil), do: {:ok, session}
 
-  defp restore_active_video(%{active_video_id: nil} = session, video_id),
-    do: WorkerJobStateMachine.assign_video(session, video_id, :crf_searching)
+  defp restore_active_video(%{active_video_id: nil} = session, video_id) do
+    with {:ok, session} <-
+           WorkerJobStateMachine.assign_video(session, video_id, :crf_searching) do
+      {:ok, put_crf_job(session, video_id, :crf_searching)}
+    end
+  end
 
   defp restore_active_video(%{active_video_id: video_id} = session, video_id),
     do: {:ok, session}
@@ -653,8 +733,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   defp apply_control_state(session, :stopped) do
     fail_active_video(session)
-    fail_jobs(session.jobs)
-    {:ok, session} = WorkerJobStateMachine.clear_video(session)
+    fail_encode_jobs(session.jobs)
+    {:ok, session} = clear_crf_work(session)
     %{session | control_state: :stopped, jobs: %{}, last_seen_at: now()}
   end
 
@@ -700,14 +780,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end
   end
 
-  defp requeue_jobs(jobs) do
+  defp requeue_encode_jobs(jobs) do
     Enum.each(jobs, fn {_job_id, job} ->
       case {job.job_type, Media.get_video(job.video_id)} do
         {:encode, %Media.Video{state: :encoding} = video} ->
           _ = VideoStateMachine.mark_as_crf_searched(video)
-
-        {:crf_search, %Media.Video{state: :crf_searching} = video} ->
-          _ = VideoStateMachine.mark_as_analyzed(video)
 
         _ ->
           :ok
@@ -715,11 +792,21 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end)
   end
 
-  defp fail_jobs(jobs) do
-    Enum.each(jobs, fn {_job_id, job} -> fail_job(job) end)
+  defp fail_encode_jobs(jobs) do
+    jobs
+    |> Map.values()
+    |> Enum.filter(&match?(%Job{job_type: :encode}, &1))
+    |> Enum.each(&fail_job/1)
   end
 
   @spec stop_job(session(), String.t(), Job.t()) :: session() | {:error, term()}
+  defp stop_job(session, _job_id, %Job{job_type: :crf_search} = job) do
+    with {:ok, _failure} <- fail_job(job),
+         {:ok, session} <- clear_crf_work(session) do
+      %{session | last_seen_at: now()}
+    end
+  end
+
   defp stop_job(session, job_id, %Job{} = job) do
     with {:ok, _failure} <- fail_job(job) do
       %{session | jobs: Map.delete(session.jobs, job_id), last_seen_at: now()}
@@ -792,7 +879,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
     Enum.each(expired_sessions, fn session ->
       preserve_dispatched_active_video(session)
-      requeue_jobs(session.jobs)
+      requeue_encode_jobs(session.jobs)
       :ok = drop_session(session.server_worker_id)
     end)
 

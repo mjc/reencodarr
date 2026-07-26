@@ -200,6 +200,60 @@ defmodule ReencodarrWeb.DashboardLiveTest do
              )
     end
 
+    test "pauses CRF work restored from progress", %{conn: conn} do
+      previous = Application.get_env(:reencodarr, :crf_execution_mode)
+      Application.put_env(:reencodarr, :crf_execution_mode, :worker)
+
+      on_exit(fn ->
+        if is_nil(previous),
+          do: Application.delete_env(:reencodarr, :crf_execution_mode),
+          else: Application.put_env(:reencodarr, :crf_execution_mode, previous)
+      end)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+      job_id = Integer.to_string(video.id)
+
+      {:ok, _session} =
+        WorkerSessions.register(%{
+          server_worker_id: "server-crf",
+          client_worker_id: "worker-crf",
+          protocol_version: 1,
+          version: "0.11.4",
+          capabilities: %{"crf_search" => true, "encode" => true}
+        })
+
+      {:ok, _session} =
+        WorkerSessions.set_crf_search_progress("server-crf", %CrfSearchProgress{
+          job_id: job_id,
+          video_id: video.id,
+          percent: 42.0
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      Phoenix.PubSub.subscribe(
+        Reencodarr.PubSub,
+        ReencodarrWeb.WorkerChannel.worker_control_topic("server-crf")
+      )
+
+      view
+      |> element(
+        ~s(#crf-worker-server-crf button[phx-click="pause_worker_crf_search"][phx-value-job-id="#{job_id}"])
+      )
+      |> render_click()
+
+      assert_receive {:worker_control, :pause, ^job_id}
+    end
+
+    test "rejects a stale CRF control without crashing", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      assert render_hook(view, "pause_worker_crf_search", %{"worker-id" => "stale-worker"}) =~
+               "Worker job is no longer available"
+
+      assert Process.alive?(view.pid)
+    end
+
     test "renders worker CRF progress structs" do
       html =
         render_component(&CrfSearchComponents.crf_search_panel/1,

@@ -18,6 +18,7 @@ defmodule ReencodarrWeb.DashboardLive do
   alias Reencodarr.Media
   alias Reencodarr.Media.ChartQueries
   alias Reencodarr.Media.VideoQueries
+  alias ReencodarrWeb.WorkerControl
 
   import ReencodarrWeb.ChartComponents
   import ReencodarrWeb.CrfSearchComponents
@@ -30,6 +31,8 @@ defmodule ReencodarrWeb.DashboardLive do
     crf_searcher: Reencodarr.CrfSearcher.Broadway.Producer,
     encoder: Reencodarr.Encoder.Broadway.Producer
   }
+
+  @worker_control_events WorkerControl.event_names()
 
   @impl true
   def mount(_params, _session, socket) do
@@ -317,49 +320,8 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   @impl true
-  def handle_event(
-        "pause_worker_crf_search",
-        %{"worker-id" => worker_id, "job-id" => job_id},
-        socket
-      ) do
-    control_worker(socket, worker_id, :pause, "Worker pause requested", job_id)
-  end
-
-  @impl true
-  def handle_event(
-        "resume_worker_crf_search",
-        %{"worker-id" => worker_id, "job-id" => job_id},
-        socket
-      ) do
-    control_worker(socket, worker_id, :resume, "Worker resume requested", job_id)
-  end
-
-  @impl true
-  def handle_event(
-        "stop_worker_crf_search",
-        %{"worker-id" => worker_id, "job-id" => job_id},
-        socket
-      ) do
-    control_worker(socket, worker_id, :stop, "Worker stop requested", job_id)
-  end
-
-  @impl true
-  def handle_event("start_worker_crf_search", %{"worker-id" => worker_id}, socket) do
-    control_worker(socket, worker_id, :start, "Worker start requested")
-  end
-
-  @impl true
-  def handle_event(event, %{"worker-id" => worker_id, "job-id" => job_id}, socket)
-      when event in ["pause_worker_encode", "resume_worker_encode", "stop_worker_encode"] do
-    action =
-      %{
-        "pause_worker_encode" => :pause,
-        "resume_worker_encode" => :resume,
-        "stop_worker_encode" => :stop
-      }[event]
-
-    control_worker(socket, worker_id, action, "Worker encode #{action} requested", job_id)
-  end
+  def handle_event(event, params, socket) when event in @worker_control_events,
+    do: WorkerControl.handle_event(event, params, socket)
 
   @impl true
   def handle_event("suspend_encode", _params, socket) do
@@ -1439,18 +1401,6 @@ defmodule ReencodarrWeb.DashboardLive do
       encoded_title: "Encoded: #{stats.encoded}",
       failed_title: "Failed: #{stats.failed}"
     }
-  end
-
-  defp control_worker(socket, worker_id, action, message, job_id \\ nil) do
-    command = if job_id, do: {:worker_control, action, job_id}, else: {:worker_control, action}
-
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      ReencodarrWeb.WorkerChannel.worker_control_topic(worker_id),
-      command
-    )
-
-    {:noreply, put_flash(socket, :info, message)}
   end
 
   defp crf_workers do
