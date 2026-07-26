@@ -43,6 +43,13 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
     assert WorkerProtocol.error(:unsupported_event) == %{reason: "unsupported_event"}
     assert WorkerProtocol.error(:terminal_busy) == %{reason: "terminal_busy"}
     assert WorkerProtocol.error(:stale_worker_attempt) == %{reason: "stale_worker_attempt"}
+
+    assert WorkerProtocol.event_discarded("video_failed", :unknown_worker_session) == %{
+             accepted: false,
+             discarded: true,
+             event: "video_failed",
+             reason: "unknown_worker_session"
+           }
   end
 
   test "parses job control acknowledgements into a typed command identity" do

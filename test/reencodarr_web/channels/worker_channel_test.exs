@@ -558,7 +558,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
-    test "rejects replayed encode completion from a different attempt" do
+    test "retires replayed encode completion from a different attempt" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
 
@@ -581,13 +581,69 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                      "output_bytes" => 1,
                      "output_percent" => 1.0
                    }),
-                   :error,
-                   %{reason: "unknown_worker_session"}
+                   :ok,
+                   %{
+                     accepted: false,
+                     discarded: true,
+                     event: "encode_completed",
+                     reason: "unknown_worker_session"
+                   }
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
 
-    test "rejects a stopped acknowledgement from a superseded job" do
+    test "retires stale CRF completion and worker failures without mutating videos" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, crf_video} = Fixtures.video_fixture(%{state: :analyzed})
+      {:ok, encode_video} = Fixtures.video_fixture(%{state: :crf_searched})
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-stale")), :ok
+
+      assert_reply push(socket, "crf_search_completed", %{
+                     "job_id" => "crf-stale",
+                     "video_id" => crf_video.id,
+                     "result" => "ok"
+                   }),
+                   :ok,
+                   %{
+                     accepted: false,
+                     discarded: true,
+                     event: "crf_search_completed",
+                     reason: "unknown_worker_session"
+                   }
+
+      for {video, stage} <- [{crf_video, "crf_search"}, {encode_video, "encoding"}] do
+        assert_reply push(socket, "video_failed", %{
+                       "job_id" => "#{stage}-stale",
+                       "video_id" => video.id,
+                       "stage" => stage,
+                       "category" => "process_failure",
+                       "message" => "stale failure",
+                       "code" => "EXIT_1",
+                       "context" => %{}
+                     }),
+                     :ok,
+                     %{
+                       accepted: false,
+                       discarded: true,
+                       event: "video_failed",
+                       reason: "unknown_worker_session"
+                     }
+      end
+
+      assert Media.get_video(crf_video.id).state == :analyzed
+      assert Media.get_video(encode_video.id).state == :crf_searched
+      assert Media.get_video_failures(crf_video.id) == []
+      assert Media.get_video_failures(encode_video.id) == []
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "retires a stopped acknowledgement from a superseded job" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
 
@@ -614,8 +670,13 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                      "job_id" => "encode-old",
                      "command_id" => "stale-command"
                    }),
-                   :error,
-                   %{reason: "unknown_worker_session"}
+                   :ok,
+                   %{
+                     accepted: false,
+                     discarded: true,
+                     event: "control_state",
+                     reason: "unknown_worker_session"
+                   }
 
       assert %{
                state: :encoding,

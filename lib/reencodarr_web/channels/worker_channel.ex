@@ -109,7 +109,10 @@ defmodule ReencodarrWeb.WorkerChannel do
 
       {:reply, {:ok, %{accepted: true, state: Atom.to_string(control_state)}}, socket}
     else
-      {:error, reason} -> {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+      {:error, reason} ->
+        if Map.get(payload, "state") == "stopped" or Map.get(payload, :state) == :stopped,
+          do: terminal_reply(socket, "control_state", reason),
+          else: {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
   end
 
@@ -815,15 +818,20 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp handle_parsed_encode_completion(socket, completion) do
     case ensure_encode_completion(socket, completion) do
       {:ok, socket} ->
-        with_terminal_claim(socket, completion.video_id, completion.job_id, :encode, fn ->
-          finish_encode_completion(socket, completion)
-        end)
+        with_terminal_claim(
+          socket,
+          completion.video_id,
+          completion.job_id,
+          :encode,
+          "encode_completed",
+          fn -> finish_encode_completion(socket, completion) end
+        )
 
       {:duplicate, socket} ->
         acknowledge_encode_completion(socket, completion)
 
       {:error, reason} ->
-        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+        terminal_reply(socket, "encode_completed", reason)
     end
   end
 
@@ -977,16 +985,23 @@ defmodule ReencodarrWeb.WorkerChannel do
         acknowledge_encode_failure(worker_id, socket, failure)
 
       {:error, reason} ->
-        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+        terminal_reply(socket, "video_failed", reason)
     end
   end
 
   defp handle_claimed_encode_failure(worker_id, socket, video, failure) do
-    with_terminal_claim(socket, video.id, failure.job_id, :encode, fn ->
-      finish_worker_failure(video, failure, socket, fn ->
-        acknowledge_encode_failure(worker_id, socket, failure)
-      end)
-    end)
+    with_terminal_claim(
+      socket,
+      video.id,
+      failure.job_id,
+      :encode,
+      "video_failed",
+      fn ->
+        finish_worker_failure(video, failure, socket, fn ->
+          acknowledge_encode_failure(worker_id, socket, failure)
+        end)
+      end
+    )
   end
 
   defp ensure_encode_failure(socket, %{job_id: job_id, video_id: video_id} = failure) do
@@ -1023,16 +1038,23 @@ defmodule ReencodarrWeb.WorkerChannel do
         acknowledge_crf_terminal(worker_id, socket, "video_failed")
 
       {:error, reason} ->
-        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+        terminal_reply(socket, "video_failed", reason)
     end
   end
 
   defp handle_claimed_crf_failure(worker_id, socket, video, failure) do
-    with_terminal_claim(socket, video.id, failure.job_id, :crf_search, fn ->
-      finish_worker_failure(video, failure, socket, fn ->
-        acknowledge_crf_terminal(worker_id, socket, "video_failed")
-      end)
-    end)
+    with_terminal_claim(
+      socket,
+      video.id,
+      failure.job_id,
+      :crf_search,
+      "video_failed",
+      fn ->
+        finish_worker_failure(video, failure, socket, fn ->
+          acknowledge_crf_terminal(worker_id, socket, "video_failed")
+        end)
+      end
+    )
   end
 
   defp record_worker_failure(video, failure) do
@@ -1379,6 +1401,7 @@ defmodule ReencodarrWeb.WorkerChannel do
           completion.video_id,
           completion.job_id,
           :crf_search,
+          "crf_search_completed",
           fn -> handle_valid_crf_search_completion(worker_id, socket, completion) end
         )
 
@@ -1386,7 +1409,7 @@ defmodule ReencodarrWeb.WorkerChannel do
         acknowledge_crf_terminal(worker_id, socket, "crf_search_completed")
 
       {:error, reason} ->
-        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+        terminal_reply(socket, "crf_search_completed", reason)
     end
   end
 
@@ -1413,15 +1436,23 @@ defmodule ReencodarrWeb.WorkerChannel do
     {:reply, {:ok, WorkerProtocol.event_ack(event)}, clear_assigned_video(worker_id, socket)}
   end
 
-  defp with_terminal_claim(socket, video_id, job_id, job_type, fun) do
+  defp with_terminal_claim(socket, video_id, job_id, job_type, event, fun) do
     case Media.claim_worker_terminal(video_id, job_id, job_type) do
       {:ok, :claimed} ->
         release_terminal_claim_on_error(fun.(), video_id, job_id, job_type)
 
       {:error, reason} ->
-        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+        terminal_reply(socket, event, reason)
     end
   end
+
+  defp terminal_reply(socket, event, reason)
+       when reason in [:stale_worker_attempt, :unknown_worker_session] do
+    {:reply, {:ok, WorkerProtocol.event_discarded(event, reason)}, socket}
+  end
+
+  defp terminal_reply(socket, _event, reason),
+    do: {:reply, {:error, WorkerProtocol.error(reason)}, socket}
 
   defp release_terminal_claim_on_error(
          {:reply, {:ok, _payload}, _socket} = reply,

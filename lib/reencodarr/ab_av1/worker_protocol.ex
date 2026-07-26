@@ -637,6 +637,16 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   @spec event_ack(String.t()) :: map()
   def event_ack(event_name), do: %{accepted: true, event: event_name}
 
+  @spec event_discarded(String.t(), atom()) :: map()
+  def event_discarded(event_name, reason) when is_atom(reason) do
+    %{
+      accepted: false,
+      discarded: true,
+      event: event_name,
+      reason: Atom.to_string(reason)
+    }
+  end
+
   @spec no_work() :: map()
   def no_work, do: %{status: "no_work"}
 
