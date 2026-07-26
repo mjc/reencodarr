@@ -1967,6 +1967,15 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert Media.get_video(video_id).chosen_vmaf_id != nil
       assert WorkerSessions.get(socket.assigns.worker_id).active_video_id == nil
 
+      assert_reply push(socket, "crf_search_completed", %{
+                     "job_id" => job_id,
+                     "video_id" => video_id,
+                     "result" => "ok",
+                     "chosen_crf" => 28
+                   }),
+                   :ok,
+                   %{accepted: true, event: "crf_search_completed"}
+
       assert_reply push(socket, "pull_work", %{}),
                    :ok,
                    %{status: "no_work"}
