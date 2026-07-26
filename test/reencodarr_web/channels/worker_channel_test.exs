@@ -101,6 +101,94 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "rejects CRF progress from a superseded attempt" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-crf")), :ok
+
+      assert_reply push(socket, "pull_work", %{}), :ok, %{job_id: job_id}
+
+      assert_reply push(socket, "crf_search_progress", %{
+                     "job_id" => "crf-stale",
+                     "video_id" => video.id,
+                     "percent" => 25.0
+                   }),
+                   :error,
+                   %{reason: "unknown_worker_session"}
+
+      assert %{
+               state: :crf_searching,
+               crf_search_worker_id: "worker-crf",
+               worker_attempt_id: ^job_id
+             } = Media.get_video(video.id)
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "rejects transfer progress from a superseded attempt" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-crf")), :ok
+      assert_reply push(socket, "pull_work", %{}), :ok, %{job_id: job_id}
+
+      assert_reply push(socket, "transfer_progress", %{
+                     "job_id" => "crf-stale",
+                     "video_id" => video.id,
+                     "percent" => 50.0,
+                     "received_bytes" => 5,
+                     "expected_bytes" => 10
+                   }),
+                   :error,
+                   %{reason: "unknown_worker_session"}
+
+      assert %{^job_id => _job} = WorkerSessions.get(socket.assigns.worker_id).jobs
+      refute Map.has_key?(WorkerSessions.get(socket.assigns.worker_id).jobs, "crf-stale")
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "recovers only the persisted CRF attempt after server state is lost" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
+      {:ok, socket1} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket1} = subscribe_and_join(socket1, "workers:crf_search")
+      assert_reply push(socket1, "announce", announce_payload(worker_id: "worker-crf")), :ok
+      assert_reply push(socket1, "pull_work", %{}), :ok, %{job_id: job_id}
+
+      Process.unlink(socket1.channel_pid)
+      assert :ok = close(socket1)
+      :ok = WorkerSessions.reset()
+
+      {:ok, socket2} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket2} = subscribe_and_join(socket2, "workers:crf_search")
+      assert_reply push(socket2, "announce", announce_payload(worker_id: "worker-crf")), :ok
+
+      assert_reply push(socket2, "crf_search_progress", %{
+                     "job_id" => job_id,
+                     "video_id" => video.id,
+                     "percent" => 25.0
+                   }),
+                   :ok,
+                   %{accepted: true, event: "crf_search_progress"}
+
+      assert WorkerSessions.get(socket2.assigns.worker_id).jobs[job_id].progress.percent == 25.0
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "assigns encode work only when the worker requests encode" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
@@ -271,7 +359,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
-    test "recovers an active encode from typed progress after server state is lost" do
+    test "recovers only the persisted encode attempt after server state is lost" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
 
@@ -291,18 +379,19 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       {:ok, socket1} = connect(WorkerSocket, %{"token" => token})
       {:ok, _, socket1} = subscribe_and_join(socket1, "workers:crf_search")
       assert_reply push(socket1, "announce", announce_payload(worker_id: "worker-restart")), :ok
-      assert_reply push(socket1, "pull_work", %{"job_type" => "encode"}), :ok
+
+      assert_reply push(socket1, "pull_work", %{"job_type" => "encode"}),
+                   :ok,
+                   %{job_id: job_id}
+
       Process.unlink(socket1.channel_pid)
       assert :ok = close(socket1)
 
       :ok = WorkerSessions.reset()
-      {:ok, _video} = video.id |> Media.get_video() |> Media.mark_as_crf_searched()
 
       {:ok, socket2} = connect(WorkerSocket, %{"token" => token})
       {:ok, _, socket2} = subscribe_and_join(socket2, "workers:crf_search")
       assert_reply push(socket2, "announce", announce_payload(worker_id: "worker-restart")), :ok
-
-      job_id = "encode-#{video.id}"
 
       assert_reply push(socket2, "encode_progress", %{
                      "job_id" => job_id,
@@ -321,6 +410,219 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                WorkerSessions.get(socket2.assigns.worker_id).jobs[job_id].progress
 
       assert Media.get_video(video.id).state == :encoding
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "rejects encode progress from a superseded attempt" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, params: []})
+      video = Fixtures.choose_vmaf(video, vmaf)
+
+      {:ok, video} =
+        Media.mark_as_encoding(video, %{
+          encode_worker_id: "worker-new",
+          worker_attempt_id: "encode-new"
+        })
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-old")), :ok
+
+      assert_reply push(socket, "encode_progress", %{
+                     "job_id" => "encode-old",
+                     "video_id" => video.id,
+                     "percent" => 42.0,
+                     "fps" => 12.5,
+                     "output_bytes" => 1_000,
+                     "output_percent" => 10.0
+                   }),
+                   :error,
+                   %{reason: "unknown_worker_session"}
+
+      assert %{
+               state: :encoding,
+               encode_worker_id: "worker-new",
+               worker_attempt_id: "encode-new"
+             } = Media.get_video(video.id)
+
+      assert WorkerSessions.get(socket.assigns.worker_id).jobs == %{}
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "rejects late encode progress after the attempt stopped" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :encoding,
+          encode_worker_id: "worker-stopped",
+          worker_attempt_id: "encode-stopped"
+        })
+
+      {:ok, _video} = Media.mark_as_failed(video)
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-stopped")), :ok
+
+      assert_reply push(socket, "encode_progress", %{
+                     "job_id" => "encode-stopped",
+                     "video_id" => video.id,
+                     "percent" => 42.0,
+                     "fps" => 12.5,
+                     "output_bytes" => 1_000,
+                     "output_percent" => 10.0
+                   }),
+                   :error,
+                   %{reason: "unknown_worker_session"}
+
+      assert Media.get_video(video.id).state == :failed
+      assert WorkerSessions.get(socket.assigns.worker_id).jobs == %{}
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "acknowledges replayed encode completion for the same finished attempt" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :encoded,
+          encode_worker_id: "worker-replay",
+          worker_attempt_id: "encode-finished"
+        })
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-replay")), :ok
+
+      assert_reply push(socket, "encode_completed", %{
+                     "job_id" => "encode-finished",
+                     "video_id" => video.id,
+                     "source_name" => Path.basename(video.path),
+                     "output_path" => "/already/moved.mkv",
+                     "output_bytes" => 1,
+                     "output_percent" => 1.0
+                   }),
+                   :ok,
+                   %{accepted: true, event: "encode_completed"}
+
+      assert Media.get_video(video.id).state == :encoded
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "rejects replayed encode completion from a different attempt" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :encoded,
+          encode_worker_id: "worker-replay",
+          worker_attempt_id: "encode-finished"
+        })
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-replay")), :ok
+
+      assert_reply push(socket, "encode_completed", %{
+                     "job_id" => "encode-stale",
+                     "video_id" => video.id,
+                     "source_name" => Path.basename(video.path),
+                     "output_path" => "/already/moved.mkv",
+                     "output_bytes" => 1,
+                     "output_percent" => 1.0
+                   }),
+                   :error,
+                   %{reason: "unknown_worker_session"}
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "rejects a stopped acknowledgement from a superseded job" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :encoding,
+          encode_worker_id: "worker-new",
+          worker_attempt_id: "encode-new"
+        })
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-old")), :ok
+
+      assert {:ok, _session} =
+               WorkerSessions.assign_job(socket.assigns.worker_id, %WorkerSessions.Job{
+                 job_id: "encode-old",
+                 job_type: :encode,
+                 video_id: video.id
+               })
+
+      assert_reply push(socket, "control_state", %{
+                     "state" => "stopped",
+                     "job_id" => "encode-old"
+                   }),
+                   :error,
+                   %{reason: "unknown_worker_session"}
+
+      assert %{
+               state: :encoding,
+               encode_worker_id: "worker-new",
+               worker_attempt_id: "encode-new"
+             } = Media.get_video(video.id)
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "records an encode failure once and acknowledges its replay" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :encoding,
+          encode_worker_id: "worker-failure",
+          worker_attempt_id: "encode-failure"
+        })
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-failure")), :ok
+
+      payload = %{
+        "job_id" => "encode-failure",
+        "video_id" => video.id,
+        "stage" => "encoding",
+        "category" => "process_failure",
+        "message" => "encoder exited",
+        "code" => "EXIT_254",
+        "context" => %{}
+      }
+
+      assert_reply push(socket, "video_failed", payload),
+                   :ok,
+                   %{accepted: true, event: "video_failed"}
+
+      assert Media.get_video(video.id).state == :failed
+      assert [%{failure_code: "EXIT_254"}] = Media.get_video_failures(video.id)
+
+      assert_reply push(socket, "video_failed", payload),
+                   :ok,
+                   %{accepted: true, event: "video_failed"}
+
+      assert [_failure] = Media.get_video_failures(video.id)
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
@@ -597,11 +899,11 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert_reply push(socket, "pull_work", %{}),
                    :ok,
-                   %{status: "job_assigned", video_id: ^video_id}
+                   %{status: "job_assigned", video_id: ^video_id, job_id: job_id}
 
       assert_reply push(socket, "transfer_progress", %{
                      "video_id" => video_id,
-                     "job_id" => "job-1",
+                     "job_id" => job_id,
                      "filename" => Path.basename(video.path),
                      "percent" => 25.5,
                      "received_bytes" => 2_621_440,
@@ -617,8 +919,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert_receive {:transfer_progress,
                       %{
                         video_id: ^video_id,
-                        transfer_id: "job-1",
-                        job_id: "job-1",
+                        transfer_id: ^job_id,
+                        job_id: ^job_id,
                         filename: filename,
                         percent: 25.5,
                         bytes_sent: 2_621_440,
@@ -635,7 +937,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert_reply push(socket, "transfer_progress", %{
                      "video_id" => video_id,
-                     "job_id" => "job-1",
+                     "job_id" => job_id,
                      "filename" => Path.basename(video.path),
                      "percent" => 50.0,
                      "received_bytes" => 5_242_880,
@@ -661,7 +963,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert derived_eta >= 0
 
       assert_reply push(socket, "crf_search_progress", %{
-                     "job_id" => "crf-#{video_id}",
+                     "job_id" => job_id,
                      "video_id" => video_id,
                      "percent" => 62.0,
                      "filename" => Path.basename(video.path),
@@ -691,8 +993,6 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert session.phase == :crf_searching
       assert is_nil(session.transfer_progress)
       assert session.crf_search_progress.percent == 62.0
-
-      job_id = "crf-#{video_id}"
 
       Phoenix.PubSub.broadcast(
         Reencodarr.PubSub,
@@ -966,9 +1266,15 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert_reply push(socket, "pull_work", %{}),
                    :ok,
-                   %{status: "job_assigned", video_id: ^video_id, crf_search_args: assigned_args}
+                   %{
+                     status: "job_assigned",
+                     video_id: ^video_id,
+                     job_id: job_id,
+                     crf_search_args: assigned_args
+                   }
 
       assert_reply push(socket, "crf_search_progress", %{
+                     "job_id" => job_id,
                      "video_id" => video_id,
                      "percent" => 12.5,
                      "filename" => Path.basename(video.path),
@@ -1007,6 +1313,10 @@ defmodule ReencodarrWeb.WorkerChannelTest do
           })
 
         video_id = video.id
+        job_id = "crf-resume"
+
+        assert %Media.Video{id: ^video_id} =
+                 Media.claim_next_video_for_crf_search("worker-a", job_id)
 
         assert {:ok, _session} =
                  WorkerSessions.register(%{
@@ -1018,12 +1328,17 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                  })
 
         assert {:ok, _session} =
-                 WorkerSessions.assign_video("worker-server-1", video_id, :receiving_input)
+                 WorkerSessions.assign_video(
+                   "worker-server-1",
+                   video_id,
+                   :receiving_input,
+                   job_id
+                 )
 
         assert {:ok, _session} =
                  WorkerSessions.set_transfer_progress("worker-server-1", %{
-                   job_id: Integer.to_string(video_id),
-                   transfer_id: Integer.to_string(video_id),
+                   job_id: job_id,
+                   transfer_id: job_id,
                    filename: Path.basename(video.path),
                    percent: 50.0,
                    bytes_sent: 4,
@@ -1056,7 +1371,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
           chunk_size_bytes: ^chunk_size_bytes
         }
 
-        assert transfer_id == Integer.to_string(video_id)
+        assert transfer_id == job_id
       end)
     after
       Application.delete_env(:reencodarr, :worker_token)
@@ -1386,13 +1701,21 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
     test "accepts encode transfer progress when no websocket transfer is assigned" do
       server_worker_id = "worker-server-encode-progress"
-      video_id = System.unique_integer([:positive])
+      client_worker_id = "worker-client-encode-progress"
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      video_id = video.id
       job_id = "encode-#{video_id}"
+
+      {:ok, _video} =
+        Media.mark_as_encoding(video, %{
+          encode_worker_id: client_worker_id,
+          worker_attempt_id: job_id
+        })
 
       {:ok, _session} =
         WorkerSessions.register(%{
           server_worker_id: server_worker_id,
-          client_worker_id: "worker-client-encode-progress",
+          client_worker_id: client_worker_id,
           version: "0.11.4",
           protocol_version: 1,
           capabilities: %{"encode" => true}
@@ -1409,6 +1732,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       socket = %Phoenix.Socket{
         assigns: %{
           worker_id: server_worker_id,
+          client_worker_id: client_worker_id,
           encode_job_id: job_id,
           encode_video_id: video_id
         }
@@ -1451,9 +1775,10 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert_reply push(socket, "pull_work", %{}),
                    :ok,
-                   %{status: "job_assigned", video_id: ^video_id}
+                   %{status: "job_assigned", video_id: ^video_id, job_id: job_id}
 
       assert_reply push(socket, "crf_search_result", %{
+                     "job_id" => job_id,
                      "video_id" => video_id,
                      "results" => [
                        %{
@@ -1485,7 +1810,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert WorkerSessions.get(socket.assigns.worker_id).active_video_id == nil
 
       assert_reply push(socket, "crf_search_completed", %{
-                     "job_id" => Integer.to_string(video_id),
+                     "job_id" => job_id,
                      "video_id" => video_id,
                      "result" => "ok",
                      "chosen_crf" => 28
@@ -1502,6 +1827,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    %{status: "no_work"}
 
       assert_reply push(socket, "crf_search_result", %{
+                     "job_id" => job_id,
                      "video_id" => video_id,
                      "results" => [
                        %{
@@ -1568,9 +1894,10 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert_reply push(socket, "pull_work", %{}),
                    :ok,
-                   %{status: "job_assigned", video_id: ^video_id}
+                   %{status: "job_assigned", video_id: ^video_id, job_id: job_id}
 
       assert_reply push(socket, "crf_search_result", %{
+                     "job_id" => job_id,
                      "video_id" => video_id,
                      "results" => [
                        %{
@@ -1585,6 +1912,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    %{accepted: true, event: "crf_search_result"}
 
       assert_reply push(socket, "crf_search_completed", %{
+                     "job_id" => job_id,
                      "video_id" => video_id,
                      "result" => "ok"
                    }),
@@ -1615,9 +1943,10 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert_reply push(socket, "pull_work", %{}),
                    :ok,
-                   %{status: "job_assigned", video_id: ^video_id}
+                   %{status: "job_assigned", video_id: ^video_id, job_id: job_id}
 
       assert_reply push(socket, "crf_search_completed", %{
+                     "job_id" => job_id,
                      "video_id" => video_id,
                      "result" => "ok",
                      "results" => [
@@ -1672,9 +2001,10 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert_reply push(socket, "pull_work", %{}),
                    :ok,
-                   %{status: "job_assigned", video_id: ^video_id}
+                   %{status: "job_assigned", video_id: ^video_id, job_id: job_id}
 
       assert_reply push(socket, "crf_search_result", %{
+                     "job_id" => job_id,
                      "video_id" => video_id,
                      "results" => [
                        %{
@@ -1688,6 +2018,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    %{accepted: true, event: "crf_search_result"}
 
       assert_reply push(socket, "crf_search_completed", %{
+                     "job_id" => job_id,
                      "video_id" => video_id,
                      "result" => "ok"
                    }),
@@ -1704,7 +2035,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
-    test "accepts a CRF result for already dispatched work before the session is rebuilt" do
+    test "accepts a legacy CRF result after the worker session is rebuilt" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
@@ -1721,6 +2052,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
       assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")), :ok
 
       assert_reply push(socket, "crf_search_result", %{
                      "job_id" => Integer.to_string(video_id),
@@ -1763,9 +2096,10 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert_reply push(socket, "pull_work", %{}),
                    :ok,
-                   %{status: "job_assigned", video_id: ^video_id}
+                   %{status: "job_assigned", video_id: ^video_id, job_id: job_id}
 
       assert_reply push(socket, "video_failed", %{
+                     "job_id" => job_id,
                      "video_id" => video_id,
                      "stage" => "crf_search",
                      "category" => "timeout",
@@ -1810,9 +2144,14 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert_reply push(old_worker_socket, "pull_work", %{}),
                    :ok,
-                   %{status: "job_assigned", video_id: ^old_worker_video_id}
+                   %{
+                     status: "job_assigned",
+                     video_id: ^old_worker_video_id,
+                     job_id: old_job_id
+                   }
 
       assert_reply push(old_worker_socket, "video_failed", %{
+                     "job_id" => old_job_id,
                      "video_id" => old_worker_video_id,
                      "stage" => "crf_search",
                      "category" => "process_failure",
@@ -1845,9 +2184,14 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert_reply push(cancel_socket, "pull_work", %{}),
                    :ok,
-                   %{status: "job_assigned", video_id: ^cancelled_video_id}
+                   %{
+                     status: "job_assigned",
+                     video_id: ^cancelled_video_id,
+                     job_id: cancelled_job_id
+                   }
 
       assert_reply push(cancel_socket, "crf_search_completed", %{
+                     "job_id" => cancelled_job_id,
                      "video_id" => cancelled_video_id,
                      "result" => "cancelled"
                    }),
@@ -1857,6 +2201,14 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert_receive {:crf_search_completed, %{video_id: ^cancelled_video_id, result: :cancelled}}
 
       assert Media.get_video(cancelled_video_id).state == :analyzed
+
+      assert_reply push(cancel_socket, "crf_search_completed", %{
+                     "job_id" => cancelled_job_id,
+                     "video_id" => cancelled_video_id,
+                     "result" => "cancelled"
+                   }),
+                   :ok,
+                   %{accepted: true, event: "crf_search_completed"}
     after
       Application.delete_env(:reencodarr, :worker_token)
     end

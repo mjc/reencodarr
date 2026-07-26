@@ -163,6 +163,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
 
     assert {:ok,
             %CrfSearchResult{
+              job_id: "job-123",
               video_id: 123,
               results: [
                 %{

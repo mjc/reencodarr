@@ -94,9 +94,10 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     @moduledoc false
 
     @enforce_keys [:video_id, :results]
-    defstruct [:video_id, :results]
+    defstruct [:job_id, :video_id, :results]
 
     @type t :: %__MODULE__{
+            job_id: String.t() | nil,
             video_id: pos_integer(),
             results: [map()]
           }
@@ -338,7 +339,12 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     with {:ok, video_id} <-
            required_integer(payload, [:video_id, "video_id"], :invalid_crf_search_result),
          {:ok, results} <- parse_result_batch(payload) do
-      {:ok, %CrfSearchResult{video_id: video_id, results: results}}
+      {:ok,
+       %CrfSearchResult{
+         job_id: optional_string(payload, [:job_id, "job_id"]),
+         video_id: video_id,
+         results: results
+       }}
     end
   end
 
