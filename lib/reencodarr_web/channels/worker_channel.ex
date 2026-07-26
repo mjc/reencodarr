@@ -814,9 +814,16 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp handle_parsed_encode_completion(socket, completion) do
     case ensure_encode_completion(socket, completion) do
-      {:ok, socket} -> finish_encode_completion(socket, completion)
-      {:duplicate, socket} -> acknowledge_encode_completion(socket, completion)
-      {:error, reason} -> {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+      {:ok, socket} ->
+        with_terminal_claim(socket, completion.video_id, completion.job_id, :encode, fn ->
+          finish_encode_completion(socket, completion)
+        end)
+
+      {:duplicate, socket} ->
+        acknowledge_encode_completion(socket, completion)
+
+      {:error, reason} ->
+        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
   end
 
@@ -963,10 +970,12 @@ defmodule ReencodarrWeb.WorkerChannel do
 
     case ensure_encode_failure(socket, failure) do
       {:ok, socket, video} ->
-        record_worker_failure(video, failure)
-        _ = Media.mark_as_failed(video)
-        Events.broadcast_event(:video_failed, failure)
-        acknowledge_encode_failure(worker_id, socket, failure)
+        with_terminal_claim(socket, video.id, failure.job_id, :encode, fn ->
+          record_worker_failure(video, failure)
+          _ = Media.mark_as_failed(video)
+          Events.broadcast_event(:video_failed, failure)
+          acknowledge_encode_failure(worker_id, socket, failure)
+        end)
 
       {:duplicate, socket} ->
         acknowledge_encode_failure(worker_id, socket, failure)
@@ -1004,10 +1013,13 @@ defmodule ReencodarrWeb.WorkerChannel do
     case ensure_crf_delivery(socket, failure, [:failed]) do
       {:active, socket} ->
         video = Media.get_video(failure.video_id)
-        record_worker_failure(video, failure)
-        _ = Media.mark_as_failed(video)
-        Events.broadcast_event(:video_failed, failure)
-        acknowledge_crf_terminal(worker_id, socket, "video_failed")
+
+        with_terminal_claim(socket, video.id, failure.job_id, :crf_search, fn ->
+          record_worker_failure(video, failure)
+          _ = Media.mark_as_failed(video)
+          Events.broadcast_event(:video_failed, failure)
+          acknowledge_crf_terminal(worker_id, socket, "video_failed")
+        end)
 
       {:duplicate, socket} ->
         acknowledge_crf_terminal(worker_id, socket, "video_failed")
@@ -1343,7 +1355,13 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp handle_parsed_crf_search_completed(worker_id, socket, completion) do
     case ensure_crf_delivery(socket, completion, [:analyzed, :crf_searched, :failed]) do
       {:active, socket} ->
-        handle_valid_crf_search_completion(worker_id, socket, completion)
+        with_terminal_claim(
+          socket,
+          completion.video_id,
+          completion.job_id,
+          :crf_search,
+          fn -> handle_valid_crf_search_completion(worker_id, socket, completion) end
+        )
 
       {:duplicate, socket} ->
         acknowledge_crf_terminal(worker_id, socket, "crf_search_completed")
@@ -1374,6 +1392,29 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp acknowledge_crf_terminal(worker_id, socket, event) do
     {:reply, {:ok, WorkerProtocol.event_ack(event)}, clear_assigned_video(worker_id, socket)}
+  end
+
+  defp with_terminal_claim(socket, video_id, job_id, job_type, fun) do
+    case Media.claim_worker_terminal(video_id, job_id, job_type) do
+      {:ok, :claimed} ->
+        release_terminal_claim_on_error(fun.(), video_id, job_id, job_type)
+
+      {:error, reason} ->
+        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+    end
+  end
+
+  defp release_terminal_claim_on_error(
+         {:reply, {:ok, _payload}, _socket} = reply,
+         _video_id,
+         _job_id,
+         _job_type
+       ),
+       do: reply
+
+  defp release_terminal_claim_on_error(reply, video_id, job_id, job_type) do
+    Media.release_worker_terminal(video_id, job_id, job_type)
+    reply
   end
 
   defp apply_completion_result(worker_id, socket, video, :ok, chosen_crf, results) do

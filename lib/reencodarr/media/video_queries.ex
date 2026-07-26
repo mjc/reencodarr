@@ -225,7 +225,8 @@ defmodule Reencodarr.Media.VideoQueries do
           worker_attempt_id: attempt_id,
           worker_control_desired_state: :running,
           worker_control_acknowledged_state: :running,
-          worker_control_command_id: nil
+          worker_control_command_id: nil,
+          worker_terminal_claimed_at: nil
         )
 
       _ ->
@@ -371,6 +372,7 @@ defmodule Reencodarr.Media.VideoQueries do
             worker_control_desired_state: :running,
             worker_control_acknowledged_state: :running,
             worker_control_command_id: nil,
+            worker_terminal_claimed_at: nil,
             original_size: original_size,
             updated_at: DateTime.utc_now()
           ]

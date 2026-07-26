@@ -908,6 +908,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   defp maybe_reset_orphaned_encoding(started_at) do
     if DateTime.diff(now(), started_at, :second) >= @orphan_reset_grace_seconds do
+      :ok = Media.release_worker_terminal_claims_before(started_at)
       :ok = Media.reset_orphaned_crf_searching(live_attempt_ids(:crf_search))
       :ok = Media.reset_orphaned_encoding(live_attempt_ids(:encode))
     end

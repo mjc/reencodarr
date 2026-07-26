@@ -44,6 +44,7 @@ defmodule Reencodarr.Media.Video do
           crf_search_worker_id: String.t() | nil,
           encode_worker_id: String.t() | nil,
           worker_attempt_id: String.t() | nil,
+          worker_terminal_claimed_at: DateTime.t() | nil,
           mediainfo: map() | nil,
           inserted_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil
@@ -88,6 +89,7 @@ defmodule Reencodarr.Media.Video do
     :worker_control_desired_state,
     :worker_control_acknowledged_state,
     :worker_control_command_id,
+    :worker_terminal_claimed_at,
     :duration,
     :mediainfo,
     :chosen_vmaf_id,
@@ -152,6 +154,7 @@ defmodule Reencodarr.Media.Video do
     field :worker_control_desired_state, Ecto.Enum, values: [:running, :paused, :stopped]
     field :worker_control_acknowledged_state, Ecto.Enum, values: [:running, :paused, :stopped]
     field :worker_control_command_id, :string
+    field :worker_terminal_claimed_at, :utc_datetime_usec
     field :mediainfo, :map
 
     # Year information from Sonarr/Radarr APIs

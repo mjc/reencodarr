@@ -535,6 +535,87 @@ defmodule Reencodarr.Media do
   defp worker_failure_stage(:crf_search), do: :crf_search
   defp worker_failure_stage(:encode), do: :encoding
 
+  @spec claim_worker_terminal(pos_integer(), String.t(), :crf_search | :encode) ::
+          {:ok, :claimed} | {:error, :terminal_busy | :stale_worker_attempt | term()}
+  def claim_worker_terminal(video_id, attempt_id, job_type)
+      when is_integer(video_id) and is_binary(attempt_id) and
+             job_type in [:crf_search, :encode] do
+    state = worker_job_video_state(job_type)
+
+    write_transaction(
+      fn ->
+        {count, _} =
+          from(v in Video,
+            where:
+              v.id == ^video_id and v.state == ^state and
+                v.worker_attempt_id == ^attempt_id and
+                is_nil(v.worker_terminal_claimed_at)
+          )
+          |> Repo.update_all(
+            set: [worker_terminal_claimed_at: DateTime.utc_now(), updated_at: DateTime.utc_now()]
+          )
+
+        classify_worker_terminal_claim(count, video_id, attempt_id, state)
+      end,
+      label: :media_claim_worker_terminal
+    )
+  end
+
+  defp classify_worker_terminal_claim(1, _video_id, _attempt_id, _state), do: :claimed
+
+  defp classify_worker_terminal_claim(0, video_id, attempt_id, state) do
+    case Repo.get(Video, video_id) do
+      %Video{
+        state: ^state,
+        worker_attempt_id: ^attempt_id,
+        worker_terminal_claimed_at: claimed_at
+      }
+      when not is_nil(claimed_at) ->
+        Repo.rollback(:terminal_busy)
+
+      _ ->
+        Repo.rollback(:stale_worker_attempt)
+    end
+  end
+
+  @spec release_worker_terminal(pos_integer(), String.t(), :crf_search | :encode) :: :ok
+  def release_worker_terminal(video_id, attempt_id, job_type)
+      when is_integer(video_id) and is_binary(attempt_id) and
+             job_type in [:crf_search, :encode] do
+    state = worker_job_video_state(job_type)
+
+    write(
+      fn ->
+        from(v in Video,
+          where:
+            v.id == ^video_id and v.state == ^state and
+              v.worker_attempt_id == ^attempt_id
+        )
+        |> Repo.update_all(set: [worker_terminal_claimed_at: nil, updated_at: DateTime.utc_now()])
+      end,
+      label: :media_release_worker_terminal
+    )
+
+    :ok
+  end
+
+  @spec release_worker_terminal_claims_before(DateTime.t()) :: :ok
+  def release_worker_terminal_claims_before(%DateTime{} = cutoff) do
+    write(
+      fn ->
+        from(v in Video,
+          where:
+            not is_nil(v.worker_terminal_claimed_at) and
+              v.worker_terminal_claimed_at < ^cutoff
+        )
+        |> Repo.update_all(set: [worker_terminal_claimed_at: nil, updated_at: DateTime.utc_now()])
+      end,
+      label: :media_release_stale_worker_terminal_claims
+    )
+
+    :ok
+  end
+
   @spec requeue_worker_attempt(pos_integer(), String.t(), :crf_search | :encode) :: :ok
   def requeue_worker_attempt(video_id, attempt_id, :crf_search)
       when is_integer(video_id) and is_binary(attempt_id) do
@@ -553,6 +634,7 @@ defmodule Reencodarr.Media do
             worker_control_desired_state: nil,
             worker_control_acknowledged_state: nil,
             worker_control_command_id: nil,
+            worker_terminal_claimed_at: nil,
             updated_at: DateTime.utc_now()
           ]
         )
@@ -582,6 +664,7 @@ defmodule Reencodarr.Media do
             worker_control_desired_state: nil,
             worker_control_acknowledged_state: nil,
             worker_control_command_id: nil,
+            worker_terminal_claimed_at: nil,
             updated_at: now
           ]
         )
@@ -599,6 +682,7 @@ defmodule Reencodarr.Media do
             worker_control_desired_state: nil,
             worker_control_acknowledged_state: nil,
             worker_control_command_id: nil,
+            worker_terminal_claimed_at: nil,
             updated_at: now
           ]
         )
@@ -1742,6 +1826,7 @@ defmodule Reencodarr.Media do
                 worker_control_desired_state: nil,
                 worker_control_acknowledged_state: nil,
                 worker_control_command_id: nil,
+                worker_terminal_claimed_at: nil,
                 updated_at: DateTime.utc_now()
               ]
             )
@@ -1760,6 +1845,7 @@ defmodule Reencodarr.Media do
                 worker_control_desired_state: nil,
                 worker_control_acknowledged_state: nil,
                 worker_control_command_id: nil,
+                worker_terminal_claimed_at: nil,
                 updated_at: DateTime.utc_now()
               ]
             )
@@ -1843,6 +1929,7 @@ defmodule Reencodarr.Media do
             {:worker_control_desired_state, nil},
             {:worker_control_acknowledged_state, nil},
             {:worker_control_command_id, nil},
+            {:worker_terminal_claimed_at, nil},
             {:updated_at, DateTime.utc_now()}
           ]
 

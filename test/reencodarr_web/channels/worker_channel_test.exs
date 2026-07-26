@@ -526,6 +526,38 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "does not acknowledge a duplicate while the exact terminal attempt is processing" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :encoding,
+          encode_worker_id: "worker-terminal",
+          worker_attempt_id: "encode-terminal",
+          worker_terminal_claimed_at: DateTime.utc_now()
+        })
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-terminal")), :ok
+
+      assert_reply push(socket, "encode_completed", %{
+                     "job_id" => "encode-terminal",
+                     "video_id" => video.id,
+                     "source_name" => Path.basename(video.path),
+                     "output_path" => "/worker/output.mkv",
+                     "output_bytes" => 1,
+                     "output_percent" => 1.0
+                   }),
+                   :error,
+                   %{reason: "terminal_busy"}
+
+      assert Media.get_video(video.id).state == :encoding
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "rejects replayed encode completion from a different attempt" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)

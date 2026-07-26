@@ -41,6 +41,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
   test "maps protocol errors to wire payloads" do
     assert WorkerProtocol.error(:unauthorized) == %{reason: "unauthorized"}
     assert WorkerProtocol.error(:unsupported_event) == %{reason: "unsupported_event"}
+    assert WorkerProtocol.error(:terminal_busy) == %{reason: "terminal_busy"}
   end
 
   test "parses job control acknowledgements into a typed command identity" do

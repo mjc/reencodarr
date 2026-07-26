@@ -801,6 +801,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
           | :invalid_encode_progress
           | :invalid_encode_completion
           | :source_missing
+          | :terminal_busy
           | :unsupported_protocol_version
           | :unsupported_event
           | :unknown_worker_session
@@ -819,6 +820,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   def error(:invalid_encode_progress), do: %{reason: "invalid_encode_progress"}
   def error(:invalid_encode_completion), do: %{reason: "invalid_encode_completion"}
   def error(:source_missing), do: %{reason: "source_missing"}
+  def error(:terminal_busy), do: %{reason: "terminal_busy"}
 
   def error(:unsupported_protocol_version) do
     %{

@@ -265,7 +265,8 @@ defmodule Reencodarr.Media.VideoUpsert do
       :worker_attempt_id,
       :worker_control_desired_state,
       :worker_control_acknowledged_state,
-      :worker_control_command_id
+      :worker_control_command_id,
+      :worker_terminal_claimed_at
     ]
 
     base =
