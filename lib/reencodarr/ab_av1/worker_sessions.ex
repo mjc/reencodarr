@@ -405,18 +405,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
         state
       ) do
     update_session_reply(server_worker_id, state, fn session ->
-      previous_progress =
-        session.jobs
-        |> Map.values()
-        |> Enum.find_value(fn
-          %Job{job_type: :crf_search, progress: %CrfSearchProgress{} = progress} -> progress
-          _job -> nil
-        end)
+      job_id = progress.job_id || Integer.to_string(progress.video_id)
+      existing_job = Enum.find(Map.values(session.jobs), &match?(%Job{job_type: :crf_search}, &1))
 
-      progress = merge_crf_search_progress(previous_progress, progress)
-
-      with {:ok, session} <- WorkerJobStateMachine.set_crf_search_progress(session, progress) do
-        job_id = progress.job_id || Integer.to_string(progress.video_id)
+      with :ok <- ensure_crf_video(existing_job, progress.video_id) do
+        progress = merge_crf_search_progress(crf_progress(existing_job), progress)
 
         {:ok,
          session
@@ -510,6 +503,15 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     schedule_expire_stale()
     {:noreply, state}
   end
+
+  defp ensure_crf_video(%Job{video_id: video_id}, expected_video_id)
+       when video_id != expected_video_id,
+       do: {:error, :invalid_worker_phase}
+
+  defp ensure_crf_video(_job, _expected_video_id), do: :ok
+
+  defp crf_progress(%Job{progress: %CrfSearchProgress{} = progress}), do: progress
+  defp crf_progress(_job), do: nil
 
   defp mark_encode_owner(client_worker_id, video_id) do
     case Media.get_video(video_id) do
