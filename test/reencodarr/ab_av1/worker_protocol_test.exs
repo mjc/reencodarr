@@ -42,6 +42,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
     assert WorkerProtocol.error(:unauthorized) == %{reason: "unauthorized"}
     assert WorkerProtocol.error(:unsupported_event) == %{reason: "unsupported_event"}
     assert WorkerProtocol.error(:terminal_busy) == %{reason: "terminal_busy"}
+    assert WorkerProtocol.error(:stale_worker_attempt) == %{reason: "stale_worker_attempt"}
   end
 
   test "parses job control acknowledgements into a typed command identity" do
