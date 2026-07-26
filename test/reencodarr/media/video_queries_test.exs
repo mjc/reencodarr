@@ -1,5 +1,6 @@
 defmodule Reencodarr.Media.VideoQueriesTest do
   use Reencodarr.DataCase, async: true
+  alias Ecto.Adapters.SQL.Sandbox
   alias Reencodarr.Media.VideoQueries
 
   describe "videos_for_crf_search/1" do
@@ -432,6 +433,37 @@ defmodule Reencodarr.Media.VideoQueriesTest do
 
       assert video_id == video.id
       assert VideoQueries.claim_next_video_for_encoding("worker-b", "attempt-b") == nil
+    end
+
+    test "simultaneous workers cannot claim the same video" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/claim_encoding_concurrently.mkv",
+          state: :crf_searched
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+      owner = self()
+
+      claim = fn worker_id, attempt_id ->
+        Task.async(fn ->
+          receive do
+            :claim -> VideoQueries.claim_next_video_for_encoding(worker_id, attempt_id)
+          end
+        end)
+      end
+
+      first = claim.("worker-a", "attempt-a")
+      second = claim.("worker-b", "attempt-b")
+      Sandbox.allow(Repo, owner, first.pid)
+      Sandbox.allow(Repo, owner, second.pid)
+      send(first.pid, :claim)
+      send(second.pid, :claim)
+
+      claims = [Task.await(first), Task.await(second)]
+      assert Enum.count(claims, &match?(%{video: %{id: id}} when id == video.id, &1)) == 1
+      assert Enum.count(claims, &is_nil/1) == 1
     end
   end
 
