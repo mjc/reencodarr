@@ -405,7 +405,15 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
         state
       ) do
     update_session_reply(server_worker_id, state, fn session ->
-      progress = merge_crf_search_progress(session.crf_search_progress, progress)
+      previous_progress =
+        session.jobs
+        |> Map.values()
+        |> Enum.find_value(fn
+          %Job{job_type: :crf_search, progress: %CrfSearchProgress{} = progress} -> progress
+          _job -> nil
+        end)
+
+      progress = merge_crf_search_progress(previous_progress, progress)
 
       with {:ok, session} <- WorkerJobStateMachine.set_crf_search_progress(session, progress) do
         job_id = progress.job_id || Integer.to_string(progress.video_id)
@@ -736,6 +744,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       {:ok, session} ->
         case update_fun.(session) do
           {:ok, updated_session} ->
+            updated_session = derive_crf_summary(updated_session)
             :ok = put_session(updated_session)
             {:reply, {:ok, updated_session}, state}
 
@@ -743,6 +752,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
             {:reply, {:error, reason}, state}
 
           updated_session ->
+            updated_session = derive_crf_summary(updated_session)
             :ok = put_session(updated_session)
             {:reply, {:ok, updated_session}, state}
         end
@@ -777,8 +787,24 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     %{session | control_state: :stopped, jobs: %{}, last_seen_at: now()}
   end
 
-  defp apply_control_state(session, control_state),
-    do: %{session | control_state: control_state, last_seen_at: now()}
+  defp apply_control_state(session, control_state) do
+    jobs =
+      Map.new(session.jobs, fn
+        {job_id, %Job{job_type: :crf_search} = job} ->
+          {job_id,
+           %Job{
+             job
+             | control_state: control_state,
+               desired_control_state: control_state,
+               control_command_id: nil
+           }}
+
+        entry ->
+          entry
+      end)
+
+    %{session | jobs: jobs, control_state: control_state, last_seen_at: now()}
+  end
 
   defp fail_active_video(%{active_video_id: nil}), do: :ok
 
@@ -857,11 +883,28 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   defp put_session(session) do
+    session = derive_crf_summary(session)
     :ok = drop_session(session.server_worker_id)
     true = :ets.insert(@by_server_table, {session.server_worker_id, session})
     true = :ets.insert(@by_client_table, {session.client_worker_id, session.server_worker_id})
     broadcast_sessions()
     :ok
+  end
+
+  defp derive_crf_summary(session) do
+    case Enum.find(Map.values(session.jobs), &match?(%Job{job_type: :crf_search}, &1)) do
+      %Job{} = job ->
+        %{
+          session
+          | active_video_id: job.video_id,
+            phase: job.phase,
+            transfer_progress: job.transfer_progress,
+            crf_search_progress: job.progress
+        }
+
+      nil ->
+        session
+    end
   end
 
   defp drop_session(server_worker_id) do

@@ -72,6 +72,34 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
            } = session.jobs["123"]
   end
 
+  test "derives legacy CRF summaries from the authoritative job" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    progress = %CrfSearchProgress{
+      job_id: "crf-attempt",
+      video_id: 123,
+      percent: 25.0
+    }
+
+    job = %Job{
+      job_id: "crf-attempt",
+      job_type: :crf_search,
+      video_id: 123,
+      phase: :crf_searching,
+      control_state: :paused,
+      desired_control_state: :paused,
+      progress: progress
+    }
+
+    assert {:ok, session} = WorkerSessions.assign_job("worker-server-1", job)
+    assert session.active_video_id == 123
+    assert session.phase == :crf_searching
+    assert session.control_state == :running
+    assert session.jobs["crf-attempt"].control_state == :paused
+    assert session.crf_search_progress == progress
+    assert WorkerSessions.get("worker-server-1") == session
+  end
+
   test "CRF progress restores its job record" do
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
 
