@@ -888,7 +888,6 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       end)
 
     Enum.each(expired_sessions, fn session ->
-      requeue_jobs(session.jobs)
       :ok = drop_session(session.server_worker_id)
     end)
 

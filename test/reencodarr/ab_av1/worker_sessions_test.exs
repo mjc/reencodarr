@@ -199,7 +199,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert WorkerSessions.list() == []
   end
 
-  test "expires stale active sessions by requeueing only in-progress videos" do
+  test "expires stale active sessions without requeueing work that may still be running" do
     {:ok, active_video} =
       Fixtures.video_fixture(%{
         state: :crf_searching,
@@ -256,8 +256,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
              )
 
     assert {:ok, [_session_one, _session_two, _session_three]} = WorkerSessions.expire_stale(0)
-    assert Media.get_video(active_video.id).state == :analyzed
-    assert Media.get_video(dispatched_video.id).state == :analyzed
+    assert Media.get_video(active_video.id).state == :crf_searching
+    assert Media.get_video(dispatched_video.id).state == :crf_searching
     assert Media.get_video(completed_video.id).state == :crf_searched
     assert WorkerSessions.list() == []
   end
@@ -745,7 +745,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert %{state: :encoding, encode_worker_id: "worker-client-1"} = Media.get_video(video.id)
   end
 
-  test "requeues an encode when its retained worker session expires" do
+  test "does not requeue an encode while its disconnected worker may still be running" do
     {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
     vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
     video = Fixtures.choose_vmaf(video, vmaf)
@@ -768,7 +768,11 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
 
     assert {:ok, [_session]} = WorkerSessions.expire_stale(0)
 
-    assert %{state: :crf_searched, encode_worker_id: nil, worker_attempt_id: nil} =
+    assert %{
+             state: :encoding,
+             encode_worker_id: "worker-client-1",
+             worker_attempt_id: ^job_id
+           } =
              Media.get_video(video.id)
   end
 
