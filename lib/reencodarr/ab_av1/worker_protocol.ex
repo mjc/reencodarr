@@ -617,7 +617,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     |> maybe_put_transfer(%{
       status: "job_assigned",
       job_type: "crf_search",
-      job_id: Integer.to_string(video_id),
+      job_id: video.worker_attempt_id || Integer.to_string(video_id),
       video_id: video_id,
       source_name: Path.basename(path),
       size_bytes: size || 0,
@@ -638,7 +638,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     |> maybe_put_transfer(%{
       status: "job_in_progress",
       job_type: "crf_search",
-      job_id: Integer.to_string(video_id),
+      job_id: video.worker_attempt_id || Integer.to_string(video_id),
       video_id: video_id,
       source_name: Path.basename(path),
       size_bytes: size || 0,
@@ -652,7 +652,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     payload = %{
       status: Keyword.get(opts, :status, "job_assigned"),
       job_type: "encode",
-      job_id: "encode-#{video.id}",
+      job_id: video.worker_attempt_id || "encode-#{video.id}",
       video_id: video.id,
       source_name: Path.basename(video.path),
       size_bytes: video.size || 0,

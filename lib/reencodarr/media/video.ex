@@ -43,6 +43,7 @@ defmodule Reencodarr.Media.Video do
           service_type: service_type() | nil,
           crf_search_worker_id: String.t() | nil,
           encode_worker_id: String.t() | nil,
+          worker_attempt_id: String.t() | nil,
           mediainfo: map() | nil,
           inserted_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil
@@ -83,6 +84,7 @@ defmodule Reencodarr.Media.Video do
     :service_type,
     :crf_search_worker_id,
     :encode_worker_id,
+    :worker_attempt_id,
     :duration,
     :mediainfo,
     :chosen_vmaf_id,
@@ -143,6 +145,7 @@ defmodule Reencodarr.Media.Video do
     field :service_type, Ecto.Enum, values: @service_types
     field :crf_search_worker_id, :string
     field :encode_worker_id, :string
+    field :worker_attempt_id, :string
     field :mediainfo, :map
 
     # Year information from Sonarr/Radarr APIs

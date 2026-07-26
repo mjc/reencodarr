@@ -394,6 +394,44 @@ defmodule Reencodarr.Media.VideoQueriesTest do
     end
   end
 
+  describe "claim_next_video_for_encoding/3" do
+    test "atomically assigns the worker and attempt while claiming the video" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/claim_encoding.mkv",
+          state: :crf_searched
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      assert %{video: claimed} =
+               VideoQueries.claim_next_video_for_encoding("worker-a", "attempt-a")
+
+      assert claimed.id == video.id
+      assert claimed.state == :encoding
+      assert claimed.encode_worker_id == "worker-a"
+      assert claimed.worker_attempt_id == "attempt-a"
+    end
+
+    test "does not claim a video that another worker already claimed" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/claim_encoding_once.mkv",
+          state: :crf_searched
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      assert %{video: %{id: video_id}} =
+               VideoQueries.claim_next_video_for_encoding("worker-a", "attempt-a")
+
+      assert video_id == video.id
+      assert VideoQueries.claim_next_video_for_encoding("worker-b", "attempt-b") == nil
+    end
+  end
+
   describe "encoding_queue_count/1" do
     test "counts crf_searched videos with a chosen VMAF" do
       before_count = VideoQueries.encoding_queue_count()

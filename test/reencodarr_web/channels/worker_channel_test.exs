@@ -79,7 +79,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                      crf_search_args: crf_search_args
                    }
 
-      assert job_id == Integer.to_string(video.id)
+      assert "crf-" <> _ = job_id
       assert assigned_video_id == video.id
       assert source_name == Path.basename(video.path)
       assert size_bytes == video.size
@@ -92,6 +92,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert "svt-av1" in crf_search_args
       assert Media.get_video(video.id).state == :crf_searching
       assert Media.get_video(video.id).crf_search_worker_id == "worker-a"
+      assert Media.get_video(video.id).worker_attempt_id == job_id
       assert [session] = WorkerSessions.list()
       assert session.active_video_id == video.id
       assert session.phase == :receiving_input
@@ -139,13 +140,18 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    %{
                      status: "job_assigned",
                      job_type: "encode",
-                     job_id: "encode-" <> _,
+                     job_id: "encode-" <> _ = job_id,
                      video_id: video_id,
                      encode_args: ["encode" | _]
                    }
 
       assert video_id == video.id
-      assert %{state: :encoding, encode_worker_id: "worker-encode"} = Media.get_video(video.id)
+
+      assert %{
+               state: :encoding,
+               encode_worker_id: "worker-encode",
+               worker_attempt_id: ^job_id
+             } = Media.get_video(video.id)
 
       assert_receive {:encoding_started,
                       %{
@@ -160,7 +166,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Phoenix.PubSub.broadcast(
         Reencodarr.PubSub,
         WorkerChannel.worker_control_topic(socket.assigns.worker_id),
-        {:worker_control, :pause, "encode-#{video.id}"}
+        {:worker_control, :pause, job_id}
       )
 
       assert_push "control", %{
@@ -170,7 +176,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       }
 
       assert_reply push(socket, "encode_progress", %{
-                     "job_id" => "encode-#{video.id}",
+                     "job_id" => job_id,
                      "video_id" => video.id,
                      "percent" => 50.0,
                      "fps" => 12.5,
@@ -202,7 +208,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       end)
 
       assert_reply push(socket, "encode_completed", %{
-                     "job_id" => "encode-#{video.id}",
+                     "job_id" => job_id,
                      "video_id" => video.id,
                      "source_name" => Path.basename(video.path),
                      "output_path" => "/remote/worker/output.mkv",
@@ -235,13 +241,17 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       {:ok, socket1} = connect(WorkerSocket, %{"token" => token})
       {:ok, _, socket1} = subscribe_and_join(socket1, "workers:crf_search")
       assert_reply push(socket1, "announce", announce_payload(worker_id: "worker-reconnect")), :ok
-      assert_reply push(socket1, "pull_work", %{"job_type" => "encode"}), :ok
+
+      assert_reply push(socket1, "pull_work", %{"job_type" => "encode"}),
+                   :ok,
+                   %{job_id: job_id}
+
       old_server_id = socket1.assigns.worker_id
       Process.unlink(socket1.channel_pid)
       assert :ok = close(socket1)
 
       assert [%{jobs: jobs}] = WorkerSessions.list()
-      assert %{video_id: video_id} = jobs["encode-#{video.id}"]
+      assert %{video_id: video_id} = jobs[job_id]
       assert video_id == video.id
 
       {:ok, socket2} = connect(WorkerSocket, %{"token" => token})
@@ -251,11 +261,11 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert_reply push(socket2, "pull_work", %{"job_type" => "encode"}),
                    :ok,
-                   %{status: "job_in_progress", job_id: "encode-" <> _, video_id: ^video_id}
+                   %{status: "job_in_progress", job_id: ^job_id, video_id: ^video_id}
 
       assert is_nil(WorkerSessions.get(old_server_id))
 
-      assert WorkerSessions.get(socket2.assigns.worker_id).jobs["encode-#{video.id}"].video_id ==
+      assert WorkerSessions.get(socket2.assigns.worker_id).jobs[job_id].video_id ==
                video.id
     after
       Application.delete_env(:reencodarr, :worker_token)
@@ -1322,11 +1332,14 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       {:ok, socket} = connect(WorkerSocket, %{"token" => token})
       {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
       assert_reply push(socket, "announce", announce_payload(worker_id: "worker-dual")), :ok
-      assert_reply push(socket, "pull_work", %{"job_type" => "crf_search"}), :ok
-      assert_reply push(socket, "pull_work", %{"job_type" => "encode"}), :ok
 
-      crf_job_id = Integer.to_string(crf_video.id)
-      encode_job_id = "encode-#{encode_video.id}"
+      assert_reply push(socket, "pull_work", %{"job_type" => "crf_search"}),
+                   :ok,
+                   %{job_id: crf_job_id}
+
+      assert_reply push(socket, "pull_work", %{"job_type" => "encode"}),
+                   :ok,
+                   %{job_id: encode_job_id}
 
       assert_push "transfer_started", %{transfer_id: first_started}
       assert_push "transfer_started", %{transfer_id: second_started}

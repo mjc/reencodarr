@@ -163,6 +163,11 @@ defmodule Reencodarr.Media do
     VideoQueries.claim_next_video_for_crf_search()
   end
 
+  def claim_next_video_for_crf_search(worker_id, attempt_id)
+      when is_binary(worker_id) and is_binary(attempt_id) do
+    VideoQueries.claim_next_video_for_crf_search(worker_id: worker_id, attempt_id: attempt_id)
+  end
+
   def count_videos_for_crf_search do
     VideoQueries.count_videos_for_crf_search()
   end
@@ -190,6 +195,10 @@ defmodule Reencodarr.Media do
 
   def get_next_for_encoding(limit \\ 1) do
     query_videos_ready_for_encoding(limit)
+  end
+
+  def claim_next_video_for_encoding(worker_id, attempt_id) do
+    VideoQueries.claim_next_video_for_encoding(worker_id, attempt_id)
   end
 
   def encoding_queue_count do

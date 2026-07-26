@@ -300,7 +300,13 @@ defmodule ReencodarrWeb.WorkerChannel do
 
         socket =
           if resend?,
-            do: maybe_prepare_encode_transfer(socket, video, local?, "encode-#{video.id}"),
+            do:
+              maybe_prepare_encode_transfer(
+                socket,
+                video,
+                local?,
+                video.worker_attempt_id || "encode-#{video.id}"
+              ),
             else: socket
 
         broadcast_encoding_started(video, vmaf)
@@ -318,37 +324,37 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp handle_encode_work_request(socket, _payload) do
-    case Media.get_next_for_encoding(1) do
-      [vmaf] -> assign_encode_work(socket, vmaf)
-      [] -> {:reply, {:ok, WorkerProtocol.no_work()}, socket}
+    attempt_id = "encode-#{Ecto.UUID.generate()}"
+
+    case Media.claim_next_video_for_encoding(socket.assigns.client_worker_id, attempt_id) do
+      nil -> {:reply, {:ok, WorkerProtocol.no_work()}, socket}
+      vmaf -> assign_encode_work(socket, vmaf)
     end
   end
 
   defp assign_encode_work(socket, vmaf) do
     video = vmaf.video
-    job_id = "encode-#{video.id}"
+    job_id = video.worker_attempt_id || "encode-#{video.id}"
 
-    with {:ok, video} <-
-           Media.mark_as_encoding(video, %{encode_worker_id: socket.assigns.client_worker_id}),
-         {:ok, _session} <-
-           WorkerSessions.assign_job(socket.assigns.worker_id, %Job{
-             job_id: job_id,
-             job_type: :encode,
-             video_id: video.id,
-             phase: if(local_source?(socket, video), do: :input_ready, else: :receiving_input)
-           }) do
-      local? = local_source?(socket, video)
+    case WorkerSessions.assign_job(socket.assigns.worker_id, %Job{
+           job_id: job_id,
+           job_type: :encode,
+           video_id: video.id,
+           phase: if(local_source?(socket, video), do: :input_ready, else: :receiving_input)
+         }) do
+      {:ok, _session} ->
+        local? = local_source?(socket, video)
 
-      socket =
-        socket
-        |> assign(:encode_video_id, video.id)
-        |> assign(:encode_job_id, job_id)
-        |> maybe_prepare_encode_transfer(video, local?, job_id)
+        socket =
+          socket
+          |> assign(:encode_video_id, video.id)
+          |> assign(:encode_job_id, job_id)
+          |> maybe_prepare_encode_transfer(video, local?, job_id)
 
-      broadcast_encoding_started(video, vmaf)
+        broadcast_encoding_started(video, vmaf)
 
-      {:reply, {:ok, WorkerProtocol.encode_work_assigned(video, vmaf, local?: local?)}, socket}
-    else
+        {:reply, {:ok, WorkerProtocol.encode_work_assigned(video, vmaf, local?: local?)}, socket}
+
       {:error, _reason} ->
         {:reply, {:ok, WorkerProtocol.no_work()}, socket}
     end
@@ -788,7 +794,9 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp worker_exit_code(_failure), do: nil
 
   defp claim_work(worker_id, socket) do
-    case Media.claim_next_video_for_crf_search() do
+    attempt_id = "crf-#{Ecto.UUID.generate()}"
+
+    case Media.claim_next_video_for_crf_search(worker_dispatch_id(socket), attempt_id) do
       %Media.Video{} = video ->
         assign_claimed_work(worker_id, socket, video)
 
@@ -801,9 +809,14 @@ defmodule ReencodarrWeb.WorkerChannel do
     target_vmaf = Reencodarr.Rules.vmaf_target(video)
     local? = local_source?(socket, video)
 
-    with {:ok, _video} <- Media.mark_as_worker_crf_searching(video, worker_dispatch_id(socket)),
-         {:ok, video} <- refresh_transfer_source(video, socket.assigns[:local_worker]),
-         {:ok, _session} <- WorkerSessions.assign_video(worker_id, video.id, worker_phase(local?)) do
+    with {:ok, video} <- refresh_transfer_source(video, socket.assigns[:local_worker]),
+         {:ok, _session} <-
+           WorkerSessions.assign_video(
+             worker_id,
+             video.id,
+             worker_phase(local?),
+             video.worker_attempt_id
+           ) do
       socket =
         prepare_transfer(socket, video, target_vmaf,
           stream?: not local? and websocket_transfer_on_assign?()
@@ -826,7 +839,13 @@ defmodule ReencodarrWeb.WorkerChannel do
     local? = local_source?(socket, video)
 
     with {:ok, video} <- refresh_transfer_source(video, socket.assigns[:local_worker]),
-         {:ok, _session} <- WorkerSessions.assign_video(worker_id, video.id, worker_phase(local?)) do
+         {:ok, _session} <-
+           WorkerSessions.assign_video(
+             worker_id,
+             video.id,
+             worker_phase(local?),
+             video.worker_attempt_id
+           ) do
       socket =
         prepare_transfer(socket, video, target_vmaf,
           stream?: not local? and websocket_transfer_on_assign?(),
@@ -872,7 +891,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     do: (socket.assigns[:local_worker] || false) and File.regular?(video.path)
 
   defp prepare_transfer(socket, video, target_vmaf, opts) do
-    transfer_id = Integer.to_string(video.id)
+    transfer_id = video.worker_attempt_id || Integer.to_string(video.id)
     total_bytes = video.size || 0
     chunk_size_bytes = WorkerProtocol.chunk_size_bytes()
     total_chunks = total_chunks(total_bytes, chunk_size_bytes)

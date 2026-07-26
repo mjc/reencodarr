@@ -83,9 +83,9 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.call(__MODULE__, {:unregister, server_worker_id})
   end
 
-  def assign_video(server_worker_id, video_id, phase \\ :crf_searching)
+  def assign_video(server_worker_id, video_id, phase \\ :crf_searching, job_id \\ nil)
       when is_integer(video_id) and phase in [:receiving_input, :input_ready, :crf_searching] do
-    GenServer.call(__MODULE__, {:assign_video, server_worker_id, video_id, phase})
+    GenServer.call(__MODULE__, {:assign_video, server_worker_id, video_id, phase, job_id})
   end
 
   def clear_video(server_worker_id) do
@@ -222,10 +222,10 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     {:reply, :ok, state}
   end
 
-  def handle_call({:assign_video, server_worker_id, video_id, phase}, _from, state) do
+  def handle_call({:assign_video, server_worker_id, video_id, phase, job_id}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
       with {:ok, session} <- WorkerJobStateMachine.assign_video(session, video_id, phase) do
-        {:ok, put_crf_job(session, video_id, phase, progress: nil)}
+        {:ok, put_crf_job(session, video_id, phase, job_id: job_id, progress: nil)}
       end
     end)
   end
@@ -516,7 +516,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   @spec put_crf_job(session(), pos_integer(), Job.phase(), keyword()) :: session()
   defp put_crf_job(session, video_id, phase, opts \\ []) when is_integer(video_id) do
-    job_id = Keyword.get(opts, :job_id, Integer.to_string(video_id))
+    job_id = Keyword.get(opts, :job_id) || Integer.to_string(video_id)
 
     job =
       case Enum.find(

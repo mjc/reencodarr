@@ -192,13 +192,14 @@ defmodule Reencodarr.Media.VideoQueries do
 
   defp claim_next_video_for_crf_search_in_tx([video_id | rest], opts) do
     old_snapshot = Reencodarr.Media.fetch_dashboard_video_snapshot_by_id(video_id)
+    set_fields = crf_search_claim_fields(opts)
 
     {updated_count, updated_rows} =
       from(v in Video,
         where: v.id == ^video_id and v.state == :analyzed,
         select: v
       )
-      |> Repo.update_all([set: [state: :crf_searching, updated_at: DateTime.utc_now()]], opts)
+      |> Repo.update_all([set: set_fields], opts)
 
     case {updated_count, updated_rows} do
       {1, [video]} ->
@@ -206,6 +207,26 @@ defmodule Reencodarr.Media.VideoQueries do
 
       _ ->
         claim_next_video_for_crf_search_in_tx(rest, opts)
+    end
+  end
+
+  defp crf_search_claim_fields(opts) do
+    fields = [state: :crf_searching, updated_at: DateTime.utc_now()]
+    worker_id = Keyword.get(opts, :worker_id)
+    attempt_id = Keyword.get(opts, :attempt_id)
+
+    case {worker_id, attempt_id} do
+      {nil, nil} ->
+        fields
+
+      {worker_id, attempt_id} when is_binary(worker_id) and is_binary(attempt_id) ->
+        Keyword.merge(fields,
+          crf_search_worker_id: worker_id,
+          worker_attempt_id: attempt_id
+        )
+
+      _ ->
+        raise ArgumentError, "worker_id and attempt_id must be supplied together"
     end
   end
 
@@ -254,6 +275,44 @@ defmodule Reencodarr.Media.VideoQueries do
   end
 
   @doc """
+  Atomically claims the next video ready for encoding.
+
+  The worker and attempt are persisted in the same conditional update that
+  transitions the video to `:encoding`.
+  """
+  @spec claim_next_video_for_encoding(String.t(), String.t(), keyword()) :: Vmaf.t() | nil
+  def claim_next_video_for_encoding(worker_id, attempt_id, opts \\ [])
+      when is_binary(worker_id) and is_binary(attempt_id) do
+    DbWriter.transaction(
+      fn ->
+        claim_next_video_for_encoding_in_tx(
+          encoding_queue_candidate_ids(10, opts),
+          worker_id,
+          attempt_id,
+          opts
+        )
+      end,
+      label: :video_queries_claim_next_video_for_encoding
+    )
+    |> case do
+      {:ok, {:claimed, vmaf, old_snapshot}} ->
+        Reencodarr.Media.broadcast_video_mutation(
+          :update,
+          old_snapshot,
+          Reencodarr.Media.fetch_dashboard_video_snapshot_by_id(vmaf.video.id)
+        )
+
+        vmaf
+
+      {:ok, :none} ->
+        nil
+
+      {:error, reason} ->
+        raise "Failed to claim video for encoding: #{inspect(reason)}"
+    end
+  end
+
+  @doc """
   Gets a lightweight preview of videos ready for encoding for dashboard display.
   """
   @spec videos_ready_for_encoding_preview(integer(), keyword()) :: [map()]
@@ -267,6 +326,60 @@ defmodule Reencodarr.Media.VideoQueries do
       ),
       opts
     )
+  end
+
+  defp encoding_queue_candidate_ids(limit, opts) do
+    Repo.all(
+      from(vid in Video,
+        join: v in Vmaf,
+        on: vid.chosen_vmaf_id == v.id,
+        where: vid.state == :crf_searched,
+        order_by: [desc: vid.priority, desc: v.savings, desc: vid.updated_at],
+        limit: ^limit,
+        select: vid.id
+      ),
+      opts
+    )
+  end
+
+  defp claim_next_video_for_encoding_in_tx([], _worker_id, _attempt_id, _opts), do: :none
+
+  defp claim_next_video_for_encoding_in_tx(
+         [video_id | rest],
+         worker_id,
+         attempt_id,
+         opts
+       ) do
+    old_snapshot = Reencodarr.Media.fetch_dashboard_video_snapshot_by_id(video_id)
+    video = Repo.get!(Video, video_id)
+    original_size = video.original_size || video.size
+
+    {updated_count, updated_rows} =
+      from(v in Video,
+        where: v.id == ^video_id and v.state == :crf_searched,
+        select: v
+      )
+      |> Repo.update_all(
+        [
+          set: [
+            state: :encoding,
+            encode_worker_id: worker_id,
+            worker_attempt_id: attempt_id,
+            original_size: original_size,
+            updated_at: DateTime.utc_now()
+          ]
+        ],
+        opts
+      )
+
+    case {updated_count, updated_rows} do
+      {1, [claimed_video]} ->
+        vmaf = Repo.get!(Vmaf, claimed_video.chosen_vmaf_id)
+        {:claimed, %{vmaf | video: claimed_video}, old_snapshot}
+
+      _ ->
+        claim_next_video_for_encoding_in_tx(rest, worker_id, attempt_id, opts)
+    end
   end
 
   @doc """
