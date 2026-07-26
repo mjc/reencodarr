@@ -150,6 +150,56 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert has_element?(view, "#encode-worker-server-encode", "Paused")
     end
 
+    test "renders job-scoped worker CRF pause state", %{conn: conn} do
+      previous = Application.get_env(:reencodarr, :crf_execution_mode)
+      Application.put_env(:reencodarr, :crf_execution_mode, :worker)
+
+      on_exit(fn ->
+        if is_nil(previous),
+          do: Application.delete_env(:reencodarr, :crf_execution_mode),
+          else: Application.put_env(:reencodarr, :crf_execution_mode, previous)
+      end)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+      job_id = Integer.to_string(video.id)
+
+      {:ok, _session} =
+        WorkerSessions.register(%{
+          server_worker_id: "server-crf",
+          client_worker_id: "worker-crf",
+          protocol_version: 1,
+          version: "0.11.4",
+          capabilities: %{"crf_search" => true, "encode" => true}
+        })
+
+      {:ok, _session} =
+        WorkerSessions.assign_job("server-crf", %Job{
+          job_id: job_id,
+          job_type: :crf_search,
+          video_id: video.id
+        })
+
+      {:ok, _session} =
+        WorkerSessions.set_crf_search_progress("server-crf", %CrfSearchProgress{
+          job_id: job_id,
+          video_id: video.id,
+          percent: 42.0
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/")
+      assert has_element?(view, "#crf-worker-server-crf", "Processing")
+
+      assert {:ok, _session} =
+               WorkerSessions.set_job_control_state("server-crf", job_id, :paused)
+
+      assert has_element?(view, "#crf-worker-server-crf", "Paused")
+
+      assert has_element?(
+               view,
+               ~s(#crf-worker-server-crf button[phx-click="resume_worker_crf_search"][phx-value-job-id="#{job_id}"])
+             )
+    end
+
     test "renders worker CRF progress structs" do
       html =
         render_component(&CrfSearchComponents.crf_search_panel/1,

@@ -4,6 +4,8 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   use Phoenix.Component
 
   alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
+  alias Reencodarr.AbAv1.WorkerSessions
+  alias Reencodarr.AbAv1.WorkerSessions.Job
   alias Reencodarr.{Formatters, Media, Rules}
   alias ReencodarrWeb.ChartHelpers
 
@@ -347,6 +349,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
 
   def worker_crf_search_panel(assigns) do
     worker = assigns.worker
+    job = worker_crf_job(worker)
     crf_data = Map.get(assigns.crf_data, active_video_id(worker), %{})
 
     assigns =
@@ -354,7 +357,8 @@ defmodule ReencodarrWeb.CrfSearchComponents do
         video: worker_crf_video(crf_data[:video]),
         results: worker_crf_results(crf_data[:results]),
         sample: worker_crf_sample(worker),
-        status: worker_crf_status(worker)
+        status: worker_crf_status(worker, job),
+        job_id: job && job.job_id
       )
 
     ~H"""
@@ -375,18 +379,30 @@ defmodule ReencodarrWeb.CrfSearchComponents do
       fail_event="stop_worker_crf_search"
       start_event="start_worker_crf_search"
       worker_id={@worker.server_worker_id}
-      job_id={@worker.crf_search_progress && @worker.crf_search_progress.job_id}
+      job_id={@job_id}
     />
     """
   end
 
-  defp worker_crf_status(%{control_state: :paused}), do: :paused
-  defp worker_crf_status(%{control_state: :stopped}), do: :stopped
+  @spec worker_crf_status(WorkerSessions.session(), Job.t() | nil) ::
+          :paused | :stopped | :processing | :idle
+  defp worker_crf_status(_worker, %Job{control_state: :paused}), do: :paused
+  defp worker_crf_status(_worker, %Job{control_state: :stopped}), do: :stopped
+  defp worker_crf_status(%{control_state: :paused}, nil), do: :paused
+  defp worker_crf_status(%{control_state: :stopped}, nil), do: :stopped
 
-  defp worker_crf_status(%{active_video_id: video_id}) when is_integer(video_id),
+  defp worker_crf_status(%{active_video_id: video_id}, _job) when is_integer(video_id),
     do: :processing
 
-  defp worker_crf_status(_worker), do: :idle
+  defp worker_crf_status(_worker, %Job{}), do: :processing
+  defp worker_crf_status(_worker, nil), do: :idle
+
+  @spec worker_crf_job(WorkerSessions.session()) :: Job.t() | nil
+  defp worker_crf_job(%{jobs: jobs}) do
+    jobs
+    |> Map.values()
+    |> Enum.find(&match?(%Job{job_type: :crf_search}, &1))
+  end
 
   defp worker_crf_video(%Media.Video{} = video) do
     %{
