@@ -77,7 +77,7 @@ defmodule Reencodarr.Encoder.ExceptionHandlingTest do
           assert failure.failure_stage == :encoding
           assert failure.failure_category == :process_failure
           assert failure.failure_code == "EXIT_-3"
-          assert String.contains?(failure.failure_message, "Exception during encoding setup")
+          assert String.contains?(failure.failure_message, "Exception during process setup")
         end)
 
       assert log =~ "Recorded encoding/process_failure failure for video #{video.id}"
