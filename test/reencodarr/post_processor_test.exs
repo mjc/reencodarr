@@ -95,6 +95,34 @@ defmodule Reencodarr.PostProcessorTest do
       refute File.exists?(int_path)
     end
 
+    test "resumes after the encoded file was already moved over the original", %{tmp: tmp} do
+      video_path = Path.join(tmp, "already_finalized.mkv")
+      output_file = Path.join(tmp, "missing_worker_output.mkv")
+      encoded = "encoded content"
+
+      File.write!(video_path, encoded)
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: video_path,
+          size: 100,
+          original_size: 100,
+          state: :encoding,
+          worker_attempt_id: "encode-current"
+        })
+
+      capture_log(fn ->
+        assert {:ok, :success} =
+                 PostProcessor.process_encoding_success(video, output_file, byte_size(encoded))
+      end)
+
+      updated = Media.get_video!(video.id)
+      assert updated.state == :encoded
+      assert updated.size == byte_size(encoded)
+      assert updated.space_saved_bytes == 100 - byte_size(encoded)
+      assert File.read!(video_path) == encoded
+    end
+
     test "larger encoded file is accepted with a warning (no size gate)", %{tmp: tmp} do
       video_path = Path.join(tmp, "video5.mkv")
       output_file = Path.join(tmp, "output5.mkv")

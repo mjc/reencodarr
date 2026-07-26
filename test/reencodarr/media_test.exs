@@ -2006,6 +2006,30 @@ defmodule Reencodarr.MediaTest do
       end)
     end
 
+    test "record_video_failure/4 stores one failure for a replayed worker attempt" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :encoding,
+          worker_attempt_id: "encode-current"
+        })
+
+      opts = [
+        code: "EXIT_254",
+        message: "worker failed",
+        worker_attempt_id: "encode-current"
+      ]
+
+      assert {:ok, first} =
+               Media.record_video_failure(video, :encoding, :process_failure, opts)
+
+      assert {:ok, replay} =
+               Media.record_video_failure(video, :encoding, :process_failure, opts)
+
+      assert replay.id == first.id
+      assert [failure] = Media.get_video_failures(video.id)
+      assert failure.worker_attempt_id == "encode-current"
+    end
+
     test "upsert_vmaf/1 handles missing video_id" do
       capture_log(fn ->
         result =

@@ -831,7 +831,8 @@ defmodule ReencodarrWeb.WorkerChannel do
     with %Media.Video{} = video <- Media.get_video(completion.video_id),
          output_path = Encode.output_file(video),
          :ok <- validate_encode_output(socket, completion, output_path),
-         {:ok, :success} <- PostProcessor.process_encoding_success(video, output_path) do
+         {:ok, :success} <-
+           PostProcessor.process_encoding_success(video, output_path, completion.output_bytes) do
       Events.broadcast_event(:encoding_completed, %{
         video_id: video.id,
         job_id: completion.job_id,
@@ -970,12 +971,7 @@ defmodule ReencodarrWeb.WorkerChannel do
 
     case ensure_encode_failure(socket, failure) do
       {:ok, socket, video} ->
-        with_terminal_claim(socket, video.id, failure.job_id, :encode, fn ->
-          record_worker_failure(video, failure)
-          _ = Media.mark_as_failed(video)
-          Events.broadcast_event(:video_failed, failure)
-          acknowledge_encode_failure(worker_id, socket, failure)
-        end)
+        handle_claimed_encode_failure(worker_id, socket, video, failure)
 
       {:duplicate, socket} ->
         acknowledge_encode_failure(worker_id, socket, failure)
@@ -983,6 +979,14 @@ defmodule ReencodarrWeb.WorkerChannel do
       {:error, reason} ->
         {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
+  end
+
+  defp handle_claimed_encode_failure(worker_id, socket, video, failure) do
+    with_terminal_claim(socket, video.id, failure.job_id, :encode, fn ->
+      finish_worker_failure(video, failure, socket, fn ->
+        acknowledge_encode_failure(worker_id, socket, failure)
+      end)
+    end)
   end
 
   defp ensure_encode_failure(socket, %{job_id: job_id, video_id: video_id} = failure) do
@@ -1013,13 +1017,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     case ensure_crf_delivery(socket, failure, [:failed]) do
       {:active, socket} ->
         video = Media.get_video(failure.video_id)
-
-        with_terminal_claim(socket, video.id, failure.job_id, :crf_search, fn ->
-          record_worker_failure(video, failure)
-          _ = Media.mark_as_failed(video)
-          Events.broadcast_event(:video_failed, failure)
-          acknowledge_crf_terminal(worker_id, socket, "video_failed")
-        end)
+        handle_claimed_crf_failure(worker_id, socket, video, failure)
 
       {:duplicate, socket} ->
         acknowledge_crf_terminal(worker_id, socket, "video_failed")
@@ -1027,6 +1025,14 @@ defmodule ReencodarrWeb.WorkerChannel do
       {:error, reason} ->
         {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
+  end
+
+  defp handle_claimed_crf_failure(worker_id, socket, video, failure) do
+    with_terminal_claim(socket, video.id, failure.job_id, :crf_search, fn ->
+      finish_worker_failure(video, failure, socket, fn ->
+        acknowledge_crf_terminal(worker_id, socket, "video_failed")
+      end)
+    end)
   end
 
   defp record_worker_failure(video, failure) do
@@ -1037,13 +1043,26 @@ defmodule ReencodarrWeb.WorkerChannel do
         Media.record_video_failure(video, failure.stage, failure.category,
           code: failure.code,
           message: failure.message,
-          context: context
+          context: context,
+          worker_attempt_id: failure.job_id
         )
 
       exit_code ->
         FailureTracker.record_process_exit_failure(video, failure.stage, exit_code,
-          context: context
+          context: context,
+          worker_attempt_id: failure.job_id
         )
+    end
+  end
+
+  defp finish_worker_failure(video, failure, socket, acknowledge) do
+    case record_worker_failure(video, failure) do
+      {:ok, _failure} ->
+        Events.broadcast_event(:video_failed, failure)
+        acknowledge.()
+
+      {:error, _reason} ->
+        {:reply, {:error, WorkerProtocol.error(:invalid_failure_report)}, socket}
     end
   end
 

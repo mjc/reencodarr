@@ -14,14 +14,21 @@ defmodule Reencodarr.PostProcessor do
 
   alias Reencodarr.{FileOperations, Media, Repo, Sync}
 
-  @spec process_encoding_success(video :: any(), output_file :: String.t()) ::
+  @spec process_encoding_success(
+          video :: any(),
+          output_file :: String.t(),
+          non_neg_integer() | nil
+        ) ::
           {:ok, :success} | {:error, atom()}
-  def process_encoding_success(video, output_file) do
-    with :ok <- verify_encoded_output(video, output_file),
-         intermediate_path = FileOperations.calculate_intermediate_path(video),
+  def process_encoding_success(video, output_file, expected_output_bytes \\ nil) do
+    intermediate_path = FileOperations.calculate_intermediate_path(video)
+
+    with {:ok, stage} <-
+           locate_encoded_output(video, output_file, intermediate_path, expected_output_bytes),
          _ = store_original_size(video),
-         {:ok, actual_path} <- move_to_intermediate(output_file, intermediate_path, video),
-         {:ok, _sync_result} <- process_intermediate_success(video, actual_path) do
+         {:ok, actual_path} <- prepare_intermediate(stage, output_file, intermediate_path, video),
+         {:ok, _sync_result} <-
+           process_intermediate_success(video, actual_path, expected_output_bytes) do
       {:ok, :success}
     else
       {:error, :failed_to_move_to_intermediate} = error ->
@@ -46,6 +53,38 @@ defmodule Reencodarr.PostProcessor do
         {:error, :verification_failed}
     end
   end
+
+  defp locate_encoded_output(video, output_file, intermediate_path, expected_output_bytes) do
+    cond do
+      File.regular?(output_file) ->
+        with :ok <- verify_encoded_output(video, output_file), do: {:ok, :output}
+
+      File.regular?(intermediate_path) ->
+        with :ok <- verify_encoded_output(video, intermediate_path), do: {:ok, :intermediate}
+
+      finalized_output?(video.path, expected_output_bytes) ->
+        {:ok, :final}
+
+      true ->
+        {:error, "encoded file not found"}
+    end
+  end
+
+  defp finalized_output?(path, expected_output_bytes)
+       when is_integer(expected_output_bytes) and expected_output_bytes > 0 do
+    match?({:ok, %File.Stat{size: ^expected_output_bytes}}, File.stat(path))
+  end
+
+  defp finalized_output?(_path, _expected_output_bytes), do: false
+
+  defp prepare_intermediate(:output, output_file, intermediate_path, video),
+    do: move_to_intermediate(output_file, intermediate_path, video)
+
+  defp prepare_intermediate(:intermediate, _output_file, intermediate_path, _video),
+    do: {:ok, intermediate_path}
+
+  defp prepare_intermediate(:final, _output_file, _intermediate_path, video),
+    do: {:ok, video.path}
 
   @spec process_encoding_failure(video :: any(), exit_code :: integer(), context :: map()) :: :ok
   def process_encoding_failure(video, exit_code, context \\ %{}) do
@@ -91,9 +130,10 @@ defmodule Reencodarr.PostProcessor do
     end
   end
 
-  @spec process_intermediate_success(any(), String.t()) :: {:ok, String.t()} | {:error, any()}
+  @spec process_intermediate_success(any(), String.t(), non_neg_integer() | nil) ::
+          {:ok, String.t()} | {:error, any()}
 
-  defp process_intermediate_success(video, actual_path) do
+  defp process_intermediate_success(video, actual_path, expected_output_bytes) do
     case Repo.reload(video) do
       nil ->
         Logger.error(
@@ -111,16 +151,17 @@ defmodule Reencodarr.PostProcessor do
         {:error, :failed_to_finalize}
 
       reloaded ->
-        process_reloaded_video(reloaded, actual_path)
+        process_reloaded_video(reloaded, actual_path, expected_output_bytes)
     end
   end
 
-  @spec process_reloaded_video(any(), String.t()) :: {:ok, String.t()} | {:error, any()}
+  @spec process_reloaded_video(any(), String.t(), non_neg_integer() | nil) ::
+          {:ok, String.t()} | {:error, any()}
 
-  defp process_reloaded_video(video, actual_path) do
-    with :ok <- finalize_encoded_file(video, actual_path),
-         {:ok, updated_video} <- mark_finalized_video_as_encoded(video) do
-      update_encoded_file_size(updated_video)
+  defp process_reloaded_video(video, actual_path, expected_output_bytes) do
+    with :ok <- maybe_finalize_encoded_file(video, actual_path),
+         {:ok, file_size} <- finalized_file_size(video.path, expected_output_bytes),
+         {:ok, updated_video} <- mark_finalized_video_as_encoded(video, file_size) do
       spawn_refresh_and_rename_task(updated_video)
     else
       {:error, :failed_to_finalize} = error ->
@@ -128,6 +169,21 @@ defmodule Reencodarr.PostProcessor do
 
       {:error, _reason} ->
         {:error, :failed_to_mark_encoded}
+    end
+  end
+
+  defp maybe_finalize_encoded_file(video, path) when path == video.path, do: :ok
+  defp maybe_finalize_encoded_file(video, path), do: finalize_encoded_file(video, path)
+
+  defp finalized_file_size(path, expected_output_bytes) do
+    case File.stat(path) do
+      {:ok, %File.Stat{size: size}} when size > 0 ->
+        if is_integer(expected_output_bytes) and size != expected_output_bytes,
+          do: {:error, :failed_to_finalize},
+          else: {:ok, size}
+
+      _ ->
+        {:error, :failed_to_finalize}
     end
   end
 
@@ -160,8 +216,11 @@ defmodule Reencodarr.PostProcessor do
     end
   end
 
-  defp mark_finalized_video_as_encoded(video) do
-    case Media.mark_as_reencoded(video) do
+  defp mark_finalized_video_as_encoded(video, file_size) do
+    original_size = video.original_size || video.size || 0
+    attrs = %{size: file_size, space_saved_bytes: max(original_size - file_size, 0)}
+
+    case Media.mark_as_reencoded(video, attrs) do
       {:ok, updated_video} ->
         Logger.info("Successfully marked video #{video.id} as re-encoded")
         {:ok, updated_video}
@@ -174,34 +233,6 @@ defmodule Reencodarr.PostProcessor do
         )
 
         {:error, reason}
-    end
-  end
-
-  # Persist the exact savings from the finalized output.
-  defp update_encoded_file_size(video) do
-    case File.stat(video.path) do
-      {:ok, %File.Stat{size: file_size}} when file_size > 0 ->
-        space_saved_bytes = max((video.original_size || video.size || 0) - file_size, 0)
-
-        Media.update_video(video, %{size: file_size, space_saved_bytes: space_saved_bytes})
-        |> tap(fn
-          {:ok, _} ->
-            Logger.info(
-              "Updated video #{video.id} encoded size: #{format_size(file_size)} " <>
-                "(original: #{format_size(video.size)})"
-            )
-
-          {:error, reason} ->
-            Logger.warning(
-              "Failed to update encoded size for video #{video.id}: #{inspect(reason)}"
-            )
-        end)
-
-      {:ok, %File.Stat{size: 0}} ->
-        Logger.warning("Encoded file at #{video.path} is 0 bytes, not updating size")
-
-      {:error, reason} ->
-        Logger.warning("Cannot stat encoded file #{video.path}: #{inspect(reason)}")
     end
   end
 

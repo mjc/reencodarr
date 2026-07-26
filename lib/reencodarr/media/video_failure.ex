@@ -81,6 +81,7 @@ defmodule Reencodarr.Media.VideoFailure do
     field :failure_code, :string
     field :failure_message, :string
     field :system_context, :map
+    field :worker_attempt_id, :string
     field :retry_count, :integer, default: 0
     field :resolved, :boolean, default: false
     field :resolved_at, :utc_datetime
@@ -98,6 +99,7 @@ defmodule Reencodarr.Media.VideoFailure do
       :failure_code,
       :failure_message,
       :system_context,
+      :worker_attempt_id,
       :retry_count,
       :resolved,
       :resolved_at
@@ -124,6 +126,7 @@ defmodule Reencodarr.Media.VideoFailure do
     message = Keyword.get(opts, :message, "Failure occurred")
     context = Keyword.get(opts, :context, %{})
     retry_count = Keyword.get(opts, :retry_count, 0)
+    worker_attempt_id = Keyword.get(opts, :worker_attempt_id)
 
     # Enhance context with system information
     enhanced_context =
@@ -141,14 +144,27 @@ defmodule Reencodarr.Media.VideoFailure do
       failure_code: code,
       failure_message: message,
       system_context: enhanced_context,
+      worker_attempt_id: worker_attempt_id,
       retry_count: retry_count
     }
 
     DbWriter.run(
       fn ->
-        Reencodarr.Repo.insert(changeset(%__MODULE__{}, attrs))
+        case existing_worker_failure(video.id, worker_attempt_id) do
+          nil -> Reencodarr.Repo.insert(changeset(%__MODULE__{}, attrs))
+          failure -> {:ok, failure}
+        end
       end,
       label: :video_failure_insert
+    )
+  end
+
+  defp existing_worker_failure(_video_id, nil), do: nil
+
+  defp existing_worker_failure(video_id, worker_attempt_id) do
+    Reencodarr.Repo.get_by(__MODULE__,
+      video_id: video_id,
+      worker_attempt_id: worker_attempt_id
     )
   end
 

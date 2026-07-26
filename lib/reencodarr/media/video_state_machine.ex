@@ -369,8 +369,8 @@ defmodule Reencodarr.Media.VideoStateMachine do
   def mark_as_encoding(%Video{} = video, attrs \\ %{}),
     do: mark_video_state(video, &transition_to_encoding(&1, attrs), broadcast: false)
 
-  @spec mark_as_reencoded(Video.t()) :: {:ok, Video.t()} | {:error, any()}
-  def mark_as_reencoded(%Video{} = video) do
+  @spec mark_as_reencoded(Video.t(), map()) :: {:ok, Video.t()} | {:error, any()}
+  def mark_as_reencoded(%Video{} = video, attrs \\ %{}) do
     case video.state do
       :encoded ->
         {:ok, video}
@@ -384,13 +384,13 @@ defmodule Reencodarr.Media.VideoStateMachine do
              :crf_searching,
              :failed
            ] ->
-        do_transition_to_encoded(%{video | state: :encoding})
+        do_transition_to_encoded(%{video | state: :encoding}, attrs)
     end
   end
 
-  defp do_transition_to_encoded(video) do
+  defp do_transition_to_encoded(video, attrs) do
     # Force :encoding so the :encoding → :encoded transition is always valid
-    case transition_to_encoded(video) do
+    case transition_to_encoded(video, attrs) do
       {:ok, changeset} ->
         DbWriter.run(fn -> Reencodarr.Repo.update(changeset) end,
           label: "transition video to encoded"

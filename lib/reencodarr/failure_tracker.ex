@@ -133,6 +133,7 @@ defmodule Reencodarr.FailureTracker do
           {:ok, Media.VideoFailure.t()} | {:error, Ecto.Changeset.t()}
   def record_process_exit_failure(video, stage, exit_code, opts \\ []) do
     context = Keyword.get(opts, :context, %{})
+    worker_attempt_id = Keyword.get(opts, :worker_attempt_id)
 
     # Check if we can extract more specific FFmpeg error information from output
     {actual_exit_code, category, enhanced_message} =
@@ -149,7 +150,8 @@ defmodule Reencodarr.FailureTracker do
     Media.record_video_failure(video, stage, category,
       code: "EXIT_#{actual_exit_code}",
       message: enhanced_message,
-      context: enhanced_context
+      context: enhanced_context,
+      worker_attempt_id: worker_attempt_id
     )
   end
 

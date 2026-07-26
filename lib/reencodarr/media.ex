@@ -727,7 +727,8 @@ defmodule Reencodarr.Media do
     end
   end
 
-  def mark_as_reencoded(%Video{} = video), do: VideoStateMachine.mark_as_reencoded(video)
+  def mark_as_reencoded(%Video{} = video, attrs \\ %{}),
+    do: VideoStateMachine.mark_as_reencoded(video, attrs)
 
   def mark_as_failed(%Video{} = video), do: VideoStateMachine.mark_as_failed(video)
 
@@ -1617,21 +1618,34 @@ defmodule Reencodarr.Media do
       {:ok, %VideoFailure{}}
   """
   def record_video_failure(video, stage, category, opts \\ []) do
-    with {:ok, failure} <- VideoFailure.record_failure(video, stage, category, opts),
-         {:ok, _video} <- mark_as_failed(video) do
-      Logger.warning(
-        "Recorded #{stage}/#{category} failure for video #{video.id}: #{opts[:message] || "No message"}"
+    result =
+      write_transaction(
+        fn ->
+          with {:ok, failure} <- VideoFailure.record_failure(video, stage, category, opts),
+               {:ok, _video} <- mark_as_failed(video) do
+            failure
+          else
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end,
+        label: :media_record_video_failure
       )
 
-      {:ok, failure}
-    else
+    case result do
+      {:ok, failure} ->
+        Logger.warning(
+          "Recorded #{stage}/#{category} failure for video #{video.id}: #{opts[:message] || "No message"}"
+        )
+
+        {:ok, failure}
+
       {:error, %Ecto.Changeset{errors: [video_id: {"does not exist", _}]}} ->
         # Video was deleted during test cleanup - this is expected in test environment
         Logger.debug("Video #{video.id} no longer exists, skipping failure recording")
         {:ok, video}
 
-      error ->
-        Logger.error("Failed to record video failure: #{inspect(error)}")
+      {:error, reason} = error ->
+        Logger.error("Failed to record video failure: #{inspect(reason)}")
         error
     end
   end
