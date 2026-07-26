@@ -58,6 +58,38 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert session.jobs["encode-1"].control_state == :paused
   end
 
+  test "stopping an individual worker job fails and clears only that job" do
+    {:ok, encoding_video} = Fixtures.video_fixture(%{state: :encoding})
+    {:ok, searching_video} = Fixtures.video_fixture(%{state: :crf_searching})
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-#{encoding_video.id}",
+               job_type: :encode,
+               video_id: encoding_video.id
+             })
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "crf-#{searching_video.id}",
+               job_type: :crf_search,
+               video_id: searching_video.id
+             })
+
+    assert {:ok, session} =
+             WorkerSessions.set_job_control_state(
+               "worker-server-1",
+               "encode-#{encoding_video.id}",
+               :stopped
+             )
+
+    refute Map.has_key?(session.jobs, "encode-#{encoding_video.id}")
+    assert Map.has_key?(session.jobs, "crf-#{searching_video.id}")
+    assert Media.get_video(encoding_video.id).state == :failed
+    assert Media.get_video(searching_video.id).state == :crf_searching
+  end
+
   test "expires stale worker sessions" do
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
 

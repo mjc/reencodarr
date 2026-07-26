@@ -86,7 +86,7 @@ defmodule ReencodarrWeb.WorkerChannel do
          {:ok, _session} <-
            set_worker_control_state(worker_id, job_id, control_state, active_video_id) do
       socket =
-        if control_state == :stopped do
+        if control_state == :stopped and is_nil(job_id) do
           assign(socket, :current_video_id, nil)
         else
           assign(socket, :current_video_id, active_video_id || socket.assigns[:current_video_id])

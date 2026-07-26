@@ -10,6 +10,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   alias Reencodarr.AbAv1.WorkerProtocol.EncodeProgress
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
+  alias Reencodarr.Media.VideoFailure
   alias Reencodarr.Media.VideoStateMachine
 
   @by_server_table :reencodarr_worker_sessions_by_server
@@ -306,10 +307,14 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   def handle_call({:set_job_control_state, server_worker_id, job_id, control_state}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
       case Map.fetch(session.jobs, job_id) do
+        {:ok, %Job{} = job} when control_state == :stopped ->
+          stop_job(session, job_id, job)
+
         {:ok, %Job{} = job} ->
           %{
             session
-            | jobs: Map.put(session.jobs, job_id, %Job{job | control_state: control_state})
+            | jobs: Map.put(session.jobs, job_id, %Job{job | control_state: control_state}),
+              last_seen_at: now()
           }
 
         :error ->
@@ -442,7 +447,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
         :ok
 
       _ ->
-        :ok
+        {:ok, nil}
     end
   end
 
@@ -711,18 +716,28 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   defp fail_jobs(jobs) do
-    Enum.each(jobs, fn {_job_id, job} ->
-      case {job.job_type, Media.get_video(job.video_id)} do
-        {:encode, %Media.Video{} = video} ->
-          _ = Media.fail_video_by_operator(video, :encoding)
+    Enum.each(jobs, fn {_job_id, job} -> fail_job(job) end)
+  end
 
-        {:crf_search, %Media.Video{} = video} ->
-          _ = Media.fail_video_by_operator(video, :crf_search)
+  @spec stop_job(session(), String.t(), Job.t()) :: session() | {:error, term()}
+  defp stop_job(session, job_id, %Job{} = job) do
+    with {:ok, _failure} <- fail_job(job) do
+      %{session | jobs: Map.delete(session.jobs, job_id), last_seen_at: now()}
+    end
+  end
 
-        _ ->
-          :ok
-      end
-    end)
+  @spec fail_job(Job.t()) :: {:ok, VideoFailure.t() | nil} | {:error, term()}
+  defp fail_job(%Job{} = job) do
+    case {job.job_type, Media.get_video(job.video_id)} do
+      {:encode, %Media.Video{} = video} ->
+        _ = Media.fail_video_by_operator(video, :encoding)
+
+      {:crf_search, %Media.Video{} = video} ->
+        _ = Media.fail_video_by_operator(video, :crf_search)
+
+      _ ->
+        :ok
+    end
   end
 
   defp resumable_active_video_id(nil), do: nil
