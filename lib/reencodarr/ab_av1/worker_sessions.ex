@@ -11,7 +11,6 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media
   alias Reencodarr.Media.VideoFailure
-  alias Reencodarr.Media.VideoStateMachine
 
   @by_server_table :reencodarr_worker_sessions_by_server
   @by_client_table :reencodarr_worker_sessions_by_client
@@ -391,8 +390,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   def handle_call({:cancel, server_worker_id}, _from, state) do
     case lookup_session(server_worker_id) do
       {:ok, session} ->
-        requeue_active_video(session)
-        requeue_encode_jobs(session.jobs)
+        requeue_jobs(session.jobs)
         :ok = drop_session(server_worker_id)
         broadcast_sessions()
         {:reply, {:ok, session}, state}
@@ -433,8 +431,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       list_sessions()
       |> Enum.filter(&(&1.active_video_id != nil or map_size(&1.jobs) > 0))
       |> Enum.map(fn session ->
-        requeue_active_video(session)
-        requeue_encode_jobs(session.jobs)
+        requeue_jobs(session.jobs)
         :ok = drop_session(session.server_worker_id)
         session
       end)
@@ -741,19 +738,6 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   defp apply_control_state(session, control_state),
     do: %{session | control_state: control_state, last_seen_at: now()}
 
-  defp requeue_active_video(%{active_video_id: nil}), do: :ok
-
-  defp requeue_active_video(%{active_video_id: video_id}) do
-    case Media.get_video(video_id) do
-      %Media.Video{state: :crf_searching} = video ->
-        _ = VideoStateMachine.mark_as_analyzed(video)
-        :ok
-
-      _ ->
-        :ok
-    end
-  end
-
   defp fail_active_video(%{active_video_id: nil}), do: :ok
 
   defp fail_active_video(%{active_video_id: video_id}) do
@@ -763,27 +747,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end
   end
 
-  defp preserve_dispatched_active_video(%{active_video_id: nil}), do: :ok
-
-  defp preserve_dispatched_active_video(%{active_video_id: video_id}) do
-    case Media.get_video(video_id) do
-      %Media.Video{state: :crf_searching, crf_search_worker_id: dispatch_id}
-      when is_binary(dispatch_id) ->
-        :ok
-
-      %Media.Video{state: :crf_searching} = video ->
-        _ = VideoStateMachine.mark_as_analyzed(video)
-        :ok
-
-      _ ->
-        :ok
-    end
-  end
-
-  defp requeue_encode_jobs(jobs) do
+  defp requeue_jobs(jobs) do
     Enum.each(jobs, fn
-      {job_id, %Job{job_type: :encode, video_id: video_id}} ->
-        Media.requeue_worker_attempt(video_id, job_id, :encode)
+      {job_id, %Job{job_type: job_type, video_id: video_id}}
+      when job_type in [:crf_search, :encode] ->
+        Media.requeue_worker_attempt(video_id, job_id, job_type)
 
       _ ->
         :ok
@@ -876,20 +844,19 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       end)
 
     Enum.each(expired_sessions, fn session ->
-      preserve_dispatched_active_video(session)
-      requeue_encode_jobs(session.jobs)
+      requeue_jobs(session.jobs)
       :ok = drop_session(session.server_worker_id)
     end)
 
     {expired_sessions, :ok}
   end
 
-  defp live_encode_attempt_ids do
+  defp live_attempt_ids(job_type) do
     @by_server_table
     |> :ets.tab2list()
     |> Enum.flat_map(fn {_server_worker_id, session} ->
       Enum.flat_map(session.jobs, fn
-        {job_id, %Job{job_type: :encode}} -> [job_id]
+        {job_id, %Job{job_type: ^job_type}} -> [job_id]
         _ -> []
       end)
     end)
@@ -897,7 +864,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   defp maybe_reset_orphaned_encoding(started_at) do
     if DateTime.diff(now(), started_at, :second) >= @orphan_reset_grace_seconds do
-      :ok = Media.reset_orphaned_encoding(live_encode_attempt_ids())
+      :ok = Media.reset_orphaned_crf_searching(live_attempt_ids(:crf_search))
+      :ok = Media.reset_orphaned_encoding(live_attempt_ids(:encode))
     end
 
     :ok

@@ -150,6 +150,20 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
+  defp set_worker_control_state(worker_id, job_id, control_state, nil)
+       when is_binary(job_id) do
+    case WorkerSessions.get(worker_id) do
+      %{jobs: %{^job_id => %Job{video_id: video_id}}} ->
+        set_worker_control_state(worker_id, job_id, control_state, video_id)
+
+      _ ->
+        {:error, :unknown_worker_session}
+    end
+  end
+
+  defp set_worker_control_state(_worker_id, _job_id, _control_state, _active_video_id),
+    do: {:error, :unknown_worker_session}
+
   defp set_or_restore_job_control_state(
          %{server_worker_id: worker_id, jobs: jobs},
          job_id,
@@ -175,20 +189,6 @@ defmodule ReencodarrWeb.WorkerChannel do
       end
     end
   end
-
-  defp set_worker_control_state(worker_id, job_id, control_state, nil)
-       when is_binary(job_id) do
-    case WorkerSessions.get(worker_id) do
-      %{jobs: %{^job_id => %Job{video_id: video_id}}} ->
-        set_worker_control_state(worker_id, job_id, control_state, video_id)
-
-      _ ->
-        {:error, :unknown_worker_session}
-    end
-  end
-
-  defp set_worker_control_state(_worker_id, _job_id, _control_state, _active_video_id),
-    do: {:error, :unknown_worker_session}
 
   defp control_job(
          %Media.Video{

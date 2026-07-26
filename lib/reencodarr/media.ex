@@ -1504,19 +1504,36 @@ defmodule Reencodarr.Media do
   Resets videos stuck in `:crf_searching` back to `:analyzed`.
 
   Called by the CRF Searcher Broadway pipeline on startup to reclaim orphaned work.
-  Excludes videos currently being processed by the CRF search GenServer.
+  With no argument, worker-owned rows are left for the worker reconnect grace sweep.
+  With live attempt IDs, only those exact worker attempts are retained.
 
   ## Examples
       iex> Media.reset_orphaned_crf_searching()
       :ok
   """
-  @spec reset_orphaned_crf_searching() :: :ok
-  def reset_orphaned_crf_searching do
+  @spec reset_orphaned_crf_searching([String.t()] | nil) :: :ok
+  def reset_orphaned_crf_searching(live_attempt_ids \\ nil)
+
+  def reset_orphaned_crf_searching(nil) do
     exclude_id = CrfSearch.current_video_id()
 
     from(v in Video, where: v.state == :crf_searching and is_nil(v.crf_search_worker_id))
     |> maybe_exclude_video(exclude_id)
     |> reset_videos("orphaned crf_searching videos → analyzed")
+  end
+
+  def reset_orphaned_crf_searching(live_attempt_ids) when is_list(live_attempt_ids) do
+    exclude_id = CrfSearch.current_video_id()
+    live_attempt_ids = Enum.filter(live_attempt_ids, &is_binary/1)
+
+    from(v in Video, where: v.state == :crf_searching)
+    |> maybe_exclude_video(exclude_id)
+    |> maybe_exclude_worker_attempts(live_attempt_ids)
+    |> reset_videos_with_cleared_worker(
+      "orphaned crf_searching videos → analyzed",
+      :analyzed,
+      :crf_search_worker_id
+    )
   end
 
   @doc """
@@ -1624,6 +1641,33 @@ defmodule Reencodarr.Media do
           Repo.update_all(query, set: [state: target_state, updated_at: DateTime.utc_now()])
         end,
         label: :media_reset_videos
+      )
+
+    case count do
+      count when is_integer(count) and count > 0 -> Logger.info("Reset #{count} #{log_message}")
+      _ -> :ok
+    end
+
+    :ok
+  end
+
+  defp reset_videos_with_cleared_worker(query, log_message, target_state, worker_field) do
+    {count, _} =
+      write(
+        fn ->
+          fields = [
+            {:state, target_state},
+            {worker_field, nil},
+            {:worker_attempt_id, nil},
+            {:updated_at, DateTime.utc_now()}
+          ]
+
+          Repo.update_all(
+            query,
+            set: fields
+          )
+        end,
+        label: :media_reset_worker_videos
       )
 
     case count do

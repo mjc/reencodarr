@@ -200,10 +200,19 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
   end
 
   test "expires stale active sessions by requeueing only in-progress videos" do
-    {:ok, active_video} = Fixtures.video_fixture(%{state: :crf_searching})
+    {:ok, active_video} =
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-1",
+        worker_attempt_id: "crf-active"
+      })
 
     {:ok, dispatched_video} =
-      Fixtures.video_fixture(%{state: :crf_searching, crf_search_worker_id: "worker-client-3"})
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-3",
+        worker_attempt_id: "crf-dispatched"
+      })
 
     {:ok, completed_video} = Fixtures.video_fixture(%{state: :crf_searched})
     _vmaf = Fixtures.vmaf_fixture(%{video_id: completed_video.id, crf: 28.0, score: 96.4})
@@ -228,15 +237,56 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                )
              )
 
-    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", active_video.id)
+    assert {:ok, _session} =
+             WorkerSessions.assign_video(
+               "worker-server-1",
+               active_video.id,
+               :crf_searching,
+               "crf-active"
+             )
+
     assert {:ok, _session} = WorkerSessions.assign_video("worker-server-2", completed_video.id)
-    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-3", dispatched_video.id)
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_video(
+               "worker-server-3",
+               dispatched_video.id,
+               :crf_searching,
+               "crf-dispatched"
+             )
 
     assert {:ok, [_session_one, _session_two, _session_three]} = WorkerSessions.expire_stale(0)
     assert Media.get_video(active_video.id).state == :analyzed
-    assert Media.get_video(dispatched_video.id).state == :crf_searching
+    assert Media.get_video(dispatched_video.id).state == :analyzed
     assert Media.get_video(completed_video.id).state == :crf_searched
     assert WorkerSessions.list() == []
+  end
+
+  test "an expired CRF session cannot requeue a newer attempt" do
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-2",
+        worker_attempt_id: "crf-new"
+      })
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_video(
+               "worker-server-1",
+               video.id,
+               :crf_searching,
+               "crf-old"
+             )
+
+    assert {:ok, [_session]} = WorkerSessions.expire_stale(0)
+
+    assert %{
+             state: :crf_searching,
+             crf_search_worker_id: "worker-client-2",
+             worker_attempt_id: "crf-new"
+           } = Media.get_video(video.id)
   end
 
   test "timer-driven stale expiry removes old sessions" do
@@ -775,6 +825,53 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
 
     assert %{state: :crf_searched, encode_worker_id: nil, worker_attempt_id: nil} =
              Media.get_video(video.id)
+  end
+
+  test "stale sweep resets persisted CRF work with no matching live job" do
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-1",
+        worker_attempt_id: "crf-orphan"
+      })
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+    age_worker_sessions_past_orphan_grace()
+
+    assert {:ok, []} = WorkerSessions.expire_stale(999_999)
+
+    assert %{state: :analyzed, crf_search_worker_id: nil, worker_attempt_id: nil} =
+             Media.get_video(video.id)
+  end
+
+  test "stale sweep keeps persisted CRF work owned by the exact live job" do
+    job_id = "crf-live"
+
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-1",
+        worker_attempt_id: job_id
+      })
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_video(
+               "worker-server-1",
+               video.id,
+               :crf_searching,
+               job_id
+             )
+
+    age_worker_sessions_past_orphan_grace()
+    assert {:ok, []} = WorkerSessions.expire_stale(999_999)
+
+    assert %{
+             state: :crf_searching,
+             crf_search_worker_id: "worker-client-1",
+             worker_attempt_id: ^job_id
+           } = Media.get_video(video.id)
   end
 
   defp worker_session_attrs(overrides \\ []) do

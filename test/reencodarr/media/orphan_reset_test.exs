@@ -6,7 +6,7 @@ defmodule Reencodarr.Media.OrphanResetTest do
 
   alias Reencodarr.Media
 
-  describe "reset_orphaned_crf_searching/0" do
+  describe "reset_orphaned_crf_searching/1" do
     test "resets crf_searching videos to analyzed" do
       {:ok, video} =
         Fixtures.video_fixture(%{
@@ -22,7 +22,7 @@ defmodule Reencodarr.Media.OrphanResetTest do
       assert updated.state == :analyzed
     end
 
-    test "does not reset crf_searching videos dispatched to a worker" do
+    test "does not retain a worker row without a matching active attempt" do
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/worker_crf.mkv",
@@ -32,11 +32,30 @@ defmodule Reencodarr.Media.OrphanResetTest do
           audio_codecs: ["aac"]
         })
 
-      assert :ok = Media.reset_orphaned_crf_searching()
+      assert :ok = Media.reset_orphaned_crf_searching(["crf-live"])
+
+      updated = Media.get_video(video.id)
+      assert updated.state == :analyzed
+      assert is_nil(updated.crf_search_worker_id)
+    end
+
+    test "keeps only the exact active CRF attempt" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/worker_crf.mkv",
+          state: :crf_searching,
+          crf_search_worker_id: "worker-a",
+          worker_attempt_id: "crf-live",
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      assert :ok = Media.reset_orphaned_crf_searching(["crf-live"])
 
       updated = Media.get_video(video.id)
       assert updated.state == :crf_searching
       assert updated.crf_search_worker_id == "worker-a"
+      assert updated.worker_attempt_id == "crf-live"
     end
 
     test "does not affect videos in other states" do
