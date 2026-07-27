@@ -363,7 +363,6 @@ in {
       wantedBy = ["multi-user.target"];
       after = ["network-online.target"];
       wants = ["network-online.target"];
-      restartIfChanged = false;
       restartTriggers = [workerPackage];
       environment = serviceEnv;
       path = [pkgs.bash ffmpeg-svt-hdr svt-av1-hdr];
