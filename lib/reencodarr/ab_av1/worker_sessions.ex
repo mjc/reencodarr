@@ -9,6 +9,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.AbAv1.WorkerProtocol.EncodeProgress
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.DbWriter
   alias Reencodarr.Media
   alias Reencodarr.Media.VideoFailure
 
@@ -197,6 +198,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     :ets.new(@by_server_table, [:named_table, :set, :private])
     :ets.new(@by_client_table, [:named_table, :set, :private])
     schedule_expire_stale()
+    schedule_orphan_reset()
     {:ok, %{started_at: now()}}
   end
 
@@ -454,7 +456,6 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def handle_call({:expire_stale, timeout_seconds}, _from, state) do
     {expired_sessions, _} = expire_stale_sessions(timeout_seconds)
-    maybe_reset_orphaned_encoding(state.started_at)
 
     if expired_sessions != [] do
       broadcast_sessions()
@@ -494,13 +495,28 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   @impl GenServer
   def handle_info(:expire_stale, state) do
     {expired_sessions, _} = expire_stale_sessions(timeout_seconds())
-    maybe_reset_orphaned_encoding(state.started_at)
 
     if expired_sessions != [] do
       broadcast_sessions()
     end
 
     schedule_expire_stale()
+    {:noreply, state}
+  end
+
+  def handle_info(:reset_orphans, state) do
+    crf_attempt_ids = live_attempt_ids(:crf_search)
+    encode_attempt_ids = live_attempt_ids(:encode)
+
+    DbWriter.enqueue(
+      fn ->
+        :ok = Media.release_worker_terminal_claims_before(state.started_at)
+        :ok = Media.reset_orphaned_crf_searching(crf_attempt_ids)
+        :ok = Media.reset_orphaned_encoding(encode_attempt_ids)
+      end,
+      label: :worker_orphan_recovery
+    )
+
     {:noreply, state}
   end
 
@@ -950,18 +966,12 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end)
   end
 
-  defp maybe_reset_orphaned_encoding(started_at) do
-    if DateTime.diff(now(), started_at, :second) >= @orphan_reset_grace_seconds do
-      :ok = Media.release_worker_terminal_claims_before(started_at)
-      :ok = Media.reset_orphaned_crf_searching(live_attempt_ids(:crf_search))
-      :ok = Media.reset_orphaned_encoding(live_attempt_ids(:encode))
-    end
-
-    :ok
-  end
-
   defp schedule_expire_stale do
     Process.send_after(self(), :expire_stale, sweep_interval_ms())
+  end
+
+  defp schedule_orphan_reset do
+    Process.send_after(self(), :reset_orphans, @orphan_reset_grace_seconds * 1_000)
   end
 
   defp reset_tables do

@@ -839,7 +839,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     video = Fixtures.choose_vmaf(video, vmaf)
     {:ok, video} = Media.mark_as_encoding(video, %{encode_worker_id: "dead-worker"})
 
-    age_worker_sessions_past_orphan_grace()
+    run_orphan_reset()
 
     assert {:ok, []} = WorkerSessions.expire_stale(0)
     assert %{state: :crf_searched, encode_worker_id: nil} = Media.get_video(video.id)
@@ -899,7 +899,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert {:ok, _session} =
              WorkerSessions.register(worker_session_attrs(capabilities: %{"encode" => true}))
 
-    age_worker_sessions_past_orphan_grace()
+    run_orphan_reset()
 
     assert {:ok, []} = WorkerSessions.expire_stale(999_999)
 
@@ -916,7 +916,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
       })
 
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
-    age_worker_sessions_past_orphan_grace()
+    run_orphan_reset()
 
     assert {:ok, []} = WorkerSessions.expire_stale(999_999)
 
@@ -944,7 +944,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                job_id
              )
 
-    age_worker_sessions_past_orphan_grace()
+    run_orphan_reset()
     assert {:ok, []} = WorkerSessions.expire_stale(999_999)
 
     assert %{
@@ -965,9 +965,13 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     |> Map.merge(Map.new(overrides))
   end
 
-  defp age_worker_sessions_past_orphan_grace do
+  defp run_orphan_reset do
     :sys.replace_state(WorkerSessions, fn state ->
       %{state | started_at: DateTime.add(DateTime.utc_now(), -601, :second)}
     end)
+
+    send(Process.whereis(WorkerSessions), :reset_orphans)
+    :sys.get_state(WorkerSessions)
+    Reencodarr.DbWriter.run(fn -> :ok end)
   end
 end
