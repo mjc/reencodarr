@@ -28,6 +28,19 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
           }
   end
 
+  defmodule ActiveJob do
+    @moduledoc false
+
+    @enforce_keys [:job_id, :video_id, :job_type]
+    defstruct [:job_id, :video_id, :job_type]
+
+    @type t :: %__MODULE__{
+            job_id: String.t(),
+            video_id: pos_integer(),
+            job_type: :crf_search | :encode
+          }
+  end
+
   defmodule ControlState do
     @moduledoc false
 
@@ -257,6 +270,24 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   end
 
   def parse_announcement(_payload), do: {:error, :invalid_announcement}
+
+  @spec parse_active_job(map()) :: {:ok, ActiveJob.t()} | {:error, :invalid_active_job}
+  def parse_active_job(%{
+        "job_id" => job_id,
+        "video_id" => video_id,
+        "job_type" => job_type
+      })
+      when is_binary(job_id) and job_id != "" and is_integer(video_id) and video_id > 0 and
+             job_type in ["crf_search", "encode"] do
+    {:ok,
+     %ActiveJob{
+       job_id: job_id,
+       video_id: video_id,
+       job_type: String.to_existing_atom(job_type)
+     }}
+  end
+
+  def parse_active_job(_payload), do: {:error, :invalid_active_job}
 
   @spec parse_control_state(map()) :: {:ok, ControlState.t()} | {:error, :invalid_control_state}
   def parse_control_state(%{"state" => state} = payload)
@@ -825,6 +856,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   def error(:duplicate_worker_id), do: %{reason: "duplicate_worker_id"}
 
   def error(:invalid_announcement), do: %{reason: "invalid_announcement"}
+  def error(:invalid_active_job), do: %{reason: "invalid_active_job"}
   def error(:invalid_control_state), do: %{reason: "invalid_control_state"}
   def error(:invalid_session_attrs), do: %{reason: "invalid_session_attrs"}
   def error(:invalid_transfer_progress), do: %{reason: "invalid_transfer_progress"}

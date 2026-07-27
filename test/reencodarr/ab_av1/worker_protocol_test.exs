@@ -2,7 +2,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
   use ExUnit.Case, async: false
 
   alias Reencodarr.AbAv1.WorkerProtocol
-  alias Reencodarr.AbAv1.WorkerProtocol.Announcement
+  alias Reencodarr.AbAv1.WorkerProtocol.{ActiveJob, Announcement}
   alias Reencodarr.AbAv1.WorkerProtocol.Completion
   alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchResult
@@ -35,6 +35,27 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
                "protocol_version" => 1,
                "version" => "0.10.0",
                "capabilities" => %{"crf_search" => true}
+             })
+  end
+
+  test "parses an active job identity into a typed struct" do
+    assert {:ok,
+            %ActiveJob{
+              job_id: "encode-attempt",
+              video_id: 42,
+              job_type: :encode
+            }} =
+             WorkerProtocol.parse_active_job(%{
+               "job_id" => "encode-attempt",
+               "video_id" => 42,
+               "job_type" => "encode"
+             })
+
+    assert {:error, :invalid_active_job} =
+             WorkerProtocol.parse_active_job(%{
+               "job_id" => "",
+               "video_id" => 42,
+               "job_type" => "encode"
              })
   end
 

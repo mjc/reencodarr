@@ -10,6 +10,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   alias Reencodarr.AbAv1.{CrfSearch, Encode, WorkerConfig, WorkerProtocol, WorkerSessions}
 
   alias Reencodarr.AbAv1.WorkerProtocol.{
+    ActiveJob,
     Announcement,
     ControlState,
     EncodeCompletion,
@@ -83,6 +84,20 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
+  def handle_in("job_active", payload, socket) do
+    with {:ok, active_job} <- WorkerProtocol.parse_active_job(payload),
+         :ok <- active_attempt_current?(active_job, socket.assigns.client_worker_id) do
+      {:reply, {:ok, WorkerProtocol.event_ack("job_active")}, socket}
+    else
+      {:error, :stale_worker_attempt} ->
+        {:reply, {:ok, WorkerProtocol.event_discarded("job_active", :stale_worker_attempt)},
+         socket}
+
+      {:error, reason} ->
+        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+    end
+  end
+
   def handle_in("control_state", payload, %{assigns: %{worker_id: worker_id}} = socket) do
     with {:ok,
           %ControlState{
@@ -143,6 +158,48 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   def handle_in(_event, _payload, socket) do
     {:reply, {:error, WorkerProtocol.error(:unsupported_event)}, socket}
+  end
+
+  defp active_attempt_current?(
+         %ActiveJob{
+           job_id: job_id,
+           video_id: video_id,
+           job_type: :crf_search
+         },
+         worker_id
+       ) do
+    case Media.get_video(video_id) do
+      %Media.Video{
+        state: :crf_searching,
+        worker_attempt_id: ^job_id,
+        crf_search_worker_id: ^worker_id
+      } ->
+        :ok
+
+      _ ->
+        {:error, :stale_worker_attempt}
+    end
+  end
+
+  defp active_attempt_current?(
+         %ActiveJob{
+           job_id: job_id,
+           video_id: video_id,
+           job_type: :encode
+         },
+         worker_id
+       ) do
+    case Media.get_video(video_id) do
+      %Media.Video{
+        state: :encoding,
+        worker_attempt_id: ^job_id,
+        encode_worker_id: ^worker_id
+      } ->
+        :ok
+
+      _ ->
+        {:error, :stale_worker_attempt}
+    end
   end
 
   defp set_worker_control_state(worker_id, nil, nil, control_state, active_video_id),

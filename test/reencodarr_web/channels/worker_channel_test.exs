@@ -103,6 +103,40 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "reconciles current active attempts and discards stale ones" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-a")), :ok
+      assert_reply push(socket, "pull_work", %{}), :ok, %{job_id: job_id}
+
+      assert_reply push(socket, "job_active", %{
+                     "job_id" => job_id,
+                     "video_id" => video.id,
+                     "job_type" => "crf_search"
+                   }),
+                   :ok,
+                   %{accepted: true, event: "job_active"}
+
+      assert_reply push(socket, "job_active", %{
+                     "job_id" => "crf-stale",
+                     "video_id" => video.id,
+                     "job_type" => "crf_search"
+                   }),
+                   :ok,
+                   %{
+                     accepted: false,
+                     discarded: true,
+                     event: "job_active",
+                     reason: "stale_worker_attempt"
+                   }
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "rejects CRF progress from a superseded attempt" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
