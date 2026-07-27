@@ -476,6 +476,7 @@ defmodule ReencodarrWeb.WorkerChannel do
         vmaf = Media.get_vmaf!(video.chosen_vmaf_id)
         local? = local_source?(socket, video)
         resend? = work_request_mode(payload) == :resend_input
+        _ = activate_encode_job(socket)
 
         socket =
           if resend?,
@@ -650,6 +651,16 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp attach_encode_job(socket, _session), do: socket
+
+  defp activate_encode_job(socket) do
+    with job_id when is_binary(job_id) <- socket.assigns[:encode_job_id],
+         %{jobs: %{^job_id => %Job{} = job}} <-
+           WorkerSessions.get(socket.assigns.worker_id) do
+      WorkerSessions.assign_job(socket.assigns.worker_id, %Job{job | active: true})
+    else
+      _ -> :ok
+    end
+  end
 
   defp replay_pending_job_controls(socket, %{jobs: jobs}) do
     Enum.each(jobs, fn {job_id, job} ->

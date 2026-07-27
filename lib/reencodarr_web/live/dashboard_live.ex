@@ -1450,7 +1450,7 @@ defmodule ReencodarrWeb.DashboardLive do
   defp worker_encode_job(%{jobs: jobs}) do
     jobs
     |> Map.values()
-    |> Enum.find(&match?(%Job{job_type: :encode}, &1))
+    |> Enum.find(&match?(%Job{job_type: :encode, active: true}, &1))
   end
 
   @spec worker_encode_status(WorkerSessions.session(), Job.t() | nil) ::

@@ -387,6 +387,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       {:ok, _, socket2} = subscribe_and_join(socket2, "workers:crf_search")
       assert_reply push(socket2, "announce", announce_payload(worker_id: "worker-reconnect")), :ok
       refute socket2.assigns.worker_id == old_server_id
+      refute WorkerSessions.get(socket2.assigns.worker_id).jobs[job_id].active
 
       assert_reply push(socket2, "pull_work", %{"job_type" => "encode"}),
                    :ok,
@@ -394,8 +395,9 @@ defmodule ReencodarrWeb.WorkerChannelTest do
 
       assert is_nil(WorkerSessions.get(old_server_id))
 
-      assert WorkerSessions.get(socket2.assigns.worker_id).jobs[job_id].video_id ==
-               video.id
+      resumed_job = WorkerSessions.get(socket2.assigns.worker_id).jobs[job_id]
+      assert resumed_job.video_id == video.id
+      assert resumed_job.active
     after
       Application.delete_env(:reencodarr, :worker_token)
     end

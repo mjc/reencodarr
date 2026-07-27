@@ -150,6 +150,42 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert has_element?(view, "#encode-worker-server-encode", "Paused")
     end
 
+    test "does not render a restored encode before the worker reclaims it", %{conn: conn} do
+      previous = Application.get_env(:reencodarr, :crf_execution_mode)
+      Application.put_env(:reencodarr, :crf_execution_mode, :worker)
+
+      on_exit(fn ->
+        if is_nil(previous),
+          do: Application.delete_env(:reencodarr, :crf_execution_mode),
+          else: Application.put_env(:reencodarr, :crf_execution_mode, previous)
+      end)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :encoding, path: "/media/restored.mkv"})
+
+      {:ok, _session} =
+        WorkerSessions.register(%{
+          server_worker_id: "server-restored",
+          client_worker_id: "worker-restored",
+          protocol_version: 1,
+          version: "0.11.4",
+          capabilities: %{"crf_search" => true, "encode" => true}
+        })
+
+      {:ok, _session} =
+        WorkerSessions.assign_job("server-restored", %Job{
+          job_id: "encode-restored",
+          job_type: :encode,
+          video_id: video.id,
+          phase: :encoding,
+          active: false
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      assert has_element?(view, "#encode-worker-server-restored", "Idle")
+      refute has_element?(view, "#encode-worker-server-restored", "restored.mkv")
+    end
+
     test "renders job-scoped worker CRF pause state", %{conn: conn} do
       previous = Application.get_env(:reencodarr, :crf_execution_mode)
       Application.put_env(:reencodarr, :crf_execution_mode, :worker)

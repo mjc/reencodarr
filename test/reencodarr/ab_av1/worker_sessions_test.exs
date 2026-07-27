@@ -741,6 +741,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
              job_type: :encode,
              video_id: video_id,
              phase: :encoding,
+             active: false,
              progress: %EncodeProgress{percent: 42.0}
            } = reconnected.jobs[job_id]
 

@@ -29,6 +29,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       :video_id,
       :transfer_progress,
       :progress,
+      active: true,
       phase: :assigned,
       control_state: :running,
       desired_control_state: :running,
@@ -47,7 +48,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
             desired_control_state: control_state(),
             control_command_id: String.t() | nil,
             transfer_progress: map() | nil,
-            progress: EncodeProgress.t() | CrfSearchProgress.t() | nil
+            progress: EncodeProgress.t() | CrfSearchProgress.t() | nil,
+            active: boolean()
           }
   end
 
@@ -876,7 +878,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   defp resumable_jobs(jobs, client_worker_id) do
-    Map.filter(jobs, fn {job_id, job} ->
+    jobs
+    |> Map.filter(fn {job_id, job} ->
       case {job.job_type, Media.get_video(job.video_id)} do
         {:crf_search,
          %Media.Video{
@@ -897,6 +900,10 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
         _ ->
           false
       end
+    end)
+    |> Map.new(fn
+      {job_id, %Job{job_type: :encode} = job} -> {job_id, %Job{job | active: false}}
+      entry -> entry
     end)
   end
 
