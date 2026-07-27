@@ -376,7 +376,7 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
     case result do
       {:noreply, _state} = reply -> reply
-      cleanup_result -> perform_crf_search_cleanup(state, cleanup_result || :ok)
+      cleanup_result -> perform_crf_search_cleanup(state, cleanup_result)
     end
   end
 
