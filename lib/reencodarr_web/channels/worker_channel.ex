@@ -86,7 +86,8 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   def handle_in("job_active", payload, socket) do
     with {:ok, active_job} <- WorkerProtocol.parse_active_job(payload),
-         :ok <- active_attempt_current?(active_job, socket.assigns.client_worker_id) do
+         :ok <- active_attempt_current?(active_job, socket.assigns.client_worker_id),
+         {:ok, socket} <- restore_active_job(socket, active_job) do
       {:reply, {:ok, WorkerProtocol.event_ack("job_active")}, socket}
     else
       {:error, :stale_worker_attempt} ->
@@ -158,6 +159,22 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   def handle_in(_event, _payload, socket) do
     {:reply, {:error, WorkerProtocol.error(:unsupported_event)}, socket}
+  end
+
+  defp restore_active_job(socket, %ActiveJob{
+         job_id: job_id,
+         video_id: video_id,
+         job_type: :crf_search
+       }) do
+    ensure_resumable_active_video(socket, video_id, :crf_searching, job_id)
+  end
+
+  defp restore_active_job(socket, %ActiveJob{
+         job_id: job_id,
+         video_id: video_id,
+         job_type: :encode
+       }) do
+    recover_encode_job(socket, job_id, video_id)
   end
 
   defp active_attempt_current?(

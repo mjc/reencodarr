@@ -519,6 +519,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       label: :worker_orphan_recovery
     )
 
+    schedule_orphan_reset()
     {:noreply, state}
   end
 

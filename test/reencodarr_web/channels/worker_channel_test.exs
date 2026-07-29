@@ -121,6 +121,9 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    :ok,
                    %{accepted: true, event: "job_active"}
 
+      assert %{^job_id => %{job_type: :crf_search, active: true}} =
+               WorkerSessions.get(socket.assigns.worker_id).jobs
+
       assert_reply push(socket, "job_active", %{
                      "job_id" => "crf-stale",
                      "video_id" => video.id,
@@ -133,6 +136,39 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                      event: "job_active",
                      reason: "stale_worker_attempt"
                    }
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "restores an active encode reported after server state is lost" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, params: []})
+      video = Fixtures.choose_vmaf(video, vmaf)
+      job_id = "encode-active-after-restart"
+
+      {:ok, video} =
+        Media.mark_as_encoding(video, %{
+          encode_worker_id: "worker-restart",
+          worker_attempt_id: job_id
+        })
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-restart")), :ok
+
+      assert_reply push(socket, "job_active", %{
+                     "job_id" => job_id,
+                     "video_id" => video.id,
+                     "job_type" => "encode"
+                   }),
+                   :ok,
+                   %{accepted: true, event: "job_active"}
+
+      assert %{^job_id => %{job_type: :encode, phase: :encoding, active: true}} =
+               WorkerSessions.get(socket.assigns.worker_id).jobs
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
