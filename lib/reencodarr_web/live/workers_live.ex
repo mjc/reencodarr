@@ -9,7 +9,6 @@ defmodule ReencodarrWeb.WorkersLive do
   alias Reencodarr.AbAv1.WorkerSessions
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Formatters
-  alias Reencodarr.Media
   alias Reencodarr.Rules
   alias ReencodarrWeb.WorkerControl
 
@@ -127,13 +126,13 @@ defmodule ReencodarrWeb.WorkersLive do
                     <% :receiving_input -> %>
                       <.transfer_panel
                         worker={worker}
-                        video={active_video(worker)}
+                        video={active_video(worker, @crf_worker_data)}
                         title="Receiving Input"
                       />
                     <% :input_ready -> %>
                       <.transfer_panel
                         worker={worker}
-                        video={active_video(worker)}
+                        video={active_video(worker, @crf_worker_data)}
                         title="Input Ready"
                       />
                     <% :crf_searching -> %>
@@ -229,12 +228,8 @@ defmodule ReencodarrWeb.WorkersLive do
   defp worker_phase(%{active_video_id: video_id}) when is_integer(video_id), do: :crf_searching
   defp worker_phase(_worker), do: :idle
 
-  defp active_video(worker) do
-    case active_video_id(worker) do
-      nil -> nil
-      video_id -> Media.get_video(video_id)
-    end
-  end
+  defp active_video(worker, crf_worker_data),
+    do: get_in(crf_worker_data, [active_video_id(worker), :video])
 
   defp active_video_id(%{active_video_id: video_id}) when is_integer(video_id), do: video_id
 

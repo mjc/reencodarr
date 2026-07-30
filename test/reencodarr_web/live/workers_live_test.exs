@@ -63,7 +63,6 @@ defmodule ReencodarrWeb.WorkersLiveTest do
                total_chunks: 8
              })
 
-    send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
     html = render(view)
     assert html =~ "Receiving input"
     assert html =~ "Receiving Input"
@@ -78,6 +77,31 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert html =~ "25.5%"
     assert html =~ "ETA 15s"
     refute html =~ "CRF 28.0 -&gt; 95.4 VMAF"
+  end
+
+  test "rerenders transfer data without querying the video again", %{conn: conn} do
+    {:ok, _session} =
+      WorkerSessions.register(%{
+        server_worker_id: "worker-server-cached",
+        client_worker_id: "worker-client-cached",
+        protocol_version: 1,
+        version: "0.10.0",
+        capabilities: %{"crf_search" => true}
+      })
+
+    {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_video("worker-server-cached", video.id, :receiving_input)
+
+    {:ok, view, html} = live(conn, ~p"/workers")
+    assert html =~ Path.basename(video.path)
+
+    Reencodarr.Repo.delete!(video)
+    assert :ok = WorkerSessions.touch("worker-server-cached", %{cpu_percent: 1.0})
+    send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
+
+    assert render(view) =~ Path.basename(video.path)
   end
 
   test "shows HTTP transfer progress without chunk text", %{conn: conn} do
