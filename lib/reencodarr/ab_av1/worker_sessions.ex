@@ -85,6 +85,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.call(__MODULE__, {:touch, server_worker_id, resource_usage})
   end
 
+  @spec touch_async(String.t(), map() | nil) :: :ok
+  def touch_async(server_worker_id, resource_usage \\ nil) do
+    GenServer.cast(__MODULE__, {:touch, server_worker_id, resource_usage})
+  end
+
   def unregister(server_worker_id) do
     GenServer.call(__MODULE__, {:unregister, server_worker_id})
   end
@@ -114,10 +119,25 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     )
   end
 
+  @spec set_job_transfer_progress_async(String.t(), String.t(), map(), Job.phase()) :: :ok
+  def set_job_transfer_progress_async(server_worker_id, job_id, progress, phase)
+      when is_binary(server_worker_id) and is_binary(job_id) and is_map(progress) and
+             phase in [:receiving_input, :input_ready] do
+    GenServer.cast(
+      __MODULE__,
+      {:set_job_transfer_progress, server_worker_id, job_id, progress, phase}
+    )
+  end
+
   @spec set_encode_progress(String.t(), EncodeProgress.t()) ::
           {:ok, session()} | {:error, atom()}
   def set_encode_progress(server_worker_id, %EncodeProgress{} = progress) do
     GenServer.call(__MODULE__, {:set_encode_progress, server_worker_id, progress})
+  end
+
+  @spec set_encode_progress_async(String.t(), EncodeProgress.t()) :: :ok
+  def set_encode_progress_async(server_worker_id, %EncodeProgress{} = progress) do
+    GenServer.cast(__MODULE__, {:set_encode_progress, server_worker_id, progress})
   end
 
   @spec clear_job(String.t(), String.t()) :: {:ok, session()} | {:error, atom()}
@@ -152,12 +172,22 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.call(__MODULE__, {:record_transfer_progress, server_worker_id, progress})
   end
 
+  @spec record_transfer_progress_async(String.t(), map()) :: :ok
+  def record_transfer_progress_async(server_worker_id, progress) when is_map(progress) do
+    GenServer.cast(__MODULE__, {:record_transfer_progress, server_worker_id, progress})
+  end
+
   def finish_transfer(server_worker_id) do
     GenServer.call(__MODULE__, {:finish_transfer, server_worker_id})
   end
 
   def set_crf_search_progress(server_worker_id, %CrfSearchProgress{} = progress) do
     GenServer.call(__MODULE__, {:set_crf_search_progress, server_worker_id, progress})
+  end
+
+  @spec set_crf_search_progress_async(String.t(), CrfSearchProgress.t()) :: :ok
+  def set_crf_search_progress_async(server_worker_id, %CrfSearchProgress{} = progress) do
+    GenServer.cast(__MODULE__, {:set_crf_search_progress, server_worker_id, progress})
   end
 
   def cancel(server_worker_id) do
@@ -229,9 +259,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   def handle_call({:touch, server_worker_id, resource_usage}, _from, state) do
-    update_session_reply(server_worker_id, state, fn session ->
-      %{session | last_seen_at: now(), resource_usage: resource_usage || session.resource_usage}
-    end)
+    update_session_reply(server_worker_id, state, &touch_session(&1, resource_usage))
   end
 
   def handle_call({:unregister, server_worker_id}, _from, state) do
@@ -265,24 +293,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
         _from,
         state
       ) do
-    update_session_reply(server_worker_id, state, fn session ->
-      case Map.fetch(session.jobs, job_id) do
-        {:ok, %Job{} = job} ->
-          %{
-            session
-            | jobs:
-                Map.put(
-                  session.jobs,
-                  job_id,
-                  %Job{job | phase: phase, transfer_progress: progress}
-                ),
-              last_seen_at: now()
-          }
-
-        :error ->
-          {:error, :unknown_worker_session}
-      end
-    end)
+    update_session_reply(
+      server_worker_id,
+      state,
+      &put_job_transfer_progress(&1, job_id, progress, phase)
+    )
   end
 
   def handle_call(
@@ -290,32 +305,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
         _from,
         state
       ) do
-    update_session_reply(server_worker_id, state, fn session ->
-      case Map.fetch(session.jobs, progress.job_id) do
-        {:ok, %Job{job_type: :encode} = job} ->
-          mark_encode_owner(session.client_worker_id, progress.video_id)
-          updated = %Job{job | phase: :encoding, progress: progress}
-
-          %{
-            session
-            | jobs: Map.put(session.jobs, progress.job_id, updated),
-              last_seen_at: now()
-          }
-
-        _ ->
-          mark_encode_owner(session.client_worker_id, progress.video_id)
-
-          job = %Job{
-            job_id: progress.job_id,
-            job_type: :encode,
-            video_id: progress.video_id,
-            phase: :encoding,
-            progress: progress
-          }
-
-          %{session | jobs: Map.put(session.jobs, progress.job_id, job), last_seen_at: now()}
-      end
-    end)
+    update_session_reply(server_worker_id, state, &put_encode_progress(&1, progress))
   end
 
   def handle_call({:clear_job, server_worker_id, job_id}, _from, state) do
@@ -376,20 +366,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   def handle_call({:record_transfer_progress, server_worker_id, progress}, _from, state) do
-    update_session_reply(server_worker_id, state, fn session ->
-      with {:ok, session} <- WorkerJobStateMachine.record_transfer_progress(session, progress) do
-        job_id = Map.get(progress, :job_id) || Integer.to_string(session.active_video_id)
-
-        {:ok,
-         session
-         |> put_crf_job(session.active_video_id, session.phase,
-           job_id: job_id,
-           transfer_progress: progress,
-           progress: nil
-         )
-         |> Map.put(:last_seen_at, now())}
-      end
-    end)
+    update_session_reply(server_worker_id, state, &put_transfer_progress(&1, progress))
   end
 
   def handle_call({:finish_transfer, server_worker_id}, _from, state) do
@@ -408,23 +385,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
         _from,
         state
       ) do
-    update_session_reply(server_worker_id, state, fn session ->
-      job_id = progress.job_id || Integer.to_string(progress.video_id)
-      existing_job = Enum.find(Map.values(session.jobs), &match?(%Job{job_type: :crf_search}, &1))
-
-      with :ok <- ensure_crf_video(existing_job, progress.video_id) do
-        progress = merge_crf_search_progress(crf_progress(existing_job), progress)
-
-        {:ok,
-         session
-         |> put_crf_job(progress.video_id, :crf_searching,
-           job_id: job_id,
-           progress: progress,
-           transfer_progress: nil
-         )
-         |> Map.put(:last_seen_at, now())}
-      end
-    end)
+    update_session_reply(server_worker_id, state, &put_crf_search_progress(&1, progress))
   end
 
   def handle_call(
@@ -495,6 +456,37 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   @impl GenServer
+  def handle_cast({:touch, server_worker_id, resource_usage}, state) do
+    update_session_noreply(server_worker_id, state, &touch_session(&1, resource_usage))
+  end
+
+  def handle_cast(
+        {:set_job_transfer_progress, server_worker_id, job_id, progress, phase},
+        state
+      ) do
+    update_session_noreply(
+      server_worker_id,
+      state,
+      &put_job_transfer_progress(&1, job_id, progress, phase)
+    )
+  end
+
+  def handle_cast({:set_encode_progress, server_worker_id, %EncodeProgress{} = progress}, state) do
+    update_session_noreply(server_worker_id, state, &put_encode_progress(&1, progress))
+  end
+
+  def handle_cast({:record_transfer_progress, server_worker_id, progress}, state) do
+    update_session_noreply(server_worker_id, state, &put_transfer_progress(&1, progress))
+  end
+
+  def handle_cast(
+        {:set_crf_search_progress, server_worker_id, %CrfSearchProgress{} = progress},
+        state
+      ) do
+    update_session_noreply(server_worker_id, state, &put_crf_search_progress(&1, progress))
+  end
+
+  @impl GenServer
   def handle_info(:expire_stale, state) do
     {expired_sessions, _} = expire_stale_sessions(timeout_seconds())
 
@@ -523,6 +515,78 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     {:noreply, state}
   end
 
+  defp touch_session(session, resource_usage) do
+    %{session | last_seen_at: now(), resource_usage: resource_usage || session.resource_usage}
+  end
+
+  defp put_job_transfer_progress(session, job_id, progress, phase) do
+    case Map.fetch(session.jobs, job_id) do
+      {:ok, %Job{} = job} ->
+        updated_job = %Job{job | phase: phase, transfer_progress: progress}
+
+        %{
+          session
+          | jobs: Map.put(session.jobs, job_id, updated_job),
+            last_seen_at: now()
+        }
+
+      :error ->
+        {:error, :unknown_worker_session}
+    end
+  end
+
+  defp put_encode_progress(session, %EncodeProgress{} = progress) do
+    job =
+      case Map.fetch(session.jobs, progress.job_id) do
+        {:ok, %Job{job_type: :encode} = job} ->
+          %Job{job | phase: :encoding, progress: progress}
+
+        _ ->
+          %Job{
+            job_id: progress.job_id,
+            job_type: :encode,
+            video_id: progress.video_id,
+            phase: :encoding,
+            progress: progress
+          }
+      end
+
+    %{session | jobs: Map.put(session.jobs, progress.job_id, job), last_seen_at: now()}
+  end
+
+  defp put_transfer_progress(session, progress) do
+    with {:ok, session} <- WorkerJobStateMachine.record_transfer_progress(session, progress) do
+      job_id = Map.get(progress, :job_id) || Integer.to_string(session.active_video_id)
+
+      {:ok,
+       session
+       |> put_crf_job(session.active_video_id, session.phase,
+         job_id: job_id,
+         transfer_progress: progress,
+         progress: nil
+       )
+       |> Map.put(:last_seen_at, now())}
+    end
+  end
+
+  defp put_crf_search_progress(session, %CrfSearchProgress{} = progress) do
+    job_id = progress.job_id || Integer.to_string(progress.video_id)
+    existing_job = Enum.find(Map.values(session.jobs), &match?(%Job{job_type: :crf_search}, &1))
+
+    with :ok <- ensure_crf_video(existing_job, progress.video_id) do
+      progress = merge_crf_search_progress(crf_progress(existing_job), progress)
+
+      {:ok,
+       session
+       |> put_crf_job(progress.video_id, :crf_searching,
+         job_id: job_id,
+         progress: progress,
+         transfer_progress: nil
+       )
+       |> Map.put(:last_seen_at, now())}
+    end
+  end
+
   defp ensure_crf_video(%Job{video_id: video_id}, expected_video_id)
        when video_id != expected_video_id,
        do: {:error, :invalid_worker_phase}
@@ -531,21 +595,6 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   defp crf_progress(%Job{progress: %CrfSearchProgress{} = progress}), do: progress
   defp crf_progress(_job), do: nil
-
-  defp mark_encode_owner(client_worker_id, video_id) do
-    case Media.get_video(video_id) do
-      %Media.Video{state: :crf_searched} = video ->
-        _ = Media.mark_as_encoding(video, %{encode_worker_id: client_worker_id})
-        :ok
-
-      %Media.Video{state: :encoding} = video ->
-        _ = Media.mark_as_worker_encoding(video, client_worker_id)
-        :ok
-
-      _ ->
-        {:ok, nil}
-    end
-  end
 
   defp build_session(
          server_worker_id,
@@ -781,6 +830,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       :error ->
         {:reply, {:error, :unknown_worker_session}, state}
     end
+  end
+
+  defp update_session_noreply(server_worker_id, state, update_fun) do
+    {:reply, _result, state} = update_session_reply(server_worker_id, state, update_fun)
+    {:noreply, state}
   end
 
   defp broadcast_sessions do

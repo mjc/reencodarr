@@ -1021,6 +1021,100 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "heartbeat acknowledgement does not wait for worker session storage" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload()), :ok
+
+      sessions = Process.whereis(WorkerSessions)
+      :ok = :sys.suspend(sessions)
+      on_exit(fn -> :sys.resume(sessions) end)
+
+      ref = push(socket, "heartbeat", %{"cpu_percent" => 50.0})
+
+      assert_reply ref, :ok, %{accepted: true}, 100
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "progress acknowledgements do not wait for worker session storage" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-progress")), :ok
+      assert_reply push(socket, "pull_work", %{}), :ok, %{job_id: job_id}
+
+      sessions = Process.whereis(WorkerSessions)
+      :ok = :sys.suspend(sessions)
+      on_exit(fn -> :sys.resume(sessions) end)
+
+      ref =
+        push(socket, "transfer_progress", %{
+          "job_id" => job_id,
+          "video_id" => video.id,
+          "percent" => 5.0,
+          "received_bytes" => 5,
+          "expected_bytes" => 100
+        })
+
+      assert_reply ref, :ok, %{accepted: true, event: "transfer_progress"}, 100
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "encode progress acknowledgement does not wait for worker session storage" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+      path = Path.join(System.tmp_dir!(), "worker-progress-#{System.unique_integer()}.mkv")
+      File.write!(path, "source")
+      on_exit(fn -> File.rm(path) end)
+
+      {:ok, video} = Fixtures.video_fixture(%{path: path, size: 6, state: :crf_searched})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, params: []})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(
+                     socket,
+                     "announce",
+                     announce_payload(
+                       worker_id: "worker-encode-progress",
+                       capabilities: %{"crf_search" => true, "encode" => true}
+                     )
+                   ),
+                   :ok
+
+      assert_reply push(socket, "pull_work", %{"job_type" => "encode"}),
+                   :ok,
+                   %{job_id: job_id}
+
+      sessions = Process.whereis(WorkerSessions)
+      :ok = :sys.suspend(sessions)
+      on_exit(fn -> :sys.resume(sessions) end)
+
+      ref =
+        push(socket, "encode_progress", %{
+          "job_id" => job_id,
+          "video_id" => video.id,
+          "percent" => 5.0,
+          "fps" => 30.0,
+          "output_bytes" => 100,
+          "output_percent" => 1.0
+        })
+
+      assert_reply ref, :ok, %{accepted: true, event: "encode_progress"}, 100
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "tracks last-seen for pull_work requests on active sessions" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)

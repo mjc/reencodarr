@@ -751,11 +751,17 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
   end
 
   test "restores an encode job from progress after the server restarts" do
-    {:ok, video} = Fixtures.video_fixture(%{state: :encoding})
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :encoding,
+        encode_worker_id: "worker-client-1",
+        worker_attempt_id: "encode-restart"
+      })
+
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
 
     progress = %EncodeProgress{
-      job_id: "encode-#{video.id}",
+      job_id: "encode-restart",
       video_id: video.id,
       percent: 42.0,
       fps: 12.5,
