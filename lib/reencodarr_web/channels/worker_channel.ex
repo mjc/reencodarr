@@ -75,7 +75,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   def handle_in("heartbeat", payload, %{assigns: %{worker_id: worker_id}} = socket) do
-    :ok = WorkerSessions.touch_async(worker_id, WorkerProtocol.parse_resource_usage(payload))
+    :ok = WorkerSessions.touch(worker_id, WorkerProtocol.parse_resource_usage(payload))
     last_seen_at = DateTime.utc_now() |> DateTime.truncate(:second)
     {:reply, {:ok, WorkerProtocol.heartbeat_ack(last_seen_at)}, socket}
   end
@@ -461,7 +461,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp handle_work_request(payload, %{assigns: %{worker_id: worker_id}} = socket) do
-    :ok = WorkerSessions.touch_async(worker_id)
+    :ok = WorkerSessions.touch(worker_id)
 
     if Map.get(payload, "job_type") == "encode" do
       handle_encode_work_request(socket, payload)
@@ -753,20 +753,14 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp ensure_transfer_attempt(socket, progress) do
-    case Media.get_video(progress.video_id) do
-      %Media.Video{state: :crf_searching} ->
-        case ensure_crf_attempt(socket, progress) do
-          {:ok, socket} -> {:ok, :crf_search, socket}
-          {:error, reason} -> {:error, reason}
-        end
+    cond do
+      crf_job?(socket, progress.job_id, progress.video_id) ->
+        {:ok, :crf_search, socket}
 
-      %Media.Video{state: :encoding} ->
-        case ensure_encode_job(socket, progress) do
-          {:ok, socket} -> {:ok, :encode, socket}
-          {:error, reason} -> {:error, reason}
-        end
+      encode_job?(socket, progress.job_id, progress.video_id) ->
+        {:ok, :encode, socket}
 
-      _ ->
+      true ->
         {:error, :unknown_worker_session}
     end
   end
@@ -775,8 +769,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     case ensure_active_video(socket, progress.video_id) do
       :ok ->
         {progress, socket} = fill_transfer_rate(socket, progress)
-        :ok = WorkerSessions.record_transfer_progress_async(worker_id, progress)
-        Events.broadcast_event(:transfer_progress, Map.put(progress, :worker_id, worker_id))
+        :ok = WorkerSessions.set_transfer_progress(worker_id, progress)
 
         {:reply, {:ok, WorkerProtocol.event_ack("transfer_progress")},
          maybe_send_next_transfer_chunk(socket, progress)}
@@ -790,9 +783,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     phase = if progress.percent >= 100, do: :input_ready, else: :receiving_input
 
     :ok =
-      WorkerSessions.set_job_transfer_progress_async(worker_id, progress.job_id, progress, phase)
-
-    Events.broadcast_event(:transfer_progress, Map.put(progress, :worker_id, worker_id))
+      WorkerSessions.set_job_transfer_progress(worker_id, progress.job_id, progress, phase)
 
     socket =
       case socket.assigns[:encode_transfer] do
@@ -814,13 +805,11 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp handle_crf_search_progress(payload, socket) do
     with {:ok, progress} <- WorkerProtocol.parse_crf_search_progress(payload),
-         {:ok, socket} <- ensure_crf_attempt(socket, progress) do
-      :ok = WorkerSessions.set_crf_search_progress_async(socket.assigns.worker_id, progress)
-      Events.broadcast_event(:crf_search_progress, progress)
+         true <- crf_job?(socket, progress.job_id, progress.video_id) do
+      :ok = WorkerSessions.set_crf_search_progress(socket.assigns.worker_id, progress)
       {:reply, {:ok, WorkerProtocol.event_ack("crf_search_progress")}, socket}
     else
-      {:error, reason} ->
-        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+      _ -> {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
     end
   end
 
@@ -876,14 +865,21 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp handle_encode_progress(payload, socket) do
     with {:ok, progress} <- WorkerProtocol.parse_encode_progress(payload),
-         {:ok, socket} <- ensure_encode_job(socket, progress) do
-      :ok = WorkerSessions.set_encode_progress_async(socket.assigns.worker_id, progress)
-
-      Events.broadcast_event(:encoding_progress, Map.from_struct(progress))
+         true <- encode_job?(socket, progress.job_id, progress.video_id) do
+      :ok = WorkerSessions.set_encode_progress(socket.assigns.worker_id, progress)
       {:reply, {:ok, WorkerProtocol.event_ack("encode_progress")}, socket}
     else
-      {:error, reason} -> {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+      _ -> {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
     end
+  end
+
+  defp crf_job?(socket, job_id, video_id) do
+    socket.assigns[:current_video_id] == video_id and
+      (is_nil(job_id) or socket.assigns[:transfer_id] == job_id)
+  end
+
+  defp encode_job?(socket, job_id, video_id) do
+    socket.assigns[:encode_job_id] == job_id and socket.assigns[:encode_video_id] == video_id
   end
 
   defp handle_encode_completed(payload, socket) do
@@ -1632,7 +1628,8 @@ defmodule ReencodarrWeb.WorkerChannel do
       {:ok,
        socket
        |> assign(:current_video_id, video_id)
-       |> assign(:current_vmaf_target, Reencodarr.Rules.vmaf_target(video))}
+       |> assign(:current_vmaf_target, Reencodarr.Rules.vmaf_target(video))
+       |> assign(:transfer_id, job_id || video.worker_attempt_id)}
     else
       _ -> {:error, :unknown_worker_session}
     end
@@ -1968,7 +1965,7 @@ defmodule ReencodarrWeb.WorkerChannel do
       {:noreply, handle_transfer_failure(socket, video_id, :enoent)}
     else
       :ok =
-        WorkerSessions.record_transfer_progress_async(
+        WorkerSessions.set_transfer_progress(
           socket.assigns.worker_id,
           initial_transfer_progress(socket, video)
         )

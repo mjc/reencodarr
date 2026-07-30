@@ -40,7 +40,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert {:ok, _session} =
              WorkerSessions.assign_video("worker-server-1", video.id, :receiving_input)
 
-    assert {:ok, _session} =
+    assert :ok =
              WorkerSessions.touch("worker-server-1", %{
                cpu_percent: 87.5,
                memory_bytes: 1_073_741_824,
@@ -49,7 +49,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
                disk_total_bytes: 1_099_511_627_776
              })
 
-    assert {:ok, _session} =
+    assert :ok =
              WorkerSessions.set_transfer_progress("worker-server-1", %{
                job_id: "job-1",
                transfer_id: "job-1",
@@ -95,7 +95,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert {:ok, _session} =
              WorkerSessions.assign_video("worker-server-http", video.id, :receiving_input)
 
-    assert {:ok, _session} =
+    assert :ok =
              WorkerSessions.set_transfer_progress("worker-server-http", %{
                job_id: "job-http",
                transfer_id: "job-http",
@@ -135,7 +135,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert {:ok, _session} =
              WorkerSessions.assign_video("worker-server-stale-crf", video.id)
 
-    assert {:ok, _session} =
+    assert :ok =
              WorkerSessions.set_crf_search_progress(
                "worker-server-stale-crf",
                %CrfSearchProgress{
@@ -149,7 +149,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
                }
              )
 
-    assert {:ok, _session} =
+    assert :ok =
              WorkerSessions.set_transfer_progress("worker-server-stale-crf", %{
                job_id: Integer.to_string(video.id),
                transfer_id: Integer.to_string(video.id),
@@ -198,7 +198,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
                job_id
              )
 
-    assert {:ok, _session} =
+    assert :ok =
              WorkerSessions.set_crf_search_progress("worker-server-2", %CrfSearchProgress{
                job_id: job_id,
                video_id: video.id,
@@ -292,7 +292,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert {:ok, _session} =
              WorkerSessions.assign_video("worker-server-3", video.id, :receiving_input)
 
-    assert {:ok, _session} =
+    assert :ok =
              WorkerSessions.set_transfer_progress("worker-server-3", %{
                job_id: Integer.to_string(video.id),
                video_id: video.id,

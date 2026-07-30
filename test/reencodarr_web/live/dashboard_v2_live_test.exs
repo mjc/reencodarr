@@ -223,7 +223,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
           video_id: video.id
         })
 
-      {:ok, _session} =
+      :ok =
         WorkerSessions.set_crf_search_progress("server-crf", %CrfSearchProgress{
           job_id: job_id,
           video_id: video.id,
@@ -274,7 +274,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
           capabilities: %{"crf_search" => true, "encode" => true}
         })
 
-      {:ok, _session} =
+      :ok =
         WorkerSessions.set_crf_search_progress("server-crf", %CrfSearchProgress{
           job_id: job_id,
           video_id: video.id,

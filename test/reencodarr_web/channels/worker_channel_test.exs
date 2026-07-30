@@ -248,6 +248,14 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       {:ok, _, socket2} = subscribe_and_join(socket2, "workers:crf_search")
       assert_reply push(socket2, "announce", announce_payload(worker_id: "worker-crf")), :ok
 
+      assert_reply push(socket2, "job_active", %{
+                     "job_id" => job_id,
+                     "video_id" => video.id,
+                     "job_type" => "crf_search"
+                   }),
+                   :ok,
+                   %{accepted: true, event: "job_active"}
+
       assert_reply push(socket2, "crf_search_progress", %{
                      "job_id" => job_id,
                      "video_id" => video.id,
@@ -471,6 +479,14 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       {:ok, socket2} = connect(WorkerSocket, %{"token" => token})
       {:ok, _, socket2} = subscribe_and_join(socket2, "workers:crf_search")
       assert_reply push(socket2, "announce", announce_payload(worker_id: "worker-restart")), :ok
+
+      assert_reply push(socket2, "job_active", %{
+                     "job_id" => job_id,
+                     "video_id" => video.id,
+                     "job_type" => "encode"
+                   }),
+                   :ok,
+                   %{accepted: true, event: "job_active"}
 
       assert_reply push(socket2, "encode_progress", %{
                      "job_id" => job_id,
@@ -1050,6 +1066,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert_reply push(socket, "announce", announce_payload(worker_id: "worker-progress")), :ok
       assert_reply push(socket, "pull_work", %{}), :ok, %{job_id: job_id}
 
+      track_video_lookups()
+
       sessions = Process.whereis(WorkerSessions)
       :ok = :sys.suspend(sessions)
       on_exit(fn -> :sys.resume(sessions) end)
@@ -1064,6 +1082,20 @@ defmodule ReencodarrWeb.WorkerChannelTest do
         })
 
       assert_reply ref, :ok, %{accepted: true, event: "transfer_progress"}, 100
+
+      ref =
+        push(socket, "crf_search_progress", %{
+          "job_id" => job_id,
+          "video_id" => video.id,
+          "percent" => 5.0,
+          "fps" => 30.0,
+          "crf" => 28.0,
+          "sample_num" => 1,
+          "total_samples" => 5
+        })
+
+      assert_reply ref, :ok, %{accepted: true, event: "crf_search_progress"}, 100
+      refute_receive {:media_get_video, _video_id}
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
@@ -1096,6 +1128,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    :ok,
                    %{job_id: job_id}
 
+      track_video_lookups()
+
       sessions = Process.whereis(WorkerSessions)
       :ok = :sys.suspend(sessions)
       on_exit(fn -> :sys.resume(sessions) end)
@@ -1111,6 +1145,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
         })
 
       assert_reply ref, :ok, %{accepted: true, event: "encode_progress"}, 100
+      refute_receive {:media_get_video, _video_id}
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
@@ -1312,8 +1347,14 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
 
+      job_id = "crf-resume"
+
       {:ok, video} =
-        Fixtures.video_fixture(%{state: :crf_searching, crf_search_worker_id: "worker-a"})
+        Fixtures.video_fixture(%{
+          state: :crf_searching,
+          crf_search_worker_id: "worker-a",
+          worker_attempt_id: job_id
+        })
 
       video_id = video.id
 
@@ -1328,7 +1369,16 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       session = WorkerSessions.get(server_worker_id)
       assert is_nil(session.active_video_id)
 
+      assert_reply push(socket, "job_active", %{
+                     "job_id" => job_id,
+                     "video_id" => video_id,
+                     "job_type" => "crf_search"
+                   }),
+                   :ok,
+                   %{accepted: true, event: "job_active"}
+
       assert_reply push(socket, "crf_search_progress", %{
+                     "job_id" => job_id,
                      "video_id" => video_id,
                      "percent" => 16.4,
                      "filename" => Path.basename(video.path),
@@ -1484,8 +1534,14 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
 
+      job_id = "crf-in-progress"
+
       {:ok, video} =
-        Fixtures.video_fixture(%{state: :crf_searching, crf_search_worker_id: "worker-a"})
+        Fixtures.video_fixture(%{
+          state: :crf_searching,
+          crf_search_worker_id: "worker-a",
+          worker_attempt_id: job_id
+        })
 
       video_id = video.id
 
@@ -1497,7 +1553,16 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    :ok,
                    %{accepted: true, protocol_version: 1}
 
+      assert_reply push(socket, "job_active", %{
+                     "job_id" => job_id,
+                     "video_id" => video_id,
+                     "job_type" => "crf_search"
+                   }),
+                   :ok,
+                   %{accepted: true, event: "job_active"}
+
       assert_reply push(socket, "crf_search_progress", %{
+                     "job_id" => job_id,
                      "video_id" => video_id,
                      "percent" => 12.5,
                      "filename" => Path.basename(video.path),
@@ -1509,16 +1574,18 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    :ok,
                    %{accepted: true, event: "crf_search_progress"}
 
-      assert {:ok, session} =
+      assert :ok =
                WorkerSessions.set_transfer_progress(server_worker_id, %{
-                 job_id: Integer.to_string(video_id),
+                 job_id: job_id,
                  video_id: video_id,
-                 transfer_id: Integer.to_string(video_id),
+                 transfer_id: job_id,
                  filename: Path.basename(video.path),
                  percent: 100.0,
                  bytes_sent: 8,
                  total_bytes: 8
                })
+
+      session = WorkerSessions.get(server_worker_id)
 
       assert session.phase == :input_ready
       assert session.active_video_id == video_id
@@ -1707,7 +1774,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    job_id
                  )
 
-        assert {:ok, _session} =
+        assert :ok =
                  WorkerSessions.set_transfer_progress("worker-server-1", %{
                    job_id: job_id,
                    transfer_id: job_id,
@@ -2685,5 +2752,17 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       },
       override_map
     )
+  end
+
+  defp track_video_lookups do
+    test_pid = self()
+    :meck.new(Media, [:passthrough])
+
+    :meck.expect(Media, :get_video, fn video_id ->
+      send(test_pid, {:media_get_video, video_id})
+      :meck.passthrough([video_id])
+    end)
+
+    on_exit(fn -> :meck.unload() end)
   end
 end

@@ -22,10 +22,58 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
   end
 
   test "returns unknown worker session for missing ids" do
-    assert {:error, :unknown_worker_session} = WorkerSessions.touch("missing-worker")
     assert {:error, :unknown_worker_session} = WorkerSessions.assign_video("missing-worker", 123)
     assert {:error, :unknown_worker_session} = WorkerSessions.clear_video("missing-worker")
     assert {:error, :unknown_worker_session} = WorkerSessions.finish_transfer("missing-worker")
+  end
+
+  test "telemetry updates never wait for the session process" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", 123)
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-456",
+               job_type: :encode,
+               video_id: 456
+             })
+
+    sessions = Process.whereis(WorkerSessions)
+    :ok = :sys.suspend(sessions)
+    on_exit(fn -> :sys.resume(sessions) end)
+
+    task =
+      Task.async(fn ->
+        [
+          WorkerSessions.touch("worker-server-1"),
+          WorkerSessions.set_transfer_progress("worker-server-1", %{
+            job_id: "123",
+            video_id: 123,
+            percent: 5.0
+          }),
+          WorkerSessions.set_job_transfer_progress(
+            "worker-server-1",
+            "encode-456",
+            %{job_id: "encode-456", video_id: 456, percent: 5.0},
+            :receiving_input
+          ),
+          WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
+            job_id: "123",
+            video_id: 123,
+            percent: 5.0
+          }),
+          WorkerSessions.set_encode_progress("worker-server-1", %EncodeProgress{
+            job_id: "encode-456",
+            video_id: 456,
+            percent: 5.0,
+            fps: 30.0,
+            output_bytes: 100,
+            output_percent: 1.0
+          })
+        ]
+      end)
+
+    assert {:ok, [:ok, :ok, :ok, :ok, :ok]} = Task.yield(task, 100)
   end
 
   test "stopping a worker fails active work without disconnecting its session" do
@@ -109,8 +157,10 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
       percent: 25.0
     }
 
-    assert {:ok, session} =
+    assert :ok =
              WorkerSessions.set_crf_search_progress("worker-server-1", progress)
+
+    session = WorkerSessions.get("worker-server-1")
 
     assert %Job{
              job_id: "123",
@@ -128,12 +178,14 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert {:ok, _session} =
              WorkerSessions.set_job_control_state("worker-server-1", "123", :paused)
 
-    assert {:ok, session} =
+    assert :ok =
              WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                job_id: "123",
                video_id: 123,
                percent: 25.0
              })
+
+    session = WorkerSessions.get("worker-server-1")
 
     assert %Job{control_state: :paused} = session.jobs["123"]
   end
@@ -425,7 +477,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert session.active_video_id == 123
     assert session.phase == :receiving_input
 
-    assert {:ok, session} =
+    assert :ok =
              WorkerSessions.set_transfer_progress("worker-server-1", %{
                job_id: "job-1",
                video_id: 123,
@@ -435,6 +487,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                bytes_sent: 10_485_760,
                total_bytes: 10_485_760
              })
+
+    session = WorkerSessions.get("worker-server-1")
 
     assert session.active_video_id == 123
     assert session.phase == :input_ready
@@ -450,13 +504,13 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
     assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", 123, :receiving_input)
 
-    assert {:error, :invalid_worker_phase} =
+    assert :ok =
              WorkerSessions.set_transfer_progress("worker-server-1", %{
                video_id: 456,
                percent: 25.0
              })
 
-    assert {:error, :invalid_worker_phase} =
+    assert :ok =
              WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                video_id: 456,
                percent: 25.0
@@ -472,7 +526,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
   test "keeps CRF sample metadata when later progress omits it" do
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
 
-    assert {:ok, session} =
+    assert :ok =
              WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                video_id: 123,
                percent: 10.0,
@@ -482,11 +536,13 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                total_samples: 5
              })
 
+    session = WorkerSessions.get("worker-server-1")
+
     assert session.crf_search_progress.crf == 28.0
     assert session.crf_search_progress.sample_num == 3
     assert session.crf_search_progress.total_samples == 5
 
-    assert {:ok, session} =
+    assert :ok =
              WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                video_id: 123,
                percent: 25.0,
@@ -495,6 +551,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                sample_num: nil,
                total_samples: nil
              })
+
+    session = WorkerSessions.get("worker-server-1")
 
     assert session.crf_search_progress.percent == 25.0
     assert session.crf_search_progress.fps == 25.0
@@ -511,7 +569,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
 
     Process.sleep(1_100)
 
-    assert {:ok, session} =
+    assert :ok =
              WorkerSessions.set_transfer_progress("worker-server-1", %{
                job_id: "job-1",
                video_id: 123,
@@ -526,6 +584,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                total_chunks: 8
              })
 
+    session = WorkerSessions.get("worker-server-1")
+
     assert DateTime.compare(session.last_seen_at, initial_last_seen) == :gt
   end
 
@@ -537,7 +597,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
 
     Process.sleep(1_100)
 
-    assert {:ok, session} =
+    assert :ok =
              WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                video_id: 123,
                percent: 25.0,
@@ -546,6 +606,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                sample_num: 3,
                total_samples: 5
              })
+
+    session = WorkerSessions.get("worker-server-1")
 
     assert DateTime.compare(session.last_seen_at, initial_last_seen) == :gt
   end
@@ -576,7 +638,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                job_id
              )
 
-    assert {:ok, session} =
+    assert :ok =
              WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                job_id: job_id,
                video_id: video.id,
@@ -586,6 +648,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                sample_num: 2,
                total_samples: 5
              })
+
+    session = WorkerSessions.get("worker-server-1")
 
     assert session.active_video_id == video.id
     assert session.phase == :crf_searching
@@ -622,7 +686,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
 
     assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", video.id)
 
-    assert {:ok, _session} =
+    assert :ok =
              WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                video_id: video.id,
                percent: 100.0,
@@ -729,7 +793,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
       output_percent: 10.0
     }
 
-    assert {:ok, _session} =
+    assert :ok =
              WorkerSessions.set_encode_progress("worker-server-1", progress)
 
     assert {:ok, reconnected} =
@@ -769,7 +833,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
       output_percent: 10.0
     }
 
-    assert {:ok, session} = WorkerSessions.set_encode_progress("worker-server-1", progress)
+    assert :ok = WorkerSessions.set_encode_progress("worker-server-1", progress)
+    session = WorkerSessions.get("worker-server-1")
 
     assert %Job{job_type: :encode, video_id: video_id, phase: :encoding} =
              session.jobs[progress.job_id]

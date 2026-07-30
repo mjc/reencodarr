@@ -81,12 +81,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.call(__MODULE__, {:register, attrs})
   end
 
+  @spec touch(String.t(), map() | nil) :: :ok
   def touch(server_worker_id, resource_usage \\ nil) do
-    GenServer.call(__MODULE__, {:touch, server_worker_id, resource_usage})
-  end
-
-  @spec touch_async(String.t(), map() | nil) :: :ok
-  def touch_async(server_worker_id, resource_usage \\ nil) do
     GenServer.cast(__MODULE__, {:touch, server_worker_id, resource_usage})
   end
 
@@ -108,19 +104,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.call(__MODULE__, {:assign_job, server_worker_id, job})
   end
 
-  @spec set_job_transfer_progress(String.t(), String.t(), map(), Job.phase()) ::
-          {:ok, session()} | {:error, atom()}
+  @spec set_job_transfer_progress(String.t(), String.t(), map(), Job.phase()) :: :ok
   def set_job_transfer_progress(server_worker_id, job_id, progress, phase)
-      when is_binary(server_worker_id) and is_binary(job_id) and is_map(progress) and
-             phase in [:receiving_input, :input_ready] do
-    GenServer.call(
-      __MODULE__,
-      {:set_job_transfer_progress, server_worker_id, job_id, progress, phase}
-    )
-  end
-
-  @spec set_job_transfer_progress_async(String.t(), String.t(), map(), Job.phase()) :: :ok
-  def set_job_transfer_progress_async(server_worker_id, job_id, progress, phase)
       when is_binary(server_worker_id) and is_binary(job_id) and is_map(progress) and
              phase in [:receiving_input, :input_ready] do
     GenServer.cast(
@@ -129,14 +114,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     )
   end
 
-  @spec set_encode_progress(String.t(), EncodeProgress.t()) ::
-          {:ok, session()} | {:error, atom()}
+  @spec set_encode_progress(String.t(), EncodeProgress.t()) :: :ok
   def set_encode_progress(server_worker_id, %EncodeProgress{} = progress) do
-    GenServer.call(__MODULE__, {:set_encode_progress, server_worker_id, progress})
-  end
-
-  @spec set_encode_progress_async(String.t(), EncodeProgress.t()) :: :ok
-  def set_encode_progress_async(server_worker_id, %EncodeProgress{} = progress) do
     GenServer.cast(__MODULE__, {:set_encode_progress, server_worker_id, progress})
   end
 
@@ -164,29 +143,17 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     )
   end
 
+  @spec set_transfer_progress(String.t(), map()) :: :ok
   def set_transfer_progress(server_worker_id, progress) when is_map(progress) do
-    record_transfer_progress(server_worker_id, progress)
-  end
-
-  def record_transfer_progress(server_worker_id, progress) when is_map(progress) do
-    GenServer.call(__MODULE__, {:record_transfer_progress, server_worker_id, progress})
-  end
-
-  @spec record_transfer_progress_async(String.t(), map()) :: :ok
-  def record_transfer_progress_async(server_worker_id, progress) when is_map(progress) do
-    GenServer.cast(__MODULE__, {:record_transfer_progress, server_worker_id, progress})
+    GenServer.cast(__MODULE__, {:set_transfer_progress, server_worker_id, progress})
   end
 
   def finish_transfer(server_worker_id) do
     GenServer.call(__MODULE__, {:finish_transfer, server_worker_id})
   end
 
+  @spec set_crf_search_progress(String.t(), CrfSearchProgress.t()) :: :ok
   def set_crf_search_progress(server_worker_id, %CrfSearchProgress{} = progress) do
-    GenServer.call(__MODULE__, {:set_crf_search_progress, server_worker_id, progress})
-  end
-
-  @spec set_crf_search_progress_async(String.t(), CrfSearchProgress.t()) :: :ok
-  def set_crf_search_progress_async(server_worker_id, %CrfSearchProgress{} = progress) do
     GenServer.cast(__MODULE__, {:set_crf_search_progress, server_worker_id, progress})
   end
 
@@ -258,10 +225,6 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end
   end
 
-  def handle_call({:touch, server_worker_id, resource_usage}, _from, state) do
-    update_session_reply(server_worker_id, state, &touch_session(&1, resource_usage))
-  end
-
   def handle_call({:unregister, server_worker_id}, _from, state) do
     :ok = drop_session(server_worker_id)
     broadcast_sessions()
@@ -286,26 +249,6 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     update_session_reply(server_worker_id, state, fn session ->
       %{session | jobs: Map.put(session.jobs, job.job_id, job), last_seen_at: now()}
     end)
-  end
-
-  def handle_call(
-        {:set_job_transfer_progress, server_worker_id, job_id, progress, phase},
-        _from,
-        state
-      ) do
-    update_session_reply(
-      server_worker_id,
-      state,
-      &put_job_transfer_progress(&1, job_id, progress, phase)
-    )
-  end
-
-  def handle_call(
-        {:set_encode_progress, server_worker_id, %EncodeProgress{} = progress},
-        _from,
-        state
-      ) do
-    update_session_reply(server_worker_id, state, &put_encode_progress(&1, progress))
   end
 
   def handle_call({:clear_job, server_worker_id, job_id}, _from, state) do
@@ -365,10 +308,6 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     end)
   end
 
-  def handle_call({:record_transfer_progress, server_worker_id, progress}, _from, state) do
-    update_session_reply(server_worker_id, state, &put_transfer_progress(&1, progress))
-  end
-
   def handle_call({:finish_transfer, server_worker_id}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
       with {:ok, session} <- WorkerJobStateMachine.finish_transfer(session) do
@@ -378,14 +317,6 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
          |> Map.put(:last_seen_at, now())}
       end
     end)
-  end
-
-  def handle_call(
-        {:set_crf_search_progress, server_worker_id, %CrfSearchProgress{} = progress},
-        _from,
-        state
-      ) do
-    update_session_reply(server_worker_id, state, &put_crf_search_progress(&1, progress))
   end
 
   def handle_call(
@@ -457,33 +388,49 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   @impl GenServer
   def handle_cast({:touch, server_worker_id, resource_usage}, state) do
-    update_session_noreply(server_worker_id, state, &touch_session(&1, resource_usage))
+    update_telemetry(server_worker_id, state, &touch_session(&1, resource_usage))
   end
 
   def handle_cast(
         {:set_job_transfer_progress, server_worker_id, job_id, progress, phase},
         state
       ) do
-    update_session_noreply(
+    update_telemetry(
       server_worker_id,
       state,
-      &put_job_transfer_progress(&1, job_id, progress, phase)
+      &put_job_transfer_progress(&1, job_id, progress, phase),
+      {:transfer_progress, Map.put(progress, :worker_id, server_worker_id)}
     )
   end
 
   def handle_cast({:set_encode_progress, server_worker_id, %EncodeProgress{} = progress}, state) do
-    update_session_noreply(server_worker_id, state, &put_encode_progress(&1, progress))
+    update_telemetry(
+      server_worker_id,
+      state,
+      &put_encode_progress(&1, progress),
+      {:encoding_progress, Map.from_struct(progress)}
+    )
   end
 
-  def handle_cast({:record_transfer_progress, server_worker_id, progress}, state) do
-    update_session_noreply(server_worker_id, state, &put_transfer_progress(&1, progress))
+  def handle_cast({:set_transfer_progress, server_worker_id, progress}, state) do
+    update_telemetry(
+      server_worker_id,
+      state,
+      &put_transfer_progress(&1, progress),
+      {:transfer_progress, Map.put(progress, :worker_id, server_worker_id)}
+    )
   end
 
   def handle_cast(
         {:set_crf_search_progress, server_worker_id, %CrfSearchProgress{} = progress},
         state
       ) do
-    update_session_noreply(server_worker_id, state, &put_crf_search_progress(&1, progress))
+    update_telemetry(
+      server_worker_id,
+      state,
+      &put_crf_search_progress(&1, progress),
+      {:crf_search_progress, progress}
+    )
   end
 
   @impl GenServer
@@ -810,30 +757,41 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   defp resumable_phase(_phase), do: :crf_searching
 
   defp update_session_reply(server_worker_id, state, update_fun) do
+    {:reply, update_session(server_worker_id, update_fun), state}
+  end
+
+  defp update_session(server_worker_id, update_fun) do
     case lookup_session(server_worker_id) do
       {:ok, session} ->
         case update_fun.(session) do
           {:ok, updated_session} ->
             updated_session = derive_crf_summary(updated_session)
             :ok = put_session(updated_session)
-            {:reply, {:ok, updated_session}, state}
+            {:ok, updated_session}
 
           {:error, reason} ->
-            {:reply, {:error, reason}, state}
+            {:error, reason}
 
           updated_session ->
             updated_session = derive_crf_summary(updated_session)
             :ok = put_session(updated_session)
-            {:reply, {:ok, updated_session}, state}
+            {:ok, updated_session}
         end
 
       :error ->
-        {:reply, {:error, :unknown_worker_session}, state}
+        {:error, :unknown_worker_session}
     end
   end
 
-  defp update_session_noreply(server_worker_id, state, update_fun) do
-    {:reply, _result, state} = update_session_reply(server_worker_id, state, update_fun)
+  defp update_telemetry(server_worker_id, state, update_fun, event \\ nil) do
+    case {update_session(server_worker_id, update_fun), event} do
+      {{:ok, _session}, {event_name, payload}} ->
+        Events.broadcast_event(event_name, payload)
+
+      _ ->
+        :ok
+    end
+
     {:noreply, state}
   end
 
