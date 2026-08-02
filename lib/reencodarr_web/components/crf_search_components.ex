@@ -365,7 +365,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
 
     ~H"""
     <.crf_search_panel
-      id={"crf-worker-#{@worker.server_worker_id}"}
+      id={"crf-worker-#{@worker.client_worker_id || @worker.server_worker_id}"}
       title={"CRF Search · #{@worker.client_worker_id || @worker.server_worker_id}"}
       video={@video}
       results={@results}

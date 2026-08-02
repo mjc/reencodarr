@@ -72,13 +72,27 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/")
 
-      assert has_element?(view, "#crf-worker-server-one", "CRF Search · worker-one")
-      assert has_element?(view, "#crf-worker-server-two", "CRF Search · worker-two")
-      assert has_element?(view, "#encode-worker-server-one", "Encoding · worker-one")
-      assert has_element?(view, "#encode-worker-server-two", "Encoding · worker-two")
+      assert has_element?(view, "#crf-worker-worker-one", "CRF Search · worker-one")
+      assert has_element?(view, "#crf-worker-worker-two", "CRF Search · worker-two")
+      assert has_element?(view, "#encode-worker-worker-one", "Encoding · worker-one")
+      assert has_element?(view, "#encode-worker-worker-two", "Encoding · worker-two")
       refute has_element?(view, "#broadway-crf-search-panel")
       refute has_element?(view, "#broadway-encoding-panel")
       refute has_element?(view, "#no-crf-workers")
+
+      assert {:ok, _session} =
+               WorkerSessions.register(%{
+                 server_worker_id: "server-one-reconnected",
+                 client_worker_id: "worker-one",
+                 protocol_version: 1,
+                 version: "0.11.4",
+                 capabilities: %{"crf_search" => true, "encode" => true}
+               })
+
+      assert has_element?(view, "#crf-worker-worker-one", "CRF Search · worker-one")
+      assert has_element?(view, "#encode-worker-worker-one", "Encoding · worker-one")
+      refute has_element?(view, "#crf-worker-server-one-reconnected")
+      refute has_element?(view, "#encode-worker-server-one-reconnected")
     end
 
     test "reuses loaded CRF worker data across progress updates" do
@@ -135,10 +149,10 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/")
 
-      assert has_element?(view, "#encode-worker-server-encode", "Encoding · worker-encode")
-      assert has_element?(view, "#encode-worker-server-encode", "worker.mkv")
-      assert has_element?(view, "#encode-worker-server-encode", "42.0%")
-      assert has_element?(view, "#encode-worker-server-encode", "12.5 fps")
+      assert has_element?(view, "#encode-worker-worker-encode", "Encoding · worker-encode")
+      assert has_element?(view, "#encode-worker-worker-encode", "worker.mkv")
+      assert has_element?(view, "#encode-worker-worker-encode", "42.0%")
+      assert has_element?(view, "#encode-worker-worker-encode", "12.5 fps")
 
       assert {:ok, _session} =
                WorkerSessions.set_job_control_state(
@@ -147,7 +161,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
                  :paused
                )
 
-      assert has_element?(view, "#encode-worker-server-encode", "Paused")
+      assert has_element?(view, "#encode-worker-worker-encode", "Paused")
     end
 
     test "does not render a restored encode before the worker reclaims it", %{conn: conn} do
@@ -182,8 +196,8 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
       {:ok, view, _html} = live(conn, ~p"/")
 
-      assert has_element?(view, "#encode-worker-server-restored", "Idle")
-      refute has_element?(view, "#encode-worker-server-restored", "restored.mkv")
+      assert has_element?(view, "#encode-worker-worker-restored", "Idle")
+      refute has_element?(view, "#encode-worker-worker-restored", "restored.mkv")
     end
 
     test "renders job-scoped worker CRF pause state", %{conn: conn} do
@@ -231,16 +245,16 @@ defmodule ReencodarrWeb.DashboardLiveTest do
         })
 
       {:ok, view, _html} = live(conn, ~p"/")
-      assert has_element?(view, "#crf-worker-server-crf", "Processing")
+      assert has_element?(view, "#crf-worker-worker-crf", "Processing")
 
       assert {:ok, _session} =
                WorkerSessions.set_job_control_state("server-crf", job_id, :paused)
 
-      assert has_element?(view, "#crf-worker-server-crf", "Paused")
+      assert has_element?(view, "#crf-worker-worker-crf", "Paused")
 
       assert has_element?(
                view,
-               ~s(#crf-worker-server-crf button[phx-click="resume_worker_crf_search"][phx-value-job-id="#{job_id}"])
+               ~s(#crf-worker-worker-crf button[phx-click="resume_worker_crf_search"][phx-value-job-id="#{job_id}"])
              )
     end
 
@@ -290,7 +304,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
       view
       |> element(
-        ~s(#crf-worker-server-crf button[phx-click="pause_worker_crf_search"][phx-value-job-id="#{job_id}"])
+        ~s(#crf-worker-worker-crf button[phx-click="pause_worker_crf_search"][phx-value-job-id="#{job_id}"])
       )
       |> render_click()
 
@@ -300,7 +314,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       updated = Media.get_video(video.id)
       assert updated.worker_control_desired_state == :paused
       assert updated.worker_control_acknowledged_state == :running
-      assert has_element?(view, "#crf-worker-server-crf", "Awaiting ACK")
+      assert has_element?(view, "#crf-worker-worker-crf", "Awaiting ACK")
     end
 
     test "rejects a stale CRF control without crashing", %{conn: conn} do

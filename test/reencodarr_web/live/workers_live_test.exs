@@ -257,13 +257,13 @@ defmodule ReencodarrWeb.WorkersLiveTest do
 
     view
     |> element(
-      ~s(#crf-worker-worker-server-2 button[phx-click="pause_worker_crf_search"][phx-value-job-id="#{job_id}"])
+      ~s(#crf-worker-worker-client-2 button[phx-click="pause_worker_crf_search"][phx-value-job-id="#{job_id}"])
     )
     |> render_click()
 
     assert_receive {:worker_control, :pause, ^job_id, command_id}
     assert is_binary(command_id)
-    assert has_element?(view, "#crf-worker-worker-server-2", "Awaiting ACK")
+    assert has_element?(view, "#crf-worker-worker-client-2", "Awaiting ACK")
 
     Fixtures.vmaf_fixture(%{video_id: video.id, crf: 26.0, score: 96.1, percent: 91.0})
     send(view.pid, {:crf_search_vmaf_result, %{video_id: video.id}})

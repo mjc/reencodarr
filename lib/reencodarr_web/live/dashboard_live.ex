@@ -562,7 +562,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
     ~H"""
     <.encoding_panel
-      id={"encode-worker-#{@worker.server_worker_id}"}
+      id={"encode-worker-#{@worker.client_worker_id || @worker.server_worker_id}"}
       title={"Encoding · #{@worker.client_worker_id || @worker.server_worker_id}"}
       video={@video}
       vmaf={@vmaf}
