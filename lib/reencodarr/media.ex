@@ -197,8 +197,8 @@ defmodule Reencodarr.Media do
     query_videos_ready_for_encoding(limit)
   end
 
-  def claim_next_video_for_encoding(worker_id, attempt_id) do
-    VideoQueries.claim_next_video_for_encoding(worker_id, attempt_id)
+  def claim_next_video_for_encoding(worker_id, attempt_id, opts \\ []) do
+    VideoQueries.claim_next_video_for_encoding(worker_id, attempt_id, opts)
   end
 
   def encoding_queue_count do

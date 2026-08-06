@@ -13,6 +13,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   alias Reencodarr.Media
   alias Reencodarr.Media.VideoFailure
 
+  require Logger
+
   @by_server_table :reencodarr_worker_sessions_by_server
   @by_client_table :reencodarr_worker_sessions_by_client
   @orphan_reset_grace_seconds 600
@@ -69,6 +71,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           transfer_progress: map() | nil,
           crf_search_progress: CrfSearchProgress.t() | nil,
           resource_usage: map() | nil,
+          resource_usage_at: DateTime.t() | nil,
+          encode_admission: map() | nil,
           jobs: %{optional(String.t()) => job()},
           connected_at: DateTime.t(),
           last_seen_at: DateTime.t()
@@ -220,6 +224,18 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   @spec get(String.t()) :: session() | nil
   def get(server_worker_id) do
     GenServer.call(__MODULE__, {:get, server_worker_id})
+  end
+
+  @spec disk_free_bytes(String.t(), non_neg_integer()) ::
+          {:ok, non_neg_integer()}
+          | {:error, :missing_disk_telemetry | :stale_disk_telemetry | :unknown_worker_session}
+  def disk_free_bytes(server_worker_id, max_age_ms) do
+    GenServer.call(__MODULE__, {:disk_free_bytes, server_worker_id, max_age_ms})
+  end
+
+  @spec set_encode_admission(String.t(), map()) :: :ok | {:error, :unknown_worker_session}
+  def set_encode_admission(server_worker_id, admission) when is_map(admission) do
+    GenServer.call(__MODULE__, {:set_encode_admission, server_worker_id, admission})
   end
 
   def expire_stale(timeout_seconds) when is_integer(timeout_seconds) and timeout_seconds >= 0 do
@@ -417,6 +433,43 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     {:reply, session_or_nil(lookup_session(server_worker_id)), state}
   end
 
+  def handle_call({:disk_free_bytes, server_worker_id, max_age_ms}, _from, state) do
+    result =
+      case lookup_session(server_worker_id) do
+        {:ok,
+         %{
+           resource_usage: %{disk_free_bytes: bytes},
+           resource_usage_at: %DateTime{} = measured_at
+         }}
+        when is_integer(bytes) ->
+          if DateTime.diff(DateTime.utc_now(), measured_at, :millisecond) <= max_age_ms,
+            do: {:ok, bytes},
+            else: {:error, :stale_disk_telemetry}
+
+        {:ok, _session} ->
+          {:error, :missing_disk_telemetry}
+
+        :error ->
+          {:error, :unknown_worker_session}
+      end
+
+    {:reply, result, state}
+  end
+
+  def handle_call({:set_encode_admission, server_worker_id, admission}, _from, state) do
+    case lookup_session(server_worker_id) do
+      {:ok, session} ->
+        admission = Map.put(admission, :checked_at, now())
+        maybe_log_encode_admission(session, admission)
+        :ok = put_session(%{session | encode_admission: admission})
+        broadcast_sessions()
+        {:reply, :ok, state}
+
+      :error ->
+        {:reply, {:error, :unknown_worker_session}, state}
+    end
+  end
+
   def handle_call({:expire_stale, timeout_seconds}, _from, state) do
     {expired_sessions, _} = expire_stale_sessions(timeout_seconds)
 
@@ -531,8 +584,17 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     {:noreply, state}
   end
 
+  defp touch_session(session, nil), do: %{session | last_seen_at: now()}
+
   defp touch_session(session, resource_usage) do
-    %{session | last_seen_at: now(), resource_usage: resource_usage || session.resource_usage}
+    measured_at = DateTime.utc_now()
+
+    %{
+      session
+      | last_seen_at: now(),
+        resource_usage: resource_usage,
+        resource_usage_at: measured_at
+    }
   end
 
   defp put_job_transfer_progress(session, job_id, progress, phase) do
@@ -632,6 +694,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       transfer_progress: nil,
       crf_search_progress: nil,
       resource_usage: nil,
+      resource_usage_at: nil,
+      encode_admission: nil,
       jobs: %{},
       connected_at: now,
       last_seen_at: now
@@ -1104,4 +1168,18 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   defp now do
     DateTime.utc_now() |> DateTime.truncate(:second)
   end
+
+  defp maybe_log_encode_admission(
+         %{encode_admission: %{status: :blocked, reason: reason}},
+         %{status: :blocked, reason: reason}
+       ),
+       do: :ok
+
+  defp maybe_log_encode_admission(session, %{status: :blocked} = admission) do
+    Logger.warning(
+      "Worker encode admission blocked: worker=#{session.client_worker_id} reason=#{admission.reason} available_bytes=#{admission[:available_bytes] || "unknown"} required_bytes=#{admission[:required_bytes] || "unknown"}"
+    )
+  end
+
+  defp maybe_log_encode_admission(_session, _admission), do: :ok
 end

@@ -76,6 +76,41 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert {:ok, [:ok, :ok, :ok, :ok, :ok]} = Task.yield(task, 100)
   end
 
+  test "disk telemetry distinguishes missing, fresh, and stale capacity data" do
+    assert {:ok, session} = WorkerSessions.register(worker_session_attrs())
+
+    assert WorkerSessions.disk_free_bytes(session.server_worker_id, 60_000) ==
+             {:error, :missing_disk_telemetry}
+
+    :ok = WorkerSessions.touch(session.server_worker_id, %{disk_free_bytes: 12_345})
+    assert WorkerSessions.disk_free_bytes(session.server_worker_id, 60_000) == {:ok, 12_345}
+
+    Process.sleep(2)
+
+    assert WorkerSessions.disk_free_bytes(session.server_worker_id, 0) ==
+             {:error, :stale_disk_telemetry}
+  end
+
+  test "stores the current encode admission decision for diagnostics" do
+    assert {:ok, session} = WorkerSessions.register(worker_session_attrs())
+
+    :ok =
+      WorkerSessions.set_encode_admission(session.server_worker_id, %{
+        status: :blocked,
+        reason: :insufficient_disk_space,
+        available_bytes: 10,
+        required_bytes: 20
+      })
+
+    assert %{
+             status: :blocked,
+             reason: :insufficient_disk_space,
+             available_bytes: 10,
+             required_bytes: 20,
+             checked_at: %DateTime{}
+           } = WorkerSessions.get(session.server_worker_id).encode_admission
+  end
+
   test "stopping a worker fails active work without disconnecting its session" do
     {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())

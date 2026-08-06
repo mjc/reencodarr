@@ -299,6 +299,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                    :ok,
                    %{accepted: true}
 
+      report_disk_capacity(socket)
+
       assert_reply push(socket, "pull_work", %{"job_type" => "crf_search"}),
                    :ok,
                    %{status: "no_work"}
@@ -397,6 +399,78 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "does not claim encode work without fresh worker disk capacity" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/remote/capacity-check.mkv",
+          size: 10_000,
+          state: :crf_searched
+        })
+
+      vmaf =
+        Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, percent: 40.0, params: []})
+
+      Fixtures.choose_vmaf(video, vmaf)
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(
+                     socket,
+                     "announce",
+                     announce_payload(
+                       worker_id: "capacity-worker",
+                       capabilities: %{"crf_search" => true, "encode" => true}
+                     )
+                   ),
+                   :ok,
+                   %{accepted: true}
+
+      assert_reply push(socket, "pull_work", %{"job_type" => "encode"}),
+                   :ok,
+                   %{status: "no_work"}
+
+      assert Media.get_video(video.id).state == :crf_searched
+
+      assert %{status: :blocked, reason: :missing_disk_telemetry} =
+               WorkerSessions.get(socket.assigns.worker_id).encode_admission
+
+      assert_reply push(socket, "heartbeat", %{"disk_free_bytes" => 1}),
+                   :ok,
+                   %{accepted: true}
+
+      assert_reply push(socket, "pull_work", %{"job_type" => "encode"}),
+                   :ok,
+                   %{status: "no_work"}
+
+      assert Media.get_video(video.id).state == :crf_searched
+
+      assert %{
+               status: :blocked,
+               reason: :insufficient_disk_space,
+               available_bytes: 1,
+               required_bytes: required_bytes
+             } = WorkerSessions.get(socket.assigns.worker_id).encode_admission
+
+      assert required_bytes > 1
+
+      assert_reply push(socket, "heartbeat", %{"disk_free_bytes" => 20_000_000_000}),
+                   :ok,
+                   %{accepted: true}
+
+      assert_reply push(socket, "pull_work", %{"job_type" => "encode"}),
+                   :ok,
+                   %{status: "job_assigned", video_id: assigned_video_id}
+
+      assert assigned_video_id == video.id
+      assert WorkerSessions.get(socket.assigns.worker_id).encode_admission.status == :allowed
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "reattaches an active encode after websocket reconnect" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
@@ -414,6 +488,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       {:ok, socket1} = connect(WorkerSocket, %{"token" => token})
       {:ok, _, socket1} = subscribe_and_join(socket1, "workers:crf_search")
       assert_reply push(socket1, "announce", announce_payload(worker_id: "worker-reconnect")), :ok
+      report_disk_capacity(socket1)
 
       assert_reply push(socket1, "pull_work", %{"job_type" => "encode"}),
                    :ok,
@@ -466,6 +541,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       {:ok, socket1} = connect(WorkerSocket, %{"token" => token})
       {:ok, _, socket1} = subscribe_and_join(socket1, "workers:crf_search")
       assert_reply push(socket1, "announce", announce_payload(worker_id: "worker-restart")), :ok
+      report_disk_capacity(socket1)
 
       assert_reply push(socket1, "pull_work", %{"job_type" => "encode"}),
                    :ok,
@@ -1123,6 +1199,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
                      )
                    ),
                    :ok
+
+      report_disk_capacity(socket)
 
       assert_reply push(socket, "pull_work", %{"job_type" => "encode"}),
                    :ok,
@@ -2086,6 +2164,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       {:ok, socket} = connect(WorkerSocket, %{"token" => token})
       {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
       assert_reply push(socket, "announce", announce_payload(worker_id: "worker-dual")), :ok
+      report_disk_capacity(socket)
 
       assert_reply push(socket, "pull_work", %{"job_type" => "crf_search"}),
                    :ok,
@@ -2752,6 +2831,12 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       },
       override_map
     )
+  end
+
+  defp report_disk_capacity(socket) do
+    assert_reply push(socket, "heartbeat", %{"disk_free_bytes" => 100_000_000_000}),
+                 :ok,
+                 %{accepted: true}
   end
 
   defp track_video_lookups do

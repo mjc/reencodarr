@@ -284,16 +284,21 @@ defmodule Reencodarr.Media.VideoQueries do
   The worker and attempt are persisted in the same conditional update that
   transitions the video to `:encoding`.
   """
-  @spec claim_next_video_for_encoding(String.t(), String.t(), keyword()) :: Vmaf.t() | nil
+  @spec claim_next_video_for_encoding(String.t(), String.t(), keyword()) ::
+          Vmaf.t() | {:rejected, Vmaf.t()} | nil
   def claim_next_video_for_encoding(worker_id, attempt_id, opts \\ [])
       when is_binary(worker_id) and is_binary(attempt_id) do
+    {admit?, repo_opts} = Keyword.pop(opts, :admit?, fn _video, _vmaf -> true end)
+
     DbWriter.transaction(
       fn ->
         claim_next_video_for_encoding_in_tx(
-          encoding_queue_candidate_ids(10, opts),
+          encoding_queue_candidate_ids(10, repo_opts),
           worker_id,
           attempt_id,
-          opts
+          admit?,
+          nil,
+          repo_opts
         )
       end,
       label: :video_queries_claim_next_video_for_encoding
@@ -310,6 +315,9 @@ defmodule Reencodarr.Media.VideoQueries do
 
       {:ok, :none} ->
         nil
+
+      {:ok, {:rejected, vmaf}} ->
+        {:rejected, vmaf}
 
       {:error, reason} ->
         raise "Failed to claim video for encoding: #{inspect(reason)}"
@@ -346,47 +354,86 @@ defmodule Reencodarr.Media.VideoQueries do
     )
   end
 
-  defp claim_next_video_for_encoding_in_tx([], _worker_id, _attempt_id, _opts), do: :none
+  defp claim_next_video_for_encoding_in_tx(
+         [],
+         _worker_id,
+         _attempt_id,
+         _admit?,
+         nil,
+         _opts
+       ),
+       do: :none
+
+  defp claim_next_video_for_encoding_in_tx(
+         [],
+         _worker_id,
+         _attempt_id,
+         _admit?,
+         rejected,
+         _opts
+       ),
+       do: {:rejected, rejected}
 
   defp claim_next_video_for_encoding_in_tx(
          [video_id | rest],
          worker_id,
          attempt_id,
+         admit?,
+         rejected,
          opts
        ) do
     old_snapshot = Reencodarr.Media.fetch_dashboard_video_snapshot_by_id(video_id)
     video = Repo.get!(Video, video_id)
-    original_size = video.original_size || video.size
+    vmaf = Repo.get!(Vmaf, video.chosen_vmaf_id)
 
-    {updated_count, updated_rows} =
-      from(v in Video,
-        where: v.id == ^video_id and v.state == :crf_searched,
-        select: v
-      )
-      |> Repo.update_all(
-        [
-          set: [
-            state: :encoding,
-            encode_worker_id: worker_id,
-            worker_attempt_id: attempt_id,
-            worker_control_desired_state: :running,
-            worker_control_acknowledged_state: :running,
-            worker_control_command_id: nil,
-            worker_terminal_claimed_at: nil,
-            original_size: original_size,
-            updated_at: DateTime.utc_now()
-          ]
-        ],
+    if admit?.(video, vmaf) do
+      original_size = video.original_size || video.size
+
+      {updated_count, updated_rows} =
+        from(v in Video,
+          where: v.id == ^video_id and v.state == :crf_searched,
+          select: v
+        )
+        |> Repo.update_all(
+          [
+            set: [
+              state: :encoding,
+              encode_worker_id: worker_id,
+              worker_attempt_id: attempt_id,
+              worker_control_desired_state: :running,
+              worker_control_acknowledged_state: :running,
+              worker_control_command_id: nil,
+              worker_terminal_claimed_at: nil,
+              original_size: original_size,
+              updated_at: DateTime.utc_now()
+            ]
+          ],
+          opts
+        )
+
+      case {updated_count, updated_rows} do
+        {1, [claimed_video]} ->
+          {:claimed, %{vmaf | video: claimed_video}, old_snapshot}
+
+        _ ->
+          claim_next_video_for_encoding_in_tx(
+            rest,
+            worker_id,
+            attempt_id,
+            admit?,
+            rejected,
+            opts
+          )
+      end
+    else
+      claim_next_video_for_encoding_in_tx(
+        rest,
+        worker_id,
+        attempt_id,
+        admit?,
+        rejected || %{vmaf | video: video},
         opts
       )
-
-    case {updated_count, updated_rows} do
-      {1, [claimed_video]} ->
-        vmaf = Repo.get!(Vmaf, claimed_video.chosen_vmaf_id)
-        {:claimed, %{vmaf | video: claimed_video}, old_snapshot}
-
-      _ ->
-        claim_next_video_for_encoding_in_tx(rest, worker_id, attempt_id, opts)
     end
   end
 

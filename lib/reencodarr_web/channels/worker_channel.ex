@@ -7,7 +7,14 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   require Logger
 
-  alias Reencodarr.AbAv1.{CrfSearch, Encode, WorkerConfig, WorkerProtocol, WorkerSessions}
+  alias Reencodarr.AbAv1.{
+    CrfSearch,
+    Encode,
+    WorkerAdmission,
+    WorkerConfig,
+    WorkerProtocol,
+    WorkerSessions
+  }
 
   alias Reencodarr.AbAv1.WorkerProtocol.{
     ActiveJob,
@@ -24,6 +31,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   alias Reencodarr.FailureTracker
   alias Reencodarr.Media
   alias Reencodarr.PostProcessor
+  alias Reencodarr.TempCleaner
 
   @crf_search_topic WorkerProtocol.crf_search_topic()
   def worker_control_topic(worker_id), do: WorkerSessions.control_topic(worker_id)
@@ -515,12 +523,84 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp handle_encode_work_request(socket, _payload) do
-    attempt_id = "encode-#{Ecto.UUID.generate()}"
+    case encode_available_bytes(socket) do
+      {:ok, available_bytes} ->
+        claim_encode_work(socket, available_bytes)
 
-    case Media.claim_next_video_for_encoding(socket.assigns.client_worker_id, attempt_id) do
-      nil -> {:reply, {:ok, WorkerProtocol.no_work()}, socket}
-      vmaf -> assign_encode_work(socket, vmaf)
+      {:error, reason} ->
+        :ok =
+          WorkerSessions.set_encode_admission(socket.assigns.worker_id, %{
+            status: :blocked,
+            reason: reason,
+            available_bytes: nil,
+            required_bytes: nil
+          })
+
+        {:reply, {:ok, WorkerProtocol.no_work()}, socket}
     end
+  end
+
+  defp claim_encode_work(socket, available_bytes) do
+    attempt_id = "encode-#{Ecto.UUID.generate()}"
+    local_worker? = socket.assigns[:local_worker] || false
+
+    admit? = fn video, vmaf ->
+      WorkerAdmission.encode_allowed?(available_bytes, video, vmaf,
+        local?: local_worker? and File.regular?(video.path)
+      )
+    end
+
+    case Media.claim_next_video_for_encoding(socket.assigns.client_worker_id, attempt_id,
+           admit?: admit?
+         ) do
+      {:rejected, vmaf} ->
+        record_capacity_refusal(socket, available_bytes, local_worker?, vmaf)
+        {:reply, {:ok, WorkerProtocol.no_work()}, socket}
+
+      nil ->
+        {:reply, {:ok, WorkerProtocol.no_work()}, socket}
+
+      vmaf ->
+        required_bytes =
+          WorkerAdmission.required_encode_bytes(vmaf.video, vmaf,
+            local?: local_worker? and File.regular?(vmaf.video.path)
+          )
+
+        :ok =
+          WorkerSessions.set_encode_admission(socket.assigns.worker_id, %{
+            status: :allowed,
+            reason: nil,
+            available_bytes: available_bytes,
+            required_bytes: required_bytes
+          })
+
+        assign_encode_work(socket, vmaf)
+    end
+  end
+
+  defp record_capacity_refusal(socket, available_bytes, local_worker?, vmaf) do
+    required_bytes =
+      WorkerAdmission.required_encode_bytes(vmaf.video, vmaf,
+        local?: local_worker? and File.regular?(vmaf.video.path)
+      )
+
+    WorkerSessions.set_encode_admission(socket.assigns.worker_id, %{
+      status: :blocked,
+      reason: :insufficient_disk_space,
+      available_bytes: available_bytes,
+      required_bytes: required_bytes
+    })
+  end
+
+  defp encode_available_bytes(%{assigns: %{local_worker: true}}) do
+    TempCleaner.check_disk_space()
+  end
+
+  defp encode_available_bytes(socket) do
+    max_age_ms =
+      Application.get_env(:reencodarr, :worker_disk_telemetry_max_age_ms, :timer.minutes(1))
+
+    WorkerSessions.disk_free_bytes(socket.assigns.worker_id, max_age_ms)
   end
 
   defp assign_encode_work(socket, vmaf) do

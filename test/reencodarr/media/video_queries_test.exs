@@ -396,6 +396,61 @@ defmodule Reencodarr.Media.VideoQueriesTest do
   end
 
   describe "claim_next_video_for_encoding/3" do
+    test "skips candidates rejected by encode admission without mutating them" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/claim_encoding_admission.mkv",
+          state: :crf_searched
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      assert {:rejected, %{video: %{id: rejected_id}}} =
+               VideoQueries.claim_next_video_for_encoding(
+                 "worker-a",
+                 "attempt-a",
+                 admit?: fn _video, _vmaf -> false end
+               )
+
+      assert rejected_id == video.id
+
+      assert %{state: :crf_searched, worker_attempt_id: nil, encode_worker_id: nil} =
+               Reencodarr.Media.get_video(video.id)
+    end
+
+    test "continues past a rejected candidate and atomically claims the next admitted one" do
+      {:ok, rejected} =
+        Fixtures.video_fixture(%{
+          path: "/test/claim_encoding_rejected.mkv",
+          state: :crf_searched,
+          priority: 200
+        })
+
+      rejected_vmaf = Fixtures.vmaf_fixture(%{video_id: rejected.id, crf: 25.0})
+      Fixtures.choose_vmaf(rejected, rejected_vmaf)
+
+      {:ok, admitted} =
+        Fixtures.video_fixture(%{
+          path: "/test/claim_encoding_admitted.mkv",
+          state: :crf_searched,
+          priority: 100
+        })
+
+      admitted_vmaf = Fixtures.vmaf_fixture(%{video_id: admitted.id, crf: 25.0})
+      Fixtures.choose_vmaf(admitted, admitted_vmaf)
+
+      assert %{video: claimed} =
+               VideoQueries.claim_next_video_for_encoding(
+                 "worker-a",
+                 "attempt-a",
+                 admit?: fn video, _vmaf -> video.id == admitted.id end
+               )
+
+      assert claimed.id == admitted.id
+      assert Reencodarr.Media.get_video(rejected.id).state == :crf_searched
+    end
+
     test "atomically assigns the worker and attempt while claiming the video" do
       {:ok, video} =
         Fixtures.video_fixture(%{
