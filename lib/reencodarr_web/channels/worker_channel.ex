@@ -27,6 +27,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   }
 
   alias Reencodarr.AbAv1.WorkerSessions.Job
+  alias Reencodarr.CrfSearchPolicy
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.FailureTracker
   alias Reencodarr.Media
@@ -1205,18 +1206,84 @@ defmodule ReencodarrWeb.WorkerChannel do
       :crf_search,
       "video_failed",
       fn ->
-        finish_worker_failure(video, failure, socket, fn ->
-          acknowledge_crf_terminal(worker_id, socket, "video_failed")
-        end)
+        finish_claimed_crf_failure(worker_id, socket, video, failure)
       end
     )
   end
 
-  defp record_worker_failure(video, failure) do
+  defp finish_claimed_crf_failure(worker_id, socket, video, failure) do
+    case crf_retry(video, failure) do
+      {:retry, next_attempt, reason, retry_count} ->
+        context =
+          failure.context
+          |> Map.put("next_crf_attempt", CrfSearchPolicy.to_context(next_attempt))
+          |> Map.put("retry_reason", Atom.to_string(reason))
+
+        failure = %{failure | context: context}
+
+        finish_worker_failure(
+          video,
+          failure,
+          socket,
+          fn ->
+            retry_crf_terminal(worker_id, socket, video.id, failure.job_id)
+          end,
+          retry_count: retry_count
+        )
+
+      :stop ->
+        finish_worker_failure(video, failure, socket, fn ->
+          acknowledge_crf_terminal(worker_id, socket, "video_failed")
+        end)
+    end
+  end
+
+  defp retry_crf_terminal(worker_id, socket, video_id, job_id) do
+    case Media.retry_failed_worker_crf_attempt(video_id, job_id) do
+      :ok -> acknowledge_crf_terminal(worker_id, socket, "video_failed")
+      {:error, reason} -> terminal_reply(socket, "video_failed", reason)
+    end
+  end
+
+  defp crf_retry(video, failure) do
+    prior_retry_count =
+      video.id
+      |> Media.get_video_failures()
+      |> List.first()
+      |> case do
+        %{failure_stage: :crf_search, retry_count: count} -> count
+        _ -> 0
+      end
+
+    with {:ok, attempt} <- CrfSearchPolicy.from_args(failure.context["argv"] || []),
+         {:retry, next_attempt, reason} <-
+           CrfSearchPolicy.retry(
+             attempt,
+             failure.category,
+             prior_retry_count,
+             Reencodarr.Rules.min_vmaf_target(video)
+           ) do
+      {:retry, next_attempt, reason, prior_retry_count + 1}
+    else
+      _ -> :stop
+    end
+  end
+
+  defp record_worker_failure(video, failure, opts) do
     context = Map.put(failure.context, :stderr_excerpt, failure.stderr_excerpt)
 
-    case worker_exit_code(failure) do
-      nil ->
+    case {failure.stage, failure.category, worker_exit_code(failure)} do
+      {:crf_search, category, _exit_code}
+      when category in [:crf_optimization, :size_limits] ->
+        Media.record_video_failure(video, failure.stage, failure.category,
+          code: failure.code,
+          message: failure.message,
+          context: context,
+          retry_count: Keyword.get(opts, :retry_count, 0),
+          worker_attempt_id: failure.job_id
+        )
+
+      {_stage, _category, nil} ->
         Media.record_video_failure(video, failure.stage, failure.category,
           code: failure.code,
           message: failure.message,
@@ -1224,7 +1291,7 @@ defmodule ReencodarrWeb.WorkerChannel do
           worker_attempt_id: failure.job_id
         )
 
-      exit_code ->
+      {_stage, _category, exit_code} ->
         FailureTracker.record_process_exit_failure(video, failure.stage, exit_code,
           context: context,
           worker_attempt_id: failure.job_id
@@ -1232,8 +1299,8 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
-  defp finish_worker_failure(video, failure, socket, acknowledge) do
-    case record_worker_failure(video, failure) do
+  defp finish_worker_failure(video, failure, socket, acknowledge, opts \\ []) do
+    case record_worker_failure(video, failure, opts) do
       {:ok, _failure} ->
         Events.broadcast_event(:video_failed, failure)
         acknowledge.()
@@ -1270,6 +1337,7 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp assign_claimed_work(worker_id, socket, video) do
     target_vmaf = Reencodarr.Rules.vmaf_target(video)
+    attempt = pending_crf_retry(video) || CrfSearchPolicy.initial(video, target_vmaf)
     local? = local_source?(socket, video)
 
     with {:ok, video} <- refresh_transfer_source(video, socket.assigns[:local_worker]),
@@ -1285,7 +1353,9 @@ defmodule ReencodarrWeb.WorkerChannel do
           stream?: not local? and websocket_transfer_on_assign?()
         )
 
-      {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf, local?: local?)}, socket}
+      {:reply,
+       {:ok, WorkerProtocol.work_assigned(video, target_vmaf, local?: local?, attempt: attempt)},
+       socket}
     else
       {:error, :source_missing} ->
         fail_missing_source(video)
@@ -1295,6 +1365,21 @@ defmodule ReencodarrWeb.WorkerChannel do
         _ = Media.mark_as_analyzed(video)
         {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
+  end
+
+  defp pending_crf_retry(video) do
+    video.id
+    |> Media.get_video_failures()
+    |> Enum.find_value(fn
+      %{failure_stage: :crf_search, system_context: context} when is_map(context) ->
+        case CrfSearchPolicy.from_context(context["next_crf_attempt"] || %{}) do
+          {:ok, attempt} -> attempt
+          {:error, _reason} -> nil
+        end
+
+      _failure ->
+        nil
+    end)
   end
 
   defp reply_for_active_work(worker_id, socket, video, :resend_input) do

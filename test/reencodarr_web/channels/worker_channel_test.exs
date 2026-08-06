@@ -103,6 +103,90 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "worker CRF assignment uses the legacy hint range" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+      Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, score: 96.0})
+      Fixtures.vmaf_fixture(%{video_id: video.id, crf: 34.0, score: 94.0})
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "hint-worker")), :ok
+
+      assert_reply push(socket, "pull_work", %{"job_type" => "crf_search"}),
+                   :ok,
+                   %{crf_search_args: args}
+
+      assert Enum.at(args, Enum.find_index(args, &(&1 == "--min-crf")) + 1) == "28"
+      assert Enum.at(args, Enum.find_index(args, &(&1 == "--max-crf")) + 1) == "36"
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
+    test "worker CRF failure retries a hinted search over the full range" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+      Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, score: 96.0})
+      Fixtures.vmaf_fixture(%{video_id: video.id, crf: 34.0, score: 94.0})
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "retry-worker")), :ok
+
+      assert_reply push(socket, "pull_work", %{"job_type" => "crf_search"}),
+                   :ok,
+                   %{job_id: job_id, crf_search_args: args}
+
+      assert_reply push(socket, "video_failed", %{
+                     "job_id" => job_id,
+                     "video_id" => video.id,
+                     "stage" => "crf_search",
+                     "category" => "crf_optimization",
+                     "message" => "no acceptable CRF",
+                     "code" => "EXIT_1",
+                     "context" => %{"argv" => args}
+                   }),
+                   :ok,
+                   %{accepted: true, event: "video_failed"}
+
+      assert Media.get_video(video.id).state == :analyzed
+
+      assert_reply push(socket, "pull_work", %{"job_type" => "crf_search"}),
+                   :ok,
+                   %{job_id: retry_job_id, crf_search_args: retry_args}
+
+      refute retry_job_id == job_id
+      assert Enum.at(retry_args, Enum.find_index(retry_args, &(&1 == "--min-crf")) + 1) == "5"
+      assert Enum.at(retry_args, Enum.find_index(retry_args, &(&1 == "--max-crf")) + 1) == "70"
+
+      assert_reply push(socket, "video_failed", %{
+                     "job_id" => retry_job_id,
+                     "video_id" => video.id,
+                     "stage" => "crf_search",
+                     "category" => "crf_optimization",
+                     "message" => "no acceptable CRF",
+                     "code" => "EXIT_1",
+                     "context" => %{"argv" => retry_args}
+                   }),
+                   :ok,
+                   %{accepted: true, event: "video_failed"}
+
+      assert_reply push(socket, "pull_work", %{"job_type" => "crf_search"}),
+                   :ok,
+                   %{crf_search_args: lower_target_args}
+
+      assert Enum.at(
+               lower_target_args,
+               Enum.find_index(lower_target_args, &(&1 == "--min-vmaf")) + 1
+             ) == "94"
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "reconciles current active attempts and discards stale ones" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)

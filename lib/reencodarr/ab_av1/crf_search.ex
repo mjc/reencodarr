@@ -21,6 +21,8 @@ defmodule Reencodarr.AbAv1.CrfSearch do
   alias Reencodarr.Core.Retry
   alias Reencodarr.Core.Time
   alias Reencodarr.CrfSearchHints
+  alias Reencodarr.CrfSearchPolicy
+  alias Reencodarr.CrfSearchPolicy.Attempt
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Encoder.Broadway.Producer, as: EncoderProducer
   alias Reencodarr.Formatters
@@ -30,7 +32,6 @@ defmodule Reencodarr.AbAv1.CrfSearch do
 
   require Logger
 
-  @max_crf_search_retries 3
   @max_output_lines 1024
   @header_lines 50
   @max_partial_line_bytes 16_384
@@ -797,27 +798,19 @@ defmodule Reencodarr.AbAv1.CrfSearch do
       crf_range: inspect(crf_range)
     }
 
-    if retry_count >= @max_crf_search_retries do
-      Logger.warning(
-        "CrfSearch: Max retries (#{@max_crf_search_retries}) reached for video #{video.id}, marking as failed"
-      )
+    case retry_strategy(video, target_vmaf, crf_range, output_lines, retry_count) do
+      {:retry_wider_range} ->
+        retry_crf_search(video, target_vmaf, state, failure_context,
+          reason: "narrowed range #{inspect(crf_range)} failed"
+        )
 
-      record_final_failure(video, target_vmaf, exit_code, full_output, failure_context, state)
-    else
-      case retry_strategy(video, target_vmaf, crf_range, output_lines) do
-        {:retry_wider_range} ->
-          retry_crf_search(video, target_vmaf, state, failure_context,
-            reason: "narrowed range #{inspect(crf_range)} failed"
-          )
+      {:retry_lower_target, new_target} ->
+        retry_crf_search(video, new_target, state, failure_context,
+          reason: "reducing VMAF target from #{target_vmaf} to #{new_target}"
+        )
 
-        {:retry_lower_target, new_target} ->
-          retry_crf_search(video, new_target, state, failure_context,
-            reason: "reducing VMAF target from #{target_vmaf} to #{new_target}"
-          )
-
-        :final_failure ->
-          record_final_failure(video, target_vmaf, exit_code, full_output, failure_context, state)
-      end
+      :final_failure ->
+        record_final_failure(video, target_vmaf, exit_code, full_output, failure_context, state)
     end
   end
 
@@ -837,16 +830,25 @@ defmodule Reencodarr.AbAv1.CrfSearch do
     ) || 0
   end
 
-  defp retry_strategy(video, target_vmaf, crf_range, output_lines) do
-    cond do
-      CrfSearchHints.narrowed_range?(crf_range) ->
+  defp retry_strategy(video, target_vmaf, crf_range, output_lines, retry_count) do
+    category =
+      if crf_optimization_error?(output_lines), do: :crf_optimization, else: :process_failure
+
+    attempt = %Attempt{target_vmaf: target_vmaf, crf_range: crf_range}
+
+    case CrfSearchPolicy.retry(
+           attempt,
+           category,
+           retry_count,
+           Reencodarr.Rules.min_vmaf_target(video)
+         ) do
+      {:retry, %Attempt{target_vmaf: ^target_vmaf}, :widen_range} ->
         {:retry_wider_range}
 
-      crf_optimization_error?(output_lines) and
-          target_vmaf > Reencodarr.Rules.min_vmaf_target(video) ->
-        {:retry_lower_target, target_vmaf - 1}
+      {:retry, %Attempt{target_vmaf: new_target}, _reason} ->
+        {:retry_lower_target, new_target}
 
-      true ->
+      :stop ->
         :final_failure
     end
   end

@@ -5,6 +5,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
   alias Reencodarr.AbAv1.{CrfSearch, Encode}
   alias Reencodarr.AbAv1.WorkerConfig
+  alias Reencodarr.CrfSearchPolicy.Attempt
   alias Reencodarr.Media.Video
 
   @crf_search_topic "workers:crf_search"
@@ -684,6 +685,8 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   @spec work_assigned(Video.t(), number(), keyword()) :: map()
   def work_assigned(%Video{id: video_id, path: path, size: size} = video, target_vmaf, opts \\ [])
       when is_integer(video_id) and is_binary(path) do
+    attempt = Keyword.get(opts, :attempt, %Attempt{target_vmaf: target_vmaf, crf_range: {5, 70}})
+
     video
     |> maybe_put_transfer(%{
       status: "job_assigned",
@@ -693,8 +696,9 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
       source_name: Path.basename(path),
       size_bytes: size || 0,
       chunk_size_bytes: chunk_size_bytes(),
-      target_vmaf: target_vmaf,
-      crf_search_args: CrfSearch.build_crf_search_args(video, target_vmaf)
+      target_vmaf: attempt.target_vmaf,
+      crf_search_args:
+        CrfSearch.build_crf_search_args(video, attempt.target_vmaf, crf_range: attempt.crf_range)
     })
     |> maybe_put_local_path(path, opts)
   end
@@ -705,6 +709,8 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
         opts \\ []
       )
       when is_integer(video_id) and is_binary(path) do
+    attempt = Keyword.get(opts, :attempt, %Attempt{target_vmaf: target_vmaf, crf_range: {5, 70}})
+
     video
     |> maybe_put_transfer(%{
       status: "job_in_progress",
@@ -713,8 +719,9 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
       video_id: video_id,
       source_name: Path.basename(path),
       size_bytes: size || 0,
-      target_vmaf: target_vmaf,
-      crf_search_args: CrfSearch.build_crf_search_args(video, target_vmaf)
+      target_vmaf: attempt.target_vmaf,
+      crf_search_args:
+        CrfSearch.build_crf_search_args(video, attempt.target_vmaf, crf_range: attempt.crf_range)
     })
     |> maybe_put_local_path(path, opts)
   end

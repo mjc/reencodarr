@@ -734,6 +734,39 @@ defmodule Reencodarr.Media do
     :ok
   end
 
+  @spec retry_failed_worker_crf_attempt(pos_integer(), String.t()) ::
+          :ok | {:error, :stale_worker_attempt}
+  def retry_failed_worker_crf_attempt(video_id, attempt_id)
+      when is_integer(video_id) and is_binary(attempt_id) do
+    write(
+      fn ->
+        from(v in Video,
+          where:
+            v.id == ^video_id and v.state == :failed and
+              v.worker_attempt_id == ^attempt_id
+        )
+        |> Repo.update_all(
+          set: [
+            state: :analyzed,
+            crf_search_worker_id: nil,
+            worker_attempt_id: nil,
+            worker_control_desired_state: nil,
+            worker_control_acknowledged_state: nil,
+            worker_control_command_id: nil,
+            worker_control_requested_at: nil,
+            worker_terminal_claimed_at: nil,
+            updated_at: DateTime.utc_now()
+          ]
+        )
+      end,
+      label: :media_retry_failed_crf_worker_attempt
+    )
+    |> case do
+      {1, _} -> :ok
+      _ -> {:error, :stale_worker_attempt}
+    end
+  end
+
   defp maybe_put_original_size(set_attrs, video_id) do
     case Repo.get(Video, video_id) do
       %Video{original_size: nil, size: size} when is_integer(size) and size > 0 ->
