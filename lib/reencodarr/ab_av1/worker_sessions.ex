@@ -16,6 +16,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   @by_server_table :reencodarr_worker_sessions_by_server
   @by_client_table :reencodarr_worker_sessions_by_client
   @orphan_reset_grace_seconds 600
+  @worker_control_topic_prefix "worker_controls:"
+  @worker_control_states %{pause: :paused, resume: :running, stop: :stopped}
 
   defmodule Job do
     @moduledoc false
@@ -143,6 +145,47 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     )
   end
 
+  @spec control_topic(String.t()) :: String.t()
+  def control_topic(server_worker_id) when is_binary(server_worker_id),
+    do: @worker_control_topic_prefix <> server_worker_id
+
+  @spec request_control(String.t(), String.t() | nil, :pause | :resume | :start | :stop) ::
+          :ok | :error
+  def request_control(server_worker_id, nil, :start) when is_binary(server_worker_id) do
+    broadcast_control(server_worker_id, {:worker_control, :start})
+  end
+
+  def request_control(server_worker_id, job_id, action)
+      when is_binary(server_worker_id) and is_binary(job_id) and
+             action in [:pause, :resume, :stop] do
+    with %{jobs: %{^job_id => %{video_id: video_id}}} <- get(server_worker_id),
+         {:ok, command} <- Media.request_worker_control(video_id, job_id, action),
+         :ok <- notify_control(server_worker_id, command) do
+      :ok
+    else
+      _ -> :error
+    end
+  end
+
+  @spec resume_paused_before(DateTime.t()) :: non_neg_integer()
+  def resume_paused_before(%DateTime{} = cutoff) do
+    connected_jobs =
+      for session <- list(), {job_id, _job} <- session.jobs, into: %{} do
+        {job_id, session.server_worker_id}
+      end
+
+    cutoff
+    |> Media.list_paused_worker_attempts_before()
+    |> Enum.count(fn %{video_id: video_id, job_id: job_id} ->
+      with {:ok, command} <- Media.request_worker_control(video_id, job_id, :resume),
+           :ok <- notify_connected_control(connected_jobs[job_id], command) do
+        true
+      else
+        _ -> false
+      end
+    end)
+  end
+
   @spec set_transfer_progress(String.t(), map()) :: :ok
   def set_transfer_progress(server_worker_id, progress) when is_map(progress) do
     GenServer.cast(__MODULE__, {:set_transfer_progress, server_worker_id, progress})
@@ -190,6 +233,32 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def reset do
     GenServer.call(__MODULE__, :reset)
+  end
+
+  defp notify_connected_control(nil, _command), do: :ok
+
+  defp notify_connected_control(server_worker_id, command),
+    do: notify_control(server_worker_id, command)
+
+  defp notify_control(server_worker_id, command) do
+    desired_state = Map.fetch!(@worker_control_states, command.action)
+
+    with {:ok, _session} <-
+           request_job_control(
+             server_worker_id,
+             command.job_id,
+             desired_state,
+             command.command_id
+           ) do
+      broadcast_control(
+        server_worker_id,
+        {:worker_control, command.action, command.job_id, command.command_id}
+      )
+    end
+  end
+
+  defp broadcast_control(server_worker_id, command) do
+    Phoenix.PubSub.broadcast(Reencodarr.PubSub, control_topic(server_worker_id), command)
   end
 
   @impl GenServer

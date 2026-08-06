@@ -26,9 +26,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   alias Reencodarr.PostProcessor
 
   @crf_search_topic WorkerProtocol.crf_search_topic()
-  @worker_control_topic_prefix "worker_controls:"
-
-  def worker_control_topic(worker_id), do: @worker_control_topic_prefix <> worker_id
+  def worker_control_topic(worker_id), do: WorkerSessions.control_topic(worker_id)
 
   @impl true
   def join(@crf_search_topic, _payload, %{assigns: %{worker_id: worker_id}} = socket) do

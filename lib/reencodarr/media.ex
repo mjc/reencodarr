@@ -371,6 +371,20 @@ defmodule Reencodarr.Media do
 
   @worker_control_actions %{pause: :paused, resume: :running, stop: :stopped}
 
+  @spec list_paused_worker_attempts_before(DateTime.t()) :: [
+          %{job_id: String.t(), video_id: pos_integer()}
+        ]
+  def list_paused_worker_attempts_before(%DateTime{} = cutoff) do
+    from(v in Video,
+      where:
+        v.state in [:crf_searching, :encoding] and
+          v.worker_control_desired_state == :paused and
+          not is_nil(v.worker_attempt_id) and v.updated_at <= ^cutoff,
+      select: %{video_id: v.id, job_id: v.worker_attempt_id}
+    )
+    |> Repo.all()
+  end
+
   @spec request_worker_control(pos_integer(), String.t(), :pause | :resume | :stop) ::
           {:ok,
            %{

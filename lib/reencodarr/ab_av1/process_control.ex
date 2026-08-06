@@ -9,7 +9,7 @@ defmodule Reencodarr.AbAv1.ProcessControl do
 
   use GenServer
 
-  alias Reencodarr.AbAv1.{CrfSearch, Encode}
+  alias Reencodarr.AbAv1.{CrfSearch, Encode, WorkerSessions}
 
   require Logger
 
@@ -107,6 +107,13 @@ defmodule Reencodarr.AbAv1.ProcessControl do
 
   defp maybe_auto_resume(state) do
     if auto_resume_window?(state) do
+      cutoff = DateTime.add(DateTime.utc_now(), -state.auto_resume_after_ms, :millisecond)
+      resumed_workers = WorkerSessions.resume_paused_before(cutoff)
+
+      if resumed_workers > 0 do
+        Logger.info("Auto-resuming #{resumed_workers} worker jobs after extended pause")
+      end
+
       Enum.reduce(@services, state, &maybe_auto_resume_service/2)
     else
       state

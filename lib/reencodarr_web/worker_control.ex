@@ -2,7 +2,6 @@ defmodule ReencodarrWeb.WorkerControl do
   @moduledoc false
 
   alias Reencodarr.AbAv1.WorkerSessions
-  alias Reencodarr.Media
 
   @events %{
     "pause_worker_crf_search" => {:pause, "Worker pause requested", :job},
@@ -38,36 +37,12 @@ defmodule ReencodarrWeb.WorkerControl do
   defp fetch_job_id(:job, params), do: fetch_id(params, "job-id")
 
   defp request_control(worker_id, nil, action) do
-    broadcast(worker_id, {:worker_control, action})
+    WorkerSessions.request_control(worker_id, nil, action)
   end
 
   defp request_control(worker_id, job_id, action) do
-    with %{jobs: %{^job_id => %{video_id: video_id}}} <- WorkerSessions.get(worker_id),
-         {:ok, command} <- Media.request_worker_control(video_id, job_id, action),
-         {:ok, _session} <-
-           WorkerSessions.request_job_control(
-             worker_id,
-             job_id,
-             desired_state(action),
-             command.command_id
-           ) do
-      broadcast(worker_id, {:worker_control, action, job_id, command.command_id})
-    else
-      _ -> :error
-    end
+    WorkerSessions.request_control(worker_id, job_id, action)
   end
-
-  defp broadcast(worker_id, command) do
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      ReencodarrWeb.WorkerChannel.worker_control_topic(worker_id),
-      command
-    )
-  end
-
-  defp desired_state(:pause), do: :paused
-  defp desired_state(:resume), do: :running
-  defp desired_state(:stop), do: :stopped
 
   defp fetch_id(params, key) do
     case Map.fetch(params, key) do
