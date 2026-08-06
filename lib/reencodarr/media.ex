@@ -379,7 +379,9 @@ defmodule Reencodarr.Media do
       where:
         v.state in [:crf_searching, :encoding] and
           v.worker_control_desired_state == :paused and
-          not is_nil(v.worker_attempt_id) and v.updated_at <= ^cutoff,
+          not is_nil(v.worker_attempt_id) and
+          not is_nil(v.worker_control_requested_at) and
+          v.worker_control_requested_at <= ^cutoff,
       select: %{video_id: v.id, job_id: v.worker_attempt_id}
     )
     |> Repo.all()
@@ -412,6 +414,7 @@ defmodule Reencodarr.Media do
             set: [
               worker_control_desired_state: desired_state,
               worker_control_command_id: command_id,
+              worker_control_requested_at: DateTime.utc_now(),
               updated_at: DateTime.utc_now()
             ]
           )

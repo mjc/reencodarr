@@ -89,6 +89,7 @@ defmodule Reencodarr.Media.Video do
     :worker_control_desired_state,
     :worker_control_acknowledged_state,
     :worker_control_command_id,
+    :worker_control_requested_at,
     :worker_terminal_claimed_at,
     :duration,
     :mediainfo,
@@ -154,6 +155,7 @@ defmodule Reencodarr.Media.Video do
     field :worker_control_desired_state, Ecto.Enum, values: [:running, :paused, :stopped]
     field :worker_control_acknowledged_state, Ecto.Enum, values: [:running, :paused, :stopped]
     field :worker_control_command_id, :string
+    field :worker_control_requested_at, :utc_datetime_usec
     field :worker_terminal_claimed_at, :utc_datetime_usec
     field :mediainfo, :map
 

@@ -74,6 +74,7 @@ defmodule Reencodarr.AbAv1.ProcessControlTest do
 
   test "auto-resumes worker jobs paused for more than four hours" do
     job_id = "encode-auto-resume"
+    five_hours_ago = DateTime.add(DateTime.utc_now(), -5 * 60 * 60, :second)
 
     {:ok, video} =
       Fixtures.video_fixture(%{
@@ -81,13 +82,9 @@ defmodule Reencodarr.AbAv1.ProcessControlTest do
         encode_worker_id: "worker-client",
         worker_attempt_id: job_id,
         worker_control_desired_state: :paused,
-        worker_control_acknowledged_state: :paused
+        worker_control_acknowledged_state: :paused,
+        worker_control_requested_at: five_hours_ago
       })
-
-    five_hours_ago = DateTime.add(DateTime.utc_now(), -5 * 60 * 60, :second)
-
-    from(v in Reencodarr.Media.Video, where: v.id == ^video.id)
-    |> Repo.update_all(set: [updated_at: five_hours_ago])
 
     assert {:ok, _session} =
              WorkerSessions.register(%{
@@ -121,14 +118,39 @@ defmodule Reencodarr.AbAv1.ProcessControlTest do
     assert WorkerSessions.get("worker-server").jobs[job_id].desired_control_state == :running
   end
 
+  test "worker activity after pausing does not postpone auto-resume" do
+    five_hours_ago = DateTime.add(DateTime.utc_now(), -5 * 60 * 60, :second)
+
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :encoding,
+        encode_worker_id: "offline-worker",
+        worker_attempt_id: "paused-before-progress",
+        worker_control_desired_state: :paused,
+        worker_control_acknowledged_state: :paused,
+        worker_control_requested_at: five_hours_ago
+      })
+
+    from(v in Reencodarr.Media.Video, where: v.id == ^video.id)
+    |> Repo.update_all(set: [updated_at: DateTime.utc_now()])
+
+    ProcessControl.auto_resume_check()
+    Process.sleep(20)
+
+    assert Reencodarr.Media.get_video(video.id).worker_control_desired_state == :running
+  end
+
   test "auto-resume persists for disconnected workers but leaves recent pauses alone" do
+    five_hours_ago = DateTime.add(DateTime.utc_now(), -5 * 60 * 60, :second)
+
     {:ok, old_pause} =
       Fixtures.video_fixture(%{
         state: :crf_searching,
         crf_search_worker_id: "offline-worker",
         worker_attempt_id: "old-pause",
         worker_control_desired_state: :paused,
-        worker_control_acknowledged_state: :paused
+        worker_control_acknowledged_state: :paused,
+        worker_control_requested_at: five_hours_ago
       })
 
     {:ok, recent_pause} =
@@ -137,11 +159,9 @@ defmodule Reencodarr.AbAv1.ProcessControlTest do
         encode_worker_id: "offline-worker",
         worker_attempt_id: "recent-pause",
         worker_control_desired_state: :paused,
-        worker_control_acknowledged_state: :paused
+        worker_control_acknowledged_state: :paused,
+        worker_control_requested_at: DateTime.utc_now()
       })
-
-    from(v in Reencodarr.Media.Video, where: v.id == ^old_pause.id)
-    |> Repo.update_all(set: [updated_at: DateTime.add(DateTime.utc_now(), -5 * 60 * 60, :second)])
 
     ProcessControl.auto_resume_check()
     Process.sleep(20)
