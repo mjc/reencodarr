@@ -2,7 +2,7 @@ defmodule Reencodarr.RulesIntegrationTest do
   use ExUnit.Case, async: true
   use Reencodarr.DataCase
 
-  alias Reencodarr.AbAv1.{CrfSearch, Encode}
+  alias Reencodarr.AbAv1.{CrfSearch, Encode, WorkerProtocol}
   alias Reencodarr.Encoder.Broadway
   alias Reencodarr.{Media, Repo, Rules}
 
@@ -74,6 +74,33 @@ defmodule Reencodarr.RulesIntegrationTest do
       assert "--acodec" in args
       acodec_index = Enum.find_index(args, &(&1 == "--acodec"))
       assert Enum.at(args, acodec_index + 1) == "copy"
+    end
+
+    test "legacy, Broadway, and worker entry points use identical arguments", %{video: video} do
+      {:ok, vmaf} =
+        Media.create_vmaf(%{video_id: video.id, crf: 28.0, score: 95.0, params: []})
+
+      video = Fixtures.choose_vmaf(video, vmaf)
+      vmaf = Repo.preload(vmaf, :video)
+
+      legacy_encode = Encode.build_encode_args_for_test(vmaf)
+      broadway_encode = Broadway.build_encode_args_for_test(vmaf)
+      worker_encode = WorkerProtocol.encode_work_assigned(video, vmaf).encode_args
+
+      assert legacy_encode == broadway_encode
+      assert worker_encode == legacy_encode
+
+      legacy_crf = CrfSearch.build_crf_search_args(video, 95, crf_range: {17, 42})
+
+      worker_crf =
+        WorkerProtocol.work_assigned(video, 95,
+          attempt: %Reencodarr.CrfSearchPolicy.Attempt{
+            target_vmaf: 95,
+            crf_range: {17, 42}
+          }
+        ).crf_search_args
+
+      assert worker_crf == legacy_crf
     end
 
     test "CRF search excludes audio arguments", %{video: video} do
