@@ -709,8 +709,22 @@ defmodule Reencodarr.Diagnostics do
       transfer_progress = format_worker_progress(session.transfer_progress, "transfer")
       crf_search_progress = format_worker_progress(session.crf_search_progress, "crf")
       encode_admission = format_encode_admission(Map.get(session, :encode_admission))
+      jobs = format_worker_jobs(session.jobs)
 
-      "  #{session.client_worker_id} protocol=#{session.protocol_version} version=#{session.version} video=#{active_video_id} phase=#{session.phase} video_state=#{video_state} transfer=#{transfer_progress} crf=#{crf_search_progress} encode_admission=#{encode_admission} capabilities=#{inspect(session.capabilities)} last_seen=#{DateTime.to_iso8601(session.last_seen_at)}"
+      "  #{session.client_worker_id} protocol=#{session.protocol_version} version=#{session.version} video=#{active_video_id} phase=#{session.phase} video_state=#{video_state} transfer=#{transfer_progress} crf=#{crf_search_progress} encode_admission=#{encode_admission} capabilities=#{inspect(session.capabilities)} last_seen=#{DateTime.to_iso8601(session.last_seen_at)} jobs=#{jobs}"
+    end)
+  end
+
+  defp format_worker_jobs(jobs) do
+    now = DateTime.utc_now()
+
+    jobs
+    |> Map.values()
+    |> Enum.map_join(",", fn job ->
+      age =
+        if job.last_activity_at, do: DateTime.diff(now, job.last_activity_at, :second), else: "?"
+
+      "#{job.job_id}(phase=#{job.phase},activity=#{inspect(job.last_activity_at)},stall_seconds=#{age},recovery=#{job.recovery_action || "none"})"
     end)
   end
 

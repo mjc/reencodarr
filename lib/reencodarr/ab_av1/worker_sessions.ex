@@ -18,6 +18,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   @by_server_table :reencodarr_worker_sessions_by_server
   @by_client_table :reencodarr_worker_sessions_by_client
   @orphan_reset_grace_seconds 600
+  @watchdog_warning_seconds 23 * 60 * 60
+  @watchdog_recovery_seconds 24 * 60 * 60
   @worker_control_topic_prefix "worker_controls:"
   @worker_control_states %{pause: :paused, resume: :running, stop: :stopped}
 
@@ -33,6 +35,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       :video_id,
       :transfer_progress,
       :progress,
+      :last_activity_at,
+      :recovery_action,
       active: true,
       phase: :assigned,
       control_state: :running,
@@ -41,7 +45,15 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     ]
 
     @type job_type :: :crf_search | :encode
-    @type phase :: :assigned | :receiving_input | :input_ready | :crf_searching | :encoding
+    @type phase ::
+            :assigned
+            | :receiving_input
+            | :input_ready
+            | :crf_searching
+            | :encoding
+            | :output_upload
+            | :terminal_delivery
+            | :cleanup
     @type control_state :: :running | :paused | :stopped
     @type t :: %__MODULE__{
             job_id: String.t(),
@@ -53,6 +65,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
             control_command_id: String.t() | nil,
             transfer_progress: map() | nil,
             progress: EncodeProgress.t() | CrfSearchProgress.t() | nil,
+            last_activity_at: DateTime.t() | nil,
+            recovery_action: nil | :warned | :stop_requested | :stale,
             active: boolean()
           }
   end
@@ -251,6 +265,22 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.call(__MODULE__, :reset)
   end
 
+  @doc false
+  @spec set_job_activity_at(String.t(), String.t(), DateTime.t()) :: :ok | {:error, atom()}
+  def set_job_activity_at(server_worker_id, job_id, %DateTime{} = activity_at) do
+    GenServer.call(__MODULE__, {:set_job_activity_at, server_worker_id, job_id, activity_at})
+  end
+
+  @spec check_stalled_jobs(DateTime.t()) :: :ok
+  def check_stalled_jobs(%DateTime{} = checked_at) do
+    GenServer.call(__MODULE__, {:check_stalled_jobs, checked_at})
+  end
+
+  @spec record_job_activity(String.t(), Job.phase() | nil) :: :ok
+  def record_job_activity(job_id, phase) when is_binary(job_id) do
+    GenServer.cast(__MODULE__, {:record_job_activity, job_id, phase})
+  end
+
   defp notify_connected_control(nil, _command), do: :ok
 
   defp notify_connected_control(server_worker_id, command),
@@ -283,6 +313,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     :ets.new(@by_client_table, [:named_table, :set, :private])
     schedule_expire_stale()
     schedule_orphan_reset()
+    schedule_watchdog()
     {:ok, %{started_at: now()}}
   end
 
@@ -332,8 +363,34 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def handle_call({:assign_job, server_worker_id, %Job{} = job}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
+      job = mark_job_activity(job)
       %{session | jobs: Map.put(session.jobs, job.job_id, job), last_seen_at: now()}
     end)
+  end
+
+  def handle_call({:set_job_activity_at, server_worker_id, job_id, activity_at}, _from, state) do
+    result =
+      update_session(server_worker_id, fn session ->
+        case Map.fetch(session.jobs, job_id) do
+          {:ok, %Job{} = job} ->
+            updated = %Job{job | last_activity_at: activity_at, recovery_action: nil}
+            %{session | jobs: Map.put(session.jobs, job_id, updated)}
+
+          :error ->
+            {:error, :unknown_worker_session}
+        end
+      end)
+
+    {:reply,
+     case(result) do
+       {:ok, _} -> :ok
+       error -> error
+     end, state}
+  end
+
+  def handle_call({:check_stalled_jobs, checked_at}, _from, state) do
+    check_stalled_jobs_now(checked_at)
+    {:reply, :ok, state}
   end
 
   def handle_call({:clear_job, server_worker_id, job_id}, _from, state) do
@@ -349,6 +406,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           stop_job(session, job_id, job)
 
         {:ok, %Job{} = job} ->
+          job = activity_after_control(job, control_state)
+
           %{
             session
             | jobs:
@@ -525,6 +584,29 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     )
   end
 
+  def handle_cast({:record_job_activity, job_id, phase}, state) do
+    Enum.each(list_sessions(), fn session ->
+      case Map.fetch(session.jobs, job_id) do
+        {:ok, %Job{} = job} ->
+          updated_phase = phase || job.phase
+          updated = mark_job_activity(%Job{job | phase: updated_phase})
+
+          updated_session = %{
+            session
+            | jobs: Map.put(session.jobs, job_id, updated),
+              last_seen_at: now()
+          }
+
+          store_activity_update(updated_session, job.phase, updated_phase)
+
+        :error ->
+          :ok
+      end
+    end)
+
+    {:noreply, state}
+  end
+
   def handle_cast({:set_encode_progress, server_worker_id, %EncodeProgress{} = progress}, state) do
     update_telemetry(
       server_worker_id,
@@ -584,6 +666,12 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     {:noreply, state}
   end
 
+  def handle_info(:check_stalled_jobs, state) do
+    check_stalled_jobs_now(now())
+    schedule_watchdog()
+    {:noreply, state}
+  end
+
   defp touch_session(session, nil), do: %{session | last_seen_at: now()}
 
   defp touch_session(session, resource_usage) do
@@ -600,7 +688,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   defp put_job_transfer_progress(session, job_id, progress, phase) do
     case Map.fetch(session.jobs, job_id) do
       {:ok, %Job{} = job} ->
-        updated_job = %Job{job | phase: phase, transfer_progress: progress}
+        updated_job = mark_job_activity(%Job{job | phase: phase, transfer_progress: progress})
 
         %{
           session
@@ -617,16 +705,16 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     job =
       case Map.fetch(session.jobs, progress.job_id) do
         {:ok, %Job{job_type: :encode} = job} ->
-          %Job{job | phase: :encoding, progress: progress}
+          mark_job_activity(%Job{job | phase: :encoding, progress: progress})
 
         _ ->
-          %Job{
+          mark_job_activity(%Job{
             job_id: progress.job_id,
             job_type: :encode,
             video_id: progress.video_id,
             phase: :encoding,
             progress: progress
-          }
+          })
       end
 
     %{session | jobs: Map.put(session.jobs, progress.job_id, job), last_seen_at: now()}
@@ -744,6 +832,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
         transfer_progress: Keyword.get(opts, :transfer_progress, job.transfer_progress),
         progress: Keyword.get(opts, :progress, job.progress)
     }
+
+    job = mark_job_activity(job)
 
     jobs =
       session.jobs
@@ -1055,10 +1145,16 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   defp put_session(session) do
     session = derive_crf_summary(session)
+    :ok = store_session(session)
+    broadcast_sessions()
+    :ok
+  end
+
+  defp store_session(session) do
+    session = derive_crf_summary(session)
     :ok = drop_session(session.server_worker_id)
     true = :ets.insert(@by_server_table, {session.server_worker_id, session})
     true = :ets.insert(@by_client_table, {session.client_worker_id, session.server_worker_id})
-    broadcast_sessions()
     :ok
   end
 
@@ -1125,6 +1221,117 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   defp schedule_orphan_reset do
     Process.send_after(self(), :reset_orphans, @orphan_reset_grace_seconds * 1_000)
+  end
+
+  defp schedule_watchdog do
+    Process.send_after(self(), :check_stalled_jobs, watchdog_interval_ms())
+  end
+
+  defp check_stalled_jobs_now(checked_at) do
+    changed? =
+      Enum.reduce(list_sessions(), false, fn session, changed? ->
+        jobs =
+          Map.new(session.jobs, fn {job_id, job} ->
+            {job_id, check_job(session, job, checked_at)}
+          end)
+
+        if jobs == session.jobs do
+          changed?
+        else
+          :ok = store_session(%{session | jobs: jobs})
+          true
+        end
+      end)
+
+    if changed?, do: broadcast_sessions()
+  end
+
+  defp check_job(_session, %Job{control_state: :paused} = job, _checked_at), do: job
+  defp check_job(_session, %Job{desired_control_state: :paused} = job, _checked_at), do: job
+
+  defp check_job(_session, %Job{recovery_action: action} = job, _checked_at)
+       when action in [:stop_requested, :stale], do: job
+
+  defp check_job(session, %Job{last_activity_at: %DateTime{} = activity_at} = job, checked_at) do
+    age = DateTime.diff(checked_at, activity_at, :second)
+    thresholds = watchdog_thresholds(job.phase)
+
+    cond do
+      age >= thresholds.recovery -> request_stalled_stop(session, job, age)
+      age >= thresholds.warning -> warn_stalled_job(session, job, age)
+      true -> job
+    end
+  end
+
+  defp check_job(_session, job, _checked_at), do: mark_job_activity(job)
+
+  defp warn_stalled_job(_session, %Job{recovery_action: :warned} = job, _age), do: job
+
+  defp warn_stalled_job(session, %Job{} = job, age) do
+    Logger.warning(
+      "Worker job may be stalled: worker=#{session.client_worker_id} job_id=#{job.job_id} phase=#{job.phase} stall_seconds=#{age}"
+    )
+
+    %Job{job | recovery_action: :warned}
+  end
+
+  defp request_stalled_stop(session, %Job{} = job, age) do
+    case Media.request_worker_control(job.video_id, job.job_id, :stop, :stalled) do
+      {:ok, command} ->
+        Logger.error(
+          "Stopping stalled worker job: worker=#{session.client_worker_id} job_id=#{job.job_id} phase=#{job.phase} stall_seconds=#{age}"
+        )
+
+        :ok =
+          broadcast_control(
+            session.server_worker_id,
+            {:worker_control, :stop, job.job_id, command.command_id}
+          )
+
+        %Job{
+          job
+          | desired_control_state: :stopped,
+            control_command_id: command.command_id,
+            recovery_action: :stop_requested
+        }
+
+      {:error, :stale_worker_attempt} ->
+        %Job{job | recovery_action: :stale}
+
+      {:error, reason} ->
+        Logger.error(
+          "Unable to stop stalled worker job: worker=#{session.client_worker_id} job_id=#{job.job_id} reason=#{inspect(reason)}"
+        )
+
+        job
+
+      result ->
+        Logger.error(
+          "Unexpected stalled worker stop result: worker=#{session.client_worker_id} job_id=#{job.job_id} result=#{inspect(result)}"
+        )
+
+        job
+    end
+  end
+
+  defp mark_job_activity(%Job{} = job),
+    do: %Job{job | last_activity_at: now(), recovery_action: nil}
+
+  @spec activity_after_control(Job.t(), Job.control_state()) :: Job.t()
+  defp activity_after_control(%Job{} = job, :running), do: mark_job_activity(job)
+  defp activity_after_control(%Job{} = job, _control_state), do: job
+
+  defp store_activity_update(session, phase, phase), do: store_session(session)
+  defp store_activity_update(session, _old_phase, _new_phase), do: put_session(session)
+
+  defp watchdog_thresholds(phase) do
+    defaults = %{warning: @watchdog_warning_seconds, recovery: @watchdog_recovery_seconds}
+    overrides = Application.get_env(:reencodarr, :worker_watchdog_thresholds, %{})
+    Map.merge(defaults, Map.get(overrides, phase, %{}))
+  end
+
+  defp watchdog_interval_ms do
+    Application.get_env(:reencodarr, :worker_watchdog_interval_ms, 60_000)
   end
 
   defp reset_tables do

@@ -108,5 +108,33 @@ defmodule Reencodarr.Media.WorkerControlTest do
 
       assert [%{failure_code: "OPERATOR_FAILED"}] = Media.get_video_failures(video.id)
     end
+
+    test "records watchdog recovery as a stalled worker failure" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :encoding,
+          encode_worker_id: "worker-a",
+          worker_attempt_id: "encode-stalled",
+          worker_control_desired_state: :running,
+          worker_control_acknowledged_state: :running
+        })
+
+      assert {:ok, command} =
+               Media.request_worker_control(video.id, "encode-stalled", :stop, :stalled)
+
+      assert {:ok, :applied} =
+               Media.acknowledge_worker_control(
+                 video.id,
+                 "encode-stalled",
+                 command.command_id,
+                 :stopped,
+                 :encode
+               )
+
+      assert [%{failure_code: "WORKER_STALLED", system_context: context}] =
+               Media.get_video_failures(video.id)
+
+      assert context["worker_watchdog"]
+    end
   end
 end

@@ -141,6 +141,118 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert session.jobs["encode-1"].control_state == :paused
   end
 
+  test "heartbeats do not hide a stalled worker job" do
+    {:ok, video} = encoding_video("encode-stalled")
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, WorkerSessions.control_topic("worker-server-1"))
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-stalled",
+               job_type: :encode,
+               video_id: video.id,
+               phase: :encoding
+             })
+
+    stalled_at = DateTime.add(DateTime.utc_now(), -24, :hour)
+    :ok = WorkerSessions.set_job_activity_at("worker-server-1", "encode-stalled", stalled_at)
+    :ok = WorkerSessions.touch("worker-server-1", %{disk_free_bytes: 1_000_000})
+
+    assert :ok = WorkerSessions.check_stalled_jobs(DateTime.utc_now())
+    assert_receive {:worker_control, :stop, "encode-stalled", command_id}
+
+    job = WorkerSessions.get("worker-server-1").jobs["encode-stalled"]
+    assert job.last_activity_at == stalled_at
+    assert job.recovery_action == :stop_requested
+    assert job.control_command_id == command_id
+    assert Media.get_video(video.id).worker_control_reason == :stalled
+  end
+
+  test "progress refreshes job activity and paused work never stalls" do
+    {:ok, running_video} = encoding_video("encode-running")
+    {:ok, paused_video} = encoding_video("encode-paused")
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    for {video, job_id, state} <- [
+          {running_video, "encode-running", :running},
+          {paused_video, "encode-paused", :paused}
+        ] do
+      assert {:ok, _session} =
+               WorkerSessions.assign_job("worker-server-1", %Job{
+                 job_id: job_id,
+                 job_type: :encode,
+                 video_id: video.id,
+                 phase: :encoding,
+                 control_state: state,
+                 desired_control_state: state
+               })
+
+      :ok =
+        WorkerSessions.set_job_activity_at(
+          "worker-server-1",
+          job_id,
+          DateTime.add(DateTime.utc_now(), -25, :hour)
+        )
+    end
+
+    :ok =
+      WorkerSessions.set_encode_progress("worker-server-1", %EncodeProgress{
+        job_id: "encode-running",
+        video_id: running_video.id,
+        percent: 42.0,
+        fps: 30.0,
+        output_bytes: 100,
+        output_percent: 1.0
+      })
+
+    _ = WorkerSessions.list()
+    assert :ok = WorkerSessions.check_stalled_jobs(DateTime.utc_now())
+
+    session = WorkerSessions.get("worker-server-1")
+    assert session.jobs["encode-running"].recovery_action == nil
+    assert session.jobs["encode-paused"].recovery_action == nil
+  end
+
+  test "warning and recovery remain fenced to the exact attempt" do
+    {:ok, old_video} = encoding_video("encode-old")
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-old",
+               job_type: :encode,
+               video_id: old_video.id,
+               phase: :output_upload
+             })
+
+    :ok =
+      WorkerSessions.set_job_activity_at(
+        "worker-server-1",
+        "encode-old",
+        DateTime.add(DateTime.utc_now(), -23, :hour)
+      )
+
+    assert :ok = WorkerSessions.check_stalled_jobs(DateTime.utc_now())
+    assert WorkerSessions.get("worker-server-1").jobs["encode-old"].recovery_action == :warned
+
+    {:ok, _new_attempt} =
+      old_video
+      |> Ecto.Changeset.change(worker_attempt_id: "encode-new")
+      |> Repo.update()
+
+    :ok =
+      WorkerSessions.set_job_activity_at(
+        "worker-server-1",
+        "encode-old",
+        DateTime.add(DateTime.utc_now(), -24, :hour)
+      )
+
+    assert :ok = WorkerSessions.check_stalled_jobs(DateTime.utc_now())
+    assert WorkerSessions.get("worker-server-1").jobs["encode-old"].recovery_action == :stale
+    assert Media.get_video(old_video.id).worker_attempt_id == "encode-new"
+  end
+
   test "assigning CRF work creates its job record" do
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
 
@@ -1070,6 +1182,17 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
       capabilities: %{"crf_search" => true}
     }
     |> Map.merge(Map.new(overrides))
+  end
+
+  defp encoding_video(job_id) do
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+    vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+    video = Fixtures.choose_vmaf(video, vmaf)
+
+    Media.mark_as_encoding(video, %{
+      encode_worker_id: "worker-client-1",
+      worker_attempt_id: job_id
+    })
   end
 
   defp run_orphan_reset do

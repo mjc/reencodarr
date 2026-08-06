@@ -3,7 +3,7 @@ defmodule ReencodarrWeb.WorkerFileController do
 
   use ReencodarrWeb, :controller
 
-  alias Reencodarr.AbAv1.{Encode, WorkerConfig}
+  alias Reencodarr.AbAv1.{Encode, WorkerConfig, WorkerSessions}
   alias Reencodarr.Media
 
   def show(conn, %{"id" => id}) do
@@ -43,7 +43,8 @@ defmodule ReencodarrWeb.WorkerFileController do
 
     result =
       with {:ok, file} <- File.open(partial_path, [:write, :binary, :exclusive]),
-           :ok <- copy_and_close(conn, file) do
+           :ok <- copy_and_close(conn, file, attempt_id) do
+        WorkerSessions.record_job_activity(attempt_id, :terminal_delivery)
         Media.commit_worker_output_upload(video.id, attempt_id, partial_path, output_path)
       end
 
@@ -57,17 +58,24 @@ defmodule ReencodarrWeb.WorkerFileController do
     |> Base.url_encode64(padding: false)
   end
 
-  defp copy_and_close(conn, file) do
-    copy_body(conn, file)
+  defp copy_and_close(conn, file, attempt_id) do
+    copy_body(conn, file, attempt_id)
   after
     File.close(file)
   end
 
-  defp copy_body(conn, file) do
+  defp copy_body(conn, file, attempt_id) do
     case Plug.Conn.read_body(conn) do
-      {:ok, body, _conn} -> IO.binwrite(file, body)
-      {:more, body, conn} -> with :ok <- IO.binwrite(file, body), do: copy_body(conn, file)
-      {:error, reason} -> {:error, reason}
+      {:ok, body, _conn} ->
+        WorkerSessions.record_job_activity(attempt_id, :output_upload)
+        IO.binwrite(file, body)
+
+      {:more, body, conn} ->
+        WorkerSessions.record_job_activity(attempt_id, :output_upload)
+        with :ok <- IO.binwrite(file, body), do: copy_body(conn, file, attempt_id)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

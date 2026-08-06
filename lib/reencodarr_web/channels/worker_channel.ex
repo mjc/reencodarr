@@ -1677,6 +1677,8 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp with_terminal_claim(socket, video_id, job_id, job_type, event, fun) do
+    WorkerSessions.record_job_activity(job_id, nil)
+
     case Media.claim_worker_terminal(video_id, job_id, job_type) do
       {:ok, :claimed} ->
         release_terminal_claim_on_error(fun.(), video_id, job_id, job_type)

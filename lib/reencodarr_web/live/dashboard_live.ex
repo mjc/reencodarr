@@ -18,6 +18,7 @@ defmodule ReencodarrWeb.DashboardLive do
   alias Reencodarr.Media
   alias Reencodarr.Media.ChartQueries
   alias Reencodarr.Media.VideoQueries
+  alias ReencodarrWeb.WorkerActivity
   alias ReencodarrWeb.WorkerControl
 
   import ReencodarrWeb.ChartComponents
@@ -424,6 +425,7 @@ defmodule ReencodarrWeb.DashboardLive do
   attr :fail_event, :string, default: "fail_encode"
   attr :worker_id, :string, default: nil
   attr :job_id, :string, default: nil
+  attr :activity_label, :string, default: nil
 
   defp encoding_panel(assigns) do
     ~H"""
@@ -434,6 +436,7 @@ defmodule ReencodarrWeb.DashboardLive do
           {service_status_text(@status)}
         </span>
       </div>
+      <div :if={@activity_label} class="mb-2 text-xs text-gray-400">{@activity_label}</div>
 
       <%= if @video do %>
         <!-- Active: Show video metadata + savings -->
@@ -576,6 +579,7 @@ defmodule ReencodarrWeb.DashboardLive do
       fail_event="stop_worker_encode"
       worker_id={@worker.server_worker_id}
       job_id={@job && @job.job_id}
+      activity_label={WorkerActivity.label(@job)}
     />
     """
   end

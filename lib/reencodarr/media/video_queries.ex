@@ -227,6 +227,7 @@ defmodule Reencodarr.Media.VideoQueries do
           worker_control_acknowledged_state: :running,
           worker_control_command_id: nil,
           worker_control_requested_at: nil,
+          worker_control_reason: nil,
           worker_terminal_claimed_at: nil
         )
 
@@ -405,6 +406,7 @@ defmodule Reencodarr.Media.VideoQueries do
               worker_control_acknowledged_state: :running,
               worker_control_command_id: nil,
               worker_control_requested_at: nil,
+              worker_control_reason: nil,
               worker_terminal_claimed_at: nil,
               original_size: original_size,
               updated_at: DateTime.utc_now()

@@ -8,6 +8,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   alias Reencodarr.AbAv1.WorkerSessions.Job
   alias Reencodarr.{Formatters, Media, Rules}
   alias ReencodarrWeb.ChartHelpers
+  alias ReencodarrWeb.WorkerActivity
 
   @service_status_styles %{
     running: "bg-green-100 text-green-800",
@@ -198,6 +199,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   attr :start_event, :string, default: nil
   attr :worker_id, :string, default: nil
   attr :job_id, :string, default: nil
+  attr :activity_label, :string, default: nil
 
   def crf_search_panel(%{progress: progress} = assigns)
       when is_nil(progress) or is_struct(progress, CrfSearchProgress) do
@@ -209,6 +211,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
           {service_status_text(@status)}
         </span>
       </div>
+      <div :if={@activity_label} class="mb-2 text-xs text-gray-400">{@activity_label}</div>
 
       <%= if @video do %>
         <div class="space-y-3">
@@ -360,7 +363,8 @@ defmodule ReencodarrWeb.CrfSearchComponents do
         results: worker_crf_results(crf_data[:results]),
         sample: worker_crf_sample(worker),
         status: worker_crf_status(worker, job),
-        job_id: job && job.job_id
+        job_id: job && job.job_id,
+        activity_label: WorkerActivity.label(job)
       )
 
     ~H"""
@@ -382,6 +386,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
       start_event="start_worker_crf_search"
       worker_id={@worker.server_worker_id}
       job_id={@job_id}
+      activity_label={@activity_label}
     />
     """
   end

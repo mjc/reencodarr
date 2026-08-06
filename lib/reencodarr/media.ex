@@ -399,6 +399,18 @@ defmodule Reencodarr.Media do
   def request_worker_control(video_id, attempt_id, action)
       when is_integer(video_id) and is_binary(attempt_id) and
              action in [:pause, :resume, :stop] do
+    request_worker_control(video_id, attempt_id, action, :operator)
+  end
+
+  @spec request_worker_control(
+          pos_integer(),
+          String.t(),
+          :pause | :resume | :stop,
+          :operator | :stalled
+        ) :: {:ok, map()} | {:error, :stale_worker_attempt}
+  def request_worker_control(video_id, attempt_id, action, reason)
+      when is_integer(video_id) and is_binary(attempt_id) and
+             action in [:pause, :resume, :stop] and reason in [:operator, :stalled] do
     command_id = Ecto.UUID.generate()
     desired_state = Map.fetch!(@worker_control_actions, action)
 
@@ -414,6 +426,7 @@ defmodule Reencodarr.Media do
             set: [
               worker_control_desired_state: desired_state,
               worker_control_command_id: command_id,
+              worker_control_reason: reason,
               worker_control_requested_at: DateTime.utc_now(),
               updated_at: DateTime.utc_now()
             ]
@@ -505,7 +518,7 @@ defmodule Reencodarr.Media do
            ]
          ) do
       {1, _} ->
-        insert_operator_failure(video_id, attempt_id, command_id, job_type)
+        insert_control_failure(video_id, attempt_id, command_id, job_type)
         :applied
 
       _ ->
@@ -528,18 +541,30 @@ defmodule Reencodarr.Media do
     )
   end
 
-  defp insert_operator_failure(video_id, attempt_id, command_id, job_type) do
+  defp insert_control_failure(video_id, attempt_id, command_id, job_type) do
+    reason = Repo.get!(Video, video_id).worker_control_reason
+
+    {code, message, context} =
+      case reason do
+        :stalled ->
+          {"WORKER_STALLED", "Worker job stopped after its inactivity timeout",
+           %{worker_watchdog: true}}
+
+        _ ->
+          {"OPERATOR_FAILED", "Manually failed by operator", %{operator_action: "fail"}}
+      end
+
     attrs = %{
       video_id: video_id,
       failure_stage: worker_failure_stage(job_type),
       failure_category: :process_failure,
-      failure_code: "OPERATOR_FAILED",
-      failure_message: "Manually failed by operator",
-      system_context: %{
-        operator_action: "fail",
-        worker_attempt_id: attempt_id,
-        worker_control_command_id: command_id
-      }
+      failure_code: code,
+      failure_message: message,
+      system_context:
+        Map.merge(context, %{
+          worker_attempt_id: attempt_id,
+          worker_control_command_id: command_id
+        })
     }
 
     %VideoFailure{}
@@ -675,6 +700,8 @@ defmodule Reencodarr.Media do
             worker_control_desired_state: nil,
             worker_control_acknowledged_state: nil,
             worker_control_command_id: nil,
+            worker_control_requested_at: nil,
+            worker_control_reason: nil,
             worker_terminal_claimed_at: nil,
             updated_at: DateTime.utc_now()
           ]
@@ -705,6 +732,8 @@ defmodule Reencodarr.Media do
             worker_control_desired_state: nil,
             worker_control_acknowledged_state: nil,
             worker_control_command_id: nil,
+            worker_control_requested_at: nil,
+            worker_control_reason: nil,
             worker_terminal_claimed_at: nil,
             updated_at: now
           ]
@@ -723,6 +752,8 @@ defmodule Reencodarr.Media do
             worker_control_desired_state: nil,
             worker_control_acknowledged_state: nil,
             worker_control_command_id: nil,
+            worker_control_requested_at: nil,
+            worker_control_reason: nil,
             worker_terminal_claimed_at: nil,
             updated_at: now
           ]
@@ -754,6 +785,7 @@ defmodule Reencodarr.Media do
             worker_control_acknowledged_state: nil,
             worker_control_command_id: nil,
             worker_control_requested_at: nil,
+            worker_control_reason: nil,
             worker_terminal_claimed_at: nil,
             updated_at: DateTime.utc_now()
           ]
@@ -1914,6 +1946,8 @@ defmodule Reencodarr.Media do
                 worker_control_desired_state: nil,
                 worker_control_acknowledged_state: nil,
                 worker_control_command_id: nil,
+                worker_control_requested_at: nil,
+                worker_control_reason: nil,
                 worker_terminal_claimed_at: nil,
                 updated_at: DateTime.utc_now()
               ]
@@ -1933,6 +1967,8 @@ defmodule Reencodarr.Media do
                 worker_control_desired_state: nil,
                 worker_control_acknowledged_state: nil,
                 worker_control_command_id: nil,
+                worker_control_requested_at: nil,
+                worker_control_reason: nil,
                 worker_terminal_claimed_at: nil,
                 updated_at: DateTime.utc_now()
               ]
