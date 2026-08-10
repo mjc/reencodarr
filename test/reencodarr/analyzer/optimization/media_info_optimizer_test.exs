@@ -41,5 +41,23 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizerTest do
       result = MediaInfoOptimizer.execute_optimized_mediainfo_command(paths)
       assert {:ok, %{}} = result
     end
+
+    test "preserves full-scan fields through the optimized path" do
+      :meck.expect(ConcurrencyManager, :get_optimal_mediainfo_batch_size, fn -> 4 end)
+
+      path = Path.expand("../../../fixtures/mediainfo_no_statistics_dtshd.mka", __DIR__)
+
+      assert {:ok, %{^path => mediainfo}} =
+               MediaInfoOptimizer.execute_optimized_mediainfo_command([path])
+
+      audio =
+        mediainfo
+        |> get_in(["media", "track"])
+        |> Enum.find(&(Map.get(&1, "@type") == "Audio"))
+
+      assert audio["Format_Commercial_IfAny"] == "DTS-HD Master Audio"
+      assert String.to_integer(audio["BitRate"]) > 0
+      assert String.to_integer(audio["StreamSize"]) > 0
+    end
   end
 end

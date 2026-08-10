@@ -47,15 +47,22 @@ defmodule Reencodarr.Media.AudioTrackInfo do
   @spec build_track_info(map()) :: audio_track()
   defp build_track_info(track) do
     %{
-      codec: Map.get(track, "Format", ""),
-      codec_id: Map.get(track, "CodecID", ""),
+      codec: text_field(track, "Format"),
+      codec_id: text_field(track, "CodecID"),
       channels: parse_channel_count(track),
-      channel_layout: Map.get(track, "ChannelLayout", ""),
+      channel_layout: text_field(track, "ChannelLayout"),
       bitrate: parse_bitrate(track),
-      format_commercial_if_any: Map.get(track, "Format_Commercial_IfAny", ""),
-      format_additionalfeatures: Map.get(track, "Format_AdditionalFeatures", ""),
-      format_profile: Map.get(track, "Format_Profile", "")
+      format_commercial_if_any: text_field(track, "Format_Commercial_IfAny"),
+      format_additionalfeatures: text_field(track, "Format_AdditionalFeatures"),
+      format_profile: text_field(track, "Format_Profile")
     }
+  end
+
+  defp text_field(track, key) do
+    case Map.get(track, key) do
+      value when is_binary(value) -> value
+      _ -> ""
+    end
   end
 
   defp default_audio_track?(%{"Default" => "Yes"}), do: true

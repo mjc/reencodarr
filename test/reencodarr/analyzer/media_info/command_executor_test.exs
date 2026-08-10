@@ -57,21 +57,43 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutorTest do
                  "/tmp/exists2.mkv"
                ])
     end
+
+    test "full-scans every file in a real multi-codec batch" do
+      paths = [
+        fixture_path("mediainfo_no_statistics_eac3.mka"),
+        fixture_path("mediainfo_no_statistics_dtshd.mka")
+      ]
+
+      assert {:ok, results} = CommandExecutor.execute_batch_mediainfo(paths)
+
+      for path <- paths do
+        audio = audio_track(Map.fetch!(results, path))
+        assert String.to_integer(audio["BitRate"]) > 0
+        assert String.to_integer(audio["StreamSize"]) > 0
+      end
+    end
   end
 
   describe "execute_single_mediainfo/1" do
-    test "full-scans a Matroska file without track statistics" do
-      path = Path.expand("../../../fixtures/mediainfo_no_statistics.mkv", __DIR__)
+    test "full-scans representative codecs without bitrate statistics" do
+      fixtures = [
+        {"mediainfo_no_statistics.mkv", "AAC", nil},
+        {"mediainfo_no_statistics_eac3.mka", "E-AC-3", "Dolby Digital Plus"},
+        {"mediainfo_no_statistics_dtshd.mka", "DTS", "DTS-HD Master Audio"}
+      ]
 
-      assert {:ok, %{^path => mediainfo}} = CommandExecutor.execute_single_mediainfo(path)
+      for {name, format, commercial} <- fixtures do
+        path = fixture_path(name)
 
-      audio =
-        mediainfo
-        |> get_in(["media", "track"])
-        |> Enum.find(&(Map.get(&1, "@type") == "Audio"))
+        assert {:ok, %{^path => mediainfo}} = CommandExecutor.execute_single_mediainfo(path)
 
-      assert String.to_integer(audio["BitRate"]) > 0
-      assert String.to_integer(audio["StreamSize"]) > 0
+        audio = audio_track(mediainfo)
+
+        assert audio["Format"] == format
+        assert audio["Format_Commercial_IfAny"] == commercial
+        assert String.to_integer(audio["BitRate"]) > 0
+        assert String.to_integer(audio["StreamSize"]) > 0
+      end
     end
 
     test "returns explicit error for missing file" do
@@ -97,5 +119,13 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutorTest do
                  CommandExecutor.execute_single_mediainfo(path)
       end)
     end
+  end
+
+  defp fixture_path(name), do: Path.expand("../../../fixtures/#{name}", __DIR__)
+
+  defp audio_track(mediainfo) do
+    mediainfo
+    |> get_in(["media", "track"])
+    |> Enum.find(&(Map.get(&1, "@type") == "Audio"))
   end
 end

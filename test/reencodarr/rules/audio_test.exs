@@ -165,6 +165,46 @@ defmodule Reencodarr.Rules.AudioTest do
       end
     end
 
+    test "classifies every codec identity captured from the production encode queue" do
+      for %{"format" => format, "codec_id" => codec_id} <- production_queue_tracks() do
+        video =
+          raw_audio_video(
+            [format],
+            sample_mediainfo(format, 6, "5.1", %{
+              "CodecID" => codec_id,
+              "BitRate" => nil
+            })
+          )
+
+        rules = Audio.rules(video)
+
+        if format == "Opus" do
+          assert rules == [{"--acodec", "copy"}]
+        else
+          assert {"--enc", "c:a:0=libopus"} in rules
+          assert {"--enc", "b:a:0=256k"} in rules
+        end
+      end
+    end
+
+    test "transcodes supported ISO-BMFF carrier short codes" do
+      for {format, codec_id} <- [
+            {"AAC", "mp4a-40-5"},
+            {"MLP FBA", "mlpa"},
+            {"DTS", "dtsh"},
+            {"DTS", "dtsl"},
+            {"PCM", "ipcm"}
+          ] do
+        video =
+          raw_audio_video(
+            [format],
+            sample_mediainfo(format, 6, "5.1", %{"CodecID" => codec_id, "BitRate" => nil})
+          )
+
+        assert {"--enc", "c:a:0=libopus"} in Audio.rules(video)
+      end
+    end
+
     test "non-atmos 5.1(side) normalizes layout with aformat filter" do
       video =
         Fixtures.create_test_video(%{
@@ -242,11 +282,18 @@ defmodule Reencodarr.Rules.AudioTest do
       assert Audio.rules(video) == [{"--acodec", "copy"}]
     end
 
-    test "copies production legacy Atmos identities" do
+    test "copies object carriers captured from production MediaInfo" do
+      for %{"track" => track} <- production_object_tracks() do
+        video = raw_audio_video([], mediainfo_with_audio_track(track))
+        assert Audio.rules(video) == [{"--acodec", "copy"}]
+      end
+    end
+
+    test "copies object metadata on supported ISO-BMFF carriers" do
       for {format, codec_id, commercial, additional} <- [
-            {"EAC3 Atmos", "EAC3 Atmos", "Atmos", nil},
-            {"TrueHD Atmos", "TrueHD Atmos", "Atmos", nil},
-            {"DTS", "A_DTS", "DTS-HD MA + DTS:X", "XLL X"}
+            {"MLP FBA", "mlpa", "Dolby TrueHD with Dolby Atmos", ""},
+            {"DTS", "dtsh", "DTS-HD MA + DTS:X", "XLL X"},
+            {"DTS", "dtsl", "DTS:X", ""}
           ] do
         video =
           raw_audio_video(
@@ -259,6 +306,21 @@ defmodule Reencodarr.Rules.AudioTest do
           )
 
         assert Audio.rules(video) == [{"--acodec", "copy"}]
+      end
+    end
+
+    test "does not treat object branding as proof on the wrong carrier" do
+      for commercial <- ["Dolby Atmos", "DTS:X", "Apple Spatial Audio"] do
+        video =
+          raw_audio_video(
+            ["aac"],
+            sample_mediainfo("AAC", 6, "5.1", %{
+              "CodecID" => "A_AAC-2",
+              "Format_Commercial_IfAny" => commercial
+            })
+          )
+
+        assert {"--enc", "c:a:0=libopus"} in Audio.rules(video)
       end
     end
 
@@ -283,9 +345,13 @@ defmodule Reencodarr.Rules.AudioTest do
             {"DTS", "dtsy"},
             {"DTS-UHD MA", "A_DTS"},
             {"MPEG-H 3D Audio", "mha1"},
+            {"MPEG-H 3D Audio", "mha2"},
+            {"MPEG-H 3D Audio", "mhm1"},
+            {"MPEG-H 3D Audio", "mhm2"},
             {"IAMF", "iamf"},
             {"Apple Positional Audio Codec", "apac"},
             {"Auro-Cx", "a3ds"},
+            {"AuroMax", "a3ds"},
             {"IAB", ""}
           ] do
         video =
@@ -308,17 +374,18 @@ defmodule Reencodarr.Rules.AudioTest do
       assert_raise Audio.ClassificationError, ~r/IAMF/, fn -> Audio.rules(video) end
     end
 
-    test "maps Eclipsa branding to IAMF instead of treating inner Opus as standalone" do
-      video =
-        raw_audio_video(
-          ["opus"],
-          sample_mediainfo("Opus", 6, "5.1", %{
-            "CodecID" => "A_OPUS",
-            "Format_Commercial_IfAny" => "Eclipsa Audio"
-          })
-        )
+    test "uses the IAMF container identity instead of treating inner Opus as standalone" do
+      mediainfo =
+        sample_mediainfo("Opus", 6, "5.1", %{
+          "CodecID" => "A_OPUS",
+          "Format_Commercial_IfAny" => "Eclipsa Audio"
+        })
+        |> put_in(["media", "track", Access.at(0), "Format"], "IAMF")
 
-      assert_raise Audio.ClassificationError, ~r/Opus/, fn -> Audio.rules(video) end
+      video =
+        raw_audio_video(["opus"], mediainfo)
+
+      assert_raise Audio.ClassificationError, ~r/IAMF container/, fn -> Audio.rules(video) end
     end
 
     test "rejects MPEG-I identity carried by MPEG-H" do
@@ -350,7 +417,7 @@ defmodule Reencodarr.Rules.AudioTest do
       apple_error = assert_raise Audio.ClassificationError, fn -> Audio.rules(apple) end
       marian_error = assert_raise Audio.ClassificationError, fn -> Audio.rules(marian) end
 
-      assert apple_error.reason =~ "object/scene audio"
+      assert apple_error.reason == "unknown audio identity"
       assert marian_error.reason == "unknown audio identity"
     end
 
@@ -392,6 +459,18 @@ defmodule Reencodarr.Rules.AudioTest do
         raw_audio_video(
           ["unknown"],
           sample_mediainfo("Not AAC", 2, "L R", %{"CodecID" => "unknown"})
+        )
+
+      assert_raise Audio.ClassificationError, ~r/unknown audio identity/, fn ->
+        Audio.rules(video)
+      end
+    end
+
+    test "rejects an unknown sample entry even when the carrier format is ordinary" do
+      video =
+        raw_audio_video(
+          ["dts"],
+          sample_mediainfo("DTS", 6, "5.1", %{"CodecID" => "future-object-audio"})
         )
 
       assert_raise Audio.ClassificationError, ~r/unknown audio identity/, fn ->
@@ -566,6 +645,27 @@ defmodule Reencodarr.Rules.AudioTest do
       atmos: false,
       mediainfo: mediainfo
     })
+  end
+
+  defp production_object_tracks do
+    path = Path.expand("../../fixtures/mediainfo_object_audio_production.json", __DIR__)
+    path |> File.read!() |> Jason.decode!()
+  end
+
+  defp production_queue_tracks do
+    path = Path.expand("../../fixtures/mediainfo_encode_queue_production.json", __DIR__)
+    path |> File.read!() |> Jason.decode!()
+  end
+
+  defp mediainfo_with_audio_track(track) do
+    %{
+      "media" => %{
+        "track" => [
+          %{"@type" => "General", "Format" => "Matroska"},
+          track
+        ]
+      }
+    }
   end
 
   # Helper to build mediainfo for multi-track files

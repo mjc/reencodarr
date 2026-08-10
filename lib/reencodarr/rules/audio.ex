@@ -66,9 +66,6 @@ defmodule Reencodarr.Rules.Audio do
     "opus" => 1.00
   }
 
-  @unsupported_codec_ids ~w(dtsx dtsy mha1 mha2 mhm1 mhm2 iamf apac a3ds)
-  @unsupported_formats ~w(dtsuhd mpegh3daudio iamf applepositionalaudiocodec aurocx auromax iab mpegiimmersiveaudio)
-  @unsupported_brands ~w(iamf eclipsa aurocx auromax applepositionalaudio)
   @ordinary_formats ~w(
     aac ac3 eac3 eac3atmos dts dtshdmasteraudio flac alac pcm mp3 mp2 mpegaudio
     vorbis wavpack ape truehd truehdatmos dolbytruehd mlp mlpfba ac4
@@ -76,6 +73,8 @@ defmodule Reencodarr.Rules.Audio do
   @ordinary_codec_ids ~w(
     aaac aaac2 aac ac3 aac3 aeac3 eac3 ec3 adts adtslossless aflac flac
     atruehd truehd apcmintlit apcmfloat ampegl2 ampegl3 mp4a402 opus aopus
+    dts mp3 mp2 mpegaudio vorbis wavpack ape alac mlp mlpfba ac4 dolbytruehd
+    truehdatmos eac3atmos mlpa dtsc dtse dtsh dtsl ipcm lpcm
   )
 
   @spec rules(Media.Video.t() | map()) :: list()
@@ -216,22 +215,10 @@ defmodule Reencodarr.Rules.Audio do
     additional = track.format_additionalfeatures |> normalize_codec_string()
     profile = track.format_profile |> normalize_codec_string()
 
-    case object_rejection_reason(codec, codec_id, commercial, additional, profile) do
-      nil -> classify_supported_track(idx, track, codec, codec_id, commercial, additional)
-      reason -> raise_classification!(idx, track, reason)
-    end
-  end
-
-  defp object_rejection_reason(codec, codec_id, commercial, additional, profile) do
-    cond do
-      unsupported_identity?(codec, codec_id, commercial, additional, profile) ->
-        "object/scene audio is unsupported by Matroska output"
-
-      immersive_ac4?(codec, codec_id, commercial, additional, profile) ->
-        "immersive AC-4 is unsupported by Matroska output"
-
-      true ->
-        nil
+    if immersive_ac4?(codec, codec_id, commercial, additional, profile) do
+      raise_classification!(idx, track, "immersive AC-4 is unsupported by Matroska output")
+    else
+      classify_supported_track(idx, track, codec, codec_id, commercial, additional)
     end
   end
 
@@ -264,19 +251,6 @@ defmodule Reencodarr.Rules.Audio do
       dtsx?(codec, codec_id, commercial, additional)
   end
 
-  defp unsupported_identity?(codec, codec_id, commercial, additional, profile) do
-    registered_object_identity?(codec, codec_id) or
-      Enum.any?([commercial, additional], &contains_any?(&1, @unsupported_brands)) or
-      contains_any?(profile, ["mpegiimmersiveaudio", "mpegh"])
-  end
-
-  defp registered_object_identity?(codec, codec_id) do
-    codec_id in @unsupported_codec_ids or codec in @unsupported_formats or
-      String.starts_with?(codec, "dtsuhd") or String.starts_with?(codec, "mpegh3daudio")
-  end
-
-  defp contains_any?(value, markers), do: Enum.any?(markers, &String.contains?(value, &1))
-
   defp immersive_ac4?(codec, codec_id, commercial, additional, profile) do
     ac4? = codec == "ac4" or codec_id == "ac4"
 
@@ -287,12 +261,15 @@ defmodule Reencodarr.Rules.Audio do
       end)
   end
 
-  defp opus?(codec, codec_id), do: codec == "opus" or codec_id in ["opus", "aopus"]
+  defp opus?(codec, codec_id) do
+    (codec in ["", "opus"] and codec_id in ["opus", "aopus"]) or
+      (codec == "opus" and codec_id == "")
+  end
 
   defp truehd_atmos?(codec, codec_id, commercial, additional) do
     truehd? =
       codec in ["truehd", "truehdatmos", "dolbytruehd", "mlpfba"] or
-        codec_id in ["truehd", "atruehd"]
+        codec_id in ["truehd", "atruehd", "truehdatmos", "mlpa"]
 
     truehd? and atmos_marker?(commercial, additional)
   end
@@ -300,17 +277,20 @@ defmodule Reencodarr.Rules.Audio do
   defp eac3_atmos?(codec, codec_id, commercial, additional) do
     eac3? =
       codec in ["eac3", "eac3atmos", "dolbydigitalplus"] or
-        codec_id in ["eac3", "aeac3", "ec3"]
+        codec_id in ["eac3", "aeac3", "ec3", "eac3atmos"]
 
     eac3? and (atmos_marker?(commercial, additional) or String.contains?(additional, "joc"))
   end
 
   defp dtsx?(codec, codec_id, commercial, additional) do
-    dts? = codec in ["dts", "dtsx"] or codec_id in ["adts", "adtslossless"]
+    dts? =
+      codec in ["dts", "dtsx"] or
+        codec_id in ["adts", "adtslossless", "dtsc", "dtse", "dtsh", "dtsl", "dtsx"]
 
     dts? and
       (String.contains?(commercial, "dtsx") or String.contains?(additional, "dtsx") or
-         String.contains?(additional, "xllx"))
+         String.contains?(additional, "xllx") or
+         (codec == "dtsx" and codec_id == "dtsx"))
   end
 
   defp atmos_marker?(commercial, additional) do
@@ -318,8 +298,17 @@ defmodule Reencodarr.Rules.Audio do
   end
 
   defp ordinary_codec?(codec, codec_id) do
-    codec in @ordinary_formats or codec_id in @ordinary_codec_ids or
-      String.starts_with?(codec_id, "aaac") or String.starts_with?(codec_id, "apcm")
+    format? = codec in @ordinary_formats
+
+    codec_id? =
+      codec_id in @ordinary_codec_ids or String.starts_with?(codec_id, "aaac") or
+        String.starts_with?(codec_id, "apcm") or String.starts_with?(codec_id, "mp4a40")
+
+    case {codec, codec_id} do
+      {"", _codec_id} -> codec_id?
+      {_codec, ""} -> format?
+      {_codec, _codec_id} -> format? and codec_id?
+    end
   end
 
   defp validate_container!(mediainfo) do

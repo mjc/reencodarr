@@ -61,6 +61,19 @@ defmodule Reencodarr.Analyzer.MediaInfoCacheTest do
     end
   end
 
+  describe "get_mediainfo/1 full scan" do
+    test "caches calculated DTS-HD bitrate and stream size" do
+      path = fixture_path("mediainfo_no_statistics_dtshd.mka")
+
+      assert {:ok, mediainfo} = MediaInfoCache.get_mediainfo(path)
+
+      audio = audio_track(mediainfo)
+      assert audio["Format_Commercial_IfAny"] == "DTS-HD Master Audio"
+      assert String.to_integer(audio["BitRate"]) > 0
+      assert String.to_integer(audio["StreamSize"]) > 0
+    end
+  end
+
   describe "get_bulk_mediainfo/1" do
     test "returns empty map for empty list" do
       result = MediaInfoCache.get_bulk_mediainfo([])
@@ -73,5 +86,13 @@ defmodule Reencodarr.Analyzer.MediaInfoCacheTest do
       assert is_map(result)
       assert {:error, _} = result[path]
     end
+  end
+
+  defp fixture_path(name), do: Path.expand("../../fixtures/#{name}", __DIR__)
+
+  defp audio_track(mediainfo) do
+    mediainfo
+    |> get_in(["media", "track"])
+    |> Enum.find(&(Map.get(&1, "@type") == "Audio"))
   end
 end
