@@ -13,6 +13,7 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
 
   alias Reencodarr.Analyzer.{
     Core.ConcurrencyManager,
+    MediaInfo.CommandExecutor,
     Optimization.BulkFileChecker
   }
 
@@ -83,8 +84,7 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
   defp execute_mediainfo_command_with_optimization(paths) do
     start_time = System.monotonic_time(:millisecond)
 
-    # Use optimized mediainfo arguments for better performance
-    args = ["--Output=JSON", "--LogFile=/dev/null"] ++ paths
+    args = CommandExecutor.arguments(paths)
 
     case System.cmd("mediainfo", args, stderr_to_stdout: true) do
       {json, 0} ->
@@ -201,20 +201,6 @@ defmodule Reencodarr.Analyzer.MediaInfoOptimizer do
   defp get_optimal_chunk_concurrency(total_files) when total_files < 200, do: 2
 
   defp get_optimal_chunk_concurrency(_total_files) do
-    # For large batches on RAIDZ3, we can run multiple concurrent mediainfo processes
-    video_concurrency =
-      ConcurrencyManager.get_video_processing_concurrency()
-
-    # Scale chunk concurrency conservatively
-    case video_concurrency do
-      # Ultra-high performance: 4 concurrent mediainfo processes
-      c when c >= 32 -> 4
-      # High performance: 3 concurrent processes
-      c when c >= 16 -> 3
-      # Standard: 2 concurrent processes
-      c when c >= 8 -> 2
-      # Conservative: single process
-      _ -> 1
-    end
+    ConcurrencyManager.get_mediainfo_concurrency()
   end
 end

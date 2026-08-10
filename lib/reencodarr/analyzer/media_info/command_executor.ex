@@ -100,7 +100,7 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
     Logger.debug("Executing mediainfo command for #{length(paths)} files")
 
     start_time = System.monotonic_time(:millisecond)
-    args = build_mediainfo_args(paths)
+    args = arguments(paths)
 
     case System.cmd("mediainfo", args, stderr_to_stdout: true) do
       {json, 0} ->
@@ -115,17 +115,16 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
     end
   end
 
-  defp build_mediainfo_args(paths) do
-    # Optimized MediaInfo arguments for best performance
-    base_args = [
+  @doc false
+  @spec arguments([String.t()]) :: [String.t()]
+  def arguments(paths) when is_list(paths) do
+    [
       "--Output=JSON",
-      # Suppress log output for cleaner execution
       "--LogFile=/dev/null",
-      # Get complete information
-      "--Full"
+      "--Full",
+      "--ParseSpeed=1.0"
+      | paths
     ]
-
-    base_args ++ paths
   end
 
   defp parse_mediainfo_json(json, paths) do
@@ -244,21 +243,9 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
       total_files < 200 ->
         2
 
-      # Large batch - scale with system capability
+      # Large batch - full-file reads stay bounded by the MediaInfo-specific cap
       true ->
-        video_concurrency = ConcurrencyManager.get_video_processing_concurrency()
-
-        # Conservative scaling for MediaInfo processes
-        case video_concurrency do
-          # Ultra-high performance: 4 concurrent processes
-          c when c >= 32 -> 4
-          # High performance: 3 processes
-          c when c >= 16 -> 3
-          # Standard: 2 processes
-          c when c >= 8 -> 2
-          # Conservative: single process
-          _ -> 1
-        end
+        ConcurrencyManager.get_mediainfo_concurrency()
     end
   end
 end

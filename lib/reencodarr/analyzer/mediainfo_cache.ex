@@ -12,6 +12,7 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
   import Cachex.Spec
 
   alias Reencodarr.Analyzer.Core.FileStatCache
+  alias Reencodarr.Analyzer.MediaInfo.CommandExecutor
 
   @cache_name :mediainfo_cache
   @max_cache_size 1000
@@ -239,7 +240,7 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
   # Domain logic - mediainfo execution and parsing
 
   defp execute_mediainfo(path) do
-    case System.cmd("mediainfo", ["--Output=JSON", path], stderr_to_stdout: true) do
+    case System.cmd("mediainfo", CommandExecutor.arguments([path]), stderr_to_stdout: true) do
       {json, 0} ->
         case Jason.decode(json) do
           {:ok, data} -> {:ok, data}
@@ -255,7 +256,7 @@ defmodule Reencodarr.Analyzer.MediaInfoCache do
   defp execute_batch_mediainfo([_ | _] = paths) do
     Logger.debug("MediaInfoCache: Executing batch mediainfo for #{length(paths)} files")
 
-    case System.cmd("mediainfo", ["--Output=JSON" | paths], stderr_to_stdout: true) do
+    case System.cmd("mediainfo", CommandExecutor.arguments(paths), stderr_to_stdout: true) do
       {json, 0} ->
         process_mediainfo_json(json, paths)
 

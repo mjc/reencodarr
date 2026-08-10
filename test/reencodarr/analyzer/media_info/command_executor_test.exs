@@ -9,6 +9,16 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutorTest do
     :ok
   end
 
+  describe "arguments/1" do
+    test "always requests complete fields and a full file scan exactly once" do
+      args = CommandExecutor.arguments(["/media/one.mkv", "/media/two.mkv"])
+
+      assert Enum.count(args, &(&1 == "--Full")) == 1
+      assert Enum.count(args, &(&1 == "--ParseSpeed=1.0")) == 1
+      assert Enum.take(args, -2) == ["/media/one.mkv", "/media/two.mkv"]
+    end
+  end
+
   describe "execute_batch_mediainfo/1" do
     test "returns empty map for empty input" do
       assert {:ok, %{}} = CommandExecutor.execute_batch_mediainfo([])
@@ -50,6 +60,20 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutorTest do
   end
 
   describe "execute_single_mediainfo/1" do
+    test "full-scans a Matroska file without track statistics" do
+      path = Path.expand("../../../fixtures/mediainfo_no_statistics.mkv", __DIR__)
+
+      assert {:ok, %{^path => mediainfo}} = CommandExecutor.execute_single_mediainfo(path)
+
+      audio =
+        mediainfo
+        |> get_in(["media", "track"])
+        |> Enum.find(&(Map.get(&1, "@type") == "Audio"))
+
+      assert String.to_integer(audio["BitRate"]) > 0
+      assert String.to_integer(audio["StreamSize"]) > 0
+    end
+
     test "returns explicit error for missing file" do
       path = "/tmp/definitely_missing_#{System.unique_integer([:positive])}.mkv"
 

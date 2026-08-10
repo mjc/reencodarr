@@ -28,9 +28,8 @@ defmodule Reencodarr.Analyzer.Core.ConcurrencyManagerTest do
       assert result >= 1
     end
 
-    test "returns at least 2" do
-      result = ConcurrencyManager.get_mediainfo_concurrency()
-      assert result >= 2
+    test "caps full-file scans at two concurrent MediaInfo processes" do
+      assert ConcurrencyManager.get_mediainfo_concurrency() == 2
     end
   end
 

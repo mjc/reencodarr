@@ -47,10 +47,7 @@ defmodule Reencodarr.Analyzer.Core.ConcurrencyManager do
   Get optimal concurrency for mediainfo operations.
   """
   @spec get_mediainfo_concurrency() :: pos_integer()
-  def get_mediainfo_concurrency do
-    video_concurrency = get_video_processing_concurrency()
-    max(2, div(video_concurrency, 2))
-  end
+  def get_mediainfo_concurrency, do: 2
 
   @doc """
   Get timeout for video processing tasks based on system performance.
