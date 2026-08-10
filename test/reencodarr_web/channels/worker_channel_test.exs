@@ -483,6 +483,64 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "fails unsupported object audio and moves to the next encode request" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      path =
+        Path.join(System.tmp_dir!(), "worker-unsupported-audio-#{System.unique_integer()}.mkv")
+
+      File.write!(path, "source")
+
+      on_exit(fn -> File.rm(path) end)
+
+      mediainfo = %{
+        "media" => %{
+          "track" => [
+            %{"@type" => "General", "Format" => "Matroska"},
+            %{"@type" => "Video", "Format" => "AVC", "Width" => "1920", "Height" => "1080"},
+            %{
+              "@type" => "Audio",
+              "Format" => "IAMF",
+              "CodecID" => "iamf",
+              "Channels" => "6",
+              "ChannelLayout" => "5.1"
+            }
+          ]
+        }
+      }
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: path,
+          size: 6,
+          state: :crf_searched,
+          mediainfo: mediainfo
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, params: []})
+      _video = Fixtures.choose_vmaf(video, vmaf)
+
+      assert {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      assert {:ok, _join_payload, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-unsupported")),
+                   :ok
+
+      report_disk_capacity(socket)
+
+      assert_reply push(socket, "pull_work", %{"job_type" => "encode"}),
+                   :ok,
+                   %{status: "no_work"}
+
+      assert Media.get_video(video.id).state == :failed
+
+      assert [%{failure_category: :configuration, failure_stage: :encoding}] =
+               Media.get_video_failures(video.id)
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "does not claim encode work without fresh worker disk capacity" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)

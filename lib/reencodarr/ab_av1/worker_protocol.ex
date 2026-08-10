@@ -727,6 +727,11 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   end
 
   def encode_work_assigned(%Video{} = video, vmaf, opts \\ []) do
+    encode_args =
+      Keyword.get_lazy(opts, :encode_args, fn ->
+        Encode.build_encode_args(%{vmaf | video: video})
+      end)
+
     payload = %{
       status: Keyword.get(opts, :status, "job_assigned"),
       job_type: "encode",
@@ -736,7 +741,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
       size_bytes: video.size || 0,
       chunk_size_bytes: chunk_size_bytes(),
       target_vmaf: 0.0,
-      encode_args: Encode.build_encode_args(%{vmaf | video: video})
+      encode_args: encode_args
     }
 
     video

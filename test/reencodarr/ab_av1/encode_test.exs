@@ -277,6 +277,56 @@ defmodule Reencodarr.AbAv1.EncodeTest do
   end
 
   describe "encoder start failures" do
+    test "rejects unsupported object audio before starting the encoder", %{pid: _pid} do
+      :meck.new(Reencodarr.AbAv1.Encoder, [:passthrough])
+
+      on_exit(fn ->
+        try do
+          :meck.unload(Reencodarr.AbAv1.Encoder)
+        rescue
+          ErlangError -> :ok
+        catch
+          :exit, _ -> :ok
+        end
+      end)
+
+      mediainfo = %{
+        "media" => %{
+          "track" => [
+            %{"@type" => "General", "Format" => "Matroska"},
+            %{"@type" => "Video", "Format" => "AVC", "Width" => "1920", "Height" => "1080"},
+            %{
+              "@type" => "Audio",
+              "Format" => "IAMF",
+              "CodecID" => "iamf",
+              "Channels" => "6",
+              "ChannelLayout" => "5.1"
+            }
+          ]
+        }
+      }
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :crf_searched,
+          mediainfo: mediainfo,
+          max_audio_channels: 6
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+      video = Fixtures.choose_vmaf(video, vmaf)
+
+      GenServer.cast(Encode, {:encode, %{vmaf | video: video}})
+
+      wait_until(fn -> Media.get_video!(video.id).state == :failed end)
+
+      assert :meck.num_calls(Reencodarr.AbAv1.Encoder, :start, :_) == 0
+      assert Encode.available?() == :available
+
+      assert [%{failure_stage: :encoding, failure_category: :configuration} | _] =
+               Media.get_video_failures(video.id)
+    end
+
     test "records failure and does not leave video stuck in encoding", %{pid: _pid} do
       :meck.new(Reencodarr.AbAv1.Encoder, [:passthrough])
 

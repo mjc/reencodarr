@@ -241,6 +241,163 @@ defmodule Reencodarr.Rules.AudioTest do
 
       assert Audio.rules(video) == [{"--acodec", "copy"}]
     end
+
+    test "copies production legacy Atmos identities" do
+      for {format, codec_id, commercial, additional} <- [
+            {"EAC3 Atmos", "EAC3 Atmos", "Atmos", nil},
+            {"TrueHD Atmos", "TrueHD Atmos", "Atmos", nil},
+            {"DTS", "A_DTS", "DTS-HD MA + DTS:X", "XLL X"}
+          ] do
+        video =
+          raw_audio_video(
+            [format],
+            sample_mediainfo(format, 8, "7.1", %{
+              "CodecID" => codec_id,
+              "Format_Commercial_IfAny" => commercial,
+              "Format_AdditionalFeatures" => additional
+            })
+          )
+
+        assert Audio.rules(video) == [{"--acodec", "copy"}]
+      end
+    end
+
+    test "transcodes plain AC-4 but rejects immersive AC-4 before encode" do
+      plain = raw_audio_video(["ac4"], sample_mediainfo("AC-4", 6, "5.1"))
+
+      immersive =
+        raw_audio_video(
+          ["ac4"],
+          sample_mediainfo("AC-4", 6, "5.1", %{
+            "Format_Profile" => "IMS Atmos"
+          })
+        )
+
+      assert {"--enc", "c:a:0=libopus"} in Audio.rules(plain)
+      assert_raise Audio.ClassificationError, ~r/AC-4/, fn -> Audio.rules(immersive) end
+    end
+
+    test "rejects registered object-audio identities without Matroska carriage" do
+      for {format, codec_id} <- [
+            {"DTS", "dtsx"},
+            {"DTS", "dtsy"},
+            {"DTS-UHD MA", "A_DTS"},
+            {"MPEG-H 3D Audio", "mha1"},
+            {"IAMF", "iamf"},
+            {"Apple Positional Audio Codec", "apac"},
+            {"Auro-Cx", "a3ds"},
+            {"IAB", ""}
+          ] do
+        video =
+          raw_audio_video(
+            [format],
+            sample_mediainfo(format, 6, "5.1", %{"CodecID" => codec_id})
+          )
+
+        assert_raise Audio.ClassificationError, fn -> Audio.rules(video) end
+      end
+    end
+
+    test "rejects IAMF even when its inner codec makes audio_codecs look like Opus" do
+      video =
+        raw_audio_video(
+          ["opus"],
+          sample_mediainfo("IAMF", 6, "5.1", %{"CodecID" => "iamf"})
+        )
+
+      assert_raise Audio.ClassificationError, ~r/IAMF/, fn -> Audio.rules(video) end
+    end
+
+    test "maps Eclipsa branding to IAMF instead of treating inner Opus as standalone" do
+      video =
+        raw_audio_video(
+          ["opus"],
+          sample_mediainfo("Opus", 6, "5.1", %{
+            "CodecID" => "A_OPUS",
+            "Format_Commercial_IfAny" => "Eclipsa Audio"
+          })
+        )
+
+      assert_raise Audio.ClassificationError, ~r/Opus/, fn -> Audio.rules(video) end
+    end
+
+    test "rejects MPEG-I identity carried by MPEG-H" do
+      video =
+        raw_audio_video(
+          ["mpegh"],
+          sample_mediainfo("MPEG-H 3D Audio", 6, "5.1", %{
+            "CodecID" => "mhm1",
+            "Format_Profile" => "MPEG-I Immersive Audio"
+          })
+        )
+
+      assert_raise Audio.ClassificationError, fn -> Audio.rules(video) end
+    end
+
+    test "uses the APAC sample entry without confusing Marian A-pac with Apple audio" do
+      apple =
+        raw_audio_video(
+          ["apac"],
+          sample_mediainfo("Apple Positional Audio Codec", 6, "5.1", %{"CodecID" => "apac"})
+        )
+
+      marian =
+        raw_audio_video(
+          ["apac"],
+          sample_mediainfo("A-pac", 2, "L R", %{"CodecID" => ""})
+        )
+
+      apple_error = assert_raise Audio.ClassificationError, fn -> Audio.rules(apple) end
+      marian_error = assert_raise Audio.ClassificationError, fn -> Audio.rules(marian) end
+
+      assert apple_error.reason =~ "object/scene audio"
+      assert marian_error.reason == "unknown audio identity"
+    end
+
+    test "rejects ADM in BW64 instead of flattening its PCM carrier" do
+      mediainfo =
+        sample_mediainfo("PCM", 8, "7.1", %{"CodecID" => "A_PCM/INT/LIT"})
+        |> put_in(["media", "track", Access.at(0), "Format"], "BW64")
+
+      assert_raise Audio.ClassificationError, ~r/ADM/, fn ->
+        Audio.rules(raw_audio_video(["pcm"], mediainfo))
+      end
+    end
+
+    test "does not treat channel-based Auro-3D as Auro-Cx" do
+      video =
+        raw_audio_video(
+          ["pcm"],
+          sample_mediainfo("PCM", 6, "5.1", %{
+            "CodecID" => "A_PCM/INT/LIT",
+            "Format_Commercial_IfAny" => "Auro-3D"
+          })
+        )
+
+      assert {"--enc", "c:a:0=libopus"} in Audio.rules(video)
+    end
+
+    test "fails explicitly when an audio track cannot be classified" do
+      video =
+        raw_audio_video(
+          ["unknown"],
+          sample_mediainfo("", 6, "5.1", %{"CodecID" => "", "BitRate" => nil})
+        )
+
+      assert_raise Audio.ClassificationError, ~r/audio track 0/, fn -> Audio.rules(video) end
+    end
+
+    test "does not accept an unknown identity merely because its name contains AAC" do
+      video =
+        raw_audio_video(
+          ["unknown"],
+          sample_mediainfo("Not AAC", 2, "L R", %{"CodecID" => "unknown"})
+        )
+
+      assert_raise Audio.ClassificationError, ~r/unknown audio identity/, fn ->
+        Audio.rules(video)
+      end
+    end
   end
 
   describe "rules/1 - multi-track files with mixed layouts" do
@@ -297,7 +454,7 @@ defmodule Reencodarr.Rules.AudioTest do
       assert {"--enc", "c:a:2=libopus"} in rules
     end
 
-    test "mixed valid and invalid codec-channel combos skips invalid tracks" do
+    test "invalid codec-channel metadata fails instead of copying one track" do
       # Track 0: valid (AAC stereo)
       # Track 1: invalid (MP3 5.1 - mp3 doesn't support > 2 channels)
       # Track 2: valid (AAC 5.1)
@@ -311,19 +468,10 @@ defmodule Reencodarr.Rules.AudioTest do
           ])
         )
 
-      rules = Audio.rules(video)
-
-      # Base is copy
-      assert {"--acodec", "copy"} in rules
-      # Track 0: encode to opus
-      assert {"--enc", "c:a:0=libopus"} in rules
-      # Track 1: NO encoding override (invalid combo, gets copied)
-      refute {"--enc", "c:a:1=libopus"} in rules
-      # Track 2: encode to opus
-      assert {"--enc", "c:a:2=libopus"} in rules
+      assert_raise Audio.ClassificationError, ~r/MP3/, fn -> Audio.rules(video) end
     end
 
-    test "all tracks with missing metadata falls back to copy all" do
+    test "tracks with missing channel metadata fail instead of copying" do
       # Tracks with no channel info - can't determine encoding
       video =
         raw_audio_video(
@@ -340,8 +488,7 @@ defmodule Reencodarr.Rules.AudioTest do
           }
         )
 
-      rules = Audio.rules(video)
-      assert rules == [{"--acodec", "copy"}]
+      assert_raise Audio.ClassificationError, ~r/channel count/, fn -> Audio.rules(video) end
     end
   end
 
@@ -364,6 +511,14 @@ defmodule Reencodarr.Rules.AudioTest do
     test "copies audio for invalid channel metadata" do
       {:ok, video} = Fixtures.video_fixture(%{max_audio_channels: nil, audio_codecs: ["aac"]})
       assert Audio.rules(video) == [{"--acodec", "copy"}]
+    end
+
+    test "classifies per-track metadata when the aggregate channel count is missing" do
+      video =
+        raw_audio_video(["aac"], sample_mediainfo("AAC", 2, "L R"))
+        |> Map.put(:max_audio_channels, nil)
+
+      assert {"--enc", "c:a:0=libopus"} in Audio.rules(video)
     end
   end
 

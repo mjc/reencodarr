@@ -493,30 +493,7 @@ defmodule ReencodarrWeb.WorkerChannel do
        when is_integer(video_id) do
     case Media.get_video(video_id) do
       %Media.Video{state: :encoding} = video ->
-        vmaf = Media.get_vmaf!(video.chosen_vmaf_id)
-        local? = local_source?(socket, video)
-        resend? = work_request_mode(payload) == :resend_input
-        _ = activate_encode_job(socket)
-
-        socket =
-          if resend?,
-            do:
-              maybe_prepare_encode_transfer(
-                socket,
-                video,
-                local?,
-                video.worker_attempt_id || "encode-#{video.id}"
-              ),
-            else: socket
-
-        broadcast_encoding_started(video, vmaf)
-
-        {:reply,
-         {:ok,
-          WorkerProtocol.encode_work_assigned(video, vmaf,
-            local?: local?,
-            status: if(resend?, do: "job_assigned", else: "job_in_progress")
-          )}, socket}
+        resume_encode_work(socket, payload, video)
 
       _ ->
         handle_encode_work_request(assign(socket, :encode_video_id, nil), payload)
@@ -541,6 +518,48 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
+  defp resume_encode_work(socket, payload, video) do
+    vmaf = Media.get_vmaf!(video.chosen_vmaf_id)
+
+    case Encode.build_encode_args_result(%{vmaf | video: video}) do
+      {:ok, encode_args} -> resume_encode_work(socket, payload, video, vmaf, encode_args)
+      {:error, error} -> reject_resumed_encode(socket, video, error)
+    end
+  end
+
+  defp resume_encode_work(socket, payload, video, vmaf, encode_args) do
+    local? = local_source?(socket, video)
+    resend? = work_request_mode(payload) == :resend_input
+    _ = activate_encode_job(socket)
+
+    socket =
+      if resend?,
+        do:
+          maybe_prepare_encode_transfer(
+            socket,
+            video,
+            local?,
+            video.worker_attempt_id || "encode-#{video.id}"
+          ),
+        else: socket
+
+    broadcast_encoding_started(video, vmaf)
+
+    {:reply,
+     {:ok,
+      WorkerProtocol.encode_work_assigned(video, vmaf,
+        local?: local?,
+        status: if(resend?, do: "job_assigned", else: "job_in_progress"),
+        encode_args: encode_args
+      )}, socket}
+  end
+
+  defp reject_resumed_encode(socket, video, error) do
+    reject_audio_classification(video, error)
+    maybe_clear_encode_session_job(socket, video.worker_attempt_id)
+    {:reply, {:ok, WorkerProtocol.no_work()}, clear_encode_job(socket)}
+  end
+
   defp claim_encode_work(socket, available_bytes) do
     attempt_id = "encode-#{Ecto.UUID.generate()}"
     local_worker? = socket.assigns[:local_worker] || false
@@ -562,20 +581,27 @@ defmodule ReencodarrWeb.WorkerChannel do
         {:reply, {:ok, WorkerProtocol.no_work()}, socket}
 
       vmaf ->
-        required_bytes =
-          WorkerAdmission.required_encode_bytes(vmaf.video, vmaf,
-            local?: local_worker? and File.regular?(vmaf.video.path)
-          )
+        case Encode.build_encode_args_result(vmaf) do
+          {:ok, encode_args} ->
+            required_bytes =
+              WorkerAdmission.required_encode_bytes(vmaf.video, vmaf,
+                local?: local_worker? and File.regular?(vmaf.video.path)
+              )
 
-        :ok =
-          WorkerSessions.set_encode_admission(socket.assigns.worker_id, %{
-            status: :allowed,
-            reason: nil,
-            available_bytes: available_bytes,
-            required_bytes: required_bytes
-          })
+            :ok =
+              WorkerSessions.set_encode_admission(socket.assigns.worker_id, %{
+                status: :allowed,
+                reason: nil,
+                available_bytes: available_bytes,
+                required_bytes: required_bytes
+              })
 
-        assign_encode_work(socket, vmaf)
+            assign_encode_work(socket, vmaf, encode_args)
+
+          {:error, error} ->
+            reject_audio_classification(vmaf.video, error)
+            claim_encode_work(socket, available_bytes)
+        end
     end
   end
 
@@ -604,7 +630,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     WorkerSessions.disk_free_bytes(socket.assigns.worker_id, max_age_ms)
   end
 
-  defp assign_encode_work(socket, vmaf) do
+  defp assign_encode_work(socket, vmaf, encode_args) do
     video = vmaf.video
     job_id = video.worker_attempt_id || "encode-#{video.id}"
 
@@ -625,12 +651,33 @@ defmodule ReencodarrWeb.WorkerChannel do
 
         broadcast_encoding_started(video, vmaf)
 
-        {:reply, {:ok, WorkerProtocol.encode_work_assigned(video, vmaf, local?: local?)}, socket}
+        {:reply,
+         {:ok,
+          WorkerProtocol.encode_work_assigned(video, vmaf,
+            local?: local?,
+            encode_args: encode_args
+          )}, socket}
 
       {:error, _reason} ->
         {:reply, {:ok, WorkerProtocol.no_work()}, socket}
     end
   end
+
+  defp reject_audio_classification(video, error) do
+    reason = Exception.message(error)
+    Logger.error("Rejecting worker encode for video #{video.id}: #{reason}")
+
+    FailureTracker.record_configuration_failure(video, reason,
+      stage: :encoding,
+      context: %{classification: :unsupported_object_audio}
+    )
+  end
+
+  defp maybe_clear_encode_session_job(socket, job_id) when is_binary(job_id) do
+    WorkerSessions.clear_job(socket.assigns.worker_id, job_id)
+  end
+
+  defp maybe_clear_encode_session_job(_socket, _job_id), do: :ok
 
   defp handle_active_video_work_request(worker_id, socket, video_id, request_mode) do
     case Media.get_video(video_id) do

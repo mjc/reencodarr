@@ -8,7 +8,8 @@ defmodule Reencodarr.Media.AudioTrackInfo do
           channel_layout: String.t(),
           bitrate: non_neg_integer() | nil,
           format_commercial_if_any: String.t(),
-          format_additionalfeatures: String.t()
+          format_additionalfeatures: String.t(),
+          format_profile: String.t()
         }
 
   @spec primary_from_mediainfo(map()) :: audio_track() | :error
@@ -52,7 +53,8 @@ defmodule Reencodarr.Media.AudioTrackInfo do
       channel_layout: Map.get(track, "ChannelLayout", ""),
       bitrate: parse_bitrate(track),
       format_commercial_if_any: Map.get(track, "Format_Commercial_IfAny", ""),
-      format_additionalfeatures: Map.get(track, "Format_AdditionalFeatures", "")
+      format_additionalfeatures: Map.get(track, "Format_AdditionalFeatures", ""),
+      format_profile: Map.get(track, "Format_Profile", "")
     }
   end
 

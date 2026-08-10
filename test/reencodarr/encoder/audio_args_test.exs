@@ -1,6 +1,8 @@
 defmodule Reencodarr.Encoder.AudioArgsTest do
   use Reencodarr.UnitCase, async: true
 
+  alias Reencodarr.AbAv1.Encode
+  alias Reencodarr.Media.Vmaf
   alias Reencodarr.Rules
 
   describe "centralized argument building" do
@@ -87,6 +89,29 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
       assert "--acodec" in args
       acodec_index = Enum.find_index(args, &(&1 == "--acodec"))
       assert Enum.at(args, acodec_index + 1) == "copy"
+    end
+
+    test "returns a typed error before launch for unsupported object audio", %{video: video} do
+      mediainfo = %{
+        "media" => %{
+          "track" => [
+            %{"@type" => "General", "Format" => "Matroska"},
+            %{
+              "@type" => "Audio",
+              "Format" => "IAMF",
+              "CodecID" => "iamf",
+              "Channels" => "6",
+              "ChannelLayout" => "5.1"
+            }
+          ]
+        }
+      }
+
+      video = %{video | mediainfo: mediainfo}
+      vmaf = %Vmaf{video: video, crf: 30.0, score: 96.0, params: []}
+
+      assert {:error, %Rules.Audio.ClassificationError{}} =
+               Encode.build_encode_args_result(vmaf)
     end
   end
 

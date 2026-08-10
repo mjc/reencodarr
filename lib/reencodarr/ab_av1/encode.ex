@@ -524,7 +524,13 @@ defmodule Reencodarr.AbAv1.Encode do
   end
 
   defp start_encoder(vmaf, state) do
-    args = build_encode_args(vmaf)
+    case build_encode_args_result(vmaf) do
+      {:ok, args} -> start_encoder(vmaf, args, state)
+      {:error, error} -> reject_unclassifiable_audio(vmaf.video, error, state)
+    end
+  end
+
+  defp start_encoder(vmaf, args, state) do
     ext = output_extension(vmaf.video.path)
     output_file = Path.join(Helper.temp_dir(), "#{vmaf.video.id}#{ext}")
     metadata = %{vmaf: vmaf, output_file: output_file, encode_args: args}
@@ -609,8 +615,29 @@ defmodule Reencodarr.AbAv1.Encode do
     Reencodarr.Rules.build_args(vmaf.video, :encode, vmaf_params, base_args)
   end
 
+  @spec build_encode_args_result(Reencodarr.Media.Vmaf.t() | map()) ::
+          {:ok, [String.t()]} | {:error, Reencodarr.Rules.Audio.ClassificationError.t()}
+  def build_encode_args_result(vmaf) do
+    {:ok, build_encode_args(vmaf)}
+  rescue
+    error in Reencodarr.Rules.Audio.ClassificationError -> {:error, error}
+  end
+
   defp extract_vmaf_params(%{params: params}) when is_list(params), do: params
   defp extract_vmaf_params(_), do: []
+
+  defp reject_unclassifiable_audio(video, error, state) do
+    reason = Exception.message(error)
+    Logger.error("Rejecting encode for video #{video.id}: #{reason}")
+
+    FailureTracker.record_configuration_failure(video, reason,
+      stage: :encoding,
+      context: %{classification: :unsupported_object_audio}
+    )
+
+    Producer.dispatch_available()
+    state
+  end
 
   if Mix.env() == :test do
     def build_encode_args_for_test(vmaf), do: build_encode_args(vmaf)
