@@ -144,7 +144,7 @@ defmodule Reencodarr.Rules.Audio do
         min(calculated, max_bitrate)
 
       true ->
-        nil
+        Map.get(@opus_targets, channels, 256)
     end
   end
 
@@ -174,6 +174,7 @@ defmodule Reencodarr.Rules.Audio do
       String.contains?(codec_id, "opus") or
       String.contains?(commercial, "atmos") or
       Enum.any?([codec, codec_id, commercial, additional], &String.contains?(&1, "dtsx")) or
+      String.contains?(additional, "xllx") or
       String.contains?(additional, "joc") or
       String.contains?(additional, "atmos")
   end

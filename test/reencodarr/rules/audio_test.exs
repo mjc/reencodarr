@@ -128,6 +128,43 @@ defmodule Reencodarr.Rules.AudioTest do
   end
 
   describe "rules/1 - Opus transcoding" do
+    test "uses the channel target when an ordinary track has no bitrate" do
+      video =
+        raw_audio_video(
+          ["dts"],
+          sample_mediainfo("DTS", 6, "5.1", %{
+            "CodecID" => "A_DTS",
+            "Format_Commercial_IfAny" => "DTS-HD Master Audio",
+            "Format_AdditionalFeatures" => "XLL",
+            "BitRate" => nil
+          })
+        )
+
+      rules = Audio.rules(video)
+
+      assert {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "b:a:0=256k"} in rules
+    end
+
+    test "uses the channel target for common non-object codecs with no bitrate" do
+      for {format, codec_id} <- [
+            {"AAC", "A_AAC"},
+            {"AC-3", "A_AC3"},
+            {"E-AC-3", "A_EAC3"},
+            {"DTS", "A_DTS"},
+            {"FLAC", "A_FLAC"},
+            {"PCM", "A_PCM/INT/LIT"}
+          ] do
+        video =
+          raw_audio_video(
+            [format],
+            sample_mediainfo(format, 6, "5.1", %{"CodecID" => codec_id, "BitRate" => nil})
+          )
+
+        assert {"--enc", "b:a:0=256k"} in Audio.rules(video)
+      end
+    end
+
     test "non-atmos 5.1(side) normalizes layout with aformat filter" do
       video =
         Fixtures.create_test_video(%{
@@ -188,6 +225,21 @@ defmodule Reencodarr.Rules.AudioTest do
       assert {"--acodec", "copy"} in rules
       assert {"--enc", "c:a:0=libopus"} in rules
       assert {"--enc", "filter:a:0=aformat=channel_layouts=5.1|7.1|stereo"} in rules
+    end
+  end
+
+  describe "rules/1 - object audio classification" do
+    test "copies DTS:X identified only by the XLL X extension" do
+      video =
+        raw_audio_video(
+          ["dts"],
+          sample_mediainfo("DTS", 8, "7.1", %{
+            "CodecID" => "A_DTS/LOSSLESS",
+            "Format_AdditionalFeatures" => "XLL X"
+          })
+        )
+
+      assert Audio.rules(video) == [{"--acodec", "copy"}]
     end
   end
 
