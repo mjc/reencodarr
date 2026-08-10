@@ -213,9 +213,8 @@ defmodule Reencodarr.Rules.Audio do
     codec_id = track.codec_id |> normalize_codec_string()
     commercial = track.format_commercial_if_any |> normalize_codec_string()
     additional = track.format_additionalfeatures |> normalize_codec_string()
-    profile = track.format_profile |> normalize_codec_string()
 
-    if immersive_ac4?(codec, codec_id, commercial, additional, profile) do
+    if immersive_ac4?(track, codec, codec_id) do
       raise_classification!(idx, track, "immersive AC-4 is unsupported by Matroska output")
     else
       classify_supported_track(idx, track, codec, codec_id, commercial, additional)
@@ -251,14 +250,26 @@ defmodule Reencodarr.Rules.Audio do
       dtsx?(codec, codec_id, commercial, additional)
   end
 
-  defp immersive_ac4?(codec, codec_id, commercial, additional, profile) do
+  defp immersive_ac4?(track, codec, codec_id) do
     ac4? = codec == "ac4" or codec_id == "ac4"
+    ac4? and ac4_presentation_is_immersive?(track.extra)
+  end
 
-    ac4? and
-      Enum.any?([commercial, additional, profile], fn value ->
-        String.contains?(value, "atmos") or String.contains?(value, "immersive") or
-          String.contains?(value, "ims") or String.contains?(value, "object")
-      end)
+  defp ac4_presentation_is_immersive?(extra) do
+    extra
+    |> Map.get("Presentation", [])
+    |> List.wrap()
+    |> Enum.any?(fn
+      %{} = presentation ->
+        Map.get(presentation, "DolbyAtmos") == "Yes" or
+          presentation
+          |> Map.get("ChannelMode", "")
+          |> normalize_codec_string()
+          |> String.contains?("immersive")
+
+      _ ->
+        false
+    end)
   end
 
   defp opus?(codec, codec_id) do

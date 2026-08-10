@@ -6,6 +6,9 @@ The E-AC-3 and DTS-HD MA fixtures are one-second stream-copy excerpts from the p
 samples. Matroska BPS and stream-size statistics tags were removed with `mkvpropedit` so tests
 exercise MediaInfo's full-file scan.
 
+`mediainfo_ac4_immersive.json` contains the actual audio-track fields from FFmpeg's public
+[AC-4 Immersive Stereo sample](https://samples.ffmpeg.org/A-codecs/ac-4/believer.mp4).
+
 `mediainfo_object_audio_production.json` and `mediainfo_encode_queue_production.json` contain
 classification fields captured from production MediaInfo rows on 2026-08-10. They intentionally
 omit paths and unrelated metadata.

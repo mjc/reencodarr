@@ -324,19 +324,20 @@ defmodule Reencodarr.Rules.AudioTest do
       end
     end
 
-    test "transcodes plain AC-4 but rejects immersive AC-4 before encode" do
+    test "transcodes plain AC-4" do
       plain = raw_audio_video(["ac4"], sample_mediainfo("AC-4", 6, "5.1"))
 
-      immersive =
-        raw_audio_video(
-          ["ac4"],
-          sample_mediainfo("AC-4", 6, "5.1", %{
-            "Format_Profile" => "IMS Atmos"
-          })
-        )
-
       assert {"--enc", "c:a:0=libopus"} in Audio.rules(plain)
-      assert_raise Audio.ClassificationError, ~r/AC-4/, fn -> Audio.rules(immersive) end
+    end
+
+    test "rejects AC-4 Atmos identified by actual MediaInfo presentation metadata" do
+      path = Path.expand("../../fixtures/mediainfo_ac4_immersive.json", __DIR__)
+      %{"track" => track} = path |> File.read!() |> Jason.decode!()
+      video = raw_audio_video(["ac4"], mediainfo_with_audio_track(track))
+
+      assert_raise Audio.ClassificationError, ~r/immersive AC-4/, fn ->
+        Audio.rules(video)
+      end
     end
 
     test "rejects registered object-audio identities without Matroska carriage" do
