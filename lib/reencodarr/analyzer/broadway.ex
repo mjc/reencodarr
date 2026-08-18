@@ -24,9 +24,9 @@ defmodule Reencodarr.Analyzer.Broadway do
   alias Reencodarr.Media.{Codecs, Video}
 
   # Constants
-  @default_processor_concurrency 16
-  @default_max_demand 100
-  @default_batch_size 100
+  @default_processor_concurrency 8
+  @default_max_demand 1
+  @default_batch_size 8
   @default_batch_timeout 25
   @default_mediainfo_batch_size 5
   @default_processing_timeout :timer.minutes(5)
