@@ -20,6 +20,8 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
     Optimization.BulkFileChecker
   }
 
+  @large_file_threshold 5 * 1024 * 1024 * 1024
+
   @doc """
   Execute MediaInfo command for a batch of file paths.
 
@@ -67,26 +69,31 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
   defp execute_optimized_batch(paths) do
     batch_size = get_optimal_batch_size(length(paths))
 
-    case length(paths) do
-      count when count <= batch_size ->
-        # Small batch - execute directly
-        execute_mediainfo_command(paths)
-
-      _large_count ->
-        # Large batch - use chunked processing
-        execute_chunked_mediainfo(paths, batch_size)
+    case command_batches(paths, batch_size) do
+      [batch] -> execute_mediainfo_command(batch)
+      batches -> execute_chunked_mediainfo(batches, length(paths))
     end
   end
 
-  defp execute_chunked_mediainfo(paths, batch_size) do
-    chunk_concurrency = get_chunk_concurrency(length(paths))
+  @doc "Groups small files while isolating files larger than 5 GiB."
+  @spec command_batches([String.t()], pos_integer()) :: [[String.t()]]
+  def command_batches(paths, batch_size) do
+    {small, large} =
+      Enum.split_with(paths, fn path ->
+        match?({:ok, %File.Stat{size: size}} when size <= @large_file_threshold, File.stat(path))
+      end)
+
+    Enum.chunk_every(small, batch_size) ++ Enum.map(large, &[&1])
+  end
+
+  defp execute_chunked_mediainfo(batches, file_count) do
+    chunk_concurrency = get_chunk_concurrency(file_count)
 
     Logger.debug(
-      "Processing #{length(paths)} files in chunks of #{batch_size} with concurrency #{chunk_concurrency}"
+      "Processing #{file_count} files in #{length(batches)} commands with concurrency #{chunk_concurrency}"
     )
 
-    paths
-    |> Enum.chunk_every(batch_size)
+    batches
     |> Task.async_stream(
       &execute_mediainfo_command/1,
       max_concurrency: chunk_concurrency,
@@ -115,7 +122,7 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
     end
   end
 
-  @doc false
+  @doc "Builds the MediaInfo command arguments for the given paths."
   @spec arguments([String.t()]) :: [String.t()]
   def arguments(paths) when is_list(paths) do
     [

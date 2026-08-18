@@ -19,6 +19,27 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutorTest do
     end
   end
 
+  describe "command_batches/2" do
+    test "batches only files at or below 5 GiB" do
+      small_paths = for name <- ~w(one two three), do: temp_file(name, 1_024)
+
+      large_paths =
+        for name <- ~w(large huge), do: temp_file(name, 5 * 1024 * 1024 * 1024 + 1)
+
+      batches = CommandExecutor.command_batches(small_paths ++ large_paths, 2)
+
+      assert Enum.sort(batches) ==
+               Enum.sort([
+                 Enum.take(small_paths, 2),
+                 Enum.drop(small_paths, 2),
+                 [Enum.at(large_paths, 0)],
+                 [Enum.at(large_paths, 1)]
+               ])
+
+      on_exit(fn -> Enum.each(small_paths ++ large_paths, &File.rm!/1) end)
+    end
+  end
+
   describe "execute_batch_mediainfo/1" do
     test "returns empty map for empty input" do
       assert {:ok, %{}} = CommandExecutor.execute_batch_mediainfo([])
@@ -122,6 +143,15 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutorTest do
   end
 
   defp fixture_path(name), do: Path.expand("../../../fixtures/#{name}", __DIR__)
+
+  defp temp_file(name, size) do
+    path = Path.join(System.tmp_dir!(), "#{name}-#{System.unique_integer([:positive])}.mkv")
+    {:ok, file} = :file.open(path, [:write, :binary])
+    {:ok, _position} = :file.position(file, size - 1)
+    :ok = :file.write(file, <<0>>)
+    :ok = :file.close(file)
+    path
+  end
 
   defp audio_track(mediainfo) do
     mediainfo
