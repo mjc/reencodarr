@@ -67,7 +67,7 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
       )
       |> Enum.to_list()
 
-    process_async_results(results)
+    process_async_results(video_infos, results)
   end
 
   @doc """
@@ -329,7 +329,7 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
       )
       |> Enum.to_list()
 
-    process_async_results(results)
+    process_async_results(video_infos, results)
   end
 
   defp process_video_with_mediainfo(video_info, :no_mediainfo) do
@@ -373,40 +373,32 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
     end)
   end
 
-  defp process_async_results(results) do
-    {successful, failed} =
-      Enum.reduce(results, {[], []}, fn
-        {:ok, {:ok, video_data}}, {success, fails} ->
-          {[video_data | success], fails}
+  defp process_async_results(video_infos, results) do
+    processed =
+      video_infos
+      |> Enum.zip(results)
+      |> Enum.flat_map(fn
+        {_video_info, {:ok, {:ok, video_data}}} ->
+          [video_data]
 
-        {:ok, {:skip, reason}}, {success, fails} ->
+        {_video_info, {:ok, {:skip, reason}}} ->
           Logger.debug("Video skipped: #{reason}")
-          {success, fails}
+          []
 
-        {:ok, {:error, error_info}}, {success, fails} ->
-          # Record the failure using the failure tracker instead of just logging
-          # Note: We don't have the video struct here, so we'll still log but also collect for reporting
-          Logger.error("Video processing failed for: #{inspect(error_info)}")
-          {success, [inspect(error_info) | fails]}
+        {_video_info, {:ok, {:error, {path, reason}}}} ->
+          Logger.error("Video processing failed for #{path}: #{inspect(reason)}")
+          [{:error, {path, reason}}]
 
-        {:exit, :timeout}, {success, fails} ->
-          Logger.error("Video processing timed out")
-          {success, ["timeout" | fails]}
+        {video_info, {:exit, reason}} ->
+          Logger.error("Video processing timed out for #{video_info.path}: #{inspect(reason)}")
+          [{:error, {video_info.path, "processing task exited: #{inspect(reason)}"}}]
 
-        other, {success, fails} ->
-          Logger.error("Unexpected processing result: #{inspect(other)}")
-          {success, ["unknown_error" | fails]}
+        {video_info, other} ->
+          Logger.error("Unexpected processing result for #{video_info.path}: #{inspect(other)}")
+          [{:error, {video_info.path, "unexpected processing result"}}]
       end)
 
-    # Record failures properly through the failure system if we have them
-    # For now, log summary - ideally we'd have video structs to record individual failures
-    if not Enum.empty?(failed) do
-      Logger.warning(
-        "Batch processing completed with #{length(failed)} failures: #{inspect(failed)}"
-      )
-    end
-
-    {:ok, Enum.reverse(successful)}
+    {:ok, processed}
   end
 
   defp validate_mediainfo(media_data, path) do
