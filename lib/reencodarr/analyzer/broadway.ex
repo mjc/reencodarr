@@ -24,7 +24,7 @@ defmodule Reencodarr.Analyzer.Broadway do
   alias Reencodarr.Media.{Codecs, Video}
 
   # Constants
-  @default_processor_concurrency 8
+  @default_processor_concurrency 1
   @default_max_demand 1
   @default_batch_size 8
   @default_batch_timeout 25
@@ -61,7 +61,8 @@ defmodule Reencodarr.Analyzer.Broadway do
         default: [
           batch_size: @default_batch_size,
           batch_timeout: @default_batch_timeout,
-          concurrency: 1
+          concurrency: 1,
+          max_demand: 1
         ]
       ],
       context: %{
