@@ -271,6 +271,7 @@ defmodule Reencodarr.MediaTest do
       Reencodarr.Repo.update_all(Reencodarr.Media.DashboardStatsCache,
         set: [
           needs_analysis: 2,
+          analyzing: 9,
           analyzed: 3,
           crf_searching: 4,
           crf_searched: 5,
@@ -282,6 +283,7 @@ defmodule Reencodarr.MediaTest do
 
       assert Media.count_videos_by_state() == %{
                needs_analysis: 2,
+               analyzing: 9,
                analyzed: 3,
                crf_searching: 4,
                crf_searched: 5,

@@ -102,6 +102,7 @@ defmodule Reencodarr.Media.SharedQueries do
         total_size_gb:
           fragment("ROUND(CAST(? AS FLOAT) / (1024*1024*1024), 2)", c.total_size_bytes),
         needs_analysis: c.needs_analysis,
+        analyzing: c.analyzing,
         analyzed: c.analyzed,
         crf_searching: c.crf_searching,
         crf_searched: c.crf_searched,

@@ -64,6 +64,18 @@ defmodule Reencodarr.Dashboard.StateTest do
   end
 
   describe "queue refresh timeouts" do
+    test "counts claimed videos in the analyzer queue" do
+      Application.put_env(:reencodarr, :dashboard_queue_refresh_enabled, true)
+
+      Reencodarr.Repo.update_all(Reencodarr.Media.DashboardStatsCache,
+        set: [needs_analysis: 3, analyzing: 5]
+      )
+
+      send(Process.whereis(State), :refresh_queues)
+
+      assert State.get_state().queue_counts.analyzer == 8
+    end
+
     test "passes configured timeout and pool_timeout to queue preview queries" do
       previous_refresh_enabled =
         Application.get_env(:reencodarr, :dashboard_queue_refresh_enabled)

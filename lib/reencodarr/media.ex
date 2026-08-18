@@ -3563,6 +3563,7 @@ defmodule Reencodarr.Media do
   defp state_counts_from_stats(%DashboardStatsCache{} = stats) do
     %{
       needs_analysis: stats.needs_analysis,
+      analyzing: stats.analyzing,
       analyzed: stats.analyzed,
       crf_searching: stats.crf_searching,
       crf_searched: stats.crf_searched,
@@ -3979,6 +3980,7 @@ defmodule Reencodarr.Media do
       total_videos: 0,
       total_size_gb: 0.0,
       needs_analysis: 0,
+      analyzing: 0,
       analyzed: 0,
       crf_searching: 0,
       crf_searched: 0,

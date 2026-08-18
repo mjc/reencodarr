@@ -27,6 +27,7 @@ defmodule Reencodarr.Dashboard.State do
   @progress_debounce_ms 500
   @tracked_video_states [
     :needs_analysis,
+    :analyzing,
     :analyzed,
     :crf_searching,
     :crf_searched,
@@ -461,7 +462,9 @@ defmodule Reencodarr.Dashboard.State do
 
   defp refresh_queue_counts(current_queue_counts, stats) do
     %{
-      analyzer: stats.needs_analysis || current_queue_counts.analyzer || 0,
+      analyzer:
+        (stats.needs_analysis || 0) +
+          (stats.analyzing || 0),
       crf_searcher: stats.analyzed || current_queue_counts.crf_searcher || 0,
       encoder: stats.encoding_queue_count || current_queue_counts.encoder || 0
     }
@@ -651,6 +654,7 @@ defmodule Reencodarr.Dashboard.State do
   end
 
   defp queue_member?(%{state: :needs_analysis}, :analyzer), do: true
+  defp queue_member?(%{state: :analyzing}, :analyzer), do: true
   defp queue_member?(%{state: :analyzed}, :crf_searcher), do: true
 
   defp queue_member?(%{state: :crf_searched, chosen_vmaf_id: chosen_vmaf_id}, :encoder),
