@@ -44,6 +44,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert html =~ ~s(id="dashboard-active-work")
       assert html =~ ~s(id="broadway-crf-search-panel")
       assert html =~ "Needs Analysis:"
+      assert html =~ "Analyzing:"
       assert html =~ "VMAF Score Distribution"
     end
 

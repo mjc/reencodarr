@@ -79,9 +79,14 @@ defmodule Reencodarr.Analyzer.Broadway do
   def process_path(_video_info), do: :ok
 
   @doc """
-  Check if the analyzer is running (always true now).
+  Check if the analyzer Broadway topology is running.
   """
-  def running?, do: true
+  def running? do
+    case Process.whereis(__MODULE__) do
+      nil -> false
+      pid -> Process.alive?(pid)
+    end
+  end
 
   @doc """
   Pause the analyzer - no-op, always runs now.

@@ -362,13 +362,14 @@ defmodule Reencodarr.Diagnostics do
       from(v in Video, where: v.state in [:analyzing, :crf_searching, :encoding])
       |> Repo.all()
 
+    analyzer_state = Analyzer.status()
     crf_state = safe_get_state(Reencodarr.AbAv1.CrfSearch, 2000)
     encode_state = safe_get_state(Reencodarr.AbAv1.Encode, 2000)
 
     if Enum.empty?(processing_videos) do
       "No videos in processing states"
     else
-      format_stuck_videos(processing_videos, crf_state, encode_state, now)
+      format_stuck_videos(processing_videos, analyzer_state, crf_state, encode_state, now)
     end
   rescue
     e -> "Error in stuck/0: #{Exception.message(e)}"
@@ -485,14 +486,14 @@ defmodule Reencodarr.Diagnostics do
     header <> rows
   end
 
-  defp format_stuck_videos(processing_videos, crf_state, encode_state, now) do
+  defp format_stuck_videos(processing_videos, analyzer_state, crf_state, encode_state, now) do
     header = "#{length(processing_videos)} video(s) in processing states:\n\n"
 
     rows =
       Enum.map_join(processing_videos, "\n", fn v ->
         elapsed = DateTime.diff(now, v.updated_at, :second)
         elapsed_str = format_elapsed_seconds(elapsed)
-        status = determine_video_status(v, crf_state, encode_state)
+        status = determine_video_status(v, analyzer_state, crf_state, encode_state)
 
         "  #{pad(to_string(v.id), 6)} #{pad(to_string(v.state), 15)} #{pad(elapsed_str, 12)} #{status} #{Path.basename(v.path)}"
       end)
@@ -500,8 +501,11 @@ defmodule Reencodarr.Diagnostics do
     header <> rows
   end
 
-  defp determine_video_status(video, crf_state, encode_state) do
+  defp determine_video_status(video, analyzer_state, crf_state, encode_state) do
     cond do
+      video.state == :analyzing && analyzer_state.actively_running ->
+        "ACTIVE in Analyzer"
+
       video.state == :crf_searching && video_active_in_state?(crf_state, video.id) ->
         "ACTIVE in CRF"
 

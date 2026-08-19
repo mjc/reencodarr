@@ -105,6 +105,7 @@ defmodule Reencodarr.Dashboard.State do
   def handle_continue(:fetch_initial_data, state) do
     stats = load_initial_dashboard_stats(state.stats)
     queue_counts = refresh_queue_counts(state.queue_counts, stats)
+    state = %{state | service_status: analyzer_service_status(state.service_status, stats)}
 
     initial_queue_items =
       if queue_refresh_enabled?() do
@@ -446,6 +447,8 @@ defmodule Reencodarr.Dashboard.State do
           queue_previews_loaded: true
       }
 
+      state = %{state | service_status: analyzer_service_status(state.service_status, stats)}
+
       broadcast_state(state)
       Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
       state
@@ -575,7 +578,8 @@ defmodule Reencodarr.Dashboard.State do
         queue_member?(new_video, :encoder)
       )
 
-    %{state | stats: stats, queue_counts: queue_counts}
+    state = %{state | stats: stats, queue_counts: queue_counts}
+    %{state | service_status: analyzer_service_status(state.service_status, stats)}
   end
 
   defp apply_video_mutation(state, _mutation), do: state
@@ -661,6 +665,13 @@ defmodule Reencodarr.Dashboard.State do
     do: not is_nil(chosen_vmaf_id)
 
   defp queue_member?(_video, _queue), do: false
+
+  defp analyzer_service_status(service_status, %{analyzing: analyzing})
+       when is_integer(analyzing) do
+    Map.put(service_status, :analyzer, if(analyzing > 0, do: :processing, else: :idle))
+  end
+
+  defp analyzer_service_status(service_status, _stats), do: service_status
 
   defp snapshot_size(%{size: size}) when is_number(size), do: size
   defp snapshot_size(_video), do: 0

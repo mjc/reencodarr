@@ -721,6 +721,14 @@ defmodule ReencodarrWeb.DashboardLive do
           >
           </div>
         <% end %>
+        <%= if @state_distribution_display.analyzing_pct > 0 do %>
+          <div
+            class="bg-gray-700"
+            style={"width: #{@state_distribution_display.analyzing_pct}%"}
+            title={@state_distribution_display.analyzing_title}
+          >
+          </div>
+        <% end %>
         <%= if @state_distribution_display.analyzed_pct > 0 do %>
           <div
             class="bg-blue-500"
@@ -754,8 +762,9 @@ defmodule ReencodarrWeb.DashboardLive do
           </div>
         <% end %>
       </div>
-      <div class="grid grid-cols-1 gap-1 text-xs text-gray-400 sm:grid-cols-3 sm:gap-2">
+      <div class="grid grid-cols-1 gap-1 text-xs text-gray-400 sm:grid-cols-4 sm:gap-2">
         <span>Needs Analysis: {@stats_display.needs_analysis}</span>
+        <span>Analyzing: {@stats_display.analyzing}</span>
         <span>Analyzed: {@stats_display.analyzed}</span>
         <span>Encoded: {@stats_display.encoded}</span>
       </div>
@@ -1358,6 +1367,7 @@ defmodule ReencodarrWeb.DashboardLive do
       failures: "—",
       library_size: "—",
       needs_analysis: "—",
+      analyzing: "—",
       analyzed: "—",
       encoded: "—"
     }
@@ -1371,6 +1381,7 @@ defmodule ReencodarrWeb.DashboardLive do
       failures: format_number(stats.failed),
       library_size: format_size_gb(stats.total_size_gb),
       needs_analysis: format_number(stats.needs_analysis),
+      analyzing: format_number(stats.analyzing),
       analyzed: format_number(stats.analyzed),
       encoded: format_number(stats.encoded)
     }
@@ -1379,11 +1390,13 @@ defmodule ReencodarrWeb.DashboardLive do
   defp state_distribution_display(nil) do
     %{
       needs_analysis_pct: 0,
+      analyzing_pct: 0,
       analyzed_pct: 0,
       crf_pct: 0,
       encoded_pct: 0,
       failed_pct: 0,
       needs_analysis_title: "Needs Analysis: 0",
+      analyzing_title: "Analyzing: 0",
       analyzed_title: "Analyzed: 0",
       crf_title: "CRF Search: 0",
       encoded_title: "Encoded: 0",
@@ -1397,11 +1410,13 @@ defmodule ReencodarrWeb.DashboardLive do
 
     %{
       needs_analysis_pct: percent(stats.needs_analysis, total),
+      analyzing_pct: percent(stats.analyzing, total),
       analyzed_pct: percent(stats.analyzed, total),
       crf_pct: percent(crf_total, total),
       encoded_pct: percent(stats.encoded, total),
       failed_pct: percent(stats.failed, total),
       needs_analysis_title: "Needs Analysis: #{stats.needs_analysis}",
+      analyzing_title: "Analyzing: #{stats.analyzing}",
       analyzed_title: "Analyzed: #{stats.analyzed}",
       crf_title: "CRF Search: #{crf_total}",
       encoded_title: "Encoded: #{stats.encoded}",
