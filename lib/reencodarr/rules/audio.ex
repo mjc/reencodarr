@@ -83,10 +83,17 @@ defmodule Reencodarr.Rules.Audio do
   end
 
   def rules(%Media.Video{audio_codecs: audio_codecs} = video) when is_list(audio_codecs) do
-    if audio_codecs != [] and all_opus?(audio_codecs) do
-      @copy_audio
-    else
-      build_from_mediainfo(video)
+    cond do
+      audio_codecs != [] and all_opus?(audio_codecs) ->
+        @copy_audio
+
+      dts_codec_present?(audio_codecs) ->
+        # A known DTS carrier must never silently fall back to stream copy just
+        # because the detailed MediaInfo record is unavailable.
+        [{"--acodec", "libopus"}]
+
+      true ->
+        build_from_mediainfo(video)
     end
   end
 
@@ -205,6 +212,19 @@ defmodule Reencodarr.Rules.Audio do
   defp all_opus?(audio_codecs) do
     Enum.all?(audio_codecs, fn codec ->
       codec |> normalize_codec_string() |> String.contains?("opus")
+    end)
+  end
+
+  defp dts_codec_present?(audio_codecs) do
+    Enum.any?(audio_codecs, fn codec ->
+      case normalize_codec_string(codec) do
+        value
+        when value in ["dts", "adts", "adtslossless", "dtsc", "dtse", "dtsh", "dtsl", "dtsx"] ->
+          true
+
+        value ->
+          String.starts_with?(value, "dtshd")
+      end
     end)
   end
 

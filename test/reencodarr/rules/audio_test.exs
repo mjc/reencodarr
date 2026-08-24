@@ -128,6 +128,12 @@ defmodule Reencodarr.Rules.AudioTest do
   end
 
   describe "rules/1 - Opus transcoding" do
+    test "transcodes known DTS carriers when detailed MediaInfo is unavailable" do
+      video = Fixtures.create_test_video(%{audio_codecs: ["A_DTS"], mediainfo: nil})
+
+      assert Audio.rules(video) == [{"--acodec", "libopus"}]
+    end
+
     test "uses the channel target when an ordinary track has no bitrate" do
       video =
         raw_audio_video(
@@ -144,6 +150,25 @@ defmodule Reencodarr.Rules.AudioTest do
 
       assert {"--enc", "c:a:0=libopus"} in rules
       assert {"--enc", "b:a:0=256k"} in rules
+    end
+
+    test "normalizes DTS-HD MA channel positions while converting to Opus" do
+      video =
+        raw_audio_video(
+          ["dts"],
+          sample_mediainfo("DTS", 6, "C L R Ls Rs LFE", %{
+            "CodecID" => "A_DTS",
+            "Format_Commercial_IfAny" => "DTS-HD Master Audio",
+            "Format_AdditionalFeatures" => "XLL",
+            "BitRate" => nil
+          })
+        )
+
+      rules = Audio.rules(video)
+
+      assert {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "b:a:0=256k"} in rules
+      assert {"--enc", "filter:a:0=aformat=channel_layouts=5.1|7.1|stereo"} in rules
     end
 
     test "uses the channel target for common non-object codecs with no bitrate" do
