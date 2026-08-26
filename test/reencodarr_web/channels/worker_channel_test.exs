@@ -640,7 +640,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Process.unlink(socket1.channel_pid)
       assert :ok = close(socket1)
 
-      assert [%{jobs: jobs}] = WorkerSessions.list()
+      assert WorkerSessions.list() == []
+      assert %{connected: false, jobs: jobs} = WorkerSessions.get(old_server_id)
       assert %{video_id: video_id} = jobs[job_id]
       assert video_id == video.id
 
@@ -2908,7 +2909,11 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       refreshed = Media.get_video(video.id)
       assert refreshed.state == :crf_searching
       assert refreshed.crf_search_worker_id == "worker-a"
-      assert [%{active_video_id: active_video_id}] = WorkerSessions.list()
+      assert WorkerSessions.list() == []
+
+      assert %{connected: false, active_video_id: active_video_id} =
+               WorkerSessions.get(socket.assigns.worker_id)
+
       assert active_video_id == video.id
     after
       Application.delete_env(:reencodarr, :worker_token)

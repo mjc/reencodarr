@@ -89,7 +89,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           encode_admission: map() | nil,
           jobs: %{optional(String.t()) => job()},
           connected_at: DateTime.t(),
-          last_seen_at: DateTime.t()
+          last_seen_at: DateTime.t(),
+          connected: boolean()
         }
 
   def start_link(opts) do
@@ -108,6 +109,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def unregister(server_worker_id) do
     GenServer.call(__MODULE__, {:unregister, server_worker_id})
+  end
+
+  @spec disconnect(String.t()) :: :ok | {:error, :unknown_worker_session}
+  def disconnect(server_worker_id) when is_binary(server_worker_id) do
+    GenServer.call(__MODULE__, {:disconnect, server_worker_id})
   end
 
   def assign_video(server_worker_id, video_id, phase \\ :crf_searching, job_id \\ nil)
@@ -347,6 +353,24 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     {:reply, :ok, state}
   end
 
+  def handle_call({:disconnect, server_worker_id}, _from, state) do
+    case lookup_session(server_worker_id) do
+      {:ok, session} ->
+        :ok =
+          store_session(%{
+            session
+            | connected: false,
+              last_seen_at: now()
+          })
+
+        broadcast_sessions()
+        {:reply, :ok, state}
+
+      :error ->
+        {:reply, {:error, :unknown_worker_session}, state}
+    end
+  end
+
   def handle_call({:assign_video, server_worker_id, video_id, phase, job_id}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
       with {:ok, session} <- WorkerJobStateMachine.assign_video(session, video_id, phase) do
@@ -540,7 +564,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   def handle_call(:list, _from, state) do
-    sessions = list_sessions()
+    sessions = connected_sessions()
     {:reply, sessions, state}
   end
 
@@ -552,7 +576,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   def handle_call(:drain, _from, state) do
     drained_sessions =
-      list_sessions()
+      all_sessions()
       |> Enum.filter(&(&1.active_video_id != nil or map_size(&1.jobs) > 0))
       |> Enum.map(fn session ->
         requeue_jobs(session.jobs)
@@ -585,7 +609,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   def handle_cast({:record_job_activity, job_id, phase}, state) do
-    Enum.each(list_sessions(), fn session ->
+    Enum.each(all_sessions(), fn session ->
       case Map.fetch(session.jobs, job_id) do
         {:ok, %Job{} = job} ->
           updated_phase = phase || job.phase
@@ -786,7 +810,8 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       encode_admission: nil,
       jobs: %{},
       connected_at: now,
-      last_seen_at: now
+      last_seen_at: now,
+      connected: true
     }
   end
 
@@ -1019,7 +1044,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   defp broadcast_sessions do
-    Events.broadcast_event(:worker_sessions_updated, %{sessions: list_sessions()})
+    Events.broadcast_event(:worker_sessions_updated, %{sessions: connected_sessions()})
   end
 
   defp restore_active_video(session, nil), do: {:ok, session}
@@ -1229,7 +1254,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   defp check_stalled_jobs_now(checked_at) do
     changed? =
-      Enum.reduce(list_sessions(), false, fn session, changed? ->
+      Enum.reduce(connected_sessions(), false, fn session, changed? ->
         jobs =
           Map.new(session.jobs, fn {job_id, job} ->
             {job_id, check_job(session, job, checked_at)}
@@ -1340,11 +1365,15 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     :ok
   end
 
-  defp list_sessions do
+  defp all_sessions do
     @by_server_table
     |> :ets.tab2list()
     |> Enum.map(fn {_server_worker_id, session} -> session end)
     |> Enum.sort_by(& &1.client_worker_id)
+  end
+
+  defp connected_sessions do
+    Enum.filter(all_sessions(), &Map.get(&1, :connected, true))
   end
 
   defp lookup_session(server_worker_id) do

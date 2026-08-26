@@ -459,9 +459,14 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
 
     case WorkerSessions.get(worker_id) do
-      %{active_video_id: video_id} when is_integer(video_id) -> :ok
-      %{jobs: jobs} when map_size(jobs) > 0 -> :ok
-      _ -> WorkerSessions.unregister(worker_id)
+      %{active_video_id: video_id} when is_integer(video_id) ->
+        _ = WorkerSessions.disconnect(worker_id)
+
+      %{jobs: jobs} when map_size(jobs) > 0 ->
+        _ = WorkerSessions.disconnect(worker_id)
+
+      _ ->
+        WorkerSessions.unregister(worker_id)
     end
 
     :ok
