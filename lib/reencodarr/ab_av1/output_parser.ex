@@ -43,7 +43,7 @@ defmodule Reencodarr.AbAv1.OutputParser do
       encoding_progress_alt:
         ~r/(?<percent>\d+(?:\.\d+)?)%,\s*(?<fps>[\d\.]+)\s*fps?,?\s*eta\s*(?<eta>(?:\d+\s*(?:seconds?|minutes?|hours?|days?|weeks?|months?|years?)|\d+[hms](?:\s*\d+[hms])*|Unknown|N\/A|unknown))/,
       file_size_progress: ~r/Encoded\s(?<size>[\d\.]+\s\w+)\s\((?<percent>\d+)%\)/,
-      ffmpeg_error: ~r/Error: ffmpeg encode exit code (?<exit_code>\d+)/
+      ffmpeg_error: ~r/(?:Error:\s*)?ffmpeg encode exit code (?<exit_code>\d+)/
     }
   end
 

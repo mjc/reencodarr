@@ -506,6 +506,13 @@ defmodule Reencodarr.FailureTrackerTest do
       assert category == :codec_issues
     end
 
+    test "extracts ffmpeg exit code from worker error chain" do
+      context = %{"error_chain" => "ffmpeg encode exit code 234"}
+      {exit_code, category, _message} = FailureTracker.parse_ffmpeg_error_from_output(context, 1)
+      assert exit_code == 234
+      assert category == :codec_issues
+    end
+
     test "uses exit code 1 classification when no ffmpeg error found" do
       {exit_code, category, _message} = FailureTracker.parse_ffmpeg_error_from_output(%{}, 1)
       assert exit_code == 1

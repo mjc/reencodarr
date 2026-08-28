@@ -306,7 +306,13 @@ defmodule Reencodarr.FailureTracker do
   - message: Enhanced error message with specific details
   """
   def parse_ffmpeg_error_from_output(context, original_exit_code) do
-    output = Map.get(context, "full_output", "")
+    output =
+      [
+        Map.get(context, "full_output"),
+        Map.get(context, "error_chain"),
+        Map.get(context, "stderr_excerpt")
+      ]
+      |> Enum.find("", &(is_binary(&1) and byte_size(&1) > 0))
 
     # Use centralized parser to extract FFmpeg errors
     parsed_output = OutputParser.parse_output(output)
