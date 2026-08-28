@@ -9,7 +9,7 @@ in
       owner = "mjc";
       repo = "ab-av1";
       rev = "a4a34a6";
-      hash = "sha256-cPNFdlrOt8tCYXtvfzo8vrhFQ3snIphJ43bOzZH3fkw=";
+      hash = "sha256-KRTqVTCTLcY19z/QI1sGS/NYz7zmYP22BiL2dA2xyUA=";
     };
 
     cargoHash = "sha256-T+ejY4HbYMUoyLHK9WbDMe9xijcDNAOCMCoakJIfIW4=";
