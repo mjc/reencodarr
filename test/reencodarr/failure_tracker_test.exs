@@ -163,6 +163,17 @@ defmodule Reencodarr.FailureTrackerTest do
           assert failure.system_context.timeout_duration == "30 minutes"
         end)
     end
+
+    test "records timeout failure for the analysis stage" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      {:ok, failure} =
+        FailureTracker.record_timeout_failure(video, "analysis processing", stage: :analysis)
+
+      assert failure.failure_stage == :analysis
+      assert failure.failure_category == :timeout
+      assert failure.failure_code == "TIMEOUT"
+    end
   end
 
   describe "post processing failures" do

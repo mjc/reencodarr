@@ -179,7 +179,9 @@ defmodule Reencodarr.FailureTracker do
       }
       |> Map.merge(Keyword.get(opts, :context, %{}))
 
-    Media.record_video_failure(video, :encoding, :timeout,
+    stage = Keyword.get(opts, :stage, :encoding)
+
+    Media.record_video_failure(video, stage, :timeout,
       code: "TIMEOUT",
       message: "Encoding timeout after #{timeout_duration}",
       context: context
@@ -273,11 +275,26 @@ defmodule Reencodarr.FailureTracker do
   def record_unknown_failure(video, stage, error, opts \\ []) do
     context = Map.merge(%{error: error}, Keyword.get(opts, :context, %{}))
 
-    Media.record_video_failure(video, stage, :unknown,
-      code: "UNKNOWN",
-      message: "Unknown failure: #{inspect(error)}",
-      context: context
-    )
+    if timeout_reason?(error) do
+      record_timeout_failure(
+        video,
+        "processing",
+        Keyword.merge(opts, stage: stage, context: context)
+      )
+    else
+      Media.record_video_failure(video, stage, :unknown,
+        code: "UNKNOWN",
+        message: "Unknown failure: #{inspect(error)}",
+        context: context
+      )
+    end
+  end
+
+  defp timeout_reason?(error) do
+    error
+    |> inspect()
+    |> String.downcase()
+    |> String.contains?("timeout")
   end
 
   def record_exception_failure(video, exception_context, opts \\ []) do
