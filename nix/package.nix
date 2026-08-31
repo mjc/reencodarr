@@ -1,7 +1,7 @@
 {
   lib,
   pkgs,
-  beam_minimal,
+  beam29Packages,
   sqlite,
 }: let
   svt-av1-hdr = pkgs.svt-av1.overrideAttrs (_old: {
@@ -31,8 +31,10 @@
       '';
   });
 
-  erlang = beam_minimal.interpreters.erlang_29;
-  beamPackages = (beam_minimal.packagesWith erlang).extend (_: prev: {
+  beamPackages = (if beam29Packages ? overrideScope
+    then beam29Packages.overrideScope
+    else beam29Packages.extend) (_: prev: {
+    elixir = prev.elixir_1_20;
     rebar3 = prev.rebar3.overrideAttrs (_: {
       # OTP 29 currently trips a warning in rebar3's CT suite; keep build output,
       # skip tests for the tool package used during dependency resolution.
@@ -40,7 +42,7 @@
       checkPhase = "";
     });
   });
-  elixir = beamPackages.elixir_1_20;
+
   ab-av1-worker = pkgs.callPackage ./ab-av1-worker.nix {};
 
   runtimePath = lib.makeBinPath [
@@ -105,7 +107,7 @@ in
 
     buildInputs = [sqlite];
 
-    inherit elixir erlang;
+    
 
     env = {
       EXQLITE_USE_SYSTEM = "1";
