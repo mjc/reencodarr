@@ -47,6 +47,16 @@ defmodule Reencodarr.RulesTest do
       assert "tune=0" in args
     end
 
+    test "both contexts cap SVT parallelism" do
+      video = Fixtures.create_test_video()
+
+      for context <- [:encode, :crf_search] do
+        args = Rules.build_args(video, context)
+
+        assert find_flag_value(args, "--svt", "lp=5")
+      end
+    end
+
     test "encoding context normalizes non-standard audio layouts with aformat filter" do
       video =
         Fixtures.create_test_video(%{

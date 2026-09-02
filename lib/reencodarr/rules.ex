@@ -50,6 +50,7 @@ defmodule Reencodarr.Rules do
     rules_to_apply = [
       &encoder/1,
       &preset/1,
+      &parallelism/1,
       &hdr(&1, hdr_fork),
       &tune(&1, hdr_fork),
       &resolution/1,
@@ -334,6 +335,9 @@ defmodule Reencodarr.Rules do
 
   @spec preset(Media.Video.t()) :: list()
   def preset(_), do: [{"--preset", "6"}]
+
+  @spec parallelism(Media.Video.t()) :: list()
+  def parallelism(_), do: [{"--svt", "lp=5"}]
 
   @doc """
   HDR-specific encoder flags.
