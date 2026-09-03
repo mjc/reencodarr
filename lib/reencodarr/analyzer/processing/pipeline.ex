@@ -55,15 +55,13 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
     Logger.debug("Processing #{length(video_infos)} videos individually")
 
     concurrency = get_fallback_concurrency()
-    timeout = ConcurrencyManager.get_processing_timeout()
 
     results =
       video_infos
       |> Task.async_stream(
         &process_single_video/1,
         max_concurrency: concurrency,
-        timeout: timeout,
-        on_timeout: :kill_task
+        timeout: :infinity
       )
       |> Enum.to_list()
 
@@ -308,7 +306,6 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
         ) :: processing_result()
   defp process_videos_with_mediainfo(video_infos, mediainfo_map, _context) do
     concurrency = get_processing_concurrency()
-    timeout = ConcurrencyManager.get_processing_timeout()
 
     Logger.debug(
       "Processing #{length(video_infos)} videos with batch MediaInfo (concurrency: #{concurrency})"
@@ -324,8 +321,7 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
           process_video_with_mediainfo(video_info, mediainfo)
         end,
         max_concurrency: concurrency,
-        timeout: timeout,
-        on_timeout: :kill_task
+        timeout: :infinity
       )
       |> Enum.to_list()
 

@@ -29,7 +29,6 @@ defmodule Reencodarr.Analyzer.Broadway do
   @default_batch_size 8
   @default_batch_timeout 25
   @default_mediainfo_batch_size 5
-  @default_processing_timeout :timer.minutes(5)
   @rate_limit_interval 1000
   # Retry many times for database busy - SQLite WAL mode handles concurrency well
   @max_db_retry_attempts 50
@@ -67,7 +66,6 @@ defmodule Reencodarr.Analyzer.Broadway do
       ],
       context: %{
         concurrent_files: 2,
-        processing_timeout: @default_processing_timeout,
         mediainfo_batch_size: @default_mediainfo_batch_size
       }
     )

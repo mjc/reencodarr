@@ -97,8 +97,7 @@ defmodule Reencodarr.Analyzer.MediaInfo.CommandExecutor do
     |> Task.async_stream(
       &execute_mediainfo_command/1,
       max_concurrency: chunk_concurrency,
-      timeout: :timer.minutes(5),
-      on_timeout: :kill_task
+      timeout: :infinity
     )
     |> merge_chunk_results()
   end

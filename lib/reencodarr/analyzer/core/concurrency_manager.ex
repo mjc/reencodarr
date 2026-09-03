@@ -50,29 +50,6 @@ defmodule Reencodarr.Analyzer.Core.ConcurrencyManager do
   def get_mediainfo_concurrency, do: 2
 
   @doc """
-  Get timeout for video processing tasks based on system performance.
-  """
-  @spec get_processing_timeout() :: pos_integer()
-  def get_processing_timeout do
-    # Base timeout of 2 minutes, adjusted for system load
-    base_timeout = :timer.minutes(2)
-
-    case get_system_load_average() do
-      load when load > 2.0 ->
-        # High load - increase timeout
-        round(base_timeout * 1.5)
-
-      load when load > 1.0 ->
-        # Medium load - slight increase
-        round(base_timeout * 1.2)
-
-      _ ->
-        # Low load - use base timeout
-        base_timeout
-    end
-  end
-
-  @doc """
   Get optimal MediaInfo batch size.
   """
   @spec get_optimal_mediainfo_batch_size() :: pos_integer()
