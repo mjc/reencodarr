@@ -937,11 +937,32 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp handle_crf_search_progress(payload, socket) do
     with {:ok, progress} <- WorkerProtocol.parse_crf_search_progress(payload),
          true <- crf_job?(socket, progress.job_id, progress.video_id) do
-      :ok = WorkerSessions.set_crf_search_progress(socket.assigns.worker_id, progress)
-      {:reply, {:ok, WorkerProtocol.event_ack("crf_search_progress")}, socket}
+      if current_crf_attempt?(socket, progress) do
+        :ok = WorkerSessions.set_crf_search_progress(socket.assigns.worker_id, progress)
+        {:reply, {:ok, WorkerProtocol.event_ack("crf_search_progress")}, socket}
+      else
+        discard_stale_crf_progress(socket, progress)
+      end
     else
       _ -> {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
     end
+  end
+
+  defp current_crf_attempt?(socket, %{job_id: job_id, video_id: video_id}) do
+    case Media.get_video(video_id) do
+      %Media.Video{state: :crf_searching, crf_search_worker_id: worker_id} = video ->
+        worker_id == worker_dispatch_id(socket) and crf_attempt_matches?(video, job_id, video_id)
+
+      _ ->
+        false
+    end
+  end
+
+  defp discard_stale_crf_progress(socket, progress) do
+    _ = WorkerSessions.clear_job(socket.assigns.worker_id, progress.job_id)
+
+    {:reply, {:ok, WorkerProtocol.event_discarded("crf_search_progress", :stale_worker_attempt)},
+     clear_assigned_video(socket.assigns.worker_id, socket)}
   end
 
   defp ensure_crf_attempt(socket, %{job_id: job_id, video_id: video_id}) do

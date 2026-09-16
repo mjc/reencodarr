@@ -286,6 +286,36 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "discards late CRF progress after its attempt is requeued" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-crf")), :ok
+      assert_reply push(socket, "pull_work", %{}), :ok, %{job_id: job_id}
+
+      assert :ok = Media.requeue_worker_attempt(video.id, job_id, :crf_search)
+
+      assert_reply push(socket, "crf_search_progress", %{
+                     "job_id" => job_id,
+                     "video_id" => video.id,
+                     "percent" => 98.0,
+                     "sample_num" => 4,
+                     "total_samples" => 4
+                   }),
+                   :ok,
+                   %{accepted: false, discarded: true, reason: "stale_worker_attempt"}
+
+      assert %{active_video_id: nil, jobs: jobs} = WorkerSessions.get(socket.assigns.worker_id)
+      refute Map.has_key?(jobs, job_id)
+      assert Media.get_video(video.id).state == :analyzed
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "rejects transfer progress from a superseded attempt" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
@@ -1279,6 +1309,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
       {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
+      video_id = video.id
 
       {:ok, socket} = connect(WorkerSocket, %{"token" => token})
       {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
@@ -1294,7 +1325,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       ref =
         push(socket, "transfer_progress", %{
           "job_id" => job_id,
-          "video_id" => video.id,
+          "video_id" => video_id,
           "percent" => 5.0,
           "received_bytes" => 5,
           "expected_bytes" => 100
@@ -1305,7 +1336,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       ref =
         push(socket, "crf_search_progress", %{
           "job_id" => job_id,
-          "video_id" => video.id,
+          "video_id" => video_id,
           "percent" => 5.0,
           "fps" => 30.0,
           "crf" => 28.0,
@@ -1314,7 +1345,7 @@ defmodule ReencodarrWeb.WorkerChannelTest do
         })
 
       assert_reply ref, :ok, %{accepted: true, event: "crf_search_progress"}, 100
-      refute_receive {:media_get_video, _video_id}
+      assert_receive {:media_get_video, ^video_id}
     after
       Application.delete_env(:reencodarr, :worker_token)
     end
