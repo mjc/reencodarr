@@ -938,7 +938,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     with {:ok, progress} <- WorkerProtocol.parse_crf_search_progress(payload),
          true <- crf_job?(socket, progress.job_id, progress.video_id) do
       if current_crf_attempt?(socket, progress) do
-        :ok = WorkerSessions.set_crf_search_progress(socket.assigns.worker_id, progress)
+        :ok = WorkerSessions.record_crf_search_progress(socket.assigns.worker_id, progress)
         {:reply, {:ok, WorkerProtocol.event_ack("crf_search_progress")}, socket}
       else
         discard_stale_crf_progress(socket, progress)
@@ -1018,7 +1018,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp handle_encode_progress(payload, socket) do
     with {:ok, progress} <- WorkerProtocol.parse_encode_progress(payload),
          true <- encode_job?(socket, progress.job_id, progress.video_id) do
-      :ok = WorkerSessions.set_encode_progress(socket.assigns.worker_id, progress)
+      :ok = WorkerSessions.record_encode_progress(socket.assigns.worker_id, progress)
       {:reply, {:ok, WorkerProtocol.event_ack("encode_progress")}, socket}
     else
       _ -> {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}

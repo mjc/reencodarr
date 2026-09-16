@@ -145,6 +145,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.cast(__MODULE__, {:set_encode_progress, server_worker_id, progress})
   end
 
+  @spec record_encode_progress(String.t(), EncodeProgress.t()) :: :ok
+  def record_encode_progress(server_worker_id, %EncodeProgress{} = progress) do
+    GenServer.cast(__MODULE__, {:record_encode_progress, server_worker_id, progress})
+  end
+
   @spec clear_job(String.t(), String.t()) :: {:ok, session()} | {:error, atom()}
   def clear_job(server_worker_id, job_id) when is_binary(job_id) do
     GenServer.call(__MODULE__, {:clear_job, server_worker_id, job_id})
@@ -222,6 +227,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   @spec set_crf_search_progress(String.t(), CrfSearchProgress.t()) :: :ok
   def set_crf_search_progress(server_worker_id, %CrfSearchProgress{} = progress) do
     GenServer.cast(__MODULE__, {:set_crf_search_progress, server_worker_id, progress})
+  end
+
+  @spec record_crf_search_progress(String.t(), CrfSearchProgress.t()) :: :ok
+  def record_crf_search_progress(server_worker_id, %CrfSearchProgress{} = progress) do
+    GenServer.cast(__MODULE__, {:record_crf_search_progress, server_worker_id, progress})
   end
 
   def cancel(server_worker_id) do
@@ -640,6 +650,18 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     )
   end
 
+  def handle_cast(
+        {:record_encode_progress, server_worker_id, %EncodeProgress{} = progress},
+        state
+      ) do
+    update_telemetry(
+      server_worker_id,
+      state,
+      &put_record_encode_progress(&1, progress),
+      {:encoding_progress, Map.from_struct(progress)}
+    )
+  end
+
   def handle_cast({:set_transfer_progress, server_worker_id, progress}, state) do
     update_telemetry(
       server_worker_id,
@@ -657,6 +679,18 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       server_worker_id,
       state,
       &put_crf_search_progress(&1, progress),
+      {:crf_search_progress, progress}
+    )
+  end
+
+  def handle_cast(
+        {:record_crf_search_progress, server_worker_id, %CrfSearchProgress{} = progress},
+        state
+      ) do
+    update_telemetry(
+      server_worker_id,
+      state,
+      &put_record_crf_search_progress(&1, progress),
       {:crf_search_progress, progress}
     )
   end
@@ -744,6 +778,22 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     %{session | jobs: Map.put(session.jobs, progress.job_id, job), last_seen_at: now()}
   end
 
+  defp put_record_encode_progress(
+         %{jobs: jobs} = session,
+         %EncodeProgress{job_id: job_id, video_id: video_id} = progress
+       ) do
+    case jobs do
+      %{^job_id => %Job{job_type: :encode, video_id: ^video_id} = job} ->
+        updated_job = mark_job_activity(%Job{job | phase: :encoding, progress: progress})
+        {:ok, %{session | jobs: Map.put(jobs, job_id, updated_job), last_seen_at: now()}}
+
+      _ ->
+        {:error, :stale_worker_attempt}
+    end
+  end
+
+  defp put_record_encode_progress(_session, _progress), do: {:error, :stale_worker_attempt}
+
   defp put_transfer_progress(session, progress) do
     with {:ok, session} <- WorkerJobStateMachine.record_transfer_progress(session, progress) do
       job_id = Map.get(progress, :job_id) || Integer.to_string(session.active_video_id)
@@ -774,6 +824,30 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
          transfer_progress: nil
        )
        |> Map.put(:last_seen_at, now())}
+    end
+  end
+
+  defp put_record_crf_search_progress(
+         session,
+         %CrfSearchProgress{video_id: video_id, job_id: job_id} = progress
+       ) do
+    job_id = job_id || Integer.to_string(video_id)
+
+    case session.jobs do
+      %{^job_id => %Job{job_type: :crf_search, video_id: ^video_id} = existing_job} ->
+        progress = merge_crf_search_progress(crf_progress(existing_job), progress)
+
+        {:ok,
+         session
+         |> put_crf_job(video_id, :crf_searching,
+           job_id: job_id,
+           progress: progress,
+           transfer_progress: nil
+         )
+         |> Map.put(:last_seen_at, now())}
+
+      _ ->
+        {:error, :stale_worker_attempt}
     end
   end
 

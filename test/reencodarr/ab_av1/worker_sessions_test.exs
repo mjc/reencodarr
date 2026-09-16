@@ -318,6 +318,35 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
            } = session.jobs["123"]
   end
 
+  test "recording CRF progress cannot create a job" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert :ok =
+             WorkerSessions.record_crf_search_progress("worker-server-1", %CrfSearchProgress{
+               job_id: "123",
+               video_id: 123,
+               percent: 25.0
+             })
+
+    assert %{active_video_id: nil, jobs: %{}} = WorkerSessions.get("worker-server-1")
+  end
+
+  test "recording encode progress cannot create a job" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert :ok =
+             WorkerSessions.record_encode_progress("worker-server-1", %EncodeProgress{
+               job_id: "encode-123",
+               video_id: 123,
+               percent: 25.0,
+               fps: 30.0,
+               output_bytes: 100,
+               output_percent: 1.0
+             })
+
+    assert %{jobs: %{}} = WorkerSessions.get("worker-server-1")
+  end
+
   test "CRF progress preserves job control state" do
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
     assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", 123)
