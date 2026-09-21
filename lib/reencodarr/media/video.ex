@@ -44,6 +44,7 @@ defmodule Reencodarr.Media.Video do
           crf_search_worker_id: String.t() | nil,
           encode_worker_id: String.t() | nil,
           worker_attempt_id: String.t() | nil,
+          worker_last_seen_at: DateTime.t() | nil,
           worker_terminal_claimed_at: DateTime.t() | nil,
           mediainfo: map() | nil,
           inserted_at: DateTime.t() | nil,
@@ -86,6 +87,7 @@ defmodule Reencodarr.Media.Video do
     :crf_search_worker_id,
     :encode_worker_id,
     :worker_attempt_id,
+    :worker_last_seen_at,
     :worker_control_desired_state,
     :worker_control_acknowledged_state,
     :worker_control_command_id,
@@ -153,6 +155,7 @@ defmodule Reencodarr.Media.Video do
     field :crf_search_worker_id, :string
     field :encode_worker_id, :string
     field :worker_attempt_id, :string
+    field :worker_last_seen_at, :utc_datetime_usec
     field :worker_control_desired_state, Ecto.Enum, values: [:running, :paused, :stopped]
     field :worker_control_acknowledged_state, Ecto.Enum, values: [:running, :paused, :stopped]
     field :worker_control_command_id, :string

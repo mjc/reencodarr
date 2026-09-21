@@ -369,6 +369,31 @@ defmodule Reencodarr.Media do
     end
   end
 
+  @doc """
+  Records a heartbeat for a worker-owned attempt without changing the video's
+  normal update timestamp.
+  """
+  @spec touch_worker_attempt(pos_integer(), String.t()) :: :ok
+  def touch_worker_attempt(video_id, worker_id)
+      when is_integer(video_id) and is_binary(worker_id) do
+    now = DateTime.utc_now()
+
+    write(
+      fn ->
+        from(v in Video,
+          where:
+            v.id == ^video_id and
+              v.state in [:crf_searching, :encoding] and
+              (v.crf_search_worker_id == ^worker_id or v.encode_worker_id == ^worker_id)
+        )
+        |> Repo.update_all(set: [worker_last_seen_at: now])
+      end,
+      label: :media_touch_worker_attempt
+    )
+
+    :ok
+  end
+
   @worker_control_actions %{pause: :paused, resume: :running, stop: :stopped}
 
   @spec list_paused_worker_attempts_before(DateTime.t()) :: [
@@ -700,6 +725,7 @@ defmodule Reencodarr.Media do
             worker_control_desired_state: nil,
             worker_control_acknowledged_state: nil,
             worker_control_command_id: nil,
+            worker_last_seen_at: nil,
             worker_control_requested_at: nil,
             worker_control_reason: nil,
             worker_terminal_claimed_at: nil,
@@ -732,6 +758,7 @@ defmodule Reencodarr.Media do
             worker_control_desired_state: nil,
             worker_control_acknowledged_state: nil,
             worker_control_command_id: nil,
+            worker_last_seen_at: nil,
             worker_control_requested_at: nil,
             worker_control_reason: nil,
             worker_terminal_claimed_at: nil,
@@ -752,6 +779,7 @@ defmodule Reencodarr.Media do
             worker_control_desired_state: nil,
             worker_control_acknowledged_state: nil,
             worker_control_command_id: nil,
+            worker_last_seen_at: nil,
             worker_control_requested_at: nil,
             worker_control_reason: nil,
             worker_terminal_claimed_at: nil,
@@ -784,6 +812,7 @@ defmodule Reencodarr.Media do
             worker_control_desired_state: nil,
             worker_control_acknowledged_state: nil,
             worker_control_command_id: nil,
+            worker_last_seen_at: nil,
             worker_control_requested_at: nil,
             worker_control_reason: nil,
             worker_terminal_claimed_at: nil,
@@ -1890,10 +1919,10 @@ defmodule Reencodarr.Media do
       iex> Media.reset_orphaned_crf_searching()
       :ok
   """
-  @spec reset_orphaned_crf_searching([String.t()] | nil) :: :ok
-  def reset_orphaned_crf_searching(live_attempt_ids \\ nil)
+  @spec reset_orphaned_crf_searching([String.t()] | nil, DateTime.t() | nil) :: :ok
+  def reset_orphaned_crf_searching(live_attempt_ids \\ nil, protected_since \\ nil)
 
-  def reset_orphaned_crf_searching(nil) do
+  def reset_orphaned_crf_searching(nil, _protected_since) do
     exclude_id = CrfSearch.current_video_id()
 
     from(v in Video, where: v.state == :crf_searching and is_nil(v.crf_search_worker_id))
@@ -1901,13 +1930,15 @@ defmodule Reencodarr.Media do
     |> reset_videos("orphaned crf_searching videos → analyzed")
   end
 
-  def reset_orphaned_crf_searching(live_attempt_ids) when is_list(live_attempt_ids) do
+  def reset_orphaned_crf_searching(live_attempt_ids, protected_since)
+      when is_list(live_attempt_ids) do
     exclude_id = CrfSearch.current_video_id()
     live_attempt_ids = Enum.filter(live_attempt_ids, &is_binary/1)
 
     from(v in Video, where: v.state == :crf_searching)
     |> maybe_exclude_video(exclude_id)
     |> maybe_exclude_worker_attempts(live_attempt_ids)
+    |> maybe_exclude_recent_worker_attempts(protected_since)
     |> reset_videos_with_cleared_worker(
       "orphaned crf_searching videos → analyzed",
       :analyzed,
@@ -1925,8 +1956,17 @@ defmodule Reencodarr.Media do
       iex> Media.reset_orphaned_encoding()
       :ok
   """
-  @spec reset_orphaned_encoding([String.t()]) :: :ok
-  def reset_orphaned_encoding(live_attempt_ids \\ []) when is_list(live_attempt_ids) do
+  @spec reset_orphaned_encoding([String.t()] | nil, DateTime.t() | nil) :: :ok
+  def reset_orphaned_encoding(live_attempt_ids \\ nil, protected_since \\ nil)
+
+  def reset_orphaned_encoding(nil, protected_since),
+    do: reset_orphaned_encoding([], protected_since, true)
+
+  def reset_orphaned_encoding(live_attempt_ids, protected_since)
+      when is_list(live_attempt_ids),
+      do: reset_orphaned_encoding(live_attempt_ids, protected_since, false)
+
+  defp reset_orphaned_encoding(live_attempt_ids, protected_since, only_unowned?) do
     exclude_id = Encode.current_video_id()
     live_attempt_ids = Enum.filter(live_attempt_ids, &is_binary/1)
 
@@ -1937,7 +1977,9 @@ defmodule Reencodarr.Media do
           {with_vmaf, _} =
             from(v in Video, where: v.state == :encoding, where: not is_nil(v.chosen_vmaf_id))
             |> maybe_exclude_video(exclude_id)
+            |> maybe_exclude_worker_owned(only_unowned?)
             |> maybe_exclude_worker_attempts(live_attempt_ids)
+            |> maybe_exclude_recent_worker_attempts(protected_since)
             |> Repo.update_all(
               set: [
                 state: :crf_searched,
@@ -1948,6 +1990,7 @@ defmodule Reencodarr.Media do
                 worker_control_command_id: nil,
                 worker_control_requested_at: nil,
                 worker_control_reason: nil,
+                worker_last_seen_at: nil,
                 worker_terminal_claimed_at: nil,
                 updated_at: DateTime.utc_now()
               ]
@@ -1958,7 +2001,9 @@ defmodule Reencodarr.Media do
           {without_vmaf, _} =
             from(v in Video, where: v.state == :encoding, where: is_nil(v.chosen_vmaf_id))
             |> maybe_exclude_video(exclude_id)
+            |> maybe_exclude_worker_owned(only_unowned?)
             |> maybe_exclude_worker_attempts(live_attempt_ids)
+            |> maybe_exclude_recent_worker_attempts(protected_since)
             |> Repo.update_all(
               set: [
                 state: :analyzed,
@@ -1969,6 +2014,7 @@ defmodule Reencodarr.Media do
                 worker_control_command_id: nil,
                 worker_control_requested_at: nil,
                 worker_control_reason: nil,
+                worker_last_seen_at: nil,
                 worker_terminal_claimed_at: nil,
                 updated_at: DateTime.utc_now()
               ]
@@ -1979,22 +2025,23 @@ defmodule Reencodarr.Media do
         label: :media_reset_orphaned_encoding
       )
 
-    case {with_vmaf, without_vmaf} do
-      {with_vmaf, without_vmaf} when is_integer(with_vmaf) and is_integer(without_vmaf) ->
-        total = with_vmaf + without_vmaf
-
-        if total > 0 do
-          Logger.info(
-            "Reset #{total} orphaned encoding videos (#{with_vmaf} → crf_searched, #{without_vmaf} → analyzed)"
-          )
-        end
-
-      _ ->
-        :ok
-    end
+    log_orphaned_encoding_reset(with_vmaf, without_vmaf)
 
     :ok
   end
+
+  defp log_orphaned_encoding_reset(with_vmaf, without_vmaf)
+       when is_integer(with_vmaf) and is_integer(without_vmaf) do
+    total = with_vmaf + without_vmaf
+
+    if total > 0 do
+      Logger.info(
+        "Reset #{total} orphaned encoding videos (#{with_vmaf} → crf_searched, #{without_vmaf} → analyzed)"
+      )
+    end
+  end
+
+  defp log_orphaned_encoding_reset(_with_vmaf, _without_vmaf), do: :ok
 
   @doc """
   Reclaims encoder-owned orphaned work.
@@ -2053,6 +2100,7 @@ defmodule Reencodarr.Media do
             {:worker_control_desired_state, nil},
             {:worker_control_acknowledged_state, nil},
             {:worker_control_command_id, nil},
+            {:worker_last_seen_at, nil},
             {:worker_terminal_claimed_at, nil},
             {:updated_at, DateTime.utc_now()}
           ]
@@ -2083,6 +2131,21 @@ defmodule Reencodarr.Media do
       from(v in query,
         where: is_nil(v.worker_attempt_id) or v.worker_attempt_id not in ^attempt_ids
       )
+
+  defp maybe_exclude_worker_owned(query, false), do: query
+
+  defp maybe_exclude_worker_owned(query, true),
+    do: from(v in query, where: is_nil(v.encode_worker_id))
+
+  defp maybe_exclude_recent_worker_attempts(query, nil), do: query
+
+  defp maybe_exclude_recent_worker_attempts(query, protected_since) do
+    from(v in query,
+      where:
+        is_nil(v.worker_attempt_id) or is_nil(v.worker_last_seen_at) or
+          v.worker_last_seen_at < ^protected_since
+    )
+  end
 
   @doc """
   Counts videos that would generate invalid audio encoding arguments (b:a=0k, ac=0).
