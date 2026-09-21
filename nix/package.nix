@@ -101,7 +101,7 @@ in
 
     nativeBuildInputs = [
       pkgs.brotli
-      pkgs.tailwindcss
+      pkgs.tailwindcss_4
       pkgs.esbuild
     ];
 
@@ -118,12 +118,12 @@ in
 
     preBuild = ''
       cat >> config/config.exs <<EOF
-      config :tailwind, path: "${lib.getExe pkgs.tailwindcss}"
+      config :tailwind, path: "${lib.getExe pkgs.tailwindcss_4}"
       config :esbuild, path: "${lib.getExe pkgs.esbuild}"
       EOF
 
       for target in linux-x64 linux-arm64 macos-x64 macos-arm64; do
-        ln -sf "${lib.getExe pkgs.tailwindcss}" "_build/tailwind-$target"
+        ln -sf "${lib.getExe pkgs.tailwindcss_4}" "_build/tailwind-$target"
         ln -sf "${lib.getExe pkgs.esbuild}" "_build/esbuild-$target"
       done
     '';

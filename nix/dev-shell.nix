@@ -22,7 +22,7 @@
       '';
   });
   erlang = beam_minimal.interpreters.erlang_29;
-  beamPackages = beam_minimal.packagesWith erlang;
+  beamPackages = beam_minimal.packages.erlang_29;
   elixir = beamPackages.elixir_1_20;
   rebar3 = beamPackages.rebar3.overrideAttrs (_old: {
     doCheck = false;
@@ -43,7 +43,7 @@ in
         beamPackages.rebar
         rebar3
         beamPackages.rebar3-nix
-        pkgs.tailwindcss
+        pkgs.tailwindcss_4
         pkgs.git
         pkgs.gh
         pkgs.cspell
