@@ -27,6 +27,27 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert {:error, :unknown_worker_session} = WorkerSessions.finish_transfer("missing-worker")
   end
 
+  test "recovers a job after the in-memory session registry is lost" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+    WorkerSessions.reset()
+
+    assert {:ok, session} =
+             WorkerSessions.recover_job(
+               "worker-server-1",
+               worker_session_attrs(),
+               %Job{
+                 job_id: "crf-recovered",
+                 job_type: :crf_search,
+                 video_id: 123,
+                 phase: :crf_searching
+               }
+             )
+
+    assert session.jobs["crf-recovered"].video_id == 123
+    assert session.active_video_id == 123
+    assert session.phase == :crf_searching
+  end
+
   test "telemetry updates never wait for the session process" do
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
     assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", 123)

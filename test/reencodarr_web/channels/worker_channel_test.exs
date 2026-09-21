@@ -1305,6 +1305,37 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "heartbeat restores an active job after the session registry is lost" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :crf_searching,
+          crf_search_worker_id: "worker-reconnect",
+          worker_attempt_id: "crf-reconnect"
+        })
+
+      video_id = video.id
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-reconnect")),
+                   :ok
+
+      WorkerSessions.reset()
+
+      assert_reply push(socket, "heartbeat", %{"active_video_id" => video_id}),
+                   :ok,
+                   %{accepted: true}
+
+      assert %{active_video_id: ^video_id, jobs: %{"crf-reconnect" => _}} =
+               WorkerSessions.get(socket.assigns.worker_id)
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "progress acknowledgements do not wait for worker session storage" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
