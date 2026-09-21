@@ -130,6 +130,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
     GenServer.call(__MODULE__, {:assign_job, server_worker_id, job})
   end
 
+  @spec recover_job(String.t(), map(), Job.t()) :: {:ok, session()} | {:error, atom()}
+  def recover_job(server_worker_id, attrs, %Job{} = job) when is_binary(server_worker_id) do
+    GenServer.call(__MODULE__, {:recover_job, server_worker_id, attrs, job})
+  end
+
   @spec set_job_transfer_progress(String.t(), String.t(), map(), Job.phase()) :: :ok
   def set_job_transfer_progress(server_worker_id, job_id, progress, phase)
       when is_binary(server_worker_id) and is_binary(job_id) and is_map(progress) and
@@ -400,6 +405,35 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       job = mark_job_activity(job)
       %{session | jobs: Map.put(session.jobs, job.job_id, job), last_seen_at: now()}
     end)
+  end
+
+  def handle_call({:recover_job, server_worker_id, attrs, %Job{} = job}, _from, state) do
+    case lookup_session(server_worker_id) do
+      {:ok, session} ->
+        recover_job_in_session(session, job, state)
+
+      :error ->
+        with {:ok, client_worker_id} <- required_attr(attrs, :client_worker_id),
+             {:ok, version} <- required_attr(attrs, :version),
+             {:ok, protocol_version} <- required_attr(attrs, :protocol_version),
+             {:ok, capabilities} <- required_attr(attrs, :capabilities) do
+          session =
+            build_session(
+              server_worker_id,
+              client_worker_id,
+              version,
+              protocol_version,
+              capabilities,
+              now()
+            )
+
+          :ok = drop_existing_client_session(client_worker_id)
+
+          recover_job_in_session(session, job, state)
+        else
+          :error -> {:reply, {:error, :invalid_session_attrs}, state}
+        end
+    end
   end
 
   def handle_call({:set_job_activity_at, server_worker_id, job_id, activity_at}, _from, state) do
@@ -710,12 +744,13 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   def handle_info(:reset_orphans, state) do
     crf_attempt_ids = live_attempt_ids(:crf_search)
     encode_attempt_ids = live_attempt_ids(:encode)
+    protected_since = DateTime.add(now(), -@orphan_reset_grace_seconds, :second)
 
     DbWriter.enqueue(
       fn ->
         :ok = Media.release_worker_terminal_claims_before(state.started_at)
-        :ok = Media.reset_orphaned_crf_searching(crf_attempt_ids)
-        :ok = Media.reset_orphaned_encoding(encode_attempt_ids)
+        :ok = Media.reset_orphaned_crf_searching(crf_attempt_ids, protected_since)
+        :ok = Media.reset_orphaned_encoding(encode_attempt_ids, protected_since)
       end,
       label: :worker_orphan_recovery
     )
@@ -1080,6 +1115,34 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   defp update_session_reply(server_worker_id, state, update_fun) do
     {:reply, update_session(server_worker_id, update_fun), state}
+  end
+
+  defp recover_job_in_session(session, %Job{} = job, state) do
+    if Map.has_key?(session.jobs, job.job_id) do
+      {:reply, {:ok, session}, state}
+    else
+      job = mark_job_activity(job)
+
+      updated_session = %{
+        session
+        | jobs: Map.put(session.jobs, job.job_id, job),
+          last_seen_at: now()
+      }
+
+      updated_session = derive_crf_summary(updated_session)
+      :ok = put_session(updated_session)
+      {:reply, {:ok, updated_session}, state}
+    end
+  end
+
+  defp drop_existing_client_session(client_worker_id) do
+    case lookup_client(client_worker_id) do
+      old_server_worker_id when is_binary(old_server_worker_id) ->
+        drop_session(old_server_worker_id)
+
+      nil ->
+        :ok
+    end
   end
 
   defp update_session(server_worker_id, update_fun) do

@@ -82,7 +82,9 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   def handle_in("heartbeat", payload, %{assigns: %{worker_id: worker_id}} = socket) do
-    :ok = WorkerSessions.touch(worker_id, WorkerProtocol.parse_resource_usage(payload))
+    resource_usage = WorkerProtocol.parse_resource_usage(payload)
+    :ok = WorkerSessions.touch(worker_id, resource_usage)
+    recover_worker_heartbeat(socket, resource_usage)
     last_seen_at = DateTime.utc_now() |> DateTime.truncate(:second)
     {:reply, {:ok, WorkerProtocol.heartbeat_ack(last_seen_at)}, socket}
   end
@@ -480,6 +482,67 @@ defmodule ReencodarrWeb.WorkerChannel do
     else
       handle_crf_work_request(payload, worker_id, socket)
     end
+  end
+
+  defp recover_worker_heartbeat(
+         %{assigns: %{worker_id: server_worker_id, client_worker_id: client_worker_id}} = socket,
+         %{active_video_id: video_id}
+       )
+       when is_integer(video_id) do
+    Media.touch_worker_attempt(video_id, client_worker_id)
+
+    case Media.get_video(video_id) do
+      %Media.Video{
+        state: :crf_searching,
+        crf_search_worker_id: ^client_worker_id,
+        worker_attempt_id: job_id
+      }
+      when is_binary(job_id) ->
+        recover_worker_job(
+          socket,
+          server_worker_id,
+          job_id,
+          :crf_search,
+          video_id,
+          :crf_searching
+        )
+
+      %Media.Video{
+        state: :encoding,
+        encode_worker_id: ^client_worker_id,
+        worker_attempt_id: job_id
+      }
+      when is_binary(job_id) ->
+        recover_worker_job(socket, server_worker_id, job_id, :encode, video_id, :encoding)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp recover_worker_heartbeat(_socket, _resource_usage), do: :ok
+
+  defp recover_worker_job(
+         socket,
+         server_worker_id,
+         job_id,
+         job_type,
+         video_id,
+         phase
+       ) do
+    _ =
+      WorkerSessions.recover_job(
+        server_worker_id,
+        %{
+          client_worker_id: socket.assigns.client_worker_id,
+          version: socket.assigns.client_version,
+          protocol_version: socket.assigns.protocol_version,
+          capabilities: socket.assigns.capabilities
+        },
+        %Job{job_id: job_id, job_type: job_type, video_id: video_id, phase: phase}
+      )
+
+    :ok
   end
 
   defp handle_crf_work_request(payload, worker_id, socket) do

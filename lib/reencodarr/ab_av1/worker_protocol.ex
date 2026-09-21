@@ -833,7 +833,8 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
           "disk_total_bytes",
           :total_disk_bytes,
           "total_disk_bytes"
-        ])
+        ]),
+      active_video_id: optional_integer(payload, [:active_video_id, "active_video_id"])
     ]
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
