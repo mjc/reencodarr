@@ -604,6 +604,23 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert output =~ "Local Worker Process:"
   end
 
+  test "diagnostics recognize worker-owned encode as active" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :encoding})
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-456",
+               job_type: :encode,
+               video_id: video.id
+             })
+
+    output = Diagnostics.stuck()
+
+    assert output =~ "ACTIVE in worker Encode"
+    refute output =~ "ORPHANED?"
+  end
+
   test "diagnostics identify worker execution mode without reporting Broadway as failed" do
     previous = Application.get_env(:reencodarr, :crf_execution_mode)
     previous_supervision = Application.get_env(:reencodarr, :supervise_local_worker)
