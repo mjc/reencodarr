@@ -360,13 +360,13 @@ defmodule Reencodarr.Rules do
   Tune mode selection.
 
   - Stock SVT-AV1: tune=0 (VQ — subjective quality, recommended for personal use)
-  - svt-av1-hdr + vintage content: tune=5 (Film Grain mode)
+  - svt-av1-hdr + vintage content: tune=6 (Film Grain mode)
   - svt-av1-hdr + modern content: tune=2 (SSIM)
   """
   @spec tune(Media.Video.t(), boolean()) :: list()
   def tune(video, hdr_fork) do
     cond do
-      hdr_fork && vintage_content?(video) -> [{"--svt", "tune=5"}]
+      hdr_fork && vintage_content?(video) -> [{"--svt", "tune=6"}]
       hdr_fork -> [{"--svt", "tune=2"}]
       true -> [{"--svt", "tune=0"}]
     end

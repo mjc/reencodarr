@@ -1005,14 +1005,14 @@ defmodule Reencodarr.RulesTest do
       end
     end
 
-    test "hdr fork returns tune=5 for vintage content" do
+    test "hdr fork returns tune=6 for vintage content" do
       video = Fixtures.create_test_video(%{content_year: 1999})
-      assert Rules.tune(video, true) == [{"--svt", "tune=5"}]
+      assert Rules.tune(video, true) == [{"--svt", "tune=6"}]
     end
 
-    test "hdr fork returns tune=5 for vintage content at boundary (2008)" do
+    test "hdr fork returns tune=6 for vintage content at boundary (2008)" do
       video = Fixtures.create_test_video(%{content_year: 2008})
-      assert Rules.tune(video, true) == [{"--svt", "tune=5"}]
+      assert Rules.tune(video, true) == [{"--svt", "tune=6"}]
     end
 
     test "hdr fork returns tune=2 for modern content (2009+)" do
@@ -1030,14 +1030,14 @@ defmodule Reencodarr.RulesTest do
       assert Rules.tune(video, true) == [{"--svt", "tune=2"}]
     end
 
-    test "hdr fork returns tune=5 for vintage content detected from path" do
+    test "hdr fork returns tune=6 for vintage content detected from path" do
       video =
         Fixtures.create_test_video(%{
           content_year: nil,
           path: "/movies/Blade Runner (1982)/movie.mkv"
         })
 
-      assert Rules.tune(video, true) == [{"--svt", "tune=5"}]
+      assert Rules.tune(video, true) == [{"--svt", "tune=6"}]
     end
   end
 

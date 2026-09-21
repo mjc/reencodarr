@@ -32,7 +32,7 @@ defmodule Reencodarr.Encoder.Capabilities do
   defp probe do
     args = ~w[
       -f lavfi -i nullsrc=s=16x16:r=1 -t 0.04
-      -c:v libsvtav1 -svtav1-params tune=5 -f null -
+      -c:v libsvtav1 -svtav1-params tune=6 -f null -
     ]
 
     match?({_, 0}, System.cmd("ffmpeg", args, stderr_to_stdout: true))
