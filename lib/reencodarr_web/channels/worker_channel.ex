@@ -2486,7 +2486,12 @@ defmodule ReencodarrWeb.WorkerChannel do
           push(
             socket,
             "transfer_failed",
-            WorkerProtocol.transfer_failed(video, Integer.to_string(video.id), message)
+            WorkerProtocol.transfer_failed(
+              video,
+              socket.assigns[:crf_job_id] || video.worker_attempt_id ||
+                Integer.to_string(video.id),
+              message
+            )
           )
 
         socket

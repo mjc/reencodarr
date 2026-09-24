@@ -662,6 +662,9 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
       status: "transfer_failed",
       video_id: video_id,
       transfer_id: transfer_id,
+      job_id: transfer_id,
+      stage: "receive_chunk",
+      retriable: true,
       reason: reason
     }
   end

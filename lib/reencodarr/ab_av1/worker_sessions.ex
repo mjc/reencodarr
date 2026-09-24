@@ -429,19 +429,26 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
              {:ok, version} <- required_attr(attrs, :version),
              {:ok, protocol_version} <- required_attr(attrs, :protocol_version),
              {:ok, capabilities} <- required_attr(attrs, :capabilities) do
-          session =
-            build_session(
-              server_worker_id,
-              client_worker_id,
-              version,
-              protocol_version,
-              capabilities,
-              now()
-            )
+          case lookup_client(client_worker_id) do
+            nil ->
+              session =
+                build_session(
+                  server_worker_id,
+                  client_worker_id,
+                  version,
+                  protocol_version,
+                  capabilities,
+                  now()
+                )
 
-          :ok = drop_existing_client_session(client_worker_id)
+              recover_job_in_session(session, job, state)
 
-          recover_job_in_session(session, job, state)
+            ^server_worker_id ->
+              {:reply, {:error, :unknown_worker_session}, state}
+
+            _newer_server_worker_id ->
+              {:reply, {:error, :superseded_worker_session}, state}
+          end
         else
           :error -> {:reply, {:error, :invalid_session_attrs}, state}
         end
@@ -1184,16 +1191,6 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       updated_session = derive_crf_summary(updated_session)
       :ok = put_session(updated_session)
       {:reply, {:ok, updated_session}, state}
-    end
-  end
-
-  defp drop_existing_client_session(client_worker_id) do
-    case lookup_client(client_worker_id) do
-      old_server_worker_id when is_binary(old_server_worker_id) ->
-        drop_session(old_server_worker_id)
-
-      nil ->
-        :ok
     end
   end
 

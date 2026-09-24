@@ -2111,7 +2111,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
           state: :crf_searching,
           path: missing_path,
           size: 8,
-          crf_search_worker_id: "worker-a"
+          crf_search_worker_id: "worker-a",
+          worker_attempt_id: "crf-missing"
         })
 
       video_id = video.id
@@ -2130,10 +2131,13 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert_push "transfer_failed", %{
         status: "transfer_failed",
         video_id: ^video_id,
-        transfer_id: transfer_id
+        transfer_id: transfer_id,
+        job_id: transfer_id,
+        stage: "receive_chunk",
+        retriable: true
       }
 
-      assert transfer_id == Integer.to_string(video_id)
+      assert transfer_id == "crf-missing"
       refute_push "transfer_started", _, 50
     after
       Application.delete_env(:reencodarr, :worker_token)

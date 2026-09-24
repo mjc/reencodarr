@@ -566,7 +566,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
            } = Media.get_video(video.id)
   end
 
-  test "reconnect does not retain a superseded session job" do
+  test "reconnect recreates only the persisted current attempt" do
     {:ok, video} =
       Fixtures.video_fixture(%{
         state: :crf_searching,
@@ -587,9 +587,18 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert {:ok, reconnected} =
              WorkerSessions.register(worker_session_attrs(server_worker_id: "worker-server-2"))
 
-    assert reconnected.jobs == %{}
-    assert is_nil(reconnected.active_video_id)
-    assert reconnected.phase == :idle
+    video_id = video.id
+
+    assert %{
+             "crf-new" => %Job{
+               job_id: "crf-new",
+               video_id: ^video_id,
+               job_type: :crf_search
+             }
+           } = reconnected.jobs
+
+    assert reconnected.active_video_id == video.id
+    assert reconnected.phase == :crf_searching
   end
 
   test "stale canonical control IDs cannot target a replacement attempt" do
@@ -612,6 +621,29 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert :error = WorkerSessions.request_control("worker-server-1", "crf-old", :stop)
 
     assert %{state: :crf_searching, worker_attempt_id: "crf-new"} = Media.get_video(video.id)
+  end
+
+  test "old session recovery cannot evict a newer connection" do
+    assert {:ok, _session} =
+             WorkerSessions.register(worker_session_attrs(server_worker_id: "server-old"))
+
+    assert {:ok, newer_session} =
+             WorkerSessions.register(worker_session_attrs(server_worker_id: "server-new"))
+
+    assert {:error, :superseded_worker_session} =
+             WorkerSessions.recover_job(
+               "server-old",
+               worker_session_attrs(),
+               %Job{
+                 job_id: "crf-old",
+                 job_type: :crf_search,
+                 video_id: 123,
+                 phase: :crf_searching
+               }
+             )
+
+    assert WorkerSessions.get("server-new") == newer_session
+    assert is_nil(WorkerSessions.get("server-old"))
   end
 
   test "timer-driven stale expiry removes old sessions" do
