@@ -301,7 +301,8 @@ defmodule Reencodarr.Media.VideoQueries do
           attempt_id,
           admit?,
           nil,
-          repo_opts
+          repo_opts,
+          []
         )
       end,
       label: :video_queries_claim_next_video_for_encoding
@@ -343,8 +344,11 @@ defmodule Reencodarr.Media.VideoQueries do
     )
   end
 
-  defp encoding_queue_candidate_ids(limit, opts) do
-    Repo.all(
+  defp encoding_queue_candidate_ids(limit, opts),
+    do: encoding_queue_candidate_ids(limit, opts, [])
+
+  defp encoding_queue_candidate_ids(limit, opts, seen_ids) do
+    query =
       from(vid in Video,
         join: v in Vmaf,
         on: vid.chosen_vmaf_id == v.id,
@@ -352,30 +356,39 @@ defmodule Reencodarr.Media.VideoQueries do
         order_by: [desc: vid.priority, desc: v.savings, desc: vid.updated_at],
         limit: ^limit,
         select: vid.id
-      ),
-      opts
-    )
+      )
+
+    query =
+      if seen_ids == [] do
+        query
+      else
+        from([vid, _v] in query, where: vid.id not in ^seen_ids)
+      end
+
+    Repo.all(query, opts)
   end
 
   defp claim_next_video_for_encoding_in_tx(
          [],
-         _worker_id,
-         _attempt_id,
-         _admit?,
+         worker_id,
+         attempt_id,
+         admit?,
          nil,
-         _opts
+         opts,
+         seen_ids
        ),
-       do: :none
+       do: continue_encoding_claim(worker_id, attempt_id, admit?, nil, opts, seen_ids)
 
   defp claim_next_video_for_encoding_in_tx(
          [],
-         _worker_id,
-         _attempt_id,
-         _admit?,
+         worker_id,
+         attempt_id,
+         admit?,
          rejected,
-         _opts
+         opts,
+         seen_ids
        ),
-       do: {:rejected, rejected}
+       do: continue_encoding_claim(worker_id, attempt_id, admit?, rejected, opts, seen_ids)
 
   defp claim_next_video_for_encoding_in_tx(
          [video_id | rest],
@@ -383,8 +396,10 @@ defmodule Reencodarr.Media.VideoQueries do
          attempt_id,
          admit?,
          rejected,
-         opts
+         opts,
+         seen_ids
        ) do
+    seen_ids = [video_id | seen_ids]
     old_snapshot = Reencodarr.Media.fetch_dashboard_video_snapshot_by_id(video_id)
     video = Repo.get!(Video, video_id)
     vmaf = Repo.get!(Vmaf, video.chosen_vmaf_id)
@@ -428,7 +443,8 @@ defmodule Reencodarr.Media.VideoQueries do
             attempt_id,
             admit?,
             rejected,
-            opts
+            opts,
+            seen_ids
           )
       end
     else
@@ -438,8 +454,30 @@ defmodule Reencodarr.Media.VideoQueries do
         attempt_id,
         admit?,
         rejected || %{vmaf | video: video},
-        opts
+        opts,
+        seen_ids
       )
+    end
+  end
+
+  defp continue_encoding_claim(worker_id, attempt_id, admit?, rejected, opts, seen_ids) do
+    case encoding_queue_candidate_ids(10, opts, seen_ids) do
+      [] when is_nil(rejected) ->
+        :none
+
+      [] ->
+        {:rejected, rejected}
+
+      candidate_ids ->
+        claim_next_video_for_encoding_in_tx(
+          candidate_ids,
+          worker_id,
+          attempt_id,
+          admit?,
+          rejected,
+          opts,
+          seen_ids
+        )
     end
   end
 

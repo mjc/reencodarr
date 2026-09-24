@@ -451,6 +451,46 @@ defmodule Reencodarr.Media.VideoQueriesTest do
       assert Reencodarr.Media.get_video(rejected.id).state == :crf_searched
     end
 
+    test "continues past an entire rejected candidate page" do
+      rejected_videos =
+        for index <- 1..10 do
+          {:ok, video} =
+            Fixtures.video_fixture(%{
+              path: "/test/claim_encoding_rejected_page_#{index}.mkv",
+              state: :crf_searched,
+              priority: 1_000 - index
+            })
+
+          vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+          Fixtures.choose_vmaf(video, vmaf)
+          video
+        end
+
+      {:ok, admitted} =
+        Fixtures.video_fixture(%{
+          path: "/test/claim_encoding_admitted_page.mkv",
+          state: :crf_searched,
+          priority: 1
+        })
+
+      admitted_vmaf = Fixtures.vmaf_fixture(%{video_id: admitted.id, crf: 25.0})
+      Fixtures.choose_vmaf(admitted, admitted_vmaf)
+
+      assert %{video: claimed} =
+               VideoQueries.claim_next_video_for_encoding(
+                 "worker-a",
+                 "attempt-page",
+                 admit?: fn video, _vmaf -> video.id == admitted.id end
+               )
+
+      assert claimed.id == admitted.id
+
+      assert Enum.all?(
+               rejected_videos,
+               &(Reencodarr.Media.get_video(&1.id).state == :crf_searched)
+             )
+    end
+
     test "atomically assigns the worker and attempt while claiming the video" do
       {:ok, video} =
         Fixtures.video_fixture(%{
