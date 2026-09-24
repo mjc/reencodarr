@@ -843,12 +843,10 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   defp put_transfer_progress(session, progress) do
     with {:ok, session} <- WorkerJobStateMachine.record_transfer_progress(session, progress) do
-      job_id = Map.get(progress, :job_id) || Integer.to_string(session.active_video_id)
-
       {:ok,
        session
        |> put_crf_job(session.active_video_id, session.phase,
-         job_id: job_id,
+         job_id: Map.get(progress, :job_id),
          transfer_progress: progress,
          progress: nil
        )
@@ -857,7 +855,6 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   defp put_crf_search_progress(session, %CrfSearchProgress{} = progress) do
-    job_id = progress.job_id || Integer.to_string(progress.video_id)
     existing_job = Enum.find(Map.values(session.jobs), &match?(%Job{job_type: :crf_search}, &1))
 
     with :ok <- ensure_crf_video(existing_job, progress.video_id) do
@@ -866,7 +863,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       {:ok,
        session
        |> put_crf_job(progress.video_id, :crf_searching,
-         job_id: job_id,
+         job_id: progress.job_id,
          progress: progress,
          transfer_progress: nil
        )
@@ -878,16 +875,15 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
          session,
          %CrfSearchProgress{video_id: video_id, job_id: job_id} = progress
        ) do
-    job_id = job_id || Integer.to_string(video_id)
-
-    case session.jobs do
-      %{^job_id => %Job{job_type: :crf_search, video_id: ^video_id} = existing_job} ->
+    case crf_job_for_video(session, video_id) do
+      %Job{job_id: existing_job_id} = existing_job
+      when is_nil(job_id) or job_id == existing_job_id ->
         progress = merge_crf_search_progress(crf_progress(existing_job), progress)
 
         {:ok,
          session
          |> put_crf_job(video_id, :crf_searching,
-           job_id: job_id,
+           job_id: existing_job_id,
            progress: progress,
            transfer_progress: nil
          )
@@ -952,13 +948,11 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   @spec put_crf_job(session(), pos_integer(), Job.phase(), keyword()) :: session()
   defp put_crf_job(session, video_id, phase, opts \\ []) when is_integer(video_id) do
-    job_id = Keyword.get(opts, :job_id) || Integer.to_string(video_id)
+    existing_job = crf_job_for_video(session, video_id)
+    job_id = crf_job_id(session, video_id, Keyword.get(opts, :job_id), existing_job)
 
     job =
-      case Enum.find(
-             Map.values(session.jobs),
-             &match?(%Job{job_type: :crf_search, video_id: ^video_id}, &1)
-           ) do
+      case existing_job do
         %Job{} = job ->
           job
 
@@ -987,6 +981,42 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       |> Map.put(job_id, job)
 
     %{session | jobs: jobs}
+  end
+
+  defp crf_job_id(_session, _video_id, job_id, %Job{job_id: job_id}) when is_binary(job_id),
+    do: job_id
+
+  defp crf_job_id(_session, _video_id, nil, %Job{job_id: job_id}), do: job_id
+
+  defp crf_job_id(session, video_id, requested_job_id, existing_job) do
+    persisted_job_id =
+      case Media.get_video(video_id) do
+        %Media.Video{
+          state: :crf_searching,
+          crf_search_worker_id: worker_id,
+          worker_attempt_id: attempt_id
+        }
+        when worker_id == session.client_worker_id and is_binary(attempt_id) ->
+          attempt_id
+
+        _ ->
+          nil
+      end
+
+    fallback_job_id =
+      case existing_job do
+        %Job{job_id: job_id} -> job_id
+        nil -> Integer.to_string(video_id)
+      end
+
+    persisted_job_id || requested_job_id || fallback_job_id
+  end
+
+  defp crf_job_for_video(session, video_id) do
+    Enum.find(
+      Map.values(session.jobs),
+      &match?(%Job{job_type: :crf_search, video_id: ^video_id}, &1)
+    )
   end
 
   @spec maybe_put_crf_job(session(), pos_integer() | nil, Job.phase()) :: session()
