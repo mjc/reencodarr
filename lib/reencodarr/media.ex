@@ -206,22 +206,7 @@ defmodule Reencodarr.Media do
   end
 
   def upsert_video(attrs) do
-    path = get_any(attrs, [:path, "path"])
-    old_video = if is_binary(path), do: fetch_dashboard_video_snapshot_by_path(path)
-
-    write(
-      fn ->
-        %Video{}
-        |> Video.changeset(attrs)
-        |> Repo.insert(
-          on_conflict: {:replace_all_except, [:id, :inserted_at, :updated_at]},
-          conflict_target: :path,
-          returning: true
-        )
-        |> tap(&broadcast_upserted_video(&1, old_video))
-      end,
-      label: :media_upsert_video
-    )
+    VideoUpsert.upsert(attrs)
   end
 
   def batch_upsert_videos(video_attrs_list) do
@@ -3802,18 +3787,6 @@ defmodule Reencodarr.Media do
     Logger.info("Completed resetting #{total} videos for reanalysis")
     total
   end
-
-  defp broadcast_upserted_video({:ok, %Video{} = video}, old_video) do
-    action = if old_video, do: :update, else: :insert
-
-    broadcast_video_mutation(
-      action,
-      old_video,
-      fetch_dashboard_video_snapshot_by_id(video.id)
-    )
-  end
-
-  defp broadcast_upserted_video(_result, _old_video), do: :ok
 
   defp next_reanalysis_batch([]), do: nil
 

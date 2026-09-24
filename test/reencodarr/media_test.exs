@@ -2516,6 +2516,43 @@ defmodule Reencodarr.MediaTest do
       assert updated.service_id == "updated"
     end
 
+    test "upsert_video/1 preserves live worker fields when sync sends defaults" do
+      {:ok, existing} =
+        Fixtures.video_fixture(%{
+          state: :encoding,
+          duration: 3600.0,
+          encode_worker_id: "worker-a",
+          worker_attempt_id: "encode-live",
+          worker_control_desired_state: :paused,
+          worker_control_acknowledged_state: :paused,
+          worker_control_command_id: "command-live"
+        })
+
+      attrs = %{
+        "path" => existing.path,
+        "library_id" => existing.library_id,
+        "service_type" => existing.service_type,
+        "service_id" => existing.service_id,
+        "size" => existing.size,
+        "duration" => 3601.0,
+        "state" => "needs_analysis",
+        "crf_search_worker_id" => nil,
+        "encode_worker_id" => nil,
+        "worker_attempt_id" => nil,
+        "worker_control_desired_state" => nil,
+        "worker_control_acknowledged_state" => nil,
+        "worker_control_command_id" => nil
+      }
+
+      assert {:ok, updated} = Media.upsert_video(attrs)
+      assert updated.state == :encoding
+      assert updated.encode_worker_id == "worker-a"
+      assert updated.worker_attempt_id == "encode-live"
+      assert updated.worker_control_desired_state == :paused
+      assert updated.worker_control_acknowledged_state == :paused
+      assert updated.worker_control_command_id == "command-live"
+    end
+
     test "upsert_video/1 returns error for invalid attrs" do
       {:error, changeset} = Media.upsert_video(%{})
 
