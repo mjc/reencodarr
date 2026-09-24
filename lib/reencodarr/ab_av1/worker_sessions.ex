@@ -192,8 +192,20 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   def request_control(server_worker_id, job_id, action)
       when is_binary(server_worker_id) and is_binary(job_id) and
              action in [:pause, :resume, :stop] do
-    with %{jobs: %{^job_id => %{video_id: video_id}}} <- get(server_worker_id),
-         {:ok, command} <- Media.request_worker_control(video_id, job_id, action),
+    with %{client_worker_id: _client_worker_id} = session <- get(server_worker_id),
+         {:ok, video_id, attempt_id, job_type} <- resolve_control_attempt(session, job_id),
+         {:ok, _session} <-
+           recover_job(
+             server_worker_id,
+             Map.take(session, [:client_worker_id, :version, :protocol_version, :capabilities]),
+             %Job{
+               job_id: attempt_id,
+               job_type: job_type,
+               video_id: video_id,
+               phase: if(job_type == :crf_search, do: :crf_searching, else: :encoding)
+             }
+           ),
+         {:ok, command} <- Media.request_worker_control(video_id, attempt_id, action),
          :ok <- notify_control(server_worker_id, command) do
       :ok
     else
@@ -403,7 +415,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   def handle_call({:assign_job, server_worker_id, %Job{} = job}, _from, state) do
     update_session_reply(server_worker_id, state, fn session ->
       job = mark_job_activity(job)
-      %{session | jobs: Map.put(session.jobs, job.job_id, job), last_seen_at: now()}
+      %{session | jobs: put_unique_job(session.jobs, job), last_seen_at: now()}
     end)
   end
 
@@ -1118,14 +1130,24 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   defp recover_job_in_session(session, %Job{} = job, state) do
-    if Map.has_key?(session.jobs, job.job_id) do
+    job =
+      case Map.get(session.jobs, job.job_id) do
+        %Job{job_type: type, video_id: video_id} = existing
+        when type == job.job_type and video_id == job.video_id ->
+          existing
+
+        _ ->
+          mark_job_activity(job)
+      end
+
+    jobs = put_unique_job(session.jobs, job)
+
+    if jobs == session.jobs do
       {:reply, {:ok, session}, state}
     else
-      job = mark_job_activity(job)
-
       updated_session = %{
         session
-        | jobs: Map.put(session.jobs, job.job_id, job),
+        | jobs: jobs,
           last_seen_at: now()
       }
 
@@ -1143,6 +1165,67 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
       nil ->
         :ok
     end
+  end
+
+  defp resolve_control_attempt(%{client_worker_id: worker_id, jobs: jobs}, job_id) do
+    with {:ok, video_id} <- control_video_id(jobs, job_id),
+         %Media.Video{} = video <- Media.get_video(video_id),
+         {:ok, job_type, attempt_id} <- owned_worker_attempt(video, worker_id) do
+      {:ok, video_id, attempt_id, job_type}
+    else
+      _ -> :error
+    end
+  end
+
+  defp control_video_id(jobs, job_id) do
+    case Map.fetch(jobs, job_id) do
+      {:ok, %Job{video_id: video_id}} -> {:ok, video_id}
+      :error -> legacy_video_id(job_id)
+    end
+  end
+
+  defp legacy_video_id(job_id) do
+    case Integer.parse(job_id) do
+      {video_id, ""} when video_id > 0 -> {:ok, video_id}
+      _ -> :error
+    end
+  end
+
+  defp owned_worker_attempt(
+         %Media.Video{
+           state: :crf_searching,
+           crf_search_worker_id: worker_id,
+           worker_attempt_id: attempt_id
+         },
+         worker_id
+       )
+       when is_binary(attempt_id),
+       do: {:ok, :crf_search, attempt_id}
+
+  defp owned_worker_attempt(
+         %Media.Video{
+           state: :encoding,
+           encode_worker_id: worker_id,
+           worker_attempt_id: attempt_id
+         },
+         worker_id
+       )
+       when is_binary(attempt_id),
+       do: {:ok, :encode, attempt_id}
+
+  defp owned_worker_attempt(_video, _worker_id), do: :error
+
+  defp put_unique_job(jobs, %Job{} = job) do
+    jobs =
+      if job.job_type == :crf_search do
+        Map.reject(jobs, fn {job_id, existing_job} ->
+          job_id != job.job_id and existing_job.job_type == :crf_search
+        end)
+      else
+        jobs
+      end
+
+    Map.put(jobs, job.job_id, job)
   end
 
   defp update_session(server_worker_id, update_fun) do
