@@ -21,16 +21,30 @@ defmodule Reencodarr.PostProcessor do
         ) ::
           {:ok, :success} | {:error, atom()}
   def process_encoding_success(video, output_file, expected_output_bytes \\ nil) do
+    process_encoding_success(video, output_file, expected_output_bytes, nil)
+  end
+
+  @spec process_encoding_success(
+          video :: any(),
+          output_file :: String.t(),
+          non_neg_integer() | nil,
+          String.t() | nil
+        ) :: {:ok, :success} | {:error, atom()}
+  def process_encoding_success(video, output_file, expected_output_bytes, attempt_id) do
     intermediate_path = FileOperations.calculate_intermediate_path(video)
 
-    with {:ok, stage} <-
+    with :ok <- ensure_current_attempt(video, attempt_id),
+         {:ok, stage} <-
            locate_encoded_output(video, output_file, intermediate_path, expected_output_bytes),
          _ = store_original_size(video),
          {:ok, actual_path} <- prepare_intermediate(stage, output_file, intermediate_path, video),
          {:ok, _sync_result} <-
-           process_intermediate_success(video, actual_path, expected_output_bytes) do
+           process_intermediate_success(video, actual_path, expected_output_bytes, attempt_id) do
       {:ok, :success}
     else
+      {:error, :stale_worker_attempt} = error ->
+        error
+
       {:error, :failed_to_move_to_intermediate} = error ->
         error
 
@@ -130,10 +144,10 @@ defmodule Reencodarr.PostProcessor do
     end
   end
 
-  @spec process_intermediate_success(any(), String.t(), non_neg_integer() | nil) ::
+  @spec process_intermediate_success(any(), String.t(), non_neg_integer() | nil, String.t() | nil) ::
           {:ok, String.t()} | {:error, any()}
 
-  defp process_intermediate_success(video, actual_path, expected_output_bytes) do
+  defp process_intermediate_success(video, actual_path, expected_output_bytes, attempt_id) do
     case Repo.reload(video) do
       nil ->
         Logger.error(
@@ -151,7 +165,18 @@ defmodule Reencodarr.PostProcessor do
         {:error, :failed_to_finalize}
 
       reloaded ->
-        process_reloaded_video(reloaded, actual_path, expected_output_bytes)
+        with :ok <- ensure_current_attempt(reloaded, attempt_id) do
+          process_reloaded_video(reloaded, actual_path, expected_output_bytes)
+        end
+    end
+  end
+
+  defp ensure_current_attempt(_video, nil), do: :ok
+
+  defp ensure_current_attempt(%{id: video_id}, attempt_id) when is_binary(attempt_id) do
+    case Repo.get_by(Media.Video, id: video_id, state: :encoding, worker_attempt_id: attempt_id) do
+      %Media.Video{} -> :ok
+      _ -> {:error, :stale_worker_attempt}
     end
   end
 

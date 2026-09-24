@@ -1,7 +1,7 @@
 defmodule Reencodarr.PostProcessorTest do
   use Reencodarr.DataCase, async: false
+  import Ecto.Query
   import ExUnit.CaptureLog
-  require Logger
 
   alias Reencodarr.{Media, PostProcessor}
 
@@ -121,6 +121,34 @@ defmodule Reencodarr.PostProcessorTest do
       assert updated.size == byte_size(encoded)
       assert updated.space_saved_bytes == 100 - byte_size(encoded)
       assert File.read!(video_path) == encoded
+    end
+
+    test "rejects a late completion after the worker attempt was replaced", %{tmp: tmp} do
+      video_path = Path.join(tmp, "replaced_attempt.mkv")
+      output_file = Path.join(tmp, "replaced_attempt_output.mkv")
+      File.write!(video_path, "original")
+      File.write!(output_file, "encoded")
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: video_path,
+          size: 8,
+          state: :encoding,
+          worker_attempt_id: "attempt-old"
+        })
+
+      {1, _} =
+        Repo.update_all(
+          from(v in Reencodarr.Media.Video, where: v.id == ^video.id),
+          set: [worker_attempt_id: "attempt-new"]
+        )
+
+      assert {:error, :stale_worker_attempt} =
+               PostProcessor.process_encoding_success(video, output_file, nil, "attempt-old")
+
+      assert File.exists?(output_file)
+      assert Media.get_video!(video.id).state == :encoding
+      assert Media.get_video!(video.id).worker_attempt_id == "attempt-new"
     end
 
     test "larger encoded file is accepted with a warning (no size gate)", %{tmp: tmp} do

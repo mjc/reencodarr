@@ -492,9 +492,11 @@ defmodule ReencodarrWeb.WorkerChannelTest do
         end
       end)
 
-      :meck.expect(Reencodarr.PostProcessor, :process_encoding_success, fn _video, ^output_path ->
-        {:ok, :success}
-      end)
+      :meck.expect(
+        Reencodarr.PostProcessor,
+        :process_encoding_success,
+        fn _video, ^output_path, _output_bytes, ^job_id -> {:ok, :success} end
+      )
 
       assert_reply push(socket, "encode_completed", %{
                      "job_id" => job_id,

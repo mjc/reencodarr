@@ -1153,7 +1153,12 @@ defmodule ReencodarrWeb.WorkerChannel do
          output_path = Encode.output_file(video),
          :ok <- validate_encode_output(socket, completion, output_path),
          {:ok, :success} <-
-           PostProcessor.process_encoding_success(video, output_path, completion.output_bytes) do
+           PostProcessor.process_encoding_success(
+             video,
+             output_path,
+             completion.output_bytes,
+             completion.job_id
+           ) do
       Events.broadcast_event(:encoding_completed, %{
         video_id: video.id,
         job_id: completion.job_id,
