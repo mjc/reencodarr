@@ -599,13 +599,13 @@ defmodule Reencodarr.RulesTest do
   end
 
   describe "uncovered function coverage" do
-    test "high channel count still copies audio" do
+    test "high channel count still transcodes non-object audio" do
       video = Fixtures.create_test_video(%{max_audio_channels: 15, audio_codecs: ["DTS"]})
       result = Rules.build_args(video, :encode)
 
       assert "--acodec" in result
       acodec_index = Enum.find_index(result, &(&1 == "--acodec"))
-      assert Enum.at(result, acodec_index + 1) == "copy"
+      assert Enum.at(result, acodec_index + 1) == "libopus"
     end
 
     test "cuda function" do
