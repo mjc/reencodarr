@@ -76,8 +76,9 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
     Logger.debug("Processing single video: #{video_info.path}")
 
     with {:ok, _stats} <- FileOperations.validate_file_for_processing(video_info.path),
-         {:ok, mediainfo} <- CommandExecutor.execute_single_mediainfo(video_info.path),
-         {:ok, validated_mediainfo} <- validate_mediainfo(mediainfo, video_info.path),
+         {:ok, mediainfo_result} <- CommandExecutor.execute_single_mediainfo(video_info.path),
+         {:ok, media_data} <- extract_single_media_data(mediainfo_result, video_info.path),
+         {:ok, validated_mediainfo} <- validate_mediainfo(media_data, video_info.path),
          {:ok, video_params} <- extract_video_params(validated_mediainfo, video_info.path) do
       # Merge with service metadata
       complete_params = merge_service_metadata(video_params, video_info, validated_mediainfo)
@@ -337,12 +338,7 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
     Logger.debug("Processing video #{video_info.path} with batch MediaInfo")
 
     # Extract the "media" portion from the full mediainfo structure
-    media_data =
-      case mediainfo do
-        %{"media" => media} -> media
-        # fallback for unexpected structure
-        other -> other
-      end
+    media_data = unwrap_media_data(mediainfo)
 
     with {:ok, validated_mediainfo} <- validate_mediainfo(media_data, video_info.path),
          {:ok, video_params} <- extract_video_params(validated_mediainfo, video_info.path) do
@@ -362,6 +358,19 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
       Logger.error("Exception processing video #{video_info.path}: #{error_msg}")
       {:error, {video_info.path, error_msg}}
   end
+
+  defp extract_single_media_data(result, path) when is_map(result) and is_binary(path) do
+    case Map.fetch(result, path) do
+      {:ok, mediainfo} -> {:ok, unwrap_media_data(mediainfo)}
+      :error -> {:error, "missing MediaInfo result for #{path}"}
+    end
+  end
+
+  defp extract_single_media_data(_result, path),
+    do: {:error, "missing MediaInfo result for #{path}"}
+
+  defp unwrap_media_data(%{"media" => media}), do: media
+  defp unwrap_media_data(media), do: media
 
   defp mark_invalid_videos(invalid_videos_with_errors) do
     Enum.map(invalid_videos_with_errors, fn {video_info, reason} ->

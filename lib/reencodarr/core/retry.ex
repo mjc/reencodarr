@@ -14,6 +14,8 @@ defmodule Reencodarr.Core.Retry do
 
   - `:max_attempts` - Maximum number of retry attempts (default: 5)
   - `:base_backoff_ms` - Base backoff time in milliseconds (default: 100)
+  - `:max_backoff_ms` - Maximum delay between attempts (default: 5_000)
+  - `:max_elapsed_ms` - Maximum total retry time (default: 60_000)
   - `:label` - Short description of the operation being retried for logging
 
   ## Examples
@@ -28,27 +30,75 @@ defmodule Reencodarr.Core.Retry do
   def retry_on_db_busy(fun, opts \\ []) do
     max_attempts = Keyword.get(opts, :max_attempts, 5)
     base_backoff = Keyword.get(opts, :base_backoff_ms, 100)
+    max_backoff = Keyword.get(opts, :max_backoff_ms, 5_000)
+    max_elapsed = Keyword.get(opts, :max_elapsed_ms, 60_000)
     label = Keyword.get(opts, :label)
     caller = capture_caller()
+    started_at = System.monotonic_time(:millisecond)
 
-    do_retry(fun, 1, max_attempts, base_backoff, label, caller)
+    do_retry(
+      fun,
+      1,
+      max_attempts,
+      base_backoff,
+      max_backoff,
+      max_elapsed,
+      started_at,
+      label,
+      caller
+    )
   end
 
-  defp do_retry(fun, attempt, max_attempts, base_backoff, label, caller) do
+  defp do_retry(
+         fun,
+         attempt,
+         max_attempts,
+         base_backoff,
+         max_backoff,
+         max_elapsed,
+         started_at,
+         label,
+         caller
+       ) do
     fun.()
   rescue
     error in Exqlite.Error ->
-      if retryable_sqlite_error?(error) and attempt < max_attempts do
-        backoff_and_retry(fun, error.message, attempt, max_attempts, base_backoff, label, caller)
+      if retryable_sqlite_error?(error) and
+           attempt < max_attempts and
+           elapsed_ms(started_at) < max_elapsed do
+        backoff_and_retry(
+          fun,
+          error.message,
+          attempt,
+          max_attempts,
+          base_backoff,
+          max_backoff,
+          max_elapsed,
+          started_at,
+          label,
+          caller
+        )
       else
         reraise error, __STACKTRACE__
       end
   end
 
-  defp backoff_and_retry(fun, error_message, attempt, max_attempts, base_backoff, label, caller) do
-    base = (:math.pow(2, attempt) * base_backoff) |> round()
-    jitter = :rand.uniform(base |> div(2))
-    backoff = base + jitter
+  defp backoff_and_retry(
+         fun,
+         error_message,
+         attempt,
+         max_attempts,
+         base_backoff,
+         max_backoff,
+         max_elapsed,
+         started_at,
+         label,
+         caller
+       ) do
+    base = min(max_backoff, base_backoff * 2 ** attempt)
+    jitter = if base > 0, do: :rand.uniform(div(base, 2) + 1) - 1, else: 0
+    remaining = max(max_elapsed - elapsed_ms(started_at), 0)
+    backoff = min(base + jitter, remaining)
 
     operation =
       case label do
@@ -69,8 +119,22 @@ defmodule Reencodarr.Core.Retry do
     )
 
     Process.sleep(backoff)
-    do_retry(fun, attempt + 1, max_attempts, base_backoff, label, caller)
+
+    do_retry(
+      fun,
+      attempt + 1,
+      max_attempts,
+      base_backoff,
+      max_backoff,
+      max_elapsed,
+      started_at,
+      label,
+      caller
+    )
   end
+
+  defp elapsed_ms(started_at),
+    do: System.monotonic_time(:millisecond) - started_at
 
   defp capture_caller do
     with {:current_stacktrace, stacktrace} <- Process.info(self(), :current_stacktrace) do

@@ -474,8 +474,15 @@ defmodule Reencodarr.Analyzer.Broadway do
       case upsert_result do
         {:ok, video} ->
           Logger.debug("Broadway: Deciding processing path for #{video_info.path}")
-          decide_video_processing_path(video)
-          :ok
+
+          case decide_video_processing_path(video) do
+            {:ok, _updated_video} ->
+              :ok
+
+            {:error, reason} ->
+              mark_video_as_failed(video_info.path, format_processing_error(reason))
+              :error
+          end
 
         {:error, reason} ->
           Logger.error("Broadway: UPSERT FAILED for #{video_info.path}: #{inspect(reason)}")
@@ -584,7 +591,7 @@ defmodule Reencodarr.Analyzer.Broadway do
 
         {:error, error} ->
           Logger.error("Failed to mark as encoded for #{video.path}: #{inspect(error)}")
-          {:ok, video}
+          {:error, {:mark_as_encoded_failed, error}}
       end
     end
   end
@@ -629,16 +636,18 @@ defmodule Reencodarr.Analyzer.Broadway do
         {:error, error} ->
           Logger.error("Failed to mark as analyzed for #{video.path}: #{inspect(error)}")
 
-          {:ok, video}
+          {:error, {:mark_as_analyzed_failed, error}}
       end
     else
       Logger.error(
         "Cannot mark video #{video.path} as analyzed - missing required fields (bitrate: #{video.bitrate}, width: #{video.width}, height: #{video.height})"
       )
 
-      {:ok, video}
+      {:error, :missing_required_mediainfo_fields}
     end
   end
+
+  defp format_processing_error(reason), do: inspect(reason)
 
   # Log notable video properties after analysis for operator visibility
   defp log_analyzed_video_info(%{hdr: hdr} = video) when not is_nil(hdr) do

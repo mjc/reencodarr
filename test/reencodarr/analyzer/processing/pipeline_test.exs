@@ -13,6 +13,7 @@ defmodule Reencodarr.Analyzer.Processing.PipelineTest do
     test "returns merged params on success" do
       video_info = %{id: 1, path: "/tmp/video1.mkv", service_id: "123", service_type: :sonarr}
       mediainfo = %{"track" => [%{"@type" => "General"}]}
+      mediainfo_result = %{video_info.path => %{"media" => mediainfo}}
 
       :meck.new(FileOperations, [:passthrough])
       :meck.expect(FileOperations, :validate_file_for_processing, fn _path -> {:ok, %{}} end)
@@ -20,7 +21,7 @@ defmodule Reencodarr.Analyzer.Processing.PipelineTest do
       :meck.new(CommandExecutor, [:passthrough])
 
       :meck.expect(CommandExecutor, :execute_single_mediainfo, fn _path ->
-        {:ok, mediainfo}
+        {:ok, mediainfo_result}
       end)
 
       :meck.new(MediaInfoExtractor, [:passthrough])
@@ -78,7 +79,12 @@ defmodule Reencodarr.Analyzer.Processing.PipelineTest do
       :meck.new(CommandExecutor, [:passthrough])
 
       :meck.expect(CommandExecutor, :execute_single_mediainfo, fn _path ->
-        {:ok, %{"track" => [%{"@type" => "General", "Duration" => 7_200_000}]}}
+        {:ok,
+         %{
+           video_info.path => %{
+             "media" => %{"track" => [%{"@type" => "General", "Duration" => 7_200_000}]}
+           }
+         }}
       end)
 
       :meck.new(MediaInfoExtractor, [:passthrough])
