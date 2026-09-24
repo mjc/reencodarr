@@ -2324,6 +2324,19 @@ defmodule ReencodarrWeb.WorkerChannelTest do
         assert session.active_video_id == assigned_video_id
         assert session.phase == :input_ready
         assert session.transfer_progress.video_id == assigned_video_id
+
+        assert_reply push(socket, "crf_search_progress", %{
+                       "job_id" => transfer_id,
+                       "video_id" => assigned_video_id,
+                       "percent" => 10.0,
+                       "filename" => Path.basename(video.path),
+                       "fps" => 24.0,
+                       "crf" => 28.0,
+                       "sample_num" => 1,
+                       "total_samples" => 5
+                     }),
+                     :ok,
+                     %{accepted: true, event: "crf_search_progress"}
       end)
     after
       Application.delete_env(:reencodarr, :worker_token)
@@ -2479,6 +2492,27 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       assert session.jobs[job_id].phase == :receiving_input
       assert session.jobs[job_id].transfer_progress.percent == 50.0
       assert session.jobs[job_id].transfer_progress.bytes_sent == 1024
+    end
+
+    test "does not resume a replacement encode attempt through a stale socket" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :encoding,
+          encode_worker_id: "worker-new",
+          worker_attempt_id: "encode-new"
+        })
+
+      socket = %Phoenix.Socket{
+        assigns: %{
+          worker_id: "worker-server-stale",
+          client_worker_id: "worker-old",
+          encode_job_id: "encode-old",
+          encode_video_id: video.id
+        }
+      }
+
+      assert {:reply, {:error, %{reason: "unknown_worker_session"}}, ^socket} =
+               WorkerChannel.handle_in("pull_work", %{"job_type" => "encode"}, socket)
     end
 
     test "submits structured CRF results and completes the job" do

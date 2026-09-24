@@ -592,6 +592,28 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert reconnected.phase == :idle
   end
 
+  test "stale canonical control IDs cannot target a replacement attempt" do
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-1",
+        worker_attempt_id: "crf-new"
+      })
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "crf-old",
+               job_type: :crf_search,
+               video_id: video.id
+             })
+
+    assert :error = WorkerSessions.request_control("worker-server-1", "crf-old", :stop)
+
+    assert %{state: :crf_searching, worker_attempt_id: "crf-new"} = Media.get_video(video.id)
+  end
+
   test "timer-driven stale expiry removes old sessions" do
     previous_timeout = Application.get_env(:reencodarr, :worker_session_timeout_seconds)
     Application.put_env(:reencodarr, :worker_session_timeout_seconds, 0)

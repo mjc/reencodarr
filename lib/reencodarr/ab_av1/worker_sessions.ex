@@ -1198,19 +1198,23 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
   end
 
   defp resolve_control_attempt(%{client_worker_id: worker_id, jobs: jobs}, job_id) do
-    with {:ok, video_id} <- control_video_id(jobs, job_id),
-         %Media.Video{} = video <- Media.get_video(video_id),
-         {:ok, job_type, attempt_id} <- owned_worker_attempt(video, worker_id) do
-      {:ok, video_id, attempt_id, job_type}
-    else
-      _ -> :error
-    end
-  end
-
-  defp control_video_id(jobs, job_id) do
     case Map.fetch(jobs, job_id) do
-      {:ok, %Job{video_id: video_id}} -> {:ok, video_id}
-      :error -> legacy_video_id(job_id)
+      {:ok, %Job{video_id: video_id, job_id: ^job_id}} ->
+        with %Media.Video{} = video <- Media.get_video(video_id),
+             {:ok, job_type, ^job_id} <- owned_worker_attempt(video, worker_id) do
+          {:ok, video_id, job_id, job_type}
+        else
+          _ -> :error
+        end
+
+      :error ->
+        with {:ok, video_id} <- legacy_video_id(job_id),
+             %Media.Video{} = video <- Media.get_video(video_id),
+             {:ok, job_type, attempt_id} <- owned_worker_attempt(video, worker_id) do
+          {:ok, video_id, attempt_id, job_type}
+        else
+          _ -> :error
+        end
     end
   end
 

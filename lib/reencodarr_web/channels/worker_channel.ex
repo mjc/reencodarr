@@ -561,7 +561,11 @@ defmodule ReencodarrWeb.WorkerChannel do
        when is_integer(video_id) do
     case Media.get_video(video_id) do
       %Media.Video{state: :encoding} = video ->
-        resume_encode_work(socket, payload, video)
+        if resumable_encode?(socket, video) do
+          resume_encode_work(socket, payload, video)
+        else
+          {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
+        end
 
       _ ->
         handle_encode_work_request(assign(socket, :encode_video_id, nil), payload)
@@ -750,16 +754,20 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp handle_active_video_work_request(worker_id, socket, video_id, request_mode) do
     case Media.get_video(video_id) do
       %Media.Video{state: :crf_searching} = video ->
-        request_mode =
-          case WorkerSessions.get(worker_id) do
-            %{active_video_id: ^video_id} = session ->
-              maybe_resume_mode(session, request_mode)
+        if resumable_crf?(socket, video) do
+          request_mode =
+            case WorkerSessions.get(worker_id) do
+              %{active_video_id: ^video_id} = session ->
+                maybe_resume_mode(session, request_mode)
 
-            _ ->
-              request_mode
-          end
+              _ ->
+                request_mode
+            end
 
-        reply_for_active_work(worker_id, socket, video, request_mode)
+          reply_for_active_work(worker_id, socket, video, request_mode)
+        else
+          {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
+        end
 
       %Media.Video{} ->
         socket = clear_assigned_video(worker_id, socket)
@@ -904,6 +912,7 @@ defmodule ReencodarrWeb.WorkerChannel do
       %Media.Video{} = video ->
         socket
         |> assign(:current_video_id, video.id)
+        |> assign(:crf_job_id, video.worker_attempt_id || Integer.to_string(video.id))
         |> assign(:current_vmaf_target, Reencodarr.Rules.vmaf_target(video))
 
       nil ->
@@ -1090,7 +1099,19 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp crf_job?(socket, job_id, video_id) do
     socket.assigns[:current_video_id] == video_id and
-      (is_nil(job_id) or socket.assigns[:transfer_id] == job_id)
+      (is_nil(job_id) or socket.assigns[:crf_job_id] == job_id)
+  end
+
+  defp resumable_crf?(socket, %Media.Video{} = video) do
+    socket.assigns[:client_worker_id] == video.crf_search_worker_id and
+      socket.assigns[:crf_job_id] ==
+        (video.worker_attempt_id || Integer.to_string(video.id))
+  end
+
+  defp resumable_encode?(socket, %Media.Video{} = video) do
+    socket.assigns[:client_worker_id] == video.encode_worker_id and
+      socket.assigns[:encode_job_id] == video.worker_attempt_id and
+      socket.assigns[:encode_video_id] == video.id
   end
 
   defp encode_job?(socket, job_id, video_id) do
@@ -1583,6 +1604,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     socket =
       socket
       |> assign(:current_video_id, video.id)
+      |> assign(:crf_job_id, transfer_id)
       |> assign(:current_vmaf_target, target_vmaf)
       |> assign(:transfer_io_device, nil)
       |> assign(:transfer_path, video.path)
@@ -1929,6 +1951,7 @@ defmodule ReencodarrWeb.WorkerChannel do
       {:ok,
        socket
        |> assign(:current_video_id, video_id)
+       |> assign(:crf_job_id, job_id || video.worker_attempt_id || Integer.to_string(video.id))
        |> assign(:current_vmaf_target, Reencodarr.Rules.vmaf_target(video))
        |> assign(:transfer_id, job_id || video.worker_attempt_id)}
     else
@@ -2082,6 +2105,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     _ = WorkerSessions.clear_video(worker_id)
 
     assign(socket, :current_video_id, nil)
+    |> assign(:crf_job_id, nil)
     |> assign(:current_vmaf_target, nil)
     |> assign(:transfer_io_device, nil)
     |> assign(:transfer_path, nil)
