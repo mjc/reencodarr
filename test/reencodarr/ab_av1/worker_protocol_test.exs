@@ -368,7 +368,14 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
       restore_env(:worker_transfer_token, previous_token)
     end)
 
-    video = %Reencodarr.Media.Video{id: 123, path: "/videos/movie.mkv", size: 2_000}
+    video = %Reencodarr.Media.Video{
+      id: 123,
+      path: "/videos/movie.mkv",
+      size: 2_000,
+      audio_codecs: [],
+      audio_count: 0
+    }
+
     vmaf = %Reencodarr.Media.Vmaf{video: video, crf: 30.0, score: 96.0, params: []}
 
     remote = WorkerProtocol.encode_work_assigned(video, vmaf)

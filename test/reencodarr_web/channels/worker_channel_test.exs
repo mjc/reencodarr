@@ -228,7 +228,9 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
 
-      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      {:ok, video} =
+        Fixtures.video_fixture(%{state: :crf_searched, mediainfo: worker_mediainfo()})
+
       vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, params: []})
       video = Fixtures.choose_vmaf(video, vmaf)
       job_id = "encode-active-after-restart"
@@ -402,7 +404,14 @@ defmodule ReencodarrWeb.WorkerChannelTest do
           else: Application.put_env(:reencodarr, :temp_dir, previous_temp_dir)
       end)
 
-      {:ok, video} = Fixtures.video_fixture(%{path: path, size: 6, state: :crf_searched})
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: path,
+          size: 6,
+          state: :crf_searched,
+          mediainfo: worker_mediainfo()
+        })
+
       vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, params: []})
       _video = Fixtures.choose_vmaf(video, vmaf)
 
@@ -581,7 +590,8 @@ defmodule ReencodarrWeb.WorkerChannelTest do
         Fixtures.video_fixture(%{
           path: "/remote/capacity-check.mkv",
           size: 10_000,
-          state: :crf_searched
+          state: :crf_searched,
+          mediainfo: worker_mediainfo()
         })
 
       vmaf =
@@ -655,7 +665,14 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       File.write!(path, "source")
       on_exit(fn -> File.rm(path) end)
 
-      {:ok, video} = Fixtures.video_fixture(%{path: path, size: 6, state: :crf_searched})
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: path,
+          size: 6,
+          state: :crf_searched,
+          mediainfo: worker_mediainfo()
+        })
+
       vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, params: []})
       Fixtures.choose_vmaf(video, vmaf)
 
@@ -709,7 +726,14 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       File.write!(path, "source")
       on_exit(fn -> File.rm(path) end)
 
-      {:ok, video} = Fixtures.video_fixture(%{path: path, size: 6, state: :crf_searched})
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: path,
+          size: 6,
+          state: :crf_searched,
+          mediainfo: worker_mediainfo()
+        })
+
       vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, params: []})
       Fixtures.choose_vmaf(video, vmaf)
 
@@ -764,7 +788,9 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
 
-      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      {:ok, video} =
+        Fixtures.video_fixture(%{state: :crf_searched, mediainfo: worker_mediainfo()})
+
       vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, params: []})
       video = Fixtures.choose_vmaf(video, vmaf)
 
@@ -936,7 +962,9 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.put_env(:reencodarr, :worker_token, token)
 
       {:ok, crf_video} = Fixtures.video_fixture(%{state: :analyzed})
-      {:ok, encode_video} = Fixtures.video_fixture(%{state: :crf_searched})
+
+      {:ok, encode_video} =
+        Fixtures.video_fixture(%{state: :crf_searched, mediainfo: worker_mediainfo()})
 
       {:ok, socket} = connect(WorkerSocket, %{"token" => token})
       {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
@@ -1390,7 +1418,14 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       File.write!(path, "source")
       on_exit(fn -> File.rm(path) end)
 
-      {:ok, video} = Fixtures.video_fixture(%{path: path, size: 6, state: :crf_searched})
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: path,
+          size: 6,
+          state: :crf_searched,
+          mediainfo: worker_mediainfo()
+        })
+
       vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, params: []})
       Fixtures.choose_vmaf(video, vmaf)
 
@@ -2380,7 +2415,12 @@ defmodule ReencodarrWeb.WorkerChannelTest do
         Fixtures.video_fixture(%{path: crf_path, size: 8, state: :analyzed})
 
       {:ok, encode_video} =
-        Fixtures.video_fixture(%{path: encode_path, size: 8, state: :crf_searched})
+        Fixtures.video_fixture(%{
+          path: encode_path,
+          size: 8,
+          state: :crf_searched,
+          mediainfo: worker_mediainfo()
+        })
 
       vmaf = Fixtures.vmaf_fixture(%{video_id: encode_video.id, params: []})
       Fixtures.choose_vmaf(encode_video, vmaf)
@@ -2444,7 +2484,10 @@ defmodule ReencodarrWeb.WorkerChannelTest do
     test "accepts encode transfer progress when no websocket transfer is assigned" do
       server_worker_id = "worker-server-encode-progress"
       client_worker_id = "worker-client-encode-progress"
-      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{state: :crf_searched, mediainfo: worker_mediainfo()})
+
       video_id = video.id
       job_id = "encode-#{video_id}"
 
@@ -3086,6 +3129,25 @@ defmodule ReencodarrWeb.WorkerChannelTest do
     assert_reply push(socket, "heartbeat", %{"disk_free_bytes" => 100_000_000_000}),
                  :ok,
                  %{accepted: true}
+  end
+
+  defp worker_mediainfo do
+    %{
+      "media" => %{
+        "track" => [
+          %{"@type" => "General", "Format" => "Matroska"},
+          %{"@type" => "Video", "Format" => "AVC", "Width" => "1920", "Height" => "1080"},
+          %{
+            "@type" => "Audio",
+            "Format" => "AAC",
+            "CodecID" => "A_AAC",
+            "Channels" => "6",
+            "ChannelLayout" => "5.1",
+            "BitRate" => 256_000
+          }
+        ]
+      }
+    }
   end
 
   defp track_video_lookups do

@@ -487,12 +487,13 @@ defmodule Reencodarr.Fixtures do
       duration: 7200.0,
       max_audio_channels: 6,
       atmos: false,
+      mediainfo: test_mediainfo("AAC", 6, "5.1"),
       hdr: nil
     }
 
     attrs = Map.merge(default_attrs, attrs)
-    {:ok, video} = video_fixture(attrs)
-    video
+    {:ok, video} = video_fixture(Map.delete(attrs, :mediainfo))
+    Map.put(video, :mediainfo, attrs.mediainfo)
   end
 
   @doc """
@@ -513,12 +514,13 @@ defmodule Reencodarr.Fixtures do
       duration: 7200.0,
       max_audio_channels: 6,
       atmos: false,
+      mediainfo: test_mediainfo("Opus", 6, "5.1"),
       hdr: nil
     }
 
     attrs = Map.merge(default_attrs, attrs)
-    {:ok, video} = video_fixture(attrs)
-    video
+    {:ok, video} = video_fixture(Map.delete(attrs, :mediainfo))
+    Map.put(video, :mediainfo, attrs.mediainfo)
   end
 
   @doc """
@@ -538,12 +540,16 @@ defmodule Reencodarr.Fixtures do
       duration: 7200.0,
       max_audio_channels: 8,
       atmos: true,
+      mediainfo:
+        test_mediainfo("Dolby TrueHD", 8, "7.1", %{
+          "Format_Commercial_IfAny" => "Dolby TrueHD Atmos"
+        }),
       hdr: "HDR10"
     }
 
     attrs = Map.merge(default_attrs, attrs)
-    {:ok, video} = video_fixture(attrs)
-    video
+    {:ok, video} = video_fixture(Map.delete(attrs, :mediainfo))
+    Map.put(video, :mediainfo, attrs.mediainfo)
   end
 
   @doc """
@@ -563,12 +569,16 @@ defmodule Reencodarr.Fixtures do
       duration: 7200.0,
       max_audio_channels: 8,
       atmos: true,
+      mediainfo:
+        test_mediainfo("Dolby TrueHD", 8, "7.1", %{
+          "Format_Commercial_IfAny" => "Dolby TrueHD Atmos"
+        }),
       hdr: nil
     }
 
     attrs = Map.merge(default_attrs, attrs)
-    {:ok, video} = video_fixture(attrs)
-    video
+    {:ok, video} = video_fixture(Map.delete(attrs, :mediainfo))
+    Map.put(video, :mediainfo, attrs.mediainfo)
   end
 
   # === FACTORY PATTERN SUPPORT ===
@@ -653,5 +663,32 @@ defmodule Reencodarr.Fixtures do
   def unique_library_path do
     unique_id = System.unique_integer([:positive])
     "/test/libraries/library_#{unique_id}"
+  end
+
+  defp test_mediainfo(format, channels, layout, overrides \\ %{}) do
+    %{
+      "media" => %{
+        "track" => [
+          %{"@type" => "General", "Format" => "Matroska"},
+          %{
+            "@type" => "Video",
+            "Format" => "AVC",
+            "Width" => "1920",
+            "Height" => "1080"
+          },
+          Map.merge(
+            %{
+              "@type" => "Audio",
+              "Format" => format,
+              "CodecID" => format,
+              "Channels" => Integer.to_string(channels),
+              "ChannelLayout" => layout,
+              "BitRate" => 384_000
+            },
+            overrides
+          )
+        ]
+      }
+    }
   end
 end

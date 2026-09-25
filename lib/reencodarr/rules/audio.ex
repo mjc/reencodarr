@@ -4,7 +4,7 @@ defmodule Reencodarr.Rules.Audio do
 
   Determines the audio codec strategy:
   - Copy only if every track is already Opus (no re-encoding needed)
-  - Copy all if mediainfo unavailable
+  - Reject incomplete audio metadata instead of guessing a copy or codec-only conversion
   - Transcode all to Opus if no copy-through tracks are present
   - Per-stream encoding if Atmos, DTS:X, or Opus tracks are present: copy them, transcode others
     (ab-av1 uses -map 0 so --acodec applies to all; use --enc c:a:N= to override per-track)
@@ -82,22 +82,19 @@ defmodule Reencodarr.Rules.Audio do
     build_from_mediainfo(video)
   end
 
-  def rules(%Media.Video{audio_codecs: audio_codecs} = video) when is_list(audio_codecs) do
+  def rules(%Media.Video{audio_codecs: audio_codecs, audio_count: audio_count}) do
     cond do
-      audio_codecs != [] and all_opus?(audio_codecs) ->
+      is_list(audio_codecs) and audio_codecs != [] and all_opus?(audio_codecs) ->
         @copy_audio
 
-      dts_codec_present?(audio_codecs) ->
-        # A known DTS carrier must never silently fall back to stream copy just
-        # because the detailed MediaInfo record is unavailable.
-        [{"--acodec", "libopus"}]
+      audio_codecs == [] and audio_count == 0 ->
+        @copy_audio
 
       true ->
-        build_from_mediainfo(video)
+        raise_incomplete_metadata!(audio_codecs, audio_count)
     end
   end
 
-  def rules(%Media.Video{}), do: @copy_audio
   def rules(%{} = _video_map), do: @copy_audio
 
   defp build_from_mediainfo(%Media.Video{mediainfo: mediainfo}) when is_map(mediainfo) do
@@ -109,8 +106,6 @@ defmodule Reencodarr.Rules.Audio do
 
     route_by_copy_through(copy_through, non_copy_through, mediainfo)
   end
-
-  defp build_from_mediainfo(_video), do: @copy_audio
 
   defp route_by_copy_through([], _non_copy_through, mediainfo), do: encode_uniform(mediainfo)
   defp route_by_copy_through(_copy_through, [], _mediainfo), do: @copy_audio
@@ -215,18 +210,21 @@ defmodule Reencodarr.Rules.Audio do
     end)
   end
 
-  defp dts_codec_present?(audio_codecs) do
-    Enum.any?(audio_codecs, fn codec ->
-      case normalize_codec_string(codec) do
-        value
-        when value in ["dts", "adts", "adtslossless", "dtsc", "dtse", "dtsh", "dtsl", "dtsx"] ->
-          true
+  defp raise_incomplete_metadata!(audio_codecs, audio_count) do
+    {format, codec_id} = first_audio_identity(audio_codecs)
 
-        value ->
-          String.starts_with?(value, "dtshd")
-      end
-    end)
+    raise %ClassificationError{
+      format: format,
+      codec_id: codec_id,
+      reason:
+        "detailed MediaInfo is required to classify #{audio_count || "unknown"} audio track(s)"
+    }
   end
+
+  defp first_audio_identity([codec | _]) when is_binary(codec), do: {codec, nil}
+  defp first_audio_identity([_ | _]), do: {nil, nil}
+  defp first_audio_identity([]), do: {nil, nil}
+  defp first_audio_identity(_), do: {nil, nil}
 
   defp track_should_copy?(idx, track) do
     codec = track.codec |> normalize_codec_string()

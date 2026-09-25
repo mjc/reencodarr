@@ -2612,7 +2612,8 @@ defmodule Reencodarr.MediaTest do
     test "reset_videos_with_invalid_audio_args/0 with no problematic videos" do
       {:ok, _video} =
         Fixtures.video_fixture(%{
-          audio_codecs: ["aac"],
+          audio_codecs: [],
+          audio_count: 0,
           max_audio_channels: 2,
           state: :analyzed
         })
@@ -2626,7 +2627,8 @@ defmodule Reencodarr.MediaTest do
     test "count_videos_with_invalid_audio_args/0 with all valid videos" do
       {:ok, _video} =
         Fixtures.video_fixture(%{
-          audio_codecs: ["aac"],
+          audio_codecs: [],
+          audio_count: 0,
           max_audio_channels: 2,
           state: :analyzed
         })

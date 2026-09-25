@@ -24,6 +24,7 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
         max_audio_channels: 6,
         atmos: false,
         hdr: nil,
+        mediainfo: test_mediainfo("AAC", 6, "5.1"),
         service_id: "test",
         service_type: :sonarr
       }
@@ -79,6 +80,7 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
         max_audio_channels: 6,
         atmos: false,
         hdr: nil,
+        mediainfo: test_mediainfo("Opus", 6, "5.1"),
         service_id: "test",
         service_type: :sonarr
       }
@@ -113,6 +115,16 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
       assert {:error, %Rules.Audio.ClassificationError{}} =
                Encode.build_encode_args_result(vmaf)
     end
+
+    test "returns a typed error before launch when audio metadata is incomplete", %{video: video} do
+      video = %{video | mediainfo: nil}
+      vmaf = %Vmaf{video: video, crf: 30.0, score: 96.0, params: []}
+
+      assert {:error, %Rules.Audio.ClassificationError{reason: reason}} =
+               Encode.build_encode_args_result(vmaf)
+
+      assert reason =~ "detailed MediaInfo is required"
+    end
   end
 
   describe "audio channel handling" do
@@ -129,6 +141,7 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
         max_audio_channels: 2,
         atmos: false,
         hdr: nil,
+        mediainfo: test_mediainfo("AAC", 2, "L R"),
         service_id: "test",
         service_type: :sonarr
       }
@@ -153,6 +166,10 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
         max_audio_channels: 8,
         atmos: true,
         hdr: nil,
+        mediainfo:
+          test_mediainfo("Dolby TrueHD", 8, "7.1", %{
+            "Format_Commercial_IfAny" => "Dolby TrueHD Atmos"
+          }),
         service_id: "test",
         service_type: :sonarr
       }
@@ -163,5 +180,27 @@ defmodule Reencodarr.Encoder.AudioArgsTest do
       acodec_index = Enum.find_index(args, &(&1 == "--acodec"))
       assert Enum.at(args, acodec_index + 1) == "copy"
     end
+  end
+
+  defp test_mediainfo(format, channels, layout, overrides \\ %{}) do
+    %{
+      "media" => %{
+        "track" => [
+          %{"@type" => "General", "Format" => "Matroska"},
+          %{"@type" => "Video", "Format" => "AVC", "Width" => "1920", "Height" => "1080"},
+          Map.merge(
+            %{
+              "@type" => "Audio",
+              "Format" => format,
+              "CodecID" => format,
+              "Channels" => Integer.to_string(channels),
+              "ChannelLayout" => layout,
+              "BitRate" => 384_000
+            },
+            overrides
+          )
+        ]
+      }
+    }
   end
 end

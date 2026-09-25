@@ -21,6 +21,7 @@ defmodule Reencodarr.RulesIntegrationTest do
           bitrate: 5_000_000,
           video_codecs: ["V_MPEGH/ISO/HEVC"],
           audio_codecs: ["A_EAC3"],
+          mediainfo: sample_mediainfo("E-AC-3", 6, "5.1"),
           max_audio_channels: 6,
           atmos: false,
           # Default to no HDR
@@ -286,5 +287,24 @@ defmodule Reencodarr.RulesIntegrationTest do
       assert exit_code == 0, "ab-av1 rejected command structure: #{output}"
       refute String.contains?(output, "unexpected argument")
     end
+  end
+
+  defp sample_mediainfo(format, channels, layout) do
+    %{
+      "media" => %{
+        "track" => [
+          %{"@type" => "General", "Format" => "Matroska"},
+          %{"@type" => "Video", "Format" => "AVC", "Width" => "1920", "Height" => "1080"},
+          %{
+            "@type" => "Audio",
+            "Format" => format,
+            "CodecID" => "A_EAC3",
+            "Channels" => Integer.to_string(channels),
+            "ChannelLayout" => layout,
+            "BitRate" => 384_000
+          }
+        ]
+      }
+    }
   end
 end

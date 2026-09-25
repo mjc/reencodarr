@@ -2280,6 +2280,9 @@ defmodule Reencodarr.Media do
       _ ->
         false
     end)
+  rescue
+    _error in Reencodarr.Rules.Audio.ClassificationError ->
+      true
   end
 
   @doc """

@@ -4,9 +4,12 @@ defmodule Reencodarr.Rules.AudioTest do
   alias Reencodarr.Rules.Audio
 
   describe "rules/1 - Atmos and copy-through cases" do
-    test "copies audio when metadata is not trustworthy enough to rule out Atmos" do
-      video = Fixtures.create_test_video()
-      assert Audio.rules(video) == [{"--acodec", "copy"}]
+    test "rejects audio when detailed metadata is unavailable" do
+      video = Fixtures.create_test_video(%{mediainfo: nil})
+
+      assert_raise Audio.ClassificationError, ~r/detailed MediaInfo is required/, fn ->
+        Audio.rules(video)
+      end
     end
 
     test "copies audio with Opus codec" do
@@ -128,10 +131,12 @@ defmodule Reencodarr.Rules.AudioTest do
   end
 
   describe "rules/1 - Opus transcoding" do
-    test "transcodes known DTS carriers when detailed MediaInfo is unavailable" do
+    test "rejects DTS when detailed MediaInfo is unavailable" do
       video = Fixtures.create_test_video(%{audio_codecs: ["A_DTS"], mediainfo: nil})
 
-      assert Audio.rules(video) == [{"--acodec", "libopus"}]
+      assert_raise Audio.ClassificationError, ~r/detailed MediaInfo is required/, fn ->
+        Audio.rules(video)
+      end
     end
 
     test "uses the channel target when an ordinary track has no bitrate" do
@@ -598,9 +603,12 @@ defmodule Reencodarr.Rules.AudioTest do
   end
 
   describe "rules/1 - edge cases" do
-    test "always copies audio regardless of channels when channels=0" do
-      video = Fixtures.create_test_video(%{max_audio_channels: 0})
-      assert Audio.rules(video) == [{"--acodec", "copy"}]
+    test "rejects audio metadata regardless of aggregate channel count" do
+      video = Fixtures.create_test_video(%{max_audio_channels: 0, mediainfo: nil})
+
+      assert_raise Audio.ClassificationError, ~r/detailed MediaInfo is required/, fn ->
+        Audio.rules(video)
+      end
     end
 
     test "handles plain map input (non-struct)" do
@@ -608,13 +616,24 @@ defmodule Reencodarr.Rules.AudioTest do
       assert Audio.rules(video_map) == [{"--acodec", "copy"}]
     end
 
-    test "copies audio for high channel count" do
-      video = Fixtures.create_test_video(%{max_audio_channels: 10})
-      assert Audio.rules(video) == [{"--acodec", "copy"}]
+    test "rejects audio metadata for unsupported aggregate channel count" do
+      video = Fixtures.create_test_video(%{max_audio_channels: 10, mediainfo: nil})
+
+      assert_raise Audio.ClassificationError, ~r/detailed MediaInfo is required/, fn ->
+        Audio.rules(video)
+      end
     end
 
-    test "copies audio for invalid channel metadata" do
+    test "rejects audio when detailed metadata is incomplete" do
       {:ok, video} = Fixtures.video_fixture(%{max_audio_channels: nil, audio_codecs: ["aac"]})
+
+      assert_raise Audio.ClassificationError, ~r/detailed MediaInfo is required/, fn ->
+        Audio.rules(video)
+      end
+    end
+
+    test "copies a proven no-audio file" do
+      video = Fixtures.create_test_video(%{audio_codecs: [], audio_count: 0, mediainfo: nil})
       assert Audio.rules(video) == [{"--acodec", "copy"}]
     end
 

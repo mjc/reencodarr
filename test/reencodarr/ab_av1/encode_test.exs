@@ -344,7 +344,9 @@ defmodule Reencodarr.AbAv1.EncodeTest do
         {:error, :enoent}
       end)
 
-      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      {:ok, video} =
+        Fixtures.video_fixture(%{state: :crf_searched, audio_codecs: [], audio_count: 0})
+
       vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
       video = Fixtures.choose_vmaf(video, vmaf)
       vmaf = %{vmaf | video: video}

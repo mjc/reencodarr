@@ -63,6 +63,10 @@ defmodule ReencodarrWeb.WorkersLiveTest do
                total_chunks: 8
              })
 
+    # set_transfer_progress is intentionally asynchronous; synchronize before rendering.
+    assert %{transfer_progress: %{bytes_sent: 2_621_440}} =
+             WorkerSessions.get("worker-server-1")
+
     html = render(view)
     assert html =~ "Receiving input"
     assert html =~ "Receiving Input"
