@@ -53,9 +53,12 @@ defmodule ReencodarrWeb.WorkerFileController do
   end
 
   defp upload_suffix(attempt_id) do
-    :sha256
-    |> :crypto.hash(attempt_id)
-    |> Base.url_encode64(padding: false)
+    attempt_suffix =
+      :sha256
+      |> :crypto.hash(attempt_id)
+      |> Base.url_encode64(padding: false)
+
+    "#{attempt_suffix}-#{System.unique_integer([:positive])}"
   end
 
   defp copy_and_close(conn, file, attempt_id) do
