@@ -1151,7 +1151,7 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp finish_encode_completion(socket, completion) do
     with %Media.Video{} = video <- Media.get_video(completion.video_id),
          output_path = Encode.output_file(video),
-         :ok <- validate_encode_output(socket, completion, output_path),
+         :ok <- validate_encode_output_path(socket, completion, output_path),
          {:ok, :success} <-
            PostProcessor.process_encoding_success(
              video,
@@ -1243,13 +1243,11 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
-  defp validate_encode_output(socket, completion, output_path) do
-    with true <- not socket.assigns[:local_worker] or completion.output_path == output_path,
-         {:ok, %{size: size}} <- File.stat(output_path),
-         true <- size == completion.output_bytes do
+  defp validate_encode_output_path(socket, completion, output_path) do
+    if not socket.assigns[:local_worker] or completion.output_path == output_path do
       :ok
     else
-      _ -> {:error, :invalid_encode_completion}
+      {:error, :invalid_encode_completion}
     end
   end
 

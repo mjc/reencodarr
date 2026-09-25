@@ -524,6 +524,65 @@ defmodule ReencodarrWeb.WorkerChannelTest do
       Application.delete_env(:reencodarr, :worker_token)
     end
 
+    test "replays encode completion when postprocessor already owns the artifact" do
+      token = "test-worker-token"
+      Application.put_env(:reencodarr, :worker_token, token)
+      previous_temp_dir = Application.get_env(:reencodarr, :temp_dir)
+      temp_dir = Path.join(System.tmp_dir!(), "worker-replay-output-#{System.unique_integer()}")
+      Application.put_env(:reencodarr, :temp_dir, temp_dir)
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :encoding,
+          encode_worker_id: "worker-replay",
+          worker_attempt_id: "encode-replay"
+        })
+
+      {:ok, socket} = connect(WorkerSocket, %{"token" => token})
+      {:ok, _, socket} = subscribe_and_join(socket, "workers:crf_search")
+      assert_reply push(socket, "announce", announce_payload(worker_id: "worker-replay")), :ok
+
+      :meck.new(Reencodarr.PostProcessor, [:passthrough])
+
+      on_exit(fn ->
+        File.rm_rf(temp_dir)
+
+        if is_nil(previous_temp_dir),
+          do: Application.delete_env(:reencodarr, :temp_dir),
+          else: Application.put_env(:reencodarr, :temp_dir, previous_temp_dir)
+
+        try do
+          :meck.unload(Reencodarr.PostProcessor)
+        catch
+          :error, {:not_mocked, _module} -> :ok
+        end
+      end)
+
+      :meck.expect(
+        Reencodarr.PostProcessor,
+        :process_encoding_success,
+        fn _video, output_path, 7, "encode-replay" ->
+          assert output_path == Encode.output_file(video)
+          {:ok, :success}
+        end
+      )
+
+      assert_reply push(socket, "encode_completed", %{
+                     "job_id" => "encode-replay",
+                     "video_id" => video.id,
+                     "source_name" => Path.basename(video.path),
+                     "output_path" => "/already-moved.mkv",
+                     "output_bytes" => 7,
+                     "output_percent" => 50.0
+                   }),
+                   :ok,
+                   %{accepted: true, event: "encode_completed"}
+
+      assert :meck.validate(Reencodarr.PostProcessor)
+    after
+      Application.delete_env(:reencodarr, :worker_token)
+    end
+
     test "fails unsupported object audio and moves to the next encode request" do
       token = "test-worker-token"
       Application.put_env(:reencodarr, :worker_token, token)
