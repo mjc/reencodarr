@@ -4,8 +4,8 @@ defmodule ReencodarrWeb.WorkersLiveTest do
   import Phoenix.LiveViewTest
 
   alias Reencodarr.AbAv1.WorkerProtocol.{CrfSearchProgress, EncodeProgress}
-  alias Reencodarr.AbAv1.WorkerSessions.Job
   alias Reencodarr.AbAv1.WorkerSessions
+  alias Reencodarr.AbAv1.WorkerSessions.Job
   alias Reencodarr.Fixtures
 
   setup do

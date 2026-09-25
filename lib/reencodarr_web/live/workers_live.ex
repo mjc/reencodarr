@@ -11,8 +11,8 @@ defmodule ReencodarrWeb.WorkersLive do
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Formatters
   alias Reencodarr.Rules
-  alias ReencodarrWeb.WorkerControl
   alias ReencodarrWeb.DashboardLive
+  alias ReencodarrWeb.WorkerControl
 
   import ReencodarrWeb.CrfSearchComponents
 
