@@ -10,7 +10,6 @@ defmodule Reencodarr.Diagnostics do
 
   alias Reencodarr.AbAv1.{CrfSearch, Encode, LocalWorker, WorkerConfig, WorkerSessions}
   alias Reencodarr.Analyzer
-  alias Reencodarr.Analyzer.MediaInfoCache
   alias Reencodarr.Core.Time
   alias Reencodarr.CrfSearcher
   alias Reencodarr.Encoder
@@ -55,9 +54,6 @@ defmodule Reencodarr.Diagnostics do
       from(f in VideoFailure, where: f.resolved == false, select: count())
       |> Repo.one()
 
-    # Performance stats (may not exist)
-    cache_stats = safe_call(fn -> MediaInfoCache.get_stats() end)
-
     # Format output
     """
     #{section("System Status")}
@@ -75,8 +71,6 @@ defmodule Reencodarr.Diagnostics do
     #{format_video_states(video_states)}
 
     Failures: #{failure_count} unresolved
-
-    #{format_cache_stats(cache_stats)}
     """
   rescue
     e -> "Error in status/0: #{Exception.message(e)}"
@@ -315,7 +309,6 @@ defmodule Reencodarr.Diagnostics do
     crf_state = safe_get_state(Reencodarr.AbAv1.CrfSearch, 2000)
     encode_state = safe_get_state(Reencodarr.AbAv1.Encode, 2000)
     health_state = safe_get_state(Reencodarr.Encoder.HealthCheck, 2000)
-    cache_stats = safe_call(fn -> MediaInfoCache.get_stats() end)
     worker_sessions = safe_call(fn -> WorkerSessions.list() end)
     local_worker = safe_call(fn -> LocalWorker.status() end)
 
@@ -343,9 +336,6 @@ defmodule Reencodarr.Diagnostics do
 
     Local Worker Process:
     #{format_local_worker(local_worker)}
-
-    MediaInfo Cache:
-    #{format_cache_stats(cache_stats)}
     """
   rescue
     e -> "Error in processes/0: #{Exception.message(e)}"
@@ -612,18 +602,6 @@ defmodule Reencodarr.Diagnostics do
   defp format_dv_missing_hdr_fallback_season(%{season: season, count: count}) do
     "  #{season} (#{count})"
   end
-
-  defp format_cache_stats({:error, _}), do: "Cache: unavailable"
-
-  defp format_cache_stats(stats) when is_map(stats) do
-    """
-    Cache:
-      Size:          #{Map.get(stats, :size, "N/A")}
-      Hit Rate:      #{Map.get(stats, :hit_rate, "N/A")}%
-    """
-  end
-
-  defp format_cache_stats(_), do: "Cache: N/A"
 
   defp format_vmafs([], _chosen_vmaf_id), do: "  (none)"
 

@@ -135,9 +135,7 @@ defmodule Reencodarr.Application do
   def worker_children(env \\ Application.get_env(:reencodarr, :env)) do
     base_workers = [
       Reencodarr.Sync,
-      # Cache services for analyzer optimization
-      Reencodarr.Analyzer.Core.FileStatCache,
-      Reencodarr.Analyzer.MediaInfoCache
+      Reencodarr.Analyzer.Core.FileStatCache
     ]
 
     shared_workers = [
