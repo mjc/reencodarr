@@ -80,7 +80,7 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
           protocol_version: pos_integer(),
           capabilities: map(),
           control_state: :running | :paused | :stopped,
-          phase: :idle | :receiving_input | :input_ready | :crf_searching,
+          phase: :idle | :receiving_input | :input_ready | :crf_searching | :encoding,
           active_video_id: integer() | nil,
           transfer_progress: map() | nil,
           crf_search_progress: CrfSearchProgress.t() | nil,

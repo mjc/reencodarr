@@ -551,7 +551,7 @@ defmodule ReencodarrWeb.DashboardLive do
   attr :queue_items, :list, required: true
   attr :show_queue, :boolean, default: false
 
-  defp worker_encoding_panel(assigns) do
+  def worker_encoding_panel(assigns) do
     job = worker_encode_job(assigns.worker)
     data = if job, do: Map.get(assigns.data, job.video_id, %{}), else: %{}
 
@@ -1449,7 +1449,7 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @spec load_worker_encode_data([WorkerSessions.session()], encode_worker_data()) ::
           encode_worker_data()
-  defp load_worker_encode_data(workers, cached \\ %{}) do
+  def load_worker_encode_data(workers, cached \\ %{}) do
     video_ids =
       workers
       |> Enum.map(&worker_encode_job/1)

@@ -7,10 +7,12 @@ defmodule ReencodarrWeb.WorkersLive do
 
   alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.AbAv1.WorkerSessions
+  alias Reencodarr.AbAv1.WorkerSessions.Job
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Formatters
   alias Reencodarr.Rules
   alias ReencodarrWeb.WorkerControl
+  alias ReencodarrWeb.DashboardLive
 
   import ReencodarrWeb.CrfSearchComponents
 
@@ -20,7 +22,13 @@ defmodule ReencodarrWeb.WorkersLive do
   @impl true
   def mount(_params, _session, socket) do
     workers = WorkerSessions.list()
-    socket = assign(socket, workers: workers, crf_worker_data: load_worker_crf_data(workers))
+
+    socket =
+      assign(socket,
+        workers: workers,
+        crf_worker_data: load_worker_crf_data(workers),
+        encode_worker_data: DashboardLive.load_worker_encode_data(workers)
+      )
 
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
@@ -121,7 +129,16 @@ defmodule ReencodarrWeb.WorkersLive do
                   <% end %>
                 </aside>
 
-                <div class="min-w-0">
+                <div class="min-w-0 space-y-3">
+                  <%= if worker_has_encode?(worker) do %>
+                    <DashboardLive.worker_encoding_panel
+                      worker={worker}
+                      data={@encode_worker_data}
+                      queue_count={0}
+                      queue_items={[]}
+                    />
+                  <% end %>
+
                   <%= case worker_phase(worker) do %>
                     <% :receiving_input -> %>
                       <.transfer_panel
@@ -137,6 +154,7 @@ defmodule ReencodarrWeb.WorkersLive do
                       />
                     <% :crf_searching -> %>
                       <.worker_crf_search_panel worker={worker} crf_data={@crf_worker_data} />
+                    <% :encoding -> %>
                     <% :idle -> %>
                       <.worker_crf_search_panel worker={worker} crf_data={@crf_worker_data} />
                   <% end %>
@@ -153,7 +171,9 @@ defmodule ReencodarrWeb.WorkersLive do
   defp assign_workers(socket, workers) do
     assign(socket,
       workers: workers,
-      crf_worker_data: load_worker_crf_data(workers, socket.assigns.crf_worker_data)
+      crf_worker_data: load_worker_crf_data(workers, socket.assigns.crf_worker_data),
+      encode_worker_data:
+        DashboardLive.load_worker_encode_data(workers, socket.assigns.encode_worker_data)
     )
   end
 
@@ -213,20 +233,34 @@ defmodule ReencodarrWeb.WorkersLive do
       :receiving_input -> "Receiving input"
       :input_ready -> "Input ready"
       :crf_searching -> "CRF search"
+      :encoding -> "Encoding"
     end
   end
 
   defp worker_phase(%{phase: phase})
-       when phase in [:idle, :receiving_input, :input_ready, :crf_searching],
+       when phase in [:receiving_input, :input_ready, :crf_searching, :encoding],
        do: phase
-
-  defp worker_phase(%{active_video_id: nil}), do: :idle
 
   defp worker_phase(%{transfer_progress: progress}) when not is_nil(progress),
     do: :receiving_input
 
+  defp worker_phase(%{jobs: jobs}) when is_map(jobs) do
+    if Enum.any?(jobs, &match?({_, %Job{active: true, job_type: :encode}}, &1)) do
+      :encoding
+    else
+      :idle
+    end
+  end
+
+  defp worker_phase(%{active_video_id: nil}), do: :idle
+
   defp worker_phase(%{active_video_id: video_id}) when is_integer(video_id), do: :crf_searching
   defp worker_phase(_worker), do: :idle
+
+  defp worker_has_encode?(%{jobs: jobs}) when is_map(jobs),
+    do: Enum.any?(jobs, &match?({_, %Job{active: true, job_type: :encode}}, &1))
+
+  defp worker_has_encode?(_worker), do: false
 
   defp active_video(worker, crf_worker_data),
     do: get_in(crf_worker_data, [active_video_id(worker), :video])

@@ -3,7 +3,8 @@ defmodule ReencodarrWeb.WorkersLiveTest do
 
   import Phoenix.LiveViewTest
 
-  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
+  alias Reencodarr.AbAv1.WorkerProtocol.{CrfSearchProgress, EncodeProgress}
+  alias Reencodarr.AbAv1.WorkerSessions.Job
   alias Reencodarr.AbAv1.WorkerSessions
   alias Reencodarr.Fixtures
 
@@ -273,6 +274,88 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     send(view.pid, {:crf_search_vmaf_result, %{video_id: video.id}})
 
     assert render(view) =~ "CRF 26.0 -&gt; 96.1 VMAF"
+  end
+
+  test "renders the encode panel when only encoding is active", %{conn: conn} do
+    {:ok, _session} =
+      WorkerSessions.register(%{
+        server_worker_id: "worker-server-encode",
+        client_worker_id: "worker-client-encode",
+        protocol_version: 1,
+        version: "0.10.0",
+        capabilities: %{"encode" => true}
+      })
+
+    {video, vmaf} = Fixtures.video_with_vmaf_fixture(%{state: :encoding})
+    _video = Fixtures.choose_vmaf(video, vmaf)
+    job_id = "encode-workers-page"
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-encode", %Job{
+               job_id: job_id,
+               job_type: :encode,
+               video_id: video.id,
+               phase: :encoding
+             })
+
+    assert :ok =
+             WorkerSessions.set_encode_progress("worker-server-encode", %EncodeProgress{
+               job_id: job_id,
+               video_id: video.id,
+               percent: 37.0,
+               fps: 24.0,
+               output_bytes: 500,
+               output_percent: 20.0
+             })
+
+    {:ok, view, _html} = live(conn, ~p"/workers")
+    send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
+
+    html = render(view)
+    assert html =~ "Encoding · worker-client-encode"
+    assert html =~ "37.0%"
+    refute html =~ "CRF Search · worker-client-encode"
+    refute html =~ "Idle"
+  end
+
+  test "renders both typed job panels when crf search and encode run together", %{conn: conn} do
+    {:ok, _session} =
+      WorkerSessions.register(%{
+        server_worker_id: "worker-server-both",
+        client_worker_id: "worker-client-both",
+        protocol_version: 1,
+        version: "0.10.0",
+        capabilities: %{"crf_search" => true, "encode" => true}
+      })
+
+    {encode_video, encode_vmaf} = Fixtures.video_with_vmaf_fixture(%{state: :encoding})
+    _encode_video = Fixtures.choose_vmaf(encode_video, encode_vmaf)
+    {:ok, crf_video} = Fixtures.video_fixture(%{state: :crf_searching})
+    encode_job_id = "encode-both-workers-page"
+    crf_job_id = "crf-both-workers-page"
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-both", %Job{
+               job_id: encode_job_id,
+               job_type: :encode,
+               video_id: encode_video.id,
+               phase: :encoding
+             })
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_video(
+               "worker-server-both",
+               crf_video.id,
+               :crf_searching,
+               crf_job_id
+             )
+
+    {:ok, view, _html} = live(conn, ~p"/workers")
+    send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
+
+    html = render(view)
+    assert html =~ "Encoding · worker-client-both"
+    assert html =~ "CRF Search · worker-client-both"
   end
 
   test "rejects a stale CRF control without crashing", %{conn: conn} do
