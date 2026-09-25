@@ -1,6 +1,8 @@
 defmodule Reencodarr.TempCleanerTest do
-  use Reencodarr.UnitCase, async: false
+  use Reencodarr.DataCase, async: false
 
+  alias Reencodarr.AbAv1.Encode
+  alias Reencodarr.Fixtures
   alias Reencodarr.TempCleaner
 
   import ExUnit.CaptureLog
@@ -91,6 +93,29 @@ defmodule Reencodarr.TempCleanerTest do
 
       assert TempCleaner.cleanup_orphaned_files() == 0
       assert File.dir?(subdir)
+    end
+
+    test "preserves old output and upload artifacts owned by an active encode", %{tmp: tmp} do
+      path = Path.join(tmp, "owned_source.mkv")
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: path,
+          state: :encoding,
+          encode_worker_id: "worker-1",
+          worker_attempt_id: "encode-1"
+        })
+
+      output_path = Encode.output_file(video)
+      File.write!(output_path, "encoded")
+      File.write!(output_path <> ".upload", "partial")
+      old_mtime = System.os_time(:second) - 48 * 3600
+      File.touch!(output_path, old_mtime)
+      File.touch!(output_path <> ".upload", old_mtime)
+
+      assert TempCleaner.cleanup_orphaned_files() == 0
+      assert File.exists?(output_path)
+      assert File.exists?(output_path <> ".upload")
     end
   end
 

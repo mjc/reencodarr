@@ -7,9 +7,12 @@ defmodule Reencodarr.TempCleaner do
   """
 
   use GenServer
+  import Ecto.Query
   require Logger
 
-  alias Reencodarr.AbAv1.Helper
+  alias Reencodarr.AbAv1.{Encode, Helper}
+  alias Reencodarr.Media.Video
+  alias Reencodarr.Repo
 
   # Clean every hour
   @cleanup_interval_ms :timer.hours(1)
@@ -43,32 +46,63 @@ defmodule Reencodarr.TempCleaner do
     temp_dir = Helper.temp_dir()
     now = System.os_time(:second)
 
-    case File.ls(temp_dir) do
-      {:ok, files} ->
-        files
-        |> Enum.map(&{&1, Path.join(temp_dir, &1)})
-        |> Enum.reduce(0, fn {file, path}, count ->
-          maybe_remove_orphan(file, path, now, count)
-        end)
-
+    with {:ok, protected_paths} <- protected_paths(),
+         {:ok, files} <- File.ls(temp_dir) do
+      files
+      |> Enum.map(&{&1, Path.join(temp_dir, &1)})
+      |> Enum.reduce(0, fn {file, path}, count ->
+        maybe_remove_orphan(file, path, now, protected_paths, count)
+      end)
+    else
       {:error, :enoent} ->
         0
 
       {:error, reason} ->
-        Logger.warning("TempCleaner: failed to list temp dir: #{inspect(reason)}")
+        Logger.warning("TempCleaner: failed to prepare cleanup: #{inspect(reason)}")
         0
     end
   end
 
-  defp maybe_remove_orphan(file, path, now, count) do
+  defp protected_paths do
+    query =
+      from v in Video,
+        where: v.state in [:crf_searching, :encoding],
+        select: %{id: v.id, path: v.path}
+
+    {:ok,
+     Repo.all(query)
+     |> Enum.map(&Encode.output_file/1)
+     |> MapSet.new()}
+  rescue
+    error -> {:error, {:ownership_lookup_failed, Exception.message(error)}}
+  end
+
+  defp maybe_remove_orphan(file, path, now, protected_paths, count) do
     case File.stat(path, time: :posix) do
       {:ok, %File.Stat{type: :regular, mtime: mtime}} ->
         age = now - mtime
-        if age > @max_age_seconds, do: remove_file(file, path, age, count), else: count
+
+        cond do
+          age <= @max_age_seconds ->
+            count
+
+          protected_path?(path, protected_paths) ->
+            Logger.debug("TempCleaner: preserving owned artifact #{file}")
+            count
+
+          true ->
+            remove_file(file, path, age, count)
+        end
 
       _ ->
         count
     end
+  end
+
+  defp protected_path?(path, protected_paths) do
+    Enum.any?(protected_paths, fn output_path ->
+      path == output_path or String.starts_with?(path, output_path <> ".")
+    end)
   end
 
   defp remove_file(file, path, age, count) do
