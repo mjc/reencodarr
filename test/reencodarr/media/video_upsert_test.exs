@@ -793,6 +793,7 @@ defmodule Reencodarr.Media.VideoUpsertTest do
           "height" => 1080,
           "video_codecs" => ["h264"],
           "audio_codecs" => ["aac"],
+          "service_id" => "file-1",
           "library_id" => library.id
         })
 
@@ -813,6 +814,7 @@ defmodule Reencodarr.Media.VideoUpsertTest do
           "height" => 1080,
           "video_codecs" => ["h264"],
           "audio_codecs" => ["aac"],
+          "service_id" => "file-1",
           "library_id" => library.id
         })
 

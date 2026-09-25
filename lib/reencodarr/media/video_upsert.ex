@@ -463,6 +463,7 @@ defmodule Reencodarr.Media.VideoUpsert do
         where: v.path == ^path and v.state != :encoded and v.state != :failed,
         select: %{
           id: v.id,
+          service_id: v.service_id,
           size: v.size,
           bitrate: v.bitrate,
           duration: v.duration,
