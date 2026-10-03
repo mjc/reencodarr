@@ -1089,7 +1089,8 @@ defmodule Reencodarr.Media do
     )
   end
 
-  def next_queued_bad_file_issue(service_type) when service_type in [:sonarr, :radarr] do
+  def next_queued_bad_file_issue(service_type)
+      when service_type in [:sonarr, :sportarr, :radarr] do
     Repo.one(
       from i in BadFileIssue,
         join: v in assoc(i, :video),
@@ -1175,7 +1176,7 @@ defmodule Reencodarr.Media do
 
   @spec reconcile_replacement_video(Video.t(), atom(), map()) :: {:ok, Video.t()}
   def reconcile_replacement_video(%Video{} = video, service_type, replacement_ref \\ %{})
-      when service_type in [:sonarr, :radarr] do
+      when service_type in [:sonarr, :sportarr, :radarr] do
     {:ok, _resolved_count} =
       resolve_waiting_bad_file_issues_for_replacement(video, replacement_ref)
 
@@ -1189,7 +1190,7 @@ defmodule Reencodarr.Media do
   end
 
   defp waiting_bad_file_replacement_candidates(service_type)
-       when service_type in [:sonarr, :radarr] do
+       when service_type in [:sonarr, :sportarr, :radarr] do
     Repo.all(
       from i in BadFileIssue,
         join: v in assoc(i, :video),
@@ -1205,11 +1206,12 @@ defmodule Reencodarr.Media do
     do: true
 
   defp replacement_matches_waiting_issue?(
-         %Video{service_type: :sonarr},
-         %{service_type: :sonarr, episode_ids: replacement_episode_ids},
+         %Video{service_type: service_type},
+         %{service_type: service_type, episode_ids: replacement_episode_ids},
          %BadFileIssue{} = issue
        )
-       when is_list(replacement_episode_ids) and replacement_episode_ids != [] do
+       when service_type in [:sonarr, :sportarr] and is_list(replacement_episode_ids) and
+              replacement_episode_ids != [] do
     issue
     |> bad_file_issue_replacement_ref()
     |> Map.get(:episode_ids, [])
@@ -1235,8 +1237,8 @@ defmodule Reencodarr.Media do
   @spec bad_file_replacement_ref_from_arr_file(map() | struct(), atom(), term()) :: map()
   def bad_file_replacement_ref_from_arr_file(file, service_type, fallback_item_id \\ nil)
 
-  def bad_file_replacement_ref_from_arr_file(file, :sonarr, _fallback_item_id)
-      when is_map(file) do
+  def bad_file_replacement_ref_from_arr_file(file, service_type, _fallback_item_id)
+      when is_map(file) and service_type in [:sonarr, :sportarr] do
     episode_ids =
       file
       |> extract_sonarr_episode_ids()
@@ -1245,7 +1247,7 @@ defmodule Reencodarr.Media do
     if episode_ids == [] do
       %{}
     else
-      %{service_type: :sonarr, episode_ids: episode_ids}
+      %{service_type: service_type, episode_ids: episode_ids}
     end
   end
 
@@ -1371,11 +1373,12 @@ defmodule Reencodarr.Media do
 
   defp coerce_positive_integer(_value), do: nil
 
-  defp normalize_service_type(value) when value in [:sonarr, :radarr], do: value
+  defp normalize_service_type(value) when value in [:sonarr, :sportarr, :radarr], do: value
 
   defp normalize_service_type(value) when is_binary(value) do
     case String.downcase(value) do
       "sonarr" -> :sonarr
+      "sportarr" -> :sportarr
       "radarr" -> :radarr
       _other -> nil
     end
@@ -1450,7 +1453,7 @@ defmodule Reencodarr.Media do
 
   defp bad_file_service_filter(query, "all"), do: query
 
-  defp bad_file_service_filter(query, service) when service in ["sonarr", "radarr"] do
+  defp bad_file_service_filter(query, service) when service in ["sonarr", "sportarr", "radarr"] do
     service_type = String.to_existing_atom(service)
 
     query
@@ -1513,7 +1516,7 @@ defmodule Reencodarr.Media do
     end
   end
 
-  defp bad_file_service_param(service) when service in ~w(all sonarr radarr), do: service
+  defp bad_file_service_param(service) when service in ~w(all sonarr sportarr radarr), do: service
   defp bad_file_service_param(_service), do: "all"
 
   defp bad_file_kind_param(kind) when kind in ~w(all audio manual), do: kind
@@ -1667,7 +1670,8 @@ defmodule Reencodarr.Media do
     end
   end
 
-  defp series_group_key(%Video{service_type: :sonarr, path: path}) when is_binary(path) do
+  defp series_group_key(%Video{service_type: service_type, path: path})
+       when service_type in [:sonarr, :sportarr] and is_binary(path) do
     dir = Path.dirname(path)
 
     if Regex.match?(~r/^[Ss](?:eason\s*)?0*\d+$/i, Path.basename(dir)) do
@@ -3718,6 +3722,7 @@ defmodule Reencodarr.Media do
   defp normalize_video_state(_value), do: nil
 
   defp normalize_video_service_type("sonarr"), do: :sonarr
+  defp normalize_video_service_type("sportarr"), do: :sportarr
   defp normalize_video_service_type("radarr"), do: :radarr
   defp normalize_video_service_type(_value), do: nil
 

@@ -66,7 +66,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
   Converts raw Sonarr/Radarr file data directly to MediaInfo JSON format.
   """
   @spec from_service_file(map(), VideoFileInfo.service_type()) :: map()
-  def from_service_file(file, service_type) when service_type in [:sonarr, :radarr] do
+  def from_service_file(file, service_type) when service_type in [:sonarr, :sportarr, :radarr] do
     media_info = file["mediaInfo"] || %{}
 
     {width, height} = parse_resolution_from_service(media_info)
@@ -331,7 +331,7 @@ defmodule Reencodarr.Media.Video.MediaInfoConverter do
   @spec extract_year_from_file(map(), VideoFileInfo.service_type()) :: integer() | nil
   defp extract_year_from_file(file, service_type) do
     case service_type do
-      :sonarr ->
+      service_type when service_type in [:sonarr, :sportarr] ->
         # For Sonarr, try to extract year from episode air date first, then fallback to filename
         case parse_episode_air_year(file) do
           year when is_integer(year) -> year

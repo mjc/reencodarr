@@ -290,6 +290,15 @@ defmodule ReencodarrWeb.DashboardLive do
     end
   end
 
+  def handle_event("sync_sportarr", _params, socket) do
+    if socket.assigns.syncing do
+      {:noreply, put_flash(socket, :error, "Sync already in progress")}
+    else
+      Reencodarr.Sync.sync_sportarr()
+      {:noreply, put_flash(socket, :info, "Sportarr sync started")}
+    end
+  end
+
   @impl true
   def handle_event("sync_radarr", _params, socket) do
     if socket.assigns.syncing do
@@ -831,6 +840,15 @@ defmodule ReencodarrWeb.DashboardLive do
               }
             >
               Sync Radarr
+            </button>
+            <button
+              phx-click="sync_sportarr"
+              disabled={@syncing}
+              class={
+                "w-full px-4 py-2 text-sm rounded sm:w-auto #{if @syncing, do: "bg-gray-700 text-gray-500 cursor-not-allowed", else: "bg-blue-600 hover:bg-blue-700 text-white"}"
+              }
+            >
+              Sync Sportarr
             </button>
           </div>
         </div>

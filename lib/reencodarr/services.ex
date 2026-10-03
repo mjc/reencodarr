@@ -8,6 +8,7 @@ defmodule Reencodarr.Services do
   alias Reencodarr.Services.Config
   alias Reencodarr.Services.Radarr
   alias Reencodarr.Services.Sonarr
+  alias Reencodarr.Services.Sportarr
   alias Reencodarr.Services.WebhookSync
 
   @doc """
@@ -49,6 +50,15 @@ defmodule Reencodarr.Services do
   @spec get_sonarr_config :: {:ok, Config.t()} | {:error, :not_found}
   def get_sonarr_config do
     case Repo.get_by(Config, service_type: :sonarr) do
+      nil -> {:error, :not_found}
+      config -> {:ok, config}
+    end
+  end
+
+  @doc "Gets the Sportarr config."
+  @spec get_sportarr_config :: {:ok, Config.t()} | {:error, :not_found}
+  def get_sportarr_config do
+    case Repo.get_by(Config, service_type: :sportarr) do
       nil -> {:error, :not_found}
       config -> {:ok, config}
     end
@@ -167,6 +177,10 @@ defmodule Reencodarr.Services do
 
   @doc "Fetches all episode files for a given show."
   def get_episode_files(show_id), do: Sonarr.get_episode_files(show_id)
+
+  @doc "Fetches leagues and episode files through Sportarr's Sonarr-compatible API."
+  def get_sportarr_shows, do: Sportarr.get_shows()
+  def get_sportarr_episode_files(league_id), do: Sportarr.get_episode_files(league_id)
 
   @doc "Fetches all movies from Radarr."
   def get_movies, do: Radarr.get_movies()

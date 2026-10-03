@@ -3,7 +3,7 @@ defmodule Reencodarr.BadFileRemediation do
 
   alias Reencodarr.Media
   alias Reencodarr.Media.BadFileIssue
-  alias Reencodarr.Services.{Radarr, Sonarr}
+  alias Reencodarr.Services.{Radarr, Sonarr, Sportarr}
 
   @spec process_next_issue(keyword()) :: :idle | {:ok, BadFileIssue.t()} | {:error, term()}
   def process_next_issue(opts \\ []) do
@@ -55,6 +55,18 @@ defmodule Reencodarr.BadFileRemediation do
          {:ok, _response} <- Sonarr.delete_episode_file(episode_file["id"] || file_id),
          {:ok, _response} <- Sonarr.trigger_episode_search(episode_ids) do
       {:ok, %{service_type: :sonarr, deleted_file_id: file_id, episode_ids: episode_ids}}
+    end
+  end
+
+  defp remediate_video(%{service_type: :sportarr, service_id: service_id}) do
+    with {:ok, file_id} <- parse_positive_integer(service_id),
+         {:ok, %{body: episode_file}} <- Sportarr.get_episode_file(file_id),
+         {:ok, %{body: episodes}} <- Sportarr.get_episodes_by_file(file_id),
+         {:ok, episode_ids} <- extract_ids(episodes),
+         {:ok, _response} <- Sportarr.set_episodes_monitored(episode_ids, true),
+         {:ok, _response} <- Sportarr.delete_episode_file(episode_file["id"] || file_id),
+         {:ok, _response} <- Sportarr.trigger_episode_search(episode_ids) do
+      {:ok, %{service_type: :sportarr, deleted_file_id: file_id, episode_ids: episode_ids}}
     end
   end
 

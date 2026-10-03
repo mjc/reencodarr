@@ -5,7 +5,7 @@ defmodule Reencodarr.Media.Video do
 
   @moduledoc "Represents video metadata and schema."
 
-  @type service_type :: :sonarr | :radarr
+  @type service_type :: :sonarr | :sportarr | :radarr
   @type state ::
           :needs_analysis
           | :analyzing
@@ -115,7 +115,7 @@ defmodule Reencodarr.Media.Video do
     :atmos
   ]
 
-  @service_types [:sonarr, :radarr]
+  @service_types [:sonarr, :sportarr, :radarr]
 
   @derive {
     Flop.Schema,

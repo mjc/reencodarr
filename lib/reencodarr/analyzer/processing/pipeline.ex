@@ -191,6 +191,9 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
       :sonarr ->
         trigger_sonarr_rescan(video)
 
+      :sportarr ->
+        trigger_sportarr_rescan(video)
+
       :radarr ->
         trigger_radarr_rescan(video)
 
@@ -238,6 +241,40 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
 
       {:error, reason} ->
         Logger.error("Failed to get episode file info from Sonarr: #{inspect(reason)}")
+    end
+  end
+
+  defp trigger_sportarr_rescan(%{service_id: service_id, id: video_id})
+       when is_binary(service_id) do
+    case Integer.parse(service_id) do
+      {episode_file_id, ""} ->
+        refresh_sportarr_episode_file(episode_file_id, video_id)
+
+      _ ->
+        Logger.warning("Invalid Sportarr file id #{inspect(service_id)} for video #{video_id}")
+    end
+  end
+
+  defp trigger_sportarr_rescan(%{id: video_id}),
+    do: Logger.warning("No Sportarr file id for video #{video_id}")
+
+  defp refresh_sportarr_episode_file(episode_file_id, video_id) do
+    case Services.Sportarr.get_episode_file(episode_file_id) do
+      {:ok, %{body: %{"seriesId" => series_id}}} when is_integer(series_id) ->
+        refresh_sportarr_series(series_id, video_id)
+
+      {:error, reason} ->
+        Logger.error("Sportarr file lookup failed: #{inspect(reason)}")
+
+      _ ->
+        Logger.warning("Sportarr file response had no series id for video #{video_id}")
+    end
+  end
+
+  defp refresh_sportarr_series(series_id, video_id) do
+    case Services.Sportarr.refresh_series(series_id) do
+      {:ok, _} -> Logger.info("Triggered Sportarr refresh for video #{video_id}")
+      {:error, reason} -> Logger.error("Sportarr refresh failed: #{inspect(reason)}")
     end
   end
 
