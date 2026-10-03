@@ -393,7 +393,7 @@ defmodule Reencodarr.Sync do
         }
 
         # Add mediainfo if present
-        if raw_file["mediaInfo"] do
+        if raw_file["mediaInfo"] && service_mediainfo_usable?(raw_file["mediaInfo"], service_type) do
           mediainfo = MediaInfoConverter.from_service_file(raw_file, service_type)
 
           Map.merge(base_attrs, %{
@@ -425,6 +425,17 @@ defmodule Reencodarr.Sync do
         nil
     end
   end
+
+  defp service_mediainfo_usable?(media_info, :sportarr) when is_map(media_info) do
+    Enum.all?(["videoCodec", "audioCodec"], fn field ->
+      case Map.get(media_info, field) do
+        value when is_binary(value) -> String.trim(value) != ""
+        _other -> false
+      end
+    end)
+  end
+
+  defp service_mediainfo_usable?(_media_info, _service_type), do: true
 
   defp fetch_item_files(item, get_files) do
     id = item_id(item)
