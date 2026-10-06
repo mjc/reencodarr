@@ -1,5 +1,6 @@
 defmodule Reencodarr.Media.BadFileIssue do
   use Ecto.Schema
+  use Flop.Schema
   import Ecto.Changeset
 
   alias Reencodarr.Media.Video
@@ -24,8 +25,7 @@ defmodule Reencodarr.Media.BadFileIssue do
 
   @type t() :: %__MODULE__{}
 
-  @derive {
-    Flop.Schema,
+  @flop_options [
     filterable: [:status, :issue_kind, :origin, :classification],
     sortable: [:id, :inserted_at, :updated_at],
     default_order: %{
@@ -34,7 +34,7 @@ defmodule Reencodarr.Media.BadFileIssue do
     },
     default_limit: 50,
     max_limit: 250
-  }
+  ]
 
   schema "bad_file_issues" do
     belongs_to :video, Video

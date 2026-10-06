@@ -1,5 +1,6 @@
 defmodule Reencodarr.Media.Video do
   use Ecto.Schema
+  use Flop.Schema
   import Ecto.Changeset
   alias Reencodarr.Media.MediaInfoExtractor
 
@@ -117,17 +118,17 @@ defmodule Reencodarr.Media.Video do
 
   @service_types [:sonarr, :sportarr, :radarr]
 
-  @derive {
-    Flop.Schema,
+  @flop_options [
     filterable: [:state, :service_type, :hdr, :path],
     sortable: [:path, :state, :size, :updated_at, :width, :bitrate, :priority],
     default_order: %{
       order_by: [:updated_at],
       order_directions: [:desc]
     },
+    tiebreaker: {:primary_key, :desc},
     default_limit: 50,
     max_limit: 250
-  }
+  ]
 
   schema "videos" do
     field :atmos, :boolean
