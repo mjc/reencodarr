@@ -6,6 +6,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
   import Reencodarr.Fixtures
   import Ecto.Query
 
+  alias Reencodarr.Media
   alias Reencodarr.Media.{SharedQueries, Video}
   alias Reencodarr.Repo
 
@@ -376,10 +377,7 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
         {:ok, _v1} = video_fixture(%{path: "/v1.mkv", state: :analyzed})
         {:ok, video} = video_fixture(%{path: "/v2.mkv", state: :crf_searched})
 
-        vmaf =
-          vmaf_fixture(%{video_id: video.id, crf: 25.0, savings: 1_073_741_824})
-
-        choose_vmaf(video, vmaf)
+        {:ok, _video} = Media.update_video(video, %{space_saved_bytes: 1_073_741_824})
 
         stats = Reencodarr.Media.get_dashboard_stats()
 
@@ -393,7 +391,6 @@ defmodule Reencodarr.Media.ExcludePatternsTest do
 
         assert stats.analyzed == 1
         assert stats.crf_searched == 1
-        assert stats.chosen_vmafs == 1
         assert stats.total_size_gb > 0
         assert_in_delta stats.total_savings_gb, 1.0, 0.01
       end)

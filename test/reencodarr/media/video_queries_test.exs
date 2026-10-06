@@ -1,5 +1,6 @@
 defmodule Reencodarr.Media.VideoQueriesTest do
   use Reencodarr.DataCase, async: true
+  alias Ecto.Adapters.SQL.Sandbox
   alias Reencodarr.Media.VideoQueries
 
   describe "videos_for_crf_search/1" do
@@ -394,6 +395,173 @@ defmodule Reencodarr.Media.VideoQueriesTest do
     end
   end
 
+  describe "claim_next_video_for_encoding/3" do
+    test "skips candidates rejected by encode admission without mutating them" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/claim_encoding_admission.mkv",
+          state: :crf_searched
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      assert {:rejected, %{video: %{id: rejected_id}}} =
+               VideoQueries.claim_next_video_for_encoding(
+                 "worker-a",
+                 "attempt-a",
+                 admit?: fn _video, _vmaf -> false end
+               )
+
+      assert rejected_id == video.id
+
+      assert %{state: :crf_searched, worker_attempt_id: nil, encode_worker_id: nil} =
+               Reencodarr.Media.get_video(video.id)
+    end
+
+    test "continues past a rejected candidate and atomically claims the next admitted one" do
+      {:ok, rejected} =
+        Fixtures.video_fixture(%{
+          path: "/test/claim_encoding_rejected.mkv",
+          state: :crf_searched,
+          priority: 200
+        })
+
+      rejected_vmaf = Fixtures.vmaf_fixture(%{video_id: rejected.id, crf: 25.0})
+      Fixtures.choose_vmaf(rejected, rejected_vmaf)
+
+      {:ok, admitted} =
+        Fixtures.video_fixture(%{
+          path: "/test/claim_encoding_admitted.mkv",
+          state: :crf_searched,
+          priority: 100
+        })
+
+      admitted_vmaf = Fixtures.vmaf_fixture(%{video_id: admitted.id, crf: 25.0})
+      Fixtures.choose_vmaf(admitted, admitted_vmaf)
+
+      assert %{video: claimed} =
+               VideoQueries.claim_next_video_for_encoding(
+                 "worker-a",
+                 "attempt-a",
+                 admit?: fn video, _vmaf -> video.id == admitted.id end
+               )
+
+      assert claimed.id == admitted.id
+      assert Reencodarr.Media.get_video(rejected.id).state == :crf_searched
+    end
+
+    test "continues past an entire rejected candidate page" do
+      rejected_videos =
+        for index <- 1..10 do
+          {:ok, video} =
+            Fixtures.video_fixture(%{
+              path: "/test/claim_encoding_rejected_page_#{index}.mkv",
+              state: :crf_searched,
+              priority: 1_000 - index
+            })
+
+          vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+          Fixtures.choose_vmaf(video, vmaf)
+          video
+        end
+
+      {:ok, admitted} =
+        Fixtures.video_fixture(%{
+          path: "/test/claim_encoding_admitted_page.mkv",
+          state: :crf_searched,
+          priority: 1
+        })
+
+      admitted_vmaf = Fixtures.vmaf_fixture(%{video_id: admitted.id, crf: 25.0})
+      Fixtures.choose_vmaf(admitted, admitted_vmaf)
+
+      assert %{video: claimed} =
+               VideoQueries.claim_next_video_for_encoding(
+                 "worker-a",
+                 "attempt-page",
+                 admit?: fn video, _vmaf -> video.id == admitted.id end
+               )
+
+      assert claimed.id == admitted.id
+
+      assert Enum.all?(
+               rejected_videos,
+               &(Reencodarr.Media.get_video(&1.id).state == :crf_searched)
+             )
+    end
+
+    test "atomically assigns the worker and attempt while claiming the video" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/claim_encoding.mkv",
+          state: :crf_searched
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      assert %{video: claimed} =
+               VideoQueries.claim_next_video_for_encoding("worker-a", "attempt-a")
+
+      assert claimed.id == video.id
+      assert claimed.state == :encoding
+      assert claimed.encode_worker_id == "worker-a"
+      assert claimed.worker_attempt_id == "attempt-a"
+      assert claimed.worker_control_desired_state == :running
+      assert claimed.worker_control_acknowledged_state == :running
+      assert is_nil(claimed.worker_control_command_id)
+    end
+
+    test "does not claim a video that another worker already claimed" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/claim_encoding_once.mkv",
+          state: :crf_searched
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      assert %{video: %{id: video_id}} =
+               VideoQueries.claim_next_video_for_encoding("worker-a", "attempt-a")
+
+      assert video_id == video.id
+      assert VideoQueries.claim_next_video_for_encoding("worker-b", "attempt-b") == nil
+    end
+
+    test "simultaneous workers cannot claim the same video" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/claim_encoding_concurrently.mkv",
+          state: :crf_searched
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+      owner = self()
+
+      claim = fn worker_id, attempt_id ->
+        Task.async(fn ->
+          receive do
+            :claim -> VideoQueries.claim_next_video_for_encoding(worker_id, attempt_id)
+          end
+        end)
+      end
+
+      first = claim.("worker-a", "attempt-a")
+      second = claim.("worker-b", "attempt-b")
+      Sandbox.allow(Repo, owner, first.pid)
+      Sandbox.allow(Repo, owner, second.pid)
+      send(first.pid, :claim)
+      send(second.pid, :claim)
+
+      claims = [Task.await(first), Task.await(second)]
+      assert Enum.count(claims, &match?(%{video: %{id: id}} when id == video.id, &1)) == 1
+      assert Enum.count(claims, &is_nil/1) == 1
+    end
+  end
+
   describe "encoding_queue_count/1" do
     test "counts crf_searched videos with a chosen VMAF" do
       before_count = VideoQueries.encoding_queue_count()
@@ -472,6 +640,11 @@ defmodule Reencodarr.Media.VideoQueriesTest do
       assert preview.id == video.id
       assert preview.path == video.path
       assert Map.keys(preview) |> Enum.sort() == [:id, :path]
+
+      {:ok, _} = Reencodarr.Media.update_video(video, %{state: :encoded})
+
+      previews = VideoQueries.videos_ready_for_encoding_preview(10)
+      refute Enum.any?(previews, &(&1.id == video.id))
     end
 
     test "excludes crf_searched videos without a chosen VMAF" do

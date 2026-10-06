@@ -13,6 +13,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
   import Phoenix.LiveViewTest
 
   alias Reencodarr.Fixtures
+  alias Reencodarr.Media
   alias Reencodarr.Media.Video
 
   # Force the Video module to load so its Ecto.Enum atoms (e.g. :needs_analysis)
@@ -253,41 +254,50 @@ defmodule ReencodarrWeb.VideosLiveTest do
     end
 
     test "renders space saved in green for >= 1 GiB saved", %{conn: conn} do
-      {:ok, _video} =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/media/large_save.mkv",
           size: 2_000_000_000,
           original_size: 5_000_000_000
         })
 
+      {:ok, _video} = Media.update_video(video, %{space_saved_bytes: 3_000_000_000})
+
       {:ok, view, _html} = live(conn, ~p"/videos")
+      view |> form("#videos-filters", %{search: "large_save"}) |> render_change()
       html = render(view)
       assert html =~ "text-green-300"
       assert html =~ "GiB"
     end
 
     test "renders space saved in yellow for >= 512 MiB saved", %{conn: conn} do
-      {:ok, _video} =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/media/medium_save.mkv",
           size: 1_500_000_000,
           original_size: 2_500_000_000
         })
 
+      {:ok, _video} = Media.update_video(video, %{space_saved_bytes: 1_000_000_000})
+
       {:ok, view, _html} = live(conn, ~p"/videos")
+      view |> form("#videos-filters", %{search: "medium_save"}) |> render_change()
       html = render(view)
       assert html =~ "text-yellow-300"
     end
 
     test "renders space saved in red for < 512 MiB saved", %{conn: conn} do
-      {:ok, _video} =
+      {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/media/small_save.mkv",
           size: 900_000_000,
           original_size: 950_000_000
         })
 
+      {:ok, _video} = Media.update_video(video, %{space_saved_bytes: 50_000_000})
+
       {:ok, view, _html} = live(conn, ~p"/videos")
+      view |> form("#videos-filters", %{search: "small_save"}) |> render_change()
       html = render(view)
       assert html =~ "text-red-400"
     end

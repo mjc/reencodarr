@@ -124,9 +124,16 @@ defmodule Reencodarr.FailureTracker do
     )
   end
 
-  # Encoding stage failures
   def record_process_failure(video, exit_code, opts \\ []) do
+    record_process_exit_failure(video, :encoding, exit_code, opts)
+  end
+
+  # Process-exit failures. Used by local ab-av1 ports and worker-mode job reports.
+  @spec record_process_exit_failure(any(), atom(), integer() | atom(), keyword()) ::
+          {:ok, Media.VideoFailure.t()} | {:error, Ecto.Changeset.t()}
+  def record_process_exit_failure(video, stage, exit_code, opts \\ []) do
     context = Keyword.get(opts, :context, %{})
+    worker_attempt_id = Keyword.get(opts, :worker_attempt_id)
 
     # Check if we can extract more specific FFmpeg error information from output
     {actual_exit_code, category, enhanced_message} =
@@ -140,12 +147,15 @@ defmodule Reencodarr.FailureTracker do
       }
       |> Map.merge(context)
 
-    Media.record_video_failure(video, :encoding, category,
+    Media.record_video_failure(video, stage, category,
       code: "EXIT_#{actual_exit_code}",
       message: enhanced_message,
-      context: enhanced_context
+      context: enhanced_context,
+      worker_attempt_id: worker_attempt_id
     )
   end
+
+  # Encoding stage failures
 
   def record_resource_exhaustion_failure(video, resource_type, details, opts \\ []) do
     context =
@@ -169,7 +179,9 @@ defmodule Reencodarr.FailureTracker do
       }
       |> Map.merge(Keyword.get(opts, :context, %{}))
 
-    Media.record_video_failure(video, :encoding, :timeout,
+    stage = Keyword.get(opts, :stage, :encoding)
+
+    Media.record_video_failure(video, stage, :timeout,
       code: "TIMEOUT",
       message: "Encoding timeout after #{timeout_duration}",
       context: context
@@ -263,11 +275,26 @@ defmodule Reencodarr.FailureTracker do
   def record_unknown_failure(video, stage, error, opts \\ []) do
     context = Map.merge(%{error: error}, Keyword.get(opts, :context, %{}))
 
-    Media.record_video_failure(video, stage, :unknown,
-      code: "UNKNOWN",
-      message: "Unknown failure: #{inspect(error)}",
-      context: context
-    )
+    if timeout_reason?(error) do
+      record_timeout_failure(
+        video,
+        "processing",
+        Keyword.merge(opts, stage: stage, context: context)
+      )
+    else
+      Media.record_video_failure(video, stage, :unknown,
+        code: "UNKNOWN",
+        message: "Unknown failure: #{inspect(error)}",
+        context: context
+      )
+    end
+  end
+
+  defp timeout_reason?(error) do
+    error
+    |> inspect()
+    |> String.downcase()
+    |> String.contains?("timeout")
   end
 
   def record_exception_failure(video, exception_context, opts \\ []) do
@@ -296,7 +323,13 @@ defmodule Reencodarr.FailureTracker do
   - message: Enhanced error message with specific details
   """
   def parse_ffmpeg_error_from_output(context, original_exit_code) do
-    output = Map.get(context, "full_output", "")
+    output =
+      [
+        Map.get(context, "full_output"),
+        Map.get(context, "error_chain"),
+        Map.get(context, "stderr_excerpt")
+      ]
+      |> Enum.find("", &(is_binary(&1) and byte_size(&1) > 0))
 
     # Use centralized parser to extract FFmpeg errors
     parsed_output = OutputParser.parse_output(output)
@@ -384,7 +417,7 @@ defmodule Reencodarr.FailureTracker do
     cond do
       # Handle negative exit codes as setup/exception errors
       exit_code < 0 ->
-        {:process_failure, "Exception during encoding setup (exit code: #{exit_code})"}
+        {:process_failure, "Exception during process setup (exit code: #{exit_code})"}
 
       resource_exhaustion_error?(exit_code) ->
         classify_resource_exhaustion_error(exit_code)
@@ -402,7 +435,7 @@ defmodule Reencodarr.FailureTracker do
         classify_special_atom_code(exit_code)
 
       exit_code == 1 ->
-        {:process_failure, "Standard encoding failure (corrupted/invalid input)"}
+        {:process_failure, "Standard process failure (corrupted/invalid input)"}
 
       true ->
         {:process_failure, "Unknown exit code: #{exit_code}"}

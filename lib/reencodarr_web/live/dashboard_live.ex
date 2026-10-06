@@ -8,7 +8,8 @@ defmodule ReencodarrWeb.DashboardLive do
   """
   use ReencodarrWeb, :live_view
 
-  alias Reencodarr.AbAv1.{CrfSearch, Encode}
+  alias Reencodarr.AbAv1.{CrfSearch, Encode, LocalWorker, WorkerConfig, WorkerSessions}
+  alias Reencodarr.AbAv1.WorkerSessions.Job
   alias Reencodarr.Core.Parsers
   alias Reencodarr.CrfSearcher.Broadway, as: CrfSearcherBroadway
   alias Reencodarr.Dashboard.Events
@@ -17,6 +18,8 @@ defmodule ReencodarrWeb.DashboardLive do
   alias Reencodarr.Media
   alias Reencodarr.Media.ChartQueries
   alias Reencodarr.Media.VideoQueries
+  alias ReencodarrWeb.WorkerActivity
+  alias ReencodarrWeb.WorkerControl
 
   import ReencodarrWeb.ChartComponents
   import ReencodarrWeb.CrfSearchComponents
@@ -30,14 +33,16 @@ defmodule ReencodarrWeb.DashboardLive do
     encoder: Reencodarr.Encoder.Broadway.Producer
   }
 
+  @worker_control_events WorkerControl.event_names()
+
   @impl true
   def mount(_params, _session, socket) do
     dashboard_state_pid = Process.whereis(DashboardState)
+    crf_workers = crf_workers()
 
     socket =
       assign(socket, %{
-        # Legacy progress tracking (kept for compatibility)
-        crf_progress: :none,
+        crf_progress: nil,
         encoding_progress: :none,
         analyzer_progress: :none,
         analyzer_throughput: nil,
@@ -54,6 +59,11 @@ defmodule ReencodarrWeb.DashboardLive do
         page_title: nil,
         worker_token_state: worker_token_state(),
         worker_socket_url: worker_socket_url(),
+        worker_execution_mode: WorkerConfig.execution_mode(),
+        local_worker_status: local_worker_status(),
+        crf_workers: crf_workers,
+        crf_worker_data: load_worker_crf_data(crf_workers),
+        encode_worker_data: load_worker_encode_data(crf_workers),
         # New dashboard stats
         stats: Reencodarr.Media.get_default_stats(),
         stats_display: stats_display(Reencodarr.Media.get_default_stats()),
@@ -198,7 +208,25 @@ defmodule ReencodarrWeb.DashboardLive do
     # Schedule next update (recursive scheduling)
     schedule_periodic_update()
 
-    {:noreply, socket}
+    {:noreply, assign_crf_workers(socket, crf_workers())}
+  end
+
+  @impl true
+  def handle_info({:worker_sessions_updated, %{sessions: sessions}}, socket) do
+    {:noreply, assign_crf_workers(socket, sessions)}
+  end
+
+  @impl true
+  def handle_info({:crf_search_vmaf_result, %{video_id: video_id}}, socket) do
+    {:noreply,
+     assign(
+       socket,
+       :crf_worker_data,
+       load_worker_crf_data(
+         socket.assigns.crf_workers,
+         Map.delete(socket.assigns.crf_worker_data, video_id)
+       )
+     )}
   end
 
   @impl true
@@ -262,6 +290,15 @@ defmodule ReencodarrWeb.DashboardLive do
     end
   end
 
+  def handle_event("sync_sportarr", _params, socket) do
+    if socket.assigns.syncing do
+      {:noreply, put_flash(socket, :error, "Sync already in progress")}
+    else
+      Reencodarr.Sync.sync_sportarr()
+      {:noreply, put_flash(socket, :info, "Sportarr sync started")}
+    end
+  end
+
   @impl true
   def handle_event("sync_radarr", _params, socket) do
     if socket.assigns.syncing do
@@ -291,6 +328,10 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_event("fail_crf_search", _params, socket) do
     handle_control_result(socket, CrfSearch.fail_current(), "CRF search stopped")
   end
+
+  @impl true
+  def handle_event(event, params, socket) when event in @worker_control_events,
+    do: WorkerControl.handle_event(event, params, socket)
 
   @impl true
   def handle_event("suspend_encode", _params, socket) do
@@ -385,16 +426,26 @@ defmodule ReencodarrWeb.DashboardLive do
   attr :queue_count, :integer, required: true
   attr :queue_items, :list, required: true
   attr :status, :atom, required: true
+  attr :id, :string, default: nil
+  attr :title, :string, default: "Encoding"
+  attr :show_queue, :boolean, default: true
+  attr :suspend_event, :string, default: "suspend_encode"
+  attr :resume_event, :string, default: "resume_encode"
+  attr :fail_event, :string, default: "fail_encode"
+  attr :worker_id, :string, default: nil
+  attr :job_id, :string, default: nil
+  attr :activity_label, :string, default: nil
 
   defp encoding_panel(assigns) do
     ~H"""
-    <div class="dashboard-card bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-4">
+    <div id={@id} class="dashboard-card bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-4">
       <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <h3 class="font-semibold text-white">Encoding</h3>
+        <h3 class="font-semibold text-white">{@title}</h3>
         <span class={"px-2 py-1 text-xs rounded-full #{service_status_class(@status)}"}>
           {service_status_text(@status)}
         </span>
       </div>
+      <div :if={@activity_label} class="mb-2 text-xs text-gray-400">{@activity_label}</div>
 
       <%= if @video do %>
         <!-- Active: Show video metadata + savings -->
@@ -437,10 +488,10 @@ defmodule ReencodarrWeb.DashboardLive do
               </div>
               <div class="flex justify-between text-xs text-gray-400">
                 <span>{@progress.percent}%</span>
-                <%= if @progress[:fps] do %>
+                <%= if @progress.fps do %>
                   <span>{@progress.fps} fps</span>
                 <% end %>
-                <%= if @progress[:eta] do %>
+                <%= if @progress.eta do %>
                   <span>ETA: {@progress.eta}</span>
                 <% end %>
               </div>
@@ -448,9 +499,11 @@ defmodule ReencodarrWeb.DashboardLive do
           <% end %>
           <.active_job_controls
             status={@status}
-            suspend_event="suspend_encode"
-            resume_event="resume_encode"
-            fail_event="fail_encode"
+            suspend_event={@suspend_event}
+            resume_event={@resume_event}
+            fail_event={@fail_event}
+            worker_id={@worker_id}
+            job_id={@job_id}
           />
         </div>
       <% else %>
@@ -466,16 +519,18 @@ defmodule ReencodarrWeb.DashboardLive do
           <div class="mt-2">
             <.active_job_controls
               status={@status}
-              suspend_event="suspend_encode"
-              resume_event="resume_encode"
-              fail_event="fail_encode"
+              suspend_event={@suspend_event}
+              resume_event={@resume_event}
+              fail_event={@fail_event}
+              worker_id={@worker_id}
+              job_id={@job_id}
             />
           </div>
         <% end %>
       <% end %>
 
       <!-- Always show next-up videos -->
-      <%= if length(@queue_items) > 0 do %>
+      <%= if @show_queue && length(@queue_items) > 0 do %>
         <div class="text-xs text-gray-500 space-y-1 mt-3 pt-2 border-t border-gray-800">
           <div class="text-gray-600 mb-0.5">Next up ({@queue_count}):</div>
           <%= for video <- Enum.take(@queue_items, 5) do %>
@@ -499,10 +554,51 @@ defmodule ReencodarrWeb.DashboardLive do
     """
   end
 
+  attr :worker, :map, required: true
+  attr :data, :map, required: true
+  attr :queue_count, :integer, required: true
+  attr :queue_items, :list, required: true
+  attr :show_queue, :boolean, default: false
+
+  def worker_encoding_panel(assigns) do
+    job = worker_encode_job(assigns.worker)
+    data = if job, do: Map.get(assigns.data, job.video_id, %{}), else: %{}
+
+    assigns =
+      assign(assigns,
+        job: job,
+        video: encode_video(data[:video]),
+        vmaf: encode_vmaf(data[:vmaf]),
+        status: worker_encode_status(assigns.worker, job)
+      )
+
+    ~H"""
+    <.encoding_panel
+      id={"encode-worker-#{@worker.client_worker_id || @worker.server_worker_id}"}
+      title={"Encoding · #{@worker.client_worker_id || @worker.server_worker_id}"}
+      video={@video}
+      vmaf={@vmaf}
+      progress={if(@job, do: @job.progress || :none, else: :none)}
+      queue_count={@queue_count}
+      queue_items={@queue_items}
+      status={@status}
+      show_queue={@show_queue}
+      suspend_event="pause_worker_encode"
+      resume_event="resume_worker_encode"
+      fail_event="stop_worker_encode"
+      worker_id={@worker.server_worker_id}
+      job_id={@job && @job.job_id}
+      activity_label={WorkerActivity.label(@job)}
+    />
+    """
+  end
+
   attr :status, :atom, required: true
   attr :suspend_event, :string, required: true
   attr :resume_event, :string, required: true
   attr :fail_event, :string, required: true
+  attr :worker_id, :string, default: nil
+  attr :job_id, :string, default: nil
 
   defp active_job_controls(assigns) do
     ~H"""
@@ -510,6 +606,8 @@ defmodule ReencodarrWeb.DashboardLive do
       <%= if @status == :paused do %>
         <button
           phx-click={@resume_event}
+          phx-value-worker-id={@worker_id}
+          phx-value-job-id={@job_id}
           class="font-medium text-cyan-400 hover:text-cyan-300"
         >
           Resume
@@ -517,6 +615,8 @@ defmodule ReencodarrWeb.DashboardLive do
       <% else %>
         <button
           phx-click={@suspend_event}
+          phx-value-worker-id={@worker_id}
+          phx-value-job-id={@job_id}
           class="font-medium text-yellow-400 hover:text-yellow-300"
         >
           Pause
@@ -525,6 +625,8 @@ defmodule ReencodarrWeb.DashboardLive do
       <span class="text-gray-700">|</span>
       <button
         phx-click={@fail_event}
+        phx-value-worker-id={@worker_id}
+        phx-value-job-id={@job_id}
         data-confirm="Stop the active job?"
         class="font-medium text-red-500 hover:text-red-400"
       >
@@ -628,6 +730,14 @@ defmodule ReencodarrWeb.DashboardLive do
           >
           </div>
         <% end %>
+        <%= if @state_distribution_display.analyzing_pct > 0 do %>
+          <div
+            class="bg-gray-700"
+            style={"width: #{@state_distribution_display.analyzing_pct}%"}
+            title={@state_distribution_display.analyzing_title}
+          >
+          </div>
+        <% end %>
         <%= if @state_distribution_display.analyzed_pct > 0 do %>
           <div
             class="bg-blue-500"
@@ -661,8 +771,9 @@ defmodule ReencodarrWeb.DashboardLive do
           </div>
         <% end %>
       </div>
-      <div class="grid grid-cols-1 gap-1 text-xs text-gray-400 sm:grid-cols-3 sm:gap-2">
+      <div class="grid grid-cols-1 gap-1 text-xs text-gray-400 sm:grid-cols-4 sm:gap-2">
         <span>Needs Analysis: {@stats_display.needs_analysis}</span>
+        <span>Analyzing: {@stats_display.analyzing}</span>
         <span>Analyzed: {@stats_display.analyzed}</span>
         <span>Encoded: {@stats_display.encoded}</span>
       </div>
@@ -700,6 +811,9 @@ defmodule ReencodarrWeb.DashboardLive do
   attr :service_type, :atom, required: true
   attr :worker_token_state, :any, required: true
   attr :worker_socket_url, :string, required: true
+  attr :worker_execution_mode, :atom, required: true
+  attr :local_worker_status, :any, required: true
+  attr :crf_workers, :list, required: true
 
   defp sync_controls(assigns) do
     ~H"""
@@ -727,6 +841,15 @@ defmodule ReencodarrWeb.DashboardLive do
             >
               Sync Radarr
             </button>
+            <button
+              phx-click="sync_sportarr"
+              disabled={@syncing}
+              class={
+                "w-full px-4 py-2 text-sm rounded sm:w-auto #{if @syncing, do: "bg-gray-700 text-gray-500 cursor-not-allowed", else: "bg-blue-600 hover:bg-blue-700 text-white"}"
+              }
+            >
+              Sync Sportarr
+            </button>
           </div>
         </div>
 
@@ -749,10 +872,23 @@ defmodule ReencodarrWeb.DashboardLive do
       <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-3 sm:p-4">
         <div class="flex items-center justify-between gap-2">
           <h3 class="font-semibold text-white">Worker WebSocket</h3>
-          <span class="rounded-full bg-cyan-950 px-2 py-1 text-[11px] text-cyan-300">ab-av1</span>
+          <span class="rounded-full bg-cyan-950 px-2 py-1 text-[11px] text-cyan-300">
+            CRF: {@worker_execution_mode}
+          </span>
         </div>
 
         <div class="mt-3 space-y-3 text-sm">
+          <div>
+            <div class="text-[11px] uppercase tracking-wide text-gray-500">Local worker process</div>
+            <div class="mt-1 rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
+              {local_worker_status_label(
+                @worker_execution_mode,
+                @local_worker_status,
+                length(@crf_workers)
+              )}
+            </div>
+          </div>
+
           <div>
             <div class="text-[11px] uppercase tracking-wide text-gray-500">URL</div>
             <div class="mt-1 overflow-x-auto rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
@@ -764,8 +900,8 @@ defmodule ReencodarrWeb.DashboardLive do
             <div class="text-[11px] uppercase tracking-wide text-gray-500">Token</div>
             <div class="mt-1 overflow-x-auto rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
               <%= case @worker_token_state do %>
-                <% {:ok, token, _fingerprint} -> %>
-                  {token}
+                <% {:ok, _fingerprint} -> %>
+                  configured
                 <% :error -> %>
                   not configured
               <% end %>
@@ -776,7 +912,7 @@ defmodule ReencodarrWeb.DashboardLive do
             <div class="text-[11px] uppercase tracking-wide text-gray-500">Token fingerprint</div>
             <div class="mt-1 overflow-x-auto rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
               <%= case @worker_token_state do %>
-                <% {:ok, _token, fingerprint} -> %>
+                <% {:ok, fingerprint} -> %>
                   {fingerprint}
                 <% :error -> %>
                   not configured
@@ -822,7 +958,7 @@ defmodule ReencodarrWeb.DashboardLive do
           |> Base.encode16(case: :lower)
           |> String.slice(0, 12)
 
-        {:ok, token, "sha256:#{digest}"}
+        {:ok, "sha256:#{digest}"}
 
       _ ->
         :error
@@ -866,7 +1002,7 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   defp fetch_initial_queue_previews do
-    query_opts = queue_query_opts()
+    query_opts = dashboard_mount_query_opts()
 
     %{
       analyzer: VideoQueries.videos_needing_analysis_preview(5, query_opts),
@@ -879,13 +1015,13 @@ defmodule ReencodarrWeb.DashboardLive do
       %{analyzer: [], crf_searcher: [], encoder: []}
   end
 
-  defp queue_query_opts do
-    timeout = Application.get_env(:reencodarr, :dashboard_queue_query_timeout_ms, 1_000)
-    [timeout: timeout, pool_timeout: timeout]
+  defp dashboard_mount_query_timeout do
+    Application.get_env(:reencodarr, :dashboard_mount_query_timeout_ms, 1_000)
   end
 
-  defp dashboard_mount_query_timeout do
-    Application.get_env(:reencodarr, :dashboard_queue_query_timeout_ms, 1_000)
+  defp dashboard_mount_query_opts do
+    timeout = dashboard_mount_query_timeout()
+    [timeout: timeout, pool_timeout: timeout]
   end
 
   attr :service_status, :map, required: true
@@ -944,24 +1080,62 @@ defmodule ReencodarrWeb.DashboardLive do
           id="dashboard-active-work"
           class="dashboard-section grid grid-cols-1 gap-3 lg:grid-cols-5 lg:gap-4"
         >
-          <div class="lg:col-span-3">
+          <div :if={@worker_execution_mode == :broadway} class="lg:col-span-3">
             <.crf_search_panel
+              id="broadway-crf-search-panel"
               video={@crf_search_video}
               results={@crf_search_results}
               sample={@crf_search_sample}
+              progress={@crf_progress}
               queue_count={@queue_counts.crf_searcher}
               queue_items={@queue_items.crf_searcher}
               status={@service_status.crf_searcher}
             />
           </div>
-          <div class="lg:col-span-2">
+          <div
+            :if={@worker_execution_mode == :worker}
+            id="crf-worker-panels"
+            class="space-y-3 lg:col-span-3"
+          >
+            <.worker_crf_search_panel
+              :for={{worker, index} <- Enum.with_index(@crf_workers)}
+              worker={worker}
+              crf_data={@crf_worker_data}
+              queue_count={@queue_counts.crf_searcher}
+              queue_items={@queue_items.crf_searcher}
+              show_queue={index == 0}
+            />
+            <div
+              :if={@crf_workers == []}
+              id="no-crf-workers"
+              class="dashboard-card rounded-lg border border-gray-700 bg-gray-900 p-3 text-sm text-gray-400 sm:p-4"
+            >
+              No CRF search workers connected.
+            </div>
+          </div>
+          <div :if={@worker_execution_mode == :broadway} class="lg:col-span-2">
             <.encoding_panel
+              id="broadway-encoding-panel"
               video={@encoding_video}
               vmaf={@encoding_vmaf}
               progress={@encoding_progress}
               queue_count={@queue_counts.encoder}
               queue_items={@queue_items.encoder}
               status={@service_status.encoder}
+            />
+          </div>
+          <div
+            :if={@worker_execution_mode == :worker}
+            id="encode-worker-panels"
+            class="space-y-3 lg:col-span-2"
+          >
+            <.worker_encoding_panel
+              :for={{worker, index} <- Enum.with_index(@crf_workers)}
+              worker={worker}
+              data={@encode_worker_data}
+              queue_count={@queue_counts.encoder}
+              queue_items={@queue_items.encoder}
+              show_queue={index == 0}
             />
           </div>
         </div>
@@ -1006,6 +1180,9 @@ defmodule ReencodarrWeb.DashboardLive do
             service_type={@service_type}
             worker_token_state={@worker_token_state}
             worker_socket_url={@worker_socket_url}
+            worker_execution_mode={@worker_execution_mode}
+            local_worker_status={@local_worker_status}
+            crf_workers={@crf_workers}
           />
         </div>
       </div>
@@ -1016,12 +1193,36 @@ defmodule ReencodarrWeb.DashboardLive do
   # Helper functions for real data
   # Simple service status - just check if processes are alive
   defp get_optimistic_service_status do
+    crf_searcher =
+      case WorkerConfig.execution_mode() do
+        :broadway -> if(CrfSearcherBroadway.running?(), do: :idle, else: :stopped)
+        :worker -> if(crf_workers() == [], do: :stopped, else: :idle)
+      end
+
     %{
       analyzer: if(Process.whereis(@producer_modules.analyzer), do: :idle, else: :stopped),
-      crf_searcher: if(CrfSearcherBroadway.running?(), do: :idle, else: :stopped),
+      crf_searcher: crf_searcher,
       encoder: if(Process.whereis(@producer_modules.encoder), do: :idle, else: :stopped)
     }
   end
+
+  defp local_worker_status do
+    LocalWorker.status()
+  catch
+    :exit, _ -> :unavailable
+  end
+
+  defp local_worker_status_label(:broadway, _status, _worker_count),
+    do: "disabled (Broadway active)"
+
+  defp local_worker_status_label(:worker, %{running: true} = status, _worker_count) do
+    "running pid=#{status.os_pid || "unknown"} version=#{status.version} restarts=#{status.restart_count}"
+  end
+
+  defp local_worker_status_label(:worker, _status, worker_count) when worker_count > 0,
+    do: "#{worker_count} connected (independent)"
+
+  defp local_worker_status_label(:worker, _status, _worker_count), do: "no workers connected"
 
   defp request_current_status do
     # Send cast to each producer to broadcast their current status
@@ -1043,6 +1244,7 @@ defmodule ReencodarrWeb.DashboardLive do
     paused: "bg-yellow-100 text-yellow-800",
     processing: "bg-blue-100 text-blue-800",
     pausing: "bg-orange-100 text-orange-800",
+    pending: "bg-gray-100 text-gray-600 dashboard-soft-pulse",
     idle: "bg-cyan-100 text-cyan-800",
     checking: "bg-gray-100 text-gray-600 dashboard-soft-pulse",
     stopped: "bg-red-100 text-red-800",
@@ -1054,6 +1256,7 @@ defmodule ReencodarrWeb.DashboardLive do
     paused: "Paused",
     processing: "Processing",
     pausing: "Pausing",
+    pending: "Awaiting ACK",
     idle: "Idle",
     checking: "Checking...",
     stopped: "Stopped",
@@ -1182,6 +1385,7 @@ defmodule ReencodarrWeb.DashboardLive do
       failures: "—",
       library_size: "—",
       needs_analysis: "—",
+      analyzing: "—",
       analyzed: "—",
       encoded: "—"
     }
@@ -1195,6 +1399,7 @@ defmodule ReencodarrWeb.DashboardLive do
       failures: format_number(stats.failed),
       library_size: format_size_gb(stats.total_size_gb),
       needs_analysis: format_number(stats.needs_analysis),
+      analyzing: format_number(stats.analyzing),
       analyzed: format_number(stats.analyzed),
       encoded: format_number(stats.encoded)
     }
@@ -1203,11 +1408,13 @@ defmodule ReencodarrWeb.DashboardLive do
   defp state_distribution_display(nil) do
     %{
       needs_analysis_pct: 0,
+      analyzing_pct: 0,
       analyzed_pct: 0,
       crf_pct: 0,
       encoded_pct: 0,
       failed_pct: 0,
       needs_analysis_title: "Needs Analysis: 0",
+      analyzing_title: "Analyzing: 0",
       analyzed_title: "Analyzed: 0",
       crf_title: "CRF Search: 0",
       encoded_title: "Encoded: 0",
@@ -1221,15 +1428,107 @@ defmodule ReencodarrWeb.DashboardLive do
 
     %{
       needs_analysis_pct: percent(stats.needs_analysis, total),
+      analyzing_pct: percent(stats.analyzing, total),
       analyzed_pct: percent(stats.analyzed, total),
       crf_pct: percent(crf_total, total),
       encoded_pct: percent(stats.encoded, total),
       failed_pct: percent(stats.failed, total),
       needs_analysis_title: "Needs Analysis: #{stats.needs_analysis}",
+      analyzing_title: "Analyzing: #{stats.analyzing}",
       analyzed_title: "Analyzed: #{stats.analyzed}",
       crf_title: "CRF Search: #{crf_total}",
       encoded_title: "Encoded: #{stats.encoded}",
       failed_title: "Failed: #{stats.failed}"
+    }
+  end
+
+  defp crf_workers do
+    if WorkerConfig.execution_mode() == :worker and Process.whereis(WorkerSessions) do
+      WorkerSessions.list()
+    else
+      []
+    end
+  end
+
+  defp assign_crf_workers(socket, workers) do
+    assign(socket,
+      crf_workers: workers,
+      crf_worker_data: load_worker_crf_data(workers, socket.assigns.crf_worker_data),
+      encode_worker_data: load_worker_encode_data(workers, socket.assigns.encode_worker_data)
+    )
+  end
+
+  @type encode_worker_data :: %{
+          optional(pos_integer()) => %{
+            video: Reencodarr.Media.Video.t() | nil,
+            vmaf: Reencodarr.Media.Vmaf.t() | nil
+          }
+        }
+
+  @spec load_worker_encode_data([WorkerSessions.session()], encode_worker_data()) ::
+          encode_worker_data()
+  def load_worker_encode_data(workers, cached \\ %{}) do
+    video_ids =
+      workers
+      |> Enum.map(&worker_encode_job/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(& &1.video_id)
+      |> Enum.uniq()
+
+    Enum.reduce(video_ids, Map.take(cached, video_ids), fn video_id, data ->
+      Map.put_new_lazy(data, video_id, fn ->
+        video = Media.get_video(video_id)
+        %{video: video, vmaf: video && Media.get_vmaf!(video.chosen_vmaf_id)}
+      end)
+    end)
+  end
+
+  @spec worker_encode_job(WorkerSessions.session()) :: Job.t() | nil
+  defp worker_encode_job(%{jobs: jobs}) do
+    jobs
+    |> Map.values()
+    |> Enum.find(&match?(%Job{job_type: :encode, active: true}, &1))
+  end
+
+  @spec worker_encode_status(WorkerSessions.session(), Job.t() | nil) ::
+          :paused | :pending | :idle | :processing
+  defp worker_encode_status(
+         _worker,
+         %Job{
+           control_state: acknowledged,
+           desired_control_state: desired,
+           control_command_id: command_id
+         }
+       )
+       when is_binary(command_id) and desired != acknowledged,
+       do: :pending
+
+  defp worker_encode_status(_worker, %Job{control_state: :paused}), do: :paused
+  defp worker_encode_status(%{control_state: :paused}, nil), do: :paused
+  defp worker_encode_status(_worker, nil), do: :idle
+  defp worker_encode_status(_worker, _job), do: :processing
+
+  defp encode_video(nil), do: nil
+
+  defp encode_video(video) do
+    %{
+      video_id: video.id,
+      filename: Path.basename(video.path),
+      video_size: video.size,
+      width: video.width,
+      height: video.height,
+      hdr: video.hdr
+    }
+  end
+
+  defp encode_vmaf(nil), do: nil
+
+  defp encode_vmaf(vmaf) do
+    %{
+      crf: vmaf.crf,
+      vmaf_score: vmaf.score,
+      predicted_percent: vmaf.percent,
+      predicted_savings: vmaf.savings
     }
   end
 

@@ -102,6 +102,7 @@ defmodule Reencodarr.Media.SharedQueries do
         total_size_gb:
           fragment("ROUND(CAST(? AS FLOAT) / (1024*1024*1024), 2)", c.total_size_bytes),
         needs_analysis: c.needs_analysis,
+        analyzing: c.analyzing,
         analyzed: c.analyzed,
         crf_searching: c.crf_searching,
         crf_searched: c.crf_searched,
@@ -123,7 +124,7 @@ defmodule Reencodarr.Media.SharedQueries do
   end
 
   @doc """
-  Actual savings query for already-encoded videos.
+  Actual savings from persisted finalized-output measurements.
   """
   def encoded_video_savings_query do
     from c in dashboard_stats_cache_query(),

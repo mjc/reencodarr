@@ -8,9 +8,8 @@ defmodule Reencodarr.Diagnostics do
 
   import Ecto.Query
 
-  alias Reencodarr.AbAv1.{CrfSearch, Encode, WorkerSessions}
+  alias Reencodarr.AbAv1.{CrfSearch, Encode, LocalWorker, WorkerConfig, WorkerSessions}
   alias Reencodarr.Analyzer
-  alias Reencodarr.Analyzer.MediaInfoCache
   alias Reencodarr.Core.Time
   alias Reencodarr.CrfSearcher
   alias Reencodarr.Encoder
@@ -29,6 +28,16 @@ defmodule Reencodarr.Diagnostics do
     analyzer_status = Analyzer.status()
     crf_status = CrfSearcher.status()
     encoder_status = Encoder.status()
+    execution_mode = WorkerConfig.execution_mode()
+
+    local_worker_status =
+      if execution_mode == :worker and not WorkerConfig.supervise_local_worker?() do
+        :independent
+      else
+        safe_call(fn -> LocalWorker.status() end)
+      end
+
+    worker_sessions = safe_call(fn -> WorkerSessions.list() end)
 
     # GenServer state
     crf_search_state = safe_call(fn -> CrfSearch.get_state() end)
@@ -45,16 +54,13 @@ defmodule Reencodarr.Diagnostics do
       from(f in VideoFailure, where: f.resolved == false, select: count())
       |> Repo.one()
 
-    # Performance stats (may not exist)
-    cache_stats = safe_call(fn -> MediaInfoCache.get_stats() end)
-
     # Format output
     """
     #{section("System Status")}
 
     Pipelines:
       Analyzer:     running=#{analyzer_status.running}, active=#{analyzer_status.actively_running}, queue=#{analyzer_status.queue_count}
-      CRF Searcher: running=#{crf_status.running}, active=#{crf_status.actively_running}, available=#{crf_status.available}, queue=#{crf_status.queue_count}
+      CRF Searcher: #{format_crf_executor(execution_mode, crf_status, local_worker_status, worker_sessions)}
       Encoder:      running=#{encoder_status.running}, active=#{encoder_status.actively_running}, available=#{encoder_status.available}, queue=#{encoder_status.queue_count}
 
     GenServers:
@@ -65,8 +71,6 @@ defmodule Reencodarr.Diagnostics do
     #{format_video_states(video_states)}
 
     Failures: #{failure_count} unresolved
-
-    #{format_cache_stats(cache_stats)}
     """
   rescue
     e -> "Error in status/0: #{Exception.message(e)}"
@@ -305,8 +309,8 @@ defmodule Reencodarr.Diagnostics do
     crf_state = safe_get_state(Reencodarr.AbAv1.CrfSearch, 2000)
     encode_state = safe_get_state(Reencodarr.AbAv1.Encode, 2000)
     health_state = safe_get_state(Reencodarr.Encoder.HealthCheck, 2000)
-    cache_stats = safe_call(fn -> MediaInfoCache.get_stats() end)
     worker_sessions = safe_call(fn -> WorkerSessions.list() end)
+    local_worker = safe_call(fn -> LocalWorker.status() end)
 
     worker_sessions_section =
       case worker_sessions do
@@ -330,8 +334,8 @@ defmodule Reencodarr.Diagnostics do
     Worker Sessions:
     #{worker_sessions_section}
 
-    MediaInfo Cache:
-    #{format_cache_stats(cache_stats)}
+    Local Worker Process:
+    #{format_local_worker(local_worker)}
     """
   rescue
     e -> "Error in processes/0: #{Exception.message(e)}"
@@ -348,13 +352,22 @@ defmodule Reencodarr.Diagnostics do
       from(v in Video, where: v.state in [:analyzing, :crf_searching, :encoding])
       |> Repo.all()
 
+    analyzer_state = Analyzer.status()
     crf_state = safe_get_state(Reencodarr.AbAv1.CrfSearch, 2000)
     encode_state = safe_get_state(Reencodarr.AbAv1.Encode, 2000)
+    worker_sessions = safe_call(fn -> WorkerSessions.list() end)
 
     if Enum.empty?(processing_videos) do
       "No videos in processing states"
     else
-      format_stuck_videos(processing_videos, crf_state, encode_state, now)
+      format_stuck_videos(
+        processing_videos,
+        analyzer_state,
+        crf_state,
+        encode_state,
+        worker_sessions,
+        now
+      )
     end
   rescue
     e -> "Error in stuck/0: #{Exception.message(e)}"
@@ -425,6 +438,27 @@ defmodule Reencodarr.Diagnostics do
     :exit, _ -> {:error, :unavailable}
   end
 
+  defp format_crf_executor(:broadway, status, _local_worker, _worker_sessions) do
+    "mode=broadway, running=#{status.running}, active=#{status.actively_running}, available=#{status.available}, queue=#{status.queue_count}"
+  end
+
+  defp format_crf_executor(:worker, status, local_worker, worker_sessions) do
+    connected = if is_list(worker_sessions), do: length(worker_sessions), else: 0
+
+    active =
+      if is_list(worker_sessions), do: Enum.count(worker_sessions, & &1.active_video_id), else: 0
+
+    "mode=worker, connected=#{connected}, active=#{active}, #{format_local_worker(local_worker)}, queue=#{status.queue_count}"
+  end
+
+  defp format_local_worker(%{} = status) do
+    "running=#{status.running}, worker_id=#{status.worker_id}, pid=#{status.os_pid || "none"}, version=#{status.version}, restarts=#{status.restart_count}, last_exit=#{status.last_exit_status || "none"}"
+  end
+
+  defp format_local_worker(:independent), do: "executor=independent"
+
+  defp format_local_worker(_), do: "unavailable"
+
   defp safe_get_state(name, timeout) do
     :sys.get_state(name, timeout)
   catch
@@ -450,14 +484,23 @@ defmodule Reencodarr.Diagnostics do
     header <> rows
   end
 
-  defp format_stuck_videos(processing_videos, crf_state, encode_state, now) do
+  defp format_stuck_videos(
+         processing_videos,
+         analyzer_state,
+         crf_state,
+         encode_state,
+         worker_sessions,
+         now
+       ) do
     header = "#{length(processing_videos)} video(s) in processing states:\n\n"
 
     rows =
       Enum.map_join(processing_videos, "\n", fn v ->
         elapsed = DateTime.diff(now, v.updated_at, :second)
         elapsed_str = format_elapsed_seconds(elapsed)
-        status = determine_video_status(v, crf_state, encode_state)
+
+        status =
+          determine_video_status(v, analyzer_state, crf_state, encode_state, worker_sessions)
 
         "  #{pad(to_string(v.id), 6)} #{pad(to_string(v.state), 15)} #{pad(elapsed_str, 12)} #{status} #{Path.basename(v.path)}"
       end)
@@ -465,18 +508,45 @@ defmodule Reencodarr.Diagnostics do
     header <> rows
   end
 
-  defp determine_video_status(video, crf_state, encode_state) do
+  defp determine_video_status(video, analyzer_state, crf_state, encode_state, worker_sessions) do
     cond do
-      video.state == :crf_searching && video_active_in_state?(crf_state, video.id) ->
-        "ACTIVE in CRF"
+      video.state == :analyzing && analyzer_state.actively_running ->
+        "ACTIVE in Analyzer"
 
-      video.state == :encoding && video_active_in_state?(encode_state, video.id) ->
-        "ACTIVE in Encode"
+      video.state == :crf_searching ->
+        processing_status(video, crf_state, worker_sessions, :crf_search, "CRF")
+
+      video.state == :encoding ->
+        processing_status(video, encode_state, worker_sessions, :encode, "Encode")
 
       true ->
         "ORPHANED?"
     end
   end
+
+  defp processing_status(video, process_state, worker_sessions, job_type, label) do
+    cond do
+      video_active_in_state?(process_state, video.id) ->
+        "ACTIVE in #{label}"
+
+      worker_video_active?(worker_sessions, video.id, job_type) ->
+        "ACTIVE in worker #{label}"
+
+      true ->
+        "ORPHANED?"
+    end
+  end
+
+  defp worker_video_active?(worker_sessions, video_id, job_type) when is_list(worker_sessions) do
+    Enum.any?(worker_sessions, fn session ->
+      session
+      |> Map.get(:jobs, %{})
+      |> Map.values()
+      |> Enum.any?(&match?(%{job_type: ^job_type, video_id: ^video_id}, &1))
+    end)
+  end
+
+  defp worker_video_active?(_, _, _), do: false
 
   defp pad(str, width) when is_binary(str) do
     String.pad_trailing(str, width)
@@ -532,18 +602,6 @@ defmodule Reencodarr.Diagnostics do
   defp format_dv_missing_hdr_fallback_season(%{season: season, count: count}) do
     "  #{season} (#{count})"
   end
-
-  defp format_cache_stats({:error, _}), do: "Cache: unavailable"
-
-  defp format_cache_stats(stats) when is_map(stats) do
-    """
-    Cache:
-      Size:          #{Map.get(stats, :size, "N/A")}
-      Hit Rate:      #{Map.get(stats, :hit_rate, "N/A")}%
-    """
-  end
-
-  defp format_cache_stats(_), do: "Cache: N/A"
 
   defp format_vmafs([], _chosen_vmaf_id), do: "  (none)"
 
@@ -673,9 +731,30 @@ defmodule Reencodarr.Diagnostics do
       video_state = worker_session_video_state(session.active_video_id)
       transfer_progress = format_worker_progress(session.transfer_progress, "transfer")
       crf_search_progress = format_worker_progress(session.crf_search_progress, "crf")
+      encode_admission = format_encode_admission(Map.get(session, :encode_admission))
+      jobs = format_worker_jobs(session.jobs)
 
-      "  #{session.client_worker_id} protocol=#{session.protocol_version} version=#{session.version} video=#{active_video_id} phase=#{session.phase} video_state=#{video_state} transfer=#{transfer_progress} crf=#{crf_search_progress} capabilities=#{inspect(session.capabilities)} last_seen=#{DateTime.to_iso8601(session.last_seen_at)}"
+      "  #{session.client_worker_id} protocol=#{session.protocol_version} version=#{session.version} video=#{active_video_id} phase=#{session.phase} video_state=#{video_state} transfer=#{transfer_progress} crf=#{crf_search_progress} encode_admission=#{encode_admission} capabilities=#{inspect(session.capabilities)} last_seen=#{DateTime.to_iso8601(session.last_seen_at)} jobs=#{jobs}"
     end)
+  end
+
+  defp format_worker_jobs(jobs) do
+    now = DateTime.utc_now()
+
+    jobs
+    |> Map.values()
+    |> Enum.map_join(",", fn job ->
+      age =
+        if job.last_activity_at, do: DateTime.diff(now, job.last_activity_at, :second), else: "?"
+
+      "#{job.job_id}(phase=#{job.phase},activity=#{inspect(job.last_activity_at)},stall_seconds=#{age},recovery=#{job.recovery_action || "none"})"
+    end)
+  end
+
+  defp format_encode_admission(nil), do: "unknown"
+
+  defp format_encode_admission(admission) do
+    "#{admission.status}(reason=#{admission.reason || "none"}, available=#{admission.available_bytes || "?"}, required=#{admission.required_bytes || "?"})"
   end
 
   defp worker_session_video_state(nil), do: "none"

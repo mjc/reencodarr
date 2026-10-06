@@ -2,12 +2,18 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
   use ExUnit.Case, async: false
 
   alias Reencodarr.AbAv1.WorkerProtocol
-  alias Reencodarr.AbAv1.WorkerProtocol.Announcement
+  alias Reencodarr.AbAv1.WorkerProtocol.{ActiveJob, Announcement}
   alias Reencodarr.AbAv1.WorkerProtocol.Completion
   alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchResult
-  alias Reencodarr.AbAv1.WorkerProtocol.FailureReport
-  alias Reencodarr.AbAv1.WorkerProtocol.TransferProgress
+
+  alias Reencodarr.AbAv1.WorkerProtocol.{
+    ControlState,
+    EncodeCompletion,
+    EncodeProgress,
+    FailureReport,
+    TransferProgress
+  }
 
   test "rejects invalid announcement payloads" do
     assert {:error, :invalid_announcement} = WorkerProtocol.parse_announcement(%{})
@@ -32,9 +38,64 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
              })
   end
 
+  test "parses an active job identity into a typed struct" do
+    assert {:ok,
+            %ActiveJob{
+              job_id: "encode-attempt",
+              video_id: 42,
+              job_type: :encode
+            }} =
+             WorkerProtocol.parse_active_job(%{
+               "job_id" => "encode-attempt",
+               "video_id" => 42,
+               "job_type" => "encode"
+             })
+
+    assert {:error, :invalid_active_job} =
+             WorkerProtocol.parse_active_job(%{
+               "job_id" => "",
+               "video_id" => 42,
+               "job_type" => "encode"
+             })
+  end
+
   test "maps protocol errors to wire payloads" do
     assert WorkerProtocol.error(:unauthorized) == %{reason: "unauthorized"}
     assert WorkerProtocol.error(:unsupported_event) == %{reason: "unsupported_event"}
+    assert WorkerProtocol.error(:terminal_busy) == %{reason: "terminal_busy"}
+    assert WorkerProtocol.error(:stale_worker_attempt) == %{reason: "stale_worker_attempt"}
+
+    assert WorkerProtocol.event_discarded("video_failed", :unknown_worker_session) == %{
+             accepted: false,
+             discarded: true,
+             event: "video_failed",
+             reason: "unknown_worker_session"
+           }
+  end
+
+  test "parses job control acknowledgements into a typed command identity" do
+    assert {:ok,
+            %ControlState{
+              state: :paused,
+              active_video_id: 123,
+              job_id: "job-123",
+              command_id: "command-123"
+            }} =
+             WorkerProtocol.parse_control_state(%{
+               "state" => "paused",
+               "active_video_id" => 123,
+               "job_id" => "job-123",
+               "command_id" => "command-123"
+             })
+
+    assert {:error, :invalid_control_state} =
+             WorkerProtocol.parse_control_state(%{
+               "state" => "paused",
+               "job_id" => "job-123"
+             })
+
+    assert {:ok, %ControlState{state: :running, job_id: nil, command_id: nil}} =
+             WorkerProtocol.parse_control_state(%{"state" => "running"})
   end
 
   test "parses transfer progress into a typed payload" do
@@ -136,8 +197,9 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
                "chosen" => true
              })
 
-    assert {:ok, %Completion{video_id: 123, result: :ok, chosen_crf: 28}} =
+    assert {:ok, %Completion{job_id: "123", video_id: 123, result: :ok, chosen_crf: 28}} =
              WorkerProtocol.parse_completion(%{
+               "job_id" => "123",
                "video_id" => 123,
                "result" => "ok",
                "chosen_crf" => 28
@@ -157,6 +219,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
 
     assert {:ok,
             %CrfSearchResult{
+              job_id: "job-123",
               video_id: 123,
               results: [
                 %{
@@ -218,6 +281,48 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
              })
   end
 
+  test "parses encode progress and completion with job identity" do
+    assert {:ok,
+            %EncodeProgress{
+              job_id: "encode-123",
+              video_id: 123,
+              percent: 42.5,
+              fps: 18.25,
+              eta: 90,
+              output_bytes: 456_789,
+              output_percent: 31.2,
+              throughput: "18.25 fps"
+            }} =
+             WorkerProtocol.parse_encode_progress(%{
+               "job_id" => "encode-123",
+               "video_id" => 123,
+               "percent" => 42.5,
+               "fps" => 18.25,
+               "eta" => 90,
+               "output_bytes" => 456_789,
+               "output_percent" => 31.2,
+               "throughput" => "18.25 fps"
+             })
+
+    assert {:ok,
+            %EncodeCompletion{
+              job_id: "encode-123",
+              video_id: 123,
+              source_name: "movie.mkv",
+              output_path: "/shared/123.mkv",
+              output_bytes: 800,
+              output_percent: 40.0
+            }} =
+             WorkerProtocol.parse_encode_completion(%{
+               "job_id" => "encode-123",
+               "video_id" => 123,
+               "source_name" => "movie.mkv",
+               "output_path" => "/shared/123.mkv",
+               "output_bytes" => 800,
+               "output_percent" => 40.0
+             })
+  end
+
   test "builds a job_assigned payload from the claimed video" do
     payload =
       WorkerProtocol.work_assigned(
@@ -231,6 +336,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
 
     assert %{
              status: "job_assigned",
+             job_type: "crf_search",
              job_id: "123",
              video_id: 123,
              source_name: "movie.mkv",
@@ -249,6 +355,54 @@ defmodule Reencodarr.AbAv1.WorkerProtocolTest do
            ] = crf_search_args
 
     assert "--temp-dir" in crf_search_args
+  end
+
+  test "builds encode assignments with exactly one output delivery mode" do
+    previous_base_url = Application.get_env(:reencodarr, :worker_transfer_base_url)
+    previous_token = Application.get_env(:reencodarr, :worker_transfer_token)
+    Application.put_env(:reencodarr, :worker_transfer_base_url, "http://server:4000")
+    Application.put_env(:reencodarr, :worker_transfer_token, "transfer-token")
+
+    on_exit(fn ->
+      restore_env(:worker_transfer_base_url, previous_base_url)
+      restore_env(:worker_transfer_token, previous_token)
+    end)
+
+    video = %Reencodarr.Media.Video{
+      id: 123,
+      path: "/videos/movie.mkv",
+      size: 2_000,
+      audio_codecs: [],
+      audio_count: 0
+    }
+
+    vmaf = %Reencodarr.Media.Vmaf{video: video, crf: 30.0, score: 96.0, params: []}
+
+    remote = WorkerProtocol.encode_work_assigned(video, vmaf)
+    assert %{job_type: "encode", job_id: "encode-123", encode_args: ["encode" | _]} = remote
+
+    assert %{
+             output_transfer: %{
+               url: "http://server:4000/workers/files/123/output/encode-123"
+             }
+           } = remote
+
+    refute Map.has_key?(remote, :output_shared_path)
+
+    local = WorkerProtocol.encode_work_assigned(video, vmaf, local?: true)
+    assert %{output_shared_path: output_path, local_path: "/videos/movie.mkv"} = local
+    assert Path.basename(output_path) == "123.mkv"
+    refute Map.has_key?(local, :output_transfer)
+  end
+
+  test "offers the source path to a local worker" do
+    video = %Reencodarr.Media.Video{id: 123, path: "/videos/movie.mkv", size: 987_654}
+
+    local_payload = WorkerProtocol.work_assigned(video, 96.5, local?: true)
+    assert %{local_path: "/videos/movie.mkv"} = local_payload
+    refute Map.has_key?(local_payload, :transfer)
+
+    refute Map.has_key?(WorkerProtocol.work_assigned(video, 96.5), :local_path)
   end
 
   test "includes configured worker transfer URL in job payloads" do

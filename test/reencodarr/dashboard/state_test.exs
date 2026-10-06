@@ -3,6 +3,7 @@ defmodule Reencodarr.Dashboard.StateTest do
   @moduletag capture_log: true
 
   alias Reencodarr.AbAv1.ProcessControl
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.Dashboard.{Events, State}
   alias Reencodarr.Fixtures
   alias Reencodarr.Media.Vmaf
@@ -30,7 +31,7 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert state.crf_search_video == nil
       assert state.crf_search_results == []
       assert state.crf_search_sample == nil
-      assert state.crf_progress == :none
+      assert is_nil(state.crf_progress)
       assert state.encoding_video == nil
       assert state.encoding_vmaf == nil
       assert state.encoding_progress == :none
@@ -63,6 +64,18 @@ defmodule Reencodarr.Dashboard.StateTest do
   end
 
   describe "queue refresh timeouts" do
+    test "counts claimed videos in the analyzer queue" do
+      Application.put_env(:reencodarr, :dashboard_queue_refresh_enabled, true)
+
+      Reencodarr.Repo.update_all(Reencodarr.Media.DashboardStatsCache,
+        set: [needs_analysis: 3, analyzing: 5]
+      )
+
+      send(Process.whereis(State), :refresh_queues)
+
+      assert State.get_state().queue_counts.analyzer == 8
+    end
+
     test "passes configured timeout and pool_timeout to queue preview queries" do
       previous_refresh_enabled =
         Application.get_env(:reencodarr, :dashboard_queue_refresh_enabled)
@@ -110,6 +123,27 @@ defmodule Reencodarr.Dashboard.StateTest do
         assert Keyword.fetch!(opts, :timeout) == 4_321
         assert Keyword.fetch!(opts, :pool_timeout) == 4_321
       end
+    end
+
+    test "reconciles queue counts after a bulk update bypasses mutation events" do
+      Application.put_env(:reencodarr, :dashboard_queue_refresh_enabled, true)
+
+      video = insert_video()
+      vmaf = insert_vmaf(video)
+      State.get_state()
+
+      video
+      |> Ecto.Changeset.change(state: :crf_searched, chosen_vmaf_id: vmaf.id)
+      |> Repo.update!()
+
+      assert State.get_state().queue_counts.encoder == 0
+
+      send(Process.whereis(State), :refresh_queues)
+
+      state = State.get_state()
+      assert state.stats.encoding_queue_count == 1
+      assert state.queue_counts.crf_searcher == 0
+      assert state.queue_counts.encoder == 1
     end
   end
 
@@ -195,7 +229,7 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert state.crf_search_video.id == video.id
       assert state.crf_search_results == []
       assert state.crf_search_sample == nil
-      assert state.crf_progress == :none
+      assert is_nil(state.crf_progress)
     end
 
     test ":crf_search_started sets service_status to processing" do
@@ -353,7 +387,12 @@ defmodule Reencodarr.Dashboard.StateTest do
         {:crf_search_started, video}
       )
 
-      progress = %{fps: 30.5, eta: "00:02:30", percent: 45.0}
+      progress = %CrfSearchProgress{
+        video_id: video.id,
+        fps: 30.5,
+        eta: "00:02:30",
+        percent: 45.0
+      }
 
       Phoenix.PubSub.broadcast(
         Reencodarr.PubSub,
@@ -405,7 +444,7 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert state.crf_search_video == nil
       assert state.crf_search_results == []
       assert state.crf_search_sample == nil
-      assert state.crf_progress == :none
+      assert is_nil(state.crf_progress)
     end
 
     test ":crf_search_failed clears all CRF state" do
@@ -1021,7 +1060,7 @@ defmodule Reencodarr.Dashboard.StateTest do
       state = State.get_state()
       assert state.stats.total_vmafs == 1
       assert state.stats.chosen_vmafs == 1
-      assert state.stats.total_savings_gb > 0.0
+      assert state.stats.total_savings_gb == 0.0
       assert state.stats.most_recent_video_update != nil
       assert state.stats.most_recent_inserted_video != nil
 
@@ -1030,6 +1069,17 @@ defmodule Reencodarr.Dashboard.StateTest do
 
       state = State.get_state()
       assert state.stats.total_vmafs == 0
+    end
+
+    test "space savings mutations update the dashboard total" do
+      video = insert_video()
+
+      assert {:ok, _video} =
+               Reencodarr.Media.update_video(video, %{space_saved_bytes: 1_073_741_824})
+
+      :timer.sleep(50)
+
+      assert_in_delta State.get_state().stats.total_savings_gb, 1.0, 0.01
     end
   end
 

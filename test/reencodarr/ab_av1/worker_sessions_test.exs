@@ -1,7 +1,9 @@
 defmodule Reencodarr.AbAv1.WorkerSessionsTest do
   use Reencodarr.DataCase, async: false
 
+  alias Reencodarr.AbAv1.WorkerProtocol.{CrfSearchProgress, EncodeProgress}
   alias Reencodarr.AbAv1.WorkerSessions
+  alias Reencodarr.AbAv1.WorkerSessions.Job
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Diagnostics
   alias Reencodarr.Fixtures
@@ -20,10 +22,448 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
   end
 
   test "returns unknown worker session for missing ids" do
-    assert {:error, :unknown_worker_session} = WorkerSessions.touch("missing-worker")
     assert {:error, :unknown_worker_session} = WorkerSessions.assign_video("missing-worker", 123)
     assert {:error, :unknown_worker_session} = WorkerSessions.clear_video("missing-worker")
     assert {:error, :unknown_worker_session} = WorkerSessions.finish_transfer("missing-worker")
+  end
+
+  test "recovers a job after the in-memory session registry is lost" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+    WorkerSessions.reset()
+
+    assert {:ok, session} =
+             WorkerSessions.recover_job(
+               "worker-server-1",
+               worker_session_attrs(),
+               %Job{
+                 job_id: "crf-recovered",
+                 job_type: :crf_search,
+                 video_id: 123,
+                 phase: :crf_searching
+               }
+             )
+
+    assert session.jobs["crf-recovered"].video_id == 123
+    assert session.active_video_id == 123
+    assert session.phase == :crf_searching
+  end
+
+  test "telemetry updates never wait for the session process" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", 123)
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-456",
+               job_type: :encode,
+               video_id: 456
+             })
+
+    sessions = Process.whereis(WorkerSessions)
+    :ok = :sys.suspend(sessions)
+    on_exit(fn -> :sys.resume(sessions) end)
+
+    task =
+      Task.async(fn ->
+        [
+          WorkerSessions.touch("worker-server-1"),
+          WorkerSessions.set_transfer_progress("worker-server-1", %{
+            job_id: "123",
+            video_id: 123,
+            percent: 5.0
+          }),
+          WorkerSessions.set_job_transfer_progress(
+            "worker-server-1",
+            "encode-456",
+            %{job_id: "encode-456", video_id: 456, percent: 5.0},
+            :receiving_input
+          ),
+          WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
+            job_id: "123",
+            video_id: 123,
+            percent: 5.0
+          }),
+          WorkerSessions.set_encode_progress("worker-server-1", %EncodeProgress{
+            job_id: "encode-456",
+            video_id: 456,
+            percent: 5.0,
+            fps: 30.0,
+            output_bytes: 100,
+            output_percent: 1.0
+          })
+        ]
+      end)
+
+    assert {:ok, [:ok, :ok, :ok, :ok, :ok]} = Task.yield(task, 100)
+  end
+
+  test "disk telemetry distinguishes missing, fresh, and stale capacity data" do
+    assert {:ok, session} = WorkerSessions.register(worker_session_attrs())
+
+    assert WorkerSessions.disk_free_bytes(session.server_worker_id, 60_000) ==
+             {:error, :missing_disk_telemetry}
+
+    :ok = WorkerSessions.touch(session.server_worker_id, %{disk_free_bytes: 12_345})
+    assert WorkerSessions.disk_free_bytes(session.server_worker_id, 60_000) == {:ok, 12_345}
+
+    Process.sleep(2)
+
+    assert WorkerSessions.disk_free_bytes(session.server_worker_id, 0) ==
+             {:error, :stale_disk_telemetry}
+  end
+
+  test "stores the current encode admission decision for diagnostics" do
+    assert {:ok, session} = WorkerSessions.register(worker_session_attrs())
+
+    :ok =
+      WorkerSessions.set_encode_admission(session.server_worker_id, %{
+        status: :blocked,
+        reason: :insufficient_disk_space,
+        available_bytes: 10,
+        required_bytes: 20
+      })
+
+    assert %{
+             status: :blocked,
+             reason: :insufficient_disk_space,
+             available_bytes: 10,
+             required_bytes: 20,
+             checked_at: %DateTime{}
+           } = WorkerSessions.get(session.server_worker_id).encode_admission
+  end
+
+  test "stopping a worker fails active work without disconnecting its session" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", video.id)
+
+    assert {:ok, session} = WorkerSessions.set_control_state("worker-server-1", :stopped)
+    assert session.control_state == :stopped
+    assert session.phase == :idle
+    assert is_nil(session.active_video_id)
+    assert WorkerSessions.get("worker-server-1").client_worker_id == "worker-client-1"
+    assert Media.get_video(video.id).state == :failed
+  end
+
+  test "tracks control state for an individual worker job" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-1",
+               job_type: :encode,
+               video_id: 1
+             })
+
+    assert {:ok, session} =
+             WorkerSessions.set_job_control_state("worker-server-1", "encode-1", :paused)
+
+    assert session.control_state == :running
+    assert session.jobs["encode-1"].control_state == :paused
+  end
+
+  test "heartbeats do not hide a stalled worker job" do
+    {:ok, video} = encoding_video("encode-stalled")
+    Phoenix.PubSub.subscribe(Reencodarr.PubSub, WorkerSessions.control_topic("worker-server-1"))
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-stalled",
+               job_type: :encode,
+               video_id: video.id,
+               phase: :encoding
+             })
+
+    stalled_at = DateTime.add(DateTime.utc_now(), -24, :hour)
+    :ok = WorkerSessions.set_job_activity_at("worker-server-1", "encode-stalled", stalled_at)
+    :ok = WorkerSessions.touch("worker-server-1", %{disk_free_bytes: 1_000_000})
+
+    assert :ok = WorkerSessions.check_stalled_jobs(DateTime.utc_now())
+    assert_receive {:worker_control, :stop, "encode-stalled", command_id}
+
+    job = WorkerSessions.get("worker-server-1").jobs["encode-stalled"]
+    assert job.last_activity_at == stalled_at
+    assert job.recovery_action == :stop_requested
+    assert job.control_command_id == command_id
+    assert Media.get_video(video.id).worker_control_reason == :stalled
+  end
+
+  test "progress refreshes job activity and paused work never stalls" do
+    {:ok, running_video} = encoding_video("encode-running")
+    {:ok, paused_video} = encoding_video("encode-paused")
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    for {video, job_id, state} <- [
+          {running_video, "encode-running", :running},
+          {paused_video, "encode-paused", :paused}
+        ] do
+      assert {:ok, _session} =
+               WorkerSessions.assign_job("worker-server-1", %Job{
+                 job_id: job_id,
+                 job_type: :encode,
+                 video_id: video.id,
+                 phase: :encoding,
+                 control_state: state,
+                 desired_control_state: state
+               })
+
+      :ok =
+        WorkerSessions.set_job_activity_at(
+          "worker-server-1",
+          job_id,
+          DateTime.add(DateTime.utc_now(), -25, :hour)
+        )
+    end
+
+    :ok =
+      WorkerSessions.set_encode_progress("worker-server-1", %EncodeProgress{
+        job_id: "encode-running",
+        video_id: running_video.id,
+        percent: 42.0,
+        fps: 30.0,
+        output_bytes: 100,
+        output_percent: 1.0
+      })
+
+    _ = WorkerSessions.list()
+    assert :ok = WorkerSessions.check_stalled_jobs(DateTime.utc_now())
+
+    session = WorkerSessions.get("worker-server-1")
+    assert session.jobs["encode-running"].recovery_action == nil
+    assert session.jobs["encode-paused"].recovery_action == nil
+  end
+
+  test "warning and recovery remain fenced to the exact attempt" do
+    {:ok, old_video} = encoding_video("encode-old")
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-old",
+               job_type: :encode,
+               video_id: old_video.id,
+               phase: :output_upload
+             })
+
+    :ok =
+      WorkerSessions.set_job_activity_at(
+        "worker-server-1",
+        "encode-old",
+        DateTime.add(DateTime.utc_now(), -23, :hour)
+      )
+
+    assert :ok = WorkerSessions.check_stalled_jobs(DateTime.utc_now())
+    assert WorkerSessions.get("worker-server-1").jobs["encode-old"].recovery_action == :warned
+
+    {:ok, _new_attempt} =
+      old_video
+      |> Ecto.Changeset.change(worker_attempt_id: "encode-new")
+      |> Repo.update()
+
+    :ok =
+      WorkerSessions.set_job_activity_at(
+        "worker-server-1",
+        "encode-old",
+        DateTime.add(DateTime.utc_now(), -24, :hour)
+      )
+
+    assert :ok = WorkerSessions.check_stalled_jobs(DateTime.utc_now())
+    assert WorkerSessions.get("worker-server-1").jobs["encode-old"].recovery_action == :stale
+    assert Media.get_video(old_video.id).worker_attempt_id == "encode-new"
+  end
+
+  test "assigning CRF work creates its job record" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, session} =
+             WorkerSessions.assign_video("worker-server-1", 123, :receiving_input)
+
+    assert %Job{
+             job_id: "123",
+             job_type: :crf_search,
+             video_id: 123,
+             phase: :receiving_input
+           } = session.jobs["123"]
+  end
+
+  test "derives legacy CRF summaries from the authoritative job" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    progress = %CrfSearchProgress{
+      job_id: "crf-attempt",
+      video_id: 123,
+      percent: 25.0
+    }
+
+    job = %Job{
+      job_id: "crf-attempt",
+      job_type: :crf_search,
+      video_id: 123,
+      phase: :crf_searching,
+      control_state: :paused,
+      desired_control_state: :paused,
+      progress: progress
+    }
+
+    assert {:ok, session} = WorkerSessions.assign_job("worker-server-1", job)
+    assert session.active_video_id == 123
+    assert session.phase == :crf_searching
+    assert session.control_state == :running
+    assert session.jobs["crf-attempt"].control_state == :paused
+    assert session.crf_search_progress == progress
+    assert WorkerSessions.get("worker-server-1") == session
+  end
+
+  test "CRF progress restores its job record" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    progress = %CrfSearchProgress{
+      job_id: "123",
+      video_id: 123,
+      percent: 25.0
+    }
+
+    assert :ok =
+             WorkerSessions.set_crf_search_progress("worker-server-1", progress)
+
+    session = WorkerSessions.get("worker-server-1")
+
+    assert %Job{
+             job_id: "123",
+             job_type: :crf_search,
+             video_id: 123,
+             phase: :crf_searching,
+             progress: ^progress
+           } = session.jobs["123"]
+  end
+
+  test "recording CRF progress cannot create a job" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert :ok =
+             WorkerSessions.record_crf_search_progress("worker-server-1", %CrfSearchProgress{
+               job_id: "123",
+               video_id: 123,
+               percent: 25.0
+             })
+
+    assert %{active_video_id: nil, jobs: %{}} = WorkerSessions.get("worker-server-1")
+  end
+
+  test "recording encode progress cannot create a job" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert :ok =
+             WorkerSessions.record_encode_progress("worker-server-1", %EncodeProgress{
+               job_id: "encode-123",
+               video_id: 123,
+               percent: 25.0,
+               fps: 30.0,
+               output_bytes: 100,
+               output_percent: 1.0
+             })
+
+    assert %{jobs: %{}} = WorkerSessions.get("worker-server-1")
+  end
+
+  test "CRF progress preserves job control state" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", 123)
+
+    assert {:ok, _session} =
+             WorkerSessions.set_job_control_state("worker-server-1", "123", :paused)
+
+    assert :ok =
+             WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
+               job_id: "123",
+               video_id: 123,
+               percent: 25.0
+             })
+
+    session = WorkerSessions.get("worker-server-1")
+
+    assert %Job{control_state: :paused} = session.jobs["123"]
+  end
+
+  test "clearing CRF work preserves encode jobs" do
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", 123)
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-456",
+               job_type: :encode,
+               video_id: 456
+             })
+
+    assert {:ok, session} = WorkerSessions.clear_video("worker-server-1")
+
+    refute Map.has_key?(session.jobs, "123")
+    assert %Job{job_type: :encode} = session.jobs["encode-456"]
+  end
+
+  test "a stopped CRF acknowledgement clears only its session job" do
+    {:ok, searching_video} = Fixtures.video_fixture(%{state: :crf_searching})
+    {:ok, encoding_video} = Fixtures.video_fixture(%{state: :encoding})
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_video("worker-server-1", searching_video.id)
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-#{encoding_video.id}",
+               job_type: :encode,
+               video_id: encoding_video.id
+             })
+
+    assert {:ok, session} =
+             WorkerSessions.set_job_control_state(
+               "worker-server-1",
+               Integer.to_string(searching_video.id),
+               :stopped
+             )
+
+    assert is_nil(session.active_video_id)
+    assert is_nil(session.crf_search_progress)
+    refute Enum.any?(session.jobs, fn {_job_id, job} -> job.job_type == :crf_search end)
+    assert %Job{job_type: :encode} = session.jobs["encode-#{encoding_video.id}"]
+    assert Media.get_video(searching_video.id).state == :crf_searching
+    assert Media.get_video(encoding_video.id).state == :encoding
+  end
+
+  test "a stopped encode acknowledgement clears only its session job" do
+    {:ok, encoding_video} = Fixtures.video_fixture(%{state: :encoding})
+    {:ok, searching_video} = Fixtures.video_fixture(%{state: :crf_searching})
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-#{encoding_video.id}",
+               job_type: :encode,
+               video_id: encoding_video.id
+             })
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "crf-#{searching_video.id}",
+               job_type: :crf_search,
+               video_id: searching_video.id
+             })
+
+    assert {:ok, session} =
+             WorkerSessions.set_job_control_state(
+               "worker-server-1",
+               "encode-#{encoding_video.id}",
+               :stopped
+             )
+
+    refute Map.has_key?(session.jobs, "encode-#{encoding_video.id}")
+    assert Map.has_key?(session.jobs, "crf-#{searching_video.id}")
+    assert Media.get_video(encoding_video.id).state == :encoding
+    assert Media.get_video(searching_video.id).state == :crf_searching
   end
 
   test "expires stale worker sessions" do
@@ -36,11 +476,20 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert WorkerSessions.list() == []
   end
 
-  test "expires stale active sessions by requeueing only in-progress videos" do
-    {:ok, active_video} = Fixtures.video_fixture(%{state: :crf_searching})
+  test "expires stale active sessions without requeueing work that may still be running" do
+    {:ok, active_video} =
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-1",
+        worker_attempt_id: "crf-active"
+      })
 
     {:ok, dispatched_video} =
-      Fixtures.video_fixture(%{state: :crf_searching, crf_search_worker_id: "worker-client-3"})
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-3",
+        worker_attempt_id: "crf-dispatched"
+      })
 
     {:ok, completed_video} = Fixtures.video_fixture(%{state: :crf_searched})
     _vmaf = Fixtures.vmaf_fixture(%{video_id: completed_video.id, crf: 28.0, score: 96.4})
@@ -65,15 +514,136 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                )
              )
 
-    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", active_video.id)
+    assert {:ok, _session} =
+             WorkerSessions.assign_video(
+               "worker-server-1",
+               active_video.id,
+               :crf_searching,
+               "crf-active"
+             )
+
     assert {:ok, _session} = WorkerSessions.assign_video("worker-server-2", completed_video.id)
-    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-3", dispatched_video.id)
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_video(
+               "worker-server-3",
+               dispatched_video.id,
+               :crf_searching,
+               "crf-dispatched"
+             )
 
     assert {:ok, [_session_one, _session_two, _session_three]} = WorkerSessions.expire_stale(0)
-    assert Media.get_video(active_video.id).state == :analyzed
+    assert Media.get_video(active_video.id).state == :crf_searching
     assert Media.get_video(dispatched_video.id).state == :crf_searching
     assert Media.get_video(completed_video.id).state == :crf_searched
     assert WorkerSessions.list() == []
+  end
+
+  test "an expired CRF session cannot requeue a newer attempt" do
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-2",
+        worker_attempt_id: "crf-new"
+      })
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_video(
+               "worker-server-1",
+               video.id,
+               :crf_searching,
+               "crf-old"
+             )
+
+    assert {:ok, [_session]} = WorkerSessions.expire_stale(0)
+
+    assert %{
+             state: :crf_searching,
+             crf_search_worker_id: "worker-client-2",
+             worker_attempt_id: "crf-new"
+           } = Media.get_video(video.id)
+  end
+
+  test "reconnect recreates only the persisted current attempt" do
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-1",
+        worker_attempt_id: "crf-new"
+      })
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_video(
+               "worker-server-1",
+               video.id,
+               :crf_searching,
+               "crf-old"
+             )
+
+    assert {:ok, reconnected} =
+             WorkerSessions.register(worker_session_attrs(server_worker_id: "worker-server-2"))
+
+    video_id = video.id
+
+    assert %{
+             "crf-new" => %Job{
+               job_id: "crf-new",
+               video_id: ^video_id,
+               job_type: :crf_search
+             }
+           } = reconnected.jobs
+
+    assert reconnected.active_video_id == video.id
+    assert reconnected.phase == :crf_searching
+  end
+
+  test "stale canonical control IDs cannot target a replacement attempt" do
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-1",
+        worker_attempt_id: "crf-new"
+      })
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "crf-old",
+               job_type: :crf_search,
+               video_id: video.id
+             })
+
+    assert :error = WorkerSessions.request_control("worker-server-1", "crf-old", :stop)
+
+    assert %{state: :crf_searching, worker_attempt_id: "crf-new"} = Media.get_video(video.id)
+  end
+
+  test "old session recovery cannot evict a newer connection" do
+    assert {:ok, _session} =
+             WorkerSessions.register(worker_session_attrs(server_worker_id: "server-old"))
+
+    assert {:ok, newer_session} =
+             WorkerSessions.register(worker_session_attrs(server_worker_id: "server-new"))
+
+    assert {:error, :superseded_worker_session} =
+             WorkerSessions.recover_job(
+               "server-old",
+               worker_session_attrs(),
+               %Job{
+                 job_id: "crf-old",
+                 job_type: :crf_search,
+                 video_id: 123,
+                 phase: :crf_searching
+               }
+             )
+
+    assert WorkerSessions.get("server-new") == newer_session
+    assert is_nil(WorkerSessions.get("server-old"))
   end
 
   test "timer-driven stale expiry removes old sessions" do
@@ -106,6 +676,54 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert output =~ "version=0.10.0"
     assert output =~ "phase=crf_searching"
     assert output =~ "video_state=analyzed"
+    assert output =~ "Local Worker Process:"
+  end
+
+  test "diagnostics recognize worker-owned encode as active" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :encoding})
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-456",
+               job_type: :encode,
+               video_id: video.id
+             })
+
+    output = Diagnostics.stuck()
+
+    assert output =~ "ACTIVE in worker Encode"
+    refute output =~ "ORPHANED?"
+  end
+
+  test "diagnostics identify worker execution mode without reporting Broadway as failed" do
+    previous = Application.get_env(:reencodarr, :crf_execution_mode)
+    previous_supervision = Application.get_env(:reencodarr, :supervise_local_worker)
+    Application.put_env(:reencodarr, :crf_execution_mode, :worker)
+    Application.put_env(:reencodarr, :supervise_local_worker, false)
+
+    on_exit(fn ->
+      if is_nil(previous) do
+        Application.delete_env(:reencodarr, :crf_execution_mode)
+      else
+        Application.put_env(:reencodarr, :crf_execution_mode, previous)
+      end
+
+      if is_nil(previous_supervision) do
+        Application.delete_env(:reencodarr, :supervise_local_worker)
+      else
+        Application.put_env(:reencodarr, :supervise_local_worker, previous_supervision)
+      end
+    end)
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+    output = Diagnostics.status()
+
+    assert output =~ "CRF Searcher: mode=worker"
+    assert output =~ "connected=1"
+    assert output =~ "executor=independent"
+    refute output =~ "CRF Searcher: mode=worker, connected=1, active=0, unavailable"
+    refute output =~ "CRF Searcher: running=false"
   end
 
   test "tracks an assigned video on the session" do
@@ -127,7 +745,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert session.active_video_id == 123
     assert session.phase == :receiving_input
 
-    assert {:ok, session} =
+    assert :ok =
              WorkerSessions.set_transfer_progress("worker-server-1", %{
                job_id: "job-1",
                video_id: 123,
@@ -137,6 +755,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                bytes_sent: 10_485_760,
                total_bytes: 10_485_760
              })
+
+    session = WorkerSessions.get("worker-server-1")
 
     assert session.active_video_id == 123
     assert session.phase == :input_ready
@@ -152,14 +772,14 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
     assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", 123, :receiving_input)
 
-    assert {:error, :invalid_worker_phase} =
+    assert :ok =
              WorkerSessions.set_transfer_progress("worker-server-1", %{
                video_id: 456,
                percent: 25.0
              })
 
-    assert {:error, :invalid_worker_phase} =
-             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+    assert :ok =
+             WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                video_id: 456,
                percent: 25.0
              })
@@ -174,8 +794,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
   test "keeps CRF sample metadata when later progress omits it" do
     assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
 
-    assert {:ok, session} =
-             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+    assert :ok =
+             WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                video_id: 123,
                percent: 10.0,
                fps: 24.0,
@@ -184,12 +804,14 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                total_samples: 5
              })
 
+    session = WorkerSessions.get("worker-server-1")
+
     assert session.crf_search_progress.crf == 28.0
     assert session.crf_search_progress.sample_num == 3
     assert session.crf_search_progress.total_samples == 5
 
-    assert {:ok, session} =
-             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+    assert :ok =
+             WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                video_id: 123,
                percent: 25.0,
                fps: 25.0,
@@ -197,6 +819,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                sample_num: nil,
                total_samples: nil
              })
+
+    session = WorkerSessions.get("worker-server-1")
 
     assert session.crf_search_progress.percent == 25.0
     assert session.crf_search_progress.fps == 25.0
@@ -213,7 +837,7 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
 
     Process.sleep(1_100)
 
-    assert {:ok, session} =
+    assert :ok =
              WorkerSessions.set_transfer_progress("worker-server-1", %{
                job_id: "job-1",
                video_id: 123,
@@ -228,6 +852,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                total_chunks: 8
              })
 
+    session = WorkerSessions.get("worker-server-1")
+
     assert DateTime.compare(session.last_seen_at, initial_last_seen) == :gt
   end
 
@@ -239,8 +865,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
 
     Process.sleep(1_100)
 
-    assert {:ok, session} =
-             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+    assert :ok =
+             WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                video_id: 123,
                percent: 25.0,
                fps: 24.0,
@@ -249,11 +875,20 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                total_samples: 5
              })
 
+    session = WorkerSessions.get("worker-server-1")
+
     assert DateTime.compare(session.last_seen_at, initial_last_seen) == :gt
   end
 
   test "replaces reconnecting client sessions without dropping active state" do
-    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+    job_id = "crf-reconnect"
+
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-1",
+        worker_attempt_id: job_id
+      })
 
     assert {:ok, _session} =
              WorkerSessions.register(
@@ -263,10 +898,17 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                )
              )
 
-    assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", video.id)
+    assert {:ok, _session} =
+             WorkerSessions.assign_video(
+               "worker-server-1",
+               video.id,
+               :crf_searching,
+               job_id
+             )
 
-    assert {:ok, session} =
-             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+    assert :ok =
+             WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
+               job_id: job_id,
                video_id: video.id,
                percent: 25.0,
                fps: 24.0,
@@ -274,6 +916,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
                sample_num: 2,
                total_samples: 5
              })
+
+    session = WorkerSessions.get("worker-server-1")
 
     assert session.active_video_id == video.id
     assert session.phase == :crf_searching
@@ -310,8 +954,8 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
 
     assert {:ok, _session} = WorkerSessions.assign_video("worker-server-1", video.id)
 
-    assert {:ok, _session} =
-             WorkerSessions.set_crf_search_progress("worker-server-1", %{
+    assert :ok =
+             WorkerSessions.set_crf_search_progress("worker-server-1", %CrfSearchProgress{
                video_id: video.id,
                percent: 100.0,
                fps: 24.0
@@ -388,6 +1032,268 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
     assert WorkerSessions.list() == []
   end
 
+  test "retains independent encode job state when a worker reconnects" do
+    job_id = "encode-reconnect"
+
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :encoding,
+        encode_worker_id: "worker-client-1",
+        worker_attempt_id: job_id
+      })
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: job_id,
+               job_type: :encode,
+               video_id: video.id,
+               phase: :receiving_input
+             })
+
+    progress = %EncodeProgress{
+      job_id: job_id,
+      video_id: video.id,
+      percent: 42.0,
+      fps: 12.5,
+      output_bytes: 1_000,
+      output_percent: 10.0
+    }
+
+    assert :ok =
+             WorkerSessions.set_encode_progress("worker-server-1", progress)
+
+    assert {:ok, reconnected} =
+             WorkerSessions.register(worker_session_attrs(server_worker_id: "worker-server-2"))
+
+    assert is_nil(WorkerSessions.get("worker-server-1"))
+
+    assert %Job{
+             job_type: :encode,
+             video_id: video_id,
+             phase: :encoding,
+             active: false,
+             progress: %EncodeProgress{percent: 42.0}
+           } = reconnected.jobs[job_id]
+
+    assert video_id == video.id
+    assert {:ok, cleared} = WorkerSessions.clear_job("worker-server-2", job_id)
+    assert cleared.jobs == %{}
+  end
+
+  test "restores an encode job from progress after the server restarts" do
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :encoding,
+        encode_worker_id: "worker-client-1",
+        worker_attempt_id: "encode-restart"
+      })
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    progress = %EncodeProgress{
+      job_id: "encode-restart",
+      video_id: video.id,
+      percent: 42.0,
+      fps: 12.5,
+      output_bytes: 1_000,
+      output_percent: 10.0
+    }
+
+    assert :ok = WorkerSessions.set_encode_progress("worker-server-1", progress)
+    session = WorkerSessions.get("worker-server-1")
+
+    assert %Job{job_type: :encode, video_id: video_id, phase: :encoding} =
+             session.jobs[progress.job_id]
+
+    assert video_id == video.id
+    assert %{state: :encoding, encode_worker_id: "worker-client-1"} = Media.get_video(video.id)
+    assert {:ok, []} = WorkerSessions.expire_stale(999_999)
+    assert %{state: :encoding, encode_worker_id: "worker-client-1"} = Media.get_video(video.id)
+  end
+
+  test "does not requeue an encode while its disconnected worker may still be running" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+    vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+    video = Fixtures.choose_vmaf(video, vmaf)
+    job_id = "encode-old"
+
+    {:ok, video} =
+      Media.mark_as_encoding(video, %{
+        encode_worker_id: "worker-client-1",
+        worker_attempt_id: job_id
+      })
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: job_id,
+               job_type: :encode,
+               video_id: video.id
+             })
+
+    assert {:ok, [_session]} = WorkerSessions.expire_stale(0)
+
+    assert %{
+             state: :encoding,
+             encode_worker_id: "worker-client-1",
+             worker_attempt_id: ^job_id
+           } =
+             Media.get_video(video.id)
+  end
+
+  test "an expired encode session cannot requeue a newer attempt" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+    vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+    video = Fixtures.choose_vmaf(video, vmaf)
+
+    {:ok, video} =
+      Media.mark_as_encoding(video, %{
+        encode_worker_id: "worker-client-2",
+        worker_attempt_id: "encode-new"
+      })
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: "encode-old",
+               job_type: :encode,
+               video_id: video.id
+             })
+
+    assert {:ok, [_session]} = WorkerSessions.expire_stale(0)
+
+    assert %{
+             state: :encoding,
+             encode_worker_id: "worker-client-2",
+             worker_attempt_id: "encode-new"
+           } = Media.get_video(video.id)
+  end
+
+  test "stale sweep resets persisted encoding work with no live encode job" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+    vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+    video = Fixtures.choose_vmaf(video, vmaf)
+    {:ok, video} = Media.mark_as_encoding(video, %{encode_worker_id: "dead-worker"})
+
+    run_orphan_reset()
+
+    assert {:ok, []} = WorkerSessions.expire_stale(0)
+    assert %{state: :crf_searched, encode_worker_id: nil} = Media.get_video(video.id)
+  end
+
+  test "stale sweep gives persisted encoding work a reconnect grace period" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+    vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+    video = Fixtures.choose_vmaf(video, vmaf)
+    {:ok, _video} = Media.mark_as_encoding(video, %{encode_worker_id: "dead-worker"})
+
+    assert {:ok, []} = WorkerSessions.expire_stale(0)
+    assert %{state: :encoding, encode_worker_id: "dead-worker"} = Media.get_video(video.id)
+  end
+
+  test "stale sweep keeps persisted encoding work owned by a live encode job" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+    vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+    video = Fixtures.choose_vmaf(video, vmaf)
+    job_id = "encode-#{video.id}"
+
+    {:ok, _video} =
+      Media.mark_as_encoding(video, %{
+        encode_worker_id: "worker-client-1",
+        worker_attempt_id: job_id
+      })
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_job("worker-server-1", %Job{
+               job_id: job_id,
+               job_type: :encode,
+               video_id: video.id
+             })
+
+    assert {:ok, []} = WorkerSessions.expire_stale(999_999)
+
+    assert %{
+             state: :encoding,
+             encode_worker_id: "worker-client-1",
+             worker_attempt_id: ^job_id
+           } = Media.get_video(video.id)
+  end
+
+  test "stale sweep resets persisted work when the connected worker has no matching job" do
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+    vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+    video = Fixtures.choose_vmaf(video, vmaf)
+
+    {:ok, _video} =
+      Media.mark_as_encoding(video, %{
+        encode_worker_id: "worker-client-1",
+        worker_attempt_id: "encode-orphan"
+      })
+
+    assert {:ok, _session} =
+             WorkerSessions.register(worker_session_attrs(capabilities: %{"encode" => true}))
+
+    run_orphan_reset()
+
+    assert {:ok, []} = WorkerSessions.expire_stale(999_999)
+
+    assert %{state: :crf_searched, encode_worker_id: nil, worker_attempt_id: nil} =
+             Media.get_video(video.id)
+  end
+
+  test "stale sweep resets persisted CRF work with no matching live job" do
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-1",
+        worker_attempt_id: "crf-orphan"
+      })
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+    run_orphan_reset()
+
+    assert {:ok, []} = WorkerSessions.expire_stale(999_999)
+
+    assert %{state: :analyzed, crf_search_worker_id: nil, worker_attempt_id: nil} =
+             Media.get_video(video.id)
+  end
+
+  test "stale sweep keeps persisted CRF work owned by the exact live job" do
+    job_id = "crf-live"
+
+    {:ok, video} =
+      Fixtures.video_fixture(%{
+        state: :crf_searching,
+        crf_search_worker_id: "worker-client-1",
+        worker_attempt_id: job_id
+      })
+
+    assert {:ok, _session} = WorkerSessions.register(worker_session_attrs())
+
+    assert {:ok, _session} =
+             WorkerSessions.assign_video(
+               "worker-server-1",
+               video.id,
+               :crf_searching,
+               job_id
+             )
+
+    run_orphan_reset()
+    assert {:ok, []} = WorkerSessions.expire_stale(999_999)
+
+    assert %{
+             state: :crf_searching,
+             crf_search_worker_id: "worker-client-1",
+             worker_attempt_id: ^job_id
+           } = Media.get_video(video.id)
+  end
+
   defp worker_session_attrs(overrides \\ []) do
     %{
       server_worker_id: "worker-server-1",
@@ -397,5 +1303,26 @@ defmodule Reencodarr.AbAv1.WorkerSessionsTest do
       capabilities: %{"crf_search" => true}
     }
     |> Map.merge(Map.new(overrides))
+  end
+
+  defp encoding_video(job_id) do
+    {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+    vmaf = Fixtures.vmaf_fixture(%{video_id: video.id})
+    video = Fixtures.choose_vmaf(video, vmaf)
+
+    Media.mark_as_encoding(video, %{
+      encode_worker_id: "worker-client-1",
+      worker_attempt_id: job_id
+    })
+  end
+
+  defp run_orphan_reset do
+    :sys.replace_state(WorkerSessions, fn state ->
+      %{state | started_at: DateTime.add(DateTime.utc_now(), -601, :second)}
+    end)
+
+    send(Process.whereis(WorkerSessions), :reset_orphans)
+    :sys.get_state(WorkerSessions)
+    Reencodarr.DbWriter.run(fn -> :ok end)
   end
 end

@@ -3,16 +3,42 @@ defmodule Reencodarr.Rules.Audio do
   Audio encoding rules for ab-av1 with codec-aware bitrate scaling.
 
   Determines the audio codec strategy:
-  - Copy if already Opus (no re-encoding needed)
-  - Copy all if mediainfo unavailable
-  - Transcode all to Opus if no Atmos tracks present
-  - Per-stream encoding if Atmos tracks are present: copy Atmos, transcode others
+  - Copy only if every track is already Opus (no re-encoding needed)
+  - Reject incomplete audio metadata instead of guessing a copy or codec-only conversion
+  - Transcode all to Opus if no copy-through tracks are present
+  - Per-stream encoding if Atmos, DTS:X, or Opus tracks are present: copy them, transcode others
     (ab-av1 uses -map 0 so --acodec applies to all; use --enc c:a:N= to override per-track)
   - Normalize non-standard layouts (5.1(side) → 5.1) for receiver compatibility
   """
 
   alias Reencodarr.Media
   alias Reencodarr.Media.AudioTrackInfo
+
+  defmodule ClassificationError do
+    @moduledoc false
+
+    defexception [:track_index, :format, :codec_id, :reason]
+
+    @type t :: %__MODULE__{
+            track_index: non_neg_integer() | nil,
+            format: String.t() | nil,
+            codec_id: String.t() | nil,
+            reason: String.t()
+          }
+
+    @impl Exception
+    def message(%__MODULE__{} = error) do
+      track = if is_integer(error.track_index), do: " audio track #{error.track_index}", else: ""
+
+      identity =
+        [error.format, error.codec_id]
+        |> Enum.reject(&(&1 in [nil, ""]))
+        |> Enum.join(" / ")
+
+      suffix = if identity == "", do: "", else: " (#{identity})"
+      "cannot classify#{track}#{suffix}: #{error.reason}"
+    end
+  end
 
   @copy_audio [{"--acodec", "copy"}]
 
@@ -40,36 +66,54 @@ defmodule Reencodarr.Rules.Audio do
     "opus" => 1.00
   }
 
+  @ordinary_formats ~w(
+    aac ac3 eac3 eac3atmos dts dtshdmasteraudio flac alac pcm mp3 mp2 mpegaudio
+    vorbis wavpack ape truehd truehdatmos dolbytruehd mlp mlpfba ac4
+  )
+  @ordinary_codec_ids ~w(
+    aaac aaac2 aac ac3 aac3 aeac3 eac3 ec3 adts adtslossless aflac flac
+    atruehd truehd apcmintlit apcmfloat ampegl2 ampegl3 mp4a402 opus aopus
+    dts mp3 mp2 mpegaudio vorbis wavpack ape alac mlp mlpfba ac4 dolbytruehd
+    truehdatmos eac3atmos mlpa dtsc dtse dtsh dtsl ipcm lpcm
+  )
+
   @spec rules(Media.Video.t() | map()) :: list()
-  def rules(%Media.Video{audio_codecs: audio_codecs} = video) when is_list(audio_codecs) do
-    if already_opus?(audio_codecs) do
-      @copy_audio
-    else
-      build_from_mediainfo(video)
+  def rules(%Media.Video{mediainfo: mediainfo} = video) when is_map(mediainfo) do
+    build_from_mediainfo(video)
+  end
+
+  def rules(%Media.Video{audio_codecs: audio_codecs, audio_count: audio_count}) do
+    cond do
+      is_list(audio_codecs) and audio_codecs != [] and all_opus?(audio_codecs) ->
+        @copy_audio
+
+      audio_codecs == [] and audio_count == 0 ->
+        @copy_audio
+
+      true ->
+        raise_incomplete_metadata!(audio_codecs, audio_count)
     end
   end
 
-  def rules(%Media.Video{}), do: @copy_audio
   def rules(%{} = _video_map), do: @copy_audio
 
-  defp build_from_mediainfo(%Media.Video{mediainfo: mediainfo, max_audio_channels: channels})
-       when is_map(mediainfo) and is_integer(channels) and channels > 0 do
+  defp build_from_mediainfo(%Media.Video{mediainfo: mediainfo}) when is_map(mediainfo) do
+    validate_container!(mediainfo)
     indexed_tracks = AudioTrackInfo.all_from_mediainfo(mediainfo)
 
-    {atmos, non_atmos} =
-      Enum.split_with(indexed_tracks, fn {_idx, t} -> track_possibly_atmos?(t) end)
+    {copy_through, non_copy_through} =
+      Enum.split_with(indexed_tracks, fn {idx, track} -> track_should_copy?(idx, track) end)
 
-    route_by_atmos(atmos, non_atmos, mediainfo)
+    route_by_copy_through(copy_through, non_copy_through, mediainfo)
   end
 
-  defp build_from_mediainfo(_video), do: @copy_audio
+  defp route_by_copy_through([], _non_copy_through, mediainfo), do: encode_uniform(mediainfo)
+  defp route_by_copy_through(_copy_through, [], _mediainfo), do: @copy_audio
 
-  defp route_by_atmos([], _non_atmos, mediainfo), do: encode_uniform(mediainfo)
-  defp route_by_atmos(_atmos, [], _mediainfo), do: @copy_audio
-  # Mixed Atmos + non-Atmos: apply per-stream rules to each non-Atmos track
-  defp route_by_atmos(_atmos, non_atmos, _mediainfo), do: encode_mixed(non_atmos)
+  defp route_by_copy_through(_copy_through, non_copy_through, _mediainfo),
+    do: encode_mixed(non_copy_through)
 
-  # No Atmos tracks: apply rules uniformly across all tracks
+  # No copy-through tracks: apply rules uniformly across all tracks
   # Build per-stream overrides for each track, or copy if issues found
   defp encode_uniform(mediainfo) do
     indexed_tracks = AudioTrackInfo.all_from_mediainfo(mediainfo)
@@ -85,10 +129,10 @@ defmodule Reencodarr.Rules.Audio do
     end
   end
 
-  # Mixed Atmos + non-Atmos: base is --acodec copy, override non-Atmos tracks per-stream
-  defp encode_mixed(non_atmos_tracks) do
+  # Mixed copy-through + transcode tracks: base is --acodec copy, override transcode tracks per-stream
+  defp encode_mixed(non_copy_through_tracks) do
     overrides =
-      Enum.flat_map(non_atmos_tracks, fn {idx, track} ->
+      Enum.flat_map(non_copy_through_tracks, fn {idx, track} ->
         build_per_stream_overrides(idx, track)
       end)
 
@@ -98,16 +142,19 @@ defmodule Reencodarr.Rules.Audio do
     end
   end
 
-  defp build_per_stream_overrides(idx, track) do
-    channels = track.channels
+  defp build_per_stream_overrides(idx, %{channels: channels} = track)
+       when is_integer(channels) and channels > 0 do
+    case opus_target_for_track(track, channels) do
+      target_bitrate when is_integer(target_bitrate) ->
+        opus_stream_args(idx, target_bitrate, track.channel_layout)
 
-    with true <- is_integer(channels) and channels > 0,
-         target_bitrate when not is_nil(target_bitrate) <- opus_target_for_track(track, channels) do
-      opus_stream_args(idx, target_bitrate, track.channel_layout)
-    else
-      _ -> []
+      nil ->
+        raise_classification!(idx, track, "could not select an Opus bitrate")
     end
   end
+
+  defp build_per_stream_overrides(idx, track),
+    do: raise_classification!(idx, track, "missing or invalid channel count")
 
   defp opus_stream_args(idx, target_bitrate, channel_layout) do
     base = [
@@ -143,7 +190,7 @@ defmodule Reencodarr.Rules.Audio do
         min(calculated, max_bitrate)
 
       true ->
-        nil
+        Map.get(@opus_targets, channels, 256)
     end
   end
 
@@ -157,19 +204,170 @@ defmodule Reencodarr.Rules.Audio do
     Enum.any?(["flac", "alac", "truehd", "mlp", "dtshd", "pcm"], &String.contains?(codec, &1))
   end
 
-  defp already_opus?(audio_codecs) do
-    Enum.any?(audio_codecs, fn codec ->
+  defp all_opus?(audio_codecs) do
+    Enum.all?(audio_codecs, fn codec ->
       codec |> normalize_codec_string() |> String.contains?("opus")
     end)
   end
 
-  defp track_possibly_atmos?(track) do
+  defp raise_incomplete_metadata!(audio_codecs, audio_count) do
+    {format, codec_id} = first_audio_identity(audio_codecs)
+
+    raise %ClassificationError{
+      format: format,
+      codec_id: codec_id,
+      reason:
+        "detailed MediaInfo is required to classify #{audio_count || "unknown"} audio track(s)"
+    }
+  end
+
+  defp first_audio_identity([codec | _]) when is_binary(codec), do: {codec, nil}
+  defp first_audio_identity([_ | _]), do: {nil, nil}
+  defp first_audio_identity([]), do: {nil, nil}
+  defp first_audio_identity(_), do: {nil, nil}
+
+  defp track_should_copy?(idx, track) do
+    codec = track.codec |> normalize_codec_string()
+    codec_id = track.codec_id |> normalize_codec_string()
     commercial = track.format_commercial_if_any |> normalize_codec_string()
     additional = track.format_additionalfeatures |> normalize_codec_string()
 
-    String.contains?(commercial, "atmos") or
-      String.contains?(additional, "joc") or
-      String.contains?(additional, "atmos")
+    if immersive_ac4?(track, codec, codec_id) do
+      raise_classification!(idx, track, "immersive AC-4 is unsupported by Matroska output")
+    else
+      classify_supported_track(idx, track, codec, codec_id, commercial, additional)
+    end
+  end
+
+  defp classify_supported_track(idx, track, codec, codec_id, commercial, additional) do
+    cond do
+      copy_through?(codec, codec_id, commercial, additional) ->
+        true
+
+      codec == "" and codec_id == "" ->
+        raise_classification!(idx, track, "missing format and codec identifier")
+
+      not is_integer(track.channels) or track.channels <= 0 ->
+        raise_classification!(idx, track, "missing or invalid channel count")
+
+      invalid_codec_channel_combo?(codec, track.channels) ->
+        raise_classification!(idx, track, "codec and channel count are inconsistent")
+
+      ordinary_codec?(codec, codec_id) ->
+        false
+
+      true ->
+        raise_classification!(idx, track, "unknown audio identity")
+    end
+  end
+
+  defp copy_through?(codec, codec_id, commercial, additional) do
+    opus?(codec, codec_id) or
+      truehd_atmos?(codec, codec_id, commercial, additional) or
+      eac3_atmos?(codec, codec_id, commercial, additional) or
+      dtsx?(codec, codec_id, commercial, additional)
+  end
+
+  defp immersive_ac4?(track, codec, codec_id) do
+    ac4? = codec == "ac4" or codec_id == "ac4"
+    ac4? and ac4_presentation_is_immersive?(track.extra)
+  end
+
+  defp ac4_presentation_is_immersive?(extra) do
+    extra
+    |> Map.get("Presentation", [])
+    |> List.wrap()
+    |> Enum.any?(fn
+      %{} = presentation ->
+        Map.get(presentation, "DolbyAtmos") == "Yes" or
+          presentation
+          |> Map.get("ChannelMode", "")
+          |> normalize_codec_string()
+          |> String.contains?("immersive")
+
+      _ ->
+        false
+    end)
+  end
+
+  defp opus?(codec, codec_id) do
+    (codec in ["", "opus"] and codec_id in ["opus", "aopus"]) or
+      (codec == "opus" and codec_id == "")
+  end
+
+  defp truehd_atmos?(codec, codec_id, commercial, additional) do
+    truehd? =
+      codec in ["truehd", "truehdatmos", "dolbytruehd", "mlpfba"] or
+        codec_id in ["truehd", "atruehd", "truehdatmos", "mlpa"]
+
+    truehd? and atmos_marker?(commercial, additional)
+  end
+
+  defp eac3_atmos?(codec, codec_id, commercial, additional) do
+    eac3? =
+      codec in ["eac3", "eac3atmos", "dolbydigitalplus"] or
+        codec_id in ["eac3", "aeac3", "ec3", "eac3atmos"]
+
+    eac3? and (atmos_marker?(commercial, additional) or String.contains?(additional, "joc"))
+  end
+
+  defp dtsx?(codec, codec_id, commercial, additional) do
+    dts? =
+      codec in ["dts", "dtsx"] or
+        codec_id in ["adts", "adtslossless", "dtsc", "dtse", "dtsh", "dtsl", "dtsx"]
+
+    dts? and
+      (String.contains?(commercial, "dtsx") or String.contains?(additional, "dtsx") or
+         String.contains?(additional, "xllx") or
+         (codec == "dtsx" and codec_id == "dtsx"))
+  end
+
+  defp atmos_marker?(commercial, additional) do
+    String.contains?(commercial, "atmos") or String.contains?(additional, "atmos")
+  end
+
+  defp ordinary_codec?(codec, codec_id) do
+    format? = codec in @ordinary_formats
+
+    codec_id? =
+      codec_id in @ordinary_codec_ids or String.starts_with?(codec_id, "aaac") or
+        String.starts_with?(codec_id, "apcm") or String.starts_with?(codec_id, "mp4a40")
+
+    case {codec, codec_id} do
+      {"", _codec_id} -> codec_id?
+      {_codec, ""} -> format?
+      {_codec, _codec_id} -> format? and codec_id?
+    end
+  end
+
+  defp validate_container!(mediainfo) do
+    general =
+      mediainfo
+      |> get_in(["media", "track"])
+      |> List.wrap()
+      |> Enum.find(%{}, &(Map.get(&1, "@type") == "General"))
+
+    format = Map.get(general, "Format", "") |> normalize_codec_string()
+
+    cond do
+      format == "iamf" ->
+        raise %ClassificationError{reason: "IAMF container cannot be flattened to Matroska"}
+
+      format == "bw64" ->
+        raise %ClassificationError{reason: "ADM in BW64 cannot be flattened to Matroska"}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp raise_classification!(idx, track, reason) do
+    raise %ClassificationError{
+      track_index: idx,
+      format: track.codec,
+      codec_id: track.codec_id,
+      reason: reason
+    }
   end
 
   defp normalize_codec_string(nil), do: ""

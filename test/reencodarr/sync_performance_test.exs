@@ -11,6 +11,20 @@ defmodule Reencodarr.SyncPerformanceTest do
       %{library: library}
     end
 
+    test "known-file lookup uses its covering index" do
+      %{rows: rows} =
+        Repo.query!("""
+        EXPLAIN QUERY PLAN
+        SELECT path, service_id
+        FROM videos
+        WHERE service_type = 'sonarr' AND path IN ('/test/a.mkv', '/test/b.mkv')
+        """)
+
+      assert Enum.any?(rows, fn row ->
+               row |> List.last() |> String.contains?("videos_service_type_path_service_id_index")
+             end)
+    end
+
     test "batch processing handles large file collections efficiently", %{library: library} do
       # Create a large batch of file data to simulate real sync scenarios
       large_file_batch =

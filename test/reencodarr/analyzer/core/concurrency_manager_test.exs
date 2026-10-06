@@ -28,23 +28,8 @@ defmodule Reencodarr.Analyzer.Core.ConcurrencyManagerTest do
       assert result >= 1
     end
 
-    test "returns at least 2" do
-      result = ConcurrencyManager.get_mediainfo_concurrency()
-      assert result >= 2
-    end
-  end
-
-  describe "get_processing_timeout/0" do
-    test "returns a positive integer representing milliseconds" do
-      result = ConcurrencyManager.get_processing_timeout()
-      assert is_integer(result)
-      assert result > 0
-    end
-
-    test "returns at least 2 minutes in milliseconds" do
-      two_minutes_ms = :timer.minutes(2)
-      result = ConcurrencyManager.get_processing_timeout()
-      assert result >= two_minutes_ms
+    test "caps full-file scans at two concurrent MediaInfo processes" do
+      assert ConcurrencyManager.get_mediainfo_concurrency() == 2
     end
   end
 

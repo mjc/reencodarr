@@ -856,14 +856,13 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
       assert updated_video.state == :failed
     end
 
-    test "returns {:ok, video} for already-failed video (stale entry rescue)" do
-      {:ok, video} = Fixtures.video_fixture(%{state: :failed})
+    test "wins a concurrent state update" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched})
+      {:ok, _} = VideoStateMachine.mark_as_encoding(video)
 
-      # Valid transition from failed → analyzed, but here we re-fail from failed
-      # This exercises the rescue path or returns an error - verify it's safe
-      result = VideoStateMachine.mark_as_failed(video)
-      # Result can be {:ok, _} or {:error, _} depending on valid transitions from :failed
-      assert match?({:ok, _}, result) or match?({:error, _}, result)
+      {:ok, failed} = VideoStateMachine.mark_as_failed(video)
+
+      assert failed.state == :failed
     end
   end
 
@@ -882,6 +881,23 @@ defmodule Reencodarr.Media.VideoStateMachineTest do
 
       {:ok, updated_video} = VideoStateMachine.mark_as_encoding(video)
       assert updated_video.state == :encoding
+    end
+
+    test "snapshots original size before encoding can replace the file" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched, size: 1234})
+
+      {:ok, updated_video} = VideoStateMachine.mark_as_encoding(video)
+
+      assert updated_video.original_size == 1234
+    end
+
+    test "keeps existing original size" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{state: :crf_searched, size: 1234, original_size: 9999})
+
+      {:ok, updated_video} = VideoStateMachine.mark_as_encoding(video)
+
+      assert updated_video.original_size == 9999
     end
   end
 

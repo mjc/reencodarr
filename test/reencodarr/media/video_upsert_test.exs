@@ -609,6 +609,41 @@ defmodule Reencodarr.Media.VideoUpsertTest do
       assert updated_video.state == original_state
     end
 
+    test "preserves active worker ownership and control lease on sync update", %{library: library} do
+      attrs = %{
+        "path" => "/mnt/test/show/worker-owned.mkv",
+        "size" => 1_000_000,
+        "duration" => 3600.0,
+        "video_codecs" => ["h264"],
+        "audio_codecs" => ["aac"],
+        "library_id" => library.id
+      }
+
+      {:ok, video} = VideoUpsert.upsert(attrs)
+
+      _video =
+        video
+        |> Ecto.Changeset.change(%{
+          state: :encoding,
+          encode_worker_id: "worker-a",
+          worker_attempt_id: "encode-active",
+          worker_control_desired_state: :paused,
+          worker_control_acknowledged_state: :running,
+          worker_control_command_id: "command-active"
+        })
+        |> Repo.update!()
+
+      assert {:ok, updated_video} =
+               VideoUpsert.upsert(Map.put(attrs, "duration", 3601.0))
+
+      assert updated_video.state == :encoding
+      assert updated_video.encode_worker_id == "worker-a"
+      assert updated_video.worker_attempt_id == "encode-active"
+      assert updated_video.worker_control_desired_state == :paused
+      assert updated_video.worker_control_acknowledged_state == :running
+      assert updated_video.worker_control_command_id == "command-active"
+    end
+
     test "handles update when video is in encoded state", %{library: library} do
       # Create video in encoded state
       attrs = %{
@@ -758,6 +793,7 @@ defmodule Reencodarr.Media.VideoUpsertTest do
           "height" => 1080,
           "video_codecs" => ["h264"],
           "audio_codecs" => ["aac"],
+          "service_id" => "file-1",
           "library_id" => library.id
         })
 
@@ -778,12 +814,49 @@ defmodule Reencodarr.Media.VideoUpsertTest do
           "height" => 1080,
           "video_codecs" => ["h264"],
           "audio_codecs" => ["aac"],
+          "service_id" => "file-1",
           "library_id" => library.id
         })
 
       # VMAFs should be preserved
       vmaf_count = Repo.aggregate(from(v in Vmaf, where: v.video_id == ^video.id), :count)
       assert vmaf_count == 1
+    end
+
+    test "accepts a newer source revision before invalidating CRF results", %{library: library} do
+      initial_date = DateTime.utc_now() |> DateTime.add(60, :second) |> DateTime.to_iso8601()
+      replacement_date = DateTime.utc_now() |> DateTime.add(120, :second) |> DateTime.to_iso8601()
+
+      attrs = %{
+        "path" => "/mnt/test/show/episode.mkv",
+        "size" => 1_000_000,
+        "duration" => 3600.0,
+        "bitrate" => 8_000_000,
+        "width" => 1920,
+        "height" => 1080,
+        "video_codecs" => ["h264"],
+        "audio_codecs" => ["aac"],
+        "service_id" => "file-1",
+        "library_id" => library.id,
+        "state" => "crf_searched",
+        "dateAdded" => initial_date
+      }
+
+      {:ok, video} = VideoUpsert.upsert(attrs)
+      alias Reencodarr.Media.Vmaf
+      Repo.insert!(%Vmaf{video_id: video.id, crf: 25.0, score: 95.5, percent: 90.0})
+
+      replacement =
+        Map.merge(attrs, %{
+          "size" => 2_000_000,
+          "service_id" => "file-2",
+          "dateAdded" => replacement_date
+        })
+
+      assert {:ok, updated} = VideoUpsert.upsert(replacement)
+      assert updated.size == 2_000_000
+      assert Repo.get!(Video, updated.id).state == :analyzed
+      assert Repo.aggregate(from(v in Vmaf, where: v.video_id == ^video.id), :count) == 0
     end
 
     test "does not delete VMAFs when marking video as encoded", %{library: library} do

@@ -3,14 +3,19 @@ defmodule ReencodarrWeb.CrfSearchComponents do
 
   use Phoenix.Component
 
-  alias Reencodarr.Formatters
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
+  alias Reencodarr.AbAv1.WorkerSessions
+  alias Reencodarr.AbAv1.WorkerSessions.Job
+  alias Reencodarr.{Formatters, Media, Rules}
   alias ReencodarrWeb.ChartHelpers
+  alias ReencodarrWeb.WorkerActivity
 
   @service_status_styles %{
     running: "bg-green-100 text-green-800",
     paused: "bg-yellow-100 text-yellow-800",
     processing: "bg-blue-100 text-blue-800",
     pausing: "bg-orange-100 text-orange-800",
+    pending: "bg-gray-100 text-gray-600 dashboard-soft-pulse",
     idle: "bg-cyan-100 text-cyan-800",
     checking: "bg-gray-100 text-gray-600 dashboard-soft-pulse",
     stopped: "bg-red-100 text-red-800",
@@ -22,6 +27,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
     paused: "Paused",
     processing: "Processing",
     pausing: "Pausing",
+    pending: "Awaiting ACK",
     idle: "Idle",
     checking: "Checking...",
     stopped: "Stopped",
@@ -178,7 +184,9 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   attr :video, :map, required: true
   attr :results, :list, required: true
   attr :sample, :map, required: true
-  attr :progress, :any, default: :none
+  attr :id, :string, default: nil
+  attr :title, :string, default: "CRF Search"
+  attr :progress, :map, default: nil
   attr :queue_count, :integer, default: 0
   attr :queue_items, :list, default: []
   attr :status, :atom, required: true
@@ -188,17 +196,22 @@ defmodule ReencodarrWeb.CrfSearchComponents do
   attr :suspend_event, :string, default: "suspend_crf_search"
   attr :resume_event, :string, default: "resume_crf_search"
   attr :fail_event, :string, default: "fail_crf_search"
+  attr :start_event, :string, default: nil
   attr :worker_id, :string, default: nil
+  attr :job_id, :string, default: nil
+  attr :activity_label, :string, default: nil
 
-  def crf_search_panel(assigns) do
+  def crf_search_panel(%{progress: progress} = assigns)
+      when is_nil(progress) or is_struct(progress, CrfSearchProgress) do
     ~H"""
-    <div class="dashboard-card bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-4">
+    <div id={@id} class="dashboard-card bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-4">
       <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h3 class="font-semibold text-white">CRF Search</h3>
+        <h3 class="font-semibold text-white">{@title}</h3>
         <span class={"rounded-full px-2 py-1 text-xs #{service_status_class(@status)}"}>
           {service_status_text(@status)}
         </span>
       </div>
+      <div :if={@activity_label} class="mb-2 text-xs text-gray-400">{@activity_label}</div>
 
       <%= if @video do %>
         <div class="space-y-3">
@@ -220,7 +233,7 @@ defmodule ReencodarrWeb.CrfSearchComponents do
             </div>
           <% end %>
 
-          <%= if @progress != :none && Map.get(@progress, :percent) != nil do %>
+          <%= if @progress do %>
             <div>
               <div class="mb-1 h-2 w-full rounded-full bg-gray-800">
                 <div
@@ -231,10 +244,10 @@ defmodule ReencodarrWeb.CrfSearchComponents do
               </div>
               <div class="flex justify-between text-xs text-gray-400">
                 <span>{@progress.percent}%</span>
-                <%= if @progress[:fps] do %>
+                <%= if @progress.fps do %>
                   <span>{@progress.fps} fps</span>
                 <% end %>
-                <%= if @progress[:eta] do %>
+                <%= if @progress.eta do %>
                   <span>ETA: {@progress.eta}</span>
                 <% end %>
               </div>
@@ -247,7 +260,9 @@ defmodule ReencodarrWeb.CrfSearchComponents do
             suspend_event={@suspend_event}
             resume_event={@resume_event}
             fail_event={@fail_event}
+            start_event={@start_event}
             worker_id={@worker_id}
+            job_id={@job_id}
           />
 
           <%= if @show_empty_chart or length(@results) > 0 or @sample do %>
@@ -292,14 +307,16 @@ defmodule ReencodarrWeb.CrfSearchComponents do
           <% end %>
         </div>
 
-        <%= if @show_controls and @status == :paused do %>
+        <%= if @show_controls and (@status == :paused or (@status == :stopped and @start_event)) do %>
           <div class="mt-2">
             <.active_job_controls
               status={@status}
               suspend_event={@suspend_event}
               resume_event={@resume_event}
               fail_event={@fail_event}
+              start_event={@start_event}
               worker_id={@worker_id}
+              job_id={@job_id}
             />
           </div>
         <% end %>
@@ -329,41 +346,190 @@ defmodule ReencodarrWeb.CrfSearchComponents do
     """
   end
 
+  attr :worker, :map, required: true
+  attr :crf_data, :map, default: %{}
+  attr :queue_count, :integer, default: 0
+  attr :queue_items, :list, default: []
+  attr :show_queue, :boolean, default: false
+
+  def worker_crf_search_panel(assigns) do
+    worker = assigns.worker
+    job = worker_crf_job(worker)
+    crf_data = Map.get(assigns.crf_data, active_video_id(worker), %{})
+
+    assigns =
+      assign(assigns,
+        video: worker_crf_video(crf_data[:video]),
+        results: worker_crf_results(crf_data[:results]),
+        sample: worker_crf_sample(worker),
+        status: worker_crf_status(worker, job),
+        job_id: job && job.job_id,
+        activity_label: WorkerActivity.label(job)
+      )
+
+    ~H"""
+    <.crf_search_panel
+      id={"crf-worker-#{@worker.client_worker_id || @worker.server_worker_id}"}
+      title={"CRF Search · #{@worker.client_worker_id || @worker.server_worker_id}"}
+      video={@video}
+      results={@results}
+      sample={@sample}
+      progress={@worker.crf_search_progress}
+      queue_count={@queue_count}
+      queue_items={@queue_items}
+      status={@status}
+      show_queue={@show_queue}
+      show_empty_chart={true}
+      suspend_event="pause_worker_crf_search"
+      resume_event="resume_worker_crf_search"
+      fail_event="stop_worker_crf_search"
+      start_event="start_worker_crf_search"
+      worker_id={@worker.server_worker_id}
+      job_id={@job_id}
+      activity_label={@activity_label}
+    />
+    """
+  end
+
+  @spec worker_crf_status(WorkerSessions.session(), Job.t() | nil) ::
+          :paused | :stopped | :pending | :processing | :idle
+  defp worker_crf_status(
+         _worker,
+         %Job{
+           control_state: acknowledged,
+           desired_control_state: desired,
+           control_command_id: command_id
+         }
+       )
+       when is_binary(command_id) and desired != acknowledged,
+       do: :pending
+
+  defp worker_crf_status(_worker, %Job{control_state: :paused}), do: :paused
+  defp worker_crf_status(_worker, %Job{control_state: :stopped}), do: :stopped
+  defp worker_crf_status(%{control_state: :paused}, nil), do: :paused
+  defp worker_crf_status(%{control_state: :stopped}, nil), do: :stopped
+
+  defp worker_crf_status(%{active_video_id: video_id}, _job) when is_integer(video_id),
+    do: :processing
+
+  defp worker_crf_status(_worker, %Job{}), do: :processing
+  defp worker_crf_status(_worker, nil), do: :idle
+
+  @spec worker_crf_job(WorkerSessions.session()) :: Job.t() | nil
+  defp worker_crf_job(%{jobs: jobs}) do
+    jobs
+    |> Map.values()
+    |> Enum.find(&match?(%Job{job_type: :crf_search}, &1))
+  end
+
+  defp worker_crf_video(%Media.Video{} = video) do
+    %{
+      video_id: video.id,
+      filename: Path.basename(video.path),
+      video_size: video.size,
+      width: video.width,
+      height: video.height,
+      hdr: video.hdr,
+      target_vmaf: Rules.vmaf_target(video)
+    }
+  end
+
+  defp worker_crf_video(_video), do: nil
+
+  defp worker_crf_results(results) when is_list(results) do
+    results
+    |> Enum.sort_by(& &1.crf)
+    |> Enum.map(fn vmaf ->
+      %{crf: vmaf.crf, score: vmaf.score, percent: vmaf.percent}
+    end)
+  end
+
+  defp worker_crf_results(_results), do: []
+
+  defp worker_crf_sample(%{
+         crf_search_progress: %CrfSearchProgress{
+           crf: crf,
+           sample_num: sample_num,
+           total_samples: total_samples
+         }
+       })
+       when is_number(crf) and is_integer(sample_num) and is_integer(total_samples) do
+    %{crf: crf, sample_num: sample_num, total_samples: total_samples}
+  end
+
+  defp worker_crf_sample(_worker), do: nil
+
+  defp active_video_id(%{active_video_id: video_id}) when is_integer(video_id), do: video_id
+
+  defp active_video_id(%{crf_search_progress: %CrfSearchProgress{video_id: video_id}}),
+    do: video_id
+
+  defp active_video_id(%{transfer_progress: %{video_id: video_id}}), do: video_id
+  defp active_video_id(_worker), do: nil
+
+  def load_worker_crf_data(workers, cached \\ %{}) do
+    video_ids = workers |> Enum.map(&active_video_id/1) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    Enum.reduce(video_ids, Map.take(cached, video_ids), fn video_id, data ->
+      Map.put_new_lazy(data, video_id, fn ->
+        %{video: Media.get_video(video_id), results: Media.get_vmafs_for_video(video_id)}
+      end)
+    end)
+  end
+
   attr :status, :atom, required: true
   attr :suspend_event, :string, required: true
   attr :resume_event, :string, required: true
   attr :fail_event, :string, required: true
+  attr :start_event, :string, default: nil
   attr :worker_id, :string, default: nil
+  attr :job_id, :string, default: nil
 
   defp active_job_controls(assigns) do
     ~H"""
     <div class="flex flex-wrap items-center gap-2 pt-1 text-xs">
-      <%= if @status == :paused do %>
+      <%= if @status == :stopped and @start_event do %>
         <button
-          phx-click={@resume_event}
+          phx-click={@start_event}
           phx-value-worker-id={@worker_id}
-          class="font-medium text-cyan-400 hover:text-cyan-300"
+          phx-value-job-id={@job_id}
+          class="font-medium text-green-400 hover:text-green-300"
         >
-          Resume
+          Start
         </button>
       <% else %>
+        <%= if @status == :paused do %>
+          <button
+            phx-click={@resume_event}
+            phx-value-worker-id={@worker_id}
+            phx-value-job-id={@job_id}
+            class="font-medium text-cyan-400 hover:text-cyan-300"
+          >
+            Resume
+          </button>
+        <% else %>
+          <button
+            phx-click={@suspend_event}
+            phx-value-worker-id={@worker_id}
+            phx-value-job-id={@job_id}
+            class="font-medium text-yellow-400 hover:text-yellow-300"
+          >
+            Pause
+          </button>
+        <% end %>
+      <% end %>
+      <%= unless @status == :stopped do %>
+        <span class="text-gray-700">|</span>
         <button
-          phx-click={@suspend_event}
+          phx-click={@fail_event}
           phx-value-worker-id={@worker_id}
-          class="font-medium text-yellow-400 hover:text-yellow-300"
+          phx-value-job-id={@job_id}
+          data-confirm="Stop the active job?"
+          class="font-medium text-red-500 hover:text-red-400"
         >
-          Pause
+          Stop
         </button>
       <% end %>
-      <span class="text-gray-700">|</span>
-      <button
-        phx-click={@fail_event}
-        phx-value-worker-id={@worker_id}
-        data-confirm="Stop the active job?"
-        class="font-medium text-red-500 hover:text-red-400"
-      >
-        Stop
-      </button>
     </div>
     """
   end

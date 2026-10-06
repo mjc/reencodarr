@@ -24,12 +24,11 @@ defmodule Reencodarr.Analyzer.Broadway do
   alias Reencodarr.Media.{Codecs, Video}
 
   # Constants
-  @default_processor_concurrency 16
-  @default_max_demand 100
-  @default_batch_size 100
+  @default_processor_concurrency 1
+  @default_max_demand 1
+  @default_batch_size 8
   @default_batch_timeout 25
   @default_mediainfo_batch_size 5
-  @default_processing_timeout :timer.minutes(5)
   @rate_limit_interval 1000
   # Retry many times for database busy - SQLite WAL mode handles concurrency well
   @max_db_retry_attempts 50
@@ -61,12 +60,12 @@ defmodule Reencodarr.Analyzer.Broadway do
         default: [
           batch_size: @default_batch_size,
           batch_timeout: @default_batch_timeout,
-          concurrency: 1
+          concurrency: 1,
+          max_demand: 1
         ]
       ],
       context: %{
         concurrent_files: 2,
-        processing_timeout: @default_processing_timeout,
         mediainfo_batch_size: @default_mediainfo_batch_size
       }
     )
@@ -78,9 +77,14 @@ defmodule Reencodarr.Analyzer.Broadway do
   def process_path(_video_info), do: :ok
 
   @doc """
-  Check if the analyzer is running (always true now).
+  Check if the analyzer Broadway topology is running.
   """
-  def running?, do: true
+  def running? do
+    case Process.whereis(__MODULE__) do
+      nil -> false
+      pid -> Process.alive?(pid)
+    end
+  end
 
   @doc """
   Pause the analyzer - no-op, always runs now.
@@ -470,8 +474,15 @@ defmodule Reencodarr.Analyzer.Broadway do
       case upsert_result do
         {:ok, video} ->
           Logger.debug("Broadway: Deciding processing path for #{video_info.path}")
-          decide_video_processing_path(video)
-          :ok
+
+          case decide_video_processing_path(video) do
+            {:ok, _updated_video} ->
+              :ok
+
+            {:error, reason} ->
+              mark_video_as_failed(video_info.path, format_processing_error(reason))
+              :error
+          end
 
         {:error, reason} ->
           Logger.error("Broadway: UPSERT FAILED for #{video_info.path}: #{inspect(reason)}")
@@ -580,7 +591,7 @@ defmodule Reencodarr.Analyzer.Broadway do
 
         {:error, error} ->
           Logger.error("Failed to mark as encoded for #{video.path}: #{inspect(error)}")
-          {:ok, video}
+          {:error, {:mark_as_encoded_failed, error}}
       end
     end
   end
@@ -625,16 +636,18 @@ defmodule Reencodarr.Analyzer.Broadway do
         {:error, error} ->
           Logger.error("Failed to mark as analyzed for #{video.path}: #{inspect(error)}")
 
-          {:ok, video}
+          {:error, {:mark_as_analyzed_failed, error}}
       end
     else
       Logger.error(
         "Cannot mark video #{video.path} as analyzed - missing required fields (bitrate: #{video.bitrate}, width: #{video.width}, height: #{video.height})"
       )
 
-      {:ok, video}
+      {:error, :missing_required_mediainfo_fields}
     end
   end
+
+  defp format_processing_error(reason), do: inspect(reason)
 
   # Log notable video properties after analysis for operator visibility
   defp log_analyzed_video_info(%{hdr: hdr} = video) when not is_nil(hdr) do

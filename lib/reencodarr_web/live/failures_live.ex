@@ -613,6 +613,13 @@ defmodule ReencodarrWeb.FailuresLive do
         <% failures when is_list(failures) and failures != [] -> %>
           <% latest = List.first(failures) %>
 
+          <div class="mb-3">
+            <div class="text-xs font-semibold text-gray-300 mb-1">Failure</div>
+            <div class="bg-gray-900 p-3 rounded text-xs text-gray-200 whitespace-pre-wrap">
+              {latest.failure_message}
+            </div>
+          </div>
+
           <%= if Map.get(latest.system_context || %{}, "command") do %>
             <div class="mb-3">
               <div class="text-xs font-semibold text-gray-300 mb-1">Command</div>

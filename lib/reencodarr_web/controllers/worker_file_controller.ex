@@ -3,7 +3,7 @@ defmodule ReencodarrWeb.WorkerFileController do
 
   use ReencodarrWeb, :controller
 
-  alias Reencodarr.AbAv1.WorkerConfig
+  alias Reencodarr.AbAv1.{Encode, WorkerConfig, WorkerSessions}
   alias Reencodarr.Media
 
   def show(conn, %{"id" => id}) do
@@ -17,6 +17,68 @@ defmodule ReencodarrWeb.WorkerFileController do
     else
       {:error, :unauthorized} -> send_resp(conn, 401, "unauthorized")
       _ -> send_resp(conn, 404, "not found")
+    end
+  end
+
+  def upload(conn, %{"id" => id, "attempt_id" => attempt_id}) do
+    with :ok <- authorize(conn),
+         {video_id, ""} <- Integer.parse(id),
+         %Media.Video{state: :encoding, worker_attempt_id: ^attempt_id} = video <-
+           Media.get_video(video_id),
+         :ok <- receive_output(conn, video, attempt_id) do
+      send_resp(conn, 204, "")
+    else
+      {:error, :unauthorized} -> send_resp(conn, 401, "unauthorized")
+      {:error, :stale_worker_attempt} -> send_resp(conn, 409, "stale worker attempt")
+      %Media.Video{} -> send_resp(conn, 409, "stale worker attempt")
+      _ -> send_resp(conn, 404, "not found")
+    end
+  end
+
+  defp receive_output(conn, video, attempt_id) do
+    output_path = Encode.output_file(video)
+    partial_path = output_path <> "." <> upload_suffix(attempt_id) <> ".upload"
+    File.mkdir_p!(Path.dirname(output_path))
+    File.rm(partial_path)
+
+    result =
+      with {:ok, file} <- File.open(partial_path, [:write, :binary, :exclusive]),
+           :ok <- copy_and_close(conn, file, attempt_id) do
+        WorkerSessions.record_job_activity(attempt_id, :terminal_delivery)
+        Media.commit_worker_output_upload(video.id, attempt_id, partial_path, output_path)
+      end
+
+    if result != :ok, do: File.rm(partial_path)
+    result
+  end
+
+  defp upload_suffix(attempt_id) do
+    attempt_suffix =
+      :sha256
+      |> :crypto.hash(attempt_id)
+      |> Base.url_encode64(padding: false)
+
+    "#{attempt_suffix}-#{System.unique_integer([:positive])}"
+  end
+
+  defp copy_and_close(conn, file, attempt_id) do
+    copy_body(conn, file, attempt_id)
+  after
+    File.close(file)
+  end
+
+  defp copy_body(conn, file, attempt_id) do
+    case Plug.Conn.read_body(conn) do
+      {:ok, body, _conn} ->
+        WorkerSessions.record_job_activity(attempt_id, :output_upload)
+        IO.binwrite(file, body)
+
+      {:more, body, conn} ->
+        WorkerSessions.record_job_activity(attempt_id, :output_upload)
+        with :ok <- IO.binwrite(file, body), do: copy_body(conn, file, attempt_id)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

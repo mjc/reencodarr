@@ -333,7 +333,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
         |> element("[phx-click='toggle_details'][phx-value-video_id='#{video.id}']")
         |> render_click()
 
-      assert html =~ "Failures"
+      assert html =~ "Timed out"
     end
   end
 

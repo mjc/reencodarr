@@ -4,6 +4,8 @@ defmodule Reencodarr.Analyzer.Broadway.CodecDetectionTest do
   @moduletag :unit
 
   alias Reencodarr.Analyzer.Broadway
+  alias Reencodarr.Fixtures
+  alias Reencodarr.Media
 
   describe "codec detection helpers" do
     test "has_av1_codec? detects AV1 codec correctly" do
@@ -133,6 +135,20 @@ defmodule Reencodarr.Analyzer.Broadway.CodecDetectionTest do
       # Test the pure business logic function
       decision = Broadway.check_encoding_requirements(video)
       assert decision == {:needs_encoding, "requires CRF search"}
+    end
+
+    test "does not acknowledge analysis when required bitrate is missing" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :analyzing,
+          bitrate: nil,
+          video_codecs: ["V_MPEG4/ISO/AVC"]
+        })
+
+      assert {:error, :missing_required_mediainfo_fields} =
+               Broadway.decide_video_processing_path(video)
+
+      assert %{state: :analyzing, bitrate: nil} = Media.get_video(video.id)
     end
 
     test "regression test for video 2254 bug - AV1/Opus videos should not be queued for encoding" do

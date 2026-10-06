@@ -8,7 +8,8 @@ defmodule Reencodarr.Media.AudioTrackInfo do
           channel_layout: String.t(),
           bitrate: non_neg_integer() | nil,
           format_commercial_if_any: String.t(),
-          format_additionalfeatures: String.t()
+          format_additionalfeatures: String.t(),
+          extra: map()
         }
 
   @spec primary_from_mediainfo(map()) :: audio_track() | :error
@@ -46,14 +47,29 @@ defmodule Reencodarr.Media.AudioTrackInfo do
   @spec build_track_info(map()) :: audio_track()
   defp build_track_info(track) do
     %{
-      codec: Map.get(track, "Format", ""),
-      codec_id: Map.get(track, "CodecID", ""),
+      codec: text_field(track, "Format"),
+      codec_id: text_field(track, "CodecID"),
       channels: parse_channel_count(track),
-      channel_layout: Map.get(track, "ChannelLayout", ""),
+      channel_layout: text_field(track, "ChannelLayout"),
       bitrate: parse_bitrate(track),
-      format_commercial_if_any: Map.get(track, "Format_Commercial_IfAny", ""),
-      format_additionalfeatures: Map.get(track, "Format_AdditionalFeatures", "")
+      format_commercial_if_any: text_field(track, "Format_Commercial_IfAny"),
+      format_additionalfeatures: text_field(track, "Format_AdditionalFeatures"),
+      extra: map_field(track, "extra")
     }
+  end
+
+  defp text_field(track, key) do
+    case Map.get(track, key) do
+      value when is_binary(value) -> value
+      _ -> ""
+    end
+  end
+
+  defp map_field(track, key) do
+    case Map.get(track, key) do
+      value when is_map(value) -> value
+      _ -> %{}
+    end
   end
 
   defp default_audio_track?(%{"Default" => "Yes"}), do: true

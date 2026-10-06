@@ -5,6 +5,25 @@
   ...
 }: let
   cfg = config.services.reencodarr;
+  workerPackage = pkgs.callPackage ./ab-av1-worker.nix {};
+  svt-av1-hdr = pkgs.svt-av1.overrideAttrs (_old: {
+    pname = "svt-av1-hdr";
+    version = "4.0.1";
+    src = pkgs.fetchFromGitHub {
+      owner = "juliobbv-p";
+      repo = "svt-av1-hdr";
+      rev = "v4.0.1";
+      hash = "sha256-jfyolWcPcfMzxjBszg1KY9eHc6KRsp41h3lQKsrgiDU=";
+    };
+  });
+  ffmpeg-svt-hdr = (pkgs.ffmpeg-full.override {svt-av1 = svt-av1-hdr;}).overrideAttrs (old: {
+    postPatch =
+      (old.postPatch or "")
+      + ''
+        substituteInPlace libavcodec/libsvtav1.c \
+          --replace-fail "param->enable_adaptive_quantization = 0;" ""
+      '';
+  });
   inherit (lib) mkEnableOption mkIf mkOption literalExpression types;
 
   serviceEnv =
@@ -17,6 +36,12 @@
       REENCODARR_DATA_DIR = toString cfg.dataDir;
       REENCODARR_TMPDIR = "${toString cfg.cacheDir}/tmp";
       TMPDIR = "${toString cfg.cacheDir}/tmp";
+      REENCODARR_CRF_EXECUTION_MODE = cfg.crfExecutionMode;
+      REENCODARR_SUPERVISE_LOCAL_WORKER = lib.boolToString (!cfg.independentWorker);
+      REENCODARR_WORKER_CONNECT_URL = cfg.workerConnectUrl;
+      REENCODARR_WORKER_EXECUTABLE = cfg.workerExecutable;
+      REENCODARR_WORKER_ID = cfg.workerId;
+      REENCODARR_WORKER_EXTRA_ARGS = lib.escapeShellArgs cfg.workerExtraArgs;
     }
     // cfg.extraEnvironment;
 
@@ -45,6 +70,17 @@
     set -euo pipefail
     . ${envScript}
     exec ${lib.getExe cfg.package} start
+  '';
+
+  workerStartScript = pkgs.writeShellScript "reencodarr-worker-start" ''
+    set -euo pipefail
+    . ${envScript}
+    cd ${lib.escapeShellArg "${cfg.cacheDir}/tmp"}
+    exec ${lib.escapeShellArg cfg.workerExecutable} worker \
+      --connect ${lib.escapeShellArg cfg.workerConnectUrl} \
+      --worker-id ${lib.escapeShellArg cfg.workerId} \
+      --protocol-version 1 \
+      ${lib.escapeShellArgs cfg.workerExtraArgs}
   '';
 
   iexDotFile = pkgs.writeText "reencodarr-iex.exs" (builtins.readFile ../.iex.exs);
@@ -171,6 +207,45 @@ in {
       description = "Directory for temporary working files and caches.";
     };
 
+    crfExecutionMode = mkOption {
+      type = types.enum ["broadway" "worker"];
+      default = "broadway";
+      description = "CRF search executor. Worker mode disables the CRF Broadway supervisor.";
+    };
+
+    independentWorker = mkOption {
+      type = types.bool;
+      default = true;
+      description = "Run the local ab-av1 worker as an independent systemd service so it survives Reencodarr restarts and stops.";
+    };
+
+    workerConnectUrl = mkOption {
+      type = types.str;
+      default = "http://127.0.0.1:${toString cfg.port}";
+      defaultText = literalExpression ''"http://127.0.0.1:${toString config.services.reencodarr.port}"'';
+      description = "Reencodarr base URL used by the supervised local ab-av1 worker.";
+    };
+
+    workerExecutable = mkOption {
+      type = types.str;
+      default = lib.getExe workerPackage;
+      defaultText = literalExpression "lib.getExe (pkgs.callPackage ./ab-av1-worker.nix {})";
+      description = "Path or executable name for the worker-capable ab-av1 binary.";
+    };
+
+    workerId = mkOption {
+      type = types.str;
+      default = config.networking.hostName;
+      defaultText = literalExpression "config.networking.hostName";
+      description = "Stable client id announced by the local ab-av1 worker.";
+    };
+
+    workerExtraArgs = mkOption {
+      type = types.listOf types.str;
+      default = [];
+      description = "Additional arguments appended to the ab-av1 worker command.";
+    };
+
     databasePath = mkOption {
       type = types.str;
       default = "/var/lib/reencodarr/reencodarr.db";
@@ -265,6 +340,7 @@ in {
       wantedBy = ["multi-user.target"];
       after = ["network-online.target"];
       wants = ["network-online.target"];
+      restartTriggers = [workerPackage];
       environment = serviceEnv;
       path = [pkgs.bash];
       script = "${startScript}";
@@ -278,6 +354,29 @@ in {
         Nice = cfg.nice;
         IOSchedulingClass = cfg.ioSchedulingClass;
         Restart = "on-failure";
+        RestartSec = 5;
+      };
+    };
+
+    systemd.services.reencodarr-worker = mkIf (cfg.crfExecutionMode == "worker" && cfg.independentWorker) {
+      description = "Reencodarr ab-av1 worker";
+      wantedBy = ["multi-user.target"];
+      after = ["network-online.target"];
+      wants = ["network-online.target"];
+      restartTriggers = [workerPackage];
+      environment = serviceEnv;
+      path = [pkgs.bash ffmpeg-svt-hdr svt-av1-hdr];
+      script = "${workerStartScript}";
+      serviceConfig = {
+        Type = "exec";
+        User = cfg.user;
+        Group = cfg.group;
+        WorkingDirectory = "${cfg.cacheDir}/tmp";
+        ReadWritePaths = [cfg.cacheDir "${cfg.cacheDir}/tmp"];
+        LoadCredential = lib.optional (cfg.secretKeyBaseFile != null) "secret_key_base:${cfg.secretKeyBaseFile}";
+        Nice = cfg.nice;
+        IOSchedulingClass = cfg.ioSchedulingClass;
+        Restart = "always";
         RestartSec = 5;
       };
     };

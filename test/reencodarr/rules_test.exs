@@ -47,6 +47,16 @@ defmodule Reencodarr.RulesTest do
       assert "tune=0" in args
     end
 
+    test "both contexts cap SVT parallelism" do
+      video = Fixtures.create_test_video()
+
+      for context <- [:encode, :crf_search] do
+        args = Rules.build_args(video, context)
+
+        assert find_flag_value(args, "--svt", "lp=5")
+      end
+    end
+
     test "encoding context normalizes non-standard audio layouts with aformat filter" do
       video =
         Fixtures.create_test_video(%{
@@ -278,11 +288,12 @@ defmodule Reencodarr.RulesTest do
   end
 
   describe "individual rule functions" do
-    test "audio/1 copies audio when metadata is not trustworthy enough to rule out Atmos" do
+    test "audio/1 transcodes ordinary audio" do
       video = Fixtures.create_test_video()
       rules = Rules.audio(video)
 
-      assert rules == [{"--acodec", "copy"}]
+      assert {"--acodec", "copy"} in rules
+      assert {"--enc", "c:a:0=libopus"} in rules
     end
 
     test "audio/1 with Opus codec returns copy" do
@@ -425,7 +436,8 @@ defmodule Reencodarr.RulesTest do
         max_audio_channels: 6,
         audio_codecs: ["A_EAC3"],
         height: 1080,
-        hdr: nil
+        hdr: nil,
+        mediainfo: sample_mediainfo("E-AC-3", 6, "5.1")
       }
 
       additional_params = ["--preset", "6", "--cpu-used", "8"]
@@ -480,7 +492,8 @@ defmodule Reencodarr.RulesTest do
         max_audio_channels: 6,
         audio_codecs: ["A_EAC3"],
         height: 1080,
-        hdr: nil
+        hdr: nil,
+        mediainfo: sample_mediainfo("E-AC-3", 6, "5.1")
       }
 
       args = Rules.build_args(video, :encode)
@@ -498,7 +511,8 @@ defmodule Reencodarr.RulesTest do
         max_audio_channels: 6,
         audio_codecs: ["A_EAC3"],
         height: 1080,
-        hdr: "DV"
+        hdr: "DV",
+        mediainfo: sample_mediainfo("E-AC-3", 6, "5.1")
       }
 
       args = Rules.build_args(dv_video, :encode)
@@ -518,7 +532,8 @@ defmodule Reencodarr.RulesTest do
         max_audio_channels: 6,
         audio_codecs: ["A_EAC3"],
         height: 1080,
-        hdr: "HDR10"
+        hdr: "HDR10",
+        mediainfo: sample_mediainfo("E-AC-3", 6, "5.1")
       }
 
       args = Rules.build_args(hdr10_video, :encode)
@@ -589,13 +604,18 @@ defmodule Reencodarr.RulesTest do
   end
 
   describe "uncovered function coverage" do
-    test "high channel count still copies audio" do
-      video = Fixtures.create_test_video(%{max_audio_channels: 15, audio_codecs: ["DTS"]})
+    test "high channel count still transcodes non-object audio" do
+      video =
+        Fixtures.create_test_video(%{
+          max_audio_channels: 15,
+          audio_codecs: ["DTS"],
+          mediainfo: sample_mediainfo("DTS", 15, "7.1")
+        })
+
       result = Rules.build_args(video, :encode)
 
       assert "--acodec" in result
-      acodec_index = Enum.find_index(result, &(&1 == "--acodec"))
-      assert Enum.at(result, acodec_index + 1) == "copy"
+      assert find_flag_value(result, "--enc", "c:a:0=libopus")
     end
 
     test "cuda function" do
@@ -995,14 +1015,14 @@ defmodule Reencodarr.RulesTest do
       end
     end
 
-    test "hdr fork returns tune=5 for vintage content" do
+    test "hdr fork returns tune=6 for vintage content" do
       video = Fixtures.create_test_video(%{content_year: 1999})
-      assert Rules.tune(video, true) == [{"--svt", "tune=5"}]
+      assert Rules.tune(video, true) == [{"--svt", "tune=6"}]
     end
 
-    test "hdr fork returns tune=5 for vintage content at boundary (2008)" do
+    test "hdr fork returns tune=6 for vintage content at boundary (2008)" do
       video = Fixtures.create_test_video(%{content_year: 2008})
-      assert Rules.tune(video, true) == [{"--svt", "tune=5"}]
+      assert Rules.tune(video, true) == [{"--svt", "tune=6"}]
     end
 
     test "hdr fork returns tune=2 for modern content (2009+)" do
@@ -1020,14 +1040,14 @@ defmodule Reencodarr.RulesTest do
       assert Rules.tune(video, true) == [{"--svt", "tune=2"}]
     end
 
-    test "hdr fork returns tune=5 for vintage content detected from path" do
+    test "hdr fork returns tune=6 for vintage content detected from path" do
       video =
         Fixtures.create_test_video(%{
           content_year: nil,
           path: "/movies/Blade Runner (1982)/movie.mkv"
         })
 
-      assert Rules.tune(video, true) == [{"--svt", "tune=5"}]
+      assert Rules.tune(video, true) == [{"--svt", "tune=6"}]
     end
   end
 
@@ -1337,6 +1357,20 @@ defmodule Reencodarr.RulesTest do
 
       refute "--min-vmaf" in result
       refute "--max-vmaf" in result
+    end
+
+    test "encode context filters CRF-search subcommands from persisted params" do
+      video = Fixtures.create_test_video()
+
+      result =
+        Rules.build_args(video, :encode, ["crf-search", "--preset", "6"], [
+          "encode",
+          "--input",
+          video.path
+        ])
+
+      assert Enum.count(result, &(&1 == "encode")) == 1
+      refute "crf-search" in result
     end
   end
 

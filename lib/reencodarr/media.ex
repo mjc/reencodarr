@@ -48,6 +48,7 @@ defmodule Reencodarr.Media do
     :hdr,
     :service_type,
     :original_size,
+    :space_saved_bytes,
     :content_year
   ]
 
@@ -162,6 +163,11 @@ defmodule Reencodarr.Media do
     VideoQueries.claim_next_video_for_crf_search()
   end
 
+  def claim_next_video_for_crf_search(worker_id, attempt_id)
+      when is_binary(worker_id) and is_binary(attempt_id) do
+    VideoQueries.claim_next_video_for_crf_search(worker_id: worker_id, attempt_id: attempt_id)
+  end
+
   def count_videos_for_crf_search do
     VideoQueries.count_videos_for_crf_search()
   end
@@ -191,27 +197,16 @@ defmodule Reencodarr.Media do
     query_videos_ready_for_encoding(limit)
   end
 
+  def claim_next_video_for_encoding(worker_id, attempt_id, opts \\ []) do
+    VideoQueries.claim_next_video_for_encoding(worker_id, attempt_id, opts)
+  end
+
   def encoding_queue_count do
     VideoQueries.encoding_queue_count()
   end
 
   def upsert_video(attrs) do
-    path = get_any(attrs, [:path, "path"])
-    old_video = if is_binary(path), do: fetch_dashboard_video_snapshot_by_path(path)
-
-    write(
-      fn ->
-        %Video{}
-        |> Video.changeset(attrs)
-        |> Repo.insert(
-          on_conflict: {:replace_all_except, [:id, :inserted_at, :updated_at]},
-          conflict_target: :path,
-          returning: true
-        )
-        |> tap(&broadcast_upserted_video(&1, old_video))
-      end,
-      label: :media_upsert_video
-    )
+    VideoUpsert.upsert(attrs)
   end
 
   def batch_upsert_videos(video_attrs_list) do
@@ -337,9 +332,499 @@ defmodule Reencodarr.Media do
     )
   end
 
-  def mark_as_encoding(%Video{} = video), do: VideoStateMachine.mark_as_encoding(video)
+  def mark_as_encoding(%Video{} = video, attrs \\ %{}),
+    do: VideoStateMachine.mark_as_encoding(video, attrs)
 
-  def mark_as_reencoded(%Video{} = video), do: VideoStateMachine.mark_as_reencoded(video)
+  def mark_as_worker_encoding(%Video{id: video_id}, worker_id)
+      when is_integer(video_id) and is_binary(worker_id) do
+    set_attrs =
+      [encode_worker_id: worker_id, updated_at: DateTime.utc_now()]
+      |> maybe_put_original_size(video_id)
+
+    write(
+      fn ->
+        from(v in Video, where: v.id == ^video_id and v.state == :encoding)
+        |> Repo.update_all(set: set_attrs)
+      end,
+      label: :media_mark_as_worker_encoding
+    )
+    |> case do
+      {1, _} -> {:ok, Repo.get(Video, video_id)}
+      _ -> {:error, :not_encoding}
+    end
+  end
+
+  @doc """
+  Records a heartbeat for a worker-owned attempt without changing the video's
+  normal update timestamp.
+  """
+  @spec touch_worker_attempt(pos_integer(), String.t()) :: :ok
+  def touch_worker_attempt(video_id, worker_id)
+      when is_integer(video_id) and is_binary(worker_id) do
+    now = DateTime.utc_now()
+
+    write(
+      fn ->
+        from(v in Video,
+          where:
+            v.id == ^video_id and
+              v.state in [:crf_searching, :encoding] and
+              (v.crf_search_worker_id == ^worker_id or v.encode_worker_id == ^worker_id)
+        )
+        |> Repo.update_all(set: [worker_last_seen_at: now])
+      end,
+      label: :media_touch_worker_attempt
+    )
+
+    :ok
+  end
+
+  @worker_control_actions %{pause: :paused, resume: :running, stop: :stopped}
+
+  @spec list_paused_worker_attempts_before(DateTime.t()) :: [
+          %{job_id: String.t(), video_id: pos_integer()}
+        ]
+  def list_paused_worker_attempts_before(%DateTime{} = cutoff) do
+    from(v in Video,
+      where:
+        v.state in [:crf_searching, :encoding] and
+          v.worker_control_desired_state == :paused and
+          not is_nil(v.worker_attempt_id) and
+          not is_nil(v.worker_control_requested_at) and
+          v.worker_control_requested_at <= ^cutoff,
+      select: %{video_id: v.id, job_id: v.worker_attempt_id}
+    )
+    |> Repo.all()
+  end
+
+  @spec request_worker_control(pos_integer(), String.t(), :pause | :resume | :stop) ::
+          {:ok,
+           %{
+             action: :pause | :resume | :stop,
+             command_id: String.t(),
+             job_id: String.t(),
+             video_id: pos_integer()
+           }}
+          | {:error, :stale_worker_attempt}
+  def request_worker_control(video_id, attempt_id, action)
+      when is_integer(video_id) and is_binary(attempt_id) and
+             action in [:pause, :resume, :stop] do
+    request_worker_control(video_id, attempt_id, action, :operator)
+  end
+
+  @spec request_worker_control(
+          pos_integer(),
+          String.t(),
+          :pause | :resume | :stop,
+          :operator | :stalled
+        ) :: {:ok, map()} | {:error, :stale_worker_attempt}
+  def request_worker_control(video_id, attempt_id, action, reason)
+      when is_integer(video_id) and is_binary(attempt_id) and
+             action in [:pause, :resume, :stop] and reason in [:operator, :stalled] do
+    command_id = Ecto.UUID.generate()
+    desired_state = Map.fetch!(@worker_control_actions, action)
+
+    write_transaction(
+      fn ->
+        {count, _} =
+          from(v in Video,
+            where:
+              v.id == ^video_id and v.worker_attempt_id == ^attempt_id and
+                v.state in [:crf_searching, :encoding]
+          )
+          |> Repo.update_all(
+            set: [
+              worker_control_desired_state: desired_state,
+              worker_control_command_id: command_id,
+              worker_control_reason: reason,
+              worker_control_requested_at: DateTime.utc_now(),
+              updated_at: DateTime.utc_now()
+            ]
+          )
+
+        if count == 1 do
+          %{
+            action: action,
+            command_id: command_id,
+            job_id: attempt_id,
+            video_id: video_id
+          }
+        else
+          Repo.rollback(:stale_worker_attempt)
+        end
+      end,
+      label: :media_request_worker_control
+    )
+  end
+
+  @spec acknowledge_worker_control(
+          pos_integer(),
+          String.t(),
+          String.t(),
+          :running | :paused | :stopped,
+          :crf_search | :encode
+        ) :: {:ok, :applied | :duplicate} | {:error, :stale_worker_control | term()}
+  def acknowledge_worker_control(video_id, attempt_id, command_id, acknowledged_state, job_type)
+      when is_integer(video_id) and is_binary(attempt_id) and is_binary(command_id) and
+             acknowledged_state in [:running, :paused, :stopped] and
+             job_type in [:crf_search, :encode] do
+    write_transaction(
+      fn ->
+        acknowledge_worker_control_in_transaction(
+          video_id,
+          attempt_id,
+          command_id,
+          acknowledged_state,
+          job_type
+        )
+      end,
+      label: :media_acknowledge_worker_control
+    )
+  end
+
+  defp acknowledge_worker_control_in_transaction(
+         video_id,
+         attempt_id,
+         command_id,
+         acknowledged_state,
+         job_type
+       ) do
+    expected_state = worker_job_video_state(job_type)
+
+    query =
+      from(v in Video,
+        where:
+          v.id == ^video_id and v.state == ^expected_state and
+            v.worker_attempt_id == ^attempt_id and
+            v.worker_control_command_id == ^command_id and
+            v.worker_control_desired_state == ^acknowledged_state
+      )
+
+    if acknowledged_state == :stopped do
+      stop_worker_attempt(query, video_id, attempt_id, command_id, job_type)
+    else
+      acknowledge_running_worker_attempt(query, acknowledged_state)
+    end
+  end
+
+  defp acknowledge_running_worker_attempt(query, acknowledged_state) do
+    case Repo.update_all(query,
+           set: [
+             worker_control_acknowledged_state: acknowledged_state,
+             updated_at: DateTime.utc_now()
+           ]
+         ) do
+      {1, _} -> :applied
+      _ -> Repo.rollback(:stale_worker_control)
+    end
+  end
+
+  defp stop_worker_attempt(query, video_id, attempt_id, command_id, job_type) do
+    case Repo.update_all(query,
+           set: [
+             state: :failed,
+             worker_control_acknowledged_state: :stopped,
+             updated_at: DateTime.utc_now()
+           ]
+         ) do
+      {1, _} ->
+        insert_control_failure(video_id, attempt_id, command_id, job_type)
+        :applied
+
+      _ ->
+        if stopped_worker_attempt?(video_id, attempt_id, command_id),
+          do: :duplicate,
+          else: Repo.rollback(:stale_worker_control)
+    end
+  end
+
+  defp stopped_worker_attempt?(video_id, attempt_id, command_id) do
+    Repo.exists?(
+      from(v in Video,
+        where:
+          v.id == ^video_id and v.state == :failed and
+            v.worker_attempt_id == ^attempt_id and
+            v.worker_control_command_id == ^command_id and
+            v.worker_control_desired_state == :stopped and
+            v.worker_control_acknowledged_state == :stopped
+      )
+    )
+  end
+
+  defp insert_control_failure(video_id, attempt_id, command_id, job_type) do
+    reason = Repo.get!(Video, video_id).worker_control_reason
+
+    {code, message, context} =
+      case reason do
+        :stalled ->
+          {"WORKER_STALLED", "Worker job stopped after its inactivity timeout",
+           %{worker_watchdog: true}}
+
+        _ ->
+          {"OPERATOR_FAILED", "Manually failed by operator", %{operator_action: "fail"}}
+      end
+
+    attrs = %{
+      video_id: video_id,
+      failure_stage: worker_failure_stage(job_type),
+      failure_category: :process_failure,
+      failure_code: code,
+      failure_message: message,
+      system_context:
+        Map.merge(context, %{
+          worker_attempt_id: attempt_id,
+          worker_control_command_id: command_id
+        })
+    }
+
+    %VideoFailure{}
+    |> VideoFailure.changeset(attrs)
+    |> Repo.insert!()
+  end
+
+  defp worker_job_video_state(:crf_search), do: :crf_searching
+  defp worker_job_video_state(:encode), do: :encoding
+  defp worker_failure_stage(:crf_search), do: :crf_search
+  defp worker_failure_stage(:encode), do: :encoding
+
+  @spec commit_worker_output_upload(
+          pos_integer(),
+          String.t(),
+          Path.t(),
+          Path.t()
+        ) :: :ok | {:error, :stale_worker_attempt | File.posix()}
+  def commit_worker_output_upload(video_id, attempt_id, partial_path, output_path)
+      when is_integer(video_id) and is_binary(attempt_id) and is_binary(partial_path) and
+             is_binary(output_path) do
+    write(
+      fn ->
+        case Repo.get_by(Video,
+               id: video_id,
+               state: :encoding,
+               worker_attempt_id: attempt_id
+             ) do
+          %Video{} -> File.rename(partial_path, output_path)
+          nil -> {:error, :stale_worker_attempt}
+        end
+      end,
+      label: :media_commit_worker_output_upload
+    )
+  end
+
+  @spec claim_worker_terminal(pos_integer(), String.t(), :crf_search | :encode) ::
+          {:ok, :claimed} | {:error, :terminal_busy | :stale_worker_attempt | term()}
+  def claim_worker_terminal(video_id, attempt_id, job_type)
+      when is_integer(video_id) and is_binary(attempt_id) and
+             job_type in [:crf_search, :encode] do
+    state = worker_job_video_state(job_type)
+
+    write_transaction(
+      fn ->
+        {count, _} =
+          from(v in Video,
+            where:
+              v.id == ^video_id and v.state == ^state and
+                v.worker_attempt_id == ^attempt_id and
+                is_nil(v.worker_terminal_claimed_at)
+          )
+          |> Repo.update_all(
+            set: [worker_terminal_claimed_at: DateTime.utc_now(), updated_at: DateTime.utc_now()]
+          )
+
+        classify_worker_terminal_claim(count, video_id, attempt_id, state)
+      end,
+      label: :media_claim_worker_terminal
+    )
+  end
+
+  defp classify_worker_terminal_claim(1, _video_id, _attempt_id, _state), do: :claimed
+
+  defp classify_worker_terminal_claim(0, video_id, attempt_id, state) do
+    case Repo.get(Video, video_id) do
+      %Video{
+        state: ^state,
+        worker_attempt_id: ^attempt_id,
+        worker_terminal_claimed_at: claimed_at
+      }
+      when not is_nil(claimed_at) ->
+        Repo.rollback(:terminal_busy)
+
+      _ ->
+        Repo.rollback(:stale_worker_attempt)
+    end
+  end
+
+  @spec release_worker_terminal(pos_integer(), String.t(), :crf_search | :encode) :: :ok
+  def release_worker_terminal(video_id, attempt_id, job_type)
+      when is_integer(video_id) and is_binary(attempt_id) and
+             job_type in [:crf_search, :encode] do
+    state = worker_job_video_state(job_type)
+
+    write(
+      fn ->
+        from(v in Video,
+          where:
+            v.id == ^video_id and v.state == ^state and
+              v.worker_attempt_id == ^attempt_id
+        )
+        |> Repo.update_all(set: [worker_terminal_claimed_at: nil, updated_at: DateTime.utc_now()])
+      end,
+      label: :media_release_worker_terminal
+    )
+
+    :ok
+  end
+
+  @spec release_worker_terminal_claims_before(DateTime.t()) :: :ok
+  def release_worker_terminal_claims_before(%DateTime{} = cutoff) do
+    write(
+      fn ->
+        from(v in Video,
+          where:
+            not is_nil(v.worker_terminal_claimed_at) and
+              v.worker_terminal_claimed_at < ^cutoff
+        )
+        |> Repo.update_all(set: [worker_terminal_claimed_at: nil, updated_at: DateTime.utc_now()])
+      end,
+      label: :media_release_stale_worker_terminal_claims
+    )
+
+    :ok
+  end
+
+  @spec requeue_worker_attempt(pos_integer(), String.t(), :crf_search | :encode) :: :ok
+  def requeue_worker_attempt(video_id, attempt_id, :crf_search)
+      when is_integer(video_id) and is_binary(attempt_id) do
+    write(
+      fn ->
+        from(v in Video,
+          where:
+            v.id == ^video_id and v.state == :crf_searching and
+              v.worker_attempt_id == ^attempt_id
+        )
+        |> Repo.update_all(
+          set: [
+            state: :analyzed,
+            crf_search_worker_id: nil,
+            worker_attempt_id: nil,
+            worker_control_desired_state: nil,
+            worker_control_acknowledged_state: nil,
+            worker_control_command_id: nil,
+            worker_last_seen_at: nil,
+            worker_control_requested_at: nil,
+            worker_control_reason: nil,
+            worker_terminal_claimed_at: nil,
+            updated_at: DateTime.utc_now()
+          ]
+        )
+      end,
+      label: :media_requeue_crf_worker_attempt
+    )
+
+    :ok
+  end
+
+  def requeue_worker_attempt(video_id, attempt_id, :encode)
+      when is_integer(video_id) and is_binary(attempt_id) do
+    write(
+      fn ->
+        now = DateTime.utc_now()
+
+        from(v in Video,
+          where:
+            v.id == ^video_id and v.state == :encoding and
+              v.worker_attempt_id == ^attempt_id and not is_nil(v.chosen_vmaf_id)
+        )
+        |> Repo.update_all(
+          set: [
+            state: :crf_searched,
+            encode_worker_id: nil,
+            worker_attempt_id: nil,
+            worker_control_desired_state: nil,
+            worker_control_acknowledged_state: nil,
+            worker_control_command_id: nil,
+            worker_last_seen_at: nil,
+            worker_control_requested_at: nil,
+            worker_control_reason: nil,
+            worker_terminal_claimed_at: nil,
+            updated_at: now
+          ]
+        )
+
+        from(v in Video,
+          where:
+            v.id == ^video_id and v.state == :encoding and
+              v.worker_attempt_id == ^attempt_id and is_nil(v.chosen_vmaf_id)
+        )
+        |> Repo.update_all(
+          set: [
+            state: :analyzed,
+            encode_worker_id: nil,
+            worker_attempt_id: nil,
+            worker_control_desired_state: nil,
+            worker_control_acknowledged_state: nil,
+            worker_control_command_id: nil,
+            worker_last_seen_at: nil,
+            worker_control_requested_at: nil,
+            worker_control_reason: nil,
+            worker_terminal_claimed_at: nil,
+            updated_at: now
+          ]
+        )
+      end,
+      label: :media_requeue_encode_worker_attempt
+    )
+
+    :ok
+  end
+
+  @spec retry_failed_worker_crf_attempt(pos_integer(), String.t()) ::
+          :ok | {:error, :stale_worker_attempt}
+  def retry_failed_worker_crf_attempt(video_id, attempt_id)
+      when is_integer(video_id) and is_binary(attempt_id) do
+    write(
+      fn ->
+        from(v in Video,
+          where:
+            v.id == ^video_id and v.state == :failed and
+              v.worker_attempt_id == ^attempt_id
+        )
+        |> Repo.update_all(
+          set: [
+            state: :analyzed,
+            crf_search_worker_id: nil,
+            worker_attempt_id: nil,
+            worker_control_desired_state: nil,
+            worker_control_acknowledged_state: nil,
+            worker_control_command_id: nil,
+            worker_last_seen_at: nil,
+            worker_control_requested_at: nil,
+            worker_control_reason: nil,
+            worker_terminal_claimed_at: nil,
+            updated_at: DateTime.utc_now()
+          ]
+        )
+      end,
+      label: :media_retry_failed_crf_worker_attempt
+    )
+    |> case do
+      {1, _} -> :ok
+      _ -> {:error, :stale_worker_attempt}
+    end
+  end
+
+  defp maybe_put_original_size(set_attrs, video_id) do
+    case Repo.get(Video, video_id) do
+      %Video{original_size: nil, size: size} when is_integer(size) and size > 0 ->
+        Keyword.put(set_attrs, :original_size, size)
+
+      _ ->
+        set_attrs
+    end
+  end
+
+  def mark_as_reencoded(%Video{} = video, attrs \\ %{}),
+    do: VideoStateMachine.mark_as_reencoded(video, attrs)
 
   def mark_as_failed(%Video{} = video), do: VideoStateMachine.mark_as_failed(video)
 
@@ -604,7 +1089,8 @@ defmodule Reencodarr.Media do
     )
   end
 
-  def next_queued_bad_file_issue(service_type) when service_type in [:sonarr, :radarr] do
+  def next_queued_bad_file_issue(service_type)
+      when service_type in [:sonarr, :sportarr, :radarr] do
     Repo.one(
       from i in BadFileIssue,
         join: v in assoc(i, :video),
@@ -690,7 +1176,7 @@ defmodule Reencodarr.Media do
 
   @spec reconcile_replacement_video(Video.t(), atom(), map()) :: {:ok, Video.t()}
   def reconcile_replacement_video(%Video{} = video, service_type, replacement_ref \\ %{})
-      when service_type in [:sonarr, :radarr] do
+      when service_type in [:sonarr, :sportarr, :radarr] do
     {:ok, _resolved_count} =
       resolve_waiting_bad_file_issues_for_replacement(video, replacement_ref)
 
@@ -704,7 +1190,7 @@ defmodule Reencodarr.Media do
   end
 
   defp waiting_bad_file_replacement_candidates(service_type)
-       when service_type in [:sonarr, :radarr] do
+       when service_type in [:sonarr, :sportarr, :radarr] do
     Repo.all(
       from i in BadFileIssue,
         join: v in assoc(i, :video),
@@ -720,11 +1206,12 @@ defmodule Reencodarr.Media do
     do: true
 
   defp replacement_matches_waiting_issue?(
-         %Video{service_type: :sonarr},
-         %{service_type: :sonarr, episode_ids: replacement_episode_ids},
+         %Video{service_type: service_type},
+         %{service_type: service_type, episode_ids: replacement_episode_ids},
          %BadFileIssue{} = issue
        )
-       when is_list(replacement_episode_ids) and replacement_episode_ids != [] do
+       when service_type in [:sonarr, :sportarr] and is_list(replacement_episode_ids) and
+              replacement_episode_ids != [] do
     issue
     |> bad_file_issue_replacement_ref()
     |> Map.get(:episode_ids, [])
@@ -750,8 +1237,8 @@ defmodule Reencodarr.Media do
   @spec bad_file_replacement_ref_from_arr_file(map() | struct(), atom(), term()) :: map()
   def bad_file_replacement_ref_from_arr_file(file, service_type, fallback_item_id \\ nil)
 
-  def bad_file_replacement_ref_from_arr_file(file, :sonarr, _fallback_item_id)
-      when is_map(file) do
+  def bad_file_replacement_ref_from_arr_file(file, service_type, _fallback_item_id)
+      when is_map(file) and service_type in [:sonarr, :sportarr] do
     episode_ids =
       file
       |> extract_sonarr_episode_ids()
@@ -760,7 +1247,7 @@ defmodule Reencodarr.Media do
     if episode_ids == [] do
       %{}
     else
-      %{service_type: :sonarr, episode_ids: episode_ids}
+      %{service_type: service_type, episode_ids: episode_ids}
     end
   end
 
@@ -886,11 +1373,12 @@ defmodule Reencodarr.Media do
 
   defp coerce_positive_integer(_value), do: nil
 
-  defp normalize_service_type(value) when value in [:sonarr, :radarr], do: value
+  defp normalize_service_type(value) when value in [:sonarr, :sportarr, :radarr], do: value
 
   defp normalize_service_type(value) when is_binary(value) do
     case String.downcase(value) do
       "sonarr" -> :sonarr
+      "sportarr" -> :sportarr
       "radarr" -> :radarr
       _other -> nil
     end
@@ -965,7 +1453,7 @@ defmodule Reencodarr.Media do
 
   defp bad_file_service_filter(query, "all"), do: query
 
-  defp bad_file_service_filter(query, service) when service in ["sonarr", "radarr"] do
+  defp bad_file_service_filter(query, service) when service in ["sonarr", "sportarr", "radarr"] do
     service_type = String.to_existing_atom(service)
 
     query
@@ -1028,7 +1516,7 @@ defmodule Reencodarr.Media do
     end
   end
 
-  defp bad_file_service_param(service) when service in ~w(all sonarr radarr), do: service
+  defp bad_file_service_param(service) when service in ~w(all sonarr sportarr radarr), do: service
   defp bad_file_service_param(_service), do: "all"
 
   defp bad_file_kind_param(kind) when kind in ~w(all audio manual), do: kind
@@ -1182,7 +1670,8 @@ defmodule Reencodarr.Media do
     end
   end
 
-  defp series_group_key(%Video{service_type: :sonarr, path: path}) when is_binary(path) do
+  defp series_group_key(%Video{service_type: service_type, path: path})
+       when service_type in [:sonarr, :sportarr] and is_binary(path) do
     dir = Path.dirname(path)
 
     if Regex.match?(~r/^[Ss](?:eason\s*)?0*\d+$/i, Path.basename(dir)) do
@@ -1229,21 +1718,34 @@ defmodule Reencodarr.Media do
       {:ok, %VideoFailure{}}
   """
   def record_video_failure(video, stage, category, opts \\ []) do
-    with {:ok, failure} <- VideoFailure.record_failure(video, stage, category, opts),
-         {:ok, _video} <- mark_as_failed(video) do
-      Logger.warning(
-        "Recorded #{stage}/#{category} failure for video #{video.id}: #{opts[:message] || "No message"}"
+    result =
+      write_transaction(
+        fn ->
+          with {:ok, failure} <- VideoFailure.record_failure(video, stage, category, opts),
+               {:ok, _video} <- mark_as_failed(video) do
+            failure
+          else
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end,
+        label: :media_record_video_failure
       )
 
-      {:ok, failure}
-    else
+    case result do
+      {:ok, failure} ->
+        Logger.warning(
+          "Recorded #{stage}/#{category} failure for video #{video.id}: #{opts[:message] || "No message"}"
+        )
+
+        {:ok, failure}
+
       {:error, %Ecto.Changeset{errors: [video_id: {"does not exist", _}]}} ->
         # Video was deleted during test cleanup - this is expected in test environment
         Logger.debug("Video #{video.id} no longer exists, skipping failure recording")
         {:ok, video}
 
-      error ->
-        Logger.error("Failed to record video failure: #{inspect(error)}")
+      {:error, reason} = error ->
+        Logger.error("Failed to record video failure: #{inspect(reason)}")
         error
     end
   end
@@ -1399,19 +1901,38 @@ defmodule Reencodarr.Media do
   Resets videos stuck in `:crf_searching` back to `:analyzed`.
 
   Called by the CRF Searcher Broadway pipeline on startup to reclaim orphaned work.
-  Excludes videos currently being processed by the CRF search GenServer.
+  With no argument, worker-owned rows are left for the worker reconnect grace sweep.
+  With live attempt IDs, only those exact worker attempts are retained.
 
   ## Examples
       iex> Media.reset_orphaned_crf_searching()
       :ok
   """
-  @spec reset_orphaned_crf_searching() :: :ok
-  def reset_orphaned_crf_searching do
+  @spec reset_orphaned_crf_searching([String.t()] | nil, DateTime.t() | nil) :: :ok
+  def reset_orphaned_crf_searching(live_attempt_ids \\ nil, protected_since \\ nil)
+
+  def reset_orphaned_crf_searching(nil, _protected_since) do
     exclude_id = CrfSearch.current_video_id()
 
     from(v in Video, where: v.state == :crf_searching and is_nil(v.crf_search_worker_id))
     |> maybe_exclude_video(exclude_id)
     |> reset_videos("orphaned crf_searching videos → analyzed")
+  end
+
+  def reset_orphaned_crf_searching(live_attempt_ids, protected_since)
+      when is_list(live_attempt_ids) do
+    exclude_id = CrfSearch.current_video_id()
+    live_attempt_ids = Enum.filter(live_attempt_ids, &is_binary/1)
+
+    from(v in Video, where: v.state == :crf_searching)
+    |> maybe_exclude_video(exclude_id)
+    |> maybe_exclude_worker_attempts(live_attempt_ids)
+    |> maybe_exclude_recent_worker_attempts(protected_since)
+    |> reset_videos_with_cleared_worker(
+      "orphaned crf_searching videos → analyzed",
+      :analyzed,
+      :crf_search_worker_id
+    )
   end
 
   @doc """
@@ -1424,9 +1945,19 @@ defmodule Reencodarr.Media do
       iex> Media.reset_orphaned_encoding()
       :ok
   """
-  @spec reset_orphaned_encoding() :: :ok
-  def reset_orphaned_encoding do
+  @spec reset_orphaned_encoding([String.t()] | nil, DateTime.t() | nil) :: :ok
+  def reset_orphaned_encoding(live_attempt_ids \\ nil, protected_since \\ nil)
+
+  def reset_orphaned_encoding(nil, protected_since),
+    do: reset_orphaned_encoding([], protected_since, true)
+
+  def reset_orphaned_encoding(live_attempt_ids, protected_since)
+      when is_list(live_attempt_ids),
+      do: reset_orphaned_encoding(live_attempt_ids, protected_since, false)
+
+  defp reset_orphaned_encoding(live_attempt_ids, protected_since, only_unowned?) do
     exclude_id = Encode.current_video_id()
+    live_attempt_ids = Enum.filter(live_attempt_ids, &is_binary/1)
 
     {with_vmaf, without_vmaf} =
       write(
@@ -1435,36 +1966,71 @@ defmodule Reencodarr.Media do
           {with_vmaf, _} =
             from(v in Video, where: v.state == :encoding, where: not is_nil(v.chosen_vmaf_id))
             |> maybe_exclude_video(exclude_id)
-            |> Repo.update_all(set: [state: :crf_searched, updated_at: DateTime.utc_now()])
+            |> maybe_exclude_worker_owned(only_unowned?)
+            |> maybe_exclude_worker_attempts(live_attempt_ids)
+            |> maybe_exclude_recent_worker_attempts(protected_since)
+            |> Repo.update_all(
+              set: [
+                state: :crf_searched,
+                encode_worker_id: nil,
+                worker_attempt_id: nil,
+                worker_control_desired_state: nil,
+                worker_control_acknowledged_state: nil,
+                worker_control_command_id: nil,
+                worker_control_requested_at: nil,
+                worker_control_reason: nil,
+                worker_last_seen_at: nil,
+                worker_terminal_claimed_at: nil,
+                updated_at: DateTime.utc_now()
+              ]
+            )
 
           # Videos without a chosen VMAF must go back to analyzed — they were never
           # encodable in the first place and need CRF search to run first.
           {without_vmaf, _} =
             from(v in Video, where: v.state == :encoding, where: is_nil(v.chosen_vmaf_id))
             |> maybe_exclude_video(exclude_id)
-            |> Repo.update_all(set: [state: :analyzed, updated_at: DateTime.utc_now()])
+            |> maybe_exclude_worker_owned(only_unowned?)
+            |> maybe_exclude_worker_attempts(live_attempt_ids)
+            |> maybe_exclude_recent_worker_attempts(protected_since)
+            |> Repo.update_all(
+              set: [
+                state: :analyzed,
+                encode_worker_id: nil,
+                worker_attempt_id: nil,
+                worker_control_desired_state: nil,
+                worker_control_acknowledged_state: nil,
+                worker_control_command_id: nil,
+                worker_control_requested_at: nil,
+                worker_control_reason: nil,
+                worker_last_seen_at: nil,
+                worker_terminal_claimed_at: nil,
+                updated_at: DateTime.utc_now()
+              ]
+            )
 
           {with_vmaf, without_vmaf}
         end,
         label: :media_reset_orphaned_encoding
       )
 
-    case {with_vmaf, without_vmaf} do
-      {with_vmaf, without_vmaf} when is_integer(with_vmaf) and is_integer(without_vmaf) ->
-        total = with_vmaf + without_vmaf
-
-        if total > 0 do
-          Logger.info(
-            "Reset #{total} orphaned encoding videos (#{with_vmaf} → crf_searched, #{without_vmaf} → analyzed)"
-          )
-        end
-
-      _ ->
-        :ok
-    end
+    log_orphaned_encoding_reset(with_vmaf, without_vmaf)
 
     :ok
   end
+
+  defp log_orphaned_encoding_reset(with_vmaf, without_vmaf)
+       when is_integer(with_vmaf) and is_integer(without_vmaf) do
+    total = with_vmaf + without_vmaf
+
+    if total > 0 do
+      Logger.info(
+        "Reset #{total} orphaned encoding videos (#{with_vmaf} → crf_searched, #{without_vmaf} → analyzed)"
+      )
+    end
+  end
+
+  defp log_orphaned_encoding_reset(_with_vmaf, _without_vmaf), do: :ok
 
   @doc """
   Reclaims encoder-owned orphaned work.
@@ -1512,8 +2078,63 @@ defmodule Reencodarr.Media do
     :ok
   end
 
+  defp reset_videos_with_cleared_worker(query, log_message, target_state, worker_field) do
+    {count, _} =
+      write(
+        fn ->
+          fields = [
+            {:state, target_state},
+            {worker_field, nil},
+            {:worker_attempt_id, nil},
+            {:worker_control_desired_state, nil},
+            {:worker_control_acknowledged_state, nil},
+            {:worker_control_command_id, nil},
+            {:worker_last_seen_at, nil},
+            {:worker_terminal_claimed_at, nil},
+            {:updated_at, DateTime.utc_now()}
+          ]
+
+          Repo.update_all(
+            query,
+            set: fields
+          )
+        end,
+        label: :media_reset_worker_videos
+      )
+
+    case count do
+      count when is_integer(count) and count > 0 -> Logger.info("Reset #{count} #{log_message}")
+      _ -> :ok
+    end
+
+    :ok
+  end
+
   defp maybe_exclude_video(query, nil), do: query
   defp maybe_exclude_video(query, video_id), do: from(v in query, where: v.id != ^video_id)
+
+  defp maybe_exclude_worker_attempts(query, []), do: query
+
+  defp maybe_exclude_worker_attempts(query, attempt_ids),
+    do:
+      from(v in query,
+        where: is_nil(v.worker_attempt_id) or v.worker_attempt_id not in ^attempt_ids
+      )
+
+  defp maybe_exclude_worker_owned(query, false), do: query
+
+  defp maybe_exclude_worker_owned(query, true),
+    do: from(v in query, where: is_nil(v.encode_worker_id))
+
+  defp maybe_exclude_recent_worker_attempts(query, nil), do: query
+
+  defp maybe_exclude_recent_worker_attempts(query, protected_since) do
+    from(v in query,
+      where:
+        is_nil(v.worker_attempt_id) or is_nil(v.worker_last_seen_at) or
+          v.worker_last_seen_at < ^protected_since
+    )
+  end
 
   @doc """
   Counts videos that would generate invalid audio encoding arguments (b:a=0k, ac=0).
@@ -1663,6 +2284,9 @@ defmodule Reencodarr.Media do
       _ ->
         false
     end)
+  rescue
+    _error in Reencodarr.Rules.Audio.ClassificationError ->
+      true
   end
 
   @doc """
@@ -2240,19 +2864,18 @@ defmodule Reencodarr.Media do
 
   # Calculate savings if not already provided and we have the necessary data
   defp maybe_calculate_savings(attrs, %Video{} = video) do
-    case {Map.get(attrs, "savings"), Map.get(attrs, "percent")} do
-      {nil, percent} when is_number(percent) or is_binary(percent) ->
-        case video do
-          %Video{size: size} when is_integer(size) and size > 0 ->
-            savings = calculate_vmaf_savings(percent, size)
-            Map.put(attrs, "savings", savings)
+    savings = get_any(attrs, ["savings", :savings])
+    percent = get_any(attrs, ["percent", :percent])
 
-          _ ->
-            attrs
-        end
-
-      _ ->
-        attrs
+    if is_nil(savings) and (is_number(percent) or is_binary(percent)) and
+         is_integer(video.size) and video.size > 0 do
+      Map.put(
+        attrs,
+        if(Map.has_key?(attrs, :percent), do: :savings, else: "savings"),
+        calculate_vmaf_savings(percent, video.size)
+      )
+    else
+      attrs
     end
   end
 
@@ -2440,6 +3063,7 @@ defmodule Reencodarr.Media do
       state: video.state,
       size: video.size,
       original_size: video.original_size,
+      space_saved_bytes: video.space_saved_bytes,
       priority: video.priority,
       chosen_vmaf_id: video.chosen_vmaf_id,
       chosen_vmaf_savings: snapshot_chosen_vmaf_savings(video),
@@ -2463,6 +3087,7 @@ defmodule Reencodarr.Media do
           state: v.state,
           size: v.size,
           original_size: v.original_size,
+          space_saved_bytes: v.space_saved_bytes,
           priority: v.priority,
           chosen_vmaf_id: v.chosen_vmaf_id,
           chosen_vmaf_savings: chosen.savings,
@@ -2490,6 +3115,7 @@ defmodule Reencodarr.Media do
           state: v.state,
           size: v.size,
           original_size: v.original_size,
+          space_saved_bytes: v.space_saved_bytes,
           priority: v.priority,
           chosen_vmaf_id: v.chosen_vmaf_id,
           chosen_vmaf_savings: chosen.savings,
@@ -2517,6 +3143,7 @@ defmodule Reencodarr.Media do
           state: v.state,
           size: v.size,
           original_size: v.original_size,
+          space_saved_bytes: v.space_saved_bytes,
           priority: v.priority,
           chosen_vmaf_id: v.chosen_vmaf_id,
           chosen_vmaf_savings: chosen.savings,
@@ -2991,6 +3618,7 @@ defmodule Reencodarr.Media do
   defp state_counts_from_stats(%DashboardStatsCache{} = stats) do
     %{
       needs_analysis: stats.needs_analysis,
+      analyzing: stats.analyzing,
       analyzed: stats.analyzed,
       crf_searching: stats.crf_searching,
       crf_searched: stats.crf_searched,
@@ -3094,6 +3722,7 @@ defmodule Reencodarr.Media do
   defp normalize_video_state(_value), do: nil
 
   defp normalize_video_service_type("sonarr"), do: :sonarr
+  defp normalize_video_service_type("sportarr"), do: :sportarr
   defp normalize_video_service_type("radarr"), do: :radarr
   defp normalize_video_service_type(_value), do: nil
 
@@ -3166,18 +3795,6 @@ defmodule Reencodarr.Media do
     Logger.info("Completed resetting #{total} videos for reanalysis")
     total
   end
-
-  defp broadcast_upserted_video({:ok, %Video{} = video}, old_video) do
-    action = if old_video, do: :update, else: :insert
-
-    broadcast_video_mutation(
-      action,
-      old_video,
-      fetch_dashboard_video_snapshot_by_id(video.id)
-    )
-  end
-
-  defp broadcast_upserted_video(_result, _old_video), do: :ok
 
   defp next_reanalysis_batch([]), do: nil
 
@@ -3273,7 +3890,8 @@ defmodule Reencodarr.Media do
   @spec fetch_dashboard_video_stats(integer()) :: {:ok, map()} | {:error, term()}
   def fetch_dashboard_video_stats(timeout \\ 15_000) do
     fetch_dashboard_component("video stats", fn ->
-      Repo.one(SharedQueries.video_stats_query(), timeout: timeout) || get_default_video_stats()
+      Repo.one(SharedQueries.video_stats_query(), dashboard_query_opts(timeout)) ||
+        get_default_video_stats()
     end)
   end
 
@@ -3283,7 +3901,7 @@ defmodule Reencodarr.Media do
   @spec fetch_dashboard_metadata_stats(integer()) :: {:ok, map()} | {:error, term()}
   def fetch_dashboard_metadata_stats(timeout \\ 15_000) do
     fetch_dashboard_component("metadata stats", fn ->
-      Repo.one(SharedQueries.dashboard_metadata_stats_query(), timeout: timeout) ||
+      Repo.one(SharedQueries.dashboard_metadata_stats_query(), dashboard_query_opts(timeout)) ||
         %{
           avg_duration_minutes: 0.0,
           most_recent_video_update: nil,
@@ -3298,7 +3916,7 @@ defmodule Reencodarr.Media do
   @spec fetch_dashboard_total_size_gb(integer()) :: {:ok, float()} | {:error, term()}
   def fetch_dashboard_total_size_gb(timeout \\ 15_000) do
     fetch_dashboard_component("total size", fn ->
-      Repo.one(SharedQueries.dashboard_total_size_query(), timeout: timeout) || 0.0
+      Repo.one(SharedQueries.dashboard_total_size_query(), dashboard_query_opts(timeout)) || 0.0
     end)
   end
 
@@ -3309,14 +3927,10 @@ defmodule Reencodarr.Media do
   def fetch_dashboard_savings_gb(timeout \\ 15_000) do
     fetch_dashboard_component("savings", fn ->
       encoded_savings =
-        Repo.one(SharedQueries.encoded_video_savings_query(), timeout: timeout) ||
+        Repo.one(SharedQueries.encoded_video_savings_query(), dashboard_query_opts(timeout)) ||
           %{total_savings_gb: 0.0}
 
-      predicted_savings =
-        Repo.one(SharedQueries.predicted_video_savings_query(), timeout: timeout) ||
-          %{total_savings_gb: 0.0}
-
-      (encoded_savings.total_savings_gb || 0.0) + (predicted_savings.total_savings_gb || 0.0)
+      encoded_savings.total_savings_gb || 0.0
     end)
   end
 
@@ -3326,7 +3940,8 @@ defmodule Reencodarr.Media do
   @spec fetch_dashboard_vmaf_stats(integer()) :: {:ok, map()} | {:error, term()}
   def fetch_dashboard_vmaf_stats(timeout \\ 15_000) do
     fetch_dashboard_component("vmaf stats", fn ->
-      Repo.one(SharedQueries.vmaf_stats_query(), timeout: timeout) || get_default_vmaf_stats()
+      Repo.one(SharedQueries.vmaf_stats_query(), dashboard_query_opts(timeout)) ||
+        get_default_vmaf_stats()
     end)
   end
 
@@ -3402,11 +4017,14 @@ defmodule Reencodarr.Media do
     String.downcase(to_string(message)) == "interrupted"
   end
 
+  defp dashboard_query_opts(timeout), do: [timeout: timeout, pool_timeout: timeout]
+
   defp get_default_video_stats do
     %{
       total_videos: 0,
       total_size_gb: 0.0,
       needs_analysis: 0,
+      analyzing: 0,
       analyzed: 0,
       crf_searching: 0,
       crf_searched: 0,

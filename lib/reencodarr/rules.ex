@@ -50,6 +50,7 @@ defmodule Reencodarr.Rules do
     rules_to_apply = [
       &encoder/1,
       &preset/1,
+      &parallelism/1,
       &hdr(&1, hdr_fork),
       &tune(&1, hdr_fork),
       &resolution/1,
@@ -204,7 +205,15 @@ defmodule Reencodarr.Rules do
 
   defp filter_tuples_for_context(tuples, :encode) do
     Enum.filter(tuples, fn {flag, _value} ->
-      flag not in ["--temp-dir", "--min-vmaf", "--max-vmaf", "--min-crf", "--max-crf"]
+      flag not in [
+        "crf-search",
+        "encode",
+        "--temp-dir",
+        "--min-vmaf",
+        "--max-vmaf",
+        "--min-crf",
+        "--max-crf"
+      ]
     end)
   end
 
@@ -327,6 +336,9 @@ defmodule Reencodarr.Rules do
   @spec preset(Media.Video.t()) :: list()
   def preset(_), do: [{"--preset", "6"}]
 
+  @spec parallelism(Media.Video.t()) :: list()
+  def parallelism(_), do: [{"--svt", "lp=5"}]
+
   @doc """
   HDR-specific encoder flags.
 
@@ -348,13 +360,13 @@ defmodule Reencodarr.Rules do
   Tune mode selection.
 
   - Stock SVT-AV1: tune=0 (VQ — subjective quality, recommended for personal use)
-  - svt-av1-hdr + vintage content: tune=5 (Film Grain mode)
+  - svt-av1-hdr + vintage content: tune=6 (Film Grain mode)
   - svt-av1-hdr + modern content: tune=2 (SSIM)
   """
   @spec tune(Media.Video.t(), boolean()) :: list()
   def tune(video, hdr_fork) do
     cond do
-      hdr_fork && vintage_content?(video) -> [{"--svt", "tune=5"}]
+      hdr_fork && vintage_content?(video) -> [{"--svt", "tune=6"}]
       hdr_fork -> [{"--svt", "tune=2"}]
       true -> [{"--svt", "tune=0"}]
     end

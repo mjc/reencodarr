@@ -1,0 +1,12 @@
+[
+  {"format": "E-AC-3", "codec_id": "A_EAC3", "tracks": 2204},
+  {"format": "AC-3", "codec_id": "A_AC3", "tracks": 177},
+  {"format": "DTS", "codec_id": "A_DTS", "tracks": 157},
+  {"format": "MLP FBA", "codec_id": "A_TRUEHD", "tracks": 47},
+  {"format": "AAC", "codec_id": "A_AAC-2", "tracks": 18},
+  {"format": "FLAC", "codec_id": "A_FLAC", "tracks": 14},
+  {"format": "Opus", "codec_id": "A_OPUS", "tracks": 11},
+  {"format": "AAC", "codec_id": "mp4a-40-2", "tracks": 10},
+  {"format": "E-AC-3", "codec_id": "ec-3", "tracks": 1},
+  {"format": "MPEG Audio", "codec_id": "A_MPEG/L2", "tracks": 1}
+]

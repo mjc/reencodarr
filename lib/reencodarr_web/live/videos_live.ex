@@ -1089,8 +1089,8 @@ defmodule ReencodarrWeb.VideosLive do
           <%= if @video.hdr do %>
             <.hdr_badge hdr={@video.hdr} />
           <% end %>
-          <%= if @video.original_size && @video.size do %>
-            <.space_saved_badge original_size={@video.original_size} current_size={@video.size} />
+          <%= if @video.space_saved_bytes > 0 do %>
+            <.space_saved_badge space_saved_bytes={@video.space_saved_bytes} />
           <% end %>
         </div>
       </td>
@@ -1303,14 +1303,14 @@ defmodule ReencodarrWeb.VideosLive do
     """
   end
 
-  attr :original_size, :integer, required: true
-  attr :current_size, :integer, required: true
+  attr :space_saved_bytes, :integer, required: true
 
   defp space_saved_badge(assigns) do
-    saved = assigns.original_size - assigns.current_size
-    display = format_size(saved)
-
-    assigns = assign(assigns, display: display, saved: saved)
+    assigns =
+      assign(assigns,
+        display: format_size(assigns.space_saved_bytes),
+        saved: assigns.space_saved_bytes
+      )
 
     ~H"""
     <span class={"font-mono #{space_saved_color(@saved)}"} title="Space saved">

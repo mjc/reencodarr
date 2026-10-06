@@ -5,15 +5,37 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   use ReencodarrWeb, :channel
 
-  alias Reencodarr.AbAv1.{CrfSearch, WorkerConfig, WorkerProtocol, WorkerSessions}
-  alias Reencodarr.AbAv1.WorkerProtocol.Announcement
+  require Logger
+
+  alias Reencodarr.AbAv1.{
+    CrfSearch,
+    Encode,
+    WorkerAdmission,
+    WorkerConfig,
+    WorkerProtocol,
+    WorkerSessions
+  }
+
+  alias Reencodarr.AbAv1.WorkerProtocol.{
+    ActiveJob,
+    Announcement,
+    ControlState,
+    EncodeCompletion,
+    EncodeProgress,
+    FailureReport,
+    TransferProgress
+  }
+
+  alias Reencodarr.AbAv1.WorkerSessions.Job
+  alias Reencodarr.CrfSearchPolicy
   alias Reencodarr.Dashboard.Events
+  alias Reencodarr.FailureTracker
   alias Reencodarr.Media
+  alias Reencodarr.PostProcessor
+  alias Reencodarr.TempCleaner
 
   @crf_search_topic WorkerProtocol.crf_search_topic()
-  @worker_control_topic_prefix "worker_controls:"
-
-  def worker_control_topic(worker_id), do: @worker_control_topic_prefix <> worker_id
+  def worker_control_topic(worker_id), do: WorkerSessions.control_topic(worker_id)
 
   @impl true
   def join(@crf_search_topic, _payload, %{assigns: %{worker_id: worker_id}} = socket) do
@@ -28,6 +50,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     with {:ok,
           %Announcement{
             worker_id: client_worker_id,
+            hostname: hostname,
             protocol_version: protocol_version,
             version: version,
             capabilities: capabilities
@@ -43,11 +66,13 @@ defmodule ReencodarrWeb.WorkerChannel do
            }) do
       socket =
         socket
+        |> assign(:local_worker, local_worker?(socket, hostname))
         |> assign(:client_worker_id, client_worker_id)
         |> assign(:client_version, version)
         |> assign(:protocol_version, protocol_version)
         |> assign(:capabilities, capabilities)
         |> attach_announced_work(client_worker_id, session)
+        |> replay_pending_job_controls(session)
 
       {:reply, {:ok, WorkerProtocol.accepted(protocol_version)}, socket}
     else
@@ -57,12 +82,58 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   def handle_in("heartbeat", payload, %{assigns: %{worker_id: worker_id}} = socket) do
-    case WorkerSessions.touch(worker_id, WorkerProtocol.parse_resource_usage(payload)) do
-      {:ok, session} ->
-        {:reply, {:ok, WorkerProtocol.heartbeat_ack(session.last_seen_at)}, socket}
+    resource_usage = WorkerProtocol.parse_resource_usage(payload)
+    :ok = WorkerSessions.touch(worker_id, resource_usage)
+    recover_worker_heartbeat(socket, resource_usage)
+    last_seen_at = DateTime.utc_now() |> DateTime.truncate(:second)
+    {:reply, {:ok, WorkerProtocol.heartbeat_ack(last_seen_at)}, socket}
+  end
+
+  def handle_in("job_active", payload, socket) do
+    with {:ok, active_job} <- WorkerProtocol.parse_active_job(payload),
+         :ok <- active_attempt_current?(active_job, socket.assigns.client_worker_id),
+         {:ok, socket} <- restore_active_job(socket, active_job) do
+      {:reply, {:ok, WorkerProtocol.event_ack("job_active")}, socket}
+    else
+      {:error, :stale_worker_attempt} ->
+        {:reply, {:ok, WorkerProtocol.event_discarded("job_active", :stale_worker_attempt)},
+         socket}
 
       {:error, reason} ->
         {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+    end
+  end
+
+  def handle_in("control_state", payload, %{assigns: %{worker_id: worker_id}} = socket) do
+    with {:ok,
+          %ControlState{
+            state: control_state,
+            active_video_id: active_video_id,
+            job_id: job_id,
+            command_id: command_id
+          }} <- WorkerProtocol.parse_control_state(payload),
+         {:ok, _session} <-
+           set_worker_control_state(
+             worker_id,
+             job_id,
+             command_id,
+             control_state,
+             active_video_id
+           ) do
+      socket =
+        if control_state == :stopped and
+             (is_nil(job_id) or socket.assigns[:current_video_id] == active_video_id) do
+          assign(socket, :current_video_id, nil)
+        else
+          assign(socket, :current_video_id, active_video_id || socket.assigns[:current_video_id])
+        end
+
+      {:reply, {:ok, %{accepted: true, state: Atom.to_string(control_state)}}, socket}
+    else
+      {:error, reason} ->
+        if Map.get(payload, "state") == "stopped" or Map.get(payload, :state) == :stopped,
+          do: terminal_reply(socket, "control_state", reason),
+          else: {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
   end
 
@@ -82,12 +153,218 @@ defmodule ReencodarrWeb.WorkerChannel do
   def handle_in("crf_search_completed", payload, socket),
     do: handle_crf_search_completed(payload, socket)
 
+  def handle_in("encode_progress", payload, socket),
+    do: handle_encode_progress(payload, socket)
+
+  def handle_in("encode_completed", payload, socket),
+    do: handle_encode_completed(payload, socket)
+
   def handle_in("video_failed", payload, socket),
     do: handle_video_failed(payload, socket)
 
   def handle_in(_event, _payload, socket) do
     {:reply, {:error, WorkerProtocol.error(:unsupported_event)}, socket}
   end
+
+  defp restore_active_job(socket, %ActiveJob{
+         job_id: job_id,
+         video_id: video_id,
+         job_type: :crf_search
+       }) do
+    ensure_resumable_active_video(socket, video_id, :crf_searching, job_id)
+  end
+
+  defp restore_active_job(socket, %ActiveJob{
+         job_id: job_id,
+         video_id: video_id,
+         job_type: :encode
+       }) do
+    recover_encode_job(socket, job_id, video_id)
+  end
+
+  defp active_attempt_current?(
+         %ActiveJob{
+           job_id: job_id,
+           video_id: video_id,
+           job_type: :crf_search
+         },
+         worker_id
+       ) do
+    case Media.get_video(video_id) do
+      %Media.Video{
+        state: :crf_searching,
+        worker_attempt_id: ^job_id,
+        crf_search_worker_id: ^worker_id
+      } ->
+        :ok
+
+      _ ->
+        {:error, :stale_worker_attempt}
+    end
+  end
+
+  defp active_attempt_current?(
+         %ActiveJob{
+           job_id: job_id,
+           video_id: video_id,
+           job_type: :encode
+         },
+         worker_id
+       ) do
+    case Media.get_video(video_id) do
+      %Media.Video{
+        state: :encoding,
+        worker_attempt_id: ^job_id,
+        encode_worker_id: ^worker_id
+      } ->
+        :ok
+
+      _ ->
+        {:error, :stale_worker_attempt}
+    end
+  end
+
+  defp set_worker_control_state(worker_id, nil, nil, control_state, active_video_id),
+    do: WorkerSessions.set_control_state(worker_id, control_state, active_video_id)
+
+  defp set_worker_control_state(worker_id, job_id, command_id, control_state, video_id)
+       when is_binary(job_id) and is_binary(command_id) and is_integer(video_id) do
+    with %{client_worker_id: client_worker_id} = session <- WorkerSessions.get(worker_id),
+         %Media.Video{} = video <- Media.get_video(video_id),
+         {:ok, job_type, phase} <-
+           control_job(video, job_id, client_worker_id),
+         {:ok, _result} <-
+           Media.acknowledge_worker_control(
+             video_id,
+             job_id,
+             command_id,
+             control_state,
+             job_type
+           ) do
+      set_or_restore_job_control_state(
+        session,
+        job_id,
+        job_type,
+        video_id,
+        phase,
+        control_state
+      )
+    else
+      _ -> {:error, :unknown_worker_session}
+    end
+  end
+
+  defp set_worker_control_state(worker_id, job_id, command_id, control_state, nil)
+       when is_binary(job_id) and is_binary(command_id) do
+    case WorkerSessions.get(worker_id) do
+      %{jobs: %{^job_id => %Job{video_id: video_id}}} ->
+        set_worker_control_state(
+          worker_id,
+          job_id,
+          command_id,
+          control_state,
+          video_id
+        )
+
+      _ ->
+        {:error, :unknown_worker_session}
+    end
+  end
+
+  defp set_worker_control_state(
+         _worker_id,
+         _job_id,
+         _command_id,
+         _control_state,
+         _active_video_id
+       ),
+       do: {:error, :unknown_worker_session}
+
+  defp set_or_restore_job_control_state(
+         %{server_worker_id: worker_id, jobs: jobs},
+         job_id,
+         job_type,
+         video_id,
+         phase,
+         control_state
+       ) do
+    if Map.has_key?(jobs, job_id) do
+      WorkerSessions.set_job_control_state(worker_id, job_id, control_state)
+    else
+      case restore_control_job(worker_id, job_id, job_type, video_id, phase) do
+        {:ok, _session} ->
+          WorkerSessions.set_job_control_state(worker_id, job_id, control_state)
+
+        error ->
+          error
+      end
+    end
+  end
+
+  defp restore_control_job(worker_id, job_id, :crf_search, video_id, phase),
+    do: WorkerSessions.assign_video(worker_id, video_id, phase, job_id)
+
+  defp restore_control_job(worker_id, job_id, :encode, video_id, phase) do
+    WorkerSessions.assign_job(worker_id, %Job{
+      job_id: job_id,
+      job_type: :encode,
+      video_id: video_id,
+      phase: phase
+    })
+  end
+
+  defp control_job(
+         %Media.Video{
+           state: :encoding,
+           encode_worker_id: worker_id,
+           worker_attempt_id: attempt_id
+         },
+         job_id,
+         worker_id
+       )
+       when attempt_id == job_id,
+       do: {:ok, :encode, :encoding}
+
+  defp control_job(
+         %Media.Video{
+           state: :crf_searching,
+           crf_search_worker_id: worker_id
+         } = video,
+         job_id,
+         worker_id
+       ) do
+    if crf_attempt_matches?(video, job_id, video.id),
+      do: {:ok, :crf_search, :crf_searching},
+      else: {:error, :unknown_worker_session}
+  end
+
+  defp control_job(
+         %Media.Video{
+           state: :failed,
+           encode_worker_id: worker_id,
+           worker_attempt_id: attempt_id,
+           worker_control_acknowledged_state: :stopped
+         },
+         job_id,
+         worker_id
+       )
+       when attempt_id == job_id,
+       do: {:ok, :encode, :encoding}
+
+  defp control_job(
+         %Media.Video{
+           state: :failed,
+           crf_search_worker_id: worker_id,
+           worker_attempt_id: attempt_id,
+           worker_control_acknowledged_state: :stopped
+         },
+         job_id,
+         worker_id
+       )
+       when attempt_id == job_id,
+       do: {:ok, :crf_search, :crf_searching}
+
+  defp control_job(_video, _job_id, _worker_id), do: {:error, :unknown_worker_session}
 
   @impl true
   def handle_info(:stream_transfer_chunk, %{assigns: %{transfer_io_device: nil}} = socket) do
@@ -100,11 +377,39 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
+  def handle_info({:stream_encode_transfer, job_id}, socket) do
+    case socket.assigns[:encode_transfer] do
+      %{job_id: ^job_id, io: nil} = transfer ->
+        open_encode_transfer(socket, transfer)
+
+      %{job_id: ^job_id, io: io, waiting: false} = transfer when not is_nil(io) ->
+        read_encode_transfer(socket, transfer)
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_info({:worker_control, action}, socket) do
-    push(socket, "control", %{
-      action: Atom.to_string(action),
-      video_id: socket.assigns[:current_video_id]
-    })
+    push(socket, "control", %{action: Atom.to_string(action)})
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:worker_control, action, job_id, command_id}, socket)
+      when is_binary(job_id) and is_binary(command_id) do
+    case WorkerSessions.get(socket.assigns.worker_id) do
+      %{jobs: %{^job_id => %{video_id: video_id}}} ->
+        push(socket, "control", %{
+          action: Atom.to_string(action),
+          command_id: command_id,
+          job_id: job_id,
+          video_id: video_id
+        })
+
+      _ ->
+        :ok
+    end
 
     {:noreply, socket}
   end
@@ -134,19 +439,113 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
+  defp local_worker?(socket, hostname) when is_binary(hostname),
+    do: socket.assigns[:loopback_peer] == true and hostname == local_hostname()
+
+  defp local_worker?(_socket, _hostname), do: false
+
+  defp local_hostname do
+    {:ok, hostname} = :inet.gethostname()
+    List.to_string(hostname)
+  end
+
   @impl true
   def terminate(reason, %{assigns: %{worker_id: worker_id}} = socket) do
+    case socket.assigns[:encode_transfer] do
+      %{io: io} when not is_nil(io) -> close_transfer_stream(io)
+      _ -> :ok
+    end
+
     if !shutdown_reason?(reason) do
       maybe_requeue_active_video(socket)
     end
 
-    WorkerSessions.unregister(worker_id)
+    case WorkerSessions.get(worker_id) do
+      %{active_video_id: video_id} when is_integer(video_id) ->
+        _ = WorkerSessions.disconnect(worker_id)
+
+      %{jobs: jobs} when map_size(jobs) > 0 ->
+        _ = WorkerSessions.disconnect(worker_id)
+
+      _ ->
+        WorkerSessions.unregister(worker_id)
+    end
+
     :ok
   end
 
   defp handle_work_request(payload, %{assigns: %{worker_id: worker_id}} = socket) do
-    _ = WorkerSessions.touch(worker_id)
+    :ok = WorkerSessions.touch(worker_id)
 
+    if Map.get(payload, "job_type") == "encode" do
+      handle_encode_work_request(socket, payload)
+    else
+      handle_crf_work_request(payload, worker_id, socket)
+    end
+  end
+
+  defp recover_worker_heartbeat(
+         %{assigns: %{worker_id: server_worker_id, client_worker_id: client_worker_id}} = socket,
+         %{active_video_id: video_id}
+       )
+       when is_integer(video_id) do
+    Media.touch_worker_attempt(video_id, client_worker_id)
+
+    case Media.get_video(video_id) do
+      %Media.Video{
+        state: :crf_searching,
+        crf_search_worker_id: ^client_worker_id,
+        worker_attempt_id: job_id
+      }
+      when is_binary(job_id) ->
+        recover_worker_job(
+          socket,
+          server_worker_id,
+          job_id,
+          :crf_search,
+          video_id,
+          :crf_searching
+        )
+
+      %Media.Video{
+        state: :encoding,
+        encode_worker_id: ^client_worker_id,
+        worker_attempt_id: job_id
+      }
+      when is_binary(job_id) ->
+        recover_worker_job(socket, server_worker_id, job_id, :encode, video_id, :encoding)
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp recover_worker_heartbeat(_socket, _resource_usage), do: :ok
+
+  defp recover_worker_job(
+         socket,
+         server_worker_id,
+         job_id,
+         job_type,
+         video_id,
+         phase
+       ) do
+    _ =
+      WorkerSessions.recover_job(
+        server_worker_id,
+        %{
+          client_worker_id: socket.assigns.client_worker_id,
+          version: socket.assigns.client_version,
+          protocol_version: socket.assigns.protocol_version,
+          capabilities: socket.assigns.capabilities
+        },
+        %Job{job_id: job_id, job_type: job_type, video_id: video_id, phase: phase}
+      )
+
+    :ok
+  end
+
+  defp handle_crf_work_request(payload, worker_id, socket) do
     request_mode = work_request_mode(payload)
 
     case socket.assigns[:current_video_id] do
@@ -158,19 +557,217 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
+  defp handle_encode_work_request(%{assigns: %{encode_video_id: video_id}} = socket, payload)
+       when is_integer(video_id) do
+    case Media.get_video(video_id) do
+      %Media.Video{state: :encoding} = video ->
+        if resumable_encode?(socket, video) do
+          resume_encode_work(socket, payload, video)
+        else
+          {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
+        end
+
+      _ ->
+        handle_encode_work_request(assign(socket, :encode_video_id, nil), payload)
+    end
+  end
+
+  defp handle_encode_work_request(socket, _payload) do
+    case encode_available_bytes(socket) do
+      {:ok, available_bytes} ->
+        claim_encode_work(socket, available_bytes)
+
+      {:error, reason} ->
+        :ok =
+          WorkerSessions.set_encode_admission(socket.assigns.worker_id, %{
+            status: :blocked,
+            reason: reason,
+            available_bytes: nil,
+            required_bytes: nil
+          })
+
+        {:reply, {:ok, WorkerProtocol.no_work()}, socket}
+    end
+  end
+
+  defp resume_encode_work(socket, payload, video) do
+    vmaf = Media.get_vmaf!(video.chosen_vmaf_id)
+
+    case Encode.build_encode_args_result(%{vmaf | video: video}) do
+      {:ok, encode_args} -> resume_encode_work(socket, payload, video, vmaf, encode_args)
+      {:error, error} -> reject_resumed_encode(socket, video, error)
+    end
+  end
+
+  defp resume_encode_work(socket, payload, video, vmaf, encode_args) do
+    local? = local_source?(socket, video)
+    resend? = work_request_mode(payload) == :resend_input
+    _ = activate_encode_job(socket)
+
+    socket =
+      if resend?,
+        do:
+          maybe_prepare_encode_transfer(
+            socket,
+            video,
+            local?,
+            video.worker_attempt_id || "encode-#{video.id}"
+          ),
+        else: socket
+
+    broadcast_encoding_started(video, vmaf)
+
+    {:reply,
+     {:ok,
+      WorkerProtocol.encode_work_assigned(video, vmaf,
+        local?: local?,
+        status: if(resend?, do: "job_assigned", else: "job_in_progress"),
+        encode_args: encode_args
+      )}, socket}
+  end
+
+  defp reject_resumed_encode(socket, video, error) do
+    reject_audio_classification(video, error)
+    maybe_clear_encode_session_job(socket, video.worker_attempt_id)
+    {:reply, {:ok, WorkerProtocol.no_work()}, clear_encode_job(socket)}
+  end
+
+  defp claim_encode_work(socket, available_bytes) do
+    attempt_id = "encode-#{Ecto.UUID.generate()}"
+    local_worker? = socket.assigns[:local_worker] || false
+
+    admit? = fn video, vmaf ->
+      WorkerAdmission.encode_allowed?(available_bytes, video, vmaf,
+        local?: local_worker? and File.regular?(video.path)
+      )
+    end
+
+    case Media.claim_next_video_for_encoding(socket.assigns.client_worker_id, attempt_id,
+           admit?: admit?
+         ) do
+      {:rejected, vmaf} ->
+        record_capacity_refusal(socket, available_bytes, local_worker?, vmaf)
+        {:reply, {:ok, WorkerProtocol.no_work()}, socket}
+
+      nil ->
+        {:reply, {:ok, WorkerProtocol.no_work()}, socket}
+
+      vmaf ->
+        case Encode.build_encode_args_result(vmaf) do
+          {:ok, encode_args} ->
+            required_bytes =
+              WorkerAdmission.required_encode_bytes(vmaf.video, vmaf,
+                local?: local_worker? and File.regular?(vmaf.video.path)
+              )
+
+            :ok =
+              WorkerSessions.set_encode_admission(socket.assigns.worker_id, %{
+                status: :allowed,
+                reason: nil,
+                available_bytes: available_bytes,
+                required_bytes: required_bytes
+              })
+
+            assign_encode_work(socket, vmaf, encode_args)
+
+          {:error, error} ->
+            reject_audio_classification(vmaf.video, error)
+            claim_encode_work(socket, available_bytes)
+        end
+    end
+  end
+
+  defp record_capacity_refusal(socket, available_bytes, local_worker?, vmaf) do
+    required_bytes =
+      WorkerAdmission.required_encode_bytes(vmaf.video, vmaf,
+        local?: local_worker? and File.regular?(vmaf.video.path)
+      )
+
+    WorkerSessions.set_encode_admission(socket.assigns.worker_id, %{
+      status: :blocked,
+      reason: :insufficient_disk_space,
+      available_bytes: available_bytes,
+      required_bytes: required_bytes
+    })
+  end
+
+  defp encode_available_bytes(%{assigns: %{local_worker: true}}) do
+    TempCleaner.check_disk_space()
+  end
+
+  defp encode_available_bytes(socket) do
+    max_age_ms =
+      Application.get_env(:reencodarr, :worker_disk_telemetry_max_age_ms, :timer.minutes(1))
+
+    WorkerSessions.disk_free_bytes(socket.assigns.worker_id, max_age_ms)
+  end
+
+  defp assign_encode_work(socket, vmaf, encode_args) do
+    video = vmaf.video
+    job_id = video.worker_attempt_id || "encode-#{video.id}"
+
+    case WorkerSessions.assign_job(socket.assigns.worker_id, %Job{
+           job_id: job_id,
+           job_type: :encode,
+           video_id: video.id,
+           phase: if(local_source?(socket, video), do: :input_ready, else: :receiving_input)
+         }) do
+      {:ok, _session} ->
+        local? = local_source?(socket, video)
+
+        socket =
+          socket
+          |> assign(:encode_video_id, video.id)
+          |> assign(:encode_job_id, job_id)
+          |> maybe_prepare_encode_transfer(video, local?, job_id)
+
+        broadcast_encoding_started(video, vmaf)
+
+        {:reply,
+         {:ok,
+          WorkerProtocol.encode_work_assigned(video, vmaf,
+            local?: local?,
+            encode_args: encode_args
+          )}, socket}
+
+      {:error, _reason} ->
+        {:reply, {:ok, WorkerProtocol.no_work()}, socket}
+    end
+  end
+
+  defp reject_audio_classification(video, error) do
+    reason = Exception.message(error)
+    Logger.error("Rejecting worker encode for video #{video.id}: #{reason}")
+
+    FailureTracker.record_configuration_failure(video, reason,
+      stage: :encoding,
+      context: %{classification: :unsupported_object_audio}
+    )
+  end
+
+  defp maybe_clear_encode_session_job(socket, job_id) when is_binary(job_id) do
+    WorkerSessions.clear_job(socket.assigns.worker_id, job_id)
+  end
+
+  defp maybe_clear_encode_session_job(_socket, _job_id), do: :ok
+
   defp handle_active_video_work_request(worker_id, socket, video_id, request_mode) do
     case Media.get_video(video_id) do
       %Media.Video{state: :crf_searching} = video ->
-        request_mode =
-          case WorkerSessions.get(worker_id) do
-            %{active_video_id: ^video_id} = session ->
-              maybe_resume_mode(session, request_mode)
+        if resumable_crf?(socket, video) do
+          request_mode =
+            case WorkerSessions.get(worker_id) do
+              %{active_video_id: ^video_id} = session ->
+                maybe_resume_mode(session, request_mode)
 
-            _ ->
-              request_mode
-          end
+              _ ->
+                request_mode
+            end
 
-        reply_for_active_work(worker_id, socket, video, request_mode)
+          reply_for_active_work(worker_id, socket, video, request_mode)
+        else
+          {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
+        end
 
       %Media.Video{} ->
         socket = clear_assigned_video(worker_id, socket)
@@ -245,16 +842,77 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp attach_announced_work(socket, _client_worker_id, %{active_video_id: video_id})
        when is_integer(video_id) do
-    attach_active_video(socket, video_id)
+    socket
+    |> attach_active_video(video_id)
+    |> attach_encode_job()
   end
 
-  defp attach_announced_work(socket, _client_worker_id, _session), do: socket
+  defp attach_announced_work(socket, _client_worker_id, session),
+    do: attach_encode_job(socket, session)
+
+  defp attach_encode_job(socket),
+    do: attach_encode_job(socket, WorkerSessions.get(socket.assigns.worker_id))
+
+  defp attach_encode_job(socket, %{jobs: jobs}) do
+    case Enum.find(jobs, fn {_job_id, job} -> job.job_type == :encode end) do
+      {job_id, job} ->
+        socket
+        |> assign(:encode_job_id, job_id)
+        |> assign(:encode_video_id, job.video_id)
+
+      nil ->
+        socket
+    end
+  end
+
+  defp attach_encode_job(socket, _session), do: socket
+
+  defp activate_encode_job(socket) do
+    with job_id when is_binary(job_id) <- socket.assigns[:encode_job_id],
+         %{jobs: %{^job_id => %Job{} = job}} <-
+           WorkerSessions.get(socket.assigns.worker_id) do
+      WorkerSessions.assign_job(socket.assigns.worker_id, %Job{job | active: true})
+    else
+      _ -> :ok
+    end
+  end
+
+  defp replay_pending_job_controls(socket, %{jobs: jobs}) do
+    Enum.each(jobs, fn {job_id, job} ->
+      case Media.get_video(job.video_id) do
+        %Media.Video{
+          worker_attempt_id: ^job_id,
+          worker_control_desired_state: desired_state,
+          worker_control_acknowledged_state: acknowledged_state,
+          worker_control_command_id: command_id
+        }
+        when desired_state in [:running, :paused, :stopped] and
+               desired_state != acknowledged_state and is_binary(command_id) ->
+          push(socket, "control", %{
+            action: control_action(desired_state),
+            command_id: command_id,
+            job_id: job_id,
+            video_id: job.video_id
+          })
+
+        _ ->
+          :ok
+      end
+    end)
+
+    socket
+  end
+
+  defp control_action(:running), do: "resume"
+  defp control_action(:paused), do: "pause"
+  defp control_action(:stopped), do: "stop"
 
   defp attach_active_video(socket, video_id) do
     case Media.get_video(video_id) do
       %Media.Video{} = video ->
         socket
         |> assign(:current_video_id, video.id)
+        |> assign(:crf_job_id, video.worker_attempt_id || Integer.to_string(video.id))
         |> assign(:current_vmaf_target, Reencodarr.Rules.vmaf_target(video))
 
       nil ->
@@ -286,32 +944,128 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp handle_transfer_progress(payload, %{assigns: %{worker_id: worker_id}} = socket) do
     with {:ok, progress} <- WorkerProtocol.parse_transfer_progress(payload),
-         :ok <- ensure_active_video(socket, progress.video_id) do
-      {progress, socket} = fill_transfer_rate(socket, progress)
-
-      _ = WorkerSessions.record_transfer_progress(worker_id, progress)
-      Events.broadcast_event(:transfer_progress, Map.put(progress, :worker_id, worker_id))
-
-      socket = maybe_send_next_transfer_chunk(socket, progress)
-
-      {:reply, {:ok, WorkerProtocol.event_ack("transfer_progress")}, socket}
+         {:ok, job_type, socket} <- ensure_transfer_attempt(socket, progress) do
+      case job_type do
+        :crf_search -> handle_crf_transfer_progress(socket, worker_id, progress)
+        :encode -> handle_encode_transfer_progress(socket, worker_id, progress)
+      end
     else
       {:error, reason} ->
         {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
+  end
+
+  defp ensure_transfer_attempt(socket, progress) do
+    cond do
+      crf_job?(socket, progress.job_id, progress.video_id) ->
+        {:ok, :crf_search, socket}
+
+      encode_job?(socket, progress.job_id, progress.video_id) ->
+        {:ok, :encode, socket}
+
+      true ->
+        {:error, :unknown_worker_session}
+    end
+  end
+
+  defp handle_crf_transfer_progress(socket, worker_id, progress) do
+    case ensure_active_video(socket, progress.video_id) do
+      :ok ->
+        {progress, socket} = fill_transfer_rate(socket, progress)
+        :ok = WorkerSessions.set_transfer_progress(worker_id, progress)
+
+        {:reply, {:ok, WorkerProtocol.event_ack("transfer_progress")},
+         maybe_send_next_transfer_chunk(socket, progress)}
+
+      {:error, reason} ->
+        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+    end
+  end
+
+  defp handle_encode_transfer_progress(socket, worker_id, progress) do
+    phase = if progress.percent >= 100, do: :input_ready, else: :receiving_input
+
+    :ok =
+      WorkerSessions.set_job_transfer_progress(worker_id, progress.job_id, progress, phase)
+
+    socket =
+      case socket.assigns[:encode_transfer] do
+        nil ->
+          socket
+
+        transfer ->
+          if progress.percent >= 100 or transfer.complete_pending do
+            complete_encode_transfer(socket, transfer)
+          else
+            transfer = %{transfer | waiting: false}
+            send(self(), {:stream_encode_transfer, transfer.job_id})
+            assign(socket, :encode_transfer, transfer)
+          end
+      end
+
+    {:reply, {:ok, WorkerProtocol.event_ack("transfer_progress")}, socket}
   end
 
   defp handle_crf_search_progress(payload, socket) do
     with {:ok, progress} <- WorkerProtocol.parse_crf_search_progress(payload),
-         {:ok, socket} <- ensure_resumable_active_video(socket, progress.video_id) do
-      _ = WorkerSessions.set_crf_search_progress(socket.assigns.worker_id, progress)
-      Events.broadcast_event(:crf_search_progress, progress)
-      {:reply, {:ok, WorkerProtocol.event_ack("crf_search_progress")}, socket}
+         true <- crf_job?(socket, progress.job_id, progress.video_id) do
+      if current_crf_attempt?(socket, progress) do
+        :ok = WorkerSessions.record_crf_search_progress(socket.assigns.worker_id, progress)
+        {:reply, {:ok, WorkerProtocol.event_ack("crf_search_progress")}, socket}
+      else
+        discard_stale_crf_progress(socket, progress)
+      end
     else
-      {:error, reason} ->
-        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+      _ -> {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
     end
   end
+
+  defp current_crf_attempt?(socket, %{job_id: job_id, video_id: video_id}) do
+    case Media.get_video(video_id) do
+      %Media.Video{state: :crf_searching, crf_search_worker_id: worker_id} = video ->
+        worker_id == worker_dispatch_id(socket) and crf_attempt_matches?(video, job_id, video_id)
+
+      _ ->
+        false
+    end
+  end
+
+  defp discard_stale_crf_progress(socket, progress) do
+    _ = WorkerSessions.clear_job(socket.assigns.worker_id, progress.job_id)
+
+    {:reply, {:ok, WorkerProtocol.event_discarded("crf_search_progress", :stale_worker_attempt)},
+     clear_assigned_video(socket.assigns.worker_id, socket)}
+  end
+
+  defp ensure_crf_attempt(socket, %{job_id: job_id, video_id: video_id}) do
+    with %Media.Video{
+           state: :crf_searching,
+           crf_search_worker_id: worker_id
+         } = video <- Media.get_video(video_id),
+         true <- worker_id == worker_dispatch_id(socket),
+         true <- crf_attempt_matches?(video, job_id, video_id),
+         {:ok, socket} <-
+           ensure_resumable_active_video(socket, video_id, :crf_searching, job_id) do
+      {:ok, socket}
+    else
+      _ -> {:error, :unknown_worker_session}
+    end
+  end
+
+  defp crf_attempt_matches?(
+         %Media.Video{worker_attempt_id: attempt_id},
+         attempt_id,
+         _video_id
+       )
+       when is_binary(attempt_id),
+       do: true
+
+  defp crf_attempt_matches?(%Media.Video{worker_attempt_id: nil}, nil, _video_id), do: true
+
+  defp crf_attempt_matches?(%Media.Video{worker_attempt_id: nil}, job_id, video_id),
+    do: job_id == Integer.to_string(video_id)
+
+  defp crf_attempt_matches?(_video, _job_id, _video_id), do: false
 
   defp handle_crf_search_result(payload, socket) do
     case WorkerProtocol.parse_crf_search_result(payload) do
@@ -333,33 +1087,406 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
-  defp handle_video_failed(payload, %{assigns: %{worker_id: worker_id}} = socket) do
-    with {:ok, failure} <- WorkerProtocol.parse_failure_report(payload),
-         {:ok, socket} <- ensure_resumable_active_video(socket, failure.video_id) do
-      video = Media.get_video(failure.video_id)
-
-      if is_nil(video) do
-        {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
-      else
-        _ =
-          Media.record_video_failure(video, failure.stage, failure.category,
-            code: failure.code,
-            message: failure.message,
-            context: Map.put(failure.context, :stderr_excerpt, failure.stderr_excerpt)
-          )
-
-        socket = clear_assigned_video(worker_id, socket)
-        Events.broadcast_event(:video_failed, failure)
-        {:reply, {:ok, WorkerProtocol.event_ack("video_failed")}, socket}
-      end
+  defp handle_encode_progress(payload, socket) do
+    with {:ok, progress} <- WorkerProtocol.parse_encode_progress(payload),
+         true <- encode_job?(socket, progress.job_id, progress.video_id) do
+      :ok = WorkerSessions.record_encode_progress(socket.assigns.worker_id, progress)
+      {:reply, {:ok, WorkerProtocol.event_ack("encode_progress")}, socket}
     else
+      _ -> {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
+    end
+  end
+
+  defp crf_job?(socket, job_id, video_id) do
+    socket.assigns[:current_video_id] == video_id and
+      (is_nil(job_id) or socket.assigns[:crf_job_id] == job_id)
+  end
+
+  defp resumable_crf?(socket, %Media.Video{} = video) do
+    socket.assigns[:client_worker_id] == video.crf_search_worker_id and
+      socket.assigns[:crf_job_id] ==
+        (video.worker_attempt_id || Integer.to_string(video.id))
+  end
+
+  defp resumable_encode?(socket, %Media.Video{} = video) do
+    socket.assigns[:client_worker_id] == video.encode_worker_id and
+      socket.assigns[:encode_job_id] == video.worker_attempt_id and
+      socket.assigns[:encode_video_id] == video.id
+  end
+
+  defp encode_job?(socket, job_id, video_id) do
+    socket.assigns[:encode_job_id] == job_id and socket.assigns[:encode_video_id] == video_id
+  end
+
+  defp handle_encode_completed(payload, socket) do
+    case WorkerProtocol.parse_encode_completion(payload) do
+      {:ok, completion} ->
+        handle_parsed_encode_completion(socket, completion)
+
       {:error, reason} ->
         {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
   end
 
+  defp handle_parsed_encode_completion(socket, completion) do
+    case ensure_encode_completion(socket, completion) do
+      {:ok, socket} ->
+        with_terminal_claim(
+          socket,
+          completion.video_id,
+          completion.job_id,
+          :encode,
+          "encode_completed",
+          fn -> finish_encode_completion(socket, completion) end
+        )
+
+      {:duplicate, socket} ->
+        acknowledge_encode_completion(socket, completion)
+
+      {:error, reason} ->
+        terminal_reply(socket, "encode_completed", reason)
+    end
+  end
+
+  defp finish_encode_completion(socket, completion) do
+    with %Media.Video{} = video <- Media.get_video(completion.video_id),
+         output_path = Encode.output_file(video),
+         :ok <- validate_encode_output_path(socket, completion, output_path),
+         {:ok, :success} <-
+           PostProcessor.process_encoding_success(
+             video,
+             output_path,
+             completion.output_bytes,
+             completion.job_id
+           ) do
+      Events.broadcast_event(:encoding_completed, %{
+        video_id: video.id,
+        job_id: completion.job_id,
+        result: :success,
+        output_bytes: completion.output_bytes,
+        output_percent: completion.output_percent
+      })
+
+      acknowledge_encode_completion(socket, completion)
+    else
+      nil ->
+        {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
+
+      {:error, reason} when reason in [:unknown_worker_session, :invalid_encode_completion] ->
+        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+
+      {:error, _reason} ->
+        {:reply, {:error, WorkerProtocol.error(:invalid_encode_completion)}, socket}
+    end
+  end
+
+  defp ensure_encode_completion(socket, %{job_id: job_id, video_id: video_id} = completion) do
+    case Media.get_video(video_id) do
+      %Media.Video{
+        state: :encoded,
+        worker_attempt_id: ^job_id
+      } ->
+        {:duplicate, socket}
+
+      _ ->
+        ensure_encode_job(socket, completion)
+    end
+  end
+
+  defp acknowledge_encode_completion(socket, completion) do
+    _ = WorkerSessions.clear_job(socket.assigns.worker_id, completion.job_id)
+
+    {:reply, {:ok, WorkerProtocol.event_ack("encode_completed")}, clear_encode_job(socket)}
+  end
+
+  @spec ensure_encode_job(
+          Phoenix.Socket.t(),
+          EncodeProgress.t() | EncodeCompletion.t() | FailureReport.t() | TransferProgress.t()
+        ) ::
+          {:ok, Phoenix.Socket.t()} | {:error, :unknown_worker_session}
+  defp ensure_encode_job(socket, %{job_id: job_id, video_id: video_id}) do
+    with %Media.Video{
+           state: :encoding,
+           encode_worker_id: worker_id,
+           worker_attempt_id: ^job_id
+         } <- Media.get_video(video_id),
+         true <- worker_id == socket.assigns.client_worker_id do
+      if socket.assigns[:encode_job_id] == job_id and socket.assigns[:encode_video_id] == video_id do
+        {:ok, socket}
+      else
+        recover_encode_job(socket, job_id, video_id)
+      end
+    else
+      _ -> {:error, :unknown_worker_session}
+    end
+  end
+
+  @spec recover_encode_job(Phoenix.Socket.t(), String.t(), pos_integer()) ::
+          {:ok, Phoenix.Socket.t()} | {:error, :unknown_worker_session}
+  defp recover_encode_job(socket, job_id, video_id) do
+    job = %Job{
+      job_id: job_id,
+      job_type: :encode,
+      video_id: video_id,
+      phase: :encoding
+    }
+
+    case WorkerSessions.assign_job(socket.assigns.worker_id, job) do
+      {:ok, _session} ->
+        {:ok,
+         socket
+         |> assign(:encode_job_id, job_id)
+         |> assign(:encode_video_id, video_id)}
+
+      _ ->
+        {:error, :unknown_worker_session}
+    end
+  end
+
+  defp validate_encode_output_path(socket, completion, output_path) do
+    if not socket.assigns[:local_worker] or completion.output_path == output_path do
+      :ok
+    else
+      {:error, :invalid_encode_completion}
+    end
+  end
+
+  defp clear_encode_job(socket) do
+    socket
+    |> assign(:encode_video_id, nil)
+    |> assign(:encode_job_id, nil)
+  end
+
+  defp broadcast_encoding_started(video, vmaf) do
+    Events.broadcast_event(:encoding_started, %{
+      video_id: video.id,
+      filename: Path.basename(video.path),
+      video_size: video.size,
+      width: video.width,
+      height: video.height,
+      hdr: video.hdr,
+      video_codecs: video.video_codecs,
+      crf: vmaf.crf,
+      vmaf_score: vmaf.score,
+      predicted_percent: vmaf.percent,
+      predicted_savings: vmaf.savings
+    })
+  end
+
+  defp handle_video_failed(payload, %{assigns: %{worker_id: worker_id}} = socket) do
+    case WorkerProtocol.parse_failure_report(payload) do
+      {:ok, failure} ->
+        if failure.stage == :encoding do
+          handle_encode_failure(worker_id, socket, failure)
+        else
+          handle_crf_failure(worker_id, socket, failure)
+        end
+
+      {:error, reason} ->
+        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+    end
+  end
+
+  @spec handle_encode_failure(String.t(), Phoenix.Socket.t(), FailureReport.t()) ::
+          {:reply, {:ok | :error, map()}, Phoenix.Socket.t()}
+  defp handle_encode_failure(worker_id, socket, %FailureReport{} = failure) do
+    job_id = failure.job_id || socket.assigns[:encode_job_id]
+    failure = %FailureReport{failure | job_id: job_id}
+
+    case ensure_encode_failure(socket, failure) do
+      {:ok, socket, video} ->
+        handle_claimed_encode_failure(worker_id, socket, video, failure)
+
+      {:duplicate, socket} ->
+        acknowledge_encode_failure(worker_id, socket, failure)
+
+      {:error, reason} ->
+        terminal_reply(socket, "video_failed", reason)
+    end
+  end
+
+  defp handle_claimed_encode_failure(worker_id, socket, video, failure) do
+    with_terminal_claim(
+      socket,
+      video.id,
+      failure.job_id,
+      :encode,
+      "video_failed",
+      fn ->
+        finish_worker_failure(video, failure, socket, fn ->
+          acknowledge_encode_failure(worker_id, socket, failure)
+        end)
+      end
+    )
+  end
+
+  defp ensure_encode_failure(socket, %{job_id: job_id, video_id: video_id} = failure) do
+    case Media.get_video(video_id) do
+      %Media.Video{
+        state: :failed,
+        worker_attempt_id: ^job_id
+      } ->
+        {:duplicate, socket}
+
+      %Media.Video{} = video ->
+        case ensure_encode_job(socket, failure) do
+          {:ok, socket} -> {:ok, socket, video}
+          {:error, reason} -> {:error, reason}
+        end
+
+      nil ->
+        {:error, :unknown_worker_session}
+    end
+  end
+
+  defp acknowledge_encode_failure(worker_id, socket, failure) do
+    _ = WorkerSessions.clear_job(worker_id, failure.job_id)
+    {:reply, {:ok, WorkerProtocol.event_ack("video_failed")}, clear_encode_job(socket)}
+  end
+
+  defp handle_crf_failure(worker_id, socket, failure) do
+    case ensure_crf_delivery(socket, failure, [:failed]) do
+      {:active, socket} ->
+        video = Media.get_video(failure.video_id)
+        handle_claimed_crf_failure(worker_id, socket, video, failure)
+
+      {:duplicate, socket} ->
+        acknowledge_crf_terminal(worker_id, socket, "video_failed")
+
+      {:error, reason} ->
+        terminal_reply(socket, "video_failed", reason)
+    end
+  end
+
+  defp handle_claimed_crf_failure(worker_id, socket, video, failure) do
+    with_terminal_claim(
+      socket,
+      video.id,
+      failure.job_id,
+      :crf_search,
+      "video_failed",
+      fn ->
+        finish_claimed_crf_failure(worker_id, socket, video, failure)
+      end
+    )
+  end
+
+  defp finish_claimed_crf_failure(worker_id, socket, video, failure) do
+    case crf_retry(video, failure) do
+      {:retry, next_attempt, reason, retry_count} ->
+        context =
+          failure.context
+          |> Map.put("next_crf_attempt", CrfSearchPolicy.to_context(next_attempt))
+          |> Map.put("retry_reason", Atom.to_string(reason))
+
+        failure = %{failure | context: context}
+
+        finish_worker_failure(
+          video,
+          failure,
+          socket,
+          fn ->
+            retry_crf_terminal(worker_id, socket, video.id, failure.job_id)
+          end,
+          retry_count: retry_count
+        )
+
+      :stop ->
+        finish_worker_failure(video, failure, socket, fn ->
+          acknowledge_crf_terminal(worker_id, socket, "video_failed")
+        end)
+    end
+  end
+
+  defp retry_crf_terminal(worker_id, socket, video_id, job_id) do
+    case Media.retry_failed_worker_crf_attempt(video_id, job_id) do
+      :ok -> acknowledge_crf_terminal(worker_id, socket, "video_failed")
+      {:error, reason} -> terminal_reply(socket, "video_failed", reason)
+    end
+  end
+
+  defp crf_retry(video, failure) do
+    prior_retry_count =
+      video.id
+      |> Media.get_video_failures()
+      |> List.first()
+      |> case do
+        %{failure_stage: :crf_search, retry_count: count} -> count
+        _ -> 0
+      end
+
+    with {:ok, attempt} <- CrfSearchPolicy.from_args(failure.context["argv"] || []),
+         {:retry, next_attempt, reason} <-
+           CrfSearchPolicy.retry(
+             attempt,
+             failure.category,
+             prior_retry_count,
+             Reencodarr.Rules.min_vmaf_target(video)
+           ) do
+      {:retry, next_attempt, reason, prior_retry_count + 1}
+    else
+      _ -> :stop
+    end
+  end
+
+  defp record_worker_failure(video, failure, opts) do
+    context = Map.put(failure.context, :stderr_excerpt, failure.stderr_excerpt)
+
+    case {failure.stage, failure.category, worker_exit_code(failure)} do
+      {:crf_search, category, _exit_code}
+      when category in [:crf_optimization, :size_limits] ->
+        Media.record_video_failure(video, failure.stage, failure.category,
+          code: failure.code,
+          message: failure.message,
+          context: context,
+          retry_count: Keyword.get(opts, :retry_count, 0),
+          worker_attempt_id: failure.job_id
+        )
+
+      {_stage, _category, nil} ->
+        Media.record_video_failure(video, failure.stage, failure.category,
+          code: failure.code,
+          message: failure.message,
+          context: context,
+          worker_attempt_id: failure.job_id
+        )
+
+      {_stage, _category, exit_code} ->
+        FailureTracker.record_process_exit_failure(video, failure.stage, exit_code,
+          context: context,
+          worker_attempt_id: failure.job_id
+        )
+    end
+  end
+
+  defp finish_worker_failure(video, failure, socket, acknowledge, opts \\ []) do
+    case record_worker_failure(video, failure, opts) do
+      {:ok, _failure} ->
+        Events.broadcast_event(:video_failed, failure)
+        acknowledge.()
+
+      {:error, _reason} ->
+        {:reply, {:error, WorkerProtocol.error(:invalid_failure_report)}, socket}
+    end
+  end
+
+  @spec worker_exit_code(FailureReport.t()) :: integer() | nil
+  defp worker_exit_code(%FailureReport{code: "worker_crf_search_failed"}), do: 1
+  defp worker_exit_code(%FailureReport{code: "worker_encode_failed"}), do: 1
+
+  defp worker_exit_code(%FailureReport{code: "EXIT_" <> code}) do
+    case Integer.parse(code) do
+      {exit_code, ""} -> exit_code
+      _ -> nil
+    end
+  end
+
+  defp worker_exit_code(_failure), do: nil
+
   defp claim_work(worker_id, socket) do
-    case Media.claim_next_video_for_crf_search() do
+    attempt_id = "crf-#{Ecto.UUID.generate()}"
+
+    case Media.claim_next_video_for_crf_search(worker_dispatch_id(socket), attempt_id) do
       %Media.Video{} = video ->
         assign_claimed_work(worker_id, socket, video)
 
@@ -370,29 +1497,74 @@ defmodule ReencodarrWeb.WorkerChannel do
 
   defp assign_claimed_work(worker_id, socket, video) do
     target_vmaf = Reencodarr.Rules.vmaf_target(video)
+    attempt = pending_crf_retry(video) || CrfSearchPolicy.initial(video, target_vmaf)
+    local? = local_source?(socket, video)
 
-    with {:ok, _video} <- Media.mark_as_worker_crf_searching(video, worker_dispatch_id(socket)),
-         {:ok, _session} <- WorkerSessions.assign_video(worker_id, video.id, :receiving_input) do
+    with {:ok, video} <- refresh_transfer_source(video, socket.assigns[:local_worker]),
+         {:ok, _session} <-
+           WorkerSessions.assign_video(
+             worker_id,
+             video.id,
+             worker_phase(local?),
+             video.worker_attempt_id
+           ) do
       socket =
-        prepare_transfer(socket, video, target_vmaf, stream?: websocket_transfer_on_assign?())
+        prepare_transfer(socket, video, target_vmaf,
+          stream?: not local? and websocket_transfer_on_assign?()
+        )
 
-      {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf)}, socket}
+      {:reply,
+       {:ok, WorkerProtocol.work_assigned(video, target_vmaf, local?: local?, attempt: attempt)},
+       socket}
     else
+      {:error, :source_missing} ->
+        fail_missing_source(video)
+        {:reply, {:error, WorkerProtocol.error(:source_missing)}, socket}
+
       {:error, reason} ->
         _ = Media.mark_as_analyzed(video)
         {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
   end
 
+  defp pending_crf_retry(video) do
+    video.id
+    |> Media.get_video_failures()
+    |> Enum.find_value(fn
+      %{failure_stage: :crf_search, system_context: context} when is_map(context) ->
+        case CrfSearchPolicy.from_context(context["next_crf_attempt"] || %{}) do
+          {:ok, attempt} -> attempt
+          {:error, _reason} -> nil
+        end
+
+      _failure ->
+        nil
+    end)
+  end
+
   defp reply_for_active_work(worker_id, socket, video, :resend_input) do
     target_vmaf = socket.assigns[:current_vmaf_target] || Reencodarr.Rules.vmaf_target(video)
+    local? = local_source?(socket, video)
 
-    case WorkerSessions.assign_video(worker_id, video.id, :receiving_input) do
-      {:ok, _session} ->
-        socket =
-          prepare_transfer(socket, video, target_vmaf, stream?: true, fail_if_missing?: true)
+    with {:ok, video} <- refresh_transfer_source(video, socket.assigns[:local_worker]),
+         {:ok, _session} <-
+           WorkerSessions.assign_video(
+             worker_id,
+             video.id,
+             worker_phase(local?),
+             video.worker_attempt_id
+           ) do
+      socket =
+        prepare_transfer(socket, video, target_vmaf,
+          stream?: not local? and websocket_transfer_on_assign?(),
+          fail_if_missing?: true
+        )
 
-        {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf)}, socket}
+      {:reply, {:ok, WorkerProtocol.work_assigned(video, target_vmaf, local?: local?)}, socket}
+    else
+      {:error, :source_missing} ->
+        fail_missing_source(video)
+        {:reply, {:error, WorkerProtocol.error(:source_missing)}, socket}
 
       {:error, reason} ->
         {:reply, {:error, WorkerProtocol.error(reason)}, socket}
@@ -404,12 +1576,30 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp resume_active_work(socket, video) do
-    {:reply, {:ok, WorkerProtocol.work_in_progress(video, socket.assigns[:current_vmaf_target])},
-     socket}
+    case refresh_transfer_source(video, socket.assigns[:local_worker]) do
+      {:ok, video} ->
+        local? = local_source?(socket, video)
+
+        {:reply,
+         {:ok,
+          WorkerProtocol.work_in_progress(video, socket.assigns[:current_vmaf_target],
+            local?: local?
+          )}, socket}
+
+      {:error, :source_missing} ->
+        fail_missing_source(video)
+        {:reply, {:error, WorkerProtocol.error(:source_missing)}, socket}
+    end
   end
 
+  defp worker_phase(true), do: :input_ready
+  defp worker_phase(false), do: :receiving_input
+
+  defp local_source?(socket, video),
+    do: (socket.assigns[:local_worker] || false) and File.regular?(video.path)
+
   defp prepare_transfer(socket, video, target_vmaf, opts) do
-    transfer_id = Integer.to_string(video.id)
+    transfer_id = video.worker_attempt_id || Integer.to_string(video.id)
     total_bytes = video.size || 0
     chunk_size_bytes = WorkerProtocol.chunk_size_bytes()
     total_chunks = total_chunks(total_bytes, chunk_size_bytes)
@@ -417,6 +1607,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     socket =
       socket
       |> assign(:current_video_id, video.id)
+      |> assign(:crf_job_id, transfer_id)
       |> assign(:current_vmaf_target, target_vmaf)
       |> assign(:transfer_io_device, nil)
       |> assign(:transfer_path, video.path)
@@ -438,6 +1629,36 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
 
     socket
+  end
+
+  defp refresh_transfer_source(video, local_worker?) do
+    case File.stat(video.path) do
+      {:ok, %{size: size}} when size != video.size ->
+        Logger.warning(
+          "Worker transfer size mismatch for video #{video.id}; updating source size"
+        )
+
+        case Media.update_video(video, %{size: size}) do
+          {:ok, updated_video} -> {:ok, updated_video}
+          {:error, _reason} -> {:ok, %{video | size: size}}
+        end
+
+      {:ok, _stat} ->
+        {:ok, video}
+
+      {:error, :enoent} when local_worker? ->
+        {:error, :source_missing}
+
+      {:error, _reason} ->
+        {:ok, video}
+    end
+  end
+
+  defp fail_missing_source(video) do
+    Media.record_video_failure(video, :crf_search, :file_access,
+      message: "source file no longer exists on server",
+      context: %{path: video.path}
+    )
   end
 
   defp websocket_transfer_on_assign?,
@@ -524,20 +1745,16 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp handle_parsed_crf_search_result(%{assigns: %{worker_id: worker_id}} = socket, result) do
-    case Media.get_video(result.video_id) do
-      %Media.Video{state: :crf_searched, chosen_vmaf_id: chosen_vmaf_id}
-      when not is_nil(chosen_vmaf_id) ->
+    case ensure_crf_delivery(socket, result, [:crf_searched]) do
+      {:duplicate, socket} ->
         {:reply, {:ok, WorkerProtocol.event_ack("crf_search_result")},
          clear_assigned_video(worker_id, socket)}
 
-      _ ->
-        case ensure_result_video(socket, result.video_id) do
-          {:ok, socket} ->
-            handle_valid_crf_search_result(socket, result)
+      {:active, socket} ->
+        handle_valid_crf_search_result(socket, result)
 
-          {:error, reason} ->
-            {:reply, {:error, WorkerProtocol.error(reason)}, socket}
-        end
+      {:error, reason} ->
+        {:reply, {:error, WorkerProtocol.error(reason)}, socket}
     end
   end
 
@@ -578,21 +1795,79 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp handle_parsed_crf_search_completed(worker_id, socket, completion) do
-    case Media.get_video(completion.video_id) do
-      %Media.Video{state: :crf_searched, chosen_vmaf_id: chosen_vmaf_id}
-      when not is_nil(chosen_vmaf_id) ->
-        {:reply, {:ok, WorkerProtocol.event_ack("crf_search_completed")},
-         clear_assigned_video(worker_id, socket)}
+    case ensure_crf_delivery(socket, completion, [:analyzed, :crf_searched, :failed]) do
+      {:active, socket} ->
+        with_terminal_claim(
+          socket,
+          completion.video_id,
+          completion.job_id,
+          :crf_search,
+          "crf_search_completed",
+          fn -> handle_valid_crf_search_completion(worker_id, socket, completion) end
+        )
+
+      {:duplicate, socket} ->
+        acknowledge_crf_terminal(worker_id, socket, "crf_search_completed")
+
+      {:error, reason} ->
+        terminal_reply(socket, "crf_search_completed", reason)
+    end
+  end
+
+  defp ensure_crf_delivery(socket, event, duplicate_states) do
+    case Media.get_video(event.video_id) do
+      %Media.Video{state: :crf_searching} ->
+        case ensure_crf_attempt(socket, event) do
+          {:ok, socket} -> {:active, socket}
+          {:error, reason} -> {:error, reason}
+        end
+
+      %Media.Video{state: state} = video ->
+        if state in duplicate_states and
+             crf_attempt_matches?(video, event.job_id, event.video_id),
+           do: {:duplicate, socket},
+           else: {:error, :unknown_worker_session}
 
       _ ->
-        case ensure_result_video(socket, completion.video_id) do
-          {:ok, socket} ->
-            handle_valid_crf_search_completion(worker_id, socket, completion)
-
-          {:error, reason} ->
-            {:reply, {:error, WorkerProtocol.error(reason)}, socket}
-        end
+        {:error, :unknown_worker_session}
     end
+  end
+
+  defp acknowledge_crf_terminal(worker_id, socket, event) do
+    {:reply, {:ok, WorkerProtocol.event_ack(event)}, clear_assigned_video(worker_id, socket)}
+  end
+
+  defp with_terminal_claim(socket, video_id, job_id, job_type, event, fun) do
+    WorkerSessions.record_job_activity(job_id, nil)
+
+    case Media.claim_worker_terminal(video_id, job_id, job_type) do
+      {:ok, :claimed} ->
+        release_terminal_claim_on_error(fun.(), video_id, job_id, job_type)
+
+      {:error, reason} ->
+        terminal_reply(socket, event, reason)
+    end
+  end
+
+  defp terminal_reply(socket, event, reason)
+       when reason in [:stale_worker_attempt, :unknown_worker_session] do
+    {:reply, {:ok, WorkerProtocol.event_discarded(event, reason)}, socket}
+  end
+
+  defp terminal_reply(socket, _event, reason),
+    do: {:reply, {:error, WorkerProtocol.error(reason)}, socket}
+
+  defp release_terminal_claim_on_error(
+         {:reply, {:ok, _payload}, _socket} = reply,
+         _video_id,
+         _job_id,
+         _job_type
+       ),
+       do: reply
+
+  defp release_terminal_claim_on_error(reply, video_id, job_id, job_type) do
+    Media.release_worker_terminal(video_id, job_id, job_type)
+    reply
   end
 
   defp apply_completion_result(worker_id, socket, video, :ok, chosen_crf, results) do
@@ -641,39 +1916,20 @@ defmodule ReencodarrWeb.WorkerChannel do
     end
   end
 
-  defp ensure_resumable_active_video(socket, video_id, phase \\ :crf_searching) do
+  defp ensure_resumable_active_video(
+         socket,
+         video_id,
+         phase \\ :crf_searching,
+         job_id \\ nil
+       ) do
     case socket.assigns[:current_video_id] do
       ^video_id ->
         {:ok, socket}
 
       nil ->
-        resume_active_video(socket, video_id, phase)
+        resume_active_video(socket, video_id, phase, job_id)
 
       _other ->
-        {:error, :unknown_worker_session}
-    end
-  end
-
-  defp ensure_result_video(socket, video_id) do
-    case ensure_resumable_active_video(socket, video_id) do
-      {:ok, socket} ->
-        {:ok, socket}
-
-      {:error, :unknown_worker_session} ->
-        allow_dispatched_video_result(socket, video_id)
-    end
-  end
-
-  defp allow_dispatched_video_result(socket, video_id) do
-    case Media.get_video(video_id) do
-      %Media.Video{state: :crf_searching, crf_search_worker_id: dispatch_id} = video
-      when is_binary(dispatch_id) ->
-        {:ok,
-         socket
-         |> assign(:current_video_id, video.id)
-         |> assign(:current_vmaf_target, Reencodarr.Rules.vmaf_target(video))}
-
-      _ ->
         {:error, :unknown_worker_session}
     end
   end
@@ -681,17 +1937,26 @@ defmodule ReencodarrWeb.WorkerChannel do
   defp resume_active_video(
          %{assigns: %{worker_id: worker_id}} = socket,
          video_id,
-         phase
+         phase,
+         job_id
        ) do
     with %Media.Video{state: :crf_searching, crf_search_worker_id: dispatch_id} = video
          when is_binary(dispatch_id) <- Media.get_video(video_id),
          true <- dispatch_id == worker_dispatch_id(socket),
          false <- assigned_to_other_worker?(worker_id, video_id),
-         {:ok, _session} <- WorkerSessions.assign_video(worker_id, video_id, phase) do
+         {:ok, _session} <-
+           WorkerSessions.assign_video(
+             worker_id,
+             video_id,
+             phase,
+             job_id || video.worker_attempt_id
+           ) do
       {:ok,
        socket
        |> assign(:current_video_id, video_id)
-       |> assign(:current_vmaf_target, Reencodarr.Rules.vmaf_target(video))}
+       |> assign(:crf_job_id, job_id || video.worker_attempt_id || Integer.to_string(video.id))
+       |> assign(:current_vmaf_target, Reencodarr.Rules.vmaf_target(video))
+       |> assign(:transfer_id, job_id || video.worker_attempt_id)}
     else
       _ -> {:error, :unknown_worker_session}
     end
@@ -843,6 +2108,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     _ = WorkerSessions.clear_video(worker_id)
 
     assign(socket, :current_video_id, nil)
+    |> assign(:crf_job_id, nil)
     |> assign(:current_vmaf_target, nil)
     |> assign(:transfer_io_device, nil)
     |> assign(:transfer_path, nil)
@@ -860,8 +2126,143 @@ defmodule ReencodarrWeb.WorkerChannel do
   end
 
   defp mark_crf_search_active(worker_id, video_id) do
-    _ = WorkerSessions.set_crf_search_progress(worker_id, %{video_id: video_id})
+    _ = WorkerSessions.assign_video(worker_id, video_id, :crf_searching)
     :ok
+  end
+
+  defp maybe_prepare_encode_transfer(socket, _video, true, _job_id), do: socket
+
+  defp maybe_prepare_encode_transfer(socket, video, false, job_id) do
+    if websocket_transfer_on_assign?() do
+      socket = close_encode_transfer(socket)
+      total_bytes = video.size || 0
+      chunk_size = WorkerProtocol.chunk_size_bytes()
+
+      transfer = %{
+        job_id: job_id,
+        video_id: video.id,
+        path: video.path,
+        io: nil,
+        chunk_size: chunk_size,
+        total_bytes: total_bytes,
+        total_chunks: total_chunks(total_bytes, chunk_size),
+        bytes_sent: 0,
+        chunk_index: 0,
+        waiting: false,
+        complete_pending: false
+      }
+
+      send(self(), {:stream_encode_transfer, job_id})
+      assign(socket, :encode_transfer, transfer)
+    else
+      socket
+    end
+  end
+
+  defp open_encode_transfer(socket, transfer) do
+    case File.open(transfer.path, [:read, :binary]) do
+      {:ok, io} ->
+        video = Media.get_video(transfer.video_id)
+
+        push(
+          socket,
+          "transfer_started",
+          WorkerProtocol.transfer_started(
+            video,
+            transfer.job_id,
+            transfer.chunk_size,
+            transfer.total_bytes,
+            transfer.total_chunks
+          )
+        )
+
+        transfer = %{transfer | io: io}
+        send(self(), {:stream_encode_transfer, transfer.job_id})
+        {:noreply, assign(socket, :encode_transfer, transfer)}
+
+      {:error, reason} ->
+        {:noreply, fail_encode_transfer(socket, transfer, reason)}
+    end
+  end
+
+  defp read_encode_transfer(socket, transfer) do
+    case IO.binread(transfer.io, transfer.chunk_size) do
+      chunk when is_binary(chunk) ->
+        video = Media.get_video(transfer.video_id)
+        bytes_sent = transfer.bytes_sent + byte_size(chunk)
+
+        push(
+          socket,
+          "transfer_chunk",
+          WorkerProtocol.transfer_chunk(
+            video,
+            transfer.job_id,
+            transfer.chunk_index,
+            transfer.total_chunks,
+            bytes_sent,
+            transfer.total_bytes,
+            chunk
+          )
+        )
+
+        transfer = %{
+          transfer
+          | bytes_sent: bytes_sent,
+            chunk_index: transfer.chunk_index + 1,
+            waiting: true,
+            complete_pending: bytes_sent >= transfer.total_bytes
+        }
+
+        {:noreply, assign(socket, :encode_transfer, transfer)}
+
+      :eof ->
+        {:noreply, complete_encode_transfer(socket, transfer)}
+
+      {:error, reason} ->
+        {:noreply, fail_encode_transfer(socket, transfer, reason)}
+    end
+  end
+
+  defp complete_encode_transfer(socket, %{io: io} = transfer) do
+    if io, do: close_transfer_stream(io)
+    video = Media.get_video(transfer.video_id)
+
+    push(
+      socket,
+      "transfer_complete",
+      WorkerProtocol.transfer_complete(
+        video,
+        transfer.job_id,
+        transfer.total_bytes,
+        transfer.total_chunks
+      )
+    )
+
+    assign(socket, :encode_transfer, nil)
+  end
+
+  defp fail_encode_transfer(socket, transfer, reason) do
+    if transfer.io, do: close_transfer_stream(transfer.io)
+    video = Media.get_video(transfer.video_id)
+
+    push(
+      socket,
+      "transfer_failed",
+      WorkerProtocol.transfer_failed(video, transfer.job_id, format_file_error(reason))
+    )
+
+    _ = WorkerSessions.clear_job(socket.assigns.worker_id, transfer.job_id)
+    _ = Media.mark_as_crf_searched(video)
+    clear_encode_job(socket) |> assign(:encode_transfer, nil)
+  end
+
+  defp close_encode_transfer(socket) do
+    case socket.assigns[:encode_transfer] do
+      %{io: io} when not is_nil(io) -> close_transfer_stream(io)
+      _ -> :ok
+    end
+
+    assign(socket, :encode_transfer, nil)
   end
 
   defp open_transfer_stream(
@@ -891,8 +2292,8 @@ defmodule ReencodarrWeb.WorkerChannel do
     if is_nil(video) do
       {:noreply, handle_transfer_failure(socket, video_id, :enoent)}
     else
-      _ =
-        WorkerSessions.record_transfer_progress(
+      :ok =
+        WorkerSessions.set_transfer_progress(
           socket.assigns.worker_id,
           initial_transfer_progress(socket, video)
         )
@@ -1088,7 +2489,12 @@ defmodule ReencodarrWeb.WorkerChannel do
           push(
             socket,
             "transfer_failed",
-            WorkerProtocol.transfer_failed(video, Integer.to_string(video.id), message)
+            WorkerProtocol.transfer_failed(
+              video,
+              socket.assigns[:crf_job_id] || video.worker_attempt_id ||
+                Integer.to_string(video.id),
+              message
+            )
           )
 
         socket

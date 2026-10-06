@@ -13,6 +13,7 @@ defmodule Reencodarr.Dashboard.State do
 
   alias Phoenix.PubSub
   alias Reencodarr.AbAv1.ProcessControl
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Media.ChartQueries
   alias Reencodarr.Media.VideoQueries
@@ -21,10 +22,12 @@ defmodule Reencodarr.Dashboard.State do
 
   @queue_refresh_interval 5_000
   @chart_refresh_interval 300_000
+  @default_state_query_timeout 1_000
   @default_queue_query_timeout 1_000
   @progress_debounce_ms 500
   @tracked_video_states [
     :needs_analysis,
+    :analyzing,
     :analyzed,
     :crf_searching,
     :crf_searched,
@@ -37,7 +40,7 @@ defmodule Reencodarr.Dashboard.State do
     crf_search_video: nil,
     crf_search_results: [],
     crf_search_sample: nil,
-    crf_progress: :none,
+    crf_progress: nil,
     encoding_video: nil,
     encoding_vmaf: nil,
     encoding_progress: :none,
@@ -66,8 +69,10 @@ defmodule Reencodarr.Dashboard.State do
   @doc """
   Returns the current dashboard state.
   """
-  def get_state do
-    GenServer.call(__MODULE__, :get_state)
+  def get_state(timeout \\ @default_state_query_timeout) do
+    GenServer.call(__MODULE__, :get_state, timeout)
+  catch
+    :exit, _ -> Map.delete(@default_state, :progress_debounce_ref)
   end
 
   @doc """
@@ -100,6 +105,7 @@ defmodule Reencodarr.Dashboard.State do
   def handle_continue(:fetch_initial_data, state) do
     stats = load_initial_dashboard_stats(state.stats)
     queue_counts = refresh_queue_counts(state.queue_counts, stats)
+    state = %{state | service_status: analyzer_service_status(state.service_status, stats)}
 
     initial_queue_items =
       if queue_refresh_enabled?() do
@@ -162,7 +168,7 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_cast(:refresh_queues_now, state) do
-    {:noreply, refresh_queue_previews(state)}
+    {:noreply, refresh_queues(state)}
   end
 
   # CRF Search Events
@@ -176,7 +182,7 @@ defmodule Reencodarr.Dashboard.State do
       | crf_search_video: video,
         crf_search_results: [],
         crf_search_sample: nil,
-        crf_progress: :none,
+        crf_progress: nil,
         service_status: service_status
     }
 
@@ -220,7 +226,7 @@ defmodule Reencodarr.Dashboard.State do
   end
 
   @impl true
-  def handle_info({:crf_search_progress, progress}, state) do
+  def handle_info({:crf_search_progress, %CrfSearchProgress{} = progress}, state) do
     # Debounce: cancel any pending flush and schedule a new one
     if state.progress_debounce_ref, do: Process.cancel_timer(state.progress_debounce_ref)
     ref = Process.send_after(self(), :flush_progress, @progress_debounce_ms)
@@ -242,7 +248,7 @@ defmodule Reencodarr.Dashboard.State do
       | crf_search_video: nil,
         crf_search_results: [],
         crf_search_sample: nil,
-        crf_progress: :none,
+        crf_progress: nil,
         service_status: service_status
     }
 
@@ -338,7 +344,7 @@ defmodule Reencodarr.Dashboard.State do
 
   @impl true
   def handle_info(:refresh_queues, state) do
-    {:noreply, refresh_queue_previews(state)}
+    {:noreply, refresh_queues(state)}
   rescue
     error ->
       Logger.warning("Dashboard.State refresh_queues failed: #{inspect(error)}")
@@ -428,10 +434,21 @@ defmodule Reencodarr.Dashboard.State do
     }
   end
 
-  defp refresh_queue_previews(state) do
+  defp refresh_queues(state) do
     if queue_refresh_enabled?() do
+      stats = load_initial_dashboard_stats(state.stats)
       items = fetch_queue_items(state.queue_items)
-      state = %{state | queue_items: items, queue_previews_loaded: true}
+
+      state = %{
+        state
+        | stats: stats,
+          queue_counts: refresh_queue_counts(state.queue_counts, stats),
+          queue_items: items,
+          queue_previews_loaded: true
+      }
+
+      state = %{state | service_status: analyzer_service_status(state.service_status, stats)}
+
       broadcast_state(state)
       Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
       state
@@ -448,7 +465,9 @@ defmodule Reencodarr.Dashboard.State do
 
   defp refresh_queue_counts(current_queue_counts, stats) do
     %{
-      analyzer: stats.needs_analysis || current_queue_counts.analyzer || 0,
+      analyzer:
+        (stats.needs_analysis || 0) +
+          (stats.analyzing || 0),
       crf_searcher: stats.analyzed || current_queue_counts.crf_searcher || 0,
       encoder: stats.encoding_queue_count || current_queue_counts.encoder || 0
     }
@@ -559,7 +578,8 @@ defmodule Reencodarr.Dashboard.State do
         queue_member?(new_video, :encoder)
       )
 
-    %{state | stats: stats, queue_counts: queue_counts}
+    state = %{state | stats: stats, queue_counts: queue_counts}
+    %{state | service_status: analyzer_service_status(state.service_status, stats)}
   end
 
   defp apply_video_mutation(state, _mutation), do: state
@@ -638,6 +658,7 @@ defmodule Reencodarr.Dashboard.State do
   end
 
   defp queue_member?(%{state: :needs_analysis}, :analyzer), do: true
+  defp queue_member?(%{state: :analyzing}, :analyzer), do: true
   defp queue_member?(%{state: :analyzed}, :crf_searcher), do: true
 
   defp queue_member?(%{state: :crf_searched, chosen_vmaf_id: chosen_vmaf_id}, :encoder),
@@ -645,16 +666,18 @@ defmodule Reencodarr.Dashboard.State do
 
   defp queue_member?(_video, _queue), do: false
 
+  defp analyzer_service_status(service_status, %{analyzing: analyzing})
+       when is_integer(analyzing) do
+    Map.put(service_status, :analyzer, if(analyzing > 0, do: :processing, else: :idle))
+  end
+
+  defp analyzer_service_status(service_status, _stats), do: service_status
+
   defp snapshot_size(%{size: size}) when is_number(size), do: size
   defp snapshot_size(_video), do: 0
 
-  defp snapshot_savings_bytes(%{state: :encoded, original_size: original_size, size: size})
-       when is_number(original_size) and is_number(size) and original_size > size do
-    original_size - size
-  end
-
-  defp snapshot_savings_bytes(%{state: state, chosen_vmaf_savings: savings})
-       when state != :encoded and is_number(savings) and savings > 0 do
+  defp snapshot_savings_bytes(%{space_saved_bytes: savings})
+       when is_number(savings) and savings > 0 do
     savings
   end
 

@@ -10,12 +10,12 @@
 - Prefer repo evidence, logs, diagnostics, and tests over guessing.
 
 ## Commands
-- Use `nix develop -c <command>` for repo commands.
-- `nix develop -c mix setup` installs deps, creates/migrates the DB, and builds assets.
-- `nix develop -c mix test` runs the full test suite. Prefer the full suite before finishing when practical.
-- `nix develop -c mix compile --warnings-as-errors` catches compile regressions.
-- `nix develop -c mix credo --strict` is the lint pass.
-- `nix develop -c mix format` and `nix develop -c mix format --check-formatted` handle formatting.
+- Use the repository's pinned devenv environment: `devenv shell -- <command>`.
+- `devenv shell -- mix setup` installs deps, creates/migrates the DB, and builds assets.
+- `devenv shell -- mix test` runs the full test suite. Prefer the full suite before finishing when practical.
+- `devenv shell -- mix compile --warnings-as-errors` catches compile regressions.
+- `devenv shell -- mix credo --strict` is the lint pass.
+- `devenv shell -- mix format` and `devenv shell -- mix format --check-formatted` handle formatting.
 
 ## Live Debugging
 - Prefer `bin/rpc` for inspecting the running system; do not guess.

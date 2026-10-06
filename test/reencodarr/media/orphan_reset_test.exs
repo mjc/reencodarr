@@ -6,7 +6,7 @@ defmodule Reencodarr.Media.OrphanResetTest do
 
   alias Reencodarr.Media
 
-  describe "reset_orphaned_crf_searching/0" do
+  describe "reset_orphaned_crf_searching/1" do
     test "resets crf_searching videos to analyzed" do
       {:ok, video} =
         Fixtures.video_fixture(%{
@@ -22,7 +22,7 @@ defmodule Reencodarr.Media.OrphanResetTest do
       assert updated.state == :analyzed
     end
 
-    test "does not reset crf_searching videos dispatched to a worker" do
+    test "does not retain a worker row without a matching active attempt" do
       {:ok, video} =
         Fixtures.video_fixture(%{
           path: "/test/worker_crf.mkv",
@@ -32,11 +32,50 @@ defmodule Reencodarr.Media.OrphanResetTest do
           audio_codecs: ["aac"]
         })
 
-      assert :ok = Media.reset_orphaned_crf_searching()
+      assert :ok = Media.reset_orphaned_crf_searching(["crf-live"])
+
+      updated = Media.get_video(video.id)
+      assert updated.state == :analyzed
+      assert is_nil(updated.crf_search_worker_id)
+    end
+
+    test "keeps only the exact active CRF attempt" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/worker_crf.mkv",
+          state: :crf_searching,
+          crf_search_worker_id: "worker-a",
+          worker_attempt_id: "crf-live",
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      assert :ok = Media.reset_orphaned_crf_searching(["crf-live"])
 
       updated = Media.get_video(video.id)
       assert updated.state == :crf_searching
       assert updated.crf_search_worker_id == "worker-a"
+      assert updated.worker_attempt_id == "crf-live"
+    end
+
+    test "keeps a worker attempt with a recent persisted heartbeat" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/recent_worker_crf.mkv",
+          state: :crf_searching,
+          crf_search_worker_id: "worker-a",
+          worker_attempt_id: "crf-recent",
+          worker_last_seen_at: DateTime.utc_now(),
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      cutoff = DateTime.add(DateTime.utc_now(), -60, :second)
+      assert :ok = Media.reset_orphaned_crf_searching([], cutoff)
+
+      updated = Media.get_video(video.id)
+      assert updated.state == :crf_searching
+      assert updated.worker_attempt_id == "crf-recent"
     end
 
     test "does not affect videos in other states" do
@@ -85,6 +124,95 @@ defmodule Reencodarr.Media.OrphanResetTest do
       assert Media.get_video(video.id).state == :crf_searched
     end
 
+    test "clears encode worker ownership when resetting orphaned encoding work" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/orphan_enc_owner.mkv",
+          state: :encoding,
+          encode_worker_id: "dead-worker",
+          worker_attempt_id: "encode-dead",
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      assert :ok = Media.reset_orphaned_encoding([])
+
+      updated = Media.get_video(video.id)
+      assert updated.state == :crf_searched
+      assert is_nil(updated.encode_worker_id)
+      assert is_nil(updated.worker_attempt_id)
+    end
+
+    test "keeps only the exact active encoding attempt" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/live_enc_owner.mkv",
+          state: :encoding,
+          encode_worker_id: "live-worker",
+          worker_attempt_id: "encode-active",
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      assert :ok = Media.reset_orphaned_encoding(["encode-active"])
+
+      updated = Media.get_video(video.id)
+      assert updated.state == :encoding
+      assert updated.encode_worker_id == "live-worker"
+      assert updated.worker_attempt_id == "encode-active"
+    end
+
+    test "keeps an encoding attempt with a recent persisted heartbeat" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/recent_worker_encoding.mkv",
+          state: :encoding,
+          encode_worker_id: "worker-a",
+          worker_attempt_id: "encode-recent",
+          worker_last_seen_at: DateTime.utc_now(),
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      cutoff = DateTime.add(DateTime.utc_now(), -60, :second)
+      assert :ok = Media.reset_orphaned_encoding([], cutoff)
+
+      updated = Media.get_video(video.id)
+      assert updated.state == :encoding
+      assert updated.worker_attempt_id == "encode-recent"
+    end
+
+    test "does not protect an orphan merely because its worker is connected" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/live_worker_orphan.mkv",
+          state: :encoding,
+          encode_worker_id: "live-worker",
+          worker_attempt_id: "encode-orphan",
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      assert :ok = Media.reset_orphaned_encoding(["encode-other"])
+
+      updated = Media.get_video(video.id)
+      assert updated.state == :crf_searched
+      assert is_nil(updated.encode_worker_id)
+      assert is_nil(updated.worker_attempt_id)
+    end
+
     test "resets encoding video without chosen VMAF back to analyzed" do
       {:ok, video} =
         Fixtures.video_fixture(%{
@@ -97,6 +225,28 @@ defmodule Reencodarr.Media.OrphanResetTest do
       assert :ok = Media.reset_orphaned_encoding()
 
       assert Media.get_video(video.id).state == :analyzed
+    end
+
+    test "does not reset worker-owned encoding on the local orphan sweep" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: "/test/local_sweep_worker_encoding.mkv",
+          state: :encoding,
+          encode_worker_id: "worker-a",
+          worker_attempt_id: "encode-live",
+          video_codecs: ["h264"],
+          audio_codecs: ["aac"]
+        })
+
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 25.0})
+      Fixtures.choose_vmaf(video, vmaf)
+
+      assert :ok = Media.reset_orphaned_encoding()
+
+      updated = Media.get_video(video.id)
+      assert updated.state == :encoding
+      assert updated.encode_worker_id == "worker-a"
+      assert updated.worker_attempt_id == "encode-live"
     end
 
     test "does not affect videos in other states" do

@@ -4,14 +4,33 @@ defmodule Reencodarr.Rules.AudioTest do
   alias Reencodarr.Rules.Audio
 
   describe "rules/1 - Atmos and copy-through cases" do
-    test "copies audio when metadata is not trustworthy enough to rule out Atmos" do
-      video = Fixtures.create_test_video()
-      assert Audio.rules(video) == [{"--acodec", "copy"}]
+    test "rejects audio when detailed metadata is unavailable" do
+      video = Fixtures.create_test_video(%{mediainfo: nil})
+
+      assert_raise Audio.ClassificationError, ~r/detailed MediaInfo is required/, fn ->
+        Audio.rules(video)
+      end
     end
 
     test "copies audio with Opus codec" do
       video = Fixtures.create_opus_video()
       assert Audio.rules(video) == [{"--acodec", "copy"}]
+    end
+
+    test "transcodes non-Opus tracks when another track is already Opus" do
+      video =
+        raw_audio_video(
+          ["opus", "aac"],
+          multi_track_mediainfo([
+            {"Opus", 2, "L R", 128_000},
+            {"AAC", 2, "L R", 128_000}
+          ])
+        )
+
+      rules = Audio.rules(video)
+
+      refute {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "c:a:1=libopus"} in rules
     end
 
     test "copies all audio when all tracks are Atmos" do
@@ -93,9 +112,129 @@ defmodule Reencodarr.Rules.AudioTest do
 
       assert Audio.rules(video) == [{"--acodec", "copy"}]
     end
+
+    test "copies DTS:X while transcoding the other tracks" do
+      video =
+        raw_audio_video(
+          ["dts", "aac"],
+          multi_track_mediainfo([
+            {"DTS", 6, "5.1", 768_000, %{"Format_Commercial_IfAny" => "DTS:X"}},
+            {"AAC", 2, "L R", 128_000}
+          ])
+        )
+
+      rules = Audio.rules(video)
+
+      refute {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "c:a:1=libopus"} in rules
+    end
   end
 
   describe "rules/1 - Opus transcoding" do
+    test "rejects DTS when detailed MediaInfo is unavailable" do
+      video = Fixtures.create_test_video(%{audio_codecs: ["A_DTS"], mediainfo: nil})
+
+      assert_raise Audio.ClassificationError, ~r/detailed MediaInfo is required/, fn ->
+        Audio.rules(video)
+      end
+    end
+
+    test "uses the channel target when an ordinary track has no bitrate" do
+      video =
+        raw_audio_video(
+          ["dts"],
+          sample_mediainfo("DTS", 6, "5.1", %{
+            "CodecID" => "A_DTS",
+            "Format_Commercial_IfAny" => "DTS-HD Master Audio",
+            "Format_AdditionalFeatures" => "XLL",
+            "BitRate" => nil
+          })
+        )
+
+      rules = Audio.rules(video)
+
+      assert {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "b:a:0=256k"} in rules
+    end
+
+    test "normalizes DTS-HD MA channel positions while converting to Opus" do
+      video =
+        raw_audio_video(
+          ["dts"],
+          sample_mediainfo("DTS", 6, "C L R Ls Rs LFE", %{
+            "CodecID" => "A_DTS",
+            "Format_Commercial_IfAny" => "DTS-HD Master Audio",
+            "Format_AdditionalFeatures" => "XLL",
+            "BitRate" => nil
+          })
+        )
+
+      rules = Audio.rules(video)
+
+      assert {"--enc", "c:a:0=libopus"} in rules
+      assert {"--enc", "b:a:0=256k"} in rules
+      assert {"--enc", "filter:a:0=aformat=channel_layouts=5.1|7.1|stereo"} in rules
+    end
+
+    test "uses the channel target for common non-object codecs with no bitrate" do
+      for {format, codec_id} <- [
+            {"AAC", "A_AAC"},
+            {"AC-3", "A_AC3"},
+            {"E-AC-3", "A_EAC3"},
+            {"DTS", "A_DTS"},
+            {"FLAC", "A_FLAC"},
+            {"PCM", "A_PCM/INT/LIT"}
+          ] do
+        video =
+          raw_audio_video(
+            [format],
+            sample_mediainfo(format, 6, "5.1", %{"CodecID" => codec_id, "BitRate" => nil})
+          )
+
+        assert {"--enc", "b:a:0=256k"} in Audio.rules(video)
+      end
+    end
+
+    test "classifies every codec identity captured from the production encode queue" do
+      for %{"format" => format, "codec_id" => codec_id} <- production_queue_tracks() do
+        video =
+          raw_audio_video(
+            [format],
+            sample_mediainfo(format, 6, "5.1", %{
+              "CodecID" => codec_id,
+              "BitRate" => nil
+            })
+          )
+
+        rules = Audio.rules(video)
+
+        if format == "Opus" do
+          assert rules == [{"--acodec", "copy"}]
+        else
+          assert {"--enc", "c:a:0=libopus"} in rules
+          assert {"--enc", "b:a:0=256k"} in rules
+        end
+      end
+    end
+
+    test "transcodes supported ISO-BMFF carrier short codes" do
+      for {format, codec_id} <- [
+            {"AAC", "mp4a-40-5"},
+            {"MLP FBA", "mlpa"},
+            {"DTS", "dtsh"},
+            {"DTS", "dtsl"},
+            {"PCM", "ipcm"}
+          ] do
+        video =
+          raw_audio_video(
+            [format],
+            sample_mediainfo(format, 6, "5.1", %{"CodecID" => codec_id, "BitRate" => nil})
+          )
+
+        assert {"--enc", "c:a:0=libopus"} in Audio.rules(video)
+      end
+    end
+
     test "non-atmos 5.1(side) normalizes layout with aformat filter" do
       video =
         Fixtures.create_test_video(%{
@@ -159,6 +298,218 @@ defmodule Reencodarr.Rules.AudioTest do
     end
   end
 
+  describe "rules/1 - object audio classification" do
+    test "copies DTS:X identified only by the XLL X extension" do
+      video =
+        raw_audio_video(
+          ["dts"],
+          sample_mediainfo("DTS", 8, "7.1", %{
+            "CodecID" => "A_DTS/LOSSLESS",
+            "Format_AdditionalFeatures" => "XLL X"
+          })
+        )
+
+      assert Audio.rules(video) == [{"--acodec", "copy"}]
+    end
+
+    test "copies object carriers captured from production MediaInfo" do
+      for %{"track" => track} <- production_object_tracks() do
+        video = raw_audio_video([], mediainfo_with_audio_track(track))
+        assert Audio.rules(video) == [{"--acodec", "copy"}]
+      end
+    end
+
+    test "copies object metadata on supported ISO-BMFF carriers" do
+      for {format, codec_id, commercial, additional} <- [
+            {"MLP FBA", "mlpa", "Dolby TrueHD with Dolby Atmos", ""},
+            {"DTS", "dtsh", "DTS-HD MA + DTS:X", "XLL X"},
+            {"DTS", "dtsl", "DTS:X", ""}
+          ] do
+        video =
+          raw_audio_video(
+            [format],
+            sample_mediainfo(format, 8, "7.1", %{
+              "CodecID" => codec_id,
+              "Format_Commercial_IfAny" => commercial,
+              "Format_AdditionalFeatures" => additional
+            })
+          )
+
+        assert Audio.rules(video) == [{"--acodec", "copy"}]
+      end
+    end
+
+    test "does not treat object branding as proof on the wrong carrier" do
+      for commercial <- ["Dolby Atmos", "DTS:X", "Apple Spatial Audio"] do
+        video =
+          raw_audio_video(
+            ["aac"],
+            sample_mediainfo("AAC", 6, "5.1", %{
+              "CodecID" => "A_AAC-2",
+              "Format_Commercial_IfAny" => commercial
+            })
+          )
+
+        assert {"--enc", "c:a:0=libopus"} in Audio.rules(video)
+      end
+    end
+
+    test "transcodes plain AC-4" do
+      plain = raw_audio_video(["ac4"], sample_mediainfo("AC-4", 6, "5.1"))
+
+      assert {"--enc", "c:a:0=libopus"} in Audio.rules(plain)
+    end
+
+    test "rejects AC-4 Atmos identified by actual MediaInfo presentation metadata" do
+      path = Path.expand("../../fixtures/mediainfo_ac4_immersive.json", __DIR__)
+      %{"track" => track} = path |> File.read!() |> Jason.decode!()
+      video = raw_audio_video(["ac4"], mediainfo_with_audio_track(track))
+
+      assert_raise Audio.ClassificationError, ~r/immersive AC-4/, fn ->
+        Audio.rules(video)
+      end
+    end
+
+    test "rejects registered object-audio identities without Matroska carriage" do
+      for {format, codec_id} <- [
+            {"DTS", "dtsx"},
+            {"DTS", "dtsy"},
+            {"DTS-UHD MA", "A_DTS"},
+            {"MPEG-H 3D Audio", "mha1"},
+            {"MPEG-H 3D Audio", "mha2"},
+            {"MPEG-H 3D Audio", "mhm1"},
+            {"MPEG-H 3D Audio", "mhm2"},
+            {"IAMF", "iamf"},
+            {"Apple Positional Audio Codec", "apac"},
+            {"Auro-Cx", "a3ds"},
+            {"AuroMax", "a3ds"},
+            {"IAB", ""}
+          ] do
+        video =
+          raw_audio_video(
+            [format],
+            sample_mediainfo(format, 6, "5.1", %{"CodecID" => codec_id})
+          )
+
+        assert_raise Audio.ClassificationError, fn -> Audio.rules(video) end
+      end
+    end
+
+    test "rejects IAMF even when its inner codec makes audio_codecs look like Opus" do
+      video =
+        raw_audio_video(
+          ["opus"],
+          sample_mediainfo("IAMF", 6, "5.1", %{"CodecID" => "iamf"})
+        )
+
+      assert_raise Audio.ClassificationError, ~r/IAMF/, fn -> Audio.rules(video) end
+    end
+
+    test "uses the IAMF container identity instead of treating inner Opus as standalone" do
+      mediainfo =
+        sample_mediainfo("Opus", 6, "5.1", %{
+          "CodecID" => "A_OPUS",
+          "Format_Commercial_IfAny" => "Eclipsa Audio"
+        })
+        |> put_in(["media", "track", Access.at(0), "Format"], "IAMF")
+
+      video =
+        raw_audio_video(["opus"], mediainfo)
+
+      assert_raise Audio.ClassificationError, ~r/IAMF container/, fn -> Audio.rules(video) end
+    end
+
+    test "rejects MPEG-I identity carried by MPEG-H" do
+      video =
+        raw_audio_video(
+          ["mpegh"],
+          sample_mediainfo("MPEG-H 3D Audio", 6, "5.1", %{
+            "CodecID" => "mhm1",
+            "Format_Profile" => "MPEG-I Immersive Audio"
+          })
+        )
+
+      assert_raise Audio.ClassificationError, fn -> Audio.rules(video) end
+    end
+
+    test "uses the APAC sample entry without confusing Marian A-pac with Apple audio" do
+      apple =
+        raw_audio_video(
+          ["apac"],
+          sample_mediainfo("Apple Positional Audio Codec", 6, "5.1", %{"CodecID" => "apac"})
+        )
+
+      marian =
+        raw_audio_video(
+          ["apac"],
+          sample_mediainfo("A-pac", 2, "L R", %{"CodecID" => ""})
+        )
+
+      apple_error = assert_raise Audio.ClassificationError, fn -> Audio.rules(apple) end
+      marian_error = assert_raise Audio.ClassificationError, fn -> Audio.rules(marian) end
+
+      assert apple_error.reason == "unknown audio identity"
+      assert marian_error.reason == "unknown audio identity"
+    end
+
+    test "rejects ADM in BW64 instead of flattening its PCM carrier" do
+      mediainfo =
+        sample_mediainfo("PCM", 8, "7.1", %{"CodecID" => "A_PCM/INT/LIT"})
+        |> put_in(["media", "track", Access.at(0), "Format"], "BW64")
+
+      assert_raise Audio.ClassificationError, ~r/ADM/, fn ->
+        Audio.rules(raw_audio_video(["pcm"], mediainfo))
+      end
+    end
+
+    test "does not treat channel-based Auro-3D as Auro-Cx" do
+      video =
+        raw_audio_video(
+          ["pcm"],
+          sample_mediainfo("PCM", 6, "5.1", %{
+            "CodecID" => "A_PCM/INT/LIT",
+            "Format_Commercial_IfAny" => "Auro-3D"
+          })
+        )
+
+      assert {"--enc", "c:a:0=libopus"} in Audio.rules(video)
+    end
+
+    test "fails explicitly when an audio track cannot be classified" do
+      video =
+        raw_audio_video(
+          ["unknown"],
+          sample_mediainfo("", 6, "5.1", %{"CodecID" => "", "BitRate" => nil})
+        )
+
+      assert_raise Audio.ClassificationError, ~r/audio track 0/, fn -> Audio.rules(video) end
+    end
+
+    test "does not accept an unknown identity merely because its name contains AAC" do
+      video =
+        raw_audio_video(
+          ["unknown"],
+          sample_mediainfo("Not AAC", 2, "L R", %{"CodecID" => "unknown"})
+        )
+
+      assert_raise Audio.ClassificationError, ~r/unknown audio identity/, fn ->
+        Audio.rules(video)
+      end
+    end
+
+    test "rejects an unknown sample entry even when the carrier format is ordinary" do
+      video =
+        raw_audio_video(
+          ["dts"],
+          sample_mediainfo("DTS", 6, "5.1", %{"CodecID" => "future-object-audio"})
+        )
+
+      assert_raise Audio.ClassificationError, ~r/unknown audio identity/, fn ->
+        Audio.rules(video)
+      end
+    end
+  end
+
   describe "rules/1 - multi-track files with mixed layouts" do
     test "per-stream rules for file with 5.1 + 2.0 stereo (no Atmos)" do
       # Common case: 5.1 surround + 2.0 stereo descriptive audio
@@ -213,7 +564,7 @@ defmodule Reencodarr.Rules.AudioTest do
       assert {"--enc", "c:a:2=libopus"} in rules
     end
 
-    test "mixed valid and invalid codec-channel combos skips invalid tracks" do
+    test "invalid codec-channel metadata fails instead of copying one track" do
       # Track 0: valid (AAC stereo)
       # Track 1: invalid (MP3 5.1 - mp3 doesn't support > 2 channels)
       # Track 2: valid (AAC 5.1)
@@ -227,19 +578,10 @@ defmodule Reencodarr.Rules.AudioTest do
           ])
         )
 
-      rules = Audio.rules(video)
-
-      # Base is copy
-      assert {"--acodec", "copy"} in rules
-      # Track 0: encode to opus
-      assert {"--enc", "c:a:0=libopus"} in rules
-      # Track 1: NO encoding override (invalid combo, gets copied)
-      refute {"--enc", "c:a:1=libopus"} in rules
-      # Track 2: encode to opus
-      assert {"--enc", "c:a:2=libopus"} in rules
+      assert_raise Audio.ClassificationError, ~r/MP3/, fn -> Audio.rules(video) end
     end
 
-    test "all tracks with missing metadata falls back to copy all" do
+    test "tracks with missing channel metadata fail instead of copying" do
       # Tracks with no channel info - can't determine encoding
       video =
         raw_audio_video(
@@ -256,15 +598,17 @@ defmodule Reencodarr.Rules.AudioTest do
           }
         )
 
-      rules = Audio.rules(video)
-      assert rules == [{"--acodec", "copy"}]
+      assert_raise Audio.ClassificationError, ~r/channel count/, fn -> Audio.rules(video) end
     end
   end
 
   describe "rules/1 - edge cases" do
-    test "always copies audio regardless of channels when channels=0" do
-      video = Fixtures.create_test_video(%{max_audio_channels: 0})
-      assert Audio.rules(video) == [{"--acodec", "copy"}]
+    test "rejects audio metadata regardless of aggregate channel count" do
+      video = Fixtures.create_test_video(%{max_audio_channels: 0, mediainfo: nil})
+
+      assert_raise Audio.ClassificationError, ~r/detailed MediaInfo is required/, fn ->
+        Audio.rules(video)
+      end
     end
 
     test "handles plain map input (non-struct)" do
@@ -272,14 +616,33 @@ defmodule Reencodarr.Rules.AudioTest do
       assert Audio.rules(video_map) == [{"--acodec", "copy"}]
     end
 
-    test "copies audio for high channel count" do
-      video = Fixtures.create_test_video(%{max_audio_channels: 10})
+    test "rejects audio metadata for unsupported aggregate channel count" do
+      video = Fixtures.create_test_video(%{max_audio_channels: 10, mediainfo: nil})
+
+      assert_raise Audio.ClassificationError, ~r/detailed MediaInfo is required/, fn ->
+        Audio.rules(video)
+      end
+    end
+
+    test "rejects audio when detailed metadata is incomplete" do
+      {:ok, video} = Fixtures.video_fixture(%{max_audio_channels: nil, audio_codecs: ["aac"]})
+
+      assert_raise Audio.ClassificationError, ~r/detailed MediaInfo is required/, fn ->
+        Audio.rules(video)
+      end
+    end
+
+    test "copies a proven no-audio file" do
+      video = Fixtures.create_test_video(%{audio_codecs: [], audio_count: 0, mediainfo: nil})
       assert Audio.rules(video) == [{"--acodec", "copy"}]
     end
 
-    test "copies audio for invalid channel metadata" do
-      {:ok, video} = Fixtures.video_fixture(%{max_audio_channels: nil, audio_codecs: ["aac"]})
-      assert Audio.rules(video) == [{"--acodec", "copy"}]
+    test "classifies per-track metadata when the aggregate channel count is missing" do
+      video =
+        raw_audio_video(["aac"], sample_mediainfo("AAC", 2, "L R"))
+        |> Map.put(:max_audio_channels, nil)
+
+      assert {"--enc", "c:a:0=libopus"} in Audio.rules(video)
     end
   end
 
@@ -329,22 +692,55 @@ defmodule Reencodarr.Rules.AudioTest do
     })
   end
 
+  defp production_object_tracks do
+    path = Path.expand("../../fixtures/mediainfo_object_audio_production.json", __DIR__)
+    path |> File.read!() |> Jason.decode!()
+  end
+
+  defp production_queue_tracks do
+    path = Path.expand("../../fixtures/mediainfo_encode_queue_production.json", __DIR__)
+    path |> File.read!() |> Jason.decode!()
+  end
+
+  defp mediainfo_with_audio_track(track) do
+    %{
+      "media" => %{
+        "track" => [
+          %{"@type" => "General", "Format" => "Matroska"},
+          track
+        ]
+      }
+    }
+  end
+
   # Helper to build mediainfo for multi-track files
-  # Takes list of {format, channels, layout, bitrate} tuples
+  # Takes {format, channels, layout, bitrate[, overrides]} tuples
   defp multi_track_mediainfo(tracks) do
     audio_tracks =
       tracks
       |> Enum.with_index()
-      |> Enum.map(fn {{format, channels, layout, bitrate}, idx} ->
-        %{
-          "@type" => "Audio",
-          "Format" => format,
-          "CodecID" => format,
-          "Channels" => Integer.to_string(channels),
-          "ChannelLayout" => layout,
-          "BitRate" => bitrate,
-          "Default" => if(idx == 0, do: "Yes", else: "No")
-        }
+      |> Enum.map(fn {track, idx} ->
+        {format, channels, layout, bitrate, overrides} =
+          case track do
+            {format, channels, layout, bitrate} ->
+              {format, channels, layout, bitrate, %{}}
+
+            {format, channels, layout, bitrate, overrides} ->
+              {format, channels, layout, bitrate, overrides}
+          end
+
+        Map.merge(
+          %{
+            "@type" => "Audio",
+            "Format" => format,
+            "CodecID" => format,
+            "Channels" => Integer.to_string(channels),
+            "ChannelLayout" => layout,
+            "BitRate" => bitrate,
+            "Default" => if(idx == 0, do: "Yes", else: "No")
+          },
+          overrides
+        )
       end)
 
     %{

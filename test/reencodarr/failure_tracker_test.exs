@@ -114,6 +114,24 @@ defmodule Reencodarr.FailureTrackerTest do
         end)
     end
 
+    test "records process exit failures for CRF search with the same exit-code mapping" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      _log =
+        with_captured_logs(fn ->
+          {:ok, failure} =
+            FailureTracker.record_process_exit_failure(video, :crf_search, 137,
+              context: %{command: "ab-av1 crf-search movie.mkv"}
+            )
+
+          assert failure.failure_stage == :crf_search
+          assert failure.failure_category == :resource_exhaustion
+          assert failure.failure_code == "EXIT_137"
+          assert failure.system_context.original_exit_code == 137
+          assert failure.system_context.classification == :resource_exhaustion
+        end)
+    end
+
     test "classifies different exit codes correctly" do
       {:ok, video} = Fixtures.video_fixture()
 
@@ -144,6 +162,17 @@ defmodule Reencodarr.FailureTrackerTest do
           assert failure.failure_category == :timeout
           assert failure.system_context.timeout_duration == "30 minutes"
         end)
+    end
+
+    test "records timeout failure for the analysis stage" do
+      {:ok, video} = Fixtures.video_fixture()
+
+      {:ok, failure} =
+        FailureTracker.record_timeout_failure(video, "analysis processing", stage: :analysis)
+
+      assert failure.failure_stage == :analysis
+      assert failure.failure_category == :timeout
+      assert failure.failure_code == "TIMEOUT"
     end
   end
 
@@ -485,6 +514,13 @@ defmodule Reencodarr.FailureTrackerTest do
       context = %{"full_output" => "Error: ffmpeg encode exit code 22"}
       {exit_code, category, _message} = FailureTracker.parse_ffmpeg_error_from_output(context, 1)
       assert exit_code == 22
+      assert category == :codec_issues
+    end
+
+    test "extracts ffmpeg exit code from worker error chain" do
+      context = %{"error_chain" => "ffmpeg encode exit code 234"}
+      {exit_code, category, _message} = FailureTracker.parse_ffmpeg_error_from_output(context, 1)
+      assert exit_code == 234
       assert category == :codec_issues
     end
 

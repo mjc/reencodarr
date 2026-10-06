@@ -3,6 +3,8 @@ defmodule Reencodarr.Media.ChartQueries do
 
   alias Reencodarr.Repo
 
+  @default_query_timeout 1_000
+
   @vmaf_bins [
     {"<80", 0, 80},
     {"80-85", 80, 85},
@@ -77,7 +79,8 @@ defmodule Reencodarr.Media.ChartQueries do
            WHERE v.score IS NOT NULL
            GROUP BY bucket
            """,
-           []
+           [],
+           query_opts()
          ) do
       {:ok, %{rows: rows}} ->
         counts =
@@ -111,7 +114,8 @@ defmodule Reencodarr.Media.ChartQueries do
            WHERE width IS NOT NULL AND state != 'failed'
            GROUP BY bucket
            """,
-           []
+           [],
+           query_opts()
          ) do
       {:ok, %{rows: rows}} ->
         rows
@@ -139,7 +143,8 @@ defmodule Reencodarr.Media.ChartQueries do
              AND json_array_length(video_codecs) > 0
            GROUP BY codec
            """,
-           []
+           [],
+           query_opts()
          ) do
       {:ok, %{rows: rows}} ->
         rows
@@ -159,4 +164,11 @@ defmodule Reencodarr.Media.ChartQueries do
   end
 
   defp normalize_codec(_), do: "unknown"
+
+  defp query_opts do
+    timeout =
+      Application.get_env(:reencodarr, :dashboard_chart_query_timeout_ms, @default_query_timeout)
+
+    [timeout: timeout, pool_timeout: timeout]
+  end
 end

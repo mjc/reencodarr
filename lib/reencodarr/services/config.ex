@@ -8,7 +8,7 @@ defmodule Reencodarr.Services.Config do
           id: integer() | nil,
           api_key: String.t() | nil,
           enabled: boolean(),
-          service_type: :sonarr | :radarr | :plex,
+          service_type: :sonarr | :sportarr | :radarr | :plex,
           url: String.t() | nil,
           last_synced_at: DateTime.t() | nil,
           inserted_at: DateTime.t() | nil,
@@ -18,7 +18,7 @@ defmodule Reencodarr.Services.Config do
   schema "configs" do
     field :api_key, :string, redact: true
     field :enabled, :boolean, default: false
-    field :service_type, Ecto.Enum, values: [:sonarr, :radarr, :plex]
+    field :service_type, Ecto.Enum, values: [:sonarr, :sportarr, :radarr, :plex]
     field :url, :string
     field :last_synced_at, :utc_datetime
 

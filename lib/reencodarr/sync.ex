@@ -7,7 +7,7 @@ defmodule Reencodarr.Sync do
   alias Reencodarr.Core.Parsers
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.{Media, Repo, Services}
-  alias Reencodarr.Services.{Radarr, Sonarr}
+  alias Reencodarr.Services.{Radarr, Sonarr, Sportarr}
 
   alias Reencodarr.Media.{MediaInfoExtractor, VideoFileInfo, VideoUpsert}
   alias Reencodarr.Media.Video.MediaInfoConverter
@@ -16,12 +16,14 @@ defmodule Reencodarr.Sync do
   @default_write_batch_size 100
   @default_fetch_timeout_ms 90_000
   @default_fetch_concurrency 2
+  @known_file_query_batch_size 25
   # Sync every 6 hours by default; override via :sync_interval_ms app env
   @default_sync_interval_ms :timer.hours(6)
 
   # Public API
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   def sync_episodes, do: GenServer.cast(__MODULE__, :sync_episodes)
+  def sync_sportarr, do: GenServer.cast(__MODULE__, :sync_sportarr)
   def sync_movies, do: GenServer.cast(__MODULE__, :sync_movies)
 
   # GenServer Callbacks
@@ -35,7 +37,7 @@ defmodule Reencodarr.Sync do
     {:noreply, state}
   end
 
-  def handle_cast(action, state) when action in [:sync_episodes, :sync_movies] do
+  def handle_cast(action, state) when action in [:sync_episodes, :sync_movies, :sync_sportarr] do
     sync_config = resolve_action(action)
     service_type = sync_config.service_type
 
@@ -62,6 +64,7 @@ defmodule Reencodarr.Sync do
   def handle_info(:periodic_sync, state) do
     Logger.info("Sync: running scheduled periodic sync")
     sync_episodes()
+    if match?({:ok, %{enabled: true}}, Services.get_sportarr_config()), do: sync_sportarr()
     sync_movies()
     schedule_sync()
     {:noreply, state}
@@ -82,6 +85,13 @@ defmodule Reencodarr.Sync do
       get_items: &Services.get_movies/0,
       get_files: &Services.get_movie_files/1,
       service_type: :radarr
+    }
+
+  defp resolve_action(:sync_sportarr),
+    do: %{
+      get_items: &Services.get_sportarr_shows/0,
+      get_files: &Services.get_sportarr_episode_files/1,
+      service_type: :sportarr
     }
 
   defp sync_items(%{
@@ -289,11 +299,15 @@ defmodule Reencodarr.Sync do
       |> Enum.map(&elem(&1, 0))
       |> Enum.uniq()
 
-    Repo.all(
-      from v in Media.Video,
-        where: v.service_type == ^service_type and v.path in ^paths,
-        select: {v.path, v.service_id}
-    )
+    paths
+    |> Enum.chunk_every(@known_file_query_batch_size)
+    |> Enum.flat_map(fn path_batch ->
+      Repo.all(
+        from v in Media.Video,
+          where: v.service_type == ^service_type and v.path in ^path_batch,
+          select: {v.path, v.service_id}
+      )
+    end)
     |> MapSet.new()
   end
 
@@ -379,7 +393,7 @@ defmodule Reencodarr.Sync do
         }
 
         # Add mediainfo if present
-        if raw_file["mediaInfo"] do
+        if raw_file["mediaInfo"] && service_mediainfo_usable?(raw_file["mediaInfo"], service_type) do
           mediainfo = MediaInfoConverter.from_service_file(raw_file, service_type)
 
           Map.merge(base_attrs, %{
@@ -411,6 +425,17 @@ defmodule Reencodarr.Sync do
         nil
     end
   end
+
+  defp service_mediainfo_usable?(media_info, :sportarr) when is_map(media_info) do
+    Enum.all?(["videoCodec", "audioCodec"], fn field ->
+      case Map.get(media_info, field) do
+        value when is_binary(value) -> String.trim(value) != ""
+        _other -> false
+      end
+    end)
+  end
+
+  defp service_mediainfo_usable?(_media_info, _service_type), do: true
 
   defp fetch_item_files(item, get_files) do
     id = item_id(item)
@@ -543,7 +568,7 @@ defmodule Reencodarr.Sync do
   This bypasses the VideoFileInfo struct for simpler processing.
   """
   def upsert_video_from_service_file(file, service_type)
-      when service_type in [:sonarr, :radarr] do
+      when service_type in [:sonarr, :sportarr, :radarr] do
     # Convert directly to MediaInfo format
     mediainfo = MediaInfoConverter.from_service_file(file, service_type)
 
@@ -583,8 +608,16 @@ defmodule Reencodarr.Sync do
     end
   end
 
+  def refresh_operations(file_id, :sportarr) do
+    with {:ok, %Req.Response{body: episode_file}} <- Sportarr.get_episode_file(file_id),
+         {:ok, series_id} <- validate_series_id(episode_file["seriesId"]),
+         {:ok, _} <- Sportarr.refresh_series(series_id) do
+      {:ok, "Sportarr refresh triggered"}
+    end
+  end
+
   def refresh_and_rename_from_video(%{service_type: service_type, service_id: id})
-      when service_type in [:sonarr, :radarr] and not is_nil(id) do
+      when service_type in [:sonarr, :sportarr, :radarr] and not is_nil(id) do
     with {:ok, int_id} <- coerce_to_integer(id) do
       refresh_operations(int_id, service_type)
     end
@@ -649,6 +682,12 @@ defmodule Reencodarr.Sync do
     case service_type do
       :sonarr ->
         # For Sonarr, try episode air date first, then fallback to filename
+        case parse_episode_air_year(file) do
+          year when is_integer(year) -> year
+          nil -> extract_year_from_filename(file["path"])
+        end
+
+      :sportarr ->
         case parse_episode_air_year(file) do
           year when is_integer(year) -> year
           nil -> extract_year_from_filename(file["path"])

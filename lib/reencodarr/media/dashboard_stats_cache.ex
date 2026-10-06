@@ -8,6 +8,7 @@ defmodule Reencodarr.Media.DashboardStatsCache do
     field :total_duration_seconds, :float
     field :duration_count, :integer
     field :needs_analysis, :integer
+    field :analyzing, :integer
     field :analyzed, :integer
     field :crf_searching, :integer
     field :crf_searched, :integer

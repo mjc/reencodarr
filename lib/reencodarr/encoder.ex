@@ -3,7 +3,8 @@ defmodule Reencodarr.Encoder do
   Public API for the Encoder pipeline.
   """
 
-  alias Reencodarr.AbAv1.Encode
+  alias Reencodarr.AbAv1.{Encode, WorkerConfig, WorkerSessions}
+  alias Reencodarr.AbAv1.WorkerSessions.Job
   alias Reencodarr.Encoder.Broadway.Producer
   alias Reencodarr.Media
 
@@ -22,8 +23,13 @@ defmodule Reencodarr.Encoder do
   @doc "Check if the encoder is actively processing work"
   def actively_running?, do: available?() != :available
 
-  @doc "Check if the encode GenServer is available"
-  def available?, do: Encode.available?()
+  @doc "Check if an encoder is available"
+  def available? do
+    case WorkerConfig.execution_mode() do
+      :broadway -> Encode.available?()
+      :worker -> if worker_encode_active?(), do: :processing, else: :available
+    end
+  end
 
   @doc "Get the current state of the encoder pipeline"
   def status do
@@ -42,4 +48,11 @@ defmodule Reencodarr.Encoder do
 
   @doc "Get next videos in the encoding queue"
   def next_videos(limit \\ 10), do: Media.get_next_for_encoding(limit)
+
+  defp worker_encode_active? do
+    Process.whereis(WorkerSessions) != nil and
+      Enum.any?(WorkerSessions.list(), fn session ->
+        Enum.any?(session.jobs, fn {_job_id, job} -> match?(%Job{job_type: :encode}, job) end)
+      end)
+  end
 end

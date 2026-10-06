@@ -51,6 +51,25 @@ defmodule Reencodarr.Core.RetryTest do
       assert log =~ "SQLite transient error during mark video as analyzed"
       assert log =~ "caller Reencodarr.Core.RetryTest."
     end
+
+    test "stops retrying when the elapsed retry budget is exhausted" do
+      attempts = :atomics.new(1, [])
+
+      assert_raise Exqlite.Error, "database busy", fn ->
+        Retry.retry_on_db_busy(
+          fn ->
+            :atomics.add_get(attempts, 1, 1)
+            raise Exqlite.Error, message: "database busy"
+          end,
+          max_attempts: 50,
+          base_backoff_ms: 1,
+          max_backoff_ms: 1,
+          max_elapsed_ms: 0
+        )
+      end
+
+      assert :atomics.get(attempts, 1) == 1
+    end
   end
 
   defp retry_once_with_busy(opts) do

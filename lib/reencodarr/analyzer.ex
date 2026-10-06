@@ -3,6 +3,7 @@ defmodule Reencodarr.Analyzer do
   Public API for the Analyzer pipeline.
   """
 
+  alias Reencodarr.Analyzer.Broadway
   alias Reencodarr.Analyzer.Broadway.Producer
   alias Reencodarr.Media
 
@@ -11,9 +12,12 @@ defmodule Reencodarr.Analyzer do
 
   @doc "Get the current state of the analyzer pipeline"
   def status do
+    running = Broadway.running?()
+    analyzing = Map.get(Media.count_videos_by_state(), :analyzing, 0)
+
     %{
-      running: true,
-      actively_running: false,
+      running: running,
+      actively_running: running and analyzing > 0,
       queue_count: Media.count_videos_needing_analysis()
     }
   end

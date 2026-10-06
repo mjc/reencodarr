@@ -143,9 +143,14 @@ defmodule Reencodarr.MediaTest do
       assert new_video.id == video.id
       assert new_video.state == :analyzed
       assert new_video.size == 2_000_000_000
+      assert new_video.space_saved_bytes == 0
 
       {:ok, updated_video} =
-        Media.update_video(video, %{size: 3_000_000_000, state: :crf_searched})
+        Media.update_video(video, %{
+          size: 3_000_000_000,
+          state: :crf_searched,
+          space_saved_bytes: 123
+        })
 
       assert_receive {:video_mutated,
                       %{action: :update, old_video: old_video, new_video: new_video}}
@@ -155,6 +160,8 @@ defmodule Reencodarr.MediaTest do
       assert new_video.id == updated_video.id
       assert new_video.state == :crf_searched
       assert new_video.size == 3_000_000_000
+      assert old_video.space_saved_bytes == 0
+      assert new_video.space_saved_bytes == 123
 
       assert {:ok, _} = Media.delete_video(updated_video)
 
@@ -171,6 +178,15 @@ defmodule Reencodarr.MediaTest do
 
       assert %Ecto.Changeset{} = changeset
       assert changeset.data == video
+    end
+
+    test "mark_as_worker_encoding snapshots missing original size" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :encoding, size: 1234})
+
+      assert {:ok, updated} = Media.mark_as_worker_encoding(video, "tina")
+
+      assert updated.encode_worker_id == "tina"
+      assert updated.original_size == 1234
     end
 
     # Test factory pattern usage
@@ -255,6 +271,7 @@ defmodule Reencodarr.MediaTest do
       Reencodarr.Repo.update_all(Reencodarr.Media.DashboardStatsCache,
         set: [
           needs_analysis: 2,
+          analyzing: 9,
           analyzed: 3,
           crf_searching: 4,
           crf_searched: 5,
@@ -266,6 +283,7 @@ defmodule Reencodarr.MediaTest do
 
       assert Media.count_videos_by_state() == %{
                needs_analysis: 2,
+               analyzing: 9,
                analyzed: 3,
                crf_searching: 4,
                crf_searched: 5,
@@ -1945,6 +1963,21 @@ defmodule Reencodarr.MediaTest do
       assert vmaf.savings == 2_000_000
     end
 
+    test "upsert_vmaf/1 calculates savings from worker-style atom keys" do
+      {:ok, video} = Fixtures.video_fixture(%{size: 10_000_000})
+
+      {:ok, vmaf} =
+        Media.upsert_vmaf(%{
+          video_id: video.id,
+          crf: 24.0,
+          score: 96.0,
+          percent: 80.0,
+          params: ["--preset", "6"]
+        })
+
+      assert vmaf.savings == 2_000_000
+    end
+
     test "upsert_vmaf/1 does not change video state" do
       {:ok, video} = Fixtures.video_fixture(%{state: :analyzed})
 
@@ -1973,6 +2006,30 @@ defmodule Reencodarr.MediaTest do
 
         assert result == {:error, :invalid_video_id}
       end)
+    end
+
+    test "record_video_failure/4 stores one failure for a replayed worker attempt" do
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :encoding,
+          worker_attempt_id: "encode-current"
+        })
+
+      opts = [
+        code: "EXIT_254",
+        message: "worker failed",
+        worker_attempt_id: "encode-current"
+      ]
+
+      assert {:ok, first} =
+               Media.record_video_failure(video, :encoding, :process_failure, opts)
+
+      assert {:ok, replay} =
+               Media.record_video_failure(video, :encoding, :process_failure, opts)
+
+      assert replay.id == first.id
+      assert [failure] = Media.get_video_failures(video.id)
+      assert failure.worker_attempt_id == "encode-current"
     end
 
     test "upsert_vmaf/1 handles missing video_id" do
@@ -2459,6 +2516,43 @@ defmodule Reencodarr.MediaTest do
       assert updated.service_id == "updated"
     end
 
+    test "upsert_video/1 preserves live worker fields when sync sends defaults" do
+      {:ok, existing} =
+        Fixtures.video_fixture(%{
+          state: :encoding,
+          duration: 3600.0,
+          encode_worker_id: "worker-a",
+          worker_attempt_id: "encode-live",
+          worker_control_desired_state: :paused,
+          worker_control_acknowledged_state: :paused,
+          worker_control_command_id: "command-live"
+        })
+
+      attrs = %{
+        "path" => existing.path,
+        "library_id" => existing.library_id,
+        "service_type" => existing.service_type,
+        "service_id" => existing.service_id,
+        "size" => existing.size,
+        "duration" => 3601.0,
+        "state" => "needs_analysis",
+        "crf_search_worker_id" => nil,
+        "encode_worker_id" => nil,
+        "worker_attempt_id" => nil,
+        "worker_control_desired_state" => nil,
+        "worker_control_acknowledged_state" => nil,
+        "worker_control_command_id" => nil
+      }
+
+      assert {:ok, updated} = Media.upsert_video(attrs)
+      assert updated.state == :encoding
+      assert updated.encode_worker_id == "worker-a"
+      assert updated.worker_attempt_id == "encode-live"
+      assert updated.worker_control_desired_state == :paused
+      assert updated.worker_control_acknowledged_state == :paused
+      assert updated.worker_control_command_id == "command-live"
+    end
+
     test "upsert_video/1 returns error for invalid attrs" do
       {:error, changeset} = Media.upsert_video(%{})
 
@@ -2518,7 +2612,8 @@ defmodule Reencodarr.MediaTest do
     test "reset_videos_with_invalid_audio_args/0 with no problematic videos" do
       {:ok, _video} =
         Fixtures.video_fixture(%{
-          audio_codecs: ["aac"],
+          audio_codecs: [],
+          audio_count: 0,
           max_audio_channels: 2,
           state: :analyzed
         })
@@ -2532,7 +2627,8 @@ defmodule Reencodarr.MediaTest do
     test "count_videos_with_invalid_audio_args/0 with all valid videos" do
       {:ok, _video} =
         Fixtures.video_fixture(%{
-          audio_codecs: ["aac"],
+          audio_codecs: [],
+          audio_count: 0,
           max_audio_channels: 2,
           state: :analyzed
         })

@@ -71,10 +71,12 @@ defmodule Reencodarr.Media.VideoUpsert do
     old_video =
       Reencodarr.Media.fetch_dashboard_video_snapshot_by_path(Map.get(normalized_attrs, "path"))
 
-    normalized_attrs
-    |> ensure_required_fields()
-    |> handle_vmaf_deletion_and_bitrate_preservation()
-    |> insert_or_update_video(old_video)
+    {prepared_attrs, invalidation} =
+      normalized_attrs
+      |> ensure_required_fields()
+      |> prepare_video_metadata()
+
+    insert_or_update_video(prepared_attrs, old_video, invalidation)
   end
 
   @spec process_single_video_in_batch(attrs()) :: upsert_result()
@@ -91,9 +93,8 @@ defmodule Reencodarr.Media.VideoUpsert do
     Retry.retry_on_db_busy(
       fn ->
         Repo.transaction(fn ->
-          normalized_attrs
-          |> handle_vmaf_deletion_and_bitrate_preservation()
-          |> perform_single_upsert_in_batch(old_video)
+          {prepared_attrs, invalidation} = prepare_video_metadata(normalized_attrs)
+          perform_single_upsert_in_batch(prepared_attrs, old_video, invalidation)
         end)
       end,
       label: "video upsert transaction"
@@ -152,36 +153,38 @@ defmodule Reencodarr.Media.VideoUpsert do
     |> Map.put_new("atmos", false)
   end
 
-  @spec handle_vmaf_deletion_and_bitrate_preservation(%{String.t() => any()}) :: %{
-          String.t() => any()
-        }
-  defp handle_vmaf_deletion_and_bitrate_preservation(%{"path" => path} = attrs)
-       when is_binary(path) do
+  @type metadata_invalidation ::
+          {map() | nil, VideoValidator.comparison_values(), boolean()} | nil
+
+  @spec prepare_video_metadata(%{String.t() => any()}) ::
+          {%{String.t() => any()}, metadata_invalidation()}
+  defp prepare_video_metadata(%{"path" => path} = attrs) when is_binary(path) do
     case String.trim(path) do
-      "" -> attrs
+      "" -> {attrs, nil}
       _valid_path -> process_video_metadata_changes(attrs, path)
     end
   end
 
-  defp handle_vmaf_deletion_and_bitrate_preservation(attrs), do: attrs
+  defp prepare_video_metadata(attrs), do: {attrs, nil}
 
-  @spec process_video_metadata_changes(%{String.t() => any()}, String.t()) :: %{
-          String.t() => any()
-        }
+  @spec process_video_metadata_changes(%{String.t() => any()}, String.t()) ::
+          {%{String.t() => any()}, metadata_invalidation()}
   defp process_video_metadata_changes(attrs, path) do
     new_values = VideoValidator.extract_comparison_values(attrs)
     being_marked_encoded = VideoValidator.get_attr_value(attrs, "state") == "encoded"
     existing_video = get_video_metadata_for_comparison(path)
 
-    # Handle VMAF deletion if needed
-    maybe_delete_vmafs(existing_video, new_values, being_marked_encoded)
-
     # Handle bitrate preservation
-    handle_bitrate_preservation(attrs, existing_video, new_values, being_marked_encoded, path)
+    prepared_attrs =
+      handle_bitrate_preservation(attrs, existing_video, new_values, being_marked_encoded, path)
+
+    {prepared_attrs, {existing_video, new_values, being_marked_encoded}}
   end
 
-  @spec maybe_delete_vmafs(map() | nil, VideoValidator.comparison_values(), boolean()) :: :ok
-  defp maybe_delete_vmafs(existing_video, new_values, being_marked_encoded) do
+  @spec apply_vmaf_invalidation(metadata_invalidation()) :: :ok
+  defp apply_vmaf_invalidation(nil), do: :ok
+
+  defp apply_vmaf_invalidation({existing_video, new_values, being_marked_encoded}) do
     if not being_marked_encoded and
          VideoValidator.should_delete_vmafs?(existing_video, new_values) do
       delete_vmafs_for_video(existing_video.id)
@@ -237,22 +240,37 @@ defmodule Reencodarr.Media.VideoUpsert do
     end
   end
 
-  @spec insert_or_update_video(%{String.t() => any()}, map() | nil) ::
+  @spec insert_or_update_video(%{String.t() => any()}, map() | nil, metadata_invalidation()) ::
           {:ok, Video.t()} | {:error, Ecto.Changeset.t() | any()}
-  defp insert_or_update_video(attrs, old_video) do
+  defp insert_or_update_video(attrs, old_video, invalidation) do
     conflict_except = determine_conflict_except_fields(attrs)
     on_conflict_query = build_on_conflict_query(attrs, conflict_except)
 
     attrs
     |> perform_video_upsert(on_conflict_query)
-    |> handle_upsert_result(attrs, old_video)
+    |> handle_upsert_result(attrs, old_video, invalidation)
   end
 
   @spec determine_conflict_except_fields(%{String.t() => any()}) :: [atom()]
   defp determine_conflict_except_fields(attrs) do
-    # Always protect state, failed, chosen_vmaf_id, and original_size from sync overwrites.
+    # Always protect state, failed, chosen_vmaf_id, original_size, and space_saved_bytes from sync overwrites.
     # These are set by the encoding pipeline and must never be reset by sync.
-    base = [:id, :inserted_at, :state, :failed, :chosen_vmaf_id, :original_size]
+    base = [
+      :id,
+      :inserted_at,
+      :state,
+      :failed,
+      :chosen_vmaf_id,
+      :original_size,
+      :space_saved_bytes,
+      :crf_search_worker_id,
+      :encode_worker_id,
+      :worker_attempt_id,
+      :worker_control_desired_state,
+      :worker_control_acknowledged_state,
+      :worker_control_command_id,
+      :worker_terminal_claimed_at
+    ]
 
     base =
       if preserve_saved_space_size?(attrs) do
@@ -327,14 +345,19 @@ defmodule Reencodarr.Media.VideoUpsert do
     do_insert(attrs, on_conflict_query)
   end
 
-  @spec perform_single_upsert_in_batch(%{String.t() => any()}, map() | nil) ::
+  @spec perform_single_upsert_in_batch(
+          %{String.t() => any()},
+          map() | nil,
+          metadata_invalidation()
+        ) ::
           {:ok, Video.t()} | {:error, Ecto.Changeset.t() | any()}
-  defp perform_single_upsert_in_batch(attrs, old_video) do
+  defp perform_single_upsert_in_batch(attrs, old_video, invalidation) do
     conflict_except = determine_conflict_except_fields(attrs)
     on_conflict_query = build_on_conflict_query(attrs, conflict_except)
 
     case do_insert(attrs, on_conflict_query) do
       {:ok, video} ->
+        apply_vmaf_invalidation(invalidation)
         handle_successful_upsert(video, old_video)
 
       {:error, %Ecto.Changeset{errors: [updated_at: {"is stale", _}]} = changeset} ->
@@ -350,11 +373,13 @@ defmodule Reencodarr.Media.VideoUpsert do
   @spec handle_upsert_result(
           {:ok, Video.t()} | {:error, Ecto.Changeset.t()} | {:error, any()},
           %{String.t() => any()},
-          map() | nil
+          map() | nil,
+          metadata_invalidation()
         ) :: {:ok, Video.t()} | {:error, any()}
-  defp handle_upsert_result(result, attrs, old_video) do
+  defp handle_upsert_result(result, attrs, old_video, invalidation) do
     case result do
       {:ok, video} ->
+        apply_vmaf_invalidation(invalidation)
         handle_successful_upsert(video, old_video)
 
       {:error, %Ecto.Changeset{errors: [updated_at: {"is stale", _}]} = changeset} ->
@@ -448,6 +473,7 @@ defmodule Reencodarr.Media.VideoUpsert do
         where: v.path == ^path and v.state != :encoded and v.state != :failed,
         select: %{
           id: v.id,
+          service_id: v.service_id,
           size: v.size,
           bitrate: v.bitrate,
           duration: v.duration,

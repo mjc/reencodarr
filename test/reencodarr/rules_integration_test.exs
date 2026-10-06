@@ -2,7 +2,7 @@ defmodule Reencodarr.RulesIntegrationTest do
   use ExUnit.Case, async: true
   use Reencodarr.DataCase
 
-  alias Reencodarr.AbAv1.{CrfSearch, Encode}
+  alias Reencodarr.AbAv1.{CrfSearch, Encode, WorkerProtocol}
   alias Reencodarr.Encoder.Broadway
   alias Reencodarr.{Media, Repo, Rules}
 
@@ -21,6 +21,7 @@ defmodule Reencodarr.RulesIntegrationTest do
           bitrate: 5_000_000,
           video_codecs: ["V_MPEGH/ISO/HEVC"],
           audio_codecs: ["A_EAC3"],
+          mediainfo: sample_mediainfo("E-AC-3", 6, "5.1"),
           max_audio_channels: 6,
           atmos: false,
           # Default to no HDR
@@ -74,6 +75,33 @@ defmodule Reencodarr.RulesIntegrationTest do
       assert "--acodec" in args
       acodec_index = Enum.find_index(args, &(&1 == "--acodec"))
       assert Enum.at(args, acodec_index + 1) == "copy"
+    end
+
+    test "legacy, Broadway, and worker entry points use identical arguments", %{video: video} do
+      {:ok, vmaf} =
+        Media.create_vmaf(%{video_id: video.id, crf: 28.0, score: 95.0, params: []})
+
+      video = Fixtures.choose_vmaf(video, vmaf)
+      vmaf = Repo.preload(vmaf, :video)
+
+      legacy_encode = Encode.build_encode_args_for_test(vmaf)
+      broadway_encode = Broadway.build_encode_args_for_test(vmaf)
+      worker_encode = WorkerProtocol.encode_work_assigned(video, vmaf).encode_args
+
+      assert legacy_encode == broadway_encode
+      assert worker_encode == legacy_encode
+
+      legacy_crf = CrfSearch.build_crf_search_args(video, 95, crf_range: {17, 42})
+
+      worker_crf =
+        WorkerProtocol.work_assigned(video, 95,
+          attempt: %Reencodarr.CrfSearchPolicy.Attempt{
+            target_vmaf: 95,
+            crf_range: {17, 42}
+          }
+        ).crf_search_args
+
+      assert worker_crf == legacy_crf
     end
 
     test "CRF search excludes audio arguments", %{video: video} do
@@ -259,5 +287,24 @@ defmodule Reencodarr.RulesIntegrationTest do
       assert exit_code == 0, "ab-av1 rejected command structure: #{output}"
       refute String.contains?(output, "unexpected argument")
     end
+  end
+
+  defp sample_mediainfo(format, channels, layout) do
+    %{
+      "media" => %{
+        "track" => [
+          %{"@type" => "General", "Format" => "Matroska"},
+          %{"@type" => "Video", "Format" => "AVC", "Width" => "1920", "Height" => "1080"},
+          %{
+            "@type" => "Audio",
+            "Format" => format,
+            "CodecID" => "A_EAC3",
+            "Channels" => Integer.to_string(channels),
+            "ChannelLayout" => layout,
+            "BitRate" => 384_000
+          }
+        ]
+      }
+    }
   end
 end

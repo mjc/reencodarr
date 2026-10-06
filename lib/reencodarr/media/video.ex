@@ -5,7 +5,7 @@ defmodule Reencodarr.Media.Video do
 
   @moduledoc "Represents video metadata and schema."
 
-  @type service_type :: :sonarr | :radarr
+  @type service_type :: :sonarr | :sportarr | :radarr
   @type state ::
           :needs_analysis
           | :analyzing
@@ -36,11 +36,16 @@ defmodule Reencodarr.Media.Video do
           content_year: integer() | nil,
           priority: integer(),
           original_size: integer() | nil,
+          space_saved_bytes: integer(),
           max_audio_channels: integer() | nil,
           atmos: boolean() | nil,
           service_id: String.t() | nil,
           service_type: service_type() | nil,
           crf_search_worker_id: String.t() | nil,
+          encode_worker_id: String.t() | nil,
+          worker_attempt_id: String.t() | nil,
+          worker_last_seen_at: DateTime.t() | nil,
+          worker_terminal_claimed_at: DateTime.t() | nil,
           mediainfo: map() | nil,
           inserted_at: DateTime.t() | nil,
           updated_at: DateTime.t() | nil
@@ -80,10 +85,20 @@ defmodule Reencodarr.Media.Video do
     :service_id,
     :service_type,
     :crf_search_worker_id,
+    :encode_worker_id,
+    :worker_attempt_id,
+    :worker_last_seen_at,
+    :worker_control_desired_state,
+    :worker_control_acknowledged_state,
+    :worker_control_command_id,
+    :worker_control_requested_at,
+    :worker_control_reason,
+    :worker_terminal_claimed_at,
     :duration,
     :mediainfo,
     :chosen_vmaf_id,
-    :original_size
+    :original_size,
+    :space_saved_bytes
   ]
 
   @required [
@@ -100,7 +115,7 @@ defmodule Reencodarr.Media.Video do
     :atmos
   ]
 
-  @service_types [:sonarr, :radarr]
+  @service_types [:sonarr, :sportarr, :radarr]
 
   @derive {
     Flop.Schema,
@@ -128,6 +143,7 @@ defmodule Reencodarr.Media.Video do
     field :priority, :integer, default: 0
     field :size, :integer
     field :original_size, :integer
+    field :space_saved_bytes, :integer, default: 0
     field :text_codecs, {:array, :string}, default: []
     field :text_count, :integer
     field :video_codecs, {:array, :string}, default: []
@@ -137,6 +153,15 @@ defmodule Reencodarr.Media.Video do
     field :service_id, :string
     field :service_type, Ecto.Enum, values: @service_types
     field :crf_search_worker_id, :string
+    field :encode_worker_id, :string
+    field :worker_attempt_id, :string
+    field :worker_last_seen_at, :utc_datetime_usec
+    field :worker_control_desired_state, Ecto.Enum, values: [:running, :paused, :stopped]
+    field :worker_control_acknowledged_state, Ecto.Enum, values: [:running, :paused, :stopped]
+    field :worker_control_command_id, :string
+    field :worker_control_requested_at, :utc_datetime_usec
+    field :worker_control_reason, Ecto.Enum, values: [:operator, :stalled]
+    field :worker_terminal_claimed_at, :utc_datetime_usec
     field :mediainfo, :map
 
     # Year information from Sonarr/Radarr APIs

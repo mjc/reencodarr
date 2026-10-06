@@ -13,6 +13,7 @@ defmodule Reencodarr.Analyzer.Processing.PipelineTest do
     test "returns merged params on success" do
       video_info = %{id: 1, path: "/tmp/video1.mkv", service_id: "123", service_type: :sonarr}
       mediainfo = %{"track" => [%{"@type" => "General"}]}
+      mediainfo_result = %{video_info.path => %{"media" => mediainfo}}
 
       :meck.new(FileOperations, [:passthrough])
       :meck.expect(FileOperations, :validate_file_for_processing, fn _path -> {:ok, %{}} end)
@@ -20,7 +21,7 @@ defmodule Reencodarr.Analyzer.Processing.PipelineTest do
       :meck.new(CommandExecutor, [:passthrough])
 
       :meck.expect(CommandExecutor, :execute_single_mediainfo, fn _path ->
-        {:ok, mediainfo}
+        {:ok, mediainfo_result}
       end)
 
       :meck.new(MediaInfoExtractor, [:passthrough])
@@ -78,7 +79,12 @@ defmodule Reencodarr.Analyzer.Processing.PipelineTest do
       :meck.new(CommandExecutor, [:passthrough])
 
       :meck.expect(CommandExecutor, :execute_single_mediainfo, fn _path ->
-        {:ok, %{"track" => [%{"@type" => "General", "Duration" => 7_200_000}]}}
+        {:ok,
+         %{
+           video_info.path => %{
+             "media" => %{"track" => [%{"@type" => "General", "Duration" => 7_200_000}]}
+           }
+         }}
       end)
 
       :meck.new(MediaInfoExtractor, [:passthrough])
@@ -156,8 +162,33 @@ defmodule Reencodarr.Analyzer.Processing.PipelineTest do
       assert {:ok, []} = Pipeline.process_video_batch([], %{})
     end
 
+    test "preserves failed fallback videos so Broadway can leave analyzing" do
+      video = %{id: 14, path: "/tmp/timed-out.mkv", service_id: "3", service_type: :sonarr}
+
+      :meck.new(FileOperations, [:passthrough])
+
+      :meck.expect(FileOperations, :validate_files_for_processing, fn _paths ->
+        %{video.path => {:ok, %{}}}
+      end)
+
+      :meck.expect(FileOperations, :validate_file_for_processing, fn _path -> {:ok, %{}} end)
+
+      :meck.new(CommandExecutor, [:passthrough])
+
+      :meck.expect(CommandExecutor, :execute_batch_mediainfo, fn [path] when path == video.path ->
+        {:error, {:task_timeout, :timeout}}
+      end)
+
+      :meck.expect(CommandExecutor, :execute_single_mediainfo, fn path when path == video.path ->
+        {:error, "mediainfo timed out"}
+      end)
+
+      assert {:ok, [{:error, {"/tmp/timed-out.mkv", "mediainfo timed out"}}]} =
+               Pipeline.process_video_batch([video], %{})
+    end
+
     test "includes raw mediainfo in batch-processed attrs" do
-      video = %{id: 14, path: "/tmp/batch.mkv", service_id: "3", service_type: :sonarr}
+      video = %{id: 15, path: "/tmp/batch.mkv", service_id: "3", service_type: :sonarr}
       mediainfo = %{"media" => %{"track" => [%{"@type" => "General"}, %{"@type" => "Video"}]}}
 
       :meck.new(FileOperations, [:passthrough])

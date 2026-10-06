@@ -4,7 +4,7 @@ defmodule Reencodarr.Media.VideoFileInfo do
   Used as an intermediate format before converting to MediaInfo or database records.
   """
 
-  @type service_type :: :sonarr | :radarr
+  @type service_type :: :sonarr | :sportarr | :radarr
 
   @type t :: %__MODULE__{
           path: String.t(),

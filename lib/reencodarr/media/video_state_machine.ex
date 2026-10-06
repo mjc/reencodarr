@@ -93,6 +93,7 @@ defmodule Reencodarr.Media.VideoStateMachine do
           |> change(attrs)
           |> put_change(:state, to_state)
           |> maybe_clear_crf_search_worker_id(to_state)
+          |> maybe_clear_encode_worker_id(to_state)
           |> validate_state_transition(from_state, to_state)
 
         {:ok, changeset}
@@ -103,6 +104,11 @@ defmodule Reencodarr.Media.VideoStateMachine do
 
   defp maybe_clear_crf_search_worker_id(changeset, _to_state),
     do: put_change(changeset, :crf_search_worker_id, nil)
+
+  defp maybe_clear_encode_worker_id(changeset, :encoding), do: changeset
+
+  defp maybe_clear_encode_worker_id(changeset, _to_state),
+    do: put_change(changeset, :encode_worker_id, nil)
 
   @doc """
   Transitions a video to a new state with automatic state-specific validations.
@@ -146,8 +152,17 @@ defmodule Reencodarr.Media.VideoStateMachine do
   @spec transition_to_encoding(Video.t(), map()) ::
           {:ok, Ecto.Changeset.t()} | {:error, String.t()}
   def transition_to_encoding(%Video{} = video, attrs \\ %{}) do
+    attrs = maybe_snapshot_original_size(video, attrs)
+
     transition(video, :encoding, attrs)
   end
+
+  defp maybe_snapshot_original_size(%Video{original_size: nil, size: size}, attrs)
+       when is_integer(size) and size > 0 do
+    Map.put_new(attrs, :original_size, size)
+  end
+
+  defp maybe_snapshot_original_size(_video, attrs), do: attrs
 
   @spec transition_to_encoded(Video.t(), map()) ::
           {:ok, Ecto.Changeset.t()} | {:error, String.t()}
@@ -350,12 +365,12 @@ defmodule Reencodarr.Media.VideoStateMachine do
   def mark_as_crf_searching(%Video{} = video),
     do: mark_video_state(video, &transition_to_crf_searching/1)
 
-  @spec mark_as_encoding(Video.t()) :: {:ok, Video.t()} | {:error, any()}
-  def mark_as_encoding(%Video{} = video),
-    do: mark_video_state(video, &transition_to_encoding/1, broadcast: false)
+  @spec mark_as_encoding(Video.t(), map()) :: {:ok, Video.t()} | {:error, any()}
+  def mark_as_encoding(%Video{} = video, attrs \\ %{}),
+    do: mark_video_state(video, &transition_to_encoding(&1, attrs), broadcast: false)
 
-  @spec mark_as_reencoded(Video.t()) :: {:ok, Video.t()} | {:error, any()}
-  def mark_as_reencoded(%Video{} = video) do
+  @spec mark_as_reencoded(Video.t(), map()) :: {:ok, Video.t()} | {:error, any()}
+  def mark_as_reencoded(%Video{} = video, attrs \\ %{}) do
     case video.state do
       :encoded ->
         {:ok, video}
@@ -369,13 +384,13 @@ defmodule Reencodarr.Media.VideoStateMachine do
              :crf_searching,
              :failed
            ] ->
-        do_transition_to_encoded(%{video | state: :encoding})
+        do_transition_to_encoded(%{video | state: :encoding}, attrs)
     end
   end
 
-  defp do_transition_to_encoded(video) do
+  defp do_transition_to_encoded(video, attrs) do
     # Force :encoding so the :encoding → :encoded transition is always valid
-    case transition_to_encoded(video) do
+    case transition_to_encoded(video, attrs) do
       {:ok, changeset} ->
         DbWriter.run(fn -> Reencodarr.Repo.update(changeset) end,
           label: "transition video to encoded"
@@ -390,15 +405,18 @@ defmodule Reencodarr.Media.VideoStateMachine do
   def mark_as_analyzed(%Video{} = video),
     do: mark_video_state(video, &transition_to_analyzed/1)
 
-  @doc """
-  Marks a video as failed. Rescues `Ecto.StaleEntryError` for test cleanup races.
-  """
   @spec mark_as_failed(Video.t()) :: {:ok, Video.t()} | {:error, any()}
+  def mark_as_failed(%Video{state: :failed} = video), do: {:ok, video}
+
   def mark_as_failed(%Video{} = video) do
     mark_video_state(video, &transition_to_failed/1)
   rescue
     Ecto.StaleEntryError ->
-      {:ok, video}
+      case Reencodarr.Repo.get(Video, video.id) do
+        %Video{state: :failed} = current -> {:ok, current}
+        %Video{} = current -> mark_video_state(current, &transition_to_failed/1)
+        nil -> {:error, :not_found}
+      end
   end
 
   @spec mark_as_crf_searched(Video.t()) :: {:ok, Video.t()} | {:error, any()}

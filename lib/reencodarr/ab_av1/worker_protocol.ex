@@ -3,8 +3,9 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   Server-side helpers for the ab-av1 worker websocket protocol.
   """
 
-  alias Reencodarr.AbAv1.CrfSearch
+  alias Reencodarr.AbAv1.{CrfSearch, Encode}
   alias Reencodarr.AbAv1.WorkerConfig
+  alias Reencodarr.CrfSearchPolicy.Attempt
   alias Reencodarr.Media.Video
 
   @crf_search_topic "workers:crf_search"
@@ -17,13 +18,41 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     @moduledoc false
 
     @enforce_keys [:worker_id, :protocol_version, :version, :capabilities]
-    defstruct [:worker_id, :protocol_version, :version, :capabilities]
+    defstruct [:worker_id, :hostname, :protocol_version, :version, :capabilities]
 
     @type t :: %__MODULE__{
             worker_id: String.t(),
+            hostname: String.t() | nil,
             protocol_version: pos_integer(),
             version: String.t(),
             capabilities: map()
+          }
+  end
+
+  defmodule ActiveJob do
+    @moduledoc false
+
+    @enforce_keys [:job_id, :video_id, :job_type]
+    defstruct [:job_id, :video_id, :job_type]
+
+    @type t :: %__MODULE__{
+            job_id: String.t(),
+            video_id: pos_integer(),
+            job_type: :crf_search | :encode
+          }
+  end
+
+  defmodule ControlState do
+    @moduledoc false
+
+    @enforce_keys [:state]
+    defstruct [:state, :active_video_id, :job_id, :command_id]
+
+    @type t :: %__MODULE__{
+            state: :running | :paused | :stopped,
+            active_video_id: pos_integer() | nil,
+            job_id: String.t() | nil,
+            command_id: String.t() | nil
           }
   end
 
@@ -64,9 +93,20 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     @moduledoc false
 
     @enforce_keys [:video_id, :percent]
-    defstruct [:video_id, :percent, :filename, :eta, :fps, :crf, :sample_num, :total_samples]
+    defstruct [
+      :job_id,
+      :video_id,
+      :percent,
+      :filename,
+      :eta,
+      :fps,
+      :crf,
+      :sample_num,
+      :total_samples
+    ]
 
     @type t :: %__MODULE__{
+            job_id: String.t() | nil,
             video_id: pos_integer(),
             percent: number(),
             filename: String.t() | nil,
@@ -82,9 +122,10 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     @moduledoc false
 
     @enforce_keys [:video_id, :results]
-    defstruct [:video_id, :results]
+    defstruct [:job_id, :video_id, :results]
 
     @type t :: %__MODULE__{
+            job_id: String.t() | nil,
             video_id: pos_integer(),
             results: [map()]
           }
@@ -95,6 +136,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
     @enforce_keys [:video_id, :stage, :category, :message]
     defstruct [
+      :job_id,
       :video_id,
       :stage,
       :category,
@@ -106,6 +148,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     ]
 
     @type t :: %__MODULE__{
+            job_id: String.t() | nil,
             video_id: pos_integer(),
             stage: atom(),
             category: atom(),
@@ -117,13 +160,57 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
           }
   end
 
+  defmodule EncodeProgress do
+    @moduledoc false
+
+    @enforce_keys [:job_id, :video_id, :percent, :fps, :output_bytes, :output_percent]
+    defstruct [
+      :job_id,
+      :video_id,
+      :percent,
+      :fps,
+      :eta,
+      :output_bytes,
+      :output_percent,
+      :throughput
+    ]
+
+    @type t :: %__MODULE__{
+            job_id: String.t(),
+            video_id: pos_integer(),
+            percent: number(),
+            fps: number(),
+            eta: non_neg_integer() | nil,
+            output_bytes: non_neg_integer(),
+            output_percent: number(),
+            throughput: String.t() | nil
+          }
+  end
+
+  defmodule EncodeCompletion do
+    @moduledoc false
+
+    @enforce_keys [:job_id, :video_id, :source_name, :output_path, :output_bytes, :output_percent]
+    defstruct [:job_id, :video_id, :source_name, :output_path, :output_bytes, :output_percent]
+
+    @type t :: %__MODULE__{
+            job_id: String.t(),
+            video_id: pos_integer(),
+            source_name: String.t(),
+            output_path: String.t(),
+            output_bytes: non_neg_integer(),
+            output_percent: number()
+          }
+  end
+
   defmodule Completion do
     @moduledoc false
 
     @enforce_keys [:video_id, :result]
-    defstruct [:video_id, :result, :chosen_crf, results: []]
+    defstruct [:job_id, :video_id, :result, :chosen_crf, results: []]
 
     @type t :: %__MODULE__{
+            job_id: String.t() | nil,
             video_id: pos_integer(),
             result: :ok | :cancelled | :shutdown | :failed | {:error, term()},
             chosen_crf: number() | nil,
@@ -163,17 +250,20 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     do: protocol_version in @supported_protocol_versions
 
   @spec parse_announcement(map()) :: {:ok, Announcement.t()} | {:error, :invalid_announcement}
-  def parse_announcement(%{
-        "worker_id" => worker_id,
-        "protocol_version" => protocol_version,
-        "version" => version,
-        "capabilities" => capabilities
-      })
+  def parse_announcement(
+        %{
+          "worker_id" => worker_id,
+          "protocol_version" => protocol_version,
+          "version" => version,
+          "capabilities" => capabilities
+        } = payload
+      )
       when is_binary(worker_id) and is_integer(protocol_version) and is_binary(version) and
              is_map(capabilities) do
     {:ok,
      %Announcement{
        worker_id: worker_id,
+       hostname: optional_string(payload, [:hostname, "hostname"]),
        protocol_version: protocol_version,
        version: version,
        capabilities: capabilities
@@ -181,6 +271,52 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   end
 
   def parse_announcement(_payload), do: {:error, :invalid_announcement}
+
+  @spec parse_active_job(map()) :: {:ok, ActiveJob.t()} | {:error, :invalid_active_job}
+  def parse_active_job(%{
+        "job_id" => job_id,
+        "video_id" => video_id,
+        "job_type" => job_type
+      })
+      when is_binary(job_id) and job_id != "" and is_integer(video_id) and video_id > 0 and
+             job_type in ["crf_search", "encode"] do
+    {:ok,
+     %ActiveJob{
+       job_id: job_id,
+       video_id: video_id,
+       job_type: String.to_existing_atom(job_type)
+     }}
+  end
+
+  def parse_active_job(_payload), do: {:error, :invalid_active_job}
+
+  @spec parse_control_state(map()) :: {:ok, ControlState.t()} | {:error, :invalid_control_state}
+  def parse_control_state(%{"state" => state} = payload)
+      when state in ["running", "paused", "stopped"] do
+    active_video_id = Map.get(payload, "active_video_id")
+    job_id = Map.get(payload, "job_id")
+    command_id = Map.get(payload, "command_id")
+
+    if (is_nil(active_video_id) or (is_integer(active_video_id) and active_video_id > 0)) and
+         valid_control_identity?(job_id, command_id) do
+      {:ok,
+       %ControlState{
+         state: String.to_existing_atom(state),
+         active_video_id: active_video_id,
+         job_id: job_id,
+         command_id: command_id
+       }}
+    else
+      {:error, :invalid_control_state}
+    end
+  end
+
+  def parse_control_state(_payload), do: {:error, :invalid_control_state}
+
+  defp valid_control_identity?(nil, nil), do: true
+
+  defp valid_control_identity?(job_id, command_id),
+    do: is_binary(job_id) and job_id != "" and is_binary(command_id) and command_id != ""
 
   @spec parse_transfer_progress(map()) :: {:ok, TransferProgress.t()} | {:error, atom()}
   def parse_transfer_progress(payload) when is_map(payload) do
@@ -239,6 +375,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
            required_number(payload, [:percent, "percent"], :invalid_crf_search_progress) do
       {:ok,
        %CrfSearchProgress{
+         job_id: optional_string(payload, [:job_id, "job_id"]),
          video_id: video_id,
          percent: percent,
          filename: optional_string(payload, [:filename, "filename"]),
@@ -258,7 +395,12 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
     with {:ok, video_id} <-
            required_integer(payload, [:video_id, "video_id"], :invalid_crf_search_result),
          {:ok, results} <- parse_result_batch(payload) do
-      {:ok, %CrfSearchResult{video_id: video_id, results: results}}
+      {:ok,
+       %CrfSearchResult{
+         job_id: optional_string(payload, [:job_id, "job_id"]),
+         video_id: video_id,
+         results: results
+       }}
     end
   end
 
@@ -274,6 +416,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
            required_string(payload, [:message, "message"], :invalid_failure_report) do
       {:ok,
        %FailureReport{
+         job_id: optional_string(payload, [:job_id, "job_id"]),
          video_id: video_id,
          stage: stage,
          category: category,
@@ -288,6 +431,75 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
 
   def parse_failure_report(_payload), do: {:error, :invalid_failure_report}
 
+  @spec parse_encode_progress(map()) ::
+          {:ok, EncodeProgress.t()} | {:error, :invalid_encode_progress}
+  def parse_encode_progress(payload) when is_map(payload) do
+    with {:ok, job_id} <-
+           required_string(payload, [:job_id, "job_id"], :invalid_encode_progress),
+         {:ok, video_id} <-
+           required_integer(payload, [:video_id, "video_id"], :invalid_encode_progress),
+         {:ok, percent} <-
+           required_number(payload, [:percent, "percent"], :invalid_encode_progress),
+         {:ok, fps} <- required_number(payload, [:fps, "fps"], :invalid_encode_progress),
+         {:ok, output_bytes} <-
+           required_integer(payload, [:output_bytes, "output_bytes"], :invalid_encode_progress),
+         {:ok, output_percent} <-
+           required_number(
+             payload,
+             [:output_percent, "output_percent"],
+             :invalid_encode_progress
+           ) do
+      {:ok,
+       %EncodeProgress{
+         job_id: job_id,
+         video_id: video_id,
+         percent: percent,
+         fps: fps,
+         eta: optional_integer(payload, [:eta, "eta"]),
+         output_bytes: output_bytes,
+         output_percent: output_percent,
+         throughput: optional_string(payload, [:throughput, "throughput"])
+       }}
+    end
+  end
+
+  def parse_encode_progress(_payload), do: {:error, :invalid_encode_progress}
+
+  def parse_encode_completion(payload) when is_map(payload) do
+    with {:ok, job_id} <-
+           required_string(payload, [:job_id, "job_id"], :invalid_encode_completion),
+         {:ok, video_id} <-
+           required_integer(payload, [:video_id, "video_id"], :invalid_encode_completion),
+         {:ok, source_name} <-
+           required_string(payload, [:source_name, "source_name"], :invalid_encode_completion),
+         {:ok, output_path} <-
+           required_string(payload, [:output_path, "output_path"], :invalid_encode_completion),
+         {:ok, output_bytes} <-
+           required_integer(
+             payload,
+             [:output_bytes, "output_bytes"],
+             :invalid_encode_completion
+           ),
+         {:ok, output_percent} <-
+           required_number(
+             payload,
+             [:output_percent, "output_percent"],
+             :invalid_encode_completion
+           ) do
+      {:ok,
+       %EncodeCompletion{
+         job_id: job_id,
+         video_id: video_id,
+         source_name: source_name,
+         output_path: output_path,
+         output_bytes: output_bytes,
+         output_percent: output_percent
+       }}
+    end
+  end
+
+  def parse_encode_completion(_payload), do: {:error, :invalid_encode_completion}
+
   @spec parse_completion(map()) :: {:ok, Completion.t()} | {:error, atom()}
   def parse_completion(payload) when is_map(payload) do
     with {:ok, video_id} <-
@@ -295,6 +507,7 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
          {:ok, result} <- parse_completion_result(payload) do
       {:ok,
        %Completion{
+         job_id: optional_string(payload, [:job_id, "job_id"]),
          video_id: video_id,
          result: result,
          chosen_crf: optional_number(payload, [:chosen_crf, "chosen_crf"]),
@@ -449,6 +662,9 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
       status: "transfer_failed",
       video_id: video_id,
       transfer_id: transfer_id,
+      job_id: transfer_id,
+      stage: "receive_chunk",
+      retriable: true,
       reason: reason
     }
   end
@@ -456,37 +672,117 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   @spec event_ack(String.t()) :: map()
   def event_ack(event_name), do: %{accepted: true, event: event_name}
 
+  @spec event_discarded(String.t(), atom()) :: map()
+  def event_discarded(event_name, reason) when is_atom(reason) do
+    %{
+      accepted: false,
+      discarded: true,
+      event: event_name,
+      reason: Atom.to_string(reason)
+    }
+  end
+
   @spec no_work() :: map()
   def no_work, do: %{status: "no_work"}
 
-  @spec work_assigned(Video.t(), number()) :: map()
-  def work_assigned(%Video{id: video_id, path: path, size: size} = video, target_vmaf)
+  @spec work_assigned(Video.t(), number(), keyword()) :: map()
+  def work_assigned(%Video{id: video_id, path: path, size: size} = video, target_vmaf, opts \\ [])
       when is_integer(video_id) and is_binary(path) do
+    attempt = Keyword.get(opts, :attempt, %Attempt{target_vmaf: target_vmaf, crf_range: {5, 70}})
+
     video
     |> maybe_put_transfer(%{
       status: "job_assigned",
-      job_id: Integer.to_string(video_id),
+      job_type: "crf_search",
+      job_id: video.worker_attempt_id || Integer.to_string(video_id),
       video_id: video_id,
       source_name: Path.basename(path),
       size_bytes: size || 0,
       chunk_size_bytes: chunk_size_bytes(),
-      target_vmaf: target_vmaf,
-      crf_search_args: CrfSearch.build_crf_search_args(video, target_vmaf)
+      target_vmaf: attempt.target_vmaf,
+      crf_search_args:
+        CrfSearch.build_crf_search_args(video, attempt.target_vmaf, crf_range: attempt.crf_range)
     })
+    |> maybe_put_local_path(path, opts)
   end
 
-  def work_in_progress(%Video{id: video_id, path: path, size: size} = video, target_vmaf)
+  def work_in_progress(
+        %Video{id: video_id, path: path, size: size} = video,
+        target_vmaf,
+        opts \\ []
+      )
       when is_integer(video_id) and is_binary(path) do
+    attempt = Keyword.get(opts, :attempt, %Attempt{target_vmaf: target_vmaf, crf_range: {5, 70}})
+
     video
     |> maybe_put_transfer(%{
       status: "job_in_progress",
-      job_id: Integer.to_string(video_id),
+      job_type: "crf_search",
+      job_id: video.worker_attempt_id || Integer.to_string(video_id),
       video_id: video_id,
       source_name: Path.basename(path),
       size_bytes: size || 0,
-      target_vmaf: target_vmaf,
-      crf_search_args: CrfSearch.build_crf_search_args(video, target_vmaf)
+      target_vmaf: attempt.target_vmaf,
+      crf_search_args:
+        CrfSearch.build_crf_search_args(video, attempt.target_vmaf, crf_range: attempt.crf_range)
     })
+    |> maybe_put_local_path(path, opts)
+  end
+
+  def encode_work_assigned(%Video{} = video, vmaf, opts \\ []) do
+    encode_args =
+      Keyword.get_lazy(opts, :encode_args, fn ->
+        Encode.build_encode_args(%{vmaf | video: video})
+      end)
+
+    payload = %{
+      status: Keyword.get(opts, :status, "job_assigned"),
+      job_type: "encode",
+      job_id: video.worker_attempt_id || "encode-#{video.id}",
+      video_id: video.id,
+      source_name: Path.basename(video.path),
+      size_bytes: video.size || 0,
+      chunk_size_bytes: chunk_size_bytes(),
+      target_vmaf: 0.0,
+      encode_args: encode_args
+    }
+
+    video
+    |> maybe_put_transfer(payload)
+    |> maybe_put_local_path(video.path, opts)
+    |> put_output_delivery(video, opts)
+  end
+
+  defp put_output_delivery(payload, video, opts) do
+    if Keyword.get(opts, :local?, false) do
+      Map.put(payload, :output_shared_path, Encode.output_file(video))
+    else
+      maybe_put_output_transfer(payload, video)
+    end
+  end
+
+  defp maybe_put_output_transfer(%{job_id: attempt_id} = payload, %Video{id: video_id})
+       when is_binary(attempt_id) do
+    with base_url when is_binary(base_url) <- WorkerConfig.transfer_base_url(),
+         token when is_binary(token) <- WorkerConfig.transfer_token() do
+      Map.put(payload, :output_transfer, %{
+        url:
+          "#{String.trim_trailing(base_url, "/")}/workers/files/#{video_id}/output/#{attempt_id}",
+        auth: %{scheme: "bearer", header: "authorization", value: "Bearer #{token}"}
+      })
+    else
+      _ -> payload
+    end
+  end
+
+  defp maybe_put_output_transfer(payload, %Video{}), do: payload
+
+  defp maybe_put_local_path(payload, path, opts) do
+    if Keyword.get(opts, :local?, false) do
+      payload |> Map.delete(:transfer) |> Map.put(:local_path, path)
+    else
+      payload
+    end
   end
 
   defp maybe_put_transfer(%Video{id: video_id}, payload) do
@@ -540,7 +836,8 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
           "disk_total_bytes",
           :total_disk_bytes,
           "total_disk_bytes"
-        ])
+        ]),
+      active_video_id: optional_integer(payload, [:active_video_id, "active_video_id"])
     ]
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
@@ -555,12 +852,18 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   @spec error(
           :duplicate_worker_id
           | :invalid_announcement
+          | :invalid_control_state
           | :invalid_session_attrs
           | :invalid_transfer_progress
           | :invalid_crf_search_progress
           | :invalid_crf_search_result
           | :invalid_failure_report
           | :invalid_completion_result
+          | :invalid_encode_progress
+          | :invalid_encode_completion
+          | :source_missing
+          | :stale_worker_attempt
+          | :terminal_busy
           | :unsupported_protocol_version
           | :unsupported_event
           | :unknown_worker_session
@@ -569,12 +872,19 @@ defmodule Reencodarr.AbAv1.WorkerProtocol do
   def error(:duplicate_worker_id), do: %{reason: "duplicate_worker_id"}
 
   def error(:invalid_announcement), do: %{reason: "invalid_announcement"}
+  def error(:invalid_active_job), do: %{reason: "invalid_active_job"}
+  def error(:invalid_control_state), do: %{reason: "invalid_control_state"}
   def error(:invalid_session_attrs), do: %{reason: "invalid_session_attrs"}
   def error(:invalid_transfer_progress), do: %{reason: "invalid_transfer_progress"}
   def error(:invalid_crf_search_progress), do: %{reason: "invalid_crf_search_progress"}
   def error(:invalid_crf_search_result), do: %{reason: "invalid_crf_search_result"}
   def error(:invalid_failure_report), do: %{reason: "invalid_failure_report"}
   def error(:invalid_completion_result), do: %{reason: "invalid_completion_result"}
+  def error(:invalid_encode_progress), do: %{reason: "invalid_encode_progress"}
+  def error(:invalid_encode_completion), do: %{reason: "invalid_encode_completion"}
+  def error(:source_missing), do: %{reason: "source_missing"}
+  def error(:stale_worker_attempt), do: %{reason: "stale_worker_attempt"}
+  def error(:terminal_busy), do: %{reason: "terminal_busy"}
 
   def error(:unsupported_protocol_version) do
     %{

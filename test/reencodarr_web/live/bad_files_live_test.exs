@@ -335,6 +335,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
 
       :meck.expect(BadFileRemediation, :process_next_issue, fn
         [service_type: :sonarr] -> {:ok, Media.get_bad_file_issue!(sonarr_issue.id)}
+        [service_type: :sportarr] -> :idle
         [service_type: :radarr] -> {:ok, Media.get_bad_file_issue!(radarr_issue.id)}
       end)
 
@@ -438,6 +439,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
 
       :meck.expect(BadFileRemediation, :process_next_issue, fn
         [service_type: :sonarr] -> {:ok, Media.get_bad_file_issue!(sonarr_issue.id)}
+        [service_type: :sportarr] -> :idle
         [service_type: :radarr] -> {:ok, Media.get_bad_file_issue!(radarr_issue.id)}
       end)
 

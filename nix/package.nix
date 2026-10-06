@@ -1,7 +1,7 @@
 {
   lib,
   pkgs,
-  beam_minimal,
+  beam29Packages,
   sqlite,
 }: let
   svt-av1-hdr = pkgs.svt-av1.overrideAttrs (_old: {
@@ -31,8 +31,10 @@
       '';
   });
 
-  erlang = beam_minimal.interpreters.erlang_29;
-  beamPackages = (beam_minimal.packagesWith erlang).extend (_: prev: {
+  beamPackages = (if beam29Packages ? overrideScope
+    then beam29Packages.overrideScope
+    else beam29Packages.extend) (_: prev: {
+    elixir = prev.elixir_1_20;
     rebar3 = prev.rebar3.overrideAttrs (_: {
       # OTP 29 currently trips a warning in rebar3's CT suite; keep build output,
       # skip tests for the tool package used during dependency resolution.
@@ -40,10 +42,11 @@
       checkPhase = "";
     });
   });
-  elixir = beamPackages.elixir_1_20;
+
+  ab-av1-worker = pkgs.callPackage ./ab-av1-worker.nix {};
 
   runtimePath = lib.makeBinPath [
-    pkgs.ab-av1
+    ab-av1-worker
     ffmpeg-svt-hdr
     pkgs.gpac
     pkgs.mediainfo
@@ -98,13 +101,13 @@ in
 
     nativeBuildInputs = [
       pkgs.brotli
-      pkgs.tailwindcss
+      pkgs.tailwindcss_4
       pkgs.esbuild
     ];
 
     buildInputs = [sqlite];
 
-    inherit elixir erlang;
+    
 
     env = {
       EXQLITE_USE_SYSTEM = "1";
@@ -115,12 +118,12 @@ in
 
     preBuild = ''
       cat >> config/config.exs <<EOF
-      config :tailwind, path: "${lib.getExe pkgs.tailwindcss}"
+      config :tailwind, path: "${lib.getExe pkgs.tailwindcss_4}"
       config :esbuild, path: "${lib.getExe pkgs.esbuild}"
       EOF
 
       for target in linux-x64 linux-arm64 macos-x64 macos-arm64; do
-        ln -sf "${lib.getExe pkgs.tailwindcss}" "_build/tailwind-$target"
+        ln -sf "${lib.getExe pkgs.tailwindcss_4}" "_build/tailwind-$target"
         ln -sf "${lib.getExe pkgs.esbuild}" "_build/esbuild-$target"
       done
     '';

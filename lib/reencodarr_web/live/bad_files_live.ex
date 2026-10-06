@@ -21,7 +21,7 @@ defmodule ReencodarrWeb.BadFilesLive do
     "failed",
     "resolved"
   ]
-  @service_filter_values ["all", "sonarr", "radarr"]
+  @service_filter_values ["all", "sonarr", "sportarr", "radarr"]
   @kind_filter_values ["all" | Enum.map(BadFileIssue.issue_kind_values(), &to_string/1)]
   @param_keys [:status_filter, :service_filter, :kind_filter, :search_query, :page, :per_page]
 
@@ -232,7 +232,7 @@ defmodule ReencodarrWeb.BadFilesLive do
   @impl true
   def handle_event("replace_queued_now", _params, socket) do
     results =
-      [:sonarr, :radarr]
+      [:sonarr, :sportarr, :radarr]
       |> Enum.map(&BadFileRemediation.process_next_issue(service_type: &1))
 
     started_count = Enum.count(results, &match?({:ok, _issue}, &1))
@@ -418,6 +418,7 @@ defmodule ReencodarrWeb.BadFilesLive do
   end
 
   defp normalize_service("sonarr"), do: :sonarr
+  defp normalize_service("sportarr"), do: :sportarr
   defp normalize_service("radarr"), do: :radarr
   defp normalize_service(_service), do: :all
 
@@ -430,7 +431,7 @@ defmodule ReencodarrWeb.BadFilesLive do
   defp filtered_active_total(assigns), do: assigns.active_total || 0
 
   defp start_service_replacements do
-    [:sonarr, :radarr]
+    [:sonarr, :sportarr, :radarr]
     |> Enum.map(&BadFileRemediation.process_next_issue(service_type: &1))
     |> Enum.count(&match?({:ok, _issue}, &1))
   end
@@ -778,7 +779,10 @@ defmodule ReencodarrWeb.BadFilesLive do
                 queue
               </button>
               <button
-                :if={issue.video.service_type == :sonarr and issue.status in [:open, :failed]}
+                :if={
+                  issue.video.service_type in [:sonarr, :sportarr] and
+                    issue.status in [:open, :failed]
+                }
                 id={"queue-series-issues-#{issue.id}"}
                 phx-click="queue_series_issues"
                 phx-value-id={issue.id}

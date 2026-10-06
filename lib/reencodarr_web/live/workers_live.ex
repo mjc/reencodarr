@@ -5,19 +5,30 @@ defmodule ReencodarrWeb.WorkersLive do
 
   use ReencodarrWeb, :live_view
 
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.AbAv1.WorkerSessions
+  alias Reencodarr.AbAv1.WorkerSessions.Job
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Formatters
-  alias Reencodarr.Media
   alias Reencodarr.Rules
+  alias ReencodarrWeb.DashboardLive
+  alias ReencodarrWeb.WorkerControl
 
   import ReencodarrWeb.CrfSearchComponents
 
   @refresh_interval 5_000
+  @worker_control_events WorkerControl.event_names()
 
   @impl true
   def mount(_params, _session, socket) do
-    socket = assign(socket, :workers, WorkerSessions.list())
+    workers = WorkerSessions.list()
+
+    socket =
+      assign(socket,
+        workers: workers,
+        crf_worker_data: load_worker_crf_data(workers),
+        encode_worker_data: DashboardLive.load_worker_encode_data(workers)
+      )
 
     if connected?(socket) do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
@@ -30,28 +41,31 @@ defmodule ReencodarrWeb.WorkersLive do
   @impl true
   def handle_info(:refresh_workers, socket) do
     Process.send_after(self(), :refresh_workers, @refresh_interval)
-    {:noreply, assign(socket, :workers, WorkerSessions.list())}
+    {:noreply, assign_workers(socket, WorkerSessions.list())}
   end
 
   @impl true
   def handle_info({:worker_sessions_updated, %{sessions: sessions}}, socket) do
-    {:noreply, assign(socket, :workers, sessions)}
+    {:noreply, assign_workers(socket, sessions)}
+  end
+
+  def handle_info({:crf_search_vmaf_result, %{video_id: video_id}}, socket) do
+    {:noreply,
+     assign(
+       socket,
+       :crf_worker_data,
+       load_worker_crf_data(
+         socket.assigns.workers,
+         Map.delete(socket.assigns.crf_worker_data, video_id)
+       )
+     )}
   end
 
   def handle_info({_event, _data}, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_event("pause_worker_crf_search", %{"worker-id" => worker_id}, socket) do
-    control_worker(socket, worker_id, :pause, "Worker pause requested")
-  end
-
-  def handle_event("resume_worker_crf_search", %{"worker-id" => worker_id}, socket) do
-    control_worker(socket, worker_id, :resume, "Worker resume requested")
-  end
-
-  def handle_event("stop_worker_crf_search", %{"worker-id" => worker_id}, socket) do
-    control_worker(socket, worker_id, :stop, "Worker stop requested")
-  end
+  def handle_event(event, params, socket) when event in @worker_control_events,
+    do: WorkerControl.handle_event(event, params, socket)
 
   @impl true
   def render(assigns) do
@@ -115,37 +129,34 @@ defmodule ReencodarrWeb.WorkersLive do
                   <% end %>
                 </aside>
 
-                <div class="min-w-0">
+                <div class="min-w-0 space-y-3">
+                  <%= if worker_has_encode?(worker) do %>
+                    <DashboardLive.worker_encoding_panel
+                      worker={worker}
+                      data={@encode_worker_data}
+                      queue_count={0}
+                      queue_items={[]}
+                    />
+                  <% end %>
+
                   <%= case worker_phase(worker) do %>
                     <% :receiving_input -> %>
                       <.transfer_panel
                         worker={worker}
-                        video={active_video(worker)}
+                        video={active_video(worker, @crf_worker_data)}
                         title="Receiving Input"
                       />
                     <% :input_ready -> %>
                       <.transfer_panel
                         worker={worker}
-                        video={active_video(worker)}
+                        video={active_video(worker, @crf_worker_data)}
                         title="Input Ready"
                       />
                     <% :crf_searching -> %>
-                      <.crf_search_panel
-                        video={worker_crf_video(worker)}
-                        results={worker_crf_results(worker)}
-                        sample={worker_crf_sample(worker)}
-                        progress={worker.crf_search_progress || :none}
-                        status={worker_crf_status(worker)}
-                        show_controls={true}
-                        show_queue={false}
-                        show_empty_chart={true}
-                        suspend_event="pause_worker_crf_search"
-                        resume_event="resume_worker_crf_search"
-                        fail_event="stop_worker_crf_search"
-                        worker_id={worker.server_worker_id}
-                      />
+                      <.worker_crf_search_panel worker={worker} crf_data={@crf_worker_data} />
+                    <% :encoding -> %>
                     <% :idle -> %>
-                      <.idle_panel />
+                      <.worker_crf_search_panel worker={worker} crf_data={@crf_worker_data} />
                   <% end %>
                 </div>
               </section>
@@ -157,23 +168,13 @@ defmodule ReencodarrWeb.WorkersLive do
     """
   end
 
-  defp idle_panel(assigns) do
-    ~H"""
-    <div class="dashboard-card rounded-lg border border-gray-800 bg-gray-900 p-3 sm:p-4">
-      <h3 class="font-semibold text-white">Idle</h3>
-      <div class="mt-3 text-sm text-gray-500">Waiting for work.</div>
-    </div>
-    """
-  end
-
-  defp control_worker(socket, worker_id, action, message) do
-    Phoenix.PubSub.broadcast(
-      Reencodarr.PubSub,
-      ReencodarrWeb.WorkerChannel.worker_control_topic(worker_id),
-      {:worker_control, action}
+  defp assign_workers(socket, workers) do
+    assign(socket,
+      workers: workers,
+      crf_worker_data: load_worker_crf_data(workers, socket.assigns.crf_worker_data),
+      encode_worker_data:
+        DashboardLive.load_worker_encode_data(workers, socket.assigns.encode_worker_data)
     )
-
-    {:noreply, put_flash(socket, :info, message)}
   end
 
   defp transfer_panel(assigns) do
@@ -232,76 +233,43 @@ defmodule ReencodarrWeb.WorkersLive do
       :receiving_input -> "Receiving input"
       :input_ready -> "Input ready"
       :crf_searching -> "CRF search"
+      :encoding -> "Encoding"
     end
   end
 
-  defp worker_crf_status(%{phase: :crf_searching}), do: :processing
-
-  defp worker_crf_status(_worker), do: :idle
-
   defp worker_phase(%{phase: phase})
-       when phase in [:idle, :receiving_input, :input_ready, :crf_searching],
+       when phase in [:receiving_input, :input_ready, :crf_searching, :encoding],
        do: phase
-
-  defp worker_phase(%{active_video_id: nil}), do: :idle
 
   defp worker_phase(%{transfer_progress: progress}) when not is_nil(progress),
     do: :receiving_input
 
+  defp worker_phase(%{jobs: jobs}) when is_map(jobs) do
+    if Enum.any?(jobs, &match?({_, %Job{active: true, job_type: :encode}}, &1)) do
+      :encoding
+    else
+      :idle
+    end
+  end
+
+  defp worker_phase(%{active_video_id: nil}), do: :idle
+
   defp worker_phase(%{active_video_id: video_id}) when is_integer(video_id), do: :crf_searching
   defp worker_phase(_worker), do: :idle
 
-  defp worker_crf_video(worker) do
-    case active_video(worker) do
-      %Media.Video{} = video ->
-        %{
-          video_id: video.id,
-          filename: Path.basename(video.path),
-          video_size: video.size,
-          width: video.width,
-          height: video.height,
-          hdr: video.hdr,
-          target_vmaf: Rules.vmaf_target(video)
-        }
+  defp worker_has_encode?(%{jobs: jobs}) when is_map(jobs),
+    do: Enum.any?(jobs, &match?({_, %Job{active: true, job_type: :encode}}, &1))
 
-      nil ->
-        nil
-    end
-  end
+  defp worker_has_encode?(_worker), do: false
 
-  defp worker_crf_results(worker) do
-    case active_video_id(worker) do
-      nil ->
-        []
-
-      video_id ->
-        video_id
-        |> Media.get_vmafs_for_video()
-        |> Enum.sort_by(& &1.crf)
-        |> Enum.map(fn vmaf ->
-          %{crf: vmaf.crf, score: vmaf.score, percent: vmaf.percent}
-        end)
-    end
-  end
-
-  defp worker_crf_sample(%{
-         crf_search_progress: %{crf: crf, sample_num: sample_num, total_samples: total_samples}
-       })
-       when is_number(crf) and is_integer(sample_num) and is_integer(total_samples) do
-    %{crf: crf, sample_num: sample_num, total_samples: total_samples}
-  end
-
-  defp worker_crf_sample(_worker), do: nil
-
-  defp active_video(worker) do
-    case active_video_id(worker) do
-      nil -> nil
-      video_id -> Media.get_video(video_id)
-    end
-  end
+  defp active_video(worker, crf_worker_data),
+    do: get_in(crf_worker_data, [active_video_id(worker), :video])
 
   defp active_video_id(%{active_video_id: video_id}) when is_integer(video_id), do: video_id
-  defp active_video_id(%{crf_search_progress: %{video_id: video_id}}), do: video_id
+
+  defp active_video_id(%{crf_search_progress: %CrfSearchProgress{video_id: video_id}}),
+    do: video_id
+
   defp active_video_id(%{transfer_progress: %{video_id: video_id}}), do: video_id
   defp active_video_id(_worker), do: nil
 

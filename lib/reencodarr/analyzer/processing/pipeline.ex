@@ -55,19 +55,17 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
     Logger.debug("Processing #{length(video_infos)} videos individually")
 
     concurrency = get_fallback_concurrency()
-    timeout = ConcurrencyManager.get_processing_timeout()
 
     results =
       video_infos
       |> Task.async_stream(
         &process_single_video/1,
         max_concurrency: concurrency,
-        timeout: timeout,
-        on_timeout: :kill_task
+        timeout: :infinity
       )
       |> Enum.to_list()
 
-    process_async_results(results)
+    process_async_results(video_infos, results)
   end
 
   @doc """
@@ -78,8 +76,9 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
     Logger.debug("Processing single video: #{video_info.path}")
 
     with {:ok, _stats} <- FileOperations.validate_file_for_processing(video_info.path),
-         {:ok, mediainfo} <- CommandExecutor.execute_single_mediainfo(video_info.path),
-         {:ok, validated_mediainfo} <- validate_mediainfo(mediainfo, video_info.path),
+         {:ok, mediainfo_result} <- CommandExecutor.execute_single_mediainfo(video_info.path),
+         {:ok, media_data} <- extract_single_media_data(mediainfo_result, video_info.path),
+         {:ok, validated_mediainfo} <- validate_mediainfo(media_data, video_info.path),
          {:ok, video_params} <- extract_video_params(validated_mediainfo, video_info.path) do
       # Merge with service metadata
       complete_params = merge_service_metadata(video_params, video_info, validated_mediainfo)
@@ -192,6 +191,9 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
       :sonarr ->
         trigger_sonarr_rescan(video)
 
+      :sportarr ->
+        trigger_sportarr_rescan(video)
+
       :radarr ->
         trigger_radarr_rescan(video)
 
@@ -239,6 +241,40 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
 
       {:error, reason} ->
         Logger.error("Failed to get episode file info from Sonarr: #{inspect(reason)}")
+    end
+  end
+
+  defp trigger_sportarr_rescan(%{service_id: service_id, id: video_id})
+       when is_binary(service_id) do
+    case Integer.parse(service_id) do
+      {episode_file_id, ""} ->
+        refresh_sportarr_episode_file(episode_file_id, video_id)
+
+      _ ->
+        Logger.warning("Invalid Sportarr file id #{inspect(service_id)} for video #{video_id}")
+    end
+  end
+
+  defp trigger_sportarr_rescan(%{id: video_id}),
+    do: Logger.warning("No Sportarr file id for video #{video_id}")
+
+  defp refresh_sportarr_episode_file(episode_file_id, video_id) do
+    case Services.Sportarr.get_episode_file(episode_file_id) do
+      {:ok, %{body: %{"seriesId" => series_id}}} when is_integer(series_id) ->
+        refresh_sportarr_series(series_id, video_id)
+
+      {:error, reason} ->
+        Logger.error("Sportarr file lookup failed: #{inspect(reason)}")
+
+      _ ->
+        Logger.warning("Sportarr file response had no series id for video #{video_id}")
+    end
+  end
+
+  defp refresh_sportarr_series(series_id, video_id) do
+    case Services.Sportarr.refresh_series(series_id) do
+      {:ok, _} -> Logger.info("Triggered Sportarr refresh for video #{video_id}")
+      {:error, reason} -> Logger.error("Sportarr refresh failed: #{inspect(reason)}")
     end
   end
 
@@ -308,7 +344,6 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
         ) :: processing_result()
   defp process_videos_with_mediainfo(video_infos, mediainfo_map, _context) do
     concurrency = get_processing_concurrency()
-    timeout = ConcurrencyManager.get_processing_timeout()
 
     Logger.debug(
       "Processing #{length(video_infos)} videos with batch MediaInfo (concurrency: #{concurrency})"
@@ -324,12 +359,11 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
           process_video_with_mediainfo(video_info, mediainfo)
         end,
         max_concurrency: concurrency,
-        timeout: timeout,
-        on_timeout: :kill_task
+        timeout: :infinity
       )
       |> Enum.to_list()
 
-    process_async_results(results)
+    process_async_results(video_infos, results)
   end
 
   defp process_video_with_mediainfo(video_info, :no_mediainfo) do
@@ -341,12 +375,7 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
     Logger.debug("Processing video #{video_info.path} with batch MediaInfo")
 
     # Extract the "media" portion from the full mediainfo structure
-    media_data =
-      case mediainfo do
-        %{"media" => media} -> media
-        # fallback for unexpected structure
-        other -> other
-      end
+    media_data = unwrap_media_data(mediainfo)
 
     with {:ok, validated_mediainfo} <- validate_mediainfo(media_data, video_info.path),
          {:ok, video_params} <- extract_video_params(validated_mediainfo, video_info.path) do
@@ -367,46 +396,51 @@ defmodule Reencodarr.Analyzer.Processing.Pipeline do
       {:error, {video_info.path, error_msg}}
   end
 
+  defp extract_single_media_data(result, path) when is_map(result) and is_binary(path) do
+    case Map.fetch(result, path) do
+      {:ok, mediainfo} -> {:ok, unwrap_media_data(mediainfo)}
+      :error -> {:error, "missing MediaInfo result for #{path}"}
+    end
+  end
+
+  defp extract_single_media_data(_result, path),
+    do: {:error, "missing MediaInfo result for #{path}"}
+
+  defp unwrap_media_data(%{"media" => media}), do: media
+  defp unwrap_media_data(media), do: media
+
   defp mark_invalid_videos(invalid_videos_with_errors) do
     Enum.map(invalid_videos_with_errors, fn {video_info, reason} ->
       {:error, {video_info.path, reason}}
     end)
   end
 
-  defp process_async_results(results) do
-    {successful, failed} =
-      Enum.reduce(results, {[], []}, fn
-        {:ok, {:ok, video_data}}, {success, fails} ->
-          {[video_data | success], fails}
+  defp process_async_results(video_infos, results) do
+    processed =
+      video_infos
+      |> Enum.zip(results)
+      |> Enum.flat_map(fn
+        {_video_info, {:ok, {:ok, video_data}}} ->
+          [video_data]
 
-        {:ok, {:skip, reason}}, {success, fails} ->
+        {_video_info, {:ok, {:skip, reason}}} ->
           Logger.debug("Video skipped: #{reason}")
-          {success, fails}
+          []
 
-        {:ok, {:error, error_info}}, {success, fails} ->
-          # Record the failure using the failure tracker instead of just logging
-          # Note: We don't have the video struct here, so we'll still log but also collect for reporting
-          Logger.error("Video processing failed for: #{inspect(error_info)}")
-          {success, [inspect(error_info) | fails]}
+        {_video_info, {:ok, {:error, {path, reason}}}} ->
+          Logger.error("Video processing failed for #{path}: #{inspect(reason)}")
+          [{:error, {path, reason}}]
 
-        {:exit, :timeout}, {success, fails} ->
-          Logger.error("Video processing timed out")
-          {success, ["timeout" | fails]}
+        {video_info, {:exit, reason}} ->
+          Logger.error("Video processing timed out for #{video_info.path}: #{inspect(reason)}")
+          [{:error, {video_info.path, "processing task exited: #{inspect(reason)}"}}]
 
-        other, {success, fails} ->
-          Logger.error("Unexpected processing result: #{inspect(other)}")
-          {success, ["unknown_error" | fails]}
+        {video_info, other} ->
+          Logger.error("Unexpected processing result for #{video_info.path}: #{inspect(other)}")
+          [{:error, {video_info.path, "unexpected processing result"}}]
       end)
 
-    # Record failures properly through the failure system if we have them
-    # For now, log summary - ideally we'd have video structs to record individual failures
-    if not Enum.empty?(failed) do
-      Logger.warning(
-        "Batch processing completed with #{length(failed)} failures: #{inspect(failed)}"
-      )
-    end
-
-    {:ok, Enum.reverse(successful)}
+    {:ok, processed}
   end
 
   defp validate_mediainfo(media_data, path) do

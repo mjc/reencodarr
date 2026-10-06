@@ -11,6 +11,18 @@ defmodule ReencodarrWeb.DashboardLiveTest do
 
   import Phoenix.LiveViewTest
 
+  alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
+  alias Reencodarr.AbAv1.WorkerProtocol.EncodeProgress
+  alias Reencodarr.AbAv1.WorkerSessions
+  alias Reencodarr.AbAv1.WorkerSessions.Job
+  alias Reencodarr.Media
+  alias ReencodarrWeb.CrfSearchComponents
+
+  setup do
+    WorkerSessions.reset()
+    :ok
+  end
+
   describe "basic functionality" do
     test "mounts successfully and displays initial state", %{conn: conn} do
       {:ok, _view, html} = live(conn, ~p"/")
@@ -25,11 +37,337 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert html =~ "Sonarr"
       assert html =~ "Radarr"
       assert html =~ "Open workers"
+      assert html =~ "CRF: broadway"
+      assert html =~ "disabled (Broadway active)"
       assert html =~ ~s(id="dashboard-root")
       assert html =~ ~s(phx-hook="DashboardAnimations")
       assert html =~ ~s(id="dashboard-active-work")
+      assert html =~ ~s(id="broadway-crf-search-panel")
       assert html =~ "Needs Analysis:"
+      assert html =~ "Analyzing:"
       assert html =~ "VMAF Score Distribution"
+    end
+
+    test "renders one CRF search and encoding panel per worker in worker mode", %{conn: conn} do
+      previous = Application.get_env(:reencodarr, :crf_execution_mode)
+      Application.put_env(:reencodarr, :crf_execution_mode, :worker)
+
+      on_exit(fn ->
+        if is_nil(previous) do
+          Application.delete_env(:reencodarr, :crf_execution_mode)
+        else
+          Application.put_env(:reencodarr, :crf_execution_mode, previous)
+        end
+      end)
+
+      for suffix <- ["one", "two"] do
+        assert {:ok, _session} =
+                 WorkerSessions.register(%{
+                   server_worker_id: "server-#{suffix}",
+                   client_worker_id: "worker-#{suffix}",
+                   protocol_version: 1,
+                   version: "0.11.4",
+                   capabilities: %{"crf_search" => true, "encode" => true}
+                 })
+      end
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      assert has_element?(view, "#crf-worker-worker-one", "CRF Search · worker-one")
+      assert has_element?(view, "#crf-worker-worker-two", "CRF Search · worker-two")
+      assert has_element?(view, "#encode-worker-worker-one", "Encoding · worker-one")
+      assert has_element?(view, "#encode-worker-worker-two", "Encoding · worker-two")
+      refute has_element?(view, "#broadway-crf-search-panel")
+      refute has_element?(view, "#broadway-encoding-panel")
+      refute has_element?(view, "#no-crf-workers")
+
+      assert {:ok, _session} =
+               WorkerSessions.register(%{
+                 server_worker_id: "server-one-reconnected",
+                 client_worker_id: "worker-one",
+                 protocol_version: 1,
+                 version: "0.11.4",
+                 capabilities: %{"crf_search" => true, "encode" => true}
+               })
+
+      assert has_element?(view, "#crf-worker-worker-one", "CRF Search · worker-one")
+      assert has_element?(view, "#encode-worker-worker-one", "Encoding · worker-one")
+      refute has_element?(view, "#crf-worker-server-one-reconnected")
+      refute has_element?(view, "#encode-worker-server-one-reconnected")
+    end
+
+    test "reuses loaded CRF worker data across progress updates" do
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
+      workers = [%{active_video_id: video.id}]
+
+      cached = CrfSearchComponents.load_worker_crf_data(workers)
+      Reencodarr.Repo.delete!(video)
+
+      assert CrfSearchComponents.load_worker_crf_data(workers, cached) == cached
+    end
+
+    test "renders active worker encode progress", %{conn: conn} do
+      previous = Application.get_env(:reencodarr, :crf_execution_mode)
+      Application.put_env(:reencodarr, :crf_execution_mode, :worker)
+
+      on_exit(fn ->
+        if is_nil(previous),
+          do: Application.delete_env(:reencodarr, :crf_execution_mode),
+          else: Application.put_env(:reencodarr, :crf_execution_mode, previous)
+      end)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched, path: "/media/worker.mkv"})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0})
+      video = Fixtures.choose_vmaf(video, vmaf)
+      {:ok, _video} = Media.mark_as_encoding(video)
+
+      {:ok, _session} =
+        WorkerSessions.register(%{
+          server_worker_id: "server-encode",
+          client_worker_id: "worker-encode",
+          protocol_version: 1,
+          version: "0.11.4",
+          capabilities: %{"crf_search" => true, "encode" => true}
+        })
+
+      {:ok, _session} =
+        WorkerSessions.assign_job("server-encode", %Job{
+          job_id: "encode-#{video.id}",
+          job_type: :encode,
+          video_id: video.id,
+          phase: :encoding,
+          progress: %EncodeProgress{
+            job_id: "encode-#{video.id}",
+            video_id: video.id,
+            percent: 42.0,
+            fps: 12.5,
+            eta: 90,
+            output_bytes: 1_000,
+            output_percent: 10.0,
+            throughput: "12.50 fps"
+          }
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      assert has_element?(view, "#encode-worker-worker-encode", "Encoding · worker-encode")
+      assert has_element?(view, "#encode-worker-worker-encode", "worker.mkv")
+      assert has_element?(view, "#encode-worker-worker-encode", "42.0%")
+      assert has_element?(view, "#encode-worker-worker-encode", "12.5 fps")
+
+      assert {:ok, _session} =
+               WorkerSessions.set_job_control_state(
+                 "server-encode",
+                 "encode-#{video.id}",
+                 :paused
+               )
+
+      assert has_element?(view, "#encode-worker-worker-encode", "Paused")
+    end
+
+    test "does not render a restored encode before the worker reclaims it", %{conn: conn} do
+      previous = Application.get_env(:reencodarr, :crf_execution_mode)
+      Application.put_env(:reencodarr, :crf_execution_mode, :worker)
+
+      on_exit(fn ->
+        if is_nil(previous),
+          do: Application.delete_env(:reencodarr, :crf_execution_mode),
+          else: Application.put_env(:reencodarr, :crf_execution_mode, previous)
+      end)
+
+      {:ok, video} = Fixtures.video_fixture(%{state: :encoding, path: "/media/restored.mkv"})
+
+      {:ok, _session} =
+        WorkerSessions.register(%{
+          server_worker_id: "server-restored",
+          client_worker_id: "worker-restored",
+          protocol_version: 1,
+          version: "0.11.4",
+          capabilities: %{"crf_search" => true, "encode" => true}
+        })
+
+      {:ok, _session} =
+        WorkerSessions.assign_job("server-restored", %Job{
+          job_id: "encode-restored",
+          job_type: :encode,
+          video_id: video.id,
+          phase: :encoding,
+          active: false
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      assert has_element?(view, "#encode-worker-worker-restored", "Idle")
+      refute has_element?(view, "#encode-worker-worker-restored", "restored.mkv")
+    end
+
+    test "renders job-scoped worker CRF pause state", %{conn: conn} do
+      previous = Application.get_env(:reencodarr, :crf_execution_mode)
+      Application.put_env(:reencodarr, :crf_execution_mode, :worker)
+
+      on_exit(fn ->
+        if is_nil(previous),
+          do: Application.delete_env(:reencodarr, :crf_execution_mode),
+          else: Application.put_env(:reencodarr, :crf_execution_mode, previous)
+      end)
+
+      job_id = "crf-dashboard"
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :crf_searching,
+          crf_search_worker_id: "worker-crf",
+          worker_attempt_id: job_id,
+          worker_control_desired_state: :running,
+          worker_control_acknowledged_state: :running
+        })
+
+      {:ok, _session} =
+        WorkerSessions.register(%{
+          server_worker_id: "server-crf",
+          client_worker_id: "worker-crf",
+          protocol_version: 1,
+          version: "0.11.4",
+          capabilities: %{"crf_search" => true, "encode" => true}
+        })
+
+      {:ok, _session} =
+        WorkerSessions.assign_job("server-crf", %Job{
+          job_id: job_id,
+          job_type: :crf_search,
+          video_id: video.id
+        })
+
+      :ok =
+        WorkerSessions.set_crf_search_progress("server-crf", %CrfSearchProgress{
+          job_id: job_id,
+          video_id: video.id,
+          percent: 42.0
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/")
+      assert has_element?(view, "#crf-worker-worker-crf", "Processing")
+
+      assert {:ok, _session} =
+               WorkerSessions.set_job_control_state("server-crf", job_id, :paused)
+
+      assert has_element?(view, "#crf-worker-worker-crf", "Paused")
+
+      assert has_element?(
+               view,
+               ~s(#crf-worker-worker-crf button[phx-click="resume_worker_crf_search"][phx-value-job-id="#{job_id}"])
+             )
+    end
+
+    test "pauses CRF work restored from progress", %{conn: conn} do
+      previous = Application.get_env(:reencodarr, :crf_execution_mode)
+      Application.put_env(:reencodarr, :crf_execution_mode, :worker)
+
+      on_exit(fn ->
+        if is_nil(previous),
+          do: Application.delete_env(:reencodarr, :crf_execution_mode),
+          else: Application.put_env(:reencodarr, :crf_execution_mode, previous)
+      end)
+
+      job_id = "crf-dashboard-control"
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          state: :crf_searching,
+          crf_search_worker_id: "worker-crf",
+          worker_attempt_id: job_id,
+          worker_control_desired_state: :running,
+          worker_control_acknowledged_state: :running
+        })
+
+      {:ok, _session} =
+        WorkerSessions.register(%{
+          server_worker_id: "server-crf",
+          client_worker_id: "worker-crf",
+          protocol_version: 1,
+          version: "0.11.4",
+          capabilities: %{"crf_search" => true, "encode" => true}
+        })
+
+      :ok =
+        WorkerSessions.set_crf_search_progress("server-crf", %CrfSearchProgress{
+          job_id: job_id,
+          video_id: video.id,
+          percent: 42.0
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      Phoenix.PubSub.subscribe(
+        Reencodarr.PubSub,
+        ReencodarrWeb.WorkerChannel.worker_control_topic("server-crf")
+      )
+
+      view
+      |> element(
+        ~s(#crf-worker-worker-crf button[phx-click="pause_worker_crf_search"][phx-value-job-id="#{job_id}"])
+      )
+      |> render_click()
+
+      assert_receive {:worker_control, :pause, ^job_id, command_id}
+      assert is_binary(command_id)
+
+      updated = Media.get_video(video.id)
+      assert updated.worker_control_desired_state == :paused
+      assert updated.worker_control_acknowledged_state == :running
+      assert has_element?(view, "#crf-worker-worker-crf", "Awaiting ACK")
+    end
+
+    test "rejects a stale CRF control without crashing", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      assert render_hook(view, "pause_worker_crf_search", %{"worker-id" => "stale-worker"}) =~
+               "Worker job is no longer available"
+
+      assert Process.alive?(view.pid)
+    end
+
+    test "renders worker CRF progress structs" do
+      html =
+        render_component(&CrfSearchComponents.crf_search_panel/1,
+          video: %{
+            filename: "worker-progress.mkv",
+            video_size: 1_000,
+            width: 1920,
+            height: 1080,
+            hdr: nil,
+            target_vmaf: 95
+          },
+          results: [],
+          sample: nil,
+          progress: %CrfSearchProgress{video_id: 1, percent: 62.0, fps: 12.5, eta: 90},
+          status: :processing
+        )
+
+      assert html =~ "62.0%"
+      assert html =~ "12.5 fps"
+      assert html =~ "ETA: 90"
+    end
+
+    test "shows worker execution mode without calling stopped Broadway a worker failure", %{
+      conn: conn
+    } do
+      previous = Application.get_env(:reencodarr, :crf_execution_mode)
+      Application.put_env(:reencodarr, :crf_execution_mode, :worker)
+
+      on_exit(fn ->
+        if is_nil(previous) do
+          Application.delete_env(:reencodarr, :crf_execution_mode)
+        else
+          Application.put_env(:reencodarr, :crf_execution_mode, previous)
+        end
+      end)
+
+      {:ok, _view, html} = live(conn, ~p"/")
+
+      assert html =~ "CRF: worker"
+      assert html =~ "Local worker process"
+      assert html =~ "no workers connected"
     end
 
     @tag :expected_failure
@@ -83,7 +421,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert html =~ "initial-queue-preview.mkv"
     end
 
-    test "shows the worker websocket token when configured", %{conn: conn} do
+    test "shows only the worker token fingerprint when configured", %{conn: conn} do
       previous_token = Application.get_env(:reencodarr, :worker_token)
       Application.put_env(:reencodarr, :worker_token, "deploy-test-worker-token")
 
@@ -99,7 +437,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       expected_fingerprint = worker_token_fingerprint("deploy-test-worker-token")
 
       assert html =~ "Worker WebSocket"
-      assert html =~ "deploy-test-worker-token"
+      refute html =~ "deploy-test-worker-token"
       assert html =~ expected_fingerprint
       assert html =~ "/workers/socket/websocket?token="
     end
@@ -221,7 +559,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
         crf_search_video: nil,
         crf_search_results: [],
         crf_search_sample: nil,
-        crf_progress: :none,
+        crf_progress: nil,
         encoding_video: nil,
         encoding_vmaf: nil,
         encoding_progress: :none,
@@ -251,7 +589,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
         crf_search_video: nil,
         crf_search_results: [],
         crf_search_sample: nil,
-        crf_progress: :none,
+        crf_progress: nil,
         encoding_video: nil,
         encoding_vmaf: nil,
         encoding_progress: :none,
@@ -290,7 +628,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
           %{crf: 28, score: 94.8, percent: 93.5}
         ],
         crf_search_sample: %{crf: 26, sample_num: 1, total_samples: 3},
-        crf_progress: :none,
+        crf_progress: nil,
         encoding_video: nil,
         encoding_vmaf: nil,
         encoding_progress: :none,
@@ -329,7 +667,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
         },
         crf_search_results: [],
         crf_search_sample: nil,
-        crf_progress: :none,
+        crf_progress: nil,
         encoding_video: nil,
         encoding_vmaf: nil,
         encoding_progress: :none,
@@ -382,7 +720,11 @@ defmodule ReencodarrWeb.DashboardLiveTest do
         },
         crf_search_results: [],
         crf_search_sample: %{crf: 15.0, sample_num: 6, total_samples: 8},
-        crf_progress: %{video_id: 1, percent: 37.0, filename: "chart-pending.mkv"},
+        crf_progress: %CrfSearchProgress{
+          video_id: 1,
+          percent: 37.0,
+          filename: "chart-pending.mkv"
+        },
         encoding_video: nil,
         encoding_vmaf: nil,
         encoding_progress: :none,
@@ -405,6 +747,45 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert html =~ "waiting for first completed VMAF result"
       assert html =~ ~s(<svg viewBox="0 0 320 140")
       assert html =~ "CRF 15"
+    end
+
+    test "renders Broadway progress without optional fps or eta", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      send(view.pid, {
+        :dashboard_state_changed,
+        %{
+          crf_search_video: %{
+            video_id: 1,
+            filename: "partial-progress.mkv",
+            target_vmaf: 95,
+            video_size: 1_000,
+            width: 1920,
+            height: 1080,
+            hdr: nil
+          },
+          crf_search_results: [],
+          crf_search_sample: nil,
+          crf_progress: %CrfSearchProgress{
+            video_id: 1,
+            percent: 37.0,
+            filename: "partial-progress.mkv"
+          },
+          encoding_video: nil,
+          encoding_vmaf: nil,
+          encoding_progress: :none,
+          service_status: %{analyzer: :idle, crf_searcher: :processing, encoder: :idle},
+          stats: Reencodarr.Media.get_default_stats(),
+          queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
+          queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
+          vmaf_distribution: [],
+          resolution_distribution: [],
+          codec_distribution: []
+        }
+      })
+
+      :timer.sleep(50)
+      assert render(view) =~ "37.0%"
     end
 
     test "handles throughput events without error", %{conn: conn} do

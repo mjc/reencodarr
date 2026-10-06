@@ -1,0 +1,40 @@
+{
+  "track": {
+    "@type": "Audio",
+    "Format": "AC-4",
+    "Format_Commercial_IfAny": "Dolby AC-4",
+    "Format_Version": "2",
+    "CodecID": "ac-4",
+    "Channels": "2",
+    "ChannelLayout": "L R",
+    "extra": {
+      "Presentation": [
+        {
+          "Pos": "0",
+          "Index": "0",
+          "PresentationID": "0",
+          "PresentationLevel": "0",
+          "ChannelMode": "Immersive Stereo",
+          "DolbyAtmos": "Yes"
+        }
+      ],
+      "Group": [
+        {
+          "Pos": "0",
+          "Classifier": "Main",
+          "ChannelCoded": "Yes",
+          "ImmersiveStereo": "Dolby Atmos Content"
+        }
+      ],
+      "Substream": [
+        {
+          "Pos": "0",
+          "Index": "1",
+          "ChannelMode": "Stereo",
+          "ImmersiveStereo": "Dolby Atmos Content",
+          "ChannelLayout": "L R"
+        }
+      ]
+    }
+  }
+}
