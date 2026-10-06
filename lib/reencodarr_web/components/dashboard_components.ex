@@ -13,7 +13,7 @@ defmodule ReencodarrWeb.DashboardComponents do
         <h1>Dashboard</h1>
         <div class="workbench-heading-actions">
           <span class="connection-label"><span class="status-dot" />Live</span>
-          <details class="sync-menu">
+          <details id="source-sync-menu" class="sync-menu" phx-mounted={JS.ignore_attributes("open")}>
             <summary class="workbench-button"><.icon name="hero-arrow-path" />Sync sources</summary>
             <div class="workbench-menu">
               <button
@@ -232,7 +232,11 @@ defmodule ReencodarrWeb.DashboardComponents do
       )
 
     ~H"""
-    <details class="workbench-panel worker-setup">
+    <details
+      id="worker-setup"
+      class="workbench-panel worker-setup"
+      phx-mounted={JS.ignore_attributes("open")}
+    >
       <summary>Worker setup</summary>
       <dl>
         <dt>Local worker process</dt><dd>{@process_status}</dd>
@@ -401,7 +405,12 @@ defmodule ReencodarrWeb.DashboardComponents do
           progress={@transfer}
         />
         <p :if={@job.recovery_action} class="job-warning">{WorkerActivity.label(@job)}</p>
-        <details :if={(@job.job_type == :crf_search and @video) && @results != []} class="job-details">
+        <details
+          :if={(@job.job_type == :crf_search and @video) && @results != []}
+          id={"#{@dom_id}-results"}
+          class="job-details"
+          phx-mounted={JS.ignore_attributes("open")}
+        >
           <summary>Search results</summary>
           <CrfSearchComponents.crf_search_chart
             results={Enum.map(@results, &%{crf: &1.crf, score: &1.score})}
