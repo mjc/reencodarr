@@ -44,7 +44,6 @@
           inherit (self.packages.${system}) reencodarr;
         };
 
-        devShells.default = pkgs.callPackage ./nix/dev-shell.nix {};
       }
     )
     // {

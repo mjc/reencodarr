@@ -1058,29 +1058,19 @@ _build\prod\rel\reencodarr_client\bin\reencodarr_client.bat start
 - `libsvtav1` - For AV1 encoding support
 - Full codec support for input files (H.264, H.265, etc.)
 
-### Nix/Flake Development Environment
+### Development Environment
 
-The project includes a `flake.nix` that provides cross-platform development environments with all required dependencies:
+Use the repository's pinned devenv environment for development and tests:
 
-**✅ Cross-Platform Compatibility:**
-- **Linux (x86_64-linux)**: Full support with all dependencies
-- **macOS ARM64 (aarch64-darwin)**: Full support using modern Apple SDK
-- **Windows**: Not directly supported by Nix, use manual binary installation
-
-**Development Environment Features:**
-- Erlang/OTP 28 and Elixir 1.20.0
-- FFmpeg (full build) with libvmaf and AV1 support
-- Platform-specific dependencies (inotify-tools on Linux, terminal-notifier on macOS)
-- Development tools (git, gh, alejandra, nil, cspell)
-
-**Usage:**
 ```bash
-# Enter development shell with all dependencies
-nix develop
-
-# Build Docker image (Linux containers only)
-nix build .#packages.dockerImage
+devenv shell
+devenv shell -- mix test
 ```
+
+It provides Erlang/OTP 29, Elixir 1.20, and the app's media/build dependencies.
+The Nix flake remains the packaging and NixOS deployment interface. To build its
+Docker image on Linux, run `nix build .#dockerImage`, then load the resulting
+archive with `docker load < result` before starting `docker-compose.yml`.
 
 **Client Deployment Considerations:**
 - Nix flake provides consistent binary versions across development and server environments
