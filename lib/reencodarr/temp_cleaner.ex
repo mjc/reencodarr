@@ -71,10 +71,19 @@ defmodule Reencodarr.TempCleaner do
 
     {:ok,
      Repo.all(query)
-     |> Enum.map(&Encode.output_file/1)
+     |> Enum.flat_map(&active_encode_paths/1)
      |> MapSet.new()}
   rescue
     error -> {:error, {:ownership_lookup_failed, Exception.message(error)}}
+  end
+
+  defp active_encode_paths(video) do
+    output_path = Encode.output_file(video)
+
+    staged_output_path =
+      Path.join(Path.dirname(output_path), ".tmp.ab-av1-encoding." <> Path.basename(output_path))
+
+    [output_path, staged_output_path]
   end
 
   defp maybe_remove_orphan(file, path, now, protected_paths, count) do

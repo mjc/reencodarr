@@ -117,6 +117,29 @@ defmodule Reencodarr.TempCleanerTest do
       assert File.exists?(output_path)
       assert File.exists?(output_path <> ".upload")
     end
+
+    test "preserves ab-av1's staged output for an active encode", %{tmp: tmp} do
+      path = Path.join(tmp, "owned_source.mkv")
+
+      {:ok, video} =
+        Fixtures.video_fixture(%{
+          path: path,
+          state: :encoding,
+          encode_worker_id: "worker-1",
+          worker_attempt_id: "encode-1"
+        })
+
+      output_path = Encode.output_file(video)
+
+      staged_path =
+        Path.join(Path.dirname(output_path), ".tmp.ab-av1-encoding.#{Path.basename(output_path)}")
+
+      File.write!(staged_path, "partial encoded output")
+      File.touch!(staged_path, System.os_time(:second) - 48 * 3600)
+
+      assert TempCleaner.cleanup_orphaned_files() == 0
+      assert File.exists?(staged_path)
+    end
   end
 
   # ---------------------------------------------------------------------------
