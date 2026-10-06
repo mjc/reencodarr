@@ -1,16 +1,20 @@
 {pkgs}: let
-  version = "0.11.7-worker-a191e5c";
+  version = "0.11.7-worker-75e65e5";
+  src = pkgs.fetchFromGitHub {
+    owner = "mjc";
+    repo = "ab-av1-worker";
+    rev = "75e65e54be6b3d03b8123275ce9a39ed5a2ac0e8";
+    hash = "sha256-iG2jOexXa10RYB33bP4rbVnFBbXOrxeAvLspfQ/GEls=";
+  };
+  toolchain = pkgs.rust-bin.fromRustupToolchainFile "${src}/rust-toolchain.toml";
+  rustPlatform = pkgs.makeRustPlatform {
+    cargo = toolchain;
+    rustc = toolchain;
+  };
 in
-  pkgs.rustPlatform.buildRustPackage {
+  rustPlatform.buildRustPackage {
     pname = "ab-av1";
-    inherit version;
-
-    src = pkgs.fetchFromGitHub {
-      owner = "mjc";
-      repo = "ab-av1-worker";
-      rev = "a191e5c43698cd47d08b3c6c3d7927b20e383dbb";
-      hash = "sha256-/lpI2yMHngik0ttRoqwhY3UNfz1I/dSuenepE2/JKoM=";
-    };
+    inherit version src;
 
     cargoHash = "sha256-AqHPpDJ2uvnZ+68ZNj9GQ6nOL16TVNUQ1o+d4GPFZsI=";
 
