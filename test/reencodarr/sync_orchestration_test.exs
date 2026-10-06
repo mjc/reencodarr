@@ -3,7 +3,9 @@ defmodule Reencodarr.SyncOrchestrationTest do
 
   import ExUnit.CaptureLog
 
-  alias Reencodarr.{Media, Sync}
+  alias Reencodarr.Dashboard.Events
+  alias Reencodarr.{Media, Services, Sync}
+  import Reencodarr.ServicesFixtures
 
   @sync_env_keys [
     :sync_batch_size,
@@ -29,6 +31,56 @@ defmodule Reencodarr.SyncOrchestrationTest do
   end
 
   describe "sync_episodes orchestration" do
+    test "records completion even when there are no files and reports item progress" do
+      config = config_fixture()
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+      mock_analyzer_dispatch(self())
+      :meck.new(Services, [:passthrough])
+
+      :meck.expect(Services, :get_shows, fn ->
+        {:ok, %Req.Response{status: 200, body: [%{"id" => 1}, %{"id" => 2}]}}
+      end)
+
+      :meck.expect(Services, :get_episode_files, fn _ ->
+        {:ok, %Req.Response{status: 200, body: []}}
+      end)
+
+      Sync.handle_cast(:sync_episodes, %{})
+
+      assert_received {:sync_progress, %{service_type: :sonarr, progress: 50}}
+      assert_received {:sync_progress, %{service_type: :sonarr, progress: 100}}
+      assert_received {:sync_completed, %{service_type: :sonarr}}
+      assert DateTime.diff(DateTime.utc_now(), Services.get_config!(config.id).last_synced_at) < 5
+    end
+
+    test "failed source and item responses do not advance the last successful sync" do
+      config = config_fixture()
+      previous = ~U[2026-03-09 19:34:00Z]
+      Repo.update!(Ecto.Changeset.change(config, last_synced_at: previous))
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+      mock_analyzer_dispatch(self())
+      :meck.new(Services, [:passthrough])
+
+      :meck.expect(Services, :get_shows, fn ->
+        {:ok, %Req.Response{status: 503, body: []}}
+      end)
+
+      capture_log(fn -> Sync.handle_cast(:sync_episodes, %{}) end)
+      assert_received {:sync_failed, %{service_type: :sonarr}}
+      refute_received {:sync_completed, _}
+      assert Services.get_config!(config.id).last_synced_at == previous
+
+      :meck.expect(Services, :get_shows, fn ->
+        {:ok, %Req.Response{status: 200, body: [%{"id" => 1}]}}
+      end)
+
+      :meck.expect(Services, :get_episode_files, fn _ -> {:error, :timeout} end)
+      capture_log(fn -> Sync.handle_cast(:sync_episodes, %{}) end)
+      assert_received {:sync_failed, %{service_type: :sonarr}}
+      refute_received {:sync_completed, _}
+      assert Services.get_config!(config.id).last_synced_at == previous
+    end
+
     test "fetches shows, fetches files per show, and creates videos" do
       test_pid = self()
 
@@ -198,7 +250,48 @@ defmodule Reencodarr.SyncOrchestrationTest do
     end
   end
 
+  test "startup checks overdue sources promptly and periodic checks skip recent or disabled sources" do
+    config_fixture(%{service_type: :sonarr})
+    recent = config_fixture(%{service_type: :radarr})
+
+    Repo.update!(
+      Ecto.Changeset.change(recent,
+        last_synced_at: DateTime.utc_now() |> DateTime.truncate(:second)
+      )
+    )
+
+    config_fixture(%{service_type: :sportarr, enabled: false})
+    Application.put_env(:reencodarr, :sync_scheduling_enabled, true)
+    on_exit(fn -> Application.put_env(:reencodarr, :sync_scheduling_enabled, false) end)
+
+    {:ok, state} = Sync.init(%{})
+    assert Process.read_timer(state.sync_timer) in 1..10_000
+    {:noreply, state} = Sync.handle_info(:periodic_sync, state)
+    assert_received {:"$gen_cast", :sync_episodes}
+    refute_received {:"$gen_cast", :sync_movies}
+    refute_received {:"$gen_cast", :sync_sportarr}
+    Process.cancel_timer(state.sync_timer)
+
+    {:noreply, state} =
+      Sync.handle_info(:periodic_sync, %{last_attempts: %{sonarr: DateTime.utc_now()}})
+
+    refute_received {:"$gen_cast", :sync_episodes}
+    Process.cancel_timer(state.sync_timer)
+  end
+
   describe "sync_movies orchestration" do
+    test "an empty source still updates only its own completion time" do
+      config = config_fixture(%{service_type: :radarr})
+      other = config_fixture(%{service_type: :sportarr})
+      mock_analyzer_dispatch(self())
+      :meck.new(Services, [:passthrough])
+      :meck.expect(Services, :get_movies, fn -> {:ok, %Req.Response{status: 200, body: []}} end)
+
+      Sync.handle_cast(:sync_movies, %{})
+      assert %DateTime{} = Services.get_config!(config.id).last_synced_at
+      assert Services.get_config!(other.id).last_synced_at == nil
+    end
+
     test "fetches movies, fetches files per movie, and creates videos" do
       test_pid = self()
 
@@ -260,6 +353,18 @@ defmodule Reencodarr.SyncOrchestrationTest do
       assert_received :analyzer_dispatched
       assert :meck.num_calls(Reencodarr.Analyzer.Broadway, :dispatch_available, []) == 1
     end
+  end
+
+  test "saved timestamps make all enabled overdue sources eligible after a restart" do
+    for type <- [:sonarr, :radarr, :sportarr] do
+      config = config_fixture(%{service_type: type})
+      Repo.update!(Ecto.Changeset.change(config, last_synced_at: ~U[2026-03-09 19:34:00Z]))
+    end
+
+    {:noreply, _state} = Sync.handle_info(:periodic_sync, %{})
+    assert_received {:"$gen_cast", :sync_episodes}
+    assert_received {:"$gen_cast", :sync_movies}
+    assert_received {:"$gen_cast", :sync_sportarr}
   end
 
   defp mock_analyzer_dispatch(test_pid) do

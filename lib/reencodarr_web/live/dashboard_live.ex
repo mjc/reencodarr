@@ -41,9 +41,9 @@ defmodule ReencodarrWeb.DashboardLive do
         queue_items: queues,
         recent_encodes: fetch_recent_encodes([]),
         sources: load_sources(),
-        syncing: false,
-        sync_progress: 0,
-        service_type: nil,
+        syncing: state.source_sync != nil,
+        sync_progress: if(state.source_sync, do: state.source_sync.progress, else: 0),
+        service_type: if(state.source_sync, do: state.source_sync.service_type),
         page_title: dashboard_page_title(state)
       )
 
@@ -65,6 +65,8 @@ defmodule ReencodarrWeb.DashboardLive do
       if state.stats.encoded != socket.assigns.stats.encoded,
         do: fetch_recent_encodes(socket.assigns.recent_encodes),
         else: socket.assigns.recent_encodes
+
+    socket = assign_source_sync(socket, Map.get(state, :source_sync))
 
     {:noreply,
      assign(socket,
@@ -116,7 +118,7 @@ defmodule ReencodarrWeb.DashboardLive do
        assign(socket, syncing: true, sync_progress: 0, service_type: data[:service_type])}
 
   def handle_info({:sync_progress, data}, socket),
-    do: {:noreply, assign(socket, :sync_progress, Map.get(data, :progress, 0))}
+    do: {:noreply, assign_source_sync(socket, data)}
 
   def handle_info({event, data}, socket) when event in [:sync_completed, :sync_failed] do
     socket =
@@ -203,6 +205,17 @@ defmodule ReencodarrWeb.DashboardLive do
 
   @impl true
   def render(assigns), do: DashboardComponents.dashboard(assigns)
+
+  defp assign_source_sync(socket, nil),
+    do: assign(socket, syncing: false, sync_progress: 0, service_type: nil)
+
+  defp assign_source_sync(socket, data),
+    do:
+      assign(socket,
+        syncing: true,
+        sync_progress: Map.get(data, :progress, 0),
+        service_type: data.service_type
+      )
 
   defp assign_workers(socket, workers) do
     assign(socket,

@@ -55,11 +55,6 @@ defmodule ReencodarrWeb.DashboardComponents do
         />
       </nav>
 
-      <div :if={@syncing} class="sync-progress" role="status">
-        <span>Syncing {@service_type} {round(@sync_progress)}%</span>
-        <progress max="100" value={@sync_progress} aria-label="Source sync progress" />
-      </div>
-
       <div class="workbench-columns">
         <section id="dashboard-workers" class="workbench-workers" aria-labelledby="workers-heading">
           <div class="section-heading">
@@ -178,10 +173,22 @@ defmodule ReencodarrWeb.DashboardComponents do
           <section class="workbench-panel source-sync" aria-labelledby="source-heading">
             <h2 id="source-heading" class="panel-heading">Source sync</h2>
             <ul>
-              <li :for={source <- @sources}>
+              <li :for={source <- @sources} id={"source-sync-#{source.type}"}>
                 <span class={["status-dot", source.enabled != true && "status-dot-muted"]} />
                 <strong>{source.name}</strong>
-                <span>{source_status(source)}</span>
+                <span
+                  :if={@syncing and @service_type == source.type}
+                  class="source-sync-progress"
+                  role="status"
+                >
+                  <progress
+                    max="100"
+                    value={@sync_progress}
+                    aria-label={"#{source.name} sync progress"}
+                  />
+                  <span>{round(@sync_progress)}%</span>
+                </span>
+                <span :if={!@syncing or @service_type != source.type}>{source_status(source)}</span>
               </li>
             </ul>
             <.link navigate={~p"/configs"} class="section-action">Configure sources</.link>

@@ -19,6 +19,9 @@ defmodule Reencodarr.Sync do
   @known_file_query_batch_size 25
   # Sync every 6 hours by default; override via :sync_interval_ms app env
   @default_sync_interval_ms :timer.hours(6)
+  @schedule_check_ms :timer.minutes(1)
+  @failed_retry_ms :timer.minutes(5)
+  @sync_actions %{sonarr: :sync_episodes, radarr: :sync_movies, sportarr: :sync_sportarr}
 
   # Public API
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -28,8 +31,7 @@ defmodule Reencodarr.Sync do
 
   # GenServer Callbacks
   def init(state) do
-    schedule_sync()
-    {:ok, state}
+    {:ok, schedule_sync(state, 10_000)}
   end
 
   def handle_cast(:refresh_and_rename_series, state) do
@@ -43,36 +45,64 @@ defmodule Reencodarr.Sync do
 
     Events.broadcast_event(:sync_started, %{service_type: service_type})
 
-    try do
-      sync_items(sync_config)
-    rescue
-      e ->
-        Logger.error("Sync #{service_type} crashed: #{Exception.message(e)}")
-    catch
-      kind, reason ->
-        Logger.error("Sync #{service_type} failed (#{kind}): #{inspect(reason)}")
-    end
+    result = run_sync(sync_config)
 
-    Events.broadcast_event(:sync_completed, %{service_type: service_type})
+    case result do
+      :ok ->
+        Events.broadcast_event(:sync_completed, %{service_type: service_type})
+
+      {:error, reason} ->
+        Logger.error("Sync #{service_type} failed: #{inspect(reason)}")
+        Events.broadcast_event(:sync_failed, %{service_type: service_type, error: reason})
+    end
 
     # Trigger analyzer to process any videos that need analysis after sync completion
     AnalyzerBroadway.dispatch_available()
 
-    {:noreply, state}
+    attempts = Map.put(Map.get(state, :last_attempts, %{}), service_type, DateTime.utc_now())
+    {:noreply, Map.put(state, :last_attempts, attempts)}
   end
 
   def handle_info(:periodic_sync, state) do
-    Logger.info("Sync: running scheduled periodic sync")
-    sync_episodes()
-    if match?({:ok, %{enabled: true}}, Services.get_sportarr_config()), do: sync_sportarr()
-    sync_movies()
-    schedule_sync()
-    {:noreply, state}
+    now = DateTime.utc_now()
+    interval = Application.get_env(:reencodarr, :sync_interval_ms, @default_sync_interval_ms)
+    attempts = Map.get(state, :last_attempts, %{})
+
+    Services.list_configs()
+    |> Enum.filter(fn config ->
+      config.enabled and Map.has_key?(@sync_actions, config.service_type) and
+        elapsed?(config.last_synced_at, now, interval) and
+        elapsed?(Map.get(attempts, config.service_type), now, @failed_retry_ms)
+    end)
+    |> Enum.each(fn config ->
+      Logger.info("Sync: scheduled #{config.service_type} is due")
+      GenServer.cast(self(), Map.fetch!(@sync_actions, config.service_type))
+    end)
+
+    {:noreply, schedule_sync(state, @schedule_check_ms)}
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
 
   # Private Functions
+  defp elapsed?(nil, _now, _interval), do: true
+
+  defp elapsed?(previous, now, interval),
+    do: DateTime.diff(now, previous, :millisecond) >= interval
+
+  defp run_sync(config) do
+    with :ok <- sync_items(config) do
+      case Services.mark_synced(config.service_type) do
+        {:error, reason} -> {:error, reason}
+        {count, _} when is_integer(count) -> :ok
+      end
+    end
+  rescue
+    error -> {:error, Exception.message(error)}
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
   defp resolve_action(:sync_episodes),
     do: %{
       get_items: &Services.get_shows/0,
@@ -100,11 +130,18 @@ defmodule Reencodarr.Sync do
          service_type: service_type
        }) do
     case get_items.() do
-      {:ok, %Req.Response{body: items}} when is_list(items) ->
+      {:ok, %Req.Response{status: status, body: items}}
+      when status in 200..299 and is_list(items) ->
         process_items_in_batches(items, get_files, service_type)
 
+      {:ok, %Req.Response{status: status}} ->
+        {:error, {:source_response, status}}
+
+      {:error, reason} ->
+        {:error, reason}
+
       _ ->
-        Logger.error("Sync error: unexpected response")
+        {:error, :invalid_source_response}
     end
   end
 
@@ -117,17 +154,20 @@ defmodule Reencodarr.Sync do
       items
       |> Stream.chunk_every(sync_batch_size())
       |> Stream.with_index()
-      |> Enum.reduce(%{batches: 0, items_processed: 0, files_seen: 0, files_written: 0}, fn batch,
-                                                                                            acc ->
-        stats = process_batch(batch, get_files, service_type, total_items, library_mappings)
+      |> Enum.reduce(
+        %{batches: 0, items_processed: 0, files_seen: 0, files_written: 0, failed_items: 0},
+        fn batch, acc ->
+          stats = process_batch(batch, get_files, service_type, total_items, library_mappings)
 
-        %{
-          batches: acc.batches + 1,
-          items_processed: acc.items_processed + stats.items_processed,
-          files_seen: acc.files_seen + stats.files_seen,
-          files_written: acc.files_written + stats.files_written
-        }
-      end)
+          %{
+            batches: acc.batches + 1,
+            items_processed: acc.items_processed + stats.items_processed,
+            files_seen: acc.files_seen + stats.files_seen,
+            files_written: acc.files_written + stats.files_written,
+            failed_items: acc.failed_items + stats.failed_items
+          }
+        end
+      )
 
     duration = System.monotonic_time(:millisecond) - started_at
 
@@ -136,6 +176,8 @@ defmodule Reencodarr.Sync do
         "across #{summary.batches} batches, saw #{summary.files_seen} files, " <>
         "wrote #{summary.files_written} files in #{duration}ms"
     )
+
+    if summary.failed_items == 0, do: :ok, else: {:error, {:failed_items, summary.failed_items}}
   end
 
   defp process_batch({batch, batch_index}, get_files, service_type, total_items, library_mappings) do
@@ -151,9 +193,25 @@ defmodule Reencodarr.Sync do
         on_timeout: :kill_task,
         ordered: false
       )
-      |> Enum.reduce(%{items_processed: 0, files_seen: 0, files_written: 0}, fn result, acc ->
-        process_item_fetch_result(result, service_type, library_mappings, batch_index, acc)
-      end)
+      |> Enum.reduce(
+        %{items_processed: 0, files_seen: 0, files_written: 0, failed_items: 0},
+        fn result, acc ->
+          stats =
+            process_item_fetch_result(result, service_type, library_mappings, batch_index, acc)
+
+          processed = batch_index * sync_batch_size() + stats.items_processed
+          progress = div(processed * 100, total_items)
+
+          if progress > div((processed - 1) * 100, total_items) do
+            Events.broadcast_event(:sync_progress, %{
+              progress: progress,
+              service_type: service_type
+            })
+          end
+
+          stats
+        end
+      )
 
     batch_duration = System.monotonic_time(:millisecond) - batch_start_time
 
@@ -161,11 +219,6 @@ defmodule Reencodarr.Sync do
       "Sync: Batch #{batch_index} processed #{stats.items_processed} items, " <>
         "saw #{stats.files_seen} files, wrote #{stats.files_written} files in #{batch_duration}ms"
     )
-
-    Events.broadcast_event(:sync_progress, %{
-      progress: progress_percent(batch_index, sync_batch_size(), total_items),
-      service_type: service_type
-    })
 
     stats
   end
@@ -184,9 +237,10 @@ defmodule Reencodarr.Sync do
     )
 
     %{
-      items_processed: acc.items_processed + 1,
-      files_seen: acc.files_seen + length(files),
-      files_written: acc.files_written + files_written
+      acc
+      | items_processed: acc.items_processed + 1,
+        files_seen: acc.files_seen + length(files),
+        files_written: acc.files_written + files_written
     }
   end
 
@@ -198,7 +252,7 @@ defmodule Reencodarr.Sync do
          acc
        ) do
     Logger.warning("Sync: Failed to fetch files for item #{inspect(item_id)}: #{inspect(reason)}")
-    %{acc | items_processed: acc.items_processed + 1}
+    %{acc | items_processed: acc.items_processed + 1, failed_items: acc.failed_items + 1}
   end
 
   defp process_item_fetch_result(
@@ -209,7 +263,7 @@ defmodule Reencodarr.Sync do
          acc
        ) do
     Logger.warning("Sync: Task failed in batch #{batch_index}: #{inspect(reason)}")
-    %{acc | items_processed: acc.items_processed + 1}
+    %{acc | items_processed: acc.items_processed + 1, failed_items: acc.failed_items + 1}
   end
 
   defp write_item_files([], _service_type, _library_mappings, _item_id), do: 0
@@ -229,13 +283,6 @@ defmodule Reencodarr.Sync do
   defp sync_write_batch_size do
     Application.get_env(:reencodarr, :sync_write_batch_size) ||
       Application.get_env(:reencodarr, :sync_file_batch_size, @default_write_batch_size)
-  end
-
-  defp progress_percent(_batch_index, _batch_size, 0), do: 100
-
-  defp progress_percent(batch_index, batch_size, total_count) do
-    processed_count = min((batch_index + 1) * batch_size, total_count)
-    div(processed_count * 100, total_count)
   end
 
   defp sync_fetch_timeout_ms do
@@ -441,7 +488,8 @@ defmodule Reencodarr.Sync do
     id = item_id(item)
 
     case get_files.(id) do
-      {:ok, %Req.Response{body: files}} when is_list(files) ->
+      {:ok, %Req.Response{status: status, body: files}}
+      when status in 200..299 and is_list(files) ->
         {:ok, id, files}
 
       response ->
@@ -727,8 +775,13 @@ defmodule Reencodarr.Sync do
     Parsers.extract_year_from_text(path)
   end
 
-  defp schedule_sync do
-    interval = Application.get_env(:reencodarr, :sync_interval_ms, @default_sync_interval_ms)
-    Process.send_after(self(), :periodic_sync, interval)
+  defp schedule_sync(state, delay) do
+    if ref = Map.get(state, :sync_timer), do: Process.cancel_timer(ref)
+
+    if Application.get_env(:reencodarr, :sync_scheduling_enabled, true) do
+      Map.put(state, :sync_timer, Process.send_after(self(), :periodic_sync, delay))
+    else
+      state
+    end
   end
 end

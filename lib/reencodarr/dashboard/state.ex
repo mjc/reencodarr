@@ -35,6 +35,7 @@ defmodule Reencodarr.Dashboard.State do
   ]
 
   @default_state %{
+    source_sync: nil,
     crf_search_video: nil,
     crf_search_results: [],
     crf_search_sample: nil,
@@ -140,6 +141,20 @@ defmodule Reencodarr.Dashboard.State do
   end
 
   # CRF Search Events
+
+  @impl true
+  def handle_info({event, data}, state) when event in [:sync_started, :sync_progress] do
+    source_sync = %{service_type: data.service_type, progress: Map.get(data, :progress, 0)}
+    state = %{state | source_sync: source_sync}
+    broadcast_state(state)
+    {:noreply, state}
+  end
+
+  def handle_info({event, _data}, state) when event in [:sync_completed, :sync_failed] do
+    state = %{state | source_sync: nil}
+    broadcast_state(state)
+    {:noreply, state}
+  end
 
   @impl true
   def handle_info({:crf_search_started, video}, state) do

@@ -24,6 +24,21 @@ defmodule Reencodarr.Services do
     Repo.all(Config)
   end
 
+  @doc "Records the completion time of a successful source sync."
+  def mark_synced(service_type) do
+    import Ecto.Query
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    DbWriter.run(
+      fn ->
+        Config
+        |> where([config], config.service_type == ^service_type)
+        |> Repo.update_all(set: [last_synced_at: now, updated_at: now])
+      end,
+      label: :source_sync_completed
+    )
+  end
+
   @doc """
   Gets a single config.
 

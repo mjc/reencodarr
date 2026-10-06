@@ -7,6 +7,38 @@ defmodule ReencodarrWeb.DashboardLayoutTest do
   alias Reencodarr.AbAv1.WorkerSessions.Job
   alias Reencodarr.Dashboard.State
 
+  test "replaces only the syncing source timestamp with progress and restores it on completion",
+       %{conn: conn} do
+    Reencodarr.ServicesFixtures.config_fixture(%{service_type: :sportarr})
+    {:ok, view, _} = live(conn, ~p"/")
+    assert has_element?(view, "#source-sync-sportarr", "Never synced")
+
+    send(view.pid, {:sync_started, %{service_type: :sportarr}})
+    send(view.pid, {:sync_progress, %{service_type: :sportarr, progress: 45}})
+    assert has_element?(view, "#source-sync-sportarr progress[value='45']")
+    assert has_element?(view, "#source-sync-sportarr", "45%")
+    refute has_element?(view, "#source-sync-sportarr", "Never synced")
+    refute has_element?(view, "#source-sync-sonarr progress")
+
+    Reencodarr.Services.mark_synced(:sportarr)
+    send(view.pid, {:sync_completed, %{service_type: :sportarr}})
+    refute has_element?(view, "#source-sync-sportarr progress")
+    refute has_element?(view, "#source-sync-sportarr", "Never synced")
+  end
+
+  test "hydrates an active sync after a page refresh", %{conn: conn} do
+    start_supervised!(State)
+    send(State, {:sync_started, %{service_type: :radarr}})
+    send(State, {:sync_progress, %{service_type: :radarr, progress: 32}})
+    assert State.get_state().source_sync == %{service_type: :radarr, progress: 32}
+
+    {:ok, view, _} = live(conn, ~p"/")
+    assert has_element?(view, "#source-sync-radarr progress[value='32']")
+
+    send(State, {:sync_failed, %{service_type: :radarr, error: :timeout}})
+    assert State.get_state().source_sync == nil
+  end
+
   setup do
     previous = Application.get_env(:reencodarr, :crf_execution_mode)
     Application.put_env(:reencodarr, :crf_execution_mode, :worker)
