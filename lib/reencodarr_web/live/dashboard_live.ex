@@ -39,7 +39,7 @@ defmodule ReencodarrWeb.DashboardLive do
         service_status: state.service_status,
         queue_counts: state.queue_counts,
         queue_items: queues,
-        recent_encodes: VideoQueries.recent_encodes(5, dashboard_mount_query_opts()),
+        recent_encodes: fetch_recent_encodes([]),
         sources: load_sources(),
         syncing: false,
         sync_progress: 0,
@@ -63,7 +63,7 @@ defmodule ReencodarrWeb.DashboardLive do
   def handle_info({:dashboard_state_changed, state}, socket) do
     recent =
       if state.stats.encoded != socket.assigns.stats.encoded,
-        do: VideoQueries.recent_encodes(5, dashboard_mount_query_opts()),
+        do: fetch_recent_encodes(socket.assigns.recent_encodes),
         else: socket.assigns.recent_encodes
 
     {:noreply,
@@ -100,7 +100,14 @@ defmodule ReencodarrWeb.DashboardLive do
 
   def handle_info(:update_dashboard_data, socket) do
     schedule_periodic_update()
-    {:noreply, assign_workers(socket, WorkerSessions.list())}
+    socket = assign_workers(socket, WorkerSessions.list())
+
+    socket =
+      if socket.assigns.recent_encodes == [] and socket.assigns.stats.encoded > 0,
+        do: assign(socket, :recent_encodes, fetch_recent_encodes([])),
+        else: socket
+
+    {:noreply, socket}
   end
 
   def handle_info({:sync_started, data}, socket),
@@ -299,6 +306,16 @@ defmodule ReencodarrWeb.DashboardLive do
   defp dashboard_mount_query_opts do
     timeout = dashboard_mount_query_timeout()
     [timeout: timeout, pool_timeout: timeout]
+  end
+
+  defp fetch_recent_encodes(fallback) do
+    VideoQueries.recent_encodes(5, dashboard_mount_query_opts())
+  rescue
+    error in [DBConnection.ConnectionError, Exqlite.Error] ->
+      Logger.warning("Dashboard recent encodes unavailable: #{Exception.message(error)}")
+      fallback
+  catch
+    :exit, {:timeout, _} -> fallback
   end
 
   defp load_sources do

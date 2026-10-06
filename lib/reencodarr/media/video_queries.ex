@@ -13,6 +13,8 @@ defmodule Reencodarr.Media.VideoQueries do
   def recent_encodes(limit, opts \\ []) do
     Repo.all(
       from(v in Video,
+        # SQLite otherwise favors the worker-state index and sorts the entire encoded library.
+        hints: ["INDEXED BY videos_state_updated_at_index"],
         left_join: quality in Vmaf,
         on: quality.id == v.chosen_vmaf_id,
         where: v.state == :encoded,

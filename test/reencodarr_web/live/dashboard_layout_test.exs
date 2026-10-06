@@ -200,6 +200,36 @@ defmodule ReencodarrWeb.DashboardLayoutTest do
     assert Reencodarr.Media.get_video(video.id).state == :encoded
   end
 
+  test "keeps the dashboard available when recent encodes time out and retries", %{conn: conn} do
+    {:ok, video} = Fixtures.video_fixture(%{state: :encoded, path: "/media/recent.mkv"})
+    :meck.new(Reencodarr.Media.VideoQueries, [:passthrough, :no_link])
+    on_exit(fn -> :meck.unload(Reencodarr.Media.VideoQueries) end)
+
+    :meck.expect(Reencodarr.Media.VideoQueries, :recent_encodes, fn _, _ ->
+      raise Exqlite.Error, message: "interrupted"
+    end)
+
+    {:ok, view, _} = live(conn, ~p"/")
+    assert has_element?(view, "#dashboard-workers")
+    assert has_element?(view, ".recent-encodes", "Recent encodes unavailable")
+
+    :meck.expect(Reencodarr.Media.VideoQueries, :recent_encodes, fn limit, opts ->
+      :meck.passthrough([limit, opts])
+    end)
+
+    send(view.pid, :update_dashboard_data)
+    assert has_element?(view, ".recent-encodes", "recent.mkv")
+
+    :meck.expect(Reencodarr.Media.VideoQueries, :recent_encodes, fn _, _ ->
+      raise DBConnection.ConnectionError, "connection not available"
+    end)
+
+    state = State.get_state()
+    send(view.pid, {:dashboard_state_changed, %{state | stats: %{state.stats | encoded: 2}}})
+    assert has_element?(view, ".recent-encodes", "recent.mkv")
+    assert Reencodarr.Media.get_video(video.id).state == :encoded
+  end
+
   defp register_worker do
     WorkerSessions.register(%{
       server_worker_id: "server-atlas",

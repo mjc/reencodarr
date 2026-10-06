@@ -86,7 +86,12 @@ defmodule ReencodarrWeb.DashboardComponents do
               <h2 id="recent-heading">Recent encodes</h2>
               <.link navigate={~p"/videos?state=encoded"} class="section-action">View encoded videos</.link>
             </div>
-            <p :if={@recent_encodes == []} class="workbench-empty-inline">No encoded videos yet.</p>
+            <p :if={@recent_encodes == []} class="workbench-empty-inline">
+              {if(@stats.encoded > 0,
+                do: "Recent encodes unavailable.",
+                else: "No encoded videos yet."
+              )}
+            </p>
             <div :if={@recent_encodes != []} class="workbench-table-scroll">
               <table class="workbench-table">
                 <thead>

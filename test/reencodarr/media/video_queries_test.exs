@@ -3,6 +3,32 @@ defmodule Reencodarr.Media.VideoQueriesTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Reencodarr.Media.VideoQueries
 
+  test "recent encodes use an ordered index without sorting the encoded library" do
+    ref = make_ref()
+    owner = self()
+    handler = {__MODULE__, ref}
+
+    :telemetry.attach(
+      handler,
+      [:reencodarr, :repo, :query],
+      fn _, _, metadata, _ ->
+        if self() == owner, do: send(owner, {ref, metadata.query, metadata.params})
+      end,
+      nil
+    )
+
+    try do
+      VideoQueries.recent_encodes(5)
+      assert_receive {^ref, sql, params}
+      plan = Reencodarr.Repo.query!("EXPLAIN QUERY PLAN " <> sql, params).rows
+      descriptions = Enum.map_join(plan, "\n", &List.last/1)
+      assert descriptions =~ "USING INDEX videos_state_updated_at_index"
+      refute descriptions =~ "TEMP B-TREE"
+    after
+      :telemetry.detach(handler)
+    end
+  end
+
   describe "videos_for_crf_search/1" do
     test "returns videos needing CRF search" do
       {:ok, video} =
