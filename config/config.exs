@@ -83,7 +83,7 @@ config :reencodarr, ReencodarrWeb.Endpoint,
 
 # Configure esbuild (the version is required)
 config :esbuild,
-  version: "0.28.1",
+  version: "0.28.2",
   reencodarr: [
     args:
       ~w(js/app.js --bundle --target=es2020 --outdir=../priv/static/assets --external:/fonts/* --external:/images/* --legal-comments=none --alias:@=.),

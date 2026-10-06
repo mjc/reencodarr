@@ -6,42 +6,60 @@
 }: let
   svt-av1-hdr = pkgs.svt-av1.overrideAttrs (_old: {
     pname = "svt-av1-hdr";
-    version = "4.0.1";
+    version = "4.2.0";
     src = pkgs.fetchFromGitHub {
       owner = "juliobbv-p";
       repo = "svt-av1-hdr";
-      rev = "v4.0.1";
-      hash = "sha256-jfyolWcPcfMzxjBszg1KY9eHc6KRsp41h3lQKsrgiDU=";
+      rev = "v4.2.0";
+      hash = "sha256-axJ4C2gSQMdiGo6qLNxaQ5AWUuZp6gRnEI8Bx0B7tlw=";
     };
   });
 
-  ffmpeg-svt-hdr = (pkgs.ffmpeg-full.override {svt-av1 = svt-av1-hdr;}).overrideAttrs (old: {
-    postPatch =
-      (old.postPatch or "")
-      + ''
-        substituteInPlace libavcodec/libsvtav1.c \
-          --replace-fail "param->enable_adaptive_quantization = 0;" ""
-      '';
+  ffmpeg-svt-hdr =
+    (pkgs.ffmpeg-full.override {
+      version = "9.0.2";
+      source = pkgs.fetchurl {
+        url = "https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz";
+        hash = "sha256-jDhQKD6yX6AmSCB4oEBR4L4XNHsJ74GghJvsFaluAC4=";
+      };
+      svt-av1 = svt-av1-hdr;
+    }).overrideAttrs (old: {
+      patches =
+        lib.filter
+        (patch:
+          !(lib.hasInfix
+            "0001-swscale-loongarch-fix-buffer-underflow-in-yuv2plane1"
+            (builtins.baseNameOf (toString patch))))
+        old.patches;
+      postPatch =
+        (old.postPatch or "")
+        + ''
+          substituteInPlace libavcodec/libsvtav1.c \
+            --replace-fail "param->enable_adaptive_quantization = 0;" ""
+        '';
 
-    preConfigure =
-      (old.preConfigure or "")
-      + ''
-        export TMPDIR="/tmp/ffmpeg-configure-tmp"
-        mkdir -p "$TMPDIR"
-      '';
-  });
-
-  beamPackages = (if beam29Packages ? overrideScope
-    then beam29Packages.overrideScope
-    else beam29Packages.extend) (_: prev: {
-    elixir = prev.elixir_1_20;
-    rebar3 = prev.rebar3.overrideAttrs (_: {
-      # OTP 29 currently trips a warning in rebar3's CT suite; keep build output,
-      # skip tests for the tool package used during dependency resolution.
-      doCheck = false;
-      checkPhase = "";
+      preConfigure =
+        (old.preConfigure or "")
+        + ''
+          export TMPDIR="/tmp/ffmpeg-configure-tmp"
+          mkdir -p "$TMPDIR"
+        '';
     });
-  });
+
+  beamPackages =
+    (
+      if beam29Packages ? overrideScope
+      then beam29Packages.overrideScope
+      else beam29Packages.extend
+    ) (_: prev: {
+      elixir = prev.elixir_1_20;
+      rebar3 = prev.rebar3.overrideAttrs (_: {
+        # OTP 29 currently trips a warning in rebar3's CT suite; keep build output,
+        # skip tests for the tool package used during dependency resolution.
+        doCheck = false;
+        checkPhase = "";
+      });
+    });
 
   ab-av1-worker = pkgs.callPackage ./ab-av1-worker.nix {};
 
@@ -61,40 +79,39 @@ in
     src = lib.cleanSourceWith {
       src = ../.;
 
-      filter = path: type:
-        let
-          root = toString ../.;
-          pathStr = toString path;
-          relPath =
-            if pathStr == root
-            then ""
-            else lib.removePrefix "${root}/" pathStr;
+      filter = path: type: let
+        root = toString ../.;
+        pathStr = toString path;
+        relPath =
+          if pathStr == root
+          then ""
+          else lib.removePrefix "${root}/" pathStr;
 
-          excludedDirs = [
-            "_build"
-            "deps"
-            "node_modules"
-            "logs"
-            ".elixir_ls"
-            ".direnv"
-            ".git"
-          ];
+        excludedDirs = [
+          "_build"
+          "deps"
+          "node_modules"
+          "logs"
+          ".elixir_ls"
+          ".direnv"
+          ".git"
+        ];
 
-          isExcludedDir = dir: lib.hasInfix "/${dir}/" "/${relPath}/";
+        isExcludedDir = dir: lib.hasInfix "/${dir}/" "/${relPath}/";
 
-          excluded =
-            lib.any isExcludedDir excludedDirs
-            || builtins.match "priv/reencodarr_(dev|prod|test).*\\.db(-shm|-wal|-journal)?"
-              relPath
-              != null;
-        in
-          lib.cleanSourceFilter path type && !excluded;
+        excluded =
+          lib.any isExcludedDir excludedDirs
+          || builtins.match "priv/reencodarr_(dev|prod|test).*\\.db(-shm|-wal|-journal)?"
+          relPath
+          != null;
+      in
+        lib.cleanSourceFilter path type && !excluded;
     };
 
     mixFodDeps = beamPackages.fetchMixDeps {
       pname = "${pname}-mix-deps";
       inherit src version;
-      hash = "sha256-Fg1P1fuQGCRiFUhJnJgcM6D3HzPJcbK7MX8WZGSKHSc=";
+      hash = "sha256-cSXQxY1axeB4JpkGK16jjTIajjoouCjSNMtPXfWwu/M=";
     };
 
     removeCookie = false;
@@ -106,8 +123,6 @@ in
     ];
 
     buildInputs = [sqlite];
-
-    
 
     env = {
       EXQLITE_USE_SYSTEM = "1";
@@ -143,44 +158,44 @@ in
     '';
 
     postInstall = ''
-      mv "$out/bin/reencodarr" "$out/bin/reencodarr-real"
+            mv "$out/bin/reencodarr" "$out/bin/reencodarr-real"
 
-      cat > "$out/bin/reencodarr" <<'EOF'
-#!${pkgs.bash}/bin/bash
-set -euo pipefail
+            cat > "$out/bin/reencodarr" <<'EOF'
+      #!${pkgs.bash}/bin/bash
+      set -euo pipefail
 
-if [ -z "''${TMPDIR:-}" ]; then
-  if [ -n "''${REENCODARR_TMPDIR:-}" ]; then
-    export TMPDIR="$REENCODARR_TMPDIR"
-  elif [ -n "''${REENCODARR_DATA_DIR:-}" ]; then
-    export TMPDIR="$REENCODARR_DATA_DIR/tmp"
-  else
-    export TMPDIR=/tmp/reencodarr_tmp
-  fi
-fi
-mkdir -p "$TMPDIR"
+      if [ -z "''${TMPDIR:-}" ]; then
+        if [ -n "''${REENCODARR_TMPDIR:-}" ]; then
+          export TMPDIR="$REENCODARR_TMPDIR"
+        elif [ -n "''${REENCODARR_DATA_DIR:-}" ]; then
+          export TMPDIR="$REENCODARR_DATA_DIR/tmp"
+        else
+          export TMPDIR=/tmp/reencodarr_tmp
+        fi
+      fi
+      mkdir -p "$TMPDIR"
 
-if [ -z "''${TZDATA_DATA_DIR:-}" ]; then
-  if [ -n "''${REENCODARR_DATA_DIR:-}" ]; then
-    export TZDATA_DATA_DIR="$REENCODARR_DATA_DIR/tzdata"
-  elif [ -n "''${HOME:-}" ]; then
-    export TZDATA_DATA_DIR="$HOME/tzdata"
-  else
-    export TZDATA_DATA_DIR=/tmp/elixir_tzdata
-  fi
-fi
-mkdir -p "$TZDATA_DATA_DIR"
+      if [ -z "''${TZDATA_DATA_DIR:-}" ]; then
+        if [ -n "''${REENCODARR_DATA_DIR:-}" ]; then
+          export TZDATA_DATA_DIR="$REENCODARR_DATA_DIR/tzdata"
+        elif [ -n "''${HOME:-}" ]; then
+          export TZDATA_DATA_DIR="$HOME/tzdata"
+        else
+          export TZDATA_DATA_DIR=/tmp/elixir_tzdata
+        fi
+      fi
+      mkdir -p "$TZDATA_DATA_DIR"
 
-export PATH="${runtimePath}:$PATH"
+      export PATH="${runtimePath}:$PATH"
 
-real_bin="$(dirname "$0")/reencodarr-real"
-if [ "''${1:-}" = "start" ]; then
-  "$real_bin" eval "Reencodarr.Release.migrate()"
-fi
+      real_bin="$(dirname "$0")/reencodarr-real"
+      if [ "''${1:-}" = "start" ]; then
+        "$real_bin" eval "Reencodarr.Release.migrate()"
+      fi
 
-exec "$real_bin" "$@"
-EOF
-      chmod +x "$out/bin/reencodarr"
+      exec "$real_bin" "$@"
+      EOF
+            chmod +x "$out/bin/reencodarr"
     '';
 
     meta = {
