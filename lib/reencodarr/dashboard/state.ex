@@ -15,13 +15,11 @@ defmodule Reencodarr.Dashboard.State do
   alias Reencodarr.AbAv1.ProcessControl
   alias Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress
   alias Reencodarr.Dashboard.Events
-  alias Reencodarr.Media.ChartQueries
   alias Reencodarr.Media.VideoQueries
 
   @state_channel "dashboard:state"
 
   @queue_refresh_interval 5_000
-  @chart_refresh_interval 300_000
   @default_state_query_timeout 1_000
   @default_queue_query_timeout 1_000
   @progress_debounce_ms 500
@@ -53,10 +51,6 @@ defmodule Reencodarr.Dashboard.State do
     queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
     queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
     queue_previews_loaded: false,
-    vmaf_distribution: [],
-    resolution_distribution: [],
-    codec_distribution: [],
-    charts_loaded: false,
     progress_debounce_ref: nil
   }
 
@@ -114,42 +108,16 @@ defmodule Reencodarr.Dashboard.State do
         state.queue_items
       end
 
-    state =
-      try do
-        charts = load_chart_data()
+    if queue_refresh_enabled?(),
+      do: Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
 
-        Process.send_after(self(), :refresh_charts, @chart_refresh_interval)
-
-        if queue_refresh_enabled?(),
-          do: Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
-
-        %{
-          state
-          | stats: stats,
-            queue_counts: queue_counts,
-            queue_items: initial_queue_items,
-            queue_previews_loaded: queue_refresh_enabled?(),
-            vmaf_distribution: charts.vmaf,
-            resolution_distribution: charts.resolution,
-            codec_distribution: charts.codec,
-            charts_loaded: true
-        }
-      rescue
-        error ->
-          Logger.warning("Dashboard.State initial chart load failed: #{inspect(error)}")
-          Process.send_after(self(), :load_charts, 2_000)
-
-          queue_refresh_enabled?() &&
-            Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
-
-          %{
-            state
-            | stats: stats,
-              queue_counts: queue_counts,
-              queue_items: initial_queue_items,
-              queue_previews_loaded: queue_refresh_enabled?()
-          }
-      end
+    state = %{
+      state
+      | stats: stats,
+        queue_counts: queue_counts,
+        queue_items: initial_queue_items,
+        queue_previews_loaded: queue_refresh_enabled?()
+    }
 
     broadcast_state(state)
     {:noreply, state}
@@ -333,16 +301,6 @@ defmodule Reencodarr.Dashboard.State do
   end
 
   @impl true
-  def handle_info(:load_charts, state) do
-    {:noreply, load_and_schedule_charts(state)}
-  rescue
-    error ->
-      Logger.warning("Dashboard.State load_charts failed: #{inspect(error)}")
-      Process.send_after(self(), :load_charts, @chart_refresh_interval)
-      {:noreply, state}
-  end
-
-  @impl true
   def handle_info(:refresh_queues, state) do
     {:noreply, refresh_queues(state)}
   rescue
@@ -353,16 +311,6 @@ defmodule Reencodarr.Dashboard.State do
         Process.send_after(self(), :refresh_queues, @queue_refresh_interval)
       end
 
-      {:noreply, state}
-  end
-
-  @impl true
-  def handle_info(:refresh_charts, state) do
-    {:noreply, load_and_schedule_charts(state)}
-  rescue
-    error ->
-      Logger.warning("Dashboard.State refresh_charts failed: #{inspect(error)}")
-      Process.send_after(self(), :refresh_charts, @chart_refresh_interval)
       {:noreply, state}
   end
 
@@ -522,30 +470,6 @@ defmodule Reencodarr.Dashboard.State do
       nil -> [new_item | list]
       index -> List.replace_at(list, index, new_item)
     end
-  end
-
-  defp load_chart_data do
-    %{
-      vmaf: ChartQueries.vmaf_score_distribution(),
-      resolution: ChartQueries.resolution_distribution(),
-      codec: ChartQueries.codec_distribution()
-    }
-  end
-
-  defp load_and_schedule_charts(state) do
-    charts = load_chart_data()
-
-    state = %{
-      state
-      | vmaf_distribution: charts.vmaf,
-        resolution_distribution: charts.resolution,
-        codec_distribution: charts.codec,
-        charts_loaded: true
-    }
-
-    broadcast_state(state)
-    Process.send_after(self(), :refresh_charts, @chart_refresh_interval)
-    state
   end
 
   defp apply_video_mutation(state, %{action: action, old_video: old_video, new_video: new_video})

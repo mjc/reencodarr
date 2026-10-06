@@ -1,175 +1,128 @@
 defmodule ReencodarrWeb.DashboardLive do
-  @moduledoc """
-  Dashboard with simplified 3-layer architecture.
-
-  Service Layer -> PubSub -> LiveView
-
-  This eliminates the complex telemetry chain and provides immediate updates.
-  """
+  @moduledoc "Worker activity, shared queues, and library results."
   use ReencodarrWeb, :live_view
 
-  alias Reencodarr.AbAv1.{CrfSearch, Encode, LocalWorker, WorkerConfig, WorkerSessions}
-  alias Reencodarr.AbAv1.WorkerSessions.Job
+  alias Reencodarr.AbAv1.WorkerSessions
   alias Reencodarr.Core.Parsers
-  alias Reencodarr.CrfSearcher.Broadway, as: CrfSearcherBroadway
   alias Reencodarr.Dashboard.Events
   alias Reencodarr.Dashboard.State, as: DashboardState
   alias Reencodarr.Formatters
   alias Reencodarr.Media
-  alias Reencodarr.Media.ChartQueries
   alias Reencodarr.Media.VideoQueries
-  alias ReencodarrWeb.WorkerActivity
-  alias ReencodarrWeb.WorkerControl
-
-  import ReencodarrWeb.ChartComponents
-  import ReencodarrWeb.CrfSearchComponents
+  alias Reencodarr.Sync
+  alias ReencodarrWeb.{DashboardComponents, WorkerActivity, WorkerControl}
 
   require Logger
-
-  # Producer modules mapped by service
-  @producer_modules %{
-    analyzer: Reencodarr.Analyzer.Broadway.Producer,
-    crf_searcher: Reencodarr.CrfSearcher.Broadway.Producer,
-    encoder: Reencodarr.Encoder.Broadway.Producer
-  }
-
   @worker_control_events WorkerControl.event_names()
 
   @impl true
   def mount(_params, _session, socket) do
-    dashboard_state_pid = Process.whereis(DashboardState)
-    crf_workers = crf_workers()
+    state = DashboardState.get_state()
+    workers = WorkerSessions.list()
+    stats = Media.get_dashboard_stats(dashboard_mount_query_timeout())
+
+    queues =
+      cond do
+        Map.get(state, :queue_previews_loaded, false) -> state.queue_items
+        queue_preview_hydration_enabled?() -> fetch_initial_queue_previews()
+        true -> state.queue_items
+      end
 
     socket =
-      assign(socket, %{
-        crf_progress: nil,
-        encoding_progress: :none,
-        analyzer_progress: :none,
-        analyzer_throughput: nil,
-        # Queue data
-        queue_counts: %{analyzer: 0, crf_searcher: 0, encoder: 0},
-        queue_items: %{analyzer: [], crf_searcher: [], encoder: []},
-        queue_previews_loaded: false,
-        # Service status
-        service_status: get_optimistic_service_status(),
-        # Sync status
+      assign(socket,
+        selected_queue: :encoder,
+        workers: workers,
+        crf_worker_data: WorkerActivity.load_worker_crf_data(workers),
+        encode_worker_data: WorkerActivity.load_worker_encode_data(workers),
+        stats: stats,
+        stats_display: stats_display(stats),
+        service_status: state.service_status,
+        queue_counts: state.queue_counts,
+        queue_items: queues,
+        recent_encodes: VideoQueries.recent_encodes(5, dashboard_mount_query_opts()),
+        sources: load_sources(),
         syncing: false,
         sync_progress: 0,
         service_type: nil,
-        page_title: nil,
-        worker_token_state: worker_token_state(),
-        worker_socket_url: worker_socket_url(),
-        worker_execution_mode: WorkerConfig.execution_mode(),
-        local_worker_status: local_worker_status(),
-        crf_workers: crf_workers,
-        crf_worker_data: load_worker_crf_data(crf_workers),
-        encode_worker_data: load_worker_encode_data(crf_workers),
-        # New dashboard stats
-        stats: Reencodarr.Media.get_default_stats(),
-        stats_display: stats_display(Reencodarr.Media.get_default_stats()),
-        state_distribution_display:
-          state_distribution_display(Reencodarr.Media.get_default_stats()),
-        # CRF Search active work
-        crf_search_video: nil,
-        crf_search_results: [],
-        crf_search_sample: nil,
-        # Encoding active work
-        encoding_video: nil,
-        encoding_vmaf: nil,
-        # Chart data (loaded when connected)
-        vmaf_distribution: [],
-        resolution_distribution: [],
-        codec_distribution: [],
-        charts_loaded: false
-      })
+        page_title: dashboard_page_title(state)
+      )
 
-    socket =
-      case dashboard_state_pid do
-        nil ->
-          socket
-
-        _pid ->
-          state = DashboardState.get_state()
-          assign_dashboard_state(socket, state)
-      end
-
-    socket =
-      socket
-      |> maybe_hydrate_initial_dashboard_data()
-      |> maybe_hydrate_initial_queue_previews()
-
-    # Setup subscriptions and processes if connected
-    socket =
-      if connected?(socket) do
-        # Subscribe to dashboard events (for sync, analyzer, health alerts, etc.)
-        Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
-        # Subscribe to consolidated state changes from Dashboard.State
-        if dashboard_state_pid do
-          Phoenix.PubSub.subscribe(Reencodarr.PubSub, DashboardState.state_channel())
-        end
-
-        # Only force a status refresh when the consolidated state process is
-        # unavailable; otherwise the initial snapshot already reflects the
-        # current dashboard state.
-        if is_nil(dashboard_state_pid) do
-          Process.send_after(self(), :request_status, 100)
-        end
-
-        # Start periodic updates for queue counts and service status
-        schedule_periodic_update()
-        # Request throughput async
-        request_analyzer_throughput()
-
-        socket
-      else
-        socket
-      end
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, Events.channel())
+      Phoenix.PubSub.subscribe(Reencodarr.PubSub, DashboardState.state_channel())
+      schedule_periodic_update()
+    end
 
     {:ok, socket}
   end
 
   @impl true
-  def handle_params(_params, _url, socket) do
+  def handle_params(_params, _url, socket), do: {:noreply, socket}
+
+  @impl true
+  def handle_info({:dashboard_state_changed, state}, socket) do
+    recent =
+      if state.stats.encoded != socket.assigns.stats.encoded,
+        do: VideoQueries.recent_encodes(5, dashboard_mount_query_opts()),
+        else: socket.assigns.recent_encodes
+
+    {:noreply,
+     assign(socket,
+       stats: state.stats,
+       stats_display: stats_display(state.stats),
+       service_status: state.service_status,
+       queue_counts: state.queue_counts,
+       queue_items:
+         merge_queue_items_for_display(
+           socket.assigns.queue_items,
+           state.queue_items,
+           state.queue_counts
+         ),
+       recent_encodes: recent,
+       page_title: dashboard_page_title(state)
+     )}
+  end
+
+  def handle_info({:worker_sessions_updated, %{sessions: workers}}, socket),
+    do: {:noreply, assign_workers(socket, workers)}
+
+  def handle_info({:crf_search_vmaf_result, %{video_id: id}}, socket) do
+    {:noreply,
+     assign(
+       socket,
+       :crf_worker_data,
+       WorkerActivity.load_worker_crf_data(
+         socket.assigns.workers,
+         Map.delete(socket.assigns.crf_worker_data, id)
+       )
+     )}
+  end
+
+  def handle_info(:update_dashboard_data, socket) do
+    schedule_periodic_update()
+    {:noreply, assign_workers(socket, WorkerSessions.list())}
+  end
+
+  def handle_info({:sync_started, data}, socket),
+    do:
+      {:noreply,
+       assign(socket, syncing: true, sync_progress: 0, service_type: data[:service_type])}
+
+  def handle_info({:sync_progress, data}, socket),
+    do: {:noreply, assign(socket, :sync_progress, Map.get(data, :progress, 0))}
+
+  def handle_info({event, data}, socket) when event in [:sync_completed, :sync_failed] do
+    socket =
+      assign(socket, syncing: false, sync_progress: 0, service_type: nil, sources: load_sources())
+
+    socket =
+      if event == :sync_failed,
+        do: put_flash(socket, :error, "Sync failed: #{inspect(data[:error] || "Unknown error")}"),
+        else: socket
+
     {:noreply, socket}
   end
 
-  # All handle_info callbacks grouped together
-
-  # Consolidated state update from Dashboard.State (single source of truth).
-  # Replaces independent handlers for encoding/CRF/service-status events.
-  @impl true
-  def handle_info({:dashboard_state_changed, state}, socket) do
-    {:noreply, assign_dashboard_state(socket, state)}
-  end
-
-  @impl true
-  def handle_info({:analyzer_progress, data}, socket) do
-    progress = %{
-      percent: calculate_progress_percent(data),
-      count: data[:current] || data[:count],
-      total: data[:total],
-      batch_size: data[:batch_size]
-    }
-
-    {:noreply, assign(socket, :analyzer_progress, progress)}
-  end
-
-  @impl true
-  def handle_info({:batch_analysis_completed, data}, socket) do
-    # Update analyzer progress to show completed batch info
-    current_progress = socket.assigns.analyzer_progress
-
-    progress =
-      if current_progress != :none do
-        Map.put(current_progress, :last_batch_size, data[:batch_size])
-      else
-        %{last_batch_size: data[:batch_size]}
-      end
-
-    {:noreply, assign(socket, :analyzer_progress, progress)}
-  end
-
-  # Encoder health alert handler
   @impl true
   def handle_info({:encoder_health_alert, data}, socket) do
     filename = if data.video_path, do: Path.basename(data.video_path), else: "unknown"
@@ -192,170 +145,44 @@ defmodule ReencodarrWeb.DashboardLive do
     {:noreply, put_flash(socket, :error, message)}
   end
 
-  @impl true
-  def handle_info({:analyzer_throughput, data}, socket) do
-    {:noreply, assign(socket, :analyzer_throughput, data.throughput || 0.0)}
-  end
+  def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
-  def handle_info(:update_dashboard_data, socket) do
-    # Request updated throughput async (don't block)
-    request_analyzer_throughput()
+  def handle_event("select_queue", %{"stage" => stage}, socket)
+      when stage in ["analyzer", "crf_searcher", "encoder"],
+      do: {:noreply, assign(socket, :selected_queue, String.to_existing_atom(stage))}
 
-    # Request fresh status from all pipelines
-    request_current_status()
+  def handle_event("select_queue", _params, socket), do: {:noreply, socket}
 
-    # Schedule next update (recursive scheduling)
-    schedule_periodic_update()
-
-    {:noreply, assign_crf_workers(socket, crf_workers())}
-  end
-
-  @impl true
-  def handle_info({:worker_sessions_updated, %{sessions: sessions}}, socket) do
-    {:noreply, assign_crf_workers(socket, sessions)}
-  end
-
-  @impl true
-  def handle_info({:crf_search_vmaf_result, %{video_id: video_id}}, socket) do
-    {:noreply,
-     assign(
-       socket,
-       :crf_worker_data,
-       load_worker_crf_data(
-         socket.assigns.crf_workers,
-         Map.delete(socket.assigns.crf_worker_data, video_id)
-       )
-     )}
-  end
-
-  @impl true
-  def handle_info(:request_status, socket) do
-    # Request current status and retry a few times to ensure services respond
-    request_current_status()
-    # Schedule another status check in case services haven't responded yet
-    Process.send_after(self(), :request_status_retry, 1000)
-    {:noreply, socket}
-  end
-
-  @impl true
-  def handle_info(:request_status_retry, socket) do
-    # Second attempt to get service status
-    request_current_status()
-    {:noreply, socket}
-  end
-
-  # Sync event handlers - simplified
-  @impl true
-  def handle_info({:sync_started, data}, socket) do
-    socket = assign(socket, syncing: true, sync_progress: 0, service_type: data[:service_type])
-    {:noreply, socket}
-  end
-
-  @impl true
-  def handle_info({:sync_progress, data}, socket) do
-    progress = Map.get(data, :progress, 0)
-    {:noreply, assign(socket, :sync_progress, progress)}
-  end
-
-  @impl true
-  def handle_info({sync_event, data}, socket)
-      when sync_event in [:sync_completed, :sync_failed] do
-    socket = assign(socket, syncing: false, sync_progress: 0, service_type: nil)
-
-    socket =
-      if sync_event == :sync_failed do
-        put_flash(socket, :error, "Sync failed: #{inspect(data[:error] || "Unknown error")}")
-      else
-        socket
-      end
-
-    {:noreply, socket}
-  end
-
-  # Catch-all: ignore events handled by Dashboard.State
-  # (encoding_*, crf_search_*, pipeline state changes, etc.)
-  @impl true
-  def handle_info(_msg, socket) do
-    {:noreply, socket}
-  end
-
-  @impl true
-  def handle_event("sync_sonarr", _params, socket) do
-    if socket.assigns.syncing do
-      {:noreply, put_flash(socket, :error, "Sync already in progress")}
-    else
-      Reencodarr.Sync.sync_episodes()
-      {:noreply, put_flash(socket, :info, "Sonarr sync started")}
-    end
-  end
-
-  def handle_event("sync_sportarr", _params, socket) do
-    if socket.assigns.syncing do
-      {:noreply, put_flash(socket, :error, "Sync already in progress")}
-    else
-      Reencodarr.Sync.sync_sportarr()
-      {:noreply, put_flash(socket, :info, "Sportarr sync started")}
-    end
-  end
-
-  @impl true
-  def handle_event("sync_radarr", _params, socket) do
-    if socket.assigns.syncing do
-      {:noreply, put_flash(socket, :error, "Sync already in progress")}
-    else
-      Reencodarr.Sync.sync_movies()
-      {:noreply, put_flash(socket, :info, "Radarr sync started")}
-    end
-  end
-
-  @impl true
   def handle_event("sync_" <> service, _params, socket) do
-    {:noreply, put_flash(socket, :error, "Unknown sync service: #{service}")}
+    sync = %{
+      "sonarr" => {"Sonarr", &Sync.sync_episodes/0},
+      "radarr" => {"Radarr", &Sync.sync_movies/0},
+      "sportarr" => {"Sportarr", &Sync.sync_sportarr/0}
+    }
+
+    case {socket.assigns.syncing, Map.fetch(sync, service)} do
+      {true, _} ->
+        {:noreply, put_flash(socket, :error, "Sync already in progress")}
+
+      {false, {:ok, {name, run}}} ->
+        run.()
+        {:noreply, put_flash(socket, :info, "#{name} sync started")}
+
+      {false, :error} ->
+        {:noreply, put_flash(socket, :error, "Unknown sync service: #{service}")}
+    end
   end
 
-  @impl true
-  def handle_event("suspend_crf_search", _params, socket) do
-    handle_control_result(socket, CrfSearch.suspend_current(), "CRF search paused")
-  end
-
-  @impl true
-  def handle_event("resume_crf_search", _params, socket) do
-    handle_control_result(socket, CrfSearch.resume_current(), "CRF search resumed")
-  end
-
-  @impl true
-  def handle_event("fail_crf_search", _params, socket) do
-    handle_control_result(socket, CrfSearch.fail_current(), "CRF search stopped")
-  end
-
-  @impl true
   def handle_event(event, params, socket) when event in @worker_control_events,
     do: WorkerControl.handle_event(event, params, socket)
 
-  @impl true
-  def handle_event("suspend_encode", _params, socket) do
-    handle_control_result(socket, Encode.suspend_current(), "Encode paused")
-  end
-
-  @impl true
-  def handle_event("resume_encode", _params, socket) do
-    handle_control_result(socket, Encode.resume_current(), "Encode resumed")
-  end
-
-  @impl true
-  def handle_event("fail_encode", _params, socket) do
-    handle_control_result(socket, Encode.fail_current(), "Encode stopped")
-  end
-
-  @impl true
   def handle_event("fail_queue_video", %{"id" => id_str, "stage" => stage}, socket) do
     result =
       with {:ok, id} <- Parsers.parse_integer_exact(id_str),
            {:ok, video} <- Media.fetch_video(id),
-           {:ok, failure_stage} <- queue_failure_stage(stage, video) do
-        Media.fail_video_by_operator(video, failure_stage)
-      end
+           {:ok, failure_stage} <- queue_failure_stage(stage, video),
+           do: Media.fail_video_by_operator(video, failure_stage)
 
     case result do
       {:ok, _} ->
@@ -367,319 +194,28 @@ defmodule ReencodarrWeb.DashboardLive do
     end
   end
 
-  # Row 1: Stats Bar Component
-  attr :stats, :map, required: true
-  attr :stats_display, :map, required: true
-  attr :service_status, :map, required: true
+  @impl true
+  def render(assigns), do: DashboardComponents.dashboard(assigns)
 
-  defp stats_bar(assigns) do
-    ~H"""
-    <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 xl:grid-cols-6">
-      <.stat_box
-        label="Total Videos"
-        value={@stats_display.total_videos}
-        sublabel="tracked"
-      />
-      <.stat_box
-        label="Completed"
-        value={@stats_display.completed}
-        sublabel="encoded"
-      />
-      <.stat_box
-        label="Space Saved"
-        value={@stats_display.savings}
-        sublabel="TiB"
-      />
-      <.pipeline_status_box service_status={@service_status} />
-      <.stat_box
-        label="Failures"
-        value={@stats_display.failures}
-        sublabel="unresolved"
-      />
-      <.stat_box
-        label="Library Size"
-        value={@stats_display.library_size}
-        sublabel="TiB"
-      />
-    </div>
-    """
+  defp assign_workers(socket, workers) do
+    assign(socket,
+      workers: workers,
+      crf_worker_data:
+        WorkerActivity.load_worker_crf_data(workers, socket.assigns.crf_worker_data),
+      encode_worker_data:
+        WorkerActivity.load_worker_encode_data(workers, socket.assigns.encode_worker_data)
+    )
   end
 
-  attr :label, :string, required: true
-  attr :value, :string, required: true
-  attr :sublabel, :string, required: true
+  defp schedule_periodic_update, do: Process.send_after(self(), :update_dashboard_data, 5_000)
 
-  defp stat_box(assigns) do
-    ~H"""
-    <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-3 sm:p-4">
-      <div class="text-[11px] sm:text-xs uppercase tracking-wide text-gray-400 mb-1">{@label}</div>
-      <div class="text-xl sm:text-2xl font-mono text-white">{@value}</div>
-      <div class="text-[11px] sm:text-xs text-gray-500">{@sublabel}</div>
-    </div>
-    """
-  end
-
-  # Row 2: Encoding Panel Component
-  attr :video, :map, required: true
-  attr :vmaf, :map, required: true
-  attr :progress, :any, required: true
-  attr :queue_count, :integer, required: true
-  attr :queue_items, :list, required: true
-  attr :status, :atom, required: true
-  attr :id, :string, default: nil
-  attr :title, :string, default: "Encoding"
-  attr :show_queue, :boolean, default: true
-  attr :suspend_event, :string, default: "suspend_encode"
-  attr :resume_event, :string, default: "resume_encode"
-  attr :fail_event, :string, default: "fail_encode"
-  attr :worker_id, :string, default: nil
-  attr :job_id, :string, default: nil
-  attr :activity_label, :string, default: nil
-
-  defp encoding_panel(assigns) do
-    ~H"""
-    <div id={@id} class="dashboard-card bg-gray-900 border border-gray-700 rounded-lg p-3 sm:p-4">
-      <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
-        <h3 class="font-semibold text-white">{@title}</h3>
-        <span class={"px-2 py-1 text-xs rounded-full #{service_status_class(@status)}"}>
-          {service_status_text(@status)}
-        </span>
-      </div>
-      <div :if={@activity_label} class="mb-2 text-xs text-gray-400">{@activity_label}</div>
-
-      <%= if @video do %>
-        <!-- Active: Show video metadata + savings -->
-        <div class="space-y-3">
-          <!-- Video metadata -->
-          <div class="text-sm text-gray-300">
-            <div class="font-medium truncate">{@video.filename}</div>
-            <div class="text-xs text-gray-400 flex gap-2 flex-wrap">
-              <span>{Formatters.file_size(@video.video_size)}</span>
-              <span>{@video.width}x{@video.height}</span>
-              <%= if @video.hdr do %>
-                <span class="text-amber-400">HDR</span>
-              <% end %>
-            </div>
-          </div>
-
-          <!-- VMAF info + savings -->
-          <%= if @vmaf do %>
-            <div class="space-y-1">
-              <div class="text-xs text-gray-400">
-                CRF {@vmaf.crf} • VMAF {Formatters.vmaf_score(@vmaf.vmaf_score, 1)}
-              </div>
-              <%= if @vmaf.predicted_savings do %>
-                <div class="text-lg font-semibold text-green-400">
-                  Saving: {Formatters.file_size(@vmaf.predicted_savings)}
-                </div>
-              <% end %>
-            </div>
-          <% end %>
-
-          <!-- Progress bar -->
-          <%= if @progress != :none && Map.get(@progress, :percent) != nil do %>
-            <div>
-              <div class="w-full bg-gray-800 rounded-full h-2 mb-1">
-                <div
-                  class="bg-gradient-to-r from-amber-400 to-amber-500 h-2 rounded-full transition-[width] duration-150 ease-out"
-                  style={"width: #{@progress.percent}%"}
-                >
-                </div>
-              </div>
-              <div class="flex justify-between text-xs text-gray-400">
-                <span>{@progress.percent}%</span>
-                <%= if @progress.fps do %>
-                  <span>{@progress.fps} fps</span>
-                <% end %>
-                <%= if @progress.eta do %>
-                  <span>ETA: {@progress.eta}</span>
-                <% end %>
-              </div>
-            </div>
-          <% end %>
-          <.active_job_controls
-            status={@status}
-            suspend_event={@suspend_event}
-            resume_event={@resume_event}
-            fail_event={@fail_event}
-            worker_id={@worker_id}
-            job_id={@job_id}
-          />
-        </div>
-      <% else %>
-        <!-- Idle/Paused: Show compact status and allow resume when paused -->
-        <div class="text-sm text-gray-400">
-          <span>Queue: {@queue_count}</span>
-          <%= if @status == :idle do %>
-            <span class="ml-2">• Idle</span>
-          <% end %>
-        </div>
-
-        <%= if @status == :paused do %>
-          <div class="mt-2">
-            <.active_job_controls
-              status={@status}
-              suspend_event={@suspend_event}
-              resume_event={@resume_event}
-              fail_event={@fail_event}
-              worker_id={@worker_id}
-              job_id={@job_id}
-            />
-          </div>
-        <% end %>
-      <% end %>
-
-      <!-- Always show next-up videos -->
-      <%= if @show_queue && length(@queue_items) > 0 do %>
-        <div class="text-xs text-gray-500 space-y-1 mt-3 pt-2 border-t border-gray-800">
-          <div class="text-gray-600 mb-0.5">Next up ({@queue_count}):</div>
-          <%= for video <- Enum.take(@queue_items, 5) do %>
-            <div class="flex items-center gap-2 min-w-0">
-              <button
-                phx-click="fail_queue_video"
-                phx-value-id={video.id}
-                phx-value-stage="encoding"
-                title="Remove from queue"
-                aria-label="Remove from queue"
-                class="shrink-0 text-xs font-medium text-red-500 hover:text-red-400"
-              >
-                x
-              </button>
-              <div class="min-w-0 truncate">{Path.basename(video.path)}</div>
-            </div>
-          <% end %>
-        </div>
-      <% end %>
-    </div>
-    """
-  end
-
-  attr :worker, :map, required: true
-  attr :data, :map, required: true
-  attr :queue_count, :integer, required: true
-  attr :queue_items, :list, required: true
-  attr :show_queue, :boolean, default: false
-
-  def worker_encoding_panel(assigns) do
-    job = worker_encode_job(assigns.worker)
-    data = if job, do: Map.get(assigns.data, job.video_id, %{}), else: %{}
-
-    assigns =
-      assign(assigns,
-        job: job,
-        video: encode_video(data[:video]),
-        vmaf: encode_vmaf(data[:vmaf]),
-        status: worker_encode_status(assigns.worker, job)
-      )
-
-    ~H"""
-    <.encoding_panel
-      id={"encode-worker-#{@worker.client_worker_id || @worker.server_worker_id}"}
-      title={"Encoding · #{@worker.client_worker_id || @worker.server_worker_id}"}
-      video={@video}
-      vmaf={@vmaf}
-      progress={if(@job, do: @job.progress || :none, else: :none)}
-      queue_count={@queue_count}
-      queue_items={@queue_items}
-      status={@status}
-      show_queue={@show_queue}
-      suspend_event="pause_worker_encode"
-      resume_event="resume_worker_encode"
-      fail_event="stop_worker_encode"
-      worker_id={@worker.server_worker_id}
-      job_id={@job && @job.job_id}
-      activity_label={WorkerActivity.label(@job)}
-    />
-    """
-  end
-
-  attr :status, :atom, required: true
-  attr :suspend_event, :string, required: true
-  attr :resume_event, :string, required: true
-  attr :fail_event, :string, required: true
-  attr :worker_id, :string, default: nil
-  attr :job_id, :string, default: nil
-
-  defp active_job_controls(assigns) do
-    ~H"""
-    <div class="flex flex-wrap items-center gap-2 pt-1 text-xs">
-      <%= if @status == :paused do %>
-        <button
-          phx-click={@resume_event}
-          phx-value-worker-id={@worker_id}
-          phx-value-job-id={@job_id}
-          class="font-medium text-cyan-400 hover:text-cyan-300"
-        >
-          Resume
-        </button>
-      <% else %>
-        <button
-          phx-click={@suspend_event}
-          phx-value-worker-id={@worker_id}
-          phx-value-job-id={@job_id}
-          class="font-medium text-yellow-400 hover:text-yellow-300"
-        >
-          Pause
-        </button>
-      <% end %>
-      <span class="text-gray-700">|</span>
-      <button
-        phx-click={@fail_event}
-        phx-value-worker-id={@worker_id}
-        phx-value-job-id={@job_id}
-        data-confirm="Stop the active job?"
-        class="font-medium text-red-500 hover:text-red-400"
-      >
-        Stop
-      </button>
-    </div>
-    """
-  end
-
-  # Row 3: Pipeline Overview Component
-  attr :stats, :map, required: true
-  attr :stats_display, :map, required: true
-  attr :state_distribution_display, :map, required: true
-  attr :service_status, :map, required: true
-  attr :queue_counts, :map, required: true
-  attr :analyzer_throughput, :any, required: true
-
-  defp pipeline_overview(assigns) do
-    ~H"""
-    <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-3 sm:p-4">
-      <h3 class="font-semibold text-white mb-3">Processing Pipeline</h3>
-      <.state_distribution_bar
-        stats={@stats}
-        stats_display={@stats_display}
-        state_distribution_display={@state_distribution_display}
-      />
-
-      <!-- Compact pipeline rows -->
-      <div class="space-y-2 mt-4">
-        <.pipeline_row
-          name="Analysis"
-          status={@service_status.analyzer}
-          queue={@queue_counts.analyzer}
-          metric={
-            if(@analyzer_throughput && @analyzer_throughput > 0,
-              do: "#{Formatters.rate(@analyzer_throughput)} files/s",
-              else: nil
-            )
-          }
-        />
-        <.pipeline_row
-          name="CRF Search"
-          status={@service_status.crf_searcher}
-          queue={@queue_counts.crf_searcher}
-        />
-        <.pipeline_row
-          name="Encoding"
-          status={@service_status.encoder}
-          queue={@queue_counts.encoder}
-        />
-      </div>
-    </div>
-    """
+  defp stats_display(stats) do
+    %{
+      total_videos: format_number(stats.total_videos),
+      completed: format_number(stats.encoded),
+      savings: format_savings(stats.total_savings_gb),
+      failures: format_number(stats.failed)
+    }
   end
 
   defp merge_queue_items_for_display(previous, incoming, counts) do
@@ -714,228 +250,6 @@ defmodule ReencodarrWeb.DashboardLive do
     end
   end
 
-  attr :stats, :map, required: true
-  attr :stats_display, :map, required: true
-  attr :state_distribution_display, :map, required: true
-
-  defp state_distribution_bar(assigns) do
-    ~H"""
-    <div class="space-y-1">
-      <div class="flex h-3 sm:h-4 rounded overflow-hidden">
-        <%= if @state_distribution_display.needs_analysis_pct > 0 do %>
-          <div
-            class="bg-gray-600"
-            style={"width: #{@state_distribution_display.needs_analysis_pct}%"}
-            title={@state_distribution_display.needs_analysis_title}
-          >
-          </div>
-        <% end %>
-        <%= if @state_distribution_display.analyzing_pct > 0 do %>
-          <div
-            class="bg-gray-700"
-            style={"width: #{@state_distribution_display.analyzing_pct}%"}
-            title={@state_distribution_display.analyzing_title}
-          >
-          </div>
-        <% end %>
-        <%= if @state_distribution_display.analyzed_pct > 0 do %>
-          <div
-            class="bg-blue-500"
-            style={"width: #{@state_distribution_display.analyzed_pct}%"}
-            title={@state_distribution_display.analyzed_title}
-          >
-          </div>
-        <% end %>
-        <%= if @state_distribution_display.crf_pct > 0 do %>
-          <div
-            class="bg-amber-500"
-            style={"width: #{@state_distribution_display.crf_pct}%"}
-            title={@state_distribution_display.crf_title}
-          >
-          </div>
-        <% end %>
-        <%= if @state_distribution_display.encoded_pct > 0 do %>
-          <div
-            class="bg-green-500"
-            style={"width: #{@state_distribution_display.encoded_pct}%"}
-            title={@state_distribution_display.encoded_title}
-          >
-          </div>
-        <% end %>
-        <%= if @state_distribution_display.failed_pct > 0 do %>
-          <div
-            class="bg-red-500"
-            style={"width: #{@state_distribution_display.failed_pct}%"}
-            title={@state_distribution_display.failed_title}
-          >
-          </div>
-        <% end %>
-      </div>
-      <div class="grid grid-cols-1 gap-1 text-xs text-gray-400 sm:grid-cols-4 sm:gap-2">
-        <span>Needs Analysis: {@stats_display.needs_analysis}</span>
-        <span>Analyzing: {@stats_display.analyzing}</span>
-        <span>Analyzed: {@stats_display.analyzed}</span>
-        <span>Encoded: {@stats_display.encoded}</span>
-      </div>
-    </div>
-    """
-  end
-
-  attr :name, :string, required: true
-  attr :status, :atom, required: true
-  attr :queue, :integer, required: true
-  attr :metric, :string, default: nil
-
-  defp pipeline_row(assigns) do
-    ~H"""
-    <div class="flex flex-col gap-2 rounded bg-gray-800/50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
-      <div class="flex flex-wrap items-center gap-2 sm:gap-3">
-        <span class="text-sm text-gray-300">{@name}</span>
-        <span class={"px-2 py-0.5 text-xs rounded-full #{service_status_class(@status)}"}>
-          {service_status_text(@status)}
-        </span>
-      </div>
-      <div class="flex flex-wrap items-center gap-2 text-sm sm:justify-end sm:gap-4">
-        <%= if @metric do %>
-          <span class="text-gray-400">{@metric}</span>
-        <% end %>
-        <span class="text-gray-300 font-mono">Queue: {@queue}</span>
-      </div>
-    </div>
-    """
-  end
-
-  # Row 4: Sync Controls Component
-  attr :syncing, :boolean, required: true
-  attr :sync_progress, :integer, required: true
-  attr :service_type, :atom, required: true
-  attr :worker_token_state, :any, required: true
-  attr :worker_socket_url, :string, required: true
-  attr :worker_execution_mode, :atom, required: true
-  attr :local_worker_status, :any, required: true
-  attr :crf_workers, :list, required: true
-
-  defp sync_controls(assigns) do
-    ~H"""
-    <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
-      <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-3 sm:p-4">
-        <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <h3 class="font-semibold text-white">Media Library Sync</h3>
-
-          <div class="flex flex-col gap-2 sm:flex-row">
-            <button
-              phx-click="sync_sonarr"
-              disabled={@syncing}
-              class={
-                "w-full px-4 py-2 text-sm rounded sm:w-auto #{if @syncing, do: "bg-gray-700 text-gray-500 cursor-not-allowed", else: "bg-blue-600 hover:bg-blue-700 text-white"}"
-              }
-            >
-              Sync Sonarr
-            </button>
-            <button
-              phx-click="sync_radarr"
-              disabled={@syncing}
-              class={
-                "w-full px-4 py-2 text-sm rounded sm:w-auto #{if @syncing, do: "bg-gray-700 text-gray-500 cursor-not-allowed", else: "bg-blue-600 hover:bg-blue-700 text-white"}"
-              }
-            >
-              Sync Radarr
-            </button>
-            <button
-              phx-click="sync_sportarr"
-              disabled={@syncing}
-              class={
-                "w-full px-4 py-2 text-sm rounded sm:w-auto #{if @syncing, do: "bg-gray-700 text-gray-500 cursor-not-allowed", else: "bg-blue-600 hover:bg-blue-700 text-white"}"
-              }
-            >
-              Sync Sportarr
-            </button>
-          </div>
-        </div>
-
-        <%= if @syncing do %>
-          <div class="mt-3">
-            <div class="w-full bg-gray-800 rounded-full h-2">
-              <div
-                class="bg-blue-500 h-2 rounded-full transition-[width] duration-150 ease-out"
-                style={"width: #{@sync_progress}%"}
-              >
-              </div>
-            </div>
-            <div class="text-xs text-gray-400 mt-1">
-              Syncing {@service_type}... {@sync_progress}%
-            </div>
-          </div>
-        <% end %>
-      </div>
-
-      <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-3 sm:p-4">
-        <div class="flex items-center justify-between gap-2">
-          <h3 class="font-semibold text-white">Worker WebSocket</h3>
-          <span class="rounded-full bg-cyan-950 px-2 py-1 text-[11px] text-cyan-300">
-            CRF: {@worker_execution_mode}
-          </span>
-        </div>
-
-        <div class="mt-3 space-y-3 text-sm">
-          <div>
-            <div class="text-[11px] uppercase tracking-wide text-gray-500">Local worker process</div>
-            <div class="mt-1 rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
-              {local_worker_status_label(
-                @worker_execution_mode,
-                @local_worker_status,
-                length(@crf_workers)
-              )}
-            </div>
-          </div>
-
-          <div>
-            <div class="text-[11px] uppercase tracking-wide text-gray-500">URL</div>
-            <div class="mt-1 overflow-x-auto rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
-              {@worker_socket_url}?token=&lt;worker-token&gt;
-            </div>
-          </div>
-
-          <div>
-            <div class="text-[11px] uppercase tracking-wide text-gray-500">Token</div>
-            <div class="mt-1 overflow-x-auto rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
-              <%= case @worker_token_state do %>
-                <% {:ok, _fingerprint} -> %>
-                  configured
-                <% :error -> %>
-                  not configured
-              <% end %>
-            </div>
-          </div>
-
-          <div>
-            <div class="text-[11px] uppercase tracking-wide text-gray-500">Token fingerprint</div>
-            <div class="mt-1 overflow-x-auto rounded bg-gray-950 px-2 py-2 font-mono text-xs text-gray-200">
-              <%= case @worker_token_state do %>
-                <% {:ok, fingerprint} -> %>
-                  {fingerprint}
-                <% :error -> %>
-                  not configured
-              <% end %>
-            </div>
-          </div>
-
-          <div class="flex items-center justify-between gap-2 pt-1">
-            <div class="text-[11px] uppercase tracking-wide text-gray-500">Worker sessions</div>
-            <.link
-              navigate={~p"/workers"}
-              class="rounded-full border border-cyan-900 bg-cyan-950 px-3 py-1 text-xs text-cyan-300 hover:border-cyan-700 hover:text-white"
-            >
-              Open workers
-            </.link>
-          </div>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  # Helper functions for formatting
   defp format_number(nil), do: "—"
 
   defp format_number(num) when is_integer(num) do
@@ -950,33 +264,6 @@ defmodule ReencodarrWeb.DashboardLive do
 
   defp format_number(_), do: "—"
 
-  defp worker_token_state do
-    case Application.get_env(:reencodarr, :worker_token) do
-      token when is_binary(token) ->
-        digest =
-          :crypto.hash(:sha256, token)
-          |> Base.encode16(case: :lower)
-          |> String.slice(0, 12)
-
-        {:ok, "sha256:#{digest}"}
-
-      _ ->
-        :error
-    end
-  end
-
-  defp format_completed(stats) do
-    total = stats.total_videos || 0
-    encoded = stats.encoded || 0
-
-    if total > 0 do
-      pct = round(encoded / total * 100)
-      "#{format_number(encoded)} (#{pct}%)"
-    else
-      "0 (0%)"
-    end
-  end
-
   defp format_savings(nil), do: "—"
 
   defp format_savings(gb) when is_number(gb) do
@@ -986,16 +273,6 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   defp format_savings(_), do: "—"
-
-  defp format_size_gb(nil), do: "—"
-
-  defp format_size_gb(gb) when is_number(gb) do
-    # Convert GB to TiB
-    tib = gb / 1024.0
-    "#{:erlang.float_to_binary(tib, decimals: 1)}"
-  end
-
-  defp format_size_gb(_), do: "—"
 
   defp queue_preview_hydration_enabled? do
     Application.get_env(:reencodarr, :dashboard_queue_refresh_enabled, true) != false
@@ -1024,322 +301,25 @@ defmodule ReencodarrWeb.DashboardLive do
     [timeout: timeout, pool_timeout: timeout]
   end
 
-  attr :service_status, :map, required: true
+  defp load_sources do
+    configs = Map.new(Reencodarr.Services.list_configs(), &{&1.service_type, &1})
 
-  defp pipeline_status_box(assigns) do
-    ~H"""
-    <div class="dashboard-card bg-gray-900 border border-gray-800 rounded-lg p-3 sm:p-4">
-      <div class="text-xs text-gray-400 mb-1">Pipeline</div>
-      <div class="flex gap-1.5 items-center mt-1">
-        <.pipeline_dot status={@service_status.analyzer} label="A" />
-        <.pipeline_dot status={@service_status.crf_searcher} label="C" />
-        <.pipeline_dot status={@service_status.encoder} label="E" />
-      </div>
-      <div class="text-xs text-gray-500">status</div>
-    </div>
-    """
-  end
+    for {type, name} <- [sonarr: "Sonarr", radarr: "Radarr", sportarr: "Sportarr"] do
+      config = configs[type]
 
-  attr :status, :atom, required: true
-  attr :label, :string, required: true
-
-  defp pipeline_dot(assigns) do
-    ~H"""
-    <span
-      class={"inline-block w-2 h-2 rounded-full #{dot_color(@status)}"}
-      title={"#{@label}: #{@status}"}
-    />
-    """
-  end
-
-  defp dot_color(status) when status in [:running, :processing], do: "bg-green-500"
-  defp dot_color(:stopped), do: "bg-red-500"
-  defp dot_color(_), do: "bg-gray-500"
-
-  defp percent(_count, 0), do: 0
-  defp percent(count, total), do: round(count / total * 100)
-
-  @impl true
-  def render(assigns) do
-    ~H"""
-    <div
-      id="dashboard-root"
-      phx-hook="DashboardAnimations"
-      class="min-h-[calc(100dvh-3.5rem)] bg-gray-950 px-3 py-4 sm:px-4 sm:py-6 lg:px-6"
-    >
-      <div class="mx-auto max-w-7xl space-y-3 sm:space-y-4">
-        <!-- Row 1: Stats Bar -->
-        <.stats_bar
-          stats={@stats}
-          stats_display={@stats_display}
-          service_status={@service_status}
-        />
-
-        <!-- Row 2: Active Work Panels -->
-        <div
-          id="dashboard-active-work"
-          class="dashboard-section grid grid-cols-1 gap-3 lg:grid-cols-5 lg:gap-4"
-        >
-          <div :if={@worker_execution_mode == :broadway} class="lg:col-span-3">
-            <.crf_search_panel
-              id="broadway-crf-search-panel"
-              video={@crf_search_video}
-              results={@crf_search_results}
-              sample={@crf_search_sample}
-              progress={@crf_progress}
-              queue_count={@queue_counts.crf_searcher}
-              queue_items={@queue_items.crf_searcher}
-              status={@service_status.crf_searcher}
-            />
-          </div>
-          <div
-            :if={@worker_execution_mode == :worker}
-            id="crf-worker-panels"
-            class="space-y-3 lg:col-span-3"
-          >
-            <.worker_crf_search_panel
-              :for={{worker, index} <- Enum.with_index(@crf_workers)}
-              worker={worker}
-              crf_data={@crf_worker_data}
-              queue_count={@queue_counts.crf_searcher}
-              queue_items={@queue_items.crf_searcher}
-              show_queue={index == 0}
-            />
-            <div
-              :if={@crf_workers == []}
-              id="no-crf-workers"
-              class="dashboard-card rounded-lg border border-gray-700 bg-gray-900 p-3 text-sm text-gray-400 sm:p-4"
-            >
-              No CRF search workers connected.
-            </div>
-          </div>
-          <div :if={@worker_execution_mode == :broadway} class="lg:col-span-2">
-            <.encoding_panel
-              id="broadway-encoding-panel"
-              video={@encoding_video}
-              vmaf={@encoding_vmaf}
-              progress={@encoding_progress}
-              queue_count={@queue_counts.encoder}
-              queue_items={@queue_items.encoder}
-              status={@service_status.encoder}
-            />
-          </div>
-          <div
-            :if={@worker_execution_mode == :worker}
-            id="encode-worker-panels"
-            class="space-y-3 lg:col-span-2"
-          >
-            <.worker_encoding_panel
-              :for={{worker, index} <- Enum.with_index(@crf_workers)}
-              worker={worker}
-              data={@encode_worker_data}
-              queue_count={@queue_counts.encoder}
-              queue_items={@queue_items.encoder}
-              show_queue={index == 0}
-            />
-          </div>
-        </div>
-
-        <!-- Row 3: Pipeline Overview -->
-        <.pipeline_overview
-          stats={@stats}
-          stats_display={@stats_display}
-          state_distribution_display={@state_distribution_display}
-          service_status={@service_status}
-          queue_counts={@queue_counts}
-          analyzer_throughput={@analyzer_throughput}
-        />
-
-        <!-- Row 4: Analytics Charts -->
-        <div class="dashboard-section dashboard-deferred-section dashboard-chart-section grid grid-cols-1 gap-3 lg:grid-cols-3 lg:gap-4">
-          <.bar_chart
-            data={@vmaf_distribution}
-            title="VMAF Score Distribution"
-            width={400}
-            height={220}
-          />
-          <.bar_chart
-            data={@resolution_distribution}
-            title="Resolution Breakdown"
-            width={400}
-            height={220}
-          />
-          <.bar_chart
-            data={@codec_distribution}
-            title="Codec Distribution"
-            width={400}
-            height={220}
-          />
-        </div>
-
-        <!-- Row 5: Sync Controls -->
-        <div class="dashboard-section dashboard-deferred-section dashboard-sync-section">
-          <.sync_controls
-            syncing={@syncing}
-            sync_progress={@sync_progress}
-            service_type={@service_type}
-            worker_token_state={@worker_token_state}
-            worker_socket_url={@worker_socket_url}
-            worker_execution_mode={@worker_execution_mode}
-            local_worker_status={@local_worker_status}
-            crf_workers={@crf_workers}
-          />
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  # Helper functions for real data
-  # Simple service status - just check if processes are alive
-  defp get_optimistic_service_status do
-    crf_searcher =
-      case WorkerConfig.execution_mode() do
-        :broadway -> if(CrfSearcherBroadway.running?(), do: :idle, else: :stopped)
-        :worker -> if(crf_workers() == [], do: :stopped, else: :idle)
-      end
-
-    %{
-      analyzer: if(Process.whereis(@producer_modules.analyzer), do: :idle, else: :stopped),
-      crf_searcher: crf_searcher,
-      encoder: if(Process.whereis(@producer_modules.encoder), do: :idle, else: :stopped)
-    }
-  end
-
-  defp local_worker_status do
-    LocalWorker.status()
-  catch
-    :exit, _ -> :unavailable
-  end
-
-  defp local_worker_status_label(:broadway, _status, _worker_count),
-    do: "disabled (Broadway active)"
-
-  defp local_worker_status_label(:worker, %{running: true} = status, _worker_count) do
-    "running pid=#{status.os_pid || "unknown"} version=#{status.version} restarts=#{status.restart_count}"
-  end
-
-  defp local_worker_status_label(:worker, _status, worker_count) when worker_count > 0,
-    do: "#{worker_count} connected (independent)"
-
-  defp local_worker_status_label(:worker, _status, _worker_count), do: "no workers connected"
-
-  defp request_current_status do
-    # Send cast to each producer to broadcast their current status
-    Enum.each(@producer_modules, fn {_service, producer_module} ->
-      case Process.whereis(producer_module) do
-        nil ->
-          # Process doesn't exist - no broadcast needed (LiveView handles via progress events)
-          :ok
-
-        _pid ->
-          GenServer.cast(producer_module, :broadcast_status)
-      end
-    end)
-  end
-
-  # DRY status mappings using maps instead of multiple function clauses
-  @service_status_styles %{
-    running: "bg-green-100 text-green-800",
-    paused: "bg-yellow-100 text-yellow-800",
-    processing: "bg-blue-100 text-blue-800",
-    pausing: "bg-orange-100 text-orange-800",
-    pending: "bg-gray-100 text-gray-600 dashboard-soft-pulse",
-    idle: "bg-cyan-100 text-cyan-800",
-    checking: "bg-gray-100 text-gray-600 dashboard-soft-pulse",
-    stopped: "bg-red-100 text-red-800",
-    unknown: "bg-gray-100 text-gray-800"
-  }
-
-  @service_status_labels %{
-    running: "Running",
-    paused: "Paused",
-    processing: "Processing",
-    pausing: "Pausing",
-    pending: "Awaiting ACK",
-    idle: "Idle",
-    checking: "Checking...",
-    stopped: "Stopped",
-    unknown: "Unknown"
-  }
-
-  defp service_status_class(status),
-    do: @service_status_styles[status] || @service_status_styles.unknown
-
-  defp service_status_text(status),
-    do: @service_status_labels[status] || @service_status_labels.unknown
-
-  defp request_analyzer_throughput, do: :ok
-
-  defp maybe_hydrate_initial_dashboard_data(socket) do
-    if connected?(socket) or socket.assigns.charts_loaded do
-      socket
-    else
-      stats = Media.get_dashboard_stats(dashboard_mount_query_timeout())
-
-      assign(socket,
-        stats: stats,
-        stats_display: stats_display(stats),
-        state_distribution_display: state_distribution_display(stats),
-        vmaf_distribution: ChartQueries.vmaf_score_distribution(),
-        resolution_distribution: ChartQueries.resolution_distribution(),
-        codec_distribution: ChartQueries.codec_distribution(),
-        charts_loaded: true
-      )
-    end
-  rescue
-    error ->
-      Logger.warning("DashboardLive initial dashboard hydration failed: #{inspect(error)}")
-      socket
-  end
-
-  defp maybe_hydrate_initial_queue_previews(socket) do
-    if connected?(socket) or not queue_preview_hydration_enabled?() do
-      socket
-    else
-      assign(socket,
-        queue_items: fetch_initial_queue_previews(),
-        queue_previews_loaded: true
-      )
+      %{
+        type: type,
+        name: name,
+        configured: not is_nil(config),
+        enabled: config && config.enabled == true,
+        last_synced_at: config && config.last_synced_at
+      }
     end
   end
 
-  defp assign_dashboard_state(socket, state) do
-    page_title = dashboard_page_title(state)
-
-    merged_queue_items =
-      merge_queue_items_for_display(
-        socket.assigns.queue_items,
-        state.queue_items,
-        state.queue_counts
-      )
-
-    stats_display = stats_display(state.stats)
-    state_distribution_display = state_distribution_display(state.stats)
-    queue_previews_loaded = Map.get(state, :queue_previews_loaded, false)
-    charts_loaded = Map.get(state, :charts_loaded, false)
-
-    socket
-    |> assign_if_changed(:crf_search_video, state.crf_search_video)
-    |> assign_if_changed(:crf_search_results, state.crf_search_results)
-    |> assign_if_changed(:crf_search_sample, state.crf_search_sample)
-    |> assign_if_changed(:crf_progress, state.crf_progress)
-    |> assign_if_changed(:encoding_video, state.encoding_video)
-    |> assign_if_changed(:encoding_vmaf, state.encoding_vmaf)
-    |> assign_if_changed(:encoding_progress, state.encoding_progress)
-    |> assign_if_changed(:service_status, state.service_status)
-    |> assign_if_changed(:stats, state.stats)
-    |> assign_if_changed(:stats_display, stats_display)
-    |> assign_if_changed(:state_distribution_display, state_distribution_display)
-    |> assign_if_changed(:queue_counts, state.queue_counts)
-    |> assign_if_changed(:queue_items, merged_queue_items)
-    |> assign_if_changed(:queue_previews_loaded, queue_previews_loaded)
-    |> assign_if_changed(:vmaf_distribution, state.vmaf_distribution)
-    |> assign_if_changed(:resolution_distribution, state.resolution_distribution)
-    |> assign_if_changed(:codec_distribution, state.codec_distribution)
-    |> assign_if_changed(:charts_loaded, charts_loaded)
-    |> assign_if_changed(:page_title, page_title)
-  end
+  defp queue_failure_stage("crf_search", %{state: :analyzed}), do: {:ok, :crf_search}
+  defp queue_failure_stage("encoding", %{state: :crf_searched}), do: {:ok, :encoding}
+  defp queue_failure_stage(_, _), do: {:error, :invalid_queue_item}
 
   @doc false
   def dashboard_page_title(state) when is_map(state) do
@@ -1357,205 +337,6 @@ defmodule ReencodarrWeb.DashboardLive do
   end
 
   def dashboard_page_title(_), do: nil
-
-  defp assign_if_changed(socket, key, value) do
-    if Map.get(socket.assigns, key) == value do
-      socket
-    else
-      assign(socket, key, value)
-    end
-  end
-
-  defp schedule_periodic_update do
-    Process.send_after(self(), :update_dashboard_data, 5_000)
-  end
-
-  defp worker_socket_url do
-    ReencodarrWeb.Endpoint.url()
-    |> String.replace_prefix("https://", "wss://")
-    |> String.replace_prefix("http://", "ws://")
-    |> Kernel.<>("/workers/socket/websocket")
-  end
-
-  defp stats_display(nil) do
-    %{
-      total_videos: "—",
-      completed: "—",
-      savings: "—",
-      failures: "—",
-      library_size: "—",
-      needs_analysis: "—",
-      analyzing: "—",
-      analyzed: "—",
-      encoded: "—"
-    }
-  end
-
-  defp stats_display(stats) do
-    %{
-      total_videos: format_number(stats.total_videos),
-      completed: format_completed(stats),
-      savings: format_savings(stats.total_savings_gb),
-      failures: format_number(stats.failed),
-      library_size: format_size_gb(stats.total_size_gb),
-      needs_analysis: format_number(stats.needs_analysis),
-      analyzing: format_number(stats.analyzing),
-      analyzed: format_number(stats.analyzed),
-      encoded: format_number(stats.encoded)
-    }
-  end
-
-  defp state_distribution_display(nil) do
-    %{
-      needs_analysis_pct: 0,
-      analyzing_pct: 0,
-      analyzed_pct: 0,
-      crf_pct: 0,
-      encoded_pct: 0,
-      failed_pct: 0,
-      needs_analysis_title: "Needs Analysis: 0",
-      analyzing_title: "Analyzing: 0",
-      analyzed_title: "Analyzed: 0",
-      crf_title: "CRF Search: 0",
-      encoded_title: "Encoded: 0",
-      failed_title: "Failed: 0"
-    }
-  end
-
-  defp state_distribution_display(stats) do
-    total = stats.total_videos || 1
-    crf_total = (stats.crf_searching || 0) + (stats.crf_searched || 0)
-
-    %{
-      needs_analysis_pct: percent(stats.needs_analysis, total),
-      analyzing_pct: percent(stats.analyzing, total),
-      analyzed_pct: percent(stats.analyzed, total),
-      crf_pct: percent(crf_total, total),
-      encoded_pct: percent(stats.encoded, total),
-      failed_pct: percent(stats.failed, total),
-      needs_analysis_title: "Needs Analysis: #{stats.needs_analysis}",
-      analyzing_title: "Analyzing: #{stats.analyzing}",
-      analyzed_title: "Analyzed: #{stats.analyzed}",
-      crf_title: "CRF Search: #{crf_total}",
-      encoded_title: "Encoded: #{stats.encoded}",
-      failed_title: "Failed: #{stats.failed}"
-    }
-  end
-
-  defp crf_workers do
-    if WorkerConfig.execution_mode() == :worker and Process.whereis(WorkerSessions) do
-      WorkerSessions.list()
-    else
-      []
-    end
-  end
-
-  defp assign_crf_workers(socket, workers) do
-    assign(socket,
-      crf_workers: workers,
-      crf_worker_data: load_worker_crf_data(workers, socket.assigns.crf_worker_data),
-      encode_worker_data: load_worker_encode_data(workers, socket.assigns.encode_worker_data)
-    )
-  end
-
-  @type encode_worker_data :: %{
-          optional(pos_integer()) => %{
-            video: Reencodarr.Media.Video.t() | nil,
-            vmaf: Reencodarr.Media.Vmaf.t() | nil
-          }
-        }
-
-  @spec load_worker_encode_data([WorkerSessions.session()], encode_worker_data()) ::
-          encode_worker_data()
-  def load_worker_encode_data(workers, cached \\ %{}) do
-    video_ids =
-      workers
-      |> Enum.map(&worker_encode_job/1)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.map(& &1.video_id)
-      |> Enum.uniq()
-
-    Enum.reduce(video_ids, Map.take(cached, video_ids), fn video_id, data ->
-      Map.put_new_lazy(data, video_id, fn ->
-        video = Media.get_video(video_id)
-        %{video: video, vmaf: video && Media.get_vmaf!(video.chosen_vmaf_id)}
-      end)
-    end)
-  end
-
-  @spec worker_encode_job(WorkerSessions.session()) :: Job.t() | nil
-  defp worker_encode_job(%{jobs: jobs}) do
-    jobs
-    |> Map.values()
-    |> Enum.find(&match?(%Job{job_type: :encode, active: true}, &1))
-  end
-
-  @spec worker_encode_status(WorkerSessions.session(), Job.t() | nil) ::
-          :paused | :pending | :idle | :processing
-  defp worker_encode_status(
-         _worker,
-         %Job{
-           control_state: acknowledged,
-           desired_control_state: desired,
-           control_command_id: command_id
-         }
-       )
-       when is_binary(command_id) and desired != acknowledged,
-       do: :pending
-
-  defp worker_encode_status(_worker, %Job{control_state: :paused}), do: :paused
-  defp worker_encode_status(%{control_state: :paused}, nil), do: :paused
-  defp worker_encode_status(_worker, nil), do: :idle
-  defp worker_encode_status(_worker, _job), do: :processing
-
-  defp encode_video(nil), do: nil
-
-  defp encode_video(video) do
-    %{
-      video_id: video.id,
-      filename: Path.basename(video.path),
-      video_size: video.size,
-      width: video.width,
-      height: video.height,
-      hdr: video.hdr
-    }
-  end
-
-  defp encode_vmaf(nil), do: nil
-
-  defp encode_vmaf(vmaf) do
-    %{
-      crf: vmaf.crf,
-      vmaf_score: vmaf.score,
-      predicted_percent: vmaf.percent,
-      predicted_savings: vmaf.savings
-    }
-  end
-
-  defp handle_control_result(socket, :ok, message) do
-    {:noreply, put_flash(socket, :info, message)}
-  end
-
-  defp handle_control_result(socket, {:error, _reason}, _message) do
-    {:noreply, put_flash(socket, :error, "No active job to control")}
-  end
-
-  defp handle_control_result(socket, _result, _message) do
-    {:noreply, put_flash(socket, :error, "Job control failed")}
-  end
-
-  defp queue_failure_stage("crf_search", %{state: :analyzed}), do: {:ok, :crf_search}
-  defp queue_failure_stage("encoding", %{state: :crf_searched}), do: {:ok, :encoding}
-  defp queue_failure_stage(_, _), do: {:error, :invalid_queue_item}
-
-  # Helper functions to reduce duplication
-  defp calculate_progress_percent(data) do
-    if data[:current] && data[:total] && data.total > 0 do
-      round(data.current / data.total * 100)
-    else
-      data[:percent] || 0
-    end
-  end
 
   defp crf_title(%{crf_search_sample: %{sample_num: sample_num, total_samples: total_samples}})
        when is_integer(sample_num) and is_integer(total_samples) and sample_num > 0 and

@@ -49,18 +49,6 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert state.queue_items == %{analyzer: [], crf_searcher: [], encoder: []}
       assert state.queue_previews_loaded == false
     end
-
-    test "returns chart data fields in state" do
-      state = State.get_state()
-
-      assert Map.has_key?(state, :vmaf_distribution)
-      assert is_list(state.vmaf_distribution)
-      assert Map.has_key?(state, :resolution_distribution)
-      assert is_list(state.resolution_distribution)
-      assert Map.has_key?(state, :codec_distribution)
-      assert is_list(state.codec_distribution)
-      assert state.charts_loaded == true
-    end
   end
 
   describe "queue refresh timeouts" do
@@ -965,24 +953,6 @@ defmodule Reencodarr.Dashboard.StateTest do
       assert Map.has_key?(state, :service_status)
     end
 
-    test "handles :refresh_charts message and broadcasts updated state with chart data" do
-      Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
-
-      # Send :refresh_charts message to the GenServer
-      send(Process.whereis(State), :refresh_charts)
-
-      assert_receive {:dashboard_state_changed, state}
-
-      # Verify chart fields are present and are lists
-      assert Map.has_key?(state, :vmaf_distribution)
-      assert is_list(state.vmaf_distribution)
-      assert Map.has_key?(state, :resolution_distribution)
-      assert is_list(state.resolution_distribution)
-      assert Map.has_key?(state, :codec_distribution)
-      assert is_list(state.codec_distribution)
-      assert state.charts_loaded == true
-    end
-
     test "loads queue previews in the initial state snapshot when enabled" do
       previous_refresh_enabled =
         Application.get_env(:reencodarr, :dashboard_queue_refresh_enabled)
@@ -1010,12 +980,13 @@ defmodule Reencodarr.Dashboard.StateTest do
   end
 
   describe "initial stats load" do
-    test "handle_continue broadcasts initial state with chart data" do
+    test "handle_continue broadcasts the initial queue and stats snapshot" do
       Phoenix.PubSub.subscribe(Reencodarr.PubSub, State.state_channel())
 
       receive do
         {:dashboard_state_changed, state} ->
-          assert state.charts_loaded == true
+          assert is_map(state.stats)
+          assert is_map(state.queue_counts)
           assert state.queue_previews_loaded == false
       after
         500 -> flunk("handle_continue should broadcast initial state but didn't")

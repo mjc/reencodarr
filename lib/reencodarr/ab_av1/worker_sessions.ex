@@ -429,26 +429,15 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
              {:ok, version} <- required_attr(attrs, :version),
              {:ok, protocol_version} <- required_attr(attrs, :protocol_version),
              {:ok, capabilities} <- required_attr(attrs, :capabilities) do
-          case lookup_client(client_worker_id) do
-            nil ->
-              session =
-                build_session(
-                  server_worker_id,
-                  client_worker_id,
-                  version,
-                  protocol_version,
-                  capabilities,
-                  now()
-                )
-
-              recover_job_in_session(session, job, state)
-
-            ^server_worker_id ->
-              {:reply, {:error, :unknown_worker_session}, state}
-
-            _newer_server_worker_id ->
-              {:reply, {:error, :superseded_worker_session}, state}
-          end
+          recover_missing_session(
+            server_worker_id,
+            client_worker_id,
+            version,
+            protocol_version,
+            capabilities,
+            job,
+            state
+          )
         else
           :error -> {:reply, {:error, :invalid_session_attrs}, state}
         end
@@ -1164,6 +1153,37 @@ defmodule Reencodarr.AbAv1.WorkerSessions do
 
   defp update_session_reply(server_worker_id, state, update_fun) do
     {:reply, update_session(server_worker_id, update_fun), state}
+  end
+
+  defp recover_missing_session(
+         server_worker_id,
+         client_worker_id,
+         version,
+         protocol_version,
+         capabilities,
+         job,
+         state
+       ) do
+    case lookup_client(client_worker_id) do
+      nil ->
+        session =
+          build_session(
+            server_worker_id,
+            client_worker_id,
+            version,
+            protocol_version,
+            capabilities,
+            now()
+          )
+
+        recover_job_in_session(session, job, state)
+
+      ^server_worker_id ->
+        {:reply, {:error, :unknown_worker_session}, state}
+
+      _newer_server_worker_id ->
+        {:reply, {:error, :superseded_worker_session}, state}
+    end
   end
 
   defp recover_job_in_session(session, %Job{} = job, state) do

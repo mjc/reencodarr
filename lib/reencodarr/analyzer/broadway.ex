@@ -475,14 +475,7 @@ defmodule Reencodarr.Analyzer.Broadway do
         {:ok, video} ->
           Logger.debug("Broadway: Deciding processing path for #{video_info.path}")
 
-          case decide_video_processing_path(video) do
-            {:ok, _updated_video} ->
-              :ok
-
-            {:error, reason} ->
-              mark_video_as_failed(video_info.path, format_processing_error(reason))
-              :error
-          end
+          transition_upserted_video(video, video_info.path)
 
         {:error, reason} ->
           Logger.error("Broadway: UPSERT FAILED for #{video_info.path}: #{inspect(reason)}")
@@ -490,6 +483,17 @@ defmodule Reencodarr.Analyzer.Broadway do
           :error
       end
     end)
+  end
+
+  defp transition_upserted_video(video, path) do
+    case decide_video_processing_path(video) do
+      {:ok, _updated_video} ->
+        :ok
+
+      {:error, reason} ->
+        mark_video_as_failed(path, format_processing_error(reason))
+        :error
+    end
   end
 
   defp log_processing_summary(transition_results, failed_paths) do

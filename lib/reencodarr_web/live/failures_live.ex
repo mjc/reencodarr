@@ -254,6 +254,7 @@ defmodule ReencodarrWeb.FailuresLive do
     ~H"""
     <div class="min-h-[calc(100dvh-3.5rem)] bg-gray-900 px-3 py-4 sm:px-4 sm:py-6 lg:px-6">
       <div class="mx-auto max-w-7xl space-y-4 sm:space-y-6">
+        <ReencodarrWeb.Layouts.issue_tabs active={:failures} />
         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <h1 class="text-2xl font-bold text-white sm:text-3xl">

@@ -1,141 +1,55 @@
-<nav class="relative z-50 bg-gray-900 border-b border-gray-700">
-  <div class="mx-auto max-w-7xl px-3 sm:px-4">
-    <div class="flex flex-wrap items-center justify-between gap-3 py-3 sm:h-14 sm:flex-nowrap sm:py-0">
-      <div class="flex items-center gap-2">
-        <img src="/images/favicon.svg" alt="Reencodarr" class="w-8 h-8" />
-        <.link
-          navigate={~p"/"}
-          class="text-white font-bold text-lg hover:text-purple-300 transition-colors"
-        >
-          Reencodarr
-        </.link>
-      </div>
-      <details id="mobile-nav" phx-update="ignore" class="relative z-50 sm:hidden">
-        <summary class="list-none flex cursor-pointer items-center gap-2 rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-gray-200 transition-colors hover:bg-gray-700 [&::-webkit-details-marker]:hidden">
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            class="h-5 w-5 shrink-0"
-          >
-            <path d="M4 6h16"></path>
-            <path d="M4 12h16"></path>
-            <path d="M4 18h16"></path>
-          </svg>
-          <span>Menu</span>
-        </summary>
-        <div class="absolute right-0 top-full z-[60] mt-2 w-56 overflow-hidden rounded-lg border border-gray-700 bg-gray-900 shadow-xl">
-          <div class="flex flex-col p-2">
-            <.link
-              navigate={~p"/"}
-              class="rounded px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
-            >
-              Dashboard
-            </.link>
-            <.link
-              navigate={~p"/bad-files"}
-              class="rounded px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
-            >
-              Bad Files
-            </.link>
-            <.link
-              navigate={~p"/failures"}
-              class="rounded px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
-            >
-              Failures
-            </.link>
-            <.link
-              navigate={~p"/workers"}
-              class="rounded px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
-            >
-              Workers
-            </.link>
-            <.link
-              navigate={~p"/videos"}
-              class="rounded px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
-            >
-              Videos
-            </.link>
-            <.link
-              navigate={~p"/rules"}
-              class="rounded px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
-            >
-              Rules
-            </.link>
-            <.link
-              navigate={~p"/libraries"}
-              class="rounded px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
-            >
-              Libraries
-            </.link>
-            <.link
-              navigate={~p"/configs"}
-              class="rounded px-3 py-2 text-sm text-gray-300 transition-colors hover:bg-gray-800 hover:text-white"
-            >
-              Configs
-            </.link>
-          </div>
-        </div>
-      </details>
-      <div class="hidden items-center gap-1 sm:flex">
-        <.link
-          navigate={~p"/"}
-          class="rounded px-2 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white sm:px-3 sm:py-2 sm:text-sm"
-        >
-          Dashboard
-        </.link>
-        <.link
-          navigate={~p"/bad-files"}
-          class="rounded px-2 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white sm:px-3 sm:py-2 sm:text-sm"
-        >
-          Bad Files
-        </.link>
-        <.link
-          navigate={~p"/failures"}
-          class="rounded px-2 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white sm:px-3 sm:py-2 sm:text-sm"
-        >
-          Failures
-        </.link>
-        <.link
-          navigate={~p"/workers"}
-          class="rounded px-2 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white sm:px-3 sm:py-2 sm:text-sm"
-        >
-          Workers
-        </.link>
-        <.link
-          navigate={~p"/videos"}
-          class="rounded px-2 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white sm:px-3 sm:py-2 sm:text-sm"
-        >
-          Videos
-        </.link>
-        <.link
-          navigate={~p"/rules"}
-          class="rounded px-2 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white sm:px-3 sm:py-2 sm:text-sm"
-        >
-          Rules
-        </.link>
-        <.link
-          navigate={~p"/libraries"}
-          class="rounded px-2 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white sm:px-3 sm:py-2 sm:text-sm"
-        >
-          Libraries
-        </.link>
-        <.link
-          navigate={~p"/configs"}
-          class="rounded px-2 py-1 text-xs text-gray-300 transition-colors hover:bg-gray-700 hover:text-white sm:px-3 sm:py-2 sm:text-sm"
-        >
-          Configs
-        </.link>
-      </div>
+<div class="app-shell">
+  <a href="#app-main" class="skip-link">Skip to content</a>
+  <aside class="app-sidebar">
+    <.link navigate={~p"/"} class="app-brand">Reencodarr</.link>
+    <nav id="app-navigation" aria-label="Main navigation">
+      <.link
+        navigate={~p"/"}
+        class={["app-nav-link", @socket.view == ReencodarrWeb.DashboardLive && "is-current"]}
+        aria-current={if(@socket.view == ReencodarrWeb.DashboardLive, do: "page")}
+      ><.icon name="hero-home" />Dashboard</.link>
+      <.link
+        navigate={~p"/videos"}
+        class={["app-nav-link", @socket.view == ReencodarrWeb.VideosLive && "is-current"]}
+        aria-current={if(@socket.view == ReencodarrWeb.VideosLive, do: "page")}
+      ><.icon name="hero-film" />Videos</.link>
+      <.link
+        navigate={~p"/workers"}
+        class={["app-nav-link", @socket.view == ReencodarrWeb.WorkersLive && "is-current"]}
+        aria-current={if(@socket.view == ReencodarrWeb.WorkersLive, do: "page")}
+      ><.icon name="hero-server-stack" />Workers</.link>
+      <.link
+        navigate={~p"/failures"}
+        class={[
+          "app-nav-link",
+          @socket.view in [ReencodarrWeb.FailuresLive, ReencodarrWeb.BadFilesLive] && "is-current"
+        ]}
+        aria-current={
+          if(@socket.view in [ReencodarrWeb.FailuresLive, ReencodarrWeb.BadFilesLive], do: "page")
+        }
+      ><.icon name="hero-exclamation-triangle" />Issues</.link>
+    </nav>
+    <details id="app-settings" class="app-settings">
+      <summary class="app-nav-link">
+        <.icon name="hero-cog-6-tooth" />Settings<.icon
+          name="hero-chevron-up"
+          class="settings-chevron"
+        />
+      </summary>
+      <nav class="workbench-menu" aria-label="Settings">
+        <.link navigate={~p"/configs"}><.icon name="hero-link" />Sources</.link>
+        <.link navigate={~p"/libraries"}><.icon name="hero-folder" />Library paths</.link>
+        <.link navigate={~p"/workers"}><.icon name="hero-server-stack" />Worker setup</.link>
+        <.link navigate={~p"/rules"} class="settings-reference"><.icon name="hero-document-text" />Encoding rules</.link>
+      </nav>
+    </details>
+  </aside>
+  <main id="app-main" class="app-main" tabindex="-1">
+    <.flash_group flash={@flash} />
+    <div class={
+      @socket.view not in [ReencodarrWeb.DashboardLive, ReencodarrWeb.WorkersLive] && "app-page"
+    }>
+      {@inner_content}
     </div>
-  </div>
-</nav>
-
-<main class="flex-1 overflow-x-hidden">
-  <.flash_group flash={@flash} />
-  {@inner_content}
-</main>
+  </main>
+</div>

@@ -828,6 +828,7 @@ defmodule ReencodarrWeb.BadFilesLive do
     ~H"""
     <div class="min-h-screen bg-gray-900 p-6">
       <div class="max-w-6xl mx-auto space-y-4">
+        <ReencodarrWeb.Layouts.issue_tabs active={:bad_files} />
         <div>
           <h1 class="text-3xl font-bold text-white">Bad Files</h1>
           <p :if={@loading_issues} class="text-gray-400">loading issues...</p>

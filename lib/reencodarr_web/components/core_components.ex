@@ -15,6 +15,53 @@ defmodule ReencodarrWeb.CoreComponents do
   """
   use Phoenix.Component
 
+  @icon_paths %{
+    "hero-home" => "M3 11 12 3 21 11 M5 10v11h5v-7h4v7h5V10",
+    "hero-film" => "M3 3h18v18H3z M7 3v18 M17 3v18 M3 8h4 M3 16h4 M17 8h4 M17 16h4",
+    "hero-server-stack" => "M3 3h18v6H3z M3 15h18v6H3z M7 6h.01 M7 18h.01 M11 6h6 M11 18h6",
+    "hero-exclamation-triangle" => "M12 3 2 21h20z M12 9v5 M12 17h.01",
+    "hero-cog-6-tooth" =>
+      "M9 3h6l1 4 4 1v8l-4 1-1 4H9l-1-4-4-1V8l4-1z M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0",
+    "hero-chevron-up" => "m6 15 6-6 6 6",
+    "hero-chevron-right" => "m9 5 7 7-7 7",
+    "hero-link" =>
+      "m10 14 4-4 M8 16l-1 1a4 4 0 0 1-6-6l5-5a4 4 0 0 1 6 0 M16 8l1-1a4 4 0 0 1 6 6l-5 5a4 4 0 0 1-6 0",
+    "hero-folder" => "M3 5h6l2 3h10v12H3z",
+    "hero-document-magnifying-glass" =>
+      "M13 21H4V3h10l5 5v4 M14 3v6h5 M18 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0 M17 18l4 4",
+    "hero-magnifying-glass" => "M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0 M15 15l7 7",
+    "hero-play" => "m7 3 14 9-14 9z",
+    "hero-pause" => "M7 4v16 M17 4v16",
+    "hero-stop" => "M5 5h14v14H5z",
+    "hero-arrow-path" =>
+      "M21 7v6h-6 M3 17v-6h6 M4 8a8 8 0 0 1 14-3l3 3 M20 16a8 8 0 0 1-14 3l-3-3",
+    "hero-circle-stack" => "M3 5c0-4 18-4 18 0s-18 4-18 0v14c0 4 18 4 18 0V5 M3 12c0 4 18 4 18 0",
+    "hero-archive-box" => "M3 3h18v5H3z M5 8v13h14V8 M9 12h6",
+    "hero-x-mark" => "m6 6 12 12 M6 18 18 6"
+  }
+
+  attr :name, :string, required: true
+  attr :class, :string, default: nil
+
+  def icon(assigns) do
+    path = Map.get(@icon_paths, assigns.name, "M5 3h9l5 5v13H5z M14 3v6h5")
+
+    assigns = assign(assigns, :path, path)
+
+    ~H"""
+    <span class={["ui-icon", @class]} aria-hidden="true">
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.7"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      ><path d={@path} /></svg>
+    </span>
+    """
+  end
+
   alias Phoenix.HTML.Form
   alias Phoenix.LiveView.JS
   use Gettext, backend: ReencodarrWeb.Gettext

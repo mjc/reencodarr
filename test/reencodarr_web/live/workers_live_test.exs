@@ -36,7 +36,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     assert {:ok, view, html} = live(conn, ~p"/workers")
     assert html =~ "worker-client-1"
     assert html =~ "Idle"
-    refute html =~ "Receiving Input"
+    refute html =~ "Receiving input"
 
     assert {:ok, _session} =
              WorkerSessions.assign_video("worker-server-1", video.id, :receiving_input)
@@ -70,18 +70,18 @@ defmodule ReencodarrWeb.WorkersLiveTest do
 
     html = render(view)
     assert html =~ "Receiving input"
-    assert html =~ "Receiving Input"
+    assert html =~ "Receiving input"
     refute html =~ "CRF Search"
     assert html =~ Path.basename(video.path)
-    assert html =~ "Target: 95 VMAF"
-    assert html =~ "CPU 87.5%"
-    assert html =~ "Mem 1.0 GiB / 4.0 GiB"
-    assert html =~ "Disk 500.0 GiB free / 1.0 TiB"
+    assert html =~ "CRF search"
+    assert has_element?(view, ".worker-resources", "87.5%")
+    assert has_element?(view, ".worker-resources", "1.0 GiB / 4.0 GiB")
+    assert has_element?(view, ".worker-resources", "500.0 GiB free / 1.0 TiB")
     assert html =~ "2.5 MiB / 10.0 MiB"
     assert html =~ "Chunk 3 / 8"
     assert html =~ "25.5%"
     assert html =~ "ETA 15s"
-    refute html =~ "CRF 28.0 -&gt; 95.4 VMAF"
+    refute html =~ "CRF 28.0: VMAF 95.4"
   end
 
   test "rerenders transfer data without querying the video again", %{conn: conn} do
@@ -142,7 +142,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
 
     html = render(view)
-    assert html =~ "Receiving Input"
+    assert html =~ "Receiving input"
     assert html =~ "112.0 MiB / 224.0 MiB"
     assert html =~ "117.0 MiB/s"
     assert html =~ "ETA 1s"
@@ -193,7 +193,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
 
     html = render(view)
-    assert html =~ "Receiving Input"
+    assert html =~ "Receiving input"
     refute html =~ "CRF Search"
     refute html =~ "Sample 3/8 - CRF 28.0"
   end
@@ -250,10 +250,11 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
 
     html = render(view)
-    assert html =~ "CRF Search"
-    assert html =~ "Sample 3/8 - CRF 28.0"
-    assert html =~ "CRF 28.0 -&gt; 95.4 VMAF"
-    refute html =~ "Receiving Input"
+    assert html =~ "CRF search"
+    assert has_element?(view, ".worker-job-search", "Sample 3/8")
+    assert has_element?(view, ".worker-job-search", "Testing CRF 28")
+    assert html =~ "CRF 28.0: VMAF 95.4"
+    refute html =~ "Receiving input"
 
     Phoenix.PubSub.subscribe(
       Reencodarr.PubSub,
@@ -273,7 +274,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     Fixtures.vmaf_fixture(%{video_id: video.id, crf: 26.0, score: 96.1, percent: 91.0})
     send(view.pid, {:crf_search_vmaf_result, %{video_id: video.id}})
 
-    assert render(view) =~ "CRF 26.0 -&gt; 96.1 VMAF"
+    assert render(view) =~ "CRF 26.0: VMAF 96.1"
   end
 
   test "renders the encode panel when only encoding is active", %{conn: conn} do
@@ -312,7 +313,13 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
 
     html = render(view)
-    assert html =~ "Encoding · worker-client-encode"
+
+    assert has_element?(
+             view,
+             "#worker-worker-client-encode #encode-worker-worker-client-encode",
+             "Encode"
+           )
+
     assert html =~ "37.0%"
     refute html =~ "CRF Search · worker-client-encode"
     refute html =~ "Idle"
@@ -353,9 +360,17 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     {:ok, view, _html} = live(conn, ~p"/workers")
     send(view.pid, {:worker_sessions_updated, %{sessions: WorkerSessions.list()}})
 
-    html = render(view)
-    assert html =~ "Encoding · worker-client-both"
-    assert html =~ "CRF Search · worker-client-both"
+    assert has_element?(
+             view,
+             "#worker-worker-client-both #encode-worker-worker-client-both",
+             "Encode"
+           )
+
+    assert has_element?(
+             view,
+             "#worker-worker-client-both #crf-worker-worker-client-both",
+             "CRF search"
+           )
   end
 
   test "rejects a stale CRF control without crashing", %{conn: conn} do
@@ -422,7 +437,7 @@ defmodule ReencodarrWeb.WorkersLiveTest do
     html = render(view)
     assert html =~ "worker-client-3"
     assert html =~ "Input ready"
-    assert html =~ "Input Ready"
+    assert html =~ "Input ready"
     refute html =~ "CRF Search"
     refute html =~ "-%"
   end

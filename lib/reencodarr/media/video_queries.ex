@@ -9,6 +9,29 @@ defmodule Reencodarr.Media.VideoQueries do
   import Ecto.Query
   alias Reencodarr.{DbWriter, Media.DashboardQueueCache, Media.Video, Media.Vmaf, Repo}
 
+  @doc "Returns a bounded list of encoded files and their chosen quality scores."
+  def recent_encodes(limit, opts \\ []) do
+    Repo.all(
+      from(v in Video,
+        left_join: quality in Vmaf,
+        on: quality.id == v.chosen_vmaf_id,
+        where: v.state == :encoded,
+        order_by: [desc: v.updated_at, desc: v.id],
+        limit: ^limit,
+        select: %{
+          id: v.id,
+          path: v.path,
+          title: v.title,
+          height: v.height,
+          updated_at: v.updated_at,
+          space_saved_bytes: v.space_saved_bytes,
+          vmaf: quality.score
+        }
+      ),
+      opts
+    )
+  end
+
   @doc """
   Gets videos ready for CRF search (state: analyzed).
   Excludes videos already in crf_searching state to avoid showing currently processing videos.
@@ -115,7 +138,14 @@ defmodule Reencodarr.Media.VideoQueries do
           desc: v.updated_at
         ],
         limit: ^limit,
-        select: %{id: v.id, path: v.path}
+        select: %{
+          id: v.id,
+          path: v.path,
+          size: v.size,
+          height: v.height,
+          title: v.title,
+          service_type: v.service_type
+        }
       ),
       opts
     )
@@ -335,10 +365,19 @@ defmodule Reencodarr.Media.VideoQueries do
   def videos_ready_for_encoding_preview(limit, opts \\ []) do
     Repo.all(
       from(c in DashboardQueueCache,
+        join: v in Video,
+        on: v.id == c.video_id,
         where: c.queue_type == :encoder,
         order_by: [desc: c.priority, desc: c.savings, desc: c.updated_at],
         limit: ^limit,
-        select: %{id: c.video_id, path: c.path}
+        select: %{
+          id: c.video_id,
+          path: c.path,
+          size: c.size,
+          height: v.height,
+          title: v.title,
+          service_type: v.service_type
+        }
       ),
       opts
     )
@@ -501,8 +540,10 @@ defmodule Reencodarr.Media.VideoQueries do
   end
 
   defp crf_search_queue_preview_rows(limit, opts) do
-    crf_search_queue_rows("id, path", limit, opts)
-    |> Enum.map(fn [id, path] -> %{id: id, path: path} end)
+    crf_search_queue_rows("id, path, size, height, title, service_type", limit, opts)
+    |> Enum.map(fn [id, path, size, height, title, service_type] ->
+      %{id: id, path: path, size: size, height: height, title: title, service_type: service_type}
+    end)
   end
 
   defp crf_search_queue_rows(select, limit, opts) do

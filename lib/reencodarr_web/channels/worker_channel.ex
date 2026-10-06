@@ -755,14 +755,7 @@ defmodule ReencodarrWeb.WorkerChannel do
     case Media.get_video(video_id) do
       %Media.Video{state: :crf_searching} = video ->
         if resumable_crf?(socket, video) do
-          request_mode =
-            case WorkerSessions.get(worker_id) do
-              %{active_video_id: ^video_id} = session ->
-                maybe_resume_mode(session, request_mode)
-
-              _ ->
-                request_mode
-            end
+          request_mode = active_work_resume_mode(worker_id, video_id, request_mode)
 
           reply_for_active_work(worker_id, socket, video, request_mode)
         else
@@ -775,6 +768,13 @@ defmodule ReencodarrWeb.WorkerChannel do
 
       nil ->
         {:reply, {:error, WorkerProtocol.error(:unknown_worker_session)}, socket}
+    end
+  end
+
+  defp active_work_resume_mode(worker_id, video_id, request_mode) do
+    case WorkerSessions.get(worker_id) do
+      %{active_video_id: ^video_id} = session -> maybe_resume_mode(session, request_mode)
+      _ -> request_mode
     end
   end
 

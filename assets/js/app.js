@@ -21,8 +21,6 @@ import {LiveSocket} from "phoenix_live_view"
 
 let Hooks = {}
 
-const isInitialPageLoadEvent = (event) => event?.detail?.kind === "initial"
-
 window.addEventListener("click", event => {
   const el = event.target instanceof Element ? event.target.closest("[data-confirm]") : null
 
@@ -75,103 +73,6 @@ Hooks.RangeSelectCheckboxes = {
 
   destroyed() {
     this.el.removeEventListener("click", this.handleClick)
-  }
-}
-
-Hooks.DashboardAnimations = {
-  mounted() {
-    this.readyClass = "dashboard-animations-ready"
-    this.hasInteracted = false
-
-    this.onPageLoadingStart = (event) => {
-      if (isInitialPageLoadEvent(event)) return
-      this.clearReady()
-    }
-    this.onPageLoadingStop = (event) => {
-      if (isInitialPageLoadEvent(event)) return
-      this.scheduleReady({timeout: 1500})
-    }
-    this.onFirstInteraction = () => {
-      this.hasInteracted = true
-      this.removeInteractionListeners()
-      this.scheduleReady({timeout: 250})
-    }
-
-    this.addInteractionListeners()
-    this.fallbackReadyTimeout = setTimeout(() => this.scheduleReady({timeout: 8000}), 8000)
-
-    window.addEventListener("phx:page-loading-start", this.onPageLoadingStart)
-    window.addEventListener("phx:page-loading-stop", this.onPageLoadingStop)
-  },
-
-  addInteractionListeners() {
-    for (const eventName of ["pointerdown", "keydown", "wheel", "touchstart"]) {
-      window.addEventListener(eventName, this.onFirstInteraction, {once: true, passive: true})
-    }
-  },
-
-  removeInteractionListeners() {
-    for (const eventName of ["pointerdown", "keydown", "wheel", "touchstart"]) {
-      window.removeEventListener(eventName, this.onFirstInteraction)
-    }
-  },
-
-  scheduleReady({timeout} = {}) {
-    if (this.idleCallback && "cancelIdleCallback" in window) {
-      window.cancelIdleCallback(this.idleCallback)
-    }
-
-    if (this.readyTimeout) {
-      clearTimeout(this.readyTimeout)
-    }
-
-    if (this.fallbackReadyTimeout) {
-      clearTimeout(this.fallbackReadyTimeout)
-      this.fallbackReadyTimeout = null
-    }
-
-    const markReady = () => {
-      window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-          if (this.el.isConnected) {
-            this.el.classList.add(this.readyClass)
-          }
-        })
-      })
-    }
-
-    if ("requestIdleCallback" in window) {
-      this.idleCallback = window.requestIdleCallback(markReady, {timeout: timeout ?? 1500})
-    } else {
-      this.readyTimeout = setTimeout(markReady, timeout ?? 150)
-    }
-  },
-
-  clearReady() {
-    this.el.classList.remove(this.readyClass)
-  },
-
-  destroyed() {
-    this.clearReady()
-    this.removeInteractionListeners()
-
-    window.removeEventListener("phx:page-loading-start", this.onPageLoadingStart)
-    window.removeEventListener("phx:page-loading-stop", this.onPageLoadingStop)
-
-    if (this.idleCallback && "cancelIdleCallback" in window) {
-      window.cancelIdleCallback(this.idleCallback)
-      this.idleCallback = null
-    }
-
-    if (this.readyTimeout) {
-      clearTimeout(this.readyTimeout)
-      this.readyTimeout = null
-    }
-
-    if (this.fallbackReadyTimeout) {
-      clearTimeout(this.fallbackReadyTimeout)
-      this.fallbackReadyTimeout = null
-    }
   }
 }
 

@@ -155,7 +155,15 @@ defmodule Reencodarr.Media.VideoQueriesTest do
 
       assert preview.id == video.id
       assert preview.path == video.path
-      assert Map.keys(preview) |> Enum.sort() == [:id, :path]
+
+      assert Map.keys(preview) |> Enum.sort() == [
+               :height,
+               :id,
+               :path,
+               :service_type,
+               :size,
+               :title
+             ]
     end
   end
 
@@ -225,7 +233,15 @@ defmodule Reencodarr.Media.VideoQueriesTest do
 
       assert preview.id == video.id
       assert preview.path == video.path
-      assert Map.keys(preview) |> Enum.sort() == [:id, :path]
+
+      assert Map.keys(preview) |> Enum.sort() == [
+               :height,
+               :id,
+               :path,
+               :service_type,
+               :size,
+               :title
+             ]
     end
   end
 
@@ -639,7 +655,15 @@ defmodule Reencodarr.Media.VideoQueriesTest do
 
       assert preview.id == video.id
       assert preview.path == video.path
-      assert Map.keys(preview) |> Enum.sort() == [:id, :path]
+
+      assert Map.keys(preview) |> Enum.sort() == [
+               :height,
+               :id,
+               :path,
+               :service_type,
+               :size,
+               :title
+             ]
 
       {:ok, _} = Reencodarr.Media.update_video(video, %{state: :encoded})
 

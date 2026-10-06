@@ -8,7 +8,7 @@ defmodule ReencodarrWeb.RootLiveTest do
       response = html_response(conn, 200)
 
       # Should contain the DashboardLive content
-      assert response =~ "Processing Pipeline"
+      assert response =~ "Dashboard"
     end)
   end
 end
