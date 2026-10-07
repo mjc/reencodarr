@@ -162,6 +162,8 @@ progress::-webkit-progress-bar { background: #35404f; }
 progress::-webkit-progress-value { background: var(--wb-blue); border-radius: 3px; }
 progress::-moz-progress-bar { background: var(--wb-blue); border-radius: 3px; }
 .job-progress-line progress { flex: 1; min-width: 70px; }
+.worker-job-search progress::-webkit-progress-value { background: var(--wb-lilac); }
+.worker-job-search progress::-moz-progress-bar { background: var(--wb-lilac); }
 .job-progress-line > strong { font-weight: 500; }
 .job-metrics { display: flex; flex-wrap: wrap; gap: 6px 18px; padding-top: 9px; color: var(--wb-muted); font-size: 13px; }
 .job-status, .job-warning { color: var(--wb-amber); }

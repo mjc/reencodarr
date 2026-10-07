@@ -175,7 +175,7 @@ defmodule ReencodarrWeb.DashboardLayoutTest do
     assert has_element?(view, "#worker-atlas button[phx-value-job-id='second']")
   end
 
-  test "shows CRF samples without presenting sample progress as overall completion", %{conn: conn} do
+  test "updates the CRF sample progress bar from sample count events", %{conn: conn} do
     register_worker()
     {:ok, video} = Fixtures.video_fixture(%{state: :crf_searching})
 
@@ -196,9 +196,35 @@ defmodule ReencodarrWeb.DashboardLayoutTest do
 
     {:ok, view, _} = live(conn, ~p"/")
     assert has_element?(view, "#crf-worker-atlas", "Sample 4/8")
+
+    assert has_element?(
+             view,
+             "#crf-worker-atlas progress[aria-label='CRF sample progress'][value='4'][max='8']"
+           )
+
     assert has_element?(view, "#crf-worker-atlas", "Testing CRF 30")
     refute has_element?(view, "#crf-worker-atlas progress[aria-label='Encode progress']")
     refute has_element?(view, "#crf-worker-atlas", "62.0%")
+
+    WorkerSessions.set_crf_search_progress(
+      "server-atlas",
+      %Reencodarr.AbAv1.WorkerProtocol.CrfSearchProgress{
+        job_id: "samples",
+        video_id: video.id,
+        percent: 12.0,
+        crf: 30.0,
+        sample_num: 6,
+        total_samples: 8
+      }
+    )
+
+    WorkerSessions.get("server-atlas")
+    assert has_element?(view, "#crf-worker-atlas", "Sample 6/8")
+
+    assert has_element?(
+             view,
+             "#crf-worker-atlas progress[aria-label='CRF sample progress'][value='6'][max='8']"
+           )
   end
 
   test "shows encoded files with actual savings in recent results", %{conn: conn} do

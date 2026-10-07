@@ -393,6 +393,12 @@ defmodule ReencodarrWeb.DashboardComponents do
           <% end %>
           <%= if @job.job_type == :crf_search and @job.phase == :crf_searching do %>
             <span :if={is_number(@progress[:crf])}>Testing CRF {Formatters.crf(@progress.crf)}</span>
+            <progress
+              :if={@progress[:sample_num] && @progress[:total_samples] && @progress.total_samples > 0}
+              max={@progress.total_samples}
+              value={@progress.sample_num}
+              aria-label="CRF sample progress"
+            />
             <span :if={@progress[:sample_num] && @progress[:total_samples]}>Sample {@progress.sample_num}/{@progress.total_samples}</span>
             <span :if={@video}>Target VMAF {Rules.vmaf_target(@video)}</span>
           <% end %>
