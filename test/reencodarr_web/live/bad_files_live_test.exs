@@ -2,6 +2,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
   use ReencodarrWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
+  import ReencodarrWeb.AsyncLiveViewTestHelpers
 
   import ReencodarrWeb.FlopListTestHelpers
 
@@ -16,6 +17,11 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
   end
 
   describe "mount" do
+    test "renders a loading state before the connected async load", %{conn: conn} do
+      html = conn |> get("/bad-files") |> html_response(200)
+      assert html =~ "loading issues"
+    end
+
     test "renders the bad files page with listed issues", %{conn: conn} do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/bad_queue.mkv"})
 
@@ -28,7 +34,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
           manual_note: "known bad import"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       html = render_async(view)
 
       assert html =~ "Bad Files"
@@ -36,7 +42,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       assert html =~ "bad_queue.mkv"
     end
 
-    test "hydrates bad-file issues in the first HTML response", %{conn: conn} do
+    test "hydrates bad-file issues after the initial async load", %{conn: conn} do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/first_bad_issue.mkv"})
 
       {:ok, _issue} =
@@ -47,7 +53,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
           manual_reason: "first response issue"
         })
 
-      {:ok, _view, html} = live(conn, ~p"/bad-files")
+      {:ok, _view, html} = live_loaded(conn, ~p"/bad-files")
 
       assert html =~ "first response issue"
       assert html =~ "first_bad_issue.mkv"
@@ -76,7 +82,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       {:ok, _queued_issue} = Media.enqueue_bad_file_issue(active_issue)
       {:ok, _clean_issue} = Media.update_bad_file_issue_status(resolved_issue, :replaced_clean)
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       html = render_async(view)
 
       assert html =~ "Open: 0"
@@ -108,7 +114,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
           output_layout: "5.1"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       html = render_async(view)
 
       assert html =~ "confirmed_bad_audio_layout"
@@ -129,7 +135,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
           manual_reason: "bad mux"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
       html = view |> element("#enqueue-issue-#{issue.id}") |> render_click()
 
@@ -148,7 +154,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
           manual_reason: "damaged rip"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
       html = view |> element("#dismiss-issue-#{issue.id}") |> render_click()
 
@@ -169,7 +175,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
 
       {:ok, failed_issue} = Media.update_bad_file_issue_status(issue, :failed)
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
       html = view |> element("#retry-issue-#{failed_issue.id}") |> render_click()
 
@@ -188,7 +194,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
           manual_reason: "external update"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       html = render_async(view)
       assert html =~ "Open: 1"
 
@@ -229,7 +235,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
         Media.update_bad_file_issue_status(issue, :waiting_for_replacement)
       end)
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
       html = view |> element("#replace-issue-now-#{selected_issue.id}") |> render_click()
 
@@ -257,7 +263,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
         {:ok, Media.get_bad_file_issue!(issue.id)}
       end)
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
       html = view |> element("#replace-next-queued") |> render_click()
 
@@ -296,7 +302,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
         {:ok, Media.get_bad_file_issue!(sonarr_issue.id)}
       end)
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
       html = view |> element("#replace-next-sonarr") |> render_click()
 
@@ -339,7 +345,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
         [service_type: :radarr] -> {:ok, Media.get_bad_file_issue!(radarr_issue.id)}
       end)
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
       html = view |> element("#replace-queued-now") |> render_click()
 
@@ -379,7 +385,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
           manual_reason: "movie"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
 
       _html =
@@ -443,7 +449,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
         [service_type: :radarr] -> {:ok, Media.get_bad_file_issue!(radarr_issue.id)}
       end)
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
 
       _html =
@@ -502,7 +508,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
           manual_reason: "other show"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
       html = view |> element("#queue-series-issues-#{target_issue.id}") |> render_click()
 
@@ -523,7 +529,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
           manual_reason: "needs replacement"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       html = render_async(view)
       assert html =~ "open"
 
@@ -559,7 +565,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
 
       {:ok, _queued_issue} = Media.enqueue_bad_file_issue(queued_issue)
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
 
       view
@@ -595,7 +601,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
           manual_reason: "movie issue"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
 
       view
@@ -627,7 +633,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
           classification: :confirmed_bad_audio_layout
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
 
       view
@@ -660,7 +666,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
           manual_reason: "blocky encode"
         })
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       render_async(view)
 
       view
@@ -707,7 +713,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       {:ok, _queued_issue} = Media.enqueue_bad_file_issue(queued_issue)
 
       {:ok, view, _html} =
-        live(conn, ~p"/bad-files?status=queued&page=1&per_page=25")
+        live_loaded(conn, ~p"/bad-files?status=queued&page=1&per_page=25")
 
       html = render_async(view)
       assert html =~ "url_queued.mkv"
@@ -716,7 +722,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
 
     test "invalid filter params coerce to safe defaults", %{conn: conn} do
       {:ok, view, _html} =
-        live(conn, ~p"/bad-files?status=not-a-status&service=bogus&page=0")
+        live_loaded(conn, ~p"/bad-files?status=not-a-status&service=bogus&page=0")
 
       html = render_async(view)
 
@@ -738,7 +744,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
           })
       end)
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files?page=999&per_page=25")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files?page=999&per_page=25")
       html = render_async(view)
 
       assert pagination_label_from_html(html) == "26-26 of 26"
@@ -761,7 +767,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
         {:ok, _issue} = Media.dismiss_bad_file_issue(issue)
       end)
 
-      {:ok, view, _html} = live(conn, ~p"/bad-files?status=resolved&page=2&per_page=25")
+      {:ok, view, _html} = live_loaded(conn, ~p"/bad-files?status=resolved&page=2&per_page=25")
       html = render_async(view)
 
       assert pagination_label_from_html(html) == "26-26 of 26"

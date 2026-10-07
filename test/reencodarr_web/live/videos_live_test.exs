@@ -11,6 +11,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
   use ReencodarrWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
+  import ReencodarrWeb.AsyncLiveViewTestHelpers
 
   alias Reencodarr.Fixtures
   alias Reencodarr.Media
@@ -28,13 +29,18 @@ defmodule ReencodarrWeb.VideosLiveTest do
   # ---------------------------------------------------------------------------
 
   describe "mount" do
+    test "renders a loading state before the connected async load", %{conn: conn} do
+      html = conn |> get("/videos") |> html_response(200)
+      assert html =~ "Loading"
+    end
+
     test "renders the videos page", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/videos")
+      {:ok, _view, html} = live_loaded(conn, ~p"/videos")
       assert html =~ "Videos"
     end
 
     test "renders empty state when no videos exist", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
       html = render(view)
       # Table should still be present (no crash)
       assert html =~ "<table" or html =~ "No videos"
@@ -42,14 +48,14 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
     test "renders video rows when videos exist", %{conn: conn} do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/show/ep01.mkv"})
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
       html = render(view)
       assert html =~ video.path
     end
 
-    test "hydrates video rows in the first HTML response", %{conn: conn} do
+    test "hydrates video rows after the initial async load", %{conn: conn} do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/first_render_video.mkv"})
-      {:ok, _view, html} = live(conn, ~p"/videos")
+      {:ok, _view, html} = live_loaded(conn, ~p"/videos")
       assert html =~ video.path
     end
   end
@@ -63,7 +69,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/unique_alpha_xyz/ep.mkv"})
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/unique_beta_xyz/ep.mkv"})
 
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
 
       view
       |> form("#videos-filters", %{search: "unique_alpha_xyz"})
@@ -76,7 +82,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
     test "clears search and shows all videos", %{conn: conn} do
       {:ok, _video} = Fixtures.video_fixture(%{path: "/media/show/ep.mkv"})
-      {:ok, view, _html} = live(conn, ~p"/videos?q=nonexistent")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos?q=nonexistent")
 
       view
       |> form("#videos-filters", %{search: ""})
@@ -92,7 +98,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/combo_filter_hit_2.mkv", state: :failed})
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/combo_filter_miss.mkv", state: :encoded})
 
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
 
       view
       |> form("#videos-filters", %{search: "/media/combo_filter_hit.mkv", state: "encoded"})
@@ -112,7 +118,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
   describe "filter_state event" do
     test "fires filter_state event and patches URL to include state param", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/videos")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos")
 
       view |> form("#videos-filters", %{state: "encoded"}) |> render_change()
 
@@ -123,7 +129,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
     end
 
     test "filter_state renders the page without crashing", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/videos")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos")
 
       view
       |> form("#videos-filters", %{state: "encoded"})
@@ -137,7 +143,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
     test "filter_state narrows visible rows", %{conn: conn} do
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/only_encoded.mkv", state: :encoded})
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/only_failed.mkv", state: :failed})
-      {:ok, view, _} = live(conn, ~p"/videos")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos")
 
       view
       |> form("#videos-filters", %{state: "encoded"})
@@ -156,19 +162,19 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
   describe "URL params" do
     test "page param is respected", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/videos?page=1")
+      {:ok, _view, html} = live_loaded(conn, ~p"/videos?page=1")
       assert html =~ "Videos"
     end
 
     test "search query param pre-fills the search", %{conn: conn} do
       {:ok, _video} = Fixtures.video_fixture(%{path: "/media/preloaded.mkv"})
-      {:ok, view, _html} = live(conn, ~p"/videos?q=preloaded")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos?q=preloaded")
       html = render(view)
       assert html =~ "preloaded"
     end
 
     test "sort param is applied without crashing", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/videos?sort_by=path&sort_dir=asc")
+      {:ok, _view, html} = live_loaded(conn, ~p"/videos?sort_by=path&sort_dir=asc")
       assert html =~ "Videos"
     end
   end
@@ -179,7 +185,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
   describe "sort event" do
     test "clicking sort button does not crash", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
       # phx-click="sort" is on the <button> inside the sort_header component, not the <th>
       html = view |> element("button[phx-click='sort'][phx-value-col='path']") |> render_click()
       assert html =~ "Videos"
@@ -192,7 +198,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
   describe "pagination" do
     test "renders flop pagination on page 1", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/videos?page=1")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos?page=1")
       html = render(view)
 
       assert html =~ ~s(data-role="flop-pagination")
@@ -201,7 +207,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
     end
 
     test "per_page event updates items per page", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
 
       view
       |> form("form[phx-change='set_per_page']", %{per_page: "50"})
@@ -213,7 +219,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
     end
 
     test "per_page dropdown keeps the selected value", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
 
       view
       |> form("form[phx-change='set_per_page']", %{per_page: "100"})
@@ -227,14 +233,14 @@ defmodule ReencodarrWeb.VideosLiveTest do
         {:ok, _video} = Fixtures.video_fixture(%{path: "/media/videos_clamp_#{n}.mkv"})
       end)
 
-      {:ok, view, _html} = live(conn, ~p"/videos?page=999&per_page=25")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos?page=999&per_page=25")
       html = render_async(view)
 
       assert html =~ "26-26 of 26"
     end
 
     test "empty search clamps impossible page to page 1", %{conn: conn} do
-      {:ok, view, _html} = live(conn, ~p"/videos?q=no_such_video&page=999")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos?q=no_such_video&page=999")
       html = render_async(view)
 
       assert html =~ "0 results"
@@ -248,7 +254,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
   describe "space saved badge" do
     test "does not render a space saved badge when video has no original_size", %{conn: conn} do
       {:ok, _video} = Fixtures.video_fixture(%{path: "/media/no_space.mkv", size: 1_000_000_000})
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
       html = render(view)
       refute html =~ "Space saved"
     end
@@ -263,7 +269,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       {:ok, _video} = Media.update_video(video, %{space_saved_bytes: 3_000_000_000})
 
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
       view |> form("#videos-filters", %{search: "large_save"}) |> render_change()
       html = render(view)
       assert html =~ "text-green-300"
@@ -280,7 +286,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       {:ok, _video} = Media.update_video(video, %{space_saved_bytes: 1_000_000_000})
 
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
       view |> form("#videos-filters", %{search: "medium_save"}) |> render_change()
       html = render(view)
       assert html =~ "text-yellow-300"
@@ -296,7 +302,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
       {:ok, _video} = Media.update_video(video, %{space_saved_bytes: 50_000_000})
 
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
       view |> form("#videos-filters", %{search: "small_save"}) |> render_change()
       html = render(view)
       assert html =~ "text-red-400"
@@ -310,7 +316,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
   describe "hdr badge" do
     test "does not render an hdr badge when video has no HDR", %{conn: conn} do
       {:ok, _video} = Fixtures.video_fixture(%{path: "/media/sdr.mkv", hdr: nil})
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
       html = render(view)
       refute html =~ "HDR10"
       refute html =~ "bg-amber-900"
@@ -318,7 +324,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
     test "renders HDR label in amber badge", %{conn: conn} do
       {:ok, _video} = Fixtures.hdr_video_fixture(%{path: "/media/hdr.mkv"})
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
       html = render(view)
       assert html =~ "HDR10"
       assert html =~ "bg-amber-900"
@@ -328,7 +334,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
   describe "mark bad" do
     test "toggles the inline mark bad form", %{conn: conn} do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/toggle_bad_form.mkv"})
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
 
       refute render(view) =~ "Why is this bad?"
 
@@ -350,7 +356,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
     test "creates a manual bad-file issue from the videos page", %{conn: conn} do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/manual_bad.mkv"})
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
 
       view
       |> element("td button[title='Open bad-file form'][phx-value-id='#{video.id}']")
@@ -379,7 +385,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
     test "shows an error when the reason is blank", %{conn: conn} do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/no_reason.mkv"})
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
 
       view
       |> element("td button[title='Open bad-file form'][phx-value-id='#{video.id}']")
@@ -408,7 +414,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
   describe "bulk selection" do
     test "renders checkbox column", %{conn: conn} do
       {:ok, _video} = Fixtures.video_fixture(%{path: "/media/checkme.mkv"})
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
       html = render(view)
       assert html =~ ~s(type="checkbox")
     end
@@ -416,7 +422,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
     test "select_all checks all visible rows and shows bulk action", %{conn: conn} do
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/a.mkv"})
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/b.mkv"})
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
 
       html = view |> element("[phx-click='select_all']") |> render_click()
 
@@ -425,7 +431,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
     test "deselect_all clears selection", %{conn: conn} do
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/c.mkv"})
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
 
       view |> element("[phx-click='select_all']") |> render_click()
       html = view |> element("button[phx-click='deselect_all']") |> render_click()
@@ -436,7 +442,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
     test "select_all shows prioritize bulk action", %{conn: conn} do
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/prio_a.mkv"})
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/prio_b.mkv"})
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
 
       html = view |> element("[phx-click='select_all']") |> render_click()
 
@@ -451,7 +457,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
   describe "filter_service event" do
     test "filtering by sonarr does not crash", %{conn: conn} do
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/show.mkv"})
-      {:ok, view, _} = live(conn, ~p"/videos")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos")
 
       _html =
         view
@@ -465,7 +471,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
     test "resetting service filter shows all videos", %{conn: conn} do
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/show.mkv"})
-      {:ok, view, _} = live(conn, ~p"/videos")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos")
 
       view
       |> form("#videos-filters", %{service: "sonarr"})
@@ -482,7 +488,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
     test "service dropdown keeps the selected filter", %{conn: conn} do
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/service_keep.mkv", service_type: :sonarr})
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
 
       view
       |> form("#videos-filters", %{service: "sonarr"})
@@ -495,7 +501,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
   describe "filter_hdr event" do
     test "filtering HDR only does not crash", %{conn: conn} do
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/hdr.mkv"})
-      {:ok, view, _} = live(conn, ~p"/videos")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos")
 
       _html =
         view
@@ -509,7 +515,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
     test "hdr dropdown keeps the selected filter", %{conn: conn} do
       {:ok, _} = Fixtures.hdr_video_fixture(%{path: "/media/hdr_keep.mkv"})
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
 
       view
       |> form("#videos-filters", %{hdr: "true"})
@@ -521,7 +527,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
   describe "next_page event" do
     test "next_page button does not crash", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/videos")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos")
 
       # next_page has no visible button when on page 1 and no data, but sending the event directly is valid
       html = view |> render_click("next_page", %{})
@@ -536,7 +542,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
   describe "per-row toggle_select" do
     test "clicking row checkbox selects that video", %{conn: conn} do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/toggle.mkv"})
-      {:ok, view, _} = live(conn, ~p"/videos")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos")
 
       html =
         view
@@ -549,7 +555,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
       {:ok, first} = Fixtures.video_fixture(%{path: "/media/range/Show - S01E01.mkv"})
       {:ok, second} = Fixtures.video_fixture(%{path: "/media/range/Show - S01E02.mkv"})
       {:ok, third} = Fixtures.video_fixture(%{path: "/media/range/Show - S01E03.mkv"})
-      {:ok, view, _} = live(conn, ~p"/videos?search=/media/range")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos?search=/media/range")
 
       html =
         view
@@ -571,7 +577,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
   describe "reset_video event" do
     test "resets a failed video to needs_analysis", %{conn: conn} do
       {:ok, video} = Fixtures.failed_video_fixture(%{path: "/media/failed_reset.mkv"})
-      {:ok, view, _} = live(conn, ~p"/videos")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos")
 
       html =
         view
@@ -582,14 +588,14 @@ defmodule ReencodarrWeb.VideosLiveTest do
     end
 
     test "shows error flash for non-existent video id", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/videos")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos")
       html = view |> render_click("reset_video", %{"id" => "999999"})
       assert html =~ "Video not found"
     end
 
     test "removes a row from failed filter and updates badge counts", %{conn: conn} do
       {:ok, video} = Fixtures.failed_video_fixture(%{path: "/media/failed_filtered_reset.mkv"})
-      {:ok, view, _} = live(conn, ~p"/videos?state=failed")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos?state=failed")
 
       html =
         view
@@ -607,7 +613,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
   describe "force_reanalyze event" do
     test "queues video for re-analysis and shows flash", %{conn: conn} do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/reanalyze.mkv"})
-      {:ok, view, _} = live(conn, ~p"/videos")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos")
 
       html =
         view
@@ -621,7 +627,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
       {:ok, video} =
         Fixtures.video_fixture(%{path: "/media/reanalyze_filtered.mkv", state: :analyzed})
 
-      {:ok, view, _} = live(conn, ~p"/videos?state=analyzed")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos?state=analyzed")
 
       html =
         view
@@ -638,7 +644,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
       {:ok, video} =
         Fixtures.video_fixture(%{path: "/media/fail_queued_crf.mkv", state: :analyzed})
 
-      {:ok, view, _} = live(conn, ~p"/videos")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos")
 
       html =
         view
@@ -656,7 +662,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
       {:ok, _failed} =
         Fixtures.failed_video_fixture(%{path: "/media/no_fail_failed.mkv"})
 
-      {:ok, view, _} = live(conn, ~p"/videos?search=no_fail_")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos?search=no_fail_")
       html = render(view)
 
       refute html =~ "phx-click=\"fail_video\""
@@ -666,7 +672,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
   describe "delete_video event" do
     test "deletes video and shows success flash", %{conn: conn} do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/delete_me.mkv"})
-      {:ok, view, _} = live(conn, ~p"/videos")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos")
 
       html =
         view
@@ -677,14 +683,14 @@ defmodule ReencodarrWeb.VideosLiveTest do
     end
 
     test "shows error for non-existent video id", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/videos")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos")
       html = view |> render_click("delete_video", %{"id" => "999999"})
       assert html =~ "Video not found"
     end
 
     test "updates counts after deleting a filtered row", %{conn: conn} do
       {:ok, video} = Fixtures.failed_video_fixture(%{path: "/media/delete_failed_filtered.mkv"})
-      {:ok, view, _} = live(conn, ~p"/videos?state=failed")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos?state=failed")
 
       html =
         view
@@ -705,7 +711,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
   describe "reset_selected event" do
     test "resets all selected videos and shows flash", %{conn: conn} do
       {:ok, _} = Fixtures.failed_video_fixture(%{path: "/media/bulk_reset.mkv"})
-      {:ok, view, _} = live(conn, ~p"/videos")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos")
 
       view |> element("[phx-click='select_all']") |> render_click()
       html = view |> element("button[phx-click='reset_selected']") |> render_click()
@@ -715,7 +721,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
     test "removes selected rows that no longer match the active state filter", %{conn: conn} do
       {:ok, _} = Fixtures.failed_video_fixture(%{path: "/media/bulk_reset_filtered.mkv"})
-      {:ok, view, _} = live(conn, ~p"/videos?state=failed")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos?state=failed")
 
       view |> element("[phx-click='select_all']") |> render_click()
       html = view |> element("button[phx-click='reset_selected']") |> render_click()
@@ -742,7 +748,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
           state: :analyzed
         })
 
-      {:ok, view, _html} = live(conn, ~p"/videos")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos")
 
       view |> element("[phx-click='select_all']") |> render_click()
       html = view |> element("button[phx-click='prioritize_selected']") |> render_click()
@@ -771,7 +777,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
           state: :needs_analysis
         })
 
-      {:ok, view, _html} = live(conn, ~p"/videos?search=Season%2001&per_page=1")
+      {:ok, view, _html} = live_loaded(conn, ~p"/videos?search=Season%2001&per_page=1")
 
       html =
         view
@@ -793,13 +799,13 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
   describe "quick_filter_state event" do
     test "clicking a state badge applies filter without crashing", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/videos")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos")
       html = view |> render_click("quick_filter_state", %{"state" => "analyzed"})
       assert html =~ "Videos"
     end
 
     test "clicking the active state badge toggles filter off", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/videos?state=analyzed")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos?state=analyzed")
       html = view |> render_click("quick_filter_state", %{"state" => "analyzed"})
       assert html =~ "Videos"
     end
@@ -811,7 +817,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
 
   describe "clear_filters button" do
     test "clicking clear_filters removes all active filters", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/videos?state=analyzed")
+      {:ok, view, _} = live_loaded(conn, ~p"/videos?state=analyzed")
 
       html = view |> element("button[phx-click='clear_filters']") |> render_click()
 
@@ -820,7 +826,10 @@ defmodule ReencodarrWeb.VideosLiveTest do
   end
 
   defp assert_state_badge_count(html, state, count) do
-    case Regex.run(~r/phx-value-state="#{state}".*?font-mono">(\d+)<\/span>/s, html) do
+    case Regex.run(
+           ~r/phx-value-state="#{state}".*?data-role="state-count"[^>]*>(\d+)<\/span>/s,
+           html
+         ) do
       [_, actual] ->
         assert actual == Integer.to_string(count),
                "expected #{state} badge count #{count}, got #{actual}"

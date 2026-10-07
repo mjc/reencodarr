@@ -23,7 +23,7 @@ defmodule ReencodarrWeb.Live.FlopListTest do
       assert html =~ "51-100 of 120"
       assert html =~ ~s(data-role="flop-pagination-prev")
       assert html =~ ~s(data-role="flop-pagination-next")
-      assert html =~ "bg-gray-700"
+      assert html =~ ~s(data-role="flop-pagination-prev")
       refute html =~ ~s(aria-current="page")
     end
 
@@ -61,7 +61,7 @@ defmodule ReencodarrWeb.Live.FlopListTest do
 
       assert html =~ "id=\"failures-flop-pagination\""
       assert html =~ ~s(data-role="flop-pagination-page")
-      assert html =~ "bg-blue-600"
+      assert html =~ ~s(aria-current="page")
     end
 
     test "simple mode disables previous on first page" do

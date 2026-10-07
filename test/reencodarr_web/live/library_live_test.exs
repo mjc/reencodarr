@@ -25,7 +25,7 @@ defmodule ReencodarrWeb.LibraryLiveTest do
       with_captured_logs(fn ->
         {:ok, _index_live, html} = live(conn, ~p"/libraries")
 
-        assert html =~ "Listing Libraries"
+        assert html =~ "Library paths"
         assert html =~ library.path
       end)
     end

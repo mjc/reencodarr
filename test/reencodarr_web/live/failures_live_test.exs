@@ -11,6 +11,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
   use ReencodarrWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
+  import ReencodarrWeb.AsyncLiveViewTestHelpers
   import ReencodarrWeb.FlopListTestHelpers
 
   alias Reencodarr.Fixtures
@@ -25,31 +26,36 @@ defmodule ReencodarrWeb.FailuresLiveTest do
   # ---------------------------------------------------------------------------
 
   describe "mount" do
+    test "renders a loading state before the connected async load", %{conn: conn} do
+      html = conn |> get("/failures") |> html_response(200)
+      assert html =~ "Loading failures"
+    end
+
     test "renders the failures page title", %{conn: conn} do
-      {:ok, _view, html} = live(conn, ~p"/failures")
+      {:ok, _view, html} = live_loaded(conn, ~p"/failures")
       assert html =~ "Failures"
     end
 
     test "shows empty state after data loads when no failures exist", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       html = loaded_html(view)
-      assert html =~ "No Failures Found" or html =~ "All videos are processing successfully"
+      assert html =~ "No unresolved failures"
     end
 
     test "shows failure rows when failures exist", %{conn: conn} do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/show/broken.mkv"})
       Media.record_video_failure(video, :crf_search, :timeout, message: "Timed out")
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       html = loaded_html(view)
       assert html =~ "broken.mkv"
     end
 
-    test "hydrates failures in the first HTML response", %{conn: conn} do
+    test "hydrates failures after the initial async load", %{conn: conn} do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/first_failure.mkv", state: :failed})
       Media.record_video_failure(video, :encoding, :timeout, message: "first response failure")
 
-      {:ok, _view, html} = live(conn, ~p"/failures")
+      {:ok, _view, html} = live_loaded(conn, ~p"/failures")
 
       assert html =~ "first_failure.mkv"
     end
@@ -61,7 +67,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
 
   describe "filter_failures event" do
     test "clicking a stage filter button does not crash", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       # Flush async load so filter buttons appear
       loaded_html(view)
 
@@ -74,7 +80,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
     end
 
     test "clicking filter and resetting to all renders correctly", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       view
@@ -94,7 +100,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
 
   describe "filter_category event" do
     test "clicking a category filter does not crash", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       html =
@@ -114,7 +120,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       Media.record_video_failure(analysis_video, :analysis, :timeout, message: "analysis failure")
       Media.record_video_failure(encoding_video, :encoding, :timeout, message: "encoding failure")
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       view
@@ -137,7 +143,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
 
       Media.record_video_failure(timeout_video, :encoding, :timeout, message: "timeout failure")
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       view
@@ -154,7 +160,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/invalid_stage_fallback.mkv"})
       Media.record_video_failure(video, :encoding, :timeout, message: "timeout failure")
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       view
@@ -170,7 +176,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/invalid_category_fallback.mkv"})
       Media.record_video_failure(video, :encoding, :timeout, message: "timeout failure")
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       view
@@ -189,7 +195,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
 
   describe "search event" do
     test "search does not crash", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       html =
@@ -204,7 +210,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/unique_broken_film.mkv"})
       Media.record_video_failure(video, :encoding, :process_failure, message: "encode fail")
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       view
@@ -220,7 +226,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/trimmed_search_hit.mkv"})
       Media.record_video_failure(video, :encoding, :process_failure, message: "encode fail")
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       view
@@ -242,7 +248,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, video} = Fixtures.video_fixture()
       Media.record_video_failure(video, :crf_search, :timeout, message: "timeout")
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       # select_all is an input[type=checkbox] inside table header
@@ -257,7 +263,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
 
   describe "reset_all_failures event" do
     test "reset_all_failures button does not crash", %{conn: conn} do
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       html = view |> element("button[phx-click='reset_all_failures']") |> render_click()
       assert html =~ "Failures"
     end
@@ -268,7 +274,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/reset_all_semantics.mkv"})
       Media.record_video_failure(video, :encoding, :timeout, message: "reset me")
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       view
@@ -298,10 +304,10 @@ defmodule ReencodarrWeb.FailuresLiveTest do
         message: "Timed out"
       )
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       html = loaded_html(view)
 
-      assert html =~ "Retry By Error Code"
+      assert html =~ "Retry by error code"
       assert html =~ "EXIT_143"
       assert html =~ "TIMEOUT"
 
@@ -325,7 +331,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, video} = Fixtures.video_fixture(%{path: "/media/show/detail.mkv"})
       Media.record_video_failure(video, :crf_search, :timeout, message: "Timed out")
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       html =
@@ -342,7 +348,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, video} = Fixtures.video_fixture()
       Media.record_video_failure(video, :crf_search, :timeout, message: "timeout")
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       html =
@@ -359,7 +365,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, video} = Fixtures.video_fixture()
       Media.record_video_failure(video, :crf_search, :timeout, message: "timeout")
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       # First select all
@@ -376,7 +382,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, video} = Fixtures.video_fixture()
       Media.record_video_failure(video, :crf_search, :timeout, message: "timeout")
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       # Apply a filter first
@@ -402,7 +408,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       Media.record_video_failure(analysis_video, :analysis, :timeout, message: "analysis")
       Media.record_video_failure(encoding_video, :encoding, :timeout, message: "encoding")
 
-      {:ok, _view, html} = live(conn, ~p"/failures?stage=analysis&search=url_analysis")
+      {:ok, _view, html} = live_loaded(conn, ~p"/failures?stage=analysis&search=url_analysis")
 
       assert html =~ "url_analysis.mkv"
       refute html =~ "url_analysis_encoding.mkv"
@@ -416,7 +422,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
         Media.record_video_failure(video, :encoding, :timeout, message: "failure #{n}")
       end)
 
-      {:ok, view, _} = live(conn, ~p"/failures?page=0")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures?page=0")
       html = loaded_html(view)
 
       assert current_page_from_html(html) == 1
@@ -429,7 +435,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
         Media.record_video_failure(video, :encoding, :timeout, message: "p #{n}")
       end)
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       html = loaded_html(view)
 
       assert current_page_from_html(html) == 1
@@ -449,7 +455,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
       {:ok, last_video} = Fixtures.video_fixture(%{path: "/media/last_on_page_two.mkv"})
       Media.record_video_failure(last_video, :encoding, :timeout, message: "last")
 
-      {:ok, view, _} = live(conn, ~p"/failures?page=2")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures?page=2")
       html = loaded_html(view)
 
       assert pagination_label_from_html(html) == "21-21 of 21"
@@ -463,7 +469,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
         Media.record_video_failure(video, :encoding, :timeout, message: "filter #{n}")
       end)
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       click_flop_next(view)
@@ -484,7 +490,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
         Media.record_video_failure(video, :encoding, :timeout, message: "clamp #{n}")
       end)
 
-      {:ok, view, _} = live(conn, ~p"/failures?page=999")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures?page=999")
       html = loaded_html(view)
 
       assert current_page_from_html(html) == 2
@@ -497,7 +503,7 @@ defmodule ReencodarrWeb.FailuresLiveTest do
         Media.record_video_failure(video, :encoding, :timeout, message: "reset #{n}")
       end)
 
-      {:ok, view, _} = live(conn, ~p"/failures")
+      {:ok, view, _} = live_loaded(conn, ~p"/failures")
       loaded_html(view)
 
       click_flop_next(view)

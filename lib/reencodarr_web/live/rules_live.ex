@@ -1,85 +1,41 @@
 defmodule ReencodarrWeb.RulesLive do
-  @moduledoc """
-  Live dashboard for explaining how Reencodarr's encoding rules work.
-
-  ## Features:
-  - Interactive rule explanations
-  - Example configurations
-  - Parameter descriptions
-  - Video format guidelines
-
-  ## Architecture Notes:
-  - Modern Dashboard V2 UI with card-based layout
-  - Section-based navigation for easy browsing
-  - Real-time content switching without page reload
-  """
-
+  @moduledoc "Encoding reference with bookmarkable sections."
   use ReencodarrWeb, :live_view
 
-  import ReencodarrWeb.RulesLive.Sections
-
-  @valid_sections ~w(overview video_rules audio_rules hdr_support resolution_scaling helper_rules crf_search command_examples)a
+  alias ReencodarrWeb.RulesLive.Sections
 
   @impl true
-  def mount(_params, _session, socket) do
-    {:ok, assign(socket, :selected_section, :overview)}
-  end
+  def mount(_params, _session, socket),
+    do: {:ok, assign(socket, page_title: "Encoding rules", sections: Sections.all())}
 
   @impl true
-  def handle_event("select_section", %{"section" => section}, socket) do
-    section_atom = String.to_existing_atom(section)
-
-    if section_atom in @valid_sections do
-      {:noreply, assign(socket, :selected_section, section_atom)}
-    else
-      {:noreply, socket}
-    end
-  rescue
-    ArgumentError ->
-      {:noreply, socket}
+  def handle_params(params, _uri, socket) do
+    section = Sections.find(Map.get(params, "section", "overview"))
+    {:noreply, assign(socket, :section, section)}
   end
 
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="min-h-[calc(100dvh-3.5rem)] bg-gray-900 px-3 py-4 sm:px-4 sm:py-6 lg:px-6">
-      <div class="mx-auto max-w-7xl space-y-4 sm:space-y-6">
-        <!-- Header -->
-        <div>
-          <h1 class="text-2xl font-bold text-white sm:text-3xl">Encoding Rules Documentation</h1>
-          <p class="text-gray-400">
-            Learn how Reencodarr automatically optimizes video encoding
-          </p>
-        </div>
-
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-4 lg:gap-6">
-          <!-- Sidebar Navigation -->
-          <div class="lg:col-span-1">
-            <.rules_navigation selected_section={@selected_section} />
-          </div>
-
-          <!-- Main Content -->
-          <div class="lg:col-span-3">
-            <%= case @selected_section do %>
-              <% :overview -> %>
-                <.rules_overview />
-              <% :video_rules -> %>
-                <.video_rules_section />
-              <% :audio_rules -> %>
-                <.audio_rules_section />
-              <% :hdr_support -> %>
-                <.hdr_rules_section />
-              <% :resolution_scaling -> %>
-                <.resolution_rules_section />
-              <% :helper_rules -> %>
-                <.helper_rules_section />
-              <% :crf_search -> %>
-                <.crf_search_section />
-              <% :command_examples -> %>
-                <.command_examples_section />
-            <% end %>
-          </div>
-        </div>
+    <div class="workbench page-stack">
+      <.page_header title="Encoding rules" subtitle="Current encoding and quality settings." />
+      <div class="reference-layout">
+        <nav class="reference-nav" aria-label="Rule sections">
+          <.link
+            :for={section <- @sections}
+            patch={~p"/rules?#{%{section: section.id}}"}
+            aria-current={if(@section.id == section.id, do: "page")}
+          >{section.title}</.link>
+        </nav>
+        <.panel id="rule-section" title={@section.title}>
+          <p class="reference-description">{@section.description}</p>
+          <dl class="reference-facts">
+            <div :for={{label, value} <- @section.facts}>
+              <dt>{label}</dt><dd>{value}</dd>
+            </div>
+          </dl>
+          <pre :if={@section[:example]} class="command-example"><code>{@section.example}</code></pre>
+        </.panel>
       </div>
     </div>
     """

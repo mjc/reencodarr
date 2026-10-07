@@ -44,7 +44,7 @@ defmodule ReencodarrWeb.Live.FlopList do
     ~H"""
     <div
       id={@id}
-      class={["flex items-center justify-between text-sm text-gray-400", @class]}
+      class={["flex items-center justify-between text-sm text-[var(--wb-muted)]", @class]}
       data-role="flop-pagination"
     >
       <span data-role="flop-pagination-label">{@label}</span>
@@ -203,7 +203,7 @@ defmodule ReencodarrWeb.Live.FlopList do
 
   defp nav_button_classes,
     do:
-      "px-3 py-1 bg-gray-700 rounded text-gray-300 hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed"
+      "px-3 py-1 bg-[var(--wb-raised)] rounded text-[var(--wb-muted)] hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed"
 
   defp page_link_attrs,
     do: [
@@ -221,8 +221,9 @@ defmodule ReencodarrWeb.Live.FlopList do
 
   defp page_link_classes,
     do:
-      "px-3 py-1.5 text-sm font-medium rounded text-gray-300 bg-gray-700 border border-gray-600 hover:bg-gray-600 transition-colors"
+      "px-3 py-1.5 text-sm font-medium rounded text-[var(--wb-muted)] bg-[var(--wb-raised)] border border-[var(--wb-line)] hover:bg-gray-600 transition-colors"
 
   defp current_page_link_classes,
-    do: "px-3 py-1.5 text-sm font-medium rounded text-white bg-blue-600 border border-blue-600"
+    do:
+      "px-3 py-1.5 text-sm font-medium rounded text-[var(--wb-text)] bg-[#294362] border border-blue-600"
 end

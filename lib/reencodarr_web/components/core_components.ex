@@ -1,18 +1,5 @@
 defmodule ReencodarrWeb.CoreComponents do
-  @moduledoc """
-  Provides core UI components.
-
-  At first glance, this module may seem daunting, but its goal is to provide
-  core building blocks for your application, such as modals, tables, and
-  forms. The components consist mostly of markup and are well-documented
-  with doc strings and declarative assigns. You may customize and style
-  them in any way you want, based on your application growth and needs.
-
-  The default components use Tailwind CSS, a utility-first CSS framework.
-  See the [Tailwind CSS documentation](https://tailwindcss.com) to learn
-  how to customize them or feel free to swap in another framework altogether.
-
-  """
+  @moduledoc "Shared form controls, tables, dialogs, and feedback."
   use Phoenix.Component
 
   @icon_paths %{
@@ -85,6 +72,7 @@ defmodule ReencodarrWeb.CoreComponents do
   """
   attr :id, :string, required: true
   attr :show, :boolean, default: false
+  attr :title, :string, default: "Settings"
   attr :on_cancel, JS, default: %JS{}
   slot :inner_block, required: true
 
@@ -104,26 +92,25 @@ defmodule ReencodarrWeb.CoreComponents do
       />
       <div
         class="fixed inset-0 overflow-y-auto"
-        aria-labelledby={"#{@id}-title"}
-        aria-describedby={"#{@id}-description"}
+        aria-label={@title}
         role="dialog"
         aria-modal="true"
         tabindex="0"
       >
         <div class="flex min-h-full items-center justify-center">
-          <div class="w-full max-w-3xl p-4 sm:p-6 lg:py-8">
+          <div class="w-full max-w-xl p-4 sm:p-6">
             <.focus_wrap
               id={"#{@id}-container"}
               phx-window-keydown={JS.exec("data-cancel", to: "##{@id}")}
               phx-key="escape"
               phx-click-away={JS.exec("data-cancel", to: "##{@id}")}
-              class="shadow-black/20 ring-gray-700 relative hidden rounded-2xl bg-gray-800 p-14 shadow-lg ring-1 transition"
+              class="settings-dialog relative hidden transition"
             >
               <div class="absolute top-6 right-5">
                 <button
                   phx-click={JS.exec("data-cancel", to: "##{@id}")}
                   type="button"
-                  class="-m-3 flex-none p-3 opacity-20 hover:opacity-40"
+                  class="-m-3 flex-none p-3 text-[var(--wb-muted)] hover:text-[var(--wb-text)]"
                   aria-label={gettext("close")}
                 >
                   <span aria-hidden="true" class="text-lg leading-none">&times;</span>
@@ -214,12 +201,12 @@ defmodule ReencodarrWeb.CoreComponents do
       <.flash
         id="server-error"
         kind={:error}
-        title={gettext("Something went wrong!")}
+        title={gettext("Connection lost")}
         phx-disconnected={show(".phx-server-error #server-error")}
         phx-connected={hide("#server-error")}
         hidden
       >
-        {gettext("Hang in there while we get back on track")}
+        {gettext("Reconnecting to the server.")}
       </.flash>
     </div>
     """
@@ -251,9 +238,9 @@ defmodule ReencodarrWeb.CoreComponents do
   def simple_form(assigns) do
     ~H"""
     <.form :let={f} for={@for} as={@as} {@rest}>
-      <div class="mt-10 space-y-8">
+      <div class="settings-form">
         {render_slot(@inner_block, f)}
-        <div :for={action <- @actions} class="mt-2 flex items-center justify-between gap-6">
+        <div :for={action <- @actions} class="form-actions">
           {render_slot(action, f)}
         </div>
       </div>
@@ -280,8 +267,7 @@ defmodule ReencodarrWeb.CoreComponents do
     <button
       type={@type}
       class={[
-        "phx-submit-loading:opacity-75 rounded-lg bg-blue-600 hover:bg-blue-500 py-2 px-3",
-        "text-sm font-semibold leading-6 text-white active:text-white/80",
+        "workbench-button phx-submit-loading:opacity-75",
         @class
       ]}
       {@rest}
@@ -359,7 +345,7 @@ defmodule ReencodarrWeb.CoreComponents do
 
     ~H"""
     <div>
-      <label class="flex items-center gap-4 text-sm leading-6 text-gray-300">
+      <label class="flex items-center gap-4 text-sm leading-6 text-[var(--wb-text)]">
         <input type="hidden" name={@name} value="false" disabled={@rest[:disabled]} />
         <input
           type="checkbox"
@@ -367,7 +353,7 @@ defmodule ReencodarrWeb.CoreComponents do
           name={@name}
           value="true"
           checked={@checked}
-          class="rounded border-gray-600 bg-gray-700 text-blue-600 focus:ring-0"
+          class="rounded border-[var(--wb-line)] bg-[var(--wb-raised)] text-blue-600 focus:ring-0"
           {@rest}
         />
         {@label}
@@ -384,7 +370,7 @@ defmodule ReencodarrWeb.CoreComponents do
       <select
         id={@id}
         name={@name}
-        class="mt-2 block w-full rounded-md border border-gray-600 bg-gray-700 text-white shadow-sm focus:border-blue-500 focus:ring-0 sm:text-sm"
+        class="form-control"
         multiple={@multiple}
         {@rest}
       >
@@ -404,9 +390,9 @@ defmodule ReencodarrWeb.CoreComponents do
         id={@id}
         name={@name}
         class={[
-          "mt-2 block w-full rounded-lg bg-gray-700 text-white focus:ring-0 sm:text-sm sm:leading-6 min-h-[6rem]",
-          @errors == [] && "border-gray-600 focus:border-blue-500",
-          @errors != [] && "border-rose-500 focus:border-rose-500"
+          "mt-2 block w-full form-control min-h-[6rem]",
+          @errors == [] && "border-[var(--wb-line)]",
+          @errors != [] && "border-rose-400"
         ]}
         {@rest}
       ><%= Phoenix.HTML.Form.normalize_value("textarea", @value) %></textarea>
@@ -426,9 +412,9 @@ defmodule ReencodarrWeb.CoreComponents do
         id={@id}
         value={Phoenix.HTML.Form.normalize_value(@type, @value)}
         class={[
-          "mt-2 block w-full rounded-lg bg-gray-700 text-white focus:ring-0 sm:text-sm sm:leading-6",
-          @errors == [] && "border-gray-600 focus:border-blue-500",
-          @errors != [] && "border-rose-500 focus:border-rose-500"
+          "mt-2 block w-full form-control",
+          @errors == [] && "border-[var(--wb-line)]",
+          @errors != [] && "border-rose-400"
         ]}
         {@rest}
       />
@@ -445,7 +431,7 @@ defmodule ReencodarrWeb.CoreComponents do
 
   def label(assigns) do
     ~H"""
-    <label for={@for} class="block text-sm font-semibold leading-6 text-gray-300">
+    <label for={@for} class="block text-sm font-semibold leading-6 text-[var(--wb-text)]">
       {render_slot(@inner_block)}
     </label>
     """
@@ -477,10 +463,10 @@ defmodule ReencodarrWeb.CoreComponents do
     ~H"""
     <header class={[@actions != [] && "flex items-center justify-between gap-6", @class]}>
       <div>
-        <h1 class="text-lg font-semibold leading-8 text-white">
+        <h1 class="text-lg font-semibold leading-8 text-[var(--wb-text)]">
           {render_slot(@inner_block)}
         </h1>
-        <p :if={@subtitle != []} class="mt-2 text-sm leading-6 text-gray-400">
+        <p :if={@subtitle != []} class="mt-2 text-sm leading-6 text-[var(--wb-muted)]">
           {render_slot(@subtitle)}
         </p>
       </div>
@@ -521,44 +507,25 @@ defmodule ReencodarrWeb.CoreComponents do
       end
 
     ~H"""
-    <div class="overflow-y-auto px-4 sm:overflow-visible sm:px-0">
-      <table class="w-[40rem] mt-11 sm:w-full">
-        <thead class="text-sm text-left leading-6 text-gray-400">
+    <div class="data-table-scroll">
+      <table class="data-table">
+        <thead>
           <tr>
-            <th :for={col <- @col} class="p-0 pb-4 pr-6 font-normal">{col[:label]}</th>
-            <th :if={@action != []} class="relative p-0 pb-4">
-              <span class="sr-only">{gettext("Actions")}</span>
-            </th>
+            <th :for={col <- @col}>{col[:label]}</th>
+            <th :if={@action != []}><span class="sr-only">Actions</span></th>
           </tr>
         </thead>
-        <tbody
-          id={@id}
-          phx-update={match?(%Phoenix.LiveView.LiveStream{}, @rows) && "stream"}
-          class="relative divide-y divide-gray-700 border-t border-gray-600 text-sm leading-6 text-gray-300"
-        >
-          <tr :for={row <- @rows} id={@row_id && @row_id.(row)} class="group hover:bg-gray-700/50">
+        <tbody id={@id} phx-update={match?(%Phoenix.LiveView.LiveStream{}, @rows) && "stream"}>
+          <tr :for={row <- @rows} id={@row_id && @row_id.(row)}>
             <td
-              :for={{col, i} <- Enum.with_index(@col)}
+              :for={col <- @col}
               phx-click={@row_click && @row_click.(row)}
-              class={["relative p-0", @row_click && "hover:cursor-pointer"]}
+              class={@row_click && "cursor-pointer"}
             >
-              <div class="block py-4 pr-6">
-                <span class="absolute -inset-y-px right-0 -left-4 group-hover:bg-gray-700/50 sm:rounded-l-xl" />
-                <span class={["relative", i == 0 && "font-semibold text-white"]}>
-                  {render_slot(col, @row_item.(row))}
-                </span>
-              </div>
+              {render_slot(col, @row_item.(row))}
             </td>
-            <td :if={@action != []} class="relative w-14 p-0">
-              <div class="relative whitespace-nowrap py-4 text-right text-sm font-medium">
-                <span class="absolute -inset-y-px -right-4 left-0 group-hover:bg-gray-700/50 sm:rounded-r-xl" />
-                <span
-                  :for={action <- @action}
-                  class="relative ml-4 font-semibold leading-6 text-gray-300 hover:text-white"
-                >
-                  {render_slot(action, @row_item.(row))}
-                </span>
-              </div>
+            <td :if={@action != []} class="table-actions">
+              <span :for={action <- @action}>{render_slot(action, @row_item.(row))}</span>
             </td>
           </tr>
         </tbody>
@@ -583,11 +550,11 @@ defmodule ReencodarrWeb.CoreComponents do
 
   def list(assigns) do
     ~H"""
-    <div class="mt-14">
-      <dl class="-my-4 divide-y divide-gray-700">
+    <div class="detail-list">
+      <dl class="-my-4 divide-y divide-[var(--wb-line)]">
         <div :for={item <- @item} class="flex gap-4 py-4 text-sm leading-6 sm:gap-8">
-          <dt class="w-1/4 flex-none text-gray-400">{item.title}</dt>
-          <dd class="text-gray-200">{render_slot(item)}</dd>
+          <dt class="w-1/4 flex-none text-[var(--wb-muted)]">{item.title}</dt>
+          <dd class="text-[var(--wb-text)]">{render_slot(item)}</dd>
         </div>
       </dl>
     </div>
@@ -606,10 +573,10 @@ defmodule ReencodarrWeb.CoreComponents do
 
   def back(assigns) do
     ~H"""
-    <div class="mt-16">
+    <div class="back-link">
       <.link
         navigate={@navigate}
-        class="text-sm font-semibold leading-6 text-gray-300 hover:text-white"
+        class="text-sm font-semibold leading-6 text-[var(--wb-text)] hover:text-[var(--wb-text)]"
       >
         <span aria-hidden="true">&larr;</span>
         {render_slot(@inner_block)}

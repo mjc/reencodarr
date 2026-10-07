@@ -46,10 +46,6 @@
   </aside>
   <main id="app-main" class="app-main" tabindex="-1">
     <.flash_group flash={@flash} />
-    <div class={
-      @socket.view not in [ReencodarrWeb.DashboardLive, ReencodarrWeb.WorkersLive] && "app-page"
-    }>
-      {@inner_content}
-    </div>
+    {@inner_content}
   </main>
 </div>

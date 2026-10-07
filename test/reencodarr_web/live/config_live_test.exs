@@ -42,7 +42,7 @@ defmodule ReencodarrWeb.ConfigLiveTest do
       capture_log(fn ->
         {:ok, _index_live, html} = live(conn, ~p"/configs")
 
-        assert html =~ "Listing Configs"
+        assert html =~ "Sources"
         # API key is masked in the listing - only last 4 chars shown
         assert html =~ "****" <> String.slice(config.api_key, -4..-1//1)
       end)
@@ -52,7 +52,7 @@ defmodule ReencodarrWeb.ConfigLiveTest do
       capture_log(fn ->
         {:ok, index_live, _html} = live(conn, ~p"/configs")
 
-        assert index_live |> element("a", "New Config") |> render_click() =~ "New Config"
+        assert index_live |> element("a", "Add source") |> render_click() =~ "Add source"
         assert_patch(index_live, ~p"/configs/new")
 
         assert index_live
@@ -66,7 +66,7 @@ defmodule ReencodarrWeb.ConfigLiveTest do
         assert_patch(index_live, ~p"/configs")
 
         html = render(index_live)
-        assert html =~ "Config created successfully"
+        assert html =~ "Source created"
         # API key is masked - only last 4 chars shown
         assert html =~ "****_key"
       end)
@@ -77,7 +77,7 @@ defmodule ReencodarrWeb.ConfigLiveTest do
         {:ok, index_live, _html} = live(conn, ~p"/configs")
 
         assert index_live |> element("#configs-#{config.id} a", "Edit") |> render_click() =~
-                 "Edit Config"
+                 "Edit source"
 
         assert_patch(index_live, ~p"/configs/#{config}/edit")
 
@@ -92,7 +92,7 @@ defmodule ReencodarrWeb.ConfigLiveTest do
         assert_patch(index_live, ~p"/configs")
 
         html = render(index_live)
-        assert html =~ "Config updated successfully"
+        assert html =~ "Source updated"
         # API key is masked - only last 4 chars shown
         assert html =~ "****_key"
       end)
@@ -115,7 +115,7 @@ defmodule ReencodarrWeb.ConfigLiveTest do
       capture_log(fn ->
         {:ok, _show_live, html} = live(conn, ~p"/configs/#{config}")
 
-        assert html =~ "Show Config"
+        assert html =~ "Source"
         # API key is masked - only last 4 chars shown
         assert html =~ "****" <> String.slice(config.api_key, -4..-1//1)
       end)
@@ -126,7 +126,7 @@ defmodule ReencodarrWeb.ConfigLiveTest do
         {:ok, show_live, _html} = live(conn, ~p"/configs/#{config}")
 
         assert show_live |> element("a", "Edit") |> render_click() =~
-                 "Edit Config"
+                 "Edit source"
 
         assert_patch(show_live, ~p"/configs/#{config}/show/edit")
 
@@ -141,7 +141,7 @@ defmodule ReencodarrWeb.ConfigLiveTest do
         assert_patch(show_live, ~p"/configs/#{config}")
 
         html = render(show_live)
-        assert html =~ "Config updated successfully"
+        assert html =~ "Source updated"
         # API key is masked - only last 4 chars shown
         assert html =~ "****_key"
       end)

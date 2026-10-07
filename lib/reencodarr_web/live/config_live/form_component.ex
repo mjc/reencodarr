@@ -9,7 +9,7 @@ defmodule ReencodarrWeb.ConfigLive.FormComponent do
     <div>
       <.header>
         {@title}
-        <:subtitle>Use this form to manage config records in your database.</:subtitle>
+        <:subtitle>Service endpoints and sync settings.</:subtitle>
       </.header>
 
       <.simple_form
@@ -19,18 +19,18 @@ defmodule ReencodarrWeb.ConfigLive.FormComponent do
         phx-change="validate"
         phx-submit="save"
       >
-        <.input field={@form[:url]} type="text" label="Url" />
-        <.input field={@form[:api_key]} type="password" label="Api key" autocomplete="off" />
+        <.input field={@form[:url]} type="text" label="URL" />
+        <.input field={@form[:api_key]} type="password" label="API key" autocomplete="off" />
         <.input field={@form[:enabled]} type="checkbox" label="Enabled" />
         <.input
           field={@form[:service_type]}
           type="select"
-          label="Service type"
-          prompt="Choose a value"
+          label="Service"
+          prompt="Select a service"
           options={Ecto.Enum.values(Reencodarr.Services.Config, :service_type)}
         />
         <:actions>
-          <.button phx-disable-with="Saving...">Save Config</.button>
+          <.button phx-disable-with="Saving...">Save source</.button>
         </:actions>
       </.simple_form>
     </div>
@@ -42,9 +42,7 @@ defmodule ReencodarrWeb.ConfigLive.FormComponent do
     {:ok,
      socket
      |> assign(assigns)
-     |> assign_new(:form, fn ->
-       to_form(Services.change_config(config))
-     end)}
+     |> assign(:form, to_form(Services.change_config(config)))}
   end
 
   @impl true
@@ -57,29 +55,21 @@ defmodule ReencodarrWeb.ConfigLive.FormComponent do
     save_config(socket, socket.assigns.action, config_params)
   end
 
-  defp save_config(socket, :edit, config_params) do
-    case Services.update_config(socket.assigns.config, config_params) do
+  defp save_config(socket, action, params) do
+    result =
+      case action do
+        :edit -> Services.update_config(socket.assigns.config, params)
+        :new -> Services.create_config(params)
+      end
+
+    case result do
       {:ok, config} ->
         notify_parent({:saved, config})
+        verb = if action == :new, do: "created", else: "updated"
 
         {:noreply,
          socket
-         |> put_flash(:info, "Config updated successfully")
-         |> push_patch(to: socket.assigns.patch)}
-
-      {:error, %Ecto.Changeset{} = changeset} ->
-        {:noreply, assign(socket, form: to_form(changeset))}
-    end
-  end
-
-  defp save_config(socket, :new, config_params) do
-    case Services.create_config(config_params) do
-      {:ok, config} ->
-        notify_parent({:saved, config})
-
-        {:noreply,
-         socket
-         |> put_flash(:info, "Config created successfully")
+         |> put_flash(:info, "Source #{verb}")
          |> push_patch(to: socket.assigns.patch)}
 
       {:error, %Ecto.Changeset{} = changeset} ->

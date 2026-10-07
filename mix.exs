@@ -68,7 +68,7 @@ defmodule Reencodarr.MixProject do
       {:phoenix_html, "~> 4.1"},
       {:phoenix_live_dashboard, "~> 0.9.1"},
       {:phoenix_live_reload, "~> 1.7.0", only: :dev},
-      {:phoenix_live_view, "~> 1.2.5"},
+      {:phoenix_live_view, "~> 1.2.12"},
       {:ecto_sqlite3, "~> 0.25.0"},
       {:exqlite, "~> 0.42.0"},
       {:req, "~> 0.7.5"},

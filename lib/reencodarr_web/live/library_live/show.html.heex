@@ -1,24 +1,22 @@
-<.header>
-  Library {@library.id}
-  <:subtitle>This is a library record from your database.</:subtitle>
-  <:actions>
-    <.link patch={~p"/libraries/#{@library}/show/edit"} phx-click={JS.push_focus()}>
-      <.button>Edit library</.button>
-    </.link>
-  </:actions>
-</.header>
-
-<.list>
-  <:item title="Path">{@library.path}</:item>
-  <:item title="Monitor">{@library.monitor}</:item>
-</.list>
-
-<.back navigate={~p"/libraries"}>Back to libraries</.back>
-
+<div class="workbench page-stack">
+  <.page_header title={"Library path #{@library.id}"}>
+    <:actions>
+      <.link patch={~p"/libraries/#{@library}/show/edit"} class="workbench-button">Edit library</.link>
+    </:actions>
+  </.page_header>
+  <.panel>
+    <.list>
+      <:item title="Path">{@library.path}</:item>
+      <:item title="Monitor">{@library.monitor}</:item>
+    </.list>
+  </.panel>
+  <.back navigate={~p"/libraries"}>Back to library paths</.back>
+</div>
 <.modal
   :if={@live_action == :edit}
   id="library-modal"
   show
+  title={@page_title}
   on_cancel={JS.patch(~p"/libraries/#{@library}")}
 >
   <.live_component

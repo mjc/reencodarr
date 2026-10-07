@@ -28,7 +28,6 @@ defmodule ReencodarrWeb.VideosLive do
   @per_page_options [25, 50, 100, 250]
   @default_per_page 50
   @update_interval 30_000
-  @queueable_states [:needs_analysis, :analyzed, :crf_searched]
 
   @valid_states ~w(needs_analysis analyzing analyzed crf_searching crf_searched encoding encoded failed)
   @valid_service_types ~w(sonarr radarr)
@@ -116,7 +115,7 @@ defmodule ReencodarrWeb.VideosLive do
 
   @impl true
   def handle_async(:load_videos, {:exit, _reason}, socket) do
-    {:noreply, assign(socket, :loading, false)}
+    {:noreply, socket |> assign(:loading, false) |> put_flash(:error, "Unable to load videos")}
   end
 
   # ---------------------------------------------------------------------------
@@ -476,9 +475,12 @@ defmodule ReencodarrWeb.VideosLive do
   end
 
   defp reload_videos_for_params(%{assigns: %{loaded_once: false}} = socket, _changed?) do
-    socket
-    |> load_data()
-    |> assign(:loaded_once, true)
+    if connected?(socket) do
+      load_assigns = video_load_assigns(socket.assigns)
+      start_async(socket, :load_videos, fn -> fetch_video_payload(load_assigns, []) end)
+    else
+      socket
+    end
   end
 
   defp reload_videos_for_params(socket, false), do: socket
@@ -544,10 +546,11 @@ defmodule ReencodarrWeb.VideosLive do
         page_state
         |> Map.delete(:request)
         |> Map.put(:loading, false)
+        |> Map.put(:loaded_once, true)
 
       assign(socket, page_state)
     else
-      assign(socket, :loading, false)
+      socket
     end
   end
 
@@ -569,11 +572,6 @@ defmodule ReencodarrWeb.VideosLive do
       {start_idx, end_idx} -> Enum.slice(ids, end_idx..start_idx)
     end
   end
-
-  defp queueable_video?(video), do: video.state in @queueable_states
-
-  defp fail_action_video?(video),
-    do: video.state in [:analyzed, :crf_searched, :crf_searching, :encoding]
 
   defp fail_video_by_id(id) do
     with {:ok, video} <- Media.fetch_video(id) do
@@ -615,24 +613,12 @@ defmodule ReencodarrWeb.VideosLive do
         :error
 
       video ->
-        case season_directory(video.path) do
+        case ReencodarrWeb.VideoPresentation.season_directory(video.path) do
           nil -> :error
           dir -> {:ok, dir}
         end
     end
   end
-
-  defp season_directory(path) when is_binary(path) do
-    dir = Path.dirname(path)
-
-    if Regex.match?(~r/^[Ss](?:eason\s*)?0*\d+$/i, Path.basename(dir)) do
-      dir
-    else
-      nil
-    end
-  end
-
-  defp season_directory(_path), do: nil
 
   defp season_videos(season_dir) do
     Media.find_videos_by_path_wildcard("#{escape_like(season_dir)}/%")
@@ -738,11 +724,6 @@ defmodule ReencodarrWeb.VideosLive do
   defp hdr_to_param(false), do: "false"
   defp hdr_to_param(_), do: nil
 
-  defp filters_active?(assigns) do
-    assigns.search != "" or not is_nil(assigns.state_filter) or
-      not is_nil(assigns.service_filter) or not is_nil(assigns.hdr_filter)
-  end
-
   defp filters_changed?(assigns, filters) do
     Enum.any?(Map.keys(filters), fn key -> Map.get(assigns, key) != Map.get(filters, key) end)
   end
@@ -752,611 +733,7 @@ defmodule ReencodarrWeb.VideosLive do
   # ---------------------------------------------------------------------------
 
   @impl true
-  def render(assigns) do
-    assigns =
-      assign(assigns,
-        max_page: max_page(assigns),
-        filters_active: filters_active?(assigns),
-        select_count: MapSet.size(assigns.selected),
-        url_query: videos_url_query(assigns)
-      )
-
-    ~H"""
-    <div class="min-h-[calc(100dvh-3.5rem)] bg-gray-900 px-3 py-4 sm:px-4 sm:py-6 lg:px-6">
-      <div class="mx-auto max-w-full space-y-3 sm:space-y-4">
-        <.videos_header total={@total} select_count={@select_count} filters_active={@filters_active} />
-        <.video_state_filters
-          valid_states={@valid_states}
-          state_counts={@state_counts}
-          state_filter={@state_filter}
-        />
-        <.videos_toolbar
-          search={@search}
-          state_filter={@state_filter}
-          service_filter={@service_filter}
-          hdr_filter={@hdr_filter}
-          valid_states={@valid_states}
-          per_page={@per_page}
-          per_page_options={@per_page_options}
-        />
-        <.videos_results
-          loading={@loading}
-          videos={@videos}
-          selected={@selected}
-          select_count={@select_count}
-          sort_by={@sort_by}
-          sort_dir={@sort_dir}
-          expanded_bad_forms={@expanded_bad_forms}
-          meta={@meta}
-          url_query={@url_query}
-        />
-      </div>
-    </div>
-    """
-  end
-
-  # ---------------------------------------------------------------------------
-  # Components
-  # ---------------------------------------------------------------------------
-
-  attr :total, :integer, required: true
-  attr :select_count, :integer, required: true
-  attr :filters_active, :boolean, required: true
-
-  defp videos_header(assigns) do
-    ~H"""
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div>
-        <h1 class="text-2xl font-bold text-white sm:text-3xl">Videos</h1>
-        <p class="text-gray-400">{@total} total</p>
-      </div>
-      <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-        <%= if @select_count > 0 do %>
-          <button
-            phx-click="prioritize_selected"
-            class="w-full px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg transition-colors hover:bg-emerald-700 sm:w-auto"
-          >
-            Prioritize {@select_count} selected
-          </button>
-          <button
-            phx-click="reset_selected"
-            class="w-full px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg transition-colors hover:bg-purple-700 sm:w-auto"
-          >
-            Reset {@select_count} selected
-          </button>
-          <button
-            phx-click="deselect_all"
-            class="w-full px-4 py-2 text-sm font-medium text-gray-300 bg-gray-700 rounded-lg transition-colors hover:bg-gray-600 sm:w-auto"
-          >
-            Clear selection
-          </button>
-        <% end %>
-        <%= if @filters_active do %>
-          <button
-            phx-click="clear_filters"
-            class="w-full px-4 py-2 text-sm font-medium text-gray-300 bg-gray-700 rounded-lg transition-colors hover:bg-gray-600 sm:w-auto"
-          >
-            Clear filters
-          </button>
-        <% end %>
-      </div>
-    </div>
-    """
-  end
-
-  attr :valid_states, :list, required: true
-  attr :state_counts, :map, required: true
-  attr :state_filter, :any, required: true
-
-  defp video_state_filters(assigns) do
-    ~H"""
-    <div class="flex flex-wrap gap-2">
-      <%= for state <- @valid_states do %>
-        <% count = Map.get(@state_counts, String.to_existing_atom(state), 0) %>
-        <button
-          phx-click="quick_filter_state"
-          phx-value-state={state}
-          class={"flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all #{stats_badge_class(state, @state_filter)}"}
-        >
-          <span>{state}</span>
-          <span class="bg-black/20 rounded-full px-1.5 py-0.5 font-mono">{count}</span>
-        </button>
-      <% end %>
-    </div>
-    """
-  end
-
-  attr :search, :string, required: true
-  attr :state_filter, :any, required: true
-  attr :service_filter, :any, required: true
-  attr :hdr_filter, :any, required: true
-  attr :valid_states, :list, required: true
-  attr :per_page, :integer, required: true
-  attr :per_page_options, :list, required: true
-
-  defp videos_toolbar(assigns) do
-    ~H"""
-    <div class="bg-gray-800 rounded-lg border border-gray-700 p-3 sm:p-4">
-      <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
-        <form id="videos-filters" phx-change="set_filters" phx-no-unused-field class="contents">
-          <div class="min-w-0 flex-1">
-            <input
-              type="text"
-              name="search"
-              value={@search}
-              placeholder="Search by path..."
-              phx-debounce="700"
-              aria-label="Search videos by path"
-              class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 placeholder-gray-400"
-            />
-          </div>
-          <select
-            name="state"
-            aria-label="Filter videos by state"
-            class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 lg:w-auto"
-          >
-            <option value="">All states</option>
-            <%= for state <- @valid_states do %>
-              <option value={state} selected={@state_filter == state}>{state}</option>
-            <% end %>
-          </select>
-          <select
-            name="service"
-            aria-label="Filter videos by source"
-            class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 lg:w-auto"
-          >
-            <option value="">All sources</option>
-            <option value="sonarr" selected={@service_filter == "sonarr"}>Sonarr (TV)</option>
-            <option value="radarr" selected={@service_filter == "radarr"}>Radarr (Movies)</option>
-          </select>
-          <select
-            name="hdr"
-            aria-label="Filter videos by HDR"
-            class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 lg:w-auto"
-          >
-            <option value="">Any HDR</option>
-            <option value="true" selected={@hdr_filter == true}>HDR only</option>
-            <option value="false" selected={@hdr_filter == false}>SDR only</option>
-          </select>
-        </form>
-
-        <form id="videos-per-page" phx-change="set_per_page" phx-no-unused-field>
-          <select
-            name="per_page"
-            aria-label="Videos per page"
-            class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg px-3 py-2 text-sm focus:ring-purple-500 focus:border-purple-500 sm:w-auto"
-          >
-            <%= for n <- @per_page_options do %>
-              <option value={n} selected={@per_page == n}>{n} / page</option>
-            <% end %>
-          </select>
-        </form>
-      </div>
-    </div>
-    """
-  end
-
-  attr :loading, :boolean, required: true
-  attr :videos, :list, required: true
-  attr :selected, MapSet, required: true
-  attr :select_count, :integer, required: true
-  attr :sort_by, :atom, required: true
-  attr :sort_dir, :atom, required: true
-  attr :expanded_bad_forms, :list, required: true
-  attr :meta, Flop.Meta, required: true
-  attr :url_query, :map, required: true
-
-  defp videos_results(assigns) do
-    ~H"""
-    <%= if @loading and @videos == [] do %>
-      <div class="bg-gray-800 rounded-lg border border-gray-700 p-16 text-center">
-        <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-purple-500 mx-auto mb-3">
-        </div>
-        <p class="text-gray-400">Loading...</p>
-      </div>
-    <% else %>
-      <%= if @loading do %>
-        <p class="px-1 text-sm text-gray-400">Refreshing results...</p>
-      <% end %>
-      <.videos_table
-        videos={@videos}
-        selected={@selected}
-        select_count={@select_count}
-        sort_by={@sort_by}
-        sort_dir={@sort_dir}
-        expanded_bad_forms={@expanded_bad_forms}
-      />
-
-      <.flop_pagination
-        id="videos-flop-pagination"
-        meta={@meta}
-        base_path="/videos"
-        query={@url_query}
-        mode={:simple}
-      />
-    <% end %>
-    """
-  end
-
-  attr :videos, :list, required: true
-  attr :selected, MapSet, required: true
-  attr :select_count, :integer, required: true
-  attr :sort_by, :atom, required: true
-  attr :sort_dir, :atom, required: true
-  attr :expanded_bad_forms, :list, required: true
-
-  defp videos_table(assigns) do
-    ~H"""
-    <div class="bg-gray-800 rounded-lg border border-gray-700 overflow-x-auto">
-      <table class="min-w-full divide-y divide-gray-700 text-sm">
-        <thead class="bg-gray-700/80">
-          <tr>
-            <th class="w-10 px-3 py-3 text-center">
-              <%= if length(@videos) > 0 do %>
-                <input
-                  type="checkbox"
-                  checked={@select_count == length(@videos)}
-                  phx-click={
-                    if @select_count == length(@videos), do: "deselect_all", else: "select_all"
-                  }
-                  title={
-                    if @select_count == length(@videos),
-                      do: "Deselect all",
-                      else: "Select all on page"
-                  }
-                  aria-label={
-                    if @select_count == length(@videos),
-                      do: "Deselect all videos on this page",
-                      else: "Select all videos on this page"
-                  }
-                  class="rounded border-gray-500 bg-gray-700 text-purple-500 focus:ring-purple-500 focus:ring-offset-gray-800 cursor-pointer"
-                />
-              <% end %>
-            </th>
-            <.col_header
-              col={:path}
-              label="File"
-              sort_by={@sort_by}
-              sort_dir={@sort_dir}
-              class="w-full"
-            />
-            <.col_header col={:state} label="State" sort_by={@sort_by} sort_dir={@sort_dir} />
-            <.col_header col={:size} label="Size" sort_by={@sort_by} sort_dir={@sort_dir} />
-            <.col_header
-              col={:updated_at}
-              label="Updated"
-              sort_by={@sort_by}
-              sort_dir={@sort_dir}
-            />
-            <th class="px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap">
-              Actions
-            </th>
-          </tr>
-        </thead>
-        <tbody
-          id="videos-table-body"
-          phx-hook="RangeSelectCheckboxes"
-          class="divide-y divide-gray-600"
-        >
-          <%= for video <- @videos do %>
-            <.video_row video={video} selected={@selected} expanded_bad_forms={@expanded_bad_forms} />
-          <% end %>
-          <%= if @videos == [] do %>
-            <tr>
-              <td colspan="6" class="px-8 py-12 text-center text-gray-500">
-                No videos match the current filters.
-              </td>
-            </tr>
-          <% end %>
-        </tbody>
-      </table>
-    </div>
-    """
-  end
-
-  attr :video, :map, required: true
-  attr :selected, MapSet, required: true
-  attr :expanded_bad_forms, :list, required: true
-
-  defp video_row(assigns) do
-    ~H"""
-    <tr class={"transition-colors #{if MapSet.member?(@selected, @video.id), do: "bg-purple-900/20", else: "hover:bg-gray-700/50"}"}>
-      <td class="w-10 px-3 py-2 text-center">
-        <input
-          type="checkbox"
-          checked={MapSet.member?(@selected, @video.id)}
-          data-range-select="video"
-          data-id={@video.id}
-          aria-label={"Select video #{Path.basename(@video.path)}"}
-          class="rounded border-gray-500 bg-gray-700 text-purple-500 focus:ring-purple-500 focus:ring-offset-gray-800 cursor-pointer"
-        />
-      </td>
-      <td class="px-4 py-2 text-gray-200 max-w-0 w-full" title={@video.path}>
-        <div class="font-medium text-white truncate">{Path.basename(@video.path)}</div>
-        <%= if @video.title do %>
-          <div class="text-xs text-gray-400 truncate">
-            {@video.title}
-            <%= if @video.content_year do %>
-              ({@video.content_year})
-            <% end %>
-          </div>
-        <% end %>
-        <div class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-gray-400">
-          <span class="truncate max-w-full">{Path.basename(Path.dirname(@video.path))}</span>
-          <span>{format_resolution(@video.width, @video.height)}</span>
-          <span>{format_bitrate(@video.bitrate)}</span>
-          <span>{service_display(@video.service_type)}</span>
-          <%= if @video.hdr do %>
-            <.hdr_badge hdr={@video.hdr} />
-          <% end %>
-          <%= if @video.space_saved_bytes > 0 do %>
-            <.space_saved_badge space_saved_bytes={@video.space_saved_bytes} />
-          <% end %>
-        </div>
-      </td>
-      <td class="px-4 py-2 whitespace-nowrap">
-        <span class={"inline-flex items-center px-2 py-0.5 rounded text-xs font-medium #{state_badge_class(@video.state)}"}>
-          {@video.state}
-        </span>
-      </td>
-      <td class="px-4 py-2 text-gray-200 whitespace-nowrap">{format_size(@video.size)}</td>
-      <td class="px-4 py-2 text-gray-300 whitespace-nowrap text-xs">
-        {format_datetime(@video.updated_at)}
-      </td>
-      <td class="px-4 py-2">
-        <.video_actions video={@video} />
-        <.mark_bad_form :if={@video.id in @expanded_bad_forms} video={@video} />
-      </td>
-    </tr>
-    """
-  end
-
-  attr :video, :map, required: true
-
-  defp video_actions(assigns) do
-    ~H"""
-    <div class="flex flex-wrap gap-x-2 gap-y-1 items-center">
-      <%= if queueable_video?(@video) do %>
-        <button
-          phx-click="prioritize_video"
-          phx-value-id={@video.id}
-          title="Move this queued video to the top"
-          class="text-emerald-400 hover:text-emerald-300 text-xs"
-        >
-          prioritize
-        </button>
-      <% end %>
-      <%= if queueable_video?(@video) and season_directory(@video.path) do %>
-        <button
-          phx-click="prioritize_season_visible"
-          phx-value-id={@video.id}
-          title="Move all videos from this season to the top"
-          class="text-emerald-300 hover:text-emerald-200 text-xs"
-        >
-          prioritize season
-        </button>
-      <% end %>
-      <%= if fail_action_video?(@video) do %>
-        <button
-          phx-click="fail_video"
-          phx-value-id={@video.id}
-          data-confirm={"Stop #{Path.basename(@video.path)}?"}
-          title="Stop job"
-          aria-label="Stop job"
-          class="text-red-500 hover:text-red-400 text-xs font-semibold"
-        >
-          x
-        </button>
-      <% end %>
-      <button
-        phx-click="force_reanalyze"
-        phx-value-id={@video.id}
-        title="Force re-analyze (clears VMAFs and resets metadata)"
-        class="text-blue-400 hover:text-blue-300 text-xs"
-      >
-        scan
-      </button>
-      <%= if @video.state in [:failed, :encoded, :crf_searched, :analyzed] do %>
-        <button
-          phx-click="reset_video"
-          phx-value-id={@video.id}
-          title="Reset to needs_analysis"
-          class="text-purple-400 hover:text-purple-300 text-xs"
-        >
-          reset
-        </button>
-      <% end %>
-      <button
-        phx-click="toggle_mark_bad"
-        phx-value-id={@video.id}
-        title="Open bad-file form"
-        class="text-amber-300 hover:text-amber-200 text-xs"
-      >
-        mark bad
-      </button>
-      <button
-        phx-click="delete_video"
-        phx-value-id={@video.id}
-        data-confirm={"Delete #{Path.basename(@video.path)}?"}
-        title="Remove from database"
-        class="text-red-500 hover:text-red-400 text-xs"
-      >
-        del
-      </button>
-    </div>
-    """
-  end
-
-  attr :video, :map, required: true
-
-  defp mark_bad_form(assigns) do
-    ~H"""
-    <form
-      id={"mark-bad-form-#{@video.id}"}
-      phx-submit="mark_bad"
-      phx-value-id={@video.id}
-      class="mt-2 rounded border border-amber-700/60 bg-amber-950/30 p-2"
-    >
-      <div class="flex flex-wrap items-center gap-2">
-        <input
-          type="text"
-          name="issue[manual_reason]"
-          placeholder="Why is this bad?"
-          class="min-w-[13rem] flex-1 rounded border border-gray-600 bg-gray-700 px-2 py-1.5 text-xs text-white placeholder-gray-400"
-        />
-        <input
-          type="text"
-          name="issue[manual_note]"
-          placeholder="Optional note"
-          class="min-w-[14rem] flex-1 rounded border border-gray-600 bg-gray-700 px-2 py-1.5 text-xs text-white placeholder-gray-400"
-        />
-        <button
-          type="submit"
-          class="rounded bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-500"
-        >
-          save
-        </button>
-        <button
-          type="button"
-          phx-click="toggle_mark_bad"
-          phx-value-id={@video.id}
-          class="text-xs text-gray-300 hover:text-white"
-        >
-          cancel
-        </button>
-      </div>
-    </form>
-    """
-  end
-
-  attr :col, :atom, required: true
-  attr :label, :string, required: true
-  attr :sort_by, :atom, required: true
-  attr :sort_dir, :atom, required: true
-  attr :class, :string, default: ""
-
-  defp col_header(assigns) do
-    assigns =
-      assign(assigns,
-        is_sorted: assigns.sort_by == assigns.col,
-        icon: sort_icon(assigns.sort_by, assigns.col, assigns.sort_dir)
-      )
-
-    ~H"""
-    <th class={"px-4 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider whitespace-nowrap #{@class}"}>
-      <button
-        phx-click="sort"
-        phx-value-col={@col}
-        class={"flex items-center gap-1 hover:text-white transition-colors #{if @is_sorted, do: "text-purple-400", else: ""}"}
-      >
-        {@label}
-        <span class="opacity-60">{@icon}</span>
-      </button>
-    </th>
-    """
-  end
-
-  # ---------------------------------------------------------------------------
-  # Display helpers
-  # ---------------------------------------------------------------------------
-
-  defp sort_icon(sort_by, col, dir) when sort_by == col, do: if(dir == :asc, do: "^", else: "v")
-  defp sort_icon(_, _, _), do: "~"
-
-  @state_badge_classes %{
-    needs_analysis: "bg-gray-600 text-gray-200",
-    analyzing: "bg-gray-700 text-gray-300",
-    analyzed: "bg-blue-900 text-blue-200",
-    crf_searching: "bg-yellow-900 text-yellow-200",
-    crf_searched: "bg-indigo-900 text-indigo-200",
-    encoding: "bg-orange-900 text-orange-200",
-    encoded: "bg-green-900 text-green-200",
-    failed: "bg-red-900 text-red-200"
-  }
-
-  defp state_badge_class(state),
-    do: Map.get(@state_badge_classes, state, "bg-gray-600 text-gray-200")
-
-  defp stats_badge_class(state, active_filter) do
-    base = state_badge_class(String.to_existing_atom(state))
-
-    if active_filter == state,
-      do: "#{base} ring-2 ring-white/60",
-      else: "#{base} opacity-80 hover:opacity-100"
-  end
-
-  defp service_display(nil), do: "-"
-  defp service_display(:sonarr), do: "TV"
-  defp service_display(:radarr), do: "Movie"
-  defp service_display(_), do: "-"
-
-  attr :hdr, :any, required: true
-
-  defp hdr_badge(%{hdr: v} = assigns) when v in [nil, ""],
-    do: ~H(<span class="text-gray-500">—</span>)
-
-  defp hdr_badge(assigns) do
-    ~H"""
-    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-amber-900/60 text-amber-300 border border-amber-700/50">
-      {@hdr}
-    </span>
-    """
-  end
-
-  attr :space_saved_bytes, :integer, required: true
-
-  defp space_saved_badge(assigns) do
-    assigns =
-      assign(assigns,
-        display: format_size(assigns.space_saved_bytes),
-        saved: assigns.space_saved_bytes
-      )
-
-    ~H"""
-    <span class={"font-mono #{space_saved_color(@saved)}"} title="Space saved">
-      {@display}
-    </span>
-    """
-  end
-
-  defp space_saved_color(bytes) when bytes >= 1_073_741_824, do: "text-green-300"
-  defp space_saved_color(bytes) when bytes >= 536_870_912, do: "text-yellow-300"
-  defp space_saved_color(_), do: "text-red-400"
-
-  defp format_size(nil), do: "-"
-  defp format_size(0), do: "-"
-
-  defp format_size(bytes) when is_integer(bytes) do
-    cond do
-      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824, 1)} GiB"
-      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576, 1)} MiB"
-      true -> "#{bytes} B"
-    end
-  end
-
-  defp format_bitrate(nil), do: "-"
-  defp format_bitrate(0), do: "-"
-
-  defp format_bitrate(bps) when is_integer(bps) do
-    "#{Float.round(bps / 1_000_000, 1)} Mb/s"
-  end
-
-  defp format_resolution(nil, _), do: "-"
-  defp format_resolution(_, nil), do: "-"
-
-  defp format_resolution(w, h) do
-    label =
-      cond do
-        h >= 2160 -> "4K"
-        h >= 1080 -> "1080p"
-        h >= 720 -> "720p"
-        true -> nil
-      end
-
-    if label, do: "#{w}x#{h} (#{label})", else: "#{w}x#{h}"
-  end
-
-  defp format_datetime(nil), do: "-"
-  defp format_datetime(%NaiveDateTime{} = dt), do: NaiveDateTime.to_date(dt) |> Date.to_iso8601()
-  defp format_datetime(%DateTime{} = dt), do: format_datetime(DateTime.to_naive(dt))
+  def render(assigns),
+    do:
+      ReencodarrWeb.VideosComponents.page(assign(assigns, :url_query, videos_url_query(assigns)))
 end

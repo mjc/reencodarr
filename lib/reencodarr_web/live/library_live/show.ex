@@ -16,6 +16,10 @@ defmodule ReencodarrWeb.LibraryLive.Show do
      |> assign(:library, Media.get_library!(id))}
   end
 
+  @impl true
+  def handle_info({ReencodarrWeb.LibraryLive.FormComponent, {:saved, library}}, socket),
+    do: {:noreply, assign(socket, :library, library)}
+
   defp page_title(:show), do: "Show Library"
   defp page_title(:edit), do: "Edit Library"
 end

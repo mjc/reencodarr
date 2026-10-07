@@ -9,7 +9,7 @@ defmodule ReencodarrWeb.LibraryLive.FormComponent do
     <div>
       <.header>
         {@title}
-        <:subtitle>Use this form to manage library records in your database.</:subtitle>
+        <:subtitle>Paths available for media sync.</:subtitle>
       </.header>
 
       <.simple_form
@@ -34,9 +34,7 @@ defmodule ReencodarrWeb.LibraryLive.FormComponent do
     {:ok,
      socket
      |> assign(assigns)
-     |> assign_new(:form, fn ->
-       to_form(Media.change_library(library))
-     end)}
+     |> assign(:form, to_form(Media.change_library(library)))}
   end
 
   @impl true
@@ -49,29 +47,21 @@ defmodule ReencodarrWeb.LibraryLive.FormComponent do
     save_library(socket, socket.assigns.action, library_params)
   end
 
-  defp save_library(socket, :edit, library_params) do
-    case Media.update_library(socket.assigns.library, library_params) do
+  defp save_library(socket, action, params) do
+    result =
+      case action do
+        :edit -> Media.update_library(socket.assigns.library, params)
+        :new -> Media.create_library(params)
+      end
+
+    case result do
       {:ok, library} ->
         notify_parent({:saved, library})
+        verb = if action == :new, do: "created", else: "updated"
 
         {:noreply,
          socket
-         |> put_flash(:info, "Library updated successfully")
-         |> push_patch(to: socket.assigns.patch)}
-
-      {:error, %Ecto.Changeset{} = changeset} ->
-        {:noreply, assign(socket, form: to_form(changeset))}
-    end
-  end
-
-  defp save_library(socket, :new, library_params) do
-    case Media.create_library(library_params) do
-      {:ok, library} ->
-        notify_parent({:saved, library})
-
-        {:noreply,
-         socket
-         |> put_flash(:info, "Library created successfully")
+         |> put_flash(:info, "Library #{verb} successfully")
          |> push_patch(to: socket.assigns.patch)}
 
       {:error, %Ecto.Changeset{} = changeset} ->

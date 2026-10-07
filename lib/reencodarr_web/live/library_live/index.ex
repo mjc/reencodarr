@@ -28,7 +28,7 @@ defmodule ReencodarrWeb.LibraryLive.Index do
 
   defp apply_action(socket, :index, _params) do
     socket
-    |> assign(:page_title, "Listing Libraries")
+    |> assign(:page_title, "Library paths")
     |> assign(:library, nil)
   end
 

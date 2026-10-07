@@ -16,19 +16,19 @@ defmodule ReencodarrWeb.ConfigLive.Index do
 
   defp apply_action(socket, :edit, %{"id" => id}) do
     socket
-    |> assign(:page_title, "Edit Config")
+    |> assign(:page_title, "Edit source")
     |> assign(:config, Services.get_config!(id))
   end
 
   defp apply_action(socket, :new, _params) do
     socket
-    |> assign(:page_title, "New Config")
+    |> assign(:page_title, "Add source")
     |> assign(:config, %Config{})
   end
 
   defp apply_action(socket, :index, _params) do
     socket
-    |> assign(:page_title, "Listing Configs")
+    |> assign(:page_title, "Sources")
     |> assign(:config, nil)
   end
 
