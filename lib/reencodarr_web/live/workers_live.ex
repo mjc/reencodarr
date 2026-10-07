@@ -53,11 +53,15 @@ defmodule ReencodarrWeb.WorkersLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="workbench">
-      <header class="workbench-heading">
-        <h1>Workers</h1>
-        <span class="connection-label"><span class="status-dot" />{length(@workers)} connected</span>
-      </header>
+    <div class="workbench page-stack">
+      <.page_header title="Workers">
+        <:actions>
+          <span class="connection-label"><span class={[
+            "status-dot",
+            @workers == [] && "status-dot-muted"
+          ]} />{length(@workers)} connected</span>
+        </:actions>
+      </.page_header>
       <div class="worker-list">
         <DashboardComponents.worker_group
           :for={worker <- @workers}

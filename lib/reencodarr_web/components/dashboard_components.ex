@@ -13,8 +13,8 @@ defmodule ReencodarrWeb.DashboardComponents do
         <h1>Dashboard</h1>
         <div class="workbench-heading-actions">
           <span class="connection-label"><span class="status-dot" />Live</span>
-          <details id="source-sync-menu" class="sync-menu" phx-mounted={JS.ignore_attributes("open")}>
-            <summary class="workbench-button"><.icon name="hero-arrow-path" />Sync sources</summary>
+          <.dropdown id="source-sync-menu" class="sync-menu">
+            <:trigger><.icon name="hero-arrow-path" />Sync sources</:trigger>
             <div class="workbench-menu">
               <button
                 :for={source <- @sources}
@@ -24,7 +24,7 @@ defmodule ReencodarrWeb.DashboardComponents do
                 Sync {source.name}
               </button>
             </div>
-          </details>
+          </.dropdown>
         </div>
       </header>
 

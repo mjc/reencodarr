@@ -19,46 +19,56 @@ defmodule ReencodarrWeb.VideosComponents do
     assigns =
       assign(assigns,
         filters_active: filters_active?(assigns),
-        select_count: MapSet.size(assigns.selected),
-        url_query: assigns.url_query
+        select_count: MapSet.size(assigns.selected)
       )
 
     ~H"""
     <div class="workbench page-stack">
-      <div class="page-stack">
-        <.videos_header total={@total} select_count={@select_count} filters_active={@filters_active} />
-        <.video_state_filters
-          valid_states={@valid_states}
-          state_counts={@state_counts}
-          state_filter={@state_filter}
-        />
-        <.videos_toolbar
-          search={@search}
-          state_filter={@state_filter}
-          service_filter={@service_filter}
-          hdr_filter={@hdr_filter}
-          valid_states={@valid_states}
-          per_page={@per_page}
-          per_page_options={@per_page_options}
-        />
-        <div class="queue-presets" aria-label="Queue views">
-          <.link patch={queue_path(@url_query, "needs_analysis")}>Analysis queue</.link>
-          <.link patch={queue_path(@url_query, "analyzed")}>CRF search queue</.link>
-          <.link patch={queue_path(@url_query, "crf_searched")}>Encode queue</.link>
-          <.link navigate="/failures">Review failures</.link>
-        </div>
-        <.videos_results
-          loading={@loading}
-          videos={@videos}
-          selected={@selected}
-          select_count={@select_count}
-          sort_by={@sort_by}
-          sort_dir={@sort_dir}
-          expanded_bad_forms={@expanded_bad_forms}
-          meta={@meta}
-          url_query={@url_query}
-        />
+      <.page_header title="Videos" subtitle={"#{@total} matching videos"}>
+        <:actions>
+          <button
+            :if={@filters_active}
+            type="button"
+            phx-click="clear_filters"
+            class="workbench-button"
+          >Clear filters</button>
+        </:actions>
+      </.page_header>
+      <.video_state_filters
+        valid_states={@valid_states}
+        state_counts={@state_counts}
+        state_filter={@state_filter}
+      />
+      <.videos_toolbar
+        search={@search}
+        state_filter={@state_filter}
+        service_filter={@service_filter}
+        hdr_filter={@hdr_filter}
+        valid_states={@valid_states}
+        per_page={@per_page}
+        per_page_options={@per_page_options}
+      />
+      <div class="queue-presets" aria-label="Queue views">
+        <.link patch={queue_path(@url_query, "needs_analysis")}>Analysis queue</.link>
+        <.link patch={queue_path(@url_query, "analyzed")}>CRF search queue</.link>
+        <.link patch={queue_path(@url_query, "crf_searched")}>Encode queue</.link>
+        <.link navigate="/failures">Review failures</.link>
       </div>
+      <.selection_bar count={@select_count} on_clear="deselect_all">
+        <button type="button" phx-click="prioritize_selected" class="workbench-button">Prioritize {@select_count} selected</button>
+        <button type="button" phx-click="reset_selected" class="workbench-button">Reset {@select_count} selected</button>
+      </.selection_bar>
+      <.videos_results
+        loading={@loading}
+        videos={@videos}
+        selected={@selected}
+        select_count={@select_count}
+        sort_by={@sort_by}
+        sort_dir={@sort_dir}
+        expanded_bad_forms={@expanded_bad_forms}
+        meta={@meta}
+        url_query={@url_query}
+      />
       <.modal
         :if={@inspection_id}
         id="video-inspection"
@@ -142,51 +152,6 @@ defmodule ReencodarrWeb.VideosComponents do
   # Components
   # ---------------------------------------------------------------------------
 
-  attr :total, :integer, required: true
-  attr :select_count, :integer, required: true
-  attr :filters_active, :boolean, required: true
-
-  defp videos_header(assigns) do
-    ~H"""
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-      <div>
-        <h1 class="text-2xl font-bold text-[var(--wb-text)] sm:text-3xl">Videos</h1>
-        <p class="text-[var(--wb-muted)]">{@total} total</p>
-      </div>
-      <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-        <%= if @select_count > 0 do %>
-          <button
-            phx-click="prioritize_selected"
-            class="w-full px-4 py-2 text-sm font-medium text-[var(--wb-text)] bg-[#304e40] rounded-md transition-colors hover:bg-[var(--wb-raised)] sm:w-auto"
-          >
-            Prioritize {@select_count} selected
-          </button>
-          <button
-            phx-click="reset_selected"
-            class="w-full px-4 py-2 text-sm font-medium text-[var(--wb-text)] bg-[#46395e] rounded-md transition-colors hover:bg-[var(--wb-raised)] sm:w-auto"
-          >
-            Reset {@select_count} selected
-          </button>
-          <button
-            phx-click="deselect_all"
-            class="w-full px-4 py-2 text-sm font-medium text-[var(--wb-muted)] bg-[var(--wb-raised)] rounded-md transition-colors hover:bg-[var(--wb-raised)] sm:w-auto"
-          >
-            Clear selection
-          </button>
-        <% end %>
-        <%= if @filters_active do %>
-          <button
-            phx-click="clear_filters"
-            class="w-full px-4 py-2 text-sm font-medium text-[var(--wb-muted)] bg-[var(--wb-raised)] rounded-md transition-colors hover:bg-[var(--wb-raised)] sm:w-auto"
-          >
-            Clear filters
-          </button>
-        <% end %>
-      </div>
-    </div>
-    """
-  end
-
   attr :valid_states, :list, required: true
   attr :state_counts, :map, required: true
   attr :state_filter, :any, required: true
@@ -197,8 +162,10 @@ defmodule ReencodarrWeb.VideosComponents do
       <%= for state <- @valid_states do %>
         <% count = Map.get(@state_counts, String.to_existing_atom(state), 0) %>
         <button
+          type="button"
           phx-click="quick_filter_state"
           phx-value-state={state}
+          aria-pressed={@state_filter == state}
           class={"flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all #{stats_badge_class(state, @state_filter)}"}
         >
           <span>{state_label(state)}</span>
@@ -218,64 +185,69 @@ defmodule ReencodarrWeb.VideosComponents do
   attr :per_page_options, :list, required: true
 
   defp videos_toolbar(assigns) do
-    ~H"""
-    <div class="bg-[var(--wb-panel)] rounded-md border border-[var(--wb-line)] p-3 sm:p-4">
-      <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
-        <form id="videos-filters" phx-change="set_filters" phx-no-unused-field class="contents">
-          <div class="min-w-0 flex-1">
-            <input
-              type="text"
-              name="search"
-              value={@search}
-              placeholder="Search by path..."
-              phx-debounce="700"
-              aria-label="Search videos by path"
-              class="w-full bg-[var(--wb-raised)] border border-[var(--wb-line)] text-[var(--wb-text)] rounded-md px-3 py-2 text-sm focus:outline-[var(--wb-blue)] focus:outline-[var(--wb-blue)] placeholder:text-[var(--wb-muted)]"
-            />
-          </div>
-          <select
-            name="state"
-            aria-label="Filter videos by state"
-            class="w-full bg-[var(--wb-raised)] border border-[var(--wb-line)] text-[var(--wb-text)] rounded-md px-3 py-2 text-sm focus:outline-[var(--wb-blue)] focus:outline-[var(--wb-blue)] lg:w-auto"
-          >
-            <option value="">All states</option>
-            <%= for state <- @valid_states do %>
-              <option value={state} selected={@state_filter == state}>{state_label(state)}</option>
-            <% end %>
-          </select>
-          <select
-            name="service"
-            aria-label="Filter videos by source"
-            class="w-full bg-[var(--wb-raised)] border border-[var(--wb-line)] text-[var(--wb-text)] rounded-md px-3 py-2 text-sm focus:outline-[var(--wb-blue)] focus:outline-[var(--wb-blue)] lg:w-auto"
-          >
-            <option value="">All sources</option>
-            <option value="sonarr" selected={@service_filter == "sonarr"}>Sonarr (TV)</option>
-            <option value="sportarr" selected={@service_filter == "sportarr"}>Sportarr</option>
-            <option value="radarr" selected={@service_filter == "radarr"}>Radarr (Movies)</option>
-          </select>
-          <select
-            name="hdr"
-            aria-label="Filter videos by HDR"
-            class="w-full bg-[var(--wb-raised)] border border-[var(--wb-line)] text-[var(--wb-text)] rounded-md px-3 py-2 text-sm focus:outline-[var(--wb-blue)] focus:outline-[var(--wb-blue)] lg:w-auto"
-          >
-            <option value="">Any HDR</option>
-            <option value="true" selected={@hdr_filter == true}>HDR only</option>
-            <option value="false" selected={@hdr_filter == false}>SDR only</option>
-          </select>
-        </form>
+    assigns =
+      assign(assigns, :state_options, [
+        {"All states", ""} | Enum.map(assigns.valid_states, &{state_label(&1), &1})
+      ])
 
-        <form id="videos-per-page" phx-change="set_per_page" phx-no-unused-field>
-          <select
-            name="per_page"
-            aria-label="Videos per page"
-            class="w-full bg-[var(--wb-raised)] border border-[var(--wb-line)] text-[var(--wb-text)] rounded-md px-3 py-2 text-sm focus:outline-[var(--wb-blue)] focus:outline-[var(--wb-blue)] sm:w-auto"
-          >
-            <%= for n <- @per_page_options do %>
-              <option value={n} selected={@per_page == n}>{n} / page</option>
-            <% end %>
-          </select>
-        </form>
-      </div>
+    ~H"""
+    <div class="content-panel filter-bar">
+      <form
+        id="videos-filters"
+        phx-change="set_filters"
+        phx-submit="set_filters"
+        phx-no-unused-field
+        class="filter-fields"
+      >
+        <.search_field
+          id="videos-search"
+          name="search"
+          label="Search path"
+          value={@search}
+          placeholder="Search by path"
+          phx-debounce="300"
+        />
+        <.select_field
+          id="videos-state"
+          name="state"
+          label="State"
+          value={@state_filter}
+          options={@state_options}
+        />
+        <.select_field
+          id="videos-source"
+          name="service"
+          label="Source"
+          value={@service_filter}
+          options={[
+            {"All sources", ""},
+            {"Sonarr", "sonarr"},
+            {"Sportarr", "sportarr"},
+            {"Radarr", "radarr"}
+          ]}
+        />
+        <.select_field
+          id="videos-hdr"
+          name="hdr"
+          label="Dynamic range"
+          value={@hdr_filter}
+          options={[{"Any", ""}, {"HDR", "true"}, {"SDR", "false"}]}
+        />
+      </form>
+      <form
+        id="videos-per-page"
+        phx-change="set_per_page"
+        phx-submit="set_per_page"
+        phx-no-unused-field
+      >
+        <.select_field
+          id="videos-page-size"
+          name="per_page"
+          label="Per page"
+          value={@per_page}
+          options={@per_page_options}
+        />
+      </form>
     </div>
     """
   end
@@ -292,14 +264,7 @@ defmodule ReencodarrWeb.VideosComponents do
 
   defp videos_results(assigns) do
     ~H"""
-    <%= if @loading and @videos == [] do %>
-      <div class="bg-[var(--wb-panel)] rounded-md border border-[var(--wb-line)] p-16 text-center">
-        <p class="text-[var(--wb-muted)]" role="status">Loading videos…</p>
-      </div>
-    <% else %>
-      <%= if @loading do %>
-        <p class="px-1 text-sm text-[var(--wb-muted)]">Refreshing results...</p>
-      <% end %>
+    <.list_results loading={@loading} empty={@videos == []} label="videos">
       <.videos_table
         videos={@videos}
         selected={@selected}
@@ -316,7 +281,7 @@ defmodule ReencodarrWeb.VideosComponents do
         query={@url_query}
         mode={:simple}
       />
-    <% end %>
+    </.list_results>
     """
   end
 

@@ -44,7 +44,7 @@ defmodule ReencodarrWeb.Live.FlopList do
     ~H"""
     <div
       id={@id}
-      class={["flex items-center justify-between text-sm text-[var(--wb-muted)]", @class]}
+      class={["list-pagination", @class]}
       data-role="flop-pagination"
     >
       <span data-role="flop-pagination-label">{@label}</span>
@@ -54,8 +54,8 @@ defmodule ReencodarrWeb.Live.FlopList do
         target={@target}
         page_links={@page_links}
         page_link_attrs={page_link_attrs()}
-        current_page_link_attrs={current_page_link_attrs()}
-        disabled_link_attrs={disabled_link_attrs()}
+        current_page_link_attrs={[class: "pagination-link", "data-role": "flop-pagination-page"]}
+        disabled_link_attrs={[class: "pagination-link is-disabled"]}
         id={@nav_id}
         data-role="flop-pagination-nav"
       >
@@ -196,34 +196,14 @@ defmodule ReencodarrWeb.Live.FlopList do
 
   defp nav_button_attrs(role) do
     [
-      class: nav_button_classes(),
+      class: "pagination-link",
       "data-role": role
     ]
   end
 
-  defp nav_button_classes,
-    do:
-      "px-3 py-1 bg-[var(--wb-raised)] rounded text-[var(--wb-muted)] hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed"
-
   defp page_link_attrs,
     do: [
-      class: page_link_classes(),
+      class: "pagination-link",
       "data-role": "flop-pagination-page"
     ]
-
-  defp current_page_link_attrs,
-    do: [
-      class: current_page_link_classes(),
-      "data-role": "flop-pagination-page"
-    ]
-
-  defp disabled_link_attrs, do: [class: "opacity-40 cursor-not-allowed"]
-
-  defp page_link_classes,
-    do:
-      "px-3 py-1.5 text-sm font-medium rounded text-[var(--wb-muted)] bg-[var(--wb-raised)] border border-[var(--wb-line)] hover:bg-gray-600 transition-colors"
-
-  defp current_page_link_classes,
-    do:
-      "px-3 py-1.5 text-sm font-medium rounded text-[var(--wb-text)] bg-[#294362] border border-blue-600"
 end

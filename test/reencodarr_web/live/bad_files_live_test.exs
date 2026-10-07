@@ -19,7 +19,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
   describe "mount" do
     test "renders a loading state before the connected async load", %{conn: conn} do
       html = conn |> get("/bad-files") |> html_response(200)
-      assert html =~ "loading issues"
+      assert html =~ "Loading issues"
     end
 
     test "renders the bad files page with listed issues", %{conn: conn} do
@@ -37,7 +37,7 @@ defmodule ReencodarrWeb.BadFilesLiveTest do
       {:ok, view, _html} = live_loaded(conn, ~p"/bad-files")
       html = render_async(view)
 
-      assert html =~ "Bad Files"
+      assert html =~ "Bad files"
       assert html =~ "wrong release group"
       assert html =~ "bad_queue.mkv"
     end

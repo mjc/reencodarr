@@ -65,6 +65,26 @@ defmodule ReencodarrWeb.VideosLiveTest do
   # ---------------------------------------------------------------------------
 
   describe "set_filters event" do
+    test "submitting search preserves source and SDR filters", %{conn: conn} do
+      {:ok, _} =
+        Fixtures.video_fixture(%{
+          path: "/media/submit_search.mkv",
+          service_type: :sportarr,
+          hdr: nil
+        })
+
+      {:ok, view, _} = live_loaded(conn, ~p"/videos?service=sportarr&hdr=false")
+
+      assert has_element?(view, "#videos-hdr option[value='false'][selected]")
+      view |> form("#videos-filters", %{search: "submit_search"}) |> render_submit()
+      html = render_async(view)
+
+      assert html =~ "submit_search.mkv"
+      assert has_element?(view, "#videos-source option[value='sportarr'][selected]")
+      assert has_element?(view, "#videos-hdr option[value='false'][selected]")
+      assert has_element?(view, ".list-results[aria-busy='false']")
+    end
+
     test "filters list to matching videos", %{conn: conn} do
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/unique_alpha_xyz/ep.mkv"})
       {:ok, _} = Fixtures.video_fixture(%{path: "/media/unique_beta_xyz/ep.mkv"})
@@ -603,7 +623,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
         |> render_click()
 
       assert html =~ "Reset to needs_analysis"
-      assert html =~ "0 total"
+      assert html =~ "0 matching videos"
       refute html =~ "failed_filtered_reset.mkv"
       assert_state_badge_count(html, "failed", 0)
       assert_state_badge_count(html, "needs_analysis", 1)
@@ -699,7 +719,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
         |> render_click()
 
       assert html =~ "Video deleted"
-      assert html =~ "0 total"
+      assert html =~ "0 matching videos"
       refute html =~ "delete_failed_filtered.mkv"
       assert_state_badge_count(html, "failed", 0)
     end
@@ -728,7 +748,7 @@ defmodule ReencodarrWeb.VideosLiveTest do
       html = view |> element("button[phx-click='reset_selected']") |> render_click()
 
       assert html =~ "Reset 1 video(s) to needs_analysis"
-      assert html =~ "0 total"
+      assert html =~ "0 matching videos"
       refute html =~ "bulk_reset_filtered.mkv"
       assert_state_badge_count(html, "failed", 0)
       assert_state_badge_count(html, "needs_analysis", 1)

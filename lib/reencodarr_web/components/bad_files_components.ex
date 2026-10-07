@@ -8,7 +8,7 @@ defmodule ReencodarrWeb.BadFilesComponents do
     ~H"""
     <div class="workbench page-stack">
       <ReencodarrWeb.Layouts.issue_tabs active={:bad_files} />
-      <.page_header title="Bad Files" subtitle={"#{@active_total} matching issues"} />
+      <.page_header title="Bad files" subtitle={"#{@active_total} matching issues"} />
       <nav class="workflow-tabs" aria-label="Replacement workflow">
         <.link
           :for={{status, label, count} <- workflow_tabs(@issue_summary)}
@@ -19,65 +19,59 @@ defmodule ReencodarrWeb.BadFilesComponents do
           <span>{label}</span><strong>{count}</strong>
         </.link>
       </nav>
-      <p :if={@loading_issues} role="status" class="text-[var(--wb-muted)]">loading issues...</p>
       <div class="content-panel p-4 space-y-4">
-        <div class="bad-file-filters">
-          <form id="bad-files-status-filter" phx-change="filter_status">
-            <select name="status" aria-label="Filter by status" data-role="list-filter-select">
-              <option
-                :for={value <- @status_filter_values}
-                value={value}
-                selected={value == @status_filter}
-              >
-                {display_label(value)}
-              </option>
-            </select>
+        <div class="filter-fields">
+          <form id="bad-files-status-filter" phx-change="filter_status" phx-submit="filter_status">
+            <.select_field
+              id="bad-files-status"
+              name="status"
+              label="Status"
+              value={@status_filter}
+              options={filter_options(@status_filter_values)}
+            />
           </form>
-          <form id="bad-files-service-filter" phx-change="filter_service">
-            <select name="service" aria-label="Filter by service" data-role="list-filter-select">
-              <option
-                :for={value <- @service_filter_values}
-                value={value}
-                selected={value == @service_filter}
-              >
-                {display_label(value)}
-              </option>
-            </select>
+          <form id="bad-files-service-filter" phx-change="filter_service" phx-submit="filter_service">
+            <.select_field
+              id="bad-files-source"
+              name="service"
+              label="Source"
+              value={@service_filter}
+              options={filter_options(@service_filter_values)}
+            />
           </form>
-          <form id="bad-files-kind-filter" phx-change="filter_kind">
-            <select name="kind" aria-label="Filter by kind" data-role="list-filter-select">
-              <option
-                :for={value <- @kind_filter_values}
-                value={value}
-                selected={value == @kind_filter}
-              >
-                {display_label(value)}
-              </option>
-            </select>
+          <form id="bad-files-kind-filter" phx-change="filter_kind" phx-submit="filter_kind">
+            <.select_field
+              id="bad-files-kind"
+              name="kind"
+              label="Kind"
+              value={@kind_filter}
+              options={filter_options(@kind_filter_values)}
+            />
           </form>
-          <form id="bad-files-search-filter" phx-change="search_issues" class="flex-1">
-            <input
+          <form
+            id="bad-files-search-filter"
+            phx-change="search_issues"
+            phx-submit="search_issues"
+            class="filter-search"
+          >
+            <.search_field
               id="bad-files-search"
-              type="search"
               name="query"
+              label="Search files"
               value={@search_query}
               phx-debounce="350"
-              aria-label="Search bad files by path, reason, or note"
               placeholder="Search path, reason, note"
-              data-role="list-search-input"
             />
           </form>
         </div>
-        <div :if={@selection_count > 0} class="selection-toolbar">
-          <strong>{@selection_count} selected</strong>
-          <button phx-click="queue_selected" class="workbench-button">Queue selected</button>
+        <.selection_bar count={@selection_count} on_clear="clear_selection">
+          <button type="button" phx-click="queue_selected" class="workbench-button">Queue selected</button>
           <button
             phx-click="dismiss_selected"
             class="workbench-button"
             data-confirm={"Dismiss #{@selection_count} selected issues?"}
           >Dismiss selected</button>
-          <button phx-click="clear_selection" class="section-action">Clear selection</button>
-        </div>
+        </.selection_bar>
         <div :if={@status_filter == "queued"} class="replacement-queue-actions">
           <p>Queued files wait until you start a replacement.</p>
           <button
@@ -127,26 +121,28 @@ defmodule ReencodarrWeb.BadFilesComponents do
           </div>
         </details>
       </div>
-      <section class="page-stack" aria-label="Matching bad-file issues">
-        <.empty_state
-          :if={@issues == [] and not @loading_issues}
-          title="No matching issues"
-          description="Choose another workflow stage or change the filters."
+      <.list_results loading={@loading_issues} empty={@issues == []} label="issues">
+        <div class="page-stack">
+          <.empty_state
+            :if={@issues == [] and not @loading_issues}
+            title="No matching issues"
+            description="Choose another workflow stage or change the filters."
+          />
+          <.issue
+            :for={issue <- @issues}
+            issue={issue}
+            selected={MapSet.member?(@selected, issue.id)}
+            pending={@replacement_pending}
+          />
+        </div>
+        <.flop_pagination
+          id="bad-files-flop-pagination"
+          meta={@meta}
+          base_path="/bad-files"
+          query={@url_query}
+          mode={:simple}
         />
-        <.issue
-          :for={issue <- @issues}
-          issue={issue}
-          selected={MapSet.member?(@selected, issue.id)}
-          pending={@replacement_pending}
-        />
-      </section>
-      <.flop_pagination
-        id="bad-files-flop-pagination"
-        meta={@meta}
-        base_path="/bad-files"
-        query={@url_query}
-        mode={:simple}
-      />
+      </.list_results>
     </div>
     """
   end
@@ -273,5 +269,7 @@ defmodule ReencodarrWeb.BadFilesComponents do
   defp workflow_path(query, status), do: ~p"/bad-files?#{Map.put(query, "status", status)}"
   defp issue_reason(%{manual_reason: reason}) when reason not in [nil, ""], do: reason
   defp issue_reason(issue), do: display_label(issue.classification)
+  defp filter_options(values), do: Enum.map(values, &{display_label(&1), &1})
+
   defp display_label(value), do: value |> to_string() |> Phoenix.Naming.humanize()
 end

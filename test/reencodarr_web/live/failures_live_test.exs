@@ -29,6 +29,8 @@ defmodule ReencodarrWeb.FailuresLiveTest do
     test "renders a loading state before the connected async load", %{conn: conn} do
       html = conn |> get("/failures") |> html_response(200)
       assert html =~ "Loading failures"
+      assert html =~ ~s(id="failures-search")
+      assert html =~ ~s(aria-busy="true")
     end
 
     test "renders the failures page title", %{conn: conn} do
@@ -353,10 +355,18 @@ defmodule ReencodarrWeb.FailuresLiveTest do
 
       html =
         view
-        |> element("div[phx-click='toggle_select'][phx-value-video_id='#{video.id}']")
+        |> element(
+          "input[type='checkbox'][phx-click='toggle_select'][phx-value-video_id='#{video.id}']"
+        )
         |> render_click()
 
-      assert html =~ "Failures"
+      assert html =~ "1 selected"
+      assert has_element?(view, "input[phx-value-video_id='#{video.id}'][checked]")
+      assert has_element?(view, ".selection-toolbar button[phx-click='retry_selected']")
+
+      view |> element("button[phx-click='deselect_all']") |> render_click()
+      refute has_element?(view, ".selection-toolbar")
+      refute has_element?(view, "input[phx-value-video_id='#{video.id}'][checked]")
     end
   end
 

@@ -29,20 +29,20 @@
         }
       ><.icon name="hero-exclamation-triangle" />Issues</.link>
     </nav>
-    <details id="app-settings" class="app-settings" phx-mounted={JS.ignore_attributes("open")}>
-      <summary class="app-nav-link">
+    <.dropdown id="app-settings" class="app-settings" trigger_class="app-nav-link">
+      <:trigger>
         <.icon name="hero-cog-6-tooth" />Settings<.icon
           name="hero-chevron-up"
           class="settings-chevron"
         />
-      </summary>
+      </:trigger>
       <nav class="workbench-menu" aria-label="Settings">
         <.link navigate={~p"/configs"}><.icon name="hero-link" />Sources</.link>
         <.link navigate={~p"/libraries"}><.icon name="hero-folder" />Library paths</.link>
         <.link navigate={~p"/workers"}><.icon name="hero-server-stack" />Worker setup</.link>
         <.link navigate={~p"/rules"} class="settings-reference"><.icon name="hero-document-text" />Encoding rules</.link>
       </nav>
-    </details>
+    </.dropdown>
   </aside>
   <main id="app-main" class="app-main" tabindex="-1">
     <.flash_group flash={@flash} />

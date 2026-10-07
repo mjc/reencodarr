@@ -5,75 +5,75 @@ defmodule ReencodarrWeb.FailuresComponents do
   def page(assigns) do
     ~H"""
     <div class="workbench page-stack">
-      <div class="page-stack">
-        <ReencodarrWeb.Layouts.issue_tabs active={:failures} />
-        <.page_header title="Failures" subtitle={"#{@total_count} matching videos"} />
-        <div :if={MapSet.size(@selected_videos) > 0} class="selection-toolbar">
-          <strong>{MapSet.size(@selected_videos)} selected</strong>
-          <button phx-click="retry_selected" phx-value-mode="resume" class="workbench-button">Retry selected</button>
-          <button phx-click="retry_selected" phx-value-mode="analyze" class="section-action">Analyze again</button>
-          <button phx-click="deselect_all" class="section-action">Clear</button>
-        </div>
-        <%= if @loading do %>
-          <div class="bg-[var(--wb-panel)] rounded-md shadow-none p-12 border border-[var(--wb-line)] text-center">
-            <p class="text-[var(--wb-muted)]" role="status">Loading failures…</p>
-          </div>
-        <% else %>
-          <.failure_filter_bar
-            search_term={@search_term}
-            failure_filter={@failure_filter}
-            category_filter={@category_filter}
-          />
+      <ReencodarrWeb.Layouts.issue_tabs active={:failures} />
+      <.page_header title="Failures" subtitle={"#{@total_count} matching videos"} />
+      <.failure_filter_bar
+        search_term={@search_term}
+        failure_filter={@failure_filter}
+        category_filter={@category_filter}
+      />
+      <.selection_bar count={MapSet.size(@selected_videos)} on_clear="deselect_all">
+        <button
+          type="button"
+          phx-click="retry_selected"
+          phx-value-mode="resume"
+          class="workbench-button"
+        >Retry selected</button>
+        <button
+          type="button"
+          phx-click="retry_selected"
+          phx-value-mode="analyze"
+          class="section-action"
+        >Analyze again</button>
+      </.selection_bar>
 
-          <div
-            :if={@failure_code_actions != []}
-            class="failure-code-groups"
-            aria-label="Filter by error code"
-          >
-            <.link
-              :for={action <- @failure_code_actions}
-              patch={~p"/failures?#{Map.merge(@url_query, %{"code" => action.code})}"}
-              class={["workbench-button", @code_filter == action.code && "active"]}
-            >{action.code} · {action.count}</.link>
-            <.link
-              :if={@code_filter != ""}
-              patch={~p"/failures?#{Map.delete(@url_query, "code")}"}
-              class="section-action"
-            >Clear code filter</.link>
-          </div>
-          <.failure_table
-            failed_videos={@failed_videos}
-            video_failures={@video_failures}
-            selected_videos={@selected_videos}
-            expanded_details={@expanded_details}
-            search_term={@search_term}
-            meta={@meta}
-            url_query={@url_query}
-          />
-          <details
-            id="failure-maintenance"
-            phx-mounted={JS.ignore_attributes("open")}
-            class="content-panel p-4"
-          >
-            <summary>Bulk reset and diagnostics</summary>
-            <p class="text-[var(--wb-muted)] my-3">
-              Reset restarts analysis and discards CRF results for all failed videos.
-            </p>
-            <button
-              phx-click="reset_all_failures"
-              data-confirm="Reset all failed videos and discard their CRF results?"
-              class="workbench-button"
-            >Reset all failures</button>
-            <.retry_failure_code_panel actions={@failure_code_actions} />
-            <.common_failure_patterns patterns={@failure_patterns} />
-          </details>
-        <% end %>
+      <div
+        :if={@failure_code_actions != []}
+        class="failure-code-groups"
+        aria-label="Filter by error code"
+      >
+        <.link
+          :for={action <- @failure_code_actions}
+          patch={~p"/failures?#{Map.merge(@url_query, %{"code" => action.code})}"}
+          class={["workbench-button", @code_filter == action.code && "active"]}
+        >{action.code} · {action.count}</.link>
+        <.link
+          :if={@code_filter != ""}
+          patch={~p"/failures?#{Map.delete(@url_query, "code")}"}
+          class="section-action"
+        >Clear code filter</.link>
       </div>
+      <.list_results loading={@loading} empty={@failed_videos == []} label="failures">
+        <.failure_table
+          failed_videos={@failed_videos}
+          video_failures={@video_failures}
+          selected_videos={@selected_videos}
+          expanded_details={@expanded_details}
+          search_term={@search_term}
+          meta={@meta}
+          url_query={@url_query}
+        />
+      </.list_results>
+      <details
+        id="failure-maintenance"
+        phx-mounted={JS.ignore_attributes("open")}
+        class="content-panel p-4"
+      >
+        <summary>Bulk reset and diagnostics</summary>
+        <p class="text-[var(--wb-muted)] my-3">
+          Reset restarts analysis and discards CRF results for all failed videos.
+        </p>
+        <button
+          phx-click="reset_all_failures"
+          data-confirm="Reset all failed videos and discard their CRF results?"
+          class="workbench-button"
+        >Reset all failures</button>
+        <.retry_failure_code_panel actions={@failure_code_actions} />
+        <.common_failure_patterns patterns={@failure_patterns} />
+      </details>
     </div>
     """
   end
-
-  # Private Helper Functions
 
   attr :search_term, :string, required: true
   attr :failure_filter, :string, required: true
@@ -83,11 +83,11 @@ defmodule ReencodarrWeb.FailuresComponents do
     assigns =
       assign(assigns,
         stage_options: [
-          {"all", "All", "bg-[#46395e] text-[var(--wb-text)]"},
-          {"analysis", "Analysis", "bg-[#46395e] text-[var(--wb-text)]"},
-          {"crf_search", "CRF", "bg-[#294362] text-[var(--wb-text)]"},
-          {"encoding", "Encoding", "bg-amber-600 text-[var(--wb-text)]"},
-          {"post_process", "Post", "bg-[#55373e] text-[var(--wb-text)]"}
+          {"all", "All"},
+          {"analysis", "Analysis"},
+          {"crf_search", "CRF search"},
+          {"encoding", "Encode"},
+          {"post_process", "Post process"}
         ],
         category_options: [
           {"all", "All"},
@@ -99,56 +99,50 @@ defmodule ReencodarrWeb.FailuresComponents do
       )
 
     ~H"""
-    <div class="bg-[var(--wb-panel)] rounded-md shadow-none p-4 border border-[var(--wb-line)]">
-      <div class="flex flex-col gap-3">
-        <form id="failures-search" phx-change="search" phx-no-unused-field>
-          <input
-            type="text"
-            name="search"
-            value={@search_term}
-            placeholder="Search by file path..."
-            phx-debounce="300"
-            aria-label="Search failed videos by file path"
-            class="w-full px-4 py-2 bg-[var(--wb-raised)] border border-[var(--wb-line)] rounded-md focus:ring-2 focus:outline-[var(--wb-blue)] focus:outline-[var(--wb-blue)] text-[var(--wb-text)] placeholder:text-[var(--wb-muted)]"
-          />
-        </form>
+    <div class="content-panel filter-bar failure-filters">
+      <form id="failures-search" phx-change="search" phx-submit="search" phx-no-unused-field>
+        <.search_field
+          id="failures-query"
+          name="search"
+          label="Search path"
+          value={@search_term}
+          placeholder="Search by path"
+          phx-debounce="300"
+        />
+      </form>
 
-        <div class="flex flex-col gap-3 sm:flex-row">
-          <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <span class="text-sm font-medium text-[var(--wb-muted)] whitespace-nowrap">Stage:</span>
-            <div class="inline-flex flex-wrap gap-1" role="group" aria-label="Filter by stage">
-              <%= for {value, label, active_class} <- @stage_options do %>
-                <button
-                  phx-click="filter_failures"
-                  phx-value-filter={value}
-                  aria-pressed={@failure_filter == value}
-                  class={failure_filter_button_class(@failure_filter == value, active_class)}
-                >
-                  {label}
-                </button>
-              <% end %>
-            </div>
+      <div class="filter-groups">
+        <div class="filter-group">
+          <span class="text-sm font-medium text-[var(--wb-muted)] whitespace-nowrap">Stage:</span>
+          <div class="inline-flex flex-wrap gap-1" role="group" aria-label="Filter by stage">
+            <%= for {value, label} <- @stage_options do %>
+              <button
+                type="button"
+                phx-click="filter_failures"
+                phx-value-filter={value}
+                aria-pressed={@failure_filter == value}
+                class="filter-option"
+              >
+                {label}
+              </button>
+            <% end %>
           </div>
+        </div>
 
-          <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <span class="text-sm font-medium text-[var(--wb-muted)] whitespace-nowrap">Type:</span>
-            <div class="inline-flex flex-wrap gap-1" role="group" aria-label="Filter by category">
-              <%= for {value, label} <- @category_options do %>
-                <button
-                  phx-click="filter_category"
-                  phx-value-category={value}
-                  aria-pressed={@category_filter == value}
-                  class={
-                    failure_filter_button_class(
-                      @category_filter == value,
-                      "bg-[#304e40] text-[var(--wb-text)]"
-                    )
-                  }
-                >
-                  {label}
-                </button>
-              <% end %>
-            </div>
+        <div class="filter-group">
+          <span class="text-sm font-medium text-[var(--wb-muted)] whitespace-nowrap">Type:</span>
+          <div class="inline-flex flex-wrap gap-1" role="group" aria-label="Filter by category">
+            <%= for {value, label} <- @category_options do %>
+              <button
+                type="button"
+                phx-click="filter_category"
+                phx-value-category={value}
+                aria-pressed={@category_filter == value}
+                class="filter-option"
+              >
+                {label}
+              </button>
+            <% end %>
           </div>
         </div>
       </div>
@@ -156,19 +150,12 @@ defmodule ReencodarrWeb.FailuresComponents do
     """
   end
 
-  defp failure_filter_button_class(true, active_class),
-    do: "px-2 py-1 text-xs rounded transition-colors #{active_class}"
-
-  defp failure_filter_button_class(false, _active_class),
-    do:
-      "px-2 py-1 text-xs rounded transition-colors bg-[var(--wb-raised)] text-[var(--wb-muted)] hover:bg-[var(--wb-raised)]"
-
   attr :actions, :list, required: true
 
   defp retry_failure_code_panel(assigns) do
     ~H"""
     <%= if @actions != [] do %>
-      <div class="bg-[var(--wb-panel)] rounded-md shadow-none p-4 border border-[var(--wb-line)]">
+      <div class="content-panel p-4">
         <div class="flex flex-col gap-3">
           <div>
             <h2 class="text-sm font-semibold text-[var(--wb-text)]">Retry by error code</h2>
@@ -181,7 +168,7 @@ defmodule ReencodarrWeb.FailuresComponents do
               <button
                 phx-click="retry_failure_code"
                 phx-value-code={action.code}
-                class="inline-flex items-center gap-2 rounded-md border border-[var(--wb-line)] bg-gray-750 px-3 py-2 text-xs font-medium text-[var(--wb-text)] transition-colors hover:bg-[var(--wb-raised)]"
+                class="workbench-button"
               >
                 <span>{action.code}</span>
                 <span class="rounded bg-[var(--wb-base)] px-1.5 py-0.5 text-[11px] text-[var(--wb-muted)]">
@@ -206,7 +193,7 @@ defmodule ReencodarrWeb.FailuresComponents do
 
   defp failure_table(assigns) do
     ~H"""
-    <div class="bg-[var(--wb-panel)] rounded-md shadow-none overflow-hidden border border-[var(--wb-line)]">
+    <div class="content-panel">
       <%= if @failed_videos == [] do %>
         <div class="p-12 text-center">
           <h3 class="text-xl font-semibold text-[var(--wb-text)] mb-2">No unresolved failures</h3>
@@ -220,7 +207,7 @@ defmodule ReencodarrWeb.FailuresComponents do
         </div>
       <% else %>
         <div class="divide-y divide-[var(--wb-line)]">
-          <div class="failure-row grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto_auto] gap-3 px-3 py-3 bg-gray-750 text-xs font-semibold text-[var(--wb-muted)] normal-case tracking-normal sm:gap-4 sm:px-4">
+          <div class="failure-row failure-row-heading">
             <div class="flex items-center">
               <%= if MapSet.size(@selected_videos) == length(@failed_videos) and length(@failed_videos) > 0 do %>
                 <input
@@ -249,18 +236,16 @@ defmodule ReencodarrWeb.FailuresComponents do
           <%= for video <- @failed_videos do %>
             <% latest_failure = latest_failure(@video_failures, video.id) %>
 
-            <div class="hover:bg-gray-750">
-              <div class="failure-row grid grid-cols-[auto_minmax(0,1fr)_auto_auto_auto_auto] gap-3 px-3 py-3 cursor-pointer sm:gap-4 sm:px-4">
-                <div
-                  class="flex items-center"
-                  phx-click="toggle_select"
-                  phx-value-video_id={video.id}
-                >
+            <div class="hover:bg-[var(--wb-raised)]">
+              <div class="failure-row">
+                <div class="flex items-center">
                   <input
                     type="checkbox"
+                    phx-click="toggle_select"
+                    phx-value-video_id={video.id}
                     checked={MapSet.member?(@selected_videos, video.id)}
                     aria-label={"Select failed video #{Path.basename(video.path)}"}
-                    class="w-4 h-4 text-blue-600 bg-[var(--wb-raised)] border-[var(--wb-line)] rounded focus:outline-[var(--wb-blue)] cursor-pointer pointer-events-none"
+                    class="w-4 h-4 bg-[var(--wb-raised)] border-[var(--wb-line)] rounded cursor-pointer"
                   />
                 </div>
 
@@ -446,11 +431,11 @@ defmodule ReencodarrWeb.FailuresComponents do
   defp common_failure_patterns(assigns) do
     ~H"""
     <%= if @patterns != [] do %>
-      <div class="bg-[var(--wb-panel)] rounded-md shadow-none p-6 border border-[var(--wb-line)]">
+      <div class="content-panel p-6">
         <h2 class="text-xl font-semibold text-[var(--wb-text)] mb-4">Common Patterns</h2>
         <div class="space-y-2">
           <%= for pattern <- @patterns do %>
-            <div class="flex items-center justify-between px-4 py-2 bg-gray-750 rounded">
+            <div class="flex items-center justify-between px-4 py-2 bg-[var(--wb-raised)] rounded">
               <div class="flex items-center gap-3">
                 <div class={"w-2 h-2 rounded-md flex-shrink-0 #{stage_color(pattern.stage)}"}></div>
                 <div>

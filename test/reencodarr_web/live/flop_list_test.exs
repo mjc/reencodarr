@@ -75,7 +75,7 @@ defmodule ReencodarrWeb.Live.FlopListTest do
         })
 
       assert html =~ "disabled"
-      assert html =~ "opacity-40"
+      assert html =~ "is-disabled"
     end
   end
 
