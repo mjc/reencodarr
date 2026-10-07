@@ -288,7 +288,8 @@ progress::-moz-progress-bar { background: var(--wb-blue); border-radius: 3px; }
 .search-results { display: flex; flex-wrap: wrap; gap: 6px 18px; padding-top: 10px; }
 
 /* Shared workbench pages */
-.page-stack { display: grid; gap: 20px; min-width: 0; }
+.page-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; min-width: 0; }
+.page-stack > * { min-width: 0; }
 .page-heading { display: flex; align-items: start; justify-content: space-between; gap: 18px; }
 .page-heading p { color: var(--wb-muted); margin-top: 7px; font-size: 15px; }
 .page-actions { display: flex; gap: 8px; flex-wrap: wrap; }
