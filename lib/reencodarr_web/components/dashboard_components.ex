@@ -408,6 +408,12 @@ defmodule ReencodarrWeb.DashboardComponents do
           <span :if={@progress[:eta]}>{Formatters.eta(@progress.eta)} remaining</span>
           <span :if={@vmaf}>CRF {Formatters.crf(@vmaf.crf)}</span>
           <span :if={@vmaf}>VMAF {Formatters.vmaf_score(@vmaf.score, 1)}</span>
+          <span
+            :if={@vmaf && is_integer(@vmaf.savings) && @vmaf.savings >= 0}
+            data-role="estimated-savings"
+          >
+            Est. savings {Formatters.file_size(@vmaf.savings)}
+          </span>
         </div>
         <div :if={@job.phase not in [:encoding, :crf_searching, :assigned]} class="job-metadata">
           <span>{phase_label(@job.phase)}</span>

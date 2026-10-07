@@ -41,7 +41,7 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       end)
 
       {:ok, video} = Fixtures.video_fixture(%{state: :crf_searched, path: "/media/worker.mkv"})
-      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0})
+      vmaf = Fixtures.vmaf_fixture(%{video_id: video.id, crf: 30.0, savings: 1_610_612_736})
       video = Fixtures.choose_vmaf(video, vmaf)
       {:ok, _video} = Media.mark_as_encoding(video)
 
@@ -78,6 +78,18 @@ defmodule ReencodarrWeb.DashboardLiveTest do
       assert has_element?(view, "#encode-worker-worker-encode", "worker.mkv")
       assert has_element?(view, "#encode-worker-worker-encode", "42.0%")
       assert has_element?(view, "#encode-worker-worker-encode", "12.5 fps")
+
+      assert has_element?(
+               view,
+               "#encode-worker-worker-encode .job-metrics span:nth-last-child(2)",
+               "VMAF 95.5"
+             )
+
+      assert has_element?(
+               view,
+               "#encode-worker-worker-encode .job-metrics span:last-child[data-role=estimated-savings]",
+               "Est. savings 1.5 GiB"
+             )
 
       assert {:ok, _session} =
                WorkerSessions.set_job_control_state(
